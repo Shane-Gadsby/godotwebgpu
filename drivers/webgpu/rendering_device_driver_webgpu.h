@@ -168,6 +168,14 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// these dummy samplers are used as substitutes.
 	WGPUSampler dummy_filtering_sampler = nullptr;
 	WGPUSampler dummy_comparison_sampler = nullptr;
+	// Substituted in uniform_set_create() (not just BGL rebinding) whenever the shader's own
+	// BGL marks a sampler binding NonFiltering -- see webgpu_notes/TASKS.md Task 8.9. WebGPU
+	// requires the bound WGPUSampler's actual filter modes to be Nearest there (most GPUs can't
+	// linearly filter depth formats), but Godot has no NonFiltering concept and just binds
+	// whichever regular (usually linear-filtering) sampler RID the material/uniform set asked
+	// for -- there is no "correct" Godot-level sampler to defer to here, so a dedicated nearest
+	// sampler is used unconditionally for any binding the shader-side scan determined needs it.
+	WGPUSampler dummy_nonfiltering_sampler = nullptr;
 
 	// --- BGL Rebinding Helper ---
 	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx);
