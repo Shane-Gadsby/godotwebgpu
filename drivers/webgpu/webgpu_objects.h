@@ -163,6 +163,16 @@ struct WGShader {
 		WGPUBindGroupLayoutEntry layout_entry = {};
 		RDD::UniformType godot_type = RDD::UNIFORM_TYPE_MAX;
 		uint32_t array_length = 0; // >1 for binding_array (e.g., texture arrays)
+		// UNIFORM_TYPE_SAMPLER_WITH_TEXTURE combined bindings occupy TWO raw
+		// WebGPU binding slots (sampler at *2+0, texture at *2+1), but only
+		// one BindGroupEntry is recorded per Godot uniform above -- with
+		// layout_entry set to the TEXTURE half. Stash the sampler half here
+		// too, so uniform_set_create() can recover its (Non)Filtering type
+		// (needed e.g. to substitute a NonFiltering sampler for a real
+		// Filtering one paired with a depth texture -- see
+		// dummy_nonfiltering_sampler / Task 8.9, Task 7.13).
+		WGPUBindGroupLayoutEntry paired_sampler_entry = {};
+		bool has_paired_sampler_entry = false;
 	};
 	struct BindGroupInfo {
 		LocalVector<BindGroupEntry> entries;
