@@ -1042,6 +1042,15 @@ public:
 		// This eliminates the per-draw SetBindGroup call for push constant rebinding.
 		// On WebGPU, each SetBindGroup IPC crossing costs ~0.3us; this saves one per draw.
 		API_TRAIT_FIRST_INSTANCE_INDEX,
+		// If non-zero, buffer_map() returns a CPU shadow copy rather than GPU-visible
+		// memory (e.g. WebGPU, where mapAsync/getMappedRange only expose a JS-side
+		// shadow). RenderingDevice::_end_frame() must call buffer_unmap() on every
+		// upload staging block every frame to flush that shadow via wgpuQueueWriteBuffer,
+		// even though buffer_map() is only called once per block in _insert_staging_block().
+		// Backends whose buffer_map() persistently maps GPU memory once for a block's
+		// whole lifetime (Vulkan/Metal/D3D12) must NOT do this — re-unmapping an
+		// already-unmapped persistent allocation is undefined behavior (VMA asserts on it).
+		API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY,
 	};
 
 	enum ShaderChangeInvalidation {
