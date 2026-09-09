@@ -2,7 +2,7 @@
 
 > **Purpose**: Master task list for AI agents implementing WebGPU support in Godot 4.6.
 > **Target Completion**: March 24, 2026 (2-week sprint from March 10)
-> **Last Updated**: May 12, 2026 — Tint migration complete. All SPIR-V→WGSL translation now uses Tint (C++/WASM). 100% Mobile renderer coverage, zero known failures.
+> **Last Updated**: September 9, 2026 — Synced to Godot 4.7.2-stable (see Phase 8). Mobile renderer color pass has a Tint conversion regression from the sync (Task 8.2) — not zero known failures anymore until that's fixed.
 >
 > **Key Reference**: `webgpu_notes/RESEARCH.md` — comprehensive architecture and API research
 > **Key Reference**: `webgpu_notes/INITIAL_PLAN.md` — project vision and success criteria
@@ -1894,3 +1894,46 @@ When debugging issues, check these common WebGPU problems:
 **Lines**: 5514-5522
 **Issue**: `buffer_set_label()`, `texture_set_label()` etc. are stubs. Not functionally important but useful for GPU debugging in Chrome DevTools.
 **Investigation**: `wgpuBufferSetLabel()`, `wgpuTextureSetLabel()` etc. are available in emdawnwebgpu. Low-effort to implement — just call the corresponding WebGPU API.
+
+---
+
+## Phase 8: Godot 4.7.2 Upstream Sync (September 2026)
+
+> **Goal**: Sync the `webgpu-4.6.2` branch onto upstream `godotengine/godot` 4.7.2-stable (`sync/4.7-stable` branch, merge-not-rebase strategy — see commit `14d2857f66` for the full conflict-resolution writeup). The merge/build/driver-adaptation work is done and verified; one shader regression from the sync remains open.
+>
+> **Last Updated**: September 9, 2026
+
+### Task 8.1: Merge 4.6.2 → 4.7.2 and adapt driver to interface changes `[SERIAL]`
+**Status**: `DONE`
+**Severity**: CRITICAL
+**Commits**: `14d2857f66` (merge 4.7-stable, 121 conflicts resolved), `4b43367a81`/`6ceb4e4f1f` (merge 4.7.1/4.7.2, zero conflicts), `921a34dd84` (driver interface adaptation + crash fix)
+**Summary**: Merged 5,960 files of upstream changes onto the 165-commit WebGPU feature branch. 106 conflicts were collateral (files the fork never touched); 13 needed real reconciliation (RenderingDeviceDriver ApiTraits, buffer creation paths, `RS::`→`RSE::` and `DisplayServer::`→`DisplayServerEnums::` namespace splits, skeleton atlas push-constant field, blit pipeline selection, WGSL-safe float literal, accessibility singleton refactor). Implemented the 13 new ray-tracing pure-virtuals as safe stubs and the 9 new HDR-output surface methods with SDR-safe defaults on `RenderingContextDriverWebGPU`/`RenderingDeviceDriverWebGPU`.
+**Also fixed** (pre-existing bug exposed by this work, not caused by it): `RenderingDevice::_end_frame()` unconditionally called `buffer_unmap()` on every staging block every frame — correct for WebGPU's shadow-copy `buffer_map()`, but undefined behavior on Vulkan/Metal/D3D12 where staging blocks are mapped once and stay persistently mapped (`vmaUnmapMemory` assert "Unmapping allocation not previously mapped"). Gated behind new `API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY`. Also added base-class `api_trait_get()` defaults for all 9 WebGPU-only ApiTraits so querying them against non-WebGPU drivers no longer spams `ERR_FAIL_V(0)`.
+**Verified**: Native `linuxbsd` editor (`dev_build=yes`) and `platform=web webgpu=yes target=template_release` both build with 0 errors at 4.7.2. User confirmed the crash and error spam are gone running the native editor against a real project (cameraSim).
+
+### Task 8.2: `scene_forward_mobile.glsl` Tint conversion crash — REGRESSION from sync `[SERIAL]`
+**Status**: `TODO`
+**Severity**: CRITICAL — blocks WebGPU rendering of ordinary 3D scenes
+**Shaders affected**: `servers/rendering/renderer_rd/shaders/forward_mobile/scene_forward_mobile.glsl` variants `color_pass:frag`, `uber_color_pass:frag`, `lightmap_color:frag`, `uber_lightmap:frag` — the mobile renderer's actual color pass, the one WebGPU uses for normal scene rendering.
+**Confirmed as a genuine regression, not a pre-existing gap**: rebuilt `tint_convert_cli` against a `webgpu-4.6.2` worktree (pre-sync) and ran the same precompile step — at 4.6.2 these 4 shaders convert cleanly (`8 tint failures` total, none in `scene_forward_mobile.glsl`); at 4.7.2 the same precompile step reports `12 tint failures`, the same 8 plus these 4. So something in the ~485-line upstream diff to `scene_forward_lights_inc.glsl` (included by `scene_forward_mobile.glsl`) between 4.6.2 and 4.7 triggers this.
+**Root cause, pinned down**: Tint aborts (`internal compiler error: TINT_ASSERT(tex_ty)`) at `thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.cc:611`, inside `ProcessCoords()`, while lowering a **non-projective** 2D texture sample (`is_proj=0`, coords are `vec2<f32>` — NOT one of the `textureProj(sampler2DShadow(...))` shadow calls, which convert fine both before and after). The texture value's type at that point is still the unresolved placeholder `spirv.image<f32, 2d, not_depth, non_arrayed, single_sampled, sampling_compatible, undefined, read_write>` instead of a proper `core::type::Texture` — `sampling_compatible` is true, so Tint should be able to treat it as an ordinary sampled texture, but whatever pass normally promotes `spirv.image<>` → `core::type::SampledTexture` didn't run (or didn't visit this particular texture) before `ProcessCoords` needed it. 4.7's compiled `color_pass:frag` has 33 total `OpImageSample*` instructions vs 4.6.2's 27 — 6 new texture-sample call sites from the upstream diff, one of which triggers this.
+**How to reproduce / continue investigating**:
+1. `./drivers/webgpu/tint_cli/build.sh` (builds `bin/tint_convert_cli`, needs no emsdk — native host tool).
+2. `WGSL_DEBUG_DUMP=scene_forward_mobile python3 drivers/webgpu/wgsl_precompile.py . /tmp/out.gen.h glslangValidator` — dumps the raw per-variant SPIR-V to `/tmp/wgsl_debug_dump/*.spv` (debug hook added in commit `bf3be4972e`; env-var gated, no-op otherwise).
+3. `./bin/tint_convert_cli "/tmp/wgsl_debug_dump/...color_pass:frag.spv"` — single-file mode runs un-forked, so Tint's real ICE message prints directly (batch mode forks per-file and redirects stdout/stderr to `/dev/null` specifically to survive `TINT_UNIMPLEMENTED` aborts, which hides the diagnostic).
+4. `TINT_DEBUG_DUMP_PREPROCESSED=/tmp/pre.spv ./bin/tint_convert_cli <file.spv>` dumps the SPIR-V *after* all 11 of our preprocessing passes but *before* Tint sees it (same commit) — use `spirv-dis` to inspect what Tint actually reads.
+5. Next step: instrument `GetTextureSampler()` (texture.cc:553) to log the SPIR-V value ID of `tex` on every call, correlate against the disassembly to identify which exact global/binding has the unresolved type, then trace why that specific texture's `spirv.image<>` never got promoted — likely either a genuine Tint upstream limitation on some new usage pattern (function-parameter indirection? array indexing?) or a gap in one of our preprocessing passes (`split_combined_samplers`/`flatten_binding_arrays` are the most likely suspects given they restructure texture/sampler bindings).
+**Do NOT confuse with**: the `textureProj(sampler2DShadow(...))` shadow-sampling calls in `scene_forward_lights_inc.glsl` — those were the initial suspect but are structurally identical and working in both versions; the actual crash is `is_proj=0`, a different call entirely.
+
+### Task 8.3: 8 pre-existing Tint conversion failures — NOT sync regressions `[PARALLEL]`
+**Status**: `TODO`
+**Severity**: MEDIUM (already broken before the sync; not blocking, but not in `expected_failures.json` either)
+**Shaders**: `tonemap_mobile.glsl:subpass:frag`, `tonemap_mobile.glsl:subpass_1d_lut:frag`, `tonemap.glsl:bicubic:frag`, `tonemap.glsl:bicubic_1d_lut:frag`, `screen_space_reflection_filter.glsl:default:comp`, `volumetric_fog.glsl:default:comp`, `voxel_gi_debug.glsl:default:vert`, `sdfgi_debug_probes.glsl:default:vert`.
+**Confirmed pre-existing**: these 8 fail identically at `webgpu-4.6.2` (pre-sync) and at 4.7.2 — verified via the same worktree comparison as Task 8.2. Not caused by the version sync; just never triaged before.
+**Failure modes** (from `webgpu_tests/shader_corpus` precompile output):
+- `tonemap_mobile.glsl` subpass variants: `textureLoad: no matching call to 'textureLoad(input_attachment<f32>, vec2<i32>, i32)'` — these are subpass/input-attachment shaders; WebGPU doesn't support subpasses at all (see Task 7.2/`render_forward_mobile.cpp`'s `WEB_ENABLED` guard disabling `using_subpass_post_process`), so check whether these variants are actually reachable on the WebGPU path before spending effort — if unreachable, just add to `expected_failures.json`.
+- `tonemap.glsl` bicubic variants: `SPIR-V failed validation. OpFunctionCall Argument type does not match Function parameter type` — looks like a genuine glslang SPIR-V generation bug for this permutation, not a Tint limitation.
+- `screen_space_reflection_filter.glsl`: `textureStore: no matching call to 'textureStore(texture_storage_2d<undefined, write>, vec2<i32>, vec4<f32>)'` — storage-texture write format not inferred; same shape of bug `infer_readonly_storage` (spirv_preprocess.cpp) was built for, but for the write-format case.
+- `volumetric_fog.glsl`: `Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature)` — same crash signature as Task 8.2, worth checking if it's the same root cause.
+- `voxel_gi_debug.glsl`: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage` — a read_write storage buffer used in the vertex stage, which WGSL disallows (Vulkan/GLSL permits it). Needs the buffer split into a read-only vertex-stage view.
+- `sdfgi_debug_probes.glsl`: `position must be declared for vertex entry point output` — the vertex entry point's `position` builtin output isn't surviving the SPIR-V round-trip.
