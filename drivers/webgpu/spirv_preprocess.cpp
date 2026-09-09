@@ -2816,4 +2816,34 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
+Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	if (len < 20 || (len % 4) != 0) {
+		return p_bytes;
+	}
+
+	const size_t word_count = (size_t)(len / 4);
+	std::vector<uint32_t> words(word_count);
+	memcpy(words.data(), p_bytes.ptr(), (size_t)len);
+
+	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
+	optimizer.SetMessageConsumer([](spv_message_level_t, const char *, const spv_position_t &, const char *) {});
+	optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass(/*preserve_interface=*/true, /*preserve_spec_constants=*/true));
+
+	std::vector<uint32_t> result;
+	spvtools::ValidatorOptions validator_options;
+	if (!optimizer.Run(words.data(), words.size(), &result, validator_options, /*skip_validation=*/true)) {
+		// fprintf rather than WARN_PRINT: this file is also compiled standalone
+		// for tint_cli against shim core/templates/ headers with no error_macros.h.
+		fprintf(stderr, "WebGPU: eliminate_dead_resources: SPIRV-Tools optimizer pass failed; falling back to "
+						 "unmodified SPIR-V. Per-stage bind group visibility may be overly broad.\n");
+		return p_bytes;
+	}
+
+	Vector<uint8_t> out;
+	out.resize((int64_t)(result.size() * 4));
+	memcpy(out.ptrw(), result.data(), result.size() * 4);
+	return out;
+}
+
 } // namespace spirv_preprocess

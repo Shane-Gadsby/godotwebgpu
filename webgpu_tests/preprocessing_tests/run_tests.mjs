@@ -249,15 +249,27 @@ function buildMinimalComputeShader() {
 
 // Build a compute shader with push constants.
 function buildComputeWithPushConstants() {
-  // IDs: 1=void, 2=fn_type, 3=uint, 4=struct{uint}, 5=ptr_pc,
-  //      6=pc_var, 7=main, 8=label, 9=const0, 10=ptr_uint, 11=ac, 12=loaded
-  return buildSpirv(13, [
+  // IDs: 1=void, 2=fn_type, 3=uint, 4=struct{uint} (reused as the pointee for
+  //      both the PushConstant block and a StorageBuffer sink below -- SPIR-V
+  //      struct types aren't storage-class-specific, only pointer types are),
+  //      5=ptr_pc_struct, 6=pc_var, 7=main, 8=label, 9=const0, 10=ptr_pc_uint,
+  //      11=ac_pc, 12=loaded, 13=ptr_sb_struct, 14=sb_var (sink buffer so the
+  //      load isn't dead code), 15=ptr_sb_uint, 16=ac_sb
+  //
+  // The loaded push-constant value is stored into a storage buffer rather
+  // than discarded: a pure load with no observable use is dead code, and
+  // eliminate_dead_resources (spirv_preprocess.cpp) correctly strips it --
+  // same as it would for any real shader that reads a push constant and
+  // never uses the result. See webgpu_notes/TASKS.md Task 8.7.
+  return buildSpirv(17, [
     ...encodeInst(Op.Capability, 1),
     ...encodeInst(Op.MemoryModel, 0, 1),
     ...encodeEntryPoint(ExecModel.GLCompute, 7, "main"),
     ...encodeInst(Op.ExecutionMode, 7, 17, 1, 1, 1),
     ...encodeInst(Op.Decorate, 4, Deco.Block),
     ...encodeInst(Op.MemberDecorate, 4, 0, Deco.Offset, 0),
+    ...encodeInst(Op.Decorate, 14, Deco.DescriptorSet, 0),
+    ...encodeInst(Op.Decorate, 14, Deco.Binding, 0),
     ...encodeInst(Op.TypeVoid, 1),
     ...encodeInst(Op.TypeFunction, 2, 1),
     ...encodeInst(Op.TypeInt, 3, 32, 0), // uint
@@ -266,11 +278,16 @@ function buildComputeWithPushConstants() {
     ...encodeInst(Op.TypeStruct, 4, 3), // id=4, member=3(uint)
     ...encodeInst(Op.TypePointer, 5, SC.PushConstant, 4),
     ...encodeInst(Op.Variable, 5, 6, SC.PushConstant),
+    ...encodeInst(Op.TypePointer, 13, SC.StorageBuffer, 4),
+    ...encodeInst(Op.Variable, 13, 14, SC.StorageBuffer),
+    ...encodeInst(Op.TypePointer, 15, SC.StorageBuffer, 3),
     ...encodeInst(Op.Constant, 3, 9, 0), // const 0
     ...encodeInst(Op.Function, 1, 7, 0, 2),
     ...encodeInst(Op.Label, 8),
     ...encodeInst(Op.AccessChain, 10, 11, 6, 9),
     ...encodeInst(Op.Load, 3, 12, 11),
+    ...encodeInst(Op.AccessChain, 15, 16, 14, 9),
+    ...encodeInst(Op.Store, 16, 12),
     ...encodeInst(Op.Return),
     ...encodeInst(Op.FunctionEnd),
   ]);
@@ -308,8 +325,18 @@ function buildComputeWithSpecConstants(specOps = []) {
 
 // Build a compute shader with a storage buffer.
 function buildComputeWithStorageBuffer(hasStore = false) {
-  // IDs: 1=void, 2=fn_type, 3=uint, 4=struct, 5=ptr_sb, 6=sb_var,
-  //      7=main, 8=label, 9=const0, 10=ptr_uint, 11=ac, 12=loaded
+  // IDs: 1=void, 2=fn_type, 3=uint, 4=struct, 5=ptr_sb, 6=sb_var (buffer under test,
+  //      read-only unless hasStore), 7=main, 8=label, 9=const0, 10=ptr_uint,
+  //      11=ac(buf0), 12=loaded, 13=sb_var2 (sink buffer, write-only),
+  //      14=ac(buf1)
+  //
+  // The load from buf0 is stored into a second buffer (13/14) rather than
+  // just discarded: a pure load with no observable use is dead code by
+  // definition, and drivers/webgpu/spirv_preprocess.cpp's
+  // eliminate_dead_resources pass (SPIRV-Tools AggressiveDCE) correctly
+  // eliminates it -- along with the whole buf0 variable -- same as it would
+  // for any real shader that reads something and never uses the result. See
+  // webgpu_notes/TASKS.md Task 8.7.
   const insts = [
     ...encodeInst(Op.Capability, 1),
     ...encodeInst(Op.MemoryModel, 0, 1),
@@ -319,6 +346,8 @@ function buildComputeWithStorageBuffer(hasStore = false) {
     ...encodeInst(Op.MemberDecorate, 4, 0, Deco.Offset, 0),
     ...encodeInst(Op.Decorate, 6, Deco.DescriptorSet, 0),
     ...encodeInst(Op.Decorate, 6, Deco.Binding, 0),
+    ...encodeInst(Op.Decorate, 13, Deco.DescriptorSet, 0),
+    ...encodeInst(Op.Decorate, 13, Deco.Binding, 1),
     ...encodeInst(Op.TypeVoid, 1),
     ...encodeInst(Op.TypeFunction, 2, 1),
     ...encodeInst(Op.TypeInt, 3, 32, 0),
@@ -326,11 +355,14 @@ function buildComputeWithStorageBuffer(hasStore = false) {
     ...encodeInst(Op.TypePointer, 5, SC.StorageBuffer, 4),
     ...encodeInst(Op.TypePointer, 10, SC.StorageBuffer, 3),
     ...encodeInst(Op.Variable, 5, 6, SC.StorageBuffer),
+    ...encodeInst(Op.Variable, 5, 13, SC.StorageBuffer),
     ...encodeInst(Op.Constant, 3, 9, 0),
     ...encodeInst(Op.Function, 1, 7, 0, 2),
     ...encodeInst(Op.Label, 8),
     ...encodeInst(Op.AccessChain, 10, 11, 6, 9),
     ...encodeInst(Op.Load, 3, 12, 11),
+    ...encodeInst(Op.AccessChain, 10, 14, 13, 9),
+    ...encodeInst(Op.Store, 14, 12),
   ];
   if (hasStore) {
     insts.push(...encodeInst(Op.Store, 11, 12));
@@ -339,7 +371,7 @@ function buildComputeWithStorageBuffer(hasStore = false) {
     ...encodeInst(Op.Return),
     ...encodeInst(Op.FunctionEnd),
   );
-  return buildSpirvV13(13, insts);
+  return buildSpirvV13(15, insts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -826,12 +858,22 @@ console.log("\n=== Test 14: Storage buffer access patterns ===");
 
 {
   // 14b. Constructed read-only storage buffer → inferred as var<storage, read>.
+  // buf0 (binding 0, the buffer under test) is only ever loaded from; buf1
+  // (binding 1) exists purely to give that load an observable use (see
+  // buildComputeWithStorageBuffer) and is itself write-only, which
+  // strip_writeonly_storage_decoration legitimately turns into
+  // var<storage, read_write> -- so the read-only check below looks at
+  // binding 0's own declaration line specifically, not the whole file.
   const spv = buildComputeWithStorageBuffer(false);
   const r = convertToWgsl(spv);
   assert(r.wgsl !== null, "constructed read-only storage buffer converts");
   if (r.wgsl) {
-    assert(r.wgsl.includes("var<storage, read>"), "read-only inferred as var<storage, read>");
-    assert(!r.wgsl.includes("read_write"), "read-only NOT var<storage, read_write>");
+    const buf0Line = r.wgsl.split("\n").find((l) => /@binding\(0u?\)/.test(l) && l.includes("var<storage"));
+    assert(!!buf0Line, "read-only buffer (binding 0) declaration present");
+    if (buf0Line) {
+      assert(buf0Line.includes("var<storage, read>"), "read-only inferred as var<storage, read>");
+      assert(!buf0Line.includes("read_write"), "read-only NOT var<storage, read_write>");
+    }
   }
 }
 
