@@ -30,6 +30,7 @@
 
 # Buildsystem
 bin
+builds
 *.gen.*
 compile_commands.json
 platform/windows/godot_res.res
