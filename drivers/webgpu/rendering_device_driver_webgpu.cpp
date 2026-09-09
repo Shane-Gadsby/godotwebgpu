@@ -41,6 +41,7 @@
 
 #include "tint_wrapper.h"
 
+#include <cstdio>
 #include <webgpu/webgpu.h>
 #include <emscripten/emscripten.h>
 #include <cstdlib>
@@ -2676,8 +2677,70 @@ void RenderingDeviceDriverWebGPU::command_pipeline_barrier(
 		BitField<PipelineStageBits> p_dst_stages,
 		VectorView<MemoryAccessBarrier> p_memory_barriers,
 		VectorView<BufferBarrier> p_buffer_barriers,
-		VectorView<TextureBarrier> p_texture_barriers) {
-	// No-op: WebGPU handles synchronization automatically.
+		VectorView<TextureBarrier> p_texture_barriers,
+		VectorView<AccelerationStructureBarrier> p_acceleration_structure_barriers) {
+	// No-op: WebGPU handles synchronization automatically. Acceleration structures
+	// are not supported by this driver (no ray tracing on WebGPU).
+}
+
+// =============================================================================
+// RAY TRACING (UNSUPPORTED — WebGPU has no ray tracing API)
+// =============================================================================
+// RenderingDevice gates all of these behind has_feature(SUPPORTS_RAYTRACING_PIPELINE)
+// and has_feature(SUPPORTS_RAY_QUERY), both false for this driver (see has_feature()
+// below), so these should never be called in practice.
+// =============================================================================
+
+RDD::AccelerationStructureID RenderingDeviceDriverWebGPU::blas_create(VectorView<AccelerationStructureGeometry> p_geometries, BitField<AccelerationStructureFlagBits> p_flags) {
+	ERR_FAIL_V_MSG(AccelerationStructureID(), "Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+RDD::AccelerationStructureID RenderingDeviceDriverWebGPU::tlas_create(uint32_t p_max_instance_count, BitField<AccelerationStructureFlagBits> p_flags) {
+	ERR_FAIL_V_MSG(AccelerationStructureID(), "Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::acceleration_structure_instance_write(uint8_t *r_driver_instance, const AccelerationStructureInstance &p_instance) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::acceleration_structure_free(AccelerationStructureID p_acceleration_structure) {
+	// No-op: nothing was ever created.
+}
+
+uint32_t RenderingDeviceDriverWebGPU::acceleration_structure_get_scratch_size_bytes(AccelerationStructureID p_acceleration_structure) {
+	return 0;
+}
+
+RDD::RaytracingPipelineID RenderingDeviceDriverWebGPU::raytracing_pipeline_create(VectorView<PipelineShader> p_shaders, VectorView<uint32_t> p_raygen_shader_indices, VectorView<uint32_t> p_miss_shader_indices, VectorView<HitGroup> p_hit_groups, uint32_t p_max_trace_recursion_depth, ShaderID p_layout_defining_shader) {
+	ERR_FAIL_V_MSG(RaytracingPipelineID(), "Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::raytracing_pipeline_free(RaytracingPipelineID p_pipeline) {
+	// No-op: nothing was ever created.
+}
+
+bool RenderingDeviceDriverWebGPU::raytracing_pipeline_get_shader_group_handles(RaytracingPipelineID p_pipeline, uint32_t p_group_index_offset, VectorView<uint32_t> p_group_indices, uint8_t *r_data, uint32_t p_data_stride_bytes) {
+	ERR_FAIL_V_MSG(false, "Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::command_build_blas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::command_build_tlas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer, BufferID p_instance_buffer, uint32_t p_instance_offset, uint32_t p_instance_count) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::command_bind_raytracing_pipeline(CommandBufferID p_cmd_buffer, RaytracingPipelineID p_pipeline) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::command_bind_raytracing_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
+}
+
+void RenderingDeviceDriverWebGPU::command_trace_rays(CommandBufferID p_cmd_buffer, const ShaderBindingTable &p_raygen_sbt, const ShaderBindingTable &p_miss_sbt, const ShaderBindingTable &p_hit_sbt, uint32_t p_width, uint32_t p_height, uint32_t p_depth) {
+	ERR_FAIL_MSG("Ray tracing is not supported by the WebGPU rendering driver.");
 }
 
 // =============================================================================
@@ -3152,6 +3215,15 @@ RDD::DataFormat RenderingDeviceDriverWebGPU::swap_chain_get_format(SwapChainID p
 	WGSwapChain *sc = (WGSwapChain *)(p_swap_chain.id);
 	ERR_FAIL_NULL_V(sc, DATA_FORMAT_MAX);
 	return _wgpu_to_data_format(sc->format);
+}
+
+RDD::ColorSpace RenderingDeviceDriverWebGPU::swap_chain_get_color_space(SwapChainID p_swap_chain) {
+	// Browser canvas surfaces are always sRGB.
+	return COLOR_SPACE_REC709_NONLINEAR_SRGB;
+}
+
+bool RenderingDeviceDriverWebGPU::swap_chain_get_hdr_output_supported(SwapChainID p_swap_chain) {
+	return false; // Not supported by this driver.
 }
 
 void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
@@ -8789,6 +8861,9 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// Pass instance index via firstInstance instead of push constants.
 		// Eliminates per-draw SetBindGroup for push constant ring buffer.
 		case API_TRAIT_FIRST_INSTANCE_INDEX: return 1;
+		// buffer_map() returns a CPU shadow copy; RenderingDevice::_end_frame() must
+		// unmap every upload staging block every frame to flush it via wgpuQueueWriteBuffer.
+		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY: return 1;
 		default: return RenderingDeviceDriver::api_trait_get(p_trait);
 	}
 }

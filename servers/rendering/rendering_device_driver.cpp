@@ -55,6 +55,19 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 			return false;
 		case API_TRAIT_TEXTURE_OUTPUTS_REQUIRE_CLEARS:
 			return false;
+		case API_TRAIT_TEXTURE_GET_DATA_VIA_DRIVER:
+		case API_TRAIT_TEXTURE_INITIALIZE_DIRECT_WRITE:
+		case API_TRAIT_BUFFER_CREATE_MAPPED_AT_CREATION:
+		case API_TRAIT_STAGING_BUFFER_MAX_SIZE_MB:
+		case API_TRAIT_SKELETON_BUFFER_DIRECT_WRITE:
+		case API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID:
+		case API_TRAIT_BATCH_INSTANCE_DRAWS:
+		case API_TRAIT_FIRST_INSTANCE_INDEX:
+		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY:
+			// Optional WebGPU-only traits: 0/false is the correct default for every
+			// other backend, which should not have to override api_trait_get() just
+			// to opt out of these.
+			return 0;
 		default:
 			ERR_FAIL_V(0);
 	}

@@ -2440,7 +2440,7 @@ Error RenderingDevice::_texture_initialize_layered(RID p_texture, const Vector<V
 		tb.subresources.mipmap_count = texture->mipmaps;
 		tb.subresources.base_layer = 0;
 		tb.subresources.layer_count = layer_count;
-		driver->command_pipeline_barrier(transfer_worker->command_buffer, RDD::PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, RDD::PIPELINE_STAGE_COPY_BIT, {}, {}, tb);
+		driver->command_pipeline_barrier(transfer_worker->command_buffer, RDD::PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, RDD::PIPELINE_STAGE_COPY_BIT, {}, {}, tb, {});
 	}
 
 	// Pack each layer into the shared staging buffer at its own stride.
@@ -8438,7 +8438,13 @@ void RenderingDevice::_end_frame() {
 	// texture_update() / buffer_update() lives only in the shadow until
 	// buffer_unmap() flushes it via wgpuQueueWriteBuffer. This must happen
 	// before the command buffer that references these staging buffers is submitted.
-	// On Vulkan/Metal this is a no-op since buffer_map() returns GPU-visible memory.
+	//
+	// Only backends with API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY need this: staging
+	// blocks are mapped exactly once, in _insert_staging_block(), and normally stay
+	// mapped for the block's whole lifetime. On Vulkan/Metal/D3D12, buffer_map()
+	// returns persistently-mapped GPU-visible memory, so re-unmapping an
+	// already-unmapped block here every frame is undefined behavior (VMA asserts
+	// "Unmapping allocation not previously mapped").
 	//
 	// Note: we do NOT re-map after unmapping. The shadow buffer persists and
 	// data_ptr remains valid. Re-mapping would unconditionally set map_dirty,
@@ -8448,8 +8454,10 @@ void RenderingDevice::_end_frame() {
 	// specific dirty regions and clear map_dirty, the unmap here is typically a
 	// no-op. Only blocks that weren't handled by command_copy need flushing
 	// (e.g. persistent dynamic buffers).
-	for (int i = 0; i < upload_staging_buffers.blocks.size(); i++) {
-		driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+	if (driver->api_trait_get(RDD::API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY)) {
+		for (int i = 0; i < upload_staging_buffers.blocks.size(); i++) {
+			driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+		}
 	}
 
 	// The command buffer must be copied into a stack variable as the driver workarounds can change the command buffer in use.
