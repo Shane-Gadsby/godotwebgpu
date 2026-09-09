@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo_outlined.svg" width="100" alt="Godot Engine logo">
+  <img src="misc/logo/logo_outlined.svg" width="100" alt="Godot Engine logo">
 </p>
 
 <h1 align="center">Godot <strong>WebGPU</strong></h1>
