@@ -1090,7 +1090,10 @@ Files extracted from upstream source:
 - `generated/` folder (pre-generated from upstream build)
 - `LICENSE`
 
-Required by Tint for SPIR-V parsing and validation. Version pinned by Dawn DEPS.
+Required by Tint for SPIR-V parsing and validation. Also used directly by the WebGPU
+backend's `inline_opaque_functions` SPIR-V preprocessing pass (`drivers/webgpu/spirv_preprocess.cpp`),
+via `spvtools::Optimizer` + `CreateInlineOpaquePass()`, to work around a Tint SPIR-V reader bug —
+see `webgpu_notes/TASKS.md` Task 8.2. Version pinned by Dawn DEPS.
 
 
 ## swappy-frame-pacing

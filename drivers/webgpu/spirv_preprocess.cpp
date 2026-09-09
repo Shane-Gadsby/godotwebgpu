@@ -37,6 +37,9 @@
 #include <cfloat>
 #include <cmath>
 #include <cstring>
+#include <vector>
+
+#include <spirv-tools/optimizer.hpp>
 
 namespace spirv_preprocess {
 
@@ -2668,6 +2671,35 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes) {
 		}
 	}
 
+	return out;
+}
+
+// ---- inline_opaque_functions ----
+
+Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	if (len < 20 || (len % 4) != 0) {
+		return p_bytes;
+	}
+
+	const size_t word_count = (size_t)(len / 4);
+	std::vector<uint32_t> words(word_count);
+	memcpy(words.data(), p_bytes.ptr(), (size_t)len);
+
+	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_0);
+	optimizer.SetMessageConsumer([](spv_message_level_t, const char *, const spv_position_t &, const char *) {});
+	optimizer.RegisterPass(spvtools::CreateInlineOpaquePass());
+
+	std::vector<uint32_t> result;
+	if (!optimizer.Run(words.data(), words.size(), &result)) {
+		// Should not happen for valid glslang output; fall back to the
+		// unmodified input rather than breaking the whole pipeline.
+		return p_bytes;
+	}
+
+	Vector<uint8_t> out;
+	out.resize((int64_t)(result.size() * 4));
+	memcpy(out.ptrw(), result.data(), result.size() * 4);
 	return out;
 }
 

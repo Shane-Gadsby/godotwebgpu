@@ -112,4 +112,30 @@ Vector<uint8_t> flatten_binding_arrays(const Vector<uint8_t> &p_bytes);
 // Tint to emit var<storage, read> instead of var<storage, read_write>.
 Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes);
 
+// Inline every call to a function whose parameter or return type is an
+// opaque type (Image, Sampler, or SampledImage) using SPIRV-Tools' own
+// CreateInlineOpaquePass(), rather than a hand-rolled SPIR-V rewrite.
+//
+// Works around a real bug in Tint's SPIR-V reader: when a texture is
+// forwarded through a helper function that itself has multiple call
+// sites, Tint's ConvertUserCall (thirdparty/tint/.../lower/texture.cc)
+// can leave the *original*, un-forked function body reachable -- a
+// second call site's argument-resolution chain isn't always discovered
+// independently of the first, so the original is never destroyed, and
+// its still-unresolved texture-typed FunctionParam later crashes Tint
+// with `internal compiler error: TINT_ASSERT(tex_ty)` deep in
+// ProcessCoords. See webgpu_notes/TASKS.md Task 8.2 for the full
+// investigation (including a from-first-principles attempt to patch
+// Tint directly, which turned out to require Tint's destroy-check to
+// reason transitively about caller liveness -- bigger, riskier surgery
+// on code every shader compile depends on). Removing texture-parameter
+// helper functions before Tint ever sees them sidesteps the whole bug
+// class instead.
+//
+// Must run before any pass that restructures texture/sampler bindings
+// (e.g. split_combined_samplers) so those passes only ever see the
+// post-inlining, flattened form -- this is why it runs first in the
+// pipeline.
+Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
+
 } // namespace spirv_preprocess
