@@ -3317,6 +3317,343 @@ static WGPUShaderStage _stages_to_wgpu_visibility(uint32_t p_stage_mask) {
 	return vis;
 }
 
+static bool _is_ident_char(char p_c) {
+	return (p_c >= 'a' && p_c <= 'z') || (p_c >= 'A' && p_c <= 'Z') || (p_c >= '0' && p_c <= '9') || p_c == '_';
+}
+
+// Find the index of the ')' that matches the '(' at p_open_paren (which must
+// point at a '(' character). Returns -1 if unbalanced.
+static int64_t _find_matching_paren(const char *p_str, int64_t p_len, int64_t p_open_paren) {
+	int depth = 0;
+	for (int64_t i = p_open_paren; i < p_len; i++) {
+		if (p_str[i] == '(') {
+			depth++;
+		} else if (p_str[i] == ')') {
+			depth--;
+			if (depth == 0) {
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+
+// Finds the [start, end) byte range of the p_index'th (0-based) top-level
+// comma-separated argument within [p_args_start, p_args_end) (the region
+// strictly inside a call's parens). Sets r_start to -1 if there aren't
+// enough top-level arguments.
+static void _find_nth_top_level_arg(const char *p_str, int64_t p_args_start, int64_t p_args_end, int p_index, int64_t &r_start, int64_t &r_end) {
+	int depth = 0;
+	int64_t arg_start = p_args_start;
+	int arg_idx = 0;
+	for (int64_t i = p_args_start; i < p_args_end; i++) {
+		char c = p_str[i];
+		if (c == '(' || c == '[') {
+			depth++;
+		} else if (c == ')' || c == ']') {
+			depth--;
+		} else if (c == ',' && depth == 0) {
+			if (arg_idx == p_index) {
+				r_start = arg_start;
+				r_end = i;
+				return;
+			}
+			arg_idx++;
+			arg_start = i + 1;
+		}
+	}
+	if (arg_idx == p_index) {
+		r_start = arg_start;
+		r_end = p_args_end;
+		return;
+	}
+	r_start = -1;
+	r_end = -1;
+}
+
+// Detects texture_2d<f32> combined-binding variables that are ONLY EVER read
+// via a single-component swizzle (.x or .r) following a non-comparison
+// sample/load call, and rewrites the declaration + every such call site to
+// texture_depth_2d (dropping the swizzle, since texture_depth_2d's sample/
+// load functions already return a plain f32, not a vec4).
+//
+// Why this is needed: a binding like Bokeh DOF's `source_depth`
+// (servers/rendering/renderer_rd/shaders/effects/bokeh_dof_raster.glsl) is
+// genuinely fed a real WebGPU depth-format texture by its C++ caller
+// (BokehDOF::bokeh_dof_raster() binds the scene's actual depth buffer), but
+// Tint compiles it as texture_2d<f32> because GLSL's plain `sampler2D` /
+// `texture()` / `textureLod()` give it no way to signal "this samples a
+// depth-format resource" distinctly from an ordinary float texture --
+// glslang emits identical (Depth=0) SPIR-V either way. With no such signal,
+// the driver's existing Depth/Float mismatch handling (see the
+// _is_depth_format() fallback substitution further below) can only assume
+// the binding truly wants Float and silently substitutes a meaningless 4x4
+// dummy texture for the real depth data -- producing plausible-looking but
+// numerically wrong output (e.g. Bokeh DOF's blur amount/falloff looking
+// wrong while still blurring *something*). See webgpu_notes/TASKS.md Task
+// 7.13.
+//
+// This is conservatively scoped: a texture is only rewritten if EVERY
+// occurrence of its identifier in the whole module is either the
+// declaration itself or the first argument of textureSample/
+// textureSampleLevel/textureSampleBias/textureSampleGrad/textureLoad
+// immediately followed by .x or .r -- any other usage (full vec4 access,
+// .rgb/.xy, textureSampleCompare*, textureGather, being passed to a
+// user-defined function, textureDimensions, etc.) disqualifies it and
+// leaves the original Float-typed binding untouched. Once rewritten, this
+// binding's BindGroupLayout entry naturally ends up Depth-sampleType via
+// the existing wgsl_is_depth_texture-driven scan just below in
+// shader_create_from_container() (which runs against this function's
+// output), so the real depth texture gets bound directly -- no fallback
+// needed. Every draw using this compiled shader module must supply a real
+// depth-format texture at this binding from then on; verified true by
+// construction for Bokeh DOF (bokeh_dof.cpp has exactly one call site that
+// creates this uniform, always from the scene's real depth buffer).
+static char *_reclassify_single_component_depth_textures(char *p_wgsl_str) {
+	static const char *const TEX_TYPE = "texture_2d<f32>";
+	static const int TEX_TYPE_LEN = 15;
+	// textureSampleBias/textureSampleGrad are NOT defined for texture_depth_2d
+	// in WGSL at all (depth textures don't support mip bias/gradient
+	// sampling) -- deliberately excluded here so any texture used via either
+	// disqualifies (falls through to "no matching call prefix" below).
+	static const char *const CALL_FNS[] = {
+		"textureSampleLevel(", "textureSample(", "textureLoad(",
+	};
+	static const int CALL_FN_COUNT = 3;
+
+	const char *wgsl = p_wgsl_str;
+	const int64_t len = (int64_t)strlen(wgsl);
+
+	struct Candidate {
+		String name;
+		int64_t name_start = 0;
+		int64_t type_start = 0;
+	};
+	Vector<Candidate> candidates;
+	{
+		const char *scan = wgsl;
+		while (true) {
+			const char *found = strstr(scan, TEX_TYPE);
+			if (!found) {
+				break;
+			}
+			int64_t type_pos = found - wgsl;
+			int64_t i = type_pos - 1;
+			while (i >= 0 && (wgsl[i] == ' ' || wgsl[i] == '\t')) {
+				i--;
+			}
+			if (i >= 0 && wgsl[i] == ':') {
+				i--;
+				while (i >= 0 && (wgsl[i] == ' ' || wgsl[i] == '\t')) {
+					i--;
+				}
+				int64_t name_end = i + 1;
+				while (i >= 0 && _is_ident_char(wgsl[i])) {
+					i--;
+				}
+				int64_t name_start = i + 1;
+				if (name_start < name_end) {
+					Candidate c;
+					c.name = String::utf8(wgsl + name_start, (int)(name_end - name_start));
+					c.name_start = name_start;
+					c.type_start = type_pos;
+					candidates.push_back(c);
+				}
+			}
+			scan = found + TEX_TYPE_LEN;
+		}
+	}
+	if (candidates.is_empty()) {
+		return p_wgsl_str;
+	}
+
+	struct Edit {
+		int64_t start = 0;
+		int64_t end = 0; // [start, end) in the ORIGINAL text.
+		String replacement;
+	};
+	Vector<Edit> edits;
+
+	for (const Candidate &c : candidates) {
+		CharString name_cs = c.name.utf8();
+		const char *name = name_cs.get_data();
+		const int name_len = name_cs.length();
+		if (name_len == 0) {
+			continue;
+		}
+
+		// The single-component-access structural heuristic alone is NOT
+		// sufficient: plenty of legitimate texture_2d<f32> bindings are
+		// single-channel by nature without being depth-format data (e.g.
+		// CanvasSdfShaderRD's SDF distance texture, sampled and used the
+		// exact same .x-only way). Require the WGSL variable name to also
+		// contain "depth" (case-insensitive) -- Godot's own GLSL source
+		// consistently names depth-buffer-as-texture uniforms this way
+		// (source_depth, depth_tex, depth_buffer, ...) -- as a second,
+		// independent signal before touching a binding. This is
+		// conservative by design: shaders whose depth-reading uniform
+		// happens not to follow this naming convention will keep hitting
+		// the pre-existing dummy-texture fallback instead of being fixed,
+		// which is no worse than the status quo, whereas a false positive
+		// here breaks a previously-working, unrelated shader outright.
+		{
+			bool has_depth_in_name = false;
+			for (int ni = 0; ni + 5 <= name_len; ni++) {
+				if ((name[ni] == 'd' || name[ni] == 'D') &&
+						(name[ni + 1] == 'e' || name[ni + 1] == 'E') &&
+						(name[ni + 2] == 'p' || name[ni + 2] == 'P') &&
+						(name[ni + 3] == 't' || name[ni + 3] == 'T') &&
+						(name[ni + 4] == 'h' || name[ni + 4] == 'H')) {
+					has_depth_in_name = true;
+					break;
+				}
+			}
+			if (!has_depth_in_name) {
+				continue;
+			}
+		}
+
+		bool disqualified = false;
+		Vector<Edit> call_edits;
+
+		const char *p = wgsl;
+		while (true) {
+			const char *found = strstr(p, name);
+			if (!found) {
+				break;
+			}
+			int64_t pos = found - wgsl;
+			p = found + 1;
+
+			bool left_ok = (pos == 0) || !_is_ident_char(wgsl[pos - 1]);
+			int64_t after = pos + name_len;
+			bool right_ok = (after >= len) || !_is_ident_char(wgsl[after]);
+			if (!left_ok || !right_ok) {
+				continue;
+			}
+
+			if (pos == c.name_start) {
+				continue; // The declaration's own identifier -- fine.
+			}
+
+			bool matched_call = false;
+			for (int fi = 0; fi < CALL_FN_COUNT; fi++) {
+				const char *fn = CALL_FNS[fi];
+				size_t fn_len = strlen(fn);
+				int64_t probe = pos;
+				while (probe > 0 && (wgsl[probe - 1] == ' ' || wgsl[probe - 1] == '\t')) {
+					probe--;
+				}
+				int64_t fn_start = probe - (int64_t)fn_len;
+				if (fn_start < 0 || strncmp(wgsl + fn_start, fn, fn_len) != 0) {
+					continue;
+				}
+				int64_t open_paren = fn_start + (int64_t)fn_len - 1;
+				int64_t close_paren = _find_matching_paren(wgsl, len, open_paren);
+				if (close_paren < 0) {
+					continue;
+				}
+				int64_t after_call = close_paren + 1;
+				if (after_call + 1 < len && wgsl[after_call] == '.' &&
+						(wgsl[after_call + 1] == 'x' || wgsl[after_call + 1] == 'r')) {
+					int64_t after_swizzle = after_call + 2;
+					bool swizzle_ok = (after_swizzle >= len) || !_is_ident_char(wgsl[after_swizzle]);
+					if (swizzle_ok) {
+						// texture_depth_2d's textureSampleLevel takes an i32
+						// level (unlike texture_2d<f32>'s f32 level) -- wrap
+						// the 4th argument (0-indexed: 3) in i32(...) so a
+						// float-literal/expression level still type-checks.
+						bool level_wrap_ok = true;
+						Edit level_edit;
+						if (strcmp(fn, "textureSampleLevel(") == 0) {
+							int64_t a_start, a_end;
+							_find_nth_top_level_arg(wgsl, open_paren + 1, close_paren, 3, a_start, a_end);
+							if (a_start < 0) {
+								level_wrap_ok = false;
+							} else {
+								int64_t trimmed_start = a_start;
+								int64_t trimmed_end = a_end;
+								while (trimmed_start < trimmed_end && (wgsl[trimmed_start] == ' ' || wgsl[trimmed_start] == '\t')) {
+									trimmed_start++;
+								}
+								while (trimmed_end > trimmed_start && (wgsl[trimmed_end - 1] == ' ' || wgsl[trimmed_end - 1] == '\t')) {
+									trimmed_end--;
+								}
+								level_edit.start = a_start;
+								level_edit.end = a_end;
+								level_edit.replacement = "i32(" + String::utf8(wgsl + trimmed_start, (int)(trimmed_end - trimmed_start)) + ")";
+							}
+						}
+						if (level_wrap_ok) {
+							Edit e;
+							e.start = after_call;
+							e.end = after_call + 2;
+							e.replacement = "";
+							call_edits.push_back(e);
+							if (strcmp(fn, "textureSampleLevel(") == 0) {
+								call_edits.push_back(level_edit);
+							}
+							matched_call = true;
+							break;
+						}
+					}
+				}
+				break; // Function-prefix matched but a disqualifying usage shape.
+			}
+			if (!matched_call) {
+				disqualified = true;
+				break;
+			}
+		}
+
+		if (disqualified || call_edits.is_empty()) {
+			continue;
+		}
+
+		Edit decl_edit;
+		decl_edit.start = c.type_start;
+		decl_edit.end = c.type_start + TEX_TYPE_LEN;
+		decl_edit.replacement = "texture_depth_2d";
+		edits.push_back(decl_edit);
+		for (const Edit &ce : call_edits) {
+			edits.push_back(ce);
+		}
+	}
+
+	if (edits.is_empty()) {
+		return p_wgsl_str;
+	}
+
+	// Small insertion sort by start offset (edit counts per shader are tiny).
+	for (int i = 1; i < edits.size(); i++) {
+		Edit key = edits[i];
+		int j = i - 1;
+		while (j >= 0 && edits[j].start > key.start) {
+			edits.set(j + 1, edits[j]);
+			j--;
+		}
+		edits.set(j + 1, key);
+	}
+
+	String out;
+	int64_t cursor = 0;
+	for (const Edit &e : edits) {
+		if (e.start < cursor) {
+			continue; // Overlap safety net; shouldn't happen given disjoint sources.
+		}
+		out += String::utf8(wgsl + cursor, (int)(e.start - cursor));
+		out += e.replacement;
+		cursor = e.end;
+	}
+	out += String::utf8(wgsl + cursor, (int)(len - cursor));
+
+	free(p_wgsl_str);
+	CharString cs = out.utf8();
+	char *result = (char *)malloc(cs.length() + 1);
+	memcpy(result, cs.get_data(), cs.length() + 1);
+	return result;
+}
+
 RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	ERR_FAIL_COND_V(p_shader_container.is_null(), ShaderID());
 
@@ -3922,6 +4259,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			}
 		}
 
+		// See _reclassify_single_component_depth_textures()'s doc comment
+		// (Task 7.13): rewrites texture_2d<f32> bindings that are only ever
+		// read as a single scalar component to texture_depth_2d, so a real
+		// depth-format texture bound there (e.g. Bokeh DOF's source_depth)
+		// gets used directly instead of the Depth/Float mismatch fallback
+		// silently substituting a meaningless 4x4 dummy texture.
+		wgsl_str = _reclassify_single_component_depth_textures(wgsl_str);
+
 		WGPUShaderSourceWGSL wgsl_source = {};
 		wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
 		wgsl_source.code = WGPUStringView{ wgsl_str, WGPU_STRLEN };
@@ -4463,6 +4808,8 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					}
 
 					bge.layout_entry = tex_entry; // Store texture entry as the primary.
+					bge.paired_sampler_entry = samp_entry;
+					bge.has_paired_sampler_entry = true;
 				} break;
 
 				case RDD::UNIFORM_TYPE_IMAGE: {
@@ -5077,16 +5424,25 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 				WGPUTextureViewDimension swt_expected_dim = WGPUTextureViewDimension_Undefined;
 				bool swt_expected_ms = false;
 				bool swt_expected_nonfiltering = false;
+				WGPUTextureSampleType swt_expected_sample_type = WGPUTextureSampleType_Undefined;
 				if (p_set_index < (uint32_t)shader->bind_group_infos.size()) {
 					uint32_t tex_binding = uniform.binding * 2 + 1;
-					uint32_t samp_binding = uniform.binding * 2 + 0;
 					for (const auto &bge : shader->bind_group_infos[p_set_index].entries) {
 						if (bge.layout_entry.binding == tex_binding) {
 							swt_expected_dim = bge.layout_entry.texture.viewDimension;
 							swt_expected_ms = (bool)bge.layout_entry.texture.multisampled;
-						} else if (bge.layout_entry.binding == samp_binding &&
-								bge.layout_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
-							swt_expected_nonfiltering = true;
+							swt_expected_sample_type = bge.layout_entry.texture.sampleType;
+							// A combined sampler+texture binding stores only ONE
+							// BindGroupEntry (keyed by the texture's binding index)
+							// in this reflection structure -- the paired sampler's
+							// own layout entry is stashed separately on it (see
+							// BindGroupEntry::paired_sampler_entry, Task 7.13) since
+							// there's no second entry at samp_binding to scan for.
+							if (bge.has_paired_sampler_entry &&
+									bge.paired_sampler_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
+								swt_expected_nonfiltering = true;
+							}
+							break;
 						}
 					}
 				}
@@ -5115,10 +5471,16 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						if (swt_expected_ms && (!tex_is_ms || _is_depth_format(tex->format)) &&
 								fallback_ms_texture_view != nullptr) {
 							te.textureView = fallback_ms_texture_view;
-						} else if (_is_depth_format(tex->format) && fallback_float_texture_view != nullptr) {
-							// Fix depth/float mismatch: combined sampler+texture bindings
-							// are always Float. If a depth fallback texture is provided,
-							// substitute a float fallback.
+						} else if (_is_depth_format(tex->format) && swt_expected_sample_type != WGPUTextureSampleType_Depth &&
+								fallback_float_texture_view != nullptr) {
+							// Fix depth/float mismatch: this combined binding's WGSL type is
+							// Float (texture_2d<f32>) but the real texture is depth-format.
+							// Substitute a float fallback rather than let Dawn reject binding a
+							// depth-format view to a Float-sampleType slot. (When the BGL
+							// already expects Depth sampleType here -- see
+							// _reclassify_single_component_depth_textures(), Task 7.13 -- this
+							// branch is skipped and the real texture's own view is bound
+							// directly below, since it's already the correct type.)
 							if (swt_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
 								te.textureView = fallback_cube_texture_view;
 							} else {
@@ -5157,6 +5519,36 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 								} else {
 									te.textureView = tex->default_view;
 								}
+							} else {
+								te.textureView = tex->default_view;
+							}
+						} else if (swt_expected_sample_type == WGPUTextureSampleType_Depth &&
+								(tex->format == WGPUTextureFormat_Depth24PlusStencil8 ||
+										tex->format == WGPUTextureFormat_Depth32FloatStencil8)) {
+							// A combined depth+stencil format's default view selects
+							// both aspects, but a texture_depth_2d binding (Task 7.13)
+							// requires a view with ONLY the Depth aspect selected --
+							// WebGPU rejects "Multiple aspects (Depth|Stencil)
+							// selected" otherwise. Create a depth-only view on demand.
+							// A DepthOnly-aspect view of a combined format must also
+							// declare its own format as the depth-only equivalent, not
+							// the packed combined format (WebGPU rejects "view format
+							// is not compatible with TextureAspect::DepthOnly" if
+							// left as e.g. Depth24PlusStencil8 itself).
+							WGPUTextureViewDescriptor vd = {};
+							vd.format = (tex->format == WGPUTextureFormat_Depth24PlusStencil8)
+									? WGPUTextureFormat_Depth24Plus
+									: WGPUTextureFormat_Depth32Float;
+							vd.dimension = WGPUTextureViewDimension_2D;
+							vd.baseMipLevel = tex->base_mipmap;
+							vd.mipLevelCount = tex->mipmaps;
+							vd.baseArrayLayer = tex->base_layer;
+							vd.arrayLayerCount = 1;
+							vd.aspect = WGPUTextureAspect_DepthOnly;
+							WGPUTextureView depth_only_view = wgpuTextureCreateView(tex->gpu_handle(), &vd);
+							if (depth_only_view) {
+								te.textureView = depth_only_view;
+								us->temp_views.push_back(depth_only_view);
 							} else {
 								te.textureView = tex->default_view;
 							}
@@ -7893,6 +8285,10 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		wgsl_str = (char *)malloc(cs.length() + 1);
 		memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
 	}
+
+	// See _reclassify_single_component_depth_textures()'s doc comment (Task
+	// 7.13); must match shader_create_from_container().
+	wgsl_str = _reclassify_single_component_depth_textures(wgsl_str);
 
 	WGPUShaderSourceWGSL wgsl_source = {};
 	wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
