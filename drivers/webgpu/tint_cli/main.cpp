@@ -1,6 +1,6 @@
 // tint_convert_cli — Standalone SPIR-V → WGSL converter for build-time precompilation.
 //
-// Runs the same 13 preprocessing passes as the Godot WebGPU runtime driver,
+// Runs the same 14 preprocessing passes as the Godot WebGPU runtime driver,
 // then converts to WGSL via Tint. Produces output identical to what the engine
 // generates at runtime, enabling precompilation of ubershader and specialized
 // shader variants at build time.
@@ -52,7 +52,7 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv.resize((int64_t)p_spv_bytes.size());
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
-	// 13 preprocessing passes (same order as rendering_device_driver_webgpu.cpp).
+	// 14 preprocessing passes (same order as rendering_device_driver_webgpu.cpp).
 	spv = spirv_preprocess::inline_opaque_functions(spv);
 	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
 	spv = spirv_preprocess::rewrite_copy_logical(spv);
@@ -67,6 +67,7 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
+	spv = spirv_preprocess::strip_writeonly_storage_decoration(spv);
 
 	// Debug: dump post-preprocessing SPIR-V when requested.
 	if (const char *dump_path = getenv("TINT_DEBUG_DUMP_PREPROCESSED")) {
