@@ -33,6 +33,7 @@
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/clone_context.h"
 #include "src/tint/lang/core/ir/module.h"
+#include "src/tint/lang/core/ir/phony.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/sampled_texture.h"
 #include "src/tint/lang/core/type/storage_texture.h"
@@ -496,6 +497,29 @@ struct State {
                 },  //
                 [&](core::ir::UserCall* uc) { user_calls_to_convert_.Add(uc); },
                 [&](core::ir::BuiltinCall*) {},  //
+                // GODOT WEBGPU PATCH: this is defense-in-depth alongside the
+                // kTargetEnv bump in ../parser/parser.cc -- see that patch's
+                // comment and webgpu_notes/TASKS.md Task 8.6 for why Godot's
+                // real WebGPU pipeline doesn't currently reach SPIR-V 1.4 at
+                // all. If it ever does: SPIR-V 1.4+ lists every module-scope
+                // resource variable an entry point touches in OpEntryPoint's
+                // interface operands, not just Input/Output as in older
+                // SPIR-V. The parser's AddRefToOutputsIfNeeded() (parser.cc)
+                // reacts to this by inserting a `phony = val;` instruction
+                // referencing each one at the top of the entry point, purely
+                // so the reader can't silently lose track of a
+                // declared-but-unread binding. For a texture/sampler-typed
+                // resource this phony reference carries no meaning (unlike a
+                // storage buffer, an opaque handle can't be discarded via
+                // WGSL's `_ = expr;`, and it's already considered "used" just
+                // by being a valid binding), so this Switch's
+                // TINT_ICE_ON_NO_MATCH would abort here with "Switch() matched
+                // no cases. Type: tint::core::ir::Phony" on any real
+                // engine-compiled shader with a texture/sampler parameter,
+                // once SPIR-V 1.4 support let this call site actually get
+                // reached. See webgpu_notes/TASKS.md Task 8.2 / 8.6 and
+                // thirdparty/README.md's `## tint` patch list.
+                [&](core::ir::Phony* p) { p->Destroy(); },
                 TINT_ICE_ON_NO_MATCH);
         });
     }

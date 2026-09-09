@@ -1128,6 +1128,9 @@ Patches:
 - `0004-accept-non-constant-point-size.patch` — Accept non-constant `point_size` stores
 - `0005-size-emission-and-capability.patch` — `@size` emission guard for specialization constants
 - `0006-remove-abseil-dependency.patch` — Replace `absl::from_chars` with `std::from_chars`
+- `0007-support-spirv-1-4-target-env.patch` — Bump the reader's hardcoded SPIR-V validation target env from `SPV_ENV_VULKAN_1_1` (≤1.3) to `SPV_ENV_VULKAN_1_2` (≤1.5); defense-in-depth, not required by this fork's actual (SPIR-V 1.3-targeting) WebGPU pipeline — see `webgpu_notes/TASKS.md` Task 8.6
+- `0008-handle-phony-texture-usages.patch` — Handle `Phony` instructions when converting texture/sampler resource usages, needed only if SPIR-V 1.4 input is ever encountered
+- `0009-allow-phony-instructions-capability.patch` — Add `kAllowPhonyInstructions` to the reader's final IR validation capability set, same SPIR-V 1.4 defense-in-depth as 0007/0008
 
 Used for SPIR-V to WGSL translation in the WebGPU rendering backend.
 Requires spirv-tools and spirv-headers.
