@@ -824,6 +824,16 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
                     entries.append((spv_hash, wgsl))
                 compiled += 1
 
+            # Debug: optionally dump SPIR-V for keys matching WGSL_DEBUG_DUMP substring.
+            dump_filter = os.environ.get("WGSL_DEBUG_DUMP")
+            if dump_filter and dump_filter in key:
+                dump_dir = "/tmp/wgsl_debug_dump"
+                os.makedirs(dump_dir, exist_ok=True)
+                dump_path = os.path.join(dump_dir, key.replace("/", "_") + ".spv")
+                with open(dump_path, "wb") as df:
+                    df.write(spv_data[key])
+                print(f"  [debug] dumped {key} -> {dump_path}")
+
             # Clean up temp SPIR-V file.
             try:
                 os.unlink(spv_path)

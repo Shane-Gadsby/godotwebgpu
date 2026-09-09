@@ -67,6 +67,12 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
 
+	// Debug: dump post-preprocessing SPIR-V when requested.
+	if (const char *dump_path = getenv("TINT_DEBUG_DUMP_PREPROCESSED")) {
+		std::ofstream out(dump_path, std::ios::binary);
+		out.write((const char *)spv.ptr(), spv.size());
+	}
+
 	// Ensure SPIR-V version is at least 1.3 (0x00010300). The preprocessing
 	// passes produce constructs (StorageBuffer storage class) that require 1.3,
 	// but input SPIR-V may declare an older version in its header.
