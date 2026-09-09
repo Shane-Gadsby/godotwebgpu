@@ -2674,6 +2674,96 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
+// ---- strip_writeonly_storage_decoration ----
+
+Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_bytes) {
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	if (len < 20 || (len % 4) != 0) {
+		return p_bytes;
+	}
+	const uint32_t nwords = (uint32_t)(len / 4);
+	static constexpr uint32_t DECO_NON_READABLE = 25;
+
+	// Pass 1: collect all OpVariable with StorageBuffer storage class (12).
+	// NonReadable is left untouched on anything else (e.g. write-only
+	// storage images, which WGSL supports fine).
+	HashSet<uint32_t> storage_vars;
+	{
+		uint32_t pos = 5;
+		while (pos < nwords) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > nwords) {
+				break;
+			}
+			if (op == OP_VARIABLE && wc >= 4) {
+				uint32_t result_id = read_word(data, len, pos + 2);
+				uint32_t storage_class = read_word(data, len, pos + 3);
+				if (storage_class == SC_STORAGE_BUFFER) {
+					storage_vars.insert(result_id);
+				}
+			}
+			pos += wc;
+		}
+	}
+
+	if (storage_vars.is_empty()) {
+		return p_bytes;
+	}
+
+	// Pass 2: quick scan for any NonReadable decoration on a storage buffer var.
+	bool found = false;
+	{
+		uint32_t pos = 5;
+		while (pos < nwords) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > nwords) {
+				break;
+			}
+			if (op == OP_DECORATE && wc >= 3 && read_word(data, len, pos + 2) == DECO_NON_READABLE &&
+					storage_vars.has(read_word(data, len, pos + 1))) {
+				found = true;
+				break;
+			}
+			pos += wc;
+		}
+	}
+
+	if (!found) {
+		return p_bytes;
+	}
+
+	// Pass 3: strip those specific OpDecorate instructions.
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 20);
+
+	uint32_t pos = 5;
+	while (pos < nwords) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > nwords) {
+			append_bytes(out, data, pos * 4, len - pos * 4);
+			break;
+		}
+
+		if (op == OP_DECORATE && wc >= 3 && read_word(data, len, pos + 2) == DECO_NON_READABLE &&
+				storage_vars.has(read_word(data, len, pos + 1))) {
+			pos += wc;
+			continue;
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
 // ---- inline_opaque_functions ----
 
 Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {

@@ -138,4 +138,21 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes);
 // pipeline.
 Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 
+// Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
+// it untouched on images/textures, where WGSL's write-only storage
+// texture mode is valid and Tint handles it fine).
+//
+// GLSL's `writeonly buffer` qualifier (used e.g. by skeleton.glsl's
+// dst_vertices and particles_copy.glsl's Transforms output buffers) makes
+// glslang emit NonReadable on the SPIR-V variable. Tint's WGSL writer then
+// tries to emit `var<storage, write>` for it -- but WGSL storage buffers
+// only support `read` or `read_write`, never a write-only access mode
+// (unlike storage textures). This produces a hard Tint error: "vars in
+// the 'storage' address space must have access 'read' or 'read-write'".
+// Since WGSL can't express write-only buffers at all, the only fix is to
+// stop asking for it -- treat these buffers as read_write in the
+// generated WGSL, which is semantically equivalent from the shader's
+// perspective (it never reads from them anyway).
+Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_bytes);
+
 } // namespace spirv_preprocess
