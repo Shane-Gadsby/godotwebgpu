@@ -37,7 +37,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	spv.resize((int64_t)size);
 	memcpy(spv.ptrw(), data, size);
 
-	// 13 preprocessing passes run in-process (crashes here ARE bugs).
+	// 14 preprocessing passes run in-process (crashes here ARE bugs).
 	spv = spirv_preprocess::inline_opaque_functions(spv);
 	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
 	spv = spirv_preprocess::rewrite_copy_logical(spv);
@@ -52,6 +52,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
+	spv = spirv_preprocess::strip_writeonly_storage_decoration(spv);
 
 	// Bump version to 1.3 (same as tint_convert_cli).
 	if (spv.size() >= 20) {
