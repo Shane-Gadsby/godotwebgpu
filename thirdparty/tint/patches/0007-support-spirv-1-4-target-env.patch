@@ -1,0 +1,26 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 6f45c85094..fd516686c7 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -88,7 +88,20 @@ struct ReplacementValue {
+ };
+ 
+ /// The SPIR-V environment that we validate against.
+-constexpr auto kTargetEnv = SPV_ENV_VULKAN_1_1;
++///
++/// GODOT WEBGPU PATCH: was SPV_ENV_VULKAN_1_1 (SPIR-V <=1.3) upstream, which
++/// rejects any SPIR-V 1.4 input outright: "Invalid SPIR-V binary version 1.4
++/// for target environment SPIR-V 1.3 (under Vulkan 1.1 semantics)". Godot's
++/// WebGPU driver deliberately targets SPIR-V 1.3 (see
++/// drivers/webgpu/rendering_shader_container_webgpu.h), so this fork's real
++/// pipeline never actually emits 1.4 -- this was found chasing a red herring
++/// (GODOT_DUMP_SPIRV captured via `--rendering-driver vulkan`, whose container
++/// deliberately requests 1.4, unlike WebGPU's 1.3; see webgpu_notes/TASKS.md
++/// Task 8.6 for the full diagnosis writeup). Bumped anyway, and kept, as cheap
++/// defense-in-depth: SPV_ENV_VULKAN_1_2 (SPIR-V <=1.5) covers 1.4 with margin,
++/// in case a future SPIR-V version bump or some other 1.4 input ever reaches
++/// this reader. See thirdparty/README.md's `## tint` patch list.
++constexpr auto kTargetEnv = SPV_ENV_VULKAN_1_2;
+ 
+ /// PIMPL class for SPIR-V parser.
+ /// Validates the SPIR-V module and then parses it to produce a Tint IR module.

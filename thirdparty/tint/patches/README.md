@@ -23,6 +23,9 @@ done
 | 0004 | shader_io.cc | Point size | Accept non-constant `point_size` stores |
 | 0005 | ir_to_program.cc | Spec constants | `@size` emission guard + capability |
 | 0006 | parse_num.cc | Vendoring | Replace `absl::from_chars` with `std::from_chars` |
+| 0007 | parser.cc | SPIR-V 1.4 | Validation target env bump `SPV_ENV_VULKAN_1_1` → `SPV_ENV_VULKAN_1_2` |
+| 0008 | texture.cc | SPIR-V 1.4 | Handle `Phony` usages of texture/sampler resources |
+| 0009 | reader.cc | SPIR-V 1.4 | `kAllowPhonyInstructions` on the reader's final IR validation |
 
 ## Logical Groups
 
@@ -41,6 +44,15 @@ value first. This patch relaxes that validation. Could potentially be moved to
 
 **Group D — Vendoring (0006)**: Replaces Abseil dependency with C++17 `std::from_chars`.
 Always necessary when vendoring without Abseil.
+
+**Group E — SPIR-V 1.4 reader support (0007, 0008, 0009)**: found while diagnosing a
+real crash (`webgpu_notes/TASKS.md` Task 8.6) via a test methodology that turned out
+to feed the reader SPIR-V 1.4 (captured from the native Vulkan driver, which targets
+1.4) rather than the SPIR-V 1.3 Godot's actual WebGPU driver requests. The real fix for
+that crash lives entirely in `drivers/webgpu/spirv_preprocess.cpp` (not vendored Tint);
+these three patches fix genuine gaps in the vendored reader's SPIR-V 1.4 support but are
+not required by this fork's pipeline today. Kept as low-cost defense-in-depth in case a
+future SPIR-V version bump, or any other 1.4 input, ever reaches this reader.
 
 ## Upstream Source
 

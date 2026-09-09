@@ -36,6 +36,7 @@
 
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -2776,14 +2777,36 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 	std::vector<uint32_t> words(word_count);
 	memcpy(words.data(), p_bytes.ptr(), (size_t)len);
 
-	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_0);
+	// SPV_ENV_VULKAN_1_2 (SPIR-V up to 1.5) rather than SPV_ENV_VULKAN_1_0
+	// (SPIR-V up to 1.0-1.3 depending on extensions): Godot's *internal*
+	// glslang integration (used at actual engine runtime) emits SPIR-V 1.4,
+	// which SPV_ENV_VULKAN_1_0's validator rejects outright -- silently
+	// falling back to unmodified, un-inlined input below and reintroducing
+	// the exact Tint ConvertUserCall crash this pass exists to prevent (see
+	// webgpu_notes/TASKS.md Task 8.2). This only went unnoticed during
+	// development because glslangValidator's CLI defaults to an older SPIR-V
+	// version than Godot's own compiler settings request.
+	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
 	optimizer.SetMessageConsumer([](spv_message_level_t, const char *, const spv_position_t &, const char *) {});
 	optimizer.RegisterPass(spvtools::CreateInlineOpaquePass());
 
+	// Skip the optimizer's own re-validation entirely rather than just
+	// picking a newer fixed target env: we already trust this is well-formed
+	// output from Godot's own shader compiler, and this sidesteps the whole
+	// class of "our hardcoded target env doesn't cover whatever SPIR-V
+	// version Godot's glslang integration happens to emit" bugs for good,
+	// including future version bumps we won't see coming.
 	std::vector<uint32_t> result;
-	if (!optimizer.Run(words.data(), words.size(), &result)) {
-		// Should not happen for valid glslang output; fall back to the
-		// unmodified input rather than breaking the whole pipeline.
+	spvtools::ValidatorOptions validator_options;
+	if (!optimizer.Run(words.data(), words.size(), &result, validator_options, /*skip_validation=*/true)) {
+		// Genuinely unexpected at this point (not a validation rejection --
+		// those are skipped above). Warn loudly instead of silently falling
+		// back: a silent no-op here means inlining didn't happen and the
+		// Tint crash this pass exists to prevent can resurface invisibly.
+		// fprintf rather than WARN_PRINT: this file is also compiled standalone
+		// for tint_cli against shim core/templates/ headers with no error_macros.h.
+		fprintf(stderr, "WebGPU: inline_opaque_functions: SPIRV-Tools optimizer pass failed; falling back to "
+						 "un-inlined SPIR-V. Texture-parameter helper functions in this shader may crash Tint.\n");
 		return p_bytes;
 	}
 
