@@ -179,6 +179,7 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 	memcpy(spv.ptrw(), p_spv_ptr, p_spv_size);
 
 	// SPIR-V preprocessing pipeline:
+	spv = spirv_preprocess::inline_opaque_functions(spv);
 	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
 	spv = spirv_preprocess::rewrite_copy_logical(spv);
 	spv = spirv_preprocess::rewrite_terminate_invocation(spv);
