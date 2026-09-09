@@ -2353,6 +2353,19 @@ Vector<uint8_t> flatten_binding_arrays(const Vector<uint8_t> &p_bytes) {
 		// OpConstant/OpSpecConstant: words 3+ are literal values.
 		// OpConstantComposite/OpSpecConstantComposite: words 3+ are constituent IDs (DO replace).
 		// OpSwitch: alternating case literals starting at word 3 (word 3=literal, 4=label, 5=literal...).
+		// OpDecorate: word 1 is the target id (DO replace), word 2+ (the Decoration
+		// enum and its decoration-specific params -- e.g. Offset/ArrayStride/
+		// MatrixStride/Binding/DescriptorSet/SpecId/Location numbers) are literals.
+		// OpMemberDecorate: word 1 is the struct type id (DO replace), word 2 (member
+		// index) and word 3+ (decoration + params, same as OpDecorate) are literals.
+		// Without these two, a literal value that happens to numerically equal some
+		// unrelated array/access-chain/pointer-type id elsewhere in the module (e.g.
+		// a struct member's Offset) gets silently overwritten with that id's mapped
+		// replacement value -- corrupting the struct's layout. See
+		// webgpu_notes/TASKS.md Task 8.10 for how this was found (a real,
+		// reproduced-in-browser bug: DirectionalLightData's Offset for
+		// shadow_transmittance_bias was replaced this way, inflating the whole
+		// array's buffer-size requirement far beyond what was actually bound).
 		bool has_literals = false;
 		uint32_t literal_start = 0;
 		bool switch_alternating = false;
@@ -2360,6 +2373,9 @@ Vector<uint8_t> flatten_binding_arrays(const Vector<uint8_t> &p_bytes) {
 		if (op == OP_CONSTANT || op == OP_SPEC_CONSTANT) {
 			has_literals = true;
 			literal_start = 3;
+		} else if (op == OP_DECORATE || op == OP_MEMBER_DECORATE) {
+			has_literals = true;
+			literal_start = 2;
 		} else if (op == 251 /* OpSwitch */) {
 			switch_alternating = true;
 		}
