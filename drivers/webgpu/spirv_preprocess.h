@@ -155,4 +155,34 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 // perspective (it never reads from them anyway).
 Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_bytes);
 
+// Remove resource (UniformConstant/Uniform/StorageBuffer) global variables
+// -- and any code that becomes dead as a result -- that this stage's entry
+// point never actually reads, via SPIRV-Tools' CreateAggressiveDCEPass().
+//
+// Godot compiles each shader stage from the same GLSL source with shared
+// uniform/texture declarations pulled in via common includes. A texture
+// sampled only by the fragment shader is still *declared* as a global in
+// the vertex-stage SPIR-V module -- the declaration is textually
+// unconditional in the shared header, even though the vertex entry point's
+// code never touches it. Left un-eliminated, that declaration survives
+// unchanged all the way to Tint's WGSL output, making the driver's
+// per-stage WGSL scan (wgsl_binding_stages in
+// rendering_device_driver_webgpu.cpp) see it as "used by this stage" and
+// mark its WGPUBindGroupLayoutEntry visible to that stage -- overcounting
+// it against that stage's resource limits. See webgpu_notes/TASKS.md
+// Task 8.7: SceneForwardMobileShaderRD's vertex stage was claiming 18
+// samplers (exceeding WebGPU's 16-per-stage floor) purely from unused
+// declarations pulled in from shared includes; only its fragment stage
+// actually samples that many.
+//
+// preserve_interface=true so Input/Output variables (vertex attributes,
+// gl_Position, etc.) are never touched -- only resource globals are
+// eligible for removal. preserve_spec_constants=true so specialization
+// constants stay declared regardless of per-stage usage (matches the
+// existing override-ID handling in shader_create_from_container(), which
+// already tolerates unreferenced overrides). Runs last in the pipeline
+// (after every binding-index-rewriting pass) so it only ever sees, and
+// only ever needs to react to, the final preprocessed form.
+Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes);
+
 } // namespace spirv_preprocess
