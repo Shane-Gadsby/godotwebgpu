@@ -9828,7 +9828,19 @@ bool RenderingDeviceDriverWebGPU::has_feature(Features p_feature) {
 		case SUPPORTS_HALF_FLOAT:
 			return false; // WebGPU shader-f16 extension not reliably available; avoid f16 in generated SPIR-V.
 		case SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS:
-			return true; // WebGPU render passes work with no color attachments.
+			// This was wrongly true: a WebGPU render *pass* can have zero color
+			// attachments as long as a depth-stencil attachment is present, but
+			// "fragment shader with only side effects" means a pipeline/pass with
+			// NO attachments at all (color or depth) -- WebGPU always rejects that
+			// outright ("No attachment was specified" at CreateRenderPipeline,
+			// "Render pass has no attachments" at BeginRenderPass), unlike Vulkan/
+			// Metal/D3D12 which do support it. cluster_builder_rd.cpp already has a
+			// complete, working fallback for platforms lacking this (a real color
+			// attachment via SHADER_USE_ATTACHMENT), gated on exactly this flag --
+			// it just never took that path here. Found via a real Chrome run
+			// against ClusterRenderShaderRD. See webgpu_notes/TASKS.md Task 9.5
+			// Round 12.
+			return false;
 		case SUPPORTS_IMAGE_ATOMIC_32_BIT:
 			return false; // WebGPU has no image atomics support.
 		case SUPPORTS_MULTIVIEW:
