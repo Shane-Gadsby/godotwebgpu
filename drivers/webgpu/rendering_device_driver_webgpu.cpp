@@ -348,6 +348,9 @@ static WGPUTextureFormat _wgsl_storage_format_string_to_wgpu(const String &p_fmt
 	if (p_fmt == "rg8uint") return WGPUTextureFormat_RG8Uint;
 	if (p_fmt == "rg8sint") return WGPUTextureFormat_RG8Sint;
 	if (p_fmt == "bgra8unorm") return WGPUTextureFormat_BGRA8Unorm;
+	if (p_fmt == "rgb10a2unorm") return WGPUTextureFormat_RGB10A2Unorm;
+	if (p_fmt == "rgb10a2uint") return WGPUTextureFormat_RGB10A2Uint;
+	if (p_fmt == "rg11b10ufloat") return WGPUTextureFormat_RG11B10Ufloat;
 	return WGPUTextureFormat_RGBA8Unorm; // fallback
 }
 
@@ -4796,6 +4799,18 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 									else if (strncmp(fmt, "rgba16snorm,", 12) == 0) tf = WGPUTextureFormat_RGBA16Float; // Fallback
 									else if (strncmp(fmt, "rgba16unorm,", 12) == 0) tf = WGPUTextureFormat_RGBA16Float; // Fallback
 									else if (strncmp(fmt, "bgra8unorm,", 11) == 0) tf = WGPUTextureFormat_BGRA8Unorm;
+									// rgb10a2unorm/rgb10a2uint/rg11b10ufloat were missing entirely,
+									// silently falling through to the RGBA8Unorm default above --
+									// found via a real Chrome run where octmap_downsampler.glsl /
+									// octmap_filter.glsl's OCTMAP_FORMAT=rgb10_a2 variant (ShaderRD
+									// compiles both the rgb10_a2 and rgba16f variants eagerly, same
+									// "dead but still compiled" pattern as Task 9.5's FSR1 fix) hit
+									// "layout's binding format RGBA8Unorm doesn't match shader's
+									// binding format RGB10A2Unorm". See webgpu_notes/TASKS.md Task
+									// 9.5 Round 9.
+									else if (strncmp(fmt, "rgb10a2unorm,", 13) == 0) tf = WGPUTextureFormat_RGB10A2Unorm;
+									else if (strncmp(fmt, "rgb10a2uint,", 12) == 0) tf = WGPUTextureFormat_RGB10A2Uint;
+									else if (strncmp(fmt, "rg11b10ufloat,", 14) == 0) tf = WGPUTextureFormat_RG11B10Ufloat;
 									wgsl_storage_tex_format[key] = tf;
 									// Parse access mode (after comma, skip space)
 									const char *acc = comma + 1;
@@ -4953,11 +4968,16 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	for (uint32_t set = 0; set < set_count; set++) {
 		const Vector<RenderingDeviceCommons::ShaderUniform> &set_uniforms = shader_refl.uniform_sets[set];
 
-		// Count entries — combined sampler+texture expands to 2 entries each.
+		// Count entries — combined sampler+texture expands to 2 entries each,
+		// EXCEPT a multisampled combined sampler (GLSL sampler2DMS), which has
+		// no paired sampler variable at all (see the UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+		// case below) and expands to just 1.
 		uint32_t entry_count = 0;
 		for (int i = 0; i < set_uniforms.size(); i++) {
 			if (set_uniforms[i].type == RDD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE) {
-				entry_count += 2; // Sampler + texture.
+				uint32_t k0 = ((uint32_t)set << 16) | (set_uniforms[i].binding * 2 + 0);
+				bool ms_no_sampler = wgsl_is_multisampled_texture.has(k0) && wgsl_is_multisampled_texture[k0];
+				entry_count += ms_no_sampler ? 1 : 2;
 			} else {
 				entry_count += 1;
 			}
@@ -5022,19 +5042,38 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				case RDD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 					// Combined sampler+texture split by our SPIR-V preprocessor:
 					// Sampler at binding*2+0, texture at binding*2+1 in the modified SPIR-V → matches Tint WGSL output.
-					WGPUBindGroupLayoutEntry &samp_entry = entries[e_idx++];
-					samp_entry = {};
-					samp_entry.binding = u.binding * 2 + 0;
+					//
+					// EXCEPT for multisampled combined samplers (GLSL sampler2DMS):
+					// texelFetch-only multisampled access needs no sampler object at
+					// all (WGSL's texture_multisampled_2d has no sampling functions,
+					// only textureLoad), so split_combined_samplers()
+					// (spirv_preprocess.cpp) emits no sampler variable for these and
+					// places the split-out texture at binding*2 instead of *2+1. This
+					// code used to unconditionally assume sampler-at-*2/texture-at-
+					// *2+1 regardless, producing a BGL that expected a sampler at
+					// binding*2 when Tint's WGSL actually declared a
+					// texture_multisampled_2d there -- "shader (texture) doesn't
+					// match layout (sampler)". Found via a real Chrome run against
+					// resolve.glsl's MODE_RESOLVE_GI source_normal_roughness. See
+					// webgpu_notes/TASKS.md Task 9.5 Round 9.
 					uint32_t k0 = ((uint32_t)set << 16) | (u.binding * 2 + 0);
-					samp_entry.visibility = resolve_stage_visibility(k0, vis);
-					samp_entry.sampler.type = resolve_sampler_type(k0);
+					bool ms_no_sampler = wgsl_is_multisampled_texture.has(k0) && wgsl_is_multisampled_texture[k0];
+
+					WGPUBindGroupLayoutEntry samp_entry = {};
+					if (!ms_no_sampler) {
+						samp_entry.binding = u.binding * 2 + 0;
+						samp_entry.visibility = resolve_stage_visibility(k0, vis);
+						samp_entry.sampler.type = resolve_sampler_type(k0);
+						entries[e_idx++] = samp_entry;
+					}
 
 					WGPUBindGroupLayoutEntry &tex_entry = entries[e_idx++];
 					tex_entry = {};
-					tex_entry.binding = u.binding * 2 + 1;
-					uint32_t k1 = ((uint32_t)set << 16) | (u.binding * 2 + 1);
+					uint32_t tex_binding = ms_no_sampler ? (u.binding * 2 + 0) : (u.binding * 2 + 1);
+					tex_entry.binding = tex_binding;
+					uint32_t k1 = ((uint32_t)set << 16) | tex_binding;
 					tex_entry.visibility = resolve_stage_visibility(k1, vis);
-					{ bool is_ms = wgsl_is_multisampled_texture.has(k1) && wgsl_is_multisampled_texture[k1];
+					{ bool is_ms = ms_no_sampler || (wgsl_is_multisampled_texture.has(k1) && wgsl_is_multisampled_texture[k1]);
 					  bool is_depth = wgsl_is_depth_texture.has(k1) && wgsl_is_depth_texture[k1];
 					  // See the UNIFORM_TYPE_TEXTURE case above for why this isn't an
 					  // unconditional Float/UnfilterableFloat choice.
@@ -5045,15 +5084,16 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					  tex_entry.texture.viewDimension = wgsl_tex_dims.has(k1) ? wgsl_tex_dims[k1] : WGPUTextureViewDimension_2D;
 					  tex_entry.texture.multisampled = is_ms;
 					  // MSAA texture bindings with UnfilterableFloat require a NonFiltering sampler —
-					  // override the sampler for this combined binding.
-					  if (is_ms && !is_depth) {
+					  // override the sampler for this combined binding (irrelevant when
+					  // ms_no_sampler, since no sampler entry exists at all then).
+					  if (is_ms && !is_depth && !ms_no_sampler) {
 						  samp_entry.sampler.type = WGPUSamplerBindingType_NonFiltering;
 					  }
 					}
 
 					bge.layout_entry = tex_entry; // Store texture entry as the primary.
 					bge.paired_sampler_entry = samp_entry;
-					bge.has_paired_sampler_entry = true;
+					bge.has_paired_sampler_entry = !ms_no_sampler;
 				} break;
 
 				case RDD::UNIFORM_TYPE_IMAGE: {
@@ -5715,35 +5755,58 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 			case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 				// Godot pairs sampler+texture as ids[j*2] / ids[j*2+1].
 				// WebGPU needs separate sampler and texture entries.
-				// Sampler at binding*2+j*2+0, texture at binding*2+j*2+1 (matches layout and SPIR-V preprocessor).
-				// Look up expected texture dimension and sample type from the shader layout.
+				// Sampler at binding*2+j*2+0, texture at binding*2+j*2+1 (matches layout and SPIR-V preprocessor) —
+				// EXCEPT a multisampled combined sampler (GLSL sampler2DMS), which has no paired sampler
+				// variable at all and whose texture sits at binding*2+j*2+0 instead. See the identical
+				// ms_no_sampler special-case (and its full explanation) in the BGL-construction copy of
+				// this switch, Task 9.5 Round 9.
 				WGPUTextureViewDimension swt_expected_dim = WGPUTextureViewDimension_Undefined;
 				bool swt_expected_ms = false;
 				bool swt_expected_nonfiltering = false;
 				WGPUTextureSampleType swt_expected_sample_type = WGPUTextureSampleType_Undefined;
 				if (p_set_index < (uint32_t)shader->bind_group_infos.size()) {
+					// Try the regular texture slot (binding*2+1) first, then the
+					// multisampled-no-sampler slot (binding*2+0) as a fallback.
 					uint32_t tex_binding = uniform.binding * 2 + 1;
+					uint32_t ms_tex_binding = uniform.binding * 2 + 0;
+					const WGShader::BindGroupEntry *found_bge = nullptr;
 					for (const auto &bge : shader->bind_group_infos[p_set_index].entries) {
 						if (bge.layout_entry.binding == tex_binding) {
-							swt_expected_dim = bge.layout_entry.texture.viewDimension;
-							swt_expected_ms = (bool)bge.layout_entry.texture.multisampled;
-							swt_expected_sample_type = bge.layout_entry.texture.sampleType;
-							// A combined sampler+texture binding stores only ONE
-							// BindGroupEntry (keyed by the texture's binding index)
-							// in this reflection structure -- the paired sampler's
-							// own layout entry is stashed separately on it (see
-							// BindGroupEntry::paired_sampler_entry, Task 7.13) since
-							// there's no second entry at samp_binding to scan for.
-							if (bge.has_paired_sampler_entry &&
-									bge.paired_sampler_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
-								swt_expected_nonfiltering = true;
-							}
+							found_bge = &bge;
 							break;
 						}
 					}
+					if (!found_bge) {
+						for (const auto &bge : shader->bind_group_infos[p_set_index].entries) {
+							if (bge.layout_entry.binding == ms_tex_binding && !bge.has_paired_sampler_entry) {
+								found_bge = &bge;
+								break;
+							}
+						}
+					}
+					if (found_bge) {
+						swt_expected_dim = found_bge->layout_entry.texture.viewDimension;
+						swt_expected_ms = (bool)found_bge->layout_entry.texture.multisampled;
+						swt_expected_sample_type = found_bge->layout_entry.texture.sampleType;
+						// A combined sampler+texture binding stores only ONE
+						// BindGroupEntry (keyed by the texture's binding index)
+						// in this reflection structure -- the paired sampler's
+						// own layout entry is stashed separately on it (see
+						// BindGroupEntry::paired_sampler_entry, Task 7.13) since
+						// there's no second entry at samp_binding to scan for.
+						if (found_bge->has_paired_sampler_entry &&
+								found_bge->paired_sampler_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
+							swt_expected_nonfiltering = true;
+						}
+					}
 				}
+				// ms_no_sampler: this combined binding has no sampler at all (see
+				// above) -- only true when the BGL lookup found the texture at the
+				// binding*2+0 slot (the tex_binding-first search above only lands
+				// there when no regular binding*2+1 entry exists).
+				bool swt_ms_no_sampler = swt_expected_ms;
 				for (uint32_t j = 0; j < uniform.ids.size() / 2; j++) {
-					WGPUSampler sampler = (WGPUSampler)(uniform.ids[j * 2 + 0].id);
+					WGPUSampler sampler = swt_ms_no_sampler ? nullptr : (WGPUSampler)(uniform.ids[j * 2 + 0].id);
 					WGTexture *tex = (WGTexture *)(uniform.ids[j * 2 + 1].id);
 					if (sampler) {
 						WGPUBindGroupEntry se = {};
@@ -5756,7 +5819,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 					}
 					if (tex && tex->default_view) {
 						WGPUBindGroupEntry te = {};
-						te.binding = uniform.binding * 2 + j * 2 + 1;
+						te.binding = uniform.binding * 2 + j * 2 + (swt_ms_no_sampler ? 0 : 1);
 						// Check sample-count mismatch first: if the BGL expects a multisampled
 						// texture but the bound texture isn't multisampled (or vice versa),
 						// we can't use either the real texture or a non-MS fallback. Substitute
