@@ -643,6 +643,20 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 
 	{
 		Vector<ShaderRD::VariantDefine> shader_versions;
+		// SHADER_VERSION_DEPTH_PASS_WITH_SDF's imageAtomicOr(geom_facing_grid, ...)
+		// (scene_forward_clustered.glsl, guarded by this same NO_IMAGE_ATOMICS
+		// define) needs the buffer-based fallback on any backend without real
+		// image-atomics support -- WGSL has no image-atomics concept at all
+		// (OpImageTexelPointer is entirely unhandled by Tint's SPIR-V reader,
+		// a hard TINT_UNIMPLEMENTED abort), matching this driver's own
+		// has_feature(SUPPORTS_IMAGE_ATOMIC_32_BIT) → false. fog.cpp's
+		// volumetric_fog.glsl already handles this exact situation correctly
+		// (registers separate shader groups per no_atomics state, selected via
+		// _get_fog_shader_group()) -- this shader never had the equivalent
+		// wiring at all, so its SDF variant unconditionally took the
+		// image-atomics branch regardless of driver support. See
+		// webgpu_notes/TASKS.md Task 9.5.
+		const String no_image_atomics_define = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? "" : "\n#define NO_IMAGE_ATOMICS\n";
 		for (uint32_t ubershader = 0; ubershader < 2; ubershader++) {
 			const String base_define = ubershader ? "\n#define UBERSHADER\n" : "";
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_BASE, base_define + "\n#define MODE_RENDER_DEPTH\n", true)); // SHADER_VERSION_DEPTH_PASS
@@ -653,7 +667,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
-			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n" + no_image_atomics_define, false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
 		}
 
 		Vector<String> color_pass_flags = {
