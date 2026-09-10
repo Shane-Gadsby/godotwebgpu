@@ -90,7 +90,17 @@ Vector<uint8_t> negate_position_y(const Vector<uint8_t> &p_bytes);
 // Strip OpDecorate/OpMemberDecorate for decorations unsupported by Tint:
 // Restrict (19) — memory hint from glslang, no WGSL equivalent.
 // InputAttachmentIndex (43) — Vulkan subpass inputs, no WebGPU equivalent.
-Vector<uint8_t> strip_restrict_decoration(const Vector<uint8_t> &p_bytes);
+// Volatile (21) — GLSL's `volatile buffer`/`volatile image` qualifier (used by
+// e.g. volumetric_fog.glsl's froxel accumulation buffers/images, read/written
+// via atomics from many invocations without an explicit barrier). WGSL has no
+// concept of a per-variable "always re-read, never cache" hint at all; Tint's
+// SPIR-V reader hard-crashes on it (TINT_UNIMPLEMENTED unhandled decoration
+// 21) regardless of whether the decorated variable is ever actually used --
+// see webgpu_notes/TASKS.md Task 9.5. Safe to drop like Restrict: Tint's own
+// codegen never performs the kind of value-caching/reordering optimization
+// this decoration exists to suppress, so removing the hint doesn't change
+// Tint's output, only whether its reader accepts the module at all.
+Vector<uint8_t> strip_unsupported_decorations(const Vector<uint8_t> &p_bytes);
 
 // Replace OpMemoryBarrier with OpNop. Tint does not support
 // OpMemoryBarrier (SPIR-V 225); WGSL has no direct equivalent.
@@ -154,6 +164,39 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 // generated WGSL, which is semantically equivalent from the shader's
 // perspective (it never reads from them anyway).
 Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_bytes);
+
+// Remove the `BuiltIn HelperInvocation` input variable (GLSL's
+// gl_HelperInvocation) entirely: folds every load of it to a `false`
+// constant, drops its declaration/decoration, and removes it from the
+// entry point's interface list.
+//
+// WGSL has no equivalent to this builtin at all -- not a Tint coverage
+// gap, a genuine language limitation (confirmed by grepping Tint's SPIR-V
+// reader: the only HelperInvocation-adjacent mention anywhere in its
+// codebase is an unrelated comment about `discard`/OpDemoteToHelperInvocation).
+// Any shader using it hard-crashes Tint's reader (TINT_UNIMPLEMENTED) the
+// moment it processes the entry point's interface, regardless of whether
+// the loaded value is actually used afterward. See webgpu_notes/TASKS.md
+// Task 9.1 for why folding to `false` (rather than `true`) is safe for
+// cluster_render.glsl specifically: the check exists purely to exclude
+// helper invocations from marking a light-cluster acceleration structure,
+// and every consumer already re-validates cluster membership with a real
+// per-light distance/radius check, so the extra false positives from
+// treating helper invocations as real ones are harmless to final
+// rendering correctness.
+Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes);
+
+// Fold OpGroupNonUniformBallotBitCount to a constant zero. Tint's SPIR-V
+// reader has no case for this instruction at all (unconditional
+// TINT_UNREACHABLE() abort) -- GLSL's subgroupBallotExclusiveBitCount(),
+// used by cluster_render.glsl (Forward+ light-cluster building) purely to
+// elect one "representative" thread per group of invocations targeting
+// the same cluster so only it performs the atomic write. Since atomicOr
+// is associative/commutative, folding every invocation into "the
+// representative" (this instruction's result becomes 0, so the shader's
+// own `== 0` gate always passes) produces the identical final result as
+// electing one thread first -- see webgpu_notes/TASKS.md Task 9.1.
+Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes);
 
 // Remove resource (UniformConstant/Uniform/StorageBuffer) global variables
 // -- and any code that becomes dead as a result -- that this stage's entry

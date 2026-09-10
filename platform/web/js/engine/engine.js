@@ -326,6 +326,15 @@ const Engine = (function () {
 				'rg11b10ufloat-renderable',
 				'clip-distances',
 				'dual-source-blending',
+				// Combined depth+stencil with a 32-bit float depth channel --
+				// WebGPU requires this optional feature enabled before a texture
+				// in this format can be created at all; found missing once
+				// Forward+ (Clustered) got far enough to try creating one — see
+				// webgpu_notes/TASKS.md Task 9.5.
+				'depth32float-stencil8',
+				// Forward+ (Clustered) renderer's light-culling shaders use
+				// GL_KHR_shader_subgroup_* — see webgpu_notes/TASKS.md Task 9.1/9.2.
+				'subgroups',
 				// Texture compression families — without these, Godot's DXT5/ETC2/ASTC
 				// assets get decompressed on the CPU to RGBA8, which triggers a warning
 				// and wastes VRAM. The driver only reports the formats as supported
@@ -353,6 +362,17 @@ const Engine = (function () {
 				'maxSamplersPerShaderStage',
 				'maxColorAttachments',
 				'maxBindGroups',
+				// Found missing via a real Forward+ (Clustered) live run: the
+				// screen-space effects downsample pass needs 5 storage textures
+				// in one compute stage (default limit is 4), and several compute
+				// shaders dispatch workgroups larger than the default 256-invocation
+				// limit. See webgpu_notes/TASKS.md Task 9.5 Round 5.
+				'maxStorageTexturesPerShaderStage',
+				'maxComputeInvocationsPerWorkgroup',
+				'maxComputeWorkgroupSizeX',
+				'maxComputeWorkgroupSizeY',
+				'maxComputeWorkgroupSizeZ',
+				'maxComputeWorkgroupStorageSize',
 			];
 			for (var li = 0; li < limitsToMax.length; li++) {
 				var key = limitsToMax[li];
