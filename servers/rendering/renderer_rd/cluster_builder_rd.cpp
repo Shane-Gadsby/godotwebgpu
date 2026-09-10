@@ -274,6 +274,11 @@ void ClusterBuilderRD::_clear() {
 	RD::get_singleton()->free_rid(framebuffer);
 	framebuffer = RID();
 
+	if (framebuffer_color_attachment.is_valid()) {
+		RD::get_singleton()->free_rid(framebuffer_color_attachment);
+		framebuffer_color_attachment = RID();
+	}
+
 	cluster_render_uniform_set = RID();
 	cluster_store_uniform_set = RID();
 }
@@ -313,10 +318,33 @@ void ClusterBuilderRD::setup(Size2i p_screen_size, uint32_t p_max_elements, RID 
 	element_buffer = RD::get_singleton()->storage_buffer_create(sizeof(RenderElementData) * render_element_max);
 
 	uint32_t div_value = 1 << divisor;
-	if (use_msaa) {
-		framebuffer = RD::get_singleton()->framebuffer_create_empty(p_screen_size / div_value, RD::TEXTURE_SAMPLES_4);
+	Size2i cluster_render_size = p_screen_size / div_value;
+	RD::TextureSamples cluster_render_samples = use_msaa ? RD::TEXTURE_SAMPLES_4 : RD::TEXTURE_SAMPLES_1;
+	if (RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS)) {
+		framebuffer = RD::get_singleton()->framebuffer_create_empty(cluster_render_size, cluster_render_samples);
 	} else {
-		framebuffer = RD::get_singleton()->framebuffer_create_empty(p_screen_size / div_value);
+		// Mirrors the ClusterRender::SHADER_USE_ATTACHMENT fallback pipeline
+		// variant (see ClusterBuilderSharedDataRD's constructor): platforms
+		// without SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS need a real
+		// color attachment, both for the pipeline (already handled there) and
+		// for the render pass/framebuffer actually used to draw with it here --
+		// this side previously always used framebuffer_create_empty()
+		// unconditionally, mismatching the SHADER_USE_ATTACHMENT pipeline on
+		// any such platform and producing a WebGPU "Render pass has no
+		// attachments" error on every cluster-build draw. The texture itself
+		// is never read; the pipeline only writes to it as a place to satisfy
+		// the "needs one real attachment" requirement, matching the pipeline's
+		// AttachmentFormat() default (RGBA8Unorm). See webgpu_notes/TASKS.md
+		// Task 9.5 Round 13.
+		RD::TextureFormat tf;
+		tf.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+		tf.width = MAX(1, cluster_render_size.width);
+		tf.height = MAX(1, cluster_render_size.height);
+		tf.texture_type = RD::TEXTURE_TYPE_2D;
+		tf.samples = cluster_render_samples;
+		tf.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+		framebuffer_color_attachment = RD::get_singleton()->texture_create(tf, RD::TextureView());
+		framebuffer = RD::get_singleton()->framebuffer_create({ framebuffer_color_attachment });
 	}
 
 	{

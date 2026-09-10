@@ -198,6 +198,7 @@ private:
 	Size2i cluster_screen_size;
 
 	RID framebuffer;
+	RID framebuffer_color_attachment; // Only used when SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS is unavailable; see setup().
 	RID cluster_render_buffer; // Used for creating.
 	RID cluster_buffer; // Used for rendering.
 	RID element_buffer; // Used for storing, to hint element touches far plane or near plane.
