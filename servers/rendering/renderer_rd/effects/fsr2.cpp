@@ -211,7 +211,35 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 	FSR2Context::Scratch &scratch = *reinterpret_cast<FSR2Context::Scratch *>(p_backend_interface->scratchBuffer);
 	FfxResourceDescription res_desc = p_create_resource_description->resourceDescription;
 
-	// FSR2's base implementation never requests buffer creation.
+	// The SPD global atomic counter is normally a 1x1 R32_UINT texture, updated via
+	// imageAtomicAdd/imageStore. WebGPU (and WGSL in general) has no texture-atomic
+	// concept at all -- Tint's SPIR-V reader has no handling whatsoever for the
+	// OpImageTexelPointer instruction glslang emits for any imageAtomic* call, which
+	// aborts (a WASM "unreachable" trap) rather than producing a translation error.
+	// Godot already has an established fallback for exactly this gap (see fog.cpp /
+	// SUPPORTS_IMAGE_ATOMIC_32_BIT / NO_IMAGE_ATOMICS): reroute the single-texel
+	// atomic counter to a real storage buffer, which WGSL atomics fully support.
+	// See webgpu_notes/TASKS.md Task 9.5 Round 14.
+	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT && !rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+		Vector<uint8_t> buf_init;
+		buf_init.resize(sizeof(uint32_t));
+		if (p_create_resource_description->initDataSize >= sizeof(uint32_t)) {
+			memcpy(buf_init.ptrw(), p_create_resource_description->initData, sizeof(uint32_t));
+		} else {
+			memset(buf_init.ptrw(), 0, sizeof(uint32_t));
+		}
+
+		RID buffer = rd->storage_buffer_create(sizeof(uint32_t), buf_init);
+		ERR_FAIL_COND_V(buffer.is_null(), FFX_ERROR_BACKEND_API_ERROR);
+
+		rd->set_resource_name(buffer, String(p_create_resource_description->name));
+
+		p_out_resource->internalIndex = scratch.resources.add(buffer, false, p_create_resource_description->id, res_desc);
+
+		return FFX_OK;
+	}
+
+	// FSR2's base implementation never requests buffer creation otherwise.
 	ERR_FAIL_COND_V(res_desc.type != FFX_RESOURCE_TYPE_TEXTURE1D && res_desc.type != FFX_RESOURCE_TYPE_TEXTURE2D && res_desc.type != FFX_RESOURCE_TYPE_TEXTURE3D, FFX_ERROR_INVALID_ARGUMENT);
 
 	if (res_desc.mipCount == 0) {
@@ -404,7 +432,19 @@ static FfxErrorCode execute_gpu_job_compute_rd(FSR2Context::Scratch &p_scratch, 
 	}
 
 	for (uint32_t i = 0; i < p_job.pipeline.uavCount; i++) {
-		RID image_rid = p_scratch.resources.rids[p_job.uavs[i].internalIndex];
+		uint32_t internal_index = p_job.uavs[i].internalIndex;
+		RID image_rid = p_scratch.resources.rids[internal_index];
+
+		// The SPD atomic counter was rerouted to a real storage buffer in
+		// create_resource_rd() when SUPPORTS_IMAGE_ATOMIC_32_BIT is unavailable
+		// (see the comment there); bind it as a buffer here to match, instead of
+		// treating its RID as a texture.
+		if (p_scratch.resources.ids[internal_index] == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT && !RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+			RD::Uniform buffer_uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, p_job.pipeline.uavResourceBindings[i].slotIndex, image_rid);
+			compute_uniforms.push_back(buffer_uniform);
+			continue;
+		}
+
 		RD::Uniform storage_uniform;
 		storage_uniform.uniform_type = RD::UNIFORM_TYPE_IMAGE;
 		storage_uniform.binding = p_job.pipeline.uavResourceBindings[i].slotIndex;
@@ -700,8 +740,18 @@ FSR2Effect::FSR2Effect() {
 	{
 		Pass &pass = device.passes[FFX_FSR2_PASS_COMPUTE_LUMINANCE_PYRAMID];
 		pass.shader = &shaders.compute_luminance_pyramid;
-		pass.shader->initialize(modes_single, general_defines);
+
+		// This pass's SPD global atomic counter needs a NO_IMAGE_ATOMICS fallback
+		// variant on backends without SUPPORTS_IMAGE_ATOMIC_32_BIT (WebGPU); see the
+		// comment on that counter's declaration in ffx_fsr2_callbacks_glsl.h and
+		// webgpu_notes/TASKS.md Task 9.5 Round 14.
+		bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+		Vector<String> modes_atomic_fallback;
+		modes_atomic_fallback.push_back("");
+		modes_atomic_fallback.push_back("\n#define NO_IMAGE_ATOMICS 1\n");
+		pass.shader->initialize(modes_atomic_fallback, general_defines);
 		pass.shader_version = pass.shader->version_create();
+		pass.shader_variant = use_image_atomics ? 0 : 1;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_color_jittered" }

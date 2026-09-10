@@ -86,7 +86,15 @@ FfxUInt32 SpdGetAtomicCounter()
 
 void SpdResetAtomicCounter(FfxUInt32 slice)
 {
+#ifdef NO_IMAGE_ATOMICS
+    // Inlined directly here (rather than going through SPD_ResetAtomicCounter, an
+    // extra function-call hop) since spdCounter is natively in scope at this point --
+    // see webgpu_notes/TASKS.md Task 9.5 Round 14 for the full story of why this
+    // buffer-based atomic counter needs special handling at all on WebGPU.
+    spdCounter = atomicExchange(rw_spd_global_atomic_value[0], 0u);
+#else
     SPD_ResetAtomicCounter();
+#endif
 }
 
 FfxFloat32x4 SpdLoadIntermediate(FfxUInt32 x, FfxUInt32 y)
