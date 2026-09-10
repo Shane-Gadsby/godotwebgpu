@@ -1878,9 +1878,9 @@ Vector<uint8_t> negate_position_y(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
-// ---- strip_restrict_decoration ----
+// ---- strip_unsupported_decorations ----
 
-Vector<uint8_t> strip_restrict_decoration(const Vector<uint8_t> &p_bytes) {
+Vector<uint8_t> strip_unsupported_decorations(const Vector<uint8_t> &p_bytes) {
 	const int64_t len = p_bytes.size();
 	const uint32_t total_words = (uint32_t)(len / 4);
 
@@ -1890,11 +1890,12 @@ Vector<uint8_t> strip_restrict_decoration(const Vector<uint8_t> &p_bytes) {
 
 	const uint8_t *data = p_bytes.ptr();
 	static constexpr uint32_t DECO_RESTRICT = 19;
+	static constexpr uint32_t DECO_VOLATILE = 21;
 	static constexpr uint32_t DECO_INPUT_ATTACHMENT_INDEX = 43;
 
 	// Helper: is this a decoration we need to strip?
 	auto is_stripped_deco = [](uint32_t d) {
-		return d == DECO_RESTRICT || d == DECO_INPUT_ATTACHMENT_INDEX;
+		return d == DECO_RESTRICT || d == DECO_VOLATILE || d == DECO_INPUT_ATTACHMENT_INDEX;
 	};
 
 	// Quick scan: any stripped decoration present?
@@ -2006,6 +2007,335 @@ Vector<uint8_t> strip_memory_barrier(const Vector<uint8_t> &p_bytes) {
 		} else {
 			append_bytes(out, data, pos * 4, wc * 4);
 		}
+		pos += wc;
+	}
+
+	return out;
+}
+
+// ---- strip_helper_invocation_builtin ----
+
+Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes) {
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	static constexpr uint32_t BUILTIN_HELPER_INVOCATION = 23;
+
+	// --- Pass 1: find the HelperInvocation variable, its base (bool) type,
+	// and any pre-existing OpConstantFalse of that type to reuse. Order-
+	// independent: types/constants can appear in any relative order, so
+	// every OpTypePointer/OpConstantFalse is recorded unconditionally and
+	// resolved against helper_var_id/helper_ptr_type_id only after the scan.
+	uint32_t helper_var_id = 0;
+	uint32_t helper_ptr_type_id = 0;
+	HashMap<uint32_t, uint32_t> ptr_type_base; // ptr_type_id -> pointee type id.
+	HashMap<uint32_t, uint32_t> const_false_by_type; // type_id -> existing OpConstantFalse result id.
+	uint32_t bound = read_word(data, len, 3);
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op == OP_DECORATE && wc >= 4) {
+			uint32_t target = read_word(data, len, pos + 1);
+			uint32_t deco = read_word(data, len, pos + 2);
+			uint32_t value = read_word(data, len, pos + 3);
+			if (deco == DECO_BUILTIN && value == BUILTIN_HELPER_INVOCATION) {
+				helper_var_id = target;
+			}
+		} else if (op == OP_TYPE_POINTER && wc >= 4) {
+			uint32_t result_id = read_word(data, len, pos + 1);
+			uint32_t base_type = read_word(data, len, pos + 3);
+			ptr_type_base[result_id] = base_type;
+		} else if (op == OP_VARIABLE && wc >= 4) {
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			if (helper_var_id != 0 && result_id == helper_var_id) {
+				helper_ptr_type_id = result_type;
+			}
+		} else if (op == OP_CONSTANT_FALSE && wc >= 3) {
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			if (!const_false_by_type.has(result_type)) {
+				const_false_by_type[result_type] = result_id;
+			}
+		}
+
+		pos += wc;
+	}
+
+	if (helper_var_id == 0 || helper_ptr_type_id == 0) {
+		return p_bytes; // Not present in this module.
+	}
+
+	const uint32_t *base_type_ptr = ptr_type_base.getptr(helper_ptr_type_id);
+	if (!base_type_ptr) {
+		return p_bytes; // Unexpected shape -- leave untouched rather than guess.
+	}
+	uint32_t helper_base_type_id = *base_type_ptr;
+
+	uint32_t const_false_id = 0;
+	if (const uint32_t *existing = const_false_by_type.getptr(helper_base_type_id)) {
+		const_false_id = *existing;
+	}
+	bool need_new_const_false = (const_false_id == 0);
+	uint32_t new_const_false_id = need_new_const_false ? bound : const_false_id;
+	uint32_t next_id = need_new_const_false ? bound + 1 : bound;
+
+	// --- Pass 2: rewrite ---
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 12);
+	push_word(out, next_id); // Updated bound.
+	push_word(out, read_word(data, len, 4)); // Schema.
+
+	bool const_injected = false;
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		// Drop the HelperInvocation variable from OpEntryPoint's interface list.
+		if (op == OP_ENTRY_POINT) {
+			uint32_t exec_model = read_word(data, len, pos + 1);
+			uint32_t entry_id = read_word(data, len, pos + 2);
+
+			// Find end of name string (null-terminated, packed into words).
+			uint32_t name_end = pos + 3;
+			while (name_end < pos + wc) {
+				uint32_t w = read_word(data, len, name_end);
+				name_end++;
+				if ((w & 0xFF) == 0 || ((w >> 8) & 0xFF) == 0 ||
+						((w >> 16) & 0xFF) == 0 || ((w >> 24) & 0xFF) == 0) {
+					break;
+				}
+			}
+
+			Vector<uint32_t> new_vars;
+			for (uint32_t i = name_end; i < pos + wc; i++) {
+				uint32_t var_id = read_word(data, len, i);
+				if (var_id != helper_var_id) {
+					new_vars.push_back(var_id);
+				}
+			}
+
+			uint32_t new_wc = (name_end - pos) + new_vars.size();
+			push_word(out, (new_wc << 16) | (uint32_t)OP_ENTRY_POINT);
+			push_word(out, exec_model);
+			push_word(out, entry_id);
+			for (uint32_t i = pos + 3; i < name_end; i++) {
+				push_word(out, read_word(data, len, i));
+			}
+			for (int i = 0; i < new_vars.size(); i++) {
+				push_word(out, new_vars[i]);
+			}
+
+			pos += wc;
+			continue;
+		}
+
+		// Drop the `BuiltIn HelperInvocation` decoration itself.
+		if (op == OP_DECORATE && wc >= 4) {
+			uint32_t target = read_word(data, len, pos + 1);
+			uint32_t deco = read_word(data, len, pos + 2);
+			uint32_t value = read_word(data, len, pos + 3);
+			if (target == helper_var_id && deco == DECO_BUILTIN && value == BUILTIN_HELPER_INVOCATION) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// Drop any debug OpName targeting the variable being removed -- left
+		// in place, it would be a dangling reference once the OpVariable
+		// declaration below is gone, which SPIRV-Tools' def-use analysis
+		// (run by later passes' spvtools::Optimizer invocations) asserts on.
+		if (op == OP_NAME && wc >= 2) {
+			uint32_t target = read_word(data, len, pos + 1);
+			if (target == helper_var_id) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// Inject the new OpConstantFalse (if none already existed for this
+		// type) right before the first function -- guaranteed to be after
+		// every type/constant declaration in a valid module, so there is no
+		// forward-reference risk regardless of where helper_base_type_id's
+		// own OpTypeBool happens to sit.
+		if (need_new_const_false && !const_injected && op == OP_FUNCTION) {
+			const_injected = true;
+			push_word(out, (3u << 16) | (uint32_t)OP_CONSTANT_FALSE);
+			push_word(out, helper_base_type_id);
+			push_word(out, new_const_false_id);
+		}
+
+		// Drop the HelperInvocation variable's own declaration.
+		if (op == OP_VARIABLE && wc >= 4) {
+			uint32_t result_id = read_word(data, len, pos + 2);
+			if (result_id == helper_var_id) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// Replace every load of the HelperInvocation variable with a direct
+		// reference to the `false` constant via OpCopyObject -- keeps the
+		// same result id, so every downstream use of the loaded value needs
+		// no rewiring at all.
+		if (op == OP_LOAD && wc >= 4) {
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			uint32_t pointer_id = read_word(data, len, pos + 3);
+			if (pointer_id == helper_var_id) {
+				push_word(out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+				push_word(out, result_type);
+				push_word(out, result_id);
+				push_word(out, new_const_false_id);
+				pos += wc;
+				continue;
+			}
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
+// ---- fold_ballot_bit_count ----
+
+Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes) {
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BALLOT_BIT_COUNT = 342;
+
+	// --- Pass 1: find every OpGroupNonUniformBallotBitCount's result type,
+	// and any pre-existing zero-valued OpConstant to reuse per type.
+	HashSet<uint32_t> needed_types;
+	HashMap<uint32_t, uint32_t> zero_const_by_type; // type_id -> existing zero-valued OpConstant result id.
+	uint32_t bound = read_word(data, len, 3);
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op == OP_GROUP_NONUNIFORM_BALLOT_BIT_COUNT && wc >= 3) {
+			needed_types.insert(read_word(data, len, pos + 1));
+		} else if (op == OP_CONSTANT && wc == 4) {
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			uint32_t value = read_word(data, len, pos + 3);
+			if (value == 0 && !zero_const_by_type.has(result_type)) {
+				zero_const_by_type[result_type] = result_id;
+			}
+		}
+
+		pos += wc;
+	}
+
+	if (needed_types.is_empty()) {
+		return p_bytes;
+	}
+
+	// Resolve a zero constant id per needed type, allocating fresh ids for
+	// types that don't already have one.
+	HashMap<uint32_t, uint32_t> zero_const_for_type;
+	uint32_t next_id = bound;
+	for (const uint32_t &type_id : needed_types) {
+		if (const uint32_t *existing = zero_const_by_type.getptr(type_id)) {
+			zero_const_for_type[type_id] = *existing;
+		} else {
+			zero_const_for_type[type_id] = next_id++;
+		}
+	}
+
+	// --- Pass 2: rewrite ---
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 12);
+	push_word(out, next_id); // Updated bound.
+	push_word(out, read_word(data, len, 4)); // Schema.
+
+	HashSet<uint32_t> injected_types;
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		// Inject any newly-allocated zero constants right before the first
+		// function -- guaranteed to be after every type declaration in a
+		// valid module.
+		if (op == OP_FUNCTION) {
+			for (const uint32_t &type_id : needed_types) {
+				if (zero_const_by_type.has(type_id) || injected_types.has(type_id)) {
+					continue;
+				}
+				injected_types.insert(type_id);
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, type_id);
+				push_word(out, zero_const_for_type[type_id]);
+				push_word(out, 0u);
+			}
+		}
+
+		// `subgroupBallotExclusiveBitCount()` (OpGroupNonUniformBallotBitCount)
+		// has no case in Tint's SPIR-V reader at all -- an unconditional
+		// TINT_UNREACHABLE() abort, the same class of hard crash as the
+		// HelperInvocation builtin handled above. cluster_render.glsl only
+		// ever uses it to elect a single "representative" thread per group
+		// of invocations targeting the same cluster, purely to reduce
+		// atomic write contention (see webgpu_notes/TASKS.md Task 9.1) --
+		// atomicOr is associative/commutative, so every invocation just
+		// doing its own atomicOr unconditionally produces the identical
+		// final result. Folding this instruction's result to a constant
+		// zero makes every invocation "the representative" (the shader's
+		// own `cluster_thread_group_index == 0` gate then always passes),
+		// which is exactly that: correctness-preserving, not a hack.
+		if (op == OP_GROUP_NONUNIFORM_BALLOT_BIT_COUNT && wc >= 3) {
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			const uint32_t *zero_id = zero_const_for_type.getptr(result_type);
+			if (zero_id) {
+				push_word(out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+				push_word(out, result_type);
+				push_word(out, result_id);
+				push_word(out, *zero_id);
+				pos += wc;
+				continue;
+			}
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
 		pos += wc;
 	}
 

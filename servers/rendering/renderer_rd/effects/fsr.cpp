@@ -36,13 +36,29 @@
 using namespace RendererRD;
 
 FSR::FSR() {
+	bool has_half_float = RD::get_singleton()->has_feature(RD::SUPPORTS_HALF_FLOAT);
+
 	Vector<String> fsr_upscale_modes;
-	fsr_upscale_modes.push_back("\n#define MODE_FSR_UPSCALE_NORMAL\n");
+	// ShaderRD compiles every registered mode eagerly (not just the one actually
+	// selected below), so the FSR_SHADER_VARIANT_NORMAL entry must still produce
+	// valid, compilable code on backends without half-float support -- it's
+	// dead code there (never selected), but still needs to exist. MODE_FSR_UPSCALE_NORMAL's
+	// A_HALF path (thirdparty/amd-fsr/ffx_a.h) uses GLSL's 16-bit int/uint types
+	// (int16_t/uint16_t and vector forms) for its packed-precision optimization --
+	// WGSL only has 32-bit integers, so Tint's SPIR-V reader hard-crashes
+	// (TINT_ASSERT(int_ty->width() == 32)) on any backend that never actually
+	// executes this path but still has to compile it. So: when half-float
+	// support is absent, register the FALLBACK defines under both slots instead
+	// (harmless duplication of already-valid code; the NORMAL slot is provably
+	// unreachable at runtime either way, see below) rather than ever asking any
+	// backend without half-float support to compile the 16-bit-int path at all.
+	// See webgpu_notes/TASKS.md Task 9.5.
+	fsr_upscale_modes.push_back(has_half_float ? "\n#define MODE_FSR_UPSCALE_NORMAL\n" : "\n#define MODE_FSR_UPSCALE_FALLBACK\n");
 	fsr_upscale_modes.push_back("\n#define MODE_FSR_UPSCALE_FALLBACK\n");
 	fsr_shader.initialize(fsr_upscale_modes);
 
 	FSRShaderVariant variant;
-	if (RD::get_singleton()->has_feature(RD::SUPPORTS_HALF_FLOAT)) {
+	if (has_half_float) {
 		variant = FSR_SHADER_VARIANT_NORMAL;
 	} else {
 		variant = FSR_SHADER_VARIANT_FALLBACK;

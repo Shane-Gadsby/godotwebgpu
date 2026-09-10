@@ -188,8 +188,10 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 	auto depth_result = spirv_preprocess::fix_depth2_images(spv);
 	spv = depth_result.bytes;
 	spv = spirv_preprocess::negate_position_y(spv);
-	spv = spirv_preprocess::strip_restrict_decoration(spv);
+	spv = spirv_preprocess::strip_unsupported_decorations(spv);
 	spv = spirv_preprocess::strip_memory_barrier(spv);
+	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
+	spv = spirv_preprocess::fold_ballot_bit_count(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
@@ -2555,8 +2557,17 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 	desc.addressModeU = map_address(p_state.repeat_u);
 	desc.addressModeV = map_address(p_state.repeat_v);
 	desc.addressModeW = map_address(p_state.repeat_w);
-	desc.lodMinClamp = p_state.min_lod;
-	desc.lodMaxClamp = p_state.max_lod;
+	// WebGPU requires 0 <= lodMinClamp <= lodMaxClamp (Vulkan/D3D12/Metal all
+	// allow negative LOD clamps too, so some callers -- e.g. FSR2's sampler
+	// setup, effects/fsr2.cpp, using the "-1000/1000" idiom from AMD's
+	// reference Vulkan/D3D12 integration for "effectively unclamped" -- pass
+	// a negative min_lod that's harmless everywhere else (there's no negative
+	// mip level to clamp away, so clamping the minimum at -1000 vs. 0 is
+	// behaviorally identical on every backend) but a hard validation error
+	// here. Clamp defensively at the boundary rather than touching every
+	// shared caller's sampler-state setup. See webgpu_notes/TASKS.md Task 9.5.
+	desc.lodMinClamp = MAX(p_state.min_lod, 0.0f);
+	desc.lodMaxClamp = MAX(p_state.max_lod, desc.lodMinClamp);
 
 	if (p_state.enable_compare) {
 		desc.compare = map_compare(p_state.compare_op);
@@ -3395,10 +3406,13 @@ static void _find_nth_top_level_arg(const char *p_str, int64_t p_args_start, int
 //
 // This is conservatively scoped: a texture is only rewritten if EVERY
 // occurrence of its identifier in the whole module is either the
-// declaration itself or the first argument of textureSample/
+// declaration itself, the first argument of textureSample/
 // textureSampleLevel/textureSampleBias/textureSampleGrad/textureLoad
-// immediately followed by .x or .r -- any other usage (full vec4 access,
-// .rgb/.xy, textureSampleCompare*, textureGather, being passed to a
+// immediately followed by .x or .r, or the 2nd argument of textureGather(
+// component, tex, samp, coords) (dropping the leading component argument
+// entirely instead, since texture_depth_2d's textureGather overload has no
+// component parameter at all -- see Task 7.22) -- any other usage (full
+// vec4 access, .rgb/.xy, textureSampleCompare*, being passed to a
 // user-defined function, textureDimensions, etc.) disqualifies it and
 // leaves the original Float-typed binding untouched. Once rewritten, this
 // binding's BindGroupLayout entry naturally ends up Depth-sampleType via
@@ -3409,7 +3423,50 @@ static void _find_nth_top_level_arg(const char *p_str, int64_t p_args_start, int
 // depth-format texture at this binding from then on; verified true by
 // construction for Bokeh DOF (bokeh_dof.cpp has exactly one call site that
 // creates this uniform, always from the scene's real depth buffer).
-static char *_reclassify_single_component_depth_textures(char *p_wgsl_str) {
+// Finds the "@group(G) @binding(B)" attribute pair immediately preceding the
+// declaration whose identifier starts at p_name_start (bounded by the previous
+// ';'/'}' so an unrelated, earlier declaration's attributes are never picked
+// up), and parses it via parse_group_binding(). Returns false if none found.
+static bool _find_preceding_group_binding(const char *p_wgsl, int64_t p_name_start, unsigned int &r_grp, unsigned int &r_bnd) {
+	int64_t stmt_start = 0;
+	for (int64_t j = p_name_start - 1; j >= 0; j--) {
+		if (p_wgsl[j] == ';' || p_wgsl[j] == '}') {
+			stmt_start = j + 1;
+			break;
+		}
+	}
+	const char *best = nullptr;
+	const char *scan = p_wgsl + stmt_start;
+	while (true) {
+		const char *found = strstr(scan, "@group(");
+		if (!found || (found - p_wgsl) >= p_name_start) {
+			break;
+		}
+		best = found;
+		scan = found + 7;
+	}
+	if (!best) {
+		return false;
+	}
+	return parse_group_binding(best, r_grp, r_bnd);
+}
+
+// p_storage_converted_keys: (group<<16 | binding) keys that were just converted
+// from a readonly storage texture to a sampled texture_2d<f32> by the
+// read-only-storage-to-sampled pass (see wgsl_read_storage_to_sampled just
+// above shader_create_from_container()'s call site). These are NEVER real
+// depth-format textures -- they're ordinary Godot color-format storage
+// textures (e.g. voxel_gi.glsl's r32f "depth"/"source_depth" dynamic-GI
+// light-injection buffers, which store a plain distance/height value, not a
+// hardware depth attachment) that merely happen to be named "depth" and read
+// back one component at a time, which is exactly this function's structural
+// heuristic. Reclassifying them to texture_depth_2d produces a WGSL module
+// that declares Depth sampleType while the BindGroupLayout (built from the
+// original storage format, e.g. R32Float -> UnfilterableFloat) still expects
+// Float/UnfilterableFloat, a hard Dawn validation error at pipeline-creation
+// time. Must be excluded before the naming heuristic below ever gets a
+// chance to misfire on them. See webgpu_notes/TASKS.md Task 9.5 Round 5.
+static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const HashSet<uint32_t> &p_storage_converted_keys) {
 	static const char *const TEX_TYPE = "texture_2d<f32>";
 	static const int TEX_TYPE_LEN = 15;
 	// textureSampleBias/textureSampleGrad are NOT defined for texture_depth_2d
@@ -3480,6 +3537,16 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str) {
 		const int name_len = name_cs.length();
 		if (name_len == 0) {
 			continue;
+		}
+
+		if (!p_storage_converted_keys.is_empty()) {
+			unsigned int grp = 0, bnd = 0;
+			if (_find_preceding_group_binding(wgsl, c.name_start, grp, bnd)) {
+				uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
+				if (p_storage_converted_keys.has(key)) {
+					continue;
+				}
+			}
 		}
 
 		// The single-component-access structural heuristic alone is NOT
@@ -3601,6 +3668,57 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str) {
 				break; // Function-prefix matched but a disqualifying usage shape.
 			}
 			if (!matched_call) {
+				// texture_depth_2d's textureGather overload drops the leading
+				// component argument entirely (textureGather(tex, samp, coords)),
+				// unlike texture_2d<f32>'s (textureGather(component, tex, samp,
+				// coords)) -- GLSL's implicit-default-component textureGather(
+				// sampler, uv) always converts to WGSL's explicit `textureGather(
+				// 0i, tex, samp, uv)` form, so this isn't a swizzle-drop like the
+				// CALL_FNS cases above but an argument-drop. See Task 7.22.
+				static const char *const GATHER_FN = "textureGather(";
+				static const int64_t GATHER_FN_LEN = 14;
+				const char *gscan = wgsl;
+				while (true) {
+					const char *gfound = strstr(gscan, GATHER_FN);
+					if (!gfound) {
+						break;
+					}
+					int64_t g_open = (gfound - wgsl) + GATHER_FN_LEN - 1;
+					int64_t g_close = _find_matching_paren(wgsl, len, g_open);
+					gscan = gfound + 1;
+					if (g_close < 0 || g_open >= pos || g_close <= pos) {
+						continue; // This occurrence of `name` isn't inside this call's parens.
+					}
+					int64_t a1_start, a1_end;
+					_find_nth_top_level_arg(wgsl, g_open + 1, g_close, 1, a1_start, a1_end);
+					if (a1_start < 0) {
+						continue;
+					}
+					int64_t t_start = a1_start, t_end = a1_end;
+					while (t_start < t_end && (wgsl[t_start] == ' ' || wgsl[t_start] == '\t')) {
+						t_start++;
+					}
+					while (t_end > t_start && (wgsl[t_end - 1] == ' ' || wgsl[t_end - 1] == '\t')) {
+						t_end--;
+					}
+					if (t_start != pos || t_end != pos + name_len) {
+						continue; // `name` isn't (whitespace aside) exactly the 2nd argument.
+					}
+					int64_t a0_start, a0_end;
+					_find_nth_top_level_arg(wgsl, g_open + 1, g_close, 0, a0_start, a0_end);
+					if (a0_start < 0) {
+						continue;
+					}
+					Edit e;
+					e.start = a0_start;
+					e.end = t_start; // Drop the component arg plus its trailing comma/whitespace.
+					e.replacement = "";
+					call_edits.push_back(e);
+					matched_call = true;
+					break;
+				}
+			}
+			if (!matched_call) {
 				disqualified = true;
 				break;
 			}
@@ -3700,6 +3818,17 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// or texture_depth_multisampled_* at this binding. Used so BGL entries set
 	// texture.multisampled=true to match sampler2DMS (GLSL) bindings.
 	HashMap<uint32_t, bool> wgsl_is_multisampled_texture;
+
+	// Maps (set_index << 16 | binding) → the sampled texture's component sample
+	// type, detected from Tint's texture_2d<T>/texture_3d<T>/etc. component
+	// type T ("u32" → Uint, "i32" → Sint, else Float). Godot's GLSL uses
+	// utexture2D/itexture2D (e.g. gi.glsl's voxel_gi_buffer) for genuinely
+	// integer-sampled textures; without this, every non-depth UNIFORM_TYPE_TEXTURE
+	// BGL entry unconditionally got WGPUTextureSampleType_Float regardless of
+	// the real WGSL type, and Dawn rejects the mismatch at pipeline-creation
+	// time ("shader's texture sample type (Uint) isn't compatible with the
+	// layout's texture sample type (Float)") -- see webgpu_notes/TASKS.md Task 9.5.
+	HashMap<uint32_t, WGPUTextureSampleType> wgsl_tex_sample_type;
 
 	// Depth alias bindings: Tint splits mixed-usage depth textures into two globals
 	// (one Depth at binding B, one Float alias at binding B+1). Track (set,B+1) pairs
@@ -3861,12 +3990,20 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			}
 		}
 
-		// WebGPU restriction: Storage buffers with read_write access cannot be used in vertex shaders.
-		// Tint generates var<storage, read_write> for any SSBO without NonWritable decoration.
-		// For render stages (vertex + fragment), demote all read_write storage to read (in-place,
-		// same string length). This ensures the BGL can use ReadOnlyStorage with Vertex|Fragment
-		// visibility. Compute stages keep read_write for actual writes.
-		if (s.shader_stage == RDD::SHADER_STAGE_VERTEX || s.shader_stage == RDD::SHADER_STAGE_FRAGMENT) {
+		// WebGPU restriction: storage buffers with read_write/write access cannot be bound
+		// visible to the vertex stage at all (undefined per-invocation write ordering/
+		// duplication hazards) -- fragment stage has no such restriction and regularly uses
+		// read_write storage buffers for exactly this kind of technique (order-independent
+		// transparency, per-pixel light-clustering via atomics, etc.). Demote to read only
+		// for the vertex stage (in-place, same string length); this used to also demote
+		// fragment-stage read_write to read, which was wrong -- see Task 9.1/9's live-repro
+		// investigation, which found it silently corrupting `cluster_render.glsl`'s fragment
+		// stage (a genuine atomic<u32> storage buffer, which WGSL requires read_write for --
+		// Dawn rejects the demoted `read` version outright: "atomic variables in 'storage'
+		// address space must have 'read_write' access mode"). No prior shader in this driver's
+		// history had ever needed genuine read_write storage access from a fragment stage, so
+		// this over-broad demotion went unnoticed until Forward+'s cluster-building pass.
+		if (s.shader_stage == RDD::SHADER_STAGE_VERTEX) {
 			char *q = wgsl_str;
 			while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
 				// "var<storage, read_write>" = 24 chars → "var<storage, read>      " = 24 chars
@@ -4189,6 +4326,25 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						String search = "textureLoad(" + info.var_name;
 						int64_t pos = 0;
 						while ((pos = ws.find(search, pos)) != -1) {
+							// Guard against one converted variable's name being a
+							// literal prefix of another's (e.g. sdfgi's "src_light"
+							// vs. "src_light_aniso") -- without this, searching for
+							// "textureLoad(src_light" also matches inside
+							// "textureLoad(src_light_aniso, ...)"'s own call,
+							// appending a second, spurious mip-level argument to it
+							// (produces an invalid 4-argument textureLoad on a
+							// texture_3d<T>, which only takes 3). See
+							// webgpu_notes/TASKS.md Task 9.5.
+							int64_t after_name = pos + search.length();
+							char32_t next_char = after_name < ws.length() ? ws[after_name] : 0;
+							bool is_ident_continuation = next_char == '_' ||
+									(next_char >= 'a' && next_char <= 'z') ||
+									(next_char >= 'A' && next_char <= 'Z') ||
+									(next_char >= '0' && next_char <= '9');
+							if (is_ident_continuation) {
+								pos += search.length();
+								continue;
+							}
 							int64_t paren_start = pos + String("textureLoad").length();
 							int depth = 0;
 							int64_t insert_mip = -1;
@@ -4265,7 +4421,24 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// depth-format texture bound there (e.g. Bokeh DOF's source_depth)
 		// gets used directly instead of the Depth/Float mismatch fallback
 		// silently substituting a meaningless 4x4 dummy texture.
-		wgsl_str = _reclassify_single_component_depth_textures(wgsl_str);
+		// Also exclude the "_rw_in" shadow-read companion textures the
+		// read_write-storage-texture split (just above) synthesizes for the
+		// read side of a split binding (e.g. voxel_gi.glsl's "depth" storage
+		// image becomes "depth"+"depth_rw_in") -- these are exactly as
+		// vulnerable to the depth-naming false positive as the read-storage-
+		// to-sampled conversion's outputs are, and for the identical reason:
+		// a synthetic sampled-texture binding whose name happens to contain
+		// "depth" but which was never a real depth-format GLSL binding. See
+		// webgpu_notes/TASKS.md Task 9.5 Round 6.
+		HashSet<uint32_t> wgsl_reclassify_exclude;
+		for (uint32_t k : wgsl_read_storage_to_sampled) {
+			wgsl_reclassify_exclude.insert(k);
+		}
+		for (const KeyValue<uint32_t, uint32_t> &kv : wgsl_rw_storage_splits) {
+			uint32_t shadow_key = (kv.key & 0xFFFF0000u) | kv.value;
+			wgsl_reclassify_exclude.insert(shadow_key);
+		}
+		wgsl_str = _reclassify_single_component_depth_textures(wgsl_str, wgsl_reclassify_exclude);
 
 		WGPUShaderSourceWGSL wgsl_source = {};
 		wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
@@ -4362,9 +4535,27 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 							}
 						}
 						// Check if this is a depth texture (texture_depth_*).
-						if (tp && strncmp(tp, "texture_depth_", 14) == 0) {
+						bool is_depth_tp = tp && strncmp(tp, "texture_depth_", 14) == 0;
+						if (is_depth_tp) {
 							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
 							wgsl_is_depth_texture[key] = true;
+						}
+						// Detect the sampled component type from the texture_*<T> generic
+						// parameter (depth and storage textures have no such component-type
+						// parameter, so skip them -- depth is always Depth sampleType, and
+						// storage textures use a completely different BGL field).
+						if (tp && !is_depth_tp && strncmp(tp, "texture_storage_", 16) != 0) {
+							const char *angle = (const char *)memchr(tp, '<', (size_t)(limit - tp));
+							if (angle) {
+								WGPUTextureSampleType stype = WGPUTextureSampleType_Float;
+								if (strncmp(angle + 1, "u32", 3) == 0) {
+									stype = WGPUTextureSampleType_Uint;
+								} else if (strncmp(angle + 1, "i32", 3) == 0) {
+									stype = WGPUTextureSampleType_Sint;
+								}
+								uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
+								wgsl_tex_sample_type[key] = stype;
+							}
 						}
 					}
 					// Check for depth alias variable: Tint names it "*_depth_alias".
@@ -4765,11 +4956,16 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					// so layout entries are always non-array (no bindingArraySize).
 					bool is_ms = wgsl_is_multisampled_texture.has(k) && wgsl_is_multisampled_texture[k];
 					bool is_depth = wgsl_is_depth_texture.has(k) && wgsl_is_depth_texture[k];
-					// Multisampled float textures must use UnfilterableFloat, not Float
-					// (filtering is illegal for MSAA textures in WebGPU).
+					// Real sample type from the WGSL texture_2d<T>/etc. component type
+					// (Uint/Sint for GLSL utexture*/itexture*, e.g. gi.glsl's
+					// voxel_gi_buffer -- Float otherwise). Multisampled *float*
+					// textures must use UnfilterableFloat, not Float (filtering is
+					// illegal for MSAA textures in WebGPU); Uint/Sint are already
+					// inherently non-filterable, so MSAA doesn't change them further.
+					WGPUTextureSampleType base_sample_type = wgsl_tex_sample_type.has(k) ? wgsl_tex_sample_type[k] : WGPUTextureSampleType_Float;
 					entry.texture.sampleType = is_depth
 						? WGPUTextureSampleType_Depth
-						: (is_ms ? WGPUTextureSampleType_UnfilterableFloat : WGPUTextureSampleType_Float);
+						: (is_ms && base_sample_type == WGPUTextureSampleType_Float) ? WGPUTextureSampleType_UnfilterableFloat : base_sample_type;
 					entry.texture.viewDimension = wgsl_tex_dims.has(k) ? wgsl_tex_dims[k] : WGPUTextureViewDimension_2D;
 					entry.texture.multisampled = is_ms;
 					bge.layout_entry = entry;
@@ -4793,11 +4989,12 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					tex_entry.visibility = resolve_stage_visibility(k1, vis);
 					{ bool is_ms = wgsl_is_multisampled_texture.has(k1) && wgsl_is_multisampled_texture[k1];
 					  bool is_depth = wgsl_is_depth_texture.has(k1) && wgsl_is_depth_texture[k1];
-					  // Multisampled float textures must use UnfilterableFloat
-					  // (filtering is illegal for MSAA textures in WebGPU).
+					  // See the UNIFORM_TYPE_TEXTURE case above for why this isn't an
+					  // unconditional Float/UnfilterableFloat choice.
+					  WGPUTextureSampleType base_sample_type = wgsl_tex_sample_type.has(k1) ? wgsl_tex_sample_type[k1] : WGPUTextureSampleType_Float;
 					  tex_entry.texture.sampleType = is_depth
 						  ? WGPUTextureSampleType_Depth
-						  : (is_ms ? WGPUTextureSampleType_UnfilterableFloat : WGPUTextureSampleType_Float);
+						  : (is_ms && base_sample_type == WGPUTextureSampleType_Float) ? WGPUTextureSampleType_UnfilterableFloat : base_sample_type;
 					  tex_entry.texture.viewDimension = wgsl_tex_dims.has(k1) ? wgsl_tex_dims[k1] : WGPUTextureViewDimension_2D;
 					  tex_entry.texture.multisampled = is_ms;
 					  // MSAA texture bindings with UnfilterableFloat require a NonFiltering sampler —
@@ -5085,9 +5282,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						{ uint32_t k = ((uint32_t)i << 16) | (pu.binding * 2 + 1);
 						  bool is_ms = wgsl_is_multisampled_texture.has(k) && wgsl_is_multisampled_texture[k];
 						  bool is_depth = wgsl_is_depth_texture.has(k) && wgsl_is_depth_texture[k];
+						  WGPUTextureSampleType base_sample_type = wgsl_tex_sample_type.has(k) ? wgsl_tex_sample_type[k] : WGPUTextureSampleType_Float;
 						  te.texture.sampleType = is_depth
 							  ? WGPUTextureSampleType_Depth
-							  : (is_ms ? WGPUTextureSampleType_UnfilterableFloat : WGPUTextureSampleType_Float);
+							  : (is_ms && base_sample_type == WGPUTextureSampleType_Float) ? WGPUTextureSampleType_UnfilterableFloat : base_sample_type;
 						  te.texture.viewDimension = wgsl_tex_dims.has(k) ? wgsl_tex_dims[k] : WGPUTextureViewDimension_2D;
 						  te.texture.multisampled = is_ms;
 						  if (is_ms && !is_depth) {
@@ -5382,10 +5580,32 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 							// Fix dimension mismatch: if the layout expects a different dimension
 							// than the texture's default view (e.g., 2D vs Cube), create a
 							// compatible view or use a fallback texture.
+							//
+							// A view's dimension must also be structurally compatible with the
+							// GPU texture's own underlying dimension -- WebGPU only allows a 3D
+							// view of a 3D-dimension texture (never 2D/Cube/etc.), and only a
+							// 2D/2DArray/Cube/CubeArray view of a 2D-dimension texture (never
+							// 3D). No amount of view-descriptor trickery can bridge this; found
+							// via a real Chrome run where a 4x4x1 texture3D (voxel_gi.glsl's
+							// texture_sdf/color_texture, or an sdfgi cascade texture -- a real
+							// Godot texture, not a driver-internal fallback) got bound to a
+							// generic slot the shader declares as texture_2d<f32>, and the old
+							// code below tried creating a 2D view of it regardless, which Dawn
+							// rejects outright ("dimension ... not compatible with the
+							// dimension ... of [Texture]") rather than erroring more softly.
+							// Substitute a fallback instead, same as the Cube/insufficient-
+							// layers case just below. See webgpu_notes/TASKS.md Task 9.5 Round 6.
+							bool dim_class_incompatible =
+									(tex->dimension == WGPUTextureDimension_3D && expected_dim != WGPUTextureViewDimension_3D) ||
+									(tex->dimension != WGPUTextureDimension_3D && expected_dim == WGPUTextureViewDimension_3D);
 							if (expected_dim == WGPUTextureViewDimension_Cube && tex->layers < 6 &&
 									fallback_cube_texture_view != nullptr) {
 								// Can't create a cube view from a texture with < 6 layers.
 								entry.textureView = fallback_cube_texture_view;
+							} else if (dim_class_incompatible && fallback_float_texture_view != nullptr) {
+								entry.textureView = (expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr)
+										? fallback_cube_texture_view
+										: fallback_float_texture_view;
 							} else if (tex->view_source != nullptr) {
 								// Use slice base offsets so slice views don't
 								// silently remap to mip 0 / layer 0 of the parent.
@@ -5404,6 +5624,35 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 								} else {
 									entry.textureView = tex->default_view;
 								}
+							} else {
+								entry.textureView = tex->default_view;
+							}
+						} else if (expected_sample == WGPUTextureSampleType_Depth &&
+								(tex->format == WGPUTextureFormat_Depth24PlusStencil8 ||
+										tex->format == WGPUTextureFormat_Depth32FloatStencil8)) {
+							// Same fix as the UNIFORM_TYPE_SAMPLER_WITH_TEXTURE case below:
+							// a combined depth+stencil format's default view selects both
+							// aspects, but a texture_depth_2d binding (Task 7.13) requires
+							// a view with ONLY the Depth aspect selected -- WebGPU rejects
+							// "Multiple aspects (Depth|Stencil) selected" otherwise. This
+							// standalone-texture case (no paired sampler, e.g. a compute
+							// shader doing textureLoad on a depth texture directly, as in
+							// ClusterDebugShaderRD) had no equivalent fix until now. See
+							// webgpu_notes/TASKS.md Task 9.5 Round 5.
+							WGPUTextureViewDescriptor vd = {};
+							vd.format = (tex->format == WGPUTextureFormat_Depth24PlusStencil8)
+									? WGPUTextureFormat_Depth24Plus
+									: WGPUTextureFormat_Depth32Float;
+							vd.dimension = WGPUTextureViewDimension_2D;
+							vd.baseMipLevel = tex->base_mipmap;
+							vd.mipLevelCount = tex->mipmaps;
+							vd.baseArrayLayer = tex->base_layer;
+							vd.arrayLayerCount = 1;
+							vd.aspect = WGPUTextureAspect_DepthOnly;
+							WGPUTextureView depth_only_view = wgpuTextureCreateView(tex->gpu_handle(), &vd);
+							if (depth_only_view) {
+								entry.textureView = depth_only_view;
+								us->temp_views.push_back(depth_only_view);
 							} else {
 								entry.textureView = tex->default_view;
 							}
@@ -5498,9 +5747,21 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						} else if (swt_expected_dim != WGPUTextureViewDimension_Undefined &&
 								swt_expected_dim != tex->view_dimension) {
 							// Fix dimension mismatch (e.g., Cube↔2D with fallback textures).
+							// See the identical dim_class_incompatible check and its comment
+							// in the UNIFORM_TYPE_TEXTURE case above (Task 9.5 Round 6): a
+							// view's dimension class must structurally match the real
+							// texture's own dimension (3D texture -> 3D view only; 2D texture
+							// -> never a 3D view), which no view-descriptor trick can bridge.
+							bool swt_dim_class_incompatible =
+									(tex->dimension == WGPUTextureDimension_3D && swt_expected_dim != WGPUTextureViewDimension_3D) ||
+									(tex->dimension != WGPUTextureDimension_3D && swt_expected_dim == WGPUTextureViewDimension_3D);
 							if (swt_expected_dim == WGPUTextureViewDimension_Cube && tex->layers < 6 &&
 									fallback_cube_texture_view != nullptr) {
 								te.textureView = fallback_cube_texture_view;
+							} else if (swt_dim_class_incompatible && fallback_float_texture_view != nullptr) {
+								te.textureView = (swt_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr)
+										? fallback_cube_texture_view
+										: fallback_float_texture_view;
 							} else if (tex->view_source != nullptr) {
 								// Use slice base offsets so slice views don't
 								// silently remap to mip 0 / layer 0 of the parent.
@@ -8203,8 +8464,10 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		}
 	}
 
-	// Demote read_write storage to read for vertex/fragment stages.
-	if (p_stage == SHADER_STAGE_VERTEX || p_stage == SHADER_STAGE_FRAGMENT) {
+	// Demote read_write storage to read for the vertex stage only -- see the matching fix
+	// (and its full explanation) in shader_create_from_container(), applied here too since
+	// this is the legacy spec-constant re-conversion path's own copy of the same logic.
+	if (p_stage == SHADER_STAGE_VERTEX) {
 		char *q = wgsl_str;
 		while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
 			memcpy(q, "var<storage, read>      ", 24);
@@ -8287,8 +8550,11 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 	}
 
 	// See _reclassify_single_component_depth_textures()'s doc comment (Task
-	// 7.13); must match shader_create_from_container().
-	wgsl_str = _reclassify_single_component_depth_textures(wgsl_str);
+	// 7.13); must match shader_create_from_container(). This path never
+	// performs the read-only-storage-to-sampled conversion itself, so there's
+	// no exclusion set to pass -- an empty set disables the exclusion check.
+	static const HashSet<uint32_t> empty_storage_converted_keys;
+	wgsl_str = _reclassify_single_component_depth_textures(wgsl_str, empty_storage_converted_keys);
 
 	WGPUShaderSourceWGSL wgsl_source = {};
 	wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
@@ -8649,12 +8915,29 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 				}
 			}
 		}
-		color_targets[i].format = fmt;
-
 		if (p_color_attachments[i] == ATTACHMENT_UNUSED) {
+			// An unused color-target slot must be a genuine "hole" (format
+			// Undefined is Dawn's C-API sentinel for the JS API's `null` array
+			// entry), not a real format with writes masked off. A pipeline's
+			// color-target slots must match a render pass's attachment slots
+			// exactly for presence/absence -- Godot's async pipeline
+			// precompilation always reserves 3 color-target slots (color,
+			// specular-or-unused, velocity-or-unused; see
+			// render_forward_clustered.cpp's _get_color_framebuffer_format_for_pipeline())
+			// even when a given scene's actual opaque-pass render target only
+			// has 1 attachment, so unused slots here are common, not an edge
+			// case. Vulkan/Metal/D3D12 don't need this distinction (their
+			// UNUSED-attachment references are pass-format-compatible
+			// regardless of what the pipeline declares for that slot), but
+			// WebGPU's stricter validation rejected a masked-but-formatted
+			// target against an actually-absent pass attachment with
+			// "Attachment state ... is not compatible". See
+			// webgpu_notes/TASKS.md Task 9.5 Round 5.
+			color_targets[i].format = WGPUTextureFormat_Undefined;
 			color_targets[i].writeMask = WGPUColorWriteMask_None;
 			continue;
 		}
+		color_targets[i].format = fmt;
 
 		// Blend state from p_blend_state.attachments[i].
 		if (i < (uint32_t)p_blend_state.attachments.size()) {

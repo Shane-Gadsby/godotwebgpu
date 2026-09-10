@@ -269,6 +269,21 @@ vec3 safe_normalize(vec3 v) {
 	return (length_squared > 1e-12) ? v * inversesqrt(length_squared) : vec3(0.0);
 }
 
+// Portable replacement for any(isnan(v)) || any(isinf(v)): Tint's SPIR-V
+// reader has no case for OpIsNan or OpIsInf at all (unconditional
+// TINT_UNREACHABLE() abort on either), and WGSL has no isNan/isInf builtins
+// of its own for a Tint patch to target -- so this is expressed with
+// operations Tint already handles correctly instead. `v != v` (component-wise
+// via notEqual(), since GLSL's != operator on vectors returns a single bool)
+// is an exact, IEEE-754-guaranteed test for NaN, not an approximation.
+// `abs(v) > FLT_MAX` is an exact test for infinity: FLT_MAX is defined as the
+// largest finite float32 value, so anything strictly greater must be +-inf,
+// and NaN comparisons are always false (so this never misfires on the NaN
+// case already covered above). See webgpu_notes/TASKS.md Task 9.5.
+bool any_nan_or_inf(vec4 v) {
+	return any(notEqual(v, v)) || any(greaterThan(abs(v), vec4(3.402823466e+38)));
+}
+
 #define TEMPORAL_FRAMES 16
 
 const vec3 halton_map[TEMPORAL_FRAMES] = vec3[](
@@ -801,8 +816,8 @@ void main() {
 	}
 
 	vec4 final_density = vec4(total_light * scattering + emission, total_density);
-	bool is_reprojected_density_invalid = any(isnan(reprojected_density)) || any(isinf(reprojected_density));
-	bool is_final_density_invalid = any(isnan(final_density)) || any(isinf(final_density));
+	bool is_reprojected_density_invalid = any_nan_or_inf(reprojected_density);
+	bool is_final_density_invalid = any_nan_or_inf(final_density);
 
 	if (is_final_density_invalid) {
 		final_density = is_reprojected_density_invalid ? vec4(0.0) : reprojected_density;
@@ -853,7 +868,7 @@ void main() {
 		prev_z = z;
 
 		vec4 final_fog = vec4(fog_accum.rgb, fog_accum.a);
-		bool is_final_fog_invalid = any(isnan(final_fog)) || any(isinf(final_fog));
+		bool is_final_fog_invalid = any_nan_or_inf(final_fog);
 		final_fog = is_final_fog_invalid ? vec4(0.0) : final_fog;
 		final_fog = clamp(final_fog, vec4(0.0), vec4(65504.0));
 		imageStore(fog_map, fog_pos, final_fog);

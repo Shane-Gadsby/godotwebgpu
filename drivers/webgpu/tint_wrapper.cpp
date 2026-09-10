@@ -35,6 +35,11 @@ char *tint_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_word_co
 	// (valid in Vulkan, but WGSL requires uniform control flow for derivatives).
 	// This inserts `diagnostic(off, derivative_uniformity)` in the output.
 	wgsl_options.allow_non_uniform_derivatives = true;
+	// Same relaxation for subgroup operations (cluster_render.glsl,
+	// scene_forward_clustered.glsl — Forward+ only, see Task 9.1/9.2):
+	// GLSL's GL_KHR_shader_subgroup_* calls appear in non-uniform control
+	// flow too. Inserts `diagnostic(off, subgroup_uniformity)`.
+	wgsl_options.allow_non_uniform_subgroup_operations = true;
 
 	auto result = tint::SpirvToWgsl(words, wgsl_options);
 	if (result != tint::Success) {

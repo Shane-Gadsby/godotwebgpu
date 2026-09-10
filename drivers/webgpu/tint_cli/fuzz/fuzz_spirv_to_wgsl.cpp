@@ -47,8 +47,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	auto depth_result = spirv_preprocess::fix_depth2_images(spv);
 	spv = depth_result.bytes;
 	spv = spirv_preprocess::negate_position_y(spv);
-	spv = spirv_preprocess::strip_restrict_decoration(spv);
+	spv = spirv_preprocess::strip_unsupported_decorations(spv);
 	spv = spirv_preprocess::strip_memory_barrier(spv);
+	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
+	spv = spirv_preprocess::fold_ballot_bit_count(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
