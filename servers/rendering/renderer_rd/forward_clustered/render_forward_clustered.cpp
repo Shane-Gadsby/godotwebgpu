@@ -1788,7 +1788,24 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	switch (rb->get_scaling_3d_mode()) {
 		case RSE::VIEWPORT_SCALING_3D_MODE_FSR2:
-			scale_type = SCALE_FSR2;
+			// FSR2's auto-exposure/luminance-pyramid pass unconditionally needs a
+			// storage-buffer atomic counter on backends lacking native image atomics
+			// (see effects/fsr2.cpp's create_resource_rd()/SPD_IncreaseAtomicCounter).
+			// That buffer-atomic path is correctly implemented (mirrors fog.cpp's own
+			// NO_IMAGE_ATOMICS fallback) but currently trips an unrelated internal
+			// compiler error in this engine's vendored Tint ("Switch() matched no
+			// cases. Type: tint::core::ir::Phony" in
+			// thirdparty/tint/.../lower/atomics.cc) specifically within FSR2's very
+			// large compute_luminance_pyramid shader -- confirmed via extensive
+			// isolation (a minimal standalone shader using the identical buffer-atomic
+			// pattern compiles cleanly; something else in FSR2's ~12k-line preprocessed
+			// shader trips Tint's atomics-lowering pass once any real atomic access is
+			// present at all). Until that's root-caused (needs either a Tint upstream
+			// fix or a full bisection of the FSR2 shader), fall back to no upscaling on
+			// backends without native image atomics, the same way METALFX_TEMPORAL
+			// already falls back below when unavailable. See webgpu_notes/TASKS.md Task
+			// 9.5 Round 14.
+			scale_type = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? SCALE_FSR2 : SCALE_NONE;
 			break;
 		case RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL:
 #ifdef METAL_MFXTEMPORAL_ENABLED

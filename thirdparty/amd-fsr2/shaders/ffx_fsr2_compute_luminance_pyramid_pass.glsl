@@ -104,12 +104,21 @@ void SPD_SetMipmap(ivec2 iPxPos, uint slice, float value)
 
 void SPD_IncreaseAtomicCounter(inout uint spdCounter)
 {
+#ifdef NO_IMAGE_ATOMICS
+	spdCounter = atomicAdd(rw_spd_global_atomic_value[0], 1);
+#else
 	spdCounter = imageAtomicAdd(rw_spd_global_atomic, ivec2(0,0), 1);
+#endif
 }
 
+// NO_IMAGE_ATOMICS's reset is handled directly in SpdResetAtomicCounter
+// (ffx_fsr2_compute_luminance_pyramid.h) instead of here -- see the comment there.
+// This function is only reachable on the image (non-NO_IMAGE_ATOMICS) path.
 void SPD_ResetAtomicCounter()
 {
+#ifndef NO_IMAGE_ATOMICS
 	imageStore(rw_spd_global_atomic, ivec2(0,0), uvec4(0));
+#endif
 }
 
 #include "ffx_fsr2_compute_luminance_pyramid.h"
