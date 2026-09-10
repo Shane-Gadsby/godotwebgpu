@@ -2358,6 +2358,19 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 		case DATA_FORMAT_R32G32B32A32_SFLOAT:
 		case DATA_FORMAT_R32G32B32A32_UINT:
 		case DATA_FORMAT_R32G32B32A32_SINT:
+		// rgb10a2unorm, rgb10a2uint, rg11b10ufloat -- part of WebGPU's storage-texel
+		// format capability matrix (this build's Tint/Dawn accepts these as valid
+		// textureStore() targets; see the "storage-format-string" handling for these
+		// three formats elsewhere in this file, e.g. _wgsl_storage_format_string_to_wgpu()
+		// from Task 9 Round 9). This switch previously omitted them, so any caller
+		// (e.g. FSR2's create_resource_rd for its RG11B10_UFLOAT accumulation buffer)
+		// requesting TEXTURE_USAGE_STORAGE_BIT with one of these formats got a hard
+		// texture_create() failure -- which the AMD FSR2 SDK does not handle gracefully,
+		// eventually manifesting as an unrelated-looking WASM "table index is out of
+		// bounds" trap much later.
+		case DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
+		case DATA_FORMAT_A2B10G10R10_UINT_PACK32:
+		case DATA_FORMAT_B10G11R11_UFLOAT_PACK32:
 			flags.set_flag(TEXTURE_USAGE_STORAGE_BIT);
 			break;
 		default:

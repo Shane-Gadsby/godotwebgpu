@@ -279,8 +279,22 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
 #if defined FSR2_BIND_UAV_AUTO_EXPOSURE
 	layout(set = 1, binding = FSR2_BIND_UAV_AUTO_EXPOSURE, rg32f)                         uniform image2D    rw_auto_exposure;
 #endif
-#if defined FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC 
+#if defined FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC
+// WebGPU/WGSL has no texture-atomic concept at all, so on backends without
+// SUPPORTS_IMAGE_ATOMIC_32_BIT this single-texel counter is rerouted to a real
+// storage buffer instead (see fsr2.cpp's create_resource_rd()/execute_gpu_job_compute_rd(),
+// and the same NO_IMAGE_ATOMICS pattern already used by fog.cpp/volumetric_fog.glsl).
+#ifdef NO_IMAGE_ATOMICS
+	// An array member (even length-1), not a bare scalar member, to match the
+	// proven-working buffer-atomic-fallback pattern already used elsewhere in this
+	// engine (fog.cpp/volumetric_fog.glsl's NO_IMAGE_ATOMICS buffers) -- a bare
+	// scalar member here was found to unconditionally ICE Tint's SPIR-V
+	// atomics-lowering pass on any atomic access at all, array or not; see
+	// webgpu_notes/TASKS.md Task 9.5 Round 14.
+	layout (set = 1, binding = FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC, std430) volatile buffer SpdGlobalAtomicBuffer { uint rw_spd_global_atomic_value[]; };
+#else
 	layout (set = 1, binding = FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC, r32ui)       coherent uniform uimage2D   rw_spd_global_atomic;
+#endif
 #endif
 
 #if defined FSR2_BIND_UAV_AUTOREACTIVE
