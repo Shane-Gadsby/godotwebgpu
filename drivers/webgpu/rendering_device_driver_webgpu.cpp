@@ -1858,6 +1858,30 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 			view_desc.dimension = orig->view_dimension;
 			break;
 	}
+	// Unlike Vulkan/Metal (VK_IMAGE_VIEW_TYPE_2D + 2D_ARRAY_COMPATIBLE), WebGPU
+	// has no way to view a single Z-slice of a 3D-dimension texture as a 2D
+	// view at all -- a view's dimension must structurally match the real
+	// texture's own WGPUTextureDimension (2D-family texture -> 2D/2DArray/
+	// Cube/CubeArray view; 3D texture -> 3D view only, covering the whole
+	// depth range). A caller requesting TEXTURE_SLICE_2D (or any non-3D slice
+	// type) against a genuinely 3D-dimension source -- which several
+	// engine-side call sites of texture_create_shared_from_slice() do
+	// generically, not knowing whether the texture they were handed is 2D or
+	// 3D -- would otherwise attempt an outright-invalid wgpuTextureCreateView
+	// call ("dimension ... is not compatible with the dimension ... of
+	// [Texture]"), the same structural-incompatibility class as the uniform-
+	// binding case fixed in Task 9.5 Round 6, just at texture-slice-creation
+	// time instead of bind-group-creation time. Keep a full 3D view instead
+	// of crashing; the caller's chosen Z-slice addressing (baseArrayLayer/
+	// arrayLayerCount below) has no WebGPU-view equivalent for a 3D texture,
+	// so slice isolation is lost here -- a real, documented limitation, not a
+	// complete fix -- but this is safe by construction and strictly better
+	// than a hard validation error. See webgpu_notes/TASKS.md Task 9.5 Round 8.
+	if (orig->dimension == WGPUTextureDimension_3D && view_desc.dimension != WGPUTextureViewDimension_3D) {
+		view_desc.dimension = WGPUTextureViewDimension_3D;
+		view_desc.baseArrayLayer = 0;
+		view_desc.arrayLayerCount = 1;
+	}
 
 	// view_source was already inherited from orig via *tex = *orig.
 	if (tex->view_source == nullptr) {
