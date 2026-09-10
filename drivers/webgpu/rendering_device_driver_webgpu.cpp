@@ -4651,9 +4651,17 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// from either variable's own declared WGSL type. textureSampleCompare /
 		// textureSampleCompareLevel are deliberately excluded: those pair a texture
 		// with a sampler_comparison, already handled by wgsl_is_comparison_sampler.
+		// textureGather( is included -- its texture_depth_2d overload (Task 7.22)
+		// is (tex, sampler, coords), same shape as the others, and was missing here
+		// entirely: found via a real Chrome run against ss_effects_downsample.glsl,
+		// whose source_depth is read via a mix of texelFetch (no sampler reference
+		// in WGSL at all, so nothing to detect) and textureGather (which does
+		// reference the sampler, but wasn't scanned) -- the paired sampler kept its
+		// default Filtering type, which WebGPU rejects for any static use with a
+		// Depth-sampleType texture binding. See webgpu_notes/TASKS.md Task 9.5 Round 10.
 		{
 			static const char *const non_compare_fns[] = {
-				"textureSample(", "textureSampleLevel(", "textureSampleBias(", "textureSampleGrad("
+				"textureSample(", "textureSampleLevel(", "textureSampleBias(", "textureSampleGrad(", "textureGather("
 			};
 			for (const char *fn : non_compare_fns) {
 				const size_t fn_len = strlen(fn);
