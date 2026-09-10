@@ -315,6 +315,42 @@ static bool _is_float32_format(WGPUTextureFormat p_format) {
 	}
 }
 
+// Maps a WGSL storage-texel-format identifier (e.g. "rgba16sint", as it
+// appears in a texture_storage_2d<fmt, access> declaration) to its
+// WGPUTextureFormat. Shared by every place that needs to know a storage
+// texture's real format after its WGSL declaration text is gone (the
+// read-only-storage-to-sampled conversion, and the read_write-storage
+// shadow-read split) -- both record this eagerly, before their rewrite
+// removes the declaration a later text scan could otherwise read it from.
+static WGPUTextureFormat _wgsl_storage_format_string_to_wgpu(const String &p_fmt) {
+	if (p_fmt == "rgba8unorm") return WGPUTextureFormat_RGBA8Unorm;
+	if (p_fmt == "rgba8snorm") return WGPUTextureFormat_RGBA8Snorm;
+	if (p_fmt == "rgba8uint") return WGPUTextureFormat_RGBA8Uint;
+	if (p_fmt == "rgba8sint") return WGPUTextureFormat_RGBA8Sint;
+	if (p_fmt == "rgba16float") return WGPUTextureFormat_RGBA16Float;
+	if (p_fmt == "rgba16uint") return WGPUTextureFormat_RGBA16Uint;
+	if (p_fmt == "rgba16sint") return WGPUTextureFormat_RGBA16Sint;
+	if (p_fmt == "rgba32float") return WGPUTextureFormat_RGBA32Float;
+	if (p_fmt == "rgba32uint") return WGPUTextureFormat_RGBA32Uint;
+	if (p_fmt == "rgba32sint") return WGPUTextureFormat_RGBA32Sint;
+	if (p_fmt == "rg32float") return WGPUTextureFormat_RG32Float;
+	if (p_fmt == "rg32uint") return WGPUTextureFormat_RG32Uint;
+	if (p_fmt == "rg32sint") return WGPUTextureFormat_RG32Sint;
+	if (p_fmt == "r32float") return WGPUTextureFormat_R32Float;
+	if (p_fmt == "r32uint") return WGPUTextureFormat_R32Uint;
+	if (p_fmt == "r32sint") return WGPUTextureFormat_R32Sint;
+	if (p_fmt == "r8unorm") return WGPUTextureFormat_R8Unorm;
+	if (p_fmt == "r8snorm") return WGPUTextureFormat_R8Snorm;
+	if (p_fmt == "r8uint") return WGPUTextureFormat_R8Uint;
+	if (p_fmt == "r8sint") return WGPUTextureFormat_R8Sint;
+	if (p_fmt == "rg8unorm") return WGPUTextureFormat_RG8Unorm;
+	if (p_fmt == "rg8snorm") return WGPUTextureFormat_RG8Snorm;
+	if (p_fmt == "rg8uint") return WGPUTextureFormat_RG8Uint;
+	if (p_fmt == "rg8sint") return WGPUTextureFormat_RG8Sint;
+	if (p_fmt == "bgra8unorm") return WGPUTextureFormat_BGRA8Unorm;
+	return WGPUTextureFormat_RGBA8Unorm; // fallback
+}
+
 // Maps a WGPUTextureFormat to the WGPUTextureSampleType needed for a sampled
 // texture BGL entry. Integer formats → Uint/Sint, everything else → UnfilterableFloat.
 static WGPUTextureSampleType _texture_sample_type_for_format(WGPUTextureFormat p_format) {
@@ -4220,9 +4256,24 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						}
 					}
 
-					// Record the split for BGL/bind-group creation.
+					// Record the split for BGL/bind-group creation. The shadow's
+					// format must be recorded too (keyed by its OWN binding, not
+					// the write-side binding) -- the BGL-construction code below
+					// looks it up via wgsl_storage_tex_format[shadow_key] to pick
+					// the shadow's sampleType, but nothing else ever wrote to that
+					// map for the shadow's key: its own WGSL declaration is a
+					// synthetic `texture_2d<T>` with no format literal at all (see
+					// shadow_decl above), so the general format-scanning pass has
+					// nothing to find here either. Left unrecorded, the lookup fell
+					// through to the RGBA8Unorm/UnfilterableFloat default,
+					// mismatching the shadow's real component type (e.g. Sint for
+					// an rgba16sint source, as in sdfgi_integrate.glsl's
+					// lightprobe_history_texture) against what Tint actually
+					// declared it as. See webgpu_notes/TASKS.md Task 9.5 Round 7.
 					uint32_t key = ((uint32_t)info.grp << 16) | info.bnd;
 					wgsl_rw_storage_splits[key] = shadow_bnd;
+					uint32_t shadow_key = ((uint32_t)info.grp << 16) | shadow_bnd;
+					wgsl_storage_tex_format[shadow_key] = _wgsl_storage_format_string_to_wgpu(info.fmt);
 				}
 				// Log the transformed WGSL for debugging.
 				WEBGPU_DIAG({ console.log('[RW-SPLIT] Split ' + $0 + ' read_write storage texture(s)'); },
@@ -4374,35 +4425,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					// format-scanning pass won't find it — we must record it now.
 					uint32_t key = ((uint32_t)info.grp << 16) | info.bnd;
 					wgsl_read_storage_to_sampled.insert(key);
-					{
-						WGPUTextureFormat tf = WGPUTextureFormat_RGBA8Unorm; // fallback
-						if (info.fmt == "rgba8unorm") tf = WGPUTextureFormat_RGBA8Unorm;
-						else if (info.fmt == "rgba8snorm") tf = WGPUTextureFormat_RGBA8Snorm;
-						else if (info.fmt == "rgba8uint") tf = WGPUTextureFormat_RGBA8Uint;
-						else if (info.fmt == "rgba8sint") tf = WGPUTextureFormat_RGBA8Sint;
-						else if (info.fmt == "rgba16float") tf = WGPUTextureFormat_RGBA16Float;
-						else if (info.fmt == "rgba16uint") tf = WGPUTextureFormat_RGBA16Uint;
-						else if (info.fmt == "rgba16sint") tf = WGPUTextureFormat_RGBA16Sint;
-						else if (info.fmt == "rgba32float") tf = WGPUTextureFormat_RGBA32Float;
-						else if (info.fmt == "rgba32uint") tf = WGPUTextureFormat_RGBA32Uint;
-						else if (info.fmt == "rgba32sint") tf = WGPUTextureFormat_RGBA32Sint;
-						else if (info.fmt == "rg32float") tf = WGPUTextureFormat_RG32Float;
-						else if (info.fmt == "rg32uint") tf = WGPUTextureFormat_RG32Uint;
-						else if (info.fmt == "rg32sint") tf = WGPUTextureFormat_RG32Sint;
-						else if (info.fmt == "r32float") tf = WGPUTextureFormat_R32Float;
-						else if (info.fmt == "r32uint") tf = WGPUTextureFormat_R32Uint;
-						else if (info.fmt == "r32sint") tf = WGPUTextureFormat_R32Sint;
-						else if (info.fmt == "r8unorm") tf = WGPUTextureFormat_R8Unorm;
-						else if (info.fmt == "r8snorm") tf = WGPUTextureFormat_R8Snorm;
-						else if (info.fmt == "r8uint") tf = WGPUTextureFormat_R8Uint;
-						else if (info.fmt == "r8sint") tf = WGPUTextureFormat_R8Sint;
-						else if (info.fmt == "rg8unorm") tf = WGPUTextureFormat_RG8Unorm;
-						else if (info.fmt == "rg8snorm") tf = WGPUTextureFormat_RG8Snorm;
-						else if (info.fmt == "rg8uint") tf = WGPUTextureFormat_RG8Uint;
-						else if (info.fmt == "rg8sint") tf = WGPUTextureFormat_RG8Sint;
-						else if (info.fmt == "bgra8unorm") tf = WGPUTextureFormat_BGRA8Unorm;
-						wgsl_storage_tex_format[key] = tf;
-					}
+					wgsl_storage_tex_format[key] = _wgsl_storage_format_string_to_wgpu(info.fmt);
 				}
 				WEBGPU_DIAG({ console.log('[READ-CONVERT] Converted ' + $0 + ' read-only storage texture(s) to sampled'); },
 					(int)ro_infos.size());
