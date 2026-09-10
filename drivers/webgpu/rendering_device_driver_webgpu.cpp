@@ -6317,20 +6317,46 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 						p_us->bound_textures.has(entry.binding)) {
 					WGTexture *tex = p_us->bound_textures[entry.binding];
 					if (tex && tex->view_dimension != target_dim && tex->view_source) {
-						// Use slice base offsets so slice views don't
-						// silently remap to mip 0 / layer 0 of the parent.
-						WGPUTextureViewDescriptor vd = {};
-						vd.format = tex->format;
-						vd.dimension = target_dim;
-						vd.baseMipLevel = tex->base_mipmap;
-						vd.mipLevelCount = tex->mipmaps;
-						vd.baseArrayLayer = tex->base_layer;
-						vd.arrayLayerCount = (target_dim == WGPUTextureViewDimension_2D) ? 1 : tex->layers;
-						vd.aspect = WGPUTextureAspect_All;
-						WGPUTextureView fixed = wgpuTextureCreateView(tex->view_source, &vd);
-						if (fixed) {
-							entry.textureView = fixed;
-							p_us->temp_views.push_back(fixed);
+						// A view's dimension must structurally match the real texture's
+						// own dimension (3D texture -> 3D view only; 2D texture -> never
+						// a 3D view) -- the same check applied in the general uniform-
+						// binding fixups (Task 9.5 Round 6) was missing here, in this
+						// separate "adapt a cached uniform set to a different but
+						// layout-compatible target shader" path. Found via a real Chrome
+						// run + a debug probe against scene_forward_clustered.glsl's
+						// voxel_gi_textures/sdfgi_occlusion_cascades/volumetric_fog_texture
+						// (all texture_3d<f32>, every variant checked agreed on that
+						// dimension) -- the mismatch this function reacts to must be
+						// coming from two *different* shader variants disagreeing on
+						// declared dimension for the same binding number in some case not
+						// caught by that check, which this substitution avoids crashing on
+						// regardless of the exact trigger. See webgpu_notes/TASKS.md Task
+						// 9.5 Round 11.
+						bool dim_class_incompatible =
+								(tex->dimension == WGPUTextureDimension_3D && target_dim != WGPUTextureViewDimension_3D) ||
+								(tex->dimension != WGPUTextureDimension_3D && target_dim == WGPUTextureViewDimension_3D);
+						if (dim_class_incompatible) {
+							if (target_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
+								entry.textureView = fallback_cube_texture_view;
+							} else if (fallback_float_texture_view != nullptr) {
+								entry.textureView = fallback_float_texture_view;
+							}
+						} else {
+							// Use slice base offsets so slice views don't
+							// silently remap to mip 0 / layer 0 of the parent.
+							WGPUTextureViewDescriptor vd = {};
+							vd.format = tex->format;
+							vd.dimension = target_dim;
+							vd.baseMipLevel = tex->base_mipmap;
+							vd.mipLevelCount = tex->mipmaps;
+							vd.baseArrayLayer = tex->base_layer;
+							vd.arrayLayerCount = (target_dim == WGPUTextureViewDimension_2D) ? 1 : tex->layers;
+							vd.aspect = WGPUTextureAspect_All;
+							WGPUTextureView fixed = wgpuTextureCreateView(tex->view_source, &vd);
+							if (fixed) {
+								entry.textureView = fixed;
+								p_us->temp_views.push_back(fixed);
+							}
 						}
 					}
 				}
