@@ -3184,7 +3184,33 @@ void RenderForwardClustered::_render_sdfgi(Ref<RenderSceneBuffersRD> p_render_bu
 
 		HashMap<Size2i, RID>::Iterator E = sdfgi_framebuffer_size_cache.find(fb_size);
 		if (!E) {
-			RID fb = RD::get_singleton()->framebuffer_create_empty(fb_size);
+			RID fb;
+			if (RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS)) {
+				fb = RD::get_singleton()->framebuffer_create_empty(fb_size);
+			} else {
+				// This SDF voxelization pass's fragment shader
+				// (SHADER_VERSION_DEPTH_PASS_WITH_SDF) writes exclusively via
+				// imageStore/imageAtomicOr side effects (see
+				// scene_forward_clustered.glsl) -- it was always paired with
+				// a genuinely empty (zero-attachment) framebuffer here,
+				// which needs SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS.
+				// On a backend without it (mirroring ClusterBuilderRD::setup()'s
+				// identical fix, Task 9.5 Round 13), give it one real,
+				// never-read color attachment instead -- matching the shader's
+				// own NEEDS_DUMMY_COLOR_ATTACHMENT output (see
+				// scene_shader_forward_clustered.cpp) and this pipeline's
+				// matching blend-state fix (_create_pipeline()). See
+				// webgpu_notes/TASKS.md Task 9.5 Round 26.
+				RD::TextureFormat tf;
+				tf.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+				tf.width = MAX(1, fb_size.width);
+				tf.height = MAX(1, fb_size.height);
+				tf.texture_type = RD::TEXTURE_TYPE_2D;
+				tf.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+				RID color_tex = RD::get_singleton()->texture_create(tf, RD::TextureView());
+				sdfgi_framebuffer_color_cache.insert(fb_size, color_tex);
+				fb = RD::get_singleton()->framebuffer_create({ color_tex });
+			}
 			E = sdfgi_framebuffer_size_cache.insert(fb_size, fb);
 		}
 
@@ -4635,6 +4661,30 @@ static RD::FramebufferFormatID _get_depth_framebuffer_format_for_pipeline(bool p
 	return RD::get_singleton()->framebuffer_format_create_multipass(Vector<RD::AttachmentFormat>(attachments), passes);
 }
 
+// Only used when RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS is
+// unavailable (see PIPELINE_VERSION_DEPTH_PASS_WITH_SDF's pre-warm call site
+// in _mesh_compile_pipelines_for_surface() below, and the matching fixes in
+// scene_shader_forward_clustered.cpp's constructor/_create_pipeline() and
+// scene_forward_clustered.glsl's NEEDS_DUMMY_COLOR_ATTACHMENT output).
+// _render_sdfgi()'s actual runtime framebuffer for this pass, on such a
+// backend, is one real RGBA8Unorm color attachment (never a depth attachment,
+// never truly empty) -- mirror that shape exactly here, via
+// framebuffer_format_create()'s own attachment-list deduplication, so this
+// pre-warmed pipeline is the *same* pipeline _render_sdfgi() actually draws
+// with, not a second, never-reused one. See webgpu_notes/TASKS.md Task 9.5
+// Round 26.
+static RD::FramebufferFormatID _get_sdf_color_framebuffer_format_for_pipeline() {
+	RD::AttachmentFormat attachment;
+	attachment.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	attachment.usage_flags = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+
+	thread_local LocalVector<RD::AttachmentFormat> attachments;
+	attachments.clear();
+	attachments.push_back(attachment);
+
+	return RD::get_singleton()->framebuffer_format_create(Vector<RD::AttachmentFormat>(attachments));
+}
+
 static RD::FramebufferFormatID _get_shadow_cubemap_framebuffer_format_for_pipeline() {
 	thread_local LocalVector<RD::AttachmentFormat> attachments;
 	attachments.clear();
@@ -4784,14 +4834,24 @@ void RenderForwardClustered::_mesh_compile_pipelines_for_surface(const SurfacePi
 	}
 
 	if (p_global.use_sdfgi) {
-		// Depth pass with SDFGI support.
 		pipeline_key.version = SceneShaderForwardClustered::PIPELINE_VERSION_DEPTH_PASS_WITH_SDF;
-		pipeline_key.framebuffer_format_id = _get_depth_framebuffer_format_for_pipeline(buffers_can_be_storage, RD::TextureSamples(p_global.texture_samples), false, false);
-		_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
 
-		// Depth pass with SDFGI support for an empty framebuffer.
-		pipeline_key.framebuffer_format_id = RD::get_singleton()->framebuffer_format_create_empty();
-		_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
+		if (RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS)) {
+			// Depth pass with SDFGI support.
+			pipeline_key.framebuffer_format_id = _get_depth_framebuffer_format_for_pipeline(buffers_can_be_storage, RD::TextureSamples(p_global.texture_samples), false, false);
+			_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
+
+			// Depth pass with SDFGI support for an empty framebuffer.
+			pipeline_key.framebuffer_format_id = RD::get_singleton()->framebuffer_format_create_empty();
+			_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
+		} else {
+			// Neither of the above framebuffer shapes (depth-only, or truly
+			// empty) is what _render_sdfgi() actually draws with on a backend
+			// lacking SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS -- see
+			// _get_sdf_color_framebuffer_format_for_pipeline()'s doc comment.
+			pipeline_key.framebuffer_format_id = _get_sdf_color_framebuffer_format_for_pipeline();
+			_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
+		}
 	}
 
 	// The dedicated depth passes use a different version of the surface and the shader.
@@ -5326,5 +5386,10 @@ RenderForwardClustered::~RenderForwardClustered() {
 	while (sdfgi_framebuffer_size_cache.begin()) {
 		RD::get_singleton()->free_rid(sdfgi_framebuffer_size_cache.begin()->value);
 		sdfgi_framebuffer_size_cache.remove(sdfgi_framebuffer_size_cache.begin());
+	}
+
+	while (sdfgi_framebuffer_color_cache.begin()) {
+		RD::get_singleton()->free_rid(sdfgi_framebuffer_color_cache.begin()->value);
+		sdfgi_framebuffer_color_cache.remove(sdfgi_framebuffer_color_cache.begin());
 	}
 }

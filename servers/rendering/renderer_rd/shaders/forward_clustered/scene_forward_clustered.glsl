@@ -1054,6 +1054,19 @@ layout(location = 1) out uvec2 voxel_gi_buffer;
 #endif
 
 #endif //MODE_RENDER_NORMAL
+
+#if defined(NEEDS_DUMMY_COLOR_ATTACHMENT) && !defined(MODE_RENDER_MATERIAL) && !defined(MODE_RENDER_NORMAL_ROUGHNESS)
+// SHADER_VERSION_DEPTH_PASS_WITH_SDF on a backend lacking
+// SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS (see
+// scene_shader_forward_clustered.cpp's constructor and _create_pipeline(),
+// and RenderForwardClustered::_render_sdfgi()): this mode otherwise declares
+// no color output at all (writes exclusively via the imageStore/
+// imageAtomicOr side effects below), which needs a real attachment on such
+// backends. Never read; exists purely to satisfy the "one real attachment"
+// requirement. webgpu_notes/TASKS.md Task 9.5 Round 26.
+layout(location = 0) out vec4 dummy_color_attachment;
+#endif
+
 #else // RENDER DEPTH
 
 #ifdef MODE_SEPARATE_SPECULAR
@@ -2907,6 +2920,10 @@ void fragment_shader(in SceneData scene_data) {
 #ifdef MODE_RENDER_DEPTH
 
 #ifdef MODE_RENDER_SDF
+
+#ifdef NEEDS_DUMMY_COLOR_ATTACHMENT
+	dummy_color_attachment = vec4(0.0);
+#endif
 
 	{
 		vec3 local_pos = (implementation_data.sdf_to_bounds * vec4(vertex, 1.0)).xyz;

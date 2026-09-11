@@ -478,6 +478,11 @@ private:
 	void _fill_render_list(RenderListType p_render_list, const RenderDataRD *p_render_data, PassMode p_pass_mode, bool p_using_sdfgi = false, bool p_using_opaque_gi = false, bool p_using_motion_pass = false, bool p_append = false);
 
 	HashMap<Size2i, RID> sdfgi_framebuffer_size_cache;
+	// Only populated when RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS
+	// is unavailable -- see _render_sdfgi()'s framebuffer-creation branch.
+	// Owns the color texture backing sdfgi_framebuffer_size_cache's real
+	// (non-empty) framebuffers, freed alongside them below.
+	HashMap<Size2i, RID> sdfgi_framebuffer_color_cache;
 
 	struct GeometryInstanceData;
 	class GeometryInstanceForwardClustered;
