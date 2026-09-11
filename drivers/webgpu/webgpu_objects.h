@@ -284,9 +284,19 @@ struct WGUniformSet {
 
 	// Tracks which source→shadow registrations this uniform set created in
 	// rw_shadow_copy_map, so they can be deregistered when the set is freed.
+	// Also used to refresh the shadow (GPU-side copy from source) immediately
+	// before each compute dispatch that reads it — see
+	// RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(). The
+	// shadow is otherwise only ever refreshed by texture_update() (a CPU
+	// upload), which never happens for a purely GPU-authored (compute/render-
+	// written) source texture, leaving such a shadow permanently at its
+	// initial (zeroed) contents. Task 9.5, "bokeh_dof.glsl solid-black" round.
 	struct RWShadowRegistration {
 		WGPUTexture source;
 		WGPUTexture shadow;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		uint32_t depth = 0;
 	};
 	LocalVector<RWShadowRegistration> rw_shadow_registrations;
 

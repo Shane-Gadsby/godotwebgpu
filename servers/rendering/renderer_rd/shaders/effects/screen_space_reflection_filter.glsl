@@ -7,7 +7,16 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform sampler2D source;
-layout(set = 0, binding = 1) uniform restrict writeonly image2D dest;
+// `dest` is a mip slice of the same RB_SCOPE_SSR/RB_SSR texture that
+// screen_space_reflection.glsl's `output_color` writes to at mip 0 -- that
+// shader already hardcodes rgba16f for it (ss_effects.cpp's ssr_allocate_buffers
+// always allocates RB_SSR as the render buffers' base HDR format, which is
+// always RGBA16_SFLOAT in practice). A writeonly image2D with no format
+// qualifier is legal GLSL/SPIR-V (OpTypeImage's format is Unknown, under the
+// StorageImageWriteWithoutFormat capability) but WGSL's texture_storage_2d
+// requires a concrete texel format -- Tint has nothing to infer it from and
+// rejects every textureStore call against it. See webgpu_notes/TASKS.md Task 8.3.
+layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D dest;
 
 layout(push_constant, std430) uniform Params {
 	ivec2 screen_size;
