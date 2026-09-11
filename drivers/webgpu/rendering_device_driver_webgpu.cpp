@@ -5883,6 +5883,66 @@ void RenderingDeviceDriverWebGPU::shader_destroy_modules(ShaderID p_shader) {
 // UNIFORM SET
 // =============================================================================
 
+// Creates the shadow-copy texture/view for one read_write-storage-split
+// binding and fills r_entry with the resulting WGPUBindGroupEntry (bound at
+// the split's shadow binding number). Shared by uniform_set_create() (the
+// normal case: building a brand-new bind group) and _get_compatible_bind_group()
+// (adapting a cached bind group to a *different*, layout-compatible shader
+// variant that needs a shadow entry the original variant never created --
+// see that function's own call site for why this case exists at all: two
+// ShaderRD mode variants sharing the same uniform interface can disagree on
+// which bindings are actually read_write in their own DCE'd WGSL, since
+// read_write-ness is a per-specialization property of which code paths a
+// given #ifdef mode actually exercises, not a fixed property of the binding
+// number. Task 9.5 Round 24.
+bool RenderingDeviceDriverWebGPU::_create_rw_shadow_bind_entry(WGUniformSet *p_us, WGTexture *p_orig_tex, uint32_t p_shadow_bnd, WGPUBindGroupEntry &r_entry) {
+	// depthOrArrayLayers must come from p_orig_tex->layers for a 2D(-array)
+	// texture -- p_orig_tex->depth is only meaningful for TEXTURE_TYPE_3D
+	// (mirrors the same dimension-aware selection texture_create() uses when
+	// first building this same texture's own WGPUTextureDescriptor). Task 9.5
+	// Round 22.
+	WGPUTextureDescriptor shadow_desc = {};
+	shadow_desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+	shadow_desc.dimension = p_orig_tex->dimension;
+	shadow_desc.size = { p_orig_tex->width, p_orig_tex->height, (p_orig_tex->dimension == WGPUTextureDimension_3D) ? p_orig_tex->depth : p_orig_tex->layers };
+	shadow_desc.format = p_orig_tex->format;
+	shadow_desc.mipLevelCount = p_orig_tex->mipmaps;
+	shadow_desc.sampleCount = p_orig_tex->sample_count;
+	WGPUTexture shadow_tex = wgpuDeviceCreateTexture(device, &shadow_desc);
+	if (!shadow_tex) {
+		WARN_PRINT("WebGPU: failed to create shadow read texture for rw_storage split.");
+		return false;
+	}
+	// NOTE: We intentionally do NOT copy original→shadow here. The shadow
+	// will be populated by command_copy_buffer_to_texture (called from
+	// texture_update) before any compute dispatch reads it. An eager copy
+	// here races with later wgpuQueueWriteTexture on Firefox/wgpu,
+	// overwriting shadow data with zeros.
+	WGPUTextureViewDescriptor vd = {};
+	vd.format = p_orig_tex->format;
+	vd.dimension = p_orig_tex->view_dimension;
+	vd.baseMipLevel = 0;
+	vd.mipLevelCount = p_orig_tex->mipmaps;
+	vd.baseArrayLayer = 0;
+	vd.arrayLayerCount = p_orig_tex->layers;
+	vd.aspect = WGPUTextureAspect_All;
+	WGPUTextureView shadow_view = wgpuTextureCreateView(shadow_tex, &vd);
+	if (!shadow_view) {
+		wgpuTextureRelease(shadow_tex);
+		return false;
+	}
+	r_entry = {};
+	r_entry.binding = p_shadow_bnd;
+	r_entry.textureView = shadow_view;
+	p_us->rw_shadow_textures.push_back(shadow_tex);
+	p_us->rw_shadow_views.push_back(shadow_view);
+	// Register in the driver-level map so future texture_update calls on the
+	// source also copy to this shadow.
+	rw_shadow_copy_map[p_orig_tex->gpu_handle()].push_back(shadow_tex);
+	p_us->rw_shadow_registrations.push_back({ p_orig_tex->gpu_handle(), shadow_tex, p_orig_tex->width, p_orig_tex->height, p_orig_tex->depth });
+	return true;
+}
+
 RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	WGShader *shader = (WGShader *)(p_shader.id);
 	ERR_FAIL_NULL_V(shader, UniformSetID());
@@ -6413,7 +6473,8 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 	// Add shadow read bindings for read_write storage texture splits.
 	// For each split, create a GPU copy of the original texture and bind it
-	// at the shadow read slot (write_binding + 1).
+	// at the shadow read slot. See _create_rw_shadow_bind_entry()'s doc
+	// comment for why this is factored into a shared helper (Task 9.5 Round 24).
 	for (const KeyValue<uint32_t, uint32_t> &kv : shader->rw_storage_splits) {
 		uint32_t split_grp = kv.key >> 16;
 		uint32_t write_bnd = kv.key & 0xFFFF;
@@ -6429,55 +6490,9 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 		if (!orig_tex) {
 			continue;
 		}
-		// Create a shadow texture with the same format and size.
-		// depthOrArrayLayers must come from orig_tex->layers for a 2D(-array)
-		// texture -- orig_tex->depth is only meaningful for TEXTURE_TYPE_3D
-		// (mirrors the same dimension-aware selection texture_create() uses
-		// when first building this same texture's own WGPUTextureDescriptor).
-		// Using ->depth unconditionally here left every array-layer count
-		// silently truncated to 1 for any read_write storage array texture
-		// needing a shadow-copy split (e.g. SDFGI's lightprobe_history_tex,
-		// a 30-layer 2D array) -- Task 9.5 Round 22.
-		WGPUTextureDescriptor shadow_desc = {};
-		shadow_desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
-		shadow_desc.dimension = orig_tex->dimension;
-		shadow_desc.size = { orig_tex->width, orig_tex->height, (orig_tex->dimension == WGPUTextureDimension_3D) ? orig_tex->depth : orig_tex->layers };
-		shadow_desc.format = orig_tex->format;
-		shadow_desc.mipLevelCount = orig_tex->mipmaps;
-		shadow_desc.sampleCount = orig_tex->sample_count;
-		WGPUTexture shadow_tex = wgpuDeviceCreateTexture(device, &shadow_desc);
-		if (!shadow_tex) {
-			WARN_PRINT("WebGPU: failed to create shadow read texture for rw_storage split.");
-			continue;
-		}
-		// NOTE: We intentionally do NOT copy original→shadow here.
-		// The shadow will be populated by command_copy_buffer_to_texture
-		// (called from texture_update) before any compute dispatch reads it.
-		// An eager copy here races with later wgpuQueueWriteTexture on
-		// Firefox/wgpu, overwriting shadow data with zeros.
-		// Create a view and bind it at the shadow slot.
-		WGPUTextureViewDescriptor vd = {};
-		vd.format = orig_tex->format;
-		vd.dimension = orig_tex->view_dimension;
-		vd.baseMipLevel = 0;
-		vd.mipLevelCount = orig_tex->mipmaps;
-		vd.baseArrayLayer = 0;
-		vd.arrayLayerCount = orig_tex->layers;
-		vd.aspect = WGPUTextureAspect_All;
-		WGPUTextureView shadow_view = wgpuTextureCreateView(shadow_tex, &vd);
-		if (shadow_view) {
-			WGPUBindGroupEntry shadow_entry = {};
-			shadow_entry.binding = shadow_bnd;
-			shadow_entry.textureView = shadow_view;
+		WGPUBindGroupEntry shadow_entry;
+		if (_create_rw_shadow_bind_entry(us, orig_tex, shadow_bnd, shadow_entry)) {
 			entries.push_back(shadow_entry);
-			us->rw_shadow_textures.push_back(shadow_tex);
-			us->rw_shadow_views.push_back(shadow_view);
-			// Register in the driver-level map so future texture_update calls
-			// on the source also copy to this shadow.
-			rw_shadow_copy_map[orig_tex->gpu_handle()].push_back(shadow_tex);
-			us->rw_shadow_registrations.push_back({ orig_tex->gpu_handle(), shadow_tex, orig_tex->width, orig_tex->height, orig_tex->depth });
-		} else {
-			wgpuTextureRelease(shadow_tex);
 		}
 	}
 
@@ -6738,6 +6753,47 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 	for (const auto &e : adapted) {
 		if (target_bindings.has(e.binding)) {
 			filtered.push_back(e);
+		}
+	}
+
+	// The target shader may need a read_write-storage shadow entry the
+	// source shader never created -- two ShaderRD mode variants sharing the
+	// same uniform interface can disagree on which bindings are genuinely
+	// read_write in their own DCE'd WGSL (it depends on which #ifdef-gated
+	// code paths a given mode actually reaches, not just the binding
+	// number), so p_us->cached_entries (built for the *source* shader) can
+	// be missing a shadow the *target* shader's own rw_storage_splits map
+	// requires. Filtering above can only ever remove a stale entry the
+	// target doesn't want -- it can't invent the one the target does want
+	// but the source never built, which silently produced a bind group with
+	// one fewer entry than the target layout expects ("Number of entries
+	// (N-1) did not match the expected number of entries (N)"). Task 9.5
+	// Round 24 -- first hit by SdfgiIntegrateShaderRD, where mode 0 never
+	// needed a shadow for lightprobe_texture_data (binding 16) but mode 1 did.
+	for (const KeyValue<uint32_t, uint32_t> &kv : p_target_shader->rw_storage_splits) {
+		uint32_t split_grp = kv.key >> 16;
+		uint32_t write_bnd = kv.key & 0xFFFF;
+		uint32_t shadow_bnd = kv.value;
+		if (split_grp != p_set_idx) {
+			continue;
+		}
+		bool already_have = false;
+		for (const auto &e : filtered) {
+			if (e.binding == shadow_bnd) {
+				already_have = true;
+				break;
+			}
+		}
+		if (already_have) {
+			continue;
+		}
+		WGTexture *orig_tex = p_us->bound_textures.has(write_bnd) ? p_us->bound_textures[write_bnd] : nullptr;
+		if (!orig_tex) {
+			continue;
+		}
+		WGPUBindGroupEntry shadow_entry;
+		if (_create_rw_shadow_bind_entry(p_us, orig_tex, shadow_bnd, shadow_entry)) {
+			filtered.push_back(shadow_entry);
 		}
 	}
 

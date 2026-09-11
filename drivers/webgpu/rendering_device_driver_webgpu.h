@@ -179,6 +179,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 
 	// --- BGL Rebinding Helper ---
 	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx);
+	bool _create_rw_shadow_bind_entry(WGUniformSet *p_us, WGTexture *p_orig_tex, uint32_t p_shadow_bnd, WGPUBindGroupEntry &r_entry);
 
 	// --- Pixel Format Mapping ---
 	// TODO: Move to dedicated pixel_formats_webgpu.h/cpp when ready.
