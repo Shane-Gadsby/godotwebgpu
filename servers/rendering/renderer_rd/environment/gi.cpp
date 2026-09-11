@@ -468,17 +468,39 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		render_sdf_half[1] = create_clear_texture(tf_render, "SDFGI Render SDF Half 1");
 	}
 
+	// texture_create_shared()'s format_override reinterprets a texture's raw storage
+	// bits as a different, bit-compatible sampling format (RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS,
+	// true on Vulkan/Metal/D3D12) so compute shaders can write compact packed data
+	// (RGBE9995 light, 4-bit-per-channel occlusion) via a plain integer storage image
+	// while later passes sample it with hardware float filtering. WebGPU has no such
+	// reinterpretation mechanism (see the trait's own doc comment), so on that driver
+	// these textures instead store already-decoded values directly in a natively
+	// float-filterable format -- more memory per texel, but no aliasing/decoding trick
+	// needed at all. See sdfgi_integrate.glsl/sdfgi_direct_light.glsl/sdfgi_preprocess.glsl's
+	// SDFGI_NATIVE_STORAGE_FORMAT branches for the write side; the read side (gi.glsl,
+	// sdfgi_debug*.glsl, volumetric_fog_process.glsl) already just samples a plain float
+	// texture and needs no changes either way. See webgpu_notes/TASKS.md Task 9.5 Round 21.
+	bool shareable_formats_supported = RD::get_singleton()->has_feature(RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS);
+
 	RD::TextureFormat tf_occlusion = tf_sdf;
-	tf_occlusion.format = RD::DATA_FORMAT_R16_UINT;
-	tf_occlusion.shareable_formats.push_back(RD::DATA_FORMAT_R16_UINT);
-	tf_occlusion.shareable_formats.push_back(RD::DATA_FORMAT_R4G4B4A4_UNORM_PACK16);
+	if (shareable_formats_supported) {
+		tf_occlusion.format = RD::DATA_FORMAT_R16_UINT;
+		tf_occlusion.shareable_formats.push_back(RD::DATA_FORMAT_R16_UINT);
+		tf_occlusion.shareable_formats.push_back(RD::DATA_FORMAT_R4G4B4A4_UNORM_PACK16);
+	} else {
+		tf_occlusion.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	}
 	tf_occlusion.depth *= cascades.size(); //use depth for occlusion slices
 	tf_occlusion.width *= 2; //use width for the other half
 
 	RD::TextureFormat tf_light = tf_sdf;
-	tf_light.format = RD::DATA_FORMAT_R32_UINT;
-	tf_light.shareable_formats.push_back(RD::DATA_FORMAT_R32_UINT);
-	tf_light.shareable_formats.push_back(RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+	if (shareable_formats_supported) {
+		tf_light.format = RD::DATA_FORMAT_R32_UINT;
+		tf_light.shareable_formats.push_back(RD::DATA_FORMAT_R32_UINT);
+		tf_light.shareable_formats.push_back(RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+	} else {
+		tf_light.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+	}
 
 	RD::TextureFormat tf_aniso0 = tf_sdf;
 	tf_aniso0.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
@@ -512,17 +534,25 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		//octahedral lightprobes
 		RD::TextureFormat tf_octprobes = tf_probes;
 		tf_octprobes.array_layers = cascades.size() * 2;
-		tf_octprobes.format = RD::DATA_FORMAT_R32_UINT; //pack well with RGBE
 		tf_octprobes.width = probe_axis_count * probe_axis_count * (SDFGI::LIGHTPROBE_OCT_SIZE + 2);
 		tf_octprobes.height = probe_axis_count * (SDFGI::LIGHTPROBE_OCT_SIZE + 2);
-		tf_octprobes.shareable_formats.push_back(RD::DATA_FORMAT_R32_UINT);
-		tf_octprobes.shareable_formats.push_back(RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+		if (shareable_formats_supported) {
+			tf_octprobes.format = RD::DATA_FORMAT_R32_UINT; //pack well with RGBE
+			tf_octprobes.shareable_formats.push_back(RD::DATA_FORMAT_R32_UINT);
+			tf_octprobes.shareable_formats.push_back(RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+		} else {
+			tf_octprobes.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+		}
 		//lightprobe texture is an octahedral texture
 
 		lightprobe_data = create_clear_texture(tf_octprobes, "SDFGI LightProbe Data");
-		RD::TextureView tv;
-		tv.format_override = RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32;
-		lightprobe_texture = RD::get_singleton()->texture_create_shared(tv, lightprobe_data);
+		if (shareable_formats_supported) {
+			RD::TextureView tv;
+			tv.format_override = RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+			lightprobe_texture = RD::get_singleton()->texture_create_shared(tv, lightprobe_data);
+		} else {
+			lightprobe_texture = lightprobe_data;
+		}
 
 		//texture handling ambient data, to integrate with volumetric foc
 		RD::TextureFormat tf_ambient = tf_probes;
@@ -538,10 +568,12 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 	cascades_ubo = RD::get_singleton()->uniform_buffer_create(sizeof(SDFGI::Cascade::UBO) * SDFGI::MAX_CASCADES);
 
 	occlusion_data = create_clear_texture(tf_occlusion, "SDFGI Occlusion Data");
-	{
+	if (shareable_formats_supported) {
 		RD::TextureView tv;
 		tv.format_override = RD::DATA_FORMAT_R4G4B4A4_UNORM_PACK16;
 		occlusion_texture = RD::get_singleton()->texture_create_shared(tv, occlusion_data);
+	} else {
+		occlusion_texture = occlusion_data;
 	}
 
 	for (SDFGI::Cascade &cascade : cascades) {
@@ -554,10 +586,12 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		cascade.light_aniso_0_tex = create_clear_texture(tf_aniso0, "SDFGI Cascade Light Aniso 0 Texture");
 		cascade.light_aniso_1_tex = create_clear_texture(tf_aniso1, "SDFGI Cascade Light Aniso 1 Texture");
 
-		{
+		if (shareable_formats_supported) {
 			RD::TextureView tv;
 			tv.format_override = RD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32;
 			cascade.light_tex = RD::get_singleton()->texture_create_shared(tv, cascade.light_data);
+		} else {
+			cascade.light_tex = cascade.light_data;
 		}
 
 		cascade.cell_size = base_cell_size;
@@ -3629,6 +3663,13 @@ void GI::init(SkyRD *p_sky) {
 
 	/* SDGFI */
 
+	// See create()'s shareable_formats_supported comment: on drivers without texture
+	// format-reinterpretation (WebGPU), SDFGI's light/occlusion/lightprobe textures store
+	// already-decoded values directly instead of hand-packed bits, so the compute shaders
+	// that write them need a matching storage-image declaration and store path.
+	bool sdfgi_native_storage_format = !RD::get_singleton()->has_feature(RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS);
+	String sdfgi_native_storage_format_define = sdfgi_native_storage_format ? "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n" : "";
+
 	{
 		Vector<String> preprocess_modes;
 		preprocess_modes.push_back("\n#define MODE_SCROLL\n");
@@ -3640,7 +3681,7 @@ void GI::init(SkyRD *p_sky) {
 		preprocess_modes.push_back("\n#define MODE_UPSCALE_JUMP_FLOOD\n");
 		preprocess_modes.push_back("\n#define MODE_OCCLUSION\n");
 		preprocess_modes.push_back("\n#define MODE_STORE\n");
-		String defines = "\n#define OCCLUSION_SIZE " + itos(SDFGI::CASCADE_SIZE / SDFGI::PROBE_DIVISOR) + "\n";
+		String defines = "\n#define OCCLUSION_SIZE " + itos(SDFGI::CASCADE_SIZE / SDFGI::PROBE_DIVISOR) + "\n" + sdfgi_native_storage_format_define;
 		sdfgi_shader.preprocess.initialize(preprocess_modes, defines);
 		sdfgi_shader.preprocess_shader = sdfgi_shader.preprocess.version_create();
 		for (int i = 0; i < SDFGIShader::PRE_PROCESS_MAX; i++) {
@@ -3650,7 +3691,7 @@ void GI::init(SkyRD *p_sky) {
 
 	{
 		//calculate tables
-		String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n";
+		String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n" + sdfgi_native_storage_format_define;
 
 		Vector<String> direct_light_modes;
 		direct_light_modes.push_back("\n#define MODE_PROCESS_STATIC\n");
@@ -3669,6 +3710,7 @@ void GI::init(SkyRD *p_sky) {
 		if (p_sky->sky_use_octmap_array) {
 			defines += "\n#define USE_OCTMAP_ARRAY\n";
 		}
+		defines += sdfgi_native_storage_format_define;
 
 		Vector<String> integrate_modes;
 		integrate_modes.push_back("\n#define MODE_PROCESS\n");

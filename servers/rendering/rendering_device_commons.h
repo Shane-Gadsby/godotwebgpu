@@ -1036,6 +1036,16 @@ public:
 		SUPPORTS_RAY_QUERY,
 		SUPPORTS_RAYTRACING_PIPELINE,
 		SUPPORTS_HDR_OUTPUT,
+		// Whether texture_create_shared()'s format_override can reinterpret a texture's
+		// bits as an arbitrary other same-size format (e.g. a packed-uint storage image
+		// viewed as a shared-exponent or 4-bit-per-channel unorm format for hardware-
+		// filtered sampling). True on Vulkan (VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT + an
+		// explicit view-formats list), D3D12 (relaxed format casting), and Metal (pixel-
+		// format-view aliasing). False on WebGPU: its `viewFormats` mechanism only allows
+		// a format and its sRGB twin, and several of the formats this trick relies on
+		// (e.g. RGB9E5Ufloat, 4-bit-per-channel unorm formats) aren't even storage-capable
+		// in WebGPU's format table, so there is no view to create in the first place.
+		SUPPORTS_SHAREABLE_TEXTURE_FORMATS,
 	};
 
 	enum SubgroupOperations {

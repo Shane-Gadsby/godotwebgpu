@@ -37,7 +37,14 @@ layout(set = 0, binding = 5, std430) restrict buffer readonly ProcessVoxels {
 }
 process_voxels;
 
+// See gi.cpp's shareable_formats_supported comment (Task 9.5 Round 21): on drivers
+// without texture format-reinterpretation, this texture stores already-decoded RGB
+// directly instead of RGBE9995-packed bits, so it needs a real float storage format here.
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+layout(rgba16f, set = 0, binding = 6) uniform restrict image3D dst_light;
+#else
 layout(r32ui, set = 0, binding = 6) uniform restrict uimage3D dst_light;
+#endif
 layout(rgba8, set = 0, binding = 7) uniform restrict image3D dst_aniso0;
 layout(rg8, set = 0, binding = 8) uniform restrict image3D dst_aniso1;
 
@@ -509,7 +516,11 @@ void main() {
 	//save to 3D textures
 	imageStore(dst_aniso0, positioni, aniso0);
 	imageStore(dst_aniso1, positioni, vec4(aniso1, 0.0, 0.0));
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+	imageStore(dst_light, positioni, vec4(light_total, 0.0));
+#else
 	imageStore(dst_light, positioni, uvec4(light_total_rgbe));
+#endif
 
 	//also fill neighbors, so light interpolation during the indirect pass works
 
@@ -548,7 +559,11 @@ void main() {
 	for (uint i = 0; i < max_neighbours; i++) {
 		if (bool(neighbors & (1 << i))) {
 			ivec3 neighbour_pos = positioni + neighbour_positions[i];
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+			imageStore(dst_light, neighbour_pos, vec4(light_total, 0.0));
+#else
 			imageStore(dst_light, neighbour_pos, uvec4(light_total_rgbe));
+#endif
 			imageStore(dst_aniso0, neighbour_pos, aniso0);
 			imageStore(dst_aniso1, neighbour_pos, vec4(aniso1, 0.0, 0.0));
 		}

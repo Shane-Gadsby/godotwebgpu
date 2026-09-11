@@ -5892,6 +5892,8 @@ bool RenderingDeviceDriverD3D12::has_feature(Features p_feature) {
 			return false;
 		case SUPPORTS_HDR_OUTPUT:
 			return true;
+		case SUPPORTS_SHAREABLE_TEXTURE_FORMATS:
+			return true; // Relaxed format casting (format_capabilities.relaxed_casting_supported), see texture_create().
 		default:
 			return false;
 	}
