@@ -199,7 +199,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUTextureViewDimension _texture_type_to_view_dimension(TextureType p_type) const;
 
 	void _flush_push_constants(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
-	WGPUShaderModule _create_module_with_spec_constants(const PackedByteArray &p_spirv, VectorView<PipelineSpecializationConstant> p_constants, ShaderStage p_stage);
+	WGPUShaderModule _create_module_with_spec_constants(const PackedByteArray &p_spirv, VectorView<PipelineSpecializationConstant> p_constants, ShaderStage p_stage, const HashMap<uint32_t, uint32_t> &p_rw_storage_splits);
 
 public:
 	RenderingDeviceDriverWebGPU(RenderingContextDriverWebGPU *p_context_driver);

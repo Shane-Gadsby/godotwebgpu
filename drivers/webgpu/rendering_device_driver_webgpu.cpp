@@ -5615,7 +5615,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			WGPUTextureFormat shadow_fmt = wgsl_storage_tex_format.has(shadow_key) ? wgsl_storage_tex_format[shadow_key] : WGPUTextureFormat_RGBA8Unorm;
 			WGPUBindGroupLayoutEntry shadow_entry = {};
 			shadow_entry.binding = shadow_bnd;
-			shadow_entry.visibility = WGPUShaderStage_Compute;
+			// The shadow is read from exactly the same stage(s) as the original
+			// read_write binding it shadows -- not always Compute alone (e.g.
+			// scene_forward_clustered_inc.glsl's geom_facing_grid is read_write
+			// from the Fragment stage during SDFGI/VoxelGI voxelization). Reuse
+			// the write-side binding's own resolved visibility rather than
+			// hardcoding Compute, which only happened to be correct for every
+			// read_write-split binding seen before this one. See Task 9.5 Round 23.
+			shadow_entry.visibility = resolve_stage_visibility(write_key, WGPUShaderStage_Compute);
 			shadow_entry.texture.sampleType = _texture_sample_type_for_format(shadow_fmt);
 			shadow_entry.texture.viewDimension = wgsl_tex_dims.has(shadow_key) ? wgsl_tex_dims[shadow_key] : WGPUTextureViewDimension_2D;
 			shadow_entry.texture.multisampled = false;
@@ -5748,7 +5755,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					WGPUTextureFormat shadow_fmt = wgsl_storage_tex_format.has(shadow_key) ? wgsl_storage_tex_format[shadow_key] : WGPUTextureFormat_RGBA8Unorm;
 					WGPUBindGroupLayoutEntry se = {};
 					se.binding = shadow_bnd;
-					se.visibility = WGPUShaderStage_Compute;
+					// See the matching fix (and its full explanation) on the
+					// primary shadow_entry construction above -- same reasoning
+					// applies to this merged-layout copy. Task 9.5 Round 23.
+					se.visibility = resolve_stage_visibility(kv.key, WGPUShaderStage_Compute);
 					se.texture.sampleType = _texture_sample_type_for_format(shadow_fmt);
 					se.texture.viewDimension = wgsl_tex_dims.has(shadow_key) ? wgsl_tex_dims[shadow_key] : WGPUTextureViewDimension_2D;
 					se.texture.multisampled = false;
@@ -8866,7 +8876,8 @@ static PackedByteArray _patch_spirv_spec_constants(const PackedByteArray &p_spir
 WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants(
 		const PackedByteArray &p_spirv,
 		VectorView<PipelineSpecializationConstant> p_constants,
-		ShaderStage p_stage) {
+		ShaderStage p_stage,
+		const HashMap<uint32_t, uint32_t> &p_rw_storage_splits) {
 	PackedByteArray patched = _patch_spirv_spec_constants(p_spirv, p_constants);
 
 	// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above).
@@ -8942,6 +8953,163 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
 			memcpy(q, "var<storage, read>      ", 24);
 			q += 24;
+		}
+	}
+
+	// Split read_write storage textures into write + shadow-read bindings --
+	// same transformation as shader_create_from_container()'s own copy of this
+	// pass (see its doc comment, ~line 4481, for the full rationale), but
+	// deliberately NOT a re-detection: this path re-runs Tint on a
+	// specialization-patched copy of the SPIR-V, whose surviving dead-code
+	// elimination can differ per specialization, so independently re-scanning
+	// this module's WGSL for "read_write>" and re-deriving a fresh split
+	// (as an earlier, reverted attempt at this fix did -- see Task 9.5 Round
+	// 22's TASKS.md writeup) risks discovering a different set of bindings,
+	// or the right binding via a differently-ordered scan, than what the
+	// *primary* module's conversion already split when the shader's
+	// BindGroupLayout was built (once, in shader_create_from_container(),
+	// stored as shader->rw_storage_splits and passed in here via
+	// p_rw_storage_splits) -- producing a specialized module whose declared
+	// bindings don't match the BGL Dawn already validates it against. Instead,
+	// only ever split a (set,binding) this module actually still declares as
+	// read_write AND that the primary module already decided to split, using
+	// the exact same shadow binding number the BGL was built with (not a
+	// freshly recomputed one) -- guaranteeing the two always agree. Bindings
+	// this specialization's own DCE has stripped entirely are simply absent
+	// from the WGSL text and the scan below finds nothing for them, which is
+	// correct: no binding, nothing to split.
+	if (!has_rw_storage_textures && !p_rw_storage_splits.is_empty() && strstr(wgsl_str, "read_write>")) {
+		struct RWSplitInfo {
+			uint32_t grp, bnd, shadow_bnd;
+			String var_name, dim_type, fmt;
+		};
+		LocalVector<RWSplitInfo> rw_infos;
+
+		// Scan for texture_storage_*<fmt,read_write> declarations -- identical
+		// detection logic to shader_create_from_container()'s own copy.
+		{
+			const char *p = wgsl_str;
+			while ((p = strstr(p, "@group(")) != nullptr) {
+				unsigned int grp = 0, bnd = 0;
+				if (!parse_group_binding(p, grp, bnd)) { p++; continue; }
+				const char *semi = strchr(p, ';');
+				if (!semi) { p++; continue; }
+				const char *rw = strstr(p, "read_write>");
+				if (!rw || rw >= semi) { p = semi; continue; }
+				// Only split bindings the primary module already split --
+				// see the doc comment above for why this must not be a
+				// blind re-detection.
+				const uint32_t *shadow_bnd_ptr = p_rw_storage_splits.getptr(((uint32_t)grp << 16) | bnd);
+				if (!shadow_bnd_ptr) { p = semi; continue; }
+				const char *ts = strstr(p, "texture_storage_");
+				if (!ts || ts >= semi) { p = semi; continue; }
+				// Variable name: "var NAME:"
+				const char *vp = strstr(p, "var ");
+				if (!vp || vp > ts) { p = semi; continue; }
+				vp += 4;
+				const char *colon = strchr(vp, ':');
+				if (!colon || colon > ts) { p = semi; continue; }
+				const char *ne = colon;
+				while (ne > vp && (*(ne - 1) == ' ' || *(ne - 1) == '\t')) ne--;
+				if (ne <= vp) { p = semi; continue; }
+				// Dim type: texture_storage_Xd
+				const char *lt = strchr(ts, '<');
+				if (!lt || lt > rw) { p = semi; continue; }
+				// Format: between < and , before read_write
+				const char *comma = strchr(lt + 1, ',');
+				if (!comma || comma >= rw) { p = semi; continue; }
+				int fmt_len = (int)(comma - lt - 1);
+				if (fmt_len <= 0 || fmt_len >= 64) { p = semi; continue; }
+
+				RWSplitInfo info;
+				info.grp = grp;
+				info.bnd = bnd;
+				info.shadow_bnd = *shadow_bnd_ptr;
+				{ char buf[256]; int len = (int)(ne - vp); if (len > 255) len = 255; memcpy(buf, vp, len); buf[len] = '\0'; info.var_name = buf; }
+				{ char buf[256]; int len = (int)(lt - ts); if (len > 255) len = 255; memcpy(buf, ts, len); buf[len] = '\0'; info.dim_type = buf; }
+				{ char buf[64]; if (fmt_len > 63) fmt_len = 63; memcpy(buf, lt + 1, fmt_len); buf[fmt_len] = '\0'; info.fmt = String(buf).strip_edges(); }
+				rw_infos.push_back(info);
+				p = semi;
+			}
+		}
+
+		if (rw_infos.size() > 0) {
+			String ws(wgsl_str);
+			for (const RWSplitInfo &info : rw_infos) {
+				uint32_t shadow_bnd = info.shadow_bnd;
+				String shadow_name = info.var_name + "_rw_in";
+
+				// 1. Replace read_write with write in the declaration.
+				ws = ws.replace(
+						info.dim_type + "<" + info.fmt + ",read_write>",
+						info.dim_type + "<" + info.fmt + ",write>");
+				ws = ws.replace(
+						info.dim_type + "<" + info.fmt + ", read_write>",
+						info.dim_type + "<" + info.fmt + ", write>");
+
+				// 2. Insert shadow read binding as a sampled texture (not storage) --
+				// same reasoning as the primary path's copy of this step.
+				String write_pat = info.dim_type + "<" + info.fmt + ",write>;";
+				int64_t wt_pos = ws.find(write_pat);
+				if (wt_pos == -1) {
+					write_pat = info.dim_type + "<" + info.fmt + ", write>;";
+					wt_pos = ws.find(write_pat);
+				}
+				if (wt_pos != -1) {
+					int64_t insert_pos = wt_pos + write_pat.length();
+					String sampled_dim = info.dim_type.replace("texture_storage_", "texture_");
+					String comp_type = "f32";
+					if (info.fmt.find("uint") != -1) {
+						comp_type = "u32";
+					} else if (info.fmt.find("sint") != -1) {
+						comp_type = "i32";
+					}
+					String shadow_decl = "\n@group(" + itos(info.grp) + ") @binding(" + itos(shadow_bnd) + ") \nvar " + shadow_name + ": " + sampled_dim + "<" + comp_type + ">;";
+					ws = ws.substr(0, insert_pos) + shadow_decl + ws.substr(insert_pos);
+				}
+
+				// 3. Redirect textureLoad to the shadow (not textureStore).
+				ws = ws.replace("textureLoad(" + info.var_name + ",", "textureLoad(" + shadow_name + ",");
+				ws = ws.replace("textureLoad(" + info.var_name + ")", "textureLoad(" + shadow_name + ")");
+
+				// 4. Sampled textures need a mip level parameter in textureLoad.
+				{
+					String search = "textureLoad(" + shadow_name;
+					int64_t pos = 0;
+					while ((pos = ws.find(search, pos)) != -1) {
+						int64_t paren_start = pos + String("textureLoad").length();
+						int depth = 0;
+						int64_t insert_mip = -1;
+						for (int64_t k = paren_start; k < ws.length(); k++) {
+							if (ws[k] == '(') {
+								depth++;
+							} else if (ws[k] == ')') {
+								depth--;
+								if (depth == 0) {
+									insert_mip = k;
+									break;
+								}
+							}
+						}
+						if (insert_mip != -1) {
+							ws = ws.substr(0, insert_mip) + ", 0" + ws.substr(insert_mip);
+							pos = insert_mip + 3;
+						} else {
+							pos += search.length();
+						}
+					}
+				}
+
+				// Deliberately not touching wgsl_rw_storage_splits/wgsl_storage_tex_format
+				// here -- those are shader_create_from_container()-local, and already
+				// correctly populated once from the primary module; this path only
+				// needs the specialized module's *text* to agree with the
+				// already-built BGL, not to rebuild any of that metadata itself.
+			}
+			free(wgsl_str);
+			CharString cs = ws.utf8();
+			wgsl_str = (char *)malloc(cs.length() + 1);
+			memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
 		}
 	}
 
@@ -9124,14 +9292,14 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 			// Legacy path: patch SPIR-V and create specialized modules via Tint.
 			if (!shader->stage_spirv[SHADER_STAGE_VERTEX].is_empty()) {
 				specialized_vertex = _create_module_with_spec_constants(
-						shader->stage_spirv[SHADER_STAGE_VERTEX], p_specialization_constants, SHADER_STAGE_VERTEX);
+						shader->stage_spirv[SHADER_STAGE_VERTEX], p_specialization_constants, SHADER_STAGE_VERTEX, shader->rw_storage_splits);
 				if (specialized_vertex) {
 					vertex_module = specialized_vertex;
 				}
 			}
 			if (!shader->stage_spirv[SHADER_STAGE_FRAGMENT].is_empty()) {
 				specialized_fragment = _create_module_with_spec_constants(
-						shader->stage_spirv[SHADER_STAGE_FRAGMENT], p_specialization_constants, SHADER_STAGE_FRAGMENT);
+						shader->stage_spirv[SHADER_STAGE_FRAGMENT], p_specialization_constants, SHADER_STAGE_FRAGMENT, shader->rw_storage_splits);
 				if (specialized_fragment) {
 					fragment_module = specialized_fragment;
 				}
@@ -9737,7 +9905,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 			}
 		} else if (!shader->stage_spirv[SHADER_STAGE_COMPUTE].is_empty()) {
 			specialized_compute = _create_module_with_spec_constants(
-					shader->stage_spirv[SHADER_STAGE_COMPUTE], p_specialization_constants, SHADER_STAGE_COMPUTE);
+					shader->stage_spirv[SHADER_STAGE_COMPUTE], p_specialization_constants, SHADER_STAGE_COMPUTE, shader->rw_storage_splits);
 			if (specialized_compute) {
 				compute_module = specialized_compute;
 			}
