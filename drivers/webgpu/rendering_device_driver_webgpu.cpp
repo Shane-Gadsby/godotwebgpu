@@ -453,6 +453,14 @@ static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 struct PreDceImageInfo {
 	WGPUTextureFormat format = WGPUTextureFormat_Undefined;
 	WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
+	// Uint/Sint for a GLSL utexture*/itexture* (SPIR-V OpTypeImage's SampledType
+	// operand resolves to an OpTypeInt), Undefined otherwise -- deliberately NOT
+	// populated as Float for a genuine float sampled type (see call site: the
+	// existing default of Float is already correct for that case, so only the
+	// Uint/Sint case needs recovering here, same reasoning as the format/dim
+	// fields above but for RDD::UNIFORM_TYPE_TEXTURE's sampleType instead of a
+	// storage image's format).
+	WGPUTextureSampleType sample_type = WGPUTextureSampleType_Undefined;
 };
 
 static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(const uint8_t *p_spv_ptr, int p_spv_size) {
@@ -472,12 +480,21 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 		uint32_t format = 0; // SPIR-V ImageFormat operand.
 		uint32_t dim = 0; // SPIR-V Dim operand (0=1D, 1=2D, 2=3D, 3=Cube, ...).
 		uint32_t arrayed = 0;
+		uint32_t sampled_type_id = 0; // SPIR-V <id> of the component (Sampled Type) operand.
 	};
 	HashMap<uint32_t, ImageTypeInfo> image_types; // image type id -> info
+	HashMap<uint32_t, bool> int_type_signed; // OpTypeInt result id -> Signedness (true = signed)
 	HashMap<uint32_t, uint32_t> pointer_pointee; // UniformConstant pointer type id -> pointee type id
 	HashMap<uint32_t, uint32_t> var_pointer_type; // UniformConstant variable id -> its pointer type id
 	HashMap<uint32_t, uint32_t> decorate_set; // target id -> DescriptorSet value
 	HashMap<uint32_t, uint32_t> decorate_binding; // target id -> Binding value
+	// array type id -> element type id. A GLSL array-of-textures uniform
+	// (e.g. gi.glsl's "texture3D sdf_cascades[SDFGI_MAX_CASCADES]") declares
+	// its UniformConstant pointer's pointee as an OpTypeArray/OpTypeRuntimeArray
+	// wrapping the real OpTypeImage, not the image type directly -- without
+	// unwrapping this, the second pass below's `image_types.getptr(*pointee)`
+	// always misses for such a binding, silently skipping it (see below).
+	HashMap<uint32_t, uint32_t> array_to_elem;
 
 	uint32_t pos = 5; // Skip the 5-word header.
 	while (pos < word_count) {
@@ -503,10 +520,16 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 				if (inst_len >= 9) {
 					uint32_t result_id = words[pos + 1];
 					ImageTypeInfo info;
+					info.sampled_type_id = words[pos + 2];
 					info.dim = words[pos + 3];
 					info.arrayed = words[pos + 5];
 					info.format = words[pos + 8];
 					image_types[result_id] = info;
+				}
+				break;
+			case 21: // OpTypeInt: <id>Result, Width, Signedness
+				if (inst_len >= 4) {
+					int_type_signed[words[pos + 1]] = words[pos + 3] != 0;
 				}
 				break;
 			case 32: // OpTypePointer: <id>Result, StorageClass, <id>Type
@@ -517,6 +540,16 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 						uint32_t pointee = words[pos + 3];
 						pointer_pointee[result_id] = pointee;
 					}
+				}
+				break;
+			case 28: // OpTypeArray: <id>Result, <id>ElementType, <id>Length
+				if (inst_len >= 3) {
+					array_to_elem[words[pos + 1]] = words[pos + 2];
+				}
+				break;
+			case 29: // OpTypeRuntimeArray: <id>Result, <id>ElementType
+				if (inst_len >= 3) {
+					array_to_elem[words[pos + 1]] = words[pos + 2];
 				}
 				break;
 			case 59: // OpVariable: <id>ResultType, <id>Result, StorageClass, [Initializer]
@@ -544,7 +577,16 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 		if (!pointee) {
 			continue;
 		}
-		const ImageTypeInfo *img = image_types.getptr(*pointee);
+		// A GLSL array-of-textures uniform's pointee is an OpTypeArray/
+		// OpTypeRuntimeArray wrapping the element image type, not the image
+		// type directly -- unwrap it (one level is sufficient; SPIR-V/GLSL
+		// don't nest arrays of opaque handle types) before the image-type
+		// lookup below, or every such binding is silently skipped.
+		uint32_t elem_type_id = *pointee;
+		if (const uint32_t *arr_elem = array_to_elem.getptr(elem_type_id)) {
+			elem_type_id = *arr_elem;
+		}
+		const ImageTypeInfo *img = image_types.getptr(elem_type_id);
 		if (!img) {
 			continue; // Not an image type (e.g. a sampler or combined-image-sampler variable).
 		}
@@ -563,7 +605,16 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 			case 3: info.dim = img->arrayed ? WGPUTextureViewDimension_CubeArray : WGPUTextureViewDimension_Cube; break;
 			default: info.dim = WGPUTextureViewDimension_Undefined; break;
 		}
-		if (info.format == WGPUTextureFormat_Undefined && info.dim == WGPUTextureViewDimension_Undefined) {
+		// Only an integer component type needs recovering here -- Float is
+		// already the correct fallback default everywhere info.sample_type is
+		// consulted, so a genuine float image (or one we can't resolve, e.g.
+		// SampledType id not found in int_type_signed) is deliberately left
+		// as Undefined rather than asserted to Float.
+		if (const bool *is_signed = int_type_signed.getptr(img->sampled_type_id)) {
+			info.sample_type = *is_signed ? WGPUTextureSampleType_Sint : WGPUTextureSampleType_Uint;
+		}
+		if (info.format == WGPUTextureFormat_Undefined && info.dim == WGPUTextureViewDimension_Undefined &&
+				info.sample_type == WGPUTextureSampleType_Undefined) {
 			continue; // Nothing usable -- leave it for the WGSL-text scans to handle normally.
 		}
 		// split_combined_samplers() (spirv_preprocess.cpp) doubles every
@@ -4280,6 +4331,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			}
 			if (kv.value.dim != WGPUTextureViewDimension_Undefined && !wgsl_tex_dims.has(kv.key)) {
 				wgsl_tex_dims[kv.key] = kv.value.dim;
+			}
+			if (kv.value.sample_type != WGPUTextureSampleType_Undefined && !wgsl_tex_sample_type.has(kv.key)) {
+				wgsl_tex_sample_type[kv.key] = kv.value.sample_type;
 			}
 		}
 
