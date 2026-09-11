@@ -6420,10 +6420,18 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 			continue;
 		}
 		// Create a shadow texture with the same format and size.
+		// depthOrArrayLayers must come from orig_tex->layers for a 2D(-array)
+		// texture -- orig_tex->depth is only meaningful for TEXTURE_TYPE_3D
+		// (mirrors the same dimension-aware selection texture_create() uses
+		// when first building this same texture's own WGPUTextureDescriptor).
+		// Using ->depth unconditionally here left every array-layer count
+		// silently truncated to 1 for any read_write storage array texture
+		// needing a shadow-copy split (e.g. SDFGI's lightprobe_history_tex,
+		// a 30-layer 2D array) -- Task 9.5 Round 22.
 		WGPUTextureDescriptor shadow_desc = {};
 		shadow_desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
 		shadow_desc.dimension = orig_tex->dimension;
-		shadow_desc.size = { orig_tex->width, orig_tex->height, orig_tex->depth };
+		shadow_desc.size = { orig_tex->width, orig_tex->height, (orig_tex->dimension == WGPUTextureDimension_3D) ? orig_tex->depth : orig_tex->layers };
 		shadow_desc.format = orig_tex->format;
 		shadow_desc.mipLevelCount = orig_tex->mipmaps;
 		shadow_desc.sampleCount = orig_tex->sample_count;
