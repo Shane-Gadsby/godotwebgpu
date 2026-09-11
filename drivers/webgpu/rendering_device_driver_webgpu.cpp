@@ -1792,6 +1792,16 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 	WGPUTextureViewDescriptor view_desc = {};
 	if (p_view.format != DATA_FORMAT_MAX) {
 		view_desc.format = _data_format_to_wgpu(p_view.format);
+		// texture_create() promotes narrow storage-incapable formats (R16Float,
+		// R16Uint, ...) to their 32-bit equivalents on the real underlying
+		// WGPUTexture (_promote_storage_format()). A view's format must match
+		// that real texture format exactly -- an unpromoted view request here
+		// (e.g. SSAO/SSIL's R16_SFLOAT storage textures) produces "the texture
+		// view format (R16Float) is not compatible with the texture format
+		// (R32Float)". Apply the same promotion so this stays in sync.
+		if (tex->usage & WGPUTextureUsage_StorageBinding) {
+			view_desc.format = _promote_storage_format(view_desc.format);
+		}
 		tex->format = view_desc.format;
 		tex->rd_format = p_view.format;
 	} else {
@@ -1836,7 +1846,16 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 	WGPUTextureViewDescriptor view_desc = {};
 	view_desc.format = (p_view.format != DATA_FORMAT_MAX) ? _data_format_to_wgpu(p_view.format) : orig->format;
 	if (p_view.format != DATA_FORMAT_MAX) {
+		// Mirror texture_create_shared()'s promotion of narrow storage-incapable
+		// formats (R16Float, R16Uint, ...) to their real 32-bit equivalents --
+		// an unpromoted view request here against an already-promoted underlying
+		// texture produces "the texture view format (R16Float) is not compatible
+		// with the texture format (R32Float)".
+		if (tex->usage & WGPUTextureUsage_StorageBinding) {
+			view_desc.format = _promote_storage_format(view_desc.format);
+		}
 		tex->rd_format = p_view.format;
+		tex->format = view_desc.format;
 	}
 	view_desc.baseMipLevel = p_mipmap;
 	view_desc.mipLevelCount = p_mipmaps;
@@ -2341,6 +2360,15 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 		case DATA_FORMAT_R16_SFLOAT:
 		case DATA_FORMAT_R16_SNORM:
 		case DATA_FORMAT_R16_UNORM:
+		// r16uint/r16sint aren't valid WGSL storage texel formats either (see the
+		// "r16uint"/"r16sint" → "r32uint"/"r32sint" WGSL-text rewrites elsewhere in
+		// this file) and _promote_storage_format() already promotes them to
+		// R32Uint/R32Sint at texture-creation time -- these two were simply missing
+		// from this capability-reporting switch, so SDFGI's Occlusion Data texture
+		// (R16_UINT) failed at texture_create() before ever reaching that promotion
+		// logic. Found via the user's real project after enabling SDFGI.
+		case DATA_FORMAT_R16_UINT:
+		case DATA_FORMAT_R16_SINT:
 		case DATA_FORMAT_R16G16_SFLOAT:
 		case DATA_FORMAT_R16G16_SNORM:
 		case DATA_FORMAT_R16G16_UNORM:
@@ -3652,6 +3680,34 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 				}
 			}
 			if (!has_depth_in_name) {
+				continue;
+			}
+
+			// Godot's own SSR code (screen_space_reflection_resolve.glsl's
+			// "source_depth_half", bound from RB_HIZ -- a plain R32Float linear-
+			// depth derivative, never a real depth-attachment texture, see
+			// ss_effects.cpp's ssr_resolve()) uses "_half" specifically to
+			// distinguish a downsampled/derived depth buffer from the real one
+			// ("source_depth", bound from get_depth_texture(), on the very same
+			// shader). The name+single-component heuristic alone can't tell
+			// these apart -- both are named with "depth" and read single-
+			// component -- so treat "half" anywhere in the name as a third,
+			// independent disqualifying signal, mirroring how the storage-
+			// converted-keys exclusion set already handles the other two known
+			// synthetic-binding false-positive sources. A real depth-format
+			// binding legitimately named with "half" in it would be highly
+			// unusual and is not known to exist in this engine's shaders.
+			bool has_half_in_name = false;
+			for (int ni = 0; ni + 4 <= name_len; ni++) {
+				if ((name[ni] == 'h' || name[ni] == 'H') &&
+						(name[ni + 1] == 'a' || name[ni + 1] == 'A') &&
+						(name[ni + 2] == 'l' || name[ni + 2] == 'L') &&
+						(name[ni + 3] == 'f' || name[ni + 3] == 'F')) {
+					has_half_in_name = true;
+					break;
+				}
+			}
+			if (has_half_in_name) {
 				continue;
 			}
 		}
@@ -6152,7 +6208,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 			// Register in the driver-level map so future texture_update calls
 			// on the source also copy to this shadow.
 			rw_shadow_copy_map[orig_tex->gpu_handle()].push_back(shadow_tex);
-			us->rw_shadow_registrations.push_back({ orig_tex->gpu_handle(), shadow_tex });
+			us->rw_shadow_registrations.push_back({ orig_tex->gpu_handle(), shadow_tex, orig_tex->width, orig_tex->height, orig_tex->depth });
 		} else {
 			wgpuTextureRelease(shadow_tex);
 		}
@@ -9246,9 +9302,66 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 	static constexpr uint32_t MAX_DYNAMIC_BUFFERS = 8;
 	uint32_t dyn_shift = 0;
 
+	// A uniform set's read_write-storage-texture shadow companions (see
+	// WGUniformSet::RWShadowRegistration) are only ever refreshed by
+	// texture_update() -- a CPU upload. A source texture that's instead
+	// written by other GPU compute/render passes (e.g. bokeh_dof.glsl's
+	// `color_image`, never CPU-uploaded) leaves its shadow stuck at its
+	// initial zeroed contents forever, silently corrupting every read
+	// through it (observed as the whole DOF-processed frame going solid
+	// black, with zero validation errors). Refresh via a real GPU-side copy
+	// immediately before binding, every time -- copy commands can't be
+	// recorded inside an active compute pass, so this ends the pass, copies
+	// on the raw encoder, then restarts and rebinds, mirroring the existing
+	// mid-pass restart machinery in _flush_push_constants()'s ring-overflow
+	// path (below, minus that path's flush/submit, since no push-constant
+	// data needs freezing here).
+	auto refresh_rw_shadows = [&](WGUniformSet *us) {
+		if (us->rw_shadow_registrations.is_empty() || !cmd->compute_encoder) {
+			return;
+		}
+		wgpuComputePassEncoderEnd(cmd->compute_encoder);
+		wgpuComputePassEncoderRelease(cmd->compute_encoder);
+		cmd->compute_encoder = nullptr;
+
+		for (const WGUniformSet::RWShadowRegistration &reg : us->rw_shadow_registrations) {
+			WGPUTexelCopyTextureInfo src_copy = {};
+			src_copy.texture = reg.source;
+			src_copy.aspect = WGPUTextureAspect_All;
+			WGPUTexelCopyTextureInfo dst_copy = {};
+			dst_copy.texture = reg.shadow;
+			dst_copy.aspect = WGPUTextureAspect_All;
+			WGPUExtent3D extent = { reg.width, reg.height, reg.depth };
+			wgpuCommandEncoderCopyTextureToTexture(cmd->encoder, &src_copy, &dst_copy, &extent);
+		}
+
+		WGPUComputePassDescriptor cp_desc = {};
+		cmd->compute_encoder = wgpuCommandEncoderBeginComputePass(cmd->encoder, &cp_desc);
+
+		WGPipelineWrapper *pw = cmd->render_state.current_pipeline;
+		if (pw) {
+			wgpuComputePassEncoderSetPipeline(cmd->compute_encoder, pw->compute_handle);
+			if (pw->shader) {
+				for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
+					wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+				}
+			}
+		}
+		for (uint32_t i = 0; i < WGCommandBuffer::MAX_BIND_GROUPS; i++) {
+			const auto &bs = cmd->last_bound_state[i];
+			if (bs.group) {
+				wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, i, bs.group, bs.dynamic_offset_count, bs.dynamic_offsets);
+			}
+		}
+		for (uint32_t i = 0; i < WGCommandBuffer::MAX_BIND_GROUPS; i++) {
+			cmd->bound_bind_groups[i] = nullptr;
+		}
+	};
+
 	for (uint32_t i = 0; i < p_set_count; i++) {
 		WGUniformSet *us = (WGUniformSet *)(p_uniform_sets[i].id);
 		if (us && us->handle) {
+			refresh_rw_shadows(us);
 			uint32_t set_idx = p_first_set_index + i;
 			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx);
 
