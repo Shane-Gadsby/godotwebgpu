@@ -2703,4 +2703,4 @@ With that resolved, a debug build (temporary `WEBGPU_VERBOSE`-gated prints, remo
 
 **Verified**: `shader_corpus` (13/13), `preprocessing_tests` (192/192 + 1 pre-existing skip), `driver_unit_tests` (327/327) all green. Live 65s capture against the SDFGI-only scratch project (`cameraSim_test3`, `extensions_support=true`): the two targeted error signatures (`WriteOnly`/`ReadWrite` mismatch, stage-visibility mismatch) are completely gone; a screenshot confirms the UI renders correctly but the 3D viewport remains solid black, consistent with the newly-surfaced `SdfgiIntegrateShaderRD` blocker. Native/Vulkan editor is unaffected by construction — every change this round is confined to `drivers/webgpu/`, which per CLAUDE.md isn't compiled into non-web builds at all.
 
-**Committed**: `drivers/webgpu/rendering_device_driver_webgpu.cpp` + `.h` (`<COMMIT_HASH>`).
+**Committed**: `drivers/webgpu/rendering_device_driver_webgpu.cpp` + `.h`, and this `TASKS.md` update (`559d299b1f`).
