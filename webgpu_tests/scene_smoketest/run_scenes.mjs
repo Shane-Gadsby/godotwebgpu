@@ -26,6 +26,16 @@
  *   --timeout <ms>     Per-scene timeout (default: 30000)
  *   --frames <n>       Minimum frames to wait (default: 60)
  *
+ * Env vars (Chrome only):
+ *   CI=1               Headless bundled Chromium on the software (swiftshader)
+ *                      rasterizer — for CI runners with no real GPU.
+ *   WEBGPU_REAL_GPU=1  Headless bundled Chromium on the real Vulkan-backed WebGPU
+ *                      adapter — for dev machines/sandboxes with an actual GPU
+ *                      (check `nvidia-smi` / `ls /dev/dri`). Materially more
+ *                      representative of real user hardware than swiftshader; takes
+ *                      precedence over CI if both are set. See webgpu_notes/TASKS.md
+ *                      Task 9.5 Round 15.
+ *
  * Exit codes:
  *   0 = all scenes pass
  *   1 = one or more scenes exceed error threshold
@@ -526,9 +536,37 @@ async function runSceneSafari(scene, timeout) {
 async function launchChrome() {
     const pw = await import('playwright');
     const isCI = !!process.env.CI;
+    const useRealGpu = !!process.env.WEBGPU_REAL_GPU;
+
+    if (useRealGpu) {
+        // For dev machines/sandboxes with an actual GPU (confirm with `nvidia-smi` /
+        // `ls /dev/dri`): swiftshader's software rasterizer is a materially different,
+        // less-capable adapter than what users' real hardware reports (see
+        // webgpu_notes/TASKS.md Task 9.5 — years of "sandbox-only" false negatives/
+        // positives traced back to exactly this gap). This gets Playwright's bundled
+        // headless Chromium onto the real Vulkan-backed WebGPU adapter instead, for a
+        // genuinely representative automated run. Base flags match the user's own real
+        // desktop Chrome launch config; `--use-angle=vulkan`/`--use-vulkan=native`/
+        // `--no-sandbox` are the extra ones a *headless* automation context needs on
+        // top of that to actually get hardware acceleration.
+        const browser = await pw.chromium.launch({
+            headless: true,
+            args: [
+                '--enable-unsafe-webgpu',
+                '--enable-features=Vulkan',
+                '--use-vulkan',
+                '--use-angle=vulkan',
+                '--use-vulkan=native',
+                '--ignore-gpu-blocklist',
+                '--no-sandbox',
+            ],
+        });
+        return { browser, name: 'chrome', type: 'playwright' };
+    }
 
     if (isCI) {
-        // In CI (headless Linux): use Playwright's bundled Chromium with WebGPU flags.
+        // In CI (headless Linux, typically no real GPU, e.g. GitHub Actions runners):
+        // use Playwright's bundled Chromium with the software (swiftshader) rasterizer.
         const browser = await pw.chromium.launch({
             headless: true,
             args: [
@@ -616,7 +654,8 @@ async function main() {
     console.log(`Scenes to test: ${scenes.length}`);
     console.log(`Browsers: ${browserNames.join(', ')}`);
     console.log(`Timeout per scene: ${timeout}ms`);
-    console.log(`Export mode: ${doExport ? 'yes' : 'skip (use pre-exported)'}\n`);
+    console.log(`Export mode: ${doExport ? 'yes' : 'skip (use pre-exported)'}`);
+    console.log(`Chrome GPU: ${process.env.WEBGPU_REAL_GPU ? 'real (Vulkan)' : process.env.CI ? 'swiftshader (software)' : 'system default'}\n`);
 
     // Export if requested
     if (doExport) {
