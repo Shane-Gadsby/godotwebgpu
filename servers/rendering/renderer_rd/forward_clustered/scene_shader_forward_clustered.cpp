@@ -471,10 +471,23 @@ void SceneShaderForwardClustered::ShaderData::_create_pipeline(PipelineKey p_pip
 				// Writes to normal and roughness in opaque way.
 				blend_state = RD::PipelineColorBlendState::create_disabled(5);
 				break;
+			case PIPELINE_VERSION_DEPTH_PASS_WITH_SDF:
+				// See NEEDS_DUMMY_COLOR_ATTACHMENT in scene_shader_forward_clustered.cpp's
+				// constructor and _render_sdfgi()'s matching framebuffer-side fix
+				// (webgpu_notes/TASKS.md Task 9.5 Round 26): on a backend without
+				// SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS, this pipeline's
+				// framebuffer/shader both get one real color attachment instead of
+				// zero, so the blend state must match with one disabled attachment
+				// too. Unchanged (falls through to the zero-attachment default
+				// below) on backends that do support it.
+				if (!RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS)) {
+					blend_state = RD::PipelineColorBlendState::create_disabled(1);
+					break;
+				}
+				[[fallthrough]];
 			case PIPELINE_VERSION_DEPTH_PASS:
 			case PIPELINE_VERSION_DEPTH_PASS_DP:
 			case PIPELINE_VERSION_DEPTH_PASS_MULTIVIEW:
-			case PIPELINE_VERSION_DEPTH_PASS_WITH_SDF:
 			default:
 				break;
 		}
@@ -657,6 +670,22 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		// image-atomics branch regardless of driver support. See
 		// webgpu_notes/TASKS.md Task 9.5.
 		const String no_image_atomics_define = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? "" : "\n#define NO_IMAGE_ATOMICS\n";
+		// SHADER_VERSION_DEPTH_PASS_WITH_SDF's fragment stage declares no
+		// color output at all (MODE_RENDER_DEPTH without MODE_RENDER_MATERIAL
+		// or MODE_RENDER_NORMAL_ROUGHNESS writes exclusively via imageStore/
+		// imageAtomicOr side effects into geom_facing_grid etc, see
+		// scene_forward_clustered.glsl's fragment-output section) -- it's
+		// rendered into a framebuffer with zero attachments of any kind
+		// (RenderForwardClustered::_render_sdfgi()'s SDF voxelization pass
+		// uses framebuffer_create_empty()), which needs
+		// SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS. Same bug shape as
+		// Task 9.5 Round 12/13's ClusterRenderShaderRD fix, just never applied
+		// here. On a backend without that support, add a real dummy color
+		// output the pipeline/framebuffer can target -- see
+		// _render_sdfgi()'s matching framebuffer-side fix and
+		// _create_pipeline()'s matching blend-state fix. See
+		// webgpu_notes/TASKS.md Task 9.5 Round 26.
+		const String needs_dummy_attachment_define = RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS) ? "" : "\n#define NEEDS_DUMMY_COLOR_ATTACHMENT\n";
 		for (uint32_t ubershader = 0; ubershader < 2; ubershader++) {
 			const String base_define = ubershader ? "\n#define UBERSHADER\n" : "";
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_BASE, base_define + "\n#define MODE_RENDER_DEPTH\n", true)); // SHADER_VERSION_DEPTH_PASS
@@ -667,7 +696,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
-			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n" + no_image_atomics_define, false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n" + no_image_atomics_define + needs_dummy_attachment_define, false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
 		}
 
 		Vector<String> color_pass_flags = {
