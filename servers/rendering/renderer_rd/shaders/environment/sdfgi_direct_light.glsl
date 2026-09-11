@@ -517,7 +517,7 @@ void main() {
 	imageStore(dst_aniso0, positioni, aniso0);
 	imageStore(dst_aniso1, positioni, vec4(aniso1, 0.0, 0.0));
 #ifdef SDFGI_NATIVE_STORAGE_FORMAT
-	imageStore(dst_light, positioni, vec4(light_total, 0.0));
+	imageStore(dst_light, positioni, vec4(clamp(light_total, 0.0, 65408.0), 0.0));
 #else
 	imageStore(dst_light, positioni, uvec4(light_total_rgbe));
 #endif
@@ -560,7 +560,7 @@ void main() {
 		if (bool(neighbors & (1 << i))) {
 			ivec3 neighbour_pos = positioni + neighbour_positions[i];
 #ifdef SDFGI_NATIVE_STORAGE_FORMAT
-			imageStore(dst_light, neighbour_pos, vec4(light_total, 0.0));
+			imageStore(dst_light, neighbour_pos, vec4(clamp(light_total, 0.0, 65408.0), 0.0));
 #else
 			imageStore(dst_light, neighbour_pos, uvec4(light_total_rgbe));
 #endif
