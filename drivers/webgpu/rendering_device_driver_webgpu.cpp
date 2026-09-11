@@ -354,6 +354,234 @@ static WGPUTextureFormat _wgsl_storage_format_string_to_wgpu(const String &p_fmt
 	return WGPUTextureFormat_RGBA8Unorm; // fallback
 }
 
+// Maps a SPIR-V `ImageFormat` operand (see the SPIR-V spec's "Image Format"
+// enum -- this is the literal numeric encoding glslang emits into
+// `OpTypeImage`'s Format operand, e.g. R8=15 for GLSL's `layout(r8, ...)`) to
+// the equivalent WGPUTextureFormat. Numeric counterpart to
+// _wgsl_storage_format_string_to_wgpu() above, for use directly on raw
+// SPIR-V -- see _extract_pre_dce_storage_image_info()'s doc comment for why a
+// second, SPIR-V-level source of this same information is needed at all.
+// Covers the same format set as the string-based table (plus the signed/
+// unsigned integer variants that only arise from raw SPIR-V, never from a
+// WGSL text scan, since Tint spells those out fully in the type name it
+// emits, e.g. "rg8sint" already has a direct string match above).
+static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
+	switch (p_spirv_format) {
+		case 1: return WGPUTextureFormat_RGBA32Float; // Rgba32f
+		case 2: return WGPUTextureFormat_RGBA16Float; // Rgba16f
+		case 3: return WGPUTextureFormat_R32Float; // R32f
+		case 4: return WGPUTextureFormat_RGBA8Unorm; // Rgba8
+		case 5: return WGPUTextureFormat_RGBA8Snorm; // Rgba8Snorm
+		case 6: return WGPUTextureFormat_RG32Float; // Rg32f
+		case 7: return WGPUTextureFormat_RG16Float; // Rg16f
+		case 8: return WGPUTextureFormat_RG11B10Ufloat; // R11fG11fB10f
+		case 9: return WGPUTextureFormat_R16Float; // R16f
+		case 10: return WGPUTextureFormat_RGBA16Float; // Rgba16 (unorm16, no WGPU equivalent -- see _promote_storage_format's own R16Unorm fallback)
+		case 11: return WGPUTextureFormat_RGB10A2Unorm; // Rgb10A2
+		case 12: return WGPUTextureFormat_RG16Float; // Rg16 (unorm16 fallback, matches _promote_storage_format)
+		case 13: return WGPUTextureFormat_RG8Unorm; // Rg8
+		case 14: return WGPUTextureFormat_R16Float; // R16 (unorm16 fallback, matches _promote_storage_format)
+		case 15: return WGPUTextureFormat_R8Unorm; // R8
+		case 16: return WGPUTextureFormat_RGBA16Float; // Rgba16Snorm (snorm16 fallback)
+		case 17: return WGPUTextureFormat_RG16Float; // Rg16Snorm (snorm16 fallback)
+		case 18: return WGPUTextureFormat_RG8Snorm; // Rg8Snorm
+		case 19: return WGPUTextureFormat_R16Float; // R16Snorm (snorm16 fallback)
+		case 20: return WGPUTextureFormat_R8Snorm; // R8Snorm
+		case 21: return WGPUTextureFormat_RGBA32Sint; // Rgba32i
+		case 22: return WGPUTextureFormat_RGBA16Sint; // Rgba16i
+		case 23: return WGPUTextureFormat_RGBA8Sint; // Rgba8i
+		case 24: return WGPUTextureFormat_R32Sint; // R32i
+		case 25: return WGPUTextureFormat_RG32Sint; // Rg32i
+		case 26: return WGPUTextureFormat_RG16Sint; // Rg16i
+		case 27: return WGPUTextureFormat_RG8Sint; // Rg8i
+		case 28: return WGPUTextureFormat_R16Sint; // R16i
+		case 29: return WGPUTextureFormat_R8Sint; // R8i
+		case 30: return WGPUTextureFormat_RGBA32Uint; // Rgba32ui
+		case 31: return WGPUTextureFormat_RGBA16Uint; // Rgba16ui
+		case 32: return WGPUTextureFormat_RGBA8Uint; // Rgba8ui
+		case 33: return WGPUTextureFormat_R32Uint; // R32ui
+		case 34: return WGPUTextureFormat_RGB10A2Uint; // Rgb10a2ui
+		case 35: return WGPUTextureFormat_RG32Uint; // Rg32ui
+		case 36: return WGPUTextureFormat_RG16Uint; // Rg16ui
+		case 37: return WGPUTextureFormat_RG8Uint; // Rg8ui
+		case 38: return WGPUTextureFormat_R16Uint; // R16ui
+		case 39: return WGPUTextureFormat_R8Uint; // R8ui
+		default: return WGPUTextureFormat_Undefined; // Unknown (0), R64ui/R64i (40/41, unsupported), or unrecognized.
+	}
+}
+
+// Scans raw (unpreprocessed) SPIR-V directly -- *before* eliminate_dead_resources()
+// (Task 8.7's AggressiveDCE pass) gets a chance to run -- for every storage-image
+// (`OpTypeImage` behind a `UniformConstant`-storage-class `OpVariable`) binding's
+// declared texel format, keyed by (set << 16 | binding).
+//
+// Why this needs to exist as a *second*, independent source of truth alongside
+// the various post-Tint WGSL-text scans elsewhere in this file (all of which,
+// unlike this one, run on the WGSL Tint emits *after* our own DCE pass has
+// already stripped anything unreachable from this stage's actual entry point):
+// a storage image can be declared in the GLSL/SPIR-V but never referenced in
+// one particular compiled shader *variant* (different variants of the same
+// ShaderRD share the same uniform interface but not the same control flow --
+// see ssil_interleave.glsl's `source_edges`, used by variant 1 but genuinely
+// unreachable from variant 0's own entry point). glslang's SPIR-V output
+// always declares every top-level uniform regardless of which #ifdef branch
+// of `main()` reads it, and Godot's own engine-side shader reflection
+// (built from that same un-DCE'd SPIR-V, shared by every RD backend) matches
+// that -- so `ss_effects.cpp`'s C++ code unconditionally builds a real
+// R8_UNORM texture uniform for this binding on every variant, and this
+// driver's BindGroupLayout-building code (driven by that same reflection,
+// not by what Tint's *output* still contains) still creates a real
+// `storageTexture` entry for it too. But once *our* DCE pass correctly
+// strips the binding from a variant that never reaches it, there is nothing
+// left in the WGSL for the post-Tint text scans to find a format string in --
+// they come up empty, and the BGL entry silently defaults to RGBA8Unorm,
+// mismatching whatever format the real texture actually is
+// ("Format (R8Unorm) of [Texture] expected to be (RGBA8Unorm)"). A texture's
+// declared *format* (unlike, say, a sampler's comparison-ness) is type-level
+// information present in the declaration itself, independent of whether the
+// declaration is ever used -- so, unlike that sampler-comparison problem, it
+// *can* be recovered here, by reading it before DCE has a chance to remove
+// the declaration that carries it.
+//
+// This does not need to run through the rest of the preprocessing pipeline
+// (specialization constants, push-constant conversion, etc. -- none of that
+// affects a plain OpTypeImage/OpVariable/OpDecorate triad), so it operates
+// directly on the same raw per-stage SPIR-V bytes shader_create_from_container()
+// already has on hand, independent of (and safely callable regardless of)
+// whether the eventual WGSL for this stage comes from a fresh Tint run or the
+// build-time precompiled cache.
+struct PreDceImageInfo {
+	WGPUTextureFormat format = WGPUTextureFormat_Undefined;
+	WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
+};
+
+static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(const uint8_t *p_spv_ptr, int p_spv_size) {
+	HashMap<uint32_t, PreDceImageInfo> result;
+	if (p_spv_size < 20 || (p_spv_size % 4) != 0) {
+		return result;
+	}
+	const uint32_t *words = (const uint32_t *)p_spv_ptr;
+	uint32_t word_count = (uint32_t)(p_spv_size / 4);
+	if (words[0] != 0x07230203u) {
+		return result; // Not a valid SPIR-V magic number.
+	}
+
+	// First pass: collect the small amount of type/decoration info needed,
+	// keyed by SPIR-V result <id>.
+	struct ImageTypeInfo {
+		uint32_t format = 0; // SPIR-V ImageFormat operand.
+		uint32_t dim = 0; // SPIR-V Dim operand (0=1D, 1=2D, 2=3D, 3=Cube, ...).
+		uint32_t arrayed = 0;
+	};
+	HashMap<uint32_t, ImageTypeInfo> image_types; // image type id -> info
+	HashMap<uint32_t, uint32_t> pointer_pointee; // UniformConstant pointer type id -> pointee type id
+	HashMap<uint32_t, uint32_t> var_pointer_type; // UniformConstant variable id -> its pointer type id
+	HashMap<uint32_t, uint32_t> decorate_set; // target id -> DescriptorSet value
+	HashMap<uint32_t, uint32_t> decorate_binding; // target id -> Binding value
+
+	uint32_t pos = 5; // Skip the 5-word header.
+	while (pos < word_count) {
+		uint32_t inst_word0 = words[pos];
+		uint32_t inst_len = inst_word0 >> 16;
+		uint32_t opcode = inst_word0 & 0xFFFFu;
+		if (inst_len == 0 || pos + inst_len > word_count) {
+			break; // Malformed/truncated -- bail out safely with whatever was already found.
+		}
+		switch (opcode) {
+			case 71: // OpDecorate: <id>Target, Decoration, [operands...]
+				if (inst_len >= 4) {
+					uint32_t target = words[pos + 1];
+					uint32_t decoration = words[pos + 2];
+					if (decoration == 34) { // DescriptorSet
+						decorate_set[target] = words[pos + 3];
+					} else if (decoration == 33) { // Binding
+						decorate_binding[target] = words[pos + 3];
+					}
+				}
+				break;
+			case 25: // OpTypeImage: <id>Result, <id>SampledType, Dim, Depth, Arrayed, MS, Sampled, Format, [AccessQualifier]
+				if (inst_len >= 9) {
+					uint32_t result_id = words[pos + 1];
+					ImageTypeInfo info;
+					info.dim = words[pos + 3];
+					info.arrayed = words[pos + 5];
+					info.format = words[pos + 8];
+					image_types[result_id] = info;
+				}
+				break;
+			case 32: // OpTypePointer: <id>Result, StorageClass, <id>Type
+				if (inst_len >= 4) {
+					uint32_t storage_class = words[pos + 2];
+					if (storage_class == 0) { // UniformConstant
+						uint32_t result_id = words[pos + 1];
+						uint32_t pointee = words[pos + 3];
+						pointer_pointee[result_id] = pointee;
+					}
+				}
+				break;
+			case 59: // OpVariable: <id>ResultType, <id>Result, StorageClass, [Initializer]
+				if (inst_len >= 4) {
+					uint32_t storage_class = words[pos + 3];
+					if (storage_class == 0) { // UniformConstant
+						uint32_t result_type = words[pos + 1];
+						uint32_t result_id = words[pos + 2];
+						var_pointer_type[result_id] = result_type;
+					}
+				}
+				break;
+			default:
+				break;
+		}
+		pos += inst_len;
+	}
+
+	// Second pass: resolve each UniformConstant image variable to its
+	// (set, binding) -> (format, dimension) info.
+	for (const KeyValue<uint32_t, uint32_t> &kv : var_pointer_type) {
+		uint32_t var_id = kv.key;
+		uint32_t ptr_type_id = kv.value;
+		const uint32_t *pointee = pointer_pointee.getptr(ptr_type_id);
+		if (!pointee) {
+			continue;
+		}
+		const ImageTypeInfo *img = image_types.getptr(*pointee);
+		if (!img) {
+			continue; // Not an image type (e.g. a sampler or combined-image-sampler variable).
+		}
+		const uint32_t *set = decorate_set.getptr(var_id);
+		const uint32_t *binding = decorate_binding.getptr(var_id);
+		if (!set || !binding) {
+			continue;
+		}
+		PreDceImageInfo info;
+		info.format = _spirv_image_format_to_wgpu(img->format);
+		// SPIR-V Dim: 0=1D, 1=2D, 2=3D, 3=Cube, 4=Rect, 5=Buffer, 6=SubpassData.
+		switch (img->dim) {
+			case 0: info.dim = WGPUTextureViewDimension_1D; break;
+			case 1: info.dim = img->arrayed ? WGPUTextureViewDimension_2DArray : WGPUTextureViewDimension_2D; break;
+			case 2: info.dim = WGPUTextureViewDimension_3D; break;
+			case 3: info.dim = img->arrayed ? WGPUTextureViewDimension_CubeArray : WGPUTextureViewDimension_Cube; break;
+			default: info.dim = WGPUTextureViewDimension_Undefined; break;
+		}
+		if (info.format == WGPUTextureFormat_Undefined && info.dim == WGPUTextureViewDimension_Undefined) {
+			continue; // Nothing usable -- leave it for the WGSL-text scans to handle normally.
+		}
+		// split_combined_samplers() (spirv_preprocess.cpp) doubles every
+		// non-combined binding's number (image2D/image3D storage bindings are
+		// never "combined" -- that only applies to sampler2D-style GLSL types)
+		// when it runs, later in the pipeline, on the *preprocessed* copy of
+		// this same SPIR-V -- but this function reads the raw bytes before any
+		// of that happens, so it still sees the original, undoubled GLSL
+		// binding number. Every other populator of wgsl_storage_tex_format /
+		// wgsl_tex_dims keys on the final, doubled WGSL binding (it's reading
+		// @binding(B) directly out of Tint's output), so this key must double
+		// it too to land in the same key space.
+		uint32_t key = ((*set) << 16) | ((*binding) * 2);
+		result[key] = info;
+	}
+	return result;
+}
+
 // Maps a WGPUTextureFormat to the WGPUTextureSampleType needed for a sampled
 // texture BGL entry. Integer formats → Uint/Sint, everything else → UnfilterableFloat.
 static WGPUTextureSampleType _texture_sample_type_for_format(WGPUTextureFormat p_format) {
@@ -4033,6 +4261,27 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 		// Store raw SPIR-V for potential re-conversion with specialization constants.
 		shader->stage_spirv[(int)s.shader_stage] = spv_bytes;
+
+		// Seed wgsl_storage_tex_format/wgsl_tex_dims with every storage image's
+		// declared format and dimension straight from this stage's raw,
+		// un-preprocessed SPIR-V -- before a binding that's declared but not
+		// actually reachable from this stage's own entry point is stripped
+		// from the WGSL by eliminate_dead_resources() below, taking with it
+		// the only text the post-Tint scans further down could otherwise have
+		// read this info from. Insert-if-absent: a later, post-Tint scan
+		// finding real evidence for the same key always takes precedence over
+		// this static declaration-only guess (e.g. a read_write split's
+		// shadow companion needs the *shadow's* binding, which doesn't exist
+		// yet in the original SPIR-V at all). See
+		// _extract_pre_dce_storage_image_info()'s doc comment.
+		for (const KeyValue<uint32_t, PreDceImageInfo> &kv : _extract_pre_dce_storage_image_info(spv_bytes.ptr(), (int)spv_bytes.size())) {
+			if (kv.value.format != WGPUTextureFormat_Undefined && !wgsl_storage_tex_format.has(kv.key)) {
+				wgsl_storage_tex_format[kv.key] = _promote_storage_format(kv.value.format);
+			}
+			if (kv.value.dim != WGPUTextureViewDimension_Undefined && !wgsl_tex_dims.has(kv.key)) {
+				wgsl_tex_dims[kv.key] = kv.value.dim;
+			}
+		}
 
 		// emdawnwebgpu does NOT support WGPUShaderSourceSPIRV — it's a thin wrapper
 		// around the browser's WebGPU API which only accepts WGSL.
