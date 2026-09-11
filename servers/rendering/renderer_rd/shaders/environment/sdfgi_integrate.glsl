@@ -474,8 +474,8 @@ void main() {
 			continue;
 		}
 #ifdef SDFGI_NATIVE_STORAGE_FORMAT
-		imageStore(lightprobe_texture_data, copy_to[i], vec4(irradiance, 0.0));
-		imageStore(lightprobe_texture_data, copy_to[i] + ivec3(0, 0, int(params.max_cascades)), vec4(radiance, 0.0));
+		imageStore(lightprobe_texture_data, copy_to[i], vec4(clamp(irradiance, 0.0, 65408.0), 0.0));
+		imageStore(lightprobe_texture_data, copy_to[i] + ivec3(0, 0, int(params.max_cascades)), vec4(clamp(radiance, 0.0, 65408.0), 0.0));
 #else
 		imageStore(lightprobe_texture_data, copy_to[i], uvec4(irradiance_rgbe));
 		imageStore(lightprobe_texture_data, copy_to[i] + ivec3(0, 0, int(params.max_cascades)), uvec4(radiance_rgbe));
