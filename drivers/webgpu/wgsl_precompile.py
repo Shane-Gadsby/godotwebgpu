@@ -241,16 +241,22 @@ GENERAL_DEFINES_VOXEL_GI = (
     "\n#define MAX_LIGHTS 32\n"
 )
 
-# SDFGI defines (gi.cpp).
+# SDFGI defines (gi.cpp). SDFGI_NATIVE_STORAGE_FORMAT is unconditionally included here
+# because this script always precompiles for the WebGPU driver, which always has
+# RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS == false (Task 9.5 Round 21) -- gi.cpp only
+# omits this define when that trait is true, which never happens on this driver.
 GENERAL_DEFINES_SDFGI_PREPROCESS = (
     "\n#define OCCLUSION_SIZE 4\n"
+    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
 )
 GENERAL_DEFINES_SDFGI_DIRECT_LIGHT = (
     "\n#define OCT_SIZE 5\n"
+    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
 )
 GENERAL_DEFINES_SDFGI_INTEGRATE = (
     "\n#define OCT_SIZE 5\n"
     "\n#define SH_SIZE 16\n"
+    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
 )
 GENERAL_DEFINES_SDFGI_DEBUG = (
     "\n#define OCT_SIZE 5\n"

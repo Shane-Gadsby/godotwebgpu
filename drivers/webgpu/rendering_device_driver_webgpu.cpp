@@ -10233,6 +10233,14 @@ bool RenderingDeviceDriverWebGPU::has_feature(Features p_feature) {
 			return false; // Not available in WebGPU.
 		case SUPPORTS_POINT_SIZE:
 			return false; // Point size not controllable in WebGPU.
+		case SUPPORTS_SHAREABLE_TEXTURE_FORMATS:
+			// WebGPU's viewFormats only allows a format and its sRGB twin -- no arbitrary
+			// bit-reinterpretation between differently-shaped formats (e.g. a packed r32uint
+			// viewed as rgb9e5ufloat), and several of the formats this trick is used for
+			// aren't even storage-capable in WebGPU at all. See gi.cpp's SDFGI textures for
+			// the one real user of this today (Task 9.5 Round 21) -- callers must fall back
+			// to storing already-decoded values in a natively-supported format instead.
+			return false;
 		default:
 			return false;
 	}

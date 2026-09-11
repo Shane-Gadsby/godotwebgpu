@@ -90,7 +90,14 @@ layout(r32ui, set = 0, binding = 5) uniform restrict readonly uimage3D src_light
 layout(r32ui, set = 0, binding = 6) uniform restrict readonly uimage3D src_facing;
 
 layout(r8, set = 0, binding = 7) uniform restrict writeonly image3D dst_sdf;
+// See gi.cpp's shareable_formats_supported comment (Task 9.5 Round 21): on drivers
+// without texture format-reinterpretation, this texture stores each of the 8 per-cascade
+// occlusion values as a plain float channel directly instead of packed 4-bit nibbles.
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+layout(rgba8, set = 0, binding = 8) uniform restrict writeonly image3D dst_occlusion;
+#else
 layout(r16ui, set = 0, binding = 8) uniform restrict writeonly uimage3D dst_occlusion;
+#endif
 
 layout(set = 0, binding = 10, std430) restrict buffer DispatchData {
 	uint x;
@@ -122,6 +129,11 @@ shared uint store_from_index;
 
 layout(r16ui, set = 0, binding = 1) uniform restrict writeonly uimage3D dst_albedo;
 layout(r32ui, set = 0, binding = 2) uniform restrict writeonly uimage3D dst_facing;
+// NOTE: this dst_light/dst_light_aniso pair binds to render_emission/render_emission_aniso
+// (gi.cpp's scroll_uniform_set, PRE_PROCESS_SCROLL) -- plain always-uint SDF-voxelization
+// scratch buffers, never aliased/shareable-format textures -- NOT cascade.light_data/
+// light_tex (that one's rewritten by sdfgi_direct_light.glsl's dst_light instead). No
+// SDFGI_NATIVE_STORAGE_FORMAT branch needed here.
 layout(r32ui, set = 0, binding = 3) uniform restrict writeonly uimage3D dst_light;
 layout(r32ui, set = 0, binding = 4) uniform restrict writeonly uimage3D dst_light_aniso;
 
@@ -151,7 +163,13 @@ src_process_voxels;
 #ifdef MODE_SCROLL_OCCLUSION
 
 layout(r8, set = 0, binding = 1) uniform restrict image3D dst_occlusion[8];
+// See gi.cpp's shareable_formats_supported comment (Task 9.5 Round 21): the same
+// cascade.occlusion_data/occlusion_texture MODE_STORE writes, read back here for scrolling.
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+layout(rgba8, set = 0, binding = 2) uniform restrict readonly image3D src_occlusion;
+#else
 layout(r16ui, set = 0, binding = 2) uniform restrict readonly uimage3D src_occlusion;
+#endif
 
 #endif
 
@@ -211,6 +229,16 @@ void main() {
 	ivec3 write_pos = pos + max(ivec3(0), params.scroll);
 
 	read_pos.z += params.cascade * params.grid_size;
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+	vec4 occ_a = imageLoad(src_occlusion, read_pos);
+	read_pos.x += params.grid_size;
+	vec4 occ_b = imageLoad(src_occlusion, read_pos);
+	float occ_vals[8] = float[](occ_a.r, occ_a.g, occ_a.b, occ_a.a, occ_b.r, occ_b.g, occ_b.b, occ_b.a);
+
+	for (uint i = 0; i < 8; i++) {
+		imageStore(dst_occlusion[i], write_pos, vec4(occ_vals[i]));
+	}
+#else
 	uint occlusion = imageLoad(src_occlusion, read_pos).r;
 	read_pos.x += params.grid_size;
 	occlusion |= imageLoad(src_occlusion, read_pos).r << 16;
@@ -221,6 +249,7 @@ void main() {
 		float o = float((occlusion >> occlusion_shift[i]) & 0xF) / 15.0;
 		imageStore(dst_occlusion[i], write_pos, vec4(o));
 	}
+#endif
 
 #endif
 
@@ -969,18 +998,29 @@ void main() {
 
 	// STORE OCCLUSION
 
+	float occ_vals[8];
 	uint occlusion = 0;
 	const uint occlusion_shift[8] = uint[](12, 8, 4, 0, 28, 24, 20, 16);
 	for (int i = 0; i < 8; i++) {
 		float occ = imageLoad(src_occlusion[i], pos).r;
+		occ_vals[i] = occ;
 		occlusion |= uint(clamp(occ * 15.0, 0.0, 15.0)) << occlusion_shift[i];
 	}
 	{
 		ivec3 occ_pos = pos;
 		occ_pos.z += params.cascade * params.grid_size;
+#ifdef SDFGI_NATIVE_STORAGE_FORMAT
+		// Same (R,G,B,A) <- (occlusion index 0,1,2,3) / (4,5,6,7) channel order as the
+		// R4G4B4A4_UNORM_PACK16 bit layout below decodes to (see gi.glsl's occ_indexv/
+		// occ_mask read side), just stored directly instead of packed into 4-bit nibbles.
+		imageStore(dst_occlusion, occ_pos, vec4(occ_vals[0], occ_vals[1], occ_vals[2], occ_vals[3]));
+		occ_pos.x += params.grid_size;
+		imageStore(dst_occlusion, occ_pos, vec4(occ_vals[4], occ_vals[5], occ_vals[6], occ_vals[7]));
+#else
 		imageStore(dst_occlusion, occ_pos, uvec4(occlusion & 0xFFFF));
 		occ_pos.x += params.grid_size;
 		imageStore(dst_occlusion, occ_pos, uvec4(occlusion >> 16));
+#endif
 	}
 
 	// STORE POSITIONS

@@ -7405,6 +7405,8 @@ bool RenderingDeviceDriverVulkan::has_feature(Features p_feature) {
 			return framebuffer_depth_resolve;
 		case SUPPORTS_POINT_SIZE:
 			return true;
+		case SUPPORTS_SHAREABLE_TEXTURE_FORMATS:
+			return true; // VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT + an explicit view-formats list, see texture_create().
 		case SUPPORTS_RAY_QUERY:
 			return acceleration_structure_capabilities.acceleration_structure_support && ray_query_support;
 		case SUPPORTS_RAYTRACING_PIPELINE:
