@@ -74,8 +74,31 @@ layout(rgba16f, set = 0, binding = 9) uniform restrict readonly image3D source_m
 layout(rgba16f, set = 0, binding = 10) uniform restrict writeonly image3D dest_map;
 #endif
 
-layout(set = 0, binding = 11) uniform sampler shadow_sampler;
-
+// NOTE: binding 11 ("shadow_sampler") was a genuinely unused `uniform sampler`
+// declaration here -- grep confirms zero reads anywhere in this file, in any
+// #ifdef mode. Removed rather than left in place: an unused sampler binding
+// still appears in Godot's own SPIR-V-reflection-derived shader interface
+// (glslang doesn't strip unreferenced declarations), so fog.cpp's
+// unconditional `u.binding = 11; u.append_id(p_settings.shadow_sampler)`
+// still gets a real BindGroupLayoutEntry built for it downstream on WebGPU --
+// but since nothing here ever samples through it, there's no WGSL-level
+// evidence (pre- or post- dead-code-elimination) that it's meant to be a
+// Comparison-type sampler, so the driver's static-analysis-based type
+// inference has nothing to go on and falls back to a plain Filtering
+// sampler, which Dawn then rejects against the real comparison sampler
+// Godot binds ("Comparison sampler ... incompatible with non-comparison
+// sampler binding"). Unlike a texture's declared *format* (present in the
+// type itself, recoverable regardless of usage), a sampler's *comparison-ness*
+// in GLSL/SPIR-V is inferable only from how it's actually used (paired with a
+// depth texture via a Dref-style sample) -- for a binding with zero uses
+// anywhere, that information simply doesn't exist in the shader at all, on
+// any platform, so there's no shader-analysis fix available here. Removing
+// the dead declaration is safe: uniform_set_create()'s validation
+// (servers/rendering/rendering_device.cpp) walks the shader's own declared
+// uniform list looking up a match in what the engine provides, so fog.cpp
+// continuing to unconditionally supply this now-unrequired uniform is
+// harmlessly ignored on every backend, matching normal behavior for any
+// other over-provided uniform.
 #define MAX_VOXEL_GI_INSTANCES 8
 
 struct VoxelGIData {
