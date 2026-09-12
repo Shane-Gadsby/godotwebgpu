@@ -142,6 +142,12 @@ node screenshot_tests.mjs --update-baselines  # first run creates baselines
 node screenshot_tests.mjs                      # subsequent runs compare
 ```
 
+Debugging a specific reported bug against a real project rather than running
+this suite's own fixtures? See
+[`screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`](screenshot_comparison/LIVE_REPRO_METHODOLOGY.md)
+for the scratch-copy + native-Vulkan-vs-WebGPU comparison workflow and its
+reusable capture scripts.
+
 ## CI Pipeline
 
 Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.6.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.
