@@ -20,17 +20,18 @@ body {
 
 #canvas {
 	display: block;
-	/* Scale the canvas to fill as much of the viewport as possible while
-	   preserving its aspect ratio (letterboxed/pillarboxed, never cropped
-	   or distorted) -- like CSS `background-size: contain`. This only has
-	   a visible effect when the canvas's own pixel buffer (set by the
-	   engine's canvasResizePolicy, forced to "Project" below) has a fixed
-	   size independent of the browser window; `!important` is needed
-	   because the engine's JS also sets width/height as an inline style
-	   on resize, which would otherwise take precedence over this rule. */
-	width: 100vw !important;
-	height: 100vh !important;
-	object-fit: contain;
+	/* Centered and scaled to fill as much of the viewport as possible while
+	   preserving aspect ratio -- see fitCanvasToViewport() below, which sets
+	   position/left/top/transform on this element at runtime. Deliberately
+	   NOT done via `object-fit: contain` on a width:100vw/height:100vh box:
+	   object-fit visually letterboxes the rendered content *inside* the
+	   element's box without shrinking the box itself, so canvas.getBoundingClientRect()
+	   (which platform/web/js/libs/library_godot_input.js's mouse/touch handlers use
+	   to map event coordinates into canvas space) would keep reporting the full,
+	   un-letterboxed box -- misaligning every click/tap by the letterbox gap.
+	   A CSS `transform: scale()` instead visually scales the element as a whole,
+	   so its bounding rect always matches exactly what's on screen and input
+	   mapping needs no changes. */
 }
 
 #canvas:focus {
@@ -122,13 +123,54 @@ body {
 		<script>
 const GODOT_CONFIG = $GODOT_CONFIG;
 // Force "Project" canvas sizing (a fixed buffer at the project's configured
-// resolution) instead of the export preset's own canvasResizePolicy, so the
-// #canvas CSS rule above can scale that fixed-aspect buffer to fit the
-// viewport via `object-fit: contain` -- see that rule's comment for why.
+// resolution, in CSS pixels via canvas.style.width/height) instead of the
+// export preset's own canvasResizePolicy, so fitCanvasToViewport() below has
+// a stable, known aspect ratio to scale -- see that function for the rest.
 GODOT_CONFIG['canvasResizePolicy'] = 1;
 const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
 const GODOT_RENDERING_DRIVER = (GODOT_CONFIG['renderingDriver'] || '');
 const engine = new Engine(GODOT_CONFIG);
+
+// Scales #canvas up (or down) via a CSS transform to fill as much of the
+// viewport as possible while preserving its aspect ratio, centered, without
+// ever cropping or distorting it -- like CSS `object-fit: contain`, but via
+// `transform: scale()` specifically so canvas.getBoundingClientRect() keeps
+// exactly matching what's visually on screen (see the #canvas CSS rule's
+// comment for why that distinction matters for mouse/touch input mapping).
+// Reads canvas.style.width/height (the engine's own inline style, set to a
+// fixed CSS-pixel size once canvasResizePolicy is forced to "Project" above)
+// rather than getBoundingClientRect(), since that would otherwise read back
+// this function's own previous transform and compound on every call.
+(function () {
+	const canvas = document.getElementById('canvas');
+	canvas.style.position = 'fixed';
+	canvas.style.left = '50%';
+	canvas.style.top = '50%';
+	canvas.style.transformOrigin = 'center center';
+
+	function fitCanvasToViewport() {
+		const nativeWidth = parseFloat(canvas.style.width);
+		const nativeHeight = parseFloat(canvas.style.height);
+		if (!nativeWidth || !nativeHeight) {
+			return;
+		}
+		const scale = Math.min(window.innerWidth / nativeWidth, window.innerHeight / nativeHeight);
+		canvas.style.transform = `translate(-50%, -50%) scale(${scale})`;
+	}
+
+	window.addEventListener('resize', fitCanvasToViewport);
+
+	// The engine sets canvas.style.width/height asynchronously during startup
+	// (once ProjectSettings' configured resolution is known); poll briefly
+	// until that first happens, then stop -- canvasResizePolicy "Project"
+	// keeps it constant afterward, so only window resizes need re-fitting.
+	const fitPollId = setInterval(() => {
+		if (canvas.style.width) {
+			fitCanvasToViewport();
+			clearInterval(fitPollId);
+		}
+	}, 50);
+}());
 
 (function () {
 	const statusOverlay = document.getElementById('status');
