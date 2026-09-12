@@ -115,6 +115,7 @@ Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.
 - `webgpu_notes/TASKS.md` — the living task/status doc, organized by phase; check it before starting work to see what's known-broken or in-progress. Update it (status, completion notes) when you finish or discover something significant, following the existing per-task format (Status/Severity/Lines/Issue/Investigation).
 - `webgpu_site/ARCHITECTURE_AND_DESIGN.md`, `TECHNICAL_REFERENCE.md`, `PERFORMANCE_AND_OPTIMIZATION.md`, `CORRECTNESS_AND_COMPATIBILITY.md` — in-depth docs on the areas their names suggest.
 - `drivers/webgpu/README.md` — driver-local notes.
+- `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` — how to test a specific reported bug against a real Godot project (not this repo's own fixtures): scratch-copy setup, native-Vulkan screen-recording capture, WebGPU screenshot/console capture via Playwright, export-freshness verification, and reading numeric data back out of the engine for non-visual comparisons. Use this before improvising a one-off repro script.
 
 ## Godot Coding Conventions
 

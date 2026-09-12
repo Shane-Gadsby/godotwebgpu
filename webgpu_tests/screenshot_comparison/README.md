@@ -2,6 +2,8 @@
 
 Automated visual regression testing for the WebGPU rendering backend. Captures screenshots of deterministic WebGPU scenes across Chrome and Firefox, then compares against baselines.
 
+**Investigating a specific reported bug against a real project (not this suite's own fixtures)?** See [`LIVE_REPRO_METHODOLOGY.md`](LIVE_REPRO_METHODOLOGY.md) instead — it documents the scratch-copy + native-Vulkan-vs-WebGPU comparison workflow used throughout Task 9.5, including the reusable `capture_console.mjs`/`capture_screenshots.mjs`/`capture_native_vulkan.sh` scripts.
+
 ## Test Scenes
 
 | Scene | What it exercises |
