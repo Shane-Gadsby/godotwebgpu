@@ -20,6 +20,17 @@ body {
 
 #canvas {
 	display: block;
+	/* Scale the canvas to fill as much of the viewport as possible while
+	   preserving its aspect ratio (letterboxed/pillarboxed, never cropped
+	   or distorted) -- like CSS `background-size: contain`. This only has
+	   a visible effect when the canvas's own pixel buffer (set by the
+	   engine's canvasResizePolicy, forced to "Project" below) has a fixed
+	   size independent of the browser window; `!important` is needed
+	   because the engine's JS also sets width/height as an inline style
+	   on resize, which would otherwise take precedence over this rule. */
+	width: 100vw !important;
+	height: 100vh !important;
+	object-fit: contain;
 }
 
 #canvas:focus {
@@ -110,6 +121,11 @@ body {
 		<script src="$GODOT_URL"></script>
 		<script>
 const GODOT_CONFIG = $GODOT_CONFIG;
+// Force "Project" canvas sizing (a fixed buffer at the project's configured
+// resolution) instead of the export preset's own canvasResizePolicy, so the
+// #canvas CSS rule above can scale that fixed-aspect buffer to fit the
+// viewport via `object-fit: contain` -- see that rule's comment for why.
+GODOT_CONFIG['canvasResizePolicy'] = 1;
 const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
 const GODOT_RENDERING_DRIVER = (GODOT_CONFIG['renderingDriver'] || '');
 const engine = new Engine(GODOT_CONFIG);
