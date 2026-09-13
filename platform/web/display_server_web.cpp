@@ -1159,7 +1159,12 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 			r_error = ERR_CANT_CREATE;
 			ERR_FAIL_MSG("WebGPU: Failed to initialize rendering context. Ensure navigator.gpu is available and the device was pre-initialized in the HTML shell.");
 		}
-		Error err = rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, nullptr);
+		// Target the same JS-shell-configured canvas element GLES3 uses (canvas_id,
+		// already formatted as a "#id" CSS selector — see godot_js_config_canvas_id_get)
+		// instead of leaving the driver to assume the default "#canvas".
+		RenderingContextDriverWebGPU::WindowPlatformData wpd;
+		wpd.canvas_selector = canvas_id;
+		Error err = rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
 		if (err != OK) {
 			memdelete(rendering_context);
 			rendering_context = nullptr;

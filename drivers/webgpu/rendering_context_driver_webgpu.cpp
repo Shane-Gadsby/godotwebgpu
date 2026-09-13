@@ -114,12 +114,15 @@ void RenderingContextDriverWebGPU::driver_free(RenderingDeviceDriver *p_driver) 
 }
 
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGPU::surface_create(const void *p_platform_data) {
-	// p_platform_data is expected to contain a canvas selector string (e.g., "#canvas").
-	// For the web platform, we use the default canvas "#canvas".
+	// p_platform_data, when provided, is a WindowPlatformData carrying the
+	// JS-shell-configured canvas selector (see the struct's doc comment) —
+	// falls back to the default "#canvas" for callers that don't pass one.
 	const char *canvas_selector = "#canvas";
 	if (p_platform_data != nullptr) {
-		// TODO: Extract canvas selector from platform data if provided.
-		// For now, use default.
+		const WindowPlatformData *wpd = (const WindowPlatformData *)p_platform_data;
+		if (wpd->canvas_selector != nullptr) {
+			canvas_selector = wpd->canvas_selector;
+		}
 	}
 
 	// Emscripten 5.x / emdawnwebgpu renamed this struct.
