@@ -267,6 +267,15 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-sGL_ENABLE_GET_PROC_ADDRESS=0"])
 
     if env["webgpu"]:
+        # emdawnwebgpu requires Emscripten 4.0.10+; older versions don't have the
+        # port at all and fail later with a much more cryptic "--use-port=emdawnwebgpu
+        # not found" error instead of this clear one.
+        if cc_semver < (4, 0, 10):
+            print_error(
+                "webgpu=yes requires Emscripten 4.0.10 or newer (detected %s.%s.%s) for the emdawnwebgpu port."
+                % cc_semver
+            )
+            sys.exit(255)
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
         # Emscripten 4.0.10+ uses the emdawnwebgpu port; -sUSE_WEBGPU=1 was removed in 5.0.
         # Pass --use-port=emdawnwebgpu to both CCFLAGS (for headers) and LINKFLAGS (for JS glue).

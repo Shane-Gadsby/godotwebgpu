@@ -953,23 +953,13 @@ Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t 
 	// Create shader container format.
 	shader_container_format = memnew(RenderingShaderContainerFormatWebGPU);
 
-	// Always-on: uncaptured error listener so WebGPU validation errors appear
-	// in the browser console before any abort(). Lightweight — no extra API calls.
-	MAIN_THREAD_EM_ASM({
-		var d = Module['preinitializedWebGPUDevice'];
-		if (d && !d._uncapturedPatched) {
-			d.addEventListener('uncapturederror', function(e) {
-				console.error('[Godot-WebGPU] uncaptured error: ' + e.error.constructor.name + ' | ' + e.error.message);
-			});
-			d._uncapturedPatched = true;
-		}
-		if (d && d.lost && !d._lostPatched) {
-			d.lost.then(function(info) {
-				console.error('[Godot-WebGPU] DEVICE LOST: reason=' + info.reason + ' | ' + info.message);
-			});
-			d._lostPatched = true;
-		}
-	});
+	// NOTE: 'uncapturederror' and device-lost listeners are registered in JS
+	// (platform/web/js/engine/engine.js, right after requestDevice() resolves)
+	// rather than here — this used to also register a second, redundant pair
+	// of listeners on the C++ side, double-logging every real error. See
+	// plan-of-attack.md Tier 1 #5. The WEBGPU_VERBOSE diagnostic block below
+	// still has its own uncapturederror listener, but it's opt-in and off by
+	// default, so it doesn't conflict with the always-on JS one in practice.
 
 	// Install main-thread JS diagnostic patches early — as soon as the device is
 	// ready, before any pipelines are created. This ensures we intercept EVERY
@@ -10285,7 +10275,12 @@ void RenderingDeviceDriverWebGPU::begin_segment(uint32_t p_frame_index, uint32_t
 	frame_index = p_frame_index;
 	frames_drawn = p_frames_drawn;
 
-	// Performance counter tracking (always-on, 1 log/sec is negligible overhead).
+	// Performance counter tracking — gated behind WEBGPU_VERBOSE (see the
+	// #define near the top of this file). This used to be always-on with the
+	// reasoning that a 1 log/sec console.log is negligible overhead, but it
+	// spams the browser console in production builds (see plan-of-attack.md
+	// Tier 1 #4) — anyone profiling should opt in explicitly instead.
+#ifdef WEBGPU_VERBOSE
 	perf.frames_since_log++;
 	double now = EM_ASM_DOUBLE({ return performance.now(); });
 	if (perf.last_log_time == 0) {
@@ -10311,6 +10306,7 @@ void RenderingDeviceDriverWebGPU::begin_segment(uint32_t p_frame_index, uint32_t
 		perf.frames_since_log = 0;
 		perf.last_log_time = now;
 	}
+#endif
 
 	// Reset push constant ring buffer offset and shadow buffer tracking at the start of each segment.
 	push_constant_ring_offset = 0;
