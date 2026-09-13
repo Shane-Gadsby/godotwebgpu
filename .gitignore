@@ -400,3 +400,5 @@ $RECYCLE.BIN/
 .chat-history/
 *.uid
 tmp/
+errors-chrome.txt
+sdks/MacOSX15.5.tar.xz
