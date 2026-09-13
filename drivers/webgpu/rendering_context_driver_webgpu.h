@@ -110,6 +110,7 @@ public:
 	WGPUDevice get_device() const { return device; }
 	WGPUQueue get_queue() const { return queue; }
 	WGPUInstance get_instance() const { return instance; }
+	WGPUAdapter get_adapter() const { return adapter; }
 	WGPUSurface surface_get_handle(SurfaceID p_surface) const;
 };
 

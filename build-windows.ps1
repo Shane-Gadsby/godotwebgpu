@@ -1,21 +1,28 @@
 <#
 .SYNOPSIS
     Native Windows build script for Godot WebGPU: installs prerequisites
-    (Visual Studio Build Tools, Python, SCons, D3D12/ANGLE/AccessKit deps)
-    then builds the editor and export templates.
+    (Visual Studio Build Tools, Python, SCons, D3D12/ANGLE/AccessKit deps,
+    Emscripten) then builds the editor, the native Windows export templates,
+    and the web/WebGPU export templates.
 
 .DESCRIPTION
     Mirrors this repo's own CI pipeline (.github/workflows/windows_builds.yml):
     Python + SCons via pip, then misc/scripts/install_d3d12_sdk_windows.py,
     install_angle.py, install_winrt.py, install_accesskit.py to fetch
     pre-built dependencies, then scons platform=windows for editor,
-    template_debug, and template_release. Run this FROM the repo root, in
-    PowerShell, ON Windows (this is not for cross-compiling from Linux --
-    see build.sh for that).
+    template_debug, and template_release. Also installs Emscripten (emsdk)
+    and builds scons platform=web webgpu=yes template_debug/template_release,
+    since that's this fork's actual export target. Run this FROM the repo
+    root, in PowerShell, ON Windows (this is not for cross-compiling from
+    Linux -- see build.sh for that).
 
 .PARAMETER SkipInstall
-    Skip all dependency installation (winget packages, pip, fetch scripts)
-    and go straight to building. Use this on a machine already set up.
+    Skip all dependency installation (winget packages, pip, fetch scripts,
+    emsdk) and go straight to building. Use this on a machine already set up.
+
+.PARAMETER SkipWeb
+    Skip installing Emscripten and building the web/WebGPU export template;
+    only build the native Windows editor + templates.
 
 .PARAMETER Jobs
     Parallel build jobs for scons (-j). Defaults to the logical processor count.
@@ -23,9 +30,15 @@
 .PARAMETER SconsVersion
     pip-installed SCons version. Defaults to 4.10.1 (matches this repo's CI).
 
+.PARAMETER EmsdkDir
+    Emscripten SDK location. Defaults to "$HOME\emsdk".
+
+.PARAMETER EmsdkVersion
+    Emscripten version to install/activate. Defaults to 4.0.11.
+
 .EXAMPLE
     .\build-windows.ps1
-    Installs everything needed, then builds editor + both templates.
+    Installs everything needed, then builds editor + native templates + web/WebGPU templates.
 
 .EXAMPLE
     .\build-windows.ps1 -SkipInstall -Jobs 16
@@ -35,8 +48,11 @@
 [CmdletBinding()]
 param(
     [switch]$SkipInstall,
+    [switch]$SkipWeb,
     [int]$Jobs = 0,
-    [string]$SconsVersion = "4.10.1"
+    [string]$SconsVersion = "4.10.1",
+    [string]$EmsdkDir = (Join-Path $HOME "emsdk"),
+    [string]$EmsdkVersion = "4.0.11"
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,16 +72,39 @@ function Invoke-Native {
     # does not do this on its own for external executables.
     param(
         [Parameter(Mandatory)][string]$Exe,
-        [Parameter(ValueFromRemainingArguments)][string[]]$Args
+        [Parameter(ValueFromRemainingArguments)][string[]]$ArgList
     )
-    & $Exe @Args
+    & $Exe @ArgList
     if ($LASTEXITCODE -ne 0) {
-        throw "'$Exe $($Args -join ' ')' exited with code $LASTEXITCODE"
+        throw "'$Exe $($ArgList -join ' ')' exited with code $LASTEXITCODE"
     }
 }
 
 function Test-Cmd($name) {
     return [bool](Get-Command $name -ErrorAction SilentlyContinue)
+}
+
+function Install-Emsdk {
+    Write-Step "Setting up Emscripten SDK ($EmsdkVersion) at $EmsdkDir..."
+    try {
+        if (-not (Test-Path $EmsdkDir)) {
+            Invoke-Native git clone https://github.com/emscripten-core/emsdk.git $EmsdkDir
+        } else {
+            Push-Location $EmsdkDir
+            try { Invoke-Native git pull --ff-only } catch { Write-Warn "Could not update existing emsdk checkout at $EmsdkDir, using it as-is." }
+            Pop-Location
+        }
+        Push-Location $EmsdkDir
+        try {
+            Invoke-Native .\emsdk install $EmsdkVersion
+            Invoke-Native .\emsdk activate $EmsdkVersion
+        } finally {
+            Pop-Location
+        }
+    } catch {
+        Write-Warn "emsdk install/activate failed ($_) -- skipping the web/WebGPU template build."
+        $script:SkipWeb = $true
+    }
 }
 
 # --- Step 0: winget itself ---------------------------------------------
@@ -119,7 +158,11 @@ if (-not $SkipInstall) {
                     $needPython = $false
                 }
             }
-        } catch {}
+        } catch {
+            # `python --version` failed or gave unparseable output -- fall
+            # through with $needPython still true and reinstall.
+            Write-Verbose "Could not parse python version: $_"
+        }
     }
     if ($needPython) {
         Install-WingetPackage -Id "Python.Python.3.12"
@@ -172,11 +215,18 @@ if (-not $SkipInstall) {
     Write-Step "Fetching pre-built AccessKit..."
     python misc\scripts\install_accesskit.py
     $accesskitEnabled = if ($LASTEXITCODE -eq 0) { "yes" } else { Write-Warn "AccessKit install failed, building with accesskit=no."; "no" }
+
+    if (-not $SkipWeb) {
+        Install-Emsdk
+    }
 } else {
-    Write-Warn "Skipping dependency installation (-SkipInstall). Assuming scons/MSVC/D3D12/ANGLE/AccessKit are already set up."
+    Write-Warn "Skipping dependency installation (-SkipInstall). Assuming scons/MSVC/D3D12/ANGLE/AccessKit/Emscripten are already set up."
     $d3d12Enabled = "yes"
     $angleEnabled = "yes"
     $accesskitEnabled = "yes"
+    if (-not $SkipWeb -and -not (Test-Path (Join-Path $EmsdkDir "emsdk_env.ps1"))) {
+        Write-ErrAndExit "Emscripten not found at $EmsdkDir (pass -EmsdkDir, or -SkipWeb to skip the web template build)."
+    }
 }
 
 # --- Step 5: figure out -j and the output version string -----------------
@@ -197,6 +247,47 @@ print(".".join(parts) + "." + ns["status"])
 '@
 $Version = ($versionPyCode | python - (Join-Path $RepoRoot "version.py")).Trim()
 $OutDir = Join-Path $RepoRoot "builds\$Version"
+
+# Packages whatever template dirs currently exist under $OutDir (templates\,
+# templates_linux\, templates_windows\, templates_macos\ -- useful if this is
+# a shared builds\ dir with output from build.sh's cross-builds too) into a
+# single .tpz -- the format Godot's Export Template Manager
+# (editor/export/export_template_manager.cpp's _tpz_file_selected) expects:
+# a zip containing one "templates\" directory holding version.txt (the raw
+# version string) alongside every template file, flattened.
+function New-TpzPackage {
+    $staging = Join-Path $OutDir ".tpz_staging"
+    if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+    $templatesDir = Join-Path $staging "templates"
+    New-Item -ItemType Directory -Force -Path $templatesDir | Out-Null
+
+    $found = $false
+    foreach ($sub in @("templates", "templates_linux", "templates_windows", "templates_macos")) {
+        $srcDir = Join-Path $OutDir $sub
+        if (Test-Path $srcDir) {
+            Get-ChildItem -Path $srcDir -File | ForEach-Object {
+                Copy-Item $_.FullName (Join-Path $templatesDir $_.Name) -Force
+                $found = $true
+            }
+        }
+    }
+
+    if (-not $found) {
+        Remove-Item $staging -Recurse -Force
+        return
+    }
+
+    Set-Content -Path (Join-Path $templatesDir "version.txt") -Value $Version -NoNewline
+
+    $tpz = Join-Path $OutDir "godot-webgpu-export-templates-$Version.tpz"
+    $zipTemp = "$tpz.zip"
+    if (Test-Path $tpz) { Remove-Item $tpz -Force }
+    if (Test-Path $zipTemp) { Remove-Item $zipTemp -Force }
+    Compress-Archive -Path $templatesDir -DestinationPath $zipTemp
+    Move-Item $zipTemp $tpz
+    Remove-Item $staging -Recurse -Force
+    Write-Ok "Export template package -> $tpz"
+}
 
 Write-Step "Godot WebGPU Windows build -- version $Version, -j$Jobs"
 
@@ -248,5 +339,33 @@ Copy-BuiltExe -Pattern "godot.windows.template_release.x86_64.exe" -Dest (Join-P
 Copy-BuiltExe -Pattern "godot.windows.template_release.x86_64.console.exe" -Dest (Join-Path $OutDir "templates_windows") `
     -Rename @{ "godot.windows.template_release.x86_64.console.exe" = "windows_release_x86_64_console.exe" }
 Write-Ok "Templates -> $OutDir\templates_windows"
+
+if (-not $SkipWeb) {
+    Write-Step "Activating Emscripten environment..."
+    . (Join-Path $EmsdkDir "emsdk_env.ps1")
+
+    Write-Step "Building web/WebGPU export template (debug)..."
+    Invoke-Native scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j $Jobs
+
+    Write-Step "Building web/WebGPU export template (release)..."
+    Invoke-Native scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j $Jobs
+
+    $webDest = Join-Path $OutDir "templates"
+    New-Item -ItemType Directory -Force -Path $webDest | Out-Null
+    $debugZip = Get-ChildItem -Path (Join-Path $RepoRoot "bin") -Filter "godot.web.template_debug*.zip" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $releaseZip = Get-ChildItem -Path (Join-Path $RepoRoot "bin") -Filter "godot.web.template_release*.zip" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $debugZip -or -not $releaseZip) {
+        throw "Web template build succeeded but a .zip wasn't found in bin\."
+    }
+    Copy-Item $debugZip.FullName (Join-Path $webDest "web_nothreads_debug.zip") -Force
+    Copy-Item $releaseZip.FullName (Join-Path $webDest "web_nothreads_release.zip") -Force
+    Write-Ok "Web templates -> $webDest"
+} else {
+    Write-Warn "Skipping web/WebGPU template build (-SkipWeb)."
+}
+
+New-TpzPackage
 
 Write-Host "`nDone. Output in builds\$Version\" -ForegroundColor Green

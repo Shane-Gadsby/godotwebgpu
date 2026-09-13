@@ -61,3 +61,20 @@ env.modules_sources = []
 env_modules.add_source_files(env.modules_sources, register_module_types)
 lib = env_modules.add_library("modules", env.modules_sources)
 env.Prepend(LIBS=[lib])
+
+# register_module_types.gen.cpp's own content doesn't vary with the enabled-module
+# set (it always emits every discovered module's #ifdef MODULE_X_ENABLED block,
+# gated at compile time via #include "modules/modules_enabled.gen.h"), so this
+# library's compiled object only picks up a debug_features-driven module change
+# (e.g. objectdb_profiler's debug-only can_build() gate) through implicit
+# #include-based dependency scanning on that generated header. That scan proved
+# unreliable across a `template_debug` -> `template_release` switch in the same
+# build tree: a real, reproduced bug where the compiled object (and the .a
+# archiving it) stayed stale from an earlier debug build even after the header
+# was correctly regenerated with release content, silently shipping a release
+# template that dynamic-links against an unresolved objectdb_profiler symbol at
+# runtime. See webgpu_notes/TASKS.md Task 9.5 Round 15. Explicitly tying this
+# library to env.module_list (the actual can_build()-filtered enabled set) makes
+# SCons re-evaluate it whenever that set changes, independent of whether the
+# implicit include-scan on the generated header does.
+env.Depends(lib, env.Value(env.module_list))

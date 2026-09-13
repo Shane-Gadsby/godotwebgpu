@@ -470,7 +470,7 @@ SHADER_REGISTRY = [
 
     # ── TAA ─────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/taa_resolve.glsl",
-     GENERAL_DEFINES_NONE, [("default", "\n#define MODE_TAA_RESOLVE", [COMP])]),
+     GENERAL_DEFINES_NONE, [("default", "\n#define MODE_TAA_RESOLVE\n", [COMP])]),
 
     # ── VRS ─────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/vrs.glsl",
@@ -500,16 +500,33 @@ SHADER_REGISTRY = [
     ]),
 
     # ── Octahedral Map Effects ──────────────────────────────────────
+    # octmap_downsampler.glsl/octmap_filter.glsl/octmap_roughness.glsl's compute
+    # variants declare their output image as `layout(OCTMAP_FORMAT, ...)` --
+    # OCTMAP_FORMAT is never a bare default, copy_effects.cpp always defines it
+    # to one of these two real values (rgb10_a2 for a smaller/lower-precision
+    # octmap, rgba16f otherwise -- see DOWNSAMPLER_MODE_FLAG_RGB10_A2/
+    # FILTER_MODE_FLAG_RGB10_A2 in copy_effects.cpp). An empty/default variant
+    # here leaves OCTMAP_FORMAT undefined, which is a genuine glslang compile
+    # error, not a real reachable shader configuration.
     ("servers/rendering/renderer_rd/shaders/effects/octmap_downsampler.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("rgb10_a2", "\n#define OCTMAP_FORMAT rgb10_a2\n", [COMP]),
+        ("rgba16f", "\n#define OCTMAP_FORMAT rgba16f\n", [COMP]),
+    ]),
     ("servers/rendering/renderer_rd/shaders/effects/octmap_downsampler_raster.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
     ("servers/rendering/renderer_rd/shaders/effects/octmap_filter.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("rgb10_a2", "\n#define OCTMAP_FORMAT rgb10_a2\n", [COMP]),
+        ("rgba16f", "\n#define OCTMAP_FORMAT rgba16f\n", [COMP]),
+    ]),
     ("servers/rendering/renderer_rd/shaders/effects/octmap_filter_raster.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
     ("servers/rendering/renderer_rd/shaders/effects/octmap_roughness.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("rgb10_a2", "\n#define OCTMAP_FORMAT rgb10_a2\n", [COMP]),
+        ("rgba16f", "\n#define OCTMAP_FORMAT rgba16f\n", [COMP]),
+    ]),
     ("servers/rendering/renderer_rd/shaders/effects/octmap_roughness_raster.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
 
@@ -528,8 +545,17 @@ SHADER_REGISTRY = [
     # ── SSAO ────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/ssao.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+    # main()'s MODE_WIDE branch (the only one reachable with no mode defined at
+    # all) unconditionally calls sample_blurred_wide(), which is itself only
+    # ever *defined* under #ifdef MODE_WIDE -- an empty-defines "default"
+    # variant is a genuine glslang compile error, not a real reachable
+    # configuration. ss_effects.cpp always selects one of these three.
     ("servers/rendering/renderer_rd/shaders/effects/ssao_blur.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("non_smart", "\n#define MODE_NON_SMART\n", [COMP]),
+        ("smart", "\n#define MODE_SMART\n", [COMP]),
+        ("wide", "\n#define MODE_WIDE\n", [COMP]),
+    ]),
     ("servers/rendering/renderer_rd/shaders/effects/ssao_importance_map.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/ssao_interleave.glsl",
@@ -538,16 +564,31 @@ SHADER_REGISTRY = [
     # ── SSIL ────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/ssil.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+    # Same MODE_NON_SMART/MODE_SMART/MODE_WIDE shape and same reason as
+    # ssao_blur.glsl above.
     ("servers/rendering/renderer_rd/shaders/effects/ssil_blur.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("non_smart", "\n#define MODE_NON_SMART\n", [COMP]),
+        ("smart", "\n#define MODE_SMART\n", [COMP]),
+        ("wide", "\n#define MODE_WIDE\n", [COMP]),
+    ]),
     ("servers/rendering/renderer_rd/shaders/effects/ssil_importance_map.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/ssil_interleave.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
 
     # ── Subsurface Scattering ───────────────────────────────────────
+    # kernel_size and the kernel[]/skin_kernel[] arrays are only declared under
+    # one of these three quality defines -- an empty-defines "default" variant
+    # leaves kernel_size undeclared, a genuine glslang compile error.
+    # ss_effects.cpp always selects one of these three (subsurface_scattering
+    # quality project setting).
     ("servers/rendering/renderer_rd/shaders/effects/subsurface_scattering.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [
+        ("11_samples", "\n#define USE_11_SAMPLES\n", [COMP]),
+        ("17_samples", "\n#define USE_17_SAMPLES\n", [COMP]),
+        ("25_samples", "\n#define USE_25_SAMPLES\n", [COMP]),
+    ]),
 
     # ── SS Effects Downsample ───────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/ss_effects_downsample.glsl",
@@ -570,8 +611,16 @@ SHADER_REGISTRY = [
      "\n#define SDFGI_OCT_SIZE 5\n", [("default", "", [COMP])]),
 
     # ── GI Probe Write ──────────────────────────────────────────────
-    ("servers/rendering/renderer_rd/shaders/giprobe_write.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+    # Confirmed dead code: no .cpp/.h anywhere in the engine references
+    # GiprobeWriteShaderRD or creates a ShaderRD from this file -- a leftover
+    # from the old Godot 3.x GIProbe (superseded by VoxelGI's gi.glsl/
+    # voxel_gi_debug.glsl). It also hard-fails glslang regardless of any
+    # variant define (`layout(...) uniform Outputs { ... } output;` -- `output`
+    # is a genuine GLSL reserved word, independent of --target-env), so unlike
+    # every other entry in this registry this isn't a fixable define-combo gap.
+    # Removed from the registry rather than "fixed," since there's nothing to
+    # fix on a shader nothing ever compiles. See webgpu_notes/TASKS.md Task
+    # 9.7's follow-up.
 
     # ── Volumetric Fog (fog.cpp:218) ────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/environment/volumetric_fog.glsl",

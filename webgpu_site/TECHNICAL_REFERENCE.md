@@ -227,7 +227,7 @@ Twelve binary-level passes before Tint parsing (in runtime call order):
 9. **strip_memory_barrier**: Replaces `OpMemoryBarrier` with `OpNop` (no WGSL equivalent).
 10. **fix_nonfinite_literals**: Replaces Inf/NaN float constants with FLT_MAX/MIN (WGSL has no literal infinity).
 11. **flatten_binding_arrays**: Unwraps arrays of handle types (image/sampler) into individual variables. Tint doesn't support `OpTypeArray` of handle types.
-12. **infer_readonly_storage**: Multi-pass analysis finds SSBOs never written to, injects `OpDecorate NonWritable`. Enables Tint to emit `var<storage, read>` instead of `var<storage, read_write>`.
+12. **infer_readonly_storage**: Multi-pass analysis finds SSBOs never written to, injects `OpDecorate NonWritable`. Enables Tint to emit `var<storage, read>` instead of `var<storage, read_write>`. Recognizes both the modern `StorageBuffer`-storage-class SSBO encoding and the legacy pre-1.3 `Uniform`+`BufferBlock` encoding (glslang emits the latter whenever it isn't asked for `--target-env vulkan1.1`+/SPIR-V ≥1.3 explicitly, which is the common case for this driver's own build-time precompilation — see `webgpu_notes/TASKS.md` Task 9.7).
 
 ### 4.2 Tint Conversion
 

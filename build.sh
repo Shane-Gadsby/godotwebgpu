@@ -62,6 +62,50 @@ PYEOF
 VERSION="$(get_version)"
 OUT_DIR="$REPO_ROOT/builds/$VERSION"
 
+# Packages whatever template dirs currently exist under $OUT_DIR
+# (templates/, templates_linux/, templates_windows/, templates_macos/) into a
+# single .tpz -- the format Godot's Export Template Manager
+# (editor/export/export_template_manager.cpp's _tpz_file_selected) expects:
+# a zip containing one "templates/" directory holding version.txt (the raw
+# version string) alongside every template file, flattened. Re-running this
+# after building more platforms/targets just repackages the current state,
+# so it's safe to call after each individual template build. No-ops if no
+# template dir exists yet.
+package_tpz() {
+	if ! command -v zip > /dev/null 2>&1; then
+		echo -e "${YELLOW}'zip' not found -- skipping .tpz packaging (install it, e.g. 'apt install zip' / 'brew install zip').${NC}" >&2
+		return
+	fi
+
+	local staging="$OUT_DIR/.tpz_staging"
+	rm -rf "$staging"
+	mkdir -p "$staging/templates"
+
+	local found=0
+	local d f
+	for d in "$OUT_DIR/templates" "$OUT_DIR/templates_linux" "$OUT_DIR/templates_windows" "$OUT_DIR/templates_macos"; do
+		[[ -d "$d" ]] || continue
+		for f in "$d"/*; do
+			[[ -f "$f" ]] || continue
+			cp "$f" "$staging/templates/"
+			found=1
+		done
+	done
+
+	if [[ "$found" -eq 0 ]]; then
+		rm -rf "$staging"
+		return
+	fi
+
+	echo "$VERSION" > "$staging/templates/version.txt"
+
+	local tpz="$OUT_DIR/godot-webgpu-export-templates-$VERSION.tpz"
+	rm -f "$tpz"
+	(cd "$staging" && zip -rq "$tpz" templates)
+	rm -rf "$staging"
+	echo -e "${GREEN}Export template package -> $tpz${NC}"
+}
+
 build_editor() {
 	echo -e "${BOLD}Building editor (platform=$HOST_PLATFORM)...${NC}"
 	scons platform="$HOST_PLATFORM" target=editor -j"$JOBS"
@@ -114,6 +158,7 @@ build_templates() {
 	cp "$debug_zip" "$dest/web_nothreads_debug.zip"
 	cp "$release_zip" "$dest/web_nothreads_release.zip"
 	echo -e "${GREEN}Templates -> $dest${NC}"
+	package_tpz
 }
 
 check_mingw() {
@@ -231,6 +276,7 @@ build_windows_templates() {
 	[[ -f "$dbg_console" ]] && cp "$dbg_console" "$dest/windows_debug_x86_64_console.exe"
 	[[ -f "$rel_console" ]] && cp "$rel_console" "$dest/windows_release_x86_64_console.exe"
 	echo -e "${GREEN}Windows templates -> $dest${NC}"
+	package_tpz
 }
 
 build_macos_editor() {
@@ -281,6 +327,7 @@ build_macos_templates() {
 
 	cp "$zip" "$dest/macos.zip"
 	echo -e "${GREEN}macOS templates -> $dest${NC}"
+	package_tpz
 }
 
 build_all() {
