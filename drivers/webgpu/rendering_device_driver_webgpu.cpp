@@ -10527,6 +10527,12 @@ bool RenderingDeviceDriverWebGPU::has_feature(Features p_feature) {
 			// the one real user of this today (Task 9.5 Round 21) -- callers must fall back
 			// to storing already-decoded values in a natively-supported format instead.
 			return false;
+		case SUPPORTS_TEXTURE_ARRAY_BINDINGS:
+			// Core WebGPU has no descriptor-array equivalent at all -- one binding is
+			// always exactly one resource. See webgpu_texture3d_array_inc.glsl in the
+			// shader source and gi.cpp's SDFGI cascade-texture bindings (Task 9.5
+			// Round 36/37) for the one real user of this today.
+			return false;
 		default:
 			return false;
 	}

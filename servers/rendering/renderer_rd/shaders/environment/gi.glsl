@@ -20,12 +20,21 @@ layout(constant_id = 2) const bool sc_use_vrs = false;
 
 #define SDFGI_MAX_CASCADES 8
 
+#include "../webgpu_texture3d_array_inc.glsl"
+
 //set 0 for SDFGI and render buffers
 
-layout(set = 0, binding = 1) uniform texture3D sdf_cascades[SDFGI_MAX_CASCADES];
-layout(set = 0, binding = 2) uniform texture3D light_cascades[SDFGI_MAX_CASCADES];
-layout(set = 0, binding = 3) uniform texture3D aniso0_cascades[SDFGI_MAX_CASCADES];
-layout(set = 0, binding = 4) uniform texture3D aniso1_cascades[SDFGI_MAX_CASCADES];
+// On WebGPU these each declare 8 individually-numbered bindings; on every other
+// backend, one combined `texture3D <name>[8]` array at the given binding (see
+// webgpu_texture3d_array_inc.glsl). 100/110/130/140 are synthetic ranges chosen (120 is deliberately skipped -- see the IMPORTANT note in webgpu_texture3d_array_inc.glsl about PC_RING_BUFFER_BINDING)
+// well above every other binding this shader declares (currently 1..19) so they
+// can never collide; gi.cpp's uniform-set construction must use the same binding
+// numbers. Call <name>_sample(idx, samp, uv, lod) instead of
+// textureLod(sampler3D(<name>[idx], samp), uv, lod).
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(sdf_cascades, 100)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(light_cascades, 110)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(aniso0_cascades, 130)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(aniso1_cascades, 140)
 layout(set = 0, binding = 5) uniform texture3D occlusion_texture;
 
 layout(set = 0, binding = 6) uniform sampler linear_sampler;
@@ -412,11 +421,11 @@ void sdfgi_process(vec3 vertex, vec3 normal, vec3 reflection, float roughness, o
 					vec3 pos = ray_pos - sdfgi.cascades[i].position;
 					pos *= sdfgi.cascades[i].to_cell * pos_to_uvw;
 
-					float fdistance = textureLod(sampler3D(sdf_cascades[i], linear_sampler), pos, 0.0).r * 255.0 - 1.1;
+					float fdistance = sdf_cascades_sample(i, linear_sampler, pos, 0.0).r * 255.0 - 1.1;
 
 					vec4 hit_light = vec4(0.0);
 					if (fdistance < softness) {
-						hit_light.rgb = textureLod(sampler3D(light_cascades[i], linear_sampler), pos, 0.0).rgb;
+						hit_light.rgb = light_cascades_sample(i, linear_sampler, pos, 0.0).rgb;
 						hit_light.rgb *= 0.5; //approximation given value read is actually meant for anisotropy
 						hit_light.a = clamp(1.0 - (fdistance / softness), 0.0, 1.0);
 						hit_light.rgb *= hit_light.a;
@@ -428,11 +437,11 @@ void sdfgi_process(vec3 vertex, vec3 normal, vec3 reflection, float roughness, o
 						pos = ray_pos - sdfgi.cascades[next_i].position;
 						pos *= sdfgi.cascades[next_i].to_cell * pos_to_uvw;
 
-						float fdistance2 = textureLod(sampler3D(sdf_cascades[next_i], linear_sampler), pos, 0.0).r * 255.0 - 1.1;
+						float fdistance2 = sdf_cascades_sample(next_i, linear_sampler, pos, 0.0).r * 255.0 - 1.1;
 
 						vec4 hit_light2 = vec4(0.0);
 						if (fdistance2 < softness) {
-							hit_light2.rgb = textureLod(sampler3D(light_cascades[next_i], linear_sampler), pos, 0.0).rgb;
+							hit_light2.rgb = light_cascades_sample(next_i, linear_sampler, pos, 0.0).rgb;
 							hit_light2.rgb *= 0.5; //approximation given value read is actually meant for anisotropy
 							hit_light2.a = clamp(1.0 - (fdistance2 / softness), 0.0, 1.0);
 							hit_light2.rgb *= hit_light2.a;
