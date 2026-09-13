@@ -2857,10 +2857,11 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_promote_storage_format(WGPUTextu
 
 RDD::DataFormat RenderingDeviceDriverWebGPU::_wgpu_to_data_format(WGPUTextureFormat p_format) const {
 	// Deliberately not a full reverse mapping (see webgpu_notes/TASKS.md Task
-	// 7.6) -- this has exactly one caller in the whole driver, swap_chain_get_format()
-	// querying a swap chain's format, which is always BGRA8Unorm (sc->format is
-	// hardcoded, see Task 7.11) or, if that's ever revisited, RGBA8Unorm --
-	// the only two formats a real caller can ever pass in here today.
+	// 7.6) -- both callers (swap_chain_get_format() and swap_chain_create()'s
+	// render-pass attachment setup) only ever pass sc->format, which since
+	// Task 7.11 is whichever of BGRA8Unorm/RGBA8Unorm wgpuSurfaceGetCapabilities()
+	// reports as the browser's preferred canvas format -- the only two formats
+	// a real caller can ever pass in here today.
 	switch (p_format) {
 		case WGPUTextureFormat_BGRA8Unorm: return DATA_FORMAT_B8G8R8A8_UNORM;
 		case WGPUTextureFormat_RGBA8Unorm: return DATA_FORMAT_R8G8B8A8_UNORM;
@@ -3463,13 +3464,29 @@ RDD::SwapChainID RenderingDeviceDriverWebGPU::swap_chain_create(RenderingContext
 	WGSwapChain *sc = new WGSwapChain();
 	sc->surface = context_driver->surface_get_handle(p_surface);
 	sc->surface_id = p_surface;
-	sc->format = WGPUTextureFormat_BGRA8Unorm; // Standard format for browser canvas.
+	sc->format = WGPUTextureFormat_BGRA8Unorm; // Fallback if capabilities can't be queried.
+
+	// Query the browser's actual preferred canvas format (Task 7.11) instead of
+	// assuming BGRA8Unorm -- Chrome/ANGLE-Vulkan prefers BGRA8Unorm, but other
+	// backends (e.g. some Linux/Vulkan configurations) report RGBA8Unorm as
+	// preferred instead. Configuring the surface with a non-preferred format
+	// forces Dawn to insert an extra blit/copy every frame to compensate (the
+	// "WebGPU canvas configured with a different format than is preferred by
+	// this device" console warning) -- purely a perf cost, not a correctness
+	// one, but a real, measurable one. emdawnwebgpu's wgpuSurfaceGetCapabilities()
+	// always returns the true preferred format first (see its kSurfaceFormatsRGBAFirst/
+	// kSurfaceFormatsBGRAFirst tables), so formats[0] is exactly what we want.
+	WGPUSurfaceCapabilities caps = {};
+	if (wgpuSurfaceGetCapabilities(sc->surface, context_driver->get_adapter(), &caps) == WGPUStatus_Success && caps.formatCount > 0) {
+		sc->format = caps.formats[0];
+		wgpuSurfaceCapabilitiesFreeMembers(caps);
+	}
 
 	// Create a render pass descriptor for this swap chain.
 	// Used by swap_chain_get_render_pass() so the RD layer can create compatible pipelines.
 	WGRenderPass *rp = new WGRenderPass();
 	RDD::Attachment att;
-	att.format = DATA_FORMAT_B8G8R8A8_UNORM;
+	att.format = _wgpu_to_data_format(sc->format);
 	att.samples = TEXTURE_SAMPLES_1;
 	att.load_op = ATTACHMENT_LOAD_OP_CLEAR;
 	att.store_op = ATTACHMENT_STORE_OP_STORE;
@@ -9653,19 +9670,23 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 			if (ba.write_g) { mask |= WGPUColorWriteMask_Green; }
 			if (ba.write_b) { mask |= WGPUColorWriteMask_Blue; }
 			if (ba.write_a) { mask |= WGPUColorWriteMask_Alpha; }
-			// Strip alpha writes for ALL pipelines targeting the swap chain format.
+			// Strip alpha writes for ALL pipelines targeting the swap chain pass.
 			// Chrome ignores CompositeAlphaMode_Opaque and composites alpha=0
-			// against a gray/white background. The swap chain (BGRA8Unorm) is the
-			// only BGRA render target — internal targets use RGBA formats.
-			// Stripping alpha for blended pipelines too ensures the clear value's
-			// alpha=1 is never overwritten by shader output.
-			if (fmt == WGPUTextureFormat_BGRA8Unorm) {
+			// against a gray/white background. Stripping alpha for blended
+			// pipelines too ensures the clear value's alpha=1 is never
+			// overwritten by shader output.
+			// Keyed on rp->is_swap_chain_pass rather than a specific format:
+			// since Task 7.11, the swap chain's format is whatever the browser
+			// actually prefers (BGRA8Unorm or RGBA8Unorm), not always BGRA8Unorm,
+			// so format-value comparison is no longer a reliable "is this the
+			// swap chain" signal.
+			if (rp->is_swap_chain_pass) {
 				mask &= ~WGPUColorWriteMask_Alpha;
 				static int _alpha_strip_log = 0;
 				if (_alpha_strip_log < 10) {
 					[[maybe_unused]] const char *sname = (p_shader.id) ? ((WGShader *)(p_shader.id))->name.utf8().get_data() : "?";
-					WEBGPU_DIAG({ console.log('[ALPHA-STRIP] Pipeline #' + $0 + ' fmt=BGRA8Unorm mask=' + $1 + ' blend=' + $2 + ' shader=' + UTF8ToString($3)); },
-							_alpha_strip_log, (int)mask, ba.enable_blend ? 1 : 0, sname);
+					WEBGPU_DIAG({ console.log('[ALPHA-STRIP] Pipeline #' + $0 + ' fmt=' + $1 + ' mask=' + $2 + ' blend=' + $3 + ' shader=' + UTF8ToString($4)); },
+							_alpha_strip_log, (int)fmt, (int)mask, ba.enable_blend ? 1 : 0, sname);
 					_alpha_strip_log++;
 				}
 			}

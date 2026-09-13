@@ -403,7 +403,8 @@ public:
 	virtual FramebufferID swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) override final;
 	/// Get the render pass associated with a swap chain.
 	virtual RenderPassID swap_chain_get_render_pass(SwapChainID p_swap_chain) override final;
-	/// Get the pixel format of a swap chain (always BGRA8Unorm for WebGPU).
+	/// Get the pixel format of a swap chain (BGRA8Unorm or RGBA8Unorm, whichever
+	/// the browser reports as its preferred canvas format -- see Task 7.11).
 	virtual DataFormat swap_chain_get_format(SwapChainID p_swap_chain) override final;
 	/// Get the color space of a swap chain (always sRGB nonlinear for a browser canvas).
 	virtual ColorSpace swap_chain_get_color_space(SwapChainID p_swap_chain) override final;
@@ -576,7 +577,7 @@ public:
 	virtual void command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) override final;
 
 	/// Create a render pipeline. Handles SPIR-V → WGSL translation for specialization
-	/// constants and alpha-strip for BGRA8Unorm swap chain compatibility.
+	/// constants and alpha-strip for swap chain compatibility.
 	virtual PipelineID render_pipeline_create(
 			ShaderID p_shader,
 			VertexFormatID p_vertex_format,
