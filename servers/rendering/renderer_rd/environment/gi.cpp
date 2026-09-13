@@ -44,6 +44,35 @@ using namespace RendererRD;
 
 const Vector3i GI::SDFGI::Cascade::DIRTY_ALL = Vector3i(0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF);
 
+// Binds SDFGI::MAX_CASCADES (8) per-cascade textures to a shader as either one
+// combined array-uniform (the natural representation, used on every backend that
+// supports it) or 8 individually-numbered bindings starting at p_binding0 (WebGPU,
+// which cannot represent an array of independently-selectable textures/images in
+// a single binding at all -- see webgpu_texture3d_array_inc.glsl in the shader
+// source for the corresponding shader-side declaration/access macro). p_binding0
+// is only used in the WebGPU case; the combined case always uses p_binding0 as
+// well since it's the same slot the shader declares the array at on those
+// backends. See Task 9.5 Round 36/37 in webgpu_notes/TASKS.md.
+static void _gi_bind_cascade_texture_array(Vector<RD::Uniform> &r_uniforms, RD::UniformType p_uniform_type, uint32_t p_binding0, const RID (&p_ids)[GI::SDFGI::MAX_CASCADES]) {
+	if (RD::get_singleton()->has_feature(RD::SUPPORTS_TEXTURE_ARRAY_BINDINGS)) {
+		RD::Uniform u;
+		u.uniform_type = p_uniform_type;
+		u.binding = p_binding0;
+		for (uint32_t i = 0; i < GI::SDFGI::MAX_CASCADES; i++) {
+			u.append_id(p_ids[i]);
+		}
+		r_uniforms.push_back(u);
+	} else {
+		for (uint32_t i = 0; i < GI::SDFGI::MAX_CASCADES; i++) {
+			RD::Uniform u;
+			u.uniform_type = p_uniform_type;
+			u.binding = p_binding0 + i;
+			u.append_id(p_ids[i]);
+			r_uniforms.push_back(u);
+		}
+	}
+}
+
 GI *GI::singleton = nullptr;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -775,17 +804,15 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 	for (SDFGI::Cascade &cascade : cascades) {
 		Vector<RD::Uniform> uniforms;
 		{
-			RD::Uniform u;
-			u.binding = 1;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+			RID ids[SDFGI::MAX_CASCADES];
 			for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
 				if (j < cascades.size()) {
-					u.append_id(cascades[j].sdf_tex);
+					ids[j] = cascades[j].sdf_tex;
 				} else {
-					u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
+					ids[j] = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 				}
 			}
-			uniforms.push_back(u);
+			_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 100, ids);
 		}
 		{
 			RD::Uniform u;
@@ -1026,56 +1053,28 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		Vector<RD::Uniform> uniforms;
 
 		{
-			RD::Uniform u;
-			u.binding = 1;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+			RID sdf_ids[SDFGI::MAX_CASCADES];
+			RID light_ids[SDFGI::MAX_CASCADES];
+			RID aniso0_ids[SDFGI::MAX_CASCADES];
+			RID aniso1_ids[SDFGI::MAX_CASCADES];
 			for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
 				if (j < cascades.size()) {
-					u.append_id(cascades[j].sdf_tex);
+					sdf_ids[j] = cascades[j].sdf_tex;
+					light_ids[j] = cascades[j].light_tex;
+					aniso0_ids[j] = cascades[j].light_aniso_0_tex;
+					aniso1_ids[j] = cascades[j].light_aniso_1_tex;
 				} else {
-					u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
+					RID default_white = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+					sdf_ids[j] = default_white;
+					light_ids[j] = default_white;
+					aniso0_ids[j] = default_white;
+					aniso1_ids[j] = default_white;
 				}
 			}
-			uniforms.push_back(u);
-		}
-		{
-			RD::Uniform u;
-			u.binding = 2;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-			for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-				if (j < cascades.size()) {
-					u.append_id(cascades[j].light_tex);
-				} else {
-					u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-				}
-			}
-			uniforms.push_back(u);
-		}
-		{
-			RD::Uniform u;
-			u.binding = 3;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-			for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-				if (j < cascades.size()) {
-					u.append_id(cascades[j].light_aniso_0_tex);
-				} else {
-					u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-				}
-			}
-			uniforms.push_back(u);
-		}
-		{
-			RD::Uniform u;
-			u.binding = 4;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-			for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-				if (j < cascades.size()) {
-					u.append_id(cascades[j].light_aniso_1_tex);
-				} else {
-					u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-				}
-			}
-			uniforms.push_back(u);
+			_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 100, sdf_ids);
+			_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 110, light_ids);
+			_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 130, aniso0_ids);
+			_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 140, aniso1_ids);
 		}
 		{
 			RD::Uniform u;
@@ -1575,56 +1574,28 @@ void GI::SDFGI::debug_draw(uint32_t p_view_count, const Projection *p_projection
 		if (!debug_uniform_set[v].is_valid() || !RD::get_singleton()->uniform_set_is_valid(debug_uniform_set[v])) {
 			Vector<RD::Uniform> uniforms;
 			{
-				RD::Uniform u;
-				u.binding = 1;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+				RID sdf_ids[SDFGI::MAX_CASCADES];
+				RID light_ids[SDFGI::MAX_CASCADES];
+				RID aniso0_ids[SDFGI::MAX_CASCADES];
+				RID aniso1_ids[SDFGI::MAX_CASCADES];
 				for (uint32_t i = 0; i < SDFGI::MAX_CASCADES; i++) {
 					if (i < cascades.size()) {
-						u.append_id(cascades[i].sdf_tex);
+						sdf_ids[i] = cascades[i].sdf_tex;
+						light_ids[i] = cascades[i].light_tex;
+						aniso0_ids[i] = cascades[i].light_aniso_0_tex;
+						aniso1_ids[i] = cascades[i].light_aniso_1_tex;
 					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
+						RID default_white = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+						sdf_ids[i] = default_white;
+						light_ids[i] = default_white;
+						aniso0_ids[i] = default_white;
+						aniso1_ids[i] = default_white;
 					}
 				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 2;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t i = 0; i < SDFGI::MAX_CASCADES; i++) {
-					if (i < cascades.size()) {
-						u.append_id(cascades[i].light_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 3;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t i = 0; i < SDFGI::MAX_CASCADES; i++) {
-					if (i < cascades.size()) {
-						u.append_id(cascades[i].light_aniso_0_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 4;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t i = 0; i < SDFGI::MAX_CASCADES; i++) {
-					if (i < cascades.size()) {
-						u.append_id(cascades[i].light_aniso_1_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 100, sdf_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 110, light_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 130, aniso0_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 140, aniso1_ids);
 			}
 			{
 				RD::Uniform u;
@@ -4132,56 +4103,28 @@ void GI::process_gi(Ref<RenderSceneBuffersRD> p_render_buffers, const RID *p_nor
 		if (rbgi->uniform_set[v].is_null() || !RD::get_singleton()->uniform_set_is_valid(rbgi->uniform_set[v])) {
 			Vector<RD::Uniform> uniforms;
 			{
-				RD::Uniform u;
-				u.binding = 1;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+				RID sdf_ids[SDFGI::MAX_CASCADES];
+				RID light_ids[SDFGI::MAX_CASCADES];
+				RID aniso0_ids[SDFGI::MAX_CASCADES];
+				RID aniso1_ids[SDFGI::MAX_CASCADES];
 				for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
 					if (use_sdfgi && j < sdfgi->cascades.size()) {
-						u.append_id(sdfgi->cascades[j].sdf_tex);
+						sdf_ids[j] = sdfgi->cascades[j].sdf_tex;
+						light_ids[j] = sdfgi->cascades[j].light_tex;
+						aniso0_ids[j] = sdfgi->cascades[j].light_aniso_0_tex;
+						aniso1_ids[j] = sdfgi->cascades[j].light_aniso_1_tex;
 					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
+						RID default_white = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+						sdf_ids[j] = default_white;
+						light_ids[j] = default_white;
+						aniso0_ids[j] = default_white;
+						aniso1_ids[j] = default_white;
 					}
 				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 2;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-					if (use_sdfgi && j < sdfgi->cascades.size()) {
-						u.append_id(sdfgi->cascades[j].light_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 3;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-					if (use_sdfgi && j < sdfgi->cascades.size()) {
-						u.append_id(sdfgi->cascades[j].light_aniso_0_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
-			}
-			{
-				RD::Uniform u;
-				u.binding = 4;
-				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-				for (uint32_t j = 0; j < SDFGI::MAX_CASCADES; j++) {
-					if (use_sdfgi && j < sdfgi->cascades.size()) {
-						u.append_id(sdfgi->cascades[j].light_aniso_1_tex);
-					} else {
-						u.append_id(texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE));
-					}
-				}
-				uniforms.push_back(u);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 100, sdf_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 110, light_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 130, aniso0_ids);
+				_gi_bind_cascade_texture_array(uniforms, RD::UNIFORM_TYPE_TEXTURE, 140, aniso1_ids);
 			}
 			{
 				RD::Uniform u;

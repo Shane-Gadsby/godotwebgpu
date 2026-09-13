@@ -8,7 +8,16 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #define MAX_CASCADES 8
 
-layout(set = 0, binding = 1) uniform texture3D sdf_cascades[MAX_CASCADES];
+#include "../webgpu_texture3d_array_inc.glsl"
+
+// On WebGPU this declares 8 individually-numbered bindings at 100..107; on every
+// other backend, one combined `texture3D sdf_cascades[8]` array at binding 100
+// (see webgpu_texture3d_array_inc.glsl). 100 is a synthetic range chosen well
+// above every other binding this shader declares (currently 1..12) so it can
+// never collide; gi.cpp's uniform-set construction must use the same binding
+// number. Call sdf_cascades_sample(idx, samp, uv, 0.0) instead of
+// texture(sampler3D(sdf_cascades[idx], samp), uv).
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(sdf_cascades, 100)
 layout(set = 0, binding = 2) uniform sampler linear_sampler;
 layout(set = 0, binding = 3) uniform sampler linear_sampler_with_mipmaps;
 
@@ -412,7 +421,7 @@ void main() {
 				//read how much to advance from SDF
 				vec3 uvw = (pos + ray_dir * advance) * pos_to_uvw;
 
-				float distance = texture(sampler3D(sdf_cascades[j], linear_sampler), uvw).r * 255.0 - 1.0;
+				float distance = sdf_cascades_sample(j, linear_sampler, uvw, 0.0).r * 255.0 - 1.0;
 				if (distance < 0.001) {
 					//consider hit
 					hit = true;

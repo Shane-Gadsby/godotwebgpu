@@ -8,10 +8,19 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 #define MAX_CASCADES 8
 
-layout(set = 0, binding = 1) uniform texture3D sdf_cascades[MAX_CASCADES];
-layout(set = 0, binding = 2) uniform texture3D light_cascades[MAX_CASCADES];
-layout(set = 0, binding = 3) uniform texture3D aniso0_cascades[MAX_CASCADES];
-layout(set = 0, binding = 4) uniform texture3D aniso1_cascades[MAX_CASCADES];
+#include "../webgpu_texture3d_array_inc.glsl"
+
+// On WebGPU these each declare 8 individually-numbered bindings; on every other
+// backend, one combined `texture3D <name>[8]` array at the given binding (see
+// webgpu_texture3d_array_inc.glsl). 100/110/130/140 are synthetic ranges chosen (120 is deliberately skipped -- see the IMPORTANT note in webgpu_texture3d_array_inc.glsl about PC_RING_BUFFER_BINDING)
+// well above every other binding this shader declares (currently 1..11) so they
+// can never collide; gi.cpp's uniform-set construction must use the same binding
+// numbers. Call <name>_sample(idx, samp, uv, 0.0) instead of
+// texture(sampler3D(<name>[idx], samp), uv).
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(sdf_cascades, 100)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(light_cascades, 110)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(aniso0_cascades, 130)
+WEBGPU_DECLARE_TEXTURE3D_ARRAY8(aniso1_cascades, 140)
 layout(set = 0, binding = 5) uniform texture3D occlusion_texture;
 
 layout(set = 0, binding = 8) uniform sampler linear_sampler;
@@ -138,7 +147,7 @@ void main() {
 			//read how much to advance from SDF
 			uvw = (pos + ray_dir * advance) * pos_to_uvw;
 
-			float distance = texture(sampler3D(sdf_cascades[i], linear_sampler), uvw).r * 255.0 - 1.7;
+			float distance = sdf_cascades_sample(i, linear_sampler, uvw, 0.0).r * 255.0 - 1.7;
 
 			if (distance < 0.001) {
 				//consider hit
@@ -161,14 +170,14 @@ void main() {
 
 		const float EPSILON = 0.001;
 		vec3 hit_normal = normalize(vec3(
-				texture(sampler3D(sdf_cascades[i], linear_sampler), uvw + vec3(EPSILON, 0.0, 0.0)).r - texture(sampler3D(sdf_cascades[i], linear_sampler), uvw - vec3(EPSILON, 0.0, 0.0)).r,
-				texture(sampler3D(sdf_cascades[i], linear_sampler), uvw + vec3(0.0, EPSILON, 0.0)).r - texture(sampler3D(sdf_cascades[i], linear_sampler), uvw - vec3(0.0, EPSILON, 0.0)).r,
-				texture(sampler3D(sdf_cascades[i], linear_sampler), uvw + vec3(0.0, 0.0, EPSILON)).r - texture(sampler3D(sdf_cascades[i], linear_sampler), uvw - vec3(0.0, 0.0, EPSILON)).r));
+				sdf_cascades_sample(i, linear_sampler, uvw + vec3(EPSILON, 0.0, 0.0), 0.0).r - sdf_cascades_sample(i, linear_sampler, uvw - vec3(EPSILON, 0.0, 0.0), 0.0).r,
+				sdf_cascades_sample(i, linear_sampler, uvw + vec3(0.0, EPSILON, 0.0), 0.0).r - sdf_cascades_sample(i, linear_sampler, uvw - vec3(0.0, EPSILON, 0.0), 0.0).r,
+				sdf_cascades_sample(i, linear_sampler, uvw + vec3(0.0, 0.0, EPSILON), 0.0).r - sdf_cascades_sample(i, linear_sampler, uvw - vec3(0.0, 0.0, EPSILON), 0.0).r));
 
-		vec3 hit_light = texture(sampler3D(light_cascades[i], linear_sampler), uvw).rgb;
-		vec4 aniso0 = texture(sampler3D(aniso0_cascades[i], linear_sampler), uvw);
+		vec3 hit_light = light_cascades_sample(i, linear_sampler, uvw, 0.0).rgb;
+		vec4 aniso0 = aniso0_cascades_sample(i, linear_sampler, uvw, 0.0);
 		vec3 hit_aniso0 = aniso0.rgb;
-		vec3 hit_aniso1 = vec3(aniso0.a, texture(sampler3D(aniso1_cascades[i], linear_sampler), uvw).rg);
+		vec3 hit_aniso1 = vec3(aniso0.a, aniso1_cascades_sample(i, linear_sampler, uvw, 0.0).rg);
 
 		hit_light *= (dot(max(vec3(0.0), (hit_normal * hit_aniso0)), vec3(1.0)) + dot(max(vec3(0.0), (-hit_normal * hit_aniso1)), vec3(1.0)));
 

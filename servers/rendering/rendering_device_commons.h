@@ -1046,6 +1046,21 @@ public:
 		// (e.g. RGB9E5Ufloat, 4-bit-per-channel unorm formats) aren't even storage-capable
 		// in WebGPU's format table, so there is no view to create in the first place.
 		SUPPORTS_SHAREABLE_TEXTURE_FORMATS,
+		// Whether a single shader binding can represent an array of N independently-
+		// selectable textures/images (a GLSL `uniform texture3D foo[8]`, dynamically
+		// indexed at runtime), each bound to its own descriptor slot within that one
+		// binding. True on Vulkan (VkDescriptorSetLayoutBinding::descriptorCount > 1),
+		// Metal (argument buffers/array textures), and D3D12 (descriptor ranges).
+		// False on WebGPU: core WebGPU has no descriptor-array equivalent at all, and
+		// Tint cannot even parse SPIR-V containing such an array type regardless of
+		// size -- callers on this driver must bind each array element as its own
+		// separate, individually-numbered uniform instead (see
+		// webgpu_texture3d_array_inc.glsl in the shader source and gi.cpp's SDFGI
+		// cascade-texture bindings for the one real user of this today). See
+		// Task 9.5 Round 36/37 in webgpu_notes/TASKS.md for how the lack of this was
+		// found (a real bug: WebGPU's driver previously bound only the first array
+		// element for every such uniform, silently discarding the runtime index).
+		SUPPORTS_TEXTURE_ARRAY_BINDINGS,
 	};
 
 	enum SubgroupOperations {

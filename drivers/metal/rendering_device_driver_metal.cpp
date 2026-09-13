@@ -2693,6 +2693,8 @@ bool RenderingDeviceDriverMetal::has_feature(Features p_feature) {
 			return true;
 		case SUPPORTS_SHAREABLE_TEXTURE_FORMATS:
 			return true; // Metal supports pixel-format-view aliasing of a texture's backing storage.
+		case SUPPORTS_TEXTURE_ARRAY_BINDINGS:
+			return true; // Argument buffers / array textures.
 		default:
 			return false;
 	}
