@@ -2679,8 +2679,18 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 
 bool RenderingDeviceDriverWebGPU::texture_can_make_shared_with_format(TextureID p_texture, DataFormat p_format, bool &r_raw_reinterpretation) {
 	r_raw_reinterpretation = false;
-	// TODO: Check WebGPU view format compatibility rules.
-	return true;
+	// WebGPU's viewFormats mechanism only ever allows a texture's own format
+	// and its sRGB twin (see RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS's comment
+	// in api_trait_get() below) -- texture_create() only ever declares that one
+	// extra viewFormats entry (via _get_srgb_view_format()), so a real
+	// wgpuTextureCreateView() with any other format would fail validation.
+	// Report "not shareable" for anything but the sRGB-twin case so the caller
+	// (RenderingDevice::texture_create_shared_from_slice(), see rendering_device.cpp)
+	// falls back to its own independent-alias-texture path instead.
+	WGTexture *tex = (WGTexture *)(p_texture.id);
+	ERR_FAIL_NULL_V(tex, false);
+	WGPUTextureFormat requested = _data_format_to_wgpu(p_format);
+	return requested == tex->format || requested == _get_srgb_view_format(tex->format);
 }
 
 WGPUTextureUsage RenderingDeviceDriverWebGPU::_texture_usage_to_wgpu(BitField<TextureUsageBits> p_usage) const {
@@ -2846,7 +2856,11 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_promote_storage_format(WGPUTextu
 }
 
 RDD::DataFormat RenderingDeviceDriverWebGPU::_wgpu_to_data_format(WGPUTextureFormat p_format) const {
-	// TODO: Full reverse mapping. For now, handle common cases.
+	// Deliberately not a full reverse mapping (see webgpu_notes/TASKS.md Task
+	// 7.6) -- this has exactly one caller in the whole driver, swap_chain_get_format()
+	// querying a swap chain's format, which is always BGRA8Unorm (sc->format is
+	// hardcoded, see Task 7.11) or, if that's ever revisited, RGBA8Unorm --
+	// the only two formats a real caller can ever pass in here today.
 	switch (p_format) {
 		case WGPUTextureFormat_BGRA8Unorm: return DATA_FORMAT_B8G8R8A8_UNORM;
 		case WGPUTextureFormat_RGBA8Unorm: return DATA_FORMAT_R8G8B8A8_UNORM;
@@ -4173,6 +4187,113 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 	return result;
 }
 
+// Rewrites WGSL storage-texel-format names that WebGPU doesn't support to
+// supported equivalents, and demotes vertex-stage read_write storage buffers
+// to read-only (WebGPU forbids a writable storage buffer's visibility from
+// including the vertex stage at all -- see the fragment-stage note below).
+// Shared between shader_create_from_container() (the primary conversion path)
+// and _create_module_with_spec_constants() (the legacy per-specialization
+// re-conversion path) -- previously hand-duplicated between the two behind a
+// "must match shader_create_from_container" comment, which is exactly the
+// kind of thing that silently drifts; see webgpu_notes/TASKS.md's plan-of-attack
+// notes (Tier 2 "duplicated format remapping") for context.
+void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *&r_wgsl_str, ShaderStage p_stage) const {
+	// Remap unsupported 8-bit storage texture format names in WGSL.
+	// r8* and rg8* are not valid base WebGPU storage texel formats — remap to
+	// 32-bit equivalents. With texture-formats-tier1 these formats are valid
+	// natively, so skip the remap to preserve blendable/filterable properties.
+	if (!has_texture_formats_tier1 &&
+			(strstr(r_wgsl_str, "r8unorm") || strstr(r_wgsl_str, "r8snorm") ||
+			strstr(r_wgsl_str, "r8uint") || strstr(r_wgsl_str, "r8sint") ||
+			strstr(r_wgsl_str, "rg8unorm") || strstr(r_wgsl_str, "rg8snorm") ||
+			strstr(r_wgsl_str, "rg8uint") || strstr(r_wgsl_str, "rg8sint"))) {
+		String ws(r_wgsl_str);
+		ws = ws.replace("rg8unorm", "rg32float");
+		ws = ws.replace("rg8snorm", "rg32float");
+		ws = ws.replace("rg8uint", "rg32uint");
+		ws = ws.replace("rg8sint", "rg32sint");
+		ws = ws.replace("r8unorm", "r32float");
+		ws = ws.replace("r8snorm", "r32float");
+		ws = ws.replace("r8uint", "r32uint");
+		ws = ws.replace("r8sint", "r32sint");
+		free(r_wgsl_str);
+		CharString cs = ws.utf8();
+		r_wgsl_str = (char *)malloc(cs.length() + 1);
+		memcpy(r_wgsl_str, cs.get_data(), cs.length() + 1);
+	}
+
+	// If texture-formats-tier1 is not available, remap 16-bit SNORM/UNORM storage
+	// texture format names to their float equivalents in the WGSL text. The format
+	// string lengths are preserved (pad with spaces) so scan offsets remain valid.
+	// r16snorm  → r16float  (same 8 chars)
+	// r16unorm  → r16float  (same 8 chars)
+	// rg16snorm → rg16float (same 9 chars — "rg16float" is 9 chars, perfect)
+	// rg16unorm → rg16float (same 9 chars)
+	// rgba16snorm → rgba16float (11 vs 11 — perfect)
+	// rgba16unorm → rgba16float (11 vs 11 — perfect)
+	if (!has_texture_formats_tier1) {
+		char *q = r_wgsl_str;
+		while (*q) {
+			if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
+			else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
+			else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
+			else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
+			else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
+			else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
+			else { q++; }
+		}
+	}
+
+	// WebGPU only supports a limited set of storage texel formats (see spec §26.1.1).
+	// 16-bit single/dual-channel formats (r16*, rg16*) are NOT valid for storage.
+	// Remap them to 32-bit equivalents. Also handles rgba16snorm/unorm → rgba32float.
+	// Format names only appear in texture_storage_*<format, access> declarations in WGSL.
+	// All replacements preserve string length (in-place memcpy).
+	{
+		char *q = r_wgsl_str;
+		while (*q) {
+			// RGBA16 snorm/unorm → rgba16float (rgba16float IS a valid storage format)
+			if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
+			else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
+			// RG16 all variants → rg32 equivalents
+			else if (strncmp(q, "rg16float", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
+			else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
+			else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
+			else if (strncmp(q, "rg16uint", 8) == 0) { memcpy(q, "rg32uint", 8); q += 8; }
+			else if (strncmp(q, "rg16sint", 8) == 0) { memcpy(q, "rg32sint", 8); q += 8; }
+			// R16 all variants → r32 equivalents
+			else if (strncmp(q, "r16float", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
+			else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
+			else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
+			else if (strncmp(q, "r16uint", 7) == 0) { memcpy(q, "r32uint", 7); q += 7; }
+			else if (strncmp(q, "r16sint", 7) == 0) { memcpy(q, "r32sint", 7); q += 7; }
+			else { q++; }
+		}
+	}
+
+	// WebGPU restriction: storage buffers with read_write/write access cannot be bound
+	// visible to the vertex stage at all (undefined per-invocation write ordering/
+	// duplication hazards) -- fragment stage has no such restriction and regularly uses
+	// read_write storage buffers for exactly this kind of technique (order-independent
+	// transparency, per-pixel light-clustering via atomics, etc.). Demote to read only
+	// for the vertex stage (in-place, same string length); this used to also demote
+	// fragment-stage read_write to read, which was wrong -- see Task 9.1/9's live-repro
+	// investigation, which found it silently corrupting `cluster_render.glsl`'s fragment
+	// stage (a genuine atomic<u32> storage buffer, which WGSL requires read_write for --
+	// Dawn rejects the demoted `read` version outright: "atomic variables in 'storage'
+	// address space must have 'read_write' access mode"). No prior shader in this driver's
+	// history had ever needed genuine read_write storage access from a fragment stage, so
+	// this over-broad demotion went unnoticed until Forward+'s cluster-building pass.
+	if (p_stage == SHADER_STAGE_VERTEX) {
+		char *q = r_wgsl_str;
+		while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
+			// "var<storage, read_write>" = 24 chars → "var<storage, read>      " = 24 chars
+			memcpy(q, "var<storage, read>      ", 24);
+			q += 24;
+		}
+	}
+}
+
 RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	ERR_FAIL_COND_V(p_shader_container.is_null(), ShaderID());
 
@@ -4342,100 +4463,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// DEPTH_ALIAS parsing removed — depth=2 images are now depth=1 in SPIR-V,
 		// and a single texture_depth_2d variable handles both sampling modes.
 
-		// Remap unsupported 8-bit storage texture format names in WGSL.
-		// r8* and rg8* are not valid base WebGPU storage texel formats — remap to
-		// 32-bit equivalents. With texture-formats-tier1 these formats are valid
-		// natively, so skip the remap to preserve blendable/filterable properties.
-		if (!has_texture_formats_tier1 &&
-				(strstr(wgsl_str, "r8unorm") || strstr(wgsl_str, "r8snorm") ||
-				strstr(wgsl_str, "r8uint") || strstr(wgsl_str, "r8sint") ||
-				strstr(wgsl_str, "rg8unorm") || strstr(wgsl_str, "rg8snorm") ||
-				strstr(wgsl_str, "rg8uint") || strstr(wgsl_str, "rg8sint"))) {
-			String ws(wgsl_str);
-			ws = ws.replace("rg8unorm", "rg32float");
-			ws = ws.replace("rg8snorm", "rg32float");
-			ws = ws.replace("rg8uint", "rg32uint");
-			ws = ws.replace("rg8sint", "rg32sint");
-			ws = ws.replace("r8unorm", "r32float");
-			ws = ws.replace("r8snorm", "r32float");
-			ws = ws.replace("r8uint", "r32uint");
-			ws = ws.replace("r8sint", "r32sint");
-			free(wgsl_str);
-			CharString cs = ws.utf8();
-			wgsl_str = (char *)malloc(cs.length() + 1);
-			memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
-		}
-
-		// If texture-formats-tier1 is not available, remap 16-bit SNORM/UNORM storage
-		// texture format names to their float equivalents in the WGSL text. The format
-		// string lengths are preserved (pad with spaces) so scan offsets remain valid.
-		// r16snorm  → r16float  (same 8 chars)
-		// r16unorm  → r16float  (same 8 chars)
-		// rg16snorm → rg16float (same 9 chars — "rg16float" is 9 chars, perfect)
-		// rg16unorm → rg16float (same 9 chars)
-		// rgba16snorm → rgba16float (11 vs 11 — perfect)
-		// rgba16unorm → rgba16float (11 vs 11 — perfect)
-		if (!has_texture_formats_tier1) {
-			char *q = wgsl_str;
-			while (*q) {
-				if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-				else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-				else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
-				else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
-				else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
-				else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
-				else { q++; }
-			}
-		}
-
-		// WebGPU only supports a limited set of storage texel formats (see spec §26.1.1).
-		// 16-bit single/dual-channel formats (r16*, rg16*) are NOT valid for storage.
-		// Remap them to 32-bit equivalents. Also handles rgba16snorm/unorm → rgba32float.
-		// Format names only appear in texture_storage_*<format, access> declarations in WGSL.
-		// All replacements preserve string length (in-place memcpy).
-		{
-			char *q = wgsl_str;
-			while (*q) {
-				// RGBA16 snorm/unorm → rgba16float (rgba16float IS a valid storage format)
-				if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-				else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-				// RG16 all variants → rg32 equivalents
-				else if (strncmp(q, "rg16float", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-				else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-				else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-				else if (strncmp(q, "rg16uint", 8) == 0) { memcpy(q, "rg32uint", 8); q += 8; }
-				else if (strncmp(q, "rg16sint", 8) == 0) { memcpy(q, "rg32sint", 8); q += 8; }
-				// R16 all variants → r32 equivalents
-				else if (strncmp(q, "r16float", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-				else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-				else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-				else if (strncmp(q, "r16uint", 7) == 0) { memcpy(q, "r32uint", 7); q += 7; }
-				else if (strncmp(q, "r16sint", 7) == 0) { memcpy(q, "r32sint", 7); q += 7; }
-				else { q++; }
-			}
-		}
-
-		// WebGPU restriction: storage buffers with read_write/write access cannot be bound
-		// visible to the vertex stage at all (undefined per-invocation write ordering/
-		// duplication hazards) -- fragment stage has no such restriction and regularly uses
-		// read_write storage buffers for exactly this kind of technique (order-independent
-		// transparency, per-pixel light-clustering via atomics, etc.). Demote to read only
-		// for the vertex stage (in-place, same string length); this used to also demote
-		// fragment-stage read_write to read, which was wrong -- see Task 9.1/9's live-repro
-		// investigation, which found it silently corrupting `cluster_render.glsl`'s fragment
-		// stage (a genuine atomic<u32> storage buffer, which WGSL requires read_write for --
-		// Dawn rejects the demoted `read` version outright: "atomic variables in 'storage'
-		// address space must have 'read_write' access mode"). No prior shader in this driver's
-		// history had ever needed genuine read_write storage access from a fragment stage, so
-		// this over-broad demotion went unnoticed until Forward+'s cluster-building pass.
-		if (s.shader_stage == RDD::SHADER_STAGE_VERTEX) {
-			char *q = wgsl_str;
-			while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
-				// "var<storage, read_write>" = 24 chars → "var<storage, read>      " = 24 chars
-				memcpy(q, "var<storage, read>      ", 24);
-				q += 24;
-			}
-		}
+		// Format remapping + vertex-stage read_write demotion -- see
+		// _remap_unsupported_wgsl_storage_formats()'s doc comment; shared with
+		// _create_module_with_spec_constants()'s own copy of this same logic.
+		_remap_unsupported_wgsl_storage_formats(wgsl_str, s.shader_stage);
 
 		// Chrome doesn't support the 'sized_binding_array' WGSL language feature.
 		// Tint converts GLSL sampler arrays like "sampler2DArray tex[N]" to
@@ -8988,73 +9019,10 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		return nullptr;
 	}
 
-	// Format remapping passes (must match shader_create_from_container).
-
-	// Remap unsupported 8-bit storage texture format names in WGSL.
-	if (!has_texture_formats_tier1 &&
-			(strstr(wgsl_str, "r8unorm") || strstr(wgsl_str, "r8snorm") ||
-			strstr(wgsl_str, "r8uint") || strstr(wgsl_str, "r8sint") ||
-			strstr(wgsl_str, "rg8unorm") || strstr(wgsl_str, "rg8snorm") ||
-			strstr(wgsl_str, "rg8uint") || strstr(wgsl_str, "rg8sint"))) {
-		String ws(wgsl_str);
-		ws = ws.replace("rg8unorm", "rg32float");
-		ws = ws.replace("rg8snorm", "rg32float");
-		ws = ws.replace("rg8uint", "rg32uint");
-		ws = ws.replace("rg8sint", "rg32sint");
-		ws = ws.replace("r8unorm", "r32float");
-		ws = ws.replace("r8snorm", "r32float");
-		ws = ws.replace("r8uint", "r32uint");
-		ws = ws.replace("r8sint", "r32sint");
-		free(wgsl_str);
-		CharString cs = ws.utf8();
-		wgsl_str = (char *)malloc(cs.length() + 1);
-		memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
-	}
-
-	// Remap 16-bit SNORM/UNORM storage texture formats to float equivalents.
-	if (!has_texture_formats_tier1) {
-		char *q = wgsl_str;
-		while (*q) {
-			if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-			else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-			else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
-			else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg16float", 9); q += 9; }
-			else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
-			else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r16float", 8); q += 8; }
-			else { q++; }
-		}
-	}
-
-	// Remap 16-bit storage formats to 32-bit equivalents (WebGPU spec §26.1.1).
-	{
-		char *q = wgsl_str;
-		while (*q) {
-			if (strncmp(q, "rgba16snorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-			else if (strncmp(q, "rgba16unorm", 11) == 0) { memcpy(q, "rgba16float", 11); q += 11; }
-			else if (strncmp(q, "rg16float", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-			else if (strncmp(q, "rg16snorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-			else if (strncmp(q, "rg16unorm", 9) == 0) { memcpy(q, "rg32float", 9); q += 9; }
-			else if (strncmp(q, "rg16uint", 8) == 0) { memcpy(q, "rg32uint", 8); q += 8; }
-			else if (strncmp(q, "rg16sint", 8) == 0) { memcpy(q, "rg32sint", 8); q += 8; }
-			else if (strncmp(q, "r16float", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-			else if (strncmp(q, "r16snorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-			else if (strncmp(q, "r16unorm", 8) == 0) { memcpy(q, "r32float", 8); q += 8; }
-			else if (strncmp(q, "r16uint", 7) == 0) { memcpy(q, "r32uint", 7); q += 7; }
-			else if (strncmp(q, "r16sint", 7) == 0) { memcpy(q, "r32sint", 7); q += 7; }
-			else { q++; }
-		}
-	}
-
-	// Demote read_write storage to read for the vertex stage only -- see the matching fix
-	// (and its full explanation) in shader_create_from_container(), applied here too since
-	// this is the legacy spec-constant re-conversion path's own copy of the same logic.
-	if (p_stage == SHADER_STAGE_VERTEX) {
-		char *q = wgsl_str;
-		while ((q = strstr(q, "var<storage, read_write>")) != nullptr) {
-			memcpy(q, "var<storage, read>      ", 24);
-			q += 24;
-		}
-	}
+	// Format remapping + vertex-stage read_write demotion -- see
+	// _remap_unsupported_wgsl_storage_formats()'s doc comment; shared with
+	// shader_create_from_container()'s own copy of this same logic.
+	_remap_unsupported_wgsl_storage_formats(wgsl_str, p_stage);
 
 	// Split read_write storage textures into write + shadow-read bindings --
 	// same transformation as shader_create_from_container()'s own copy of this

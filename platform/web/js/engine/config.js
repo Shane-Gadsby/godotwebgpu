@@ -245,6 +245,23 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		onPrintError: function (var_args) {
 			console.error.apply(console, Array.from(arguments)); // eslint-disable-line no-console
 		},
+		/**
+		 * A callback function for being notified when the WebGPU device is lost (e.g. a GPU crash/reset,
+		 * or the browser reclaiming the device). Only relevant when ``renderingDriver`` is ``"webgpu"``.
+		 *
+		 * By default, the loss is only logged to the console. Provide this callback to show your own
+		 * recovery UI (e.g. an overlay offering to reload the page) — the engine itself cannot recover
+		 * from a lost GPU device once rendering has started.
+		 *
+		 * @callback EngineConfig.onWebGPUDeviceLost
+		 * @param {string} reason The reason the device was lost (e.g. ``"destroyed"`` or ``"unknown"``).
+		 * @param {string} message A human-readable message with additional detail, if any.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(string, string)}
+		 */
+		onWebGPUDeviceLost: null,
 	};
 
 	/**
@@ -299,6 +316,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.args = parse('args', this.args);
 		this.onExecute = parse('onExecute', this.onExecute);
 		this.onExit = parse('onExit', this.onExit);
+		this.onWebGPUDeviceLost = parse('onWebGPUDeviceLost', this.onWebGPUDeviceLost);
 	};
 
 	/**

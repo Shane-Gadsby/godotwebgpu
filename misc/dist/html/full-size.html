@@ -101,6 +101,39 @@ body {
 	text-align: center;
 	z-index: 1;
 }
+
+/* Shown if the WebGPU device is lost mid-session (e.g. a GPU crash/reset).
+   Separate from #status above since that overlay is removed from the DOM
+   once startup finishes -- this can fire well after the game is running. */
+#webgpu-device-lost {
+	display: none;
+	position: fixed;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.75);
+	z-index: 2;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+#webgpu-device-lost-box {
+	background-color: #5b3943;
+	border-radius: 0.5rem;
+	border: 1px solid #9b3943;
+	color: #e0e0e0;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	line-height: 1.3;
+	margin: 0 2rem;
+	padding: 1rem 1.5rem;
+	text-align: center;
+	max-width: 30rem;
+}
+
+#webgpu-device-lost-reload {
+	margin-top: 0.75rem;
+	padding: 0.4rem 1.2rem;
+	cursor: pointer;
+}
 		</style>
 		$GODOT_HEAD_INCLUDE
 	</head>
@@ -117,6 +150,13 @@ body {
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
 			<div id="status-notice"></div>
+		</div>
+
+		<div id="webgpu-device-lost">
+			<div id="webgpu-device-lost-box">
+				<div id="webgpu-device-lost-message"></div>
+				<button id="webgpu-device-lost-reload" type="button">Reload</button>
+			</div>
 		</div>
 
 		<script src="$GODOT_URL"></script>
@@ -219,6 +259,27 @@ const engine = new Engine(GODOT_CONFIG);
 		initializing = false;
 	}
 
+	// The WebGPU device can be lost well after startup (e.g. a GPU crash/driver
+	// reset) -- there's no way for the engine to recover once that happens, so
+	// just tell the player and offer a reload. Separate from the status overlay
+	// above since that one is removed from the DOM once startup completes.
+	const deviceLostOverlay = document.getElementById('webgpu-device-lost');
+	const deviceLostMessage = document.getElementById('webgpu-device-lost-message');
+	document.getElementById('webgpu-device-lost-reload').addEventListener('click', () => {
+		window.location.reload();
+	});
+	function showDeviceLostOverlay(reason, message) {
+		while (deviceLostMessage.lastChild) {
+			deviceLostMessage.removeChild(deviceLostMessage.lastChild);
+		}
+		const lines = [`The graphics device was lost (${reason}).`, message, 'Reload the page to continue.'].filter((l) => !!l);
+		lines.forEach((line) => {
+			deviceLostMessage.appendChild(document.createTextNode(line));
+			deviceLostMessage.appendChild(document.createElement('br'));
+		});
+		deviceLostOverlay.style.display = 'flex';
+	}
+
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
@@ -276,6 +337,7 @@ const engine = new Engine(GODOT_CONFIG);
 					statusProgress.removeAttribute('max');
 				}
 			},
+			'onWebGPUDeviceLost': showDeviceLostOverlay,
 		}).then(() => {
 			setStatusMode('hidden');
 		}, displayFailureNotice);
