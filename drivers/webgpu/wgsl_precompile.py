@@ -687,6 +687,18 @@ def compile_glsl_to_spirv(glsl_source, stage, glslang_path="glslangValidator"):
             [
                 glslang_path,
                 "-V",
+                # Task 9.4: match the runtime driver's SPIR-V target exactly
+                # (RenderingShaderContainerWebGPU::get_shader_spirv_version(),
+                # vulkan1.1 == spirv1.3) instead of glslangValidator's bare -V
+                # default (vulkan1.0 == spirv1.0). Without this, the ahead-of-time
+                # precompiled cache and the runtime Tint-fallback path compiled
+                # structurally different SPIR-V for the same GLSL (legacy
+                # Uniform+BufferBlock SSBO encoding vs modern StorageBuffer) --
+                # see Task 8.6/8.8/9.7/9.9 for why 1.3 is the driver's real target,
+                # and infer_readonly_storage()'s Pass 0a/0b in spirv_preprocess.cpp
+                # for a pass that had to be specifically patched to tolerate the
+                # 1.0 encoding this precompiler used to produce.
+                "--target-env", "vulkan1.1",
                 "-S", stage,
                 "-o", spv_path,
                 glsl_path,

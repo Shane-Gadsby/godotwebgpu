@@ -638,6 +638,14 @@ public:
 		ShaderStage shader_stage = SHADER_STAGE_MAX;
 		Vector<uint8_t> spirv;
 		Vector<uint64_t> dynamic_buffers;
+		// Only populated when GODOT_DUMP_SPIRV is set and the active driver's SPIR-V
+		// target version differs from the WebGPU driver's (SHADER_SPIRV_VERSION_1_3):
+		// a recompile of the same source forced to that version, so the dump reflects
+		// what the WebGPU driver would actually produce rather than whichever driver
+		// happens to be running the editor. See ShaderRD::compile_stages(). When
+		// non-empty, shader_compile_binary_from_spirv()'s dump uses this instead of
+		// `spirv`.
+		Vector<uint8_t> dump_override_spirv;
 	};
 
 	/*********************/

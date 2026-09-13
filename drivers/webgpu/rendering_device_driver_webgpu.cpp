@@ -2491,6 +2491,32 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 		return 0;
 	}
 
+	// Task 7.10: R16/RG16/RGBA16 Unorm/Snorm have no native WebGPU texture format
+	// (confirmed still true as of emsdk 4.0.11 -- no unorm16-texture-formats/
+	// snorm16-texture-formats feature or WGPUTextureFormat_*16{Unorm,Snorm} enum
+	// values exist in webgpu.h). _data_format_to_wgpu() approximates them as the
+	// same-size *16Float GPU format so callers that bypass this capability check
+	// (e.g. texture_can_make_shared_with_format) still get a coherent answer, but
+	// that approximation is a raw bit-pattern substitute, not a real value
+	// conversion: texture_upload_convert()/texture_readback_convert() only convert
+	// when GPU/RD pixel sizes differ, and *16Unorm/Snorm vs *16Float are both 2
+	// bytes/channel, so data would be memcpy'd as-is -- reinterpreting a 16-bit
+	// normalized integer's bits as an IEEE-754 half float, producing garbage.
+	// Report unsupported here instead, so callers use their own already-written
+	// fallback (e.g. texture_storage.cpp's Image::FORMAT_R16/RG16/RGBA16 handling
+	// reconverts to R32_SFLOAT/RG32_SFLOAT/RGBA32_SFLOAT when this returns false).
+	switch (p_format) {
+		case DATA_FORMAT_R16_UNORM:
+		case DATA_FORMAT_R16_SNORM:
+		case DATA_FORMAT_R16G16_UNORM:
+		case DATA_FORMAT_R16G16_SNORM:
+		case DATA_FORMAT_R16G16B16A16_UNORM:
+		case DATA_FORMAT_R16G16B16A16_SNORM:
+			return 0;
+		default:
+			break;
+	}
+
 	// These bits apply to every supported format.
 	BitField<TextureUsageBits> flags = TEXTURE_USAGE_SAMPLING_BIT | TEXTURE_USAGE_CAN_UPDATE_BIT | TEXTURE_USAGE_CAN_COPY_FROM_BIT | TEXTURE_USAGE_CAN_COPY_TO_BIT;
 

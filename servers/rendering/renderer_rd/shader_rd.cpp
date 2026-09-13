@@ -37,7 +37,14 @@
 #include "core/os/os.h"
 #include "core/string/string_builder.h"
 #include "core/version.h"
+#include "servers/rendering/rendering_shader_container.h"
 #include "servers/rendering/shader_include_db.h"
+
+#include "modules/modules_enabled.gen.h" // For MODULE_GLSLANG_ENABLED.
+
+#if defined(MODULE_GLSLANG_ENABLED) && defined(TOOLS_ENABLED)
+#include "modules/glslang/shader_compile.h"
+#endif
 
 #define ENABLE_SHADER_CACHE 1
 
@@ -410,7 +417,7 @@ void ShaderRD::_compile_variant(uint32_t p_variant, CompileData p_data) {
 	}
 
 	Vector<String> variant_stage_sources = _build_variant_stage_sources(variant, p_data);
-	Vector<RD::ShaderStageSPIRVData> variant_stages = compile_stages(variant_stage_sources, dynamic_buffers);
+	Vector<RD::ShaderStageSPIRVData> variant_stages = compile_stages(variant_stage_sources, dynamic_buffers, name + ":" + itos(variant));
 	ERR_FAIL_COND(variant_stages.is_empty());
 
 	Vector<uint8_t> shader_data = RD::get_singleton()->shader_compile_binary_from_spirv(variant_stages, name + ":" + itos(variant));
@@ -1153,12 +1160,35 @@ void ShaderRD::set_shader_cache_save_debug(bool p_enable) {
 	shader_cache_save_debug = p_enable;
 }
 
-Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers) {
+Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers, const String &p_shader_name) {
 	RD::ShaderStageSPIRVData stage;
 	Vector<RD::ShaderStageSPIRVData> stages;
 	String error;
 	RD::ShaderStage compilation_failed_stage = RD::SHADER_STAGE_MAX;
 	bool compilation_failed = false;
+
+#if defined(MODULE_GLSLANG_ENABLED) && defined(TOOLS_ENABLED)
+	// GODOT_DUMP_SPIRV exists specifically to feed webgpu_tests' shader-corpus
+	// validation, which is tuned for SHADER_SPIRV_VERSION_1_3 (the version the
+	// WebGPU driver's own RenderingShaderContainerFormatWebGPU actually requests —
+	// see rendering_shader_container_webgpu.h). A native (non-web) editor build
+	// never links drivers/webgpu/ at all, so `driver` here is always some other
+	// backend (Vulkan requests 1.4) — dumping its native SPIR-V produces a
+	// version mismatch that has independently derailed three prior investigations
+	// (webgpu_notes/TASKS.md Tasks 8.6, 8.8, 9.7: feeding 1.4 SPIR-V through the
+	// 1.3-tuned preprocessing/Tint pipeline produces ~100+ generic, meaningless
+	// failures). Since this dump's only real consumer is that WebGPU pipeline,
+	// recompile a second copy of the same source forced to the WebGPU driver's
+	// exact target (SHADER_SPIRV_VERSION_1_3, Vulkan-flavour GLSL 1.1) whenever
+	// the active driver isn't already at that version, so the dump reflects what
+	// the WebGPU driver would actually produce rather than whichever driver
+	// happens to be running the editor. Guarded by TOOLS_ENABLED since
+	// GODOT_DUMP_SPIRV is only ever used against editor builds; export templates
+	// never need this extra recompile.
+	const bool need_dump_override = !OS::get_singleton()->get_environment("GODOT_DUMP_SPIRV").is_empty() &&
+			RD::get_singleton()->get_device_driver()->get_shader_container_format().get_shader_spirv_version() != RD::SHADER_SPIRV_VERSION_1_3;
+#endif
+
 	for (int64_t i = 0; i < p_stage_sources.size() && !compilation_failed; i++) {
 		if (p_stage_sources[i].is_empty()) {
 			continue;
@@ -1167,6 +1197,16 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 		stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
 		stage.dynamic_buffers = p_dynamic_buffers;
 		stage.shader_stage = RD::ShaderStage(i);
+		stage.dump_override_spirv.clear();
+#if defined(MODULE_GLSLANG_ENABLED) && defined(TOOLS_ENABLED)
+		if (need_dump_override && !stage.spirv.is_empty()) {
+			String dump_error;
+			stage.dump_override_spirv = compile_glslang_shader(RD::ShaderStage(i), ShaderIncludeDB::parse_include_files(p_stage_sources[i]), RD::SHADER_LANGUAGE_VULKAN_VERSION_1_1, RD::SHADER_SPIRV_VERSION_1_3, &dump_error);
+			if (stage.dump_override_spirv.is_empty()) {
+				WARN_PRINT(vformat("GODOT_DUMP_SPIRV: failed to recompile '%s' stage %d at SPIR-V 1.3 for dump: %s", p_shader_name, i, dump_error));
+			}
+		}
+#endif
 		if (!stage.spirv.is_empty()) {
 			stages.push_back(stage);
 
