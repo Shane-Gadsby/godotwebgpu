@@ -40,6 +40,25 @@ char *tint_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_word_co
 	// GLSL's GL_KHR_shader_subgroup_* calls appear in non-uniform control
 	// flow too. Inserts `diagnostic(off, subgroup_uniformity)`.
 	wgsl_options.allow_non_uniform_subgroup_operations = true;
+	// glslang's SPIR-V output for a GLSL function whose if/else both return
+	// (e.g. view_to_pos()-shaped helpers across ssao.glsl/ssil.glsl/
+	// voxel_gi_debug.glsl/sdfgi_direct_light.glsl/gi.glsl/scene_forward_
+	// clustered.glsl/canvas.glsl) always includes a merge block Tint's IR
+	// requires a terminator for; Tint's WGSL writer emits a synthetic
+	// trailing `return <T>();` there rather than proving it provably
+	// unreachable itself. Confirmed via SPIRV-Tools' own dead-branch-elim +
+	// block-merge + aggressive-DCE passes (already used elsewhere in this
+	// pipeline, see eliminate_dead_resources() in spirv_preprocess.cpp) that
+	// this isn't a removable dead SPIR-V block -- the trailing return is a
+	// Tint WGSL-writer code-generation choice, not a real code-elimination
+	// gap, so a SPIR-V-level preprocessing pass can't help. Dawn then
+	// (correctly, per WGSL semantics) warns "code is unreachable" on that
+	// return every time this pattern occurs -- cosmetic, but frequent enough
+	// across ordinary Godot shaders to be console noise on every page load.
+	// Inserts `diagnostic(off, chromium.unreachable_code)`, the same
+	// mechanism as the two relaxations above, rather than the shader
+	// silently disabling *all* Dawn compilation diagnostics.
+	wgsl_options.disable_unreachable_code_warning = true;
 
 	auto result = tint::SpirvToWgsl(words, wgsl_options);
 	if (result != tint::Success) {

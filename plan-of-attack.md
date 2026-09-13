@@ -2,7 +2,7 @@
 
 Based on `webgpu_notes/TASKS.md` and the previous versions of this doc. **Everything already verified `DONE` has been removed.** Tiers are ordered easiest → hardest; items within each tier are also ordered easiest → hardest.
 
-**Repo state**: HEAD `af5e80019` on `sync/4.7-stable` ("Tier 2 & 3 of the plan of attack"). `webgpu_notes/TASKS.md`/`webgpu_site/TECHNICAL_REFERENCE.md`/`drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}`/`drivers/webgpu/rendering_context_driver_webgpu.h`/`drivers/webgpu/wgsl_precompile.py`/`modules/SCsub` have uncommitted changes on top of that (this session's fixes, below). Tiers 1–2 and Tier 3 #14/#15 from earlier versions of this doc are done and committed — not repeated here.
+**Repo state**: HEAD `af5e80019` on `sync/4.7-stable` ("Tier 2 & 3 of the plan of attack"). `webgpu_notes/TASKS.md`/`webgpu_site/TECHNICAL_REFERENCE.md`/`drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}`/`drivers/webgpu/rendering_context_driver_webgpu.h`/`drivers/webgpu/wgsl_precompile.py`/`drivers/webgpu/tint_wrapper.cpp`/`modules/SCsub` have uncommitted changes on top of that (this session's fixes, below). Tiers 1–2 and Tier 3 #14/#15 from earlier versions of this doc are done and committed — not repeated here.
 
 ## Fixed this session (all uncommitted)
 
@@ -14,7 +14,9 @@ Based on `webgpu_notes/TASKS.md` and the previous versions of this doc. **Everyt
 
 **Side-finding, not investigated**: 3 pre-existing `SKIP: ... (no stage)` registry entries noticed during the above (`cube_to_octmap.glsl`, `cluster_debug.glsl` ×2) — a different, smaller failure mode (registry references a stage the file doesn't define) than any of the above. Worth a quick follow-up but out of scope here.
 
-**Not yet done for any of the above**: a live in-browser capture or full web export (no Playwright/browser access this session).
+- **"code is unreachable" console warnings (Task 9.8)** — root-caused instead of re-dismissing as cosmetic. Any GLSL helper whose `if`/`else` both `return` (recurs across `ssao.glsl`, `ssil.glsl`, `voxel_gi_debug.glsl`, `sdfgi_direct_light.glsl`, `gi.glsl`, `scene_forward_clustered.glsl`, `canvas.glsl`) makes Tint's WGSL writer emit a synthetic, provably-dead trailing `return <T>();` (a Tint code-generation choice, not a real dead-SPIR-V-block — confirmed by testing SPIRV-Tools' own `CreateDeadBranchElimPass()`/`CreateBlockMergePass()` against it and seeing no change, so no preprocessing pass can remove it). Fixed properly: set `tint::wgsl::writer::Options::disable_unreachable_code_warning = true` in `tint_wrapper.cpp`, the same `diagnostic(off, ...)`-directive mechanism already used for the two existing `allow_non_uniform_*` relaxations. Verified the directive now appears in real WGSL output for both `ssao.glsl` and `gi.glsl`; full local suite clean (`shader_corpus` 13/13, `preprocessing_tests` 192/192+1 skip, `driver_unit_tests` 327/327).
+
+**Not yet done for any of the above**: a live in-browser capture or full web export (no Playwright/browser access this session) — high confidence for the diagnostic-suppression fix specifically, since it reuses an already browser-proven mechanism, but not independently re-verified for this exact diagnostic rule name.
 
 ## New findings from the full TASKS.md read-through (not in earlier plan versions)
 
