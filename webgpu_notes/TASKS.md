@@ -1779,11 +1779,10 @@ When debugging issues, check these common WebGPU problems:
 **Verified**: Build succeeds, 2D platformer demo renders correctly.
 
 ### Task 7.5: Dynamic buffer offsets always return 0 `[SERIAL]`
-**Status**: `TODO`
-**Severity**: HIGH
-**Lines**: 3585-3586
-**Issue**: `uniform_set_get_dynamic_offset()` has a TODO and returns 0. Dynamic uniform/storage buffers bind at offset 0 regardless of actual offset.
-**Investigation**: Check if Godot's Forward Mobile renderer uses dynamic uniform buffers. If it does, this would cause all per-object uniforms to read from the same buffer location. The push constant ring buffer uses its own dynamic offset mechanism (bind group 3, binding 120), so push constants are unaffected. Determine if this function is actually called and with what arguments.
+**Status**: `DONE` — reconciled 2026-09-13, code already implements this correctly; the doc had just never been updated.
+**Severity**: HIGH (was)
+**Issue (original)**: `uniform_set_get_dynamic_offset()` had a TODO and returned 0. Dynamic uniform/storage buffers would bind at offset 0 regardless of actual offset.
+**Verified fixed**: Real `hasDynamicOffset`/offset computation exists throughout `rendering_device_driver_webgpu.cpp`, explicitly commented "Task 7.5" at each site — e.g. dynamic-variant bind group layout entries (`entry.buffer.hasDynamicOffset = true`), `uniform_sets_get_dynamic_offsets()`, and `command_bind_render_uniform_sets()`'s "Unpack 4-bit frame indices from p_dynamic_offsets" logic. No longer returns a hardcoded 0.
 
 ### Task 7.6: Reverse format mapping incomplete `[PARALLEL]`
 **Status**: `TODO`
@@ -1807,11 +1806,10 @@ When debugging issues, check these common WebGPU problems:
 **Investigation**: This is a fundamental WebGPU limitation on single-threaded WASM — synchronous readback is impossible. Check if any Godot code depends on `buffer_map()` returning current-frame data. The `CompressedTexture2D` fix (loading from disk) is one workaround. Document the one-frame-behind semantics and check if other readback paths need similar disk-load fallbacks.
 
 ### Task 7.9: Alpha write mask stripped for all BGRA8 pipelines `[PARALLEL]`
-**Status**: `TODO`
-**Severity**: HIGH
-**Lines**: 5105-5106
-**Issue**: Alpha writes are stripped for ALL pipelines targeting `BGRA8Unorm` format, not just swap chain. Same shader used for swap chain AND offscreen BGRA8 render targets gets different alpha behavior.
-**Investigation**: Check if any offscreen render targets use BGRA8Unorm. If all offscreen targets use RGBA8, this is safe. If not, need to key the alpha stripping on "is swap chain target" rather than format alone. Check `render_target_create()` to see what format offscreen targets use.
+**Status**: `DONE` — reconciled 2026-09-13. The investigation this task asked for has been done and its conclusion is now recorded directly in the code.
+**Severity**: HIGH → confirmed safe as designed.
+**Issue (original)**: Alpha writes are stripped for ALL pipelines targeting `BGRA8Unorm` format, not just swap chain, out of concern that offscreen BGRA8 render targets would get different alpha behavior than intended.
+**Resolution**: `rendering_device_driver_webgpu.cpp`'s pipeline color-target setup now carries an explicit comment confirming the investigation this task called for: "the swap chain (BGRA8Unorm) is the only BGRA render target — internal targets use RGBA formats," so keying the strip on format alone is safe (stripping alpha for blended pipelines too is deliberate, ensuring the clear value's alpha=1 is never overwritten by shader output). A diagnostic counter (`[ALPHA-STRIP]`, capped at 10 logs) exists behind `WEBGPU_DIAG` to make this visible if the assumption is ever violated.
 
 ### Task 7.10: 16-bit Unorm/Snorm → Float silent remapping `[PARALLEL]`
 **Status**: `TODO`
@@ -1879,11 +1877,10 @@ When debugging issues, check these common WebGPU problems:
 **Investigation**: Read `uniform_set_free()` to verify it iterates and releases `temp_views`. If not, add cleanup. Also check `rebind_cache` cleanup.
 
 ### Task 7.16: Push constant ring overflow `[PARALLEL]`
-**Status**: `TODO`
-**Severity**: MEDIUM
-**Lines**: 3878-3939, header:89
-**Issue**: Ring buffer is 256KB / 256B slots = 1024 draws before wrap. On wrap, shadow buffer is flushed and offset resets. If GPU hasn't consumed slot 0 by then, data is overwritten.
-**Investigation**: In practice, queue submit between frames should ensure GPU consumption. Verify by logging push_constant_ring_offset at frame boundaries. Consider adding a frame-boundary reset or grow-on-overflow strategy if complex scenes exceed 1024 draws.
+**Status**: `DONE` — reconciled 2026-09-13, real handling exists.
+**Severity**: MEDIUM (was)
+**Issue (original)**: Ring buffer is 256KB / 256B slots = 1024 draws before wrap. On wrap, shadow buffer flush + offset reset with no guarantee the GPU had consumed slot 0 yet, risking overwritten in-flight data.
+**Verified fixed**: `_flush_push_constants()` handles overflow correctly rather than just resetting blindly — on overflow it (1) flushes any dirty shadow data via `wgpuQueueWriteBuffer`, (2) ends the active render/compute pass, (3) finishes and submits the current command buffer (queue ordering guarantees the just-submitted work sees correct data), (4) resets `push_constant_ring_offset` to 0 only after that submit, then (5) creates a fresh encoder and restarts whichever pass type was active. `perf.ring_overflows` is tracked and surfaced in the `[PERF]` log (see Tier 1 #4 in `plan-of-attack.md`) for visibility if this triggers often in practice.
 
 ### Task 7.17: Specialized shader module cleanup `[PARALLEL]`
 **Status**: `TODO`
@@ -1900,11 +1897,10 @@ When debugging issues, check these common WebGPU problems:
 **Investigation**: Verify that the string lengths actually match for each replacement pair. Add assertions or switch to `String::replace()` with full WGSL rebuild for safety.
 
 ### Task 7.19: Swap chain LoadOp forced to Clear `[PARALLEL]`
-**Status**: `TODO`
+**Status**: `DONE` (documented, intentional) — reconciled 2026-09-13.
 **Severity**: LOW
-**Lines**: 4131-4136
-**Issue**: Swap chain render passes force `LoadOp_Clear` even if `Load` was requested, since WebGPU swap chain textures have undefined content each frame. Effects relying on previous frame content on swap chain won't work.
-**Investigation**: Check if any Godot rendering path relies on swap chain LoadOp_Load (preserving previous frame). If so, need a persistent texture + blit approach. This is a known WebGPU spec limitation, not a bug — but should be documented.
+**Issue (original)**: Swap chain render passes force `LoadOp_Clear` even if `Load` was requested, since WebGPU swap chain textures have undefined content each frame.
+**Resolution**: This is exactly the documented WebGPU-spec limitation the investigation asked to confirm — the code now carries the explicit comment "WebGPU swap chain textures have undefined content each frame. Force LOAD→CLEAR so the alpha channel starts at 1.0 (opaque)" at the force-clear site (`rp->is_swap_chain_pass && att.loadOp == WGPULoadOp_Load`). No Godot rendering path on Forward Mobile has surfaced a dependency on swap-chain LoadOp_Load being preserved; leave as-is.
 
 ### Task 7.20: `command_render_clear_attachments` not implemented `[PARALLEL]`
 **Status**: `TODO`
@@ -1914,11 +1910,10 @@ When debugging issues, check these common WebGPU problems:
 **Investigation**: Check if Forward Mobile ever calls this. If not, leave as-is. If needed, can be emulated by ending the current render pass, starting a new one with Clear load ops, then starting another to continue rendering.
 
 ### Task 7.21: Debug labels not implemented `[PARALLEL]`
-**Status**: `TODO`
+**Status**: `DONE` — reconciled 2026-09-13.
 **Severity**: COSMETIC
-**Lines**: 5514-5522
-**Issue**: `buffer_set_label()`, `texture_set_label()` etc. are stubs. Not functionally important but useful for GPU debugging in Chrome DevTools.
-**Investigation**: `wgpuBufferSetLabel()`, `wgpuTextureSetLabel()` etc. are available in emdawnwebgpu. Low-effort to implement — just call the corresponding WebGPU API.
+**Issue (original)**: `buffer_set_label()`, `texture_set_label()` etc. were stubs.
+**Verified fixed**: `set_object_name()` now calls the real WebGPU label APIs per object type — `wgpuTextureSetLabel`, `wgpuSamplerSetLabel`, `wgpuBufferSetLabel`, `wgpuShaderModuleSetLabel` (per stage module), `wgpuBindGroupSetLabel`, `wgpuRenderPipelineSetLabel`, `wgpuComputePipelineSetLabel` — with a comment noting Dawn copies the label string internally so no lifetime concerns remain.
 
 ---
 
