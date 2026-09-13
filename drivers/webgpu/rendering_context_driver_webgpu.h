@@ -37,6 +37,17 @@
 #include <webgpu/webgpu.h>
 
 class RenderingContextDriverWebGPU : public RenderingContextDriver {
+public:
+	// Passed as p_platform_data to window_create()/surface_create() so the
+	// canvas surface can target whatever element the JS shell configured
+	// (Module.canvasId / godot_js_config_canvas_id_get()) instead of always
+	// assuming the default "#canvas" — matches the selector GLES3 already
+	// uses via emscripten_webgl_create_context() on this same platform.
+	struct WindowPlatformData {
+		const char *canvas_selector = nullptr;
+	};
+
+private:
 	WGPUInstance instance = nullptr;
 	WGPUAdapter adapter = nullptr;
 	WGPUDevice device = nullptr;

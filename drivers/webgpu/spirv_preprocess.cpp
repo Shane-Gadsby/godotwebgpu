@@ -97,11 +97,13 @@ static constexpr uint16_t OP_DECORATION_GROUP = 73;
 
 // SPIR-V storage class values.
 static constexpr uint32_t SC_UNIFORM_CONSTANT = 0;
+static constexpr uint32_t SC_UNIFORM = 2;
 static constexpr uint32_t SC_OUTPUT = 3;
 static constexpr uint32_t SC_STORAGE_BUFFER = 12;
 static constexpr uint32_t SC_PUSH_CONSTANT = 9;
 
 // SPIR-V decoration values.
+static constexpr uint32_t DECO_BUFFER_BLOCK = 3;
 static constexpr uint32_t DECO_BUILTIN = 11;
 static constexpr uint32_t DECO_NON_WRITABLE = 24;
 static constexpr uint32_t DECO_SPEC_ID = 1;
@@ -2781,7 +2783,55 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes) {
 	}
 	uint32_t nwords = (uint32_t)(len / 4);
 
-	// Pass 1: Collect all OpVariable with StorageBuffer storage class (12).
+	// Pass 0a: Collect struct types decorated BufferBlock — the pre-1.3 SSBO
+	// encoding (`Uniform` storage class + `BufferBlock` on the block type,
+	// vs. the modern `StorageBuffer` storage class + `Block`). glslang emits
+	// this legacy form whenever it isn't asked for SPIR-V >=1.3 explicitly
+	// (e.g. wgsl_precompile.py's plain `glslangValidator -V`, no --target-env),
+	// so it shows up for ordinary SSBOs throughout the shader corpus, not just
+	// unusual shaders — must be recognized here or these buffers silently never
+	// get inferred read-only, which Tint then rejects if used in a vertex stage.
+	HashSet<uint32_t> bufferblock_types;
+	{
+		uint32_t pos = 5;
+		while (pos < nwords) {
+			uint32_t word0 = read_word(data, len, pos);
+			uint32_t wc = (word0 >> 16) & 0xFFFF;
+			uint16_t op = word0 & 0xFFFF;
+			if (wc == 0 || pos + wc > nwords) {
+				break;
+			}
+			if (op == OP_DECORATE && wc >= 3 && read_word(data, len, pos + 2) == DECO_BUFFER_BLOCK) {
+				bufferblock_types.insert(read_word(data, len, pos + 1));
+			}
+			pos += wc;
+		}
+	}
+
+	// Pass 0b: Collect OpTypePointer(Uniform, T) where T is BufferBlock-decorated.
+	HashSet<uint32_t> legacy_ssbo_ptr_types;
+	if (!bufferblock_types.is_empty()) {
+		uint32_t pos = 5;
+		while (pos < nwords) {
+			uint32_t word0 = read_word(data, len, pos);
+			uint32_t wc = (word0 >> 16) & 0xFFFF;
+			uint16_t op = word0 & 0xFFFF;
+			if (wc == 0 || pos + wc > nwords) {
+				break;
+			}
+			if (op == OP_TYPE_POINTER && wc == 4) {
+				uint32_t storage_class = read_word(data, len, pos + 2);
+				uint32_t pointee_type = read_word(data, len, pos + 3);
+				if (storage_class == SC_UNIFORM && bufferblock_types.has(pointee_type)) {
+					legacy_ssbo_ptr_types.insert(read_word(data, len, pos + 1));
+				}
+			}
+			pos += wc;
+		}
+	}
+
+	// Pass 1: Collect all OpVariable with StorageBuffer storage class (12),
+	// plus legacy Uniform-storage-class SSBOs found in Pass 0b above.
 	HashSet<uint32_t> storage_vars;
 	{
 		uint32_t pos = 5;
@@ -2793,9 +2843,10 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes) {
 				break;
 			}
 			if (op == OP_VARIABLE && wc >= 4) {
+				uint32_t result_type = read_word(data, len, pos + 1);
 				uint32_t result_id = read_word(data, len, pos + 2);
 				uint32_t storage_class = read_word(data, len, pos + 3);
-				if (storage_class == SC_STORAGE_BUFFER) {
+				if (storage_class == SC_STORAGE_BUFFER || (storage_class == SC_UNIFORM && legacy_ssbo_ptr_types.has(result_type))) {
 					storage_vars.insert(result_id);
 				}
 			}

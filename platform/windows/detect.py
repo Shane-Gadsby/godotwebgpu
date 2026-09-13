@@ -821,7 +821,13 @@ def configure_mingw(env: "SConsEnvironment"):
         env.Append(CCFLAGS=san_flags)
         env.Append(LINKFLAGS=san_flags)
 
-    if get_is_ar_thin_supported(env):
+    # Thin archives store member paths relative to the archive's own
+    # directory (not CWD), and some mingw-w64/binutils builds pass repo-root-relative
+    # paths instead when cross-compiling from Linux, producing a doubled,
+    # nonexistent path ("error opening thin archive member") at link time.
+    # Not seen with a native/MSYS2 Windows toolchain, so keep the default
+    # and only skip it when explicitly asked to.
+    if get_is_ar_thin_supported(env) and not os.environ.get("GODOT_MINGW_NO_THIN_AR"):
         env.Append(ARFLAGS=["--thin"])
 
     env.Append(CPPDEFINES=["WINDOWS_ENABLED", "WASAPI_ENABLED", "WINMIDI_ENABLED"])

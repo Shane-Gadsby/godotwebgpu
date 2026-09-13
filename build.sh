@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # build.sh — Interactive build menu for Godot WebGPU.
 #
-# Builds the editor and/or the web WebGPU export templates, and copies the
-# resulting artifacts into builds/<version>/<editor|templates>/.
+# Builds the editor and/or export templates for the host platform, web
+# (WebGPU), Windows, and macOS, and copies the resulting artifacts into
+# builds/<version>/<target>/.
+#
+# Windows and macOS builds are cross-compiled from Linux (or from macOS, for
+# Windows) and require extra toolchains:
+#   - Windows: mingw-w64 (x86_64-w64-mingw32-gcc on PATH)
+#   - macOS:   osxcross (OSXCROSS_ROOT set, its bin/ on PATH) — not needed
+#              when already running on macOS natively
 #
 # Usage: ./build.sh
 #
 # Env overrides:
-#   JOBS=N          parallel build jobs (default: nproc)
-#   EMSDK_DIR=path  Emscripten SDK location (default: ~/emsdk)
+#   JOBS=N            parallel build jobs (default: nproc)
+#   EMSDK_DIR=path    Emscripten SDK location (default: ~/emsdk)
+#   OSXCROSS_ROOT=path  osxcross install location (default: ~/osxcross;
+#                       required for macOS cross-builds when not running
+#                       natively on macOS)
 
 set -euo pipefail
 
@@ -106,22 +116,221 @@ build_templates() {
 	echo -e "${GREEN}Templates -> $dest${NC}"
 }
 
+check_mingw() {
+	if ! command -v x86_64-w64-mingw32-gcc > /dev/null 2>&1; then
+		echo -e "${RED}MinGW-w64 not found (expected x86_64-w64-mingw32-gcc on PATH).${NC}" >&2
+		echo -e "${RED}Install it (e.g. 'apt install mingw-w64' or 'brew install mingw-w64') to cross-build for Windows.${NC}" >&2
+		exit 1
+	fi
+	# Thin archives break at link time when cross-compiling from Linux with
+	# this mingw-w64/binutils combo ("error opening thin archive member") —
+	# see the GODOT_MINGW_NO_THIN_AR guard in platform/windows/detect.py.
+	export GODOT_MINGW_NO_THIN_AR=1
+}
+
+check_osxcross() {
+	if [[ "$HOST_PLATFORM" == "macos" ]]; then
+		return
+	fi
+	if [[ -z "${OSXCROSS_ROOT:-}" ]] && [[ -d "$HOME/osxcross/target/bin" ]]; then
+		export OSXCROSS_ROOT="$HOME/osxcross"
+	fi
+	if [[ -n "${OSXCROSS_ROOT:-}" ]]; then
+		export PATH="$OSXCROSS_ROOT/target/bin:$PATH"
+	fi
+	local clang_bin
+	clang_bin="$(compgen -G "${OSXCROSS_ROOT:-/nonexistent}/target/bin/x86_64-apple-darwin*-clang" | head -1 || true)"
+	if [[ -z "$clang_bin" ]]; then
+		echo -e "${RED}osxcross not found (expected OSXCROSS_ROOT set, with a built x86_64-apple-darwin*-clang in its target/bin/).${NC}" >&2
+		echo -e "${RED}See https://docs.godotengine.org/en/stable/contributing/development/compiling/compiling_for_macos.html for cross-compiling setup, or run this on a Mac.${NC}" >&2
+		exit 1
+	fi
+
+	# platform/macos/detect.py builds the cross-compiler name from an
+	# "osxcross_sdk" scons var (default: the stale placeholder "darwin16"),
+	# not from whatever osxcross actually built — so it must be passed
+	# explicitly to match, e.g. "darwin24.5" for x86_64-apple-darwin24.5-clang.
+	OSXCROSS_SDK_VER="$(basename "$clang_bin" | sed -E 's/^x86_64-apple-(darwin[0-9.]+)-clang$/\1/')"
+
+	# The osxcross wrapper binaries (e.g. arm64-apple-darwinNN-clang++) exec
+	# the literal unversioned "clang"/"clang++" via PATH at runtime — not
+	# whatever CC/CXX osxcross itself was built with. Ubuntu's default
+	# "clang" alias is often too old for recent SDK headers (e.g. the
+	# `visionOS` availability platform needs clang 19+), so shim "clang"/
+	# "clang++" to a known-good pinned version, ahead of PATH.
+	#
+	# Pinned (not "whatever's newest installed") because this version also
+	# needs compiler-rt built+installed into ITS OWN resource dir (the
+	# wrapper's implicit link step needs it for @available's runtime
+	# check, e.g. ___isPlatformVersionAtLeast) — see README.COMPILER-RT.md.
+	# Override by exporting OSXCROSS_CLANG_VER before running this script.
+	local pinned_clang="${OSXCROSS_CLANG_VER:-19}"
+	if ! command -v "clang-$pinned_clang" > /dev/null 2>&1; then
+		echo -e "${RED}clang-$pinned_clang not found (needed as the osxcross host compiler; install it or set OSXCROSS_CLANG_VER).${NC}" >&2
+		exit 1
+	fi
+	local shim_dir="/tmp/osxcross-clang-shim"
+	mkdir -p "$shim_dir"
+	ln -sf "$(command -v "clang-$pinned_clang")" "$shim_dir/clang"
+	ln -sf "$(command -v "clang++-$pinned_clang")" "$shim_dir/clang++"
+	export PATH="$shim_dir:$PATH"
+
+	local resource_dir
+	resource_dir="$(clang-"$pinned_clang" -print-resource-dir)"
+	if [[ ! -f "$resource_dir/lib/darwin/libclang_rt.osx.a" ]]; then
+		echo -e "${RED}compiler-rt isn't installed for clang-$pinned_clang ($resource_dir/lib/darwin/ is missing libclang_rt.osx.a).${NC}" >&2
+		echo -e "${RED}Build it: cd \$OSXCROSS_ROOT && PATH=\"\$OSXCROSS_ROOT/target/bin:\$PATH\" ./build_compiler_rt.sh${NC}" >&2
+		echo -e "${RED}then copy build/compiler-rt/compiler-rt/build/lib/darwin/* and include/sanitizer into $resource_dir/lib/darwin/ and $resource_dir/include/ (needs sudo).${NC}" >&2
+		exit 1
+	fi
+}
+
+build_windows_editor() {
+	check_mingw
+	echo -e "${BOLD}Building editor (platform=windows)...${NC}"
+	scons platform=windows target=editor arch=x86_64 use_mingw=yes d3d12=no -j"$JOBS"
+
+	local dest="$OUT_DIR/editor_windows"
+	mkdir -p "$dest"
+	local found=0
+	for f in bin/godot.windows.editor.x86_64*.exe; do
+		[[ -f "$f" ]] || continue
+		cp "$f" "$dest/"
+		found=1
+	done
+	if [[ "$found" -eq 0 ]]; then
+		echo -e "${RED}Windows editor build succeeded but no .exe was found in bin/.${NC}" >&2
+		exit 1
+	fi
+	echo -e "${GREEN}Windows editor -> $dest${NC}"
+}
+
+build_windows_templates() {
+	check_mingw
+
+	echo -e "${BOLD}Building Windows export template (debug)...${NC}"
+	scons platform=windows target=template_debug arch=x86_64 use_mingw=yes d3d12=no -j"$JOBS"
+
+	echo -e "${BOLD}Building Windows export template (release)...${NC}"
+	scons platform=windows target=template_release arch=x86_64 use_mingw=yes d3d12=no -j"$JOBS"
+
+	local dest="$OUT_DIR/templates_windows"
+	mkdir -p "$dest"
+
+	local dbg="bin/godot.windows.template_debug.x86_64.exe"
+	local dbg_console="bin/godot.windows.template_debug.x86_64.console.exe"
+	local rel="bin/godot.windows.template_release.x86_64.exe"
+	local rel_console="bin/godot.windows.template_release.x86_64.console.exe"
+	if [[ ! -f "$dbg" || ! -f "$rel" ]]; then
+		echo -e "${RED}Windows template build succeeded but an .exe wasn't found in bin/.${NC}" >&2
+		exit 1
+	fi
+
+	cp "$dbg" "$dest/windows_debug_x86_64.exe"
+	cp "$rel" "$dest/windows_release_x86_64.exe"
+	[[ -f "$dbg_console" ]] && cp "$dbg_console" "$dest/windows_debug_x86_64_console.exe"
+	[[ -f "$rel_console" ]] && cp "$rel_console" "$dest/windows_release_x86_64_console.exe"
+	echo -e "${GREEN}Windows templates -> $dest${NC}"
+}
+
+build_macos_editor() {
+	check_osxcross
+
+	# arm64-only: Vulkan/MoltenVK needs a macOS-only .app installer we can't
+	# run from Linux, and Metal (the no-extra-deps option) only supports
+	# arm64 (x86_64 falls back to a non-functional renderer without it).
+	# vulkan=no here avoids the MoltenVK SDK requirement entirely.
+	echo -e "${BOLD}Building editor (platform=macos, arm64)...${NC}"
+	scons platform=macos target=editor arch=arm64 vulkan=no osxcross_sdk="$OSXCROSS_SDK_VER" bundle_sign_identity="" generate_bundle=yes -j"$JOBS"
+
+	local dest="$OUT_DIR/editor_macos"
+	mkdir -p "$dest"
+	local app
+	app="$(ls -td bin/*.app 2> /dev/null | head -1 || true)"
+	if [[ -z "$app" ]]; then
+		echo -e "${RED}macOS editor build succeeded but no .app bundle was found in bin/.${NC}" >&2
+		exit 1
+	fi
+	rm -rf "$dest/$(basename "$app")"
+	cp -R "$app" "$dest/"
+	echo -e "${GREEN}macOS editor -> $dest/$(basename "$app")${NC}"
+}
+
+build_macos_templates() {
+	check_osxcross
+
+	# arm64-only, same reasoning as build_macos_editor (vulkan=no, no x86_64).
+	# generate_bundle's template packaging needs both template_debug and
+	# template_release already built before it can zip them together, so
+	# these must stay as two separate scons calls.
+	echo -e "${BOLD}Building macOS export template (debug, arm64)...${NC}"
+	scons platform=macos target=template_debug arch=arm64 vulkan=no osxcross_sdk="$OSXCROSS_SDK_VER" -j"$JOBS"
+
+	echo -e "${BOLD}Building macOS export template (release, arm64) + bundling...${NC}"
+	scons platform=macos target=template_release arch=arm64 vulkan=no osxcross_sdk="$OSXCROSS_SDK_VER" bundle_sign_identity="" generate_bundle=yes -j"$JOBS"
+
+	local dest="$OUT_DIR/templates_macos"
+	mkdir -p "$dest"
+
+	local zip
+	zip="$(ls -t bin/godot_macos*.zip 2> /dev/null | head -1 || true)"
+	if [[ -z "$zip" ]]; then
+		echo -e "${RED}macOS template build succeeded but a .zip wasn't found in bin/.${NC}" >&2
+		exit 1
+	fi
+
+	cp "$zip" "$dest/macos.zip"
+	echo -e "${GREEN}macOS templates -> $dest${NC}"
+}
+
+build_all() {
+	build_editor
+	build_templates
+	build_windows_editor
+	build_windows_templates
+	build_macos_editor
+	build_macos_templates
+}
+
+clean_cache() {
+	local size
+	size="$(du -sh bin/obj .sconsign*.dblite 2> /dev/null | awk '{sum=sum" "$1} END{print sum}')"
+	echo -e "${YELLOW}This deletes bin/obj/ and .sconsign*.dblite (intermediate objects + scons' dependency cache),${NC}"
+	echo -e "${YELLOW}forcing a full rebuild from scratch next time. Current size:${size:- (nothing to clean)}${NC}"
+	read -rp "Are you sure? [y/N]: " confirm
+	if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+		echo "Cancelled."
+		return
+	fi
+	rm -rf bin/obj
+	rm -f .sconsign*.dblite
+	echo -e "${GREEN}Build cache cleared.${NC}"
+}
+
 show_menu() {
 	echo
 	echo -e "${BOLD}Godot WebGPU Build${NC}"
 	echo "  Version: $VERSION"
 	echo "  Output:  builds/$VERSION/"
 	echo
-	echo "  1) Editor only"
+	echo "  1) Editor only ($HOST_PLATFORM)"
 	echo "  2) Templates only (web, debug + release)"
-	echo "  3) Editor + templates"
-	echo "  4) Quit"
+	echo "  3) Editor + templates ($HOST_PLATFORM + web)"
+	echo "  4) Windows: editor only"
+	echo "  5) Windows: templates only (debug + release)"
+	echo "  6) Windows: editor + templates"
+	echo "  7) macOS: editor only (arm64)"
+	echo "  8) macOS: templates only (arm64)"
+	echo "  9) macOS: editor + templates"
+	echo " 10) Build ALL targets (editor + templates, all platforms)"
+	echo " 11) Clear build cache (bin/obj/ + .sconsign*.dblite)"
+	echo " 12) Quit"
 	echo
 }
 
 main() {
 	show_menu
-	read -rp "Select an option [1-4]: " choice
+	read -rp "Select an option [1-12]: " choice
 	case "$choice" in
 		1) build_editor ;;
 		2) build_templates ;;
@@ -129,7 +338,24 @@ main() {
 			build_editor
 			build_templates
 			;;
-		4)
+		4) build_windows_editor ;;
+		5) build_windows_templates ;;
+		6)
+			build_windows_editor
+			build_windows_templates
+			;;
+		7) build_macos_editor ;;
+		8) build_macos_templates ;;
+		9)
+			build_macos_editor
+			build_macos_templates
+			;;
+		10) build_all ;;
+		11)
+			clean_cache
+			exit 0
+			;;
+		12)
 			echo "Bye."
 			exit 0
 			;;

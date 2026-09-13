@@ -211,6 +211,16 @@ const Engine = (function () {
 				if (me.config.renderingDriver === 'webgpu' && !me.config.preinitializedWebGPUDevice) {
 					webgpuReady = Engine.requestWebGPUDevice().then(function (device) {
 						me.config.preinitializedWebGPUDevice = device;
+						// requestWebGPUDevice() already logs device loss to the
+						// console unconditionally (see its own device.lost handler
+						// below) — this additionally notifies the embedder so a
+						// custom HTML shell can show recovery UI (there's no way
+						// for the engine itself to recover a lost GPU device).
+						if (typeof (me.config.onWebGPUDeviceLost) === 'function') {
+							device.lost.then(function (info) {
+								me.config.onWebGPUDeviceLost(info.reason || 'unknown', info.message || '');
+							});
+						}
 					});
 				}
 

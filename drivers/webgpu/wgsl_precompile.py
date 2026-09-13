@@ -380,12 +380,16 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
 
     # ── Tone Mapper ─────────────────────────────────────────────────
+    # No "subpass"/"subpass_1d_lut" variants: tone_mapper.cpp disables
+    # TONEMAP_MOBILE_MODE_SUBPASS* under `#ifdef WEB_ENABLED` ("WebGPU does not
+    # support input attachments / subpass reads") — they are never actually
+    # compiled by the engine on this platform, and Tint correctly can't convert
+    # their `input_attachment` textureLoad (WGSL has no subpass-input concept).
+    # Precompiling them here only produced two permanent, meaningless failures.
     ("servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl",
      GENERAL_DEFINES_NONE, [
         ("normal", "\n", [VERT, FRAG]),
         ("1d_lut", "\n#define USE_1D_LUT\n", [VERT, FRAG]),
-        ("subpass", "\n#define SUBPASS\n", [VERT, FRAG]),
-        ("subpass_1d_lut", "\n#define SUBPASS\n#define USE_1D_LUT\n", [VERT, FRAG]),
     ]),
 
     ("servers/rendering/renderer_rd/shaders/effects/tonemap.glsl",
@@ -586,8 +590,17 @@ SHADER_REGISTRY = [
     # ── SDFGI (gi.cpp:3502+) ───────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_debug.glsl",
      GENERAL_DEFINES_SDFGI_DEBUG, [("default", "", [COMP])]),
+    # No bare "default" (no-mode) variant here: gi.cpp's SdfgiDebugProbesShaderRD
+    # only ever registers MODE_PROBES/MODE_VISIBILITY (+ optional USE_MULTIVIEW)
+    # combos (gi.cpp:3796-3799) — a shader with neither define set never writes
+    # gl_Position in either branch, which Tint correctly rejects ("position must
+    # be declared for vertex entry point output"). Testing real, reachable
+    # variants instead, matching every other MODE_-based entry in this registry.
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_debug_probes.glsl",
-     GENERAL_DEFINES_SDFGI_DEBUG, [("default", "", [VERT, FRAG])]),
+     GENERAL_DEFINES_SDFGI_DEBUG, [
+        ("probes", "\n#define MODE_PROBES\n", [VERT, FRAG]),
+        ("visibility", "\n#define MODE_VISIBILITY\n", [VERT, FRAG]),
+     ]),
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_direct_light.glsl",
      GENERAL_DEFINES_SDFGI_DIRECT_LIGHT, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_integrate.glsl",

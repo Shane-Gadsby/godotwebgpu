@@ -201,6 +201,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 
 	void _flush_push_constants(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
 	WGPUShaderModule _create_module_with_spec_constants(const PackedByteArray &p_spirv, VectorView<PipelineSpecializationConstant> p_constants, ShaderStage p_stage, const HashMap<uint32_t, uint32_t> &p_rw_storage_splits);
+	void _remap_unsupported_wgsl_storage_formats(char *&r_wgsl_str, ShaderStage p_stage) const;
 
 public:
 	RenderingDeviceDriverWebGPU(RenderingContextDriverWebGPU *p_context_driver);
