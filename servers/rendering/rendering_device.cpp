@@ -4466,7 +4466,13 @@ Vector<uint8_t> RenderingDevice::shader_compile_binary_from_spirv(const Vector<S
 			String path = dump_dir.path_join(safe_name + "." + stage_ext + ".spv");
 			Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
 			if (f.is_valid()) {
-				f->store_buffer(p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
+				// Prefer ShaderRD::compile_stages()'s SPIR-V-1.3 dump override (see
+				// ShaderStageSPIRVData) over the active driver's native bytes, so this
+				// dump matches what the WebGPU driver — this dump's only real
+				// consumer — actually produces, regardless of which driver is
+				// currently running the editor.
+				const Vector<uint8_t> &dump_bytes = p_spirv[i].dump_override_spirv.is_empty() ? p_spirv[i].spirv : p_spirv[i].dump_override_spirv;
+				f->store_buffer(dump_bytes.ptr(), dump_bytes.size());
 			}
 		}
 	}
