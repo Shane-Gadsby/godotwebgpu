@@ -5361,7 +5361,13 @@ uint32_t TextureStorage::render_target_get_color_usage_bits(bool p_msaa) {
 		// On WebGPU, StorageBinding prevents sRGB texture views (Dawn rejects
 		// sRGB viewFormats on storage textures), which causes Forward Mobile to
 		// render in linear 8-bit UNORM instead of sRGB — producing washed-out
-		// colors. FSR is not available on WebGPU/Forward Mobile, so omit it.
+		// colors. FSR still works on WebGPU without this bit, though: fsr.cpp's
+		// process() detects its absence at runtime and renders RCAS's output to
+		// an intermediate storage-capable texture, then blits it into this one
+		// via CopyEffects (a normal color-attachment write, so it needs no
+		// storage/copy usage here at all, and converts between mismatched
+		// pixel formats for free -- unlike a raw GPU texture_copy(), which
+		// requires identical formats). See webgpu_notes/TASKS.md's FSR1 task.
 		bits |= RD::TEXTURE_USAGE_STORAGE_BIT;
 #endif
 		return bits;
