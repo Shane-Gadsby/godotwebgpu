@@ -244,6 +244,14 @@ compile_one "drivers/webgpu/tint_wrapper.cpp" \
     "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" \
     -I"drivers/webgpu/" &
 
+# tint_ir_transforms.cpp — Tint-IR-level polyfills used by tint_wrapper.cpp;
+# same environment as tint_wrapper.cpp (see tint_ir_transforms.h).
+compile_one "drivers/webgpu/tint_ir_transforms.cpp" \
+    "$BUILD_DIR/cli/tint_ir_transforms.o" \
+    "c++20" \
+    "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" \
+    -I"drivers/webgpu/" &
+
 # main.cpp — compiled with shim + Tint includes.
 compile_one "drivers/webgpu/tint_cli/main.cpp" \
     "$BUILD_DIR/cli/main.o" \
@@ -260,7 +268,7 @@ wait
 echo "[4/4] Linking tint_convert_cli..."
 
 # Filter to only .o files that were successfully compiled.
-LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/tint_wrapper.o")
+LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
 for obj in "${SPIRV_TOOLS_OBJS[@]}" "${TINT_OBJS[@]}"; do
     [[ -f "$obj" ]] && LINK_OBJS+=("$obj")
 done

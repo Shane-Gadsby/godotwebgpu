@@ -700,11 +700,12 @@ env_tint.Prepend(
 tint_obj = []
 env_tint.add_source_files(tint_obj, tint_sources)
 
-# Compile tint_wrapper.cpp in the Tint C++20 environment so that Tint's
-# headers (which use std::span, C++20 concepts, etc.) never leak into the
-# main Godot driver build (C++17).
+# Compile tint_wrapper.cpp (and tint_ir_transforms.cpp, its Tint-IR-transform
+# helper -- see tint_ir_transforms.h) in the Tint C++20 environment so that
+# Tint's headers (which use std::span, C++20 concepts, etc.) never leak into
+# the main Godot driver build (C++17).
 env_tint_wrapper = env_tint.Clone()
-env_tint_wrapper.add_source_files(tint_obj, ["#drivers/webgpu/tint_wrapper.cpp"])
+env_tint_wrapper.add_source_files(tint_obj, ["#drivers/webgpu/tint_wrapper.cpp", "#drivers/webgpu/tint_ir_transforms.cpp"])
 
 # =============================================================================
 # WebGPU driver sources
@@ -719,10 +720,10 @@ env_webgpu.Prepend(
     ]
 )
 
-# Exclude tint_wrapper.cpp from the driver glob — it's compiled above in
-# the Tint C++20 environment instead.
+# Exclude tint_wrapper.cpp/tint_ir_transforms.cpp from the driver glob —
+# they're compiled above in the Tint C++20 environment instead.
 webgpu_sources = Glob("#drivers/webgpu/*.cpp")
-webgpu_sources = [f for f in webgpu_sources if "tint_wrapper" not in str(f)]
+webgpu_sources = [f for f in webgpu_sources if "tint_wrapper" not in str(f) and "tint_ir_transforms" not in str(f)]
 env_webgpu.add_source_files(env.drivers_sources, webgpu_sources)
 
 # Add thirdparty objects to the driver.
