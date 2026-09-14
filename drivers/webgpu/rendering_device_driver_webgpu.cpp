@@ -4536,90 +4536,21 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// _create_module_with_spec_constants()'s own copy of this same logic.
 		_remap_unsupported_wgsl_storage_formats(wgsl_str, s.shader_stage);
 
-		// Chrome doesn't support the 'sized_binding_array' WGSL language feature.
-		// Tint converts GLSL sampler arrays like "sampler2DArray tex[N]" to
-		// "binding_array<texture_2d_array<f32>, N>" in WGSL. Fix: replace
-		// "binding_array<T, N>" with just "T", and fix "varname[expr]" → "varname".
-		// For N>1 (e.g. lightmap_textures[16]), this degrades to single-element
-		// access — acceptable on web where multi-lightmap scenes are rare.
-		if (strstr(wgsl_str, "binding_array<")) {
-			String ws(wgsl_str);
-			Vector<String> binding_array_vars;
-			int64_t search_from = 0;
-			while (true) {
-				int64_t ba_pos = ws.find(": binding_array<", search_from);
-				if (ba_pos == -1) break;
-				int64_t inner_start = ba_pos + (int64_t)strlen(": binding_array<");
-				int depth = 1;
-				int64_t p = inner_start;
-				int64_t ws_len = (int64_t)ws.length();
-				while (p < ws_len && depth > 0) {
-					char32_t c = ws[p];
-					if (c == '<') depth++;
-					else if (c == '>') depth--;
-					p++;
-				}
-				// ws[inner_start .. p-2] = "TYPE, COUNT"
-				String inner = ws.substr(inner_start, p - 1 - inner_start);
-				int64_t last_comma = inner.rfind(",");
-				if (last_comma == -1) { search_from = p; continue; }
-				String type_part = inner.substr(0, last_comma).strip_edges();
-				{
-					// Extract variable name (identifier immediately before the ':')
-					int64_t name_end = ba_pos;
-					while (name_end > 0 && ws[name_end - 1] == ' ') name_end--;
-					int64_t name_start = name_end;
-					while (name_start > 0) {
-						char32_t c = ws[name_start - 1];
-						if (c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
-							name_start--;
-						else break;
-					}
-					String var_name = ws.substr(name_start, name_end - name_start);
-					if (!var_name.is_empty()) {
-						binding_array_vars.push_back(var_name);
-					}
-					// Replace ": binding_array<TYPE, N>" with ": TYPE"
-					String new_type = ": " + type_part;
-					ws = ws.substr(0, ba_pos) + new_type + ws.substr(p);
-					search_from = ba_pos + (int64_t)new_type.length();
-				}
-			}
-			// Replace VAR_NAME[any_expr] with VAR_NAME for all unwrapped binding arrays.
-			// Tint may use a variable index (e.g. varname[_e889]) not just varname[0].
-			for (const String &var : binding_array_vars) {
-				int64_t vlen = (int64_t)var.length();
-				int64_t search_pos = 0;
-				while (true) {
-					String needle = var + "[";
-					int64_t idx_pos = ws.find(needle, search_pos);
-					if (idx_pos == -1) break;
-					// Ensure 'var' is not a suffix of a longer identifier
-					if (idx_pos > 0) {
-						char32_t before = ws[idx_pos - 1];
-						if (before == '_' || (before >= 'a' && before <= 'z') || (before >= 'A' && before <= 'Z') || (before >= '0' && before <= '9')) {
-							search_pos = idx_pos + 1;
-							continue;
-						}
-					}
-					// Scan past the matching ']'
-					int64_t p = idx_pos + vlen + 1; // skip var + '['
-					int depth = 1;
-					int64_t ws_len2 = (int64_t)ws.length();
-					while (p < ws_len2 && depth > 0) {
-						if (ws[p] == '[') depth++;
-						else if (ws[p] == ']') depth--;
-						p++;
-					}
-					ws = ws.substr(0, idx_pos) + var + ws.substr(p);
-					search_pos = idx_pos + vlen;
-				}
-			}
-			free(wgsl_str);
-			CharString cs = ws.utf8();
-			wgsl_str = (char *)malloc(cs.length() + 1);
-			memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
-		}
+		// NOTE: this used to be followed by a WGSL-text-level fallback pass
+		// unwrapping "binding_array<T, N>" (Chrome doesn't implement WGSL's
+		// `sized_binding_array` feature Tint needs to emit that type for a GLSL
+		// sampler/texture array like `sampler2DArray tex[N]`). Removed as dead
+		// code (Task 9.15/Tier 1 #4 Phase 2): `spirv_preprocess::flatten_binding_arrays()`
+		// (drivers/webgpu/spirv_preprocess.cpp, one of the shared SPIR-V-level
+		// preprocessing passes both this function and _create_module_with_spec_constants()
+		// already run via _spv_to_wgsl_cached() before Tint ever sees the bytes)
+		// already eliminates every OpTypeArray/OpTypeRuntimeArray of a handle
+		// type at the SPIR-V level -- structurally, with proper pointer-type
+		// deduplication, not string matching -- so this WGSL-text fallback could
+		// never actually fire on any real Godot shader. Confirmed empirically:
+		// zero occurrences of "binding_array<" across the full ahead-of-time
+		// precompiled WGSL table (wgsl_precompiled.gen.h, every declared shader
+		// mode variant in the engine, 45k+ lines).
 
 		// When readonly-and-readwrite-storage-textures is not available, split
 		// read_write storage textures into separate write + read (shadow) bindings.
@@ -9249,79 +9180,9 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		}
 	}
 
-	// FLATTEN-BA: Remove binding_array<T, N> → T (same pass as in shader_create_from_container).
-	// Chrome doesn't support 'sized_binding_array'; Tint emits it for GLSL texture arrays.
-	if (strstr(wgsl_str, "binding_array<")) {
-		String ws(wgsl_str);
-		Vector<String> binding_array_vars;
-		int64_t search_from = 0;
-		while (true) {
-			int64_t ba_pos = ws.find(": binding_array<", search_from);
-			if (ba_pos == -1) break;
-			int64_t inner_start = ba_pos + (int64_t)strlen(": binding_array<");
-			int depth = 1;
-			int64_t p = inner_start;
-			int64_t ws_len = (int64_t)ws.length();
-			while (p < ws_len && depth > 0) {
-				char32_t c = ws[p];
-				if (c == '<') depth++;
-				else if (c == '>') depth--;
-				p++;
-			}
-			String inner = ws.substr(inner_start, p - 1 - inner_start);
-			int64_t last_comma = inner.rfind(",");
-			if (last_comma == -1) { search_from = p; continue; }
-			String type_part = inner.substr(0, last_comma).strip_edges();
-			{
-				int64_t name_end = ba_pos;
-				while (name_end > 0 && ws[name_end - 1] == ' ') name_end--;
-				int64_t name_start = name_end;
-				while (name_start > 0) {
-					char32_t c = ws[name_start - 1];
-					if (c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
-						name_start--;
-					else break;
-				}
-				String var_name = ws.substr(name_start, name_end - name_start);
-				if (!var_name.is_empty()) {
-					binding_array_vars.push_back(var_name);
-				}
-				String new_type = ": " + type_part;
-				ws = ws.substr(0, ba_pos) + new_type + ws.substr(p);
-				search_from = ba_pos + (int64_t)new_type.length();
-			}
-		}
-		for (const String &var : binding_array_vars) {
-			int64_t vlen = (int64_t)var.length();
-			int64_t search_pos = 0;
-			while (true) {
-				String needle = var + "[";
-				int64_t idx_pos = ws.find(needle, search_pos);
-				if (idx_pos == -1) break;
-				if (idx_pos > 0) {
-					char32_t before = ws[idx_pos - 1];
-					if (before == '_' || (before >= 'a' && before <= 'z') || (before >= 'A' && before <= 'Z') || (before >= '0' && before <= '9')) {
-						search_pos = idx_pos + 1;
-						continue;
-					}
-				}
-				int64_t pp = idx_pos + vlen + 1;
-				int depth2 = 1;
-				int64_t ws_len2 = (int64_t)ws.length();
-				while (pp < ws_len2 && depth2 > 0) {
-					if (ws[pp] == '[') depth2++;
-					else if (ws[pp] == ']') depth2--;
-					pp++;
-				}
-				ws = ws.substr(0, idx_pos) + var + ws.substr(pp);
-				search_pos = idx_pos + vlen;
-			}
-		}
-		free(wgsl_str);
-		CharString cs = ws.utf8();
-		wgsl_str = (char *)malloc(cs.length() + 1);
-		memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
-	}
+	// FLATTEN-BA fallback removed here too -- see the NOTE in
+	// shader_create_from_container() above (Task 9.15/Tier 1 #4 Phase 2): dead
+	// code, already superseded by spirv_preprocess::flatten_binding_arrays().
 
 	// See _reclassify_single_component_depth_textures()'s doc comment (Task
 	// 7.13); must match shader_create_from_container(). This path never
