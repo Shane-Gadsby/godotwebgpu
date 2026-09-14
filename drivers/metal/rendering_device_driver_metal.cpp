@@ -2695,6 +2695,8 @@ bool RenderingDeviceDriverMetal::has_feature(Features p_feature) {
 			return true; // Metal supports pixel-format-view aliasing of a texture's backing storage.
 		case SUPPORTS_TEXTURE_ARRAY_BINDINGS:
 			return true; // Argument buffers / array textures.
+		case SUPPORTS_FORMATLESS_STORAGE_IMAGES:
+			return true; // MSL's texture2d<T, access::write> carries no compile-time pixel format at all -- it reads whatever format the bound MTLTexture actually has.
 		default:
 			return false;
 	}

@@ -148,6 +148,32 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes);
 // pipeline.
 Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 
+// Eliminate single-block local (Function-storage-class) variable
+// store/load round trips via SPIRV-Tools' own
+// CreateLocalSingleBlockLoadStoreElimPass() -- e.g. `T x = y; ...use x...;`
+// compiles (unoptimized, as glslang emits it) to a declare + store + load,
+// even when nothing else touches the variable; this collapses that back
+// down to direct SSA value reuse (the load's result id is just replaced by
+// the stored value id).
+//
+// Needed for Tint's WGSL writer to recognize the
+// "OpControlBarrier; OpLoad var<workgroup>; OpControlBarrier" shape it
+// rewrites into the uniformity-analysis-safe `workgroupUniformLoad`
+// builtin (see wgsl/writer/raise/raise.cc's ReplaceWorkgroupBarrier): that
+// match requires the load to be the literal instruction between both
+// barrier calls, with nothing in between, but an intervening local-variable
+// store/load (from an ordinary `TYPE tmp = sharedVar;` in the GLSL source)
+// breaks that adjacency and Tint's uniformity analysis then rejects the
+// second barrier as reachable from possibly-non-uniform control flow. Found
+// via FSR2's SPD luminance-pyramid downsample (its last-active-workgroup
+// exit check reads a workgroup-shared atomic-counter mirror this exact way)
+// -- see webgpu_notes/TASKS.md's FSR2 task for the full investigation.
+//
+// Applied late in the pipeline (after every pass that could still
+// introduce or restructure such a variable) so it sees the final shape
+// Tint will actually receive.
+Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes);
+
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage
 // texture mode is valid and Tint handles it fine).

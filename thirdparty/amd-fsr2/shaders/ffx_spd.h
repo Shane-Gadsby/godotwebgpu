@@ -114,8 +114,26 @@ bool SpdExitWorkgroup(FfxUInt32 numWorkGroups, FfxUInt32 localInvocationIndex, F
         SpdIncreaseAtomicCounter(slice);
     }
 
+#if defined(FFX_GLSL)
+    // Tint's SPIR-V->WGSL uniformity analysis only recognizes a workgroup-shared
+    // read as safe (rewriting it to the `workgroupUniformLoad` builtin the analysis
+    // trusts) when it sees a literal "barrier; load; barrier" instruction sequence
+    // inside a single function -- it does not look through ordinary function calls.
+    // Going through SpdWorkgroupShuffleBarrier()/SpdGetAtomicCounter() (both trivial
+    // wrappers, fine on Vulkan/Metal/D3D12) hides the load behind two un-inlined
+    // OpFunctionCalls, so Tint conservatively rejects the barrier below as
+    // "possibly non-uniform control flow" once this shader is translated for
+    // WebGPU. Reading `spdCounter` directly and adding a second (functionally
+    // redundant) barrier immediately after reproduces the exact shape Tint
+    // recognizes. See webgpu_notes/TASKS.md's FSR2 task for the full investigation.
+    barrier();
+    FfxUInt32 counterValue = spdCounter;
+    barrier();
+#else
     SpdWorkgroupShuffleBarrier();
-    return (SpdGetAtomicCounter() != (numWorkGroups - 1));
+    FfxUInt32 counterValue = SpdGetAtomicCounter();
+#endif
+    return (counterValue != (numWorkGroups - 1));
 }
 
 // User defined: FfxFloat32x4 SpdReduce4(FfxFloat32x4 v0, FfxFloat32x4 v1, FfxFloat32x4 v2, FfxFloat32x4 v3);

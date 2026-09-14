@@ -357,8 +357,28 @@ private:
 	RID skeleton_atlas_uniform_set; // For compute skinning shader.
 	mutable RID skeleton_atlas_uniform_set_3d; // For scene draw shader (lazily created).
 	LocalVector<float> skeleton_atlas_data; // CPU mirror
-	uint32_t skeleton_atlas_used = 0; // Floats used
+	uint32_t skeleton_atlas_used = 0; // Floats used (bump high-water mark)
 	uint32_t skeleton_atlas_capacity = 0; // Floats allocated
+
+	// Reclaim path for the bump allocator above: freed/resized skeleton slots
+	// go on this free list instead of being lost, so long-running dynamic
+	// scenes that create/destroy skeletons don't grow the atlas without bound.
+	struct AtlasFreeBlock {
+		uint32_t offset = 0; // In floats.
+		uint32_t size = 0; // In floats.
+	};
+	LocalVector<AtlasFreeBlock> skeleton_atlas_free_list; // Sorted and coalesced by offset.
+	uint32_t skeleton_atlas_free_floats = 0; // Sum of skeleton_atlas_free_list sizes.
+
+	struct _SkeletonAtlasOffsetLess {
+		_FORCE_INLINE_ bool operator()(const Skeleton *p_a, const Skeleton *p_b) const {
+			return p_a->atlas_offset < p_b->atlas_offset;
+		}
+	};
+
+	uint32_t _skeleton_atlas_alloc(uint32_t p_floats_needed);
+	void _skeleton_atlas_free(uint32_t p_offset, uint32_t p_size);
+	void _skeleton_atlas_defragment();
 	void _skeleton_atlas_ensure_capacity(uint32_t p_floats_needed);
 	void _skeleton_atlas_rebuild_uniform_set();
 
