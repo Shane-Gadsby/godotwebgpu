@@ -7409,8 +7409,6 @@ bool RenderingDeviceDriverVulkan::has_feature(Features p_feature) {
 			return true; // VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT + an explicit view-formats list, see texture_create().
 		case SUPPORTS_TEXTURE_ARRAY_BINDINGS:
 			return true; // VkDescriptorSetLayoutBinding::descriptorCount > 1.
-		case SUPPORTS_FORMATLESS_STORAGE_IMAGES:
-			return true; // A storage image view can always be created without VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT's format list.
 		case SUPPORTS_RAY_QUERY:
 			return acceleration_structure_capabilities.acceleration_structure_support && ray_query_support;
 		case SUPPORTS_RAYTRACING_PIPELINE:
