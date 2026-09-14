@@ -12,8 +12,13 @@
 
 #include "tint_wrapper.h"
 
+#include "tint_ir_transforms.h"
+
 #include "src/tint/api/tint.h"
+#include "src/tint/lang/core/ir/module.h"
+#include "src/tint/lang/spirv/reader/reader.h"
 #include "src/tint/lang/wgsl/writer/common/options.h"
+#include "src/tint/lang/wgsl/writer/writer.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -60,7 +65,32 @@ char *tint_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_word_co
 	// silently disabling *all* Dawn compilation diagnostics.
 	wgsl_options.disable_unreachable_code_warning = true;
 
-	auto result = tint::SpirvToWgsl(words, wgsl_options);
+	// Bypass tint::SpirvToWgsl()'s convenience composition (ReadIR -> WgslFromIR)
+	// to run our own structural IR transforms in between -- see
+	// tint_ir_transforms.h. This replaces what used to be a post-hoc WGSL-text
+	// scan/rewrite in rendering_device_driver_webgpu.cpp's vertex-stage
+	// read_write storage demotion (Task 7.18/Tier 1 #4): the same fixup is now
+	// provably correct by construction (checking the IR type system) rather
+	// than by string-length coincidence, and applies uniformly to every caller
+	// of this function -- both the runtime driver and tint_convert_cli's
+	// build-time precompilation path (wgsl_precompile.py) -- with no extra
+	// plumbing needed, since it self-detects relevance from the IR alone.
+	auto ir_result = tint::spirv::reader::ReadIR(words);
+	if (ir_result != tint::Success) {
+		if (r_error) {
+			const std::string &reason = ir_result.Failure().reason;
+			char *err = (char *)malloc(reason.size() + 1);
+			if (err) {
+				memcpy(err, reason.c_str(), reason.size() + 1);
+			}
+			*r_error = err;
+		}
+		return nullptr;
+	}
+
+	webgpu_tint::DemoteVertexStageReadWriteStorage(ir_result.Get());
+
+	auto result = tint::wgsl::writer::WgslFromIR(ir_result.Get(), wgsl_options);
 	if (result != tint::Success) {
 		if (r_error) {
 			const std::string &reason = result.Failure().reason;
@@ -73,7 +103,7 @@ char *tint_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_word_co
 		return nullptr;
 	}
 
-	const std::string &wgsl = result.Get();
+	const std::string &wgsl = result.Get().wgsl;
 	char *out = (char *)malloc(wgsl.size() + 1);
 	if (!out) {
 		return nullptr;
