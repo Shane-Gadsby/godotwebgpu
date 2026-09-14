@@ -351,6 +351,18 @@ timeout 30 /Applications/Godot4.6.app/Contents/MacOS/Godot \
 
 **Analysis:** The atlas eliminated ~4000 `wgpuQueueWriteBuffer` calls per frame, saving ~7ms. The remaining 9.4ms gap vs native is from the per-skeleton compute dispatch overhead (4000 dispatches with individual bind group / push constant / dispatch calls).
 
+**Follow-up fix — atlas defragmentation (2026-09-14):** The atlas only ever had a bump allocator — freeing a skeleton (`skeleton_free`) or resizing one (`skeleton_allocate_data` with a different bone count) never reclaimed its old slot, so the high-water mark never went back down. In a long-running scene with churn (skeletons spawned/destroyed over time, e.g. spawned enemies), the atlas grows without bound even though the live skeleton count stays constant.
+
+Fixed by layering a free-list allocator on top of the bump allocator:
+- Frees/resizes return the old region to a sorted, coalesced free list (adjacent free blocks merge on insertion).
+- Freeing the exact tail of the used region shrinks the high-water mark directly instead of adding a free-list entry, cascading through any free blocks that become the new tail.
+- New allocations do a first-fit search of the free list before bump-allocating from the end.
+- When free space exceeds ~25% of the used region (min. floor of 16K floats, to avoid needless churn on small scenes), an automatic compaction pass walks all live skeletons (`RID_Owner::get_owned_list()`), sorts them by atlas offset, repacks them contiguously from offset 0, updates each skeleton's `atlas_offset`, and re-uploads the whole compacted region in one `buffer_update_direct` call.
+
+Also fixed a related latent bug found while doing this: growing the atlas's GPU buffer capacity freed the old buffer and created a new one, but only re-uploaded whatever region was scheduled as dirty that frame — live, non-dirty skeletons already resident in the old buffer would read back as zero/garbage in the new one until they next changed. Now the full used region is re-uploaded into the new buffer immediately after creation.
+
+Files: `servers/rendering/renderer_rd/storage_rd/mesh_storage.h` / `.cpp` (shared RD code, not WebGPU-specific — any driver that opts into `supports_buffer_direct_write()` uses this path). Verified with a standalone `std::vector`-based reimplementation of the alloc/free/defragment algorithm exercising 8 scenarios (tail-shrink, middle-slot reuse, adjacent-block coalescing in both insertion orders, automatic defrag triggering a gap-free contiguous repack, byte-level data preservation across a defrag `memmove`, and 2000 iterations of randomized alloc/free churn checking free-list invariants and no live-slot overlap after every operation), plus a clean native `linuxbsd` editor build (this code compiles for all rendering backends, not just WebGPU).
+
 ---
 
 ---

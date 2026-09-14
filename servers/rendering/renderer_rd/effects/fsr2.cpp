@@ -30,6 +30,7 @@
 
 #include "fsr2.h"
 
+#include "core/math/math_funcs.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
@@ -247,17 +248,45 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 		res_desc.mipCount = uint32_t(1 + std::floor(std::log2(MAX(MAX(res_desc.width, res_desc.height), res_desc.depth))));
 	}
 
+	RD::DataFormat texture_data_format = ffx_surface_format_to_rd_format(res_desc.format);
+
+	// WebGPU has no R16_Snorm texture format (texture_get_usages_supported_by_format()
+	// deliberately reports it as supporting no usages at all -- see Task 7.10's comment
+	// there: reinterpreting a stored 16-bit normalized integer's raw bits as a 16-bit
+	// float, the only same-size substitute, would produce garbage). FSR2's two SNORM16
+	// lookup tables (FFX_FSR2_RESOURCE_IDENTIFIER_LANCZOS_LUT and
+	// FFX_FSR2_RESOURCE_IDENTITIER_UPSAMPLE_MAXIMUM_BIAS_LUT) are read-only,
+	// plain-sampled (`texture2D` + `textureLod`, never a storage image, so no shader-side
+	// format qualifier depends on the exact bit layout) and only ever created once with
+	// fixed init data -- safe to store as real (R16_SFLOAT) floats instead, converting
+	// the int16 SNORM values to half-float bit patterns up front. See
+	// webgpu_notes/TASKS.md's FSR2 task for the full investigation.
+	bool convert_snorm16_to_sfloat16 = (texture_data_format == RD::DATA_FORMAT_R16_SNORM);
+	if (convert_snorm16_to_sfloat16) {
+		texture_data_format = RD::DATA_FORMAT_R16_SFLOAT;
+	}
+
 	Vector<PackedByteArray> initial_data;
 	if (p_create_resource_description->initDataSize) {
 		PackedByteArray byte_array;
 		byte_array.resize(p_create_resource_description->initDataSize);
-		memcpy(byte_array.ptrw(), p_create_resource_description->initData, p_create_resource_description->initDataSize);
+		if (convert_snorm16_to_sfloat16) {
+			const int16_t *src = reinterpret_cast<const int16_t *>(p_create_resource_description->initData);
+			uint16_t *dst = reinterpret_cast<uint16_t *>(byte_array.ptrw());
+			uint32_t count = p_create_resource_description->initDataSize / sizeof(int16_t);
+			for (uint32_t i = 0; i < count; i++) {
+				float value = CLAMP(src[i] / 32767.0f, -1.0f, 1.0f);
+				dst[i] = Math::make_half_float(value);
+			}
+		} else {
+			memcpy(byte_array.ptrw(), p_create_resource_description->initData, p_create_resource_description->initDataSize);
+		}
 		initial_data.push_back(byte_array);
 	}
 
 	RD::TextureFormat texture_format;
 	texture_format.texture_type = ffx_resource_type_to_rd_texture_type(res_desc.type);
-	texture_format.format = ffx_surface_format_to_rd_format(res_desc.format);
+	texture_format.format = texture_data_format;
 	texture_format.usage_bits = ffx_usage_to_rd_usage_flags(p_create_resource_description->usage);
 	texture_format.width = res_desc.width;
 	texture_format.height = res_desc.height;
@@ -744,14 +773,28 @@ FSR2Effect::FSR2Effect() {
 		// This pass's SPD global atomic counter needs a NO_IMAGE_ATOMICS fallback
 		// variant on backends without SUPPORTS_IMAGE_ATOMIC_32_BIT (WebGPU); see the
 		// comment on that counter's declaration in ffx_fsr2_callbacks_glsl.h and
-		// webgpu_notes/TASKS.md Task 9.5 Round 14.
+		// webgpu_notes/TASKS.md's FSR2 task.
+		//
+		// ShaderRD compiles every declared mode variant at shader-initialization
+		// time (all of them, regardless of which one pass.shader_variant actually
+		// dispatches) -- so declaring both variants unconditionally means the
+		// image-atomics one always gets compiled too, even on a backend that will
+		// never use it. That's harmless on Vulkan/Metal/D3D12 (both variants are
+		// valid there), but fatal on WebGPU: `imageAtomicAdd`'s SPIR-V
+		// (`OpImageTexelPointer`) has no WGSL translation at all (WGSL only has
+		// atomics on buffers, never textures) and Tint's SPIR-V reader hard-aborts
+		// on it (TINT_UNIMPLEMENTED, a WASM `unreachable` trap that kills the whole
+		// engine instance) -- so only ever declare the image-atomics variant on
+		// backends that can actually compile it.
 		bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
 		Vector<String> modes_atomic_fallback;
-		modes_atomic_fallback.push_back("");
+		if (use_image_atomics) {
+			modes_atomic_fallback.push_back("");
+		}
 		modes_atomic_fallback.push_back("\n#define NO_IMAGE_ATOMICS 1\n");
 		pass.shader->initialize(modes_atomic_fallback, general_defines);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = use_image_atomics ? 0 : 1;
+		pass.shader_variant = use_image_atomics ? 0 : (modes_atomic_fallback.size() - 1);
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_color_jittered" }
