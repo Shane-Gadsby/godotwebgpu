@@ -5896,8 +5896,6 @@ bool RenderingDeviceDriverD3D12::has_feature(Features p_feature) {
 			return true; // Relaxed format casting (format_capabilities.relaxed_casting_supported), see texture_create().
 		case SUPPORTS_TEXTURE_ARRAY_BINDINGS:
 			return true; // Descriptor ranges/tables.
-		case SUPPORTS_FORMATLESS_STORAGE_IMAGES:
-			return true; // DXGI_FORMAT_UNKNOWN is a valid UAV resource-view format when the underlying resource itself has a concrete typed format.
 		default:
 			return false;
 	}

@@ -415,6 +415,37 @@ struct WGCommandBuffer {
 				current_pass_attachments[current_pass_attachment_count++] = t;
 			}
 		}
+
+		// Textures bound (in any capacity) so far in the CURRENT compute pass,
+		// restricted to textures capable of both storage and sampled usage.
+		// Detects the compute analog of the render-attachment conflict above:
+		// a single Godot "compute list" (compute_list_begin/end) can span
+		// multiple dispatches sharing one WGPUComputePassEncoder the whole
+		// time (command_pipeline_barrier is a no-op between them, see
+		// CLAUDE.md's "Barriers" note), so a texture written as a storage
+		// image in one dispatch and then sampled in a later dispatch of the
+		// SAME compute list -- e.g. FSR1/FSR2's EASU-write-then-RCAS-sample
+		// ping-pong on their shared upscale texture -- lands both usages in
+		// one synchronization scope, which Dawn rejects ("includes writable
+		// usage and another usage in the same synchronization scope"),
+		// invalidating the whole command buffer. See webgpu_notes/TASKS.md's
+		// FSR1/FSR2 tasks.
+		static constexpr uint32_t MAX_COMPUTE_PASS_TEXTURES = 32;
+		WGPUTexture current_compute_pass_textures[MAX_COMPUTE_PASS_TEXTURES] = {};
+		uint32_t current_compute_pass_texture_count = 0;
+		void reset_current_compute_pass_textures() { current_compute_pass_texture_count = 0; }
+		bool has_current_compute_pass_texture(WGPUTexture t) const {
+			for (uint32_t i = 0; i < current_compute_pass_texture_count; i++) {
+				if (current_compute_pass_textures[i] == t) return true;
+			}
+			return false;
+		}
+		void add_current_compute_pass_texture(WGPUTexture t) {
+			if (!t || has_current_compute_pass_texture(t)) return;
+			if (current_compute_pass_texture_count < MAX_COMPUTE_PASS_TEXTURES) {
+				current_compute_pass_textures[current_compute_pass_texture_count++] = t;
+			}
+		}
 	} render_state;
 
 	// Bind group state tracking for redundancy elimination.

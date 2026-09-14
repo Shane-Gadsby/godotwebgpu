@@ -4037,6 +4037,39 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 			if (has_half_in_name) {
 				continue;
 			}
+
+			// AMD FidelityFX FSR2's `r_dilatedDepth` (ffx_fsr2_callbacks_glsl.h,
+			// read via `texelFetch(r_dilatedDepth, ...).r` -- single-component,
+			// exactly this heuristic's structural trigger) is the same false-
+			// positive shape again: an ordinary r16f-format buffer FSR2 itself
+			// computes and writes (`rw_dilatedDepth`, StoreDilatedDepth), never a
+			// real depth-attachment texture, that merely has "Depth" in its name
+			// because it holds a dilated *copy* of depth values. Every "dilated"-
+			// prefixed FFX resource (DilatedDepth/DilatedMotionVectors/
+			// DilatedReactiveMasks) is one of these synthetic intermediate
+			// buffers by construction, never the real hardware depth buffer, so
+			// "dilated" anywhere in the name is a fourth independent
+			// disqualifying signal, mirroring "half" above. Found live: Dawn
+			// rejected FSR2's depth-clip pass bind group with "None of the
+			// supported sample types (Float|UnfilterableFloat) ... match the
+			// expected sample types (Depth)" the first time FSR2 actually ran on
+			// WebGPU. See webgpu_notes/TASKS.md's FSR2 task.
+			bool has_dilated_in_name = false;
+			for (int ni = 0; ni + 7 <= name_len; ni++) {
+				if ((name[ni] == 'd' || name[ni] == 'D') &&
+						(name[ni + 1] == 'i' || name[ni + 1] == 'I') &&
+						(name[ni + 2] == 'l' || name[ni + 2] == 'L') &&
+						(name[ni + 3] == 'a' || name[ni + 3] == 'A') &&
+						(name[ni + 4] == 't' || name[ni + 4] == 'T') &&
+						(name[ni + 5] == 'e' || name[ni + 5] == 'E') &&
+						(name[ni + 6] == 'd' || name[ni + 6] == 'D')) {
+					has_dilated_in_name = true;
+					break;
+				}
+			}
+			if (has_dilated_in_name) {
+				continue;
+			}
 		}
 
 		bool disqualified = false;
@@ -9819,6 +9852,9 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_pipeline(CommandBufferID 
 		WGPUComputePassDescriptor pass_desc = {};
 		cmd->compute_encoder = wgpuCommandEncoderBeginComputePass(cmd->encoder, &pass_desc);
 		cmd->active_encoder = WGCommandBuffer::COMPUTE;
+		// Fresh pass = fresh synchronization scope; see the field's comment
+		// in webgpu_objects.h for why this is tracked at all.
+		cmd->render_state.reset_current_compute_pass_textures();
 	}
 
 	wgpuComputePassEncoderSetPipeline(cmd->compute_encoder, pw->compute_handle);
@@ -9899,9 +9935,73 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 		}
 	};
 
+	// Detects and resolves the compute-list analog of command_begin_render_pass()'s
+	// "proactive encoder isolation": a texture bound as a storage image in one
+	// dispatch of the current compute list and then bound again (sampled) in a
+	// later dispatch of the SAME still-open WGPUComputePassEncoder puts both
+	// usages in one synchronization scope, which Dawn rejects outright ("includes
+	// writable usage and another usage in the same synchronization scope"),
+	// invalidating the whole command buffer -- e.g. FSR1/FSR2's EASU-write-then-
+	// RCAS-sample ping-pong on their shared upscale texture. Unlike the render-pass
+	// case, no eager submit is needed: ending and beginning a fresh pass on the
+	// same command encoder starts a new synchronization scope on its own, which
+	// prevents the conflict rather than merely limiting its blast radius.
+	auto split_compute_pass_if_conflicting = [&](WGUniformSet *us) {
+		if (!cmd->compute_encoder) {
+			return;
+		}
+		bool conflict = false;
+		for (const KeyValue<uint32_t, WGTexture *> &kv : us->bound_textures) {
+			WGTexture *tex = kv.value;
+			bool dual_capable = tex && (tex->usage & WGPUTextureUsage_StorageBinding) && (tex->usage & WGPUTextureUsage_TextureBinding);
+			if (dual_capable && cmd->render_state.has_current_compute_pass_texture(tex->gpu_handle())) {
+				conflict = true;
+				break;
+			}
+		}
+		if (conflict) {
+			wgpuComputePassEncoderEnd(cmd->compute_encoder);
+			wgpuComputePassEncoderRelease(cmd->compute_encoder);
+			cmd->compute_encoder = nullptr;
+
+			WGPUComputePassDescriptor cp_desc = {};
+			cmd->compute_encoder = wgpuCommandEncoderBeginComputePass(cmd->encoder, &cp_desc);
+			cmd->render_state.reset_current_compute_pass_textures();
+
+			WGPipelineWrapper *pw = cmd->render_state.current_pipeline;
+			if (pw) {
+				wgpuComputePassEncoderSetPipeline(cmd->compute_encoder, pw->compute_handle);
+				if (pw->shader) {
+					for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
+						wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+					}
+				}
+			}
+			for (uint32_t i = 0; i < WGCommandBuffer::MAX_BIND_GROUPS; i++) {
+				const auto &bs = cmd->last_bound_state[i];
+				if (bs.group) {
+					wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, i, bs.group, bs.dynamic_offset_count, bs.dynamic_offsets);
+				}
+			}
+			for (uint32_t i = 0; i < WGCommandBuffer::MAX_BIND_GROUPS; i++) {
+				cmd->bound_bind_groups[i] = nullptr;
+			}
+		}
+
+		// Record this set's dual-capable textures against the (possibly
+		// just-reset) current pass so a later conflicting reuse is caught too.
+		for (const KeyValue<uint32_t, WGTexture *> &kv : us->bound_textures) {
+			WGTexture *tex = kv.value;
+			if (tex && (tex->usage & WGPUTextureUsage_StorageBinding) && (tex->usage & WGPUTextureUsage_TextureBinding)) {
+				cmd->render_state.add_current_compute_pass_texture(tex->gpu_handle());
+			}
+		}
+	};
+
 	for (uint32_t i = 0; i < p_set_count; i++) {
 		WGUniformSet *us = (WGUniformSet *)(p_uniform_sets[i].id);
 		if (us && us->handle) {
+			split_compute_pass_if_conflicting(us);
 			refresh_rw_shadows(us);
 			uint32_t set_idx = p_first_set_index + i;
 			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx);
@@ -10544,14 +10644,6 @@ bool RenderingDeviceDriverWebGPU::has_feature(Features p_feature) {
 			// always exactly one resource. See webgpu_texture3d_array_inc.glsl in the
 			// shader source and gi.cpp's SDFGI cascade-texture bindings (Task 9.5
 			// Round 36/37) for the one real user of this today.
-			return false;
-		case SUPPORTS_FORMATLESS_STORAGE_IMAGES:
-			// WGSL's texture_storage_2d<F, ...> always needs a single, compile-time
-			// texel format F -- there is no formatless/generic storage-texture type
-			// at all, so a shader whose storage image format is meant to vary with
-			// whatever the caller happens to bind (e.g. AMD FSR2's RCAS/accumulate-
-			// sharpen passes writing "app controlled format" output) has no direct
-			// translation. See webgpu_notes/TASKS.md Task 8.3.
 			return false;
 		default:
 			return false;

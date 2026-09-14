@@ -602,9 +602,24 @@ FSR2Effect::FSR2Effect() {
 	Vector<String> modes_single;
 	modes_single.push_back("");
 
+	// As with modes_atomic_fallback below (SUPPORTS_IMAGE_ATOMIC_32_BIT):
+	// ShaderRD compiles every declared mode variant at shader-initialization
+	// time regardless of which one pass.shader_variant actually dispatches, so
+	// only declare the FFX_HALF variant on backends that actually report
+	// SUPPORTS_HALF_FLOAT. Harmless to skip on WebGPU (capabilities.fp16Supported
+	// is always false there, so this variant is never dispatched anyway) but
+	// necessary: FFX_HALF's 16-bit int/uint types hit multiple distinct Tint
+	// SPIR-V-reader bugs (TINT_ASSERT(int_ty->width() == 32) in
+	// reconstruct_previous_depth/autogen_reactive/tcr_autogen,
+	// TINT_UNIMPLEMENTED on OpUConvert in reconstruct_previous_depth) that abort
+	// the whole engine instance the moment this shader is compiled -- found via
+	// direct tint_convert_cli reproduction while re-enabling FSR2 on WebGPU
+	// (see webgpu_notes/TASKS.md's FSR2 task).
 	Vector<String> modes_with_fp16;
 	modes_with_fp16.push_back("");
-	modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
+	if (capabilities.fp16Supported) {
+		modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
+	}
 
 	// Since Godot currently lacks a shader reflection mechanism to persist the name of the bindings in the shader cache and
 	// there's also no mechanism to compile the shaders offline, the bindings are created manually by looking at the GLSL
@@ -648,7 +663,26 @@ FSR2Effect::FSR2Effect() {
 	{
 		Pass &pass = device.passes[FFX_FSR2_PASS_RECONSTRUCT_PREVIOUS_DEPTH];
 		pass.shader = &shaders.reconstruct_previous_depth;
-		pass.shader->initialize(modes_with_fp16, general_defines);
+
+		// This pass's StoreReconstructedDepth (ffx_fsr2_callbacks_glsl.h) uses
+		// imageAtomicMin/Max to resolve multiple threads scattering into the
+		// same destination texel when reprojecting depth -- WebGPU has no
+		// texture-atomics support at all, so on backends without
+		// SUPPORTS_IMAGE_ATOMIC_32_BIT this shader needs its own
+		// NO_IMAGE_ATOMICS variant, mirroring the luminance-pyramid pass
+		// below (modes_atomic_fallback) but with a plain-store fallback
+		// instead of a buffer-backed counter -- see that fallback's comment
+		// in ffx_fsr2_callbacks_glsl.h for why a plain store is an accepted
+		// approximation here. Combined with the FFX_HALF gate below since
+		// both axes are independent (currently both false on WebGPU).
+		bool use_image_atomics_reconstruct = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+		String atomics_define = use_image_atomics_reconstruct ? "" : "\n#define NO_IMAGE_ATOMICS 1\n";
+		Vector<String> modes_reconstruct_depth;
+		modes_reconstruct_depth.push_back(atomics_define);
+		if (capabilities.fp16Supported) {
+			modes_reconstruct_depth.push_back(atomics_define + "\n#define FFX_HALF 1\n");
+		}
+		pass.shader->initialize(modes_reconstruct_depth, general_defines);
 		pass.shader_version = pass.shader->version_create();
 		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
 
@@ -697,11 +731,16 @@ FSR2Effect::FSR2Effect() {
 	}
 
 	{
+		// Same FFX_HALF gate as modes_with_fp16 above -- the accumulate pass's own
+		// FP16 variant independently hits the TINT_ASSERT(int_ty->width() == 32)
+		// bug too, so only declare it where it'll actually be compilable.
 		Vector<String> accumulate_modes_with_fp16;
 		accumulate_modes_with_fp16.push_back("\n");
 		accumulate_modes_with_fp16.push_back("\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
-		accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
-		accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
+		if (capabilities.fp16Supported) {
+			accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
+			accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
+		}
 
 		// Workaround: Disable FP16 path for the accumulate pass on NVIDIA due to reduced occupancy and high VRAM throughput.
 		const bool fp16_path_supported = RD::get_singleton()->get_device_vendor_name() != "NVIDIA";

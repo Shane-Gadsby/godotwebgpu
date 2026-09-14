@@ -1797,19 +1797,20 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 			// that's now fixed (ffx_spd.h's SpdExitWorkgroup + the
 			// eliminate_local_single_block_vars preprocessing pass), along with a
 			// related R16_Snorm-sampling-format gap in FSR2's Lanczos/max-bias LUTs.
-			// FSR2 still can't run on WebGPU, though: its RCAS and accumulate-
-			// sharpen passes write to a storage image whose format is meant to
-			// match whatever HDR buffer format the caller is actually using (AMD's
-			// own "app controlled format" comment in ffx_fsr2_callbacks_glsl.h) --
-			// WGSL's texture_storage_2d<F, ...> has no formatless/runtime-chosen
-			// equivalent, so this fails at pipeline-creation time (and, critically,
-			// the FSR2 SDK itself doesn't handle that failure gracefully -- it goes
-			// on to crash the whole engine rather than just returning an error).
-			// Gate on SUPPORTS_FORMATLESS_STORAGE_IMAGES, the same way
-			// METALFX_TEMPORAL gates below on its own compile-time flag. See
-			// webgpu_notes/TASKS.md's FSR2 task and Task 8.3 for the full
-			// investigation.
-			scale_type = RD::get_singleton()->has_feature(RD::SUPPORTS_FORMATLESS_STORAGE_IMAGES) ? SCALE_FSR2 : SCALE_NONE;
+			// The remaining WebGPU-only blocker (RCAS/accumulate-sharpen writing
+			// through a deliberately formatless "app controlled format" storage
+			// image, ffx_fsr2_callbacks_glsl.h's rw_upscaled_output -- WGSL's
+			// texture_storage_2d<F, ...> has no formatless/runtime-chosen
+			// equivalent) is also fixed: that format is always
+			// RB_TEX_COLOR_UPSCALED's RGBA16_SFLOAT in this engine (the only
+			// caller, RenderSceneBuffersRD::ensure_upscaled(), always allocates at
+			// get_base_data_format(), which RendererSceneRenderRD's base
+			// _render_buffers_get_preferred_color_format() unconditionally returns
+			// as RGBA16_SFLOAT -- never overridden by this class), so it's now
+			// hardcoded to rgba16f the same way screen_space_reflection_filter.glsl
+			// hardcodes its own analogous case. FSR2 no longer needs any
+			// WebGPU-specific gate here. See webgpu_notes/TASKS.md Task 8.3/9.10.
+			scale_type = SCALE_FSR2;
 			break;
 		case RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL:
 #ifdef METAL_MFXTEMPORAL_ENABLED
