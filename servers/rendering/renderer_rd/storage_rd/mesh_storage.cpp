@@ -226,6 +226,13 @@ void MeshStorage::_skeleton_atlas_ensure_capacity(uint32_t p_floats_needed) {
 	skeleton_atlas_uniform_set = RID(); // Invalidate.
 	skeleton_atlas_uniform_set_3d = RID(); // Invalidate draw-time set too.
 	_skeleton_atlas_rebuild_uniform_set(); // Rebuild immediately so it's always available.
+
+	// The old GPU buffer's contents are gone. Re-upload everything already
+	// resident in the CPU mirror so live skeletons that aren't dirty this
+	// frame don't silently read back zeros on the freshly created buffer.
+	if (skeleton_atlas_used > 0) {
+		RD::get_singleton()->buffer_update_direct(skeleton_atlas_buffer, 0, skeleton_atlas_used * sizeof(float), skeleton_atlas_data.ptr());
+	}
 }
 
 void MeshStorage::_skeleton_atlas_rebuild_uniform_set() {
@@ -244,6 +251,117 @@ void MeshStorage::_skeleton_atlas_rebuild_uniform_set() {
 		uniforms.push_back(u);
 	}
 	skeleton_atlas_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, skeleton_shader.version_shader[0], SkeletonShader::UNIFORM_SET_SKELETON);
+}
+
+uint32_t MeshStorage::_skeleton_atlas_alloc(uint32_t p_floats_needed) {
+	// First-fit: reuse a reclaimed slot if one is large enough.
+	for (uint32_t i = 0; i < skeleton_atlas_free_list.size(); i++) {
+		if (skeleton_atlas_free_list[i].size >= p_floats_needed) {
+			uint32_t offset = skeleton_atlas_free_list[i].offset;
+			skeleton_atlas_free_floats -= p_floats_needed;
+			if (skeleton_atlas_free_list[i].size == p_floats_needed) {
+				skeleton_atlas_free_list.remove_at(i);
+			} else {
+				skeleton_atlas_free_list[i].offset += p_floats_needed;
+				skeleton_atlas_free_list[i].size -= p_floats_needed;
+			}
+			return offset;
+		}
+	}
+
+	// No free block large enough: bump-allocate from the end.
+	uint32_t offset = skeleton_atlas_used;
+	skeleton_atlas_used += p_floats_needed;
+	_skeleton_atlas_ensure_capacity(skeleton_atlas_used);
+	return offset;
+}
+
+void MeshStorage::_skeleton_atlas_free(uint32_t p_offset, uint32_t p_size) {
+	if (p_size == 0) {
+		return;
+	}
+
+	if (p_offset + p_size == skeleton_atlas_used) {
+		// Freeing the tail: shrink the high-water mark directly instead of
+		// growing the free list, cascading into any free block that ends up
+		// at the new tail.
+		skeleton_atlas_used = p_offset;
+		while (!skeleton_atlas_free_list.is_empty()) {
+			uint32_t last = skeleton_atlas_free_list.size() - 1;
+			if (skeleton_atlas_free_list[last].offset + skeleton_atlas_free_list[last].size != skeleton_atlas_used) {
+				break;
+			}
+			skeleton_atlas_used = skeleton_atlas_free_list[last].offset;
+			skeleton_atlas_free_floats -= skeleton_atlas_free_list[last].size;
+			skeleton_atlas_free_list.remove_at(last);
+		}
+	} else {
+		uint32_t insert_at = 0;
+		while (insert_at < skeleton_atlas_free_list.size() && skeleton_atlas_free_list[insert_at].offset < p_offset) {
+			insert_at++;
+		}
+
+		AtlasFreeBlock block;
+		block.offset = p_offset;
+		block.size = p_size;
+		skeleton_atlas_free_list.insert(insert_at, block);
+		skeleton_atlas_free_floats += p_size;
+
+		// Coalesce with the next block, then the previous one.
+		if (insert_at + 1 < skeleton_atlas_free_list.size() &&
+				skeleton_atlas_free_list[insert_at].offset + skeleton_atlas_free_list[insert_at].size == skeleton_atlas_free_list[insert_at + 1].offset) {
+			skeleton_atlas_free_list[insert_at].size += skeleton_atlas_free_list[insert_at + 1].size;
+			skeleton_atlas_free_list.remove_at(insert_at + 1);
+		}
+		if (insert_at > 0 &&
+				skeleton_atlas_free_list[insert_at - 1].offset + skeleton_atlas_free_list[insert_at - 1].size == skeleton_atlas_free_list[insert_at].offset) {
+			skeleton_atlas_free_list[insert_at - 1].size += skeleton_atlas_free_list[insert_at].size;
+			skeleton_atlas_free_list.remove_at(insert_at);
+		}
+	}
+
+	// Once fragmentation grows past ~25% of the live region (and is large
+	// enough to matter), compact so future allocations can reuse the space
+	// contiguously instead of endlessly bumping the high-water mark.
+	const uint32_t defrag_floor = 64 * 1024 / sizeof(float);
+	if (skeleton_atlas_free_floats >= defrag_floor && (uint64_t)skeleton_atlas_free_floats * 4 >= skeleton_atlas_used) {
+		_skeleton_atlas_defragment();
+	}
+}
+
+void MeshStorage::_skeleton_atlas_defragment() {
+	if (skeleton_atlas_free_list.is_empty()) {
+		return;
+	}
+
+	LocalVector<RID> owned = skeleton_owner.get_owned_list();
+	LocalVector<Skeleton *> live;
+	live.reserve(owned.size());
+	for (const RID &rid : owned) {
+		Skeleton *sk = skeleton_owner.get_or_null(rid);
+		if (sk && sk->atlas_alloc_size > 0) {
+			live.push_back(sk);
+		}
+	}
+	live.sort_custom<MeshStorage::_SkeletonAtlasOffsetLess>();
+
+	uint32_t write_offset = 0; // In floats.
+	for (Skeleton *sk : live) {
+		uint32_t old_offset = sk->atlas_offset * 4;
+		if (old_offset != write_offset) {
+			memmove(skeleton_atlas_data.ptr() + write_offset, skeleton_atlas_data.ptr() + old_offset, sk->atlas_alloc_size * sizeof(float));
+			sk->atlas_offset = write_offset / 4;
+		}
+		write_offset += sk->atlas_alloc_size;
+	}
+
+	skeleton_atlas_used = write_offset;
+	skeleton_atlas_free_list.clear();
+	skeleton_atlas_free_floats = 0;
+
+	if (skeleton_atlas_used > 0 && skeleton_atlas_buffer.is_valid()) {
+		RD::get_singleton()->buffer_update_direct(skeleton_atlas_buffer, 0, skeleton_atlas_used * sizeof(float), skeleton_atlas_data.ptr());
+	}
 }
 
 bool MeshStorage::free(RID p_rid) {
@@ -2404,18 +2522,26 @@ void MeshStorage::skeleton_allocate_data(RID p_skeleton, int p_bones, bool p_2d_
 		skeleton->uniform_set_mi = RID();
 	}
 
+	if (use_skeleton_atlas && skeleton->atlas_alloc_size > 0) {
+		// Reclaim the old slot before allocating a new one — covers both
+		// freeing (p_bones == 0) and resizing to a different bone count.
+		uint32_t old_offset = skeleton->atlas_offset * 4;
+		uint32_t old_size = skeleton->atlas_alloc_size;
+		skeleton->atlas_offset = 0;
+		skeleton->atlas_alloc_size = 0;
+		_skeleton_atlas_free(old_offset, old_size);
+	}
+
 	if (skeleton->size) {
 		uint32_t float_count = skeleton->size * (skeleton->use_2d ? 8 : 12);
 		skeleton->data.resize(float_count);
 		memset(skeleton->data.ptr(), 0, float_count * sizeof(float));
 
 		if (use_skeleton_atlas) {
-			// Allocate a slot in the atlas (simple bump allocator).
 			// Atlas offset is in vec4 units (4 floats per vec4).
-			skeleton->atlas_offset = skeleton_atlas_used / 4;
+			uint32_t float_offset = _skeleton_atlas_alloc(float_count);
+			skeleton->atlas_offset = float_offset / 4;
 			skeleton->atlas_alloc_size = float_count;
-			skeleton_atlas_used += float_count;
-			_skeleton_atlas_ensure_capacity(skeleton_atlas_used);
 		} else {
 			skeleton->buffer = RD::get_singleton()->storage_buffer_create(float_count * sizeof(float));
 			{

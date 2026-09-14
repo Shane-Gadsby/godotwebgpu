@@ -201,6 +201,7 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 	// WGSL scan below actually narrow BGL visibility instead of seeing every
 	// shared-include declaration as "used by every stage").
 	spv = spirv_preprocess::eliminate_dead_resources(spv);
+	spv = spirv_preprocess::eliminate_local_single_block_vars(spv);
 
 	// Convert to uint32_t words for Tint.
 	int word_count = spv.size() / 4;
@@ -10543,6 +10544,14 @@ bool RenderingDeviceDriverWebGPU::has_feature(Features p_feature) {
 			// always exactly one resource. See webgpu_texture3d_array_inc.glsl in the
 			// shader source and gi.cpp's SDFGI cascade-texture bindings (Task 9.5
 			// Round 36/37) for the one real user of this today.
+			return false;
+		case SUPPORTS_FORMATLESS_STORAGE_IMAGES:
+			// WGSL's texture_storage_2d<F, ...> always needs a single, compile-time
+			// texel format F -- there is no formatless/generic storage-texture type
+			// at all, so a shader whose storage image format is meant to vary with
+			// whatever the caller happens to bind (e.g. AMD FSR2's RCAS/accumulate-
+			// sharpen passes writing "app controlled format" output) has no direct
+			// translation. See webgpu_notes/TASKS.md Task 8.3.
 			return false;
 		default:
 			return false;
