@@ -1,0 +1,11 @@
+{
+  "name": "sdfgi_race_repro",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node run_repro.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}
