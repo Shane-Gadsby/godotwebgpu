@@ -30,6 +30,8 @@
 
 #include "fsr.h"
 
+#include "servers/rendering/renderer_rd/effects/copy_effects.h"
+#include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
@@ -93,6 +95,40 @@ void FSR::process(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_source_rd_te
 
 	RID upscale_texture = p_render_buffers->get_texture(SNAME("FSR"), SNAME("upscale_texture"));
 
+	// RCAS writes its final result via a compute-shader imageStore -- normally
+	// straight into p_destination_texture (the viewport's render target color
+	// texture), same as native backends. WebGPU can't do that: this fork
+	// deliberately omits TEXTURE_USAGE_STORAGE_BIT from that texture there
+	// (texture_storage.cpp's render_target_get_color_usage_bits() -- Dawn
+	// rejects StorageBinding combined with the sRGB view sharing that texture
+	// also needs). Detect that at runtime (rather than assuming it's WebGPU
+	// specifically -- any backend that ever can't write directly here hits the
+	// same fallback) and, when direct storage-write isn't available, route
+	// RCAS's output through an intermediate texture instead, then blit it into
+	// the real destination with CopyEffects -- the same "write to an internal
+	// buffer, never compute-write the render target directly" pattern
+	// FSR2/MetalFX Temporal already use for an unrelated reason. The
+	// intermediate MUST be p_render_buffers->get_base_data_format()
+	// (RGBA16_SFLOAT), matching upscale_texture, not p_destination_texture's
+	// own format: fsr_upscale.glsl's `fsr_image` storage-image binding is
+	// hardcoded `layout(rgba16f, ...)` (shared verbatim between the EASU and
+	// RCAS passes), so it can only ever be bound to an RGBA16F view regardless
+	// of what format the final destination actually needs to end up in -- a
+	// raw GPU texture_copy() can't bridge that gap (it requires identical
+	// formats on both sides), so this uses a real shader blit (CopyEffects),
+	// which converts between mismatched formats as a normal part of
+	// rasterizing into a color attachment. See webgpu_notes/TASKS.md's FSR1 task.
+	bool dest_supports_storage = (RD::get_singleton()->texture_get_format(p_destination_texture).usage_bits & RD::TEXTURE_USAGE_STORAGE_BIT) != 0;
+	RID rcas_output_texture = p_destination_texture;
+	if (!dest_supports_storage) {
+		if (!p_render_buffers->has_texture(SNAME("FSR"), SNAME("rcas_output"))) {
+			RD::DataFormat format = p_render_buffers->get_base_data_format();
+			uint32_t usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
+			p_render_buffers->create_texture(SNAME("FSR"), SNAME("rcas_output"), format, usage_bits, RD::TEXTURE_SAMPLES_1, target_size, 1);
+		}
+		rcas_output_texture = p_render_buffers->get_texture(SNAME("FSR"), SNAME("rcas_output"));
+	}
+
 	FSRUpscalePushConstant push_constant;
 	memset(&push_constant, 0, sizeof(FSRUpscalePushConstant));
 
@@ -128,7 +164,7 @@ void FSR::process(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_source_rd_te
 
 	//FSR Rcas
 	RD::Uniform u_upscale_texture_with_sampler(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, { default_sampler, upscale_texture });
-	RD::Uniform u_destination_texture(RD::UNIFORM_TYPE_IMAGE, 0, { p_destination_texture });
+	RD::Uniform u_destination_texture(RD::UNIFORM_TYPE_IMAGE, 0, { rcas_output_texture });
 
 	push_constant.pass = FSR_UPSCALE_PASS_RCAS;
 	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 0, u_upscale_texture_with_sampler), 0);
@@ -139,4 +175,11 @@ void FSR::process(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_source_rd_te
 	RD::get_singleton()->compute_list_dispatch(compute_list, dispatch_x, dispatch_y, 1);
 
 	RD::get_singleton()->compute_list_end();
+
+	if (!dest_supports_storage) {
+		RendererRD::CopyEffects *copy_effects = RendererRD::CopyEffects::get_singleton();
+		ERR_FAIL_NULL(copy_effects);
+		RID dest_fb = FramebufferCacheRD::get_singleton()->get_cache(p_destination_texture);
+		copy_effects->copy_to_fb_rect(rcas_output_texture, dest_fb, Rect2i(Point2i(), target_size), false, false, false, false, RID(), false, false, false, false, Rect2(), 1.0, false);
+	}
 }
