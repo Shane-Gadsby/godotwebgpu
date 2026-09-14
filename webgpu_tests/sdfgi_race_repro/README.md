@@ -47,6 +47,38 @@ submitted on the same queue (simulating a real frame's other GPU work
 sharing the timeline) before the next accumulate call touches the same
 texel again.
 
+## `native_emdawnwebgpu_repro.cpp` — same test through the real C API path
+
+`race_repro.js` talks to `navigator.gpu` directly from browser JS. The real
+engine never does that — it submits through `wgpuQueueSubmit()` (the
+`webgpu.h` C API) via Emscripten's `emdawnwebgpu` port, same as
+`platform=web webgpu=yes` builds this repo produces. `race_repro.js` alone
+can't tell you whether that extra C API → JS glue layer has a bug of its
+own, so this is the same repro rebuilt through that exact path instead:
+
+```bash
+source ~/emsdk/emsdk_env.sh   # Emscripten 4.0.10+, per CLAUDE.md
+em++ -O2 --use-port=emdawnwebgpu -sEXIT_RUNTIME=0 -sASSERTIONS=1 -std=c++17 \
+  native_emdawnwebgpu_repro.cpp -o native_repro.html
+
+WEBGPU_REAL_GPU=1 node run_native_repro.mjs
+WEBGPU_REAL_GPU=1 node run_native_repro.mjs --calls=2000 --slack=0,1,2,4,8,16,32,64
+```
+
+`native_repro.{html,js,wasm}` are build output (gitignored) — rebuild after
+editing the `.cpp`. Exit codes/output format match `run_repro.mjs`.
+
+**Known gotcha already worked around in this file**: `wgpu::Buffer::MapAsync()`'s
+lambda-captured `wgpu::Buffer` copy did not reliably keep the JS-side buffer
+alive across the async gap in this emdawnwebgpu version (Emscripten 4.0.11,
+webgpu_cpp.h from the pinned `emdawnwebgpu` port) — manifested as
+`MapAsyncStatus::Aborted` / `"Buffer was destroyed before mapping was
+resolved."` every time, 100% reproducible, unrelated to slack or call count.
+Worked around with an explicit `static std::vector<wgpu::Buffer>` keep-alive
+before calling `MapAsync()`. This is a harness quirk, not a finding about
+the actual investigation — flagging here so it isn't mistaken for one if
+this file is revisited later.
+
 ## Next steps if this reproduces
 
 Per `plan-of-attack.md`'s Phase 1 step 2: binary-search what actually
