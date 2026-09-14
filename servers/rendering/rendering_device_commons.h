@@ -1069,17 +1069,6 @@ public:
 		// found (a real bug: WebGPU's driver previously bound only the first array
 		// element for every such uniform, silently discarding the runtime index).
 		SUPPORTS_TEXTURE_ARRAY_BINDINGS,
-		// Whether a storage image/texel buffer binding's texel format can be left for
-		// the GPU driver to infer from whatever texture view is actually bound at draw
-		// time (GLSL's `uniform image2D foo;` with no `layout(...)` format qualifier --
-		// AMD FidelityFX FSR2's own final-output write deliberately uses this, since the
-		// caller's actual HDR buffer format varies by project settings). True on Vulkan,
-		// Metal, and D3D12 (all can create a genuinely typeless/formatless storage
-		// image or view). False on WebGPU: `texture_storage_2d<F, ...>` always requires
-		// a single, compile-time-constant texel format `F` baked into the WGSL/pipeline
-		// at shader-translation time -- there is no formatless or runtime-specialized
-		// storage-texture type at all. See webgpu_notes/TASKS.md Task 8.3.
-		SUPPORTS_FORMATLESS_STORAGE_IMAGES,
 	};
 
 	enum SubgroupOperations {

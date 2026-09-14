@@ -262,7 +262,20 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
 	layout (set = 1, binding = FSR2_BIND_UAV_LUMA_HISTORY, rgba8)                     uniform image2D  rw_luma_history;
 #endif
 #if defined FSR2_BIND_UAV_UPSCALED_OUTPUT
-	layout (set = 1, binding = FSR2_BIND_UAV_UPSCALED_OUTPUT /* app controlled format */) writeonly uniform image2D  rw_upscaled_output;
+	// AMD's SDK leaves this genuinely formatless ("app controlled format") since
+	// a generic game could bind any HDR swapchain/backbuffer format here. In this
+	// engine it is always RB_SCOPE_BUFFERS/RB_TEX_COLOR_UPSCALED
+	// (RenderSceneBuffersRD::ensure_upscaled(), allocated at get_base_data_format())
+	// -- and RendererSceneRenderRD::_render_buffers_get_preferred_color_format()
+	// unconditionally returns RGBA16_SFLOAT (never overridden by
+	// RenderForwardClustered, the only renderer that ever instantiates FSR2), so
+	// this is a fixed, single format in practice, not a real formatless case.
+	// WGSL's texture_storage_2d<F, ...> requires a concrete compile-time format
+	// with no formatless/runtime-chosen equivalent (unlike GLSL/SPIR-V's
+	// StorageImageWriteWithoutFormat capability), so hardcode it the same way
+	// screen_space_reflection_filter.glsl's `dest` already does for the same
+	// underlying reason -- see webgpu_notes/TASKS.md Task 8.3.
+	layout (set = 1, binding = FSR2_BIND_UAV_UPSCALED_OUTPUT, rgba16f) writeonly uniform image2D  rw_upscaled_output;
 #endif
 #if defined FSR2_BIND_UAV_EXPOSURE_MIP_LUMA_CHANGE
 	layout (set = 1, binding = FSR2_BIND_UAV_EXPOSURE_MIP_LUMA_CHANGE, r16f)              coherent uniform image2D  rw_img_mip_shading_change;
@@ -529,7 +542,19 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
 {
 	FfxUInt32 uDepth = floatBitsToUint(fDepth);
 
-	#if FFX_FSR2_OPTION_INVERTED_DEPTH
+	// NO_IMAGE_ATOMICS (WebGPU): no texture-atomics support at all (only
+	// buffer atomics -- OpImageTexelPointer has no WGSL translation and
+	// hard-aborts Tint's SPIR-V reader), so fall back to a plain store.
+	// Multiple invocations can scatter into the same texel here (bilinear-
+	// neighbor reprojection in ReconstructPrevDepth), so without the atomic
+	// min/max reduction this becomes last-write-wins instead of
+	// deterministically nearest -- an accepted approximation since this only
+	// feeds a heuristic reprojection-confidence input, not a correctness-
+	// critical output. See fsr2.cpp's FFX_FSR2_PASS_RECONSTRUCT_PREVIOUS_DEPTH
+	// setup and webgpu_notes/TASKS.md's FSR2 task.
+	#ifdef NO_IMAGE_ATOMICS
+		imageStore(rw_reconstructed_previous_nearest_depth, iPxSample, uvec4(uDepth, 0, 0, 0));
+	#elif FFX_FSR2_OPTION_INVERTED_DEPTH
 		imageAtomicMax(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth);
 	#else
 		imageAtomicMin(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth); // min for standard, max for inverted depth
