@@ -21,17 +21,17 @@ body {
 #canvas {
 	display: block;
 	/* Centered and scaled to fill as much of the viewport as possible while
-	   preserving aspect ratio -- see fitCanvasToViewport() below, which sets
-	   position/left/top/transform on this element at runtime. Deliberately
-	   NOT done via `object-fit: contain` on a width:100vw/height:100vh box:
-	   object-fit visually letterboxes the rendered content *inside* the
-	   element's box without shrinking the box itself, so canvas.getBoundingClientRect()
-	   (which platform/web/js/libs/library_godot_input.js's mouse/touch handlers use
-	   to map event coordinates into canvas space) would keep reporting the full,
-	   un-letterboxed box -- misaligning every click/tap by the letterbox gap.
-	   A CSS `transform: scale()` instead visually scales the element as a whole,
-	   so its bounding rect always matches exactly what's on screen and input
-	   mapping needs no changes. */
+	preserving aspect ratio -- see fitCanvasToViewport() below, which sets
+	position/left/top/transform on this element at runtime. Deliberately
+	NOT done via `object-fit: contain` on a width:100vw/height:100vh box:
+	object-fit visually letterboxes the rendered content *inside* the
+	element's box without shrinking the box itself, so canvas.getBoundingClientRect()
+	(which platform/web/js/libs/library_godot_input.js's mouse/touch handlers use
+	to map event coordinates into canvas space) would keep reporting the full,
+	un-letterboxed box -- misaligning every click/tap by the letterbox gap.
+	A CSS `transform: scale()` instead visually scales the element as a whole,
+	so its bounding rect always matches exactly what's on screen and input
+	mapping needs no changes. */
 }
 
 #canvas:focus {

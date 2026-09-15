@@ -43,8 +43,8 @@ public:
 	static constexpr uint32_t FORMAT_VERSION = 1;
 
 	struct HeaderData {
-		uint32_t push_constant_bind_group = 3;  // Which bind group index holds push constants.
-		uint32_t push_constant_binding = 0;     // Which binding within that group.
+		uint32_t push_constant_bind_group = 3; // Which bind group index holds push constants.
+		uint32_t push_constant_binding = 0; // Which binding within that group.
 		uint32_t flags = 0;
 	};
 

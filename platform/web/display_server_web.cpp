@@ -1195,33 +1195,33 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 #endif // WEBGPU_ENABLED
 	{
 #ifdef GLES3_ENABLED
-	bool webgl2_inited = false;
-	if (godot_js_display_has_webgl(2)) {
-		EmscriptenWebGLContextAttributes attributes;
-		emscripten_webgl_init_context_attributes(&attributes);
-		attributes.alpha = OS::get_singleton()->is_layered_allowed();
-		attributes.antialias = false;
-		attributes.majorVersion = 2;
-		attributes.explicitSwapControl = true;
+		bool webgl2_inited = false;
+		if (godot_js_display_has_webgl(2)) {
+			EmscriptenWebGLContextAttributes attributes;
+			emscripten_webgl_init_context_attributes(&attributes);
+			attributes.alpha = OS::get_singleton()->is_layered_allowed();
+			attributes.antialias = false;
+			attributes.majorVersion = 2;
+			attributes.explicitSwapControl = true;
 
-		webgl_ctx = emscripten_webgl_create_context(canvas_id, &attributes);
-		webgl2_inited = webgl_ctx && emscripten_webgl_make_context_current(webgl_ctx) == EMSCRIPTEN_RESULT_SUCCESS;
-	}
-	if (webgl2_inited) {
-		if (!emscripten_webgl_enable_extension(webgl_ctx, "OVR_multiview2")) {
-			print_verbose("Failed to enable WebXR extension.");
+			webgl_ctx = emscripten_webgl_create_context(canvas_id, &attributes);
+			webgl2_inited = webgl_ctx && emscripten_webgl_make_context_current(webgl_ctx) == EMSCRIPTEN_RESULT_SUCCESS;
 		}
-		RasterizerGLES3::make_current(false);
+		if (webgl2_inited) {
+			if (!emscripten_webgl_enable_extension(webgl_ctx, "OVR_multiview2")) {
+				print_verbose("Failed to enable WebXR extension.");
+			}
+			RasterizerGLES3::make_current(false);
 
-	} else {
-		OS::get_singleton()->alert(
-				"Your browser seems not to support WebGL 2.\n\n"
-				"If possible, consider updating your browser version and video card drivers.",
-				"Unable to initialize WebGL 2 video driver");
-		RasterizerDummy::make_current();
-	}
+		} else {
+			OS::get_singleton()->alert(
+					"Your browser seems not to support WebGL 2.\n\n"
+					"If possible, consider updating your browser version and video card drivers.",
+					"Unable to initialize WebGL 2 video driver");
+			RasterizerDummy::make_current();
+		}
 #else
-	RasterizerDummy::make_current();
+		RasterizerDummy::make_current();
 #endif
 	} // end of webgpu else block
 

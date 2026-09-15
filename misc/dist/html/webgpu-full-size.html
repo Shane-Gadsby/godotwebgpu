@@ -245,6 +245,10 @@ async function initWebGPU() {
 		initializing = false;
 	}
 
+	// Declared here (not just inside the WebGPU pre-init branch below) so the
+	// missing-features path can still call installServiceWorker() on it.
+	let engine = new Engine(GODOT_CONFIG);
+
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
@@ -283,7 +287,7 @@ async function initWebGPU() {
 		// The device must be available when the WASM module boots so that
 		// emscripten_webgpu_get_device() can return it synchronously.
 		initWebGPU().then((webgpuDevice) => {
-			const engineConfig = Object.assign({}, GODOT_CONFIG);
+			const engineConfig = { ...GODOT_CONFIG };
 			if (webgpuDevice) {
 				engineConfig['preinitializedWebGPUDevice'] = webgpuDevice;
 			} else {
@@ -292,7 +296,7 @@ async function initWebGPU() {
 				console.warn('WebGPU unavailable, engine will attempt fallback.');
 			}
 
-			const engine = new Engine(engineConfig);
+			engine = new Engine(engineConfig);
 			engine.startGame({
 				'onProgress': function (current, total) {
 					if (current > 0 && total > 0) {

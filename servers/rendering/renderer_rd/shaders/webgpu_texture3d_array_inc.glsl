@@ -56,46 +56,46 @@
 
 #ifdef RENDER_DRIVER_WEBGPU
 
-#define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                              \
-	layout(set = 0, binding = (m_binding0) + 0) uniform texture3D m_name##_0;            \
-	layout(set = 0, binding = (m_binding0) + 1) uniform texture3D m_name##_1;            \
-	layout(set = 0, binding = (m_binding0) + 2) uniform texture3D m_name##_2;            \
-	layout(set = 0, binding = (m_binding0) + 3) uniform texture3D m_name##_3;            \
-	layout(set = 0, binding = (m_binding0) + 4) uniform texture3D m_name##_4;            \
-	layout(set = 0, binding = (m_binding0) + 5) uniform texture3D m_name##_5;            \
-	layout(set = 0, binding = (m_binding0) + 6) uniform texture3D m_name##_6;            \
-	layout(set = 0, binding = (m_binding0) + 7) uniform texture3D m_name##_7;            \
-	vec4 m_name##_sample(uint m_idx, sampler m_samp, vec3 m_uv, float m_lod) {           \
-		if (m_idx == 0u) {                                                               \
-			return textureLod(sampler3D(m_name##_0, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 1u) {                                                               \
-			return textureLod(sampler3D(m_name##_1, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 2u) {                                                               \
-			return textureLod(sampler3D(m_name##_2, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 3u) {                                                               \
-			return textureLod(sampler3D(m_name##_3, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 4u) {                                                               \
-			return textureLod(sampler3D(m_name##_4, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 5u) {                                                               \
-			return textureLod(sampler3D(m_name##_5, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		if (m_idx == 6u) {                                                               \
-			return textureLod(sampler3D(m_name##_6, m_samp), m_uv, m_lod);              \
-		}                                                                                \
-		return textureLod(sampler3D(m_name##_7, m_samp), m_uv, m_lod);                  \
+#define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                    \
+	layout(set = 0, binding = (m_binding0) + 0) uniform texture3D m_name##_0;  \
+	layout(set = 0, binding = (m_binding0) + 1) uniform texture3D m_name##_1;  \
+	layout(set = 0, binding = (m_binding0) + 2) uniform texture3D m_name##_2;  \
+	layout(set = 0, binding = (m_binding0) + 3) uniform texture3D m_name##_3;  \
+	layout(set = 0, binding = (m_binding0) + 4) uniform texture3D m_name##_4;  \
+	layout(set = 0, binding = (m_binding0) + 5) uniform texture3D m_name##_5;  \
+	layout(set = 0, binding = (m_binding0) + 6) uniform texture3D m_name##_6;  \
+	layout(set = 0, binding = (m_binding0) + 7) uniform texture3D m_name##_7;  \
+	vec4 m_name##_sample(uint m_idx, sampler m_samp, vec3 m_uv, float m_lod) { \
+		if (m_idx == 0u) {                                                     \
+			return textureLod(sampler3D(m_name##_0, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 1u) {                                                     \
+			return textureLod(sampler3D(m_name##_1, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 2u) {                                                     \
+			return textureLod(sampler3D(m_name##_2, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 3u) {                                                     \
+			return textureLod(sampler3D(m_name##_3, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 4u) {                                                     \
+			return textureLod(sampler3D(m_name##_4, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 5u) {                                                     \
+			return textureLod(sampler3D(m_name##_5, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		if (m_idx == 6u) {                                                     \
+			return textureLod(sampler3D(m_name##_6, m_samp), m_uv, m_lod);     \
+		}                                                                      \
+		return textureLod(sampler3D(m_name##_7, m_samp), m_uv, m_lod);         \
 	}
 
 #else
 
-#define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                              \
-	layout(set = 0, binding = (m_binding0)) uniform texture3D m_name[8];                 \
-	vec4 m_name##_sample(uint m_idx, sampler m_samp, vec3 m_uv, float m_lod) {           \
-		return textureLod(sampler3D(m_name[m_idx], m_samp), m_uv, m_lod);               \
+#define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                    \
+	layout(set = 0, binding = (m_binding0)) uniform texture3D m_name[8];       \
+	vec4 m_name##_sample(uint m_idx, sampler m_samp, vec3 m_uv, float m_lod) { \
+		return textureLod(sampler3D(m_name[m_idx], m_samp), m_uv, m_lod);      \
 	}
 
 #endif
