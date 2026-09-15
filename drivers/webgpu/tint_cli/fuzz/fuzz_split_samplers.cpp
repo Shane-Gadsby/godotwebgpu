@@ -34,7 +34,7 @@
 // new IDs, rewrites entry points, manipulates bindings, and injects new
 // instructions. Focused fuzzing here has the highest chance of finding bugs.
 
-#include "drivers/webgpu/spirv_preprocess.h"
+#include "../../spirv_preprocess.h"
 
 #include <cstddef>
 #include <cstdint>
