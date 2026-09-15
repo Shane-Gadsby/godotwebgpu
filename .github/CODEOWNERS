@@ -38,6 +38,7 @@
 /drivers/metal/                               @godotengine/rendering
 /drivers/spirv-reflect/                       @godotengine/rendering
 /drivers/vulkan/                              @godotengine/rendering
+/drivers/webgpu/                              @Shane-Gadsby
 
 ## OS
 /drivers/apple/                               @godotengine/macos @godotengine/ios
@@ -285,6 +286,12 @@
 
 /thirdparty/                                  @godotengine/buildsystem
 /thirdparty/jolt_physics/                     @godotengine/buildsystem @godotengine/jolt-physics
+
+# WebGPU (this fork's own additions, not part of upstream Godot)
+
+/webgpu_tests/                                @Shane-Gadsby
+/webgpu_notes/                                @Shane-Gadsby
+/webgpu_site/                                 @Shane-Gadsby
 
 # Buildsystem (After everything to catch all)
 
