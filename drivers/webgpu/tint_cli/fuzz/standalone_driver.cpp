@@ -1,3 +1,33 @@
+/**************************************************************************/
+/*  standalone_driver.cpp                                                 */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 // Standalone fuzz driver — provides main() when libFuzzer is not available.
 //
 // Reads seed corpus files, then mutates them randomly for a configurable
@@ -7,14 +37,15 @@
 //   ./fuzz_target corpus_file1.spv corpus_file2.spv ...
 //   ./fuzz_target --iterations 500000 corpus/*.spv
 
+#include <unistd.h>
+
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
-#include <csignal>
-#include <unistd.h>
 #include <vector>
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
@@ -24,7 +55,7 @@ static int g_current_iter = -1;
 
 static void crash_handler(int sig) {
 	const char *signame = sig == SIGSEGV ? "SIGSEGV" : sig == SIGABRT ? "SIGABRT"
-			: sig == SIGFPE                                           ? "SIGFPE"
+			: sig == SIGFPE											  ? "SIGFPE"
 																	  : "UNKNOWN";
 	fprintf(stderr, "\n[FUZZ] CRASH: %s at iteration %d (seed: %s)\n",
 			signame, g_current_iter, g_current_seed ? g_current_seed : "mutation");

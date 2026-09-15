@@ -145,15 +145,11 @@ def _parse_glsl_recursive(filepath, stages, included_files, current_stage):
             if include_name.startswith("thirdparty/"):
                 include_path = os.path.relpath(include_name)
             else:
-                include_path = os.path.normpath(
-                    os.path.join(os.path.dirname(filepath), include_name)
-                )
+                include_path = os.path.normpath(os.path.join(os.path.dirname(filepath), include_name))
             stage_key = current_stage + ":" + include_path
             if stage_key not in included_files:
                 included_files.add(stage_key)
-                current_stage = _parse_glsl_recursive(
-                    include_path, stages, included_files, current_stage
-                )
+                current_stage = _parse_glsl_recursive(include_path, stages, included_files, current_stage)
             continue
 
         # Regular line — add to current stage.
@@ -173,9 +169,7 @@ def assemble_glsl(stage_lines, general_defines, variant_defines):
     - #CODE : ... → empty (ubershader has no custom code)
     """
     driver_defines = (
-        "#define RENDER_DRIVER_WEBGPU\n"
-        "#define samplerExternalOES sampler2D\n"
-        "#define textureExternalOES texture2D\n"
+        "#define RENDER_DRIVER_WEBGPU\n#define samplerExternalOES sampler2D\n#define textureExternalOES texture2D\n"
     )
 
     defines_block = general_defines + variant_defines + driver_defines
@@ -209,58 +203,31 @@ GENERAL_DEFINES_FORWARD_MOBILE = (
     "\n#define MATERIAL_UNIFORM_SET 3\n"
 )
 
-GENERAL_DEFINES_CANVAS = (
-    "#define MAX_LIGHTS 256\n"
-    "\n#define SAMPLERS_BINDING_FIRST_INDEX 10\n"
-)
+GENERAL_DEFINES_CANVAS = "#define MAX_LIGHTS 256\n\n#define SAMPLERS_BINDING_FIRST_INDEX 10\n"
 
 # Particles shader defines (particles_storage.cpp:56-61).
-GENERAL_DEFINES_PARTICLES = (
-    "#define SAMPLERS_BINDING_FIRST_INDEX 3\n"
-)
+GENERAL_DEFINES_PARTICLES = "#define SAMPLERS_BINDING_FIRST_INDEX 3\n"
 
 # Sky shader defines (sky.cpp:714-730).
-GENERAL_DEFINES_SKY = (
-    "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS 4\n"
-    "\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n"
-)
+GENERAL_DEFINES_SKY = "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS 4\n\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n"
 
 # Volumetric fog shader defines (fog.cpp:218-226).
-GENERAL_DEFINES_FOG = (
-    "#define SAMPLERS_BINDING_FIRST_INDEX 3\n"
-)
+GENERAL_DEFINES_FOG = "#define SAMPLERS_BINDING_FIRST_INDEX 3\n"
 
 # Volumetric fog process shader defines (fog.cpp:303-323).
-GENERAL_DEFINES_FOG_PROCESS = (
-    "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS 8\n"
-    "\n#define MAX_SKY_LOD 5.0\n"
-)
+GENERAL_DEFINES_FOG_PROCESS = "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS 8\n\n#define MAX_SKY_LOD 5.0\n"
 
 # Voxel GI defines (gi.cpp:3445-3457).
-GENERAL_DEFINES_VOXEL_GI = (
-    "\n#define MAX_LIGHTS 32\n"
-)
+GENERAL_DEFINES_VOXEL_GI = "\n#define MAX_LIGHTS 32\n"
 
 # SDFGI defines (gi.cpp). SDFGI_NATIVE_STORAGE_FORMAT is unconditionally included here
 # because this script always precompiles for the WebGPU driver, which always has
 # RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS == false (Task 9.5 Round 21) -- gi.cpp only
 # omits this define when that trait is true, which never happens on this driver.
-GENERAL_DEFINES_SDFGI_PREPROCESS = (
-    "\n#define OCCLUSION_SIZE 4\n"
-    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
-)
-GENERAL_DEFINES_SDFGI_DIRECT_LIGHT = (
-    "\n#define OCT_SIZE 5\n"
-    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
-)
-GENERAL_DEFINES_SDFGI_INTEGRATE = (
-    "\n#define OCT_SIZE 5\n"
-    "\n#define SH_SIZE 16\n"
-    "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
-)
-GENERAL_DEFINES_SDFGI_DEBUG = (
-    "\n#define OCT_SIZE 5\n"
-)
+GENERAL_DEFINES_SDFGI_PREPROCESS = "\n#define OCCLUSION_SIZE 4\n\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
+GENERAL_DEFINES_SDFGI_DIRECT_LIGHT = "\n#define OCT_SIZE 5\n\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
+GENERAL_DEFINES_SDFGI_INTEGRATE = "\n#define OCT_SIZE 5\n\n#define SH_SIZE 16\n\n#define SDFGI_NATIVE_STORAGE_FORMAT\n"
+GENERAL_DEFINES_SDFGI_DEBUG = "\n#define OCT_SIZE 5\n"
 
 # Empty general defines for effect shaders that need no special defines.
 GENERAL_DEFINES_NONE = ""
@@ -698,9 +665,12 @@ def compile_glsl_to_spirv(glsl_source, stage, glslang_path="glslangValidator"):
                 # and infer_readonly_storage()'s Pass 0a/0b in spirv_preprocess.cpp
                 # for a pass that had to be specifically patched to tolerate the
                 # 1.0 encoding this precompiler used to produce.
-                "--target-env", "vulkan1.1",
-                "-S", stage,
-                "-o", spv_path,
+                "--target-env",
+                "vulkan1.1",
+                "-S",
+                stage,
+                "-o",
+                spv_path,
                 glsl_path,
             ],
             capture_output=True,
@@ -802,13 +772,11 @@ def generate_precompiled_header(entries, output_path):
             # Use raw string literal to avoid escaping issues.
             # Ensure the WGSL doesn't contain the delimiter )wgsl".
             delimiter = "wgsl"
-            while f"){delimiter}\"" in wgsl:
+            while f'){delimiter}"' in wgsl:
                 delimiter += "_"
             f.write(f'\t{{ 0x{spv_hash:016X}ULL, R"{delimiter}({wgsl}){delimiter}" }},\n')
         f.write("};\n\n")
-        f.write(
-            f"static const uint32_t _wgsl_precompiled_count = {len(entries)};\n"
-        )
+        f.write(f"static const uint32_t _wgsl_precompiled_count = {len(entries)};\n")
 
 
 # ---------------------------------------------------------------------------
@@ -923,7 +891,9 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     # Generate the output header.
     generate_precompiled_header(entries, output_path)
 
-    print(f"[WGSL Precompile] Results: {compiled} compiled, {failed_compile} glsl failures, {failed_convert} tint failures")
+    print(
+        f"[WGSL Precompile] Results: {compiled} compiled, {failed_compile} glsl failures, {failed_convert} tint failures"
+    )
     print(f"[WGSL Precompile] Unique entries: {len(entries)} (from {total} total modules)")
     print(f"[WGSL Precompile] Output: {output_path}")
 
@@ -975,8 +945,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     repo_root = sys.argv[1]
-    output = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
-        repo_root, "drivers", "webgpu", "wgsl_precompiled.gen.h"
+    output = (
+        sys.argv[2] if len(sys.argv) > 2 else os.path.join(repo_root, "drivers", "webgpu", "wgsl_precompiled.gen.h")
     )
     glslang = sys.argv[3] if len(sys.argv) > 3 else "glslangValidator"
 

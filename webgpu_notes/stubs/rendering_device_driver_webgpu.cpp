@@ -31,8 +31,9 @@
 #ifdef WEBGPU_ENABLED
 
 #include "rendering_device_driver_webgpu.h"
-#include "rendering_context_driver_webgpu.h"
-#include "rendering_shader_container_webgpu.h"
+
+#include "webgpu_notes/stubs/rendering_context_driver_webgpu.h"
+#include "webgpu_notes/stubs/rendering_shader_container_webgpu.h"
 
 #include <webgpu/webgpu.h>
 
@@ -447,48 +448,90 @@ WGPUTextureViewDimension RenderingDeviceDriverWebGPU::_texture_type_to_view_dime
 WGPUTextureFormat RenderingDeviceDriverWebGPU::_data_format_to_wgpu(DataFormat p_format) const {
 	// TODO: Move to pixel_formats_webgpu.cpp. See DESIGN.md Appendix B for full table.
 	switch (p_format) {
-		case DATA_FORMAT_R8_UNORM: return WGPUTextureFormat_R8Unorm;
-		case DATA_FORMAT_R8_SNORM: return WGPUTextureFormat_R8Snorm;
-		case DATA_FORMAT_R8_UINT: return WGPUTextureFormat_R8Uint;
-		case DATA_FORMAT_R8_SINT: return WGPUTextureFormat_R8Sint;
-		case DATA_FORMAT_R8G8_UNORM: return WGPUTextureFormat_RG8Unorm;
-		case DATA_FORMAT_R8G8_SNORM: return WGPUTextureFormat_RG8Snorm;
-		case DATA_FORMAT_R8G8_UINT: return WGPUTextureFormat_RG8Uint;
-		case DATA_FORMAT_R8G8_SINT: return WGPUTextureFormat_RG8Sint;
-		case DATA_FORMAT_R8G8B8A8_UNORM: return WGPUTextureFormat_RGBA8Unorm;
-		case DATA_FORMAT_R8G8B8A8_SNORM: return WGPUTextureFormat_RGBA8Snorm;
-		case DATA_FORMAT_R8G8B8A8_UINT: return WGPUTextureFormat_RGBA8Uint;
-		case DATA_FORMAT_R8G8B8A8_SINT: return WGPUTextureFormat_RGBA8Sint;
-		case DATA_FORMAT_R8G8B8A8_SRGB: return WGPUTextureFormat_RGBA8UnormSrgb;
-		case DATA_FORMAT_B8G8R8A8_UNORM: return WGPUTextureFormat_BGRA8Unorm;
-		case DATA_FORMAT_B8G8R8A8_SRGB: return WGPUTextureFormat_BGRA8UnormSrgb;
-		case DATA_FORMAT_R16_UINT: return WGPUTextureFormat_R16Uint;
-		case DATA_FORMAT_R16_SINT: return WGPUTextureFormat_R16Sint;
-		case DATA_FORMAT_R16_SFLOAT: return WGPUTextureFormat_R16Float;
-		case DATA_FORMAT_R16G16_UINT: return WGPUTextureFormat_RG16Uint;
-		case DATA_FORMAT_R16G16_SINT: return WGPUTextureFormat_RG16Sint;
-		case DATA_FORMAT_R16G16_SFLOAT: return WGPUTextureFormat_RG16Float;
-		case DATA_FORMAT_R16G16B16A16_UINT: return WGPUTextureFormat_RGBA16Uint;
-		case DATA_FORMAT_R16G16B16A16_SINT: return WGPUTextureFormat_RGBA16Sint;
-		case DATA_FORMAT_R16G16B16A16_SFLOAT: return WGPUTextureFormat_RGBA16Float;
-		case DATA_FORMAT_R32_UINT: return WGPUTextureFormat_R32Uint;
-		case DATA_FORMAT_R32_SINT: return WGPUTextureFormat_R32Sint;
-		case DATA_FORMAT_R32_SFLOAT: return WGPUTextureFormat_R32Float;
-		case DATA_FORMAT_R32G32_UINT: return WGPUTextureFormat_RG32Uint;
-		case DATA_FORMAT_R32G32_SINT: return WGPUTextureFormat_RG32Sint;
-		case DATA_FORMAT_R32G32_SFLOAT: return WGPUTextureFormat_RG32Float;
-		case DATA_FORMAT_R32G32B32A32_UINT: return WGPUTextureFormat_RGBA32Uint;
-		case DATA_FORMAT_R32G32B32A32_SINT: return WGPUTextureFormat_RGBA32Sint;
-		case DATA_FORMAT_R32G32B32A32_SFLOAT: return WGPUTextureFormat_RGBA32Float;
-		case DATA_FORMAT_A2B10G10R10_UNORM_PACK32: return WGPUTextureFormat_RGB10A2Unorm;
-		case DATA_FORMAT_B10G11R11_UFLOAT_PACK32: return WGPUTextureFormat_RG11B10Ufloat;
-		case DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32: return WGPUTextureFormat_RGB9E5Ufloat;
-		case DATA_FORMAT_D16_UNORM: return WGPUTextureFormat_Depth16Unorm;
-		case DATA_FORMAT_D32_SFLOAT: return WGPUTextureFormat_Depth32Float;
-		case DATA_FORMAT_X8_D24_UNORM_PACK32: return WGPUTextureFormat_Depth24Plus;
-		case DATA_FORMAT_D24_UNORM_S8_UINT: return WGPUTextureFormat_Depth24PlusStencil8;
-		case DATA_FORMAT_D32_SFLOAT_S8_UINT: return WGPUTextureFormat_Depth32FloatStencil8;
-		case DATA_FORMAT_S8_UINT: return WGPUTextureFormat_Stencil8;
+		case DATA_FORMAT_R8_UNORM:
+			return WGPUTextureFormat_R8Unorm;
+		case DATA_FORMAT_R8_SNORM:
+			return WGPUTextureFormat_R8Snorm;
+		case DATA_FORMAT_R8_UINT:
+			return WGPUTextureFormat_R8Uint;
+		case DATA_FORMAT_R8_SINT:
+			return WGPUTextureFormat_R8Sint;
+		case DATA_FORMAT_R8G8_UNORM:
+			return WGPUTextureFormat_RG8Unorm;
+		case DATA_FORMAT_R8G8_SNORM:
+			return WGPUTextureFormat_RG8Snorm;
+		case DATA_FORMAT_R8G8_UINT:
+			return WGPUTextureFormat_RG8Uint;
+		case DATA_FORMAT_R8G8_SINT:
+			return WGPUTextureFormat_RG8Sint;
+		case DATA_FORMAT_R8G8B8A8_UNORM:
+			return WGPUTextureFormat_RGBA8Unorm;
+		case DATA_FORMAT_R8G8B8A8_SNORM:
+			return WGPUTextureFormat_RGBA8Snorm;
+		case DATA_FORMAT_R8G8B8A8_UINT:
+			return WGPUTextureFormat_RGBA8Uint;
+		case DATA_FORMAT_R8G8B8A8_SINT:
+			return WGPUTextureFormat_RGBA8Sint;
+		case DATA_FORMAT_R8G8B8A8_SRGB:
+			return WGPUTextureFormat_RGBA8UnormSrgb;
+		case DATA_FORMAT_B8G8R8A8_UNORM:
+			return WGPUTextureFormat_BGRA8Unorm;
+		case DATA_FORMAT_B8G8R8A8_SRGB:
+			return WGPUTextureFormat_BGRA8UnormSrgb;
+		case DATA_FORMAT_R16_UINT:
+			return WGPUTextureFormat_R16Uint;
+		case DATA_FORMAT_R16_SINT:
+			return WGPUTextureFormat_R16Sint;
+		case DATA_FORMAT_R16_SFLOAT:
+			return WGPUTextureFormat_R16Float;
+		case DATA_FORMAT_R16G16_UINT:
+			return WGPUTextureFormat_RG16Uint;
+		case DATA_FORMAT_R16G16_SINT:
+			return WGPUTextureFormat_RG16Sint;
+		case DATA_FORMAT_R16G16_SFLOAT:
+			return WGPUTextureFormat_RG16Float;
+		case DATA_FORMAT_R16G16B16A16_UINT:
+			return WGPUTextureFormat_RGBA16Uint;
+		case DATA_FORMAT_R16G16B16A16_SINT:
+			return WGPUTextureFormat_RGBA16Sint;
+		case DATA_FORMAT_R16G16B16A16_SFLOAT:
+			return WGPUTextureFormat_RGBA16Float;
+		case DATA_FORMAT_R32_UINT:
+			return WGPUTextureFormat_R32Uint;
+		case DATA_FORMAT_R32_SINT:
+			return WGPUTextureFormat_R32Sint;
+		case DATA_FORMAT_R32_SFLOAT:
+			return WGPUTextureFormat_R32Float;
+		case DATA_FORMAT_R32G32_UINT:
+			return WGPUTextureFormat_RG32Uint;
+		case DATA_FORMAT_R32G32_SINT:
+			return WGPUTextureFormat_RG32Sint;
+		case DATA_FORMAT_R32G32_SFLOAT:
+			return WGPUTextureFormat_RG32Float;
+		case DATA_FORMAT_R32G32B32A32_UINT:
+			return WGPUTextureFormat_RGBA32Uint;
+		case DATA_FORMAT_R32G32B32A32_SINT:
+			return WGPUTextureFormat_RGBA32Sint;
+		case DATA_FORMAT_R32G32B32A32_SFLOAT:
+			return WGPUTextureFormat_RGBA32Float;
+		case DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
+			return WGPUTextureFormat_RGB10A2Unorm;
+		case DATA_FORMAT_B10G11R11_UFLOAT_PACK32:
+			return WGPUTextureFormat_RG11B10Ufloat;
+		case DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+			return WGPUTextureFormat_RGB9E5Ufloat;
+		case DATA_FORMAT_D16_UNORM:
+			return WGPUTextureFormat_Depth16Unorm;
+		case DATA_FORMAT_D32_SFLOAT:
+			return WGPUTextureFormat_Depth32Float;
+		case DATA_FORMAT_X8_D24_UNORM_PACK32:
+			return WGPUTextureFormat_Depth24Plus;
+		case DATA_FORMAT_D24_UNORM_S8_UINT:
+			return WGPUTextureFormat_Depth24PlusStencil8;
+		case DATA_FORMAT_D32_SFLOAT_S8_UINT:
+			return WGPUTextureFormat_Depth32FloatStencil8;
+		case DATA_FORMAT_S8_UINT:
+			return WGPUTextureFormat_Stencil8;
 		default:
 			WARN_PRINT(vformat("WebGPU: Unsupported DataFormat %d", (int)p_format));
 			return WGPUTextureFormat_Undefined;
@@ -498,9 +541,12 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_data_format_to_wgpu(DataFormat p
 DataFormat RenderingDeviceDriverWebGPU::_wgpu_to_data_format(WGPUTextureFormat p_format) const {
 	// TODO: Full reverse mapping. For now, handle common cases.
 	switch (p_format) {
-		case WGPUTextureFormat_BGRA8Unorm: return DATA_FORMAT_B8G8R8A8_UNORM;
-		case WGPUTextureFormat_RGBA8Unorm: return DATA_FORMAT_R8G8B8A8_UNORM;
-		default: return DATA_FORMAT_MAX;
+		case WGPUTextureFormat_BGRA8Unorm:
+			return DATA_FORMAT_B8G8R8A8_UNORM;
+		case WGPUTextureFormat_RGBA8Unorm:
+			return DATA_FORMAT_R8G8B8A8_UNORM;
+		default:
+			return DATA_FORMAT_MAX;
 	}
 }
 
@@ -516,22 +562,34 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 	};
 	auto map_address = [](SamplerRepeatMode m) -> WGPUAddressMode {
 		switch (m) {
-			case SAMPLER_REPEAT_MODE_REPEAT: return WGPUAddressMode_Repeat;
-			case SAMPLER_REPEAT_MODE_MIRRORED_REPEAT: return WGPUAddressMode_MirrorRepeat;
-			default: return WGPUAddressMode_ClampToEdge;
+			case SAMPLER_REPEAT_MODE_REPEAT:
+				return WGPUAddressMode_Repeat;
+			case SAMPLER_REPEAT_MODE_MIRRORED_REPEAT:
+				return WGPUAddressMode_MirrorRepeat;
+			default:
+				return WGPUAddressMode_ClampToEdge;
 		}
 	};
 	auto map_compare = [](CompareOperator op) -> WGPUCompareFunction {
 		switch (op) {
-			case COMPARE_OP_NEVER: return WGPUCompareFunction_Never;
-			case COMPARE_OP_LESS: return WGPUCompareFunction_Less;
-			case COMPARE_OP_EQUAL: return WGPUCompareFunction_Equal;
-			case COMPARE_OP_LESS_OR_EQUAL: return WGPUCompareFunction_LessEqual;
-			case COMPARE_OP_GREATER: return WGPUCompareFunction_Greater;
-			case COMPARE_OP_NOT_EQUAL: return WGPUCompareFunction_NotEqual;
-			case COMPARE_OP_GREATER_OR_EQUAL: return WGPUCompareFunction_GreaterEqual;
-			case COMPARE_OP_ALWAYS: return WGPUCompareFunction_Always;
-			default: return WGPUCompareFunction_Undefined;
+			case COMPARE_OP_NEVER:
+				return WGPUCompareFunction_Never;
+			case COMPARE_OP_LESS:
+				return WGPUCompareFunction_Less;
+			case COMPARE_OP_EQUAL:
+				return WGPUCompareFunction_Equal;
+			case COMPARE_OP_LESS_OR_EQUAL:
+				return WGPUCompareFunction_LessEqual;
+			case COMPARE_OP_GREATER:
+				return WGPUCompareFunction_Greater;
+			case COMPARE_OP_NOT_EQUAL:
+				return WGPUCompareFunction_NotEqual;
+			case COMPARE_OP_GREATER_OR_EQUAL:
+				return WGPUCompareFunction_GreaterEqual;
+			case COMPARE_OP_ALWAYS:
+				return WGPUCompareFunction_Always;
+			default:
+				return WGPUCompareFunction_Undefined;
 		}
 	};
 
@@ -864,7 +922,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 uint32_t RenderingDeviceDriverWebGPU::shader_get_layout_hash(ShaderID p_shader) {
 	WGShader *shader = (WGShader *)(p_shader.id);
-	if (!shader) return 0;
+	if (!shader) {
+		return 0;
+	}
 	// TODO: Compute hash from bind group layouts.
 	return 0;
 }
@@ -1611,43 +1671,75 @@ uint64_t RenderingDeviceDriverWebGPU::get_lazily_memory_used() {
 uint64_t RenderingDeviceDriverWebGPU::limit_get(Limit p_limit) {
 	// TODO: Query from WGPUSupportedLimits. See RESEARCH.md Appendix C for full mapping.
 	switch (p_limit) {
-		case LIMIT_MAX_BOUND_UNIFORM_SETS: return 4;
-		case LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS: return 8;
-		case LIMIT_MAX_TEXTURES_PER_UNIFORM_SET: return 16;
-		case LIMIT_MAX_SAMPLERS_PER_UNIFORM_SET: return 16;
-		case LIMIT_MAX_STORAGE_BUFFERS_PER_UNIFORM_SET: return 8;
-		case LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET: return 4;
-		case LIMIT_MAX_UNIFORM_BUFFERS_PER_UNIFORM_SET: return 12;
-		case LIMIT_MAX_PUSH_CONSTANT_SIZE: return 128;
-		case LIMIT_MAX_UNIFORM_BUFFER_SIZE: return 65536;
-		case LIMIT_MAX_VERTEX_INPUT_ATTRIBUTE_OFFSET: return 2048;
-		case LIMIT_MAX_VERTEX_INPUT_ATTRIBUTES: return 16;
-		case LIMIT_MAX_VERTEX_INPUT_BINDINGS: return 8;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X: return 65535;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Y: return 65535;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Z: return 65535;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X: return 256;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y: return 256;
-		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z: return 64;
-		case LIMIT_SUBGROUP_SIZE: return 0; // Subgroups not guaranteed.
-		case LIMIT_SUBGROUP_MIN_SIZE: return 0;
-		case LIMIT_SUBGROUP_MAX_SIZE: return 0;
-		default: return 0;
+		case LIMIT_MAX_BOUND_UNIFORM_SETS:
+			return 4;
+		case LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS:
+			return 8;
+		case LIMIT_MAX_TEXTURES_PER_UNIFORM_SET:
+			return 16;
+		case LIMIT_MAX_SAMPLERS_PER_UNIFORM_SET:
+			return 16;
+		case LIMIT_MAX_STORAGE_BUFFERS_PER_UNIFORM_SET:
+			return 8;
+		case LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET:
+			return 4;
+		case LIMIT_MAX_UNIFORM_BUFFERS_PER_UNIFORM_SET:
+			return 12;
+		case LIMIT_MAX_PUSH_CONSTANT_SIZE:
+			return 128;
+		case LIMIT_MAX_UNIFORM_BUFFER_SIZE:
+			return 65536;
+		case LIMIT_MAX_VERTEX_INPUT_ATTRIBUTE_OFFSET:
+			return 2048;
+		case LIMIT_MAX_VERTEX_INPUT_ATTRIBUTES:
+			return 16;
+		case LIMIT_MAX_VERTEX_INPUT_BINDINGS:
+			return 8;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X:
+			return 65535;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Y:
+			return 65535;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Z:
+			return 65535;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X:
+			return 256;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y:
+			return 256;
+		case LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
+			return 64;
+		case LIMIT_SUBGROUP_SIZE:
+			return 0; // Subgroups not guaranteed.
+		case LIMIT_SUBGROUP_MIN_SIZE:
+			return 0;
+		case LIMIT_SUBGROUP_MAX_SIZE:
+			return 0;
+		default:
+			return 0;
 	}
 }
 
 uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 	switch (p_trait) {
-		case API_TRAIT_HONORS_PIPELINE_BARRIERS: return 0; // No barriers in WebGPU.
-		case API_TRAIT_SHADER_CHANGE_INVALIDATION: return SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS;
-		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT: return 256;
-		case API_TRAIT_TEXTURE_DATA_ROW_PITCH_STEP: return 256;
-		case API_TRAIT_SECONDARY_VIEWPORT_SCISSOR: return 0;
-		case API_TRAIT_CLEARS_WITH_COPY_ENGINE: return 0;
-		case API_TRAIT_USE_GENERAL_IN_COPY_QUEUES: return 0;
-		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS: return 0;
-		case API_TRAIT_TEXTURE_OUTPUTS_REQUIRE_CLEARS: return 0;
-		default: return RenderingDeviceDriver::api_trait_get(p_trait);
+		case API_TRAIT_HONORS_PIPELINE_BARRIERS:
+			return 0; // No barriers in WebGPU.
+		case API_TRAIT_SHADER_CHANGE_INVALIDATION:
+			return SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS;
+		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT:
+			return 256;
+		case API_TRAIT_TEXTURE_DATA_ROW_PITCH_STEP:
+			return 256;
+		case API_TRAIT_SECONDARY_VIEWPORT_SCISSOR:
+			return 0;
+		case API_TRAIT_CLEARS_WITH_COPY_ENGINE:
+			return 0;
+		case API_TRAIT_USE_GENERAL_IN_COPY_QUEUES:
+			return 0;
+		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS:
+			return 0;
+		case API_TRAIT_TEXTURE_OUTPUTS_REQUIRE_CLEARS:
+			return 0;
+		default:
+			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}
 }
 

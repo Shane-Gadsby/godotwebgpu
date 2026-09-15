@@ -751,7 +751,6 @@ void DisplayServer::accessibility_window_deactivation_completed(DisplayServerEnu
 void DisplayServer::accessibility_update_set_role(const RID &p_id, DisplayServerEnums::AccessibilityRole p_role) {
 	if (AccessibilityServer::get_singleton()) {
 		AccessibilityServer::get_singleton()->update_set_role(p_id, (AccessibilityServerEnums::AccessibilityRole)p_role);
-
 	}
 }
 

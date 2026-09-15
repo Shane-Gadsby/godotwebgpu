@@ -1,3 +1,33 @@
+/**************************************************************************/
+/*  main.cpp                                                              */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 // tint_convert_cli — Standalone SPIR-V → WGSL converter for build-time precompilation.
 //
 // Runs the same 18 preprocessing passes as the Godot WebGPU runtime driver,
@@ -9,18 +39,19 @@
 //   tint_convert_cli <file.spv>                       # single file → WGSL to stdout
 //   tint_convert_cli --batch <file1.spv> <file2.spv>  # batch → JSON to stdout
 
-#include "../spirv_preprocess.h"
-#include "../tint_wrapper.h"
+#include "drivers/webgpu/spirv_preprocess.h"
+#include "drivers/webgpu/tint_wrapper.h"
+
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <vector>
 
 // Read a binary file into a byte vector.
@@ -114,12 +145,24 @@ static std::string json_escape(const std::string &p_str) {
 	out.reserve(p_str.size() + p_str.size() / 8);
 	for (char c : p_str) {
 		switch (c) {
-			case '"': out += "\\\""; break;
-			case '\\': out += "\\\\"; break;
-			case '\n': out += "\\n"; break;
-			case '\r': out += "\\r"; break;
-			case '\t': out += "\\t"; break;
-			default: out += c; break;
+			case '"':
+				out += "\\\"";
+				break;
+			case '\\':
+				out += "\\\\";
+				break;
+			case '\n':
+				out += "\\n";
+				break;
+			case '\r':
+				out += "\\r";
+				break;
+			case '\t':
+				out += "\\t";
+				break;
+			default:
+				out += c;
+				break;
 		}
 	}
 	return out;

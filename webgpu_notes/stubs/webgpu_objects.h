@@ -103,7 +103,7 @@ struct WGShader {
 	// Push constant emulation.
 	uint32_t push_constant_size = 0;
 	uint32_t push_constant_bind_group = 3; // Default: bind group 3.
-	uint32_t push_constant_binding = 0;    // Binding 0 within that group.
+	uint32_t push_constant_binding = 0; // Binding 0 within that group.
 	BitField<RDD::ShaderStage> push_constant_stages;
 
 	// Reflection data for uniform set creation.
@@ -151,7 +151,8 @@ struct WGFramebuffer {
 // =============================================================================
 
 struct WGPipelineWrapper {
-	enum Type { RENDER, COMPUTE };
+	enum Type { RENDER,
+		COMPUTE };
 	Type type = RENDER;
 	union {
 		WGPURenderPipeline render_handle;
@@ -203,7 +204,9 @@ struct WGCommandBuffer {
 	WGPURenderPassEncoder render_encoder = nullptr;
 	WGPUComputePassEncoder compute_encoder = nullptr;
 
-	enum ActiveEncoder { NONE, RENDER, COMPUTE };
+	enum ActiveEncoder { NONE,
+		RENDER,
+		COMPUTE };
 	ActiveEncoder active_encoder = NONE;
 
 	// Push constant emulation state.

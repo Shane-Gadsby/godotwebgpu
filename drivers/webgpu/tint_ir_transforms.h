@@ -1,20 +1,34 @@
 /**************************************************************************/
 /*  tint_ir_transforms.h                                                  */
 /**************************************************************************/
-/*                       This file is part of:                            */
-/*                           GODOT ENGINE                                 */
-/*                      https://godotengine.org                           */
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
 /**************************************************************************/
-/* WebGPU-specific structural (Tint core::ir::Module) transforms, applied  */
-/* between Tint's SPIR-V reader and WGSL writer -- see tint_wrapper.cpp.   */
-/* Unlike tint_wrapper.h, this header is NOT part of the C++17/C++20       */
-/* boundary: it's only ever included from tint_wrapper.cpp, which is      */
-/* itself compiled in the Tint C++20 environment, so it can reference     */
-/* Tint types directly.                                                   */
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef TINT_IR_TRANSFORMS_H
-#define TINT_IR_TRANSFORMS_H
+#pragma once
 
 namespace tint::core::ir {
 class Module;
@@ -40,5 +54,3 @@ namespace webgpu_tint {
 void DemoteVertexStageReadWriteStorage(tint::core::ir::Module &p_module);
 
 } // namespace webgpu_tint
-
-#endif // TINT_IR_TRANSFORMS_H
