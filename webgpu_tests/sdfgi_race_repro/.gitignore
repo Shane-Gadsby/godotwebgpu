@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 native_repro.html
 native_repro.js
 native_repro.wasm
