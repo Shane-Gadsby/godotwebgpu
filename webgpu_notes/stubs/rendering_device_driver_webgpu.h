@@ -32,7 +32,7 @@
 
 #ifdef WEBGPU_ENABLED
 
-#include "webgpu_objects.h"
+#include "webgpu_notes/stubs/webgpu_objects.h"
 
 #include "servers/rendering/rendering_device_driver.h"
 

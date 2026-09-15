@@ -23,7 +23,7 @@ import tempfile
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "drivers", "webgpu"))
 
-import wgsl_precompile
+import wgsl_precompile  # noqa: E402
 
 passed = 0
 failed = 0
@@ -93,7 +93,7 @@ assert_true(h4 != 0, "4-byte input hashes correctly")
 
 # Tail cases: 1, 2, 3 byte tails.
 for tail_len in [1, 2, 3]:
-    data = b"ABCDE"[:4 + tail_len]
+    data = b"ABCDE"[: 4 + tail_len]
     h = wgsl_precompile.hash_murmur3_buffer(data, 0x7F07C65)
     assert_true(h != 0, f"{tail_len}-byte tail hashes correctly")
 
@@ -133,12 +133,11 @@ try:
     assert_true(stages["vertex"] is not None, "Vertex stage found")
     assert_true(stages["fragment"] is not None, "Fragment stage found")
     assert_true(stages["compute"] is None, "No compute stage")
-    assert_true(any("#VERSION_DEFINES" in l for l in stages["vertex"]),
-                "Vertex stage contains #VERSION_DEFINES marker")
-    assert_true(any("gl_Position" in l for l in stages["vertex"]),
-                "Vertex stage contains vertex code")
-    assert_true(any("frag_color" in l for l in stages["fragment"]),
-                "Fragment stage contains fragment code")
+    assert_true(
+        any("#VERSION_DEFINES" in line for line in stages["vertex"]), "Vertex stage contains #VERSION_DEFINES marker"
+    )
+    assert_true(any("gl_Position" in line for line in stages["vertex"]), "Vertex stage contains vertex code")
+    assert_true(any("frag_color" in line for line in stages["fragment"]), "Fragment stage contains fragment code")
 finally:
     os.unlink(test_glsl_path)
 
@@ -174,23 +173,18 @@ void main() { // inline comment
 try:
     stages = wgsl_precompile.parse_glsl_file(test_comment_path)
     vertex_source = "\n".join(stages["vertex"])
-    assert_true("// This is a comment" not in vertex_source,
-                "Full-line comment stripped")
-    assert_true("// inline comment" not in vertex_source,
-                "Inline comment stripped")
-    assert_true("gl_Position" in vertex_source,
-                "Code before inline comment preserved")
+    assert_true("// This is a comment" not in vertex_source, "Full-line comment stripped")
+    assert_true("// inline comment" not in vertex_source, "Inline comment stripped")
+    assert_true("gl_Position" in vertex_source, "Code before inline comment preserved")
 finally:
     os.unlink(test_comment_path)
 
 # Test include resolution.
-with tempfile.NamedTemporaryFile(mode="w", suffix=".glsl", delete=False,
-                                  dir=tempfile.gettempdir()) as incl:
+with tempfile.NamedTemporaryFile(mode="w", suffix=".glsl", delete=False, dir=tempfile.gettempdir()) as incl:
     incl.write("float included_func() { return 1.0; }\n")
     incl_path = incl.name
 
-with tempfile.NamedTemporaryFile(mode="w", suffix=".glsl", delete=False,
-                                  dir=tempfile.gettempdir()) as main:
+with tempfile.NamedTemporaryFile(mode="w", suffix=".glsl", delete=False, dir=tempfile.gettempdir()) as main:
     main.write(f"""\
 #[vertex]
 #include "{os.path.basename(incl_path)}"
@@ -201,8 +195,7 @@ void main() {{ gl_Position = vec4(included_func()); }}
 try:
     stages = wgsl_precompile.parse_glsl_file(main_path)
     vertex_source = "\n".join(stages["vertex"])
-    assert_true("included_func" in vertex_source,
-                "Include file content resolved")
+    assert_true("included_func" in vertex_source, "Include file content resolved")
 finally:
     os.unlink(incl_path)
     os.unlink(main_path)
@@ -228,22 +221,14 @@ variant_defines = "#define UBERSHADER\n"
 
 assembled = wgsl_precompile.assemble_glsl(stage_lines, general_defines, variant_defines)
 
-assert_true("#VERSION_DEFINES" not in assembled,
-            "#VERSION_DEFINES marker replaced")
-assert_true("#MATERIAL_UNIFORMS" not in assembled,
-            "#MATERIAL_UNIFORMS marker removed")
-assert_true("#GLOBALS" not in assembled,
-            "#GLOBALS marker removed")
-assert_true("#CODE" not in assembled,
-            "#CODE marker removed")
-assert_true("#define MAX_LIGHTS 8" in assembled,
-            "General defines inserted")
-assert_true("#define UBERSHADER" in assembled,
-            "Variant defines inserted")
-assert_true("#define RENDER_DRIVER_WEBGPU" in assembled,
-            "WebGPU driver define inserted")
-assert_true("gl_Position" in assembled,
-            "Shader code preserved")
+assert_true("#VERSION_DEFINES" not in assembled, "#VERSION_DEFINES marker replaced")
+assert_true("#MATERIAL_UNIFORMS" not in assembled, "#MATERIAL_UNIFORMS marker removed")
+assert_true("#GLOBALS" not in assembled, "#GLOBALS marker removed")
+assert_true("#CODE" not in assembled, "#CODE marker removed")
+assert_true("#define MAX_LIGHTS 8" in assembled, "General defines inserted")
+assert_true("#define UBERSHADER" in assembled, "Variant defines inserted")
+assert_true("#define RENDER_DRIVER_WEBGPU" in assembled, "WebGPU driver define inserted")
+assert_true("gl_Position" in assembled, "Shader code preserved")
 
 
 # =========================================================================
@@ -256,12 +241,10 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".gen.h", delete=False) as f:
 
 # Test empty entries.
 wgsl_precompile.generate_precompiled_header([], test_header_path)
-with open(test_header_path, "r") as f:
-    content = f.read()
-assert_true("_wgsl_precompiled_count = 0" in content,
-            "Empty table has count 0")
-assert_true("WgslPrecompiledEntry" in content,
-            "Empty table has struct definition")
+with open(test_header_path, "r") as rf:
+    content = rf.read()
+assert_true("_wgsl_precompiled_count = 0" in content, "Empty table has count 0")
+assert_true("WgslPrecompiledEntry" in content, "Empty table has struct definition")
 
 # Test with entries.
 entries = [
@@ -270,17 +253,13 @@ entries = [
     (0x0000000000000001, "fn bar() {}"),
 ]
 wgsl_precompile.generate_precompiled_header(entries, test_header_path)
-with open(test_header_path, "r") as f:
-    content = f.read()
+with open(test_header_path, "r") as rf:
+    content = rf.read()
 
-assert_true("_wgsl_precompiled_count = 3" in content,
-            "3 entries counted")
-assert_true("#pragma once" in content,
-            "Include guard present")
-assert_true("#include <cstdint>" in content,
-            "cstdint included")
-assert_true("fn foo() {}" in content,
-            "WGSL content present")
+assert_true("_wgsl_precompiled_count = 3" in content, "3 entries counted")
+assert_true("#pragma once" in content, "Include guard present")
+assert_true("#include <cstdint>" in content, "cstdint included")
+assert_true("fn foo() {}" in content, "WGSL content present")
 
 # Verify entries are sorted by hash (critical for binary search).
 hash_positions = []
@@ -293,12 +272,9 @@ for line in content.split("\n"):
         hash_positions.append(hash_val)
 
 assert_eq(len(hash_positions), 3, "Found 3 hash entries in output")
-assert_eq(hash_positions, sorted(hash_positions),
-          "Hashes are sorted (ascending)")
-assert_eq(hash_positions[0], 0x0000000000000001,
-          "Smallest hash first")
-assert_eq(hash_positions[-1], 0xDEADBEEFCAFEBABE,
-          "Largest hash last")
+assert_eq(hash_positions, sorted(hash_positions), "Hashes are sorted (ascending)")
+assert_eq(hash_positions[0], 0x0000000000000001, "Smallest hash first")
+assert_eq(hash_positions[-1], 0xDEADBEEFCAFEBABE, "Largest hash last")
 
 os.unlink(test_header_path)
 
@@ -315,13 +291,11 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".gen.h", delete=False) as f:
 tricky_wgsl = 'fn test() { /* )wgsl" sneaky */ }'
 entries = [(0x0000000000000001, tricky_wgsl)]
 wgsl_precompile.generate_precompiled_header(entries, test_header_path)
-with open(test_header_path, "r") as f:
-    content = f.read()
+with open(test_header_path, "r") as rf:
+    content = rf.read()
 
-assert_true(tricky_wgsl in content,
-            "Tricky WGSL content preserved in output")
-assert_true("_wgsl_precompiled_count = 1" in content,
-            "Tricky WGSL entry counted")
+assert_true(tricky_wgsl in content, "Tricky WGSL content preserved in output")
+assert_true("_wgsl_precompiled_count = 1" in content, "Tricky WGSL entry counted")
 
 os.unlink(test_header_path)
 
@@ -331,13 +305,11 @@ os.unlink(test_header_path)
 # =========================================================================
 print("\n=== Test 6: Shader registry validation ===")
 
-assert_true(len(wgsl_precompile.SHADER_REGISTRY) > 0,
-            "Shader registry is non-empty")
+assert_true(len(wgsl_precompile.SHADER_REGISTRY) > 0, "Shader registry is non-empty")
 
 # Check that all registry paths are relative to repo root.
 for glsl_rel, general_defines, variants in wgsl_precompile.SHADER_REGISTRY:
-    assert_true(not os.path.isabs(glsl_rel),
-                f"Path is relative: {glsl_rel}")
+    assert_true(not os.path.isabs(glsl_rel), f"Path is relative: {glsl_rel}")
 
 # Check that all registry entries exist on disk.
 missing_count = 0
@@ -357,8 +329,10 @@ if missing_count > 0:
 for glsl_rel, general_defines, variants in wgsl_precompile.SHADER_REGISTRY:
     for variant_name, variant_defines, stage_types in variants:
         for st in stage_types:
-            assert_true(st in ("vert", "frag", "comp"),
-                        f"Valid stage type '{st}' in {os.path.basename(glsl_rel)}:{variant_name}")
+            assert_true(
+                st in ("vert", "frag", "comp"),
+                f"Valid stage type '{st}' in {os.path.basename(glsl_rel)}:{variant_name}",
+            )
         break  # Only check first variant per shader to keep output manageable.
     break  # Only check first shader.
 
@@ -372,15 +346,12 @@ print("\n=== Test 7: Existing generated header validation ===")
 
 gen_h_path = os.path.join(REPO_ROOT, "drivers", "webgpu", "wgsl_precompiled.gen.h")
 if os.path.exists(gen_h_path):
-    with open(gen_h_path, "r") as f:
-        content = f.read()
+    with open(gen_h_path, "r") as rf:
+        content = rf.read()
 
-    assert_true("// Auto-generated by" in content,
-                "Header has auto-generated comment")
-    assert_true("WgslPrecompiledEntry" in content,
-                "Header has struct definition")
-    assert_true("_wgsl_precompiled_count" in content,
-                "Header has count variable")
+    assert_true("// Auto-generated by" in content, "Header has auto-generated comment")
+    assert_true("WgslPrecompiledEntry" in content, "Header has struct definition")
+    assert_true("_wgsl_precompiled_count" in content, "Header has count variable")
 
     # Extract count.
     for line in content.split("\n"):
@@ -400,7 +371,7 @@ if os.path.exists(gen_h_path):
             hashes.append(hash_val)
 
     if hashes:
-        is_sorted = all(hashes[i] <= hashes[i+1] for i in range(len(hashes)-1))
+        is_sorted = all(hashes[i] <= hashes[i + 1] for i in range(len(hashes) - 1))
         assert_true(is_sorted, f"All {len(hashes)} hashes in gen.h are sorted")
         # Check for duplicates.
         unique = len(set(hashes))

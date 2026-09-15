@@ -705,7 +705,9 @@ env_tint.add_source_files(tint_obj, tint_sources)
 # Tint's headers (which use std::span, C++20 concepts, etc.) never leak into
 # the main Godot driver build (C++17).
 env_tint_wrapper = env_tint.Clone()
-env_tint_wrapper.add_source_files(tint_obj, ["#drivers/webgpu/tint_wrapper.cpp", "#drivers/webgpu/tint_ir_transforms.cpp"])
+env_tint_wrapper.add_source_files(
+    tint_obj, ["#drivers/webgpu/tint_wrapper.cpp", "#drivers/webgpu/tint_ir_transforms.cpp"]
+)
 
 # =============================================================================
 # WebGPU driver sources

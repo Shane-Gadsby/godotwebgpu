@@ -50,12 +50,13 @@
 
 #import "metal_objects.h"
 
-#import "metal_utils.h"
-#import "pixel_formats.h"
-#import "rendering_device_driver_metal.h"
-#import "rendering_shader_container_metal.h"
+#import "drivers/metal/metal_utils.h"
+#import "drivers/metal/pixel_formats.h"
+#import "drivers/metal/rendering_device_driver_metal.h"
+#import "drivers/metal/rendering_shader_container_metal.h"
 
 #import <os/signpost.h>
+
 #import <algorithm>
 
 // We have to undefine these macros because they are defined in NSObjCRuntime.h.

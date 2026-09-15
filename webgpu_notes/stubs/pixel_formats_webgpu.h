@@ -1,12 +1,12 @@
 /**************************************************************************/
 /*  pixel_formats_webgpu.h                                                */
 /**************************************************************************/
-/*                       This file is part of:                            */
-/*                           GODOT ENGINE                                 */
-/*                      https://godotengine.org                           */
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
 /**************************************************************************/
 /* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
 /*                                                                        */
 /* Permission is hereby granted, free of charge, to any person obtaining  */
 /* a copy of this software and associated documentation files (the        */
@@ -28,10 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef PIXEL_FORMATS_WEBGPU_H
-#define PIXEL_FORMATS_WEBGPU_H
+#pragma once
 
 #include "servers/rendering/rendering_device_commons.h"
+
 #include <webgpu/webgpu.h>
 
 // ============================================================================
@@ -44,7 +44,7 @@
 // Key unsupported categories:
 //   - All 3-component formats (RGB8, RGB16, RGB32) → use RGBA equivalents
 //   - All packed small formats (R4G4, R5G6B5, etc.)
-//   - All scaled formats (USCALED, SSCALED)
+//   - All scaled formats (UNSCALED, SSCALED)
 //   - All 64-bit formats
 //   - All YCbCr / chroma subsampled formats
 //   - All ASTC HDR (SFLOAT) formats
@@ -114,7 +114,7 @@ static constexpr WGPUTextureFormat RD_TO_WGPU_FORMAT[] = {
 	// 22–28: DATA_FORMAT_R8G8B8_*
 	WGPUTextureFormat_Undefined, // 22: UNORM
 	WGPUTextureFormat_Undefined, // 23: SNORM
-	WGPUTextureFormat_Undefined, // 24: USCALED
+	WGPUTextureFormat_Undefined, // 24: UNSCALED
 	WGPUTextureFormat_Undefined, // 25: SSCALED
 	WGPUTextureFormat_Undefined, // 26: UINT
 	WGPUTextureFormat_Undefined, // 27: SINT
@@ -124,7 +124,7 @@ static constexpr WGPUTextureFormat RD_TO_WGPU_FORMAT[] = {
 	// 29–35: DATA_FORMAT_B8G8R8_*
 	WGPUTextureFormat_Undefined, // 29: UNORM
 	WGPUTextureFormat_Undefined, // 30: SNORM
-	WGPUTextureFormat_Undefined, // 31: USCALED
+	WGPUTextureFormat_Undefined, // 31: UNSCALED
 	WGPUTextureFormat_Undefined, // 32: SSCALED
 	WGPUTextureFormat_Undefined, // 33: UINT
 	WGPUTextureFormat_Undefined, // 34: SINT
@@ -182,7 +182,7 @@ static constexpr WGPUTextureFormat RD_TO_WGPU_FORMAT[] = {
 	// 57–62: DATA_FORMAT_A2R10G10B10_*
 	WGPUTextureFormat_Undefined, // 57: UNORM
 	WGPUTextureFormat_Undefined, // 58: SNORM
-	WGPUTextureFormat_Undefined, // 59: USCALED
+	WGPUTextureFormat_Undefined, // 59: UNSCALED
 	WGPUTextureFormat_Undefined, // 60: SSCALED
 	WGPUTextureFormat_Undefined, // 61: UINT
 	WGPUTextureFormat_Undefined, // 62: SINT
@@ -237,7 +237,7 @@ static constexpr WGPUTextureFormat RD_TO_WGPU_FORMAT[] = {
 	// 83–89: DATA_FORMAT_R16G16B16_*
 	WGPUTextureFormat_Undefined, // 83: UNORM
 	WGPUTextureFormat_Undefined, // 84: SNORM
-	WGPUTextureFormat_Undefined, // 85: USCALED
+	WGPUTextureFormat_Undefined, // 85: UNSCALED
 	WGPUTextureFormat_Undefined, // 86: SSCALED
 	WGPUTextureFormat_Undefined, // 87: UINT
 	WGPUTextureFormat_Undefined, // 88: SINT
@@ -533,50 +533,86 @@ static inline WGPUVertexFormat data_format_to_wgpu_vertex(RenderingDeviceCommons
 	using DF = RenderingDeviceCommons::DataFormat;
 	switch (p_format) {
 		// 8-bit
-		case DF::DATA_FORMAT_R8_UINT: return WGPUVertexFormat_Uint8;
-		case DF::DATA_FORMAT_R8_SINT: return WGPUVertexFormat_Sint8;
-		case DF::DATA_FORMAT_R8G8_UINT: return WGPUVertexFormat_Uint8x2;
-		case DF::DATA_FORMAT_R8G8_SINT: return WGPUVertexFormat_Sint8x2;
-		case DF::DATA_FORMAT_R8G8B8A8_UINT: return WGPUVertexFormat_Uint8x4;
-		case DF::DATA_FORMAT_R8G8B8A8_SINT: return WGPUVertexFormat_Sint8x4;
-		case DF::DATA_FORMAT_R8G8_UNORM: return WGPUVertexFormat_Unorm8x2;
-		case DF::DATA_FORMAT_R8G8_SNORM: return WGPUVertexFormat_Snorm8x2;
-		case DF::DATA_FORMAT_R8G8B8A8_UNORM: return WGPUVertexFormat_Unorm8x4;
-		case DF::DATA_FORMAT_R8G8B8A8_SNORM: return WGPUVertexFormat_Snorm8x4;
+		case DF::DATA_FORMAT_R8_UINT:
+			return WGPUVertexFormat_Uint8;
+		case DF::DATA_FORMAT_R8_SINT:
+			return WGPUVertexFormat_Sint8;
+		case DF::DATA_FORMAT_R8G8_UINT:
+			return WGPUVertexFormat_Uint8x2;
+		case DF::DATA_FORMAT_R8G8_SINT:
+			return WGPUVertexFormat_Sint8x2;
+		case DF::DATA_FORMAT_R8G8B8A8_UINT:
+			return WGPUVertexFormat_Uint8x4;
+		case DF::DATA_FORMAT_R8G8B8A8_SINT:
+			return WGPUVertexFormat_Sint8x4;
+		case DF::DATA_FORMAT_R8G8_UNORM:
+			return WGPUVertexFormat_Unorm8x2;
+		case DF::DATA_FORMAT_R8G8_SNORM:
+			return WGPUVertexFormat_Snorm8x2;
+		case DF::DATA_FORMAT_R8G8B8A8_UNORM:
+			return WGPUVertexFormat_Unorm8x4;
+		case DF::DATA_FORMAT_R8G8B8A8_SNORM:
+			return WGPUVertexFormat_Snorm8x4;
 
 		// 16-bit
-		case DF::DATA_FORMAT_R16_UINT: return WGPUVertexFormat_Uint16;
-		case DF::DATA_FORMAT_R16_SINT: return WGPUVertexFormat_Sint16;
-		case DF::DATA_FORMAT_R16G16_UINT: return WGPUVertexFormat_Uint16x2;
-		case DF::DATA_FORMAT_R16G16_SINT: return WGPUVertexFormat_Sint16x2;
-		case DF::DATA_FORMAT_R16G16B16A16_UINT: return WGPUVertexFormat_Uint16x4;
-		case DF::DATA_FORMAT_R16G16B16A16_SINT: return WGPUVertexFormat_Sint16x4;
-		case DF::DATA_FORMAT_R16G16_UNORM: return WGPUVertexFormat_Unorm16x2;
-		case DF::DATA_FORMAT_R16G16_SNORM: return WGPUVertexFormat_Snorm16x2;
-		case DF::DATA_FORMAT_R16G16B16A16_UNORM: return WGPUVertexFormat_Unorm16x4;
-		case DF::DATA_FORMAT_R16G16B16A16_SNORM: return WGPUVertexFormat_Snorm16x4;
-		case DF::DATA_FORMAT_R16_SFLOAT: return WGPUVertexFormat_Float16;
-		case DF::DATA_FORMAT_R16G16_SFLOAT: return WGPUVertexFormat_Float16x2;
-		case DF::DATA_FORMAT_R16G16B16A16_SFLOAT: return WGPUVertexFormat_Float16x4;
+		case DF::DATA_FORMAT_R16_UINT:
+			return WGPUVertexFormat_Uint16;
+		case DF::DATA_FORMAT_R16_SINT:
+			return WGPUVertexFormat_Sint16;
+		case DF::DATA_FORMAT_R16G16_UINT:
+			return WGPUVertexFormat_Uint16x2;
+		case DF::DATA_FORMAT_R16G16_SINT:
+			return WGPUVertexFormat_Sint16x2;
+		case DF::DATA_FORMAT_R16G16B16A16_UINT:
+			return WGPUVertexFormat_Uint16x4;
+		case DF::DATA_FORMAT_R16G16B16A16_SINT:
+			return WGPUVertexFormat_Sint16x4;
+		case DF::DATA_FORMAT_R16G16_UNORM:
+			return WGPUVertexFormat_Unorm16x2;
+		case DF::DATA_FORMAT_R16G16_SNORM:
+			return WGPUVertexFormat_Snorm16x2;
+		case DF::DATA_FORMAT_R16G16B16A16_UNORM:
+			return WGPUVertexFormat_Unorm16x4;
+		case DF::DATA_FORMAT_R16G16B16A16_SNORM:
+			return WGPUVertexFormat_Snorm16x4;
+		case DF::DATA_FORMAT_R16_SFLOAT:
+			return WGPUVertexFormat_Float16;
+		case DF::DATA_FORMAT_R16G16_SFLOAT:
+			return WGPUVertexFormat_Float16x2;
+		case DF::DATA_FORMAT_R16G16B16A16_SFLOAT:
+			return WGPUVertexFormat_Float16x4;
 
 		// 32-bit float
-		case DF::DATA_FORMAT_R32_SFLOAT: return WGPUVertexFormat_Float32;
-		case DF::DATA_FORMAT_R32G32_SFLOAT: return WGPUVertexFormat_Float32x2;
-		case DF::DATA_FORMAT_R32G32B32_SFLOAT: return WGPUVertexFormat_Float32x3; // 3-comp OK for vertex!
-		case DF::DATA_FORMAT_R32G32B32A32_SFLOAT: return WGPUVertexFormat_Float32x4;
+		case DF::DATA_FORMAT_R32_SFLOAT:
+			return WGPUVertexFormat_Float32;
+		case DF::DATA_FORMAT_R32G32_SFLOAT:
+			return WGPUVertexFormat_Float32x2;
+		case DF::DATA_FORMAT_R32G32B32_SFLOAT:
+			return WGPUVertexFormat_Float32x3; // 3-comp OK for vertex!
+		case DF::DATA_FORMAT_R32G32B32A32_SFLOAT:
+			return WGPUVertexFormat_Float32x4;
 
 		// 32-bit integer
-		case DF::DATA_FORMAT_R32_UINT: return WGPUVertexFormat_Uint32;
-		case DF::DATA_FORMAT_R32G32_UINT: return WGPUVertexFormat_Uint32x2;
-		case DF::DATA_FORMAT_R32G32B32_UINT: return WGPUVertexFormat_Uint32x3; // 3-comp OK for vertex!
-		case DF::DATA_FORMAT_R32G32B32A32_UINT: return WGPUVertexFormat_Uint32x4;
-		case DF::DATA_FORMAT_R32_SINT: return WGPUVertexFormat_Sint32;
-		case DF::DATA_FORMAT_R32G32_SINT: return WGPUVertexFormat_Sint32x2;
-		case DF::DATA_FORMAT_R32G32B32_SINT: return WGPUVertexFormat_Sint32x3; // 3-comp OK for vertex!
-		case DF::DATA_FORMAT_R32G32B32A32_SINT: return WGPUVertexFormat_Sint32x4;
+		case DF::DATA_FORMAT_R32_UINT:
+			return WGPUVertexFormat_Uint32;
+		case DF::DATA_FORMAT_R32G32_UINT:
+			return WGPUVertexFormat_Uint32x2;
+		case DF::DATA_FORMAT_R32G32B32_UINT:
+			return WGPUVertexFormat_Uint32x3; // 3-comp OK for vertex!
+		case DF::DATA_FORMAT_R32G32B32A32_UINT:
+			return WGPUVertexFormat_Uint32x4;
+		case DF::DATA_FORMAT_R32_SINT:
+			return WGPUVertexFormat_Sint32;
+		case DF::DATA_FORMAT_R32G32_SINT:
+			return WGPUVertexFormat_Sint32x2;
+		case DF::DATA_FORMAT_R32G32B32_SINT:
+			return WGPUVertexFormat_Sint32x3; // 3-comp OK for vertex!
+		case DF::DATA_FORMAT_R32G32B32A32_SINT:
+			return WGPUVertexFormat_Sint32x4;
 
 		// 10-10-10-2 packed (A2B10G10R10)
-		case DF::DATA_FORMAT_A2B10G10R10_UNORM_PACK32: return WGPUVertexFormat_Unorm10_10_10_2;
+		case DF::DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
+			return WGPUVertexFormat_Unorm10_10_10_2;
 
 		default:
 			return WGPUVertexFormat_Undefined;
@@ -704,5 +740,3 @@ static inline uint32_t wgpu_format_pixel_size(WGPUTextureFormat p_format) {
 			return 0; // Compressed or unknown — use block size calculations instead
 	}
 }
-
-#endif // PIXEL_FORMATS_WEBGPU_H
