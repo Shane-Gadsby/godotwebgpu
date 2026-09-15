@@ -173,7 +173,8 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.6.
 │                                                                 │
 │  ┌─────────────────┐  (parallel, no build needed)               │
 │  │ scene-smoketest │  18 scenes × Chrome + Firefox              │
-│  │                 │  (pre-exported in repo)                    │
+│  │                 │  (needs pre-exported scenes — see below;   │
+│  │                 │  currently a no-op in CI, see * below)     │
 │  └─────────────────┘                                            │
 │                                                                 │
 │  ┌─────────────────┐                                            │
@@ -199,14 +200,16 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.6.
 
 | Job | Depends on | Timeout | Blocks merge? |
 |-----|-----------|---------|---------------|
-| `shader-corpus` | — | 10 min | Yes |
+| `shader-corpus` | — | 25 min | Yes |
 | `build-webgpu` | — | 90 min | Yes |
 | `validate-spirv` | build-webgpu | 10 min | Yes |
 | `smoke-test` | build-webgpu | 15 min | Yes |
-| `scene-smoketest` | — | 20 min | Yes |
+| `scene-smoketest` | — | 20 min | Yes* |
 | `resource-lifecycle` | — | 15 min | Yes |
 | `screenshot-comparison` | — | 20 min | No (warning only) |
 | `test-summary` | all above | — | — |
+
+\* **Known gap**: `scene-smoketest` runs `run_scenes.mjs` with the default `--skip-export`, but no exported scenes are checked into the repo and nothing exports them first in CI. Every scene comes back `SKIP` and the job passes having tested nothing — it isn't a real gate today despite the table above. Making it real requires: exporting the 18 scenes from a Linux editor + WebGPU template in CI (`run_scenes.mjs --export`), and fixing each scene project's `export_presets.cfg` first — they currently hardcode another contributor's local absolute template path (`/Users/dwalter/...`) and have `variant/extensions_support=false`, which silently resolves to the *non*-WebGPU template (the exact trap documented in `webgpu_notes/TASKS.md`'s Round 23 notes). `shader-corpus`, `validate-spirv`, `smoke-test`, `resource-lifecycle`, and `screenshot-comparison` do not have this problem — they build/use their dependencies for real.
 
 ### Trigger Paths
 

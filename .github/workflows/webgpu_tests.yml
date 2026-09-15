@@ -29,7 +29,7 @@ jobs:
   shader-corpus:
     runs-on: ubuntu-24.04
     name: Shader Corpus (SPIR-V → WGSL)
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +45,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y glslang-tools
+
+      # tint_convert_cli is what run_tests.mjs actually uses to validate SPIR-V → WGSL;
+      # without it the "validation" step silently no-ops (see run_tests.mjs's
+      # findTintCli() fallback). Building it directly via build.sh is much faster
+      # than a full engine build (see CLAUDE.md).
+      - name: Cache tint_convert_cli build
+        uses: actions/cache@v4
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
+
+      - name: Build tint_convert_cli
+        run: ./drivers/webgpu/tint_cli/build.sh
 
       - name: Compile GLSL fixtures to SPIR-V
         working-directory: webgpu_tests/shader_corpus
@@ -126,6 +139,13 @@ jobs:
           cache-name: web-webgpu-test
         continue-on-error: true
 
+      - name: Upload tint_convert_cli
+        uses: actions/upload-artifact@v4
+        with:
+          name: tint-convert-cli
+          path: bin/tint_convert_cli
+          retention-days: 7
+
       - name: Build Linux editor (for export + SPIR-V dump)
         run: |
           scons platform=linuxbsd target=editor dev_mode=yes tests=no debug_symbols=no -j$(nproc)
@@ -190,8 +210,15 @@ jobs:
           name: spirv-dump
           path: /tmp/spirv_dump/
 
+      - name: Download tint_convert_cli
+        uses: actions/download-artifact@v4
+        with:
+          name: tint-convert-cli
+          path: bin/
+
       - name: Validate all SPIR-V through Tint
         run: |
+          chmod +x bin/tint_convert_cli
           echo "Validating engine SPIR-V files through Tint..."
           node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/
 
