@@ -925,7 +925,11 @@ def build_wgsl_precompiled(target, source, env):
     result = subprocess.run(
         ["bash", build_script],
         cwd=repo_root,
-        timeout=600,
+        # This compiles SPIRV-Tools + Tint from scratch (~570 objects) with no
+        # incremental cache of its own (unlike the main SCons build). 600s was
+        # enough on an idle machine but not on a CI runner where this competes
+        # for CPU with the rest of the parallel `scons -jN` engine build.
+        timeout=1800,
     )
     if result.returncode != 0:
         print("[WGSL Precompile] ERROR: tint_convert_cli build failed", file=sys.stderr)
