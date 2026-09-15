@@ -176,6 +176,18 @@ if (-not $SkipInstall) {
     Write-Step "Installing SCons $SconsVersion..."
     Invoke-Native python -m pip install --upgrade pip
     Invoke-Native python -m pip install "scons==$SconsVersion"
+    if (-not (Test-Cmd "scons")) {
+        # pip falls back to a --user install when normal site-packages isn't
+        # writeable, which drops scons.exe in the per-user Scripts dir --
+        # that dir isn't guaranteed to be on PATH (pip warns about this).
+        # `site --user-base` omits the version subdir (e.g. Python314) that
+        # pip actually installs scripts into, so ask sysconfig directly.
+        $userScriptsDir = python -c "import sysconfig, os; print(sysconfig.get_path('scripts', f'{os.name}_user'))"
+        if (Test-Path $userScriptsDir) {
+            Write-Warn "scons not on PATH after pip install -- adding $userScriptsDir for this session."
+            $env:Path = "$userScriptsDir;$env:Path"
+        }
+    }
     Invoke-Native scons --version
 
     # --- Step 3: MSVC Build Tools (C++ workload) --------------------------
@@ -316,7 +328,7 @@ function Copy-BuiltExe {
 Write-Step "Building editor (platform=windows, dev_build=yes)..."
 Invoke-Native scons platform=windows target=editor dev_build=yes `
     d3d12=$d3d12Enabled accesskit=$accesskitEnabled angle=$angleEnabled -j $Jobs
-Copy-BuiltExe -Pattern "godot.windows.editor.x86_64*.exe" -Dest (Join-Path $OutDir "editor_windows")
+Copy-BuiltExe -Pattern "godot.windows.editor.dev.x86_64*.exe" -Dest (Join-Path $OutDir "editor_windows")
 Write-Ok "Editor -> $OutDir\editor_windows"
 
 Write-Step "Building export template (debug)..."
