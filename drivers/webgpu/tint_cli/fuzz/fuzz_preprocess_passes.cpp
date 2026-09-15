@@ -33,7 +33,7 @@
 // Exercises the passes without Tint parsing, catching crashes in the
 // raw SPIR-V manipulation code (out-of-bounds, integer overflow, etc.).
 
-#include "drivers/webgpu/spirv_preprocess.h"
+#include "../../spirv_preprocess.h"
 
 #include <cstddef>
 #include <cstdint>

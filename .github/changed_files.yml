@@ -27,3 +27,6 @@ clangd:
   - "!modules/openxr/extensions/platform/openxr_{android,metal}_extension.{h,cpp}"
   - "!platform/{android,ios,macos,visionos,web,windows}/**"
   - "platform/{android,ios,macos,visionos,web,windows}/{api,export}/*.{h,hpp,hxx,hh,c,cpp,cxx,cc}"
+  # Standalone repro/diagnostic tooling (e.g. sdfgi_race_repro's real-emdawnwebgpu-C-API
+  # repro) built by its own ad-hoc scripts, never part of any SCons compile_commands.json.
+  - "!webgpu_tests/**"
