@@ -39,8 +39,8 @@
 //   tint_convert_cli <file.spv>                       # single file → WGSL to stdout
 //   tint_convert_cli --batch <file1.spv> <file2.spv>  # batch → JSON to stdout
 
-#include "drivers/webgpu/spirv_preprocess.h"
-#include "drivers/webgpu/tint_wrapper.h"
+#include "../spirv_preprocess.h"
+#include "../tint_wrapper.h"
 
 #include <fcntl.h>
 #include <sys/wait.h>

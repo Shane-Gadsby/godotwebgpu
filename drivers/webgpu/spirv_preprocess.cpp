@@ -112,7 +112,6 @@ static constexpr uint32_t DECO_DESCRIPTOR_SET = 34;
 
 // SPIR-V BuiltIn values.
 static constexpr uint32_t BUILTIN_POSITION = 0;
-static constexpr uint32_t BUILTIN_POINT_SIZE = 1;
 
 // SPIR-V execution model values.
 static constexpr uint32_t EXEC_MODEL_VERTEX = 0;

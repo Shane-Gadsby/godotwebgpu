@@ -39,8 +39,8 @@
 // Crashes in the preprocessing passes (our code) are NOT fork-isolated
 // and will correctly terminate the fuzzer as bugs.
 
-#include "drivers/webgpu/spirv_preprocess.h"
-#include "drivers/webgpu/tint_wrapper.h"
+#include "../../spirv_preprocess.h"
+#include "../../tint_wrapper.h"
 
 #include <fcntl.h>
 #include <sys/wait.h>

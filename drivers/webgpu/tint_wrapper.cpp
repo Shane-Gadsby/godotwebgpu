@@ -35,8 +35,7 @@
 #include "src/tint/lang/spirv/reader/reader.h"
 #include "src/tint/lang/wgsl/writer/common/options.h"
 #include "src/tint/lang/wgsl/writer/writer.h"
-
-#include "drivers/webgpu/tint_ir_transforms.h"
+#include "tint_ir_transforms.h"
 
 #include <cstdlib>
 #include <cstring>
