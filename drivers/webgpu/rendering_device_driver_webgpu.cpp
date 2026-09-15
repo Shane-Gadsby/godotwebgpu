@@ -10893,6 +10893,10 @@ void RenderingDeviceDriverWebGPU::set_object_name(ObjectType p_type, ID p_driver
 				wgpuComputePipelineSetLabel(pw->compute_handle, label);
 			}
 		} break;
+		case OBJECT_TYPE_ACCELERATION_STRUCTURE:
+		case OBJECT_TYPE_RAYTRACING_PIPELINE: {
+			// Not supported by WebGPU.
+		} break;
 	}
 }
 

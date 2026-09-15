@@ -33,6 +33,26 @@ runs:
       shell: sh
       run: ${{ inputs.bin }} --headless --dump-gdextension-interface --dump-extension-api
 
+    - name: Work around 'ar' argument list length limit on Linux
+      shell: python
+      run: |
+        # godot-cpp's Linux tool doesn't wrap ARCOM in TEMPFILE like its web/Windows
+        # tools do, so archiving libgodot-cpp.a (one .o per bound class) can exceed
+        # the OS argument list limit. Apply the same TEMPFILE(ARCOM_POSIX) workaround
+        # web.py already uses, right before the shared compiler flags are applied.
+        path = "godot-cpp/tools/linux.py"
+        with open(path) as f:
+            content = f.read()
+        marker = "    common_compiler_flags.generate(env)"
+        assert marker in content, "godot-cpp/tools/linux.py layout changed; update this workaround"
+        patch = (
+            '    env["ARCOM_POSIX"] = env["ARCOM"].replace("$TARGET", "$TARGET.posix").replace("$SOURCES", "$SOURCES.posix")\n'
+            '    env["ARCOM"] = "${TEMPFILE(ARCOM_POSIX)}"\n\n'
+        )
+        content = content.replace(marker, patch + marker, 1)
+        with open(path, "w") as f:
+            f.write(content)
+
     - name: SCons Build
       shell: sh
       env:
