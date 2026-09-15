@@ -31,6 +31,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Editor (target=editor)
+            cache-name: linux-editor
+            target: editor
+            scons-flags: compiledb=yes
+            bin: ./bin/godot.linuxbsd.editor.x86_64
+            artifact: true
+
+          - name: Template (target=template_release)
+            cache-name: linux-template
+            target: template_release
+            bin: ./bin/godot.linuxbsd.template_release.x86_64
+            artifact: true
+
           - name: Editor w/ Mono (target=editor)
             cache-name: linux-editor-mono
             target: editor

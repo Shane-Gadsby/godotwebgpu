@@ -37,12 +37,14 @@ jobs:
             target: template_release
             scons-flags: threads=no dlink_enabled=yes webgpu=yes opengl3=no
             artifact: true
+            webgpu: true
 
           - name: Template WebGPU debug (target=template_debug, webgpu=yes)
             cache-name: web-webgpu-template-debug
             target: template_debug
             scons-flags: threads=no dlink_enabled=yes webgpu=yes opengl3=no
             artifact: false
+            webgpu: true
 
     steps:
       - name: Checkout
@@ -68,6 +70,15 @@ jobs:
 
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
+
+      # webgpu=yes builds run wgsl_precompile.py at build time (compiling every
+      # engine shader variant GLSL -> SPIR-V -> WGSL ahead of time), which shells
+      # out to glslangValidator; it isn't preinstalled on the runner image.
+      - name: Install glslangValidator
+        if: matrix.webgpu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
 
       - name: Compilation
         uses: ./.github/actions/godot-build
