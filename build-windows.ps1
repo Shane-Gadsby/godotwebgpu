@@ -159,7 +159,7 @@ if (-not $SkipInstall) {
                 }
             }
         } catch {
-            # `python --version` failed or gave unparseable output -- fall
+            # `python --version` failed or gave unparsable output -- fall
             # through with $needPython still true and reinstall.
             Write-Verbose "Could not parse python version: $_"
         }
@@ -178,7 +178,7 @@ if (-not $SkipInstall) {
     Invoke-Native python -m pip install "scons==$SconsVersion"
     if (-not (Test-Cmd "scons")) {
         # pip falls back to a --user install when normal site-packages isn't
-        # writeable, which drops scons.exe in the per-user Scripts dir --
+        # writable, which drops scons.exe in the per-user Scripts dir --
         # that dir isn't guaranteed to be on PATH (pip warns about this).
         # `site --user-base` omits the version subdir (e.g. Python314) that
         # pip actually installs scripts into, so ask sysconfig directly.
