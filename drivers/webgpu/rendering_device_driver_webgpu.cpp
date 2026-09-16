@@ -6431,7 +6431,14 @@ bool RenderingDeviceDriverWebGPU::_create_rw_shadow_bind_entry(WGUniformSet *p_u
 	// Register in the driver-level map so future texture_update calls on the
 	// source also copy to this shadow.
 	rw_shadow_copy_map[p_orig_tex->gpu_handle()].push_back(shadow_tex);
-	p_us->rw_shadow_registrations.push_back({ p_orig_tex->gpu_handle(), shadow_tex, p_orig_tex->width, p_orig_tex->height, p_orig_tex->depth });
+	// Same dimension-aware depthOrArrayLayers selection as shadow_desc.size
+	// above -- p_orig_tex->depth is always 1 for a 2D(-array) texture, so a
+	// multi-layer source (e.g. sdfgi_integrate.glsl's 30-layer
+	// lightprobe_history_texture) would otherwise only ever have layer 0
+	// refreshed by command_bind_compute_uniform_sets()'s per-bind copy below,
+	// leaving every other layer's shadow permanently stale. Task 9.5 Round 46.
+	uint32_t shadow_copy_depth = (p_orig_tex->dimension == WGPUTextureDimension_3D) ? p_orig_tex->depth : p_orig_tex->layers;
+	p_us->rw_shadow_registrations.push_back({ p_orig_tex->gpu_handle(), shadow_tex, p_orig_tex->width, p_orig_tex->height, shadow_copy_depth });
 	return true;
 }
 
@@ -7911,7 +7918,11 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 			shd_dst.mipLevel = 0;
 			shd_dst.origin = { 0, 0, 0 };
 			shd_dst.aspect = WGPUTextureAspect_All;
-			WGPUExtent3D shd_extent = { dst->width, dst->height, dst->depth };
+			// dst->depth is always 1 for a 2D(-array) texture -- use layers
+			// there instead, same dimension-aware selection as
+			// _create_rw_shadow_bind_entry(). Task 9.5 Round 46.
+			uint32_t shd_copy_depth = (dst->dimension == WGPUTextureDimension_3D) ? dst->depth : dst->layers;
+			WGPUExtent3D shd_extent = { dst->width, dst->height, shd_copy_depth };
 			wgpuCommandEncoderCopyTextureToTexture(cmd->encoder, &shd_src, &shd_dst, &shd_extent);
 		}
 	}
