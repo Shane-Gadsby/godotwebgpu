@@ -2,11 +2,22 @@
 # build-linux.sh — Native Linux build script for Godot WebGPU.
 #
 # Installs prerequisites (apt build dependencies, Python, SCons, AccessKit,
-# Emscripten) then builds the editor, the native Linux export templates, and
-# the web/WebGPU export templates -- the full set needed to both develop with
-# this fork and export the WebGPU target it exists for. Mirrors this repo's
-# own CI (.github/workflows/linux_builds.yml, web_builds.yml) and the
-# install-then-build shape of build-macos.sh / build-windows.ps1.
+# Emscripten) then builds the editor, the native Linux export templates
+# (debug/release), and the full web/WebGPU export template matrix --
+# GDExtension/dlink support x thread support x debug/release, 8 builds --
+# so every combination selectable in the Web export preset's "GDExtension
+# Support" / "Thread Support" checkboxes has a matching template. This is
+# the full set needed to both develop with this fork and export the WebGPU
+# target it exists for, including GDExtensions (e.g. TressFX) that need
+# thread support. Mirrors this repo's own CI (.github/workflows/linux_builds.yml,
+# web_builds.yml) and the install-then-build shape of build-macos.sh /
+# build-windows.ps1, but builds more template variants than CI does.
+#
+# Note: this fork's documented/tested WebGPU configuration is threads=no
+# (see CLAUDE.md); the threads=yes variants build here for completeness and
+# GDExtension compatibility but aren't part of the fork's regularly-tested
+# path. If a threaded web export misbehaves specifically under the WebGPU
+# driver, narrow it down against a threads=no build first.
 #
 # Run this FROM the repo root, ON real Linux (or WSL). This is not for
 # cross-compiling Windows/macOS targets -- see build.sh (options 4-9) for
@@ -246,6 +257,14 @@ package_tpz() {
 	(cd "$staging" && zip -rq "$tpz" templates)
 	rm -rf "$staging"
 	ok "Export template package -> $tpz"
+
+	local templates_out_dir="/mnt/109313D2109313D2/godot-editors/templates"
+	if [[ -d "$templates_out_dir" ]]; then
+		cp "$tpz" "$templates_out_dir/"
+		ok "Export template package -> $templates_out_dir/$(basename "$tpz")"
+	else
+		warn "$templates_out_dir not found -- skipping .tpz copy there."
+	fi
 }
 
 step "Godot WebGPU Linux build -- version $VERSION, -j$JOBS (accesskit=$ACCESSKIT_ENABLED)"
@@ -265,6 +284,17 @@ for f in bin/godot.linuxbsd.editor*; do
 done
 [[ "$found" -eq 1 ]] || die "Editor build succeeded but no output binary was found in bin/."
 ok "Editor -> $dest"
+
+EDITORS_DIR="/mnt/109313D2109313D2/godot-editors/editors"
+if [[ -d "$EDITORS_DIR" ]]; then
+	for f in bin/godot.linuxbsd.editor*; do
+		[[ -f "$f" ]] || continue
+		cp "$f" "$EDITORS_DIR/"
+	done
+	ok "Editor -> $EDITORS_DIR"
+else
+	warn "$EDITORS_DIR not found -- skipping editor copy there."
+fi
 
 step "Building Linux export template (debug)..."
 scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" -j"$JOBS"
@@ -288,20 +318,43 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# shellcheck source=/dev/null
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 
-	step "Building web/WebGPU export template (debug)..."
-	scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
-	step "Building web/WebGPU export template (release)..."
-	scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
 	dest="$OUT_DIR/templates"
 	mkdir -p "$dest"
-	debug_zip="$(ls -t bin/godot.web.template_debug*.zip 2> /dev/null | head -1 || true)"
-	release_zip="$(ls -t bin/godot.web.template_release*.zip 2> /dev/null | head -1 || true)"
-	[[ -n "$debug_zip" && -n "$release_zip" ]] || die "Web template build succeeded but a .zip wasn't found in bin/."
-	cp "$debug_zip" "$dest/web_nothreads_debug.zip"
-	cp "$release_zip" "$dest/web_nothreads_release.zip"
-	ok "Web templates -> $dest"
+
+	# Full web template matrix: GDExtension/dlink support x thread support x
+	# debug/release (8 builds), so every combination the Web export preset's
+	# "GDExtension Support" / "Thread Support" checkboxes can select has a
+	# matching template. Filenames on both sides (scons output and the
+	# templates/ dir) must match Godot's own naming rules exactly:
+	#   - scons suffix order: .wasm32[.nothreads][.dlink]
+	#     (SConstruct's ".nothreads" is appended before detect.py's ".dlink")
+	#   - export_plugin.h's _get_template_name(): "web" + ["_dlink"] +
+	#     ["_nothreads"] + "_debug.zip"/"_release.zip"
+	for dlink in yes no; do
+		for threads in yes no; do
+			for target in template_debug template_release; do
+				debug_label="debug"
+				[[ "$target" == "template_release" ]] && debug_label="release"
+
+				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
+				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no threads="$threads" -j"$JOBS"
+
+				scons_zip="bin/godot.web.${target}.wasm32"
+				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"
+				[[ "$dlink" == "yes" ]] && scons_zip+=".dlink"
+				scons_zip+=".zip"
+				[[ -f "$scons_zip" ]] || die "Web template build succeeded but $scons_zip wasn't found."
+
+				dest_name="web"
+				[[ "$dlink" == "yes" ]] && dest_name+="_dlink"
+				[[ "$threads" == "no" ]] && dest_name+="_nothreads"
+				dest_name+="_${debug_label}.zip"
+
+				cp "$scons_zip" "$dest/$dest_name"
+				ok "Web template -> $dest/$dest_name"
+			done
+		done
+	done
 else
 	warn "Skipping web/WebGPU template build (--skip-web)."
 fi
