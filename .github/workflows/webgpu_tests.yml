@@ -3,7 +3,7 @@ on:
   workflow_call:
   workflow_dispatch:
   push:
-    branches: [webgpu-4.6.2]
+    branches: [webgpu-4.7.2]
     paths:
       - 'drivers/webgpu/**'
       - 'webgpu_tests/**'
