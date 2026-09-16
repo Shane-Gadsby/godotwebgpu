@@ -18,9 +18,29 @@ Based on `webgpu_notes/TASKS.md`. **Everything already verified `DONE` has been 
 
 | # | Task | What to do | Effort |
 |---|------|------------|--------|
-| 1 | CI for prebuilt verification | No evidence this exists. Add a CI job that rebuilds `tint_convert_cli` and diffs `wgsl_precompile.py` output for reproducibility. Worth bundling `resource_lifecycle`/`screenshot_comparison` into the same effort since both need Playwright, which nothing in this repo's CI currently installs. | 1–2 days |
-| 2 | Linux web-export browser compatibility | README lists Linux browsers as TODO — this is browser-side export compatibility, not a native Linux build (which already works, it's how everything else was tested). | 2–5 days |
-| 3 | Windows web-export browser compatibility | Same as above for Windows. Verify scope before starting — check whether `tint_cli`/native builds matter at all here, or whether it's purely browser/JS-shell parity work, before assuming an MSVC build is needed. | 3–7 days |
+| 1 | CI for prebuilt verification | **Mostly already exists** — see "Existing GitHub Actions CI" below. `.github/workflows/webgpu_tests.yml` already rebuilds `tint_convert_cli` from source (cached) and runs `validate-spirv`, which is a *stronger* check than diffing `wgsl_precompile.py` output: it feeds every real engine SPIR-V shader through the freshly-built Tint binary and fails on any conversion error. `resource_lifecycle` and `screenshot_comparison` already run in CI with Playwright installed per-job — the "nothing installs Playwright" premise was wrong. The stale `webgpu-4.6.2` branch filter (below) has been fixed to `webgpu-4.7.2`. Remaining gap: no job diffs `wgsl_precompile.py`'s *precompiled* WGSL output byte-for-byte across runs (the validate-spirv job checks convertibility, not exact-output reproducibility). | 0.5 day |
+| 2 | Linux web-export browser compatibility | **DONE, 2026-09-16** — Chrome, Firefox, and Vivaldi all confirmed compatible when Vulkan and WebGPU are enabled via browser flags, on native package installs only (Flatpak/Snap sandboxing blocks it). README and `webgpu_notes/TASKS.md` Task 5.2 updated. | ~~2–5 days~~ done |
+| 3 | Windows web-export browser compatibility | **DONE, 2026-09-16** — Chrome, Firefox, and Edge all confirmed working out of the box, no flags needed. README and `webgpu_notes/TASKS.md` Task 5.2 updated. | ~~3–7 days~~ done |
+
+### Existing GitHub Actions CI (audited 2026-09-16)
+
+`.github/workflows/` already has substantially more CI than item 1 above assumed. Two independent pipelines:
+
+- **`runner.yml`** ("🔗 GHA") — the main per-platform build pipeline. Triggers on push to `main` and `workflow_dispatch`. Gates on `static_checks.yml` (fast lint/format checks), then fans out to `android_builds.yml`, `ios_builds.yml`, `linux_builds.yml`, `macos_builds.yml`, `windows_builds.yml`, and `web_builds.yml` in parallel, then drafts a GitHub release bundling every platform's artifacts once all succeed. This does **not** call `webgpu_tests.yml` — the two pipelines are separate.
+- **`webgpu_tests.yml`** ("🧪 WebGPU Tests") — the WebGPU-specific test suite, `workflow_call`/`workflow_dispatch`-able and also triggers directly on push (branch-filtered, see gap below) and PRs touching `drivers/webgpu/**`, `webgpu_tests/**`, or `servers/rendering/**`. Jobs:
+  - `shader-corpus` — builds `tint_convert_cli` (cached by source hash) and runs the shader-corpus SPIR-V→WGSL suite (`webgpu_tests/shader_corpus`).
+  - `driver-unit-tests` — runs `webgpu_tests/driver_unit_tests` (pure JS, no engine build).
+  - `build-webgpu` — full `platform=web webgpu=yes` template build plus a native Linux editor build, exports the test project with `GODOT_DUMP_SPIRV` set to dump every compiled shader's SPIR-V, uploads `tint_convert_cli`, the SPIR-V dump, and the web export as artifacts.
+  - `validate-spirv` (needs `build-webgpu`) — feeds every dumped engine SPIR-V file through the freshly built `tint_convert_cli` and fails on any Tint conversion error. This is the closest existing equivalent to "prebuilt verification": it doesn't diff `wgsl_precompile.py`'s output byte-for-byte across runs, but it does prove every real shader variant survives the full pipeline on that commit.
+  - `smoke-test` (needs `build-webgpu`) — headless Chrome + Playwright load of the exported project.
+  - `scene-smoketest` — runs 18 demo/benchmark scenes through both Chrome and Firefox via Playwright.
+  - `resource-lifecycle` and `screenshot-comparison` — both already install Playwright per-job and run their respective suites (screenshot comparison currently runs with `--update-baselines`, i.e. it's not yet diffing against committed baselines — see gap below).
+  - `test-summary` — aggregates pass/fail across all of the above, hard-fails the workflow on any real failure (screenshot diffs are a warning only).
+
+**Gaps found in the existing CI:**
+- ~~`webgpu_tests.yml`'s `push` trigger was branch-filtered to `branches: [webgpu-4.6.2]`~~ — **FIXED, 2026-09-16**: updated to `webgpu-4.7.2` to match the current base branch (`git branch --show-current`). Also fixed the same stale reference in `CLAUDE.md` and `webgpu_tests/README.md`. Direct pushes to the current branch now trigger the workflow again (previously only PRs and manual `workflow_dispatch` did).
+- `screenshot-comparison`'s `run_tests.mjs --update-baselines` flag means it currently regenerates baselines every run rather than comparing against a committed baseline — the comment in the workflow acknowledges this is meant to be flipped once baselines are committed, but that hasn't happened yet.
+- No job diffs `wgsl_precompile.py`'s precompiled WGSL output across commits/runs for exact reproducibility (as opposed to `validate-spirv`'s convertibility check).
 
 ---
 
@@ -130,6 +150,6 @@ Everything else that was ever in this tier is done (see "Recently completed" abo
 
 ## Suggested order of attack
 
-1. **Optional** (item 1, CI for prebuilt verification) — 1-2 days, can run in parallel with anything else. Items 2/3 (Linux/Windows web-export browser compat) can be picked up any time independently — they don't block the public build.
+1. **Optional** (item 1, CI for prebuilt verification) — 1-2 days, can run in parallel with anything else. Items 2/3 (Linux/Windows web-export browser compat) are now done — Windows works out of the box on Chrome/Firefox/Edge, Linux works on Chrome/Firefox/Vivaldi with Vulkan+WebGPU flags enabled (native package installs only, not Flatpak/Snap).
 2. **Phase 1 (SDFGI runaway) is the only thing actually blocking a public build** — top priority regardless of what else is in flight.
 3. **Phase 2 (eliminate the runtime Tint fallback)** — independent of Phase 1, can be worked in parallel. Start with its step 1 (confirming `freeze_spec_constant_ops`'s constraints) before assuming the override-path fix is safe — it's possible but not yet confirmed to be the right shape of fix.
