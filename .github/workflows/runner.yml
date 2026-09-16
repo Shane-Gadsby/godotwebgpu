@@ -1,5 +1,9 @@
 name: 🔗 GHA
-on: [push, pull_request, merge_group, workflow_dispatch]
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}|${{ github.ref_name }}
@@ -7,9 +11,11 @@ concurrency:
 
 jobs:
   # First stage: Only static checks, fast and prevent expensive builds from running.
+  # Gated on refs/heads/main so a manually-dispatched run on another branch is a no-op
+  # (push events are already restricted to main above).
 
   static-checks:
-    if: ${{ !vars.DISABLE_GODOT_CI || github.run_attempt > 1 || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.ref == 'refs/heads/main' && (!vars.DISABLE_GODOT_CI || github.run_attempt > 1 || github.event_name == 'workflow_dispatch') }}
     name: 📊 Static checks
     uses: ./.github/workflows/static_checks.yml
 
@@ -54,3 +60,44 @@ jobs:
     needs: static-checks
     if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
     uses: ./.github/workflows/web_builds.yml
+
+  # Third stage: every build succeeded on main, so draft a release with all their artifacts.
+  # A job with `needs` on this list only runs if every one of them succeeded (the default
+  # behavior without an explicit always()/success() condition), so no extra guard is needed
+  # beyond the branch restriction already enforced upstream via static-checks.
+
+  draft-release:
+    name: 📦 Draft release
+    needs:
+      - static-checks
+      - android-build
+      - ios-build
+      - linux-build
+      - macos-build
+      - windows-build
+      - web-build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Zip each artifact for release upload
+        working-directory: artifacts
+        run: |
+          shopt -s nullglob
+          for dir in */; do
+            name="${dir%/}"
+            (cd "$name" && zip -qr "../${name}.zip" .)
+          done
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: main-${{ github.sha }}
+          name: main @ ${{ github.sha }}
+          draft: true
+          files: artifacts/*.zip
