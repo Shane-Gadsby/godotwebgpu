@@ -383,6 +383,13 @@ const Engine = (function () {
 				'maxComputeWorkgroupSizeY',
 				'maxComputeWorkgroupSizeZ',
 				'maxComputeWorkgroupStorageSize',
+				// Default (16) is only enough for the engine's own built-in interstage data on
+				// Forward+/Forward Mobile (base_varying_index = 15 in
+				// scene_shader_forward_clustered.cpp / scene_shader_forward_mobile.cpp) --
+				// leaving effectively nothing for a material's own `varying`s. Most adapters
+				// report a much higher maximum; request it.
+				'maxInterStageShaderVariables',
+				'maxInterStageShaderComponents',
 			];
 			for (let li = 0; li < limitsToMax.length; li++) {
 				const key = limitsToMax[li];
