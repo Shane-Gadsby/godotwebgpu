@@ -2,7 +2,7 @@
 
 > **Purpose**: Master task list for AI agents implementing WebGPU support in Godot 4.6.
 > **Target Completion**: March 24, 2026 (2-week sprint from March 10)
-> **Last Updated**: September 15, 2026 — Task 9.5 Round 44: built the array-layer/large-slack synthetic repro Round 43 called for. First result looked like a reproduction but was a math error in the repro's own expected value (fixed); with the correct expectation, this pattern alone does NOT reproduce the live finding — average converges and holds flat for 10 full cycles at real-GPU scale. Suspected missing ingredient: dispatch parallelism (every repro so far uses 1 invocation/dispatch; the real shader dispatches probe_axis_count² concurrent threads on the same textures). See **Task 9.5, Round 44**.
+> **Last Updated**: September 16, 2026 — Task 9.5 Round 46: **ROOT CAUSE FOUND, FIXED, AND LIVE-CONFIRMED END-TO-END.** The real `lightprobe_history_texture`/`lightprobe_average_texture` use `rgba16sint`/`rgba32sint`, formats needing a WebGPU feature (`readonly-and-readwrite-storage-textures`) confirmed ABSENT on this session's real-GPU test adapter — so the driver splits them into a write-only storage side + a separate "shadow" texture refreshed via an explicit per-bind GPU copy. That copy's extent used `depth` (always 1 for a 2D-array texture) instead of `layers`, so only layer 0 of `lightprobe_history_texture`'s 30 layers ever got refreshed — every other layer's shadow read stale/zero data forever. Fixed both occurrences in `rendering_device_driver_webgpu.cpp`. A targeted synthetic repro (buggy vs. fixed copy extent, side by side, real GPU) confirmed the buggy extent reproduces the exact unbounded-growth shape of the real SDFGI runaway, and the fix converges and holds flat. **Then confirmed live against the real `cameraSim` scratch project**: native editor + full web template both rebuilt clean, fresh export template checksum-verified, 300-second real-GPU Playwright capture against the exact scene/settings that ran away to white in every prior round of this investigation — **zero visible brightness change, zero console errors, for the full 5 minutes.** This is the first stable multi-minute capture of this repro in 46 rounds. See **Task 9.5, Round 46**.
 >
 > Earlier note (September 15, 2026): Task 9.5 Round 43: a narrower live diagnostic read `ivalue` (raw per-frame light contribution) alongside `average` directly. `ivalue` was a rock-steady constant `512` for 100+ calls, but `average` kept growing at ~512/render_pass the whole time — strong evidence the accumulator's `average -= prev_value` term is contributing close to nothing, pointing at `lightprobe_history_tex` reads (30-frame slack) rather than `lightprobe_average_tex`'s own same-frame RMW. See **Task 9.5, Round 43**.
 >
@@ -1123,7 +1123,7 @@ All three optimizations were already implemented during Phase 2:
 ---
 
 ### Task 5.2: Browser Compatibility Testing `[PARALLEL with 5.1]`
-**Status**: `SKIPPED` (deferred — requires manual testing across browsers; Chrome desktop verified during Phase 2/3)
+**Status**: `PARTIALLY DONE` (Windows and Linux desktop browsers now confirmed; Android/iOS still wip)
 **Effort**: 6-8 hours
 **Dependencies**: Phase 4
 
@@ -1133,15 +1133,21 @@ All three optimizations were already implemented during Phase 2:
 
    | Browser | Platform | Status |
    |---------|----------|--------|
-   | Chrome (latest) | macOS | TODO |
-   | Chrome (latest) | Windows | TODO |
-   | Chrome (latest) | Linux | TODO |
-   | Firefox (latest) | macOS | TODO |
-   | Firefox (latest) | Windows | TODO |
-   | Safari 18+ | macOS | TODO |
-   | Edge (latest) | Windows | TODO |
+   | Chrome (latest) | macOS | DONE — works |
+   | Chrome (latest) | Windows | DONE — works out of the box |
+   | Chrome (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Firefox (latest) | macOS | DONE — works |
+   | Firefox (latest) | Windows | DONE — works out of the box |
+   | Firefox (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Vivaldi (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Safari 18+ | macOS | DONE — works |
+   | Edge (latest) | Windows | DONE — works out of the box |
    | Chrome | Android | TODO |
    | Safari | iOS 18+ | TODO |
+
+   **Completion Notes** (September 16, 2026):
+   - Windows: Chrome, Firefox, and Edge all work right out of the box — no flags needed.
+   - Linux: Chrome, Firefox, and Vivaldi all work, but only when Vulkan and WebGPU are explicitly enabled via browser flags, and only for browsers installed as native packages — Flatpak and Snap installs are not compatible (sandboxing blocks the required GPU/Vulkan access).
 
 2. **Test projects**:
    - 2D: Official 2D demos (sprite, particles, navigation, physics)
@@ -1157,7 +1163,7 @@ All three optimizations were already implemented during Phase 2:
    - Any console errors/warnings?
    - Memory usage?
 
-**Completion Criteria**: Works on Chrome, Firefox, Safari (desktop). Document any browser-specific issues.
+**Completion Criteria**: Works on Chrome, Firefox, Safari (desktop). Document any browser-specific issues. Remaining gap: Android/iOS mobile browser testing.
 
 ---
 
@@ -3205,6 +3211,38 @@ Built `webgpu_tests/sdfgi_race_repro/array_layer_repro.js` (+ `array_layer_index
 **Where this leaves things**: Round 43's live measurement (growth rate matching `ivalue` almost exactly, continuing well past 30+ calls) is not in question — it was measured directly in the real engine, twice, with consistent numbers. What this round shows is that the *array-layer-read-with-large-slack* mechanism, isolated to the same minimal 1-invocation-per-dispatch shape every repro in this directory has used so far, isn't sufficient on its own to trigger it. The one structural property every repro to date shares that the real shader doesn't is **dispatch parallelism**: `sdfgi_integrate.glsl` dispatches `probe_axis_count²` threads per call, all concurrently touching the same `lightprobe_average_tex`/`lightprobe_history_tex` resources at different sub-addresses (different probes' rows) within a single dispatch — every synthetic repro so far (`race_repro.js`, `native_emdawnwebgpu_repro.cpp`, this round's `array_layer_repro.js`) uses `dispatchWorkgroups(1)`, a single invocation, zero intra-dispatch contention on the shared textures. **Next step, not yet done — full implementation spec written, not yet run**: extend the repro to dispatch many concurrent invocations that each read/write a *different* texel of the same two textures (matching the real probe-grid shape), to test whether the hazard needs that concurrent same-resource traffic to manifest — this is the one remaining major structural gap between every repro tried so far and the real shader. See `plan-of-attack.md`'s "Round 45 spec" subsection (Tier 1 Phase 1) for the exact dispatch shape, WGSL kernel, texture dimensions, and pass/fail check — written up in full this session but deliberately not implemented or run yet.
 
 **Files**: `webgpu_tests/sdfgi_race_repro/array_layer_repro.js`, `array_layer_index.html`, `run_array_layer_repro.mjs` (new).
+
+### Round 45 (2026-09-16, same session): the per-dispatch-parallelism repro Round 44 spec'd — also negative, full-grid checked, on real GPU
+
+Implemented `plan-of-attack.md`'s Round 45 spec exactly: `webgpu_tests/sdfgi_race_repro/parallel_repro.js` (+ `parallel_index.html`, `run_parallel_repro.mjs`) matches `sdfgi_integrate.glsl`'s real dispatch shape precisely — `@workgroup_size(8, 8, 1)` dispatched `(37, 3, 1)` (7104 invocations, matching `dispatch_threads(289, 17, 1)`'s own out-of-bounds tail via an in-shader bounds check, not a smaller exact-fit grid), each in-bounds invocation looping 16 rows of a shared `289×272` `history_tex`/`average_tex` pair (`history_tex` a `texture_storage_2d_array<r32sint, read_write>` with `history_size` layers). Unlike every prior round's single-texel check, this one reads back the **entire** `289×272` grid via `copyTextureToBuffer` on the final cycle of each config (strided every-8th-texel on intermediate cycles) and checks every value against the expected sliding-window plateau (`V * history_size`), specifically so a hazard affecting only a subset of texels under contention wouldn't be invisible.
+
+**Result: not reproduced.** Ran on real GPU (RTX 4080 SUPER class, `nvidia`/`lovelace` via Vulkan/Chrome, same flags as every prior round) with `history_size=30`, `filler=0,2,8`, 3 full ring-buffer cycles each (90 calls/config). Every one of the 289×272=78,608 texels matched the expected plateau exactly on every cycle checked, for all three filler values, including `filler=0` (zero slack, matching the real shader's own zero-gap `average_tex` touch pattern) — zero mismatches anywhere.
+
+**Where this leaves things**: all four structural hypotheses this session's synthetic repros could isolate — same-texel zero-slack RMW (Round 40/41), large-slack array-layer RMW (Round 44), and now large-slack array-layer RMW *under full per-dispatch concurrency* (this round) — have all come back negative on real GPU. Per `plan-of-attack.md`'s own routing for this outcome, the two remaining candidates are: (a) the Emscripten event-loop-timing angle (queue submission relative to `requestAnimationFrame`/JS microtask ordering) — still fully untested; (b) the real shader's additional Godot-side complexity no repro has modeled at all (14-binding uniform set, the sky uniform set bound to slot 1 *simultaneously*, `store_probes()`'s separate `MODE_STORE` dispatch touching overlapping resources later the same frame) — at this point probably a better use of time to pursue via shader-side debug-output-buffer instrumentation in the real engine (bypassing `texture_get_data()` readback-reliability questions Round 43 flagged) than to keep adding complexity to an increasingly Godot-shaped synthetic repro that has now failed to reproduce the bug four times running.
+
+**Files**: `webgpu_tests/sdfgi_race_repro/parallel_repro.js`, `parallel_index.html`, `run_parallel_repro.mjs` (new).
+
+### Round 46 (2026-09-16, same session): ROOT CAUSE FOUND AND FIXED — shadow-refresh copy used `depth` instead of `layers`, silently freezing every non-zero layer of a split read_write storage texture's shadow
+
+With four synthetic RMW-shape repros negative (Rounds 40/41/44/45), this round changed approach: rather than another dispatch-shape variant, it asked what's structurally *different* about `lightprobe_history_texture`/`lightprobe_average_texture` that no repro had modeled. Both use `rgba16sint`/`rgba32sint` (`sdfgi_integrate.glsl:50-51`), not `r32sint` like every repro so far. Per WebGPU's spec, only `r32float`/`r32sint`/`r32uint` get guaranteed `read_write` storage-texture access in core; everything else needs the `readonly-and-readwrite-storage-textures` feature. **Confirmed by direct feature-list check**: this session's real-GPU test adapter (Chrome/Vulkan/`nvidia`/`lovelace` — the exact adapter every live SDFGI capture in this investigation has used) does **not** have this feature. Without it, `rendering_device_driver_webgpu.cpp` splits every `read_write` storage texture into a write-only storage side plus a separate "shadow" texture (a plain sampled texture), refreshed via an explicit `wgpuCommandEncoderCopyTextureToTexture(orig -> shadow)` inserted right before every `command_bind_compute_uniform_sets()` call (`refresh_rw_shadows`, ~L10292) — a mechanism whose own code comment already documents this exact bug class having silently corrupted a *different* texture once before (`bokeh_dof.glsl`'s `color_image` going solid black from a stale shadow).
+
+**First repro attempt (`shadow_split_repro.js`) was negative** for the simplest case (flat, single-layer textures routed through write+shadow-copy split instead of direct `read_write`, telescoping accumulator, slack 0-16, 500 calls) — held at exactly `512` throughout. This negative result was the clue: it meant the split mechanism itself works fine for a *flat* texture, so the bug (if any) had to be specific to the *multi-layer* case, which `lightprobe_history_texture` is (30 layers) and the flat repro wasn't.
+
+**Code reading found the actual bug**: `_create_rw_shadow_bind_entry()` creates the shadow texture with the correct dimension-aware layer count (`p_orig_tex->dimension == WGPUTextureDimension_3D ? p_orig_tex->depth : p_orig_tex->layers`, itself a fix from an earlier round, "Task 9.5 Round 22") — but the `RWShadowRegistration` pushed right after it (~L6434) stored `p_orig_tex->depth` directly (always `1` for a 2D(-array) texture; `depth` and `layers` are separate fields on `WGTexture`), discarding that same fix. `refresh_rw_shadows()`'s copy (~L10307) builds its `WGPUExtent3D` from `reg.depth` — meaning **the per-bind refresh copy only ever propagates layer 0** of a multi-layer array texture; every other layer's shadow is permanently stuck at its initial zero-initialized contents, no matter what the compute shader writes to the real texture. The same bug (using `dst->depth` instead of `dst->layers`) was also present in the `texture_update()`-driven shadow-sync path (~L7914), for CPU-authored textures with shadows.
+
+This maps exactly onto Round 43's finding: `history_index` (`render_pass % history_size`) rotates through all 30 layers, so only 1-in-30 frames (`history_index == 0`) would ever see a correctly refreshed `prev_value`; the other 29-in-30 frames read stale/zero data from a shadow that was never updated past its initial state — precisely "`average -= prev_value` is contributing close to nothing," Round 43's exact words.
+
+**Fixed**: both sites now use the same dimension-aware `layers`-vs-`depth` selection `_create_rw_shadow_bind_entry()`'s shadow-creation code already used correctly.
+
+**Confirmed with a targeted repro (`array_shadow_split_repro.js`, Round 46b)** — the exact array-layer telescoping accumulator (Round 44's shape) routed through a write+shadow split, run with the buggy copy extent (`depthOrArrayLayers=1`, matching the pre-fix code) and the fixed extent (`depthOrArrayLayers=historySize`) side by side, real GPU:
+- **Buggy**: unbounded, continuously-growing average at every `history_size` tried (4 and 30) — `history_size=4`: `2048 → 3584 → 5120 → 6656 → ... → 15872` over 10 cycles (constant-rate growth, never plateauing); `history_size=30`: `15360 → 30208 → 45056 → ... → 148992` over 10 cycles. **This is the same qualitative shape as the real SDFGI brightness runaway** — continuous, roughly-linear, unbounded growth, not a one-time jump or noise.
+- **Fixed**: holds exactly at the correct plateau (`2048`/`15360`) for all 10 cycles, both `history_size` values — zero divergence.
+
+**Files changed**: `drivers/webgpu/rendering_device_driver_webgpu.cpp` (`_create_rw_shadow_bind_entry`'s registration ~L6434, `texture_update()`'s shadow-sync path ~L7914). New repros: `webgpu_tests/sdfgi_race_repro/shadow_split_repro.js`/`shadow_split_index.html`/`run_shadow_split_repro.mjs` (negative flat-case control), `array_shadow_split_repro.js`/`array_shadow_split_index.html`/`run_array_shadow_split_repro.mjs` (positive confirmation, buggy-vs-fixed).
+
+**Live end-to-end confirmation, same session**: native editor (`dev_build=yes`) and full web WebGPU template (`platform=web webgpu=yes dlink_enabled=yes`) both rebuilt clean with the fix — `drivers/webgpu/rendering_device_driver_webgpu.cpp` compiled with 0 errors, `wgsl_precompile.py` reported 196/196 shaders converted, 0 Tint failures. Re-ran the exact `cameraSim` scratch-project methodology from Rounds 27-44: fresh scratch copy, `sdfgi_enabled = true` added to `main.tscn`'s Environment (was previously toggled ad hoc per round, now explicit), `extensions_support=true` in `export_presets.cfg`, fresh export template installed and `md5sum`-verified against the exported `index.side.wasm` (first attempt caught a real template-directory mismatch — the installed template lives at `~/.local/share/godot/export_templates/4.7.2.stable/`, not a `.custom_build`-suffixed directory as might be assumed from the editor's own `--version` string — corrected before trusting the capture). A 300-second real-GPU Playwright screenshot-trend capture (`capture_screenshots.mjs`, 15 shots at 20s intervals) against this exact scene/settings — the same one that ran away to solid white in every prior round of this investigation — shows **zero visible change between t=20s and t=300s and zero console errors for the entire capture**. This is the first time in the entire 46-round investigation this specific repro has stayed stable for a multi-minute capture.
+
+**Scope check, same session**: grepped the entire GLSL shader corpus (`servers/rendering/renderer_rd/shaders/`) for `restrict image2DArray`/`restrict iimage2DArray` (the GLSL declarations that become a multi-layer `texture_storage_2d_array<..., read_write>` in WGSL) — `sdfgi_integrate.glsl`'s `lightprobe_history_texture` is the **only** hit in the entire engine. This bug's blast radius was already fully scoped to SDFGI; no other shader needs re-testing. Regression suite (`shader_corpus`, `driver_unit_tests`, `preprocessing_tests`) not yet re-run, though this is a pure C++ driver change with no WGSL/preprocessing-pass changes.
 
 ### Task 9.7: Shader-corpus baseline reconciliation — confirms the `GODOT_DUMP_SPIRV`/`expected_failures.json` test tier is unreliable (SPIR-V 1.4 vs 1.3, third independent hit), establishes the real current failure count via `wgsl_precompile.py` instead `[DONE — investigation and documentation only, no code fix]`
 

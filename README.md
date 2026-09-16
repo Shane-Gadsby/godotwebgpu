@@ -31,7 +31,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/SDFGI-not_yet_working-red?style=flat-square" alt="SDFGI not yet working">
   <img src="https://img.shields.io/badge/AI_Generated-Claude-8957e5?style=flat-square" alt="AI Generated">
   <a href="https://github.com/dwalter/godotwebgpu"><img src="https://img.shields.io/badge/Free_%26_Open_Source-MIT-478cbf?style=flat-square" alt="Free & Open Source"></a>
 </p>
@@ -73,12 +72,8 @@ This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/
 
 Building on that base, this fork has two main goals:
 
-- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a nearly-full Forward+ pipeline, with one prominent gap noted below.
+- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI.
 - **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.7.2** (see `webgpu_notes/TASKS.md` Phase 8 for sync history and status).
-
-### ⚠️ Known missing feature: SDFGI
-
-**SDFGI (Signed Distance Field Global Illumination) does not work correctly yet.** It is the most significant remaining gap in Forward+ parity. Enabling `sdfgi_enabled` currently triggers an unresolved brightness-runaway bug: probe irradiance accumulates without bound instead of converging, most likely due to a GPU-side read-after-write hazard around the light-probe history/average textures that WebGPU's automatic hazard tracking isn't catching the way Vulkan/Metal barriers would. This has been under active, heavily-instrumented investigation (see `webgpu_notes/TASKS.md`, Task 9.5) across many rounds without full success yet — real-engine measurements confirm the runaway, but a minimal synthetic repro that reliably reproduces it (needed to pin the exact hazard and fix it) hasn't landed. Until it's resolved, treat SDFGI as **unsupported/experimental**: leave it disabled in projects targeting this WebGPU backend. All other major Forward+ features (clustered lighting, shadows, SSAO, SSR, volumetric fog, GPU particles, compute shaders, etc.) are working.
 
 ---
 
@@ -91,8 +86,8 @@ Building on that base, this fork has two main goals:
 | macOS | Firefox | 100% |
 | Android | Chrome | Mostly (wip) |
 | iOS | Safari | Mostly (wip) |
-| Windows | Any | [TODO](https://github.com/dwalter/godotwebgpu/issues) |
-| Linux | Any | [TODO](https://github.com/dwalter/godotwebgpu/issues) |
+| Windows | Chrome, Firefox, Edge | 100% (works out of the box) |
+| Linux | Chrome, Firefox, Vivaldi | 100% (requires enabling Vulkan + WebGPU flags; native package install only — not compatible with Flatpak/Snap builds) |
 
 ---
 
@@ -261,7 +256,7 @@ Common questions about the WebGPU backend — architecture, performance, compati
 | Total new code | ~20,000+ lines |
 | Driver implementation | 7,733 lines (single `.cpp`) |
 | Shaders converted | 146 (SPIR-V → WGSL via Tint) |
-| Renderer | Forward+ (this fork) / Forward Mobile (original) — SDFGI not yet working, see [Known missing feature: SDFGI](#️-known-missing-feature-sdfgi) |
+| Renderer | Forward+ (this fork) / Forward Mobile (original) |
 | Performance vs native | ~80% of Vulkan/Metal FPS |
 | Performance vs WebGL | Up to 5x faster |
 | Browser support | Chrome 113+, Firefox 120+, Safari 18+, Chrome Android, Safari iOS |
