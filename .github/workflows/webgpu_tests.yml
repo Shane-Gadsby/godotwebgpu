@@ -146,6 +146,12 @@ jobs:
           path: bin/tint_convert_cli
           retention-days: 7
 
+      - name: Restore editor sources (removed by web template build)
+        run: |
+          # godot-build's rm -rf editor (to keep editor code out of the export
+          # template build) leaves the checkout without editor/ for this next step.
+          git checkout -- editor/
+
       - name: Build Linux editor (for export + SPIR-V dump)
         run: |
           scons platform=linuxbsd target=editor dev_mode=yes tests=no debug_symbols=no -j$(nproc)
@@ -335,10 +341,13 @@ jobs:
           npm init -y
           npm install playwright
           npx playwright install chromium firefox --with-deps
+          sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Run screenshot tests
         working-directory: webgpu_tests/screenshot_comparison
-        run: node screenshot_tests.mjs --update-baselines
+        # screenshot_tests.mjs launches browsers with headless: false (needed for
+        # real WebGPU rendering), so it needs a virtual X server to run in CI.
+        run: xvfb-run -a node screenshot_tests.mjs --update-baselines
         # First run creates baselines. On subsequent runs after baselines are committed,
         # change to: node screenshot_tests.mjs
 
