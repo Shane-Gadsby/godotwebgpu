@@ -150,7 +150,7 @@ reusable capture scripts.
 
 ## CI Pipeline
 
-Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.6.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.
+Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

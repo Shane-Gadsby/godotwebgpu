@@ -91,8 +91,8 @@ Building on that base, this fork has two main goals:
 | macOS | Firefox | 100% |
 | Android | Chrome | Mostly (wip) |
 | iOS | Safari | Mostly (wip) |
-| Windows | Any | [TODO](https://github.com/dwalter/godotwebgpu/issues) |
-| Linux | Any | [TODO](https://github.com/dwalter/godotwebgpu/issues) |
+| Windows | Chrome, Firefox, Edge | 100% (works out of the box) |
+| Linux | Chrome, Firefox, Vivaldi | 100% (requires enabling Vulkan + WebGPU flags; native package install only — not compatible with Flatpak/Snap builds) |
 
 ---
 

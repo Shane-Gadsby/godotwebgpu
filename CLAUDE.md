@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is [Godot WebGPU](https://github.com/dwalter/godotwebgpu) — a fork of Godot Engine that adds a WebGPU rendering driver (`drivers/webgpu/`) as a browser export target, implementing the same `RenderingDeviceDriver` / `RenderingContextDriver` / `RenderingShaderContainerFormat` interfaces as the built-in Vulkan, Metal, and D3D12 backends. It targets the Forward Mobile renderer via Emscripten + the `emdawnwebgpu` port (Dawn). See `README.md` for the project pitch/demos and `GODOT_README.md` for the original upstream Godot README.
 
-`origin` is `dwalter/godotwebgpu` (this fork); `upstream` is `godotengine/godot`. Base branch for this fork's own work is `webgpu-4.6.2`; `sync/*` branches track merges of newer upstream Godot releases (see `webgpu_notes/TASKS.md` Phase 8 for the current sync status).
+`origin` is `dwalter/godotwebgpu` (this fork); `upstream` is `godotengine/godot`. Base branch for this fork's own work is `webgpu-4.7.2`; `sync/*` branches track merges of newer upstream Godot releases (see `webgpu_notes/TASKS.md` Phase 8 for the current sync status).
 
 ## Build Commands
 

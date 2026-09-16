@@ -1123,7 +1123,7 @@ All three optimizations were already implemented during Phase 2:
 ---
 
 ### Task 5.2: Browser Compatibility Testing `[PARALLEL with 5.1]`
-**Status**: `SKIPPED` (deferred — requires manual testing across browsers; Chrome desktop verified during Phase 2/3)
+**Status**: `PARTIALLY DONE` (Windows and Linux desktop browsers now confirmed; Android/iOS still wip)
 **Effort**: 6-8 hours
 **Dependencies**: Phase 4
 
@@ -1133,15 +1133,21 @@ All three optimizations were already implemented during Phase 2:
 
    | Browser | Platform | Status |
    |---------|----------|--------|
-   | Chrome (latest) | macOS | TODO |
-   | Chrome (latest) | Windows | TODO |
-   | Chrome (latest) | Linux | TODO |
-   | Firefox (latest) | macOS | TODO |
-   | Firefox (latest) | Windows | TODO |
-   | Safari 18+ | macOS | TODO |
-   | Edge (latest) | Windows | TODO |
+   | Chrome (latest) | macOS | DONE — works |
+   | Chrome (latest) | Windows | DONE — works out of the box |
+   | Chrome (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Firefox (latest) | macOS | DONE — works |
+   | Firefox (latest) | Windows | DONE — works out of the box |
+   | Firefox (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Vivaldi (latest) | Linux | DONE — works, requires enabling Vulkan + WebGPU flags; native package only (not Flatpak/Snap) |
+   | Safari 18+ | macOS | DONE — works |
+   | Edge (latest) | Windows | DONE — works out of the box |
    | Chrome | Android | TODO |
    | Safari | iOS 18+ | TODO |
+
+   **Completion Notes** (September 16, 2026):
+   - Windows: Chrome, Firefox, and Edge all work right out of the box — no flags needed.
+   - Linux: Chrome, Firefox, and Vivaldi all work, but only when Vulkan and WebGPU are explicitly enabled via browser flags, and only for browsers installed as native packages — Flatpak and Snap installs are not compatible (sandboxing blocks the required GPU/Vulkan access).
 
 2. **Test projects**:
    - 2D: Official 2D demos (sprite, particles, navigation, physics)
@@ -1157,7 +1163,7 @@ All three optimizations were already implemented during Phase 2:
    - Any console errors/warnings?
    - Memory usage?
 
-**Completion Criteria**: Works on Chrome, Firefox, Safari (desktop). Document any browser-specific issues.
+**Completion Criteria**: Works on Chrome, Firefox, Safari (desktop). Document any browser-specific issues. Remaining gap: Android/iOS mobile browser testing.
 
 ---
 
