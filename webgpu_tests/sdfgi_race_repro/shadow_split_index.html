@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SDFGI RW-Storage Shadow-Split Repro (Round 46)</title>
+    <style>
+        body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        h1 { color: #4fc3f7; font-size: 1.2em; }
+        #status { margin: 12px 0; padding: 8px; background: #16213e; border-radius: 4px; }
+        #status.pass { border-left: 3px solid #4caf50; }
+        #status.fail { border-left: 3px solid #f44336; }
+        #status.running { border-left: 3px solid #ff9800; }
+        table { border-collapse: collapse; font-size: 0.85em; margin-bottom: 16px; }
+        td, th { padding: 4px 10px; border: 1px solid #333; text-align: right; }
+        th { color: #4fc3f7; }
+        .diverged { color: #f44336; font-weight: bold; }
+        .ok { color: #4caf50; }
+    </style>
+</head>
+<body>
+    <h1>SDFGI RW-storage shadow-split repro — Round 46</h1>
+    <p>Not Godot, but models real driver code exactly: without the 'readonly-and-readwrite-storage-textures' feature (confirmed absent on this session's real-GPU adapter), the WebGPU driver splits every read_write storage texture into a write-only storage side plus a separate "shadow" sampled texture kept in sync via an explicit copyTextureToTexture issued right before each bind. This repro tests whether that copy-based refresh breaks the same telescoping accumulator that works correctly through direct read_write storage access (race_repro.js/Round 40). See webgpu_notes/TASKS.md Task 9.5 Round 46 / plan-of-attack.md Tier 1 Phase 1.</p>
+    <div id="status">Ready.</div>
+    <div id="results"></div>
+
+    <script type="module">
+        import { runShadowSplitRace } from './shadow_split_repro.js';
+
+        window.testResults = null;
+
+        async function main() {
+            const statusEl = document.getElementById('status');
+            const resultsEl = document.getElementById('results');
+            statusEl.className = 'running';
+            statusEl.textContent = 'Running...';
+
+            const params = new URLSearchParams(location.search);
+            const slacks = params.has('slack')
+                ? params.get('slack').split(',').map(Number)
+                : [0, 1, 2, 4, 8, 16];
+            const calls = params.has('calls') ? Number(params.get('calls')) : 500;
+
+            try {
+                const result = await runShadowSplitRace({ slacks, calls });
+                window.testResults = result;
+
+                for (const r of result.results) {
+                    const table = document.createElement('table');
+                    const caption = document.createElement('caption');
+                    caption.textContent = `slack=${r.slack} calls=${r.calls} diverged=${r.diverged}`;
+                    caption.style.textAlign = 'left';
+                    caption.style.color = '#4fc3f7';
+                    table.appendChild(caption);
+                    const thead = document.createElement('tr');
+                    thead.innerHTML = `<th>call</th><th>avg (expect ${512})</th>`;
+                    table.appendChild(thead);
+                    for (const s of r.samples) {
+                        const tr = document.createElement('tr');
+                        const cls = s.value === 512 ? 'ok' : 'diverged';
+                        tr.innerHTML = `<td>${s.call}</td><td class="${cls}">${s.value}</td>`;
+                        table.appendChild(tr);
+                    }
+                    resultsEl.appendChild(table);
+                }
+
+                statusEl.className = result.reproduced ? 'fail' : 'pass';
+                statusEl.textContent = result.reproduced
+                    ? `REPRODUCED — average diverged from 512 for slack(s): ${result.results.filter(r => r.diverged).map(r => r.slack).join(', ')}`
+                    : 'Not reproduced — average held at 512 for every slack value tried.';
+            } catch (err) {
+                window.testResults = { error: String(err && err.stack || err) };
+                statusEl.className = 'fail';
+                statusEl.textContent = 'ERROR: ' + err;
+                throw err;
+            }
+        }
+
+        if (new URLSearchParams(location.search).has('autorun')) {
+            main();
+        }
+        window.runMain = main;
+    </script>
+</body>
+</html>

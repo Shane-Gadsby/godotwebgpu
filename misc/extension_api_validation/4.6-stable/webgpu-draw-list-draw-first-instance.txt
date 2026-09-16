@@ -1,0 +1,6 @@
+webgpu-draw-list-draw-first-instance
+-------------------------------------
+
+Validate extension JSON: Error: Field 'classes/RenderingDevice/methods/draw_list_draw/arguments': size changed value in new API, from 4 to 5.
+
+Optional argument added. Compatibility methods registered.
