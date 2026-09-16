@@ -2,10 +2,14 @@
   <img src="misc/logo/logo_outlined.svg" width="100" alt="Godot Engine logo">
 </p>
 
-<h1 align="center">Godot <strong>WebGPU</strong></h1>
+<h1 align="center">Godot <strong>WebGPU</strong> Forward+</h1>
 
 <p align="center">
   <strong>🚀 Godot Web Games are now 5x faster 🚀</strong>
+</p>
+
+<p align="center">
+  This is a fork of <a href="https://github.com/dwalter/godotwebgpu">dwalter/godotwebgpu</a>, extending it toward a nearly-full <strong>Forward+</strong> renderer and syncing to a newer upstream Godot release. All credit for originating this project — the WebGPU rendering driver, the SPIR-V&rarr;WGSL shader pipeline, and the original Forward Mobile implementation — goes to <a href="https://x.com/davidpwalter">David Walter</a>. Thank you, David, for doing the hard part first.
 </p>
 
 <p align="center">
@@ -14,7 +18,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Beta-gray?style=flat-square" alt="Beta">
-  <img src="https://img.shields.io/badge/Godot-4.6.2-478cbf?style=flat-square" alt="Godot 4.6.2">
+  <img src="https://img.shields.io/badge/Fork_of-dwalter%2Fgodotwebgpu-8957e5?style=flat-square" alt="Fork of dwalter/godotwebgpu">
+  <img src="https://img.shields.io/badge/Godot-4.7.2-478cbf?style=flat-square" alt="Godot 4.7.2">
+  <img src="https://img.shields.io/badge/Renderer-Forward%2B-478cbf?style=flat-square" alt="Forward+ Renderer">
   <img src="https://img.shields.io/badge/WebGPU-1.0-478cbf?style=flat-square" alt="WebGPU 1.0">
   <img src="https://img.shields.io/badge/Compute_Shaders-supported-d29922?style=flat-square" alt="Compute Shaders">
   <img src="https://img.shields.io/badge/Chrome-113+-478cbf?style=flat-square" alt="Chrome 113+">
@@ -25,10 +31,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Mobile_Renderer-supported-478cbf?style=flat-square" alt="Mobile Renderer">
-  <img src="https://img.shields.io/badge/All_Demos-passing-3fb950?style=flat-square" alt="All Demos Passing">
-  <img src="https://img.shields.io/badge/AI_Generated-Claude_Opus_4.6-8957e5?style=flat-square" alt="AI Generated">
-  <a href="https://shinygen.ai"><img src="https://img.shields.io/badge/Made_for-Shiny_Gen-8957e5?style=flat-square" alt="Made for Shiny Gen"></a>
+  <img src="https://img.shields.io/badge/SDFGI-not_yet_working-red?style=flat-square" alt="SDFGI not yet working">
+  <img src="https://img.shields.io/badge/AI_Generated-Claude-8957e5?style=flat-square" alt="AI Generated">
   <a href="https://github.com/dwalter/godotwebgpu"><img src="https://img.shields.io/badge/Free_%26_Open_Source-MIT-478cbf?style=flat-square" alt="Free & Open Source"></a>
 </p>
 
@@ -63,15 +67,18 @@ Common questions about the WebGPU backend — architecture, performance, compati
 
 ---
 
-## Development Journey
+## About This Fork
 
-I'm [David Walter](https://x.com/davidpwalter), the developer of [Shiny Gen](https://shinygen.ai). I needed better performance on Godot Web and compute shader support for [Shiny Gen](https://shinygen.ai). Instead of switching to three.js, I decided to stick with Godot and implement WebGPU support. Now Shiny Gen runs on Godot WebGPU — super optimized and with compute shaders.
+This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/godotwebgpu)**, the original Godot WebGPU project created by **[David Walter](https://x.com/davidpwalter)** of [Shiny Gen](https://shinygen.ai). David did the foundational work: the entire `drivers/webgpu/` `RenderingDeviceDriver` implementation, the 12-pass SPIR-V-to-WGSL shader pipeline built on Tint, and the original **Forward Mobile** renderer target. None of this fork would exist without that work — thank you, David.
 
-| Date | Milestone |
-|------|-----------|
-| **March 10, 2026** | Started development. Forked Godot 4.6.2, began implementing the WebGPU rendering driver. |
-| **March — May 2026** | Built the full WebGPU backend over ~2 months, working for 4-12 hours a day with Claude Opus 4.6. |
-| **May 10, 2026** | Public beta release. 146 shaders precompiled, 10 demos, 6 benchmarks, zero GPU errors across Chrome, Firefox, and Safari. |
+Building on that base, this fork has two main goals:
+
+- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a nearly-full Forward+ pipeline, with one prominent gap noted below.
+- **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.7.2** (see `webgpu_notes/TASKS.md` Phase 8 for sync history and status).
+
+### ⚠️ Known missing feature: SDFGI
+
+**SDFGI (Signed Distance Field Global Illumination) does not work correctly yet.** It is the most significant remaining gap in Forward+ parity. Enabling `sdfgi_enabled` currently triggers an unresolved brightness-runaway bug: probe irradiance accumulates without bound instead of converging, most likely due to a GPU-side read-after-write hazard around the light-probe history/average textures that WebGPU's automatic hazard tracking isn't catching the way Vulkan/Metal barriers would. This has been under active, heavily-instrumented investigation (see `webgpu_notes/TASKS.md`, Task 9.5) across many rounds without full success yet — real-engine measurements confirm the runaway, but a minimal synthetic repro that reliably reproduces it (needed to pin the exact hazard and fix it) hasn't landed. Until it's resolved, treat SDFGI as **unsupported/experimental**: leave it disabled in projects targeting this WebGPU backend. All other major Forward+ features (clustered lighting, shadows, SSAO, SSR, volumetric fog, GPU particles, compute shaders, etc.) are working.
 
 ---
 
@@ -254,7 +261,7 @@ Common questions about the WebGPU backend — architecture, performance, compati
 | Total new code | ~20,000+ lines |
 | Driver implementation | 7,733 lines (single `.cpp`) |
 | Shaders converted | 146 (SPIR-V → WGSL via Tint) |
-| Renderer | Forward Mobile |
+| Renderer | Forward+ (this fork) / Forward Mobile (original) — SDFGI not yet working, see [Known missing feature: SDFGI](#️-known-missing-feature-sdfgi) |
 | Performance vs native | ~80% of Vulkan/Metal FPS |
 | Performance vs WebGL | Up to 5x faster |
 | Browser support | Chrome 113+, Firefox 120+, Safari 18+, Chrome Android, Safari iOS |
