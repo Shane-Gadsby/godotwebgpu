@@ -175,11 +175,18 @@ jobs:
              "$TEMPLATE_DIR/web_nothreads_debug.zip"
 
           # Run editor headless to import project and compile all shaders
-          # GODOT_DUMP_SPIRV causes all compiled SPIR-V to be written to disk
+          # GODOT_DUMP_SPIRV causes all compiled SPIR-V to be written to disk.
+          # stdbuf forces line-buffered stdout/stderr so that if the editor is
+          # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
+          # last buffered lines — often the actual error — aren't lost before
+          # the process exits without flushing.
           GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 120 \
+            stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --headless --path webgpu_tests/test_project \
-              --export-release "WebGPU" export/index.html || true
+              --export-release "WebGPU" export/index.html \
+            2>&1; GODOT_EXIT=$?
+          echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
 
           echo "SPIR-V files dumped:"
           ls -la /tmp/spirv_dump/ | head -50
