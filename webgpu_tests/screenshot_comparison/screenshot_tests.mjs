@@ -123,11 +123,22 @@ async function captureScreenshots(baseUrl) {
 
     const browsers = [];
 
+    // CI runners have no real GPU, so real-Vulkan WebGPU has no adapter to bind
+    // to and the GPU process dies mid-session (surfacing later as "A valid
+    // external Instance reference no longer exists" on the page). Match the
+    // swiftshader/software fallback other CI scripts already use (see
+    // resource_lifecycle/run_tests.mjs, sdfgi_race_repro/*) instead of the
+    // real-GPU-only flags in capture_screenshots.mjs, which are for local
+    // repro runs on real hardware.
+    const isCI = !!process.env.CI;
+
     // Try to launch Chrome with WebGPU
     try {
         const chrome = await chromium.launch({
             headless: false,
-            args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
+            args: isCI
+                ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
+                : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
         });
         browsers.push({ name: 'chromium', browser: chrome });
         console.log('  Chromium: launched');
@@ -135,7 +146,9 @@ async function captureScreenshots(baseUrl) {
         console.log(`  Chromium: unavailable (${e.message})`);
     }
 
-    // Try to launch Firefox with WebGPU
+    // Try to launch Firefox with WebGPU. Firefox on Linux has no swiftshader-
+    // style software WebGPU fallback, so on a GPU-less CI runner this is
+    // expected to report "No GPU adapter" and be skipped below, not fixed here.
     try {
         const ff = await firefox.launch({
             headless: false,
