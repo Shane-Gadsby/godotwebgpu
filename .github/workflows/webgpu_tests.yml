@@ -32,14 +32,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install glslangValidator
         run: |
@@ -51,7 +51,7 @@ jobs:
       # findTintCli() fallback). Building it directly via build.sh is much faster
       # than a full engine build (see CLAUDE.md).
       - name: Cache tint_convert_cli build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: drivers/webgpu/tint_cli/.build
           key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload WGSL results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: shader-corpus-results
           path: webgpu_tests/shader_corpus/results/
@@ -84,12 +84,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Run driver unit tests
         working-directory: webgpu_tests/driver_unit_tests
@@ -104,12 +104,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v15
         with:
           version: ${{ env.EM_VERSION }}
           no-cache: true
@@ -140,11 +140,17 @@ jobs:
         continue-on-error: true
 
       - name: Upload tint_convert_cli
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tint-convert-cli
           path: bin/tint_convert_cli
           retention-days: 7
+
+      - name: Restore editor sources (removed by web template build)
+        run: |
+          # godot-build's rm -rf editor (to keep editor code out of the export
+          # template build) leaves the checkout without editor/ for this next step.
+          git checkout -- editor/
 
       - name: Build Linux editor (for export + SPIR-V dump)
         run: |
@@ -155,31 +161,54 @@ jobs:
           mkdir -p /tmp/spirv_dump
           mkdir -p webgpu_tests/test_project/export
 
-          # Install WebGPU template (editor looks for web_nothreads_release.zip)
-          mkdir -p ~/.local/share/godot/export_templates/4.6.2.dev
+          # Install WebGPU template (editor looks for web_nothreads_release.zip under
+          # its own version string, e.g. 4.7.2.stable — read from version.py so this
+          # doesn't silently break again on the next version bump).
+          GODOT_VERSION_DIR=$(python3 -c "import version; print(f'{version.major}.{version.minor}.{version.patch}.{version.status}')")
+          TEMPLATE_DIR=~/.local/share/godot/export_templates/$GODOT_VERSION_DIR
+          mkdir -p "$TEMPLATE_DIR"
+          # Export config validation checks for both debug and release templates
+          # even though only the release one is used by --export-release.
           cp bin/godot.web.template_release.wasm32.nothreads.dlink.zip \
-             ~/.local/share/godot/export_templates/4.6.2.dev/web_nothreads_release.zip || true
+             "$TEMPLATE_DIR/web_nothreads_release.zip"
+          cp bin/godot.web.template_release.wasm32.nothreads.dlink.zip \
+             "$TEMPLATE_DIR/web_nothreads_debug.zip"
 
           # Run editor headless to import project and compile all shaders
-          # GODOT_DUMP_SPIRV causes all compiled SPIR-V to be written to disk
+          # GODOT_DUMP_SPIRV causes all compiled SPIR-V to be written to disk.
+          # stdbuf forces line-buffered stdout/stderr so that if the editor is
+          # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
+          # last buffered lines — often the actual error — aren't lost before
+          # the process exits without flushing.
           GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 120 \
+            stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --headless --path webgpu_tests/test_project \
-              --export-release "WebGPU" export/index.html || true
+              --export-release "WebGPU" export/index.html \
+            2>&1; GODOT_EXIT=$?
+          echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
 
           echo "SPIR-V files dumped:"
           ls -la /tmp/spirv_dump/ | head -50
-          echo "Total: $(ls /tmp/spirv_dump/*.spv 2>/dev/null | wc -l) files"
+          SPV_COUNT=$(ls /tmp/spirv_dump/*.spv 2>/dev/null | wc -l)
+          echo "Total: $SPV_COUNT files"
+
+          # Fail loudly here instead of leaving downstream jobs to fail on
+          # missing artifacts with no indication of the actual root cause.
+          if [ "$SPV_COUNT" -eq 0 ] || [ ! -f webgpu_tests/test_project/export/index.html ]; then
+            echo "::error::Export produced no SPIR-V dump and/or no export/index.html — see the editor output above for the real error."
+            exit 1
+          fi
 
       - name: Upload SPIR-V dump
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: spirv-dump
           path: /tmp/spirv_dump/
           retention-days: 7
 
       - name: Upload WebGPU export
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: webgpu-export
           path: webgpu_tests/test_project/export/
@@ -195,23 +224,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Download SPIR-V dump
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spirv-dump
           path: /tmp/spirv_dump/
 
       - name: Download tint_convert_cli
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: tint-convert-cli
           path: bin/
@@ -232,15 +261,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Download WebGPU export
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: webgpu-export
           path: webgpu_tests/test_project/export/
@@ -265,12 +294,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Playwright and browsers
         run: |
@@ -295,12 +324,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Playwright
         run: |
@@ -322,12 +351,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Playwright and browsers
         run: |
@@ -335,16 +364,19 @@ jobs:
           npm init -y
           npm install playwright
           npx playwright install chromium firefox --with-deps
+          sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Run screenshot tests
         working-directory: webgpu_tests/screenshot_comparison
-        run: node screenshot_tests.mjs --update-baselines
+        # screenshot_tests.mjs launches browsers with headless: false (needed for
+        # real WebGPU rendering), so it needs a virtual X server to run in CI.
+        run: xvfb-run -a node screenshot_tests.mjs --update-baselines
         # First run creates baselines. On subsequent runs after baselines are committed,
         # change to: node screenshot_tests.mjs
 
       - name: Upload screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: screenshot-comparison
           path: webgpu_tests/screenshot_comparison/screenshots/
