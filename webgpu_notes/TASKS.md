@@ -3443,4 +3443,82 @@ Confirmed the destination's *base* format (`dest_format.format`, what `texture_g
 
 **Known risk, called out explicitly so it isn't lost when this is picked up**: legs 1-2 (WebGL, WebGPU/Forward Mobile) are known-working paths already benchmarked once before — re-running them is mechanical. Leg 3 (WebGPU/Forward+) is not proven under load — Task 9.5 is still finding real correctness/stability bugs after 44+ investigation rounds (see the unresolved SDFGI brightness-runaway bug). Pushing instance/particle/light counts up via these benchmark scenes on Forward+ for the first time has a real chance of surfacing a new crash/hang/corruption bug rather than a clean FPS number, which would turn this from a benchmarking task into an open-ended debugging one. Scope/estimate this task's effort only for the runner + legs 1-2; treat the Forward+ leg's first run as a discovery step that might spawn its own follow-up task rather than assuming it'll just produce a number.
 
+---
+
+## Phase 10: Post-compatibility Sweep (September 2026)
+
+> **Goal**: With Task 9.5's SDFGI brightness-runaway fix live-verified and `plan-of-attack.md`'s remaining items being incremental hardening rather than blockers, this phase is a fresh, undirected sweep for issues that weren't caught by the targeted investigations in Phases 7-9. Four independent angles, each its own task; none blocks another.
+
+### Task 10.1: Full local CI run (`local_ci.sh`) — catch anything the existing suite already checks for
+**Status**: `TODO`
+**Effort**: hours (mostly build time — full native + web template rebuild)
+**Dependencies**: none
+
+**Motivation**: `local_ci.sh` mirrors what CI runs, but hasn't been run end-to-end (not `--quick`) recently against the current `webgpu-4.7.2` tip, which now includes the Task 9.5 Round 46 SDFGI fix, the FSR1/FSR2 work (9.10-9.15), and the Phase 8 upstream sync. A stale full run could be hiding a regression any of that introduced in a code path the targeted investigations didn't specifically exercise.
+
+**Subtasks**:
+1. Rebuild native editor (`scons platform=linuxbsd target=editor dev_build=yes`) and confirm clean compile with no new warnings beyond the known noise-suppressed set (`webgpu_notes/TASKS.md` Phase 5/7 notes on this).
+2. Rebuild the web WebGPU export template (`scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no`), confirm `wgsl_precompile.py` reports zero Tint conversion failures (per Task 9.7's baseline).
+3. Run `./webgpu_tests/local_ci.sh` (full, not `--quick`) and capture full output: shader corpus, driver unit tests, preprocessing tests, resource lifecycle, screenshot comparison (all tiers, including SPIR-V dump validation and scene smoketest which need the full builds from steps 1-2).
+4. Triage any failure: distinguish a genuine new regression from stale fixture/baseline drift (screenshot comparison baselines in particular — see `plan-of-attack.md` item 2, they're currently regenerated every run via `--update-baselines`, so a real regression could already be masked there; cross-check by hand rather than trusting a green run at face value).
+5. File any confirmed new bug as its own task in this phase (10.5+) rather than fixing inline, so the sweep's scope stays bounded.
+
+---
+
+### Task 10.2: Audit `drivers/webgpu/` against the three base-class interfaces for gaps
+**Status**: `TODO`
+**Effort**: 1 day, static analysis only, no build needed to start (a native build helps confirm nothing's silently falling back to a base default)
+**Dependencies**: none
+
+**Motivation**: `CLAUDE.md`'s standing rule — "Any change to these three base-class headers requires auditing all pure-virtual overrides in `drivers/webgpu/` for gaps — a missing override doesn't always show as a compile error if the base class still provides a default, but calling it can silently misbehave or fail to link." Upstream sync (Phase 8) and the FSR1/FSR2 work both touched shared renderer code that calls into the driver; this audit hasn't been redone since before that work landed.
+
+**Subtasks**:
+1. Diff `servers/rendering/rendering_device_driver.h`, `rendering_context_driver.h`, `rendering_shader_container.h` against the pre-Phase-8 sync point (find the commit before the 4.7.2 sync in `git log`) to enumerate every method signature added, removed, or changed.
+2. For each changed/added virtual method, confirm `drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}` (or the context/shader-container equivalents) has a real override, not a silently-inherited base default — grep for the method name across all four webgpu driver files and cross-reference against Vulkan/Metal's overrides as the "should exist" baseline.
+3. Specifically re-check the `API_TRAIT_*` block in `rendering_device_driver.h` (called out in `CLAUDE.md` as heavily-commented for a reason) against `api_trait_get()`'s base-class default in `rendering_device_driver.cpp` and WebGPU's override — confirm every trait WebGPU relies on has a correct non-WebGPU default so Vulkan/Metal/D3D12 don't `ERR_FAIL_V(0)` when shared code queries it, and that no trait added since the last audit is missing a WebGPU-side override.
+4. Cross-check `RenderingShaderContainerFormat`'s interface similarly against `rendering_shader_container_webgpu.{h,cpp}`.
+5. Record any gap found as its own numbered task (10.5+); if the audit comes back clean, record that explicitly (with the commit range checked) so the next sweep knows where the last clean baseline was.
+
+---
+
+### Task 10.3: Re-assess old open TODOs — Tasks 7.8, 7.15, 7.17, 7.18
+**Status**: `TODO`
+**Effort**: half a day to re-triage all four; each may spawn its own follow-up fix task if still real
+**Dependencies**: none
+
+**Motivation**: these four were identified and left as `TODO`/speculative during Phase 7's April 2026 audit — before the Phase 8 upstream sync, all of Phase 9's Forward+ work, and Task 9.15's WGSL-patching architecture changes. A lot of the surrounding code has changed since; each needs a fresh look to confirm it's still accurate, still reproducible, and still worth fixing as originally scoped.
+
+**Subtasks**:
+1. **Task 7.8** (buffer mapping returns stale/zero data): re-read the original write-up in `TASKS.md` (~L1829), re-check whether the described code path still exists as described post-sync, and if so, attempt a fresh minimal repro.
+2. **Task 7.15** (`WGUniformSet` temp_views may leak): re-read the original write-up (~L1918), check current `webgpu_objects.h`/`rendering_device_driver_webgpu.cpp` for whether the described lifetime issue still applies, and if it does, characterize the actual leak (does it grow unbounded across frames, or reset per-frame in a way that makes this benign in practice).
+3. **Task 7.17** (specialized shader module cleanup): re-read (~L1931) — likely intersects with `plan-of-attack.md` item 5 (the specialization-constant legacy path); check whether that overlap means this should be folded into item 5 instead of tracked separately.
+4. **Task 7.18** (WGSL string remapping fragility): re-read (~L1938) — Task 9.15 already migrated some WGSL-text patches to Tint IR-level transforms and explicitly assessed (but didn't migrate) others; check whether 9.15's investigation already supersedes this task's concern or narrows what's actually still fragile.
+5. For each of the four, update its `Status` in place (`DONE`/`SKIPPED` with reasoning, `CONFIRMED — still open` with a fresh repro, or superseded/folded into another task) rather than leaving it as a stale `TODO`.
+
+---
+
+### Task 10.4: Fresh live testing against the real test project, looking for uncovered issues
+**Status**: `TODO`
+**Effort**: 1-2 days, needs a real GPU + browser session
+**Dependencies**: benefits from Task 10.1's rebuild being done first (fresh binaries), but not blocking
+
+**Motivation**: every fixture-based test tier (`shader_corpus`, `driver_unit_tests`, `preprocessing_tests`, `resource_lifecycle`, `screenshot_comparison`) only covers what it was written to cover. The deepest real bugs found in this project so far (SDFGI runaway, FSR1/2 crashes) were all found by live-testing the user's actual project, not by a fixture. Per user memory, the real testing location is `~/Downloads/cameraSim_.../testing`, not `webgpu_tests/test_project`.
+
+**Subtasks**:
+1. Follow `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`'s setup against the real test project: scratch-copy setup, export-freshness verification.
+2. Capture a native-Vulkan baseline (screen recording) and a WebGPU capture (Playwright screenshot + console) for a range of scenes/features beyond just the SDFGI scene that's already been exhaustively covered by Task 9.5 — prioritize scenes/features that haven't had a dedicated investigation round yet (check `TASKS.md` Task 9.5's round log to see what's already been covered vs. not).
+3. Watch the browser console for any warning/error not already accounted for by Task 9.8's suppressed "code is unreachable" noise.
+4. Diff native vs. WebGPU visually and numerically (per the methodology doc's guidance on reading engine data back out for non-visual comparisons) for any drift, however subtle — SDFGI's bug was a slow brightness ramp, not an obvious glitch, so short captures or a quick eyeball pass may not be enough; favor longer captures for anything accumulator/history-buffer-based.
+5. File any confirmed new issue as its own numbered task (10.5+) with severity/repro steps, following the Status/Severity/Lines/Issue/Investigation format used elsewhere in this doc.
+
 **Completion Criteria**: `run_benchmark.sh` (or its replacement) runs end-to-end on Linux for all three renderer legs across all 7 scenes without manual macOS-only steps; README benchmark tables reflect real fork-specific numbers.
+
+
+
+---
+
+### Task 11: Builds fail to load when Extension support isn't enabled in the export settings with error "Aborted(native code called abort())"
+**Status**: `TODO`
+**Effort**: 1 day, needs a real GPU + browser session
+1. Identify the changes made since 07e756ac5b32fa32695d9b107b9f7729dbd576e6 where builds with extensions disabled still worked
+2. Fix whatever was identified as the issue
