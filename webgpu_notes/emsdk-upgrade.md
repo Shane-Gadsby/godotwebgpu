@@ -1,6 +1,6 @@
 # emsdk / Dawn / Tint Upgrade Plan
 
-**Status**: `IN PROGRESS, Phase 6 mostly done` — Phases 0.1, 1, 2, 3, 4 fully done. Phase 5 partially done (5.3 + a bonus feature-detection cleanup landed; 5.1/5.2/5.4 deferred with reasoning). Phase 6 (regression sweep) mostly done: full standalone suite green (one pre-existing Firefox issue, one real test-infra bug found+fixed), 8/8 benchmark scenes clean on real GPU, the user's real project clean over a 330s real-GPU capture with the full feature matrix stacked, native Vulkan regression-free — and the SDFGI brightness-runaway bug (Task 9.5 item 11) shows strong evidence of no longer reproducing (not yet user-confirmed hands-on). Phase 0.2's own pre-upgrade baseline capture was never done (flagged repeatedly) — Phase 6 was diffed against `TASKS.md`'s prior written state instead, a real but acknowledged gap. Next: Phase 7 (docs/cleanup finalization) and Phase 8 (rollout/PR) — see Phase 6's own "not fully closed" note for what should happen before treating this as truly done.
+**Status**: `IN PROGRESS, Phases 0.1/1/2/3/4/6/7 done, Phase 5 partial, Phase 8 not started` — full standalone test suite green (one pre-existing Firefox issue, one real test-infra bug found+fixed), 8/8 benchmark scenes clean on real GPU, the user's real project clean over a 330s real-GPU capture with the full feature matrix stacked, native Vulkan regression-free. **The user has since confirmed by hand that SDFGI renders correctly** — corroborating Phase 6.2.4's finding that the long-standing brightness-runaway bug (Task 9.5 item 11) no longer reproduces. Phase 5 landed 5.3 (multi-draw-indirect) plus a bonus feature-detection cleanup; 5.1/5.2/5.4 deliberately deferred with reasoning recorded in place. Phase 0.2's own pre-upgrade baseline capture was never done (flagged repeatedly) — Phase 6 was diffed against `TASKS.md`'s prior written state instead, a real but acknowledged gap, not silently glossed over. **Also found (separately from this branch, via the user's own testing) and recorded**: two real `threads=yes` crash signatures, pre-existing/untested territory (`TASKS.md` Task 12), not a regression from this work. Phase 8 (rollout — opening a PR, i.e. pushing) intentionally not started; needs the user's explicit go-ahead per this session's local-commits-only standing rule.
 
 **Correction (2026-09-18)**: the `5e16f308c7` commit message claimed the `pre-emsdk-upgrade` tag was created as part of Phase 0.1, but it was never actually pushed to the repo — `git tag -l` showed nothing. Created for real this session, pointing at `2e128619e3` (the actual `emsdk-upgrade`/`webgpu-4.7.2` merge-base, i.e. true prior `HEAD`).
 
@@ -247,25 +247,27 @@ This is the "whatever changes will be required to get back to a fully working fo
 
 ---
 
-## Phase 7: Documentation & Cleanup
+## Phase 7: Documentation & Cleanup — `DONE` (2026-09-18)
 
-### 7.1 Update version references (finalize what Phase 2.1.6 started)
-- 7.1.1 `CLAUDE.md` — Emscripten version requirement, `emsdk_env.sh` example.
-- 7.1.2 `drivers/webgpu/README.md` — prerequisite line, and its "Known Limitations" section: remove/qualify any limitation Phase 5 actually resolved (16-bit norm formats, multi-draw-indirect, subgroups — only the ones genuinely adopted and verified, not just toolchain-available).
-- 7.1.3 `thirdparty/README.md` — confirm Phase 3.4.5's version bumps are all in (tint, spirv-tools, spirv-headers).
-- 7.1.4 `webgpu_site/TECHNICAL_REFERENCE.md` / `CORRECTNESS_AND_COMPATIBILITY.md` — update anything describing the current toolchain version or the limitations Phase 5 changed.
+### 7.1 Update version references (finalize what Phase 2.1.6 started) — `DONE`
+- 7.1.1 `CLAUDE.md` — already updated in Phase 2 (`4.0.10+ ... this fork pins 6.0.9`).
+- 7.1.2 `drivers/webgpu/README.md` — "Known Limitations" section updated: the multi-draw-indirect line now describes the native-fast-path-with-fallback behavior Phase 5.3 landed, instead of "each indirect draw dispatched individually." 16-bit norm formats and subgroups were never in this list to begin with (nothing to remove there); subgroups' `LIMIT_SUBGROUP_IN_SHADERS reports 0` line is left as-is since 5.4 deliberately kept it unchanged.
+- 7.1.3 `thirdparty/README.md` — confirmed current: Tint bumped to `b975919d...` with the 10-patch list (Phase 3 commit), spirv-tools/spirv-headers deliberately left unchanged (Phase 3's own documented decision not to downgrade).
+- 7.1.4 `webgpu_site/FAQ.md` and `webgpu_site/TECHNICAL_REFERENCE.md` updated (version line, multi-draw-indirect description). `ARCHITECTURE_AND_DESIGN.md`/`CORRECTNESS_AND_COMPATIBILITY.md`/`PERFORMANCE_AND_OPTIMIZATION.md` checked — no toolchain-version or limitation text there needing an update.
 
-### 7.2 Update `webgpu_notes/TASKS.md`
-- 7.2.1 Add a new dated entry (following the existing per-task Status/Severity/Lines/Issue/Investigation format) documenting: the version bump itself, which Phase 5 items were adopted vs. deferred and why, and the outcome of Phase 6's regression sweep — especially 6.2.4's SDFGI-runaway re-check result, since that directly affects Task 9.5's next-round priority.
-- 7.2.2 If 6.2.3 found the cascade-array-flattening limitation resolved or changed, update that item's status.
-- 7.2.3 If 5.1 was adopted, update Task 9.5 item 7's writeup to describe the new native mechanism rather than leaving only the Round-21 workaround history — keep the Round-21 history for context (it explains *why* the workaround existed), but mark it superseded.
+### 7.2 Update `webgpu_notes/TASKS.md` — `DONE`
+- 7.2.1 Added a new dated top-of-file entry (following the file's own "Last Updated" running-note convention, most-recent-first) summarizing the version bump, Task 15's fix, Phase 5's adoption/deferral split, and Phase 6's regression sweep outcome including the SDFGI item-11 finding.
+- 7.2.2 Task 9.5 Round 36's `flatten_binding_arrays` entry: confirmed via Phase 6.2.3 to be this fork's own preprocessing-pass behavior, not a Tint-version-dependent one — no status change needed there (nothing about it changed), documented as a one-time clarification in this doc's own Phase 6 section instead of editing that history entry.
+- 7.2.3 5.1 (SDFGI shareable-format native migration) was deferred, not adopted — no update needed to Task 9.5 item 7's writeup. Task 9.5 item 11 *was* updated with the new Round 40 entry (Phase 6.2.4's finding), which is the more directly relevant one this phase actually touched.
 
-### 7.3 This document
-- 7.3.1 Once all phases are complete and Phase 6.6 sign-off is met, update this document's Status line to `DONE` and add a short closing summary (final version table, what was adopted from Phase 5, what was deferred and why) at the top, mirroring `TASKS.md`'s "CURRENT STATUS" convention.
+### 7.3 This document — status kept `IN PROGRESS`, not `DONE`
+- 7.3.1 **Not marking this document fully `DONE`** — Phase 6.6's own sign-off note flagged Phase 0.2's baseline gap as a real, unclosed item, and Phase 5.1/5.2 remain deliberately deferred (not abandoned). The top status line reflects this precisely rather than rounding up to a clean "done." What's genuinely finished: Phases 0.1, 1, 2, 3, 4, 6, 7 fully; Phase 5 partially (5.3 + bonus cleanup landed, 5.1/5.2/5.4 deferred with reasoning). What's left: Phase 8 (rollout — see below, deliberately not started this session) and, longer-term, the deferred Phase 5 items plus Task 12/15's own follow-ups (both tracked in `TASKS.md`, not blocking this branch's own usability).
 
 ---
 
-## Phase 8: Rollout
+## Phase 8: Rollout — **not started, needs explicit go-ahead**
+
+This phase's own 8.1.1 is "open a PR from the upgrade branch" — which means pushing the branch. This session operates under a standing rule of local commits only, never pushing without the user explicitly asking for that specific action. Every phase through 7 is committed locally on `emsdk-upgrade` and ready to push whenever asked; nothing in this phase has been started.
 
 ### 8.1
 - 8.1.1 Open a PR from the upgrade branch into `webgpu-4.7.2` including the full Phase 6 verification evidence (test output, live-capture screenshots) in the description — this is a toolchain-wide change touching every shader path, so the review bar should be "show the regression sweep," not just "CI is green."
