@@ -58,7 +58,7 @@ async function launchChrome(pw) {
             args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu'],
         });
     }
-    return pw.chromium.launch({ headless: false, executablePath: '/usr/bin/google-chrome', args: [] });
+    return pw.chromium.launch({ headless: false, executablePath: '/usr/bin/google-chrome-stable', args: ['--use-vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'] });
 }
 
 async function main() {
