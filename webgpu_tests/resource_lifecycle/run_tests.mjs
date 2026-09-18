@@ -64,8 +64,16 @@ async function runWithPlaywright(url) {
             headless: false,
             executablePath: process.platform === 'darwin'
                 ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-                : process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : '/usr/bin/google-chrome',
-            args: [],
+                : process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : '/usr/bin/google-chrome-stable',
+            // Without explicit args Playwright injects its own defaults (notably
+            // --enable-unsafe-swiftshader), which fights real GPU/Vulkan driver setups
+            // and produces "Failed to get GPU adapter" instead of a working page --
+            // see the identical fix in scene_smoketest/run_scenes.mjs's launchChrome().
+            args: [
+                '--use-vulkan',
+                '--enable-features=Vulkan',
+                '--ignore-gpu-blocklist',
+            ],
         };
     const browser = await chromium.launch(launchOpts);
 

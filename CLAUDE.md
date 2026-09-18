@@ -17,7 +17,7 @@ Two build targets matter here: the **native editor** (fast, no Emscripten needed
 scons platform=linuxbsd target=editor dev_build=yes -j$(nproc)   # Linux
 scons platform=macos target=editor dev_build=yes -j$(nproc)      # macOS
 
-# Web WebGPU export template — the real target, requires Emscripten 4.0.10+ with emdawnwebgpu:
+# Web WebGPU export template — the real target, requires Emscripten 4.0.10+ with emdawnwebgpu (this fork pins 6.0.9):
 source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)
 ```

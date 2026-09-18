@@ -148,22 +148,6 @@ struct State {
                     ptr = let->Value();
                     continue;
                 }
-                if (auto* construct = result->Instruction()->As<Construct>()) {
-                    // In the MSL backend, buffer_view can decompose into bundled parameters.
-                    TINT_IR_ASSERT(ir, construct->Operands()[0]->Type()->Is<type::Pointer>());
-                    ptr = construct->Operands()[0];
-                    continue;
-                }
-                if (auto* call = result->Instruction()->As<BuiltinCall>()) {
-                    // Various builtins return a pointer:
-                    // * bufferView
-                    // * bufferArrayView
-                    // * msl.pointer_offset
-                    if (call->Args()[0]->Type()->Is<type::Pointer>()) {
-                        ptr = call->Args()[0];
-                        continue;
-                    }
-                }
                 TINT_IR_UNREACHABLE(ir) << "unhandled source of a storage buffer pointer: "
                                         << result->Instruction()->TypeInfo().name;
             }
@@ -325,23 +309,18 @@ struct State {
                 // array_length = --------------------------------
                 //                             array_stride
                 auto* array_size = total_buffer_size;
-                uint32_t array_stride = 0;
+                const type::Array* array_type = nullptr;
                 if (auto* str = info.store_type->As<core::type::Struct>()) {
                     // The variable is a struct, so subtract the byte offset of the array member.
                     auto* member = str->Members().Back();
-                    auto* array_type = member->Type()->As<core::type::Array>();
+                    array_type = member->Type()->As<core::type::Array>();
                     array_size = b.Subtract(total_buffer_size, u32(member->Offset()))->Result();
-                    array_stride = array_type->ImplicitStride();
-                } else if (info.store_type->Is<core::type::Buffer>()) {
-                    array_stride = 1;
                 } else {
-                    array_stride = info.store_type->As<core::type::Array>()->ImplicitStride();
+                    array_type = info.store_type->As<core::type::Array>();
                 }
+                TINT_IR_ASSERT(ir, array_type);
 
-                auto* length = array_size;
-                if (array_stride != 1) {
-                    length = b.Divide(array_size, u32(array_stride))->Result();
-                }
+                auto* length = b.Divide(array_size, u32(array_type->ImplicitStride()))->Result();
                 constructor_values.Push(length);
             }
             lengths_constructor->SetOperands(std::move(constructor_values));

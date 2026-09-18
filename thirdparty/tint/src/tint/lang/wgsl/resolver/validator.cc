@@ -300,10 +300,11 @@ bool Validator::Enables(VectorRef<const ast::Enable*> enables) const {
         }
     }
 
-    if (enabled_extensions_.Contains(wgsl::Extension::kSubgroupSizeControl) &&
+    if (enabled_extensions_.Contains(wgsl::Extension::kChromiumExperimentalSubgroupSizeControl) &&
         !enabled_extensions_.Contains(wgsl::Extension::kSubgroups)) {
-        AddError(source_of(wgsl::Extension::kSubgroupSizeControl))
-            << "extension " << style::Code(wgsl::Extension::kSubgroupSizeControl)
+        AddError(source_of(wgsl::Extension::kChromiumExperimentalSubgroupSizeControl))
+            << "extension "
+            << style::Code(wgsl::Extension::kChromiumExperimentalSubgroupSizeControl)
             << " cannot be used without extension " << style::Code(wgsl::Extension::kSubgroups);
         return false;
     }
@@ -1424,10 +1425,12 @@ bool Validator::Function(const sem::Function* func, ast::PipelineStage stage) co
                 return true;
             },
             [&](const ast::SubgroupSizeAttribute*) {
-                if (!enabled_extensions_.Contains(wgsl::Extension::kSubgroupSizeControl)) {
+                if (!enabled_extensions_.Contains(
+                        wgsl::Extension::kChromiumExperimentalSubgroupSizeControl)) {
                     AddError(attr->source)
                         << "use of " << style::Attribute("@subgroup_size")
-                        << " requires enabling extension " << style::Code("subgroup_size_control");
+                        << " requires enabling extension "
+                        << style::Code("chromium_experimental_subgroup_size_control");
                     return false;
                 }
                 if (decl->PipelineStage() != ast::PipelineStage::kCompute) {

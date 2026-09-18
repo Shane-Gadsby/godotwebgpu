@@ -34,8 +34,6 @@
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/builtin_structs.h"
-#include "src/tint/lang/core/type/matrix.h"
-#include "src/tint/lang/core/type/vector.h"
 #include "src/tint/lang/spirv/ir/builtin_call.h"
 #include "src/tint/utils/containers/hashmap.h"
 #include "src/tint/utils/containers/hashset.h"
@@ -476,8 +474,27 @@ struct State {
                     cur_ty = str->Members()[const_idx]->Type();
                 },
                 [&](const core::type::Array* arr) { cur_ty = arr->ElemType(); },
+                // GODOT WEBGPU PATCH: this switch previously handled only Struct/Array,
+                // silently leaving `cur_ty` unchanged (falling through the `tint::Switch`
+                // with no case, and no TINT_ICE_ON_NO_MATCH to catch it) for any access
+                // chain that indexes past a struct member into a Matrix (column) or
+                // Vector (component) -- e.g. a struct member that is itself a mat4x4,
+                // accessed one column at a time. When that struct also has an unrelated
+                // sibling member being converted to atomic (triggering this whole
+                // ConvertUsagesToAtomic() sweep over every access chain rooted at the same
+                // base pointer, atomic or not), the wrong resulting type (matrix instead
+                // of its column vector) gets treated as a real change vs. the access's
+                // original type, which incorrectly marks a completely non-atomic value as
+                // needing further atomic-usage fixup -- surfacing later as
+                // `TINT_ASSERT(ld->From()->Type()->UnwrapPtr()->Is<core::type::Atomic>())`
+                // on an ordinary (non-atomic) Load. See webgpu_notes/TASKS.md Task 15 for
+                // the diagnosis (found via servers/rendering/renderer_rd/shaders/
+                // particles.glsl's ParticleEmission struct: an array of structs whose
+                // first member is a mat4x4 "transform", indexed per-column, sitting
+                // alongside SourceEmission's unrelated atomic `particle_count` member).
                 [&](const core::type::Matrix* mat) { cur_ty = mat->ColumnType(); },
-                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); });
+                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); },
+                TINT_ICE_ON_NO_MATCH);
         }
         return ty.ptr(ptr->AddressSpace(), cur_ty, ptr->Access());
     }
@@ -498,9 +515,7 @@ struct State {
 
                     cur_ty = str->Members()[const_idx]->Type();
                 },                                                                //
-                [&](const core::type::Array* ary) { cur_ty = ary->ElemType(); },      //
-                [&](const core::type::Matrix* mat) { cur_ty = mat->ColumnType(); },  //
-                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); },        //
+                [&](const core::type::Array* ary) { cur_ty = ary->ElemType(); },  //
                 TINT_ICE_ON_NO_MATCH);
         }
     }

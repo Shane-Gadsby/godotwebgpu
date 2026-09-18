@@ -122,7 +122,6 @@ struct State {
 Result<SuccessType> RemoveContinueInSwitch(Module& ir) {
     core::ir::AssertValid(ir,
                           core::ir::Capabilities{
-                              core::ir::Capability::kAllow8BitIntegers,
                               core::ir::Capability::kAllow16BitIntegers,
                               core::ir::Capability::kAllowVectorElementPointer,
                               core::ir::Capability::kAllowHandleVarsWithoutBindings,

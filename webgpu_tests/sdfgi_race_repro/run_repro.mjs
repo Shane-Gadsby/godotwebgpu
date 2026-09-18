@@ -73,8 +73,8 @@ async function launchChrome(pw) {
         ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
         : process.platform === 'win32'
             ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-            : '/usr/bin/google-chrome';
-    return pw.chromium.launch({ headless: false, executablePath, args: [] });
+            : '/usr/bin/google-chrome-stable';
+    return pw.chromium.launch({ headless: false, executablePath, args: ['--use-vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'] });
 }
 
 async function main() {

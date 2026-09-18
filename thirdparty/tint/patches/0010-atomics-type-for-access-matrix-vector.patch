@@ -1,0 +1,34 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
+index 7ddc585e01..c1c1e6adcb 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
+@@ -473,7 +473,28 @@ struct State {
+                     auto const_idx = const_val->Value()->ValueAs<uint32_t>();
+                     cur_ty = str->Members()[const_idx]->Type();
+                 },
+-                [&](const core::type::Array* arr) { cur_ty = arr->ElemType(); });
++                [&](const core::type::Array* arr) { cur_ty = arr->ElemType(); },
++                // GODOT WEBGPU PATCH: this switch previously handled only Struct/Array,
++                // silently leaving `cur_ty` unchanged (falling through the `tint::Switch`
++                // with no case, and no TINT_ICE_ON_NO_MATCH to catch it) for any access
++                // chain that indexes past a struct member into a Matrix (column) or
++                // Vector (component) -- e.g. a struct member that is itself a mat4x4,
++                // accessed one column at a time. When that struct also has an unrelated
++                // sibling member being converted to atomic (triggering this whole
++                // ConvertUsagesToAtomic() sweep over every access chain rooted at the same
++                // base pointer, atomic or not), the wrong resulting type (matrix instead
++                // of its column vector) gets treated as a real change vs. the access's
++                // original type, which incorrectly marks a completely non-atomic value as
++                // needing further atomic-usage fixup -- surfacing later as
++                // `TINT_ASSERT(ld->From()->Type()->UnwrapPtr()->Is<core::type::Atomic>())`
++                // on an ordinary (non-atomic) Load. See webgpu_notes/TASKS.md Task 15 for
++                // the diagnosis (found via servers/rendering/renderer_rd/shaders/
++                // particles.glsl's ParticleEmission struct: an array of structs whose
++                // first member is a mat4x4 "transform", indexed per-column, sitting
++                // alongside SourceEmission's unrelated atomic `particle_count` member).
++                [&](const core::type::Matrix* mat) { cur_ty = mat->ColumnType(); },
++                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); },
++                TINT_ICE_ON_NO_MATCH);
+         }
+         return ty.ptr(ptr->AddressSpace(), cur_ty, ptr->Access());
+     }

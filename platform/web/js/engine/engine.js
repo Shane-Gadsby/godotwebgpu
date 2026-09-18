@@ -352,6 +352,10 @@ const Engine = (function () {
 				'texture-compression-bc',
 				'texture-compression-etc2',
 				'texture-compression-astc',
+				// Single native call instead of looping per-draw for indirect draw
+				// batches -- see command_render_draw_indirect()/
+				// command_render_draw_indexed_indirect() in the WebGPU driver.
+				'multi-draw-indirect',
 			];
 			for (let i = 0; i < optionalFeatures.length; i++) {
 				if (adapter.features.has(optionalFeatures[i])) {

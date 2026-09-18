@@ -1112,12 +1112,15 @@ Files extracted from upstream source:
 ## tint
 
 - Upstream: https://dawn.googlesource.com/dawn (src/tint/)
-- Version: git (db49a5496374b1f7284e0b9c8f2964c01d4bb20a, 2026)
+- Version: git (b975919dfb45406ca17162e4d44c74a650caa679, 2026)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
 
 - `src/tint/` folder (extracted via `extract_tint.sh`)
+- `src/utils/{compiler.h,numeric.h}` (Dawn top-level `src/utils/`, sibling to `src/tint/` — a small
+  dependency `extract_tint.sh` doesn't copy itself, referenced via `#include "src/utils/..."` from a
+  few files inside `src/tint/`)
 - `LICENSE`
 
 Patches:
@@ -1130,7 +1133,8 @@ Patches:
 - `0006-remove-abseil-dependency.patch` — Replace `absl::from_chars` with `std::from_chars`
 - `0007-support-spirv-1-4-target-env.patch` — Bump the reader's hardcoded SPIR-V validation target env from `SPV_ENV_VULKAN_1_1` (≤1.3) to `SPV_ENV_VULKAN_1_2` (≤1.5); defense-in-depth, not required by this fork's actual (SPIR-V 1.3-targeting) WebGPU pipeline — see `webgpu_notes/TASKS.md` Task 8.6
 - `0008-handle-phony-texture-usages.patch` — Handle `Phony` instructions when converting texture/sampler resource usages, needed only if SPIR-V 1.4 input is ever encountered
-- `0009-allow-phony-instructions-capability.patch` — Add `kAllowPhonyInstructions` to the reader's final IR validation capability set, same SPIR-V 1.4 defense-in-depth as 0007/0008
+- `0009-allow-phony-instructions-capability.patch` — Add `kAllowPhonyInstructions` to the reader's final IR validation capability set, same SPIR-V 1.4 defense-in-depth as 0007/0008; reapplied by hand for the 2026-09-18 resync (patch context drift, not a real conflict — see `webgpu_notes/emsdk-upgrade.md` Phase 3.2)
+- `0010-atomics-type-for-access-matrix-vector.patch` — Add `Matrix`/`Vector` cases (plus a `TINT_ICE_ON_NO_MATCH` fallback) to the atomics-lowering pass's `TypeForAccess()` access-chain type walk, which previously handled only `Struct`/`Array` and silently miscomputed the type of any access chain indexing past a struct member into a matrix column or vector component — see `webgpu_notes/TASKS.md` Task 15
 
 Used for SPIR-V to WGSL translation in the WebGPU rendering backend.
 Requires spirv-tools and spirv-headers.

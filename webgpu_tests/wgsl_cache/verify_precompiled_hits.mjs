@@ -70,11 +70,11 @@ server.listen(0, async () => {
 			? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 			: process.platform === 'win32'
 				? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-				: '/usr/bin/google-chrome';
+				: '/usr/bin/google-chrome-stable';
 		browser = await pw.chromium.launch({
 			headless: false,
 			executablePath,
-			args: [],
+			args: ['--use-vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'],
 		});
 		const context = await browser.newContext();
 		const page = await context.newPage();

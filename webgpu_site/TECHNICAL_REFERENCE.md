@@ -124,7 +124,7 @@ Compute passes are lazily begun in `command_bind_compute_pipeline` (only creates
 
 - `command_render_draw`: Flushes push constants, issues `wgpuRenderPassEncoderDraw`
 - `command_render_draw_indexed`: Same, plus selects strip-topology pipeline variant based on current index format
-- Indirect draws: loop over `p_draw_count` (WebGPU has no multi-draw-indirect)
+- Indirect draws: uses the native `multi-draw-indirect` feature in one call when available and the buffer stride matches WebGPU's implicit draw-struct layout; otherwise loops over `p_draw_count`
 - `draw_indexed_indirect_count`: uses `p_max_draw_count` (no async count readback implemented)
 
 ### 2.5 Redundant State Elimination
