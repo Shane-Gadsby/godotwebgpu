@@ -58,7 +58,7 @@ void NextIteration::Destroy() {
     if (loop_) {
         loop_->Body()->RemoveInboundSiblingBranch(this);
     }
-    Base::Destroy();
+    Instruction::Destroy();
 }
 
 NextIteration* NextIteration::Clone(CloneContext& ctx) {

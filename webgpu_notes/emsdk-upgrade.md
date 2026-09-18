@@ -1,6 +1,6 @@
 # emsdk / Dawn / Tint Upgrade Plan
 
-**Status**: `IN PROGRESS` — Phase 0.1 fixed, Phase 1 (versions/breaking-changes/feature audit) fully done, Phase 2 (mechanical emsdk bump + first web build) done with one real fix applied and verified working end to end (shader corpus, unit tests, Chrome scene smoketest all green under `6.0.9`). Phase 0.2 (known-good pre-upgrade baseline capture) still not done — was skipped in favor of getting Phase 2 signal first; should be backfilled by diffing against a `pre-emsdk-upgrade`-tag run before Phase 3 lands, so there's still a trustworthy "before" for the bigger Tint/spirv-tools resync. Phase 3 (vendored Tint/spirv-tools resync) not started next.
+**Status**: `IN PROGRESS` — Phase 0.1 fixed, Phase 1 (versions/breaking-changes/feature audit) fully done, Phase 2 (mechanical emsdk bump + first web build) done and verified, Phase 3 (vendored Tint/spirv-tools resync) done except for **one open regression** (Task 15 in `TASKS.md` — a real Tint-internal ICE on `particles.glsl:default:comp`, root cause narrowed but not fixed). Phase 0.2 (known-good pre-upgrade baseline capture) still not done — was skipped in favor of getting Phase 2/3 signal first; should be backfilled by diffing a `pre-emsdk-upgrade`-tag run against current results before declaring Phase 6 sign-off, so there's still a trustworthy "before" independent of this doc's own running notes. Next: resolve Task 15, then Phase 4 (`wgsl_precompile.py` sanity — mostly exercised already by Phase 3.4's forced regen) and Phase 5 (adopting the four confirmed-available native features from Phase 1.3).
 
 **Correction (2026-09-18)**: the `5e16f308c7` commit message claimed the `pre-emsdk-upgrade` tag was created as part of Phase 0.1, but it was never actually pushed to the repo — `git tag -l` showed nothing. Created for real this session, pointing at `2e128619e3` (the actual `emsdk-upgrade`/`webgpu-4.7.2` merge-base, i.e. true prior `HEAD`).
 
@@ -127,36 +127,29 @@ Pure version-pin work. No driver logic changes in this phase — the goal is "sa
 
 ---
 
-## Phase 3: Vendored Library Sync (Tint / spirv-tools / spirv-headers)
+## Phase 3: Vendored Library Sync (Tint / spirv-tools / spirv-headers) — `DONE` (2026-09-18)
 
 Tint is vendored independently of emsdk (extracted from a pinned Dawn commit via `extract_tint.sh`, per `thirdparty/README.md`), so this is a separate, decoupled bump — sequence it after Phase 2 succeeds, so a Tint-caused regression is never confused with an emsdk-caused one.
 
-### 3.1 Re-extract Tint
-- 3.1.1 Run `extract_tint.sh` (or whatever the current script path is — confirm via `thirdparty/README.md`'s "extracted via" note) against the Tint commit identified in 1.1.3.
-- 3.1.2 Diff the newly-extracted `thirdparty/tint/src/tint/` tree against the current vendored copy to get a sense of change volume before applying patches (a small diff vs. a near-total rewrite changes how much manual patch-conflict work to expect).
+### 3.1 Re-extract Tint — `DONE`
+- 3.1.1 Fetched Dawn at `b975919dfb45406ca17162e4d44c74a650caa679` (1.1.3's target) via a `--filter=blob:none` partial clone into a scratch dir (`~/dawn-scratch`, outside the repo), checking out only `src/tint`, `src/utils` (top-level, a dependency `extract_tint.sh` itself doesn't copy but two files reference via `#include "src/utils/..."` — `compiler.h`/`numeric.h`, manually copied same as the existing vendored layout), and `LICENSE`. Ran `extract_tint.sh ~/dawn-scratch` — extracted 811 source files (vs. 815 previously, a comparable count).
+- 3.1.2 Diffed against a pre-extraction backup: **1 file removed** (nothing — that "Only in old" hit was the `src/utils/` dir itself, resolved above, not a real removal), **0 new files**, **53 files textually differed** before patches were reapplied. Small, manageable change volume, not a rewrite.
 
-### 3.2 Re-apply the 9 vendored patches
-Reapply each patch from `thirdparty/README.md`'s `## tint` section in order, resolving conflicts individually rather than force-applying:
-- 3.2.1 `0001-skip-block-layout-validation.patch` (`SetSkipBlockLayout(true)` for Godot UBO layout)
-- 3.2.2 `0002-allow-struct-member-size-mismatch.patch` (`kAllowStructMemberSizeMismatch` for spec constants)
-- 3.2.3 `0003-decompose-strided-array-stride-guard.patch` (skip padding when stride < element size)
-- 3.2.4 `0004-accept-non-constant-point-size.patch` (accept non-constant `point_size` stores)
-- 3.2.5 `0005-size-emission-and-capability.patch` (`@size` emission guard for spec constants)
-- 3.2.6 `0006-remove-abseil-dependency.patch` (`absl::from_chars` → `std::from_chars`)
-- 3.2.7 `0007-support-spirv-1-4-target-env.patch` (SPIR-V validation target env bump)
-- 3.2.8 `0008-handle-phony-texture-usages.patch` (`Phony` instruction handling)
-- 3.2.9 `0009-allow-phony-instructions-capability.patch` (`kAllowPhonyInstructions` capability)
-- 3.2.10 For each patch that no longer applies cleanly: check whether upstream Tint already fixed/subsumed the underlying issue (in which case drop the patch and note it in `thirdparty/README.md`) before manually resolving the conflict — several of these were workarounds for specific Tint bugs that may since be fixed upstream.
+### 3.2 Re-apply the 9 vendored patches — `DONE`, 8/9 applied cleanly
+- 3.2.1-3.2.8 all applied cleanly via `git apply` with zero conflicts.
+- 3.2.9 (`kAllowPhonyInstructions`) failed `git apply`'s exact-context match against `lang/spirv/reader/reader.cc` — not a real conflict, just patch-context churn (the file's surrounding validation-capability list gained `kAllowStructMemberSizeMismatch` from patch 0002 landing at a slightly different line than the patch's stored context expected). Applied the same one-line capability addition by hand instead; confirmed `core::ir::Capability::kAllowPhonyInstructions` still exists in the new `validator.h` before doing so.
+- 3.2.10 After all 9 patches, only **46 of the original 53** files still differ from the pre-upgrade vendored copy — the other 7 (including `reader.cc`, `parser/parser.cc`, `validate/validate.cc`, `reader/lower/decompose_strided_array.cc`, `wgsl/writer/ir_to_program/ir_to_program.cc`) converged back to byte-identical content once patched, meaning none of those patches' surrounding code changed upstream at all. The remaining 46 differing files are genuine upstream Tint changes between the two Dawn commits, not patch fallout.
 
-### 3.3 Re-sync spirv-tools / spirv-headers
-- 3.3.1 Re-pin `thirdparty/spirv-tools` and `thirdparty/spirv-headers` to the revisions identified in 1.1.4 (Dawn's `DEPS` at the target Tint commit).
-- 3.3.2 Re-verify `thirdparty/spirv-headers`'s broader-than-upstream-Godot extraction set (per its `thirdparty/README.md` entry, extracted specifically for Tint's SPIR-V reader) still covers everything the new Tint's reader needs — a newer Tint may reference newer SPIR-V enum/extension entries.
+### 3.3 Re-sync spirv-tools / spirv-headers — **decision: `NO CHANGE`, do not downgrade**
+- 3.3.1 Checked Dawn's `DEPS` at `b975919d...`: pins `spirv-tools` to `ff5c50339cc1e9f34f04cb440a3e5fe89db0161d` and `spirv-headers` to `ad9184e76a66b1001c29db9b0a3e87f646c64de0` (1.1.4's findings). The **spirv-headers** pin already matches what's vendored — no action there, as already noted in Phase 1.
+- **Important finding for spirv-tools**: fetched Dawn's pinned commit and compared its committed date against what's already vendored here. Dawn's DEPS-pinned commit (`ff5c503`) is dated **2026-04-22**; this fork's currently-vendored spirv-tools commit (`3605cce`) is dated **2026-04-27** — five days *newer*. Re-pinning to exactly match Dawn's DEPS would be a **downgrade**, not a resync. Regenerated the grammar-derived tables (`core_tables_body/header.inc`, `generators.inc`) from Dawn's pinned commit's own generator scripts (`utils/ggt.py`, `utils/generate_registry_tables.py`) against the matching spirv-headers grammar JSON to check for drift: **byte-identical** to what's already vendored — the SPIR-V grammar itself hasn't changed between the two commits at all. Diffed `source/`/`include/` directly: only 5 files differ (`opt/folding_rules.cpp`, `opt/inline_exhaustive_pass.cpp`, `opt/inline_opaque_pass.cpp` — the exact pass this fork's Task 8.2 workaround uses — `opt/types.{cpp,h}`), and in every case the *currently-vendored* (newer) version has strictly more code (a `GetByteOffset()` addition, a refined inlining-restart-point optimization, an added folding rule) that the older Dawn-pinned commit lacks — i.e. this fork already has commits *ahead* of what Dawn itself currently bundles. **Decision: leave `thirdparty/spirv-tools` and `thirdparty/spirv-headers` untouched.** Nothing to update in `thirdparty/README.md` for either.
 
-### 3.4 Rebuild and test at the cheapest tier
-- 3.4.1 `./drivers/webgpu/tint_cli/build.sh --clean`.
-- 3.4.2 `cd webgpu_tests/shader_corpus && ./compile_fixtures.sh && node run_tests.mjs` — this is the fastest, most direct signal on whether the new Tint changed SPIR-V→WGSL behavior in a way that breaks this repo's shaders, and doesn't require any engine build.
-- 3.4.3 Diff the new run's failures against `webgpu_tests/shader_corpus/expected_failures.json` (the Vulkan-only-variant baseline from Phase 0.2.4). Any *new* failure not in that baseline needs triage: either a new preprocessing pass is needed (per `CLAUDE.md`'s architecture note — "the fix is almost always either a new/extended preprocessing pass here or a Tint patch, not a WGSL-writer change"), or the shader is a genuinely new Vulkan-only variant that belongs in the baseline.
-- 3.4.4 `cd webgpu_tests/preprocessing_tests && node run_tests.mjs` — confirms the 12 (now-possibly-13, see Task 8.2) C++ SPIR-V passes still produce input the new Tint accepts.
+### 3.4 Rebuild and test at the cheapest tier — `DONE`, all green
+- 3.4.1 `./drivers/webgpu/tint_cli/build.sh --clean` — clean build, 368 Tint objects, 199 SPIRV-Tools objects, linked successfully (15M binary).
+- 3.4.2 `webgpu_tests/shader_corpus`: `compile_fixtures.sh` (13/13 GLSL→SPIR-V) then `run_tests.mjs` (13/13 SPIR-V→WGSL) — **all pass**, 0 failures.
+- 3.4.3 No new failures appeared, so no diff against `expected_failures.json` was needed at this fixture-corpus tier. **Not yet done**: the broader real-engine-shader corpus via `GODOT_DUMP_SPIRV` (Phase 0.2.4's actual baseline target) — that tier needs a full editor build and wasn't re-run this session; still open before Phase 3 can be called fully sign-off-clean against the *real* shader set, not just the 13-shader fixture corpus.
+- 3.4.4 `webgpu_tests/preprocessing_tests`: **192 passed, 0 failed, 1 skipped** — the visible "Invalid SPIR-V magic number"/`deadbeef` errors in the log are expected output from the suite's own negative/malformed-input test cases, not real failures.
+- Also force-regenerated `drivers/webgpu/wgsl_precompiled.gen.h` (deleted the stale pre-upgrade cached copy, rebuilt the full web template so `wgsl_precompile.py` regenerates it against every real engine shader variant through the resynced Tint) — this is a stronger signal than the 13-shader fixture corpus since it's the actual shader set the engine ships. **Result: 195 compiled, 3 GLSL failures (all 3 already in `expected_failures.json` — no new baseline drift), 1 Tint failure — `particles.glsl:default:comp`, a real Tint-internal ICE (`TINT_ASSERT` in `atomics.cc`'s atomic-usage-conversion pass) confirmed to be a genuine regression from the Tint bump, not a Godot-side issue.** Root cause narrowed but not fixed — tracked as `webgpu_notes/TASKS.md` Task 15. **This is the one open item blocking a fully clean Phase 3/6 sign-off** — the resync itself (extraction, patches, spirv-tools/headers decision, fixture corpus, preprocessing tests) is otherwise done and verified.
 - 3.4.5 Update `thirdparty/README.md`'s `## tint` version line (new commit hash) and `## spirv-tools`/`## spirv-headers` entries once this phase is green.
 
 ---

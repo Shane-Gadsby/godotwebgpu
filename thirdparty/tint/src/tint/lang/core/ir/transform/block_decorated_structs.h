@@ -43,7 +43,6 @@ const Capabilities kBlockDecoratedStructsCapabilities{
     Capability::kAllowDuplicateBindings,
     Capability::kAllowNonCoreTypes,
     Capability::kAllow8BitIntegers,
-    Capability::kAllow16BitIntegers,
 };
 
 /// BlockDecoratedStructs is a transform that changes the store type of a buffer to be a special
