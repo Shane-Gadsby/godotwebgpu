@@ -34,7 +34,7 @@
     Emscripten SDK location. Defaults to "$HOME\emsdk".
 
 .PARAMETER EmsdkVersion
-    Emscripten version to install/activate. Defaults to 4.0.11.
+    Emscripten version to install/activate. Defaults to 6.0.9.
 
 .EXAMPLE
     .\build-windows.ps1
@@ -52,7 +52,7 @@ param(
     [int]$Jobs = 0,
     [string]$SconsVersion = "4.10.1",
     [string]$EmsdkDir = (Join-Path $HOME "emsdk"),
-    [string]$EmsdkVersion = "4.0.11"
+    [string]$EmsdkVersion = "6.0.9"
 )
 
 $ErrorActionPreference = "Stop"

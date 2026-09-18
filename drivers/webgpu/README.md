@@ -95,7 +95,7 @@ prevents redundant re-creation.
 ## Build Instructions
 
 ```bash
-# Prerequisites: Emscripten 5.x with emdawnwebgpu port
+# Prerequisites: Emscripten 6.0.9 (this fork's pinned version) with emdawnwebgpu port
 source /path/to/emsdk/emsdk_env.sh
 
 # Build web template (debug, no threads, WebGPU only)
