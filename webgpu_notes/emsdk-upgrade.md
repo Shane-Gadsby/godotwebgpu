@@ -1,6 +1,8 @@
 # emsdk / Dawn / Tint Upgrade Plan
 
-**Status**: `IN PROGRESS` — Phase 0.1 done (branch `emsdk-upgrade` created off `webgpu-4.7.2`, tag `pre-emsdk-upgrade` on prior `HEAD`).
+**Status**: `IN PROGRESS` — Phase 0.1 done (branch `emsdk-upgrade` created off `webgpu-4.7.2`, tag `pre-emsdk-upgrade` on prior `HEAD`). Phase 1.1/1.2 done (target-version table pinned, breaking-change audit against the real Emscripten ChangeLog complete). Phase 1.3 (new-feature audit against the actual vendored `webgpu.h`) blocked on 2.2's local install — cannot be confirmed from source alone. Phase 0.2 (known-good test baseline capture) not yet started.
+
+**Correction (2026-09-18)**: the `5e16f308c7` commit message claimed the `pre-emsdk-upgrade` tag was created as part of Phase 0.1, but it was never actually pushed to the repo — `git tag -l` showed nothing. Created for real this session, pointing at `2e128619e3` (the actual `emsdk-upgrade`/`webgpu-4.7.2` merge-base, i.e. true prior `HEAD`).
 
 **Phase 0.1.3 baseline record** (as of `pre-emsdk-upgrade`):
 - `EM_VERSION`: `4.0.11` (`.github/workflows/web_builds.yml:12`, `.github/workflows/webgpu_tests.yml:23`)
@@ -41,23 +43,36 @@ Do this before touching any pinned version. The entire point is to have a trustw
 
 Research only — no code changes. The goal is a concrete target-version table and a pre-flight list of every breaking change that could plausibly touch this repo, so Phase 2 isn't discovery-driven.
 
-### 1.1 Pin exact target versions
-- 1.1.1 Identify the latest stable emsdk release tag (e.g. via `emsdk list --releases` or the emsdk GitHub releases page).
-- 1.1.2 Identify which Dawn commit/`emdawnwebgpu` port version ships with that emsdk release (Dawn is vendored *inside* emsdk's own `upstream` checkout — the port version moves independently of Tint's own vendoring in this repo).
-- 1.1.3 Identify the Dawn `src/tint/` commit at that same point (this is the commit `extract_tint.sh` should target in Phase 3 — it does not have to be bit-identical to the Dawn version bundled in emsdk, but should be close in time to avoid ABI/behavior drift between "the WGSL Tint emits" and "the WGSL the browser's Dawn-based WebGPU implementation expects").
-- 1.1.4 Identify the `spirv-tools`/`spirv-headers` revisions Dawn's `DEPS` pins at that commit (both are already vendored per `thirdparty/README.md`'s existing entries — re-pin to match, not just "latest").
-- 1.1.5 Write the final table (emsdk version → Dawn commit → Tint commit → spirv-tools commit → spirv-headers commit) at the top of this doc's Phase 3 section once known, so Phase 3 has a single source of truth.
+### 1.1 Pin exact target versions — `DONE` (2026-09-18)
+- 1.1.1 Latest stable emsdk release tag: **`6.0.9`** (confirmed via `emscripten-core/emsdk` and `emscripten-core/emscripten` GitHub tag lists — both show `6.0.9` as the newest tag; the docs site's "6.0.10-git (dev)" label is the in-progress unreleased head, not a tagged release).
+- 1.1.2 `emdawnwebgpu` port version pinned by `tools/ports/emdawnwebgpu.py` **at the `6.0.9` tag itself** (not `main`, which can move ahead of a given release): `_VERSION = 'v20260423.175430'`. That tag resolves (verified via the GitHub API, not the docs summary — see correction below) to Dawn commit **`b975919dfb45406ca17162e4d44c74a650caa679`**.
+  - **Verification note**: `WebFetch`'s page summary of the `google/dawn` release page initially returned a second, different-looking hash (`31e25af254ab572c77054edec4946d2244e184dd`) alongside the correct one, attributed to "dawn.googlesource.com" — that second hash does not resolve to any real ref on `dawn.googlesource.com` (confirmed 404 via direct Gerrit/Gitiles API query) and appears fabricated by the fetch summarizer. Treat single-source `WebFetch` summaries of version/commit hashes as unverified until cross-checked against a structured API (used `api.github.com/repos/google/dawn/git/refs/tags/...` here, which returned the hash directly, unsummarized).
+- 1.1.3 Dawn `src/tint/` commit at that point: **same as 1.1.2** — unlike `spirv-tools`/`spirv-headers`, Tint isn't a separate DEPS-pinned repo; it lives at `src/tint/` inside the Dawn tree itself, so "the Tint commit" *is* the Dawn commit (`thirdparty/README.md`'s existing `## tint` entry already records it this way — `db49a5496374b1f7284e0b9c8f2964c01d4bb20a` is a Dawn commit hash, not a separate Tint-repo hash).
+- 1.1.4 `spirv-tools`/`spirv-headers` revisions pinned by Dawn's `DEPS` at `b975919dfb45406ca17162e4d44c74a650caa679` (fetched directly from `raw.githubusercontent.com/google/dawn/<sha>/DEPS`):
+  - `third_party/spirv-tools/src`: `ff5c50339cc1e9f34f04cb440a3e5fe89db0161d` (changed from current `3605cce5b11f6a085107fd400f1721cd2a59c49e` — needs a real re-sync in Phase 3.3)
+  - `third_party/spirv-headers/src`: `ad9184e76a66b1001c29db9b0a3e87f646c64de0` — **identical** to what `thirdparty/README.md` already has pinned for `spirv.hpp11` (re-synced ahead of schedule per that entry's own note, "2026"). No change needed for the hpp11 half; the `spirv.h`/`spirv.hpp` half is still pinned separately to a Vulkan-SDK tag (`b824a462d4256d720bebb40e78b9eb8f78bbb305`) per that entry's existing split-pin note — re-check in 3.3.2 whether Dawn's DEPS pin has caught up enough to collapse the split, but don't assume it has.
 
-### 1.2 Breaking-change audit against this repo specifically
-Go through the Emscripten `ChangeLog.md` entries between 4.0.11 and the target version and flag anything that intersects this repo's actual build flags. Known candidates to verify (not exhaustive — read the real changelog):
-- 1.2.1 **`FAKE_DYLIBS` disabled by default (6.0.0)** — real dynamic libraries for `-shared`. This repo's web build uses `dlink_enabled=yes` (`CLAUDE.md`'s documented build command); confirm SCons' own dlink handling doesn't assume the old fake-dylib behavior anywhere in `platform/web/detect.py` or `platform/web/SCsub`.
-- 1.2.2 **Windows tool launchers become `.exe` instead of `.bat`/`.ps1` (6.0.0)** — audit `build-windows.ps1` for any hardcoded `emcc.bat`/`em++.bat` references.
-- 1.2.3 **`DEFAULT_TO_CXX` disabled by default (6.0.6)**, i.e. `em++` required for C++. SCons already selects the C++ compiler explicitly for `.cpp` sources — confirm no `.cpp` file is ever routed through a bare `emcc` invocation anywhere in this repo's build glue.
-- 1.2.4 **Minimum browser version bumps (6.0.0: Chrome 85/Firefox 79/Safari 14.1)** — expected irrelevant, since WebGPU itself already requires much newer browsers than this floor, but confirm nothing in `platform/web/js/` special-cases an older browser check.
-- 1.2.5 Anything else the changelog flags around `-sUSE_PTHREADS`, `-sSTACK_SIZE`, or closure-compiler flags this repo's `detect.py` already version-gates (`lto=thin` at 4.0.9, `use_closure_compiler` at 4.0.11) — these gates will simply always be satisfied post-upgrade, but confirm no *new* incompatibility was introduced at the newer end.
-- 1.2.6 `-sUSE_WEBGPU=1` removal (5.0) is **already handled** — `platform/web/detect.py:269-283` already uses `--use-port=emdawnwebgpu` unconditionally once `cc_semver >= (4, 0, 10)`. Nothing to do here beyond confirming the port still resolves under the new emsdk's port registry.
+### Final version table (target)
 
-### 1.3 New WebGPU/Dawn feature audit (the actual "gains" list)
+| Component | Current (`pre-emsdk-upgrade`) | Target |
+|---|---|---|
+| emsdk / `EM_VERSION` | `4.0.11` | `6.0.9` |
+| Dawn / Tint (`src/tint/`) commit | `db49a5496374b1f7284e0b9c8f2964c01d4bb20a` | `b975919dfb45406ca17162e4d44c74a650caa679` |
+| emdawnwebgpu port version | (pre-port-pinning, N/A) | `v20260423.175430` |
+| spirv-tools | `3605cce5b11f6a085107fd400f1721cd2a59c49e` | `ff5c50339cc1e9f34f04cb440a3e5fe89db0161d` |
+| spirv-headers (`spirv.hpp11`) | `ad9184e76a66b1001c29db9b0a3e87f646c64de0` | unchanged (already current) |
+| spirv-headers (`spirv.h`/`spirv.hpp`) | vulkan-sdk-1.4.335.0 (`b824a462d4256d720bebb40e78b9eb8f78bbb305`) | re-check in 3.3.2, not yet re-surveyed |
+
+### 1.2 Breaking-change audit against this repo specifically — survey `DONE` (2026-09-18), code audit still pending (that's Phase 2's job)
+Go through the Emscripten `ChangeLog.md` entries between 4.0.11 and the target version and flag anything that intersects this repo's actual build flags. Read the real changelog (`raw.githubusercontent.com/emscripten-core/emscripten/6.0.9/ChangeLog.md`) rather than inferring from release notes summaries — confirmed every candidate below actually landed, with exact version and PR number:
+- 1.2.1 **`FAKE_DYLIBS` disabled by default — confirmed at `6.0.0`** (#25930): "`-shared` will produce real dynamic libraries by default (`-sSIDE_MODULE` is implied)... if you include real dynamic libraries in your link command emscripten will now automatically produce a dynamically linked program (`-sMAIN_MODULE=2` is implied)." This repo's web build uses `dlink_enabled=yes` (`CLAUDE.md`'s documented build command) — **still needs the actual code audit** of `platform/web/detect.py`/`platform/web/SCsub` in Phase 2.4, this entry only confirms the change is real and exactly where it landed.
+- 1.2.2 **Windows tool launchers become `.exe` instead of `.bat`/`.ps1` — confirmed at `6.0.0`** (#24858): old `.bat` files recoverable via `tools/maint/create_entry_points.py --bat-files` if needed as a stopgap. `build-windows.ps1` audit still pending (Phase 2.1.2/2.4).
+- 1.2.3 **`DEFAULT_TO_CXX` disabled by default — confirmed at `6.0.6`** (#11121), exactly the version the plan guessed: "`em++` is now required when linking C++ programs... old behavior is still available using `-sDEFAULT_TO_CXX`." SCons audit still pending.
+- 1.2.4 **Minimum browser version bumps — confirmed at `6.0.0`** (#26677): `MIN_CHROME_VERSION` 74→85, `MIN_FIREFOX_VERSION` 68→79, `MIN_SAFARI_VERSION` 12.2→14.1, with a **further** Safari bump to `15.0` at `6.0.9` itself (#27542, "removes legacy JS polyfills and Binaryen lowering passes"). Still expected irrelevant per the plan's original reasoning (WebGPU already requires newer browsers than this floor) — `platform/web/js/` audit still pending.
+- 1.2.5 Nothing else materially version-gate-relevant found between 4.0.11 and 6.0.9 in a `-sUSE_PTHREADS`/`-sSTACK_SIZE`/closure-compiler direction beyond routine version bumps (closure compiler → `20260429.0.0` at 6.0.0, libcxx/libcxxabi → LLVM 22.1.8 at 6.0.6) — none of these are breaking in a way `detect.py`'s existing gates wouldn't already tolerate.
+- 1.2.6 `-sUSE_WEBGPU=1` removal (5.0) is **already handled** — `platform/web/detect.py:269-283` already uses `--use-port=emdawnwebgpu` unconditionally once `cc_semver >= (4, 0, 10)`. Nothing to do here beyond confirming the port still resolves under the new emsdk's port registry (mechanical, Phase 2.4).
+
+### 1.3 New WebGPU/Dawn feature audit (the actual "gains" list) — `BLOCKED on 2.2` (local emsdk install), not yet started
 For each item below, confirm presence in the *target* version's vendored `webgpu.h` (via `~/emsdk/upstream/emscripten/cache/sysroot/include/webgpu/webgpu.h` after installing/activating the new version) before assuming it's available — don't infer from Chrome release notes alone, since emdawnwebgpu's own API surface lags browser Dawn slightly.
 - 1.3.1 **Texture view `usage` override** (`WGPUTextureViewDescriptor.usage`, landed in Dawn/Chrome ~132) — grep the new `webgpu.h` for a `usage` field on `WGPUTextureViewDescriptor`. This is the field `TASKS.md` (Task 9.5, item 7 root-cause writeup) confirmed does *not* exist in the 4.0.11-vendored header.
 - 1.3.2 **16-bit norm texture formats** (`WGPUTextureFormat_R16Unorm`/`Snorm`, `RG16Unorm`/`Snorm`, `RGBA16Unorm`/`Snorm`, feature `unorm16-texture-formats`/`snorm16-texture-formats`) — grep `WGPUFeatureName` and `WGPUTextureFormat` enums. `TASKS.md`'s "16-bit norm formats" entry confirmed these are entirely absent from the 4.0.11 header, not just unrequested.
