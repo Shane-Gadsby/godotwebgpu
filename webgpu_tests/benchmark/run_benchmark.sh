@@ -14,13 +14,44 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-EDITOR_BIN="$REPO_ROOT/bin/godot.macos.editor.arm64"
 PROFILER_GD="$SCRIPT_DIR/benchmark_profiler.gd"
+
+# --- Platform detection ---
+# Everything below this block is platform-agnostic; only these four values
+# (editor binary, native backend label, in-place-sed invocation, and the
+# WebGL-baseline template default) differ between macOS and Linux.
+UNAME_S="$(uname -s)"
+case "$UNAME_S" in
+    Darwin)
+        HOST_OS="macos"
+        EDITOR_BIN="$REPO_ROOT/bin/godot.macos.editor.arm64"
+        NATIVE_BACKEND_LABEL="Metal (Forward+) on macOS"
+        # BSD sed requires an explicit (possibly empty) backup-suffix argument.
+        sed_inplace() { sed -i '' "$@"; }
+        DEFAULT_WEBGL_TEMPLATE_DIR="$HOME/Library/Application Support/Godot/export_templates"
+        ;;
+    Linux)
+        HOST_OS="linux"
+        EDITOR_BIN="$REPO_ROOT/bin/godot.linuxbsd.editor.x86_64"
+        NATIVE_BACKEND_LABEL="Vulkan (Forward+) on Linux"
+        # GNU sed takes the suffix directly appended to -i, with no space.
+        sed_inplace() { sed -i "$@"; }
+        DEFAULT_WEBGL_TEMPLATE_DIR="$HOME/.local/share/godot/export_templates"
+        ;;
+    *)
+        echo "ERROR: Unsupported platform '$UNAME_S' — this script supports macOS and Linux only."
+        exit 1
+        ;;
+esac
+
 WEBGPU_ZIP="$REPO_ROOT/bin/godot.web.template_release.wasm32.nothreads.zip"
-# Use official Godot 4.6 WebGL template — our codebase's JS has WebGPU
-# loading code baked in even without webgpu=yes, so it can't serve as a
-# clean WebGL baseline.
-WEBGL_ZIP="$HOME/Library/Application Support/Godot/export_templates/4.6.stable.official.89cea1439/web_nothreads_release.zip"
+# Use an official (non-fork) WebGL template — this fork's own web build has
+# WebGPU loading code baked in even without webgpu=yes, so it can't serve as
+# a clean WebGL baseline. There's no reliable way to auto-locate "the official
+# one, not this fork's own installed template" across machines, so this is
+# always explicit: pass it via GODOT_WEBGL_BASELINE_ZIP, pointing at an
+# official (godotengine.org-downloaded) template's web_nothreads_release.zip.
+WEBGL_ZIP="${GODOT_WEBGL_BASELINE_ZIP:-}"
 
 MODE="${1:-}"
 SCENE_PATH="${2:-$SCRIPT_DIR}"
@@ -30,9 +61,12 @@ PORT=8099
 if [ -z "$MODE" ]; then
     echo "Usage: $0 <native|webgl|webgpu> [scene_path]"
     echo ""
-    echo "  native  — Run with Metal (Forward+) on macOS"
-    echo "  webgl   — Export with WebGL template, serve in Chrome"
-    echo "  webgpu  — Export with WebGPU template, serve in Chrome"
+    echo "  native  — Run with $NATIVE_BACKEND_LABEL"
+    echo "  webgl   — Export with an official WebGL template, serve in Chrome"
+    echo "            (set GODOT_WEBGL_BASELINE_ZIP to a web_nothreads_release.zip"
+    echo "            from an official, non-fork Godot export template — this"
+    echo "            fork's own web build isn't a clean WebGL baseline)"
+    echo "  webgpu  — Export with this fork's WebGPU template, serve in Chrome"
     echo ""
     echo "Default scene: benchmark project (webgpu_tests/benchmark/)"
     exit 1
@@ -61,7 +95,7 @@ inject_profiler() {
     if ! grep -q 'BenchmarkProfiler' "$project_file"; then
         # Append autoload section or add to existing one
         if grep -q '^\[autoload\]' "$project_file"; then
-            sed -i '' '/^\[autoload\]/a\
+            sed_inplace '/^\[autoload\]/a\
 BenchmarkProfiler="*res://benchmark_profiler.gd"
 ' "$project_file"
         else
@@ -81,9 +115,9 @@ restore_project() {
     if [ -f "$project_file.bak" ]; then
         mv "$project_file.bak" "$project_file"
     fi
-    # Only remove profiler if we copied it in
+    # Only remove profiler if we copied it in (also its Godot 4.x .uid sidecar)
     if [ "$(cd "$SCRIPT_DIR" && pwd)" != "$(cd "$project_dir" && pwd)" ]; then
-        rm -f "$profiler_dest"
+        rm -f "$profiler_dest" "$profiler_dest.uid"
     fi
 }
 
@@ -92,7 +126,7 @@ SCENE_PATH="$(cd "$SCENE_PATH" && pwd)"
 
 # --- Native ---
 if [ "$MODE" = "native" ]; then
-    echo "=== Native macOS (Metal) ==="
+    echo "=== Native ($NATIVE_BACKEND_LABEL) ==="
     echo "Scene: $SCENE_PATH"
     inject_profiler "$SCENE_PATH"
     trap "restore_project '$SCENE_PATH'" EXIT
@@ -111,6 +145,15 @@ elif [ "$MODE" = "webgpu" ]; then
     echo "=== WebGPU on Chrome ==="
 else
     echo "ERROR: Unknown mode '$MODE'. Use native, webgl, or webgpu."
+    exit 1
+fi
+
+if [ "$MODE" = "webgl" ] && [ -z "$TEMPLATE_ZIP" ]; then
+    echo "ERROR: GODOT_WEBGL_BASELINE_ZIP is not set."
+    echo "Point it at an official (non-fork) Godot export template's web_nothreads_release.zip"
+    echo "— this fork's own web build always has WebGPU loading code baked in, so it can't"
+    echo "serve as a clean WebGL baseline. Official templates are typically under:"
+    echo "  $DEFAULT_WEBGL_TEMPLATE_DIR/<version>.stable[.official.<hash>]/web_nothreads_release.zip"
     exit 1
 fi
 
@@ -138,7 +181,7 @@ fi
 # Inject profiler and back up project files
 inject_profiler "$SCENE_PATH"
 cp "$PRESETS_CFG" "$PRESETS_CFG.bak"
-sed -i '' "s|custom_template/release=\"[^\"]*\"|custom_template/release=\"$TEMPLATE_ZIP\"|g" "$PRESETS_CFG"
+sed_inplace "s|custom_template/release=\"[^\"]*\"|custom_template/release=\"$TEMPLATE_ZIP\"|g" "$PRESETS_CFG"
 
 # Ensure cleanup on exit
 trap "restore_project '$SCENE_PATH'; [ -f '$PRESETS_CFG.bak' ] && mv '$PRESETS_CFG.bak' '$PRESETS_CFG'" EXIT
