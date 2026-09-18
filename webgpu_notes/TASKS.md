@@ -3649,11 +3649,39 @@ Confirmed the destination's *base* format (`dest_format.format`, what `texture_g
 ---
 
 ### Task 12: Ensure that webgpu threads work as expected
-**Status**: `TODO`
+**Status**: `TODO` — subtask 1.1's characterization now has two concrete, real crash signatures (2026-09-18, see below), not yet acted on
 **Effort**: 1 day, needs a real GPU + browser session
 **Dependencies**: none
 
 **Motivation**: this fork's documented, tested WebGPU configuration is `threads=no` (`CLAUDE.md`'s build commands; `build-linux.sh`'s threads=yes variants are explicitly called out there as "build here for completeness and untested"). Phase 2's history already flags the reason: `webgpu_notes/TASKS.md` ~L765 records "Worker thread WebGPU isolation — build with `threads=no`" as the workaround actually shipped, not a fix. This task is about actually characterizing and closing that gap rather than continuing to sidestep it.
+
+**2026-09-18 update — two real, distinct crash signatures found (via the user's own `threads=yes` testing on the `emsdk-upgrade` branch, unrelated to that upgrade itself — `threads=no` builds throughout that branch's own testing never touched this code path)**. Both trace directly to `platform/web/detect.py`'s two different `threads=yes` configurations (lines ~298-330):
+
+1. **`threads=yes dlink_enabled=no` ("no-extensions")**: `proxy_to_pthread` stays enabled here (only forced off by `dlink_enabled=yes` or `threads=no`), so `main()` runs proxied onto a pthread worker per this fork's existing `-sPROXY_TO_PTHREAD=1` setup. Console shows a hard `Aborted(Assertion failed)` inside emdawnwebgpu's JS bridge:
+   ```
+   at assert (tmp_js_export.js:1:4581)
+   at Object.getJsObject (tmp_js_export.js:1:109840)
+   at Object.makePipelineLayout (tmp_js_export.js:1:115818)
+   at Object.makeComputePipelineDesc (tmp_js_export.js:1:116395)
+   at _wgpuDeviceCreateComputePipeline (...)
+   ```
+   `getJsObject` is emdawnwebgpu's JS-side handle→object lookup table; this fires while building a compute pipeline's layout, i.e. resolving a bind-group-layout handle to its real `GPUBindGroupLayout` JS object fails. This is exactly subtask 1.2/1.3's predicted mechanism: the device (`Module["preinitializedWebGPUDevice"]`) is created/imported on the main thread, but `wgpuDeviceCreateComputePipeline` is being called from the proxied pthread worker, whose JS-side object table doesn't have (or can't see) the main thread's handle registrations. Repeats continuously (once per pipeline creation attempt), one `Pthread 0x... sent an error!` line per occurrence — this is a hard abort, not a warning; rendering does not proceed.
+
+2. **`threads=yes dlink_enabled=yes` ("with-extensions")**: `proxy_to_pthread` is forced *off* here (GDExtension support requires it, per `detect.py:312-314`), so this is a different code path entirely — a **separate bug**, not the same one under different conditions. Two distinct JS errors, both from worker threads:
+   ```
+   TypeError: Cannot read properties of undefined (reading 'buffer')
+       at growMemViews (tmp_js_export.js:1:8540)
+   ```
+   and
+   ```
+   TypeError: Cannot set properties of undefined (setting '15818196')
+       at addEmAsm (tmp_js_export.js:1:37776)
+       at postInstantiation (tmp_js_export.js:1:37970)
+       at ... loadModule (tmp_js_export.js:1:39187)
+   ```
+   `addEmAsm`/`postInstantiation`/`loadModule` is Emscripten's `SIDE_MODULE=2` dynamic-library loader path (this fork's `dlink_enabled=yes` mechanism, per `CLAUDE.md`'s architecture note); `growMemViews` is the wasm-memory-view-refresh helper that runs after `memory.grow()`. Both errors are consistent with the side module (containing this driver's own compiled code) being loaded into a newly-spawned pthread worker before that worker's own EM_ASM registration table / memory views are fully initialized — a load-order/initialization race specific to combining `SIDE_MODULE` dynamic linking with the pthread worker pool, distinct from bug #1's cross-thread WebGPU-handle-visibility issue. Ends in "still waiting on run dependencies: loading-workers" repeating forever — the module never finishes loading, not just one failed draw call.
+
+**Not yet done**: root-causing either bug further (this update is subtask 1.1's characterization step, with real logs in hand instead of a prediction — subtasks 1.2-1.4 and everything in step 2 onward remain open), deciding whether both are worth fixing or whether `threads=no` should simply stay the long-term documented/supported configuration (per subtask 2's own framing, "a documented reduced-but-correct mode" is an acceptable outcome, not just a stopgap). Given bug #2 prevents the module from loading at all, it's the more severe of the two if `dlink_enabled=yes threads=yes` is ever meant to be a supported combination.
 
 **Subtasks**:
 1. Characterize why `threads=yes` breaks WebGPU today
