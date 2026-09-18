@@ -104,6 +104,7 @@ private:
 	void _clear_version(Version *p_version);
 	void _compile_version_start(Version *p_version, int p_group);
 	void _compile_version_end(Version *p_version, int p_group);
+	void _compile_version_finish(Version *p_version, int p_group);
 	void _compile_ensure_finished(Version *p_version);
 	void _allocate_placeholders(Version *p_version, int p_group);
 

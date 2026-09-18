@@ -64,6 +64,7 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 		case API_TRAIT_BATCH_INSTANCE_DRAWS:
 		case API_TRAIT_FIRST_INSTANCE_INDEX:
 		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY:
+		case API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION:
 			// Optional WebGPU-only traits: 0/false is the correct default for every
 			// other backend, which should not have to override api_trait_get() just
 			// to opt out of these.
