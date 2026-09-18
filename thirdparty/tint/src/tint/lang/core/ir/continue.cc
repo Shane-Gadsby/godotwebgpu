@@ -58,7 +58,7 @@ void Continue::Destroy() {
     if (loop_) {
         loop_->Continuing()->RemoveInboundSiblingBranch(this);
     }
-    Base::Destroy();
+    Instruction::Destroy();
 }
 
 Continue* Continue::Clone(CloneContext& ctx) {

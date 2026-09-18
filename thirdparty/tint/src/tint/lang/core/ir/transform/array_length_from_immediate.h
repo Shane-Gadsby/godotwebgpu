@@ -44,10 +44,8 @@ struct ImmediateDataLayout;
 
 /// The capabilities that the transform can support.
 const Capabilities kArrayLengthFromImmediateCapabilities{
-    Capability::kAllow8BitIntegers,
     Capability::kAllow16BitIntegers,
     Capability::kAllowDuplicateBindings,
-    Capability::kMslAllowEntryPointInterface,
 };
 
 /// The result of running the ArrayLengthFromUniform transform.

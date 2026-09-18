@@ -217,7 +217,7 @@ scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=
 ```
 
 Requirements:
-- Emscripten 4.0.10+ (for the emdawnwebgpu port)
+- Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
 - No Rust toolchain needed (Tint C++ translator is compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
 

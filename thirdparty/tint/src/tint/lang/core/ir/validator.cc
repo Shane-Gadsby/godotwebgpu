@@ -35,7 +35,6 @@
 #include <string_view>
 #include <utility>
 
-#include "src/tint/lang/core/binary_op.h"
 #include "src/tint/lang/core/intrinsic/table.h"
 #include "src/tint/lang/core/ir/access.h"
 #include "src/tint/lang/core/ir/binary.h"
@@ -47,7 +46,6 @@
 #include "src/tint/lang/core/ir/continue.h"
 #include "src/tint/lang/core/ir/control_instruction.h"
 #include "src/tint/lang/core/ir/convert.h"
-#include "src/tint/lang/core/ir/core_binary.h"
 #include "src/tint/lang/core/ir/core_builtin_call.h"
 #include "src/tint/lang/core/ir/disassembler.h"
 #include "src/tint/lang/core/ir/discard.h"
@@ -112,7 +110,6 @@
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/internal_limits.h"
 #include "src/tint/utils/macros/defer.h"
-#include "src/tint/utils/math/math.h"
 #include "src/tint/utils/result.h"
 #include "src/tint/utils/rtti/castable.h"
 #include "src/tint/utils/rtti/switch.h"
@@ -253,14 +250,13 @@ void WalkTypeAndMembers(CTX& ctx,
         [&](const core::type::Array* a) { WalkArrayElements(ctx, a, impl); });
 }
 
-/// @returns true if the type or any contained types are of type T
-/// @param ty root of the types to walk
-template <typename T>
-bool ContainsType(const core::type::Type* ty) {
+/// @returns true if the type or any contained types are atomic
+/// @param ty root of the types to walks
+bool ContainsAtomic(const core::type::Type* ty) {
     bool found = false;
     WalkTypeAndMembers(found, ty, IOAttributes{},
                        [&](bool& ctx, const core::type::Type* t, const IOAttributes&) {
-                           if (t != nullptr && t->DeepestElement()->Is<T>()) {
+                           if (t != nullptr && t->Is<core::type::Atomic>()) {
                                ctx = true;
                            }
                        });
@@ -1306,13 +1302,6 @@ class Validator {
                                      const IOAttributes& attr,
                                      ShaderIOKind kind);
 
-    /// Validates the attributes of a struct member.
-    /// @param member the struct member
-    /// @param diag a function that creates an error diagnostic
-    /// @returns true if the attributes are valid
-    bool CheckStructMemberAttributes(const core::type::StructMember* member,
-                                     std::function<diag::Diagnostic&()> make_diag);
-
     /// Validates the blend_src attribute for a given type, responsible for traversal of inner types
     /// and checking rules that span across a multiple attribute instances.
     /// @param ctx the blend_src context.
@@ -2174,10 +2163,6 @@ void Validator::CheckType(const core::type::Type* root,
                         return false;
                     }
 
-                    if (!CheckStructMemberAttributes(member, diag)) {
-                        return false;
-                    }
-
                     if (!capabilities_.Contains(Capability::kMslAllowEntryPointInterface)) {
                         if (member->Type()->Is<core::type::Pointer>()) {
                             diag() << "struct member " << member->Index()
@@ -2211,19 +2196,11 @@ void Validator::CheckType(const core::type::Type* root,
                         diag() << "struct member must not have an alignment of 0";
                         return false;
                     }
-                    if (!tint::IsPowerOfTwo(member->Align())) {
-                        diag() << "struct member alignment must be a power of 2";
-                        return false;
-                    }
-
                     if (member->Type()->Align() == 0) {
                         diag() << "struct member type must not have an alignment of 0";
                         return false;
                     }
-                    if (!tint::IsPowerOfTwo(member->Type()->Align())) {
-                        diag() << "struct member type alignment must be a power of 2";
-                        return false;
-                    }
+
                     if (!capabilities_.Contains(Capability::kAllowStructMatrixDecorations)) {
                         if (member->RowMajor()) {
                             diag() << "Row major annotation not allowed on structures";
@@ -2255,11 +2232,25 @@ void Validator::CheckType(const core::type::Type* root,
                         }
                     }
 
-                    cur_offset += (member->Offset() - cur_offset) + member->MinimumRequiredSize();
+                    auto padding = member->Offset() - cur_offset;
+                    if (padding >= internal_limits::kMaxStructMemberPadding) {
+                        diag() << "struct member padding (" << padding
+                               << ") is larger then the max ("
+                               << internal_limits::kMaxStructMemberPadding << ")";
+                        return false;
+                    }
+                    cur_offset += padding + member->MinimumRequiredSize();
                 }
                 if (str->Size() < cur_offset) {
                     diag() << "struct size (" << str->Size()
                            << ") is smaller than the end of the last member (" << cur_offset << ")";
+                    return false;
+                }
+
+                auto padding = str->Size() - cur_offset;
+                if (padding >= internal_limits::kMaxStructMemberPadding) {
+                    diag() << "struct padding (" << padding << ") is larger then the max ("
+                           << internal_limits::kMaxStructMemberPadding << ")";
                     return false;
                 }
 
@@ -3400,22 +3391,9 @@ void Validator::CheckInstruction(const Instruction* inst) {
     }
 
     Capabilities allowed_types{};
-
     if (auto* call = inst->As<core::ir::CoreBuiltinCall>();
         call && call->Func() == core::BuiltinFn::kBitcast) {
         allowed_types.Add(Capability::kAllow64BitIntegers);
-    }
-
-    if (auto* call = inst->As<core::ir::CoreBinary>()) {
-        if (call->Op() == core::BinaryOp::kOr || call->Op() == core::BinaryOp::kShiftLeft) {
-            allowed_types.Add(Capability::kAllow64BitIntegers);
-        }
-    }
-
-    if (auto* call = inst->As<core::ir::Convert>()) {
-        if (call->Result(0) && call->Result()->Type()->Is<core::type::U64>()) {
-            allowed_types.Add(Capability::kAllow64BitIntegers);
-        }
     }
 
     auto results = inst->Results();
@@ -3526,8 +3504,7 @@ void Validator::CheckVar(const Var* var) {
 
     if (mv->AddressSpace() != AddressSpace::kStorage &&
         mv->AddressSpace() != AddressSpace::kHandle) {
-        if (mv->AddressSpace() == AddressSpace::kWorkgroup ||
-            !capabilities_.Contains(Capability::kMslAllowEntryPointInterface)) {
+        if (!capabilities_.Contains(Capability::kMslAllowEntryPointInterface)) {
             if (!mv->StoreType()->HasFixedFootprint()) {
                 AddResultError(var, 0) << "vars not in the 'storage' or 'handle' address spaces "
                                           "must have a fixed footprint";
@@ -3536,7 +3513,7 @@ void Validator::CheckVar(const Var* var) {
         }
     }
 
-    if (ContainsType<core::type::Atomic>(mv->StoreType())) {
+    if (ContainsAtomic(mv->StoreType())) {
         bool is_workgroup = mv->AddressSpace() == AddressSpace::kWorkgroup;
         bool is_read_write_storage = mv->AddressSpace() == AddressSpace::kStorage &&
                                      mv->Access() == core::Access::kReadWrite;
@@ -3610,11 +3587,6 @@ void Validator::CheckVar(const Var* var) {
     if (mv->AddressSpace() == AddressSpace::kImmediate) {
         if (mv->StoreType() && !mv->StoreType()->IsHostShareable()) {
             AddError(var) << "vars in the 'immediate' address space must be host-shareable";
-            return;
-        }
-
-        if (ContainsType<core::type::F16>(mv->StoreType())) {
-            AddError(var) << "vars in the 'immediate' address space cannot contain f16 types";
             return;
         }
     }
@@ -3808,40 +3780,10 @@ void Validator::CheckInterpolation(const CastableBase* anchor,
                                         "'kAllowLocationForNumericElements' capability";
                 }
 
-                if (t->IsIntegerScalarOrVector()) {
+                if (t->IsIntegerScalar()) {
                     if (a.interpolation.value().type != InterpolationType::kFlat) {
                         AddError(anchor)
                             << "interpolation attribute type must be flat for integral types";
-                    }
-                }
-
-                auto interp_type = a.interpolation.value().type;
-                auto interp_sampling = a.interpolation.value().sampling;
-                if (interp_sampling != InterpolationSampling::kUndefined) {
-                    switch (interp_type) {
-                        case InterpolationType::kFlat:
-                            if (interp_sampling != InterpolationSampling::kFirst &&
-                                interp_sampling != InterpolationSampling::kEither) {
-                                AddError(anchor) << "flat interpolation can only use 'first', "
-                                                    "'either' or undefined sampling parameters";
-                            }
-                            break;
-                        case InterpolationType::kLinear:
-                        case InterpolationType::kPerspective:
-                            if (interp_sampling != InterpolationSampling::kCenter &&
-                                interp_sampling != InterpolationSampling::kCentroid &&
-                                interp_sampling != InterpolationSampling::kSample) {
-                                AddError(anchor) << "linear and perspective interpolation can only "
-                                                    "use 'center', 'centroid', 'sample', or "
-                                                    "undefined sampling parameters";
-                            }
-                            break;
-                        case InterpolationType::kUndefined:
-                            AddError(anchor) << "undefined interpolation should on have an "
-                                                "undefined sampling parameter";
-                            break;
-                        default:
-                            TINT_UNREACHABLE();
                     }
                 }
 
@@ -3996,10 +3938,26 @@ void Validator::ValidateShaderIOAnnotations(const CastableBase* msg_anchor,
                 return;
             }
 
-            if (!CheckStructMemberAttributes(mem, [&]() -> diag::Diagnostic& {
-                    return AddError(msg_anchor) << ToString(kind) << " ";
-                })) {
-                return;
+            if (mem->Attributes().location.has_value()) {
+                if (capabilities_.Contains(Capability::kAllowLocationForNumericElements)) {
+                    if (!mem->Type()->UnwrapPtrOrRef()->IsNumericScalarOrVector() &&
+                        !mem->Type()->UnwrapPtrOrRef()->Is<core::type::Struct>()) {
+                        AddError(msg_anchor)
+                            << ToString(kind)
+                            << " struct member with a location attribute must be a numeric scalar, "
+                               "a numeric vector or a struct, but has type "
+                            << mem->Type()->FriendlyName();
+                        return;
+                    }
+                } else {
+                    if (!mem->Type()->UnwrapPtrOrRef()->IsNumericScalarOrVector()) {
+                        AddError(msg_anchor) << ToString(kind)
+                                             << " struct member with a location attribute must be "
+                                                "a numeric scalar or vector, but has type "
+                                             << mem->Type()->FriendlyName();
+                        return;
+                    }
+                }
             }
 
             if (capabilities_.Contains(Capability::kMslAllowEntryPointInterface)) {
@@ -4035,42 +3993,6 @@ void Validator::ValidateShaderIOAnnotations(const CastableBase* msg_anchor,
     }
 }
 
-bool Validator::CheckStructMemberAttributes(const core::type::StructMember* member,
-                                            std::function<diag::Diagnostic&()> make_diag) {
-    const auto checkers = IOAttributeCheckersFor(member->Attributes(), /*skip_builtins*/ false);
-    for (const auto* checker : checkers) {
-        auto res = checker->check(member->Type(), member->Attributes(), capabilities_,
-                                  IOAttributeUsage::kUndefinedUsage);
-        if (res != Success) {
-            make_diag() << res.Failure();
-            return false;
-        }
-        if (!checker->type_check(member->Type(), capabilities_)) {
-            make_diag() << ToString(checker->kind) << " " << checker->type_error;
-            return false;
-        }
-    }
-
-    if (member->Attributes().location.has_value()) {
-        if (capabilities_.Contains(Capability::kAllowLocationForNumericElements)) {
-            if (!member->Type()->UnwrapPtrOrRef()->IsNumericScalarOrVector() &&
-                !member->Type()->UnwrapPtrOrRef()->Is<core::type::Struct>()) {
-                make_diag() << "struct member with a location attribute must be a numeric scalar, "
-                               "a numeric vector or a struct, but has type "
-                            << member->Type()->FriendlyName();
-                return false;
-            }
-        } else {
-            if (!member->Type()->UnwrapPtrOrRef()->IsNumericScalarOrVector()) {
-                make_diag() << "struct member with a location attribute must be "
-                               "a numeric scalar or vector, but has type "
-                            << member->Type()->FriendlyName();
-                return false;
-            }
-        }
-    }
-    return true;
-}
 void Validator::CheckLet(const Let* l) {
     if (!CheckResultsAndOperands(l, Let::kNumResults, Let::kNumOperands)) {
         return;
@@ -4401,7 +4323,6 @@ void Validator::CheckConvert(const Convert* convert) {
         result_type,                                                             //
         [&](const core::type::I32*) { conv_ty = intrinsic::CtorConv::kI32; },    //
         [&](const core::type::U32*) { conv_ty = intrinsic::CtorConv::kU32; },    //
-        [&](const core::type::U64*) { conv_ty = intrinsic::CtorConv::kU64; },    //
         [&](const core::type::F32*) { conv_ty = intrinsic::CtorConv::kF32; },    //
         [&](const core::type::F16*) { conv_ty = intrinsic::CtorConv::kF16; },    //
         [&](const core::type::Bool*) { conv_ty = intrinsic::CtorConv::kBool; },  //

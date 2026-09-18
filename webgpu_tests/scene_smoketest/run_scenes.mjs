@@ -580,16 +580,23 @@ async function launchChrome() {
     }
 
     // Locally: use real system Chrome — Playwright's bundled Chromium often lacks WebGPU.
-    // No special flags needed: modern Chrome (127+) has WebGPU enabled by default.
+    // Without explicit args Playwright still injects its own default launch flags
+    // (notably `--enable-unsafe-swiftshader`), which on some systems fights the real
+    // GPU driver setup and produces a blank/white window instead of a rendered page.
+    // These three flags match the user's own working desktop Chrome launcher config.
     const executablePath = process.platform === 'darwin'
         ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
         : process.platform === 'win32'
             ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-            : '/usr/bin/google-chrome';
+            : '/usr/bin/google-chrome-stable';
     const browser = await pw.chromium.launch({
         headless: false,
         executablePath,
-        args: [],
+        args: [
+            '--use-vulkan',
+            '--enable-features=Vulkan',
+            '--ignore-gpu-blocklist',
+        ],
     });
     return { browser, name: 'chrome', type: 'playwright' };
 }

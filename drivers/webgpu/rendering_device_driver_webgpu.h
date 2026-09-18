@@ -103,6 +103,11 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	bool has_texture_compression_bc = false;
 	bool has_texture_compression_etc2 = false;
 	bool has_texture_compression_astc = false;
+	// multi-draw-indirect (emsdk-upgrade Phase 5.3): lets command_render_draw_indirect()/
+	// command_render_draw_indexed_indirect() issue a single native multi-draw call
+	// instead of looping wgpuRenderPassEncoderDraw(Indexed)Indirect() once per draw.
+	// Requested by the JS shell at device creation.
+	bool has_multi_draw_indirect = false;
 
 	RenderingShaderContainerFormatWebGPU *shader_container_format = nullptr;
 
