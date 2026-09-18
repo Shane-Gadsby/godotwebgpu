@@ -64,7 +64,7 @@
 static void _timestamp_readback_callback(WGPUMapAsyncStatus p_status, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
 
 // Fence work-done callback: fires when wgpuQueueSubmit work completes on GPU.
-static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, void *p_userdata1, void *p_userdata2) {
+static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStringView p_message, void *p_userdata1, void *p_userdata2) {
 	WGFence *fence = (WGFence *)p_userdata1;
 	if (!fence) {
 		return;
@@ -1223,8 +1223,13 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	// float32-filterable: required for linear sampling of R32Float / RG32Float / RGBA32Float.
 	// Forward Mobile's HDR post-processing path samples 32F render targets with linear
 	// samplers, so without this feature those samplers must fall back to NEAREST.
-	// Feature name enum value 13 per WebGPU spec (not yet in the emdawnwebgpu 4.0.10 header enum).
-	float32_filterable_supported = wgpuDeviceHasFeature(device, (WGPUFeatureName)13);
+	// emsdk-upgrade (6.0.9): emdawnwebgpu's webgpu.h now has a named enum for this
+	// (WGPUFeatureName_Float32Filterable = 0x0E = 14) — note this is NOT the same
+	// ordinal (13) this driver previously hardcoded for the 4.0.11-era header, which
+	// lacked the enum entirely; WebGPU's feature enum isn't ABI-stable pre-1.0, so a
+	// hardcoded ordinal can silently drift from the real value as the spec evolves.
+	// Use the named enum now that it exists so this can't happen again.
+	float32_filterable_supported = wgpuDeviceHasFeature(device, WGPUFeatureName_Float32Filterable);
 	if (float32_filterable_supported) {
 		print_verbose("WebGPU: float32-filterable feature is available.");
 	} else {
@@ -1234,8 +1239,10 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	// float32-blendable: required for blending on R32Float / RG32Float / RGBA32Float
 	// render targets. Without this, blend operations on float32 targets silently fail
 	// (particles, post-processing compositing).
-	// Feature name enum value 14 per WebGPU spec (0x0E, not yet in emdawnwebgpu 4.0.10 header).
-	float32_blendable_supported = wgpuDeviceHasFeature(device, (WGPUFeatureName)14);
+	// emsdk-upgrade (6.0.9): now has a named enum (WGPUFeatureName_Float32Blendable =
+	// 0x0F = 15) — see the float32-filterable comment above for why the previously
+	// hardcoded ordinal (14) is replaced rather than kept.
+	float32_blendable_supported = wgpuDeviceHasFeature(device, WGPUFeatureName_Float32Blendable);
 	if (float32_blendable_supported) {
 		print_verbose("WebGPU: float32-blendable feature is available.");
 	} else {
@@ -1243,12 +1250,10 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	}
 
 	// texture-formats-tier1: adds storage binding support for r8unorm, rg8unorm, etc.
-	// The emdawnwebgpu 4.0.10 header lacks the WGPUFeatureName enum value for this
-	// feature, so query the JS device object directly.
-	has_texture_formats_tier1 = (bool)EM_ASM_INT({
-		var d = Module['preinitializedWebGPUDevice'];
-		return (d && d.features && d.features.has('texture-formats-tier1')) ? 1 : 0;
-	});
+	// emsdk-upgrade (6.0.9): emdawnwebgpu's webgpu.h now has a named enum for this
+	// feature (WGPUFeatureName_TextureFormatsTier1), so query it natively instead of
+	// going through the JS device object directly.
+	has_texture_formats_tier1 = wgpuDeviceHasFeature(device, WGPUFeatureName_TextureFormatsTier1);
 	if (has_texture_formats_tier1) {
 		print_verbose("WebGPU: texture-formats-tier1 feature is available — r8/rg8 storage formats supported natively.");
 	}
@@ -1279,6 +1284,13 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	}
 	if (has_texture_compression_astc) {
 		print_verbose("WebGPU: texture-compression-astc feature is available.");
+	}
+
+	// multi-draw-indirect: single native call for what's otherwise a per-draw loop.
+	// See command_render_draw_indirect()/command_render_draw_indexed_indirect().
+	has_multi_draw_indirect = wgpuDeviceHasFeature(device, WGPUFeatureName_MultiDrawIndirect);
+	if (has_multi_draw_indirect) {
+		print_verbose("WebGPU: multi-draw-indirect feature is available.");
 	}
 
 	// Multiview not supported in WebGPU.
@@ -9228,6 +9240,19 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indexed_indirect(CommandBu
 		}
 	}
 
+	// emsdk-upgrade Phase 5.3: use the native multi-draw-indirect call when available.
+	// It has no stride parameter -- it assumes the WebGPU spec's implicit, tightly-packed
+	// DrawIndexedIndirect layout (5 x 4 bytes: indexCount, instanceCount, firstIndex,
+	// baseVertex, firstInstance), the same layout Vulkan/Metal/D3D12 use, which is what
+	// Godot's renderer always fills for GPU-driven indirect draws -- so this only ever
+	// takes the fast path for a stride that already matches; anything else (padding,
+	// interleaved per-draw data) safely falls through to the per-draw loop below.
+	static constexpr uint32_t DRAW_INDEXED_INDIRECT_NATIVE_STRIDE = sizeof(uint32_t) * 5;
+	if (has_multi_draw_indirect && p_stride == DRAW_INDEXED_INDIRECT_NATIVE_STRIDE) {
+		wgpuRenderPassEncoderMultiDrawIndexedIndirect(cmd->render_encoder, indirect->handle, p_offset, p_draw_count, nullptr, 0);
+		return;
+	}
+
 	// WebGPU has no multi-draw-indirect — must loop.
 	for (uint32_t i = 0; i < p_draw_count; i++) {
 		wgpuRenderPassEncoderDrawIndexedIndirect(cmd->render_encoder, indirect->handle, p_offset + i * p_stride);
@@ -9248,6 +9273,16 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indirect(CommandBufferID p
 
 	if (cmd->render_state.current_pipeline) {
 		_flush_push_constants(cmd, cmd->render_state.current_pipeline->shader);
+	}
+
+	// emsdk-upgrade Phase 5.3: native multi-draw-indirect fast path -- see the
+	// analogous comment in command_render_draw_indexed_indirect() above. The
+	// non-indexed DrawIndirect layout is 4 x 4 bytes: vertexCount, instanceCount,
+	// firstVertex, firstInstance.
+	static constexpr uint32_t DRAW_INDIRECT_NATIVE_STRIDE = sizeof(uint32_t) * 4;
+	if (has_multi_draw_indirect && p_stride == DRAW_INDIRECT_NATIVE_STRIDE) {
+		wgpuRenderPassEncoderMultiDrawIndirect(cmd->render_encoder, indirect->handle, p_offset, p_draw_count, nullptr, 0);
+		return;
 	}
 
 	for (uint32_t i = 0; i < p_draw_count; i++) {

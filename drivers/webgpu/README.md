@@ -82,7 +82,11 @@ prevents redundant re-creation.
   between material uniforms and push constant ring buffer.
 - **No 3-component texture formats** — RGB8, RGB16F, RGB32F are unsupported as
   texture formats in WebGPU. The driver maps these to RGBA equivalents.
-- **No multi-draw-indirect** — Each indirect draw is dispatched individually.
+- **Multi-draw-indirect** — Uses the native `multi-draw-indirect` device feature
+  when available and the indirect buffer's stride matches WebGPU's implicit
+  tightly-packed draw-struct layout (16/20 bytes); falls back to dispatching
+  each indirect draw individually otherwise (unsupported browser/GPU, or a
+  non-standard stride).
 - **No subgroup operations** — `LIMIT_SUBGROUP_IN_SHADERS` reports 0.
 - **Mobile renderer auto-selected** — Forward+ requires ≥48 sampled textures
   per stage; most WebGPU implementations report 16, so the mobile renderer is
@@ -95,7 +99,7 @@ prevents redundant re-creation.
 ## Build Instructions
 
 ```bash
-# Prerequisites: Emscripten 5.x with emdawnwebgpu port
+# Prerequisites: Emscripten 6.0.9 (this fork's pinned version) with emdawnwebgpu port
 source /path/to/emsdk/emsdk_env.sh
 
 # Build web template (debug, no threads, WebGPU only)

@@ -193,48 +193,6 @@ struct Decoder {
             err_ << kind << " '" << name << "' is longer than 16384 characters\n";
             return false;
         }
-
-        if (DAWN_UNLIKELY(!tint::utf8::IsWGSLIdentifier(name))) {
-            // Check if this is an internal frexp or modf result identifier.
-            auto builtin = core::ParseBuiltinType(name);
-            if (builtin != core::BuiltinType::kUndefined) {
-                switch (builtin) {
-                    case core::BuiltinType::kAtomicCompareExchangeResultI32:
-                    case core::BuiltinType::kAtomicCompareExchangeResultU32:
-                    case core::BuiltinType::kFrexpResultAbstract:
-                    case core::BuiltinType::kFrexpResultF16:
-                    case core::BuiltinType::kFrexpResultF32:
-                    case core::BuiltinType::kFrexpResultVec2Abstract:
-                    case core::BuiltinType::kFrexpResultVec2F16:
-                    case core::BuiltinType::kFrexpResultVec2F32:
-                    case core::BuiltinType::kFrexpResultVec3Abstract:
-                    case core::BuiltinType::kFrexpResultVec3F16:
-                    case core::BuiltinType::kFrexpResultVec3F32:
-                    case core::BuiltinType::kFrexpResultVec4Abstract:
-                    case core::BuiltinType::kFrexpResultVec4F16:
-                    case core::BuiltinType::kFrexpResultVec4F32:
-                    case core::BuiltinType::kModfResultAbstract:
-                    case core::BuiltinType::kModfResultF16:
-                    case core::BuiltinType::kModfResultF32:
-                    case core::BuiltinType::kModfResultVec2Abstract:
-                    case core::BuiltinType::kModfResultVec2F16:
-                    case core::BuiltinType::kModfResultVec2F32:
-                    case core::BuiltinType::kModfResultVec3Abstract:
-                    case core::BuiltinType::kModfResultVec3F16:
-                    case core::BuiltinType::kModfResultVec3F32:
-                    case core::BuiltinType::kModfResultVec4Abstract:
-                    case core::BuiltinType::kModfResultVec4F16:
-                    case core::BuiltinType::kModfResultVec4F32:
-                        return true;
-                    default:
-                        break;
-                }
-            }
-
-            err_ << kind << " '" << name << "' is not a valid WGSL identifier\n";
-            return false;
-        }
-
         return true;
     }
 
