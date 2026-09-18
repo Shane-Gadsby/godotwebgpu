@@ -370,9 +370,11 @@ jobs:
         working-directory: webgpu_tests/screenshot_comparison
         # screenshot_tests.mjs launches browsers with headless: false (needed for
         # real WebGPU rendering), so it needs a virtual X server to run in CI.
-        run: xvfb-run -a node screenshot_tests.mjs --update-baselines
-        # First run creates baselines. On subsequent runs after baselines are committed,
-        # change to: node screenshot_tests.mjs
+        # Baselines are committed under screenshots/baselines/ — this diffs
+        # against them and fails on unexpected drift. Regenerate deliberately
+        # with `node screenshot_tests.mjs --update-baselines` and commit the
+        # result if a real, intended rendering change requires it.
+        run: xvfb-run -a node screenshot_tests.mjs
 
       - name: Upload screenshots
         if: always()
