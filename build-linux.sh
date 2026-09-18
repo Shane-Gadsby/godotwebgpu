@@ -14,9 +14,15 @@
 # build-windows.ps1, but builds more template variants than CI does.
 #
 # Note: this fork's documented/tested WebGPU configuration is threads=no
-# (see CLAUDE.md); the threads=yes variants build here for completeness and
-# GDExtension compatibility but aren't part of the fork's regularly-tested
-# path. If a threaded web export misbehaves specifically under the WebGPU
+# (see CLAUDE.md), though threads=yes dlink_enabled=no is now also fixed and
+# live-verified (webgpu_notes/TASKS.md Task 12) -- WorkerThreadPool-dispatched
+# shader/pipeline compilation was landing on background pthreads, which
+# WebGPU's per-thread JS object model can't handle; fixed via
+# API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION. threads=yes
+# dlink_enabled=yes (GDExtension + threads together) is still broken --
+# a separate, Emscripten-internal dylink+pthread initialization race, not
+# this fork's code -- and isn't expected to work until that's fixed upstream
+# or worked around. If a threaded web export misbehaves under the WebGPU
 # driver, narrow it down against a threads=no build first.
 #
 # Run this FROM the repo root, ON real Linux (or WSL). This is not for

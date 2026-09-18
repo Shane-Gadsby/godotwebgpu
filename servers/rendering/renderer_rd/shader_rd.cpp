@@ -739,6 +739,22 @@ void ShaderRD::_compile_version_start(Version *p_version, int p_group) {
 	compile_data.version = p_version;
 	compile_data.group = p_group;
 
+	// Some backends (currently WebGPU) require shader/pipeline creation to happen on
+	// whichever thread owns the device rather than an arbitrary WorkerThreadPool
+	// background thread -- see API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION's
+	// doc comment in rendering_device_driver.h for why. Compile every variant directly
+	// on the calling thread instead of dispatching a group task in that case, then run
+	// the same post-compile validation/cache-write work _compile_version_end() would
+	// have run after waiting on that task -- there's nothing left to wait for.
+	if (RD::get_singleton()->requires_synchronous_pipeline_compilation()) {
+		for (uint32_t i = 0; i < group_to_variant_map[p_group].size(); i++) {
+			_compile_variant(i, compile_data);
+		}
+		p_version->group_compilation_tasks.write[p_group] = 0;
+		_compile_version_finish(p_version, p_group);
+		return;
+	}
+
 	WorkerThreadPool::GroupID group_task = WorkerThreadPool::get_singleton()->add_template_group_task(this, &ShaderRD::_compile_variant, compile_data, group_to_variant_map[p_group].size(), -1, true, SNAME("ShaderCompilation"));
 	p_version->group_compilation_tasks.write[p_group] = group_task;
 }
@@ -750,7 +766,14 @@ void ShaderRD::_compile_version_end(Version *p_version, int p_group) {
 	WorkerThreadPool::GroupID group_task = p_version->group_compilation_tasks[p_group];
 	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group_task);
 	p_version->group_compilation_tasks.write[p_group] = 0;
+	_compile_version_finish(p_version, p_group);
+}
 
+// Post-compile validation/cache-write, shared between the normal (WorkerThreadPool
+// group task) and synchronous (API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION)
+// paths -- see _compile_version_start()/_compile_version_end() above. By the time this
+// runs, every variant in the group is known to have already finished compiling.
+void ShaderRD::_compile_version_finish(Version *p_version, int p_group) {
 	bool all_valid = true;
 
 	for (uint32_t i = 0; i < group_to_variant_map[p_group].size(); i++) {

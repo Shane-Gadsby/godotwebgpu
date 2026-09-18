@@ -1051,6 +1051,25 @@ public:
 		// whole lifetime (Vulkan/Metal/D3D12) must NOT do this — re-unmapping an
 		// already-unmapped persistent allocation is undefined behavior (VMA asserts on it).
 		API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY,
+		// If non-zero, PipelineHashMapRD::compile_pipeline() must call its creation
+		// function synchronously on the calling thread instead of dispatching it to a
+		// WorkerThreadPool background thread. Native APIs (Vulkan/Metal/D3D12) are
+		// thread-safe for command/pipeline object creation regardless of which OS
+		// thread calls them, so background pipeline compilation is a real, general
+		// perf win there. WebGPU is not: every WGPU* object handle lives in a
+		// per-thread JS-side lookup table (emdawnwebgpu's `WebGPU.Internals.jsObjects`,
+		// see library_webgpu.js's `getJsObject`), created in whichever JS thread/Worker
+		// first called into a WebGPU JS binding — objects created on one thread are
+		// invisible to `getJsObject` lookups from another. A pipeline creation call
+		// dispatched to a WorkerThreadPool worker (spawned via a real pthread once
+		// `threads=yes` is built, independent of Emscripten's own -sPROXY_TO_PTHREAD)
+		// can't see the device/shader-module handles registered on whichever thread
+		// created them, and hard-aborts inside emdawnwebgpu's own assertion. This is
+		// why `threads=no` (no real WorkerThreadPool background threads at all, tasks
+		// run synchronously on the calling thread as a side effect of having no
+		// pthreads to dispatch to) is this fork's only tested configuration — see
+		// webgpu_notes/TASKS.md Task 12.
+		API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION,
 	};
 
 	enum ShaderChangeInvalidation {

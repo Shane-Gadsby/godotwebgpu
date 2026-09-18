@@ -66,6 +66,14 @@ protected:
 
 	void _start(const CreationParameters &c) {
 		free();
+		// Some backends (currently WebGPU) require pipeline creation to happen on
+		// whichever thread owns the device rather than an arbitrary WorkerThreadPool
+		// background thread -- see API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION's
+		// doc comment in rendering_device_driver.h for why.
+		if (RD::get_singleton()->requires_synchronous_pipeline_compilation()) {
+			_create(c);
+			return;
+		}
 		task = WorkerThreadPool::get_singleton()->add_template_task(this, &PipelineDeferredRD::_create, c, true, "PipelineCompilation");
 	}
 

@@ -1185,6 +1185,10 @@ bool RenderingDevice::supports_first_instance_index() {
 	return driver->api_trait_get(RDD::API_TRAIT_FIRST_INSTANCE_INDEX) != 0;
 }
 
+bool RenderingDevice::requires_synchronous_pipeline_compilation() {
+	return driver->api_trait_get(RDD::API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION) != 0;
+}
+
 Error RenderingDevice::buffer_update(RID p_buffer, uint32_t p_offset, uint32_t p_size, const void *p_data, bool p_skip_check) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
 
