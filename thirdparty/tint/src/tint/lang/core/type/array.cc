@@ -58,9 +58,7 @@ core::type::Flags FlagsFrom(const Type* element, const ArrayCount* count) {
             flags.Add(Flag::kFixedFootprint);
         }
     }
-    // Host-shareable if the element is host-shareable AND the count is not override sized.
-    if (element->IsHostShareable() &&
-        (count->Is<ConstantArrayCount>() || count->Is<RuntimeArrayCount>())) {
+    if (element->IsHostShareable()) {
         flags.Add(Flag::kHostShareable);
     }
     return flags;
