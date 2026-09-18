@@ -87,14 +87,35 @@ prevents redundant re-creation.
   tightly-packed draw-struct layout (16/20 bytes); falls back to dispatching
   each indirect draw individually otherwise (unsupported browser/GPU, or a
   non-standard stride).
-- **No subgroup operations** — `LIMIT_SUBGROUP_IN_SHADERS` reports 0.
-- **Mobile renderer auto-selected** — Forward+ requires ≥48 sampled textures
-  per stage; most WebGPU implementations report 16, so the mobile renderer is
-  used automatically.
+- **No user-facing subgroup operations** — `LIMIT_SUBGROUP_IN_SHADERS` reports
+  0, so custom `.gdshader`/visual-shader code cannot use subgroup intrinsics.
+  This is narrower than it sounds: the `subgroups` device feature *is*
+  requested and used internally — the driver's own SPIR-V preprocessing
+  (`tint_wrapper.cpp`'s `allow_non_uniform_subgroup_operations`) and
+  build-time precompilation (`wgsl_precompile.py`'s SPIR-V 1.3 target) both
+  support subgroup ops in built-in engine shaders (e.g. `cluster_render.glsl`,
+  used by the Forward+/Clustered renderer's light culling) — it's only the
+  RenderingDevice-facing capability query for user shaders that's hardcoded
+  off.
+- **Forward+ (Clustered) renderer is supported** — the driver requests
+  `maxSampledTexturesPerShaderStage` at the adapter's actual limit (not a
+  conservative default), so Forward+'s ≥48-sampled-textures-per-stage
+  requirement is met on WebGPU/Dawn and it is no longer auto-downgraded to
+  Mobile. Both renderers work; Mobile remains this fork's most heavily
+  live-tested path, but Forward+ (including SDFGI, SSR, SSAO/SSIL, FSR1/2)
+  has had extensive real-project verification too — see
+  `webgpu_notes/TASKS.md` Phase 9.
 - **Timestamp queries** — Optional; depend on the `timestamp-query` device
   feature. Graceful fallback to dummy results when unavailable.
 - **Synchronous readback** — Not available in WebGPU. Timestamp and buffer
   readbacks use async callbacks with shadow buffers.
+- **`threads=yes`** — supported with `dlink_enabled=no` (the common case;
+  fixed and live-verified — see `webgpu_notes/TASKS.md` Task 12). The
+  `dlink_enabled=yes threads=yes` combination (GDExtension support together
+  with threads) is a known-unsupported configuration: it hits a genuine
+  initialization-order race inside Emscripten's own dylink+pthread runtime
+  glue (`libdylink.js`), not this fork's code, and is not planned to be
+  patched around here — see Task 12 for the full root-cause trail.
 
 ## Build Instructions
 
