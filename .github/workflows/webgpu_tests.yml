@@ -20,7 +20,7 @@ env:
     dev_mode=yes
     tests=no
     debug_symbols=no
-  EM_VERSION: 4.0.11
+  EM_VERSION: 6.0.9
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════════
