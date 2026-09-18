@@ -8,19 +8,15 @@ Based on a full re-read of `webgpu_notes/TASKS.md` (through Task 15), `drivers/w
 
 ---
 
-## 1. Fix stale claims in `drivers/webgpu/README.md`'s "Known Limitations" section
+## 1. ~~Fix stale claims in `drivers/webgpu/README.md`'s "Known Limitations" section~~ — DONE 2026-09-19
 
-**Effort: minutes.** Still unfixed as of this pass — verified directly against the current file (`drivers/webgpu/README.md:79-97`). The driver-local README still lists limitations that are no longer true:
-- "No subgroup operations" — contradicted by Task 9.4 (subgroups are precompiled and requested as a device feature).
-- "Mobile renderer auto-selected" — contradicted by all of Task 9.5 (Forward+ has worked for many rounds now, including SDFGI as of Round 46).
-
-While in there, also add a line for the now-resolved `threads=yes` situation (Task 12): `threads=yes dlink_enabled=no` works; `threads=yes dlink_enabled=yes` is a known-unsupported combination pending an upstream Emscripten fix (see item 8). Read the file, cross-check each claimed limitation against the current driver code and `webgpu_notes/TASKS.md`, and correct or remove stale ones. Pure documentation fix, no code/testing required.
+Fixed: corrected the "no subgroup operations" claim (nuanced — device feature works internally for built-in shaders, only the user-facing capability query is still 0) and the "mobile renderer auto-selected" claim (Forward+ works, confirmed via `maxSampledTexturesPerShaderStage` request code), and added the `threads=yes` support-matrix note from Task 12. Committed (`902f5c3059`).
 
 ---
 
-## 2. CI: commit `screenshot-comparison` baselines instead of regenerating them every run
+## 2. ~~CI: commit `screenshot-comparison` baselines instead of regenerating them every run~~ — DONE 2026-09-19
 
-**Effort: hours.** Unchanged from the prior pass — confirmed still live in `.github/workflows/webgpu_tests.yml:373` (`screenshot_tests.mjs --update-baselines` runs unconditionally). The job always overwrites and never actually diffs against a prior baseline, so it can never catch a visual regression, only produce a fresh set of "current" screenshots each run. Fix: run it once to generate baselines, commit them under `webgpu_tests/screenshot_comparison/`, then drop `--update-baselines` from the workflow so subsequent runs diff against the committed set and fail on unexpected drift.
+Fixed: ran `node screenshot_tests.mjs --update-baselines` locally (Playwright + Chromium/Firefox already available), verified a clean re-run diffs 8/8 exact-match against them, committed the 8 baseline PNGs, and dropped `--update-baselines` from `.github/workflows/webgpu_tests.yml`. Committed (`902f5c3059`). Note: the cross-browser (Chromium vs. Firefox) comparison reports a very high diff ratio (~99%, `WARN` status, not `FAIL` — outside this item's scope, but worth a look if picked up separately; see cross-browser comparison note under item 9/Task 10.1).
 
 ---
 
@@ -32,15 +28,18 @@ This gains extra relevance once item 6 (export-time baking) lands, since `tint_c
 
 ---
 
-## 4. Task 9.16 — Linux benchmark suite runner
+## 4. Task 9.16 — Linux benchmark suite runner — PARTIALLY DONE 2026-09-19
 
-**Effort: 1-2 days.** Unchanged — `webgpu_tests/benchmark/run_benchmark.sh` is still hardcoded to macOS (`EDITOR_BIN="$REPO_ROOT/bin/godot.macos.editor.arm64"`, `sed -i ''` BSD-style in-place edits at lines 64/141, presumably an `open -a` Chrome launch elsewhere). Port it to Linux:
-1. Parameterize the Godot binary path and browser-launch command (Linux Chrome is a plain binary invocation, no `open -a` equivalent needed).
-2. Swap the BSD `sed -i ''` calls (and any other macOS-only shell idioms) for GNU-compatible ones (or portable `awk`).
-3. Get the two known-safe legs working first — WebGL and WebGPU/Forward Mobile — and confirm output format/metrics match the existing macOS results structure.
-4. **Treat a third Forward+ leg as a separate follow-on, not part of this task's estimate** — it's unproven on this runner and could surface new bugs unrelated to the port itself; land the Linux port for the two known legs, then decide separately whether to extend it.
+The porting work (original scope) is done and live-verified; the Forward+ leg and README table update remain open as their own follow-on (this was always explicitly out of scope for the port itself — see below).
 
-**Completion criteria**: `run_benchmark.sh` (or its replacement) runs end-to-end on Linux for all known-safe legs across all benchmark scenes without manual macOS-only steps; README benchmark tables reflect real fork-specific Linux numbers.
+**Done**: `run_benchmark.sh` now detects the host OS (`uname -s`) and picks the right editor binary, native-backend label, and `sed -i` invocation (BSD vs. GNU) for each. The macOS-hardcoded, hash-pinned clean-WebGL-baseline template path was replaced with an explicit `GODOT_WEBGL_BASELINE_ZIP` env var (clear error + platform-appropriate default-location hint when unset) — there's no reliable way to auto-locate "the official upstream template, not this fork's own WebGPU-contaminated build" across machines. Also fixed a small pre-existing leak (the injected profiler script's `.uid` sidecar was never cleaned up) and gitignored the `exports/` output directory. Committed (`300ae98cd5`).
+
+**Verified**: `webgpu` leg (export → serve → Playwright capture) run end-to-end on this Linux box against `webgpu_tests/benchmark/godot/scene_a_sprites` — real output (165 fps avg, 2 draw calls), clean state restore on exit. `webgl` leg's code path is unchanged and should work identically, but wasn't run to completion here — this machine has no official (non-fork) Godot export template installed; confirmed the failure mode is a clear, actionable error rather than silently benchmarking the wrong template. `native` leg is interactive and wasn't run to a natural close in this pass.
+
+**Still open** (not attempted, per this task's original explicit scope split):
+1. Actually run the `webgl` leg somewhere an official upstream template is available, and confirm its output format/metrics.
+2. **The Forward+ leg remains a separate follow-on, not part of this item's estimate** — it's unproven on this runner and could surface new bugs unrelated to the port itself (Task 9.5's own history shows Forward+ under load is where new bugs get found).
+3. Update the README's `Key Stats`/`Performance Benchmarks` tables with real, fork-specific Linux numbers across all 7-8 benchmark scenes (only 1 scene's `webgpu` leg has been run so far, as a port-verification smoke test, not a full benchmark pass).
 
 ---
 
@@ -167,14 +166,14 @@ Same 11 items, regrouped into phases by **dependency, not by item number** — a
 
 Nothing here depends on anything else in this plan; all four can run fully in parallel.
 
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 1.1 | Write down Task 12's `dlink_enabled=yes threads=yes` decision (plan item 7) | Investigation already done — just record it in `webgpu_notes/TASKS.md` (already recorded) and feed the one-line summary into 1.2 | minutes |
-| 1.2 | Fix stale `drivers/webgpu/README.md` limitations (plan item 1) | Remove "no subgroup operations" and "mobile renderer auto-selected" claims; add the `threads=yes` support-matrix line from 1.1 | minutes |
-| 1.3 | CI: commit `screenshot-comparison` baselines (plan item 2) | Run once to generate; commit under `webgpu_tests/screenshot_comparison/`; drop `--update-baselines` from the workflow | hours |
-| 1.4 | Port `run_benchmark.sh` to Linux (plan item 4) | Parameterize binary path + browser launch; swap BSD `sed -i ''` for portable equivalents; verify WebGL + WebGPU/Mobile legs; treat a Forward+ leg as a follow-on | 1-2 days |
+| # | Item | Sub-items | Effort | Status |
+|---|------|-----------|--------|--------|
+| 1.1 | Write down Task 12's `dlink_enabled=yes threads=yes` decision (plan item 7) | Investigation already done — just record it in `webgpu_notes/TASKS.md` (already recorded) and feed the one-line summary into 1.2 | minutes | ✅ done (folded into 1.2) |
+| 1.2 | Fix stale `drivers/webgpu/README.md` limitations (plan item 1) | Remove "no subgroup operations" and "mobile renderer auto-selected" claims; add the `threads=yes` support-matrix line from 1.1 | minutes | ✅ done, committed `902f5c3059` |
+| 1.3 | CI: commit `screenshot-comparison` baselines (plan item 2) | Run once to generate; commit under `webgpu_tests/screenshot_comparison/`; drop `--update-baselines` from the workflow | hours | ✅ done, committed `902f5c3059` |
+| 1.4 | Port `run_benchmark.sh` to Linux (plan item 4) | Parameterize binary path + browser launch; swap BSD `sed -i ''` for portable equivalents; verify WebGL + WebGPU/Mobile legs; treat a Forward+ leg as a follow-on | 1-2 days | 🟡 port done & `webgpu` leg verified, committed `300ae98cd5`; `webgl` leg untested (no official template on hand) and full 7-scene README-numbers pass still open |
 
-**Phase 1 total**: ~1-2 days, fully parallelizable, no blockers.
+**Phase 1 total**: ~1-2 days. Done except 1.4's remaining `webgl`-leg verification and full benchmark-numbers pass, which need an official (non-fork) Godot template and a longer multi-scene run — carry those forward rather than blocking on them.
 
 ---
 
