@@ -74,13 +74,21 @@ Error RenderingContextDriverWebGPU::initialize() {
 		WARN_PRINT("WebGPU: wgpuCreateInstance returned null — async readback may not work.");
 	}
 
+	// Pass `instance` as importJsDevice()'s parentPtr so the imported device's
+	// EventSource resolves to our WGPUInstance's id instead of kNullInstanceId
+	// (importJsDevice()'s default when parentPtr is omitted) -- otherwise the
+	// device/queue's async events (buffer map, fence/work-done, query
+	// readback) are registered under a different instance than the one
+	// wgpuInstanceProcessEvents() below actually polls, and Dawn's internal
+	// EventManager can assert when polling an instance whose registration
+	// doesn't match what the device expects. See webgpu_notes/TASKS.md Task 11.
 	device = (WGPUDevice)(uintptr_t)EM_ASM_PTR({
 		var d = Module["preinitializedWebGPUDevice"];
 		if (!d) {
 			return 0;
 		}
-		return WebGPU["importJsDevice"](d);
-	});
+		return WebGPU["importJsDevice"](d, $0);
+	}, instance);
 	ERR_FAIL_COND_V_MSG(device == nullptr, ERR_CANT_CREATE, "WebGPU: Failed to get pre-initialized device. Ensure JS shell calls navigator.gpu.requestDevice() before WASM.");
 
 	queue = wgpuDeviceGetQueue(device);
