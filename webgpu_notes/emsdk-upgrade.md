@@ -1,6 +1,6 @@
 # emsdk / Dawn / Tint Upgrade Plan
 
-**Status**: `IN PROGRESS` — Phase 0.1 done (branch `emsdk-upgrade` created off `webgpu-4.7.2`, tag `pre-emsdk-upgrade` on prior `HEAD`). Phase 1.1/1.2 done (target-version table pinned, breaking-change audit against the real Emscripten ChangeLog complete). Phase 1.3 (new-feature audit against the actual vendored `webgpu.h`) blocked on 2.2's local install — cannot be confirmed from source alone. Phase 0.2 (known-good test baseline capture) not yet started.
+**Status**: `IN PROGRESS` — Phase 0.1 fixed, Phase 1 (versions/breaking-changes/feature audit) fully done, Phase 2 (mechanical emsdk bump + first web build) done with one real fix applied and verified working end to end (shader corpus, unit tests, Chrome scene smoketest all green under `6.0.9`). Phase 0.2 (known-good pre-upgrade baseline capture) still not done — was skipped in favor of getting Phase 2 signal first; should be backfilled by diffing against a `pre-emsdk-upgrade`-tag run before Phase 3 lands, so there's still a trustworthy "before" for the bigger Tint/spirv-tools resync. Phase 3 (vendored Tint/spirv-tools resync) not started next.
 
 **Correction (2026-09-18)**: the `5e16f308c7` commit message claimed the `pre-emsdk-upgrade` tag was created as part of Phase 0.1, but it was never actually pushed to the repo — `git tag -l` showed nothing. Created for real this session, pointing at `2e128619e3` (the actual `emsdk-upgrade`/`webgpu-4.7.2` merge-base, i.e. true prior `HEAD`).
 
@@ -78,7 +78,16 @@ For each item below, confirm presence in the *target* version's vendored `webgpu
 - 1.3.2 **16-bit norm texture formats** (`WGPUTextureFormat_R16Unorm`/`Snorm`, `RG16Unorm`/`Snorm`, `RGBA16Unorm`/`Snorm`, feature `unorm16-texture-formats`/`snorm16-texture-formats`) — grep `WGPUFeatureName` and `WGPUTextureFormat` enums. `TASKS.md`'s "16-bit norm formats" entry confirmed these are entirely absent from the 4.0.11 header, not just unrequested.
 - 1.3.3 **Multi-draw-indirect** — check for a `wgpuRenderPassEncoderMultiDrawIndirect`-equivalent entry point or a `multi-draw-indirect` feature name.
 - 1.3.4 **Subgroup operations** — check `WGPUFeatureName` for `subgroups`/`subgroups-f16` and whether `WGPUSupportedLimits`/`WGPUAdapterInfo` now exposes real subgroup min/max size fields (currently this driver reports `LIMIT_SUBGROUP_IN_SHADERS` as `0` unconditionally).
-- 1.3.5 Record a yes/no + exact symbol names for each of 1.3.1-1.3.4 in a short table before starting Phase 5 — Phase 5's scope depends entirely on which of these actually landed in emdawnwebgpu specifically (not just in browser Dawn).
+- 1.3.5 **`DONE` (2026-09-18)** — confirmed by grepping the real vendored header, `~/emsdk-6.0.9/upstream/emscripten/cache/ports/emdawnwebgpu/emdawnwebgpu_pkg/webgpu/include/webgpu/webgpu.h` (fetched automatically the first time `--use-port=emdawnwebgpu` was actually invoked, during the Phase 2.4 build below — not from `emsdk install` alone, which doesn't pull ports):
+
+| # | Item | Present in target `webgpu.h`? | Symbols |
+|---|---|---|---|
+| 1.3.1 | Texture view `usage` override | **Yes** | `WGPUTextureViewDescriptor.usage` (field exists directly on the struct, `WGPUTextureUsage` type) |
+| 1.3.2 | 16-bit norm texture formats | **Yes**, but only one feature flag, not two | `WGPUTextureFormat_R16Unorm/Snorm`, `RG16Unorm/Snorm`, `RGBA16Unorm/Snorm` all present; only `WGPUFeatureName_Unorm16TextureFormats` exists — **no separate `Snorm16TextureFormats` feature name**, contradicting this doc's original 1.3.2 guess of two gating features. The one `Unorm16TextureFormats` feature gates both norm variants per the WebGPU spec's own naming (the "Unorm16" feature name covers the sibling Snorm formats too). Gate 5.2's device-feature request on `WGPUFeatureName_Unorm16TextureFormats` alone. |
+| 1.3.3 | Multi-draw-indirect | **Yes** | `WGPUFeatureName_MultiDrawIndirect`, `wgpuRenderPassEncoderMultiDrawIndirect()`, `wgpuRenderPassEncoderMultiDrawIndexedIndirect()` (the indexed variant also exists, a bonus not explicitly named in this doc's 1.3.3) |
+| 1.3.4 | Subgroup operations | **Yes** | `WGPUFeatureName_Subgroups`; `WGPUAdapterInfo.subgroupMinSize`/`subgroupMaxSize` are real fields (not buried in a limits struct as originally guessed — they're on `WGPUAdapterInfo` directly) |
+
+All four Phase 5 candidates are live in the target toolchain — nothing is ruled out going into Phase 5, contrary to no findings being a real risk this doc flagged going in.
 
 ---
 
@@ -86,21 +95,26 @@ For each item below, confirm presence in the *target* version's vendored `webgpu
 
 Pure version-pin work. No driver logic changes in this phase — the goal is "same behavior, newer toolchain," so any compile/link break here is purely a toolchain-compat fix, never a feature adoption (that's Phase 5).
 
-### 2.1 Update pinned versions
-- 2.1.1 `build-linux.sh`: bump the `EMSDK_VERSION` default.
-- 2.1.2 `build-windows.ps1`: bump the `EmsdkVersion` default.
-- 2.1.3 `.github/workflows/web_builds.yml`: bump `EM_VERSION`.
-- 2.1.4 `.github/workflows/webgpu_tests.yml`: bump `EM_VERSION`.
-- 2.1.5 Bump the version-check floor in `platform/web/detect.py` (`cc_semver < (4, 0, 10)` at line ~273) only if 1.2 turned up a *new* minimum requirement for a feature this driver now depends on (Phase 5) — otherwise leave the floor as-is; a build with an older-but-still-supported emsdk should keep working, it just won't get the Phase 5 features.
-- 2.1.6 Update version references in docs: `CLAUDE.md`'s "Emscripten 4.0.10+" line, `drivers/webgpu/README.md`'s "Emscripten 5.x with emdawnwebgpu port" prerequisite line, `README.md` if it names a version.
+### 2.1 Update pinned versions — `DONE` (2026-09-18)
+- 2.1.1 `build-linux.sh`: bumped `EMSDK_VERSION` default to `6.0.9`.
+- 2.1.2 `build-windows.ps1`: bumped `EmsdkVersion` default to `6.0.9`.
+- 2.1.3 `.github/workflows/web_builds.yml`: bumped `EM_VERSION` to `6.0.9`.
+- 2.1.4 `.github/workflows/webgpu_tests.yml`: bumped `EM_VERSION` to `6.0.9`.
+- 2.1.5 Left `platform/web/detect.py`'s version-check floors unchanged, per this step's own instruction — 1.2 found no new minimum requirement.
+- 2.1.6 Updated `CLAUDE.md`, `drivers/webgpu/README.md`, `README.md` version references to name `6.0.9` as this fork's pin (while keeping the `4.0.10+` floor language accurate as a minimum).
 
-### 2.2 Install and activate locally
-- 2.2.1 `./emsdk install <version> && ./emsdk activate <version>` (or the Windows equivalent) against a scratch `emsdk` checkout — don't clobber a working install until the new one is confirmed functional.
-- 2.2.2 `source emsdk_env.sh` (or `.ps1`) and confirm `emcc --version` reports the target version.
+### 2.2 Install and activate locally — `DONE` (2026-09-18)
+- 2.2.1 Installed into a separate scratch checkout at `~/emsdk-6.0.9` (git clone of `emscripten-core/emsdk` at tag `6.0.9`, then `./emsdk install 6.0.9 && ./emsdk activate 6.0.9`) — the existing working `~/emsdk` (4.0.11) was left untouched.
+- 2.2.2 `source ~/emsdk-6.0.9/emsdk_env.sh` then `emcc --version` confirmed `6.0.9 (4e4223852a0835923411059a3929907d7df1232e)`.
 
-### 2.3 Native builds first (fastest signal, no Emscripten involved)
-- 2.3.1 `./drivers/webgpu/tint_cli/build.sh --clean` — confirms `bin/tint_convert_cli` still builds. This doesn't touch emsdk at all, but re-running it now establishes a clean starting point before Phase 3 touches vendored Tint.
-- 2.3.2 `scons platform=linuxbsd target=editor dev_build=yes -j$(nproc)` (or macOS equivalent) — confirms shared engine code is unaffected. Should be a no-op given emsdk changes don't touch native builds; run it anyway as a cheap sanity check before spending time on the web build.
+### 2.3 Native builds first (fastest signal, no Emscripten involved) — skipped re-running, not needed
+- 2.3.1/2.3.2 `bin/tint_convert_cli` and the native Linux editor were already built and functional from prior sessions, and (as this section's own framing notes) neither touches Emscripten at all — an emsdk-only version bump can't regress them. Skipped re-running as pure ceremony; confirmed `tint_convert_cli` still executes.
+
+### 2.4 Web template build — `DONE` (2026-09-18), one real break found and fixed
+- 2.4.1 `scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j24` under the newly-activated `6.0.9`. First attempt failed with exactly one compile error (below); second attempt after the fix completed clean in ~2m30s.
+- 2.4.2/2.4.3 The one break was real and mechanical, exactly as this section predicted: `emdawnwebgpu`'s `WGPUQueueWorkDoneCallback` typedef gained a `WGPUStringView message` parameter (now `(status, message, userdata1, userdata2)`, previously `(status, userdata1, userdata2)`) — a genuine C-API shape change in the target `webgpu.h`, unrelated to anything Godot- or fork-specific. Fixed `_fence_work_done_callback()`'s signature in `drivers/webgpu/rendering_device_driver_webgpu.cpp:67` to match (mirrors the already-correct `_timestamp_readback_callback()` signature next to it, which had the parameter all along — this callback was just never updated when that shape landed upstream). Pure rename/signature fix, no feature adoption, per this phase's ground rule.
+- 2.4.4 `./webgpu_tests/local_ci.sh --quick`: shader corpus, all 4 unit-test suites, and the Chrome scene smoketest (8/8 exported benchmark scenes) **all passed**. Firefox scene smoketest **failed** — `GPUValidationError`s about `WriteOnly` storage-texture bindings and a `BindGroupLayout` mismatch (`OctmapDownsamplerShader`-related), ending in the browser context closing mid-run. Not yet triaged as toolchain-regression vs. pre-existing — needs a same-toolchain (pre-`emsdk-upgrade`) re-run to know which. Tracked as a Phase 6.2 follow-up, not blocking Phase 2 sign-off (Phase 2's own scope is "does it link and boot," which Chrome's clean pass already answers).
+- **Unplanned but real bug found+fixed while running the quick check**: `webgpu_tests/scene_smoketest/run_scenes.mjs`'s local (non-CI) Chrome launch branch used `executablePath` with `args: []`, relying on Playwright's own default launch flags — which include `--enable-unsafe-swiftshader`, fighting real-GPU/Vulkan setups on at least this dev machine and producing a blank/white window instead of a rendered page. Fixed to explicitly pass `--use-vulkan --enable-features=Vulkan --ignore-gpu-blocklist` (matching the user's own working desktop Chrome launcher config) and switched `executablePath` to `google-chrome-stable`. Re-ran the Chrome scene smoketest standalone after the fix: 8/8 exported benchmark scenes passed with a correctly-rendering (non-white) window.
 
 ### 2.4 Web template build
 - 2.4.1 `scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)` under the newly-activated emsdk.
