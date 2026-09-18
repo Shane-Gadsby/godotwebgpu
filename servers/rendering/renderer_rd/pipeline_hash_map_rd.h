@@ -147,6 +147,18 @@ public:
 		print_line("HASH:", p_key_hash, "SOURCE:", source_name);
 #endif
 
+		// Some backends (currently WebGPU) require pipeline creation to happen on
+		// whichever thread owns the device rather than an arbitrary WorkerThreadPool
+		// background thread -- see API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION's
+		// doc comment in rendering_device_driver.h for why. Call the creation function
+		// directly instead of dispatching it as a background task in that case; it's
+		// still responsible for calling add_compiled_pipeline() itself, exactly as the
+		// background-task path expects.
+		if (RD::get_singleton()->requires_synchronous_pipeline_compilation()) {
+			(creation_object->*creation_function)(p_key);
+			return;
+		}
+
 		// Queue a background compilation task.
 		WorkerThreadPool::TaskID task_id = WorkerThreadPool::get_singleton()->add_template_task(creation_object, creation_function, p_key, p_high_priority, "PipelineCompilation");
 		compilation_tasks.insert(p_key_hash, task_id);
