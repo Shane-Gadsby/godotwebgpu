@@ -65,18 +65,11 @@ std::string BindingArray::FriendlyName() const {
 
 TypeAndCount BindingArray::Elements([[maybe_unused]] const Type*,
                                     [[maybe_unused]] uint32_t count_if_invalid) const {
-    uint32_t n = count_if_invalid;
-    if (auto* const_count = count_->As<ConstantArrayCount>()) {
-        n = const_count->value;
-    }
-    return {element_, n};
+    return {element_, count_->As<ConstantArrayCount>()->value};
 }
 
 const Type* BindingArray::Element(uint32_t index) const {
-    if (auto* count = count_->As<ConstantArrayCount>()) {
-        return index < count->value ? element_ : nullptr;
-    }
-    return element_;
+    return index < count_->As<ConstantArrayCount>()->value ? element_ : nullptr;
 }
 
 BindingArray* BindingArray::Clone(CloneContext& ctx) const {

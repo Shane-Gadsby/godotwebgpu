@@ -58,6 +58,11 @@ struct State {
     core::type::Manager& ty{ir.Types()};
 
     Result<ImmediateDataLayout> Run() {
+        if (config.internal_immediate_data.empty()) {
+            return ImmediateDataLayout{};
+        }
+
+        ImmediateDataLayout layout;
         Var* user_defined_immediates = nullptr;
         Vector<core::type::StructMember*, 4> members;
 
@@ -77,10 +82,6 @@ struct State {
             }
             user_defined_immediates = var;
 
-            if (ptr->StoreType()->Size() > kMaxImmediateBlockSize) {
-                return Failure("user-defined immediate data exceeds maximum immediate block size");
-            }
-
             // Assume that user-defined constants start at offset 0 until Dawn tells us otherwise.
             members.Push(ty.Get<core::type::StructMember>(ir.symbols.New("user_immediate_data"),
                                                           ptr->StoreType(),
@@ -91,18 +92,12 @@ struct State {
                                                           /* attributes */ IOAttributes{}));
         }
 
-        ImmediateDataLayout layout;
-        if (config.internal_immediate_data.empty()) {
-            return layout;
-        }
-
         // Create the structure and immediate data variable.
         for (auto& internal : config.internal_immediate_data) {
             auto offset = internal.first;
 
             if (!members.IsEmpty()) {
-                if (static_cast<uint64_t>(members.Back()->Offset()) + members.Back()->Size() >
-                    offset) {
+                if (members.Back()->Offset() + members.Back()->Size() > offset) {
                     return Failure("immediate offset for '" + internal.second.name.Name() +
                                    "' overlaps with previous member '" +
                                    members.Back()->Name().Name() + "'");
@@ -113,8 +108,7 @@ struct State {
                                "' must be aligned to " +
                                std::to_string(internal.second.type->Align()) + " bytes");
             }
-            if (static_cast<uint64_t>(offset) + internal.second.type->Size() >
-                kMaxImmediateBlockSize) {
+            if (offset + internal.second.type->Size() > kMaxImmediateBlockSize) {
                 return Failure("immediate '" + internal.second.name.Name() +
                                "' exceeds maximum immediate block size");
             }

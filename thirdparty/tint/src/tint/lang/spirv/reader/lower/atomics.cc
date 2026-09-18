@@ -34,8 +34,6 @@
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/builtin_structs.h"
-#include "src/tint/lang/core/type/matrix.h"
-#include "src/tint/lang/core/type/vector.h"
 #include "src/tint/lang/spirv/ir/builtin_call.h"
 #include "src/tint/utils/containers/hashmap.h"
 #include "src/tint/utils/containers/hashset.h"
@@ -475,9 +473,7 @@ struct State {
                     auto const_idx = const_val->Value()->ValueAs<uint32_t>();
                     cur_ty = str->Members()[const_idx]->Type();
                 },
-                [&](const core::type::Array* arr) { cur_ty = arr->ElemType(); },
-                [&](const core::type::Matrix* mat) { cur_ty = mat->ColumnType(); },
-                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); });
+                [&](const core::type::Array* arr) { cur_ty = arr->ElemType(); });
         }
         return ty.ptr(ptr->AddressSpace(), cur_ty, ptr->Access());
     }
@@ -498,9 +494,7 @@ struct State {
 
                     cur_ty = str->Members()[const_idx]->Type();
                 },                                                                //
-                [&](const core::type::Array* ary) { cur_ty = ary->ElemType(); },      //
-                [&](const core::type::Matrix* mat) { cur_ty = mat->ColumnType(); },  //
-                [&](const core::type::Vector* vec) { cur_ty = vec->Type(); },        //
+                [&](const core::type::Array* ary) { cur_ty = ary->ElemType(); },  //
                 TINT_ICE_ON_NO_MATCH);
         }
     }

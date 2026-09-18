@@ -123,6 +123,13 @@ using namespace tint::core::fluent_types;  // NOLINT
 namespace tint::resolver {
 namespace {
 
+#define TINT_RET_IF_NULL(expr)        \
+    do {                              \
+        if (DAWN_UNLIKELY(!(expr))) { \
+            return nullptr;           \
+        }                             \
+    } while (false)
+
 #define TINT_RET_IF(expr) \
     do {                  \
         if ((expr)) {     \
@@ -253,7 +260,7 @@ sem::Variable* Resolver::Let(const ast::Let* v) {
     // If the variable has a declared type, resolve it.
     if (v->type) {
         auto* ty = Type(v->type);
-        TINT_RET_IF(DAWN_UNLIKELY(!ty));
+        TINT_RET_IF_NULL(ty);
 
         sem->SetType(ty);
     }
@@ -270,7 +277,7 @@ sem::Variable* Resolver::Let(const ast::Let* v) {
     }
 
     auto* rhs = Load(Materialize(ValueExpression(v->initializer), sem->Type()));
-    TINT_RET_IF(DAWN_UNLIKELY(!rhs));
+    TINT_RET_IF_NULL(rhs);
 
     sem->SetInitializer(rhs);
 
@@ -307,7 +314,7 @@ sem::Variable* Resolver::Override(const ast::Override* v) {
     const core::type::Type* ty = nullptr;
     if (v->type) {
         ty = Type(v->type);
-        TINT_RET_IF(DAWN_UNLIKELY(!ty));
+        TINT_RET_IF_NULL(ty);
     }
 
     // Does the variable have an initializer?
@@ -319,7 +326,7 @@ sem::Variable* Resolver::Override(const ast::Override* v) {
                                            "override initializer"};
         TINT_SCOPED_ASSIGNMENT(expr_eval_stage_constraint_, constraint);
         init = Materialize(ValueExpression(v->initializer), ty);
-        TINT_RET_IF(DAWN_UNLIKELY(!init));
+        TINT_RET_IF_NULL(init);
 
         sem->SetInitializer(init);
 
@@ -385,7 +392,7 @@ sem::Variable* Resolver::Override(const ast::Override* v) {
                 return false;
             });
 
-        TINT_RET_IF(DAWN_UNLIKELY(!ok));
+        TINT_RET_IF_NULL(ok);
     }
 
     return sem;
@@ -411,7 +418,7 @@ sem::Variable* Resolver::Const(const ast::Const* c, bool is_global) {
                            attribute, StyledText{} << style::Keyword("const") << " declaration");
                        return false;
                    });
-        TINT_RET_IF(DAWN_UNLIKELY(!ok));
+        TINT_RET_IF_NULL(ok);
     }
 
     if (DAWN_UNLIKELY(!c->initializer)) {
@@ -422,7 +429,7 @@ sem::Variable* Resolver::Const(const ast::Const* c, bool is_global) {
     ExprEvalStageConstraint constraint{core::EvaluationStage::kConstant, "const initializer"};
     TINT_SCOPED_ASSIGNMENT(expr_eval_stage_constraint_, constraint);
     const auto* init = ValueExpression(c->initializer);
-    TINT_RET_IF(DAWN_UNLIKELY(!init));
+    TINT_RET_IF_NULL(init);
 
     // Note: RHS must be a const expression, which excludes references.
     // So there's no need to load or unwrap references here.
@@ -431,13 +438,13 @@ sem::Variable* Resolver::Const(const ast::Const* c, bool is_global) {
     const core::type::Type* ty = nullptr;
     if (c->type) {
         ty = Type(c->type);
-        TINT_RET_IF(DAWN_UNLIKELY(!ty));
+        TINT_RET_IF_NULL(ty);
     }
 
     if (ty) {
         // If an explicit type was specified, materialize to that type
         init = Materialize(init, ty);
-        TINT_RET_IF(DAWN_UNLIKELY(!init));
+        TINT_RET_IF_NULL(init);
     } else {
         // If no type was specified, infer it from the RHS
         ty = init->Type();
@@ -488,7 +495,7 @@ sem::Variable* Resolver::Var(const ast::Var* var, bool is_global) {
     const core::type::Type* storage_ty = nullptr;
     if (auto ty = var->type) {
         storage_ty = Type(ty);
-        TINT_RET_IF(DAWN_UNLIKELY(!storage_ty));
+        TINT_RET_IF_NULL(storage_ty);
     }
 
     // Does the variable have a initializer?
@@ -500,7 +507,7 @@ sem::Variable* Resolver::Var(const ast::Var* var, bool is_global) {
         TINT_SCOPED_ASSIGNMENT(expr_eval_stage_constraint_, constraint);
 
         auto* init = Load(Materialize(ValueExpression(var->initializer), storage_ty));
-        TINT_RET_IF(DAWN_UNLIKELY(!init));
+        TINT_RET_IF_NULL(init);
 
         sem->SetInitializer(init);
 
@@ -517,7 +524,7 @@ sem::Variable* Resolver::Var(const ast::Var* var, bool is_global) {
 
     if (var->declared_address_space) {
         auto space = AddressSpaceExpression(var->declared_address_space);
-        TINT_RET_IF(DAWN_UNLIKELY(!space));
+        TINT_RET_IF_NULL(space);
 
         sem->SetAddressSpace(space->Value());
     } else {
@@ -539,7 +546,7 @@ sem::Variable* Resolver::Var(const ast::Var* var, bool is_global) {
 
     if (var->declared_access) {
         auto expr = AccessExpression(var->declared_access);
-        TINT_RET_IF(DAWN_UNLIKELY(!expr));
+        TINT_RET_IF_NULL(expr);
 
         sem->SetAccess(expr->Value());
     } else {
@@ -661,7 +668,7 @@ sem::Parameter* Resolver::Parameter(const ast::Parameter* param,
                     return false;
                 });
 
-            TINT_RET_IF(DAWN_UNLIKELY(!ok));
+            TINT_RET_IF_NULL(ok);
         }
     } else if (!param->attributes.IsEmpty()) {
         auto& attribute = param->attributes[0];
@@ -677,7 +684,7 @@ sem::Parameter* Resolver::Parameter(const ast::Parameter* param,
     TINT_RET_IF(!validator_.NoDuplicateAttributes(param->attributes));
 
     const core::type::Type* ty = Type(param->type);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty));
+    TINT_RET_IF_NULL(ty);
 
     sem->SetType(ty);
 
@@ -754,7 +761,7 @@ bool Resolver::AllocateOverridableConstantIds() {
 
 sem::GlobalVariable* Resolver::GlobalVariable(const ast::Variable* v) {
     auto* sem = As<sem::GlobalVariable>(Variable(v, /* is_global */ true));
-    TINT_RET_IF(DAWN_UNLIKELY(!sem));
+    TINT_RET_IF_NULL(sem);
     TINT_RET_IF(!validator_.NoDuplicateAttributes(v->attributes));
     TINT_RET_IF(!validator_.GlobalVariable(sem, override_ids_));
     return sem;
@@ -764,7 +771,7 @@ sem::Statement* Resolver::ConstAssert(const ast::ConstAssert* assertion) {
     ExprEvalStageConstraint constraint{core::EvaluationStage::kConstant, "const assertion"};
     TINT_SCOPED_ASSIGNMENT(expr_eval_stage_constraint_, constraint);
     auto* expr = ValueExpression(assertion->condition);
-    TINT_RET_IF(DAWN_UNLIKELY(!expr));
+    TINT_RET_IF_NULL(expr);
 
     auto* cond = expr->ConstantValue();
     if (auto* ty = cond->Type(); !ty->Is<core::type::Bool>()) {
@@ -822,7 +829,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
                 return false;
             });
 
-        TINT_RET_IF(DAWN_UNLIKELY(!ok));
+        TINT_RET_IF_NULL(ok);
     }
     TINT_RET_IF(!validator_.NoDuplicateAttributes(decl->attributes));
 
@@ -842,7 +849,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
         }
 
         auto* p = Parameter(param, decl, parameter_index++);
-        TINT_RET_IF(DAWN_UNLIKELY(!p));
+        TINT_RET_IF_NULL(p);
 
         func->AddParameter(p);
 
@@ -868,7 +875,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
     const core::type::Type* return_type = nullptr;
     if (auto ty = decl->return_type) {
         return_type = Type(ty);
-        TINT_RET_IF(DAWN_UNLIKELY(!return_type));
+        TINT_RET_IF_NULL(return_type);
     } else {
         return_type = b.create<core::type::Void>();
     }
@@ -916,7 +923,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
                                attribute, StyledText{} << "non-entry point function return types");
                            return false;
                        });
-            TINT_RET_IF(DAWN_UNLIKELY(!ok));
+            TINT_RET_IF_NULL(ok);
         }
     }
 
@@ -957,7 +964,7 @@ sem::Function* Resolver::Function(const ast::Function* decl) {
         }
         auto* body = StatementScope(decl->body, b.create<sem::FunctionBlockStatement>(func),
                                     [&] { return Statements(decl->body->statements); });
-        TINT_RET_IF(DAWN_UNLIKELY(!body));
+        TINT_RET_IF_NULL(body);
 
         func->Behaviors() = body->Behaviors();
         if (func->Behaviors().Contains(sem::Behavior::kReturn)) {
@@ -1296,7 +1303,7 @@ sem::Expression* Resolver::Expression(const ast::Expression* root) {
                                                       /* constant_value */ nullptr);
             },  //
             TINT_ICE_ON_NO_MATCH);
-        TINT_RET_IF(DAWN_UNLIKELY(!sem_expr));
+        TINT_RET_IF_NULL(sem_expr);
 
         auto* val = sem_expr->As<sem::ValueExpression>();
 
@@ -1366,10 +1373,10 @@ const core::type::Type* Resolver::Type(const ast::Expression* ast) {
     TINT_DEFER(on_transitively_reference_global_.Pop());
 
     auto* type_expr = TypeExpression(ast);
-    TINT_RET_IF(DAWN_UNLIKELY(!type_expr));
+    TINT_RET_IF_NULL(type_expr);
 
     auto* type = const_cast<core::type::Type*>(type_expr->Type());
-    TINT_RET_IF(DAWN_UNLIKELY(!type));
+    TINT_RET_IF_NULL(type);
 
     if (auto* arr = type->As<sem::Array>()) {
         for (auto* ref : referenced_overrides) {
@@ -1383,7 +1390,7 @@ const core::type::Type* Resolver::Type(const ast::Expression* ast) {
 sem::BuiltinEnumExpression<core::AddressSpace>* Resolver::AddressSpaceExpression(
     const ast::Expression* expr) {
     auto address_space_expr = sem_.AsAddressSpace(Expression(expr));
-    TINT_RET_IF(DAWN_UNLIKELY(!address_space_expr));
+    TINT_RET_IF_NULL(address_space_expr);
 
     if (DAWN_UNLIKELY(
             address_space_expr->Value() == core::AddressSpace::kPixelLocal &&
@@ -1709,7 +1716,7 @@ const core::type::Type* Resolver::ConcreteType(const core::type::Type* ty,
 
 const sem::ValueExpression* Resolver::Load(const sem::ValueExpression* expr) {
     // Allow for Load(ValueExpression(blah)), where failures pass through Load()
-    TINT_RET_IF(DAWN_UNLIKELY(!expr));
+    TINT_RET_IF_NULL(expr);
 
     // When requested, wrap a swizzle view in an ephemeral Load in order to correctly resolve types
     // for validation. Because this sem::Load will not become a true load during lowering to IR,
@@ -1740,7 +1747,7 @@ const sem::ValueExpression* Resolver::Materialize(
     const sem::ValueExpression* expr,
     const core::type::Type* target_type /* = nullptr */) {
     // Allow for Materialize(ValueExpression(blah)), where failures pass through Materialize()
-    TINT_RET_IF(DAWN_UNLIKELY(!expr));
+    TINT_RET_IF_NULL(expr);
 
     auto* decl = expr->Declaration();
 
@@ -1832,7 +1839,7 @@ const core::constant::Value* Resolver::ConvertConstArgument(
 
 sem::ValueExpression* Resolver::IndexAccessor(const ast::IndexAccessorExpression* expr) {
     auto* idx = Load(Materialize(sem_.GetVal(expr->index)));
-    TINT_RET_IF(DAWN_UNLIKELY(!idx));
+    TINT_RET_IF_NULL(idx);
 
     const auto* obj = sem_.GetVal(expr->object);
     if (idx->Stage() != core::EvaluationStage::kConstant) {
@@ -1841,7 +1848,7 @@ sem::ValueExpression* Resolver::IndexAccessor(const ast::IndexAccessorExpression
         //     vec2(1, 2)[runtime-index]
         obj = Materialize(obj);
     }
-    TINT_RET_IF(DAWN_UNLIKELY(!obj));
+    TINT_RET_IF_NULL(obj);
 
     auto* object_ty = obj->Type();
     auto* const memory_view = object_ty->As<core::type::MemoryView>();
@@ -1869,7 +1876,7 @@ sem::ValueExpression* Resolver::IndexAccessor(const ast::IndexAccessorExpression
             AddError(expr) << "cannot index type '" << sem_.TypeNameOf(storage_ty) << "'";
             return nullptr;
         });
-    TINT_RET_IF(DAWN_UNLIKELY(!ty));
+    TINT_RET_IF_NULL(ty);
 
     auto* idx_ty = idx->Type()->UnwrapRef();
     if (!idx_ty->IsAnyOf<core::type::I32, core::type::U32>()) {
@@ -1908,7 +1915,7 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
     // * A value constructor.
     // * A value conversion.
     auto* target = sem_.Get(expr->target);
-    TINT_RET_IF(DAWN_UNLIKELY(!target));
+    TINT_RET_IF_NULL(target);
 
     // Resolve all of the arguments, their types and the set of behaviors.
     Vector<const sem::ValueExpression*, 8> args;
@@ -1916,7 +1923,7 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
     auto args_stage = core::EvaluationStage::kConstant;
     for (size_t i = 0; i < expr->args.Length(); i++) {
         const auto* arg = Load(sem_.GetVal(expr->args[i]));
-        TINT_RET_IF(DAWN_UNLIKELY(!arg));
+        TINT_RET_IF_NULL(arg);
 
         args.Push(arg);
         args_stage = core::EarliestStage(args_stage, arg->Stage());
@@ -2157,7 +2164,7 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
                     return nullptr;
                 }
                 auto* arr = Array(expr->source, expr->source, expr->source, el_ty, el_count);
-                TINT_RET_IF(DAWN_UNLIKELY(!arr));
+                TINT_RET_IF_NULL(arr);
 
                 return ty_init_or_conv(arr);
             }
@@ -2178,7 +2185,7 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
                 ty_expr->Type(),  //
                 [&](const IncompleteType* t) -> sem::Call* {
                     auto* ctor = incomplete_type(t);
-                    TINT_RET_IF(DAWN_UNLIKELY(!ctor));
+                    TINT_RET_IF_NULL(ctor);
 
                     // Replace incomplete type with resolved type
                     const_cast<sem::TypeExpression*>(ty_expr)->SetType(ctor->Type());
@@ -2194,7 +2201,7 @@ sem::Call* Resolver::Call(const ast::CallExpression* expr) {
             return nullptr;
         });
 
-    TINT_RET_IF(DAWN_UNLIKELY(!call));
+    TINT_RET_IF_NULL(call);
 
     return validator_.Call(call, current_statement_) ? call : nullptr;
 }
@@ -2212,7 +2219,7 @@ sem::Call* Resolver::BuiltinCall(const ast::CallExpression* expr,
     if (auto* tmpl = expr->target->identifier->As<ast::TemplatedIdentifier>()) {
         for (auto* arg : tmpl->arguments) {
             auto* arg_ty = sem_.AsTypeExpression(sem_.Get(arg));
-            TINT_RET_IF(DAWN_UNLIKELY(!arg_ty));
+            TINT_RET_IF_NULL(arg_ty);
 
             tmpl_args.Push(arg_ty->Type());
         }
@@ -2700,7 +2707,7 @@ const core::type::U16* Resolver::U16(const ast::Identifier* ident) {
 const core::type::Vector* Resolver::Vec(const ast::Identifier* ident,
                                         const core::type::Type* el,
                                         uint32_t n) {
-    TINT_RET_IF(DAWN_UNLIKELY(!el));
+    TINT_RET_IF_NULL(el);
     TINT_RET_IF(DAWN_UNLIKELY(!validator_.Vector(el, ident->source)));
     return b.create<core::type::Vector>(el, n);
 }
@@ -2716,7 +2723,7 @@ const core::type::Type* Resolver::VecT(const ast::Identifier* ident,
     TINT_RET_IF(DAWN_UNLIKELY(!CheckTemplatedIdentifierArgs(tmpl_ident, 1)));
 
     auto* ty = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty));
+    TINT_RET_IF_NULL(ty);
 
     return Vec(ident, const_cast<core::type::Type*>(ty), n);
 }
@@ -2725,11 +2732,11 @@ const core::type::Matrix* Resolver::Mat(const ast::Identifier* ident,
                                         const core::type::Type* el,
                                         uint32_t num_columns,
                                         uint32_t num_rows) {
-    TINT_RET_IF(DAWN_UNLIKELY(!el));
+    TINT_RET_IF_NULL(el);
     TINT_RET_IF(DAWN_UNLIKELY(!validator_.Matrix(el, ident->source)));
 
     auto* column = Vec(ident, el, num_rows);
-    TINT_RET_IF(DAWN_UNLIKELY(!column));
+    TINT_RET_IF_NULL(column);
 
     return b.create<core::type::Matrix>(column, num_columns);
 }
@@ -2746,7 +2753,7 @@ const core::type::Type* Resolver::MatT(const ast::Identifier* ident,
     TINT_RET_IF(DAWN_UNLIKELY(!CheckTemplatedIdentifierArgs(tmpl_ident, 1)));
 
     auto* el_ty = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!el_ty));
+    TINT_RET_IF_NULL(el_ty);
 
     return Mat(ident, const_cast<core::type::Type*>(el_ty), num_columns, num_rows);
 }
@@ -2764,17 +2771,17 @@ const core::type::Type* Resolver::Array(const ast::Identifier* ident) {
     auto* ast_count = (tmpl_ident->arguments.Length() > 1) ? tmpl_ident->arguments[1] : nullptr;
 
     auto* el_ty = sem_.GetType(ast_el_ty);
-    TINT_RET_IF(DAWN_UNLIKELY(!el_ty));
+    TINT_RET_IF_NULL(el_ty);
 
     const core::type::ArrayCount* el_count =
         ast_count ? ArrayCount(ast_count) : b.create<core::type::RuntimeArrayCount>();
-    TINT_RET_IF(DAWN_UNLIKELY(!el_count));
+    TINT_RET_IF_NULL(el_count);
 
     auto* out = Array(tmpl_ident->source,                             //
                       ast_el_ty->source,                              //
                       ast_count ? ast_count->source : ident->source,  //
                       el_ty, el_count);
-    TINT_RET_IF(DAWN_UNLIKELY(!out));
+    TINT_RET_IF_NULL(out);
 
     if (el_ty->Is<core::type::Atomic>()) {
         atomic_composite_info_.Add(out, &ast_el_ty->source);
@@ -2792,13 +2799,13 @@ const core::type::Type* Resolver::Array(const ast::Identifier* ident) {
 
 const core::type::BindingArray* Resolver::BindingArray(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* el_type = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!el_type));
+    TINT_RET_IF_NULL(el_type);
 
     const core::type::ArrayCount* el_count = ArrayCount(tmpl_ident->arguments[1]);
-    TINT_RET_IF(DAWN_UNLIKELY(!el_count));
+    TINT_RET_IF_NULL(el_count);
 
     auto* out = b.create<core::type::BindingArray>(el_type, el_count);
     TINT_RET_IF(DAWN_UNLIKELY(!validator_.BindingArray(out, ident->source)));
@@ -2808,10 +2815,10 @@ const core::type::BindingArray* Resolver::BindingArray(const ast::Identifier* id
 
 const core::type::Atomic* Resolver::Atomic(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);  // atomic<type>
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* el_ty = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!el_ty));
+    TINT_RET_IF_NULL(el_ty);
 
     auto* out = b.create<core::type::Atomic>(el_ty);
     TINT_RET_IF(DAWN_UNLIKELY(!validator_.Atomic(tmpl_ident, out)));
@@ -2821,13 +2828,13 @@ const core::type::Atomic* Resolver::Atomic(const ast::Identifier* ident) {
 
 const core::type::Pointer* Resolver::Ptr(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2, 3);  // ptr<address, type [, access]>
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto address_space = sem_.GetAddressSpace(tmpl_ident->arguments[0]);
     TINT_RET_IF(DAWN_UNLIKELY(address_space == core::AddressSpace::kUndefined));
 
     auto* store_ty = const_cast<core::type::Type*>(sem_.GetType(tmpl_ident->arguments[1]));
-    TINT_RET_IF(DAWN_UNLIKELY(!store_ty));
+    TINT_RET_IF_NULL(store_ty);
 
     core::Access access = core::Access::kUndefined;
     if (tmpl_ident->arguments.Length() > 2) {
@@ -2879,10 +2886,10 @@ const core::type::SampledTexture* Resolver::SampledTexture(const ast::Identifier
     }
 
     auto* tmpl_ident = TemplatedIdentifier(ident, 1, allowed_args);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* ty_expr = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty_expr));
+    TINT_RET_IF_NULL(ty_expr);
 
     core::TextureFilterable filterable = core::TextureFilterable::kUndefined;
     if (tmpl_ident->arguments.Length() > 1) {
@@ -2898,10 +2905,10 @@ const core::type::MultisampledTexture* Resolver::MultisampledTexture(
     const ast::Identifier* ident,
     core::type::TextureDimension dim) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* ty_expr = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty_expr));
+    TINT_RET_IF_NULL(ty_expr);
 
     auto* out = b.create<core::type::MultisampledTexture>(dim, ty_expr);
     return validator_.MultisampledTexture(out, ident->source) ? out : nullptr;
@@ -2910,7 +2917,7 @@ const core::type::MultisampledTexture* Resolver::MultisampledTexture(
 const core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier* ident,
                                                            core::type::TextureDimension dim) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto format = sem_.GetTexelFormat(tmpl_ident->arguments[0]);
     TINT_RET_IF(DAWN_UNLIKELY(format == core::TexelFormat::kUndefined));
@@ -2926,10 +2933,10 @@ const core::type::StorageTexture* Resolver::StorageTexture(const ast::Identifier
 
 const core::type::InputAttachment* Resolver::InputAttachment(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 1);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* ty_expr = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty_expr));
+    TINT_RET_IF_NULL(ty_expr);
 
     auto* out = b.create<core::type::InputAttachment>(ty_expr);
     return validator_.InputAttachment(out, ident->source) ? out : nullptr;
@@ -2938,15 +2945,15 @@ const core::type::InputAttachment* Resolver::InputAttachment(const ast::Identifi
 const core::type::SubgroupMatrix* Resolver::SubgroupMatrix(const ast::Identifier* ident,
                                                            core::SubgroupMatrixKind kind) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 3);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto* ty_expr = sem_.GetType(tmpl_ident->arguments[0]);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty_expr));
+    TINT_RET_IF_NULL(ty_expr);
 
     auto get_dim = [&](const ast::Expression* arg,
                        const char* dim) -> const core::constant::Value* {
         const auto* cols_sem = Materialize(sem_.GetVal(arg));
-        TINT_RET_IF(DAWN_UNLIKELY(!cols_sem));
+        TINT_RET_IF_NULL(cols_sem);
 
         if (!cols_sem->ConstantValue() || cols_sem->ConstantValue()->ValueAs<AInt>() < 1) {
             AddError(arg) << "subgroup matrix " << dim
@@ -2956,10 +2963,10 @@ const core::type::SubgroupMatrix* Resolver::SubgroupMatrix(const ast::Identifier
         return cols_sem->ConstantValue();
     };
     auto* cols = get_dim(tmpl_ident->arguments[1], "column");
-    TINT_RET_IF(DAWN_UNLIKELY(!cols));
+    TINT_RET_IF_NULL(cols);
 
     auto* rows = get_dim(tmpl_ident->arguments[2], "row");
-    TINT_RET_IF(DAWN_UNLIKELY(!rows));
+    TINT_RET_IF_NULL(rows);
 
     auto* out = b.create<core::type::SubgroupMatrix>(kind, ty_expr, cols->ValueAs<uint32_t>(),
                                                      rows->ValueAs<uint32_t>());
@@ -2976,11 +2983,11 @@ const core::type::Buffer* Resolver::Buffer(const ast::Identifier* ident) {
     core::type::Buffer* out = nullptr;
     if (ident->Is<ast::TemplatedIdentifier>()) {
         auto* tmpl_ident = TemplatedIdentifier(ident, 1);
-        TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+        TINT_RET_IF_NULL(tmpl_ident);
 
         auto* arg = tmpl_ident->arguments[0];
         const core::type::ArrayCount* size = ArrayCount(arg, /* array = */ false);
-        TINT_RET_IF(DAWN_UNLIKELY(!size));
+        TINT_RET_IF_NULL(size);
 
         out = b.create<core::type::Buffer>(size);
     } else {
@@ -2991,7 +2998,7 @@ const core::type::Buffer* Resolver::Buffer(const ast::Identifier* ident) {
 
 const core::type::TexelBuffer* Resolver::TexelBuffer(const ast::Identifier* ident) {
     auto* tmpl_ident = TemplatedIdentifier(ident, 2);
-    TINT_RET_IF(DAWN_UNLIKELY(!tmpl_ident));
+    TINT_RET_IF_NULL(tmpl_ident);
 
     auto format = sem_.GetTexelFormat(tmpl_ident->arguments[0]);
     TINT_RET_IF(DAWN_UNLIKELY(format == core::TexelFormat::kUndefined));
@@ -3129,7 +3136,7 @@ sem::ValueExpression* Resolver::Literal(const ast::LiteralExpression* literal) {
         [&](const ast::BoolLiteralExpression*) { return b.create<core::type::Bool>(); },  //
         TINT_ICE_ON_NO_MATCH);
 
-    TINT_RET_IF(DAWN_UNLIKELY(!ty));
+    TINT_RET_IF_NULL(ty);
 
     const core::constant::Value* val = nullptr;
     auto stage = core::EvaluationStage::kConstant;
@@ -3273,7 +3280,7 @@ sem::Expression* Resolver::Identifier(const ast::IdentifierExpression* expr) {
 
     if (auto builtin_ty = resolved->BuiltinType(); builtin_ty != core::BuiltinType::kUndefined) {
         auto* ty = BuiltinType(builtin_ty, ident);
-        TINT_RET_IF(DAWN_UNLIKELY(!ty));
+        TINT_RET_IF_NULL(ty);
         return b.create<sem::TypeExpression>(expr, current_statement_, ty);
     }
 
@@ -3327,7 +3334,7 @@ sem::Expression* Resolver::Identifier(const ast::IdentifierExpression* expr) {
 
 sem::ValueExpression* Resolver::MemberAccessor(const ast::MemberAccessorExpression* expr) {
     auto* object = sem_.GetVal(expr->object);
-    TINT_RET_IF(DAWN_UNLIKELY(!object));
+    TINT_RET_IF_NULL(object);
 
     auto* object_ty = object->Type();
 
@@ -3494,10 +3501,10 @@ sem::ValueExpression* Resolver::Binary(const ast::BinaryExpression* expr) {
 
     // Load arguments if they are references
     lhs = Load(lhs);
-    TINT_RET_IF(DAWN_UNLIKELY(!lhs));
+    TINT_RET_IF_NULL(lhs);
 
     rhs = Load(rhs);
-    TINT_RET_IF(DAWN_UNLIKELY(!rhs));
+    TINT_RET_IF_NULL(rhs);
 
     auto stage = core::EarliestStage(lhs->Stage(), rhs->Stage());
     auto overload = intrinsic_table_.Lookup(expr->op, lhs->Type(), rhs->Type(), stage, false);
@@ -3512,10 +3519,10 @@ sem::ValueExpression* Resolver::Binary(const ast::BinaryExpression* expr) {
     auto* lhs_ty = overload->parameters[0].type;
     auto* rhs_ty = overload->parameters[1].type;
     lhs = Materialize(lhs, lhs_ty);
-    TINT_RET_IF(DAWN_UNLIKELY(!lhs));
+    TINT_RET_IF_NULL(lhs);
 
     rhs = Materialize(rhs, rhs_ty);
-    TINT_RET_IF(DAWN_UNLIKELY(!rhs));
+    TINT_RET_IF_NULL(rhs);
     TINT_RET_IF(!validator_.BinaryExpression(expr, expr->op, lhs, rhs));
 
     const core::constant::Value* value = nullptr;
@@ -3555,7 +3562,7 @@ sem::ValueExpression* Resolver::Binary(const ast::BinaryExpression* expr) {
 
 sem::ValueExpression* Resolver::UnaryOp(const ast::UnaryOpExpression* unary) {
     const auto* expr = sem_.GetVal(unary->expr);
-    TINT_RET_IF(DAWN_UNLIKELY(!expr));
+    TINT_RET_IF_NULL(expr);
 
     auto* expr_ty = expr->Type();
 
@@ -3607,7 +3614,7 @@ sem::ValueExpression* Resolver::UnaryOp(const ast::UnaryOpExpression* unary) {
 
         default: {
             expr = Load(expr);
-            TINT_RET_IF(DAWN_UNLIKELY(!expr));
+            TINT_RET_IF_NULL(expr);
 
             stage = expr->Stage();
             auto overload = intrinsic_table_.Lookup(unary->op, expr->Type(), stage);
@@ -3618,7 +3625,7 @@ sem::ValueExpression* Resolver::UnaryOp(const ast::UnaryOpExpression* unary) {
             ty = overload->return_type;
             auto* param_ty = overload->parameters[0].type;
             expr = Materialize(expr, param_ty);
-            TINT_RET_IF(DAWN_UNLIKELY(!expr));
+            TINT_RET_IF_NULL(expr);
 
             if (stage == core::EvaluationStage::kConstant) {
                 if (auto const_eval_fn = overload->const_eval_fn) {
@@ -4010,7 +4017,7 @@ const core::type::Type* Resolver::TypeDecl(const ast::TypeDecl* named_type) {
     } else {
         TINT_UNREACHABLE() << "Unhandled TypeDecl";
     }
-    TINT_RET_IF(DAWN_UNLIKELY(!result));
+    TINT_RET_IF_NULL(result);
 
     b.Sem().Add(named_type, result);
     return result;
@@ -4020,7 +4027,7 @@ const core::type::ArrayCount* Resolver::ArrayCount(const ast::Expression* count_
     const std::string count_kind = array ? "array count" : "buffer size";
     // Evaluate the constant array count expression.
     const auto* count_sem = Materialize(sem_.GetVal(count_expr));
-    TINT_RET_IF(DAWN_UNLIKELY(!count_sem));
+    TINT_RET_IF_NULL(count_sem);
 
     auto* ty = count_sem->Type();
     if (!ty->IsIntegerScalar()) {
@@ -4103,7 +4110,7 @@ sem::Array* Resolver::Array(const Source& array_source,
 
 const core::type::Type* Resolver::Alias(const ast::Alias* alias) {
     auto* ty = Type(alias->type);
-    TINT_RET_IF(DAWN_UNLIKELY(!ty));
+    TINT_RET_IF_NULL(ty);
     TINT_RET_IF(DAWN_UNLIKELY(!validator_.Alias(alias)));
     return ty;
 }
@@ -4155,7 +4162,7 @@ sem::Struct* Resolver::Structure(const ast::Struct* str) {
 
         // Resolve member type
         auto type = Type(member->type);
-        TINT_RET_IF(DAWN_UNLIKELY(!type));
+        TINT_RET_IF_NULL(type);
 
         members_nest_depth = std::max(members_nest_depth, NestDepth(type));
 
@@ -4288,7 +4295,7 @@ sem::Struct* Resolver::Structure(const ast::Struct* str) {
                                           StyledText{} << style::Keyword("struct") << " members");
                     return false;
                 });
-            TINT_RET_IF(DAWN_UNLIKELY(!ok));
+            TINT_RET_IF_NULL(ok);
         }
 
         offset = tint::RoundUp(align, offset);
