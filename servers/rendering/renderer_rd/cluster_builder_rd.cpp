@@ -402,42 +402,20 @@ void ClusterBuilderRD::setup(Size2i p_screen_size, uint32_t p_max_elements, RID 
 		cluster_store_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, shared->cluster_store.shader, 0);
 	}
 
-	if (p_color_buffer.is_valid()) {
-		Vector<RD::Uniform> uniforms;
-		{
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
-			u.binding = 1;
-			u.append_id(cluster_buffer);
-			uniforms.push_back(u);
-		}
-		{
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
-			u.binding = 2;
-			u.append_id(p_color_buffer);
-			uniforms.push_back(u);
-		}
-
-		{
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-			u.binding = 3;
-			u.append_id(p_depth_buffer);
-			uniforms.push_back(u);
-		}
-		{
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_SAMPLER;
-			u.binding = 4;
-			u.append_id(p_depth_buffer_sampler);
-			uniforms.push_back(u);
-		}
-
-		debug_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, shared->cluster_debug.shader, 0);
-	} else {
-		debug_uniform_set = RID();
-	}
+	// debug_uniform_set is built lazily in debug() instead of here: this branch runs
+	// every frame setup() is called (i.e. essentially every frame, whenever a color
+	// buffer is present), but debug() itself only ever runs when the Debug > Draw Mode
+	// > Cluster overlay is actually toggled on -- an intentionally rare path. Building
+	// it here unconditionally meant wgpuDeviceCreateBindGroup() validated this layout's
+	// depth-texture binding every single frame even when never used, which surfaces a
+	// real WebGPU-only failure whenever p_depth_buffer isn't a true depth-sample-type
+	// texture (e.g. MSAA's depth-resolve fallback texture -- see the "No MSAA depth
+	// resolve" note in drivers/webgpu/README.md) and spams GPUValidationError/drops
+	// that frame's command buffer for a shader nothing is actually drawing with.
+	debug_color_buffer = p_color_buffer;
+	debug_depth_buffer = p_depth_buffer;
+	debug_depth_buffer_sampler = p_depth_buffer_sampler;
+	debug_uniform_set = RID();
 }
 
 void ClusterBuilderRD::begin(const Transform3D &p_view_transform, const Projection &p_cam_projection, bool p_flip_y) {
@@ -574,6 +552,39 @@ void ClusterBuilderRD::bake_cluster() {
 }
 
 void ClusterBuilderRD::debug(ElementType p_element) {
+	if (debug_uniform_set.is_null() || !RD::get_singleton()->uniform_set_is_valid(debug_uniform_set)) {
+		ERR_FAIL_COND(debug_color_buffer.is_null());
+		Vector<RD::Uniform> uniforms;
+		{
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+			u.binding = 1;
+			u.append_id(cluster_buffer);
+			uniforms.push_back(u);
+		}
+		{
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+			u.binding = 2;
+			u.append_id(debug_color_buffer);
+			uniforms.push_back(u);
+		}
+		{
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+			u.binding = 3;
+			u.append_id(debug_depth_buffer);
+			uniforms.push_back(u);
+		}
+		{
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_SAMPLER;
+			u.binding = 4;
+			u.append_id(debug_depth_buffer_sampler);
+			uniforms.push_back(u);
+		}
+		debug_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, shared->cluster_debug.shader, 0);
+	}
 	ERR_FAIL_COND(debug_uniform_set.is_null());
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, shared->cluster_debug.shader_pipeline);
