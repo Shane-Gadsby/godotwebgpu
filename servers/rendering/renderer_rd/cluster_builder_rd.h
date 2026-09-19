@@ -228,6 +228,11 @@ private:
 	RID state_uniform;
 
 	RID debug_uniform_set;
+	// Inputs saved by setup() so debug_uniform_set can be built lazily, on debug()'s
+	// first actual use, instead of unconditionally every frame. See setup()'s comment.
+	RID debug_color_buffer;
+	RID debug_depth_buffer;
+	RID debug_depth_buffer_sampler;
 
 public:
 	void setup(Size2i p_screen_size, uint32_t p_max_elements, RID p_depth_buffer, RID p_depth_buffer_sampler, RID p_color_buffer);
