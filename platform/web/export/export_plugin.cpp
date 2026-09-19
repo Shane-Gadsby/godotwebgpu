@@ -372,6 +372,12 @@ void EditorExportPlatformWeb::get_preset_features(const Ref<EditorExportPreset> 
 	} else {
 		r_features->push_back("web_noextensions");
 	}
+	if (p_preset->get("shader_baker/enabled")) {
+		// Only meaningful for the WebGPU renderer (rendering/rendering_device/driver.web
+		// == "webgpu"); ShaderBakerExportPlugin::_initialize_container_format() itself
+		// no-ops via ShaderBakerExportPluginPlatformWebGPU::matches_driver() otherwise.
+		r_features->push_back("shader_baker");
+	}
 	r_features->push_back("wasm32");
 }
 
@@ -402,6 +408,17 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "threads/emscripten_pool_size"), 8));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "threads/godot_pool_size"), 4));
+
+	// Precompiles every shader's SPIR-V to WGSL at export time (see
+	// editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp)
+	// so the exported .pck ships ready-to-use WGSL and the browser never runs
+	// Tint itself for a baked shader. Only takes effect when the project's
+	// rendering/rendering_device/driver.web setting is "webgpu"; harmless
+	// no-op otherwise. Requires the editor to have been built with
+	// `webgpu=yes` (see drivers/webgpu/README.md) so this container format
+	// is available at all — if it wasn't, export proceeds without baking and
+	// shaders fall back to the existing runtime Tint translation.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), false));
 }
 
 bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const {

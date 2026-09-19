@@ -80,19 +80,56 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        # No submodules needed: this job only reads version.py and runs
+        # misc/scripts/package_release_tpz.py against already-built artifacts.
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
 
-      - name: Zip each artifact for release upload
+      # The release ships exactly 4 files: one editor zip per desktop
+      # platform, and one combined export-templates .tpz. Every other
+      # downloaded artifact (mono/clang/sanitizer editor variants, mono/
+      # minimal templates, per-arch Android jobs, etc.) is real, useful CI
+      # output -- it stays available as a normal 60-day workflow artifact --
+      # but was never meant to be end-user-facing, so it's deliberately not
+      # attached to the release itself.
+      - name: Zip editor artifacts
         working-directory: artifacts
         run: |
-          shopt -s nullglob
-          for dir in */; do
-            name="${dir%/}"
-            (cd "$name" && zip -qr "../${name}.zip" .)
+          for name in linux-editor macos-editor windows-editor; do
+            if [[ -d "$name" ]]; then
+              (cd "$name" && zip -qr "../${name}.zip" .)
+            else
+              echo "::warning::Editor artifact '$name' was not downloaded (its build job may have failed or been skipped) -- release will be missing this platform's editor."
+            fi
           done
+
+      - name: Resolve version string
+        id: version
+        run: |
+          version="$(python3 - version.py <<'PYEOF'
+          import sys
+          ns = {}
+          with open(sys.argv[1]) as f:
+              exec(f.read(), ns)
+          parts = [str(ns["major"]), str(ns["minor"])]
+          if ns.get("patch"):
+              parts.append(str(ns["patch"]))
+          print(".".join(parts) + "." + ns["status"])
+          PYEOF
+          )"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package combined export-templates .tpz
+        run: |
+          python3 misc/scripts/package_release_tpz.py \
+            artifacts \
+            "${{ steps.version.outputs.version }}" \
+            "artifacts/godot-webgpu-export-templates-${{ steps.version.outputs.version }}.tpz"
 
       - name: Draft release
         uses: softprops/action-gh-release@v3
@@ -100,4 +137,8 @@ jobs:
           tag_name: main-${{ github.sha }}
           name: main @ ${{ github.sha }}
           draft: true
-          files: artifacts/*.zip
+          files: |
+            artifacts/linux-editor.zip
+            artifacts/macos-editor.zip
+            artifacts/windows-editor.zip
+            artifacts/godot-webgpu-export-templates-${{ steps.version.outputs.version }}.tpz

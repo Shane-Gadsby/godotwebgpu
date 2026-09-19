@@ -2046,6 +2046,440 @@ Vector<uint8_t> strip_memory_barrier(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
+// ---- strip_image_write_operands ----
+
+Vector<uint8_t> strip_image_write_operands(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	const uint8_t *data = p_bytes.ptr();
+	static constexpr uint16_t OP_IMAGE_WRITE = 99;
+
+	// Quick scan.
+	bool found = false;
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+		if (op == OP_IMAGE_WRITE && wc > 4) {
+			found = true;
+			break;
+		}
+		pos += wc;
+	}
+
+	if (!found) {
+		return p_bytes;
+	}
+
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 20);
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op == OP_IMAGE_WRITE && wc > 4) {
+			// Rewrite to the bare 3-operand form: image, coord, texel.
+			// Drops the Image Operands mask word and everything after it.
+			push_word(out, (4u << 16) | OP_IMAGE_WRITE);
+			push_word(out, read_word(data, len, pos + 1));
+			push_word(out, read_word(data, len, pos + 2));
+			push_word(out, read_word(data, len, pos + 3));
+		} else {
+			append_bytes(out, data, pos * 4, wc * 4);
+		}
+		pos += wc;
+	}
+
+	return out;
+}
+
+// ---- strip_image_fetch_read_flag_only_operands ----
+
+Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	const uint8_t *data = p_bytes.ptr();
+	static constexpr uint16_t OP_IMAGE_FETCH = 95;
+	static constexpr uint16_t OP_IMAGE_READ = 98;
+
+	auto is_target = [](uint16_t op, uint32_t wc, const uint8_t *p_data, int64_t p_len, uint32_t p_pos) -> bool {
+		if ((op != OP_IMAGE_FETCH && op != OP_IMAGE_READ) || wc != 6) {
+			return false;
+		}
+		// wc == 6: [header, result_type, result_id, image, coord, mask] --
+		// the mask word is present but no operand word follows it. Only
+		// worth rewriting if that mask is actually non-zero (wc==6 with a
+		// zero mask is already the form Tint handles fine).
+		return read_word(p_data, p_len, p_pos + 5) != 0;
+	};
+
+	// Quick scan.
+	bool found = false;
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+		if (is_target(op, wc, data, len, pos)) {
+			found = true;
+			break;
+		}
+		pos += wc;
+	}
+
+	if (!found) {
+		return p_bytes;
+	}
+
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 20);
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (is_target(op, wc, data, len, pos)) {
+			// Rewrite to the bare 4-operand form: result_type, result_id, image, coord.
+			push_word(out, (5u << 16) | op);
+			push_word(out, read_word(data, len, pos + 1));
+			push_word(out, read_word(data, len, pos + 2));
+			push_word(out, read_word(data, len, pos + 3));
+			push_word(out, read_word(data, len, pos + 4));
+		} else {
+			append_bytes(out, data, pos * 4, wc * 4);
+		}
+		pos += wc;
+	}
+
+	return out;
+}
+
+// ---- split_initialized_local_arrays ----
+
+Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	const uint8_t *data = p_bytes.ptr();
+	static constexpr uint16_t OP_LABEL = 248;
+	static constexpr uint32_t SC_FUNCTION = 7;
+
+	struct Candidate {
+		uint32_t var_id = 0;
+		uint32_t ptr_type_id = 0; // Pointer-to-array type (the OpVariable's result type).
+		uint32_t elem_type_id = 0;
+		Vector<uint32_t> constituents; // Element value IDs, in order.
+		uint32_t var_word_pos = 0; // Word position of this OpVariable instruction.
+		uint32_t insert_pos = 0; // Word position to insert the store sequence before.
+	};
+
+	// ---- Pass 1: collect type/constant metadata (always precedes OpFunction
+	// in a valid module, so a single forward scan sees it before needed) and
+	// walk each function's entry block to find candidate variables.
+	HashMap<uint32_t, uint32_t> array_elem_type; // array_type_id -> elem_type_id
+	HashMap<uint32_t, uint32_t> ptr_pointee; // ptr_type_id -> pointee_type_id
+	HashMap<uint64_t, uint32_t> ptr_by_sc_pointee; // (sc<<32|pointee) -> ptr_type_id
+	HashMap<uint32_t, Vector<uint32_t>> composite_constituents; // const_id -> element ids
+	HashMap<uint64_t, uint32_t> const_by_type_value; // (type_id<<32|value) -> const_id
+
+	Vector<Candidate> all_candidates;
+
+	int state = 0; // 0 = normal, 1 = after OpFunction (awaiting OpLabel), 2 = in variable run
+	Vector<Candidate> pending_run;
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		switch (op) {
+			case OP_TYPE_ARRAY:
+				if (wc >= 4) {
+					array_elem_type[read_word(data, len, pos + 1)] = read_word(data, len, pos + 2);
+				}
+				break;
+			case OP_TYPE_POINTER:
+				if (wc >= 4) {
+					uint32_t result_id = read_word(data, len, pos + 1);
+					uint32_t sc = read_word(data, len, pos + 2);
+					uint32_t pointee = read_word(data, len, pos + 3);
+					ptr_pointee[result_id] = pointee;
+					uint64_t key = ((uint64_t)sc << 32) | pointee;
+					if (!ptr_by_sc_pointee.has(key)) {
+						ptr_by_sc_pointee[key] = result_id;
+					}
+				}
+				break;
+			case OP_CONSTANT:
+				if (wc >= 4) {
+					uint32_t type_id = read_word(data, len, pos + 1);
+					uint32_t id = read_word(data, len, pos + 2);
+					uint32_t value = read_word(data, len, pos + 3);
+					uint64_t key = ((uint64_t)type_id << 32) | value;
+					if (!const_by_type_value.has(key)) {
+						const_by_type_value[key] = id;
+					}
+				}
+				break;
+			case OP_CONSTANT_COMPOSITE:
+				if (wc >= 3) {
+					uint32_t id = read_word(data, len, pos + 2);
+					Vector<uint32_t> constituents;
+					for (uint32_t i = 3; i < wc; i++) {
+						constituents.push_back(read_word(data, len, pos + i));
+					}
+					composite_constituents[id] = constituents;
+				}
+				break;
+			case OP_FUNCTION:
+				state = 1;
+				pending_run.clear();
+				break;
+			case OP_FUNCTION_PARAMETER:
+				break; // Stay in state 1.
+			case OP_LABEL:
+				if (state == 1) {
+					state = 2;
+				}
+				break;
+			case OP_VARIABLE:
+				if (state == 2 && wc == 5) { // wc == 5: has an initializer.
+					uint32_t result_type = read_word(data, len, pos + 1);
+					uint32_t var_id = read_word(data, len, pos + 2);
+					uint32_t sc = read_word(data, len, pos + 3);
+					uint32_t init_id = read_word(data, len, pos + 4);
+					const uint32_t *pointee = ptr_pointee.getptr(result_type);
+					const uint32_t *elem_type = pointee ? array_elem_type.getptr(*pointee) : nullptr;
+					const Vector<uint32_t> *constituents = composite_constituents.getptr(init_id);
+					if (sc == SC_FUNCTION && elem_type && constituents) {
+						Candidate c;
+						c.var_id = var_id;
+						c.ptr_type_id = result_type;
+						c.elem_type_id = *elem_type;
+						c.constituents = *constituents;
+						c.var_word_pos = pos;
+						pending_run.push_back(c);
+					}
+				}
+				if (state == 2) {
+					break; // Stay in the run (variable, initialized or not).
+				}
+				[[fallthrough]];
+			default:
+				if (state == 2) {
+					// Run ended: this is the first non-OpVariable instruction
+					// in the block. Every OpVariable in a valid SPIR-V module
+					// is contiguous at the start of its block, so this is a
+					// safe, single insertion point for all of this run's
+					// candidates.
+					for (Candidate c : pending_run) {
+						c.insert_pos = pos;
+						all_candidates.push_back(c);
+					}
+					pending_run.clear();
+				} else if (state == 1) {
+					// Malformed/unexpected shape (no OpLabel found) -- stop
+					// tracking this function, but keep scanning the module.
+				}
+				state = 0;
+				break;
+		}
+
+		pos += wc;
+	}
+
+	if (all_candidates.is_empty()) {
+		return p_bytes;
+	}
+
+	// Need a 32-bit integer type for the new index constants (any signedness
+	// -- OpAccessChain indices just need to be scalar integer constants).
+	uint32_t int_type_id = 0;
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+		if (op == OP_TYPE_INT && wc >= 3 && read_word(data, len, pos + 2) == 32) {
+			int_type_id = read_word(data, len, pos + 1);
+			break;
+		}
+		pos += wc;
+	}
+	if (int_type_id == 0) {
+		return p_bytes; // No 32-bit int type to build index constants from; bail.
+	}
+
+	// ---- Allocate new IDs ----
+	uint32_t bound = read_word(data, len, 3);
+	uint32_t next_id = bound;
+	auto alloc_id = [&]() -> uint32_t { return next_id++; };
+
+	HashMap<uint32_t, uint32_t> elem_ptr_type_id; // elem_type_id -> pointer type id (existing or new)
+	HashMap<uint32_t, uint32_t> new_ptr_types; // elem_type_id -> newly allocated pointer type id
+	HashMap<uint32_t, uint32_t> index_const_id; // index value -> const id (existing or new)
+	HashMap<uint32_t, uint32_t> new_index_consts; // index value -> newly allocated const id
+	HashMap<uint32_t, Vector<uint32_t>> access_chain_ids; // candidate var_id -> per-element OpAccessChain result ids
+
+	for (const Candidate &c : all_candidates) {
+		if (!elem_ptr_type_id.has(c.elem_type_id)) {
+			uint64_t key = ((uint64_t)SC_FUNCTION << 32) | c.elem_type_id;
+			const uint32_t *existing = ptr_by_sc_pointee.getptr(key);
+			uint32_t id = existing ? *existing : alloc_id();
+			elem_ptr_type_id[c.elem_type_id] = id;
+			if (!existing) {
+				new_ptr_types[c.elem_type_id] = id;
+			}
+		}
+
+		Vector<uint32_t> ac_ids;
+		for (uint32_t i = 0; i < (uint32_t)c.constituents.size(); i++) {
+			if (!index_const_id.has(i)) {
+				uint64_t key = ((uint64_t)int_type_id << 32) | i;
+				const uint32_t *existing = const_by_type_value.getptr(key);
+				uint32_t id = existing ? *existing : alloc_id();
+				index_const_id[i] = id;
+				if (!existing) {
+					new_index_consts[i] = id;
+				}
+			}
+			ac_ids.push_back(alloc_id());
+		}
+		access_chain_ids[c.var_id] = ac_ids;
+	}
+
+	// ---- Rewrite ----
+	HashMap<uint32_t, const Candidate *> candidate_by_var_pos;
+	HashMap<uint32_t, Vector<const Candidate *>> candidates_by_insert_pos;
+	HashSet<uint32_t> candidate_var_ids;
+	for (const Candidate &c : all_candidates) {
+		candidate_by_var_pos[c.var_word_pos] = &c;
+		candidates_by_insert_pos[c.insert_pos].push_back(&c);
+		candidate_var_ids.insert(c.var_id);
+	}
+
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 12);
+	push_word(out, next_id); // Updated bound.
+	push_word(out, read_word(data, len, 4)); // Schema.
+
+	bool types_injected = false;
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		// Drop a NonWritable decoration on any candidate variable -- it
+		// would no longer hold once we add explicit stores to it below.
+		if (op == OP_DECORATE && wc >= 3 && read_word(data, len, pos + 2) == DECO_NON_WRITABLE) {
+			uint32_t target = read_word(data, len, pos + 1);
+			if (candidate_var_ids.has(target)) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// Inject new pointer types + index constants right before the first
+		// OpFunction (types/constants must precede all functions).
+		if (op == OP_FUNCTION && !types_injected) {
+			types_injected = true;
+			for (const KeyValue<uint32_t, uint32_t> &kv : new_ptr_types) {
+				push_word(out, (4u << 16) | (uint32_t)OP_TYPE_POINTER);
+				push_word(out, kv.value);
+				push_word(out, SC_FUNCTION);
+				push_word(out, kv.key);
+			}
+			for (const KeyValue<uint32_t, uint32_t> &kv : new_index_consts) {
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, int_type_id);
+				push_word(out, kv.value);
+				push_word(out, kv.key);
+			}
+		}
+
+		// Rewrite a candidate's OpVariable to drop its initializer.
+		const Candidate *const *var_candidate = candidate_by_var_pos.getptr(pos);
+		if (var_candidate) {
+			const Candidate *c = *var_candidate;
+			push_word(out, (4u << 16) | (uint32_t)OP_VARIABLE);
+			push_word(out, c->ptr_type_id);
+			push_word(out, c->var_id);
+			push_word(out, SC_FUNCTION);
+			pos += wc;
+			continue;
+		}
+
+		// Insert this block's store sequence right before its first
+		// non-variable instruction.
+		const Vector<const Candidate *> *insert_here = candidates_by_insert_pos.getptr(pos);
+		if (insert_here) {
+			for (const Candidate *c : *insert_here) {
+				uint32_t elem_ptr = elem_ptr_type_id[c->elem_type_id];
+				const Vector<uint32_t> &ac_ids = access_chain_ids[c->var_id];
+				for (uint32_t i = 0; i < (uint32_t)c->constituents.size(); i++) {
+					push_word(out, (5u << 16) | (uint32_t)OP_ACCESS_CHAIN);
+					push_word(out, elem_ptr);
+					push_word(out, ac_ids[i]);
+					push_word(out, c->var_id);
+					push_word(out, index_const_id[i]);
+
+					push_word(out, (3u << 16) | (uint32_t)OP_STORE);
+					push_word(out, ac_ids[i]);
+					push_word(out, c->constituents[i]);
+				}
+			}
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
 // ---- strip_helper_invocation_builtin ----
 
 Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes) {

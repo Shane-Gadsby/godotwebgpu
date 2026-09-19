@@ -8,13 +8,12 @@ env:
   SCONS_FLAGS: >-
     dev_mode=yes
     module_text_server_fb_enabled=yes
-    debug_symbols=no
 
 jobs:
   ios-template:
     # From https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job#choosing-github-hosted-runners
     runs-on: macos-26
-    name: Template (target=template_release)
+    name: Template (target=template_release + template_debug)
     timeout-minutes: 60
 
     steps:
@@ -30,16 +29,55 @@ jobs:
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
-      - name: Compilation (arm64)
+      - name: Compilation (arm64, release)
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} debug_symbols=no
+          platform: ios
+          target: template_release
+
+      # generate_bundle_apple_embedded() (platform_methods.py, shared with
+      # macOS) needs BOTH template_debug and template_release device
+      # binaries present in bin/ at once to assemble a real ios.zip -- see
+      # the "Generate Xcode template bundle" step below. debug_symbols is
+      # left at its default (yes) here, unlike the release target above, so
+      # the debug template stays useful for debugging exported projects.
+      - name: Compilation (arm64, debug)
         uses: ./.github/actions/godot-build
         with:
           scons-flags: ${{ env.SCONS_FLAGS }}
           platform: ios
-          target: template_release
+          target: template_debug
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
         continue-on-error: true
 
+      # Assembles the actual template shape Godot's exporter expects: the
+      # Xcode project skeleton (misc/dist/apple_embedded_xcode/) plus both
+      # debug+release .xcframework libraries, zipped together as
+      # godot_ios*.zip (EditorExportPlatformAppleEmbedded looks for
+      # get_platform_name() + ".zip", i.e. "ios.zip" -- package_release_tpz.py
+      # renames it). Device-only (arm64, no simulator=yes build here) --
+      # generate_bundle_apple_embedded() tolerates missing simulator
+      # binaries, it just omits simulator support from the bundle. Also
+      # unconditionally tries to bundle MoltenVK (platform_ios_builders.py's
+      # generate_bundle() hardcodes use_mkv=True) but tolerates it not being
+      # installed (this workflow doesn't set up the Vulkan SDK/MoltenVK for
+      # iOS at all, unlike macos_builds.yml) -- it's simply left out of the
+      # bundle rather than failing the build.
+      - name: Generate Xcode template bundle
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} debug_symbols=no generate_bundle=yes
+          platform: ios
+          target: template_release
+
+      - name: Prepare artifact
+        run: |
+          rm -f ./bin/libgodot.ios.*.a
+
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
+        with:
+          path: bin/godot_ios*.zip

@@ -30,8 +30,9 @@
 
 #pragma once
 
-#ifdef WEBGPU_ENABLED
+#if defined(WEBGPU_ENABLED) || defined(WEBGPU_SHADER_BAKER_ENABLED)
 
+#include "core/string/ustring.h"
 #include "servers/rendering/rendering_shader_container.h"
 
 class RenderingShaderContainerWebGPU : public RenderingShaderContainer {
@@ -52,24 +53,43 @@ public:
 protected:
 	HeaderData header_data;
 
+	// Precompiled WGSL per shader stage, parallel to `shaders` (empty entry =
+	// not baked, e.g. produced by a build that never linked Tint). Populated
+	// by _set_code_from_spirv() whenever Tint translation is available:
+	// - Export-time bake (native editor, WEBGPU_SHADER_BAKER_ENABLED): always,
+	//   so exported .pck's ship with WGSL and the runtime driver skips Tint.
+	// - Runtime (web build, WEBGPU_ENABLED): only reached if a shader is ever
+	//   compiled from source in the browser itself (not the normal path for
+	//   exported projects, which consume pre-baked containers).
+	Vector<CharString> wgsl_code;
+
 	// --- RenderingShaderContainer overrides ---
 
 	virtual uint32_t _format() const override { return FORMAT_WEBGPU; }
 	virtual uint32_t _format_version() const override { return FORMAT_VERSION; }
 
-	/// Called by set_code_from_spirv() — stores raw SPIR-V bytes per stage.
-	/// Dawn's WebGPU implementation supports WGPUShaderSourceSPIRV natively;
-	/// no WGSL/Tint translation step is needed.
+	/// Called by set_code_from_spirv() — stores raw SPIR-V bytes per stage
+	/// (Dawn's WebGPU implementation supports WGPUShaderSourceSPIRV natively,
+	/// so SPIR-V remains a valid runtime fallback), and additionally bakes
+	/// WGSL per stage via the shared Tint pipeline (see spirv_to_wgsl.h).
 	virtual bool _set_code_from_spirv(const ReflectShader &p_shader) override;
 
 	// Serialization overrides for extra header data.
 	virtual uint32_t _from_bytes_header_extra_data(const uint8_t *p_bytes) override;
 	virtual uint32_t _to_bytes_header_extra_data(uint8_t *p_bytes) const override;
 
+	// Serialization overrides for the baked-WGSL footer block.
+	virtual uint32_t _from_bytes_footer_extra_data(const uint8_t *p_bytes) override;
+	virtual uint32_t _to_bytes_footer_extra_data(uint8_t *p_bytes) const override;
+
 public:
 	uint32_t get_push_constant_bind_group() const { return header_data.push_constant_bind_group; }
 	uint32_t get_push_constant_binding() const { return header_data.push_constant_binding; }
 	bool has_push_constants() const { return header_data.push_constant_bind_group != NO_PUSH_CONSTANTS; }
+
+	// Returns the baked WGSL for a shader stage index (parallel to `shaders`),
+	// or nullptr if this stage wasn't baked (caller should fall back to Tint).
+	const char *get_wgsl_code(uint32_t p_shader_index) const;
 
 	RenderingShaderContainerWebGPU();
 	virtual ~RenderingShaderContainerWebGPU();

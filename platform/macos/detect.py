@@ -88,7 +88,7 @@ def get_flags():
         "arch": detect_arch(),
         "use_volk": False,
         "metal": True,
-        "supported": ["library", "metal", "mono"],
+        "supported": ["library", "metal", "mono", "webgpu"],
     }
 
 
@@ -96,6 +96,15 @@ def configure(env: "SConsEnvironment"):
     # Validate arch.
     supported_arches = ["x86_64", "arm64"]
     validate_arch(env["arch"], get_name(), supported_arches)
+
+    # webgpu=yes on a native editor build doesn't build the actual WebGPU
+    # RenderingDeviceDriver (that only exists for platform=web, see
+    # WEBGPU_ENABLED); it builds just enough of drivers/webgpu/ (Tint +
+    # RenderingShaderContainerWebGPU) to bake WGSL into shader containers at
+    # web-export time. See drivers/webgpu/SCsub and
+    # editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp.
+    if env["webgpu"] and env.editor_build:
+        env.AppendUnique(CPPDEFINES=["WEBGPU_SHADER_BAKER_ENABLED"])
 
     ## Compiler configuration
 

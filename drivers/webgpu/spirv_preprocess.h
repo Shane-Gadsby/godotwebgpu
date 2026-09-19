@@ -107,6 +107,58 @@ Vector<uint8_t> strip_unsupported_decorations(const Vector<uint8_t> &p_bytes);
 // workgroupBarrier() (from OpControlBarrier) covers synchronization.
 Vector<uint8_t> strip_memory_barrier(const Vector<uint8_t> &p_bytes);
 
+// Drop OpImageWrite's optional Image Operands word (and any operand words
+// it introduces), rewriting it back to its bare 3-operand form (image,
+// coord, texel). Tint's SPIR-V reader unconditionally asserts the Image
+// Operands mask is zero for OpImageWrite (see EmitImageWrite in
+// lang/spirv/reader/parser/parser.cc) and abort()s otherwise -- even for a
+// flag-only bit like SignExtend/ZeroExtend that adds no extra operand
+// words. glslang can emit a non-zero mask when writing to an integer
+// storage image format (imageStore() to e.g. an r32i/r32ui image); those
+// flags don't change textureStore()'s WGSL semantics, since the texel
+// value's own type already carries signedness, so dropping them is safe.
+Vector<uint8_t> strip_image_write_operands(const Vector<uint8_t> &p_bytes);
+
+// Drops OpImageFetch/OpImageRead's Image Operands word when it's present but
+// carries no actual data (i.e. the instruction's word count shows the mask
+// word itself but nothing after it) -- e.g. a flag-only combination like
+// SignExtend/ZeroExtend, which unlike Lod/Bias/ConstOffset/etc. needs no
+// following operand word at all. Tint's SPIR-V reader unconditionally reads
+// one more operand whenever this mask is non-zero (see EmitImageFetchOrRead
+// in lang/spirv/reader/parser/parser.cc), regardless of whether the mask
+// actually calls for one; on a flag-only mask, that operand doesn't exist
+// and SPIRV-Tools' own out-of-bounds Instruction::GetOperand() assert fires,
+// crashing the whole process (confirmed against a real project's SDF/jump-
+// flood-style compute shader's `imageLoad()` on an integer storage image,
+// which glslang compiles to exactly this `OpImageRead ... SignExtend` shape
+// -- the mask value itself doesn't matter here, since a fetch/read's result
+// type already carries its own signedness in WGSL). Only ever touches the
+// exact "mask present, zero extra words" shape; any mask that legitimately
+// carries operand data (Lod, Bias, ConstOffset, ...) is left untouched, since
+// Tint's existing single-extra-word handling is correct for those.
+Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> &p_bytes);
+
+// Rewrites a Function-storage OpVariable that has BOTH an array-typed
+// constant-composite initializer AND is declared alongside other locals
+// (the pattern glslang emits for GLSL's `const T arr[N] = T[](...)`) into an
+// uninitialized OpVariable plus explicit per-element OpAccessChain+OpStore
+// instructions immediately after the block's variable declarations. Also
+// strips a now-inapplicable NonWritable decoration on that variable, if
+// present (glslang applies it to `const` locals; it would be a lie once the
+// variable is explicitly stored to).
+//
+// This exact combination -- an initialized local array, later accessed with
+// a non-constant (loop-variable) index -- crashes Tint's own internal
+// SPIR-V lowering (confirmed against a real project's SDF/jump-flood-style
+// compute shader: `spirv-tools/source/opt/instruction.h`'s
+// `GetOperand()` operand-index-out-of-bounds assert, reached from inside
+// Tint's reader, not from any pass in this file). The rewritten form -- no
+// initializer, explicit stores -- is semantically identical (the stores run
+// unconditionally before any other code in the block, exactly matching an
+// initializer's own execute-before-everything-else semantics) and Tint
+// reads it without issue.
+Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes);
+
 // Replace non-finite (infinity, NaN) float constants with FLT_MAX/MIN.
 // Tint asserts std::isfinite on all float literal values.
 Vector<uint8_t> fix_nonfinite_literals(const Vector<uint8_t> &p_bytes);

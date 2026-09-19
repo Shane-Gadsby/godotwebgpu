@@ -1,0 +1,844 @@
+index.js:475 Godot Engine v4.7.2.stable.custom_build.f60edb7b1 (2026-09-18 23:13:33 UTC) - https://godotengine.org
+index.js:475 WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_REPEAT' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var texture_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var texture_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var texture_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_REPEAT' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var depth_buffer_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: spirv error: SPIR-V failed validation. | Expected Result Type and Operand type to be the same |   %514 = OpCopyObject %SceneData %513 |  |  | Disassembly: | ; SPIR-V | ; Version: 1.4 | ; Generator: Khronos Glslang Reference Front End; 11 | ; Bound: 654 | ; Schema: 0 |                OpCapability Shader |           %1 = OpExtInstImport "GLSL.std.450" |                OpMemoryModel Logical GLSL450 |                OpEntryPoint Vertex %main "main" %instances %gl_InstanceIndex %transforms %vertex_interp %_ %draw_call %instance_index_interp %vertex_angle_attrib %global_time %scene_data_block %shadow_sampler %omni_lights %spot_lights %area_lights %reflections %directional_lights %lightmaps %lightmap_captures %decal_atlas %decal_atlas_srgb %decals %global_shader_uniforms %sdfgi %DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %best_fit_normal_texture %dfg %ltc_lut1 %647 %ltc_lut2 %649 %area_light_atlas %implementation_data_block %radiance_octmap %reflection_atlas %shadow_atlas %directional_shadow_atlas %lightmap_textures %voxel_gi_textures %cluster_buffer %decal_sampler %light_projector_sampler %SAMPLER_NEAREST_CLAMP %SAMPLER_LINEAR_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_NEAREST_REPEAT %SAMPLER_LINEAR_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_REPEAT %SAMPLER_LINEAR_WITH_MIPMAPS_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_REPEAT %SAMPLER_LINEAR_WITH_... [truncated]
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: spirv error: SPIR-V failed validation. | Expected Result Type and Operand type to be the same |   %513 = OpCopyObject %SceneData %512 |  |  | Disassembly: | ; SPIR-V | ; Version: 1.4 | ; Generator: Khronos Glslang Reference Front End; 11 | ; Bound: 653 | ; Schema: 0 |                OpCapability Shader |           %1 = OpExtInstImport "GLSL.std.450" |                OpMemoryModel Logical GLSL450 |                OpEntryPoint Vertex %main "main" %instances %gl_InstanceIndex %transforms %vertex_interp %_ %draw_call %instance_index_interp %vertex_angle_attrib %global_time %scene_data_block %shadow_sampler %omni_lights %spot_lights %area_lights %reflections %directional_lights %lightmaps %lightmap_captures %decal_atlas %decal_atlas_srgb %decals %global_shader_uniforms %sdfgi %DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %best_fit_normal_texture %dfg %ltc_lut1 %646 %ltc_lut2 %648 %area_light_atlas %implementation_data_block %radiance_octmap %reflection_atlas %shadow_atlas %directional_shadow_atlas %lightmap_textures %voxel_gi_textures %cluster_buffer %decal_sampler %light_projector_sampler %SAMPLER_NEAREST_CLAMP %SAMPLER_LINEAR_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_NEAREST_REPEAT %SAMPLER_LINEAR_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_REPEAT %SAMPLER_LINEAR_WITH_MIPMAPS_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_REPEAT %SAMPLER_LINEAR_WITH_... [truncated]
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: spirv error: SPIR-V failed validation. | Expected Result Type and Operand type to be the same |   %513 = OpCopyObject %SceneData %512 |  |  | Disassembly: | ; SPIR-V | ; Version: 1.4 | ; Generator: Khronos Glslang Reference Front End; 11 | ; Bound: 653 | ; Schema: 0 |                OpCapability Shader |           %1 = OpExtInstImport "GLSL.std.450" |                OpMemoryModel Logical GLSL450 |                OpEntryPoint Vertex %main "main" %instances %gl_InstanceIndex %transforms %vertex_interp %_ %draw_call %instance_index_interp %vertex_angle_attrib %global_time %scene_data_block %shadow_sampler %omni_lights %spot_lights %area_lights %reflections %directional_lights %lightmaps %lightmap_captures %decal_atlas %decal_atlas_srgb %decals %global_shader_uniforms %sdfgi %DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %best_fit_normal_texture %dfg %ltc_lut1 %646 %ltc_lut2 %648 %area_light_atlas %implementation_data_block %radiance_octmap %reflection_atlas %shadow_atlas %directional_shadow_atlas %lightmap_textures %voxel_gi_textures %cluster_buffer %decal_sampler %light_projector_sampler %SAMPLER_NEAREST_CLAMP %SAMPLER_LINEAR_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_NEAREST_REPEAT %SAMPLER_LINEAR_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_REPEAT %SAMPLER_LINEAR_WITH_MIPMAPS_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_REPEAT %SAMPLER_LINEAR_WITH_... [truncated]
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_2' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_5' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_REPEAT' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_REPEAT' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var texture_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var tex_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var linear_sampler_with_mipmaps' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var linear_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var linear_sampler' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_2' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_1' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v_4' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:475 Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: spirv error: SPIR-V failed validation. | Expected Result Type and Operand type to be the same |   %540 = OpCopyObject %SceneData %539 |  |  | Disassembly: | ; SPIR-V | ; Version: 1.4 | ; Generator: Khronos Glslang Reference Front End; 11 | ; Bound: 683 | ; Schema: 0 |                OpCapability Shader |           %1 = OpExtInstImport "GLSL.std.450" |                OpMemoryModel Logical GLSL450 |                OpEntryPoint Vertex %main "main" %instances %gl_InstanceIndex %transforms %uv_interp %uv_attrib %material %vertex_interp %_ %draw_call %instance_index_interp %vertex_angle_attrib %global_time %scene_data_block %shadow_sampler %omni_lights %spot_lights %area_lights %reflections %directional_lights %lightmaps %lightmap_captures %decal_atlas %decal_atlas_srgb %decals %global_shader_uniforms %sdfgi %DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %best_fit_normal_texture %dfg %ltc_lut1 %676 %ltc_lut2 %678 %area_light_atlas %implementation_data_block %radiance_octmap %reflection_atlas %shadow_atlas %directional_shadow_atlas %lightmap_textures %voxel_gi_textures %cluster_buffer %decal_sampler %light_projector_sampler %SAMPLER_NEAREST_CLAMP %SAMPLER_LINEAR_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_CLAMP %SAMPLER_NEAREST_REPEAT %SAMPLER_LINEAR_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_REPEAT %SAMPLER_LINEAR_WITH_MIPMAPS_REPEAT %SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTRO... [truncated]
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 0.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:475 Aperture updated:8
+index.js:475 Focal:50 FOV:39.5977527090499
+index.js:475 Sensor: 36.0 FOV:39.5977527090499
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var s_LinearClamp' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 4.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:490 ERROR: Tint SPIR-VâWGSL failed: error: cannot take the address of 'var v' in handle address space
+onPrintError @ index.js:490
+index.js:490    at: spirv_to_wgsl (drivers/webgpu/spirv_to_wgsl.cpp:106)
+onPrintError @ index.js:490
+index.js:490 ERROR: WebGPU: SPIR-VâWGSL conversion failed for stage 1.
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_container (drivers/webgpu/rendering_device_driver_webgpu.cpp:6299)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "!shader_id" is true. Returning: RID()
+onPrintError @ index.js:490
+index.js:490    at: shader_create_from_bytecode_with_samplers (servers/rendering/rendering_device.cpp:4523)
+onPrintError @ index.js:490
+index.js:490 ERROR: Condition "shader.is_null()" is true. Returning: false
+onPrintError @ index.js:490
+index.js:490    at: _load_from_cache (servers/rendering/renderer_rd/shader_rd.cpp:687)
+onPrintError @ index.js:490
+index.js:475 Camera height: 0.45
+index.js:475 Camera height: 0.5
+index.js:475 Camera height: 0.55
+index.js:475 Camera height: 0.5
+index.js:475 Camera height: 0.45
+index.js:475 Camera height: 0.4
+index.js:475 Camera height: 0.35
+index.js:475 Focus slider:2.7
+index.js:475 Focus slider:2.8
+index.js:475 Focus slider:2.9
+index.js:475 Focus slider:3.0
+index.js:475 Focus slider:3.1
+index.js:475 Focus slider:3.2
+index.js:475 Focus slider:3.3
+index.js:475 Focus slider:3.4
+index.js:475 Focus slider:3.5
+index.js:475 Focus slider:3.6
+index.js:475 Focus slider:3.7
+index.js:475 Focus slider:3.8
+index.js:475 Focus slider:3.9
+index.js:475 Focus slider:4.0
+index.js:475 Focus slider:4.1
+index.js:475 Focus slider:4.2
+index.js:475 Focus slider:4.1
+index.js:475 Focus slider:4.0
+index.js:475 Focus slider:3.9
+index.js:475 Focus slider:3.8
+index.js:475 Focus slider:3.6
+index.js:475 Focus slider:3.5
+index.js:475 Focus slider:3.4
+index.js:475 Focus slider:3.3
+index.js:475 Focus slider:3.2
+index.js:475 Focus slider:3.1
+index.js:475 Focus slider:3.0
+index.js:475 Focus slider:2.9
+index.js:475 Focus slider:2.8
+index.js:475 Focus slider:2.7
+index.js:475 Focus slider:2.6

@@ -44,6 +44,12 @@ jobs:
             bin: ./bin/godot.linuxbsd.template_release.x86_64
             artifact: true
 
+          - name: Template debug (target=template_debug)
+            cache-name: linux-template-debug
+            target: template_debug
+            bin: ./bin/godot.linuxbsd.template_debug.x86_64
+            artifact: true
+
           - name: Editor w/ Mono (target=editor)
             cache-name: linux-editor-mono
             target: editor
