@@ -440,7 +440,16 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 		} else {
 			RID depth_back_fb = FramebufferCacheRD::get_singleton()->get_cache(depth_back_texture);
 			if (p_use_msaa) {
-				static const int texture_multisamples[RSE::VIEWPORT_MSAA_MAX] = { 1, 2, 4, 8 };
+				// See API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES's doc comment
+				// (rendering_device_driver.h) and the identical clamp in
+				// render_forward_clustered.cpp -- webgpu_notes/TASKS.md Task 24 round 5.
+				const uint32_t max_supported_samples = RD::get_singleton()->get_max_supported_texture_samples();
+				const int texture_multisamples[RSE::VIEWPORT_MSAA_MAX] = {
+					(int)MIN(1u, max_supported_samples),
+					(int)MIN(2u, max_supported_samples),
+					(int)MIN(4u, max_supported_samples),
+					(int)MIN(8u, max_supported_samples),
+				};
 
 				resolve_effects->resolve_depth_raster(rb->get_depth_msaa(v), depth_back_fb, texture_multisamples[rb->get_msaa_3d()]);
 			} else {
@@ -515,6 +524,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		buffers.half_texture[1] = rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BLUR_0, 0, 1);
 
 		if (can_use_storage) {
+			// See BOKEH_GEN_BLUR_SIZE_RESOLVED_DEPTH's doc comment (bokeh_dof.h): when MSAA
+			// is active, get_depth_texture() is the resolve target (R32Float storage
+			// texture with real depth values), not a native depth-format texture, and the
+			// compute shader needs a genuinely different WGSL type to read it correctly on
+			// WebGPU. See webgpu_notes/TASKS.md Task 24 round 4.
+			bool msaa_resolved_depth = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
 			for (uint32_t i = 0; i < rb->get_view_count(); i++) {
 				buffers.base_texture = use_upscaled_texture ? rb->get_upscaled_texture(i) : rb->get_internal_texture(i);
 				buffers.depth_texture = rb->get_depth_texture(i);
@@ -522,7 +537,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				// In stereo p_render_data->z_near and p_render_data->z_far can be offset for our combined frustum.
 				float z_near = p_render_data->scene_data->view_projection[i].get_z_near();
 				float z_far = p_render_data->scene_data->view_projection[i].get_z_far();
-				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal);
+				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, msaa_resolved_depth);
 			};
 		} else {
 			// Set framebuffers.

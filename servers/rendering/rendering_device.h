@@ -270,6 +270,7 @@ public:
 	bool supports_batch_instance_draws();
 	bool supports_first_instance_index();
 	bool requires_synchronous_pipeline_compilation();
+	uint32_t get_max_supported_texture_samples();
 	Error buffer_clear(RID p_buffer, uint32_t p_offset, uint32_t p_size);
 	Vector<uint8_t> buffer_get_data(RID p_buffer, uint32_t p_offset = 0, uint32_t p_size = 0); // This causes stall, only use to retrieve large buffers for saving.
 	Error buffer_get_data_async(RID p_buffer, const Callable &p_callback, uint32_t p_offset = 0, uint32_t p_size = 0);

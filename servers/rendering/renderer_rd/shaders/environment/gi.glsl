@@ -24,8 +24,7 @@ layout(constant_id = 2) const bool sc_use_vrs = false;
 
 //set 0 for SDFGI and render buffers
 
-// On WebGPU these each declare 8 individually-numbered bindings; on every other
-// backend, one combined `texture3D <name>[8]` array at the given binding (see
+// Each declares 8 individually-numbered bindings, on every backend (see
 // webgpu_texture3d_array_inc.glsl). 100/110/130/140 are synthetic ranges chosen (120 is deliberately skipped -- see the IMPORTANT note in webgpu_texture3d_array_inc.glsl about PC_RING_BUFFER_BINDING)
 // well above every other binding this shader declares (currently 1..19) so they
 // can never collide; gi.cpp's uniform-set construction must use the same binding

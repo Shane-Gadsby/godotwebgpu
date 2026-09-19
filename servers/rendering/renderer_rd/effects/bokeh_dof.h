@@ -79,6 +79,17 @@ private:
 		BOKEH_GEN_BOKEH_HEXAGONAL_NOWEIGHT,
 		BOKEH_GEN_BOKEH_CIRCULAR,
 		BOKEH_COMPOSITE,
+		// Same as BOKEH_GEN_BLUR_SIZE, but for RenderSceneBuffersRD::get_depth_texture()'s
+		// MSAA-resolve-target form -- a plain R32Float storage texture with real depth
+		// VALUES (populated by Resolve::resolve_depth()/resolve_gi(), see Task 24 round 2/3
+		// in webgpu_notes/TASKS.md), not a native hardware depth FORMAT. The two forms
+		// need genuinely different WGSL on WebGPU (texture_depth_2d vs texture_2d<f32> --
+		// this driver's depth-texture reclassification heuristic, Task 7.13, can't tell
+		// them apart from GLSL source alone, since both are read identically), so this is
+		// a real second shader variant, not just a parameter -- selected by
+		// bokeh_dof_compute()'s new p_msaa_resolved_depth based on whether MSAA 3D is
+		// active for the viewport being blurred. See Task 24 round 4.
+		BOKEH_GEN_BLUR_SIZE_RESOLVED_DEPTH,
 		BOKEH_MAX
 	};
 
@@ -113,7 +124,7 @@ public:
 	BokehDOF(bool p_prefer_raster_effects);
 	~BokehDOF();
 
-	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal);
+	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth = false);
 	void bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal);
 };
 

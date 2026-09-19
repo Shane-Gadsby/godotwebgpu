@@ -44,32 +44,35 @@ using namespace RendererRD;
 
 const Vector3i GI::SDFGI::Cascade::DIRTY_ALL = Vector3i(0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF);
 
-// Binds SDFGI::MAX_CASCADES (8) per-cascade textures to a shader as either one
-// combined array-uniform (the natural representation, used on every backend that
-// supports it) or 8 individually-numbered bindings starting at p_binding0 (WebGPU,
-// which cannot represent an array of independently-selectable textures/images in
-// a single binding at all -- see webgpu_texture3d_array_inc.glsl in the shader
-// source for the corresponding shader-side declaration/access macro). p_binding0
-// is only used in the WebGPU case; the combined case always uses p_binding0 as
-// well since it's the same slot the shader declares the array at on those
-// backends. See Task 9.5 Round 36/37 in webgpu_notes/TASKS.md.
+// Binds SDFGI::MAX_CASCADES (8) per-cascade textures to a shader as 8
+// individually-numbered bindings starting at p_binding0, matching the
+// corresponding shader-side WEBGPU_DECLARE_TEXTURE3D_ARRAY8 macro
+// (webgpu_texture3d_array_inc.glsl). See Task 9.5 Round 36/37 and Task 24
+// round 3 in webgpu_notes/TASKS.md.
+//
+// Always splits, on every backend -- does NOT branch on
+// RD::SUPPORTS_TEXTURE_ARRAY_BINDINGS (removed 2026-09-20). That capability
+// is real (Vulkan/Metal/D3D12 genuinely support a combined array-uniform,
+// WebGPU doesn't), but the SHADER side can't reliably match it: export-time
+// shader baking compiles this GLSL exactly once, from the native (Vulkan)
+// editor process, even when baking specifically FOR the WebGPU export
+// target -- so a shader-side #ifdef keyed on the live driver name always
+// took the "combined array" branch during baking, producing a real (unsplit)
+// SPIR-V array that this function's old "false" branch then didn't match
+// (8 separate 1-ID uniforms against a shader still reflecting one 8-length
+// array) -- a hard validation failure dropping the whole command buffer
+// every frame SDFGI/VoxelGI ran. Splitting unconditionally here (matching
+// the shader macro also splitting unconditionally now) keeps both sides
+// structurally identical regardless of which driver was active at compile
+// time, at the cost of 8 descriptor slots instead of 1 real array on
+// Vulkan/Metal/D3D12 -- a real, working GLSL pattern, just less elegant.
 static void _gi_bind_cascade_texture_array(Vector<RD::Uniform> &r_uniforms, RD::UniformType p_uniform_type, uint32_t p_binding0, const RID (&p_ids)[GI::SDFGI::MAX_CASCADES]) {
-	if (RD::get_singleton()->has_feature(RD::SUPPORTS_TEXTURE_ARRAY_BINDINGS)) {
+	for (uint32_t i = 0; i < GI::SDFGI::MAX_CASCADES; i++) {
 		RD::Uniform u;
 		u.uniform_type = p_uniform_type;
-		u.binding = p_binding0;
-		for (uint32_t i = 0; i < GI::SDFGI::MAX_CASCADES; i++) {
-			u.append_id(p_ids[i]);
-		}
+		u.binding = p_binding0 + i;
+		u.append_id(p_ids[i]);
 		r_uniforms.push_back(u);
-	} else {
-		for (uint32_t i = 0; i < GI::SDFGI::MAX_CASCADES; i++) {
-			RD::Uniform u;
-			u.uniform_type = p_uniform_type;
-			u.binding = p_binding0 + i;
-			u.append_id(p_ids[i]);
-			r_uniforms.push_back(u);
-		}
 	}
 }
 

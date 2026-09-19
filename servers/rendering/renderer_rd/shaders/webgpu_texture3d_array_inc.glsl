@@ -33,16 +33,13 @@
 // sites and it's identical to the original.
 //
 // Usage: WEBGPU_DECLARE_TEXTURE3D_ARRAY8(my_array, 3) declares 8 bindings at
-// binding 3..10 (WebGPU) or one `texture3D my_array[8]` at binding 3 (every
-// other backend, unaffected -- plain GLSL array, no workaround needed) and,
-// either way, a `my_array_sample(uint idx, sampler samp, vec3 uv, float lod) -> vec4`
+// binding 3..10 and a `my_array_sample(uint idx, sampler samp, vec3 uv, float lod) -> vec4`
 // function. Call `my_array_sample(idx, samp, uv, lod)` instead of
 // `textureLod(sampler3D(my_array[idx], samp), uv, lod)` (or `texture(...)` ->
-// pass `0.0` for lod) at every access site; the call-site syntax is identical
-// on every backend. Since this declares 8 consecutive bindings on WebGPU,
-// place the macro invocation last among a binding set's declarations (or
-// otherwise leave 7 binding numbers free after it) to avoid colliding with
-// whatever comes next.
+// pass `0.0` for lod) at every access site. Since this declares 8 consecutive
+// bindings, place the macro invocation last among a binding set's
+// declarations (or otherwise leave 7 binding numbers free after it) to avoid
+// colliding with whatever comes next.
 //
 // IMPORTANT: never choose m_binding0 such that m_binding0..m_binding0+7
 // includes 120. drivers/webgpu/spirv_preprocess.cpp's split_combined_samplers
@@ -53,8 +50,24 @@
 // gets the same "don't double" treatment by mistake and collides with
 // whatever real binding *did* get doubled into that slot. Cost a full
 // confirmation-test cycle to find (Task 9.5 Round 37, webgpu_notes/TASKS.md).
-
-#ifdef RENDER_DRIVER_WEBGPU
+//
+// Always splits, on every backend -- NOT gated behind `#ifdef RENDER_DRIVER_WEBGPU`
+// (removed 2026-09-20, see Task 24 round 3 in webgpu_notes/TASKS.md). That define
+// reflects OS::get_current_rendering_driver_name() of the CURRENTLY RUNNING
+// process, not the export target -- but export-time shader baking (the common,
+// fast path for real projects) compiles this GLSL exactly once, from the native
+// editor, which runs on Vulkan even when baking shaders FOR the WebGPU export
+// target. So RENDER_DRIVER_WEBGPU was always false during baking, silently
+// producing a real (unsplit) `texture3D[8]` in the baked SPIR-V -- which this
+// driver's own uniform-array capability report (SUPPORTS_TEXTURE_ARRAY_BINDINGS
+// = false, gi.cpp's _gi_bind_cascade_texture_array()) then mismatched against at
+// bind-group-creation time: `GPUValidationError`/`ERR_FAIL` ("is an array of (8)
+// textures... IDs provided: 1"), dropping the whole command buffer every frame
+// SDFGI/VoxelGI ran. Splitting unconditionally means baked and live-compiled
+// SPIR-V are always structurally identical, regardless of which driver happened
+// to be active at compile time. Costs native backends 8 descriptor slots instead
+// of 1 real array -- a real, working, if less elegant GLSL pattern -- in
+// exchange for correctness independent of compile context.
 
 #define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                    \
 	layout(set = 0, binding = (m_binding0) + 0) uniform texture3D m_name##_0;  \
@@ -89,13 +102,3 @@
 		}                                                                      \
 		return textureLod(sampler3D(m_name##_7, m_samp), m_uv, m_lod);         \
 	}
-
-#else
-
-#define WEBGPU_DECLARE_TEXTURE3D_ARRAY8(m_name, m_binding0)                    \
-	layout(set = 0, binding = (m_binding0)) uniform texture3D m_name[8];       \
-	vec4 m_name##_sample(uint m_idx, sampler m_samp, vec3 m_uv, float m_lod) { \
-		return textureLod(sampler3D(m_name[m_idx], m_samp), m_uv, m_lod);      \
-	}
-
-#endif

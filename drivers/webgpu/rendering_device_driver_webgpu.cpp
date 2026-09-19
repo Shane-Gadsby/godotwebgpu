@@ -763,6 +763,14 @@ RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
 		wgpuTextureRelease(fallback_ms_texture);
 		fallback_ms_texture = nullptr;
 	}
+	if (fallback_depth_texture_view) {
+		wgpuTextureViewRelease(fallback_depth_texture_view);
+		fallback_depth_texture_view = nullptr;
+	}
+	if (fallback_depth_texture) {
+		wgpuTextureRelease(fallback_depth_texture);
+		fallback_depth_texture = nullptr;
+	}
 
 	// Release dummy samplers.
 	if (dummy_filtering_sampler) {
@@ -949,6 +957,30 @@ Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t 
 			vd.arrayLayerCount = 1;
 			vd.aspect = WGPUTextureAspect_All;
 			fallback_ms_texture_view = wgpuTextureCreateView(fallback_ms_texture, &vd);
+		}
+	}
+
+	// Create a small fallback depth texture (4x4, Depth32Float). Used when a BGL
+	// entry expects Depth sample type but the real bound texture is a plain float
+	// format (Forward+'s MSAA depth-resolve target -- see the field's doc comment
+	// in the header for the full explanation).
+	{
+		WGPUTextureDescriptor td = {};
+		td.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_RenderAttachment;
+		td.dimension = WGPUTextureDimension_2D;
+		td.size = { 4, 4, 1 };
+		td.format = WGPUTextureFormat_Depth32Float;
+		td.mipLevelCount = 1;
+		td.sampleCount = 1;
+		fallback_depth_texture = wgpuDeviceCreateTexture(device, &td);
+		if (fallback_depth_texture) {
+			WGPUTextureViewDescriptor vd = {};
+			vd.format = WGPUTextureFormat_Depth32Float;
+			vd.dimension = WGPUTextureViewDimension_2D;
+			vd.mipLevelCount = 1;
+			vd.arrayLayerCount = 1;
+			vd.aspect = WGPUTextureAspect_DepthOnly;
+			fallback_depth_texture_view = wgpuTextureCreateView(fallback_depth_texture, &vd);
 		}
 	}
 
@@ -4059,6 +4091,24 @@ static bool _find_preceding_group_binding(const char *p_wgsl, int64_t p_name_sta
 static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const HashSet<uint32_t> &p_storage_converted_keys) {
 	static const char *const TEX_TYPE = "texture_2d<f32>";
 	static const int TEX_TYPE_LEN = 15;
+	// Multisampled depth-format combined samplers (GLSL sampler2DMS bound to a real
+	// depth attachment, e.g. resolve.glsl's MODE_RESOLVE_DEPTH/MODE_RESOLVE_GI
+	// `source_depth`, read via texelFetch(...).r -- the same structural/naming
+	// shape this whole pass targets) were falling through this scan entirely: Tint's
+	// natural non-depth output for a multisampled texture is
+	// `texture_multisampled_2d<f32>`, not `texture_2d<f32>`, so the single-string
+	// search above never matched them, and they never got reclassified to
+	// `texture_depth_multisampled_2d` (WGSL's multisampled depth type -- no `<f32>`
+	// parameter, unlike its non-depth counterpart). Left un-reclassified, the real
+	// bound resource (a genuine multisampled depth texture, e.g. Forward+'s MSAA
+	// depth buffer) mismatched the BGL's Float-expecting entry, and this driver's
+	// *existing* depth/float-mismatch fallback (see uniform_set_create()'s
+	// `fallback_ms_texture` substitution) silently kicked in -- avoiding a crash,
+	// but replacing real MSAA depth data with an all-zero texture, corrupting
+	// anything that consumes the result (SDFGI's GI resolve, DOF, ...) without a
+	// single error printed. See webgpu_notes/TASKS.md Task 24 round 3.
+	static const char *const TEX_TYPE_MS = "texture_multisampled_2d<f32>";
+	static const int TEX_TYPE_MS_LEN = 28;
 	// textureSampleBias/textureSampleGrad are NOT defined for texture_depth_2d
 	// in WGSL at all (depth textures don't support mip bias/gradient
 	// sampling) -- deliberately excluded here so any texture used via either
@@ -4077,12 +4127,17 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 		String name;
 		int64_t name_start = 0;
 		int64_t type_start = 0;
+		int type_len = 0;
+		bool is_ms = false;
 	};
 	Vector<Candidate> candidates;
-	{
+	for (int pass = 0; pass < 2; pass++) {
+		const char *tex_type = pass == 0 ? TEX_TYPE : TEX_TYPE_MS;
+		int tex_type_len = pass == 0 ? TEX_TYPE_LEN : TEX_TYPE_MS_LEN;
+		bool is_ms = pass == 1;
 		const char *scan = wgsl;
 		while (true) {
-			const char *found = strstr(scan, TEX_TYPE);
+			const char *found = strstr(scan, tex_type);
 			if (!found) {
 				break;
 			}
@@ -4106,10 +4161,12 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 					c.name = String::utf8(wgsl + name_start, (int)(name_end - name_start));
 					c.name_start = name_start;
 					c.type_start = type_pos;
+					c.type_len = tex_type_len;
+					c.is_ms = is_ms;
 					candidates.push_back(c);
 				}
 			}
-			scan = found + TEX_TYPE_LEN;
+			scan = found + tex_type_len;
 		}
 	}
 	if (candidates.is_empty()) {
@@ -4383,8 +4440,8 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 
 		Edit decl_edit;
 		decl_edit.start = c.type_start;
-		decl_edit.end = c.type_start + TEX_TYPE_LEN;
-		decl_edit.replacement = "texture_depth_2d";
+		decl_edit.end = c.type_start + c.type_len;
+		decl_edit.replacement = c.is_ms ? "texture_depth_multisampled_2d" : "texture_depth_2d";
 		edits.push_back(decl_edit);
 		for (const Edit &ce : call_edits) {
 			edits.push_back(ce);
@@ -6534,6 +6591,18 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 							} else {
 								entry.textureView = fallback_float_texture_view;
 							}
+						} else if (expected_sample == WGPUTextureSampleType_Depth &&
+								!_is_depth_format(tex->format) &&
+								fallback_depth_texture_view != nullptr) {
+							// Reverse mismatch: layout expects Depth (this binding's WGSL type
+							// was reclassified to texture_depth_2d, Task 7.13) but the real
+							// texture is a plain float format -- e.g. Forward+'s R32Float MSAA
+							// depth-resolve target (same GLSL/WGSL used whether MSAA is on or
+							// off, so the shader can't distinguish them at compile time). See
+							// the identical case and full explanation in the
+							// UNIFORM_TYPE_SAMPLER_WITH_TEXTURE branch below, and
+							// webgpu_notes/TASKS.md Task 24.
+							entry.textureView = fallback_depth_texture_view;
 						} else if (expected_sample == WGPUTextureSampleType_Float &&
 								!float32_filterable_supported &&
 								_is_float32_format(tex->format) &&
@@ -6712,8 +6781,19 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						// the MSAA fallback for this case. This handles ResolveRasterShaderRD
 						// which binds an MSAA depth texture into a float MSAA slot (WebGPU
 						// forbids sampling depth as float, so the MSAA fallback is used).
+						//
+						// The depth-format sub-case is guarded by swt_expected_sample_type !=
+						// Depth: since _reclassify_single_component_depth_textures() (Task 7.13)
+						// started also reclassifying multisampled candidates (Task 24 round 3,
+						// Bug 7), a real multisampled depth texture bound to a binding the BGL
+						// *correctly* expects Depth+multisampled for is not a mismatch at all --
+						// it's already the right type, and should be bound directly below, not
+						// routed through the Float-only fallback_ms_texture (which would just
+						// reintroduce Bug 7's all-zero-depth corruption for every binding this
+						// branch used to catch unconditionally, before that reclassification
+						// fix could ever apply). See webgpu_notes/TASKS.md Task 24 round 4.
 						bool tex_is_ms = (tex->sample_count > 1);
-						if (swt_expected_ms && (!tex_is_ms || _is_depth_format(tex->format)) &&
+						if (swt_expected_ms && (!tex_is_ms || (_is_depth_format(tex->format) && swt_expected_sample_type != WGPUTextureSampleType_Depth)) &&
 								fallback_ms_texture_view != nullptr) {
 							te.textureView = fallback_ms_texture_view;
 						} else if (_is_depth_format(tex->format) && swt_expected_sample_type != WGPUTextureSampleType_Depth &&
@@ -6731,6 +6811,22 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 							} else {
 								te.textureView = fallback_float_texture_view;
 							}
+						} else if (swt_expected_sample_type == WGPUTextureSampleType_Depth &&
+								!_is_depth_format(tex->format) &&
+								fallback_depth_texture_view != nullptr) {
+							// Reverse of the depth/float mismatch above: this combined
+							// binding's WGSL type was reclassified to Depth
+							// (texture_depth_2d, see _reclassify_single_component_depth_textures(),
+							// Task 7.13) because the naming/access-pattern heuristic that
+							// decision is based on can't see runtime state -- but the actual
+							// bound texture is a plain float format this time (e.g. Forward+'s
+							// R32Float MSAA depth-resolve target, RenderSceneBuffersRD::
+							// get_depth_format()'s "Use R32 for resolve on Forward+" case; same
+							// GLSL/WGSL either way MSAA is on or off, so the shader can't tell
+							// them apart at compile time). Substitute a real depth fallback
+							// rather than let Dawn reject binding a Float-format view to a
+							// Depth-sampleType slot. See webgpu_notes/TASKS.md Task 24.
+							te.textureView = fallback_depth_texture_view;
 						} else if (!float32_filterable_supported &&
 								_is_float32_format(tex->format) &&
 								fallback_float_texture_view != nullptr) {
@@ -7461,9 +7557,77 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 }
 
 void RenderingDeviceDriverWebGPU::command_resolve_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, uint32_t p_src_layer, uint32_t p_src_mipmap, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, uint32_t p_dst_layer, uint32_t p_dst_mipmap) {
-	// TODO: Create a minimal render pass with MSAA texture as color attachment
-	// and the resolve target as resolveTarget. Begin and immediately end the pass.
-	WARN_PRINT_ONCE("WebGPU: command_resolve_texture not yet implemented.");
+	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
+	WGTexture *src = (WGTexture *)(p_src_texture.id);
+	WGTexture *dst = (WGTexture *)(p_dst_texture.id);
+	ERR_FAIL_NULL(cmd);
+	ERR_FAIL_NULL(src);
+	ERR_FAIL_NULL(dst);
+
+	// WebGPU only supports resolving via a render pass's colorAttachment->resolveTarget
+	// mechanism -- there is no standalone resolve command, and (unlike Vulkan/Metal/
+	// D3D12) no depthStencilAttachment resolve target at all. Every actual caller in
+	// this codebase resolves a color format (Forward+'s MSAA color/specular/velocity
+	// buffers via RenderingDevice::texture_resolve_multisample() -- see
+	// render_forward_clustered.cpp); depth resolve goes through a separate,
+	// already-working compute-shader path (Resolve::resolve_depth(), core/shared code,
+	// not this function) specifically because of that native depthStencilAttachment
+	// resolve-target gap. So this only needs to handle color here.
+	if (_is_depth_format(src->format)) {
+		WARN_PRINT_ONCE("WebGPU: command_resolve_texture does not support depth/stencil formats (WebGPU render passes have no depth resolve target); leaving destination unresolved.");
+		return;
+	}
+	ERR_FAIL_COND_MSG(!(src->usage & WGPUTextureUsage_RenderAttachment), "WebGPU: command_resolve_texture requires the source (MSAA) texture to have RenderAttachment usage.");
+	ERR_FAIL_COND_MSG(!(dst->usage & WGPUTextureUsage_RenderAttachment), "WebGPU: command_resolve_texture requires the destination (resolve target) texture to have RenderAttachment usage.");
+
+	cmd->end_active_encoder();
+
+	WGPUTextureViewDescriptor src_vd = {};
+	src_vd.format = src->format;
+	src_vd.dimension = WGPUTextureViewDimension_2D;
+	src_vd.baseMipLevel = p_src_mipmap;
+	src_vd.mipLevelCount = 1;
+	src_vd.baseArrayLayer = p_src_layer;
+	src_vd.arrayLayerCount = 1;
+	src_vd.aspect = WGPUTextureAspect_All;
+	WGPUTextureView src_view = wgpuTextureCreateView(src->gpu_handle(), &src_vd);
+
+	WGPUTextureViewDescriptor dst_vd = {};
+	dst_vd.format = dst->format;
+	dst_vd.dimension = WGPUTextureViewDimension_2D;
+	dst_vd.baseMipLevel = p_dst_mipmap;
+	dst_vd.mipLevelCount = 1;
+	dst_vd.baseArrayLayer = p_dst_layer;
+	dst_vd.arrayLayerCount = 1;
+	dst_vd.aspect = WGPUTextureAspect_All;
+	WGPUTextureView dst_view = wgpuTextureCreateView(dst->gpu_handle(), &dst_vd);
+
+	if (src_view && dst_view) {
+		WGPURenderPassColorAttachment color_att = {};
+		color_att.view = src_view;
+		color_att.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+		color_att.resolveTarget = dst_view;
+		// Load (not Clear): must preserve the MSAA texture's already-rendered content --
+		// this pass exists purely to trigger the implicit resolve-on-end, not to draw
+		// anything. Discard afterward: nothing needs the MSAA source's contents once
+		// resolved.
+		color_att.loadOp = WGPULoadOp_Load;
+		color_att.storeOp = WGPUStoreOp_Discard;
+
+		WGPURenderPassDescriptor rp_desc = {};
+		rp_desc.colorAttachmentCount = 1;
+		rp_desc.colorAttachments = &color_att;
+
+		WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(cmd->encoder, &rp_desc);
+		wgpuRenderPassEncoderEnd(pass);
+		wgpuRenderPassEncoderRelease(pass);
+	}
+	if (src_view) {
+		wgpuTextureViewRelease(src_view);
+	}
+	if (dst_view) {
+		wgpuTextureViewRelease(dst_view);
+	}
 }
 
 // Return the byte size of a single texel for a given WGPUTextureFormat.
@@ -11077,6 +11241,15 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// thread. webgpu_notes/TASKS.md Task 12.
 		case API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION:
 			return 1;
+		// WebGPU (spec and Dawn) only ever accepts a texture/pipeline sampleCount of
+		// 1 or 4 -- see _clamp_sample_count()'s own doc comment and this trait's in
+		// rendering_device_driver.h. Core code that needs to know how many samples a
+		// requested TEXTURE_SAMPLES_* value will actually produce on this backend
+		// (e.g. Resolve::resolve_depth()/resolve_gi()'s manual per-sample average)
+		// must clamp against this, or it iterates more samples than the real bound
+		// texture has. See webgpu_notes/TASKS.md Task 24 round 5.
+		case API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES:
+			return 4;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}
