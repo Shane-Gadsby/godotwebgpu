@@ -30,7 +30,7 @@
 
 // tint_convert_cli — Standalone SPIR-V → WGSL converter for build-time precompilation.
 //
-// Runs the same 21 preprocessing passes as the Godot WebGPU runtime driver,
+// Runs the same 23 preprocessing passes as the Godot WebGPU runtime driver,
 // then converts to WGSL via Tint. Produces output identical to what the engine
 // generates at runtime, enabling precompilation of ubershader and specialized
 // shader variants at build time.
@@ -83,7 +83,7 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv.resize((int64_t)p_spv_bytes.size());
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
-	// 21 preprocessing passes (same order as rendering_device_driver_webgpu.cpp).
+	// 21 preprocessing passes (same order as spirv_to_wgsl.cpp).
 	spv = spirv_preprocess::inline_opaque_functions(spv);
 	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
 	spv = spirv_preprocess::rewrite_copy_logical(spv);

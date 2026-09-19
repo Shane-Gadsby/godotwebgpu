@@ -499,6 +499,118 @@ console.log("\n=== Test 2: rewrite_copy_logical ===");
   assert(r.wgsl === null, "input < 20 bytes returns error");
 }
 
+{
+  // 2c. Real-world type-mismatch case: copying a std140 UBO block member
+  // into a plain local variable forces glslang to emit OpCopyLogical
+  // between two distinctly-declared-but-structurally-identical struct
+  // types (see fixtures_src/copy_logical_mismatch.frag). The naive
+  // OpCopyLogical -> OpCopyObject opcode swap only works when Result Type
+  // equals Operand type, which isn't the case here -- this is the shape of
+  // the bug that broke Godot's own SceneData UBO copy in production
+  // (webgpu_notes/TASKS.md Task 9.2). Needs SPIR-V 1.4 (OpCopyLogical
+  // didn't exist before), hence the explicit --target-env, unlike every
+  // other fixture in this suite which relies on compile_fixtures.sh's
+  // default (lower) target env.
+  const fragSrc = join(__dirname, "fixtures_src", "copy_logical_mismatch.frag");
+  const spvOut = join(tmpdir(), `copy_logical_mismatch_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["--target-env", "vulkan1.2", "-V", fragSrc, "-o", spvOut], { encoding: "utf-8" });
+    const spvBytes = readFileSync(spvOut);
+    const r = convertToWgsl(spvBytes);
+    assert(r.wgsl !== null, "UBO-block-to-local struct copy (type-mismatched OpCopyLogical) converts");
+    if (r.wgsl) {
+      assert(!r.wgsl.includes("OpCopyLogical") && !r.wgsl.includes("OpCopyObject"), "no leftover SPIR-V opcode text in WGSL output");
+    } else {
+      console.log(`    error: ${r.error}`);
+    }
+  } catch (e) {
+    skip(`glslangValidator --target-env vulkan1.2 unavailable: ${e.message}`);
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 2d: Handle-typed OpEntryPoint interface variable (vendored Tint patch 0012)
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n=== Test 2d: Handle-typed OpEntryPoint interface variable ===");
+
+{
+  // SPIR-V 1.4+'s OpEntryPoint interface list includes every module-scope
+  // variable an entry point uses, not just Input/Output (SPIR-V 1.3 and
+  // earlier's rule). Tint's reader used to emit an invalid `_ = &(var);`
+  // "phony" reference for every listed interface id regardless of storage
+  // class -- illegal WGSL when that id is a Handle-address-space
+  // (sampler/texture) variable. Originally worked around at the SPIR-V
+  // preprocessing level (stripping handle ids from the interface list +
+  // downgrading the module's declared version below 1.4), which in turn
+  // broke a different, genuinely 1.4-only construct (see Test 2e) -- now
+  // fixed directly in vendored Tint instead (patch 0012, `## tint` in
+  // thirdparty/README.md), so modules keep their real declared version and
+  // this preprocessing-level workaround no longer exists at all. See
+  // fixtures_src/handle_entry_point_interface.frag and
+  // webgpu_notes/TASKS.md Task 21. Needs an explicit --target-env for the
+  // same reason as the copy_logical_mismatch fixture above (SPIR-V 1.4+
+  // specifically, not compile_fixtures.sh's default).
+  const fragSrc = join(__dirname, "fixtures_src", "handle_entry_point_interface.frag");
+  const spvOut = join(tmpdir(), `handle_entry_point_interface_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["--target-env", "vulkan1.2", "-V", fragSrc, "-o", spvOut], { encoding: "utf-8" });
+    const spvBytes = readFileSync(spvOut);
+    const r = convertToWgsl(spvBytes);
+    assert(r.wgsl !== null, "separate texture2D+sampler through a helper function (SPIR-V 1.4+ interface list) converts");
+    if (r.wgsl) {
+      assert(r.wgsl.includes("textureSample"), "sampling call present in WGSL output");
+      assert(!r.wgsl.includes("&("), "no leftover address-of expression in WGSL output");
+    } else {
+      console.log(`    error: ${r.error}`);
+    }
+  } catch (e) {
+    skip(`glslangValidator --target-env vulkan1.2 unavailable: ${e.message}`);
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 2e: OpSelect scalar-condition/vector-result at native SPIR-V 1.4+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n=== Test 2e: OpSelect scalar-condition/vector-result ===");
+
+{
+  // SPIR-V 1.4+ relaxes OpSelect to allow a scalar bool Condition to select
+  // between two vector operands directly (no broadcast); Godot's own
+  // glslang integration targets exactly that version (SPV_ENV_VULKAN_1_2),
+  // so an ordinary `cond ? vecA : vecB` ternary compiles to this form in
+  // real engine output -- valid there and needs no fixup at all. This test
+  // exists because an earlier fix (Test 2d's original version-downgrade
+  // approach) broke exactly this construct as a side effect; now that the
+  // real Handle-interface bug is fixed directly in Tint (patch 0012) and
+  // nothing downgrades the module's version anymore, this converts cleanly
+  // with zero preprocessing help. See fixtures_src/select_scalar_condition.frag
+  // and webgpu_notes/TASKS.md Task 21. Needs --target-env vulkan1.2 (real
+  // 1.4+ output) for the same reason as the other fixtures above -- at a
+  // lower target env glslang itself already broadcasts correctly, so the
+  // construct being tested doesn't even arise.
+  const fragSrc = join(__dirname, "fixtures_src", "select_scalar_condition.frag");
+  const spvOut = join(tmpdir(), `select_scalar_condition_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["--target-env", "vulkan1.2", "-V", fragSrc, "-o", spvOut], { encoding: "utf-8" });
+    const spvBytes = readFileSync(spvOut);
+    const r = convertToWgsl(spvBytes);
+    assert(r.wgsl !== null, "scalar-condition-selects-vector ternary (SPIR-V 1.4+ OpSelect form) converts");
+    if (r.wgsl) {
+      assert(r.wgsl.includes("select("), "select() call present in WGSL output");
+    } else {
+      console.log(`    error: ${r.error}`);
+    }
+  } catch (e) {
+    skip(`glslangValidator --target-env vulkan1.2 unavailable: ${e.message}`);
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 3: rewrite_terminate_invocation
 // ─────────────────────────────────────────────────────────────────────────────
