@@ -6043,7 +6043,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				}
 				WGPUBindGroupLayoutEntry alias_entry = {};
 				alias_entry.binding = alias_bnd;
-				alias_entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+				// The alias is itself a real `@group(G) @binding(B)` declaration in
+				// whichever stage's WGSL actually took the non-comparison path (see
+				// the depth-alias comment above) -- resolve_stage_visibility finds
+				// it the same way it finds every other binding, rather than
+				// blanket-broadening it to every stage regardless of which one
+				// actually declares it. See webgpu_notes/TASKS.md's follow-up to
+				// Task 8.7 (same bug class, this one instance missed).
+				alias_entry.visibility = resolve_stage_visibility(alias_key, WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
 				alias_entry.texture.sampleType = WGPUTextureSampleType_Float;
 				alias_entry.texture.viewDimension = wgsl_tex_dims.has(alias_key) ? wgsl_tex_dims[alias_key] : WGPUTextureViewDimension_2D;
 				alias_entry.texture.multisampled = false;
@@ -6200,7 +6207,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						}
 						WGPUBindGroupLayoutEntry ae = {};
 						ae.binding = alias_bnd;
-						ae.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+						// See the matching fix (and its full explanation) on the
+						// primary alias_entry construction above -- same reasoning
+						// applies to this merged-layout copy.
+						ae.visibility = resolve_stage_visibility(kv.key, WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
 						ae.texture.sampleType = WGPUTextureSampleType_Float;
 						ae.texture.viewDimension = wgsl_tex_dims.has(kv.key) ? wgsl_tex_dims[kv.key] : WGPUTextureViewDimension_2D;
 						ae.texture.multisampled = false;

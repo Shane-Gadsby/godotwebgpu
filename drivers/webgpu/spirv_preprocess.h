@@ -276,6 +276,23 @@ Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes);
 // electing one thread first -- see webgpu_notes/TASKS.md Task 9.1.
 Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes);
 
+// NOTE: this pipeline used to carry two more passes here --
+// strip_handle_vars_from_entry_point_interface() and
+// broadcast_select_scalar_condition() -- working around a real Tint SPIR-V
+// reader bug (AddRefToOutputsIfNeeded() in
+// lang/spirv/reader/parser/parser.cc unconditionally emitting an invalid
+// `_ = &(var);` phony reference for every Handle-address-space id in a
+// SPIR-V 1.4+ OpEntryPoint's interface list) by downgrading every module's
+// declared version below 1.4, which in turn broke an unrelated, genuinely
+// 1.4-only construct (OpSelect's scalar-condition/vector-result form) that
+// needed its own compensating pass. Both are gone: the actual bug is now
+// fixed directly in vendored Tint (patch 0012, `## tint` in
+// thirdparty/README.md) by skipping that phony reference specifically for
+// Handle-typed interface variables, so modules now keep whatever SPIR-V
+// version they actually arrive at (1.4, matching what Godot's own glslang
+// integration emits) instead of being downgraded and then patched back up
+// pass-by-pass. See webgpu_notes/TASKS.md Task 21.
+
 // Remove resource (UniformConstant/Uniform/StorageBuffer) global variables
 // -- and any code that becomes dead as a result -- that this stage's entry
 // point never actually reads, via SPIRV-Tools' CreateAggressiveDCEPass().
