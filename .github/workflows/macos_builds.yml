@@ -22,13 +22,12 @@ jobs:
           - name: Editor (target=editor)
             cache-name: macos-editor
             target: editor
-            bin: ./bin/godot.macos.editor.universal
 
-          - name: Template (target=template_release)
+          - name: Template (target=template_release + template_debug)
             cache-name: macos-template
             target: template_release
+            debug-target: template_debug
             scons-flags: debug_symbols=no
-            bin: ./bin/godot.macos.template_release.universal
 
     steps:
       - name: Checkout
@@ -92,27 +91,79 @@ jobs:
           platform: macos
           target: ${{ matrix.target }}
 
+      # Template bundling (below) needs BOTH template_debug and
+      # template_release binaries present in bin/ at once -- see
+      # platform_macos_builders.py's generate_bundle(), which lipos and
+      # packages both into a single macos_template.app/.zip. debug_symbols
+      # is deliberately left at its default (yes) here, unlike the release
+      # target's matrix.scons-flags, so the debug template stays useful for
+      # debugging exported projects.
+      - name: Compilation (x86_64, debug target)
+        if: matrix.debug-target
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=x86_64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
+          platform: macos
+          target: ${{ matrix.debug-target }}
+
+      - name: Compilation (arm64, debug target)
+        if: matrix.debug-target
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
+          platform: macos
+          target: ${{ matrix.debug-target }}
+
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
         with:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
 
+      # Runs against the raw per-arch arm64 binary (macos-26 runners are
+      # Apple Silicon, so this runs natively -- no Rosetta needed), before
+      # the bundle step below consumes/removes it. Bundling produces a real
+      # .app (whose binary is at a version-derived path) or, for templates,
+      # a zip with no standalone binary left on disk at all (see
+      # generate_bundle()'s final shutil.rmtree), so testing post-bundle
+      # would need unzipping either way -- simpler and just as meaningful to
+      # smoke-test the plain arch binary here instead.
+      - name: Unit tests
+        run: |
+          ./bin/godot.macos.${{ matrix.target }}.arm64 --version
+          ./bin/godot.macos.${{ matrix.target }}.arm64 --help
+          ./bin/godot.macos.${{ matrix.target }}.arm64 --test --force-colors
+
+      # Assembles a real .app bundle (editor) or a macos_template.app zipped
+      # as godot_macos*.zip (template, containing both debug+release Godot
+      # binaries -- see platform_macos_builders.py's generate_bundle()),
+      # universal (lipo'd x86_64+arm64) either way. This is a from-scratch
+      # SCons invocation, but the actual compile is already done above --
+      # this one only exercises the bundling Command(), which finds the
+      # already-built per-arch binaries in bin/ by filename. Unsigned
+      # (bundle_sign_identity defaults to "-", i.e. ad-hoc signing -- no
+      # certificate needed, just enough for the bundle to launch locally
+      # without extra Gatekeeper friction beyond the usual unsigned-download
+      # warning; real notarization needs a paid Apple Developer identity
+      # this repo doesn't have as a CI secret).
+      - name: Generate .app bundle
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} arch=x86_64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }} generate_bundle=yes
+          platform: macos
+          target: ${{ matrix.target }}
+
       - name: Prepare artifact
         run: |
-          lipo -create ./bin/godot.macos.${{ matrix.target }}.x86_64 ./bin/godot.macos.${{ matrix.target }}.arm64 -output ./bin/godot.macos.${{ matrix.target }}.universal
-          rm ./bin/godot.macos.${{ matrix.target }}.x86_64 ./bin/godot.macos.${{ matrix.target }}.arm64
+          # generate_bundle already produced a ready-to-ship .app (editor) or
+          # godot_macos*.zip (template, already containing both debug+release
+          # universal binaries) directly in bin/ -- drop the raw per-arch
+          # intermediate binaries so only the bundle/zip gets uploaded.
+          rm -f ./bin/godot.macos.*.x86_64 ./bin/godot.macos.*.arm64
           rm -rf ./bin/build_deps
-          strip bin/godot.*
-          chmod +x bin/godot.*
 
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
           name: ${{ matrix.cache-name }}
-
-      - name: Unit tests
-        run: |
-          ${{ matrix.bin }} --version
-          ${{ matrix.bin }} --help
-          ${{ matrix.bin }} --test --force-colors
+          path: ${{ matrix.target == 'editor' && 'bin/*.app' || 'bin/godot_macos*.zip' }}

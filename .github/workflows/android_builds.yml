@@ -18,7 +18,11 @@ jobs:
   build-android:
     runs-on: ubuntu-24.04
     name: ${{ matrix.name }}
-    timeout-minutes: 60
+    # Templates now build both ABIs x both configs (4 scons invocations)
+    # sequentially in one job before running gradle once -- see the
+    # "Compilation (templates)" step's comment for why. That's roughly 4x
+    # the wall-clock time a single scons invocation took before.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -31,17 +35,10 @@ jobs:
               arch=arm64
               production=yes
 
-          - name: Template arm32 (target=template_debug, arch=arm32)
-            cache-name: android-template-arm32
-            target: template_debug
-            instrumented_tests: false
-            scons-flags: arch=arm32
-
-          - name: Template arm64 (target=template_debug, arch=arm64)
-            cache-name: android-template-arm64
-            target: template_debug
+          - name: Templates (target=template_debug + template_release, arm32 + arm64)
+            cache-name: android-template
+            target: template
             instrumented_tests: true
-            scons-flags: arch=arm64
 
     steps:
       - name: Checkout
@@ -67,12 +64,57 @@ jobs:
       - name: Download Swappy
         run: python ./misc/scripts/install_swappy_android.py
 
-      - name: Compilation
+      - name: Compilation (editor)
+        if: matrix.target == 'editor'
         uses: ./.github/actions/godot-build
         with:
           scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }}
           platform: android
           target: ${{ matrix.target }}
+
+      # Godot's own Android build (platform/android/SCsub) copies each scons
+      # invocation's compiled .so into lib/libs/<debug|release>/<abi>/, keyed
+      # by scons target (template_debug -> "debug", template_release ->
+      # "release") and arch (arm32 -> armeabi-v7a, arm64 -> arm64-v8a) --
+      # see build.gradle's generateBuildTasks(), which then packages
+      # WHATEVER abi subdirectories happen to exist under each of those two
+      # directories into the final APK. A single scons invocation only ever
+      # populates one (config, abi) pair, so running just one (as this
+      # workflow did before, split across two parallel single-arch jobs)
+      # produces a single-ABI APK that silently only runs on that one
+      # architecture. All 4 combinations must be built in the SAME job,
+      # accumulating into the same lib/libs/ tree, before gradle runs once.
+      - name: Compilation (templates, arm32, debug)
+        if: matrix.target == 'template'
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm32
+          platform: android
+          target: template_debug
+
+      - name: Compilation (templates, arm64, debug)
+        if: matrix.target == 'template'
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64
+          platform: android
+          target: template_debug
+
+      - name: Compilation (templates, arm32, release)
+        if: matrix.target == 'template'
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm32
+          platform: android
+          target: template_release
+
+      - name: Compilation (templates, arm64, release)
+        if: matrix.target == 'template'
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64
+          platform: android
+          target: template_release
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
@@ -81,7 +123,7 @@ jobs:
         continue-on-error: true
 
       - name: Generate Godot templates
-        if: matrix.target == 'template_debug'
+        if: matrix.target == 'template'
         run: |
           cd platform/android/java
           ./gradlew generateGodotTemplates

@@ -77,3 +77,19 @@ env.add_source_files(env.drivers_sources, "*.cpp")
 
 lib = env.add_library("drivers", env.drivers_sources)
 env.Prepend(LIBS=[lib])
+
+if env["webgpu"] and env["platform"] != "web":
+    # Native editor "shader baker" build (WEBGPU_SHADER_BAKER_ENABLED, see
+    # drivers/webgpu/SCsub): unlike every other driver here, nothing else in
+    # libdrivers.a references RenderingShaderContainerWebGPU's constructor
+    # (that's normally what pulls a driver's shader-container .o into the
+    # link -- e.g. the full WebGPU driver's own device init does, but it's
+    # deliberately excluded from this native build). Only
+    # editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp
+    # (in libeditor.a) needs it, and libeditor.a was already Prepend()ed
+    # *before* libdrivers.a above (editor/SCsub runs before drivers/SCsub;
+    # see SConstruct's "build order is dependent on link order" comment), so
+    # a single left-to-right static-lib link pass closes libdrivers.a before
+    # ever reaching libeditor.a's reference to it. Re-listing libdrivers.a a
+    # second time, after libeditor.a, lets that second pass resolve it.
+    env.Append(LIBS=[lib])

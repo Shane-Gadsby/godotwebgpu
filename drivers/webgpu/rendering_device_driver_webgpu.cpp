@@ -38,6 +38,7 @@
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
 #include "drivers/webgpu/spirv_preprocess.h"
+#include "drivers/webgpu/spirv_to_wgsl.h"
 #include "drivers/webgpu/tint_wrapper.h"
 
 #include <emscripten/emscripten.h>
@@ -168,67 +169,10 @@ static const char *_lookup_precompiled_wgsl(uint64_t p_spv_hash) {
 
 // Run SPIR-V preprocessing passes and translate to WGSL via Tint.
 // Returns a malloc'd null-terminated WGSL string, or nullptr on failure.
+// Shared with the export-time shader baker (rendering_shader_container_webgpu.cpp)
+// so baked WGSL is byte-identical to what this fallback would have produced.
 static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
-	if (p_spv_size < 20 || (p_spv_size % 4) != 0) {
-		return nullptr;
-	}
-
-	// Wrap raw bytes in a Vector for the preprocessing API.
-	Vector<uint8_t> spv;
-	spv.resize(p_spv_size);
-	memcpy(spv.ptrw(), p_spv_ptr, p_spv_size);
-
-	// SPIR-V preprocessing pipeline:
-	spv = spirv_preprocess::inline_opaque_functions(spv);
-	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
-	spv = spirv_preprocess::rewrite_copy_logical(spv);
-	spv = spirv_preprocess::rewrite_terminate_invocation(spv);
-	spv = spirv_preprocess::convert_push_constants_to_uniforms(spv);
-	spv = spirv_preprocess::split_combined_samplers(spv);
-	auto depth_result = spirv_preprocess::fix_depth2_images(spv);
-	spv = depth_result.bytes;
-	spv = spirv_preprocess::negate_position_y(spv);
-	spv = spirv_preprocess::strip_unsupported_decorations(spv);
-	spv = spirv_preprocess::strip_memory_barrier(spv);
-	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
-	spv = spirv_preprocess::fold_ballot_bit_count(spv);
-	spv = spirv_preprocess::fix_nonfinite_literals(spv);
-	spv = spirv_preprocess::flatten_binding_arrays(spv);
-	spv = spirv_preprocess::infer_readonly_storage(spv);
-	spv = spirv_preprocess::strip_writeonly_storage_decoration(spv);
-	// Runs last: strips resource globals unused by this stage's entry point
-	// (see spirv_preprocess.h for why — this is what makes the per-stage
-	// WGSL scan below actually narrow BGL visibility instead of seeing every
-	// shared-include declaration as "used by every stage").
-	spv = spirv_preprocess::eliminate_dead_resources(spv);
-	spv = spirv_preprocess::eliminate_local_single_block_vars(spv);
-
-	// Convert to uint32_t words for Tint.
-	int word_count = spv.size() / 4;
-	std::vector<uint32_t> spirv_words(word_count);
-	memcpy(spirv_words.data(), spv.ptr(), spv.size());
-
-	// Call Tint SPIR-V → WGSL via the wrapper (isolates C++20 from Godot's build).
-	char *error_msg = nullptr;
-	char *out = tint_wrapper_spirv_to_wgsl(spirv_words.data(), spirv_words.size(), &error_msg);
-	if (!out) {
-		if (error_msg) {
-			// Truncate the error message: Tint includes the full SPIR-V disassembly
-			// which floods the console. Keep first 1500 chars for diagnostics.
-			String err_str = String::utf8(error_msg);
-			// Replace newlines with pipes to prevent console splitting.
-			err_str = err_str.replace("\n", " | ");
-			if (err_str.length() > 1500) {
-				err_str = err_str.left(1500) + "... [truncated]";
-			}
-			ERR_PRINT(vformat("Tint SPIR-V→WGSL failed: %s", err_str));
-			free(error_msg);
-		} else {
-			ERR_PRINT("Tint SPIR-V→WGSL failed (unknown error)");
-		}
-		return nullptr;
-	}
-	return out;
+	return webgpu::spirv_to_wgsl(p_spv_ptr, p_spv_size);
 }
 
 // Returns a malloc'd null-terminated WGSL string (caller must free), or nullptr on
@@ -4729,7 +4673,23 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// We convert SPIR-V → WGSL at runtime using Tint (C++, linked directly).
 		// Many shader stages share SPIR-V bytes; _spv_to_wgsl_cached looks up a
 		// process-lifetime cache before invoking Tint (see helper definition).
-		char *wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size());
+		//
+		// If this stage was already baked to WGSL at export time (see
+		// rendering_shader_container_webgpu.cpp's _set_code_from_spirv() and
+		// editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp),
+		// use that directly and skip Tint entirely. Copied into a fresh malloc'd
+		// buffer (rather than handed out as-is) because the WGSL-text transform
+		// passes below own and mutate/free `wgsl_str` in place; the container's
+		// copy must stay untouched for any later shader_create_from_container() call.
+		char *wgsl_str = nullptr;
+		const char *baked_wgsl = wg_container->get_wgsl_code((uint32_t)i);
+		if (baked_wgsl) {
+			size_t baked_len = strlen(baked_wgsl) + 1;
+			wgsl_str = (char *)malloc(baked_len);
+			memcpy(wgsl_str, baked_wgsl, baked_len);
+		} else {
+			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size());
+		}
 
 		if (wgsl_str == nullptr) {
 			error_text = vformat("WebGPU: SPIR-V→WGSL conversion failed for stage %d.", (int)s.shader_stage);
