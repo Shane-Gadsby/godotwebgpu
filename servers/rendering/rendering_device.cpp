@@ -1189,6 +1189,10 @@ bool RenderingDevice::requires_synchronous_pipeline_compilation() {
 	return driver->api_trait_get(RDD::API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION) != 0;
 }
 
+uint32_t RenderingDevice::get_max_supported_texture_samples() {
+	return (uint32_t)driver->api_trait_get(RDD::API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES);
+}
+
 Error RenderingDevice::buffer_update(RID p_buffer, uint32_t p_offset, uint32_t p_size, const void *p_data, bool p_skip_check) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
 

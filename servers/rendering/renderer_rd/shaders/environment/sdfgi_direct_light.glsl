@@ -10,9 +10,8 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #include "../webgpu_texture3d_array_inc.glsl"
 
-// On WebGPU this declares 8 individually-numbered bindings at 100..107; on every
-// other backend, one combined `texture3D sdf_cascades[8]` array at binding 100
-// (see webgpu_texture3d_array_inc.glsl). 100 is a synthetic range chosen well
+// Declares 8 individually-numbered bindings at 100..107, on every backend (see
+// webgpu_texture3d_array_inc.glsl). 100 is a synthetic range chosen well
 // above every other binding this shader declares (currently 1..12) so it can
 // never collide; gi.cpp's uniform-set construction must use the same binding
 // number. Call sdf_cascades_sample(idx, samp, uv, 0.0) instead of

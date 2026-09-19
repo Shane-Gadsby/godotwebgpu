@@ -50,12 +50,15 @@ BokehDOF::BokehDOF(bool p_prefer_raster_effects) {
 	bokeh_modes.push_back("\n#define MODE_BOKEH_HEXAGONAL\n");
 	bokeh_modes.push_back("\n#define MODE_BOKEH_CIRCULAR\n#define OUTPUT_WEIGHT\n");
 	bokeh_modes.push_back("\n#define MODE_COMPOSITE_BOKEH\n");
+	// See BOKEH_GEN_BLUR_SIZE_RESOLVED_DEPTH's doc comment (bokeh_dof.h) for why this
+	// needs to be a real second variant rather than a parameter.
+	bokeh_modes.push_back("\n#define MODE_GEN_BLUR_SIZE\n#define DEPTH_IS_STORAGE_FORMAT\n");
 	if (prefer_raster_effects) {
 		bokeh.raster_shader.initialize(bokeh_modes);
 
 		bokeh.shader_version = bokeh.raster_shader.version_create();
 
-		const int att_count[BOKEH_MAX] = { 1, 2, 1, 2, 1, 2, 1 };
+		const int att_count[BOKEH_MAX] = { 1, 2, 1, 2, 1, 2, 1, 1 };
 		for (int i = 0; i < BOKEH_MAX; i++) {
 			RD::PipelineColorBlendState blend_state = (i == BOKEH_COMPOSITE) ? RD::PipelineColorBlendState::create_blend(att_count[i]) : RD::PipelineColorBlendState::create_disabled(att_count[i]);
 			bokeh.raster_pipelines[i].setup(bokeh.raster_shader.version_get_shader(bokeh.shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), blend_state, 0);
@@ -90,7 +93,7 @@ BokehDOF::~BokehDOF() {
 	}
 }
 
-void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal) {
+void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth) {
 	ERR_FAIL_COND_MSG(prefer_raster_effects, "Can't use compute version of bokeh depth of field with the mobile renderer.");
 
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
@@ -157,10 +160,11 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	// The alpha channel of the source color texture is filled with the expected circle size
 	// If used for DOF far, the size is positive, if used for near, its negative.
 
-	RID shader = bokeh.compute_shader.version_get_shader(bokeh.shader_version, BOKEH_GEN_BLUR_SIZE);
+	BokehMode blur_size_mode = p_msaa_resolved_depth ? BOKEH_GEN_BLUR_SIZE_RESOLVED_DEPTH : BOKEH_GEN_BLUR_SIZE;
+	RID shader = bokeh.compute_shader.version_get_shader(bokeh.shader_version, blur_size_mode);
 	ERR_FAIL_COND(shader.is_null());
 
-	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, bokeh.compute_pipelines[BOKEH_GEN_BLUR_SIZE].get_rid());
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, bokeh.compute_pipelines[blur_size_mode].get_rid());
 
 	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 0, u_base_image), 0);
 	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 1, u_depth_texture), 1);

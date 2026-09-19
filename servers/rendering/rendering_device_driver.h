@@ -1070,6 +1070,29 @@ public:
 		// pthreads to dispatch to) is this fork's only tested configuration — see
 		// webgpu_notes/TASKS.md Task 12.
 		API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION,
+		// The largest real hardware sample count this backend's texture/pipeline
+		// creation will actually accept for a multisampled resource -- NOT a texture
+		// format capability query (that's already handled elsewhere), but a hard API
+		// constraint on the set of legal sampleCount values themselves. Vulkan/Metal/
+		// D3D12 accept any power-of-two sample count up to the real hardware limit
+		// (reported via existing format-capability queries), so the base default here
+		// is 64 (TEXTURE_SAMPLES_64, i.e. "no additional API-level cap"). WebGPU's
+		// spec (and Dawn) hard-rejects any texture/pipeline sampleCount other than 1
+		// or 4 -- no 2x/8x/16x/32x/64x at all, regardless of what the GPU itself could
+		// do -- so RenderingDeviceDriverWebGPU::texture_create() and
+		// render_pipeline_create() already silently clamp to 4 (see
+		// _clamp_sample_count(), Task 24 round 1). That clamp is invisible to core
+		// rendering code, which computes an UNCLAMPED "real" sample count from the
+		// TEXTURE_SAMPLES_* enum for other purposes (e.g. how many samples to
+		// texelFetch/average over when manually resolving MSAA in a compute shader,
+		// Resolve::resolve_depth()/resolve_gi()) -- a mismatch between the shader's
+		// loop bound and the actual bound texture's real sample count means samples
+		// 4..7 read undefined/out-of-range data for an 8x-requested-but-4x-clamped
+		// texture, corrupting the resolve output (and everything downstream of it,
+		// e.g. DOF) despite zero validation errors, since texelFetch's
+		// out-of-range-sample-index behavior is defined-but-meaningless, not a hard
+		// error. See webgpu_notes/TASKS.md Task 24 round 5.
+		API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES,
 	};
 
 	enum ShaderChangeInvalidation {

@@ -10,6 +10,22 @@ layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) i
 
 #ifdef MODE_GEN_BLUR_SIZE
 layout(rgba16f, set = 0, binding = 0) uniform restrict image2D color_image;
+// DEPTH_IS_STORAGE_FORMAT (BokehDOF::BOKEH_GEN_BLUR_SIZE_RESOLVED_DEPTH, bokeh_dof.h/.cpp):
+// renames the depth-reading sampler so this driver's depth-texture reclassification
+// heuristic (Task 7.13, keyed off "depth" appearing in the WGSL variable name) leaves it
+// as a plain texture_2d<f32> instead of promoting it to texture_depth_2d. Used when the
+// real bound resource is RenderSceneBuffersRD::get_depth_texture()'s MSAA-resolve-target
+// form -- a plain R32Float storage texture holding real depth VALUES (written by
+// Resolve::resolve_depth()/resolve_gi()), not a native hardware depth FORMAT -- which a
+// Depth-sampleType binding cannot accept on WebGPU. Renaming (rather than passing a
+// runtime flag) is required because this genuinely needs different WGSL, not just a
+// different bound resource: the two cases share the exact same GLSL access pattern
+// (texelFetch(source_depth, ...).r), so nothing but the variable's name can tell this
+// pass which WGSL type is actually correct for a given compiled variant. See
+// webgpu_notes/TASKS.md Task 24 round 4.
+#ifdef DEPTH_IS_STORAGE_FORMAT
+#define source_depth resolved_z_source
+#endif
 layout(set = 1, binding = 0) uniform sampler2D source_depth;
 #endif
 

@@ -69,6 +69,12 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 			// other backend, which should not have to override api_trait_get() just
 			// to opt out of these.
 			return 0;
+		case API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES:
+			// 64 = TEXTURE_SAMPLES_64, i.e. "no additional API-level cap beyond
+			// whatever the real hardware/format-capability queries already limit" --
+			// the correct default for Vulkan/Metal/D3D12, which don't need to
+			// override this.
+			return 64;
 		default:
 			ERR_FAIL_V(0);
 	}

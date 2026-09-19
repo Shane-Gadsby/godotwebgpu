@@ -156,6 +156,17 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// (e.g. ResolveRasterShaderRD binds a depth MSAA texture into a float MSAA slot).
 	WGPUTexture fallback_ms_texture = nullptr;
 	WGPUTextureView fallback_ms_texture_view = nullptr;
+	// Small real depth-format texture used when a BGL entry expects Depth sample
+	// type (texture_depth_2d) but the actual bound texture is a plain float format
+	// -- e.g. Forward+'s MSAA depth-resolve target, which RenderSceneBuffersRD
+	// deliberately allocates as R32Float (a storage-image-writable format) rather
+	// than a native depth format. Same GLSL/WGSL declaration is used whether or not
+	// MSAA is active, so this compile-time-vs-runtime-format ambiguity can't be
+	// resolved in the shader text; substituting this fallback avoids a hard
+	// GPUValidationError (and the dropped command buffer that comes with it) at the
+	// cost of that one binding reading zeros instead of real depth for this frame.
+	WGPUTexture fallback_depth_texture = nullptr;
+	WGPUTextureView fallback_depth_texture_view = nullptr;
 
 	// --- Aliasing Stub Buffer ---
 	// Substituted for the second writable storage buffer binding when two
