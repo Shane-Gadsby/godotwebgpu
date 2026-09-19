@@ -149,12 +149,18 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
 
 	// Debug aid: WEBGPU_BAKE_DEBUG_DUMP=<dir> copies every SPIR-V that fails
 	// to bake into that directory (instead of the usual delete-after-use)
-	// for offline repro with tint_convert_cli <file.spv> directly.
+	// for offline repro with tint_convert_cli <file.spv> directly. Add
+	// WEBGPU_BAKE_DEBUG_DUMP_ALL=1 to dump *every* shader regardless of
+	// success -- needed to catch a bug that doesn't fail to bake at all
+	// (produces valid-but-wrong WGSL, e.g. Task 23's dead-resource
+	// regression), where the failure only ever shows up later, at real
+	// CreatePipelineLayout/CreateShaderModule time.
 	if (const char *dump_dir = getenv("WEBGPU_BAKE_DEBUG_DUMP")) {
 		bool this_failed = err != OK || exit_code != 0;
+		bool dump_all = getenv("WEBGPU_BAKE_DEBUG_DUMP_ALL") != nullptr;
 		Variant parsed_check = this_failed ? Variant() : JSON::parse_string(output);
 		Dictionary check_dict = parsed_check;
-		if (this_failed || (!check_dict.is_empty() && Variant(check_dict[temp_path]).get_type() != Variant::STRING)) {
+		if (dump_all || this_failed || (!check_dict.is_empty() && Variant(check_dict[temp_path]).get_type() != Variant::STRING)) {
 			DirAccess::make_dir_recursive_absolute(dump_dir);
 			String dump_path = String(dump_dir).path_join(temp_path.get_file());
 			Ref<FileAccess> src = FileAccess::open(temp_path, FileAccess::READ);

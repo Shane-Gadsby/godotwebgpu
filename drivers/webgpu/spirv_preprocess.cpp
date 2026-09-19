@@ -71,7 +71,13 @@ static constexpr uint16_t OP_FUNCTION_CALL = 57;
 static constexpr uint16_t OP_VARIABLE = 59;
 static constexpr uint16_t OP_LOAD = 61;
 static constexpr uint16_t OP_DECORATE = 71;
+static constexpr uint16_t OP_TYPE_STRUCT = 30;
+static constexpr uint16_t OP_COMPOSITE_CONSTRUCT = 80;
+static constexpr uint16_t OP_COMPOSITE_EXTRACT = 81;
 static constexpr uint16_t OP_COPY_OBJECT = 83;
+static constexpr uint16_t OP_SELECT = 169;
+static constexpr uint16_t OP_PHI = 245;
+static constexpr uint16_t OP_UNDEF = 1;
 static constexpr uint16_t OP_SAMPLED_IMAGE = 86;
 static constexpr uint16_t OP_IMAGE = 100;
 static constexpr uint16_t OP_TYPE_VECTOR = 23;
@@ -79,6 +85,37 @@ static constexpr uint16_t OP_STORE = 62;
 static constexpr uint16_t OP_ACCESS_CHAIN = 65;
 static constexpr uint16_t OP_MEMBER_DECORATE = 72;
 static constexpr uint16_t OP_FNEGATE = 127;
+static constexpr uint16_t OP_LOGICAL_EQUAL = 164;
+static constexpr uint16_t OP_LOGICAL_NOT_EQUAL = 165;
+static constexpr uint16_t OP_LOGICAL_OR = 166;
+static constexpr uint16_t OP_LOGICAL_AND = 167;
+static constexpr uint16_t OP_LOGICAL_NOT = 168;
+static constexpr uint16_t OP_IEQUAL = 170;
+static constexpr uint16_t OP_INOT_EQUAL = 171;
+static constexpr uint16_t OP_UGREATER_THAN = 172;
+static constexpr uint16_t OP_SGREATER_THAN = 173;
+static constexpr uint16_t OP_UGREATER_THAN_EQUAL = 174;
+static constexpr uint16_t OP_SGREATER_THAN_EQUAL = 175;
+static constexpr uint16_t OP_ULESS_THAN = 176;
+static constexpr uint16_t OP_SLESS_THAN = 177;
+static constexpr uint16_t OP_ULESS_THAN_EQUAL = 178;
+static constexpr uint16_t OP_SLESS_THAN_EQUAL = 179;
+static constexpr uint16_t OP_FORD_EQUAL = 180;
+static constexpr uint16_t OP_FUNORD_EQUAL = 181;
+static constexpr uint16_t OP_FORD_NOT_EQUAL = 182;
+static constexpr uint16_t OP_FUNORD_NOT_EQUAL = 183;
+static constexpr uint16_t OP_FORD_LESS_THAN = 184;
+static constexpr uint16_t OP_FUNORD_LESS_THAN = 185;
+static constexpr uint16_t OP_FORD_GREATER_THAN = 186;
+static constexpr uint16_t OP_FUNORD_GREATER_THAN = 187;
+static constexpr uint16_t OP_FORD_LESS_THAN_EQUAL = 188;
+static constexpr uint16_t OP_FUNORD_LESS_THAN_EQUAL = 189;
+static constexpr uint16_t OP_FORD_GREATER_THAN_EQUAL = 190;
+static constexpr uint16_t OP_FUNORD_GREATER_THAN_EQUAL = 191;
+static constexpr uint16_t OP_ANY = 154;
+static constexpr uint16_t OP_ALL = 155;
+static constexpr uint16_t OP_ISNAN = 156;
+static constexpr uint16_t OP_ISINF = 157;
 static constexpr uint16_t OP_KILL = 252;
 static constexpr uint16_t OP_RETURN = 253;
 static constexpr uint16_t OP_RETURN_VALUE = 254;
@@ -97,6 +134,7 @@ static constexpr uint16_t OP_DECORATION_GROUP = 73;
 
 // SPIR-V storage class values.
 static constexpr uint32_t SC_UNIFORM_CONSTANT = 0;
+static constexpr uint32_t SC_INPUT = 1;
 static constexpr uint32_t SC_UNIFORM = 2;
 static constexpr uint32_t SC_OUTPUT = 3;
 static constexpr uint32_t SC_STORAGE_BUFFER = 12;
@@ -599,6 +637,114 @@ Vector<uint8_t> convert_push_constants_to_uniforms(const Vector<uint8_t> &p_byte
 
 // ---- rewrite_copy_logical ----
 
+// SPIR-V 1.4's OpCopyLogical only requires Result Type and the Operand's type
+// to be *logically* compatible (same structure, member-for-member), not
+// identical -- exactly what glslang emits when copying a UBO interface-block
+// member (which Vulkan requires to carry its own distinctly-declared,
+// Offset/MatrixStride-decorated struct type) into a plain local variable of
+// the "bare" struct type used everywhere else in the shader. Tint's SPIR-V
+// reader has no OpCopyLogical support at all (only its own IR writer ever
+// emits it), so every occurrence must be eliminated before Tint sees it.
+//
+// The naive fix -- swap the opcode to OpCopyObject, which requires Result
+// Type and Operand type to be the *same* id -- only works when they already
+// happen to match, which OpCopyLogical was never restricted to; when they
+// differ (the entire reason CopyLogical exists instead of CopyObject), it
+// produces exactly the SPIR-V validation failure this pass exists to
+// prevent ("Expected Result Type and Operand type to be the same"), just
+// moved one opcode later. See webgpu_notes/TASKS.md Task 9.2's note on
+// scene_forward_clustered.glsl -- this is that bug, now actually fixed.
+//
+// The real fix: when the two types differ, decompose the copy into
+// OpCompositeExtract (member-by-member, typed by the *operand's* type) +
+// OpCompositeConstruct (rebuilt typed by the *result's* type), recursing
+// into any member that is itself a mismatched aggregate. This is legal
+// SPIR-V at any version and is what OpCopyLogical was always shorthand for.
+
+struct CopyLogicalTypeInfo {
+	enum Kind { KIND_OTHER,
+		KIND_STRUCT,
+		KIND_ARRAY };
+	Kind kind = KIND_OTHER;
+	Vector<uint32_t> member_types; // KIND_STRUCT.
+	uint32_t elem_type = 0; // KIND_ARRAY.
+	uint32_t length = 0; // KIND_ARRAY; 0 means "unresolved", never decomposed.
+};
+
+// Appends the instructions needed to produce a value of type p_dst_type that
+// is a logical copy of p_src_id (of type p_src_type) to r_out, allocating
+// fresh ids from r_next_id. Returns the id holding the result, or 0 if this
+// pair of types can't be decomposed (caller must fall back). When
+// p_forced_result_id is nonzero, the final value is emitted with that exact
+// id, so callers referencing the original OpCopyLogical's result id keep
+// working unmodified.
+static uint32_t decompose_logical_copy(Vector<uint8_t> &r_out, uint32_t p_src_id, uint32_t p_src_type,
+		uint32_t p_dst_type, const HashMap<uint32_t, CopyLogicalTypeInfo> &p_types, uint32_t &r_next_id,
+		int p_depth, uint32_t p_forced_result_id = 0) {
+	if (p_src_type == p_dst_type) {
+		if (p_forced_result_id == 0 || p_forced_result_id == p_src_id) {
+			return p_src_id;
+		}
+		push_word(r_out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+		push_word(r_out, p_dst_type);
+		push_word(r_out, p_forced_result_id);
+		push_word(r_out, p_src_id);
+		return p_forced_result_id;
+	}
+	if (p_depth <= 0) {
+		return 0;
+	}
+
+	const CopyLogicalTypeInfo *src_info = p_types.getptr(p_src_type);
+	const CopyLogicalTypeInfo *dst_info = p_types.getptr(p_dst_type);
+	if (!src_info || !dst_info || src_info->kind != dst_info->kind) {
+		return 0;
+	}
+
+	uint32_t count;
+	if (src_info->kind == CopyLogicalTypeInfo::KIND_STRUCT) {
+		if (src_info->member_types.size() != dst_info->member_types.size()) {
+			return 0;
+		}
+		count = (uint32_t)src_info->member_types.size();
+	} else if (src_info->kind == CopyLogicalTypeInfo::KIND_ARRAY) {
+		if (src_info->length == 0 || src_info->length != dst_info->length) {
+			return 0;
+		}
+		count = src_info->length;
+	} else {
+		return 0;
+	}
+
+	Vector<uint32_t> components;
+	for (uint32_t i = 0; i < count; i++) {
+		uint32_t member_src_type = src_info->kind == CopyLogicalTypeInfo::KIND_STRUCT ? src_info->member_types[i] : src_info->elem_type;
+		uint32_t member_dst_type = dst_info->kind == CopyLogicalTypeInfo::KIND_STRUCT ? dst_info->member_types[i] : dst_info->elem_type;
+
+		uint32_t extracted_id = r_next_id++;
+		push_word(r_out, (5u << 16) | (uint32_t)OP_COMPOSITE_EXTRACT);
+		push_word(r_out, member_src_type);
+		push_word(r_out, extracted_id);
+		push_word(r_out, p_src_id);
+		push_word(r_out, i);
+
+		uint32_t component_id = decompose_logical_copy(r_out, extracted_id, member_src_type, member_dst_type, p_types, r_next_id, p_depth - 1);
+		if (component_id == 0) {
+			return 0;
+		}
+		components.push_back(component_id);
+	}
+
+	uint32_t result_id = p_forced_result_id != 0 ? p_forced_result_id : r_next_id++;
+	push_word(r_out, ((3u + count) << 16) | (uint32_t)OP_COMPOSITE_CONSTRUCT);
+	push_word(r_out, p_dst_type);
+	push_word(r_out, result_id);
+	for (uint32_t i = 0; i < count; i++) {
+		push_word(r_out, components[i]);
+	}
+	return result_id;
+}
+
 Vector<uint8_t> rewrite_copy_logical(const Vector<uint8_t> &p_bytes) {
 	const int64_t len = p_bytes.size();
 	const uint32_t total_words = (uint32_t)(len / 4);
@@ -611,6 +757,36 @@ Vector<uint8_t> rewrite_copy_logical(const Vector<uint8_t> &p_bytes) {
 
 	// Quick scan: if no CopyLogical present, return as-is.
 	bool found = false;
+	{
+		uint32_t pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_COPY_LOGICAL) {
+				found = true;
+				break;
+			}
+			pos += wc;
+		}
+	}
+
+	if (!found) {
+		return p_bytes;
+	}
+
+	// Build type-structure and id->type maps in one pass, needed to decompose
+	// any CopyLogical whose two types aren't literally identical. Only a
+	// bounded set of opcodes can plausibly produce an aggregate-typed SSA
+	// value that ends up as a CopyLogical operand in glslang output; that set
+	// (not a full SPIR-V grammar table) is all id_to_type needs to cover.
+	HashMap<uint32_t, CopyLogicalTypeInfo> types;
+	HashMap<uint32_t, uint32_t> id_to_type;
+	HashMap<uint32_t, uint32_t> const_values;
+
 	uint32_t pos = 5;
 	while (pos < total_words) {
 		uint32_t w0 = read_word(data, len, pos);
@@ -619,36 +795,97 @@ Vector<uint8_t> rewrite_copy_logical(const Vector<uint8_t> &p_bytes) {
 		if (wc == 0 || pos + wc > total_words) {
 			break;
 		}
-		if (op == OP_COPY_LOGICAL) {
-			found = true;
-			break;
+
+		if (op == OP_TYPE_STRUCT && wc >= 2) {
+			CopyLogicalTypeInfo info;
+			info.kind = CopyLogicalTypeInfo::KIND_STRUCT;
+			for (uint32_t i = 2; i < wc; i++) {
+				info.member_types.push_back(read_word(data, len, pos + i));
+			}
+			types[read_word(data, len, pos + 1)] = info;
+		} else if (op == OP_TYPE_ARRAY && wc == 4) {
+			// The length constant, per the SPIR-V "ids must be defined before
+			// use" rule, was already scanned above -- const_values is complete
+			// for this lookup regardless of where OpTypeArray falls relative
+			// to other types.
+			CopyLogicalTypeInfo info;
+			info.kind = CopyLogicalTypeInfo::KIND_ARRAY;
+			info.elem_type = read_word(data, len, pos + 2);
+			uint32_t length_const_id = read_word(data, len, pos + 3);
+			if (const uint32_t *length = const_values.getptr(length_const_id)) {
+				info.length = *length;
+			}
+			types[read_word(data, len, pos + 1)] = info;
+		} else if (op == OP_CONSTANT && wc == 4) {
+			const_values[read_word(data, len, pos + 2)] = read_word(data, len, pos + 3);
+		} else if (wc >= 3 &&
+				(op == OP_LOAD || op == OP_FUNCTION_CALL || op == OP_FUNCTION_PARAMETER ||
+						op == OP_COPY_OBJECT || op == OP_COPY_LOGICAL || op == OP_COMPOSITE_EXTRACT ||
+						op == OP_COMPOSITE_CONSTRUCT || op == OP_PHI || op == OP_SELECT || op == OP_UNDEF)) {
+			// All of these place (Result Type, Result Id) in that order as
+			// their first two operand words.
+			id_to_type[read_word(data, len, pos + 2)] = read_word(data, len, pos + 1);
 		}
+
 		pos += wc;
 	}
 
-	if (!found) {
-		return p_bytes;
-	}
+	uint32_t next_id = read_word(data, len, 3); // Header word 3 == Bound.
+	const uint32_t original_bound = next_id;
 
-	// Rewrite: replace OpCopyLogical with OpCopyObject (same word count and layout).
-	Vector<uint8_t> out = p_bytes;
-	uint8_t *out_data = out.ptrw();
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 20); // 5-word header; Bound patched below if changed.
 
 	pos = 5;
 	while (pos < total_words) {
-		uint32_t w0 = read_word(out_data, len, pos);
+		uint32_t w0 = read_word(data, len, pos);
 		uint32_t wc = (w0 >> 16);
 		uint16_t op = (uint16_t)(w0 & 0xFFFF);
 		if (wc == 0 || pos + wc > total_words) {
 			break;
 		}
-		if (op == OP_COPY_LOGICAL) {
-			// Replace opcode in-place: keep word count, change opcode to CopyObject.
-			uint32_t new_w0 = (wc << 16) | (uint32_t)OP_COPY_OBJECT;
-			uint32_t off = pos * 4;
-			memcpy(out_data + off, &new_w0, 4);
+
+		if (op == OP_COPY_LOGICAL && wc == 4) {
+			uint32_t dst_type = read_word(data, len, pos + 1);
+			uint32_t orig_result = read_word(data, len, pos + 2);
+			uint32_t src_id = read_word(data, len, pos + 3);
+			const uint32_t *src_type = id_to_type.getptr(src_id);
+
+			bool decomposed = false;
+			if (src_type) {
+				Vector<uint8_t> attempt;
+				uint32_t candidate_next_id = next_id;
+				uint32_t result = decompose_logical_copy(attempt, src_id, *src_type, dst_type, types, candidate_next_id, /*p_depth=*/16, orig_result);
+				if (result == orig_result) {
+					for (int i = 0; i < attempt.size(); i++) {
+						out.push_back(attempt[i]);
+					}
+					next_id = candidate_next_id;
+					decomposed = true;
+				}
+			}
+
+			if (!decomposed) {
+				// Fall back to the old opcode-swap behavior: no worse than
+				// before this fix for the (hopefully now rare) cases this
+				// decomposer can't handle.
+				push_word(out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+				push_word(out, dst_type);
+				push_word(out, orig_result);
+				push_word(out, src_id);
+			}
+
+			pos += wc;
+			continue;
 		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
 		pos += wc;
+	}
+
+	if (next_id != original_bound) {
+		uint8_t *out_data = out.ptrw();
+		memcpy(out_data + 3 * 4, &next_id, 4);
 	}
 
 	return out;
@@ -3678,6 +3915,155 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
+// Rewrites every OpEntryPoint's interface list in-place (same word count
+// class of edit as strip/restore below), keeping only ids whose storage
+// class is in p_keep. Shared by both halves of eliminate_dead_resources()'s
+// interface-list save/restore around AggressiveDCE.
+static std::vector<uint32_t> _filter_entry_point_interfaces(const std::vector<uint32_t> &p_words,
+		const HashMap<uint32_t, uint32_t> &p_storage_class,
+		const HashSet<uint32_t> &p_keep_storage_classes) {
+	std::vector<uint32_t> out;
+	out.reserve(p_words.size());
+	out.insert(out.end(), p_words.begin(), p_words.begin() + 5); // Header.
+
+	const uint8_t *data = reinterpret_cast<const uint8_t *>(p_words.data());
+	const int64_t len = (int64_t)(p_words.size() * 4);
+	uint32_t pos = 5;
+	while (pos < p_words.size()) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > p_words.size()) {
+			break;
+		}
+		if (op == OP_ENTRY_POINT) {
+			uint32_t exec_model = read_word(data, len, pos + 1);
+			uint32_t entry_id = read_word(data, len, pos + 2);
+			uint32_t name_end = pos + 3;
+			while (name_end < pos + wc) {
+				uint32_t w = read_word(data, len, name_end);
+				name_end++;
+				if ((w & 0xFF) == 0 || ((w >> 8) & 0xFF) == 0 ||
+						((w >> 16) & 0xFF) == 0 || ((w >> 24) & 0xFF) == 0) {
+					break;
+				}
+			}
+			Vector<uint32_t> kept;
+			for (uint32_t i = name_end; i < pos + wc; i++) {
+				uint32_t var_id = read_word(data, len, i);
+				const uint32_t *sc = p_storage_class.getptr(var_id);
+				if (sc && p_keep_storage_classes.has(*sc)) {
+					kept.push_back(var_id);
+				}
+			}
+			out.push_back(((name_end - pos) + (uint32_t)kept.size()) << 16 | (uint32_t)OP_ENTRY_POINT);
+			out.push_back(exec_model);
+			out.push_back(entry_id);
+			for (uint32_t i = pos + 3; i < name_end; i++) {
+				out.push_back(read_word(data, len, i));
+			}
+			for (int i = 0; i < kept.size(); i++) {
+				out.push_back(kept[i]);
+			}
+			pos += wc;
+			continue;
+		}
+		out.insert(out.end(), p_words.begin() + pos, p_words.begin() + pos + wc);
+		pos += wc;
+	}
+	return out;
+}
+
+// Adds every module-scope resource variable (any storage class besides
+// Input/Output/Function) NOT already in its entry point's interface list.
+// Used after AggressiveDCE to restore SPIR-V 1.4+'s completeness rule for
+// whichever resources genuinely survived (see caller's comment for why).
+static std::vector<uint32_t> _add_surviving_resources_to_interfaces(const std::vector<uint32_t> &p_words) {
+	const uint8_t *data = reinterpret_cast<const uint8_t *>(p_words.data());
+	const int64_t len = (int64_t)(p_words.size() * 4);
+
+	HashMap<uint32_t, uint32_t> storage_class;
+	HashSet<uint32_t> already_interfaced;
+	{
+		uint32_t pos = 5;
+		while (pos < p_words.size()) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > p_words.size()) {
+				break;
+			}
+			if (op == OP_VARIABLE && wc >= 4) {
+				storage_class[read_word(data, len, pos + 2)] = read_word(data, len, pos + 3);
+			} else if (op == OP_ENTRY_POINT) {
+				uint32_t name_end = pos + 3;
+				while (name_end < pos + wc) {
+					uint32_t w = read_word(data, len, name_end);
+					name_end++;
+					if ((w & 0xFF) == 0 || ((w >> 8) & 0xFF) == 0 ||
+							((w >> 16) & 0xFF) == 0 || ((w >> 24) & 0xFF) == 0) {
+						break;
+					}
+				}
+				for (uint32_t i = name_end; i < pos + wc; i++) {
+					already_interfaced.insert(read_word(data, len, i));
+				}
+			}
+			pos += wc;
+		}
+	}
+
+	std::vector<uint32_t> out;
+	out.reserve(p_words.size());
+	out.insert(out.end(), p_words.begin(), p_words.begin() + 5); // Header.
+
+	uint32_t pos = 5;
+	while (pos < p_words.size()) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > p_words.size()) {
+			break;
+		}
+		if (op == OP_ENTRY_POINT) {
+			uint32_t exec_model = read_word(data, len, pos + 1);
+			uint32_t entry_id = read_word(data, len, pos + 2);
+			Vector<uint32_t> extra;
+			for (const KeyValue<uint32_t, uint32_t> &kv : storage_class) {
+				if (already_interfaced.has(kv.key)) {
+					continue;
+				}
+				// Skip Input(1)/Output(3)/Function(7): Input/Output are
+				// already handled by _filter_entry_point_interfaces (they
+				// were never dropped), and Function-storage locals were
+				// never interface material at any SPIR-V version.
+				if (kv.value == SC_INPUT || kv.value == SC_OUTPUT || kv.value == 7) {
+					continue;
+				}
+				extra.push_back(kv.key);
+			}
+			out.push_back(((wc + (uint32_t)extra.size()) << 16) | (uint32_t)OP_ENTRY_POINT);
+			out.push_back(exec_model);
+			out.push_back(entry_id);
+			// pos+3..pos+wc already covers the name string plus every
+			// currently-kept interface id (name_end isn't needed here --
+			// this loop just copies everything after the fixed 3-word
+			// header through to the end of the instruction verbatim).
+			for (uint32_t i = pos + 3; i < pos + wc; i++) {
+				out.push_back(read_word(data, len, i));
+			}
+			for (int i = 0; i < extra.size(); i++) {
+				out.push_back(extra[i]);
+			}
+			pos += wc;
+			continue;
+		}
+		out.insert(out.end(), p_words.begin() + pos, p_words.begin() + pos + wc);
+		pos += wc;
+	}
+	return out;
+}
+
 Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 	const int64_t len = p_bytes.size();
 	if (len < 20 || (len % 4) != 0) {
@@ -3687,6 +4073,62 @@ Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 	const size_t word_count = (size_t)(len / 4);
 	std::vector<uint32_t> words(word_count);
 	memcpy(words.data(), p_bytes.ptr(), (size_t)len);
+
+	// SPIR-V 1.4+'s OpEntryPoint interface list includes every module-scope
+	// resource variable the entry point statically uses, not just Input/
+	// Output as in 1.3 and earlier -- but "statically uses" per the SPIR-V
+	// producer (glslang) isn't the same claim as "genuinely reachable from
+	// this stage's actual code", since Godot's shared GLSL includes declare
+	// every stage's resources unconditionally (see this function's own
+	// eliminate_dead_resources doc comment above). Below,
+	// CreateAggressiveDCEPass's preserve_interface=true exists so this pass
+	// never touches Input/Output (Task 8.7's original intent) -- but at 1.4+
+	// that same flag *also* blanket-protects every resource global glslang
+	// listed, even genuinely-dead ones, defeating the "resource globals are
+	// eligible for removal" half of this pass's whole purpose. Confirmed
+	// live: a real project's SceneForwardClusteredShaderRD vertex stage
+	// declaring 18 samplers with zero textureSample/textureLoad calls
+	// anywhere in the output WGSL -- dead code, kept alive only because it
+	// was interface-listed. See webgpu_notes/TASKS.md Task 23.
+	//
+	// Fix: temporarily strip every non-Input/Output id from the interface
+	// list before running DCE (so preserve_interface=true only protects
+	// what it originally protected), then after DCE, re-add every
+	// module-scope resource variable that survived (by definition, DCE's
+	// own reachability analysis -- now actually allowed to run on them --
+	// found them genuinely used) back into the interface list, restoring
+	// 1.4+ completeness for exactly the resources that are still real.
+	// Only SPIR-V 1.4+ has this problem at all: below that, the interface
+	// list can *only* legally contain Input/Output ids in the first place
+	// (a stricter rule than 1.4+, enforced by the validator -- confirmed by
+	// a real regression: unconditionally applying the strip/restore below
+	// to an already-<1.4 module re-adds a resource id the validator then
+	// rejects with "OpEntryPoint interfaces must be ... Input(1) or
+	// Output(3)"), so preserve_interface=true's blanket protection was
+	// already scoped correctly at those versions with no fix needed.
+	bool version_1_4_plus = read_word(reinterpret_cast<const uint8_t *>(words.data()), len, 1) >= 0x00010400;
+
+	HashMap<uint32_t, uint32_t> pre_storage_class;
+	if (version_1_4_plus) {
+		const uint8_t *data = reinterpret_cast<const uint8_t *>(words.data());
+		uint32_t pos = 5;
+		while (pos < words.size()) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > words.size()) {
+				break;
+			}
+			if (op == OP_VARIABLE && wc >= 4) {
+				pre_storage_class[read_word(data, len, pos + 2)] = read_word(data, len, pos + 3);
+			}
+			pos += wc;
+		}
+		HashSet<uint32_t> io_only;
+		io_only.insert(SC_INPUT);
+		io_only.insert(SC_OUTPUT);
+		words = _filter_entry_point_interfaces(words, pre_storage_class, io_only);
+	}
 
 	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
 	optimizer.SetMessageConsumer([](spv_message_level_t, const char *, const spv_position_t &, const char *) {});
@@ -3700,6 +4142,10 @@ Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 		fprintf(stderr, "WebGPU: eliminate_dead_resources: SPIRV-Tools optimizer pass failed; falling back to "
 						"unmodified SPIR-V. Per-stage bind group visibility may be overly broad.\n");
 		return p_bytes;
+	}
+
+	if (version_1_4_plus) {
+		result = _add_surviving_resources_to_interfaces(result);
 	}
 
 	Vector<uint8_t> out;
