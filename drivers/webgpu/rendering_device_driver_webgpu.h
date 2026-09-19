@@ -168,6 +168,35 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUTexture fallback_depth_texture = nullptr;
 	WGPUTextureView fallback_depth_texture_view = nullptr;
 
+	// --- Format-Converting MSAA Resolve (compute fallback) ---
+	// command_resolve_texture() normally uses WebGPU's native render-pass
+	// colorAttachment->resolveTarget mechanism, which requires the MSAA source and
+	// the resolve destination to have the *exact* same GPU format. That's true for
+	// every case except one: Forward+'s velocity buffer, whose MSAA source has no
+	// STORAGE_BIT usage (RenderSceneBuffersRD::get_color_usage_bits()'s p_msaa
+	// branch never requests it, so it stays native RG16Float) while its resolve
+	// target does get STORAGE_BIT (Forward+'s can_be_storage is unconditionally
+	// true) and so gets promoted to RG32Float by _promote_storage_format() --
+	// a real, deliberate format divergence WebGPU's native resolveTarget cannot
+	// bridge at all (no view-based reinterpretation exists between 4-byte and
+	// 8-byte-per-texel formats). When formats mismatch, command_resolve_texture()
+	// falls back to a small hand-written WGSL compute shader (no GLSL/Tint
+	// involved -- this never needs to vary per-project or per-shader, so there's
+	// nothing for that pipeline to buy here) that reads all 4 MSAA samples
+	// (multisampled textures are always clamped to exactly 4 on this driver --
+	// see _clamp_sample_count()) via textureLoad and averages them into the
+	// promoted destination via textureStore. Lazily built and cached per
+	// destination storage format (only r32float/rg32float/rgba32float are
+	// reachable -- the formats _promote_storage_format() ever promotes a
+	// storage-needing float texture to). See webgpu_notes/TASKS.md Task 24 Bug 11.
+	struct ResolveComputePipeline {
+		WGPUBindGroupLayout bind_group_layout = nullptr;
+		WGPUPipelineLayout pipeline_layout = nullptr;
+		WGPUComputePipeline pipeline = nullptr;
+	};
+	HashMap<WGPUTextureFormat, ResolveComputePipeline> resolve_compute_pipelines;
+	bool _resolve_texture_compute(WGCommandBuffer *p_cmd, WGTexture *p_src, WGTexture *p_dst, WGPUTextureView p_src_view, WGPUTextureView p_dst_view);
+
 	// --- Aliasing Stub Buffer ---
 	// Substituted for the second writable storage buffer binding when two
 	// bindings in the same uniform set alias the same WGPUBuffer. WebGPU
