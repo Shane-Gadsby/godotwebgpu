@@ -113,6 +113,14 @@ Multi-frame physical buffers with per-frame rotation:
 1. Fast path (RenderAttachment usage): zero-draw render pass per mip/layer
 2. Fallback (CopyDst only): `wgpuQueueWriteTexture` fill with clear color, handles zero-clear optimization
 
+### 2.5b MSAA Resolve
+
+**Status: Correct (color); depth handled by a separate, already-correct compute-shader path**
+
+`command_resolve_texture` uses WebGPU's native resolve mechanism: a throwaway render pass with the MSAA source as the color attachment (`loadOp: Load`, `storeOp: Discard`) and the destination as `resolveTarget` — WebGPU performs the actual resolve automatically on `wgpuRenderPassEncoderEnd()`, no draws needed. Every real call site in this codebase (Forward+'s color/specular/velocity-buffer MSAA resolves) is a color format, so this alone is a complete fix, not a partial one. Depth resolve doesn't go through this function at all: WebGPU render passes have no `depthResolveTarget` (only color attachments get one), so Forward+ already resolves depth via a dedicated compute shader (`Resolve::resolve_depth()`, core/shared code, unrelated to this driver function).
+
+A related gap: Forward+'s MSAA depth-resolve target is deliberately allocated as a plain `R32Float` texture rather than a native depth format (`RenderSceneBuffersRD::get_depth_format()`, upstream/cross-backend design — the compute-shader resolve needs a storage-writable format), but some depth-reading shaders (e.g. `BokehDofShaderRD`) get compiled assuming a real depth-format texture either way, since the same GLSL/WGSL is used whether MSAA is on or off. When a bind group layout expects `Depth` sample type but the real bound texture isn't a native depth format, the driver substitutes a small fallback depth texture (`fallback_depth_texture`, mirroring the existing float/cube/multisampled fallback textures) rather than let WebGPU reject the bind group outright — that one binding reads zeros for affected frames instead of dropping the whole command buffer. See `webgpu_notes/TASKS.md` Task 24.
+
 ### 2.6 Push Constant Ring Buffer
 
 **Status: Correct**
@@ -137,7 +145,6 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 
 | Function | Status | Impact |
 |----------|--------|--------|
-| `command_resolve_texture` | WARN_PRINT, no-op | MSAA resolve via render pass only |
 | `command_render_clear_attachments` | WARN_PRINT, no-op | Mid-pass clears silently ignored |
 | `draw_indexed_indirect_count` | Uses max_count | Wastes GPU cycles, no correctness issue |
 
@@ -279,8 +286,8 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - `binding_array` flattened to single element (no multi-lightmap on web)
 - Omni shadows forced to dual-paraboloid (quality trade-off)
 - Subpass-based post-processing disabled (WebGPU has no input attachments)
-- No MSAA depth resolve (uses fallback texture)
 - No hardware multiview / VRS / subgroups
+- `use_taa=true` combined with MSAA 3D fails (`GPUValidationError` on the velocity buffer's MSAA resolve — a genuine format gap between the MSAA source and its storage-promoted resolve target that WebGPU's native resolve mechanism can't bridge). MSAA 3D alone and TAA alone both work correctly; only the combination is affected. See `webgpu_notes/TASKS.md` Task 24 Bug 11.
 
 ### Platform Limitations
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
