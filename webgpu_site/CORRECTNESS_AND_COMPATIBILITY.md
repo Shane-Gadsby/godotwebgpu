@@ -286,7 +286,11 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages
-- Single-threaded rendering (WebGPU main-thread only)
+- `threads=yes` is supported, but only with `dlink_enabled=no`. Combining
+  threads with GDExtension support (`threads=yes dlink_enabled=yes`) is not
+  supported — it hits an initialization-order race inside Emscripten's own
+  dylink+pthread runtime glue, not this fork's code (see `drivers/webgpu/README.md`
+  and `webgpu_notes/TASKS.md` Task 12)
 
 ### Format Limitations
 - Float32 textures downgraded to float16 on Adreno (precision loss)

@@ -198,6 +198,17 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// storage texel formats). With texture-formats-tier1, these formats are valid
 	// storage formats natively and promotion is skipped.
 	WGPUTextureFormat _promote_storage_format(WGPUTextureFormat p_format) const;
+	// WebGPU only allows a multisampled texture's sampleCount to be 1 or 4 --
+	// unlike Vulkan/Metal/D3D12, there is no 2x/8x/16x/32x/64x support at all.
+	// Godot's TEXTURE_SAMPLES_* enum (and the MSAA 2D/3D project settings that
+	// feed it) offers those values regardless of backend, so this clamps any
+	// requested count above 1 up to the nearest WebGPU-legal value (4), rather
+	// than passing an unsupported sampleCount straight to wgpuCreateTexture()/
+	// the pipeline's WGPUMultisampleState (both hard-reject anything else).
+	// texture_create() and render_pipeline_create() must agree on this exact
+	// mapping, or a multisampled render pass's attachment and its pipeline's
+	// declared sample count mismatch, which WebGPU also rejects outright.
+	static uint32_t _clamp_sample_count(TextureSamples p_samples);
 	WGPUBufferUsage _buffer_usage_to_wgpu(BitField<BufferUsageBits> p_usage) const;
 	WGPUTextureUsage _texture_usage_to_wgpu(BitField<TextureUsageBits> p_usage) const;
 	WGPUTextureDimension _texture_type_to_dimension(TextureType p_type) const;

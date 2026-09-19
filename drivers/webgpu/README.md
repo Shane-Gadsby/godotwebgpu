@@ -115,7 +115,11 @@ prevents redundant re-creation.
   with threads) is a known-unsupported configuration: it hits a genuine
   initialization-order race inside Emscripten's own dylink+pthread runtime
   glue (`libdylink.js`), not this fork's code, and is not planned to be
-  patched around here — see Task 12 for the full root-cause trail.
+  patched around here — see Task 12 for the full root-cause trail. Reconfirmed
+  2026-09-19 against a real-project export: `threads=no`/`dlink_enabled=no`,
+  `threads=no`/`dlink_enabled=yes`, and `threads=yes`/`dlink_enabled=no` all
+  work; `threads=yes`/`dlink_enabled=yes` fails with the same signature Task
+  12 already root-caused — no regression, no new information.
 
 ## Build Instructions
 

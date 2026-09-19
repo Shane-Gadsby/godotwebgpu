@@ -60,6 +60,14 @@ layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
 layout(r32f, set = 3, binding = 0) uniform restrict writeonly image2D dest_buffer;
 #elif defined(DST_IMAGE_8BIT)
 layout(rgba8, set = 3, binding = 0) uniform restrict writeonly image2D dest_buffer;
+#elif defined(DST_IMAGE_RG16F)
+// 2-component destinations (e.g. TAA's RG16F velocity/motion-vector buffers) need their
+// own declared format: unlike Vulkan/Metal, WebGPU's storage texture bindings require an
+// exact format match between the shader's declared format and the bound texture's real
+// format (no format-compatibility-class laxity), so falling through to the rgba16f case
+// below for a 2-channel destination fails GPUValidationError on WebGPU specifically. See
+// webgpu_notes/TASKS.md's Anti-aliasing investigation (2026-09-19).
+layout(rg16f, set = 3, binding = 0) uniform restrict writeonly image2D dest_buffer;
 #else
 layout(rgba16f, set = 3, binding = 0) uniform restrict writeonly image2D dest_buffer;
 #endif

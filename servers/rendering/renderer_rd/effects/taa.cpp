@@ -123,7 +123,10 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 		}
 
 		copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
-		copy_effects->copy_to_rect(velocity_buffer, taa_prev_velocity, Rect2(0, 0, target_size.x, target_size.y));
+		// RG16F destination: velocity/motion-vector buffers are 2-component, unlike every
+		// other copy_to_rect() caller's 8-bit/16-bit-float RGBA destinations. See copy.glsl's
+		// DST_IMAGE_RG16F for why this needs its own dedicated copy mode.
+		copy_effects->copy_to_rect(velocity_buffer, taa_prev_velocity, Rect2(0, 0, target_size.x, target_size.y), false, false, false, false, false, false, true);
 	}
 
 	RD::get_singleton()->draw_command_end_label();

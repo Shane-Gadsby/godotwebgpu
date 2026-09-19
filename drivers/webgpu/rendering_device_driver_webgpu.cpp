@@ -2010,7 +2010,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 	tex->depth = p_format.depth;
 	tex->mipmaps = p_format.mipmaps;
 	tex->layers = p_format.array_layers;
-	tex->sample_count = 1 << p_format.samples;
+	tex->sample_count = _clamp_sample_count(p_format.samples);
 	tex->usage = _texture_usage_to_wgpu(p_format.usage_bits);
 
 	// WebGPU does not support R8/RG8/R16/RG16 as storage texel formats.
@@ -2928,6 +2928,15 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_data_format_to_wgpu(DataFormat p
 // gets bound to a pipeline that was built for R8Unorm and every submit fails with a
 // GPUValidationError. Canvas SDF (R8_UNORM + STORAGE_BIT + COLOR_ATTACHMENT_BIT) is
 // the motivating case.
+uint32_t RenderingDeviceDriverWebGPU::_clamp_sample_count(TextureSamples p_samples) {
+	// TextureSamples enum: 0=1x, 1=2x, 2=4x, 3=8x, 4=16x, 5=32x, 6=64x → 1 << sample_count.
+	// WebGPU (Dawn and the spec) only ever accepts sampleCount 1 or 4 -- any other
+	// requested count is clamped up to 4 so MSAA stays "on" rather than silently
+	// dropping to none for TEXTURE_SAMPLES_2, while still being cheaper than the
+	// unsupported 8x/16x/32x/64x options for the rest.
+	return p_samples == TEXTURE_SAMPLES_1 ? 1u : 4u;
+}
+
 WGPUTextureFormat RenderingDeviceDriverWebGPU::_promote_storage_format(WGPUTextureFormat p_format) const {
 	switch (p_format) {
 		// 8-bit formats: with texture-formats-tier1, these are valid storage texel
@@ -9922,8 +9931,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 
 	// --- Multisample state ---
 	WGPUMultisampleState multisample = {};
-	// TextureSamples enum: 0=1x, 1=2x, 2=4x, 3=8x ... → 1 << sample_count
-	multisample.count = (uint32_t)(1u << (uint32_t)p_multisample_state.sample_count);
+	multisample.count = _clamp_sample_count(p_multisample_state.sample_count);
 	multisample.mask = 0xFFFFFFFFu;
 	multisample.alphaToCoverageEnabled = p_multisample_state.enable_alpha_to_coverage;
 
