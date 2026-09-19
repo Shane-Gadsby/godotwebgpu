@@ -1,0 +1,35 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
+index c1c1e6adcb..1c71fe3396 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/atomics.cc
+@@ -32,6 +32,7 @@
+ #include "src/tint/lang/core/ir/builder.h"
+ #include "src/tint/lang/core/ir/clone_context.h"
+ #include "src/tint/lang/core/ir/module.h"
++#include "src/tint/lang/core/ir/phony.h"
+ #include "src/tint/lang/core/ir/validator.h"
+ #include "src/tint/lang/core/type/builtin_structs.h"
+ #include "src/tint/lang/spirv/ir/builtin_call.h"
+@@ -410,6 +411,22 @@ struct State {
+                     TINT_ASSERT(core::IsAtomic(bc->Func()));
+                     TINT_ASSERT(bc->Args()[0]->Type()->UnwrapPtr()->Is<core::type::Atomic>());
+                 },
++                // GODOT WEBGPU PATCH: same shape as the pre-existing Phony case in
++                // ../lower/texture.cc (see that patch's comment / thirdparty/README.md).
++                // SPIR-V 1.4's OpEntryPoint interface list includes every module-scope
++                // resource variable an entry point touches, not just Input/Output --
++                // parser.cc's AddRefToOutputsIfNeeded() reacts to this by inserting a
++                // `phony = val;` instruction referencing each one, purely so the reader
++                // can't lose track of a declared-but-unread binding. For a storage
++                // buffer containing atomics (e.g. Godot's particles.glsl compute
++                // shader), this phony reference is itself a "usage" of the
++                // atomic-converted value, which this switch didn't have a case for --
++                // TINT_ICE_ON_NO_MATCH aborted with "Switch() matched no cases. Type:
++                // tint::core::ir::Phony" on any real shader with an atomic SSBO member,
++                // confirmed live via Godot's WebGPU driver (webgpu_notes/TASKS.md Task 16).
++                // A phony reference to an atomic carries no meaning beyond keeping the
++                // binding alive (same reasoning as the texture.cc case), so just drop it.
++                [&](core::ir::Phony* p) { p->Destroy(); },
+                 TINT_ICE_ON_NO_MATCH);
+         });
+     }

@@ -320,9 +320,13 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
-    env.Append(LINKFLAGS=["-sWASM_BIGINT"])
-    env.Append(CCFLAGS=[f"-sMEMORY64={0 if env['arch'] == 'wasm32' else 1}"])
-    env.Append(LINKFLAGS=[f"-sMEMORY64={0 if env['arch'] == 'wasm32' else 1}"])
+    # WASM_BIGINT is on by default for wasm output (only ever implicitly disabled by
+    # -sWASM=0); setting it explicitly is deprecated as of Emscripten 4.x.
+    # For 64-bit memory, Emscripten now wants -m64 instead of -sMEMORY64; wasm32 (the
+    # default) needs no flag at all since that's already the default codegen target.
+    if env["arch"] == "wasm64":
+        env.Append(CCFLAGS=["-m64"])
+        env.Append(LINKFLAGS=["-m64"])
 
     # Run the main application in a web worker
     if env["proxy_to_pthread"]:
@@ -336,8 +340,9 @@ def configure(env: "SConsEnvironment"):
     # Reduce code size by generating less support code (e.g. skip NodeJS support).
     env.Append(LINKFLAGS=["-sENVIRONMENT=web,worker"])
 
-    # Wrap the JavaScript support code around a closure named Godot.
-    env.Append(LINKFLAGS=["-sMODULARIZE=1", "-sEXPORT_NAME='Godot'"])
+    # Wrap the JavaScript support code around a closure named Godot. This only applies
+    # to the final JS-generating link, not e.g. the SIDE_MODULE .wasm build (dlink_enabled),
+    # so it's added directly to the JS-producing env in platform/web/SCsub instead of here.
 
     # Force long jump mode to 'wasm'
     env.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])

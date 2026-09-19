@@ -241,12 +241,33 @@ build_arches() {
 	done
 }
 
+step "Building tint_convert_cli (native SPIR-V -> WGSL precompile tool)..."
+# Built explicitly, and before the editor, so it's available to copy into
+# the editor .app bundle right after bundling below. (It would otherwise get
+# built anyway as a side effect of the web/WebGPU template build further
+# down -- wgsl_precompile.py's build_wgsl_precompiled() always invokes this
+# same script -- but that happens too late, and SKIP_WEB would skip it
+# entirely, and this is a fast, incremental script regardless.)
+./drivers/webgpu/tint_cli/build.sh
+
 step "Building editor..."
-build_arches editor
+# webgpu=yes is required (even though this isn't a web build) for the
+# editor's own export-time shader baker to actually bake anything --
+# WEBGPU_SHADER_BAKER_ENABLED is gated on `env["webgpu"] and
+# env.editor_build` (platform/macos/detect.py). Passed here rather than
+# inside build_arches() itself since that function is shared with the
+# template builds below, which don't need or benefit from it.
+WEBGPU_EDITOR_FLAGS="webgpu=yes"
+for arch in x86_64 arm64; do
+	step "Building editor (arch=$arch)..."
+	scons platform=macos target=editor arch="$arch" \
+		vulkan="$VULKAN_ENABLED" angle="$ANGLE_ENABLED" accesskit="$ACCESSKIT_ENABLED" \
+		$WEBGPU_EDITOR_FLAGS -j"$JOBS"
+done
 step "Bundling universal editor .app..."
 scons platform=macos target=editor arch=x86_64 \
 	vulkan="$VULKAN_ENABLED" angle="$ANGLE_ENABLED" accesskit="$ACCESSKIT_ENABLED" \
-	generate_bundle=yes -j"$JOBS"
+	$WEBGPU_EDITOR_FLAGS generate_bundle=yes -j"$JOBS"
 
 dest="$OUT_DIR/editor_macos"
 mkdir -p "$dest"
@@ -255,6 +276,14 @@ app="$(ls -td bin/*.app 2> /dev/null | head -1 || true)"
 rm -rf "$dest/$(basename "$app")"
 cp -R "$app" "$dest/"
 ok "Editor -> $dest/$(basename "$app")"
+
+# The editor's shader baker (wgsl_bake_subprocess.cpp's
+# _find_tint_convert_cli()) looks for tint_convert_cli next to the RUNNING
+# editor executable's own path -- for a macOS .app bundle, that's
+# Contents/MacOS/ (where platform_macos_builders.py's generate_bundle()
+# places the "Godot" binary itself), not the .app bundle's top level.
+cp bin/tint_convert_cli "$dest/$(basename "$app")/Contents/MacOS/"
+ok "tint_convert_cli -> $dest/$(basename "$app")/Contents/MacOS/"
 
 step "Building templates (debug)..."
 build_arches template_debug

@@ -30,7 +30,7 @@
 
 // tint_convert_cli — Standalone SPIR-V → WGSL converter for build-time precompilation.
 //
-// Runs the same 18 preprocessing passes as the Godot WebGPU runtime driver,
+// Runs the same 21 preprocessing passes as the Godot WebGPU runtime driver,
 // then converts to WGSL via Tint. Produces output identical to what the engine
 // generates at runtime, enabling precompilation of ubershader and specialized
 // shader variants at build time.
@@ -83,7 +83,7 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv.resize((int64_t)p_spv_bytes.size());
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
-	// 18 preprocessing passes (same order as rendering_device_driver_webgpu.cpp).
+	// 21 preprocessing passes (same order as rendering_device_driver_webgpu.cpp).
 	spv = spirv_preprocess::inline_opaque_functions(spv);
 	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
 	spv = spirv_preprocess::rewrite_copy_logical(spv);
@@ -95,6 +95,9 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv = spirv_preprocess::negate_position_y(spv);
 	spv = spirv_preprocess::strip_unsupported_decorations(spv);
 	spv = spirv_preprocess::strip_memory_barrier(spv);
+	spv = spirv_preprocess::strip_image_write_operands(spv);
+	spv = spirv_preprocess::strip_image_fetch_read_flag_only_operands(spv);
+	spv = spirv_preprocess::split_initialized_local_arrays(spv);
 	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
 	spv = spirv_preprocess::fold_ballot_bit_count(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
@@ -140,10 +143,43 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 }
 
 // Escape a string for JSON output (handles \, ", newlines, tabs).
+//
+// Also guarantees the result is valid UTF-8 by replacing every byte >= 0x80
+// with '?': a Tint SPIR-V validation error can embed a raw disassembly dump
+// (e.g. "spirv error: SPIR-V failed validation. | Expected Result Type and
+// Operand type to be the same"), and that dump isn't guaranteed to be valid
+// UTF-8 text. The caller (the Godot editor, shelling out to this tool for
+// export-time shader baking) decodes this JSON with a strict UTF-8-aware
+// String type; an invalid byte doesn't just get replaced there, it also
+// logs a "Unicode parsing error" line for every single occurrence, which
+// floods the export log for every shader hitting the same validation
+// failure. Losing a few non-ASCII characters from an already-fallback
+// diagnostic message is a fine trade for a non-spammed log.
+// Truncate an error message to a reasonable length for logging. A SPIR-V
+// validation failure's message embeds Tint's full disassembly of the module
+// (easily thousands of lines) -- callers (the Godot editor, for export-time
+// shader baking) just log this per failing shader, and a real project can
+// have hundreds of them; printing the full disassembly every time balloons
+// the log by hundreds of thousands of lines and makes a normal export look
+// hung. Collapses newlines first so the truncated result stays one line.
+static std::string truncate_error(const std::string &p_error) {
+	std::string out;
+	out.reserve(p_error.size());
+	for (char c : p_error) {
+		out += (c == '\n' || c == '\r') ? ' ' : c;
+	}
+	static constexpr size_t MAX_LEN = 300;
+	if (out.size() > MAX_LEN) {
+		out.resize(MAX_LEN);
+		out += "... [truncated]";
+	}
+	return out;
+}
+
 static std::string json_escape(const std::string &p_str) {
 	std::string out;
 	out.reserve(p_str.size() + p_str.size() / 8);
-	for (char c : p_str) {
+	for (unsigned char c : p_str) {
 		switch (c) {
 			case '"':
 				out += "\\\"";
@@ -161,7 +197,11 @@ static std::string json_escape(const std::string &p_str) {
 				out += "\\t";
 				break;
 			default:
-				out += c;
+				if (c < 0x20 || c >= 0x80) {
+					out += '?';
+				} else {
+					out += (char)c;
+				}
 				break;
 		}
 	}
@@ -289,7 +329,7 @@ int main(int argc, char *argv[]) {
 				std::string error;
 				std::string wgsl = convert_isolated(spv_bytes, error);
 				if (wgsl.empty()) {
-					std::cout << "{\"error\": \"" << json_escape(error) << "\"}";
+					std::cout << "{\"error\": \"" << json_escape(truncate_error(error)) << "\"}";
 				} else {
 					std::cout << "\"" << json_escape(wgsl) << "\"";
 				}
