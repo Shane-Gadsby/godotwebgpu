@@ -115,11 +115,11 @@ Multi-frame physical buffers with per-frame rotation:
 
 ### 2.5b MSAA Resolve
 
-**Status: Correct (color); depth handled by a separate, already-correct compute-shader path**
+**Status: Correct**
 
-`command_resolve_texture` uses WebGPU's native resolve mechanism: a throwaway render pass with the MSAA source as the color attachment (`loadOp: Load`, `storeOp: Discard`) and the destination as `resolveTarget` — WebGPU performs the actual resolve automatically on `wgpuRenderPassEncoderEnd()`, no draws needed. Every real call site in this codebase (Forward+'s color/specular/velocity-buffer MSAA resolves) is a color format, so this alone is a complete fix, not a partial one. Depth resolve doesn't go through this function at all: WebGPU render passes have no `depthResolveTarget` (only color attachments get one), so Forward+ already resolves depth via a dedicated compute shader (`Resolve::resolve_depth()`, core/shared code, unrelated to this driver function).
+`command_resolve_texture` uses WebGPU's native resolve mechanism where possible: a throwaway render pass with the MSAA source as the color attachment (`loadOp: Load`, `storeOp: Discard`) and the destination as `resolveTarget` — WebGPU performs the actual resolve automatically on `wgpuRenderPassEncoderEnd()`, no draws needed. This requires the source and destination to have identical GPU formats, which holds for every case except Forward+'s velocity buffer (its MSAA source has no `STORAGE_BIT` and stays native `RG16Float`, while its resolve target does get `STORAGE_BIT` and is promoted to `RG32Float` by `_promote_storage_format()`) — for that one case, a small driver-owned WGSL compute shader (built lazily, cached per destination format) reads all 4 MSAA samples via `textureLoad` and averages them into the promoted destination via `textureStore`, entirely self-contained in `drivers/webgpu/`. Depth resolve doesn't go through this function at all: WebGPU render passes have no `depthResolveTarget` (only color attachments get one), so Forward+ resolves depth via a dedicated compute shader instead (`Resolve::resolve_depth()`/`resolve_gi()`, core/shared code).
 
-A related gap: Forward+'s MSAA depth-resolve target is deliberately allocated as a plain `R32Float` texture rather than a native depth format (`RenderSceneBuffersRD::get_depth_format()`, upstream/cross-backend design — the compute-shader resolve needs a storage-writable format), but some depth-reading shaders (e.g. `BokehDofShaderRD`) get compiled assuming a real depth-format texture either way, since the same GLSL/WGSL is used whether MSAA is on or off. When a bind group layout expects `Depth` sample type but the real bound texture isn't a native depth format, the driver substitutes a small fallback depth texture (`fallback_depth_texture`, mirroring the existing float/cube/multisampled fallback textures) rather than let WebGPU reject the bind group outright — that one binding reads zeros for affected frames instead of dropping the whole command buffer. See `webgpu_notes/TASKS.md` Task 24.
+A related case: Forward+'s MSAA depth-resolve target is deliberately allocated as a plain `R32Float` texture rather than a native depth format (`RenderSceneBuffersRD::get_depth_format()`, upstream/cross-backend design — the compute-shader resolve needs a storage-writable format). Depth-reading shaders that need real depth data under this condition (e.g. `BokehDofShaderRD`) use a genuine second shader variant, selected at the call site based on whether MSAA is active, so the correct WGSL type (plain float vs. native depth) is used either way — see `webgpu_notes/TASKS.md` Task 24.
 
 ### 2.6 Push Constant Ring Buffer
 
@@ -287,7 +287,6 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Omni shadows forced to dual-paraboloid (quality trade-off)
 - Subpass-based post-processing disabled (WebGPU has no input attachments)
 - No hardware multiview / VRS / subgroups
-- `use_taa=true` combined with MSAA 3D fails (`GPUValidationError` on the velocity buffer's MSAA resolve — a genuine format gap between the MSAA source and its storage-promoted resolve target that WebGPU's native resolve mechanism can't bridge). MSAA 3D alone and TAA alone both work correctly; only the combination is affected. See `webgpu_notes/TASKS.md` Task 24 Bug 11.
 
 ### Platform Limitations
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
