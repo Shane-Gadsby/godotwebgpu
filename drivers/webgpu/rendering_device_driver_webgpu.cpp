@@ -32,12 +32,16 @@
 
 #include "rendering_device_driver_webgpu.h"
 
+#include "core/debugger/engine_debugger.h"
+#include "core/io/file_access.h"
+#include "core/os/os.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/hashfuncs.h"
 #include "drivers/webgpu/pixel_formats_webgpu.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
 #include "drivers/webgpu/spirv_preprocess.h"
+#include "drivers/webgpu/spirv_spec_constants.h"
 #include "drivers/webgpu/spirv_to_wgsl.h"
 #include "drivers/webgpu/tint_wrapper.h"
 
@@ -9677,34 +9681,82 @@ void RenderingDeviceDriverWebGPU::command_render_set_line_width(CommandBufferID 
 // =============================================================================
 
 // SPIR-V opcodes for specialization constant handling.
-static constexpr uint16_t SPV_OP_DECORATE = 71;
-static constexpr uint16_t SPV_OP_SPEC_CONSTANT_TRUE = 48;
-static constexpr uint16_t SPV_OP_SPEC_CONSTANT_FALSE = 49;
-static constexpr uint16_t SPV_OP_SPEC_CONSTANT = 50;
-static constexpr uint16_t SPV_DECORATION_SPEC_ID = 1;
+// Opt-in recording of specialization-constant usage, for export-time baking
+// coverage. Export-time WGSL baking (RenderingShaderContainerWebGPU) only
+// ever covers Godot's built-in ubershader variants -- it has no way to know
+// which specialization-constant *values* (light/decal counts, material
+// feature flags, etc.; see _create_module_with_spec_constants() below) a
+// specific project's scenes will actually request at runtime, since those
+// are only decided at draw time. This records that usage from a real play
+// session so a future export-time baking pass can pre-bake exactly those
+// combinations, closing the last major gap that forces runtime Tint
+// conversion. See webgpu_notes/TASKS.md Task 13's 2026-09-20 scoping update
+// for the full three-phase design -- this is Phase 1 (recording only; baking
+// and the runtime lookup change are separate, not-yet-implemented phases).
+//
+// This can only capture usage from the real WebGPU driver, which only exists
+// under platform=web -- there is no way to record from the native editor.
+//
+// Two independent ways to enable it:
+// 1. Manual: set `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS = true` in the
+//    browser devtools console (checked on every call while off, so it can be
+//    toggled on mid-session without a reload). Retrieve results at any time
+//    by calling `godotWebGPUExportSpecConstantRecording()` in the console,
+//    which downloads a JSON file of everything captured so far.
+// 2. Automatic, via the editor's remote debugger connection: pass
+//    `--webgpu-record-spec-constants` on the command line (checked once at
+//    startup, since cmdline args can't change mid-session) -- this is what
+//    the editor's "Capture Shaders" toolbar button does when launching Play,
+//    letting a captured combo stream straight back to
+//    WebGPUSpecConstantRecorderPlugin (editor/debugger/) over the same
+//    WebSocket connection Play already uses for the remote scene tree/
+//    profiler, instead of requiring the manual devtools/download dance.
+// Whichever way it's enabled, results are sent both ways when possible (via
+// EngineDebugger::send_message() when a debugger session is active, and via
+// the browser-global JSON accumulator always) -- the two audiences (a human
+// at devtools vs. the editor-side capture plugin) aren't mutually exclusive,
+// and sending both costs nothing extra given how infrequently a genuinely
+// new combo is found (see the dedup check below).
+static HashSet<uint32_t> _spec_constant_recording_seen;
 
-static inline uint32_t _spv_read_word(const uint8_t *p_data, uint32_t p_word_index) {
-	const uint8_t *p = p_data + p_word_index * 4;
-	return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
-}
-
-static inline void _spv_write_word(uint8_t *p_data, uint32_t p_word_index, uint32_t p_value) {
-	uint8_t *p = p_data + p_word_index * 4;
-	p[0] = p_value & 0xFF;
-	p[1] = (p_value >> 8) & 0xFF;
-	p[2] = (p_value >> 16) & 0xFF;
-	p[3] = (p_value >> 24) & 0xFF;
-}
-
-// Patches SPIR-V bytecode to apply specialization constant values.
-// Returns a modified copy with OpSpecConstant* values updated.
-static PackedByteArray _patch_spirv_spec_constants(const PackedByteArray &p_spirv, VectorView<RDD::PipelineSpecializationConstant> p_constants) {
-	if (p_constants.size() == 0 || p_spirv.size() < 20) {
-		return p_spirv;
+static bool _spec_constant_recording_enabled() {
+	static bool cmdline_checked = false;
+	static bool cmdline_enabled = false;
+	if (!cmdline_checked) {
+		cmdline_checked = true;
+		for (const String &arg : OS::get_singleton()->get_cmdline_args()) {
+			if (arg == "--webgpu-record-spec-constants") {
+				cmdline_enabled = true;
+				break;
+			}
+		}
+	}
+	if (cmdline_enabled) {
+		return true;
 	}
 
-	// Build a map: SpecId → value (as uint32_t).
-	HashMap<uint32_t, uint32_t> spec_values;
+	static bool js_enabled = false;
+	if (!js_enabled) {
+		js_enabled = EM_ASM_INT({ return (typeof window !== 'undefined' && window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS) ? 1 : 0; }) != 0;
+	}
+	return js_enabled;
+}
+
+static void _record_spec_constant_usage(const uint8_t *p_base_spv_ptr, int p_base_spv_size, VectorView<RDD::PipelineSpecializationConstant> p_constants) {
+	if (!_spec_constant_recording_enabled()) {
+		return;
+	}
+
+	// Shared with the export-time baker and the runtime baked-variant lookup
+	// (see webgpu::hash_spirv()) so all three agree byte-for-byte on a given
+	// shader's identity.
+	uint64_t base_spv_hash = webgpu::hash_spirv(p_base_spv_ptr, p_base_spv_size);
+
+	// Dedup key: the same (shader, constant values) combo recurs constantly
+	// once enabled (e.g. every draw with the same light count) -- a 32-bit
+	// rolling hash is more than enough for a dev-tool dedup set, no need for
+	// the 64-bit collision-resistance the main WGSL cache needs at ~1k entries.
+	uint32_t combo_hash = hash_murmur3_one_64(base_spv_hash);
 	for (uint32_t i = 0; i < p_constants.size(); i++) {
 		const RDD::PipelineSpecializationConstant &c = p_constants[i];
 		uint32_t val = 0;
@@ -9719,80 +9771,137 @@ static PackedByteArray _patch_spirv_spec_constants(const PackedByteArray &p_spir
 				memcpy(&val, &c.float_value, sizeof(float));
 				break;
 		}
-		spec_values[c.constant_id] = val;
+		combo_hash = hash_murmur3_one_64((((uint64_t)c.constant_id) << 32) | val, combo_hash);
 	}
 
-	// First pass: scan OpDecorate for SpecId → result_id mapping.
-	HashMap<uint32_t, uint32_t> spec_id_to_result_id; // SpecId → result_id
-	uint32_t total_words = p_spirv.size() / 4;
-	uint32_t pos = 5; // Skip SPIR-V header (5 words).
-	while (pos < total_words) {
-		uint32_t w0 = _spv_read_word(p_spirv.ptr(), pos);
-		uint32_t wc = w0 >> 16;
-		uint32_t op = w0 & 0xFFFF;
-		if (wc == 0 || pos + wc > total_words) {
-			break;
-		}
-		// OpDecorate target decoration [literal...]
-		// For SpecId: OpDecorate result_id SpecId(1) literal_spec_id
-		if (op == SPV_OP_DECORATE && wc >= 4) {
-			uint32_t target = _spv_read_word(p_spirv.ptr(), pos + 1);
-			uint32_t decoration = _spv_read_word(p_spirv.ptr(), pos + 2);
-			if (decoration == SPV_DECORATION_SPEC_ID) {
-				uint32_t spec_id = _spv_read_word(p_spirv.ptr(), pos + 3);
-				spec_id_to_result_id[spec_id] = target;
+	if (_spec_constant_recording_seen.has(combo_hash)) {
+		return;
+	}
+	_spec_constant_recording_seen.insert(combo_hash);
+
+	// Stream straight back to the editor over the remote debugger connection
+	// (the same one Run-in-Browser already opens for the scene tree/profiler)
+	// when one is active -- see WebGPUSpecConstantDebuggerPlugin
+	// (editor/shader/shader_baker/), which captures this message and writes
+	// the usage file automatically. `base_spv_hash` is sent as its raw bit
+	// pattern reinterpreted as int64 (Variant::INT has no unsigned 64-bit
+	// type) -- the receiving side must reinterpret it back to uint64_t the
+	// same way, never treat it as a real (possibly negative) integer.
+	if (EngineDebugger::is_active()) {
+		Dictionary entry_dict;
+		entry_dict["base_spv_hash"] = (int64_t)base_spv_hash;
+		Array constants_arr;
+		for (uint32_t i = 0; i < p_constants.size(); i++) {
+			const RDD::PipelineSpecializationConstant &c = p_constants[i];
+			uint32_t val = 0;
+			switch (c.type) {
+				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
+					val = c.bool_value ? 1 : 0;
+					break;
+				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
+					val = (uint32_t)c.int_value;
+					break;
+				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
+					memcpy(&val, &c.float_value, sizeof(float));
+					break;
 			}
+			Dictionary c_dict;
+			c_dict["id"] = (int)c.constant_id;
+			c_dict["type"] = (int)c.type;
+			c_dict["value"] = (int64_t)val; // Always fits positively -- val is a raw uint32.
+			constants_arr.push_back(c_dict);
 		}
-		pos += wc;
+		entry_dict["constants"] = constants_arr;
+		Array data;
+		data.push_back(entry_dict);
+		EngineDebugger::get_singleton()->send_message("webgpu:spec_constant_usage", data);
 	}
 
-	// Build result_id → value map.
-	HashMap<uint32_t, uint32_t> result_to_value;
-	for (const KeyValue<uint32_t, uint32_t> &kv : spec_id_to_result_id) {
-		if (spec_values.has(kv.key)) {
-			result_to_value[kv.value] = spec_values[kv.key];
+	String json = "{\"base_spv_hash\":\"" + String::num_uint64(base_spv_hash) + "\",\"constants\":[";
+	for (uint32_t i = 0; i < p_constants.size(); i++) {
+		const RDD::PipelineSpecializationConstant &c = p_constants[i];
+		uint32_t val = 0;
+		switch (c.type) {
+			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
+				val = c.bool_value ? 1 : 0;
+				break;
+			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
+				val = (uint32_t)c.int_value;
+				break;
+			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
+				memcpy(&val, &c.float_value, sizeof(float));
+				break;
 		}
+		if (i > 0) {
+			json += ",";
+		}
+		// "value" is always the raw uint32 bit pattern (see the per-type
+		// conversions above, shared with _patch_spirv_spec_constants()) --
+		// a future baking pass reinterprets it per "type" the same way,
+		// rather than this recording trying to pretty-print floats/bools.
+		json += "{\"id\":" + itos(c.constant_id) + ",\"type\":" + itos((int)c.type) + ",\"value\":" + itos((int64_t)val) + "}";
+	}
+	json += "]}";
+
+	CharString utf8 = json.utf8();
+	EM_ASM({
+		var entry = JSON.parse(UTF8ToString($0));
+		if (!window.__godotWebGPUSpecConstantRecording) {
+			window.__godotWebGPUSpecConstantRecording = [];
+			console.log('[spec-constant-recording] Recording started. Call godotWebGPUExportSpecConstantRecording() in the console at any time to save what has been captured so far.');
+			window.godotWebGPUExportSpecConstantRecording = function () {
+				var blob = new Blob([JSON.stringify(window.__godotWebGPUSpecConstantRecording, null, 2)], { type: 'application/json' });
+				var url = URL.createObjectURL(blob);
+				var a = document.createElement('a');
+				a.href = url;
+				a.download = 'webgpu_spec_constant_usage.json';
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				URL.revokeObjectURL(url);
+				console.log('[spec-constant-recording] Saved ' + window.__godotWebGPUSpecConstantRecording.length + ' entries to webgpu_spec_constant_usage.json.');
+			};
+		}
+		window.__godotWebGPUSpecConstantRecording.push(entry);
+	},
+			utf8.get_data());
+}
+
+// Lazily loads the export-time-baked specialization-constant variant table
+// (see spirv_spec_constants.h), once per process. Absent entirely for a
+// project that was never exported with baking on (or ran an export before
+// this feature existed) -- that's not an error, it just means every lookup
+// below misses and this driver behaves exactly as it did before this table
+// existed, falling through to the Tint path.
+static const HashMap<uint64_t, String> &_get_baked_spec_constant_variants() {
+	static HashMap<uint64_t, String> table;
+	static bool loaded = false;
+	if (loaded) {
+		return table;
+	}
+	loaded = true;
+
+	Ref<FileAccess> f = FileAccess::open(webgpu::BAKED_SPEC_VARIANTS_PATH, FileAccess::READ);
+	if (f.is_null()) {
+		return table;
 	}
 
-	if (result_to_value.is_empty()) {
-		return p_spirv; // No matching spec constants to patch.
+	uint32_t magic = f->get_32();
+	if (magic != webgpu::BAKED_SPEC_VARIANTS_MAGIC) {
+		WARN_PRINT("WebGPU: baked specialization-constant variants file has an unrecognized format; ignoring it.");
+		return table;
 	}
-
-	// Second pass: patch the SPIR-V.
-	PackedByteArray out = p_spirv;
-	pos = 5;
-	while (pos < total_words) {
-		uint32_t w0 = _spv_read_word(out.ptr(), pos);
-		uint32_t wc = w0 >> 16;
-		uint32_t op = w0 & 0xFFFF;
-		if (wc == 0 || pos + wc > total_words) {
-			break;
-		}
-
-		if (op == SPV_OP_SPEC_CONSTANT_TRUE || op == SPV_OP_SPEC_CONSTANT_FALSE) {
-			// OpSpecConstantTrue/False: wc=3, [type_id, result_id]
-			if (wc >= 3) {
-				uint32_t result_id = _spv_read_word(out.ptr(), pos + 2);
-				if (result_to_value.has(result_id)) {
-					uint32_t val = result_to_value[result_id];
-					uint16_t new_op = val ? SPV_OP_SPEC_CONSTANT_TRUE : SPV_OP_SPEC_CONSTANT_FALSE;
-					_spv_write_word(out.ptrw(), pos, (wc << 16) | new_op);
-				}
-			}
-		} else if (op == SPV_OP_SPEC_CONSTANT) {
-			// OpSpecConstant: wc>=4, [type_id, result_id, value...]
-			if (wc >= 4) {
-				uint32_t result_id = _spv_read_word(out.ptr(), pos + 2);
-				if (result_to_value.has(result_id)) {
-					_spv_write_word(out.ptrw(), pos + 3, result_to_value[result_id]);
-				}
-			}
-		}
-
-		pos += wc;
+	uint32_t count = f->get_32();
+	for (uint32_t i = 0; i < count && !f->eof_reached(); i++) {
+		uint64_t combo_hash = f->get_64();
+		uint32_t wgsl_len = f->get_32();
+		PackedByteArray wgsl_bytes = f->get_buffer(wgsl_len);
+		String wgsl;
+		wgsl.append_utf8((const char *)wgsl_bytes.ptr(), wgsl_bytes.size());
+		table[combo_hash] = wgsl;
 	}
-
-	return out;
+	print_verbose(vformat("WebGPU: loaded %d baked specialization-constant shader variant(s) from %s.", table.size(), String(webgpu::BAKED_SPEC_VARIANTS_PATH)));
+	return table;
 }
 
 // Creates a WGPUShaderModule from SPIR-V with specialization constants applied.
@@ -9802,10 +9911,28 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		VectorView<PipelineSpecializationConstant> p_constants,
 		ShaderStage p_stage,
 		const HashMap<uint32_t, uint32_t> &p_rw_storage_splits) {
-	PackedByteArray patched = _patch_spirv_spec_constants(p_spirv, p_constants);
+	_record_spec_constant_usage(p_spirv.ptr(), (int)p_spirv.size(), p_constants);
 
-	// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above).
-	char *wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size());
+	PackedByteArray patched = webgpu::patch_spirv_spec_constants(p_spirv, p_constants);
+
+	// Export-time-baked variant lookup (Task 13 Phase 2/3) -- skips Tint
+	// entirely for a (shader, constant-values) combination a prior recorded
+	// playtest already covered and the project was exported with baking on.
+	char *wgsl_str = nullptr;
+	uint64_t combo_hash = webgpu::hash_spec_constant_combo(webgpu::hash_spirv(p_spirv.ptr(), (int)p_spirv.size()), p_constants);
+	const String *baked_wgsl = _get_baked_spec_constant_variants().getptr(combo_hash);
+	if (baked_wgsl) {
+		CharString cs = baked_wgsl->utf8();
+		wgsl_str = (char *)malloc((size_t)cs.length() + 1);
+		if (wgsl_str) {
+			memcpy(wgsl_str, cs.get_data(), (size_t)cs.length() + 1);
+		}
+	}
+
+	if (!wgsl_str) {
+		// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above).
+		wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size());
+	}
 
 	if (!wgsl_str) {
 		ERR_PRINT("WebGPU: SPIR-V→WGSL conversion failed for specialized shader module.");

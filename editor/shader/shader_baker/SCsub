@@ -14,3 +14,6 @@ if env["metal"]:
 
 if env["webgpu"] and env.editor_build:
     env.add_source_files(env.editor_sources, "shader_baker_export_plugin_platform_webgpu.cpp")
+    env.add_source_files(env.editor_sources, "webgpu_spec_constant_baker_export_plugin.cpp")
+    env.add_source_files(env.editor_sources, "webgpu_shader_capture_editor_plugin.cpp")
+    env.add_source_files(env.editor_sources, "webgpu_spec_constant_debugger_plugin.cpp")
