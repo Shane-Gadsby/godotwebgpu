@@ -8,6 +8,18 @@ Based on a full re-read of `webgpu_notes/TASKS.md` (through Task 15), `drivers/w
 
 ---
 
+## Completed since this plan was written, not originally tracked here: Task 24 — Anti-aliasing (MSAA 2D/3D, TAA, DOF) `[DONE, 2026-09-20]`
+
+Not one of the 11 items below — surfaced by live user bug reports (real black screens / console error spam / silently-corrupted DOF against their actual `cameraSim` project) after this plan was written, investigated and closed out as its own self-contained arc. Full round-by-round root-cause trail is in `webgpu_notes/TASKS.md` Task 24; summary here for sign-off purposes only.
+
+**11 distinct bugs found and fixed**, spanning 5 rounds of live testing against the user's real project (not just synthetic fixtures) — MSAA sample-count clamping (WebGPU only ever accepts 1 or 4, never 2/8/16/32/64), a `copy.glsl` destination-format gap for TAA's 2-channel velocity buffer, `ClusterDebugShaderRD` building an unused bind group every frame, a completely unimplemented `command_resolve_texture()` (MSAA never actually resolved at all), a depth/float sample-type fallback substituting fake zero depth for DOF, an unclamped core sample-count table feeding the depth-resolve shader more samples than the driver's own clamp provides, an SDFGI/VoxelGI texture-array binding split that silently never worked during export-time baking (compiled with the wrong driver identity), a multisampled-depth reclassification gap causing more zero-depth corruption, a regression in an older depth/float fallback check, a second real DOF-depth fix (Forward+ was missing a guard Forward Mobile already had), and finally a format-converting compute-shader resolve fallback for the one case (TAA's velocity buffer) WebGPU's native resolve mechanism structurally cannot handle.
+
+**Verified**: every originally-reported configuration (all-options, MSAA-2D-only, MSAA-3D-only, TAA-only) *and* the user's actual live project with its full feature set active simultaneously (SSAO+SSIL+SSR+SDFGI+Glow+Fog+VolumetricFog+DOF) — across every MSAA level, MSAA 2D, and TAA combined with MSAA 3D — now show zero console errors and correct rendering (screenshot-confirmed against MSAA-off baselines each time). Full regression suite (`shader_corpus` 13/13, `preprocessing_tests` 199/199+1 skip, `driver_unit_tests` 327/327) stayed green after every fix.
+
+**Commit status**: rounds 1-4 of this work are already committed (`79ce22b0c1` "TAA fixed", `0979f8238a` "Staging updates to the MSAA / TAA / AA / etc systems", `96e8ef446a` "more msaa + taa fixes (corrects formats via a compute shader)"). The final round-5 fix (Bug 11, the format-converting compute-shader resolve) is still uncommitted in the working tree as of this write-up.
+
+---
+
 ## 1. ~~Fix stale claims in `drivers/webgpu/README.md`'s "Known Limitations" section~~ — DONE 2026-09-19
 
 Fixed: corrected the "no subgroup operations" claim (nuanced — device feature works internally for built-in shaders, only the user-facing capability query is still 0) and the "mobile renderer auto-selected" claim (Forward+ works, confirmed via `maxSampledTexturesPerShaderStage` request code), and added the `threads=yes` support-matrix note from Task 12. Committed (`902f5c3059`).
