@@ -100,22 +100,24 @@ static constexpr uint16_t OP_ULESS_THAN = 176;
 static constexpr uint16_t OP_SLESS_THAN = 177;
 static constexpr uint16_t OP_ULESS_THAN_EQUAL = 178;
 static constexpr uint16_t OP_SLESS_THAN_EQUAL = 179;
-static constexpr uint16_t OP_FORD_EQUAL = 180;
-static constexpr uint16_t OP_FUNORD_EQUAL = 181;
-static constexpr uint16_t OP_FORD_NOT_EQUAL = 182;
-static constexpr uint16_t OP_FUNORD_NOT_EQUAL = 183;
-static constexpr uint16_t OP_FORD_LESS_THAN = 184;
-static constexpr uint16_t OP_FUNORD_LESS_THAN = 185;
-static constexpr uint16_t OP_FORD_GREATER_THAN = 186;
-static constexpr uint16_t OP_FUNORD_GREATER_THAN = 187;
-static constexpr uint16_t OP_FORD_LESS_THAN_EQUAL = 188;
-static constexpr uint16_t OP_FUNORD_LESS_THAN_EQUAL = 189;
-static constexpr uint16_t OP_FORD_GREATER_THAN_EQUAL = 190;
-static constexpr uint16_t OP_FUNORD_GREATER_THAN_EQUAL = 191;
-static constexpr uint16_t OP_ANY = 154;
-static constexpr uint16_t OP_ALL = 155;
-static constexpr uint16_t OP_ISNAN = 156;
-static constexpr uint16_t OP_ISINF = 157;
+// Not valid operands for OpSpecConstantOp in the core SPIR-V spec (float ops
+// need the Kernel capability), so unused by eval_spec_op; kept for reference.
+[[maybe_unused]] static constexpr uint16_t OP_FORD_EQUAL = 180;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_EQUAL = 181;
+[[maybe_unused]] static constexpr uint16_t OP_FORD_NOT_EQUAL = 182;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_NOT_EQUAL = 183;
+[[maybe_unused]] static constexpr uint16_t OP_FORD_LESS_THAN = 184;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_LESS_THAN = 185;
+[[maybe_unused]] static constexpr uint16_t OP_FORD_GREATER_THAN = 186;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_GREATER_THAN = 187;
+[[maybe_unused]] static constexpr uint16_t OP_FORD_LESS_THAN_EQUAL = 188;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_LESS_THAN_EQUAL = 189;
+[[maybe_unused]] static constexpr uint16_t OP_FORD_GREATER_THAN_EQUAL = 190;
+[[maybe_unused]] static constexpr uint16_t OP_FUNORD_GREATER_THAN_EQUAL = 191;
+[[maybe_unused]] static constexpr uint16_t OP_ANY = 154;
+[[maybe_unused]] static constexpr uint16_t OP_ALL = 155;
+[[maybe_unused]] static constexpr uint16_t OP_ISNAN = 156;
+[[maybe_unused]] static constexpr uint16_t OP_ISINF = 157;
 static constexpr uint16_t OP_KILL = 252;
 static constexpr uint16_t OP_RETURN = 253;
 static constexpr uint16_t OP_RETURN_VALUE = 254;
@@ -219,41 +221,41 @@ static uint64_t eval_spec_op(uint32_t p_opcode, const Vector<uint64_t> &p_operan
 			return b() != 0 ? a() % b() : 0; // UMod
 
 		// Logical.
-		case 164:
+		case OP_LOGICAL_EQUAL:
 			return (uint64_t)(a() == b()); // LogicalEqual
-		case 165:
+		case OP_LOGICAL_NOT_EQUAL:
 			return (uint64_t)(a() != b()); // LogicalNotEqual
-		case 166:
+		case OP_LOGICAL_OR:
 			return (uint64_t)((a() != 0) || (b() != 0)); // LogicalOr
-		case 167:
+		case OP_LOGICAL_AND:
 			return (uint64_t)((a() != 0) && (b() != 0)); // LogicalAnd
-		case 168:
+		case OP_LOGICAL_NOT:
 			return (uint64_t)(a() == 0); // LogicalNot
 
 		// Select: condition, true_val, false_val.
-		case 169:
+		case OP_SELECT:
 			return a() != 0 ? b() : c(); // Select
 
 		// Integer comparison.
-		case 170:
+		case OP_IEQUAL:
 			return (uint64_t)(a() == b()); // IEqual
-		case 171:
+		case OP_INOT_EQUAL:
 			return (uint64_t)(a() != b()); // INotEqual
-		case 172:
+		case OP_UGREATER_THAN:
 			return (uint64_t)((uint32_t)a() > (uint32_t)b()); // UGreaterThan
-		case 173:
+		case OP_SGREATER_THAN:
 			return (uint64_t)((int32_t)a() > (int32_t)b()); // SGreaterThan
-		case 174:
+		case OP_UGREATER_THAN_EQUAL:
 			return (uint64_t)((uint32_t)a() >= (uint32_t)b()); // UGreaterThanEqual
-		case 175:
+		case OP_SGREATER_THAN_EQUAL:
 			return (uint64_t)((int32_t)a() >= (int32_t)b()); // SGreaterThanEqual
-		case 176:
+		case OP_ULESS_THAN:
 			return (uint64_t)((uint32_t)a() < (uint32_t)b()); // ULessThan
-		case 177:
+		case OP_SLESS_THAN:
 			return (uint64_t)((int32_t)a() < (int32_t)b()); // SLessThan
-		case 178:
+		case OP_ULESS_THAN_EQUAL:
 			return (uint64_t)((uint32_t)a() <= (uint32_t)b()); // ULessThanEqual
-		case 179:
+		case OP_SLESS_THAN_EQUAL:
 			return (uint64_t)((int32_t)a() <= (int32_t)b()); // SLessThanEqual
 
 		// Bitwise.
