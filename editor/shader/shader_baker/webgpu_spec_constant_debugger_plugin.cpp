@@ -56,6 +56,26 @@ bool WebGPUSpecConstantDebuggerPlugin::capture(const String &p_message, const Ar
 
 	Dictionary entry = p_data[0];
 
+	// The debugger wire protocol carries "base_spv_hash" as its raw bit
+	// pattern reinterpreted as int64_t (see _record_spec_constant_usage()'s
+	// doc comment in rendering_device_driver_webgpu.cpp) -- a real
+	// Variant::INT at this point. Convert it to a precise decimal STRING
+	// immediately, matching the format godotWebGPUExportSpecConstantRecording()
+	// already uses (and that the export-time baker's parse_uint64_decimal()
+	// already expects): this function re-reads and re-JSON-parses the whole
+	// growing accumulator file below on every single capture, and Godot's
+	// JSON grammar has no integer type -- JSON::parse_string() always
+	// produces Variant::FLOAT for a bare JSON number (see json.cpp's
+	// TK_NUMBER handling), and a double's 53-bit mantissa cannot exactly
+	// represent most 64-bit hashes. A quoted string survives any number of
+	// JSON round-trips unchanged; a bare number silently corrupts within a
+	// single capture session (confirmed: every auto-captured hash observed
+	// in practice had already drifted by the second entry).
+	if (entry.has("base_spv_hash")) {
+		uint64_t base_spv_hash = (uint64_t)(int64_t)entry["base_spv_hash"];
+		entry["base_spv_hash"] = String::num_uint64(base_spv_hash);
+	}
+
 	Array entries;
 	Ref<FileAccess> read_f = FileAccess::open(CAPTURED_USAGE_FILE_PATH, FileAccess::READ);
 	if (read_f.is_valid()) {
