@@ -156,9 +156,49 @@ jobs:
         run: |
           scons platform=linuxbsd target=editor dev_mode=yes tests=no debug_symbols=no -j$(nproc)
 
-      - name: Export test project with SPIR-V dump
+      - name: Install Xvfb (needed for real shader compilation below)
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run test project to compile & dump all shaders
         run: |
           mkdir -p /tmp/spirv_dump
+
+          # --headless uses a no-op/dummy RenderingDevice that never compiles a
+          # single real GPU shader, so GODOT_DUMP_SPIRV always produces zero
+          # files under it -- this is true whether you --export-release or just
+          # run the project headless; it's not specific to exporting. To force
+          # real shader compilation we must run with an actual RenderingDevice,
+          # which on a display-less CI runner means a virtual X server (Xvfb)
+          # instead of --headless. Running the project (not exporting it) lets
+          # webgpu_tests/test_project/scripts/shader_coverage.gd's _ready()/
+          # _process() build a scene that exercises every shader path and then
+          # quit after a fixed frame count -- see that script for what it covers.
+          # stdbuf forces line-buffered stdout/stderr so that if the editor is
+          # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
+          # last buffered lines — often the actual error — aren't lost before
+          # the process exits without flushing.
+          GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 120 \
+            xvfb-run -a stdbuf -oL -eL \
+            bin/godot.linuxbsd.editor.x86_64 \
+              --audio-driver Dummy --path webgpu_tests/test_project \
+            2>&1; GODOT_EXIT=$?
+          echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
+
+          echo "SPIR-V files dumped:"
+          ls -la /tmp/spirv_dump/ | head -50
+          SPV_COUNT=$(ls /tmp/spirv_dump/*.spv 2>/dev/null | wc -l)
+          echo "Total: $SPV_COUNT files"
+
+          # Fail loudly here instead of leaving downstream jobs to fail on
+          # missing artifacts with no indication of the actual root cause.
+          if [ "$SPV_COUNT" -eq 0 ]; then
+            echo "::error::Run produced no SPIR-V dump — see the editor output above for the real error."
+            exit 1
+          fi
+
+      - name: Export test project (WebGPU template)
+        run: |
           mkdir -p webgpu_tests/test_project/export
 
           # Install WebGPU template (editor looks for web_nothreads_release.zip under
@@ -174,29 +214,17 @@ jobs:
           cp bin/godot.web.template_release.wasm32.nothreads.dlink.zip \
              "$TEMPLATE_DIR/web_nothreads_debug.zip"
 
-          # Run editor headless to import project and compile all shaders
-          # GODOT_DUMP_SPIRV causes all compiled SPIR-V to be written to disk.
-          # stdbuf forces line-buffered stdout/stderr so that if the editor is
-          # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
-          # last buffered lines — often the actual error — aren't lost before
-          # the process exits without flushing.
-          GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 120 \
-            stdbuf -oL -eL \
+          # Packing/exporting itself doesn't need a real RenderingDevice, so
+          # --headless is fine here (unlike the shader-compiling run above).
+          stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --headless --path webgpu_tests/test_project \
               --export-release "WebGPU" export/index.html \
             2>&1; GODOT_EXIT=$?
           echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
 
-          echo "SPIR-V files dumped:"
-          ls -la /tmp/spirv_dump/ | head -50
-          SPV_COUNT=$(ls /tmp/spirv_dump/*.spv 2>/dev/null | wc -l)
-          echo "Total: $SPV_COUNT files"
-
-          # Fail loudly here instead of leaving downstream jobs to fail on
-          # missing artifacts with no indication of the actual root cause.
-          if [ "$SPV_COUNT" -eq 0 ] || [ ! -f webgpu_tests/test_project/export/index.html ]; then
-            echo "::error::Export produced no SPIR-V dump and/or no export/index.html — see the editor output above for the real error."
+          if [ ! -f webgpu_tests/test_project/export/index.html ]; then
+            echo "::error::Export produced no export/index.html — see the editor output above for the real error."
             exit 1
           fi
 
