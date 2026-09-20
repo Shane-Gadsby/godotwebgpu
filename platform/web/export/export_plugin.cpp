@@ -44,6 +44,7 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/resources/image_texture.h"
+#include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
 #include "modules/svg/image_loader_svg.h"
@@ -503,6 +504,31 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 	String rendering_method = get_project_setting(p_preset, "rendering/renderer/rendering_method.web");
 	if (rendering_method == "forward_plus" || rendering_method == "mobile") {
 		err += TTR("WebGPU rendering is experimental. Ensure your target browsers support WebGPU.") + "\n";
+
+		// Without shader baking, every specialized (spec-constant-patched) shader
+		// variant -- lighting, shadow, and material feature combinations, which
+		// Godot's 3D pipeline uses heavily -- gets translated from SPIR-V to WGSL
+		// by Tint on the *player's* machine, synchronously on the main thread, the
+		// first time each variant is drawn. This is the dominant cause of the
+		// multi-second startup stall/jank documented in
+		// webgpu_notes/STARTUP_PROFILING.md. Baking bakes ahead of time everything
+		// it can (see drivers/webgpu/README.md and webgpu_notes/TASKS.md's shader
+		// baking task), which is a real, large reduction even though
+		// spec-constant-patched variants specifically are never covered by it
+		// (they depend on values only known at runtime) -- see
+		// webgpu_notes/finish_async_shader_comp.md Section 10 for the full
+		// architectural writeup of why that residual gap can't currently be
+		// closed without deeper, riskier engine changes.
+		if (!p_preset->get("shader_baker/enabled").operator bool()) {
+			err += TTR("\"Shader Baker\" (shader_baker/enabled) is disabled. Exported WebGPU games will do significant shader-compilation work on the player's machine at load time, which can look like a freeze on first launch. Enabling it moves most of that work to export time instead.") + "\n";
+		} else if (RendererSceneRenderRD::get_singleton() == nullptr) {
+			// ShaderBakerExportPlugin::_is_active() silently requires the *editor's own
+			// currently running* renderer to be RD-based (Vulkan/Metal/D3D12) -- if the
+			// editor itself is running under GL Compatibility, exporting bakes zero
+			// shaders with no error at all (see webgpu_notes/TASKS.md's shader baking
+			// task for how easy this was to hit and how confusing the silent failure was).
+			err += TTR("\"Shader Baker\" is enabled, but the editor is not currently running with a RenderingDevice-based renderer (Vulkan/Metal/D3D12). Baking will silently produce zero baked shaders. Restart the editor with --rendering-driver vulkan (or switch Advanced Settings > Rendering > Renderer to Forward+/Mobile) before exporting.") + "\n";
+		}
 	}
 
 	if (!err.is_empty()) {

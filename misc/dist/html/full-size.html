@@ -102,6 +102,33 @@ body {
 	z-index: 1;
 }
 
+/* Purely CSS-driven (transform only, no JS) so the browser's compositor thread
+   keeps it spinning even while the main JS thread is blocked for seconds at a
+   time -- which, on WebGPU, it genuinely is: the engine's first rendered frame
+   runs synchronously inside the WASM callMain() call, before control ever
+   returns to JS, so nothing JS-driven (progress text, event listeners) can
+   paint during that window. This spinner is the only feedback that can. */
+#webgpu-spinner {
+	width: 2rem;
+	height: 2rem;
+	margin: 0 auto 0.75rem;
+	border-radius: 50%;
+	border: 3px solid rgba(255, 255, 255, 0.25);
+	border-top-color: #e0e0e0;
+	animation: webgpu-spin 0.8s linear infinite;
+	display: none;
+}
+
+#webgpu-spinner.visible {
+	display: block;
+}
+
+@keyframes webgpu-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 /* Shown if the WebGPU device is lost mid-session (e.g. a GPU crash/reset).
    Separate from #status above since that overlay is removed from the DOM
    once startup finishes -- this can fire well after the game is running. */
@@ -149,6 +176,7 @@ body {
 		<div id="status">
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
+			<div id="webgpu-spinner"></div>
 			<div id="status-notice"></div>
 		</div>
 
@@ -216,6 +244,7 @@ const engine = new Engine(GODOT_CONFIG);
 	const statusOverlay = document.getElementById('status');
 	const statusProgress = document.getElementById('status-progress');
 	const statusNotice = document.getElementById('status-notice');
+	const webgpuSpinner = document.getElementById('webgpu-spinner');
 
 	let initializing = true;
 	let statusMode = '';
@@ -232,6 +261,9 @@ const engine = new Engine(GODOT_CONFIG);
 		statusOverlay.style.visibility = 'visible';
 		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+		if (mode !== 'notice') {
+			webgpuSpinner.classList.remove('visible');
+		}
 		statusMode = mode;
 	}
 
@@ -248,6 +280,7 @@ const engine = new Engine(GODOT_CONFIG);
 
 	function displayFailureNotice(err) {
 		console.error(err);
+		webgpuSpinner.classList.remove('visible');
 		if (err instanceof Error) {
 			setStatusNotice(err.message);
 		} else if (typeof err === 'string') {
@@ -257,6 +290,15 @@ const engine = new Engine(GODOT_CONFIG);
 		}
 		setStatusMode('notice');
 		initializing = false;
+	}
+
+	// Like setStatusNotice(), but also shows the CSS spinner -- for notices that
+	// mean "still working, please wait", as opposed to a terminal error/failure
+	// notice (displayFailureNotice() above), where a spinner would be misleading.
+	function setBusyNotice(text) {
+		setStatusNotice(text);
+		webgpuSpinner.classList.add('visible');
+		setStatusMode('notice');
 	}
 
 	// The WebGPU device can be lost well after startup (e.g. a GPU crash/driver
@@ -327,32 +369,52 @@ const engine = new Engine(GODOT_CONFIG);
 			setStatusMode('notice');
 		}
 
-		// On WebGPU, `startGame()` resolving only means callMain() returned --
-		// which happens well before the game is actually visible, since shader
-		// compilation (SPIR-V -> WGSL via Tint) runs synchronously on the main
-		// thread across many subsequent animation frames (up to several seconds
-		// on a cold cache; see webgpu_notes/STARTUP_PROFILING.md). Hiding the
-		// overlay right on that resolution -- as every other renderer here does,
-		// correctly, since their startup really is done by then -- left a black,
-		// apparently-frozen canvas for that whole window with no explanation.
+		// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
+		// frame runs *synchronously inside* the WASM callMain() call -- after
+		// `engine.startGame()`'s download/init work is done, but before its
+		// promise resolves, before control ever returns to JS, and therefore
+		// before the browser gets a chance to paint anything. On a cold shader
+		// cache this single call can block the main thread for many seconds
+		// (SPIR-V -> WGSL via Tint for every specialized pipeline variant the
+		// first frame needs; see webgpu_notes/STARTUP_PROFILING.md and Section 10
+		// of webgpu_notes/finish_async_shader_comp.md). No JS-side progress text
+		// or event listener can update the screen during that window -- the JS
+		// thread that would run them is the same one that's blocked. Two
+		// consequences, both handled below:
 		//
-		// So for WebGPU specifically, wait for two extra signals dispatched from
-		// the driver (drivers/webgpu/rendering_device_driver_webgpu.cpp) before
-		// hiding: a frame has actually been presented, and no new shader compile
-		// has happened for a short quiet period (compilation happens in bursts,
-		// so a single frame without one doesn't mean it's finished).
+		// 1. `engine.js`'s start() dispatches 'godot-before-callmain' right
+		//    before that call and yields two animation frames first -- we use
+		//    that instant (not, e.g., before startGame() is even called, which
+		//    would show this notice before the download has even started) to
+		//    show a "please wait, this can take a while" notice, so it's
+		//    actually painted before the long synchronous call begins. Without
+		//    that yield, DOM changes made here would be queued but never
+		//    painted until *after* the block -- defeating the point.
+		// 2. That notice needs a spinner driven by CSS animation only (see the
+		//    #webgpu-spinner rule above), since a compositor-thread animation on
+		//    `transform` keeps running even while the main JS thread is blocked
+		//    -- it's the only feedback that can actually be seen during the
+		//    stall itself, as opposed to before or after it.
+		//
+		// Separately, later frames (after the first) run one-per-requestAnimationFrame,
+		// so the browser *does* get control back between them even if any one of
+		// them individually blocks for a while recompiling further shaders --
+		// hence still listening for the driver's per-compile signal and waiting
+		// for a quiet period below, to keep the notice accurate for that tail.
 		let firstFramePresented = false;
 		let shaderCompileCount = 0;
 		let lastShaderCompileTime = 0;
 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
+			window.addEventListener('godot-before-callmain', () => {
+				setBusyNotice('Starting engine...\nThis can take up to 30 seconds on first load while shaders compile. The page is not frozen -- please wait.');
+			});
 			window.addEventListener('godot-webgpu-first-frame', () => {
 				firstFramePresented = true;
 			});
 			window.addEventListener('godot-webgpu-shader-compile', (event) => {
 				shaderCompileCount = event.detail.misses;
 				lastShaderCompileTime = performance.now();
-				setStatusMode('notice');
-				setStatusNotice(`Compiling shaders... (${shaderCompileCount})`);
+				setBusyNotice(`Starting engine — compiling shaders... (${shaderCompileCount})\nThis can take up to 30 seconds on first load. Please wait.`);
 			});
 		}
 
@@ -392,8 +454,6 @@ const engine = new Engine(GODOT_CONFIG);
 				setStatusMode('hidden');
 				return;
 			}
-			setStatusNotice('Starting...');
-			setStatusMode('notice');
 			waitForWebGPUReady().then(() => {
 				setStatusMode('hidden');
 			});
