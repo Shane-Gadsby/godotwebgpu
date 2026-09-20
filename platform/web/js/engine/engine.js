@@ -172,10 +172,36 @@ const Engine = (function () {
 							me.rtenv['copyToFS'](file.path, file.buffer);
 						}
 						preloader.preloadedFiles.length = 0; // Clear memory
-						me.rtenv['callMain'](me.config.args);
-						initPromise = null;
-						me.installServiceWorker();
-						resolve();
+
+						function callMainAndResolve() {
+							me.rtenv['callMain'](me.config.args);
+							initPromise = null;
+							me.installServiceWorker();
+							resolve();
+						}
+
+						if (me.config.renderingDriver === 'webgpu' && typeof window !== 'undefined') {
+							// On WebGPU, callMain() runs the engine's first frame
+							// synchronously -- including, on a cold shader cache,
+							// potentially many seconds of main-thread SPIR-V -> WGSL
+							// Tint compilation for the frame's pipelines -- all
+							// before this call returns control to JS. Dispatch an
+							// event so a custom HTML shell can show a "please wait"
+							// notice right at this point (see misc/dist/html/full-size.html
+							// for the reference implementation), then yield two
+							// animation frames before actually calling in: a single
+							// rAF only guarantees running before the *next* paint,
+							// not that a change made just now was already flushed to
+							// the screen, so without this the shell's notice would be
+							// queued but never actually painted until *after* the
+							// long synchronous call -- defeating the point of it.
+							window.dispatchEvent(new CustomEvent('godot-before-callmain'));
+							requestAnimationFrame(function () {
+								requestAnimationFrame(callMainAndResolve);
+							});
+						} else {
+							callMainAndResolve();
+						}
 					});
 				});
 			},
