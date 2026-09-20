@@ -156,9 +156,21 @@ jobs:
         run: |
           scons platform=linuxbsd target=editor dev_mode=yes tests=no debug_symbols=no -j$(nproc)
 
-      - name: Install Xvfb (needed for real shader compilation below)
+      - name: Install Xvfb + software Vulkan (needed for real shader compilation below)
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
+          # The runner has no GPU and no Vulkan loader/ICD by default, so without
+          # these the editor prints "Required Vulkan instance extension
+          # VK_KHR_surface not found" and silently falls back to OpenGL
+          # Compatibility -- a different renderer that doesn't use the
+          # glslang/SPIR-V RD path at all, so GODOT_DUMP_SPIRV then dumps zero
+          # files (and some engine shaders, e.g. fog, aren't even implemented
+          # for that renderer, so it also errors outright).
+          sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+
+      - name: Verify software Vulkan is actually usable
+        run: |
+          sudo apt-get install -y vulkan-tools
+          xvfb-run -a vulkaninfo --summary
 
       - name: Run test project to compile & dump all shaders
         run: |
@@ -178,7 +190,7 @@ jobs:
           # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
           # last buffered lines — often the actual error — aren't lost before
           # the process exits without flushing.
-          GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 120 \
+          GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 300 \
             xvfb-run -a stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --audio-driver Dummy --path webgpu_tests/test_project \
@@ -216,7 +228,8 @@ jobs:
 
           # Packing/exporting itself doesn't need a real RenderingDevice, so
           # --headless is fine here (unlike the shader-compiling run above).
-          stdbuf -oL -eL \
+          timeout 120 \
+            stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --headless --path webgpu_tests/test_project \
               --export-release "WebGPU" export/index.html \

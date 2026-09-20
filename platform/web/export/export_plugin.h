@@ -56,6 +56,19 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 
 	Ref<EditorHTTPServer> server;
 
+	// Task 13 Phase 4 (webgpu_notes/TASKS.md's 2026-09-20 streaming-capture
+	// scoping note): toggled by the editor's "Capture Shaders" toolbar button
+	// (editor/shader/shader_baker/webgpu_shader_capture_editor_plugin.{h,cpp},
+	// WEBGPU_SHADER_BAKER_ENABLED only). While on, every subsequent
+	// Run-in-Browser session (via the existing EditorRunNative remote-deploy
+	// dropdown) gets an extra `--webgpu-record-spec-constants` launch arg
+	// (see _fix_html() below), across as many runs as the developer wants,
+	// until the button is toggled off again -- the button is the sole owner
+	// of this state; _fix_html() only ever reads it. Does nothing at all
+	// while off (the default), so a project that never uses this feature, or
+	// a real "Project > Export" for distribution, sees zero behavior change.
+	static bool capture_spec_constants_enabled;
+
 	String _get_template_name(bool p_extension, bool p_thread_support, bool p_debug) const {
 		String name = "web";
 		if (p_extension) {
@@ -113,6 +126,9 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 	Error _stop_server();
 
 public:
+	// See capture_spec_constants_enabled's doc comment above.
+	static void set_capture_spec_constants_enabled(bool p_enabled) { capture_spec_constants_enabled = p_enabled; }
+
 	virtual void get_preset_features(const Ref<EditorExportPreset> &p_preset, List<String> *r_features) const override;
 
 	virtual void get_export_options(List<ExportOption> *r_options) const override;

@@ -775,6 +775,11 @@ else:
     baker_sources = [
         "#drivers/webgpu/rendering_shader_container_webgpu.cpp",
         "#drivers/webgpu/wgsl_bake_subprocess.cpp",
+        # Needed to bake recorded specialization-constant variants at export
+        # time (Task 13 Phase 2) -- pure SPIR-V byte patching + hashing, no
+        # SPIRV-Tools/Tint dependency, so safe to add here unlike
+        # spirv_preprocess.cpp (see spirv_spec_constants.h's doc comment).
+        "#drivers/webgpu/spirv_spec_constants.cpp",
     ]
     env_webgpu.add_source_files(env.drivers_sources, baker_sources)
 

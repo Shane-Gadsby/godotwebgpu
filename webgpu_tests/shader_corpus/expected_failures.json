@@ -1,9 +1,20 @@
 {
   "description": "Expected SPIR-V validation failures — Vulkan-only shader variants not used by WebGPU runtime",
-  "updated": "2026-09-13T10:43:44.910Z",
+  "updated": "2026-09-20T00:00:00.000Z",
   "expected_failures": [
+    "Fsr2AccumulatePassShaderRD:2.comp.spv",
+    "Fsr2AccumulatePassShaderRD:3.comp.spv",
+    "Fsr2AutogenReactivePassShaderRD:1.comp.spv",
+    "Fsr2ComputeLuminancePyramidPassShaderRD:0.comp.spv",
+    "Fsr2ReconstructPreviousDepthPassShaderRD:0.comp.spv",
+    "Fsr2ReconstructPreviousDepthPassShaderRD:1.comp.spv",
+    "Fsr2TcrAutogenPassShaderRD:1.comp.spv",
+    "FsrUpscaleShaderRD:0.comp.spv",
+    "SceneForwardClusteredShaderRD:17.frag.spv",
+    "SceneForwardClusteredShaderRD:8.frag.spv",
     "TonemapMobileShaderRD:2.frag.spv",
     "TonemapMobileShaderRD:3.frag.spv",
+    "VolumetricFogShaderRD:2.comp.spv",
     "VrsShaderRD:3.vert.spv"
   ]
 }

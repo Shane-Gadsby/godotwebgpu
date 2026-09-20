@@ -106,14 +106,21 @@ async function main() {
     }
 
     console.log('Launching Chrome with WebGPU...');
+    // CI runners have no GPU and no working Vulkan ANGLE backend, so
+    // --use-angle=vulkan fails there with "WebGL2 missing" (ANGLE can't stand
+    // up a Vulkan context at all) -- see screenshot_comparison/screenshot_tests.mjs,
+    // which already solves this the same way for the same reason.
+    const isCI = !!process.env.CI;
     const browser = await chromium.launch({
         headless: false, // WebGPU requires headed mode on most systems
-        args: [
-            '--enable-unsafe-webgpu',
-            '--enable-features=Vulkan,UseSkiaRenderer',
-            '--disable-gpu-sandbox',
-            '--use-angle=vulkan',
-        ],
+        args: isCI
+            ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
+            : [
+                '--enable-unsafe-webgpu',
+                '--enable-features=Vulkan,UseSkiaRenderer',
+                '--disable-gpu-sandbox',
+                '--use-angle=vulkan',
+            ],
     });
 
     const page = await browser.newPage();
