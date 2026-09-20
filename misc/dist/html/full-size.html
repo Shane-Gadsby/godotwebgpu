@@ -326,6 +326,55 @@ const engine = new Engine(GODOT_CONFIG);
 			setStatusNotice('Initializing WebGPU...');
 			setStatusMode('notice');
 		}
+
+		// On WebGPU, `startGame()` resolving only means callMain() returned --
+		// which happens well before the game is actually visible, since shader
+		// compilation (SPIR-V -> WGSL via Tint) runs synchronously on the main
+		// thread across many subsequent animation frames (up to several seconds
+		// on a cold cache; see webgpu_notes/STARTUP_PROFILING.md). Hiding the
+		// overlay right on that resolution -- as every other renderer here does,
+		// correctly, since their startup really is done by then -- left a black,
+		// apparently-frozen canvas for that whole window with no explanation.
+		//
+		// So for WebGPU specifically, wait for two extra signals dispatched from
+		// the driver (drivers/webgpu/rendering_device_driver_webgpu.cpp) before
+		// hiding: a frame has actually been presented, and no new shader compile
+		// has happened for a short quiet period (compilation happens in bursts,
+		// so a single frame without one doesn't mean it's finished).
+		let firstFramePresented = false;
+		let shaderCompileCount = 0;
+		let lastShaderCompileTime = 0;
+		if (GODOT_RENDERING_DRIVER === 'webgpu') {
+			window.addEventListener('godot-webgpu-first-frame', () => {
+				firstFramePresented = true;
+			});
+			window.addEventListener('godot-webgpu-shader-compile', (event) => {
+				shaderCompileCount = event.detail.misses;
+				lastShaderCompileTime = performance.now();
+				setStatusMode('notice');
+				setStatusNotice(`Compiling shaders... (${shaderCompileCount})`);
+			});
+		}
+
+		function waitForWebGPUReady() {
+			return new Promise((resolve) => {
+				const QUIET_PERIOD_MS = 800;
+				const SAFETY_TIMEOUT_MS = 30000;
+				const startTime = performance.now();
+				function check() {
+					const now = performance.now();
+					const quiet = lastShaderCompileTime === 0 || (now - lastShaderCompileTime) > QUIET_PERIOD_MS;
+					const timedOut = (now - startTime) > SAFETY_TIMEOUT_MS;
+					if ((firstFramePresented && quiet) || timedOut) {
+						resolve();
+						return;
+					}
+					requestAnimationFrame(check);
+				}
+				requestAnimationFrame(check);
+			});
+		}
+
 		engine.startGame({
 			'onProgress': function (current, total) {
 				setStatusMode('progress');
@@ -339,7 +388,15 @@ const engine = new Engine(GODOT_CONFIG);
 			},
 			'onWebGPUDeviceLost': showDeviceLostOverlay,
 		}).then(() => {
-			setStatusMode('hidden');
+			if (GODOT_RENDERING_DRIVER !== 'webgpu') {
+				setStatusMode('hidden');
+				return;
+			}
+			setStatusNotice('Starting...');
+			setStatusMode('notice');
+			waitForWebGPUReady().then(() => {
+				setStatusMode('hidden');
+			});
 		}, displayFailureNotice);
 	}
 }());
