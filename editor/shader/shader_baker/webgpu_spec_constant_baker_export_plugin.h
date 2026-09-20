@@ -57,6 +57,11 @@ class WebGPUSpecConstantBakerExportPlugin : public EditorExportPlugin {
 
 	bool active = false;
 
+	// See _get_customization_configuration_hash()'s doc comment below for why
+	// this exists -- computed in _export_begin() from the usage file's raw
+	// content, alongside reading it for webgpu::set_spec_constant_usage_table().
+	uint64_t customization_configuration_hash = 0;
+
 protected:
 	virtual void _export_begin(const HashSet<String> &p_features, bool p_debug, const String &p_path, int p_flags) override;
 
@@ -75,6 +80,37 @@ protected:
 	// customize.
 	virtual bool _begin_customize_resources(const Ref<EditorExportPlatform> &p_platform, const Vector<String> &p_features) override;
 	virtual void _end_customize_resources() override;
+
+	// Required override once _begin_customize_resources() returns true --
+	// EditorExportPlugin enforces this at runtime (GDVIRTUAL2R_REQUIRED) since
+	// opting into the customize-resources mechanism implies intent to
+	// customize something. This plugin doesn't customize any resource itself
+	// (see this file's header doc comment) -- it only needs the
+	// _begin_/_end_customize_resources() timing hook -- so this always
+	// returns null, meaning "don't touch this resource" per the base class's
+	// own doc comment on this method.
+	virtual Ref<Resource> _customize_resource(const Ref<Resource> &p_resource, const String &p_path) override { return Ref<Resource>(); }
+
+	// Real bug found live (2026-09-20): without this override, every shader
+	// resource can come back from Godot's export resource cache byte-for-byte
+	// unchanged across two exports that differ *only* in
+	// shader_baker/spec_constant_usage_file -- ShaderBakerExportPlugin's own
+	// _get_customization_configuration_hash() (upstream/shared code, not
+	// modified by this fork) hashes only the Godot version and renderer name,
+	// nothing preset-specific, so from the cache's point of view "the same
+	// export" never changed just because the usage file did. When that
+	// happens, RenderingShaderContainerWebGPU::_set_code_from_spirv() (where
+	// this feature's baking actually runs) never gets called again at all --
+	// producing a match-rate warning of "0 of N matched" regardless of how
+	// accurate the recording is, since nothing even tried to match it.
+	// EditorExportPlatform::export_project_files() combines every registered
+	// customize-resources plugin's name + this hash into one shared
+	// custom_resources_hash that picks the cache directory ALL of them read
+	// from -- so returning a hash that changes whenever the usage file's
+	// *content* changes (computed in _export_begin(), stored above) forces a
+	// fresh customization pass for every shader whenever it does, without
+	// needing to touch ShaderBakerExportPlugin itself.
+	virtual uint64_t _get_customization_configuration_hash() const override { return customization_configuration_hash; }
 
 public:
 	virtual String get_name() const override { return "WebGPUSpecConstantBaker"; }

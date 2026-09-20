@@ -241,11 +241,19 @@ jobs:
             exit 1
           fi
 
+      - name: Archive SPIR-V dump
+        run: |
+          # Godot's GODOT_DUMP_SPIRV names files ClassName:variant.stage.spv --
+          # upload-artifact rejects ':' (NTFS-compat restriction on individual
+          # artifact entries), so archive into one file first, which isn't
+          # subject to that per-entry filename check.
+          tar -C /tmp/spirv_dump -czf /tmp/spirv_dump.tar.gz .
+
       - name: Upload SPIR-V dump
         uses: actions/upload-artifact@v5
         with:
           name: spirv-dump
-          path: /tmp/spirv_dump/
+          path: /tmp/spirv_dump.tar.gz
           retention-days: 7
 
       - name: Upload WebGPU export
@@ -278,7 +286,12 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: spirv-dump
-          path: /tmp/spirv_dump/
+          path: /tmp/
+
+      - name: Extract SPIR-V dump
+        run: |
+          mkdir -p /tmp/spirv_dump
+          tar -xzf /tmp/spirv_dump.tar.gz -C /tmp/spirv_dump
 
       - name: Download tint_convert_cli
         uses: actions/download-artifact@v5

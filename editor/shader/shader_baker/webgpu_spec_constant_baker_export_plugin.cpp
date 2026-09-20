@@ -57,6 +57,7 @@ uint64_t parse_uint64_decimal(const String &p_str) {
 
 void WebGPUSpecConstantBakerExportPlugin::_export_begin(const HashSet<String> &p_features, bool p_debug, const String &p_path, int p_flags) {
 	active = false;
+	customization_configuration_hash = 0;
 	webgpu::clear_spec_constant_usage_data();
 
 	if (!p_features.has("shader_baker")) {
@@ -79,6 +80,12 @@ void WebGPUSpecConstantBakerExportPlugin::_export_begin(const HashSet<String> &p
 		return;
 	}
 	String text = f->get_as_text();
+
+	// See this class's header doc comment on _get_customization_configuration_hash():
+	// this is what actually forces Godot's export resource cache to re-bake
+	// every shader whenever the usage file's content changes, rather than
+	// silently reusing a previous export's cached (unmatched) output.
+	customization_configuration_hash = text.hash64();
 
 	Variant parsed = JSON::parse_string(text);
 	if (parsed.get_type() != Variant::ARRAY) {
