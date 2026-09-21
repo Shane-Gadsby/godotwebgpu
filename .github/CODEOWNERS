@@ -138,6 +138,7 @@
 /modules/websocket/editor/                    @godotengine/network @godotengine/editor
 
 ## Physics
+/modules/box3d_physics/                       @godotengine/physics
 /modules/godot_physics_2d/                    @godotengine/physics
 /modules/godot_physics_3d/                    @godotengine/physics
 /modules/jolt_physics/                        @godotengine/physics @godotengine/jolt-physics
@@ -285,6 +286,7 @@
 # Thirdparty
 
 /thirdparty/                                  @godotengine/buildsystem
+/thirdparty/box3d/                            @godotengine/buildsystem @godotengine/physics
 /thirdparty/jolt_physics/                     @godotengine/buildsystem @godotengine/jolt-physics
 
 # WebGPU (this fork's own additions, not part of upstream Godot)

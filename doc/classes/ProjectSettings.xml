@@ -2627,11 +2627,12 @@
 			During each physics tick, Godot will multiply the linear velocity of RigidBodies by [code]1.0 - combined_damp / physics_ticks_per_second[/code]. By default, bodies combine damp factors: [code]combined_damp[/code] is the sum of the damp value of the body and this value or the area's value the body is in. See [enum RigidBody3D.DampMode].
 			[b]Warning:[/b] Godot's damping calculations are simulation tick rate dependent. Changing [member physics/common/physics_ticks_per_second] may significantly change the outcomes and feel of your simulation. This is true for the entire range of damping values greater than 0. To get back to a similar feel, you also need to change your damp values. This needed change is not proportional and differs from case to case.
 		</member>
-		<member name="physics/3d/physics_engine" type="String" setter="" getter="" default="&quot;DEFAULT&quot;" keywords="godotphysics, jolt">
+		<member name="physics/3d/physics_engine" type="String" setter="" getter="" default="&quot;DEFAULT&quot;" keywords="godotphysics, jolt, box3d">
 			Sets which physics engine to use for 3D physics.
-			[b]DEFAULT[/b] is currently equivalent to [b]GodotPhysics3D[/b], but may change in future releases. Select an explicit implementation if you want to ensure that your project stays on the same engine.
+			[b]DEFAULT[/b] is currently equivalent to [b]Box3D Physics[/b] when Box3D is included in the build, and to [b]GodotPhysics3D[/b] otherwise. It may change in future releases. Select an explicit implementation if you want to ensure that your project stays on the same engine.
 			[b]GodotPhysics3D[/b] is Godot's internal 3D physics engine.
-			[b]Jolt Physics[/b] is an alternative physics engine that is generally faster and more reliable than [b]GodotPhysics3D[/b]. Jolt Physics is the default for projects created starting in Godot 4.6.
+			[b]Jolt Physics[/b] is an alternative physics engine that is generally faster and more reliable than [b]GodotPhysics3D[/b].
+			[b]Box3D Physics[/b] is a physics engine based on Erin Catto's Box3D. It is the default for projects created with this version of the editor. It does not support soft bodies, and only approximates some joint settings. Whenever a scene uses something that Box3D cannot provide, a warning describing what was requested is printed. Switch to [b]Jolt Physics[/b] or [b]GodotPhysics3D[/b] if you need those features.
 			[b]Dummy[/b] is a 3D physics server that does nothing and returns only dummy values, effectively disabling all 3D physics functionality.
 			Third-party extensions and modules can add other physics engines to select with this setting.
 		</member>
@@ -2677,6 +2678,51 @@
 		<member name="physics/3d/time_before_sleep" type="float" setter="" getter="" default="0.5">
 			Time (in seconds) of inactivity before which a 3D physics body will put to sleep. See [constant PhysicsServer3D.SPACE_PARAM_BODY_TIME_TO_SLEEP].
 			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+		</member>
+		<member name="physics/box3d_physics_3d/collisions/cylinder_hull_sides" type="int" setter="" getter="" default="32">
+			The number of sides of the prism that Box3D uses in place of a [CylinderShape3D], as Box3D has no cylinder primitive. The prism lies inside the true cylinder, so its rounded surface is very slightly smaller.
+			[b]Note:[/b] Box3D supports at most 32 sides.
+		</member>
+		<member name="physics/box3d_physics_3d/diagnostics/report_unsupported_features" type="bool" setter="" getter="" default="true">
+			If [code]true[/code], a warning is printed the first time that something is requested from the physics engine that Box3D cannot do exactly, such as a soft body, a 6DOF joint configuration or a non-uniform scale on a [SphereShape3D]. The warning explains what was requested and why it could not be done.
+		</member>
+		<member name="physics/box3d_physics_3d/limits/max_linear_velocity" type="float" setter="" getter="" default="400.0">
+			The maximum linear velocity that a body can have, in meters per second.
+		</member>
+		<member name="physics/box3d_physics_3d/limits/world_boundary_shape_size" type="float" setter="" getter="" default="2000.0">
+			The size of the box that Box3D uses in place of a [WorldBoundaryShape3D], as Box3D has no infinite plane.
+			[b]Note:[/b] Increasing this value too much can lead to a loss of precision in the collision detection.
+		</member>
+		<member name="physics/box3d_physics_3d/motion_queries/recovery_amount" type="float" setter="" getter="" default="0.4">
+			How much of the penetration depth to recover from in every recovery iteration of a motion query, such as [method PhysicsBody3D.move_and_collide] or [method CharacterBody3D.move_and_slide].
+		</member>
+		<member name="physics/box3d_physics_3d/motion_queries/recovery_iterations" type="int" setter="" getter="" default="4">
+			The maximum number of iterations used to push a body out of whatever it overlaps with at the start of a motion query, such as [method PhysicsBody3D.move_and_collide] or [method CharacterBody3D.move_and_slide].
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/allow_sleep" type="bool" setter="" getter="" default="true">
+			If [code]true[/code], bodies that come to rest are put to sleep, which saves processing time. A body can still be prevented from sleeping through [member RigidBody3D.can_sleep].
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/bounce_velocity_threshold" type="float" setter="" getter="" default="1.0">
+			The minimum approach speed, in meters per second, for a collision to cause a bounce. Collisions slower than this do not bounce, even if the bodies involved have bounciness.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/contact_damping_ratio" type="float" setter="" getter="" default="10.0">
+			The damping ratio of the contacts, which controls how bouncy the recovery from overlap is. Lowering this makes overlap resolve faster but more energetically.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/contact_hertz" type="float" setter="" getter="" default="30.0">
+			The stiffness of the contacts, in cycles per second. Increasing this makes overlap resolve faster, but can introduce jitter.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/contact_speed" type="float" setter="" getter="" default="3.0">
+			The maximum speed, in meters per second, at which overlapping bodies are pushed apart.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/continuous_collision" type="bool" setter="" getter="" default="true">
+			If [code]true[/code], fast moving bodies are checked for collisions along their whole path, to keep them from passing through thin objects.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/sub_steps" type="int" setter="" getter="" default="4">
+			The number of sub-steps that Box3D divides every physics tick into. More sub-steps make the simulation more accurate and stable, at the cost of more processing time.
+		</member>
+		<member name="physics/box3d_physics_3d/simulation/worker_threads" type="int" setter="" getter="" default="0">
+			The number of threads that Box3D uses to simulate a physics space. A value of [code]0[/code] picks a number based on the number of processors. Simulation results do not depend on this value.
+			[b]Note:[/b] This has no effect when Godot is built without thread support, such as in web exports without threads, where Box3D always runs on a single thread.
 		</member>
 		<member name="physics/common/enable_object_picking" type="bool" setter="" getter="" default="true">
 			Enables [member Viewport.physics_object_picking] on the root viewport.
