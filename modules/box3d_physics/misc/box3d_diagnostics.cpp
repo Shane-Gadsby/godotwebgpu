@@ -62,7 +62,7 @@ void Box3DDiagnostics::report_unsupported(const String &p_feature, const String 
 	const b3Version box3d_version = b3GetVersion();
 	const Dictionary version_info = Engine::get_singleton()->get_version_info();
 
-	String message = vformat("Box3D Physics: '%s' is not supported.", p_feature);
+	String message = vformat("Box3D Physics: '%s' is not fully supported.", p_feature);
 	message += vformat("\n  Attempted: %s", p_attempted);
 	message += vformat("\n  Reason: %s", p_reason);
 	if (!p_details.is_empty()) {
