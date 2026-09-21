@@ -606,7 +606,7 @@ b3HullData *Box3DConvexPolygonShape3D::_create_hull() const {
 		return nullptr;
 	}
 
-	ERR_FAIL_COND_V_MSG(vertex_count < 4, nullptr, vformat("Failed to build Box3D convex polygon shape with %s. It must have a vertex count of at least 4. This shape belongs to %s.", to_string(), _owners_to_string()));
+	ERR_FAIL_COND_V_MSG(vertex_count < 3, nullptr, vformat("Failed to build Box3D convex polygon shape with %s. It must have a vertex count of at least 3. This shape belongs to %s.", to_string(), _owners_to_string()));
 
 	LocalVector<b3Vec3> points;
 	points.resize(vertex_count);
@@ -617,15 +617,99 @@ b3HullData *Box3DConvexPolygonShape3D::_create_hull() const {
 
 	b3HullData *new_hull = b3CreateHull(points.ptr(), vertex_count, B3_MAX_HULL_VERTICES);
 
-	if (new_hull == nullptr) {
-		BOX3D_UNSUPPORTED_KEYED("Convex polygon shape hull",
-				"A ConvexPolygonShape3D was attached to a physics object.",
-				"b3CreateHull() failed. The points are degenerate (flat or collinear), or the hull needs more than the maximum number of vertices, faces or edges that Box3D supports.",
-				vformat("shape=%s max_hull_vertices=%d max_hull_faces=%d max_hull_edges=%d owners=%s", to_string(), B3_MAX_HULL_VERTICES, B3_MAX_HULL_FACES, B3_MAX_HULL_EDGES, _owners_to_string()),
-				vformat("convex_hull_%d", get_rid().get_id()));
+	if (new_hull != nullptr) {
+		return new_hull;
 	}
 
-	return new_hull;
+	// Box3D hulls need some volume, but Godot accepts flat (or even straight) point sets, such as a single quad. Give
+	// those a small thickness instead.
+	constexpr real_t half_thickness = 0.01;
+
+	const Vector3 origin = vertices[0];
+
+	Vector3 farthest = origin;
+	real_t farthest_distance = 0.0;
+	for (int i = 1; i < vertex_count; i++) {
+		const real_t distance = vertices[i].distance_to(origin);
+		if (distance > farthest_distance) {
+			farthest_distance = distance;
+			farthest = vertices[i];
+		}
+	}
+
+	String failure = "the points do not form a valid hull, or the hull needs more than the maximum number of vertices, faces or edges that Box3D supports";
+
+	if (farthest_distance > CMP_EPSILON) {
+		const Vector3 axis = (farthest - origin) / farthest_distance;
+
+		Vector3 third = origin;
+		real_t third_distance = 0.0;
+		for (int i = 1; i < vertex_count; i++) {
+			const real_t distance = axis.cross(vertices[i] - origin).length();
+			if (distance > third_distance) {
+				third_distance = distance;
+				third = vertices[i];
+			}
+		}
+
+		LocalVector<b3Vec3> thick_points;
+		bool thickened = false;
+
+		if (third_distance > farthest_distance * 1e-4) {
+			const Vector3 normal = axis.cross(third - origin).normalized();
+
+			bool coplanar = true;
+			for (int i = 0; i < vertex_count; i++) {
+				if (Math::abs(normal.dot(vertices[i] - origin)) > farthest_distance * 1e-3) {
+					coplanar = false;
+					break;
+				}
+			}
+
+			if (coplanar) {
+				for (int i = 0; i < vertex_count; i++) {
+					thick_points.push_back(to_b3(vertices[i] + normal * half_thickness));
+					thick_points.push_back(to_b3(vertices[i] - normal * half_thickness));
+				}
+				thickened = true;
+			}
+		} else {
+			const Vector3 helper = Math::abs(axis.x) < 0.9 ? Vector3(1, 0, 0) : Vector3(0, 1, 0);
+			const Vector3 side_a = axis.cross(helper).normalized() * half_thickness;
+			const Vector3 side_b = axis.cross(side_a).normalized() * half_thickness;
+
+			for (int i = 0; i < vertex_count; i++) {
+				thick_points.push_back(to_b3(vertices[i] + side_a + side_b));
+				thick_points.push_back(to_b3(vertices[i] + side_a - side_b));
+				thick_points.push_back(to_b3(vertices[i] - side_a + side_b));
+				thick_points.push_back(to_b3(vertices[i] - side_a - side_b));
+			}
+			thickened = true;
+		}
+
+		if (thickened) {
+			new_hull = b3CreateHull(thick_points.ptr(), (int)thick_points.size(), B3_MAX_HULL_VERTICES);
+
+			if (new_hull != nullptr) {
+				BOX3D_UNSUPPORTED_KEYED("Flat convex polygon shape",
+						"A ConvexPolygonShape3D with points that all lie in one plane (or on one line) was attached to a physics object.",
+						vformat("Box3D hulls need some volume, so the shape was given a thickness of %f m on each side of its points.", (double)half_thickness),
+						vformat("shape=%s owners=%s", to_string(), _owners_to_string()),
+						vformat("convex_flat_%d", get_rid().get_id()));
+				return new_hull;
+			}
+
+			failure = "the points are flat or collinear and the thickened hull could not be built either";
+		}
+	}
+
+	BOX3D_UNSUPPORTED_KEYED("Convex polygon shape hull",
+			"A ConvexPolygonShape3D was attached to a physics object.",
+			vformat("b3CreateHull() failed: %s.", failure),
+			vformat("shape=%s max_hull_vertices=%d max_hull_faces=%d max_hull_edges=%d owners=%s", to_string(), B3_MAX_HULL_VERTICES, B3_MAX_HULL_FACES, B3_MAX_HULL_EDGES, _owners_to_string()),
+			vformat("convex_hull_%d", get_rid().get_id()));
+
+	return nullptr;
 }
 
 void Box3DConvexPolygonShape3D::set_data(const Variant &p_data) {
