@@ -190,6 +190,8 @@ Box3DArea3D::Box3DArea3D() :
 Box3DArea3D::~Box3DArea3D() = default;
 
 void Box3DArea3D::set_transform(Transform3D p_transform) {
+	ERR_FAIL_COND_MSG(!p_transform.is_finite(), vformat("A non-finite transform was passed to area '%s'. It will be ignored.", to_string()));
+
 	Vector3 new_scale;
 	if (unlikely(!Box3DMath::decompose(p_transform.basis, new_scale))) {
 		WARN_PRINT(vformat("An invalid transform was passed to area '%s'. The basis was singular, which is not supported by Box3D. This is likely caused by one or more axes having a scale of zero. The basis (and thus its scale) will be treated as identity.", to_string()));

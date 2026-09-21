@@ -482,6 +482,8 @@ Box3DBody3D::~Box3DBody3D() {
 }
 
 void Box3DBody3D::set_transform(Transform3D p_transform) {
+	ERR_FAIL_COND_MSG(!p_transform.is_finite(), vformat("A non-finite transform was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	Vector3 new_scale;
 	if (unlikely(!Box3DMath::decompose(p_transform.basis, new_scale))) {
 		WARN_PRINT(vformat("An invalid transform was passed to physics body '%s'. The basis was singular, which is not supported by Box3D. This is likely caused by one or more axes having a scale of zero. The basis (and thus its scale) will be treated as identity.", to_string()));
@@ -739,6 +741,8 @@ float Box3DBody3D::get_inverse_mass() const {
 }
 
 void Box3DBody3D::set_linear_velocity(const Vector3 &p_velocity) {
+	ERR_FAIL_COND_MSG(!p_velocity.is_finite(), vformat("A non-finite linear velocity was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	if (is_static() || is_kinematic()) {
 		linear_surface_velocity = p_velocity;
 		_update_surface_velocity();
@@ -754,6 +758,8 @@ void Box3DBody3D::set_linear_velocity(const Vector3 &p_velocity) {
 }
 
 void Box3DBody3D::set_angular_velocity(const Vector3 &p_velocity) {
+	ERR_FAIL_COND_MSG(!p_velocity.is_finite(), vformat("A non-finite angular velocity was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	if (is_static() || is_kinematic()) {
 		angular_surface_velocity = p_velocity;
 		_update_surface_velocity();
@@ -938,6 +944,8 @@ void Box3DBody3D::reset_mass_properties() {
 }
 
 void Box3DBody3D::apply_force(const Vector3 &p_force, const Vector3 &p_position) {
+	ERR_FAIL_COND_MSG(!p_force.is_finite(), vformat("A non-finite force was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply force to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || custom_integrator || p_force == Vector3()) {
@@ -948,6 +956,8 @@ void Box3DBody3D::apply_force(const Vector3 &p_force, const Vector3 &p_position)
 }
 
 void Box3DBody3D::apply_central_force(const Vector3 &p_force) {
+	ERR_FAIL_COND_MSG(!p_force.is_finite(), vformat("A non-finite force was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply central force to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || custom_integrator || p_force == Vector3()) {
@@ -958,6 +968,8 @@ void Box3DBody3D::apply_central_force(const Vector3 &p_force) {
 }
 
 void Box3DBody3D::apply_impulse(const Vector3 &p_impulse, const Vector3 &p_position) {
+	ERR_FAIL_COND_MSG(!p_impulse.is_finite(), vformat("A non-finite impulse was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply impulse to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || p_impulse == Vector3()) {
@@ -968,6 +980,8 @@ void Box3DBody3D::apply_impulse(const Vector3 &p_impulse, const Vector3 &p_posit
 }
 
 void Box3DBody3D::apply_central_impulse(const Vector3 &p_impulse) {
+	ERR_FAIL_COND_MSG(!p_impulse.is_finite(), vformat("A non-finite impulse was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply central impulse to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || p_impulse == Vector3()) {
@@ -978,6 +992,8 @@ void Box3DBody3D::apply_central_impulse(const Vector3 &p_impulse) {
 }
 
 void Box3DBody3D::apply_torque(const Vector3 &p_torque) {
+	ERR_FAIL_COND_MSG(!p_torque.is_finite(), vformat("A non-finite torque was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply torque to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || custom_integrator || p_torque == Vector3()) {
@@ -988,6 +1004,8 @@ void Box3DBody3D::apply_torque(const Vector3 &p_torque) {
 }
 
 void Box3DBody3D::apply_torque_impulse(const Vector3 &p_impulse) {
+	ERR_FAIL_COND_MSG(!p_impulse.is_finite(), vformat("A non-finite torque impulse was passed to physics body '%s'. It will be ignored.", to_string()));
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to apply torque impulse to '%s'. Doing so without a physics space is not supported when using Box3D. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	if (unlikely(!is_rigid()) || p_impulse == Vector3()) {
