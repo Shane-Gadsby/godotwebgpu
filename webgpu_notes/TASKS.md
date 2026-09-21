@@ -4182,3 +4182,22 @@ User reported 4 configurations from real-project exports: "all AA options at max
 **Web**: `threads=no` and `threads=yes` builds always run Box3D on one thread. Object files compile for `wasm32` with `-msimd128 -msse2` (Box3D maps its WebAssembly path onto SSE2); without `wasm_simd` the SIMD path is disabled.
 
 **Remaining**: run the full web template link and a browser smoke test; compile check for `precision=double` (`BOX3D_DOUBLE_PRECISION` is wired in the module's `SCsub` but has not been built).
+
+---
+
+## Phase 12: Light projector / positional shadow sweep (September 2026)
+
+> **Trigger**: exported web build of a Forward+ spot light with a `light_projector` looked different from the editor (native Vulkan); test project `godot-game-dev/3d-test`.
+
+### Task 12.1: Light projectors, spot/omni shadows and decal atlas differ from native
+**Status**: `DONE` (verified against native Vulkan: mean abs diff 0.007, no pixel above 16 on the user's project; spot-only and omni scenes 0.000/0.016).
+**Files**: `servers/rendering/renderer_rd/storage_rd/texture_storage.cpp`, `drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}`, `drivers/webgpu/webgpu_objects.h`.
+
+**Issue**: three independent bugs stacked up.
+1. **Decal atlas asked for `STORAGE_BIT`.** The driver cannot create an sRGB view of a storage-capable texture, so it falls back to the linear format and every decal / light projector was read without sRGB decoding (lifted mid-tones, blurry-looking cells). The atlas is only rendered into and sampled, so the bit is dropped.
+2. **Scissor clamp used the render area's size as a limit instead of its far edge.** `command_render_set_scissor` compared the absolute scissor origin against `render_area_width/height`, which held only the rect *size*, so every render area not at (0,0) (all shadow atlas tiles except the first) got a zero-size scissor and drew nothing. `render_area_width/height` now hold `position + size`.
+3. **Partial render-area clears wiped the whole attachment.** A WebGPU `Clear` load op always clears the entire attachment, whereas Vulkan restricts it to the render area. Each shadow tile pass cleared the whole 4096² shadow atlas, so only the last tile rendered survived. `command_begin_render_pass` now turns a clear on a partial render area into `Load` plus a region-limited full-screen-triangle draw (`_get_region_clear_pipeline`: colour through the blend constant, depth/stencil through depth write / stencil `Replace`, pipelines cached by attachment formats). Integer and non-blendable float32 targets keep the old whole-attachment clear.
+
+**Investigation notes**: found with a Playwright hook that wraps `beginRenderPass`/`setScissorRect` and reads the depth atlas back with a compute shader (atlas was all zeros, then one populated tile). Pitfall: the export preset selects the template variant (`variant/extensions_support` -> dlink or not, `variant/thread_support`), so rebuild and reinstall *that* variant (`web_nothreads_release.zip` vs `web_dlink_nothreads_release.zip`) or the test silently runs a stale template.
+
+**Open**: WebGPU volumetric fog looked blockier than native in a scratch scene (froxel sampling); not investigated, not projector-specific.
