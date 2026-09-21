@@ -1153,12 +1153,12 @@ Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t 
 				});
 				if (mod && mod.getCompilationInfo) {
 					mod.getCompilationInfo().then(function(info) {
-						if (!info || !info.messages || info.messages.length == = 0) {
+						if (!info || !info.messages || info.messages.length == 0) {
 							return;
 						}
 						for (var i = 0; i < info.messages.length; i++) {
 							var m = info.messages[i];
-							if (m.type == = 'error') {
+							if (m.type == 'error') {
 								console.error('[JS-SMCOMPILE-ERR#' + myId + '] label="' + label + '" line=' + m.lineNum + ':' + m.linePos + ' | ' + m.message.substring(0, 1200));
 							}
 						}
@@ -9954,7 +9954,7 @@ static bool _spec_constant_recording_enabled() {
 
 	static bool js_enabled = false;
 	if (!js_enabled) {
-		js_enabled = EM_ASM_INT({ return (typeof window != = 'undefined' && window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS) ? 1 : 0; }) != 0;
+		js_enabled = EM_ASM_INT({ return (typeof window != 'undefined' && window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS) ? 1 : 0; }) != 0;
 	}
 	return js_enabled;
 }
