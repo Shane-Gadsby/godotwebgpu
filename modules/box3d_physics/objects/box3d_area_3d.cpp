@@ -31,7 +31,6 @@
 #include "box3d_area_3d.h"
 
 #include "../box3d_physics_server_3d.h"
-#include "../misc/box3d_diagnostics.h"
 #include "../spaces/box3d_space_3d.h"
 #include "box3d_body_3d.h"
 
@@ -295,13 +294,6 @@ void Box3DArea3D::set_param(PhysicsServer3D::AreaParameter p_param, const Varian
 		case PhysicsServer3D::AREA_PARAM_WIND_FORCE_MAGNITUDE: {
 			// This parameter is named incorrectly. It's actually a pressure.
 			set_wind_pressure(p_value);
-			if (wind_pressure != 0.0f) {
-				BOX3D_UNSUPPORTED_KEYED("Area wind",
-						"An area was given a non-zero wind force magnitude.",
-						"Box3D areas only provide gravity and damping overrides. Wind would have to be applied to every overlapping body every step, which is not implemented.",
-						vformat("area=%s wind_pressure=%f wind_source=%v wind_direction=%v wind_attenuation_factor=%f", to_string(), wind_pressure, wind_source, wind_direction, wind_attenuation_factor),
-						"area_wind");
-			}
 		} break;
 		case PhysicsServer3D::AREA_PARAM_WIND_SOURCE: {
 			set_wind_source(p_value);

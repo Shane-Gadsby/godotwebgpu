@@ -160,7 +160,7 @@ void Box3DJoint3D::_wake_up_bodies() {
 }
 
 void Box3DJoint3D::_enabled_changed() {
-	rebuild();
+	request_rebuild();
 	_wake_up_bodies();
 }
 
@@ -324,8 +324,23 @@ void Box3DJoint3D::destroy() {
 	joint_id = b3_nullJointId;
 }
 
+void Box3DJoint3D::request_rebuild() {
+	Box3DSpace3D *space = get_space();
+
+	if (space == nullptr) {
+		destroy();
+		return;
+	}
+
+	space->enqueue_joints_changed(&rebuild_element);
+}
+
 void Box3DJoint3D::rebuild() {
 	destroy();
+
+	if (rebuild_element.in_list()) {
+		rebuild_element.remove_from_list();
+	}
 
 	if (!enabled || get_type() == PhysicsServer3D::JOINT_TYPE_MAX) {
 		return;
@@ -366,7 +381,7 @@ void Box3DJoint3D::rebuild() {
 
 Box3DPinJoint3D::Box3DPinJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Vector3 &p_local_a, const Vector3 &p_local_b) :
 		Box3DJoint3D(p_old_joint, p_body_a, p_body_b, Transform3D({}, p_local_a), Transform3D({}, p_local_b)) {
-	rebuild();
+	request_rebuild();
 }
 
 b3JointId Box3DPinJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
@@ -377,13 +392,13 @@ b3JointId Box3DPinJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
 
 void Box3DPinJoint3D::set_local_a(const Vector3 &p_local_a) {
 	local_ref_a = Transform3D({}, p_local_a);
-	rebuild();
+	request_rebuild();
 	_wake_up_bodies();
 }
 
 void Box3DPinJoint3D::set_local_b(const Vector3 &p_local_b) {
 	local_ref_b = Transform3D({}, p_local_b);
-	rebuild();
+	request_rebuild();
 	_wake_up_bodies();
 }
 
@@ -426,7 +441,7 @@ void Box3DPinJoint3D::set_param(PhysicsServer3D::PinJointParam p_param, double p
 Box3DHingeJoint3D::Box3DHingeJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b) :
 		Box3DJoint3D(p_old_joint, p_body_a, p_body_b, p_local_ref_a, p_local_ref_b) {
 	motor_max_torque = FLT_MAX;
-	rebuild();
+	request_rebuild();
 }
 
 b3JointId Box3DHingeJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
@@ -497,12 +512,12 @@ void Box3DHingeJoint3D::set_param(PhysicsServer3D::HingeJointParam p_param, doub
 		} break;
 		case PhysicsServer3D::HINGE_JOINT_LIMIT_UPPER: {
 			limit_upper = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::HINGE_JOINT_LIMIT_LOWER: {
 			limit_lower = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::HINGE_JOINT_LIMIT_BIAS: {
@@ -553,12 +568,12 @@ void Box3DHingeJoint3D::set_flag(PhysicsServer3D::HingeJointFlag p_flag, bool p_
 	switch (p_flag) {
 		case PhysicsServer3D::HINGE_JOINT_FLAG_USE_LIMIT: {
 			limits_enabled = p_enabled;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::HINGE_JOINT_FLAG_ENABLE_MOTOR: {
 			motor_enabled = p_enabled;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		default: {
@@ -571,7 +586,7 @@ void Box3DHingeJoint3D::set_flag(PhysicsServer3D::HingeJointFlag p_flag, bool p_
 
 Box3DSliderJoint3D::Box3DSliderJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b) :
 		Box3DJoint3D(p_old_joint, p_body_a, p_body_b, p_local_ref_a, p_local_ref_b) {
-	rebuild();
+	request_rebuild();
 }
 
 b3JointId Box3DSliderJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
@@ -617,12 +632,12 @@ void Box3DSliderJoint3D::set_param(PhysicsServer3D::SliderJointParam p_param, do
 	switch (p_param) {
 		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_UPPER: {
 			limit_upper = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_LOWER: {
 			limit_lower = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		default: {
@@ -635,7 +650,7 @@ void Box3DSliderJoint3D::set_param(PhysicsServer3D::SliderJointParam p_param, do
 
 Box3DConeTwistJoint3D::Box3DConeTwistJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b) :
 		Box3DJoint3D(p_old_joint, p_body_a, p_body_b, p_local_ref_a, p_local_ref_b) {
-	rebuild();
+	request_rebuild();
 }
 
 b3JointId Box3DConeTwistJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
@@ -692,12 +707,12 @@ void Box3DConeTwistJoint3D::set_param(PhysicsServer3D::ConeTwistJointParam p_par
 	switch (p_param) {
 		case PhysicsServer3D::CONE_TWIST_JOINT_SWING_SPAN: {
 			swing_span = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::CONE_TWIST_JOINT_TWIST_SPAN: {
 			twist_span = p_value;
-			rebuild();
+			request_rebuild();
 			_wake_up_bodies();
 		} break;
 		case PhysicsServer3D::CONE_TWIST_JOINT_BIAS: {
@@ -723,7 +738,7 @@ Box3DGeneric6DOFJoint3D::Box3DGeneric6DOFJoint3D(const Box3DJoint3D &p_old_joint
 		motor_limit[i] = FLT_MAX;
 	}
 
-	rebuild();
+	request_rebuild();
 }
 
 b3JointId Box3DGeneric6DOFJoint3D::_create(b3WorldId p_world, const Frames &p_frames) {
@@ -970,7 +985,7 @@ void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PhysicsServer3D::G
 	}
 
 	if (rebuild_needed) {
-		rebuild();
+		request_rebuild();
 		_wake_up_bodies();
 	}
 }
@@ -1041,7 +1056,7 @@ void Box3DGeneric6DOFJoint3D::set_flag(Vector3::Axis p_axis, PhysicsServer3D::G6
 	}
 
 	if (rebuild_needed) {
-		rebuild();
+		request_rebuild();
 		_wake_up_bodies();
 	}
 }

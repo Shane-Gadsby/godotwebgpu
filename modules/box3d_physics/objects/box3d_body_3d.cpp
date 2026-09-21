@@ -62,6 +62,9 @@ b3ShapeDef Box3DBody3D::_make_shape_def() const {
 	def.density = 1000.0f;
 	def.baseMaterial.friction = friction;
 	def.baseMaterial.restitution = bounce;
+	if (in_space() && linear_surface_velocity != Vector3()) {
+		def.baseMaterial.tangentVelocity = b3Body_GetLocalVector(body_id, to_b3(linear_surface_velocity));
+	}
 	def.filter = Box3DFilter::make(collision_layer);
 	def.enableCustomFiltering = true;
 	def.enableSensorEvents = true;
@@ -334,9 +337,34 @@ void Box3DBody3D::_update_material() {
 	}
 }
 
+void Box3DBody3D::_update_surface_velocity() {
+	if (!in_space()) {
+		return;
+	}
+
+	if (angular_surface_velocity != Vector3()) {
+		BOX3D_UNSUPPORTED_KEYED("Constant angular velocity on static and kinematic bodies",
+				"A StaticBody3D or AnimatableBody3D was given a constant angular velocity.",
+				"Box3D can only make a surface behave like a conveyor belt (a constant linear velocity along the contact surface). A surface that turns, like a turntable, is not supported.",
+				vformat("body=%s constant_angular_velocity=%v mode=%d", to_string(), angular_surface_velocity, (int)mode),
+				"surface_angular_velocity");
+	}
+
+	// Box3D takes the velocity of the surface in the space of the shape, so it has to follow the orientation of the body.
+	const b3Vec3 local_velocity = b3Body_GetLocalVector(body_id, to_b3(linear_surface_velocity));
+
+	for (Box3DShapeInstance *instance : shapes) {
+		for (const b3ShapeId &id : instance->built_shapes) {
+			b3SurfaceMaterial material = b3Shape_GetSurfaceMaterial(id);
+			material.tangentVelocity = local_velocity;
+			b3Shape_SetSurfaceMaterial(id, material);
+		}
+	}
+}
+
 void Box3DBody3D::_update_joint_constraints() {
 	for (Box3DJoint3D *joint : joints) {
-		joint->rebuild();
+		joint->request_rebuild();
 	}
 }
 
@@ -713,6 +741,7 @@ float Box3DBody3D::get_inverse_mass() const {
 void Box3DBody3D::set_linear_velocity(const Vector3 &p_velocity) {
 	if (is_static() || is_kinematic()) {
 		linear_surface_velocity = p_velocity;
+		_update_surface_velocity();
 	} else {
 		if (!in_space()) {
 			linear_velocity_cache = p_velocity;
@@ -727,6 +756,7 @@ void Box3DBody3D::set_linear_velocity(const Vector3 &p_velocity) {
 void Box3DBody3D::set_angular_velocity(const Vector3 &p_velocity) {
 	if (is_static() || is_kinematic()) {
 		angular_surface_velocity = p_velocity;
+		_update_surface_velocity();
 	} else {
 		if (!in_space()) {
 			angular_velocity_cache = p_velocity;
