@@ -8353,7 +8353,11 @@ HashMap<String, Variant> EditorNode::get_initial_settings() {
 	HashMap<String, Variant> settings;
 	settings["display/window/stretch/aspect"] = "expand";
 	settings["display/window/stretch/mode"] = "canvas_items";
+#ifdef MODULE_BOX3D_PHYSICS_ENABLED
+	settings["physics/3d/physics_engine"] = "Box3D Physics";
+#else
 	settings["physics/3d/physics_engine"] = "Jolt Physics";
+#endif
 	settings["rendering/rendering_device/driver.windows"] = "d3d12";
 	return settings;
 }
