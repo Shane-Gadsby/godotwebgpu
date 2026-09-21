@@ -110,6 +110,20 @@ Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.
 - **Device init**: the JS shell pre-initializes a `GPUDevice` and stores it on `Module["preinitializedWebGPUDevice"]`; C++ retrieves it via the emdawnwebgpu port's `WebGPU.importJsDevice()` through `EM_ASM_PTR`, not `emscripten_webgpu_get_device()`/`html5_webgpu.h` (removed in modern Emscripten).
 - **Format constraints**: no 3-component texture formats (RGB8/16/32 unsupported as textures), 256-byte row alignment for buffer↔texture copies, no multi-draw-indirect (loop over individual draws), max 4 bind groups (set 3 is reserved for push-constant emulation).
 
+### Physics: Box3D is the default 3D physics engine
+
+`modules/box3d_physics/` implements `PhysicsServer3D` on top of the official [Box3D](https://github.com/erincatto/box3d) engine (vendored in `thirdparty/box3d`, plain C17). It registers as `"Box3D Physics"` with default priority, so `physics/3d/physics_engine = DEFAULT` resolves to it and new projects created by the editor are written with `"Box3D Physics"`. `"Jolt Physics"` and `"GodotPhysics3D"` stay selectable in the project settings. The module mirrors `modules/jolt_physics/` in structure (`objects/`, `shapes/`, `spaces/`, `joints/`); when changing behavior, check how Jolt does it first, and compare results against Jolt/GodotPhysics3D with a scratch project rather than trusting a single engine.
+
+Key differences from a "normal" backend that are easy to trip over:
+
+- Box3D shapes belong to one body and have their transform baked into their geometry, so every (object, Godot shape) pair gets its own `Box3DShapeInstance`; shape/scale changes rebuild the Box3D shapes (deferred to the next step through `Box3DSpace3D::flush_pending_shapes()`).
+- Godot's one-directional layer/mask rules and area monitoring rules cannot be expressed with Box3D's symmetric filter bits, so every shape passes the built-in filter and `Box3DSpace3D::_custom_filter()` makes the real decision. Areas are Box3D sensor shapes on a static body.
+- Box3D has no cylinder, plane, soft body or generic 6DOF joint. Cylinders are prisms, world boundaries are huge boxes, and unsupported features go through `Box3DDiagnostics::report_unsupported()`, which prints a one-time warning with everything needed to diagnose it. When you hit a new gap, report it that way instead of failing silently.
+- `body_test_motion` and the shape queries do their own narrow phase (`spaces/box3d_query_shape.cpp`) on top of Box3D's public `b3Collide*` functions.
+- Web builds always run Box3D single threaded (`workerCount = 1`); its own thread creation cannot work from the web export's fixed pthread pool.
+
+Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
+
 ### Where to look first
 
 - `webgpu_notes/TASKS.md` — the living task/status doc, organized by phase; check it before starting work to see what's known-broken or in-progress. Update it (status, completion notes) when you finish or discover something significant, following the existing per-task format (Status/Severity/Lines/Issue/Investigation).
