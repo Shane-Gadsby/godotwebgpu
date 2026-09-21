@@ -40,6 +40,7 @@
 
 class Box3DArea3D;
 class Box3DBody3D;
+class Box3DJoint3D;
 class Box3DObject3D;
 class Box3DPhysicsDirectSpaceState3D;
 
@@ -49,6 +50,7 @@ class Box3DSpace3D {
 	SelfList<Box3DObject3D>::List shapes_changed_list;
 	SelfList<Box3DBody3D>::List force_bodies_list;
 	SelfList<Box3DBody3D>::List kinematic_bodies_list;
+	SelfList<Box3DJoint3D>::List joints_changed_list;
 
 	HashSet<Box3DBody3D *> bodies;
 	HashSet<Box3DBody3D *> contact_reporters;
@@ -138,6 +140,9 @@ public:
 
 	void enqueue_kinematic(SelfList<Box3DBody3D> *p_body);
 	void dequeue_kinematic(SelfList<Box3DBody3D> *p_body);
+
+	void enqueue_joints_changed(SelfList<Box3DJoint3D> *p_joint);
+	void dequeue_joints_changed(SelfList<Box3DJoint3D> *p_joint);
 
 	// Commits any deferred shape changes, so that queries see up to date geometry.
 	void flush_pending_shapes();

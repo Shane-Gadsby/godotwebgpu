@@ -136,6 +136,7 @@ private:
 	void _update_environmental_properties();
 	void _update_sleep_allowed();
 	void _update_material();
+	void _update_surface_velocity();
 	void _update_joint_constraints();
 	void _destroy_joint_constraints();
 	void _clear_areas();

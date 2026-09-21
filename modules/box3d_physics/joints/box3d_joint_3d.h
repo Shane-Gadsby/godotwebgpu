@@ -32,6 +32,7 @@
 
 #include "../misc/box3d_common.h"
 
+#include "core/templates/self_list.h"
 #include "servers/physics_3d/physics_server_3d.h"
 
 class Box3DBody3D;
@@ -48,6 +49,8 @@ public:
 	};
 
 protected:
+	SelfList<Box3DJoint3D> rebuild_element{ this };
+
 	bool enabled = true;
 	bool collision_disabled = false;
 
@@ -114,7 +117,12 @@ public:
 
 	void destroy();
 
+	// Rebuilds the Box3D joint right away.
 	void rebuild();
+
+	// Rebuilds the Box3D joint before the next step. Godot configures joints one setting at a time, so this avoids
+	// building (and reporting on) joints in the half configured states in between.
+	void request_rebuild();
 };
 
 class Box3DPinJoint3D final : public Box3DJoint3D {

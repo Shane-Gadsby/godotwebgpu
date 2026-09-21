@@ -32,6 +32,7 @@
 
 #include "../box3d_physics_server_3d.h"
 #include "../box3d_project_settings.h"
+#include "../joints/box3d_joint_3d.h"
 #include "../misc/box3d_diagnostics.h"
 #include "../objects/box3d_area_3d.h"
 #include "../objects/box3d_body_3d.h"
@@ -411,10 +412,27 @@ void Box3DSpace3D::dequeue_kinematic(SelfList<Box3DBody3D> *p_body) {
 	}
 }
 
+void Box3DSpace3D::enqueue_joints_changed(SelfList<Box3DJoint3D> *p_joint) {
+	if (!p_joint->in_list()) {
+		joints_changed_list.add(p_joint);
+	}
+}
+
+void Box3DSpace3D::dequeue_joints_changed(SelfList<Box3DJoint3D> *p_joint) {
+	if (p_joint->in_list()) {
+		joints_changed_list.remove(p_joint);
+	}
+}
+
 void Box3DSpace3D::flush_pending_shapes() {
 	while (shapes_changed_list.first()) {
 		Box3DObject3D *object = shapes_changed_list.first()->self();
 		object->commit_shapes();
+	}
+
+	while (joints_changed_list.first()) {
+		Box3DJoint3D *joint = joints_changed_list.first()->self();
+		joint->rebuild();
 	}
 }
 

@@ -62,7 +62,6 @@ class Box3DSoftBody3D {
 	int simulation_precision = 5;
 
 	bool pickable = false;
-	bool reported = false;
 
 	void _report(const char *p_operation) const;
 
