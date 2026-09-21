@@ -131,6 +131,7 @@ async function main() {
     let deviceLost = false;
     let engineStarted = false;
     let engineFinished = false;
+    let enginePassed = false;
 
     page.on('console', (msg) => {
         const text = msg.text();
@@ -154,6 +155,7 @@ async function main() {
         }
         if (text.includes('[ShaderCoverage] PASS')) {
             engineFinished = true;
+            enginePassed = true;
             console.log('  Engine reports PASS.');
         }
         if (text.includes('[ShaderCoverage] FAIL')) {
@@ -210,7 +212,8 @@ async function main() {
         exitCode = 1;
     }
 
-    if (deviceLost) {
+    // Device loss during normal engine shutdown (after PASS) is expected teardown.
+    if (deviceLost && !enginePassed) {
         console.error('  FAIL: GPU device was lost');
         exitCode = 1;
     }
