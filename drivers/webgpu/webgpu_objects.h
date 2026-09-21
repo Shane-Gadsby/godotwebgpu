@@ -173,6 +173,8 @@ struct WGShader {
 		// dummy_nonfiltering_sampler / Task 8.9, Task 7.13).
 		WGPUBindGroupLayoutEntry paired_sampler_entry = {};
 		bool has_paired_sampler_entry = false;
+		// UNIFORM_TYPE_SAMPLER used by both a depth texture and another texture (see sampler_depth_use_shared_check).
+		bool sampler_shared_with_non_depth = false;
 	};
 	struct BindGroupInfo {
 		LocalVector<BindGroupEntry> entries;

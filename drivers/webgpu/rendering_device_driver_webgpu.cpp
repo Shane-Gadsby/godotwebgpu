@@ -3234,6 +3234,10 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 	WGPUSampler sampler = wgpuDeviceCreateSampler(device, &desc);
 	ERR_FAIL_COND_V(sampler == nullptr, SamplerID());
 
+	if (desc.magFilter == WGPUFilterMode_Linear || desc.minFilter == WGPUFilterMode_Linear) {
+		linear_filtering_samplers.insert((uint64_t)sampler);
+	}
+
 	// Store the WGPUSampler handle directly as the ID (no wrapper struct needed).
 	return SamplerID((uint64_t)sampler);
 }
@@ -3241,6 +3245,7 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 void RenderingDeviceDriverWebGPU::sampler_free(SamplerID p_sampler) {
 	WGPUSampler sampler = (WGPUSampler)(p_sampler.id);
 	if (sampler) {
+		linear_filtering_samplers.erase((uint64_t)sampler);
 		wgpuSamplerRelease(sampler);
 	}
 }
@@ -4734,6 +4739,11 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// See webgpu_notes/TASKS.md Task 8.8.
 	HashMap<uint32_t, bool> wgsl_sampler_needs_nonfiltering;
 
+	// Same key as above. Bit 1: the sampler is used with a depth texture, bit 2: with any other texture. A sampler
+	// with both bits set is forced to a nearest sampler at bind time (see uniform_set_create()), which silently
+	// point-samples every non-depth read through it.
+	HashMap<uint32_t, uint8_t> sampler_depth_use_shared_check;
+
 	// Maps (set_index << 16 | binding) → WGPUShaderStage bitmask of stages that actually
 	// declare this binding in their WGSL. Each SPIR-V stage is translated to WGSL
 	// independently, so a @group/@binding only shows up in a given stage's WGSL text if
@@ -5524,6 +5534,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					uint32_t tex_key = wgsl_var_binding_key[tex_name];
 					if (wgsl_is_depth_texture.has(tex_key) && wgsl_is_depth_texture[tex_key]) {
 						wgsl_sampler_needs_nonfiltering[wgsl_var_binding_key[samp_name]] = true;
+						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 1;
+					} else {
+						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 2;
 					}
 				}
 			}
@@ -5909,6 +5922,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						entry.sampler.type = resolve_sampler_type(k);
 						bge.layout_entry = entry;
 						bge.array_length = 1;
+						bge.sampler_shared_with_non_depth = sampler_depth_use_shared_check.has(k) && sampler_depth_use_shared_check[k] == 3;
 					} break;
 
 					case RDD::UNIFORM_TYPE_TEXTURE:
@@ -6612,6 +6626,9 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						for (const auto &bge : shader->bind_group_infos[p_set_index].entries) {
 							if (bge.layout_entry.binding == entry.binding &&
 									bge.layout_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
+								if (bge.sampler_shared_with_non_depth && linear_filtering_samplers.has((uint64_t)entry.sampler)) {
+									WARN_PRINT_ONCE(vformat("WebGPU: linear sampler at set %d binding %d is shared by a depth texture and a filterable texture, so every read through it is point-sampled. Give the depth reads their own nearest sampler in the shader.", (int)p_set_index, (int)uniform.binding));
+								}
 								entry.sampler = dummy_nonfiltering_sampler;
 								break;
 							}
