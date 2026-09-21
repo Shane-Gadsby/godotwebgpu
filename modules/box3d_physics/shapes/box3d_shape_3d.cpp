@@ -101,9 +101,9 @@ bool Box3DShapeInstance::build(b3BodyId p_body, b3ShapeDef p_def, const Vector3 
 }
 
 void Box3DShapeInstance::destroy_built() {
-	for (const b3ShapeId &id : built_shapes) {
-		if (b3Shape_IsValid(id)) {
-			b3DestroyShape(id, false);
+	for (const b3ShapeId &shape_id : built_shapes) {
+		if (b3Shape_IsValid(shape_id)) {
+			b3DestroyShape(shape_id, false);
 		}
 	}
 
