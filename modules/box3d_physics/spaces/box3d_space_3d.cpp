@@ -51,7 +51,7 @@ constexpr double SPACE_DEFAULT_SLEEP_THRESHOLD_ANGULAR = 8.0 * Math::PI / 180;
 constexpr double SPACE_DEFAULT_SOLVER_ITERATIONS = 8;
 
 int _resolve_worker_count() {
-#ifdef THREADS_ENABLED
+#if defined(THREADS_ENABLED) && !defined(WEB_ENABLED)
 	const int configured = Box3DProjectSettings::simulation_worker_threads;
 	if (configured > 0) {
 		return CLAMP(configured, 1, B3_MAX_WORKERS);
@@ -59,6 +59,8 @@ int _resolve_worker_count() {
 
 	return CLAMP(OS::get_singleton()->get_processor_count() / 2, 1, 8);
 #else
+	// Box3D starts its own threads, which a web export can only do from a fixed pool that the main thread hands out
+	// while it is idle, so a step that asked for more threads than are ready would wait forever.
 	return 1;
 #endif
 }

@@ -2722,7 +2722,7 @@
 		</member>
 		<member name="physics/box3d_physics_3d/simulation/worker_threads" type="int" setter="" getter="" default="0">
 			The number of threads that Box3D uses to simulate a physics space. A value of [code]0[/code] picks a number based on the number of processors. Simulation results do not depend on this value.
-			[b]Note:[/b] This has no effect when Godot is built without thread support, such as in web exports without threads, where Box3D always runs on a single thread.
+			[b]Note:[/b] This has no effect when Godot is built without thread support, and in web exports, where Box3D always runs on a single thread.
 		</member>
 		<member name="physics/common/enable_object_picking" type="bool" setter="" getter="" default="true">
 			Enables [member Viewport.physics_object_picking] on the root viewport.
