@@ -232,6 +232,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// for -- there is no "correct" Godot-level sampler to defer to here, so a dedicated nearest
 	// sampler is used unconditionally for any binding the shader-side scan determined needs it.
 	WGPUSampler dummy_nonfiltering_sampler = nullptr;
+	HashSet<uint64_t> linear_filtering_samplers; // WGPUSampler handles created with a linear min/mag filter.
 
 	// --- BGL Rebinding Helper ---
 	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx);

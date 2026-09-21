@@ -4222,3 +4222,4 @@ User reported 4 configurations from real-project exports: "all AA options at max
 **Verification**: local Windows `tint_convert_cli.exe` passes the shader corpus (13/13), batch output is byte-identical to single-file output, and a 300-shader fuzz batch (corrupted fixtures) survived 131 child crashes (e.g. SPIRV-Tools `def_use_manager.cpp` assertion) with valid JSON for every entry. The MSVC editor built with `webgpu=yes` contains the capture plugin.
 
 **Open**: `build.sh` compiles SPIRV-Tools/Tint without `-DNDEBUG`, so their asserts are live in `tint_convert_cli` on every platform (they only surface as isolated "Tint crashed" entries).
+
