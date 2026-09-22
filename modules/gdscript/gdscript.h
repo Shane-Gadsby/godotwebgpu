@@ -502,10 +502,16 @@ public:
 		// `call_level` is a caller-owned local whose address outlives this store: exit_function()
 		// (called before the local goes out of scope) always pops it back off `_call_stack` first.
 		// GCC can't see that ordering guarantee across the two inline functions and false-positives here.
+		// `-Wdangling-pointer` doesn't exist before GCC 12, and older GCC treats an unrecognized
+		// warning name in `#pragma GCC diagnostic ignored` as a hard error under `-Werror=pragmas`.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
 		GODOT_GCC_WARNING_PUSH
 		GODOT_GCC_WARNING_IGNORE("-Wdangling-pointer")
+#endif
 		_call_stack = call_level;
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
 		GODOT_GCC_WARNING_POP
+#endif
 		call_level->stack = p_stack;
 		call_level->instance = p_instance;
 		call_level->function = p_function;
