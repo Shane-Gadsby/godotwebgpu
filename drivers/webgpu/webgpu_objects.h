@@ -390,6 +390,7 @@ struct WGCommandBuffer {
 		uint32_t current_subpass = 0;
 		WGPipelineWrapper *current_pipeline = nullptr;
 		WGPUIndexFormat current_index_format = WGPUIndexFormat_Uint32;
+		// Far edge (x + width, y + height) of the render area in attachment coordinates.
 		uint32_t render_area_width = 0;
 		uint32_t render_area_height = 0;
 

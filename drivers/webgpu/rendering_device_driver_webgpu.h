@@ -142,6 +142,11 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUBindGroupLayout empty_bind_group_layout = nullptr;
 	WGPUBindGroup empty_bind_group = nullptr;
 
+	// Pipelines that clear a sub-rectangle of a render pass's attachments (a WebGPU load op of Clear always wipes the
+	// whole attachment, unlike Vulkan where it is restricted to the render area). Keyed by attachment formats and clear kind.
+	HashMap<String, WGPURenderPipeline> region_clear_pipelines;
+	WGPURenderPipeline _get_region_clear_pipeline(const LocalVector<WGPUTextureFormat> &p_color_formats, int p_color_target, WGPUTextureFormat p_depth_format, bool p_clear_depth, float p_depth, bool p_clear_stencil, uint32_t p_samples);
+
 	// --- Fallback Textures ---
 	// Small float texture used when a depth-format fallback texture is bound
 	// to a BGL entry that expects Float sample type (depth textures can't be
