@@ -433,6 +433,11 @@ const Engine = (function () {
 					const reason = info.reason || 'unknown';
 					const msg = info.message || '';
 					console.error(`[Godot] WebGPU device lost (reason: ${reason}): ${msg}`); // eslint-disable-line no-console
+					// Flip a global flag the C++ driver polls (see
+					// RenderingDeviceDriverWebGPU::_check_device_lost()) so it
+					// stops issuing WebGPU calls against a dead device instead
+					// of spamming a rejected-promise error every frame forever.
+					window['GODOT_WEBGPU_DEVICE_LOST'] = true;
 				});
 				device.addEventListener('uncapturederror', function (event) {
 					// Include the full error message — `event.error` alone only

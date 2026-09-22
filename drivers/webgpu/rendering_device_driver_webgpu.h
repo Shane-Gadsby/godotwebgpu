@@ -46,6 +46,13 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUDevice device = nullptr;
 	WGPUQueue queue = nullptr;
 
+	// Set once the JS-side `device.lost` promise resolves (see engine.js);
+	// polled from command_queue_execute_and_present() so the driver stops
+	// issuing WebGPU calls against a dead device instead of spamming a
+	// rejected-promise error every frame forever. See webgpu_notes/TASKS.md.
+	bool device_lost = false;
+	bool _check_device_lost();
+
 	uint32_t frame_count = 1;
 	uint32_t frame_index = 0;
 	uint32_t frames_drawn = 0;
