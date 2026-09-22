@@ -3503,7 +3503,26 @@ RDD::CommandQueueID RenderingDeviceDriverWebGPU::command_queue_create(CommandQue
 	return CommandQueueID(cq);
 }
 
+bool RenderingDeviceDriverWebGPU::_check_device_lost() {
+	if (device_lost) {
+		return true;
+	}
+	// window.GODOT_WEBGPU_DEVICE_LOST is set by the `device.lost` handler in
+	// platform/web/js/engine/engine.js. Once flipped we latch device_lost and
+	// never poll JS again, so this costs one EM_ASM_INT per frame only while
+	// the device is still alive.
+	device_lost = EM_ASM_INT({ return (typeof window != 'undefined' && window.GODOT_WEBGPU_DEVICE_LOST) ? 1 : 0; }) != 0;
+	if (device_lost) {
+		ERR_PRINT_ONCE("WebGPU: device was lost — halting further GPU submissions. Reload the page to recover.");
+	}
+	return device_lost;
+}
+
 Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {
+	if (_check_device_lost()) {
+		return ERR_CANT_CREATE;
+	}
+
 	// Submit all command buffers.
 	LocalVector<WGPUCommandBuffer> wgpu_cmd_buffers;
 	for (uint32_t i = 0; i < p_cmd_buffers.size(); i++) {
