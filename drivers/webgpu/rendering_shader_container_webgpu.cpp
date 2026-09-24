@@ -34,6 +34,7 @@
 
 #include "core/io/file_access.h"
 #include "core/os/mutex.h"
+#include "core/os/os.h"
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
 #include "spirv_spec_constants.h"
@@ -115,7 +116,7 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 		// hashes never turn up on the export side at all, instead of only
 		// knowing the aggregate mismatch count. Baking runs across
 		// WorkerThreadPool threads, hence the mutex.
-		if (const char *dump_path = getenv("WEBGPU_DUMP_ALL_BASE_HASHES")) {
+		if (String dump_path = OS::get_singleton()->get_environment("WEBGPU_DUMP_ALL_BASE_HASHES"); !dump_path.is_empty()) {
 			static Mutex dump_mutex;
 			MutexLock lock(dump_mutex);
 			Ref<FileAccess> dump_f = FileAccess::open(dump_path, FileAccess::READ_WRITE);

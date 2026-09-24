@@ -173,6 +173,13 @@ if (-not $SkipInstall) {
     }
     Write-Ok "Python OK: $(python --version)"
 
+    # --- LLVM (clang++ for tint_convert_cli) -------------------------------
+
+    Write-Step "Checking for LLVM clang++..."
+    if (-not (Test-Cmd "clang++") -and -not (Test-Path (Join-Path $env:ProgramFiles "LLVM\bin\clang++.exe"))) {
+        Install-WingetPackage -Id "LLVM.LLVM"
+    }
+
     Write-Step "Installing SCons $SconsVersion..."
     Invoke-Native python -m pip install --upgrade pip
     Invoke-Native python -m pip install "scons==$SconsVersion"
@@ -325,11 +332,44 @@ function Copy-BuiltExe {
     }
 }
 
-Write-Step "Building editor (platform=windows, dev_build=yes)..."
-Invoke-Native scons platform=windows target=editor dev_build=yes `
+# Git for Windows' bash, not WSL's System32\bash.exe: tint_cli/build.sh picks
+# its platform sources from `uname -s`, so it must see MINGW64 to build a
+# Windows binary.
+function Find-GitBash {
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe")
+    )
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        # git.exe lives in <Git>\cmd\; bash.exe in <Git>\bin\.
+        $candidates += Join-Path (Split-Path (Split-Path $git.Source)) "bin\bash.exe"
+    }
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path $c)) {
+            return $c
+        }
+    }
+    return $null
+}
+
+# webgpu=yes builds in the WebGPU shader baker (export-time WGSL baking + the
+# shader capture toolbar toggle), which needs tint_convert_cli.exe next to the
+# editor executable.
+Write-Step "Building editor (platform=windows, dev_build=yes, webgpu=yes)..."
+Invoke-Native scons platform=windows target=editor dev_build=yes webgpu=yes `
     d3d12=$d3d12Enabled accesskit=$accesskitEnabled angle=$angleEnabled -j $Jobs
 Copy-BuiltExe -Pattern "godot.windows.editor.dev.x86_64*.exe" -Dest (Join-Path $OutDir "editor_windows")
 Write-Ok "Editor -> $OutDir\editor_windows"
+
+Write-Step "Building tint_convert_cli (WebGPU shader baker helper)..."
+$gitBash = Find-GitBash
+if (-not $gitBash) {
+    Write-ErrAndExit "Git Bash not found (needed to run drivers/webgpu/tint_cli/build.sh). Install Git for Windows and re-run."
+}
+Invoke-Native $gitBash drivers/webgpu/tint_cli/build.sh
+Copy-BuiltExe -Pattern "tint_convert_cli.exe" -Dest (Join-Path $OutDir "editor_windows")
+Write-Ok "tint_convert_cli -> $OutDir\editor_windows"
 
 Write-Step "Building export template (debug)..."
 Invoke-Native scons platform=windows target=template_debug `

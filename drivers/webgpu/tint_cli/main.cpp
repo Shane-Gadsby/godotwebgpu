@@ -42,10 +42,24 @@
 #include "../spirv_preprocess.h"
 #include "../tint_wrapper.h"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <fcntl.h>
+#include <io.h>
+#else
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -54,9 +68,40 @@
 #include <string>
 #include <vector>
 
-// Read a binary file into a byte vector.
+#ifdef _WIN32
+static std::wstring utf8_to_wide(const char *p_str) {
+	int len = MultiByteToWideChar(CP_UTF8, 0, p_str, -1, nullptr, 0);
+	if (len <= 0) {
+		return {};
+	}
+	std::wstring out((size_t)len, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, p_str, -1, out.data(), len);
+	out.resize((size_t)len - 1);
+	return out;
+}
+
+static std::string wide_to_utf8(const wchar_t *p_str) {
+	int len = WideCharToMultiByte(CP_UTF8, 0, p_str, -1, nullptr, 0, nullptr, nullptr);
+	if (len <= 0) {
+		return {};
+	}
+	std::string out((size_t)len, '\0');
+	WideCharToMultiByte(CP_UTF8, 0, p_str, -1, out.data(), len, nullptr, nullptr);
+	out.resize((size_t)len - 1);
+	return out;
+}
+#endif
+
+// Read a binary file into a byte vector. p_path is UTF-8 on every platform.
 static std::vector<uint8_t> read_file(const char *p_path) {
+#ifdef _WIN32
+	// The narrow std::ifstream constructor interprets the path in the ANSI
+	// code page, which can't represent every UTF-8 path (e.g. a temp dir
+	// under a non-ASCII user name).
+	std::ifstream f(utf8_to_wide(p_path), std::ios::binary | std::ios::ate);
+#else
 	std::ifstream f(p_path, std::ios::binary | std::ios::ate);
+#endif
 	if (!f.is_open()) {
 		return {};
 	}
@@ -208,11 +253,150 @@ static std::string json_escape(const std::string &p_str) {
 	return out;
 }
 
-// Convert a single file in a forked child process. Tint can abort() on
-// unhandled SPIR-V features (TINT_UNIMPLEMENTED); fork isolation prevents
-// one bad shader from killing the entire batch.
+// Convert a single file in a child process. Tint can abort() on unhandled
+// SPIR-V features (TINT_UNIMPLEMENTED); process isolation prevents one bad
+// shader from killing the entire batch. POSIX forks; Windows has no fork(),
+// so it re-runs this executable in --isolated-child mode instead (see
+// run_isolated_child()).
+//
+// Both use the same result protocol: the child sends back one status byte
+// ('W' = WGSL follows, 'E' = error message follows), then the payload.
 //
 // Returns WGSL on success, or sets r_error on failure.
+#ifdef _WIN32
+static std::string convert_isolated(const std::vector<uint8_t> &p_spv_bytes, std::string &r_error) {
+	static wchar_t exe_path[32768];
+	const DWORD exe_path_cap = (DWORD)(sizeof(exe_path) / sizeof(exe_path[0]));
+	DWORD exe_path_len = GetModuleFileNameW(nullptr, exe_path, exe_path_cap);
+	if (exe_path_len == 0 || exe_path_len >= exe_path_cap) {
+		return convert_spirv_to_wgsl(p_spv_bytes, r_error);
+	}
+
+	SECURITY_ATTRIBUTES sa = {};
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	// stdin carries the SPIR-V in, stdout carries the result back, stderr goes
+	// to NUL so Tint's crash output can't reach this process's JSON stream.
+	HANDLE in_read = nullptr, in_write = nullptr, out_read = nullptr, out_write = nullptr;
+	if (!CreatePipe(&in_read, &in_write, &sa, 0)) {
+		return convert_spirv_to_wgsl(p_spv_bytes, r_error);
+	}
+	if (!CreatePipe(&out_read, &out_write, &sa, 0)) {
+		CloseHandle(in_read);
+		CloseHandle(in_write);
+		return convert_spirv_to_wgsl(p_spv_bytes, r_error);
+	}
+	// Only the child's ends are inheritable.
+	SetHandleInformation(in_write, HANDLE_FLAG_INHERIT, 0);
+	SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
+	HANDLE nul = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+
+	STARTUPINFOW si = {};
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdInput = in_read;
+	si.hStdOutput = out_write;
+	si.hStdError = nul;
+
+	std::wstring cmd = L"\"" + std::wstring(exe_path) + L"\" --isolated-child";
+	PROCESS_INFORMATION pi = {};
+	BOOL created = CreateProcessW(exe_path, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+
+	// The child holds its own copies now; drop ours so reads see EOF when it exits.
+	CloseHandle(in_read);
+	CloseHandle(out_write);
+	if (nul != INVALID_HANDLE_VALUE) {
+		CloseHandle(nul);
+	}
+
+	if (!created) {
+		CloseHandle(in_write);
+		CloseHandle(out_read);
+		return convert_spirv_to_wgsl(p_spv_bytes, r_error);
+	}
+	CloseHandle(pi.hThread);
+
+	// The child reads all of stdin before writing anything, so sending the
+	// whole input before reading can't deadlock on full pipe buffers. A write
+	// failure just means the child already died; that's reported below.
+	size_t written = 0;
+	while (written < p_spv_bytes.size()) {
+		DWORD chunk = 0;
+		DWORD to_write = (DWORD)std::min<size_t>(p_spv_bytes.size() - written, 1 << 20);
+		if (!WriteFile(in_write, p_spv_bytes.data() + written, to_write, &chunk, nullptr) || chunk == 0) {
+			break;
+		}
+		written += chunk;
+	}
+	CloseHandle(in_write);
+
+	std::string data;
+	char buf[4096];
+	DWORD n = 0;
+	while (ReadFile(out_read, buf, sizeof(buf), &n, nullptr) && n > 0) {
+		data.append(buf, (size_t)n);
+	}
+	CloseHandle(out_read);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	DWORD exit_code = 1;
+	GetExitCodeProcess(pi.hProcess, &exit_code);
+	CloseHandle(pi.hProcess);
+
+	if (exit_code != 0 || data.empty()) {
+		r_error = "Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature)";
+		return {};
+	}
+
+	if (data[0] == 'W') {
+		return data.substr(1);
+	} else {
+		r_error = data.substr(1);
+		return {};
+	}
+}
+
+// Child side of convert_isolated() on Windows: SPIR-V on stdin, status byte +
+// payload on stdout.
+static int run_isolated_child() {
+	// Runs unattended: a Tint abort() or crash should just end the process
+	// with a non-zero exit code, not print an abort message or pop a Windows
+	// Error Reporting dialog.
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
+	_setmode(_fileno(stdin), _O_BINARY);
+	std::vector<uint8_t> spv_bytes;
+	static uint8_t buf[65536];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
+		spv_bytes.insert(spv_bytes.end(), buf, buf + n);
+	}
+
+	// Keep the real stdout as the result channel, then point the CRT's stdout
+	// at NUL (stderr already is) so nothing Tint prints can corrupt it.
+	int result_fd = _dup(_fileno(stdout));
+	if (result_fd < 0 || !freopen("NUL", "w", stdout)) {
+		return 1;
+	}
+	_setmode(result_fd, _O_BINARY);
+
+	std::string err;
+	std::string wgsl = convert_spirv_to_wgsl(spv_bytes, err);
+	std::string out = wgsl.empty() ? "E" + err : "W" + wgsl;
+	size_t written = 0;
+	while (written < out.size()) {
+		int w = _write(result_fd, out.data() + written, (unsigned int)std::min<size_t>(out.size() - written, 1 << 20));
+		if (w <= 0) {
+			return 1;
+		}
+		written += (size_t)w;
+	}
+	_close(result_fd);
+	return 0;
+}
+#else
 static std::string convert_isolated(const std::vector<uint8_t> &p_spv_bytes, std::string &r_error) {
 	// Create a pipe for the child to send results back.
 	int pipefd[2];
@@ -292,6 +476,7 @@ static std::string convert_isolated(const std::vector<uint8_t> &p_spv_bytes, std
 		return {};
 	}
 }
+#endif
 
 static void print_usage() {
 	fprintf(stderr, "Usage:\n");
@@ -299,13 +484,24 @@ static void print_usage() {
 	fprintf(stderr, "  tint_convert_cli --batch <file1.spv> [file2.spv]  Batch → JSON to stdout\n");
 }
 
-int main(int argc, char *argv[]) {
+static int run(int argc, char *argv[]) {
 	if (argc < 2) {
 		print_usage();
 		return 1;
 	}
 
+#ifdef _WIN32
+	// Byte-for-byte output like POSIX (no "\n" -> "\r\n" translation).
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
+
 	tint_wrapper_initialize();
+
+#ifdef _WIN32
+	if (strcmp(argv[1], "--isolated-child") == 0) {
+		return run_isolated_child();
+	}
+#endif
 
 	bool batch_mode = (strcmp(argv[1], "--batch") == 0);
 
@@ -363,3 +559,25 @@ int main(int argc, char *argv[]) {
 		return 0;
 	}
 }
+
+#ifdef _WIN32
+// Wide entry point so every argument arrives as UTF-8, whatever the ANSI code page.
+int wmain(int argc, wchar_t *argv[]) {
+	std::vector<std::string> args;
+	args.reserve((size_t)argc);
+	for (int i = 0; i < argc; i++) {
+		args.push_back(wide_to_utf8(argv[i]));
+	}
+	std::vector<char *> args_ptrs;
+	args_ptrs.reserve((size_t)argc + 1);
+	for (std::string &arg : args) {
+		args_ptrs.push_back(arg.data());
+	}
+	args_ptrs.push_back(nullptr);
+	return run(argc, args_ptrs.data());
+}
+#else
+int main(int argc, char *argv[]) {
+	return run(argc, argv);
+}
+#endif

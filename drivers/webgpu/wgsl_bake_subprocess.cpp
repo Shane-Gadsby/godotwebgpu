@@ -155,14 +155,14 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
 	// (produces valid-but-wrong WGSL, e.g. Task 23's dead-resource
 	// regression), where the failure only ever shows up later, at real
 	// CreatePipelineLayout/CreateShaderModule time.
-	if (const char *dump_dir = getenv("WEBGPU_BAKE_DEBUG_DUMP")) {
+	if (String dump_dir = OS::get_singleton()->get_environment("WEBGPU_BAKE_DEBUG_DUMP"); !dump_dir.is_empty()) {
 		bool this_failed = err != OK || exit_code != 0;
-		bool dump_all = getenv("WEBGPU_BAKE_DEBUG_DUMP_ALL") != nullptr;
+		bool dump_all = OS::get_singleton()->has_environment("WEBGPU_BAKE_DEBUG_DUMP_ALL");
 		Variant parsed_check = this_failed ? Variant() : JSON::parse_string(output);
 		Dictionary check_dict = parsed_check;
 		if (dump_all || this_failed || (!check_dict.is_empty() && Variant(check_dict[temp_path]).get_type() != Variant::STRING)) {
 			DirAccess::make_dir_recursive_absolute(dump_dir);
-			String dump_path = String(dump_dir).path_join(temp_path.get_file());
+			String dump_path = dump_dir.path_join(temp_path.get_file());
 			Ref<FileAccess> src = FileAccess::open(temp_path, FileAccess::READ);
 			if (src.is_valid()) {
 				Ref<FileAccess> dst = FileAccess::open(dump_path, FileAccess::WRITE);

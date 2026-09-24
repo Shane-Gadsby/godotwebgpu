@@ -30,6 +30,7 @@ const RESULTS_DIR = join(__dirname, 'results');
 function findTintCli() {
     const candidates = [
         join(REPO_ROOT, 'bin', 'tint_convert_cli'),
+        join(REPO_ROOT, 'bin', 'tint_convert_cli.exe'),
         join(REPO_ROOT, 'drivers', 'webgpu', 'tint_convert_cli'),
     ];
     for (const c of candidates) {

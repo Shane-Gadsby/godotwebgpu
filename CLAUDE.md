@@ -31,6 +31,8 @@ scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=
 ./drivers/webgpu/tint_cli/build.sh --clean   # full rebuild
 ```
 
+On Windows, run it from Git Bash with LLVM's `clang++` (auto-detected, or set `CXX`); it produces `bin/tint_convert_cli.exe`. Objects go in a per-OS `.build/<os>/` directory, so a checkout shared with WSL doesn't mix ELF and COFF objects. A native editor built with `webgpu=yes` (`WEBGPU_SHADER_BAKER_ENABLED`: export-time WGSL baking plus the shader capture toolbar toggle) runs `tint_convert_cli` from its own executable's directory, so the CI editor artifacts ship it next to the editor (inside `Contents/MacOS` for the macOS `.app`).
+
 Rebuild it directly (rather than through scons) when iterating on `drivers/webgpu/spirv_preprocess.cpp`, `tint_wrapper.cpp`, or anything under `thirdparty/tint`/`thirdparty/spirv-tools` — it's much faster than a full web build and is what `webgpu_tests/shader_corpus` and `drivers/webgpu/wgsl_precompile.py` (the build-time precompiler, invoked automatically by `scons ... webgpu=yes`) both drive.
 
 ## Testing
