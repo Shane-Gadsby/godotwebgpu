@@ -152,6 +152,12 @@ jobs:
           if [ "${{ matrix.proj-test }}" == "true" -o "${{ matrix.proj-export }}" == "true" ]; then
             sudo apt-get install mesa-vulkan-drivers
           fi
+          if [[ "${{ matrix.scons-flags }}" == *"linker=lld"* ]]; then
+            # The runner image only ships versioned lld binaries (e.g. ld.lld-14); GCC's
+            # `-fuse-ld=lld` needs the unversioned `ld.lld` on PATH, which this package provides.
+            # Clang-based jobs (use_llvm=yes) resolve their bundled lld without this.
+            sudo apt-get install lld
+          fi
 
       - name: Free disk space on runner
         if: matrix.free-space
