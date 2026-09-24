@@ -79,6 +79,13 @@
 			- [b]Landscape:[/b] Forces a horizontal layout (wider than it is taller).
 			- [b]Portrait:[/b] Forces a vertical layout (taller than it is wider).
 		</member>
+		<member name="shader_baker/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], precompiles WebGPU shaders to WGSL at export time and ships them in the exported [code].pck[/code], instead of leaving the browser to translate SPIR-V to WGSL (via Tint) at load time. Only takes effect when the project's [code]rendering/rendering_device/driver.web[/code] setting is [code]webgpu[/code]; otherwise this option is a harmless no-op. Requires the editor to have been built with WebGPU support (see [code]drivers/webgpu/README.md[/code] in the source tree) — if it wasn't, export proceeds without baking and shaders fall back to the existing runtime Tint translation.
+			[b]Note:[/b] Leaving this disabled means exported WebGPU games do significant shader-compilation work on the player's machine at load time, which can look like a freeze on first launch.
+		</member>
+		<member name="shader_baker/spec_constant_usage_file" type="String" setter="" getter="">
+			Path to a JSON file recording which specialization-constant pipeline variants (lighting/shadow/material-feature combinations) were actually used during a real play session, so [member shader_baker/enabled] can bake those variants too — its own baking otherwise only covers the base shaders, since specialization-constant values are only known at runtime. Generate this file by setting [code]window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS = true[/code] in the browser devtools console on an exported debug build, playing through the scenes you want covered, then calling [code]godotWebGPUExportSpecConstantRecording()[/code] in the console to download it. Only takes effect when [member shader_baker/enabled] is also on; leaving this empty is a harmless no-op (those variants keep falling back to runtime Tint, exactly as if this option didn't exist).
+		</member>
 		<member name="threads/emscripten_pool_size" type="int" setter="" getter="">
 			The number of threads that emscripten will allocate at startup. A smaller value will allocate fewer threads and consume fewer system resources, but you may run the risk of running out of threads in the pool and needing to allocate more threads at run time which may cause a deadlock.
 			[b]Note:[/b] Some browsers have a hard cap on the number of threads that can be allocated, so it is best to be cautious and keep this number low.
