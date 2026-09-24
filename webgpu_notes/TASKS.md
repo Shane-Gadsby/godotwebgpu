@@ -4201,3 +4201,24 @@ User reported 4 configurations from real-project exports: "all AA options at max
 **Investigation notes**: found with a Playwright hook that wraps `beginRenderPass`/`setScissorRect` and reads the depth atlas back with a compute shader (atlas was all zeros, then one populated tile). Pitfall: the export preset selects the template variant (`variant/extensions_support` -> dlink or not, `variant/thread_support`), so rebuild and reinstall *that* variant (`web_nothreads_release.zip` vs `web_dlink_nothreads_release.zip`) or the test silently runs a stale template.
 
 **Open**: WebGPU volumetric fog looked blockier than native in a scratch scene (froxel sampling); not investigated, not projector-specific.
+
+## Phase 13: CI editor builds ship the WebGPU shader baker (September 2026)
+
+> **Trigger**: the Windows editor from the GitHub release (`main-6691bb81cc`) lacked the shader capture toggle next to the renderer dropdown that a local Linux build had.
+
+### Task 13.1: CI editors built without `webgpu=yes`; `tint_convert_cli` had no Windows port
+**Status**: `DONE` (Windows port verified locally; CI changes need a CI run to confirm).
+**Files**: `.github/workflows/{windows,linux,macos}_builds.yml`, `drivers/webgpu/tint_cli/{build.sh,main.cpp}`, `drivers/webgpu/{wgsl_bake_subprocess,rendering_shader_container_webgpu}.cpp`, `drivers/webgpu/wgsl_precompile.py`, `platform/macos/platform_macos_builders.py`, `build-windows.ps1`, `webgpu_tests/*/run_tests.mjs`, `webgpu_tests/shader_corpus/validate_spirv_dump.mjs`.
+
+**Issue**: `WEBGPU_SHADER_BAKER_ENABLED` (export-time WGSL baking, the spec-constant baker/debugger plugins and `WebGPUShaderCaptureEditorPlugin`'s toolbar toggle) is only defined for editor builds with `webgpu=yes`. No CI editor job passed it, so every released editor (Windows, Linux and macOS) shipped without the baker. Enabling it also needs `tint_convert_cli` next to the editor executable (`_find_tint_convert_cli()`), which CI never shipped and which could not build on Windows (`build.sh` only knew Linux/macOS; `--batch` isolation used `fork()`).
+
+**Fix**:
+1. Editor jobs pass `webgpu=yes` and build `tint_convert_cli` into `bin/` so it lands in the artifact. Linux uses `g++-12` with static libstdc++ (the 22.04 runner's default GCC 11 is older than what Tint is otherwise built with), macOS builds it universal and `generate_bundle()` copies it into `Contents/MacOS` before signing, Windows uses Git Bash + the runner's LLVM `clang++` and smoke-tests `--batch`.
+2. `build.sh` supports MINGW/MSYS (Tint's `*_windows.cc` sources, `.exe` output, clang++ auto-detection), links through a response file (the object list overflows Windows' 32K command line), honours `CXXFLAGS`/`LDFLAGS`, and keeps objects in `.build/<os>/`. A checkout shared with WSL previously reused Linux ELF objects on Windows because they looked up to date.
+3. `main.cpp` on Windows: `--batch` isolation re-runs the executable as `--isolated-child` (SPIR-V on stdin, the same `W`/`E` status-byte protocol on stdout, stderr to `NUL`, abort message and WER dialogs suppressed); `wmain` passes UTF-8 arguments and files open through wide paths.
+4. `getenv()` → `OS::get_environment()` in the two baker files: MSVC's C4996 would fail the `dev_mode=yes` (werror) Windows CI build now that they compile there.
+5. `wgsl_precompile.py` and the test runners also look for `bin/tint_convert_cli.exe`.
+
+**Verification**: local Windows `tint_convert_cli.exe` passes the shader corpus (13/13), batch output is byte-identical to single-file output, and a 300-shader fuzz batch (corrupted fixtures) survived 131 child crashes (e.g. SPIRV-Tools `def_use_manager.cpp` assertion) with valid JSON for every entry. The MSVC editor built with `webgpu=yes` contains the capture plugin.
+
+**Open**: `build.sh` compiles SPIRV-Tools/Tint without `-DNDEBUG`, so their asserts are live in `tint_convert_cli` on every platform (they only surface as isolated "Tint crashed" entries).

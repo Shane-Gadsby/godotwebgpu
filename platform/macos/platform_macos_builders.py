@@ -43,6 +43,12 @@ def generate_bundle(target, source, env):
             os.mkdir(app_dir + "/Contents/MacOS")
         if target_bin != "":
             shutil.copy(target_bin, app_dir + "/Contents/MacOS/Godot")
+        # WebGPU shader baker: the editor runs tint_convert_cli from its own
+        # directory (see drivers/webgpu/wgsl_bake_subprocess.cpp). Copied before
+        # signing so the bundle's signature covers it.
+        tint_cli = bin_dir + "/tint_convert_cli"
+        if env["webgpu"] and os.path.isfile(tint_cli):
+            shutil.copy(tint_cli, app_dir + "/Contents/MacOS/tint_convert_cli")
         if "mono" in env.module_version_string:
             shutil.copytree(env.Dir("#bin/GodotSharp").abspath, app_dir + "/Contents/Resources/GodotSharp")
         version = get_version_info("", True)

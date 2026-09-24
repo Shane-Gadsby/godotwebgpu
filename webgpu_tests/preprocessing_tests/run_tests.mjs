@@ -50,6 +50,7 @@ function skip(msg) {
 function findTintCli() {
   const locations = [
     join(REPO_ROOT, "bin", "tint_convert_cli"),
+    join(REPO_ROOT, "bin", "tint_convert_cli.exe"),
     join(REPO_ROOT, "drivers", "webgpu", "tint_convert_cli"),
   ];
   for (const p of locations) {

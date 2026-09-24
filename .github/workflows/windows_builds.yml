@@ -25,12 +25,18 @@ jobs:
           - name: Editor (target=editor)
             cache-name: windows-editor
             target: editor
+            # webgpu=yes: builds in the WebGPU shader baker (export-time WGSL
+            # baking + the shader capture toolbar toggle); see tint-cli below.
             scons-flags: >-
               windows_subsystem=console
               vsproj=yes
               vsproj_gen_only=no
+              webgpu=yes
             bin: ./bin/godot.windows.editor.x86_64.exe
             compiler: msvc
+            # The baker runs tint_convert_cli from the editor's own directory,
+            # so it ships in the editor artifact.
+            tint-cli: true
 
           - name: Editor w/ clang-cl (target=editor, use_llvm=yes)
             cache-name: windows-editor-clang
@@ -121,6 +127,24 @@ jobs:
           scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
           platform: windows
           target: ${{ matrix.target }}
+
+      - name: Cache tint_convert_cli build
+        if: matrix.tint-cli
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+
+      # Git Bash + the runner's preinstalled LLVM clang++ (see tint_cli/build.sh).
+      - name: Build tint_convert_cli
+        if: matrix.tint-cli
+        shell: bash
+        run: |
+          ./drivers/webgpu/tint_cli/build.sh
+          # Smoke-test --batch's per-shader child process (the Windows-only
+          # CreateProcess path): an invalid module must come back as a JSON error.
+          head -c 16 /dev/zero > "$RUNNER_TEMP/invalid.spv"
+          ./bin/tint_convert_cli.exe --batch "$RUNNER_TEMP/invalid.spv" | tee /dev/stderr | grep -q "Invalid SPIR-V"
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save

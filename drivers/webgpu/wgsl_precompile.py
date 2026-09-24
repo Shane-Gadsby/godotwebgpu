@@ -796,7 +796,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
         Number of successfully precompiled entries.
     """
     # Find the tint_convert_cli binary (built by build.sh → bin/tint_convert_cli).
-    tint_cli = os.path.join(repo_root, "bin", "tint_convert_cli")
+    tint_cli = os.path.join(repo_root, "bin", "tint_convert_cli" + (".exe" if os.name == "nt" else ""))
     if not os.path.isfile(tint_cli):
         print("[WGSL Precompile] ERROR: bin/tint_convert_cli not found.", file=sys.stderr)
         print("[WGSL Precompile] Run: ./drivers/webgpu/tint_cli/build.sh", file=sys.stderr)
