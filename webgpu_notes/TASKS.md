@@ -4371,3 +4371,55 @@ Why it got through: this file only compiles under Emscripten, which the sandbox 
 **Verified**: flags the exact shipped line, printing what JavaScript actually received (`"{ window.godotWebGPUShaderStats = { baked : a0"`); does not flag the known-good nested literal beside it; and reports clean across all five files in the tree that use the macro family. Suites unaffected: `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` 217/0 and 11/0.
 
 **Standing lesson for this fork**: `drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}` and `rendering_context_driver_webgpu.cpp` cannot be compiled without Emscripten, and `drivers/webgpu/SCsub`'s native branch deliberately excludes them, so no native build of any kind covers them. Any edit to them is unverified until a real `platform=web` build runs. Prefer moving logic into a file the native baker subset does compile (`spirv_preprocess.cpp`, `spirv_spec_constants.cpp`, `rendering_shader_container_webgpu.cpp`, `wgsl_bake_subprocess.cpp`), all of which can be checked with `g++ -fsyntax-only -I. -Iplatform/linuxbsd -DUNIX_ENABLED -DLINUXBSD_ENABLED -DWEBGPU_SHADER_BAKER_ENABLED` once `scons` has generated the `.gen.h` headers.
+
+---
+
+### Task 29: the last remaining shader-baker warning — one `Tint crashed` stage, almost certainly `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiles `[IN PROGRESS — HANDOFF NOTE, read this first]`
+**Status**: `IN PROGRESS` — root cause narrowed to two concrete engine leaks with a planned fix; **no code changed yet**. Branch `webgpu-4.7.2` is clean at `d53d41a9`. Written as a handoff so a fresh session can pick it up cold.
+**Severity**: LOW (the variant is never dispatched on WebGPU), but it is the last line of noise in an otherwise-clean bake, and the user asked for it gone.
+
+**What the user sees** (debug run via Remote Deploy on a Forward+ project, build `d53d41a96`):
+```
+WARNING: drivers/webgpu/wgsl_bake_subprocess.cpp:287 - WebGPU shader baker: leaving one shader stage unbaked
+(tint_convert_cli: Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature)).
+```
+Exactly **one**, down from 18 before Task 26's pre-bake check. Task 26's `_wgsl_unsupported_reason()` already skips non-32-bit `OpTypeInt` and `OpImageTexelPointer`; this one is neither.
+
+**Why ViewIndex** (evidence, not assumed):
+- Task 22 catalogued its 16 bake failures into three causes, and exactly **1 of 16** was `TINT_UNIMPLEMENTED unhandled SPIR-V BuiltIn: ViewIndex`. The other two causes are the ones Task 26 now skips. One left over = this one.
+- Tint's SPIR-V reader maps a fixed builtin list in `Builtin(spv::BuiltIn)` (`thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc` ~L672-720: FragCoord, FragDepth, FrontFacing, GlobalInvocationId, InstanceIndex, LocalInvocationId/Index, NumWorkgroups, PointSize, Position, SampleId, SampleMask, Subgroup*, NumSubgroups, VertexIndex, WorkgroupId, ClipDistance, CullDistance, PrimitiveId) and `TINT_UNIMPLEMENTED`s on everything else. `ViewIndex` is not in it, and WGSL has no view-index builtin, so this is a language limit like the other two — not a Tint bug to patch.
+
+**Where it comes from** — `USE_MULTIVIEW` variants (they read `gl_ViewIndex`) that the *editor* compiles even with XR off. Every effect is supposed to call `set_variant_enabled(<MULTIVIEW>, false)` when `!RendererCompositorRD::get_singleton()->is_xr_enabled()`. Audited all sites; two do not do it fully:
+1. **`servers/rendering/renderer_rd/effects/vrs.cpp` `VRS::VRS()`** — declares `VRS_MULTIVIEW` *and* `VRS_RG_MULTIVIEW` (`"\n#define SPLIT_RG\n#define USE_MULTIVIEW\n"`), but the XR-off block only disables `VRS_MULTIVIEW`. `VRS_RG_MULTIVIEW` is left enabled. **Prime suspect** — a single leaked variant fits a count of one best (depends on how many of `vrs.glsl`'s stages actually reference `gl_ViewIndex`; check).
+2. **`servers/rendering/renderer_rd/environment/gi.cpp`** (~L3796-3806, SDFGI debug probes) — declares `MODE_PROBES`/`MODE_VISIBILITY` each with and without `USE_MULTIVIEW`, followed by a literal `// TODO disable multiview versions if turned off`. Never disabled. Would produce up to 4 stages, so likely *not* the one — but only if that shader is in the baked set at all (it is SDFGI debug, possibly not embedded).
+- Checked and correct: `tone_mapper.cpp` (both tonemap and tonemap_mobile), `copy_effects.cpp` (copy_to_fb, specular_merge), `sky.cpp`. `scene_forward_clustered`/`scene_forward_mobile` use shader *groups* for multiview, only enabled for XR.
+
+**Next steps, in order:**
+1. **Reproduce and confirm which shader it is.** The repro was about to run when this session stopped; this script does it (needs `bin/tint_convert_cli` built and `glslangValidator` installed — both were available in the sandbox via `./drivers/webgpu/tint_cli/build.sh` and `apt-get install glslang-tools spirv-tools`):
+   ```python
+   import os, sys, subprocess
+   REPO = "."  # repo root
+   sys.path.insert(0, "drivers/webgpu"); import wgsl_precompile as W
+   cases = [
+       ("effects/vrs.glsl", "", "vrs_rg_multiview", "\n#define SPLIT_RG\n#define USE_MULTIVIEW\n"),
+       ("environment/sdfgi_debug_probes.glsl", W.GENERAL_DEFINES_SDFGI_DEBUG, "probes_mv", "\n#define MODE_PROBES\n#define USE_MULTIVIEW\n"),
+       ("environment/sdfgi_debug_probes.glsl", W.GENERAL_DEFINES_SDFGI_DEBUG, "visibility_mv", "\n#define MODE_VISIBILITY\n#define USE_MULTIVIEW\n"),
+   ]
+   m = {"vertex": W.VERT, "fragment": W.FRAG, "compute": W.COMP}
+   for rel, gd, name, vd in cases:
+       for sk, lines in W.parse_glsl_file(f"servers/rendering/renderer_rd/shaders/{rel}").items():
+           if lines is None: continue
+           spv, err = W.compile_glsl_to_spirv(W.assemble_glsl(lines, gd, vd), m[sk], "glslangValidator")
+           if spv is None: print("GLSL_FAIL", rel, name, sk); continue
+           open(f"/tmp/{name}__{sk}.spv", "wb").write(spv)
+           p = subprocess.run(["bin/tint_convert_cli", f"/tmp/{name}__{sk}.spv"], capture_output=True, text=True)
+           print("OK " if p.returncode == 0 else "FAIL", rel, name, sk, (p.stderr or "")[-100:])
+   ```
+   Alternatively have the user capture the exact SPIR-V: `WEBGPU_BAKE_DEBUG_DUMP=/tmp/bakefail` in the editor's environment before exporting — since Task 27/28 that hook prints `wrote '<path>' -- reproduce with: bin/tint_convert_cli '<path>'`, or says why it could not.
+2. **Fix in the baker** (natively compilable — preferred per Task 28's lesson): extend `_wgsl_unsupported_reason()` in `drivers/webgpu/wgsl_bake_subprocess.cpp` with a third rule: `OpDecorate <id> BuiltIn ViewIndex` (opcode 71, decoration BuiltIn = 11, value **4440**) and the `OpMemberDecorate` form (opcode 72, BuiltIn at word 3, value at word 4). Message along the lines of "uses gl_ViewIndex (multiview), which WGSL does not have".
+   - **Do NOT generalize to "any builtin missing from Tint's list".** The pre-check runs on *raw* SPIR-V, before `spirv_preprocess`, and some unlisted builtins are rewritten by a pass before Tint sees them — `HelperInvocation` is absent from Tint's list yet fine, because `strip_helper_invocation_builtin()` removes it (used by `cluster_render.glsl`). A general rule would skip bakeable shaders. `ViewIndex` specifically, only.
+3. **Optionally also fix the engine leaks** (shared renderer code, so keep minimal): add `vrs_shader.shader.set_variant_enabled(VRS_RG_MULTIVIEW, false);` next to the existing `VRS_MULTIVIEW` line. Before doing so, confirm `VRS` never calls `version_get_shader()`/builds a pipeline for a disabled variant (the tonemap code guards with `is_variant_enabled(i)`; check vrs.cpp does equivalently). The `gi.cpp` TODO is riskier — its debug pipeline setup may touch all four modes — leave it unless it proves to be the source. Step 2 alone is enough to silence the warning; step 3 just stops wasted bake work, and fixes a genuine upstream-style omission.
+4. **Verify**: re-run Task 26's truth table (mirror the byte scan in Python over every SPIR-V module on hand — the 274 from `SHADER_REGISTRY` via `wgsl_precompile.py`'s own `parse_glsl_file`/`assemble_glsl`/`compile_glsl_to_spirv`, plus the FSR2 and multiview ones) and require: every flagged module genuinely fails `tint_convert_cli`, **zero flagged modules that convert**, zero unflagged failures. Then `g++ -fsyntax-only -std=c++17 -I. -Iplatform/linuxbsd -DUNIX_ENABLED -DLINUXBSD_ENABLED -DTOOLS_ENABLED -DDEBUG_ENABLED -DWEBGPU_SHADER_BAKER_ENABLED drivers/webgpu/wgsl_bake_subprocess.cpp` (after `scons platform=linuxbsd target=editor webgpu=yes <needed .gen.h targets>` has generated headers), clang-format, `python3 misc/scripts/em_asm_check.py` over the driver, and the suites: `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` 217/0 + 11/0, `spec_constant_overrides` 8/0.
+5. Ask the user to rebuild and confirm the bake is now warning-free, and — the question still outstanding from Task 25 onward — to read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap.
+
+**Other open threads from this session, for context** (all recorded in their own tasks above): Task 25's driver edits and Task 26-28's instrumentation have now compiled on the user's real web build (`d53d41a9` built and ran); the scene shaders taking the override path has **not** yet been confirmed from a `--verbose` log. `giprobe_write.glsl` is a dead file (Task 27), not deleted. Commits must end with the `Co-Authored-By` / `Claude-Session` trailers used throughout; push with `git push -u origin webgpu-4.7.2`.
