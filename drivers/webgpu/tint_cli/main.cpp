@@ -130,7 +130,13 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 
 	// 21 preprocessing passes (same order as spirv_to_wgsl.cpp).
 	spv = spirv_preprocess::inline_opaque_functions(spv);
-	spv = spirv_preprocess::freeze_spec_constant_ops(spv);
+	// Specialization constants are left in place when every one of them can
+	// become a WGSL `@id(N) override`, so a pipeline can specialize them through
+	// WebGPU's own pipeline constants; everything else is frozen to its default
+	// and specialized (if at all) by re-patching the SPIR-V at pipeline creation.
+	if (!spirv_preprocess::spec_constants_overridable(spv)) {
+		spv = spirv_preprocess::freeze_spec_constant_ops(spv);
+	}
 	spv = spirv_preprocess::rewrite_copy_logical(spv);
 	spv = spirv_preprocess::rewrite_terminate_invocation(spv);
 	spv = spirv_preprocess::convert_push_constants_to_uniforms(spv);

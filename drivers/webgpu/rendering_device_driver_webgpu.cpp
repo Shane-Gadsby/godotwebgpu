@@ -4766,6 +4766,13 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 	// --- Create one WGPUShaderModule per stage ---
 	bool detected_override_declarations = false;
+	// Set when some stage declares specialization constants that were frozen to
+	// their defaults instead of surviving as WGSL overrides (see
+	// spirv_preprocess::spec_constants_overridable()). Passing pipeline
+	// constants would then silently leave that stage at its defaults while the
+	// other stages got the real values, so the whole shader falls back to the
+	// legacy specialize-by-re-patching path.
+	bool any_stage_froze_spec_constants = false;
 	Vector<RenderingShaderContainer::Shader> &stage_shaders = p_shader_container->shaders;
 	for (int i = 0; i < stage_shaders.size(); i++) {
 		const RenderingShaderContainer::Shader &s = stage_shaders[i];
@@ -5744,6 +5751,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// body (beyond the declaration line). Safari's WebGPU WGSL→MSL compiler
 		// crashes when pipeline constants are passed for unreferenced overrides.
 		{
+			bool stage_has_override_decls = false;
 			const char *scan = wgsl_str;
 			while ((scan = strstr(scan, "@id(")) != nullptr) {
 				scan += 4; // skip "@id("
@@ -5756,6 +5764,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				}
 				if (has_digits && *scan == ')') {
 					detected_override_declarations = true;
+					stage_has_override_decls = true;
 					// Extract variable name: skip ") override " then read name up to ":".
 					const char *p = scan + 1; // skip ')'
 					while (*p == ' ' || *p == '\t' || *p == '\n') {
@@ -5811,6 +5820,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					}
 				}
 			}
+			if (!stage_has_override_decls && spirv_preprocess::has_spec_constants(spv_bytes)) {
+				any_stage_froze_spec_constants = true;
+			}
 		}
 
 		free(wgsl_str); // Free the EM_ASM-allocated string.
@@ -5828,9 +5840,11 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		}
 	}
 
-	shader->has_override_declarations = detected_override_declarations;
-	if (detected_override_declarations) {
+	shader->has_override_declarations = detected_override_declarations && !any_stage_froze_spec_constants;
+	if (shader->has_override_declarations) {
 		print_verbose(vformat("WebGPU: shader '%s' has override declarations — will use pipeline constants for specialization.", shader->name));
+	} else if (detected_override_declarations) {
+		print_verbose(vformat("WebGPU: shader '%s' has override declarations in some stages but not all stages that need them — using the legacy specialization path.", shader->name));
 	}
 
 	if (!error_text.is_empty()) {

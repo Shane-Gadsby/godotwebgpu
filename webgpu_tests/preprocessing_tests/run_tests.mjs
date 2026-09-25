@@ -376,17 +376,26 @@ function buildComputeWithStorageBuffer(hasStore = false) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: freeze_spec_constant_ops
+// Test 1: freeze_spec_constant_ops / spec_constants_overridable
+//
+// Specialization constants are only frozen to their defaults when at least one
+// of them cannot survive into WGSL as an `@id(N) override`
+// (spec_constants_overridable() in drivers/webgpu/spirv_preprocess.cpp). When
+// they all can, they are left alone so the driver can specialize a pipeline
+// through WebGPU's own pipeline constants instead of re-patching and
+// re-converting the SPIR-V for every value combination.
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n=== Test 1: freeze_spec_constant_ops ===");
+console.log("\n=== Test 1: freeze_spec_constant_ops / spec_constants_overridable ===");
 
 {
-  // 1a. Spec constants in fixture are folded (no @id or override in output).
+  // 1a. spec_constants.spv builds an OpSpecConstantComposite out of one of its
+  // specialization constants (`vec3(AMBIENT_STRENGTH)`), which has no scalar
+  // WGSL override equivalent — so the whole module is frozen, as before.
   const r = convertFixture("spec_constants.spv");
   assert(r.wgsl !== null, "spec_constants.spv converts successfully");
   if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "spec constants folded — no 'override' in WGSL");
-    assert(!r.wgsl.includes("@id("), "spec constants folded — no @id() in WGSL");
+    assert(!r.wgsl.includes("override"), "spec composite forces freeze — no 'override' in WGSL");
+    assert(!r.wgsl.includes("@id("), "spec composite forces freeze — no @id() in WGSL");
     assert(r.wgsl.includes("@fragment"), "spec_constants.spv has @fragment entry point");
   }
 }
@@ -396,17 +405,20 @@ console.log("\n=== Test 1: freeze_spec_constant_ops ===");
   const r = convertFixture("chained_spec_ops.spv");
   assert(r.wgsl !== null, "chained_spec_ops.spv converts successfully");
   if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "chained ops folded — no 'override' in WGSL");
+    // IAdd/IMul/BitwiseAnd/ShiftRightLogical are all operations Tint can lower
+    // into an override expression, so the chain survives.
+    assert(r.wgsl.includes("@id("), "chained ops preserved as overrides");
     assert(r.wgsl.includes("@compute"), "chained_spec_ops.spv has @compute entry point");
   }
 }
 
 {
-  // 1c. Many overrides (24 spec constants) all fold correctly.
+  // 1c. All 24 spec constants survive as overrides, one @id() each.
   const r = convertFixture("many_overrides.spv");
   assert(r.wgsl !== null, "many_overrides.spv converts successfully");
   if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "24 spec constants folded — no 'override'");
+    const count = (r.wgsl.match(/@id\(/g) || []).length;
+    assertEq(count, 24, "24 spec constants each become one @id() override");
   }
 }
 
@@ -416,7 +428,8 @@ console.log("\n=== Test 1: freeze_spec_constant_ops ===");
   const r = convertToWgsl(spv);
   assert(r.wgsl !== null, "constructed spec constant shader converts");
   if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "constructed spec constants folded");
+    assert(r.wgsl.includes("@id(0)"), "constructed spec constant keeps its @id(0)");
+    assert(r.wgsl.includes("@id(1)"), "constructed spec constant keeps its @id(1)");
     assert(r.wgsl.includes("@compute"), "constructed shader has @compute");
   }
 }
@@ -477,7 +490,40 @@ console.log("\n=== Test 1: freeze_spec_constant_ops ===");
   const r = convertToWgsl(spv);
   assert(r.wgsl !== null, "OpSpecConstantTrue/False converts successfully");
   if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "spec bool constants folded");
+    assert(r.wgsl.includes("override"), "spec bool constants preserved as overrides");
+    assert(r.wgsl.includes("true") && r.wgsl.includes("false"),
+      "OpSpecConstantTrue/False keep their defaults");
+  }
+}
+
+{
+  // 1j. A specialization-constant-sized array cannot become a WGSL override
+  // (only a workgroup variable may have an override-sized array, and the later
+  // passes here read array lengths as literals), so the module is frozen.
+  const spv = buildComputeWithSpecConstants([
+    // %9 = OpTypeArray %int %spec_a — length is the spec constant id 4.
+    encodeInst(Op.TypeArray, 9, 3, 4),
+  ]);
+  const r = convertToWgsl(spv);
+  assert(r.wgsl !== null, "spec-constant-sized array converts successfully");
+  if (r.wgsl) {
+    assert(!r.wgsl.includes("override"), "spec-constant-sized array forces freeze");
+  }
+}
+
+{
+  // 1k. An OpSpecConstantOp whose operation Tint's SPIR-V reader has no
+  // override lowering for (here OpCopyLogical, which is not in its
+  // EmitSpecConstants switch at all) forces the freeze. Without the guard Tint
+  // raises a TINT_ICE and conversion fails outright, so "converts successfully"
+  // is the real assertion here.
+  const spv = buildComputeWithSpecConstants([
+    encodeInst(Op.SpecConstantOp, 3, 6, 400, 4), // 400 = OpCopyLogical
+  ]);
+  const r = convertToWgsl(spv);
+  assert(r.wgsl !== null, "unsupported spec op converts successfully (frozen, not ICEd)");
+  if (r.wgsl) {
+    assert(!r.wgsl.includes("override"), "unsupported spec op forces freeze");
   }
 }
 
@@ -1425,8 +1471,8 @@ console.log("\n=== Test 21: Pass interaction ===");
   const rv = convertFixture("per_stage_overrides_vert.spv");
   const rf = convertFixture("per_stage_overrides_frag.spv");
   if (rv.wgsl && rf.wgsl) {
-    assert(!rv.wgsl.includes("override"), "pass interaction: vert spec constants folded");
-    assert(!rf.wgsl.includes("override"), "pass interaction: frag spec constants folded");
+    assert(rv.wgsl.includes("@id("), "pass interaction: vert spec constants kept as overrides");
+    assert(rf.wgsl.includes("@id("), "pass interaction: frag spec constants kept as overrides");
   }
 }
 

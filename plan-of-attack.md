@@ -133,7 +133,32 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 
 ---
 
-## 11. Eliminate the runtime Tint-conversion fallback for specialization-constant variants
+## 11. ~~Eliminate the runtime Tint-conversion fallback for specialization-constant variants~~ — DONE 2026-09-25 (Task 25)
+
+**Landed.** `freeze_spec_constant_ops()` is now conditional on a new
+`spirv_preprocess::spec_constants_overridable()`, so specialization constants
+normally survive into WGSL as `@id(N) override`s and pipeline creation sets them
+with WebGPU pipeline constants — one base module per shader, no runtime
+re-patching or re-conversion. All 37 of the 196 real engine shader variants that
+declare specialization constants now emit overrides (0 did before, confirming
+this item's premise empirically); all 196 still convert; per-stage binding and
+sampler counts are byte-identical, so the Task 19/23 sampler-limit risk did not
+materialize. A pre-existing mislabelled `CreateAggressiveDCEPass` argument was
+found and fixed on the way (spec-constant preservation is an optimizer *option*,
+and was never actually set). New test tier
+`webgpu_tests/spec_constant_overrides/` proves in a browser that the
+`WGPUConstantEntry` plumbing works — the first time it has ever run.
+
+**Still open from this item**: none of it has been through a real engine/browser
+run (no Emscripten in the sandbox it was done in), and
+`rendering_device_driver_webgpu.cpp` has not been compiled. See Task 25's "Not
+verified" list in `webgpu_notes/TASKS.md` for exactly what the first live run
+should confirm. Item 10 (Task 14's loading stall) depended on this and is now
+unblocked.
+
+The original analysis and plan are kept below for reference.
+
+---
 
 **Effort: open-ended, likely the largest remaining item — budget multiple days.** This is a real performance/coverage gap, not a correctness bug blocking anything today, but it's the last major architectural loose end in the driver. Unchanged from the prior pass — nothing in the last three days' work has touched this path.
 
@@ -165,7 +190,7 @@ Task 11 (`webgpu_notes/TASKS.md`) has its root cause conclusively identified —
 
 ## Suggested order of attack
 
-Items 1-4 are quick, independent, and can be done in any order or in parallel — none blocks another. Item 5 (committing and finishing the already-substantial export-time shader-baking work) is next: it's mostly landing work already done rather than new design, and item 10 explicitly depends on it being far enough along. Items 6-9 (the remaining Tint failures, the Task 12 doc closure, and the two re-triage/audit sweeps) are all independent of each other and of item 5, and can be interleaved with it. Item 10 should wait until item 5 is reasonably settled. Item 11 is the only large piece of remaining work; it's fully independent of everything else here and can be picked up whenever there's a multi-day block of time available, starting with its own step 1 (confirming `freeze_spec_constant_ops`'s constraints) before assuming the override-path fix is safe.
+Items 1-4 are quick, independent, and can be done in any order or in parallel — none blocks another. Item 5 (committing and finishing the already-substantial export-time shader-baking work) is next: it's mostly landing work already done rather than new design, and item 10 explicitly depends on it being far enough along. Items 6-9 (the remaining Tint failures, the Task 12 doc closure, and the two re-triage/audit sweeps) are all independent of each other and of item 5, and can be interleaved with it. Item 10 should wait until item 5 is reasonably settled — and item 11, which it depended on, is now done (Task 25), so its remaining work is a live verification run rather than new design.
 
 ---
 

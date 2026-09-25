@@ -67,6 +67,13 @@ jobs:
         working-directory: webgpu_tests/shader_corpus
         run: node run_tests.mjs
 
+      # Reuses the tint_convert_cli built above. Without Playwright installed
+      # this runs its offline assertions only and reports the browser half as
+      # skipped, so it never fails the job for a missing browser.
+      - name: Run specialization-constant override tests
+        working-directory: webgpu_tests/spec_constant_overrides
+        run: node run_tests.mjs
+
       - name: Upload WGSL results
         if: always()
         uses: actions/upload-artifact@v5

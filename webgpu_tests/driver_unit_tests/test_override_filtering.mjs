@@ -37,6 +37,29 @@ function makeConstant(id, value) {
     return { constantId: id, key: String(id), value };
 }
 
+// --- Simulate the C++ whole-shader override-path gate ---
+// This mirrors the end of shader_create_from_container():
+//   shader->has_override_declarations =
+//       detected_override_declarations && !any_stage_froze_spec_constants;
+// A stage that declares specialization constants in its SPIR-V but produced no
+// @id() override in its WGSL was frozen to its defaults. Passing pipeline
+// constants then leaves that stage on its defaults while the others get the
+// real values, so the whole shader has to take the legacy path instead.
+// Each stage is { wgsl, hasSpecConstantsInSpirv }.
+function usesOverridePath(stages) {
+    let detectedAny = false;
+    let anyStageFroze = false;
+    for (const stage of stages) {
+        const stageHasOverrides = extractOverrideIds(stage.wgsl).size > 0;
+        if (stageHasOverrides) {
+            detectedAny = true;
+        } else if (stage.hasSpecConstantsInSpirv) {
+            anyStageFroze = true;
+        }
+    }
+    return detectedAny && !anyStageFroze;
+}
+
 export function runTests() {
     describe('Override ID Extraction: @id(N) parsing', () => {
         it('should extract single @id', () => {
@@ -264,6 +287,45 @@ export function runTests() {
             const c = makeConstant(3, 42);
             assert.equal(c.key, '3');
             assert.equal(c.key !== '03', true, 'Key should not be zero-padded');
+        });
+    });
+
+    describe('Override path gate: all-or-nothing across stages', () => {
+        it('should use the override path when every stage kept its overrides', () => {
+            assert.equal(usesOverridePath([
+                { wgsl: '@id(0) override packed_0: u32 = 0u;', hasSpecConstantsInSpirv: true },
+                { wgsl: '@id(1) override use_glow: bool = false;', hasSpecConstantsInSpirv: true },
+            ]), true);
+        });
+
+        it('should use the override path when a stage has no spec constants at all', () => {
+            // A stage legitimately declaring none (glslang drops the ones that
+            // stage never reads) must not force the legacy path.
+            assert.equal(usesOverridePath([
+                { wgsl: '@id(3) override emulate_point_size: bool = false;', hasSpecConstantsInSpirv: true },
+                { wgsl: 'fn main() {}', hasSpecConstantsInSpirv: false },
+            ]), true);
+        });
+
+        it('should fall back to the legacy path when one stage was frozen', () => {
+            // The frozen stage would silently stay on its defaults.
+            assert.equal(usesOverridePath([
+                { wgsl: '@id(0) override packed_0: u32 = 0u;', hasSpecConstantsInSpirv: true },
+                { wgsl: 'fn main() {}', hasSpecConstantsInSpirv: true },
+            ]), false);
+        });
+
+        it('should fall back to the legacy path when every stage was frozen', () => {
+            assert.equal(usesOverridePath([
+                { wgsl: 'fn main() {}', hasSpecConstantsInSpirv: true },
+                { wgsl: 'fn main() {}', hasSpecConstantsInSpirv: true },
+            ]), false);
+        });
+
+        it('should not claim the override path for a shader with no spec constants', () => {
+            assert.equal(usesOverridePath([
+                { wgsl: 'fn main() {}', hasSpecConstantsInSpirv: false },
+            ]), false);
         });
     });
 }

@@ -8,6 +8,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 |------|------------------|---------|---------------------|
 | [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
+| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 18 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |

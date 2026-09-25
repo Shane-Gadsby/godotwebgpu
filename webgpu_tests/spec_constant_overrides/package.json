@@ -1,0 +1,9 @@
+{
+  "name": "spec_constant_overrides",
+  "version": "1.0.0",
+  "description": "Verifies that specialization constants survive SPIR-V -> WGSL as @id(N) overrides and that WebGPU pipeline constants actually set them on a real GPU.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}
