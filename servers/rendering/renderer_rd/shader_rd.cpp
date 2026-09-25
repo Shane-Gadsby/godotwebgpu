@@ -564,6 +564,35 @@ String ShaderRD::version_get_cache_file_relative_path(RID p_version, int p_group
 	return _get_cache_file_relative_path(version, p_group, p_api_name);
 }
 
+String ShaderRD::version_get_debug_fingerprint(RID p_version) {
+	Version *version = version_owner.get_or_null(p_version);
+	ERR_FAIL_NULL_V(version, String());
+	return _version_get_debug_fingerprint(version);
+}
+
+String ShaderRD::_version_get_debug_fingerprint(Version *version) const {
+	// The uniforms block is the most identifying part in practice: a
+	// BaseMaterial3D's generated code declares exactly the uniforms its enabled
+	// features need, so the head of it distinguishes one material's version from
+	// another's at a glance. Sizes are included because two materials can share a
+	// uniform prefix while differing later in the code.
+	String head = String::utf8(version->uniforms.get_data()).strip_edges().replace("\n", " ").replace("\t", " ");
+	if (head.length() > 110) {
+		head = head.substr(0, 110) + "...";
+	}
+
+	Vector<String> sections;
+	for (const KeyValue<StringName, CharString> &E : version->code_sections) {
+		sections.push_back(String(E.key));
+	}
+	sections.sort();
+
+	return vformat("uni=%dB vtx=%dB frag=%dB comp=%dB sections=[%s] uniforms=\"%s\"",
+			version->uniforms.length(), version->vertex_globals.length(),
+			version->fragment_globals.length(), version->compute_globals.length(),
+			String(", ").join(sections), head);
+}
+
 String ShaderRD::_version_get_sha1(Version *p_version) const {
 	StringBuilder hash_build;
 
@@ -654,6 +683,10 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	if (f.is_null()) {
 		const String &sha1 = _version_get_sha1(p_version);
 		print_verbose(vformat("Shader cache miss for %s", name.path_join(group_sha256[p_group]).path_join(sha1)));
+		// Says which material's version this is, so a gap between what the baker
+		// enumerated and what the runtime wants can be named rather than only
+		// counted. Matches the fingerprint the shader baker logs per baked version.
+		print_verbose(vformat("  ^ version is: %s", _version_get_debug_fingerprint(p_version)));
 		return false;
 	}
 
