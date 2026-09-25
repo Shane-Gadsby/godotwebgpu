@@ -145,6 +145,29 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_cache_hits = 0;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_cache_misses = 0;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_precompiled_hits = 0;
+// Stages that came straight from the shader container's export-time-baked WGSL,
+// i.e. the ones export-time baking actually paid for. Counted separately from
+// the three above because that path never reaches _spv_to_wgsl_cached() at all.
+[[maybe_unused]] static uint32_t _wgsl_baked_container_hits = 0;
+
+// Publishes the running shader-translation tally to `window`, so it can be read
+// from the browser devtools console at any time without a rebuild:
+//
+//     godotWebGPUShaderStats
+//     // { baked: 412, precompiled: 3, cached: 88, translated: 0 }
+//
+// `translated` is the number that matters: it counts stages this driver had to
+// run Tint on at load time, which is exactly what export-time baking exists to
+// drive to zero. A non-zero value names a real gap; zero means every shader
+// arrived ready and any remaining startup cost is the browser's own WGSL ->
+// pipeline compilation, which no amount of baking on our side removes.
+//
+// Deliberately not behind WEBGPU_VERBOSE: the point is to be answerable on a
+// stock build, and it costs one small EM_ASM store per shader stage created
+// (not per frame).
+static void _publish_shader_stats() {
+	EM_ASM({ window.godotWebGPUShaderStats = { baked : $0, precompiled : $1, cached : $2, translated : $3 }; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses);
+}
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
 // this event to know a synchronous Tint compile just ran on the main thread, since
@@ -199,6 +222,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	const String *cached = _spv_to_wgsl_cache.getptr(spv_hash);
 	if (cached) {
 		_spv_to_wgsl_cache_hits++;
+		_publish_shader_stats();
 		CharString cs = cached->utf8();
 		size_t len = (size_t)cs.length() + 1;
 		char *out = (char *)malloc(len);
@@ -213,6 +237,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	const char *precompiled = _lookup_precompiled_wgsl(spv_hash);
 	if (precompiled) {
 		_spv_to_wgsl_precompiled_hits++;
+		_publish_shader_stats();
 		WEBGPU_DIAG({
 			if ($0 <= 5 || ($0 % 50) === 0) {
 				console.log('[SHADER] Precompiled WGSL hit #' + $0);
@@ -229,6 +254,14 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 
 	// 3. Fall back to Tint (for specialized shaders and shaders not in the table).
 	_spv_to_wgsl_cache_misses++;
+	_publish_shader_stats();
+	// The one event worth a log line of its own: a stage that neither the
+	// export-time bake nor the build-time table covered, translated on the main
+	// thread while the player waits. Rare by design -- if these are frequent,
+	// either shader_baker/enabled is off for this export or something is
+	// stopping the bake from covering this shader.
+	print_verbose(vformat("WebGPU: translating a shader stage at runtime (no baked or precompiled WGSL). Totals so far: baked=%d precompiled=%d cached=%d translated=%d.",
+			_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses));
 
 	char *wgsl_str = _translate_spirv_to_wgsl(p_spv_ptr, p_spv_size);
 
@@ -4831,6 +4864,8 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			size_t baked_len = strlen(baked_wgsl) + 1;
 			wgsl_str = (char *)malloc(baked_len);
 			memcpy(wgsl_str, baked_wgsl, baked_len);
+			_wgsl_baked_container_hits++;
+			_publish_shader_stats();
 		} else {
 			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size());
 		}
