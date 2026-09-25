@@ -429,7 +429,22 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// `webgpu=yes` (see drivers/webgpu/README.md) so this container format
 	// is available at all — if it wasn't, export proceeds without baking and
 	// shaders fall back to the existing runtime Tint translation.
-	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), false));
+	//
+	// Defaults on: for WebGPU the cost of *not* baking is paid by every player
+	// as a multi-second freeze on first load, which is not a sane thing to
+	// leave behind an unticked box. Turning it off is still fully supported and
+	// means exactly what it says — nothing is baked, and the running game
+	// translates its shaders in the browser through Tint on demand — which is
+	// what you want while iterating, since baking every declared variant of
+	// every shader the project uses is the slowest part of an export.
+	//
+	// Note that flipping this default only reaches presets that don't already
+	// store a value for it: EditorExport::update_export_presets() applies an
+	// option's default solely when `!preset->has(option_name)`
+	// (editor/export/editor_export.cpp), and export_presets.cfg persists every
+	// option. Presets created before this default changed therefore keep their
+	// stored `false` — the export warning below is what tells their owner.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), true));
 
 	// Task 13 Phase 2 (webgpu_notes/TASKS.md's 2026-09-20 scoping update):
 	// baking above never covers specialization-constant pipeline variants
@@ -544,12 +559,12 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 		// multi-second startup stall/jank documented in
 		// webgpu_notes/STARTUP_PROFILING.md. Baking bakes ahead of time everything
 		// it can (see drivers/webgpu/README.md and webgpu_notes/TASKS.md's shader
-		// baking task), which is a real, large reduction even though
-		// spec-constant-patched variants specifically are never covered by it
-		// (they depend on values only known at runtime) -- see
-		// webgpu_notes/finish_async_shader_comp.md Section 10 for the full
-		// architectural writeup of why that residual gap can't currently be
-		// closed without deeper, riskier engine changes.
+		// baking task), and since Task 25 it covers specialization-constant
+		// pipeline variants too: those no longer produce their own shader
+		// modules at all, so they reuse the baked base module through WebGPU
+		// pipeline constants. What baking still cannot cover is a shader that
+		// does not exist at export time, e.g. one built at runtime from
+		// Shader.new() + set_code().
 		if (!p_preset->get("shader_baker/enabled").operator bool()) {
 			err += TTR("\"Shader Baker\" (shader_baker/enabled) is disabled. Exported WebGPU games will do significant shader-compilation work on the player's machine at load time, which can look like a freeze on first launch. Enabling it moves most of that work to export time instead.") + "\n";
 		} else if (RendererSceneRenderRD::get_singleton() == nullptr) {
