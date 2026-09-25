@@ -492,7 +492,8 @@ Release templates no longer accidentally enable assertions (was adding ~2MB and 
 | No derivative uniformity guarantee | Prepend `diagnostic(off, derivative_uniformity)` |
 | f32::MAX decimal overflow | Replace with hex float `0x1.fffffep+127f` |
 | Limited storage texture formats | Promote R8/RG8/R16/RG16 to 32-bit |
-| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU |
+| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU (once per texture at load); monochrome font atlases are rasterised as RGBA8 up front and skip it entirely |
+| No 3-component texture formats | RGB8/RGBH/RGBF expanded to RGBA8 on CPU (once per texture at load) |
 | No push constants | Ring buffer emulation |
 | No combined image-samplers | SPIR-V-level split |
 | No subpasses | Flatten to separate render passes |
