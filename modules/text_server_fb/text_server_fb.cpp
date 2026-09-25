@@ -237,6 +237,31 @@ String TextServerFallback::_tag_to_name(int64_t p_tag) const {
 /* Font Glyph Rendering                                                  */
 /*************************************************************************/
 
+// Monochrome glyph atlases: see the matching comment in
+// modules/text_server_adv/text_server_adv.cpp. WebGPU has no texture component
+// swizzle, so an LA8 atlas would be expanded to RGBA8 on every upload -- and an
+// atlas is re-uploaded whenever a glyph is added to it. Rasterising straight
+// into RGBA8 removes the conversion for identical GPU memory. Kept byte-for-byte
+// in step with the advanced text server so the two cannot drift.
+// See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+static constexpr int MONO_GLYPH_COLOR_SIZE = 4;
+#else
+static constexpr int MONO_GLYPH_COLOR_SIZE = 2;
+#endif
+
+static _FORCE_INLINE_ void _write_mono_glyph_texel(uint8_t *p_dst, uint8_t p_coverage) {
+#ifdef WEBGPU_ENABLED
+	p_dst[0] = 255; // Luminance broadcast, baked in for want of a texture swizzle.
+	p_dst[1] = 255;
+	p_dst[2] = 255;
+	p_dst[3] = p_coverage;
+#else
+	p_dst[0] = 255; // Grayscale as 1; the (R,R,R,G) swizzle broadcasts at sample time.
+	p_dst[1] = p_coverage;
+#endif
+}
+
 _FORCE_INLINE_ TextServerFallback::FontTexturePosition TextServerFallback::find_texture_pos_for_glyph(FontForSizeFallback *p_data, int p_color_size, Image::Format p_image_format, int p_width, int p_height, bool p_msdf) const {
 	FontTexturePosition ret;
 
@@ -520,7 +545,7 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_bitma
 	switch (p_bitmap.pixel_mode) {
 		case FT_PIXEL_MODE_MONO:
 		case FT_PIXEL_MODE_GRAY: {
-			color_size = 2;
+			color_size = MONO_GLYPH_COLOR_SIZE;
 		} break;
 		case FT_PIXEL_MODE_BGRA: {
 			color_size = 4;
@@ -560,12 +585,10 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_bitma
 					case FT_PIXEL_MODE_MONO: {
 						int byte = i * p_bitmap.pitch + (j >> 3);
 						int bit = 1 << (7 - (j % 8));
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = (p_bitmap.buffer[byte] & bit) ? 255 : 0;
+						_write_mono_glyph_texel(&wr[ofs], (p_bitmap.buffer[byte] & bit) ? 255 : 0);
 					} break;
 					case FT_PIXEL_MODE_GRAY:
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = p_bitmap.buffer[i * p_bitmap.pitch + j];
+						_write_mono_glyph_texel(&wr[ofs], p_bitmap.buffer[i * p_bitmap.pitch + j]);
 						break;
 					case FT_PIXEL_MODE_BGRA: {
 						int ofs_color = i * p_bitmap.pitch + (j << 2);
