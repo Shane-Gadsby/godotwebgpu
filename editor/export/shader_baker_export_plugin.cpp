@@ -462,6 +462,7 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 		print_verbose(vformat("Shader baker: baking '%s' from %s",
 				p_shader->version_get_cache_file_relative_path(p_version, 0, shader_container_driver),
 				p_origin.is_empty() ? String("<unknown>") : p_origin));
+		print_verbose(vformat("  ^ version is: %s", p_shader->version_get_debug_fingerprint(p_version)));
 	}
 
 	const int64_t variant_count = p_shader->get_variant_count();
