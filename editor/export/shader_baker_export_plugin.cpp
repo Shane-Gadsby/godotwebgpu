@@ -37,6 +37,8 @@
 #include "core/version.h"
 #include "editor/editor_node.h"
 #include "scene/3d/label_3d.h"
+#include "scene/3d/mesh_instance_3d.h"
+#include "scene/3d/visual_instance_3d.h"
 #include "scene/3d/sprite_3d.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
@@ -386,6 +388,40 @@ Node *ShaderBakerExportPlugin::_customize_scene(Node *p_root, const String &p_pa
 				// Generate variants with and without MSDF support since we don't have access to the font here.
 				Ref<Material> label_3d_material = StandardMaterial3D::get_material_for_2d(bool(properties["shaded"]), mat_transparency, bool(properties["double_sided"]), billboard_mode == StandardMaterial3D::BILLBOARD_ENABLED, billboard_mode == StandardMaterial3D::BILLBOARD_FIXED_Y, true, bool(properties["no_depth_test"]), bool(properties["fixed_size"]), BaseMaterial3D::TextureFilter(int(properties["texture_filter"])), BaseMaterial3D::AlphaAntiAliasing(int(properties["alpha_antialiasing_mode"])));
 				_customize_resource(label_3d_material, String());
+			}
+		}
+
+		// Materials attached to geometry in the scene. Without this they are baked
+		// only when they happen to be standalone resource files -- _customize_resource()
+		// is not called for a material embedded as a sub-resource of a scene, and the
+		// walk above only ever handled Label3D/Sprite3D. A model imported from glTF
+		// keeps its materials inside the imported scene exactly that way, so its
+		// shaders went unbaked and were recompiled from GLSL at load.
+		//
+		// The embedded-material snapshot in _begin_customize_resources() cannot cover
+		// these either: it is taken before any scene is customized, so a material
+		// shader created while loading one comes too late to be in it.
+		//
+		// _customize_resource() ignores a null Ref, so unset slots cost nothing.
+		// See webgpu_notes/TASKS.md Task 31.
+		GeometryInstance3D *geometry_instance = Object::cast_to<GeometryInstance3D>(node);
+		if (geometry_instance != nullptr) {
+			_customize_resource(geometry_instance->get_material_override(), String());
+			_customize_resource(geometry_instance->get_material_overlay(), String());
+		}
+
+		MeshInstance3D *mesh_instance = Object::cast_to<MeshInstance3D>(node);
+		if (mesh_instance != nullptr) {
+			Ref<Mesh> mesh = mesh_instance->get_mesh();
+			if (mesh.is_valid()) {
+				int surface_count = mesh->get_surface_count();
+				for (int i = 0; i < surface_count; i++) {
+					// Both slots matter: the mesh's own material is what ships with the
+					// asset, the override is what the scene set on top of it, and either
+					// can be the one actually drawn.
+					_customize_resource(mesh->surface_get_material(i), String());
+					_customize_resource(mesh_instance->get_surface_override_material(i), String());
+				}
 			}
 		}
 

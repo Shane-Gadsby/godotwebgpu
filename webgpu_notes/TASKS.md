@@ -4608,3 +4608,26 @@ That was wrong, and the reason is worth recording because it is not obvious from
 There is a neat irony: one of the variants this forced back into the bake is `VRS_RG_MULTIVIEW`, which **Task 29 had just disabled** two commits earlier. The group relaxation is the part fog actually needed — variants inside the newly-baked group are enabled by default anyway — so restricting it to groups keeps the fix and drops the regression.
 
 **Remaining**: the 16 `SceneForwardClustered` stages, cause still unconfirmed (see the corrected breakdown above). Leading hypothesis unchanged: a material shader version created with `version_create(false)` (non-embedded), which the baker reaches only through `_customize_resource()`/`_customize_scene()`.
+
+---
+
+### Task 32: the last 16 — materials embedded in a scene are never enumerated by the shader baker `[FIX IMPLEMENTED, AWAITING EXPORT]`
+**Status**: `FIX IMPLEMENTED` — cause established from the user's own export artifacts, not inference; needs one export to confirm.
+**Severity**: MEDIUM. One material's worth of scene shaders (8 variants × 2 stages = 16) recompiled from GLSL on the main thread at load. Upstream-shaped: nothing about it is WebGPU-specific.
+
+**How it was pinned down.** Counting baked versions on disk settled what static reading could not. In the user's project:
+- `/.godot/exported/<id>/shader_baker/Web/webgpu/SceneForwardClusteredShaderRD/` — 4 group directories, **4 version files each**.
+- `/.godot/shader_cache/SceneForwardClusteredShaderRD/` (the editor's own) — **16** versions in the base group.
+
+So the baker enumerated 4 material versions where the engine has many, and the runtime wanted a 5th. The project itself narrowed which: it contains **no** `.gdshader`, `.tres` or `.material` files and no 3D materials in any `.tscn` (only a `ProceduralSkyMaterial`). Its 3D content is one glTF model, `character/source/Школяр.glb`, instantiated as a `PackedScene` — whose materials live as sub-resources *inside the imported scene*.
+
+**Cause.** Neither baker path reaches such a material:
+- `_customize_resource()` is called for resources being exported, and handles `Ref<Material>` — but a material embedded as a sub-resource of a scene is not handed to it.
+- `_customize_scene()` walks the node tree but only ever special-cased `Label3D` and `Sprite3D` (to synthesise their runtime-generated 2D materials). It never looked at mesh materials.
+- The embedded-material snapshot in `_begin_customize_resources()` cannot cover them either, because it is taken **before** any scene is customized — a material shader created while loading a scene comes too late to be in the set.
+
+**Fix** (`editor/export/shader_baker_export_plugin.cpp`): the scene walk now also collects, for every node it visits, `GeometryInstance3D::get_material_override()` / `get_material_overlay()`, and for a `MeshInstance3D` each surface's `mesh->surface_get_material(i)` and `get_surface_override_material(i)`. Each is passed to the existing `_customize_resource()`, which ignores a null `Ref`, so unset slots cost nothing. Both the mesh's own material and the scene's override are collected because either can be the one actually drawn.
+
+**Verified so far**: native editor builds clean. **Not yet verified**: that this closes the 16 — it needs a real export, since no local test exercises the bake path.
+
+**Known not covered** (deliberately, pending evidence any project here needs them): `MultiMeshInstance3D`, `CSGShape3D`, `GridMap`, and particle draw-pass materials. Each would be the same one-line-per-slot addition if a gap shows up.
