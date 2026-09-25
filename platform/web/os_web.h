@@ -50,6 +50,14 @@ class OS_Web : public OS_Unix {
 	bool idb_needs_sync = false;
 	bool pwa_is_waiting = false;
 
+	// Startup phase timing, for `--benchmark` on a web export. The base class only
+	// records these under `TOOLS_ENABLED`, so an export template would otherwise
+	// have no way to report where its startup time went -- which is exactly the
+	// build where it matters, since on WebGPU the whole of `Main::setup()` and
+	// `Main::start()` runs inside one blocking `callMain()` that no JS-side
+	// instrumentation can look into (see webgpu_notes/TASKS.md Task 14).
+	HashMap<String, uint64_t> startup_marks_from;
+
 	WASM_EXPORT static void main_loop_callback();
 
 	WASM_EXPORT static void file_access_close_callback(const String &p_file, int p_flags);
@@ -113,6 +121,9 @@ public:
 	Error open_dynamic_library(const String &p_path, void *&p_library_handle, GDExtensionData *p_data = nullptr) override;
 
 	void resume_audio();
+
+	void benchmark_begin_measure(const String &p_context, const String &p_what) override;
+	void benchmark_end_measure(const String &p_context, const String &p_what) override;
 
 	OS_Web();
 };

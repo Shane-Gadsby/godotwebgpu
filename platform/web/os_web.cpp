@@ -51,6 +51,51 @@ void OS_Web::alert(const String &p_alert, const String &p_title) {
 	godot_js_display_alert(p_alert.utf8().get_data());
 }
 
+// Startup phase timing. `main.cpp` already brackets every startup phase with these
+// two calls, but `OS`'s implementations of them are `#ifdef TOOLS_ENABLED`, so in an
+// export template they compile to nothing. On WebGPU the entire startup -- and with
+// it the load stall the player sees -- happens inside one blocking `callMain()`, so
+// there is no way to observe those phases from JS: the only thing that can report
+// them is the engine itself, from in there. These overrides do that, pushing each
+// completed phase onto `window.godotStartupMarks` where a profiler (or the export
+// shell) can read it. Times are taken with `performance.now()` on the JS side so
+// they land on the same clock as everything else the page measures, with no epoch to
+// reconcile.
+//
+// Recording is gated on `--benchmark`, so a normal load pays nothing but one
+// already-false branch per phase.
+void OS_Web::benchmark_begin_measure(const String &p_context, const String &p_what) {
+	OS_Unix::benchmark_begin_measure(p_context, p_what);
+	if (!is_use_benchmark_set()) {
+		return;
+	}
+	startup_marks_from[p_context + ":" + p_what] = get_ticks_usec();
+}
+
+void OS_Web::benchmark_end_measure(const String &p_context, const String &p_what) {
+	OS_Unix::benchmark_end_measure(p_context, p_what);
+	if (!is_use_benchmark_set()) {
+		return;
+	}
+	const String key = p_context + ":" + p_what;
+	HashMap<String, uint64_t>::Iterator from = startup_marks_from.find(key);
+	if (from == startup_marks_from.end()) {
+		return; // Unbalanced begin/end pair -- nothing to report for it.
+	}
+	const double duration_ms = double(get_ticks_usec() - from->value) / 1000.0;
+	startup_marks_from.remove(from);
+
+	const CharString key_utf8 = key.utf8();
+	EM_ASM({
+		var marks = window.godotStartupMarks;
+		if (!marks) {
+			marks = [];
+			window.godotStartupMarks = marks;
+		}
+		var endMs = performance.now();
+		marks.push({ name: UTF8ToString($0), durationMs : $1, endMs : endMs, startMs : endMs - $1 }); }, key_utf8.get_data(), duration_ms);
+}
+
 // Lifecycle
 void OS_Web::initialize() {
 	OS_Unix::initialize_core();
