@@ -621,12 +621,34 @@ String ShaderRD::_get_cache_file_path(Version *p_version, int p_group, const Str
 bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	String api_safe_name = String(RD::get_singleton()->get_device_api_name()).validate_filename().to_lower();
 	Ref<FileAccess> f;
-	if (shader_cache_user_dir_valid) {
-		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
+
+	// res:// (the export's baked cache) is tried BEFORE user:// (whatever this
+	// installation compiled for itself on an earlier run). Both are keyed by the
+	// same content hash, so they describe the same shader -- but they are not
+	// equally complete. The baked one is written by the exporter, which runs the
+	// target's RenderingShaderContainer with baking enabled; the user one is
+	// written by the running game, whose container has no baker compiled in.
+	//
+	// On WebGPU that difference is the whole point of baking: a baked container
+	// carries ready-to-use WGSL, a runtime-written one carries only SPIR-V, so
+	// loading the user copy means running Tint over every shader again on the main
+	// thread. With user:// searched first, one early run that predates a working
+	// bake writes WGSL-less entries and then shadows the baked cache permanently --
+	// every later run pays full translation cost no matter how correct the bake
+	// became. That is exactly what happened here: eight scene-shader variants kept
+	// translating across three unrelated bake fixes because the stale user-side
+	// entries were being found first. See webgpu_notes/TASKS.md Task 33.
+	//
+	// res:// is only set for an exported project that actually shipped a baked
+	// cache (renderer_compositor_rd.cpp), so this changes nothing in the editor and
+	// nothing for an export without baked shaders. user:// remains the fallback, so
+	// shaders the bake did not cover are still cached across runs as before.
+	if (shader_cache_res_dir_valid) {
+		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
 	}
 
-	if (f.is_null() && shader_cache_res_dir_valid) {
-		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
+	if (f.is_null() && shader_cache_user_dir_valid) {
+		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
 	}
 
 	if (f.is_null()) {

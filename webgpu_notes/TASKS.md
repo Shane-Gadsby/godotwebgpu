@@ -4611,7 +4611,7 @@ There is a neat irony: one of the variants this forced back into the bake is `VR
 
 ---
 
-### Task 32: the last 16 — materials embedded in a scene are never enumerated by the shader baker `[IN PROGRESS — second cause found]`
+### Task 32: the last 16 — first believed an enumeration gap; actually Task 33 `[SUPERSEDED BY TASK 33]`
 **Status**: `FIX IMPLEMENTED` — cause established from the user's own export artifacts, not inference; needs one export to confirm.
 **Severity**: MEDIUM. One material's worth of scene shaders (8 variants × 2 stages = 16) recompiled from GLSL on the main thread at load. Upstream-shaped: nothing about it is WebGPU-specific.
 
@@ -4665,3 +4665,37 @@ The bake half was missing, and is added here: `_customize_shader_version()` take
 Together these answer the question that neither side can answer alone: whether a version was **never enumerated** (absent from the baker's log) or **enumerated under a different key** (present, different sha1). Those two have completely different fixes and had been indistinguishable all along — which is why three fixes in a row addressed the wrong one.
 
 **Next**: user sets `verbose_stdout`, exports, and supplies the editor's `Shader baker: baking ...` lines plus the browser's `Shader cache miss for ...` lines. The four baked version sha1s are already known from disk, so the miss lines alone may settle it.
+
+---
+
+### Task 33: a stale `user://` shader cache permanently shadows the export's baked cache `[FIX IMPLEMENTED, AWAITING CLEARED-STORAGE TEST]`
+**Status**: `FIX IMPLEMENTED`. Explains the 16 that survived three unrelated fixes, and a much larger failure seen on a second export.
+**Severity**: **HIGH.** In the worst case observed, **every** shader in the build lost its baked WGSL: `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`. Baking is fully defeated and the game pays main-thread Tint for everything, on every run, forever.
+
+**The evidence.** A verbose run shows, for each of the eight stuck variants:
+```
+Loading cache for shader SceneForwardClusteredShaderRD, variant 0
+WebGPU: shader_create_from_container 'SceneForwardClusteredShaderRD:0' (2 stages, push_const_size=16)
+WebGPU: translating shader stage 'SceneForwardClusteredShaderRD:0' at runtime (no baked or precompiled WGSL)
+```
+The cache **hit** — and the container still had no WGSL. That single pairing kills every hypothesis chased in Tasks 31–32 for this group: the version was neither missing from the bake nor filed under a different key. It was found, and what was found was incomplete.
+
+**Cause.** `ShaderRD::_load_from_cache()` searched `user://shader_cache` **before** `res://.godot/shader_cache`. The two are keyed identically (base hash + defines + group + version sha1 + API name) so they describe the same shader, but they are not equally complete:
+- `res://.godot/shader_cache` is the **export's baked cache**, written by the exporter with the container's baker enabled → carries ready-to-use **WGSL**.
+- `user://shader_cache` is written by the **running game** (`_save_to_cache()` after a runtime compile), whose container has no baker compiled in (`WEBGPU_SHADER_BAKER_ENABLED` is editor-only) → carries **SPIR-V only**.
+
+So one early run that predated a working bake wrote WGSL-less entries into `user://`, and from then on those were found first — permanently shadowing the baked cache. Every later run paid full translation cost regardless of how correct the bake had become. On web `user://` is IndexedDB-backed, so it survives reloads and is invisible unless site data is cleared.
+
+**This is why the 16 never moved.** Task 31's fix, the scene-material walk and the `flush_changes()` fix were all being measured against a browser that was not reading the baked cache for those entries at all. The numbers were `360/16` *identically* every time because they were coming from fixed, stale storage — which also explains the otherwise strange precision of that repetition. The `baked: 0 / translated: 193` run is the same bug having spread to every shader.
+
+**Correction to Task 32**: the scene-material walk and `flush_changes()` fixes were aimed at a cause that was not operating. They are kept — both are real gaps for a project whose materials *are* scene sub-resources, and `flush_changes()` in particular closes a silent hole — but neither was responsible for the 16, and Task 32's diagnosis should be read as superseded.
+
+**Fix** (`servers/rendering/renderer_rd/shader_rd.cpp`): try `res://` before `user://`. Safe because `res://` is only set for an exported project that actually shipped a baked cache (`renderer_compositor_rd.cpp:352-356`), so the editor and non-baked exports are untouched, and `user://` remains the fallback so shaders the bake did not cover are still cached across runs.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target; `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0.
+
+**Next**: re-export and test **with site data cleared** (DevTools → Application → Clear storage, or a fresh incognito window). Two things to separate:
+1. Cleared storage alone proves the diagnosis — the stuck entries should disappear even before this fix matters.
+2. This fix is what stops it recurring, and matters on every machine that has already run an older build.
+
+**Lesson worth keeping**: three fixes in a row were evaluated against a measurement that could not respond to them, because persistent client-side storage sat between the artifact and the observation. "The number is identical, not merely similar" was the tell, and it was visible from the second data point. When a metric repeats *exactly* across genuinely different builds, suspect the measurement path before adding another fix.
