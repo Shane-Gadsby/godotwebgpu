@@ -4274,3 +4274,45 @@ User reported 4 configurations from real-project exports: "all AA options at max
 - The **RW-storage-split bug in `_create_module_with_spec_constants()`** (Task 9.5 Rounds 20-23, reverted and left open) becomes unreachable for engine shaders for the same reason — the override path reuses the base module, which already carries every WGSL-text fixup. Worth re-confirming live before closing it.
 - **Task 13's spec-constant recording/baking** (Phase 2-3) records combinations from inside `_create_module_with_spec_constants()`. For shaders on the override path there is nothing left to record or bake, which is the intended outcome; the feature still covers whatever the guard rejects.
 - The conservative rejections could be narrowed later if a real shader needs it — Tint does support `OpSpecConstantComposite` built from overrides (`spec_composites_`), and WGSL does allow an override `@workgroup_size` and override-sized workgroup arrays. `spec_constants.spv` in the corpus is a real example of the composite case (`vec3(AMBIENT_STRENGTH)`), and it stays frozen today.
+
+---
+
+### Task 26: the 18 "Tint crashed" bake warnings — root-caused to WGSL language limits on variants WebGPU never selects; skipped up front instead of crashing a child per shader `[DONE at bake level; also found 13 shaders missing from SHADER_REGISTRY]`
+**Status**: `DONE` — reproduced all three crash signatures directly, established none of them is a fixable Tint bug, and stopped the baker from spawning a doomed subprocess for them. Task 22 had already concluded this class was benign; this task explains *why* it exists and removes the noise.
+**Severity**: LOW as a correctness matter (nothing here reaches a running game), MEDIUM as a diagnostics matter — 18 identical WARN lines on every export is exactly the noise that makes a real bake failure invisible, and it was the first thing that looked wrong when export-time baking became the default.
+**Files**: `drivers/webgpu/wgsl_bake_subprocess.cpp`.
+
+**Reported**: a user's `--export-debug` Web run printed 18 × `WebGPU shader baker: leaving one shader stage unbaked (tint_convert_cli: Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature))`, unchanged after rebuilding `tint_convert_cli` and clearing `res://.godot/shader_cache` — so not staleness.
+
+**Reproduced locally**, without needing the user's project: compiled all 8 FSR2 passes through `wgsl_precompile.py`'s own `parse_glsl_file()`/`assemble_glsl()` with `RendererRD::FSR2Effect`'s real `general_defines`, across the four mode combinations that class declares (`""`, `FFX_HALF`, `NO_IMAGE_ATOMICS`, both), then ran each through `tint_convert_cli`. 18 convert, 2 fail to compile as GLSL at all, and **12 crash Tint in exactly three signatures**:
+
+1. **`TINT_ASSERT(int_ty->width() == 32)`** (`thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc:780`) — 8 modules, every one of them an `FFX_HALF` variant. Confirmed via `spirv-dis` that these declare `OpTypeInt 16`. Reading the assert's own context settles it: the `kFloat` case immediately below *does* handle `width() == 16` by returning `f16`, while the `kInteger` case asserts. **WGSL has no integer type other than i32/u32** — there is no i16/u16 to lower to. Not a Tint bug and not patchable.
+2. **`TINT_UNIMPLEMENTED unhandled SPIR-V instruction: OpImageTexelPointer`** (`parser.cc:2528`) — 2 modules, both the *base* (image-atomics) variant of `fsr2_compute_luminance_pyramid_pass` and `fsr2_reconstruct_previous_depth_pass`. Confirmed present in the base variants and absent from their `NO_IMAGE_ATOMICS` siblings, which convert cleanly. WGSL has no texture atomics.
+3. **`TINT_UNIMPLEMENTED ... OpUConvert`** — 2 modules, `FFX_HALF` on `fsr2_reconstruct_previous_depth_pass`. Tint's own switch says it outright: *"can't translate UConvert: WGSL does not have concrete integer types of different widths"*. Same limitation as (1).
+
+**Why these variants get baked when WebGPU never runs them**: the shader baker runs inside the editor and enumerates every variant the *editor's* `RenderingDevice` declared at startup. `FSR2Effect`'s constructor gates `FFX_HALF` on `RD::Features::SUPPORTS_HALF_FLOAT` and its atomic path on `SUPPORTS_IMAGE_ATOMIC_32_BIT`; both are true for the Vulkan editor that baking requires, and both are false under `RenderingDeviceDriverWebGPU`. So the editor offers variants the WebGPU renderer would never ask for, `ShaderBakerExportPlugin` dutifully bakes all of them, and the impossible ones abort a Tint child apiece. This is also why the count is stable across rebuilds and cache clears.
+
+**Fix**: `_wgsl_unsupported_reason()` in `wgsl_bake_subprocess.cpp` scans the SPIR-V for the two things WGSL structurally cannot express — an `OpTypeInt` of any width other than 32, and `OpImageTexelPointer` — and, when it finds one, skips the bake with a `print_verbose` naming the reason instead of forking a child that will abort and then reporting a language limitation at WARN. Anything else still fails loudly, so a genuine regression is as visible as before.
+
+**Verified** by mirroring the exact byte scan in Python and running it against all 226 real SPIR-V modules on hand (196 engine variants from `SHADER_REGISTRY` + the 30 FSR2 ones above), cross-checked against whether `tint_convert_cli` actually converts each:
+- 12 flagged, **all 12 genuinely unconvertible** — the ones now skipped.
+- **0 flagged that convert fine** — no bakeable shader is skipped by this.
+- **0 unflagged conversion failures** — every failure in the set is explained by one of the two rules, so nothing slips through into a silent skip either.
+- 214 untouched.
+
+No unit test: this lives in an editor-only translation unit that none of the existing tiers compile (`shader_corpus`/`preprocessing_tests` both drive `tint_convert_cli`, which does not link it). The 226-module truth table above is the evidence; the file compiles clean standalone.
+
+**Found in passing — 13 shader files are absent from `wgsl_precompile.py`'s `SHADER_REGISTRY` entirely**, so they get no build-time precompilation and, until now, were never exercised by the engine-shader sweep either:
+
+```
+effects/fsr2/fsr2_accumulate_pass.glsl              forward_clustered/best_fit_normal.glsl
+effects/fsr2/fsr2_autogen_reactive_pass.glsl        forward_clustered/integrate_dfg.glsl
+effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl  forward_clustered/scene_forward_clustered.glsl
+effects/fsr2/fsr2_depth_clip_pass.glsl              giprobe_write.glsl
+effects/fsr2/fsr2_lock_pass.glsl                    tex_blit.glsl
+effects/fsr2/fsr2_rcas_pass.glsl
+effects/fsr2/fsr2_reconstruct_previous_depth_pass.glsl
+effects/fsr2/fsr2_tcr_autogen_pass.glsl
+```
+
+`scene_forward_clustered.glsl` is the notable one: it is the Forward+ scene ubershader, i.e. the largest and most-used shader in a Forward+ project, and it has no build-time table entry. Export-time baking does cover it (that enumerates from `ShaderRD`, not from this registry), so a baked export is fine — but an unbaked one translates it in the browser, and every sweep that has ever claimed "196 compiled, 0 tint failures" never looked at it. Adding these to the registry needs each one's real variant defines enumerated the way the existing entries are; not attempted here. Worth doing both for build-time coverage and so the sweep stops having a blind spot over the Forward+ renderer's main shader.

@@ -42,6 +42,60 @@
 
 namespace webgpu {
 
+// Reports why a SPIR-V module can never become WGSL, or an empty string when
+// nothing rules it out up front.
+//
+// This is not a guess at what Tint happens to reject today -- both cases below
+// are WGSL language limitations with no workaround, and Tint's SPIR-V reader
+// aborts the process on them (TINT_ASSERT / TINT_UNIMPLEMENTED) rather than
+// returning an error. Checking first means not forking a child just to watch it
+// die, and not reporting a structural impossibility as if it were a surprise.
+//
+// The variants that hit this are ones the WebGPU renderer never selects: the
+// shader baker runs inside the editor and enumerates every variant the
+// *editor's* RenderingDevice declares, so a Vulkan editor offers FFX_HALF and
+// image-atomic variants that RenderingDeviceDriverWebGPU's own capability
+// checks never ask for (see RendererRD::FSR2Effect's modes_with_fp16 and
+// modes_atomic_fallback). They would be unusable on WebGPU regardless, since
+// what stops them is WGSL itself.
+static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size) {
+	static constexpr uint16_t OP_TYPE_INT = 21;
+	static constexpr uint16_t OP_IMAGE_TEXEL_POINTER = 60;
+
+	const uint32_t total_words = (uint32_t)(p_spv_size / 4);
+	if (total_words < 5) {
+		return String();
+	}
+
+	uint32_t pos = 5; // Skip the 5-word header.
+	while (pos < total_words) {
+		uint32_t word0 = 0;
+		memcpy(&word0, p_spv_ptr + (size_t)pos * 4, 4);
+		uint32_t word_count = word0 >> 16;
+		uint16_t opcode = (uint16_t)(word0 & 0xFFFF);
+		if (word_count == 0 || pos + word_count > total_words) {
+			break; // Malformed; let Tint be the one to complain about it.
+		}
+
+		if (opcode == OP_TYPE_INT && word_count >= 3) {
+			uint32_t width = 0;
+			memcpy(&width, p_spv_ptr + ((size_t)pos + 2) * 4, 4);
+			if (width != 32) {
+				// WGSL has i32/u32 and nothing narrower. Tint handles a 16-bit
+				// *float* (f16) but asserts on a 16-bit integer.
+				return vformat("uses %d-bit integers, and WGSL has no integer type other than 32-bit", width);
+			}
+		} else if (opcode == OP_IMAGE_TEXEL_POINTER) {
+			// Atomics on a texel, which WGSL has no equivalent for at all.
+			return String("uses image atomics (OpImageTexelPointer), which WGSL does not have");
+		}
+
+		pos += word_count;
+	}
+
+	return String();
+}
+
 // Resolved once per process (tint_convert_cli's location can't change while
 // the editor is running); empty string means "confirmed missing", so a
 // missing tool only warns once instead of once per shader.
@@ -88,6 +142,15 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
 
 	String tint_convert_cli = _find_tint_convert_cli();
 	if (tint_convert_cli.is_empty()) {
+		return String();
+	}
+
+	// Checked before spawning anything: Tint aborts on these rather than
+	// returning an error, so the alternative is forking a child per shader
+	// purely to have it crash, and then reporting a WGSL limitation at WARN as
+	// though something had gone wrong.
+	if (String unsupported = _wgsl_unsupported_reason(p_spv_ptr, p_spv_size); !unsupported.is_empty()) {
+		print_verbose(vformat("WebGPU shader baker: not baking one shader stage -- it %s. The WebGPU renderer does not use this variant.", unsupported));
 		return String();
 	}
 
