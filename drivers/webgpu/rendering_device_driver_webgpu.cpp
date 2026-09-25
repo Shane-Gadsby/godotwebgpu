@@ -157,6 +157,13 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 // have covered them even in principle. Conflating the two makes a working build
 // look broken -- see _publish_shader_stats().
 [[maybe_unused]] static uint32_t _spv_to_wgsl_spec_reconvert_hits = 0;
+// Distinct shader names behind `translated`, with an occurrence count each, so
+// a gap can be named from the devtools console instead of only counted. Bounded:
+// a project that creates shaders at runtime in a loop must not turn a diagnostic
+// into a leak, and past the cap the count still rises even though no new name is
+// recorded. Keyed by name, so repeated stages of one shader collapse to one row.
+static constexpr uint32_t TRANSLATED_NAME_CAP = 128;
+static HashMap<String, uint32_t> _translated_stage_names;
 
 // Publishes the running shader-translation tally to `window`, so it can be read
 // from the browser devtools console at any time without a rebuild:
@@ -177,17 +184,41 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 // spec_constants_overridable() rejects a shader). Those bytes are produced at
 // pipeline-creation time from values the exporter never saw, so no amount of
 // baking can pre-cover them -- only widening the override path reduces this
-// number. They were counted together until a real build reported translated=37
-// on an otherwise fully-baked project, which read as a baking failure and was
-// not one.
+// number. They were counted together until a real build reported translated=37,
+// which was indistinguishable from a baking failure; splitting them showed that
+// build's 37 were in fact all genuine gaps (specialized came back 0), so the
+// split is what made the real problem legible rather than explaining it away.
+//
+// `translatedShaders` lists the distinct shader names behind `translated`, with
+// an occurrence count each. A bare number says a gap exists; this says which
+// shader, which is what actually lets it be fixed. The verbose log carries the
+// same information, but a web export has no convenient --verbose, so it has to
+// be readable from the console.
 //
 // Deliberately not behind WEBGPU_VERBOSE: the point is to be answerable on a
 // stock build, and it costs one small EM_ASM store per shader stage created
 // (not per frame).
 static void _publish_shader_stats() {
+	// Newline-joined "<name> x<count>" records, split back into an array on the
+	// JS side. A joined string keeps this to a single extra EM_ASM argument;
+	// building a JS array element by element from C++ would mean one EM_ASM call
+	// per name. Newline is the separator because a shader name can plausibly
+	// contain a comma or a space but not a line break.
+	String joined;
+	for (const KeyValue<String, uint32_t> &kv : _translated_stage_names) {
+		if (!joined.is_empty()) {
+			joined += "\n";
+		}
+		joined += vformat("%s x%d", kv.key, kv.value);
+	}
+	CharString joined_utf8 = joined.utf8();
+
 	// Built field by field rather than as one object literal: EM_ASM stringifies
 	// its first macro argument, so a comma anywhere at the top level of the body
 	// is a macro argument separator and the rest gets compiled as C++ instead.
+	// String.fromCharCode(10) rather than a '\n' literal for the same reason the
+	// body avoids commas: it keeps the stringified body free of escapes whose
+	// survival through the preprocessor would have to be reasoned about.
 	EM_ASM({
 		var stats = {};
 		stats.baked = $0;
@@ -195,7 +226,9 @@ static void _publish_shader_stats() {
 		stats.cached = $2;
 		stats.translated = $3;
 		stats.specialized = $4;
-		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits);
+		var names = UTF8ToString($5);
+		stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : [];
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data());
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
@@ -294,6 +327,12 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size, bool 
 		_spv_to_wgsl_spec_reconvert_hits++;
 	} else {
 		_spv_to_wgsl_cache_misses++;
+		String name = p_debug_name.is_empty() ? String("<unnamed>") : p_debug_name;
+		if (uint32_t *existing = _translated_stage_names.getptr(name)) {
+			(*existing)++;
+		} else if (_translated_stage_names.size() < TRANSLATED_NAME_CAP) {
+			_translated_stage_names[name] = 1;
+		}
 	}
 	_publish_shader_stats();
 	// The one event worth a log line of its own: a stage that neither the

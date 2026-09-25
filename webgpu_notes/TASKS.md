@@ -4457,7 +4457,7 @@ Per the handoff's warning, this is **deliberately specific to ViewIndex** and th
 ---
 
 ### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[FIX LANDED, AWAITING REBUILD]`
-**Status**: `FIX LANDED` — instrumentation split and compiled for the web target; needs one rebuild to read the new numbers.
+**Status**: `IN PROGRESS` — split landed and **read back on a real build: `specialized: 0`, so all 37 are genuine bake gaps.** Now instrumented to name them; needs one more rebuild to identify which shaders.
 **Severity**: MEDIUM as a diagnostic bug (it makes a healthy build look broken, and sends the reader hunting a baking failure that isn't there). Unknown severity for whatever real gap it may be hiding — that is what the rebuild answers.
 
 **What the user reported** (build `d17857e49`, bake confirmed warning-free after Task 29):
@@ -4490,3 +4490,29 @@ Naming the **object file** as the scons target compiles that one translation uni
 **Next step**: user rebuilds and re-reads `godotWebGPUShaderStats`, now five fields.
 - `translated: 0` with a large `specialized` → baking is complete; the remaining lever is `spec_constants_overridable()` coverage, and any residual stall is Task 14's browser-side pipeline compilation.
 - `translated` still non-zero → a real gap, and `--verbose` now prints the **name** of each shader that takes it, which is what was missing to chase it.
+
+---
+
+#### Task 30 — the split's result: the 37 are real
+
+Rebuilt and re-read on the user's project:
+```js
+{ baked: 339, precompiled: 1, cached: 17, translated: 37, specialized: 0 }
+```
+
+**`specialized: 0` refutes the hypothesis above.** The spec-constant re-conversion path (`_create_module_with_spec_constants()`) never ran at all on this project, so it accounts for none of the 37. Every one of them is a `shader_create_from_container()` miss: a stage that arrived with no baked WGSL and had to go through Tint on the main thread while the player waited. **This is a genuine baking gap**, and the bake being warning-free (Task 29) does not contradict it — a warning means a stage was *skipped*, whereas these stages were never offered to the baker in the first place. Those are different failures and only the first one warns.
+
+Worth keeping: the split did not explain the problem away, it made it legible. Before it, 37 was ambiguous between "serious gap" and "expected and unfixable"; the two would have been chased identically.
+
+**Instrumented to name them.** A count cannot be acted on. Added `_translated_stage_names` (HashMap name -> occurrences, capped at `TRANSLATED_NAME_CAP` = 128 distinct names so a project creating shaders at runtime in a loop cannot turn a diagnostic into a leak; past the cap the *count* still rises, only new *names* stop being recorded), published as `stats.translatedShaders`, e.g. `["scene_forward_clustered x4", ...]`.
+
+Published as a newline-joined string split on the JS side, keeping it to one extra `EM_ASM` argument instead of one call per name. Newline as separator because a shader name may plausibly contain a comma or space but not a line break, and `String.fromCharCode(10)` on the JS side rather than a `'\n'` literal — same instinct as the body avoiding commas, it keeps the stringified `EM_ASM` body free of escapes whose survival through the preprocessor would have to be reasoned about.
+
+It is read from the console rather than only logged because a web export has no convenient `--verbose`; the verbose line still carries the shader name too.
+
+**Verification**: `em_asm_check.py` clean, and the object compiles under Emscripten via the single-object target from the section above. The `EM_ASM` body was additionally read back out of the compiled `.o` with `strings` to confirm it survived the preprocessor whole (this is the exact hazard commit `d53d41a96` fixed, so it is checked rather than assumed):
+```
+{ var stats = {}; stats.baked = $0; ... stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : []; window.godotWebGPUShaderStats = stats; }
+```
+
+**Next step**: rebuild, then read `godotWebGPUShaderStats.translatedShaders`. That list names the shaders the export bake is not covering, and is the input to fixing it. Leading hypotheses to test against the names once known: shaders the `ShaderBakerExportPlugin` never enumerates (created outside the export-time shader-version walk), and shaders belonging to effects the editor's Vulkan RenderingDevice declares differently from the WebGPU runtime's own variant selection. Note `precompiled: 1` is also suspiciously low — the build-time `wgsl_precompiled.gen.h` table is nearly unused because export-time baking supersedes it, which is expected, but it means the table is not a safety net for these 37 either.
