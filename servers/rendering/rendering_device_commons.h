@@ -1069,6 +1069,10 @@ public:
 		// found (a real bug: WebGPU's driver previously bound only the first array
 		// element for every such uniform, silently discarding the runtime index).
 		SUPPORTS_TEXTURE_ARRAY_BINDINGS,
+		// Sentinel, so code that has to answer for every feature (the shader
+		// baker's target capability override) stays correct when one is added.
+		// Deliberately not BIND_ENUM_CONSTANT'd: it is not a feature.
+		SUPPORTS_MAX,
 	};
 
 	enum SubgroupOperations {

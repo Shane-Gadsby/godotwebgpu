@@ -4558,3 +4558,34 @@ This also means a share of the 339 `baked` stages is **wasted work**: SDFGI/fog/
 - **D. Accept and document.** Leave the 37 translating at load. Cheapest, but keeps a real and probably significant startup cost, and the number will grow with every future `has_feature`-conditional define.
 
 **A cheap partial win, independent of the choice above**: `wgsl_precompile.py`'s `GENERAL_DEFINES_SDFGI_*` already include `SDFGI_NATIVE_STORAGE_FORMAT`, i.e. the build-time table is already generated in the *WebGPU* configuration. It reported only `precompiled: 1`, so its entries are not matching — worth checking whether the rest of its define string (e.g. `OCCLUSION_SIZE`) lines up with what `gi.cpp` actually emits. If it can be made to match, the build-time table would catch the SDFGI stages at the SPIR-V→WGSL step even while the GLSL→SPIR-V step stays unbaked.
+
+---
+
+#### Task 31 — correction: it is **not** one root cause for all 37
+
+The original entry above claimed the capability mismatch explained all 37 stages. Checking each group against the actual code shows that is wrong, and the error was assuming the shape of the cause generalised from the first two groups. Corrected split:
+
+| Group | Stages | Cause | Confidence |
+|---|---|---|---|
+| `SdfgiPreprocess` / `DirectLight` / `Integrate` | 15 | **Defines mismatch.** `gi.cpp:3644` derives `SDFGI_NATIVE_STORAGE_FORMAT` from `SUPPORTS_SHAREABLE_TEXTURE_FORMATS`. | **Proven** — read on both sides. |
+| `VolumetricFog` / `VolumetricFogProcess` | 6 | **Group mismatch.** `fog.cpp`'s general defines are capability-free; the capability choice is a *shader group* (`_get_fog_shader_group()`, from `SUPPORTS_IMAGE_ATOMIC_32_BIT` + `SUPPORTS_VULKAN_MEMORY_MODEL`). The baker skips groups the editor never enabled (`shader_baker_export_plugin.cpp:381`), so the WebGPU no-atomics group is never baked. | **Proven** — read on both sides. |
+| `SceneForwardClustered` variants 0,1,2,9,10,11,18,19 | 16 | **Not the capability mismatch.** All eight are `SHADER_GROUP_BASE` (always enabled) and carry **no** capability-dependent defines — the only clustered variant that does is `SHADER_VERSION_DEPTH_PASS_WITH_SDF` (index 8/17), which is *not* in the missing list. Leading hypothesis: these are a **material** shader version, created via `version_create(false)` (`scene_shader_forward_clustered.cpp:189`) hence **not embedded**, so the baker only reaches it through `_customize_resource()`/`_customize_scene()` — which find materials saved as resources or placed in scenes, but not one created at runtime, nor an engine default material. `x2` = the variant's vertex+fragment stages, so this is one version × 8 variants. | **Unconfirmed** — a plausible mechanism, not yet verified. |
+
+So the fix below addresses **21 of 37**. The remaining 16 need their own investigation, and the question to answer first is *which material* that version belongs to.
+
+---
+
+#### Task 31 — fix implemented (option A: make the baker device-aware)
+
+Chosen by the user over the narrower alternatives, on the grounds that it fixes the class rather than the instance and also covers upstream's cross-platform export case.
+
+**What makes this tractable** — and it is the reason option A is not as invasive as it first looks: the baker does **not** reuse the editor's compiled shaders. It calls `version_build_variant_stage_sources()` and compiles those sources itself into `shader_work_results`. So the bake only needs the *define strings and group selection* to be target-correct for the duration of the export; nothing about the editor's already-compiled shaders has to be disturbed, and the editor keeps rendering normally throughout.
+
+1. **`RenderingDevice`** gains a bake-scoped capability override (`shader_bake_feature_override_set/_clear/_is_active`), consulted at the top of `has_feature()`. It is a single chokepoint — every engine-side capability query already funnels through it. Costs one `is_empty()` check outside a bake.
+2. **`ShaderRD`** gains `set_general_defines()` and `set_variant_define_text()`, each refreshing `group_sha256` via `_initialize_cache()` — necessary because the cache key is derived from exactly those strings, so changing them without rehashing would file the bake under one key and have the runtime look under another. Plus a registry of refresh callbacks (`add_general_defines_refresh_callback()` / `refresh_all_general_defines()`), so the baker can ask every affected subsystem to recompute without knowing they exist.
+3. **Each formula moved into one recomputable place, next to the shader it belongs to** — `GI::_sdfgi_{preprocess,direct_light,integrate}_defines()` and `SceneShaderForwardClustered::_sdf_variant_define()`, each called once from init and again from the refresh callback. This is the direct answer to the objection against the narrower option C: there is still exactly **one** source of truth per formula, rather than a capability→define table in the exporter that drifts.
+4. **`ShaderBakerExportPluginPlatform::get_target_feature_overrides()`**, defaulting to empty. The plugin installs the overrides at the start of `_begin_customize_resources()` and clears them in `_end_customize_resources()`. **A platform that supplies nothing is bit-for-bit unaffected**, so the Vulkan/Metal/D3D12 bakers do not change behaviour.
+5. **All groups are baked while an override is active** (`bake_all_groups`), which is what covers the fog case: the target may want a group the editor never enabled. Costs some extra export-time work; without an override the behaviour is exactly as before.
+6. **`ShaderBakerExportPluginPlatformWebGPU`** supplies the target answers as a loop over the whole `Features` enum setting every entry `false`, rather than a hand-written list. `RenderingDeviceDriverWebGPU::has_feature()` returns `false` for every case *including its `default:` arm*, so the invariant is "WebGPU supports no optional feature", and a list would go stale the day a feature is added — especially since the editor cannot even link against that driver (`drivers/webgpu/` is Emscripten-only). Added a `SUPPORTS_MAX` sentinel to the enum for this, deliberately not `BIND_ENUM_CONSTANT`'d.
+
+**Known remaining exposure**: `emulate_point_size` (`scene_shader_forward_clustered.cpp:655`) is read from `has_feature()` at init and reaches the shader as a *specialization constant*, not a define, so it does not affect baked SPIR-V — but it is now computed under whatever override is active if anything re-reads it during a bake. It is only read at init, so this is currently harmless; worth remembering if that changes.

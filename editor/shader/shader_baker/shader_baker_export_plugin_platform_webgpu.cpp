@@ -31,6 +31,7 @@
 #include "shader_baker_export_plugin_platform_webgpu.h"
 
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
+#include "servers/rendering/rendering_device.h"
 
 // Unlike the Vulkan/Metal/D3D12 platforms, this container format also bakes
 // WGSL (via Tint) into every shader it stores — see
@@ -46,4 +47,29 @@ RenderingShaderContainerFormat *ShaderBakerExportPluginPlatformWebGPU::create_sh
 
 bool ShaderBakerExportPluginPlatformWebGPU::matches_driver(const String &p_driver) {
 	return p_driver == "webgpu";
+}
+
+// The capabilities the WebGPU runtime will report, so the baker compiles for the
+// browser's device rather than the editor's Vulkan one (webgpu_notes/TASKS.md
+// Task 31).
+//
+// RenderingDeviceDriverWebGPU::has_feature() returns false for every feature
+// without exception -- WebGPU 1.0 core exposes none of the optional capabilities
+// this enum covers, and its `default:` arm is `return false` so a newly added
+// Features entry is false there too until someone deliberately implements it.
+// That is why this is a loop over the whole enum rather than a hand-listed table:
+// a list would have to be kept in step with a driver this editor cannot even link
+// against (drivers/webgpu/ is Emscripten-only and excluded from native builds),
+// and would silently go stale the day a feature is added. The invariant to
+// preserve is "WebGPU supports no optional features", asserted in one place here.
+//
+// RenderingDevice::has_feature() answers SUPPORTS_MULTIVIEW and
+// SUPPORTS_ATTACHMENT_VRS from capability structs before ever reaching the
+// driver, so those two are covered by the same blanket false -- which matches
+// the WebGPU driver's own multiview/fragment-shading-rate capabilities, both
+// reported unsupported.
+void ShaderBakerExportPluginPlatformWebGPU::get_target_feature_overrides(HashMap<int, bool> &r_overrides) const {
+	for (int i = 0; i < RenderingDevice::SUPPORTS_MAX; i++) {
+		r_overrides[i] = false;
+	}
 }
