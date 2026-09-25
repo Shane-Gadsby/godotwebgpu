@@ -4702,7 +4702,7 @@ So one early run that predated a working bake wrote WGSL-less entries into `user
 
 ---
 
-### Task 34: the last 16, positively identified as an enumeration gap — a 5th scene-shader version created at first draw `[DIAGNOSTIC ADDED]`
+### Task 34: the last 16 — a runtime-created material the exporter cannot reach `[FIXED]`
 **Status**: cause **narrowed to a fact, not a hypothesis**; the specific material is still unnamed and a fingerprint log is added to name it.
 
 **The decisive data.** With site storage cleared and verbose on, the run prints exactly one miss for the stuck group:
@@ -4814,3 +4814,44 @@ Gated on `shader_bake_feature_override_is_active()`, so only a platform that opt
 **Verified**: native editor builds clean; `material.cpp` and `shader_rd.cpp` compile for the web target; `shader_corpus` 13/13, `driver_unit_tests` 332/0.
 
 **Expected next result**: `translated: 0`. If anything still misses, the new `BaseMaterial3D: generating shader for '<path>'` lines name the material and the question is finally closed by observation rather than inference.
+
+---
+
+#### Task 34 — `translated: 0`
+
+Confirmed on the user's real build:
+```js
+{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }
+translatedShaders: []
+```
+**Zero runtime shader translation.** `baked` rose 360 → 392, the 32 stages being exactly what the all-versions sweep added. Every shader the game asks for now arrives as ready WGSL.
+
+**And the probe named the material**, which four rounds of inference had failed to do:
+```
+BaseMaterial3D: generating shader for '<no path>' (class StandardMaterial3D): shading_mode=0 disable_fog=1
+```
+`shading_mode=0` is `SHADING_MODE_UNSHADED`, `disable_fog=1` — matching the missing version's `MODE_UNSHADED` + `FOG_DISABLED` exactly. Critically it has **no resource path**: a `StandardMaterial3D` constructed at runtime, first generated *after* the `BlitShaderRD` load, i.e. at the first draw, and again a second time.
+
+Alongside it, the glTF character material logged as expected and *was* baked:
+```
+BaseMaterial3D: generating shader for 'res://character/source/Школяр.glb::StandardMaterial3D_ctgke' (class StandardMaterial3D): shading_mode=1 disable_fog=0
+```
+Shaded, `disable_fog=0` — the 703B/3-define version the baker had. So the two really were different materials that happened to share a uniform block, which is why every fingerprint short of a full field decomposition looked identical.
+
+**Which object owns the pathless one is still unknown**, and it no longer matters for correctness: a material with no resource path, created during the first frame, is reachable by *no* exporter walk over resources or scenes, by construction. That is precisely the class the sweep exists to cover. Left unidentified deliberately rather than guessing a sixth time.
+
+**Final state of the whole chain:**
+
+| stage | `translated` |
+|---|---|
+| start (Task 30) | 37 |
+| Task 31 — device-aware baker | 16 |
+| Task 34 — all-versions sweep | **0** |
+
+Task 14's question is now answerable: any remaining startup stall is the browser's own WGSL→pipeline compilation, which nothing on this side can remove.
+
+**What actually solved it, versus what looked like it should.** Five fixes were aimed at *where materials come from* (capability defines, scene-material walk, `flush_changes()`, `get_material_for_2d`, glTF unlit); four of the five changed nothing measurable. What worked was giving up on reaching the material and instead taking every version the engine had already built. The general lesson: when the producer of a thing cannot be enumerated reliably, enumerate the things themselves.
+
+The scene-material walk and `flush_changes()` fixes are kept even though neither closed this case — both are real gaps for projects whose materials *are* scene sub-resources or standalone `.tres` files, and `flush_changes()` closes a hole that fails silently.
+
+**Diagnostics kept** (all verbose-only, no cost on a normal run): the per-field version fingerprint, the code-section dump on a cache miss, the baker's per-version origin log, and `BaseMaterial3D`'s material-name log. Between them, the next bake gap is a single export away from being named instead of guessed at.
