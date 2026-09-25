@@ -4874,7 +4874,7 @@ So `translated: 0` is not an artifact of a warm cache: on a cold start the bake 
 
 ---
 
-### Task 35: the 83 `LumAlpha8` conversions — misleading message, then removed entirely `[FIX IMPLEMENTED, AWAITING WEB RUN]`
+### Task 35: the 83 `LumAlpha8` conversions — misleading message, then removed entirely `[FIXED — VERIFIED IN BROWSER]`
 **Status**: investigated; **no behavioural defect found**. The conversion is correct and deliberate. Only the reporting changed.
 **Severity**: LOW (log noise and, more importantly, a false lead).
 
@@ -4931,7 +4931,9 @@ Checked for leftovers: the only remaining `FORMAT_LA8` references are the generi
 
 **Verified**: native editor builds and starts (the unchanged LA8 path); **both** text servers compile for the web target with `WEBGPU_ENABLED` active, i.e. the `MONO_GLYPH_COLOR_SIZE = 4` code is the code that was compiled — `text_server_fb` needed `module_text_server_fb_enabled=yes` since it is off by default in this configuration and would otherwise have gone unchecked. `shader_corpus` 13/13, `driver_unit_tests` 332/0.
 
-**Not verified, and the thing to watch**: glyph rendering itself. Nothing local exercises the WebGPU path at runtime, so the first web run is the test. A wrong channel would make all text render wrong — obvious immediately, and a one-commit revert. Expect the `LumAlpha8`/`Expanded LumAlpha8` lines to be **entirely absent** from the next verbose run; if text looks right and those lines are gone, it worked.
+**Verified in the browser**: text renders correctly with the RGBA8 atlases. This was the one open risk — `_write_mono_glyph_texel()` writing coverage to the wrong channel would have made *all* text render wrong, immediately and unmistakably. It does not. The RGB=255 / A=coverage layout matches what the sampling path expects, and the pre-existing 4-channel atlas clear (`255,255,255,0`) initialises it correctly.
+
+Correct text on screen is the load-bearing evidence here; the absence of the `LumAlpha8` log lines was not separately re-confirmed in this run, but it follows from the same code path — no LA8 atlas is created, so nothing can be converted.
 
 ---
 
@@ -4947,7 +4949,8 @@ Chased a single visible symptom (one bake warning) into five distinct defects. F
 | **32** | Materials embedded in scenes are not enumerated by the baker. Right instinct, but not what was causing the remaining 16. | **SUPERSEDED** — both fixes kept as genuine gaps |
 | **33** | A stale `user://` shader cache permanently shadowed the export's baked cache, once defeating baking entirely (`baked: 0, translated: 193`). | **FIXED** — `res://` now searched first |
 | **34** | A pathless `StandardMaterial3D` created during the first frame, reachable by no exporter walk. Fixed by baking every live version rather than trying to reach the material. | **FIXED** — `translated: 0`, confirmed cold |
-| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterised as RGBA8 directly. | **AWAITING WEB RUN** |
+| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterised as RGBA8 directly. | **FIXED** — text confirmed correct in browser |
+| **36** | Editor and export template built from different commits → `GODOT_VERSION_HASH` differs → every group hash differs → the whole baked cache unreachable, silently. | **FIXED** — resolved by rebuilding both at one commit; runtime now warns |
 
 **Result**: `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }` on a cold start with storage cleared. Zero runtime shader translation; whatever startup cost remains is the browser's own WGSL→pipeline compilation (Task 14), which nothing here can remove.
 
@@ -4980,7 +4983,7 @@ Two different commits, therefore two different hash spaces, therefore `baked: 0`
 
 **Process trap worth naming**: building the engine *before* committing bakes the **pre-commit** hash into the binary. Build, commit, then rebuild — or expect the editor and any template built later to disagree.
 
-**Fix (operational)**: rebuild editor and export template from the same commit, then export. The editor has been rebuilt at `480687d1f` to match the template already in `bin/`.
+**Fix (operational)**: rebuild editor and export template from the same commit, then export. **Confirmed by the user**: rebuilding to resolve the mismatch restored baking. This closes the task — the `baked: 0 / translated: 193` report was entirely the version-hash mismatch, with no residual defect behind it.
 
 **Fix (so it never costs a round again)** — `ShaderRD::_load_from_cache()` now watches the `res://` lookups and, if the export ships a baked cache but the first 16 lookups all miss with **zero** hits, prints once:
 ```
