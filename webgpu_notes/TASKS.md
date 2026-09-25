@@ -4316,3 +4316,33 @@ effects/fsr2/fsr2_tcr_autogen_pass.glsl
 ```
 
 `scene_forward_clustered.glsl` is the notable one: it is the Forward+ scene ubershader, i.e. the largest and most-used shader in a Forward+ project, and it has no build-time table entry. Export-time baking does cover it (that enumerates from `ShaderRD`, not from this registry), so a baked export is fine — but an unbaked one translates it in the browser, and every sweep that has ever claimed "196 compiled, 0 tint failures" never looked at it. Adding these to the registry needs each one's real variant defines enumerated the way the existing entries are; not attempted here. Worth doing both for build-time coverage and so the sweep stops having a blind spot over the Forward+ renderer's main shader.
+
+---
+
+### Task 27: the 13 shaders missing from `SHADER_REGISTRY`, added — plus two pre-existing wrong stage declarations that had silently disabled two more `[DONE]`
+**Status**: `DONE` — the registry now covers every live shader file under `servers/rendering`, the sweep goes from 196 to 274 modules with 0 failures, and two entries that had never precompiled at all are fixed.
+**Severity**: MEDIUM (coverage/diagnostics) — nothing here was broken at runtime, but the Forward+ renderer's main shader had no build-time precompilation and, worse, no Tint-regression coverage: every "196 compiled, 0 tint failures" sweep in this doc's history never looked at it.
+**Files**: `drivers/webgpu/wgsl_precompile.py`, `webgpu_tests/wgsl_cache/test_wgsl_precompile.py`.
+
+**Added**, with each one's defines and modes read off its real `initialize()` call rather than guessed:
+- **`scene_forward_clustered.glsl`** — 28 variants via `_forward_clustered_variants()`, mirroring `SceneShaderForwardClustered::init()`'s own enumeration (2 × 6 depth variants + the 16 colour-pass flag combinations that don't set `SHADER_COLOR_PASS_FLAG_MULTIVIEW`). `NO_IMAGE_ATOMICS` and `NEEDS_DUMMY_COLOR_ATTACHMENT` are baked into the SDF variant because both capabilities they gate on are false on WebGPU. General defines mirror `RenderForwardClustered`'s constructor: `MAX_ROUGHNESS_LOD 7.0` (roughness_layers defaults to 8), `USE_RADIANCE_OCTMAP_ARRAY` (texture_array_reflections defaults true; its `.mobile` override is Android/iOS, not web), `SDFGI_OCT_SIZE 6` (`SDFGI::LIGHTPROBE_OCT_SIZE`), and 8/8/8/3 for the directional-light, lightmap-texture, lightmap and material-uniform-set counts.
+- **All 8 FSR2 passes** — carrying only the variants the WebGPU renderer declares. `FFX_HALF` is excluded (`SUPPORTS_HALF_FLOAT` false) and the two passes with an atomics axis get `NO_IMAGE_ATOMICS` (`SUPPORTS_IMAGE_ATOMIC_32_BIT` false); those excluded variants are precisely Task 26's unconvertible ones, so including them would have re-added the crashes that task just removed. `fsr2_accumulate_pass` also gets its `FFX_FSR2_OPTION_APPLY_SHARPENING` variant.
+- **`best_fit_normal.glsl`**, **`integrate_dfg.glsl`** — one-mode compute LUT generators run once at renderer startup.
+- **`tex_blit.glsl`** — four variants, one per output count, with `SAMPLERS_BINDING_FIRST_INDEX 4` and `MAX_GLOBAL_SHADER_UNIFORMS 256`.
+
+**Not added: `giprobe_write.glsl`** — grepping the whole tree for it finds no `#include` of its generated header, no `ShaderRD` subclass, no `initialize()`. It is a dead file, and listing it would mean permanently precompiling a shader nothing can ever run. Left alone rather than deleted; worth removing separately if it really is orphaned.
+
+**Two pre-existing registry bugs found while validating stage lists**, both confirmed against the engine rather than assumed:
+- `cube_to_octmap.glsl` was listed as `[COMP]`, but `CopyEffects` builds it with `pipeline.setup(shader, RD::RENDER_PRIMITIVE_TRIANGLES, ...)` — it is a raster shader with only vertex and fragment stages. Now `[VERT, FRAG]`.
+- `cluster_debug.glsl` was listed as `[VERT, FRAG]`, but `ClusterBuilderRD` builds it with `compute_pipeline_create()` — compute only. Now `[COMP]`.
+
+A stage a file doesn't have is counted as a glsl failure and skipped, which is exactly the **"3 glsl failures"** that every sweep in this doc has reported alongside "196 compiled" (1 for `cube_to_octmap`, 2 for `cluster_debug`). Both shaders had therefore never been precompiled once. The count is now 0.
+
+**The size trade, and the one judgment call made here**: embedding all 28 clustered variants costs **3.72 MB of WGSL, 66.6% of everything the table would hold** (measured per-file across all 274 modules), and the table is compiled into the web template, so every export downloads it whether it needs it or not. Export-time baking — on by default for Web presets since Task 25's follow-up — already covers that shader with exactly the variants a given project uses, and ships them in the `.pck`. Embedding a second copy for everyone to serve the deliberately-unbaked iteration case is the wrong trade; not *testing* the Forward+ main shader is worse. So `SHADER_REGISTRY` entries gained an optional 4th element, `embed`, and `scene_forward_clustered.glsl` is listed `EMBED_NONE`: compiled and converted on every build, so a Tint regression in it still fails the build, but kept out of the generated table. Flip it to `EMBED_ALWAYS` to pay the size and get the entries.
+
+**Verified**:
+- `wgsl_precompile.py` end to end: **274 compiled, 0 glsl failures, 0 tint failures** (baseline on the same machine, from `git stash`: 196 compiled, 3 glsl failures, 0 tint failures).
+- Embedded unique entries **170 → 189**; generated header **1.5 MB → 1.8 MB**, versus 5.1 MB had the clustered variants been embedded.
+- Every declared stage exists: a check over all 81 entries × 274 stage-variants reports 0 mismatches (it reported 3 before the two fixes).
+- The generated header compiles (`g++ -fsyntax-only` against a TU that includes it).
+- `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` Python 217/0 and JS 11/0. The Python tier needed updating: it unpacked registry entries as 3-tuples, so the new 4-element entry broke it outright — it now unpacks positionally and asserts the arity and the flag's type. `ruff check`/`ruff format` clean, with formatting confined to the added region.
