@@ -4729,3 +4729,33 @@ Matching the missing fingerprint against the four baked ones (with their origins
 **Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
 
 **Also settled this round**: clearing site data restored `baked: 360` from the previous run's `baked: 0`, consistent with Task 33's shadowing diagnosis. Not fully conclusive, because that run also used a different template (`no GDExtension support`), so the two variables were not separated — but the res://-before-user:// ordering is correct on its own merits regardless, since on WebGPU a baked container strictly dominates a runtime-written one.
+
+---
+
+#### Task 34 — the fingerprints match, so it is the *same material*, differing in a field the summary did not show
+
+The fingerprint worked well enough to eliminate the entire class of hypothesis this investigation had been running on.
+
+**Runtime miss:**
+```
+Shader cache miss for SceneForwardClusteredShaderRD/3d910648…/4d161e027d36dae3228a2fd069c9016607e1d80e
+  ^ version is: uni=286B vtx=218B frag=218B comp=0B sections=[FRAGMENT, VERTEX] uniforms="highp vec4 m_albedo; ivec2 m_albedo_texture_size; …"
+```
+**Baked (`from material (no path)`):**
+```
+Shader baker: baking '…/9ae935cd107ff04dc4904f4d9a48208144d11fe5.webgpu.cache' from material (no path)
+  ^ version is: uni=286B vtx=218B frag=218B comp=0B sections=[FRAGMENT, VERTEX] uniforms="highp vec4 m_albedo; ivec2 m_albedo_texture_size; …"
+```
+
+**Byte-for-byte identical fingerprints, different SHA1s.** So:
+- It is **not** a different material. `m_albedo` / `m_albedo_texture_size` / `m_point_size` / `m_roughness` is a `BaseMaterial3D`, and the baker *did* enumerate it — as `material (no path)`, i.e. reached through `_customize_resource()` with no resource path, which is what an embedded sub-resource looks like.
+- It is **not** an enumeration gap in the sense of "the baker never saw this material" (Task 32's framing) — the baker saw exactly this material and baked it.
+- The two versions differ in a field `_version_get_sha1()` hashes but the fingerprint summarised away: the **contents** of the `FRAGMENT`/`VERTEX` code sections (only their names were printed), or **`custom_defines`** (not printed at all).
+
+Also visible: the other three baked versions come from `embedded material` and are empty (`uni=0B`, no code) — the engine's own default/overdraw/debug materials. So the project contributes exactly one scene material, it is baked, and the game still asks for a different version of it.
+
+**A useful negative result about the diagnostic itself**: a fingerprint that summarises *some* fields can match on both sides while the hash differs, which is worse than no fingerprint — it looks like proof of sameness. Replaced with a decomposition of *every* field the SHA1 covers: a short hash plus byte count for uniforms, each stage's globals and each code section individually, and `custom_defines` printed in full (short, and the likeliest to differ between the editor that bakes and the game that runs). Whichever component's hash differs now names itself.
+
+**Unrelated observation, noted so it is not mistaken for a bug later**: every shader's group SHA256 changed between the two builds (e.g. `BokehDofShaderRD` `19f50419…` → `e778cc8c…`). Bake and runtime still agree — `baked` stayed 360 — so this is consistent, not a mismatch; the hashes simply are not stable across engine builds. Worth remembering when comparing artifacts between builds: **only compare hashes produced by the same binary.**
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
