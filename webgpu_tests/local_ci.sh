@@ -178,12 +178,16 @@ echo "  Stage 2: Unit Tests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-run_test "Driver unit tests (305)" \
+run_test "Driver unit tests (332)" \
     "$SCRIPT_DIR/driver_unit_tests" \
     node run_tests.mjs
 
-run_test "SPIR-V preprocessing tests (191)" \
+run_test "SPIR-V preprocessing tests (205)" \
     "$SCRIPT_DIR/preprocessing_tests" \
+    node run_tests.mjs
+
+run_test "Specialization-constant override tests" \
+    "$SCRIPT_DIR/spec_constant_overrides" \
     node run_tests.mjs
 
 run_test "WGSL precompile Python tests" \

@@ -61,6 +61,26 @@ fixups (depth image flags, position Y negation, point size stripping) are
 applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
 (`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
 
+### Specialization Constants
+Godot's specialization constants are always scalar (`bool`/`int`/`float`), which
+is exactly what WGSL's `override` mechanism covers, so they are normally left in
+the SPIR-V for Tint to turn into `@id(N) override` declarations and set with
+WebGPU pipeline constants at `wgpuDeviceCreate*Pipeline()` time — one base shader
+module serves every value combination, with no runtime SPIR-V patching or Tint
+conversion.
+
+`spirv_preprocess::spec_constants_overridable()` decides this per module. A
+module whose constants cannot all become overrides — a non-scalar one, an
+`OpSpecConstantOp` operation Tint cannot lower, a specialization-constant-sized
+array, an `OpSpecConstantComposite` built from one, a spec-constant workgroup
+size — is frozen to its defaults by `freeze_spec_constant_ops()` instead, and
+such a shader specializes through the legacy path:
+`_create_module_with_spec_constants()` re-patches the original SPIR-V with the
+real values and re-runs the whole pipeline, once per distinct combination, at
+runtime. The choice is all-or-nothing per shader: if any stage that declares
+specialization constants ends up frozen, the whole shader takes the legacy path,
+since mixing the two would leave that stage silently on its defaults.
+
 ### Barrier No-ops
 WebGPU tracks resource hazards automatically. All barrier/sync commands are
 no-ops.
