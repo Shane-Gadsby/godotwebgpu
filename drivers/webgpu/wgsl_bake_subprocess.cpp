@@ -161,13 +161,25 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
 		Variant parsed_check = this_failed ? Variant() : JSON::parse_string(output);
 		Dictionary check_dict = parsed_check;
 		if (dump_all || this_failed || (!check_dict.is_empty() && Variant(check_dict[temp_path]).get_type() != Variant::STRING)) {
-			DirAccess::make_dir_recursive_absolute(dump_dir);
+			// Every outcome below says something, at WARN: an earlier session
+			// recorded this hook producing an empty directory against real
+			// failing shaders and had no way to tell whether the condition
+			// above never fired or the copy itself failed (webgpu_notes/TASKS.md
+			// Task 20). A debug aid that can fail silently is worse than none.
 			String dump_path = dump_dir.path_join(temp_path.get_file());
-			Ref<FileAccess> src = FileAccess::open(temp_path, FileAccess::READ);
-			if (src.is_valid()) {
-				Ref<FileAccess> dst = FileAccess::open(dump_path, FileAccess::WRITE);
-				if (dst.is_valid()) {
+			Error dir_err = DirAccess::make_dir_recursive_absolute(dump_dir);
+			if (dir_err != OK && dir_err != ERR_ALREADY_EXISTS) {
+				WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: couldn't create '%s' (error %d); not dumping.", dump_dir, (int)dir_err));
+			} else {
+				Ref<FileAccess> src = FileAccess::open(temp_path, FileAccess::READ);
+				Ref<FileAccess> dst = src.is_valid() ? FileAccess::open(dump_path, FileAccess::WRITE) : Ref<FileAccess>();
+				if (src.is_null()) {
+					WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: couldn't reopen '%s' to copy it; not dumping.", temp_path));
+				} else if (dst.is_null()) {
+					WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: couldn't write '%s'; not dumping.", dump_path));
+				} else {
 					dst->store_buffer(src->get_buffer(src->get_length()));
+					WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: wrote '%s' -- reproduce with: bin/tint_convert_cli '%s'", dump_path, dump_path));
 				}
 			}
 		}
