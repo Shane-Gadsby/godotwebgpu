@@ -4647,3 +4647,21 @@ This also explains why the walk looked correct in isolation and why the existing
 **Method note worth keeping**: the thing that identified this was the count staying *exactly* the same rather than partially improving. A partial change would have meant the walk worked and was incomplete; an identical count meant it contributed nothing at all, which pointed at the enumeration finding nothing rather than at the set of nodes being walked. Worth reaching for that distinction earlier next time.
 
 Editor rebuilt clean. Still needs an export to confirm.
+
+---
+
+#### Task 32 — the flush was not it either; switching from inference to instrumentation
+
+Exported on `ab4393217`: `baked` **360**, `translated` **16**, same eight entries. Third identical result. Checked the export artifacts directly — `.godot/exported/1894244148/shader_baker/Web/webgpu/SceneForwardClusteredShaderRD/` still holds **4 versions per group**, so neither the scene-material walk nor `flush_changes()` added a single version.
+
+(One thing did change and is worth noting as confirmation the Task 31 work is live: the **group hashes** moved, `4f831fc1…` → `4db6da1a…`, which is `set_variant_define_text()` on the SDF variant feeding the group hash. So the capability override is definitely being applied — the remaining gap is purely about *which versions* get enumerated.)
+
+**Stopping the inference loop.** Three wrong diagnoses in a row for this one group (capability mismatch → scene walk → deferred material shader), each plausible from reading the code and each refuted by an unchanged number. The counting evidence was always sound; the model of *why* enumeration comes up empty kept being wrong. So: make both sides say what they did, and compare.
+
+The runtime half already exists and was simply never used: `ShaderRD::_load_from_cache()` prints `Shader cache miss for <name>/<group_sha256>/<version_sha1>` at verbose (`shader_rd.cpp:634`). That is exactly the key the runtime wanted. It needs no code change to reach the browser — the project setting **`debug/settings/stdout/verbose_stdout = true`** turns on `print_verbose` in an exported build (`main.cpp:2274-2277`), including the web console.
+
+The bake half was missing, and is added here: `_customize_shader_version()` takes a `p_origin` label and logs, at verbose, `Shader baker: baking '<name>/<group>/<sha1>' from <origin>`, where origin is `embedded shader`, `embedded material`, or the resource path. Call sites labelled accordingly.
+
+Together these answer the question that neither side can answer alone: whether a version was **never enumerated** (absent from the baker's log) or **enumerated under a different key** (present, different sha1). Those two have completely different fixes and had been indistinguishable all along — which is why three fixes in a row addressed the wrong one.
+
+**Next**: user sets `verbose_stdout`, exports, and supplies the editor's `Shader baker: baking ...` lines plus the browser's `Shader cache miss for ...` lines. The four baked version sha1s are already known from disk, so the miss lines alone may settle it.

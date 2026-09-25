@@ -114,7 +114,11 @@ protected:
 	virtual Ref<Resource> _customize_resource(const Ref<Resource> &p_resource, const String &p_path) override;
 	virtual Node *_customize_scene(Node *p_root, const String &p_path) override;
 	virtual uint64_t _get_customization_configuration_hash() const override;
-	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version);
+	// p_origin is a short label for where this version came from ("embedded",
+	// "embedded material", or a resource path), logged at verbose so a bake gap can
+	// be diagnosed by comparing what the baker enumerated against what the runtime
+	// asks for. See webgpu_notes/TASKS.md Task 32.
+	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin = String());
 	void _process_work_item(WorkItem p_work_item);
 
 public:
