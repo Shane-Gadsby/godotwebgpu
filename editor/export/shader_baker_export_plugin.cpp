@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/os/os.h"
 #include "core/string/string_builder.h"
 #include "core/version.h"
 #include "editor/editor_node.h"
@@ -172,7 +173,7 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 	ShaderRD::shaders_embedded_set_lock();
 	const ShaderRD::ShaderVersionPairSet &pair_set = ShaderRD::shaders_embedded_set_get();
 	for (Pair<ShaderRD *, RID> pair : pair_set) {
-		_customize_shader_version(pair.first, pair.second);
+		_customize_shader_version(pair.first, pair.second, "embedded shader");
 	}
 
 	ShaderRD::shaders_embedded_set_unlock();
@@ -186,7 +187,7 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 		if (shader_data != nullptr) {
 			Pair<ShaderRD *, RID> shader_version_pair = shader_data->get_native_shader_and_version();
 			if (shader_version_pair.first != nullptr) {
-				_customize_shader_version(shader_version_pair.first, shader_version_pair.second);
+				_customize_shader_version(shader_version_pair.first, shader_version_pair.second, "embedded material");
 			}
 		}
 	}
@@ -333,7 +334,7 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 			if (shader_data != nullptr) {
 				Pair<ShaderRD *, RID> shader_version_pair = shader_data->get_native_shader_and_version();
 				if (shader_version_pair.first != nullptr) {
-					_customize_shader_version(shader_version_pair.first, shader_version_pair.second);
+					_customize_shader_version(shader_version_pair.first, shader_version_pair.second, p_path.is_empty() ? String("material (no path)") : p_path);
 				}
 			}
 		}
@@ -451,7 +452,18 @@ uint64_t ShaderBakerExportPlugin::_get_customization_configuration_hash() const 
 	return customization_configuration_hash;
 }
 
-void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID p_version) {
+void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin) {
+	// Names every version the baker actually enumerates. A missing shader at
+	// runtime prints "Shader cache miss for <name>/<group>/<sha1>" (ShaderRD::
+	// _load_from_cache), so the two logs together say whether a version was never
+	// enumerated or was enumerated under a different key -- which is the
+	// distinction that matters and is invisible from either side alone.
+	if (OS::get_singleton()->is_stdout_verbose()) {
+		print_verbose(vformat("Shader baker: baking '%s' from %s",
+				p_shader->version_get_cache_file_relative_path(p_version, 0, shader_container_driver),
+				p_origin.is_empty() ? String("<unknown>") : p_origin));
+	}
+
 	const int64_t variant_count = p_shader->get_variant_count();
 	const int64_t group_count = p_shader->get_group_count();
 	LocalVector<ShaderGroupItem> group_items;
