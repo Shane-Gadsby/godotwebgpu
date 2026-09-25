@@ -3889,7 +3889,7 @@ Everything below is kept as the historical record of how the spec-constant gap w
 ---
 
 ### Task 14: Attempt to make the loading of webgpu exports less blocking, and the progress bar more representative of how long is left to load
-**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified. **Subtask 2 (actually reducing blocking time) is the user's declared next piece of work** and is now cleanly isolated: as of Tasks 29–37 runtime shader translation is **zero** on the user's real project, so whatever stall remains is definitionally *not* shader translation. See the 2026-09-26 scoping note below before starting.
+**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified. Subtask 1 is **measured as of 2026-09-26** (`webgpu_tests/startup_phases/`, results under subtask 1 below): the clean cold stall on the user's real project is **~2.0 s**, made of ~1150 ms of engine CPU inside `callMain()`, ~850 ms in a single blocking `queue.writeTexture` (a Dawn wire flush, about half of it GPU-process pipeline compilation), and **~10 ms of shader-module and pipeline creation** — so this task's long-standing "the remainder is the browser's WGSL→pipeline compilation" framing is wrong and is corrected there. Two independent wins are also quantified: `verbose_stdout` costs ~1.5 s, and Task 35's glyph-atlas change was worth ~5 s. **Subtask 2 is the remaining work**, now with numbers to aim at.
 **Effort**: 1 day, needs a real GPU + browser session
 **Dependencies**: benefits from Task 13 being done first — an unclosed runtime-shader-fallback gap is itself a source of post-"100%" blocking this task would otherwise misattribute elsewhere
 
@@ -3931,6 +3931,97 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    1.1. Add timing instrumentation (temporary, or gated behind a debug flag) around: WASM fetch-complete → instantiate-complete, device-request start → resolve, and engine `main()` start → first rendered frame, for a real project export.
    1.2. Run this against both a small and a large (`cameraSim_*`-scale, per the user's real test project) export to see which phases scale with project size vs. stay roughly constant — this determines which phases are worth surfacing in the progress bar at all versus just genuinely fixed overhead.
    1.3. Identify the single largest contributor with the user's real project (this task's premise — "less blocking" — implies there's a known-bad case; confirm what it actually is before designing around a guess).
+
+   **RESULTS (2026-09-26) — subtask 1 measured; `webgpu_tests/startup_phases/`** `[DONE for 1.1 and 1.3; 1.2 outstanding]`
+
+   Tooling: `webgpu_tests/startup_phases/profile_phases.mjs` + `instrument.js` (see that
+   directory's README). All instrumentation is monkey-patched into the page via
+   Playwright's `addInitScript`, so **no engine rebuild is needed to measure an export** —
+   it brackets downloads, WASM compile/instantiate, adapter/device acquisition, and the
+   `callMain()` window, and inside that window attributes time to each WebGPU API call,
+   leaving engine CPU work as the remainder. The stall is cross-checked against the longest
+   `requestAnimationFrame` gap, which is measured without relying on the engine's events.
+
+   Environment for every number below: Linux, Chrome via Playwright, integrated GPU,
+   localhost server, the user's real project (`~/Downloads/cameraSim_.../testing`),
+   re-exported release + dlink + `shader_baker/enabled` from a scratch copy.
+
+   **The headline: the stall is 2.0s, and it is *not* shader or pipeline compilation.**
+
+   | phase | cold |
+   |---|---|
+   | navigation → DOMContentLoaded | 103 ms |
+   | `index.wasm` (1.3 MB) fetch + `instantiateStreaming` | 3 ms + 10 ms |
+   | `index.side.wasm` (51 MB) fetch + `instantiate` | 48 ms + 48 ms |
+   | `index.pck` (129 MB) download | 307 ms |
+   | `requestAdapter` + `requestDevice` | 103 ms + 61 ms, **starting at 91 ms** — already parallel with the fetches, so subtask 2.2 needs no work |
+   | **`callMain()` stall (before-callmain → first presented frame)** | **1923–2632 ms** (n=4) |
+   |  ├ engine CPU, in no WebGPU call at all | **1131–1150 ms** — stable to ±1% across every run |
+   |  ├ one single blocking `queue.writeTexture` | **769–1479 ms** |
+   |  └ `createShaderModule` (363) + `createRenderPipeline` (26) + `createComputePipeline` (192) | **~10 ms combined** |
+
+   `godotWebGPUShaderStats` = `{baked: 360, precompiled: 1, cached: 1, translated: 0, specialized: 0}`,
+   so Task 34's result holds and runtime translation is confirmed absent.
+
+   **Correction to this task's standing assumption.** Tasks 25–37 repeatedly concluded that
+   "any remaining startup stall is the browser's own WGSL→pipeline compilation, which nothing
+   here can remove". Measured, shader-module and pipeline creation together are **~10 ms of a
+   ~2000 ms stall** — 0.5%. Browser-side compilation is *not* the residual cost, and the
+   sentence should not be repeated as-is. Compilation cost does exist, but it appears somewhere
+   unexpected; see the flush below.
+
+   **Finding 1 — one blocking `writeTexture` is ~40% of the stall, and it is a wire flush, not an upload.**
+   Exactly one `writeTexture` per load blocks for 0.8–1.5 s; the other ~1397 cost microseconds
+   in total. Its payload is **16 KB** (a 64×64 write into a 256×256 `rgba8unorm` texture), and an
+   identical write to the same texture moments later costs 0–3 ms, so the duration has nothing to
+   do with the data. What distinguishes it is position: it is the first write after the 7th
+   `queue.submit`. Warm vs cold GPU shader cache moves it **818 ms → 434 ms** (stall 1985 → 1601 ms),
+   which says roughly half of it *is* GPU-process pipeline compilation — Dawn compiles lazily on
+   first use and blocks the next queue operation while the wire drains. So the browser's
+   compilation cost is real, is about 400 ms here, and is invisible to anyone timing
+   `createRenderPipeline`. Investigating whether it can be moved off the critical path (e.g.
+   priming pipelines earlier, or `createRenderPipelineAsync`) is the most concrete lever for
+   subtask 2.
+
+   **Finding 2 — `debug/settings/stdout/verbose_stdout` costs ~1.5 s, and it was on in the export the user measured.**
+   Same export profiled with and without `--verbose`: **3818–3860 ms vs 1923–2632 ms**. Detaching
+   the CDP console listener changed nothing (3860 → 3818 ms), so this is the page's own cost, not
+   the profiler's observer effect. 15,345 console lines are emitted, including 192 lines of full
+   WGSL dumps from `rendering_device_driver_webgpu.cpp:5406`'s `print_verbose` of every
+   read_storage→sampled module. The user's `builds/` export from 2026-09-25 has
+   `verbose_stdout` baked into its `project.binary` (it is absent from the current
+   `project.godot`, so they have since turned it off) — worth telling them plainly that this
+   setting alone is seconds of load time, since nothing in the engine warns about it.
+
+   **Finding 3 — Task 35's glyph-atlas change was worth ~5 s on this project, confirmed after the fact.**
+   Profiling the user's own 2026-09-25 export (engine `ab4393217`, pre-Task-35) gives a
+   **9259 ms** stall with an identical console volume (15,506 lines) to the 3860 ms verbose run
+   above on engine `60ec32069`. The difference is **83 `Image format LumAlpha8 not supported by
+   hardware, converting to RGBA8` warnings spanning 5625–10010 ms**, exactly straddling the
+   long block — versus **1** warning post-Task-35. So the per-upload L8/LA8 expansion that
+   Task 35 removed accounted for most of the stall the user originally reported, and the
+   9.2 s → 2.0 s improvement they will see is Tasks 34–37 plus turning verbose off.
+
+   **Reproduce**:
+   ```bash
+   cd webgpu_tests/startup_phases
+   node profile_phases.mjs --dir <export-dir> --label cold            # cold baseline
+   node profile_phases.mjs --dir <export-dir> --label verbose --args --verbose
+   node profile_phases.mjs --dir <export-dir> --label warm --warm     # run twice
+   ```
+   Note the export must be produced **without** `--headless` or the shader baker never runs
+   (a headless export of this project silently produced a 15 MB unbaked pck instead of 135 MB).
+
+   **What is left in subtask 1**
+   - The **1150 ms of engine CPU** is now the largest single term and is completely opaque from
+     outside `callMain()`. Breaking it down needs marks emitted from C++ — candidate boundaries:
+     `main()` entry, servers init, rendering-server init, main-scene load start/end, first frame.
+     That is the one piece here that requires a web template rebuild. Its ±1% stability across
+     runs says it is deterministic engine work, not GPU or I/O contention.
+   - **1.2 (small vs large export scaling)** is not done. The 1150 ms should be re-measured
+     against a small export to separate fixed engine-init cost from project-size-dependent
+     resource loading — which is also what decides whether subtask 1.5's threading branch has
+     anything to win.
 1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[SCOPED 2026-09-26, NOT STARTED]`
 
    *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
@@ -4003,7 +4094,7 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    **Risks worth stating up front**: this fixes a bug in someone else's toolchain, which we then carry indefinitely; every emsdk bump becomes a re-verification step; and the benefit is speculative until subtask 1 shows resource loading is actually significant. Those are the reasons the decision gate at 1.5.1.2 is real and not a formality.
 
 2. Reduce actual blocking time, not just report it better
-   2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export.
+   2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export. **Measured 2026-09-26 (subtask 1): the main module does take the streaming path** (`application/wasm`, 10 ms for 1.3 MB) — but on a `dlink_enabled=yes` export the 51 MB **`index.side.wasm` goes through non-streaming `WebAssembly.instantiate` with a full ArrayBuffer** (48 ms fetch + 48 ms instantiate here, off a localhost server; over a real network that buffer must be fully downloaded before compilation can start). That path is Emscripten's dylink loader, not `config.js`'s override, so `instantiateWasm` does not cover it. ~96 ms locally is not where the stall is, so this is a real but low-priority finding — it matters mainly for cold loads over a slow link, where it serializes 51 MB of download against compilation that could have overlapped it.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
 3. Make the progress bar representative of what's left
@@ -4317,7 +4408,7 @@ User reported 4 configurations from real-project exports: "all AA options at max
 
 **Fix**:
 1. Editor jobs pass `webgpu=yes` and build `tint_convert_cli` into `bin/` so it lands in the artifact. Linux uses `g++-12` with static libstdc++ (the 22.04 runner's default GCC 11 is older than what Tint is otherwise built with), macOS builds it universal and `generate_bundle()` copies it into `Contents/MacOS` before signing, Windows uses Git Bash + the runner's LLVM `clang++` and smoke-tests `--batch`.
-2. `build.sh` supports MINGW/MSYS (Tint's `*_windows.cc` sources, `.exe` output, clang++ auto-detection), links through a response file (the object list overflows Windows' 32K command line), honours `CXXFLAGS`/`LDFLAGS`, and keeps objects in `.build/<os>/`. A checkout shared with WSL previously reused Linux ELF objects on Windows because they looked up to date.
+2. `build.sh` supports MINGW/MSYS (Tint's `*_windows.cc` sources, `.exe` output, clang++ auto-detection), links through a response file (the object list overflows Windows' 32K command line), honors `CXXFLAGS`/`LDFLAGS`, and keeps objects in `.build/<os>/`. A checkout shared with WSL previously reused Linux ELF objects on Windows because they looked up to date.
 3. `main.cpp` on Windows: `--batch` isolation re-runs the executable as `--isolated-child` (SPIR-V on stdin, the same `W`/`E` status-byte protocol on stdout, stderr to `NUL`, abort message and WER dialogs suppressed); `wmain` passes UTF-8 arguments and files open through wide paths.
 4. `getenv()` → `OS::get_environment()` in the two baker files: MSVC's C4996 would fail the `dev_mode=yes` (werror) Windows CI build now that they compile there.
 5. `wgsl_precompile.py` and the test runners also look for `bin/tint_convert_cli.exe`.
@@ -4575,7 +4666,7 @@ source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no \
       bin/obj/drivers/webgpu/rendering_device_driver_webgpu.web.template_debug.wasm32.nothreads.dlink.o
 ```
-Naming the **object file** as the scons target compiles that one translation unit and nothing else: **1.7 s** against a warm `bin/obj/` tree, versus a full link. This supersedes Task 28's "any edit to these files is unverified until a real `platform=web` build runs" — the compile half is now cheap and should be run on every edit to the Emscripten-only driver files. Only link- and run-time behaviour still needs the full build.
+Naming the **object file** as the scons target compiles that one translation unit and nothing else: **1.7 s** against a warm `bin/obj/` tree, versus a full link. This supersedes Task 28's "any edit to these files is unverified until a real `platform=web` build runs" — the compile half is now cheap and should be run on every edit to the Emscripten-only driver files. Only link- and run-time behavior still needs the full build.
 
 **Next step**: user rebuilds and re-reads `godotWebGPUShaderStats`, now five fields.
 - `translated: 0` with a large `specialized` → baking is complete; the remaining lever is `spec_constants_overridable()` coverage, and any residual stall is Task 14's browser-side pipeline compilation.
@@ -4653,7 +4744,7 @@ This also means a share of the 339 `baked` stages is **wasted work**: SDFGI/fog/
 
 #### Task 31 — correction: it is **not** one root cause for all 37
 
-The original entry above claimed the capability mismatch explained all 37 stages. Checking each group against the actual code shows that is wrong, and the error was assuming the shape of the cause generalised from the first two groups. Corrected split:
+The original entry above claimed the capability mismatch explained all 37 stages. Checking each group against the actual code shows that is wrong, and the error was assuming the shape of the cause generalized from the first two groups. Corrected split:
 
 | Group | Stages | Cause | Confidence |
 |---|---|---|---|
@@ -4674,8 +4765,8 @@ Chosen by the user over the narrower alternatives, on the grounds that it fixes 
 1. **`RenderingDevice`** gains a bake-scoped capability override (`shader_bake_feature_override_set/_clear/_is_active`), consulted at the top of `has_feature()`. It is a single chokepoint — every engine-side capability query already funnels through it. Costs one `is_empty()` check outside a bake.
 2. **`ShaderRD`** gains `set_general_defines()` and `set_variant_define_text()`, each refreshing `group_sha256` via `_initialize_cache()` — necessary because the cache key is derived from exactly those strings, so changing them without rehashing would file the bake under one key and have the runtime look under another. Plus a registry of refresh callbacks (`add_general_defines_refresh_callback()` / `refresh_all_general_defines()`), so the baker can ask every affected subsystem to recompute without knowing they exist.
 3. **Each formula moved into one recomputable place, next to the shader it belongs to** — `GI::_sdfgi_{preprocess,direct_light,integrate}_defines()` and `SceneShaderForwardClustered::_sdf_variant_define()`, each called once from init and again from the refresh callback. This is the direct answer to the objection against the narrower option C: there is still exactly **one** source of truth per formula, rather than a capability→define table in the exporter that drifts.
-4. **`ShaderBakerExportPluginPlatform::get_target_feature_overrides()`**, defaulting to empty. The plugin installs the overrides at the start of `_begin_customize_resources()` and clears them in `_end_customize_resources()`. **A platform that supplies nothing is bit-for-bit unaffected**, so the Vulkan/Metal/D3D12 bakers do not change behaviour.
-5. **All groups are baked while an override is active** (`bake_all_groups`), which is what covers the fog case: the target may want a group the editor never enabled. Costs some extra export-time work; without an override the behaviour is exactly as before.
+4. **`ShaderBakerExportPluginPlatform::get_target_feature_overrides()`**, defaulting to empty. The plugin installs the overrides at the start of `_begin_customize_resources()` and clears them in `_end_customize_resources()`. **A platform that supplies nothing is bit-for-bit unaffected**, so the Vulkan/Metal/D3D12 bakers do not change behavior.
+5. **All groups are baked while an override is active** (`bake_all_groups`), which is what covers the fog case: the target may want a group the editor never enabled. Costs some extra export-time work; without an override the behavior is exactly as before.
 6. **`ShaderBakerExportPluginPlatformWebGPU`** supplies the target answers as a loop over the whole `Features` enum setting every entry `false`, rather than a hand-written list. `RenderingDeviceDriverWebGPU::has_feature()` returns `false` for every case *including its `default:` arm*, so the invariant is "WebGPU supports no optional feature", and a list would go stale the day a feature is added — especially since the editor cannot even link against that driver (`drivers/webgpu/` is Emscripten-only). Added a `SUPPORTS_MAX` sentinel to the enum for this, deliberately not `BIND_ENUM_CONSTANT`'d.
 
 **Known remaining exposure**: `emulate_point_size` (`scene_shader_forward_clustered.cpp:655`) is read from `has_feature()` at init and reaches the shader as a *specialization constant*, not a define, so it does not affect baked SPIR-V — but it is now computed under whatever override is active if anything re-reads it during a bake. It is only read at init, so this is currently harmless; worth remembering if that changes.
@@ -4713,7 +4804,7 @@ So the baker enumerated 4 material versions where the engine has many, and the r
 
 **Cause.** Neither baker path reaches such a material:
 - `_customize_resource()` is called for resources being exported, and handles `Ref<Material>` — but a material embedded as a sub-resource of a scene is not handed to it.
-- `_customize_scene()` walks the node tree but only ever special-cased `Label3D` and `Sprite3D` (to synthesise their runtime-generated 2D materials). It never looked at mesh materials.
+- `_customize_scene()` walks the node tree but only ever special-cased `Label3D` and `Sprite3D` (to synthesize their runtime-generated 2D materials). It never looked at mesh materials.
 - The embedded-material snapshot in `_begin_customize_resources()` cannot cover them either, because it is taken **before** any scene is customized — a material shader created while loading a scene comes too late to be in the set.
 
 **Fix** (`editor/export/shader_baker_export_plugin.cpp`): the scene walk now also collects, for every node it visits, `GeometryInstance3D::get_material_override()` / `get_material_overlay()`, and for a `MeshInstance3D` each surface's `mesh->surface_get_material(i)` and `get_surface_override_material(i)`. Each is passed to the existing `_customize_resource()`, which ignores a null `Ref`, so unset slots cost nothing. Both the mesh's own material and the scene's override are collected because either can be the one actually drawn.
@@ -4750,7 +4841,7 @@ Exported on `ab4393217`: `baked` **360**, `translated` **16**, same eight entrie
 
 The runtime half already exists and was simply never used: `ShaderRD::_load_from_cache()` prints `Shader cache miss for <name>/<group_sha256>/<version_sha1>` at verbose (`shader_rd.cpp:634`). That is exactly the key the runtime wanted. It needs no code change to reach the browser — the project setting **`debug/settings/stdout/verbose_stdout = true`** turns on `print_verbose` in an exported build (`main.cpp:2274-2277`), including the web console.
 
-The bake half was missing, and is added here: `_customize_shader_version()` takes a `p_origin` label and logs, at verbose, `Shader baker: baking '<name>/<group>/<sha1>' from <origin>`, where origin is `embedded shader`, `embedded material`, or the resource path. Call sites labelled accordingly.
+The bake half was missing, and is added here: `_customize_shader_version()` takes a `p_origin` label and logs, at verbose, `Shader baker: baking '<name>/<group>/<sha1>' from <origin>`, where origin is `embedded shader`, `embedded material`, or the resource path. Call sites labeled accordingly.
 
 Together these answer the question that neither side can answer alone: whether a version was **never enumerated** (absent from the baker's log) or **enumerated under a different key** (present, different sha1). Those two have completely different fixes and had been indistinguishable all along — which is why three fixes in a row addressed the wrong one.
 
@@ -4840,11 +4931,11 @@ Shader baker: baking '…/9ae935cd107ff04dc4904f4d9a48208144d11fe5.webgpu.cache'
 **Byte-for-byte identical fingerprints, different SHA1s.** So:
 - It is **not** a different material. `m_albedo` / `m_albedo_texture_size` / `m_point_size` / `m_roughness` is a `BaseMaterial3D`, and the baker *did* enumerate it — as `material (no path)`, i.e. reached through `_customize_resource()` with no resource path, which is what an embedded sub-resource looks like.
 - It is **not** an enumeration gap in the sense of "the baker never saw this material" (Task 32's framing) — the baker saw exactly this material and baked it.
-- The two versions differ in a field `_version_get_sha1()` hashes but the fingerprint summarised away: the **contents** of the `FRAGMENT`/`VERTEX` code sections (only their names were printed), or **`custom_defines`** (not printed at all).
+- The two versions differ in a field `_version_get_sha1()` hashes but the fingerprint summarized away: the **contents** of the `FRAGMENT`/`VERTEX` code sections (only their names were printed), or **`custom_defines`** (not printed at all).
 
 Also visible: the other three baked versions come from `embedded material` and are empty (`uni=0B`, no code) — the engine's own default/overdraw/debug materials. So the project contributes exactly one scene material, it is baked, and the game still asks for a different version of it.
 
-**A useful negative result about the diagnostic itself**: a fingerprint that summarises *some* fields can match on both sides while the hash differs, which is worse than no fingerprint — it looks like proof of sameness. Replaced with a decomposition of *every* field the SHA1 covers: a short hash plus byte count for uniforms, each stage's globals and each code section individually, and `custom_defines` printed in full (short, and the likeliest to differ between the editor that bakes and the game that runs). Whichever component's hash differs now names itself.
+**A useful negative result about the diagnostic itself**: a fingerprint that summarizes *some* fields can match on both sides while the hash differs, which is worse than no fingerprint — it looks like proof of sameness. Replaced with a decomposition of *every* field the SHA1 covers: a short hash plus byte count for uniforms, each stage's globals and each code section individually, and `custom_defines` printed in full (short, and the likeliest to differ between the editor that bakes and the game that runs). Whichever component's hash differs now names itself.
 
 **Unrelated observation, noted so it is not mistaken for a bug later**: every shader's group SHA256 changed between the two builds (e.g. `BokehDofShaderRD` `19f50419…` → `e778cc8c…`). Bake and runtime still agree — `baked` stayed 360 — so this is consistent, not a mismatch; the hashes simply are not stable across engine builds. Worth remembering when comparing artifacts between builds: **only compare hashes produced by the same binary.**
 
@@ -4869,11 +4960,11 @@ So the runtime wants an **unshaded, fog-disabled** variant of a textured `BaseMa
 
 The other three baked versions are the engine's own: `MODE_UNSHADED`+`FOG_DISABLED` with **empty** uniforms (the overdraw material, a ShaderMaterial), `DEBUG_DRAW_PSSM_SPLITS`+`FOG_DISABLED` (debug shadow splits), and one with no defines at all (the default material).
 
-**`MODE_UNSHADED` + `FOG_DISABLED` on a `BaseMaterial3D` is the signature of `StandardMaterial3D::get_material_for_2d()`** (`material.cpp:3016` sets `SHADING_MODE_UNSHADED` when `p_shaded` is false). `_customize_scene()` already synthesises exactly that for `Label3D`/`Sprite3D` — but this project's scenes contain **neither**, and no `MeshInstance3D` in `main.tscn` has any material assigned (all seven use the default), no script touches materials, and the only other engine caller is `RootMotionView`, which is not in the scene either. So the owner is **not yet identified** and further guessing is not warranted.
+**`MODE_UNSHADED` + `FOG_DISABLED` on a `BaseMaterial3D` is the signature of `StandardMaterial3D::get_material_for_2d()`** (`material.cpp:3016` sets `SHADING_MODE_UNSHADED` when `p_shaded` is false). `_customize_scene()` already synthesizes exactly that for `Label3D`/`Sprite3D` — but this project's scenes contain **neither**, and no `MeshInstance3D` in `main.tscn` has any material assigned (all seven use the default), no script touches materials, and the only other engine caller is `RootMotionView`, which is not in the scene either. So the owner is **not yet identified** and further guessing is not warranted.
 
 **Next diagnostic (added)**: print the generated code sections themselves on a cache miss, bounded to 900 characters each. A hash says two versions differ; the body says what the shader *is*. At 758 bytes the `FRAGMENT` section fits comfortably, and for a `BaseMaterial3D` it should name the feature set outright. Verbose-only, and only on a miss.
 
-**Method note**: this is the third diagnostic iteration on the same question (name → summary fingerprint → per-field decomposition → code body), and each step was needed only because the previous one summarised away the distinguishing detail. When identity matters, print the thing, not a digest of it.
+**Method note**: this is the third diagnostic iteration on the same question (name → summary fingerprint → per-field decomposition → code body), and each step was needed only because the previous one summarized away the distinguishing detail. When identity matters, print the thing, not a digest of it.
 
 **Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
 
@@ -4899,7 +4990,7 @@ A textured PBR `BaseMaterial3D` — albedo + metallic + roughness maps — compi
 
 **2. A fix that does not need the name** (`editor/export/shader_baker_export_plugin.cpp`): after the existing walks, for every `ShaderRD` reached, bake **every version it currently holds** via the new `ShaderRD::get_all_versions()`. Material versions are deliberately non-embedded (`version_create(false)`) on the assumption that the resource and scene walks find what matters — an assumption this project disproves. By the time the bake runs, the engine has already built every version it needs, so taking them all is both simpler and complete.
 
-Gated on `shader_bake_feature_override_is_active()`, so only a platform that opted in (currently WebGPU) pays for it and every other baker keeps byte-identical behaviour. Re-visiting a version already queued is free: `_customize_shader_version()` skips any group whose cache path is already in `shader_paths_processed`, so the sweep only adds what the walks missed. Cost is some extra export work and a few versions the game never asks for — worth it where an unbaked shader means a full GLSL→SPIR-V→WGSL compile on the main thread at load.
+Gated on `shader_bake_feature_override_is_active()`, so only a platform that opted in (currently WebGPU) pays for it and every other baker keeps byte-identical behavior. Re-visiting a version already queued is free: `_customize_shader_version()` skips any group whose cache path is already in `shader_paths_processed`, so the sweep only adds what the walks missed. Cost is some extra export work and a few versions the game never asks for — worth it where an unbaked shader means a full GLSL→SPIR-V→WGSL compile on the main thread at load.
 
 **Verified**: native editor builds clean; `material.cpp` and `shader_rd.cpp` compile for the web target; `shader_corpus` 13/13, `driver_unit_tests` 332/0.
 
@@ -4965,7 +5056,7 @@ So `translated: 0` is not an artifact of a warm cache: on a cold start the bake 
 ---
 
 ### Task 35: the 83 `LumAlpha8` conversions — misleading message, then removed entirely `[FIXED — VERIFIED IN BROWSER]`
-**Status**: investigated; **no behavioural defect found**. The conversion is correct and deliberate. Only the reporting changed.
+**Status**: investigated; **no behavioral defect found**. The conversion is correct and deliberate. Only the reporting changed.
 **Severity**: LOW (log noise and, more importantly, a false lead).
 
 **What they are.** `texture_storage.cpp` converts `L8` and `LA8` to `RGBA8` on WebGPU **on purpose**: WebGPU has no texture component swizzle, so the `(R,R,R,1)` / `(R,R,R,G)` broadcast those formats depend on cannot be expressed in a texture view and has to be baked into the pixel data instead. On Vulkan the same formats stay `R8` / `RG8` with a swizzle. This is the only correct path on this backend, not a fallback.
@@ -4992,7 +5083,7 @@ The generic "not supported by hardware" warning still fires for every other form
 
 Follow-up measurement corrects the earlier framing. `TextureStorage::_texture_2d_update()` calls `_validate_texture_format()` on **every** update (`texture_storage.cpp:1635`), and a font atlas is re-uploaded whenever a glyph is added to it (`text_server_adv.cpp:3810`, `tex.texture->update(img)` once `tex.dirty`). So the 83 lines are not 83 distinct textures converted once — they are a handful of atlases expanded **in full, repeatedly**.
 
-At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordinary UI text, capped at 1024) each expansion allocates and rewrites ~256 KB: roughly **21 MB of transient allocation and memcpy** across the 83, recurring whenever a glyph first rasterises.
+At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordinary UI text, capped at 1024) each expansion allocates and rewrites ~256 KB: roughly **21 MB of transient allocation and memcpy** across the 83, recurring whenever a glyph first rasterizes.
 
 **These atlases are generated in code, not imported**, so the format is a choice rather than a property of an asset: `text_server_adv.cpp:1112` picks `FORMAT_LA8` for monochrome fonts and `FORMAT_RGBA8` for colour ones, from `color_size = p_bgra ? 4 : 2`. Producing RGBA8 directly on WebGPU removes the conversion entirely.
 
@@ -5004,7 +5095,7 @@ At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordina
 
 ---
 
-#### Task 35 — monochrome glyph atlases now rasterise straight to RGBA8
+#### Task 35 — monochrome glyph atlases now rasterize straight to RGBA8
 
 Rather than expanding `LA8 → RGBA8` on every atlas upload, the text servers now build monochrome atlases as RGBA8 in the first place when `WEBGPU_ENABLED`. The conversion disappears instead of being made quieter.
 
@@ -5013,7 +5104,7 @@ Rather than expanding `LA8 → RGBA8` on every atlas upload, the text servers no
 - `_write_mono_glyph_texel()` writes one coverage texel: `(255,255,255,coverage)` on WebGPU, `(255,coverage)` otherwise. A helper rather than an `#ifdef` at each of the four blit sites, so the per-pixel loops stay branch-free and the two layouts cannot drift apart.
 - A TU-local `static constexpr int`, deliberately **not** a macro: the same name is defined in both files, and a macro would be one unity-build away from colliding.
 
-**Nothing else needed changing**, which is the main reason this is low-risk: the atlas clear path in both servers already had a correct 4-channel non-MSDF branch writing `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha initialisation an RGBA8 coverage atlas wants. Colour (`BGRA`), `LCD`, `LCD_V` and MSDF paths were already 4-channel and are untouched.
+**Nothing else needed changing**, which is the main reason this is low-risk: the atlas clear path in both servers already had a correct 4-channel non-MSDF branch writing `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha initialization an RGBA8 coverage atlas wants. Colour (`BGRA`), `LCD`, `LCD_V` and MSDF paths were already 4-channel and are untouched.
 
 Checked for leftovers: the only remaining `FORMAT_LA8` references are the generic `color_size == 2` branches (dead on WebGPU) and the `require_format` ternaries (which now yield RGBA8). Nothing assumes LA8 unconditionally. A font cache previously saved with LA8 atlases still loads — `find_texture_pos_for_glyph()` skips atlases whose format differs, so new glyphs simply start a fresh RGBA8 atlas.
 
@@ -5021,7 +5112,7 @@ Checked for leftovers: the only remaining `FORMAT_LA8` references are the generi
 
 **Verified**: native editor builds and starts (the unchanged LA8 path); **both** text servers compile for the web target with `WEBGPU_ENABLED` active, i.e. the `MONO_GLYPH_COLOR_SIZE = 4` code is the code that was compiled — `text_server_fb` needed `module_text_server_fb_enabled=yes` since it is off by default in this configuration and would otherwise have gone unchecked. `shader_corpus` 13/13, `driver_unit_tests` 332/0.
 
-**Verified in the browser**: text renders correctly with the RGBA8 atlases. This was the one open risk — `_write_mono_glyph_texel()` writing coverage to the wrong channel would have made *all* text render wrong, immediately and unmistakably. It does not. The RGB=255 / A=coverage layout matches what the sampling path expects, and the pre-existing 4-channel atlas clear (`255,255,255,0`) initialises it correctly.
+**Verified in the browser**: text renders correctly with the RGBA8 atlases. This was the one open risk — `_write_mono_glyph_texel()` writing coverage to the wrong channel would have made *all* text render wrong, immediately and unmistakably. It does not. The RGB=255 / A=coverage layout matches what the sampling path expects, and the pre-existing 4-channel atlas clear (`255,255,255,0`) initializes it correctly.
 
 Correct text on screen is the load-bearing evidence here; the absence of the `LumAlpha8` log lines was not separately re-confirmed in this run, but it follows from the same code path — no LA8 atlas is created, so nothing can be converted.
 
@@ -5039,9 +5130,9 @@ Chased a single visible symptom (one bake warning) into five distinct defects, t
 | **32** | Materials embedded in scenes are not enumerated by the baker. Right instinct, but not what was causing the remaining 16. | **SUPERSEDED** — both fixes kept as genuine gaps |
 | **33** | A stale `user://` shader cache permanently shadowed the export's baked cache, once defeating baking entirely (`baked: 0, translated: 193`). | **FIXED** — `res://` now searched first |
 | **34** | A pathless `StandardMaterial3D` created during the first frame, reachable by no exporter walk. Fixed by baking every live version rather than trying to reach the material. | **FIXED** — `translated: 0`, confirmed cold |
-| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterised as RGBA8 directly. | **FIXED** — text confirmed correct in browser |
+| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterized as RGBA8 directly. | **FIXED** — text confirmed correct in browser |
 | **36** | Editor and export template built from different commits → `GODOT_VERSION_HASH` differs → every group hash differs → the whole baked cache unreachable, silently. | **FIXED** — resolved by rebuilding both at one commit; runtime now warns |
-| **37** | `RGB8 not supported by hardware` described an unconditional WebGPU expansion as a per-GPU shortfall — the same wrong wording Task 35 fixed for `LumAlpha8`, in the same function. | **FIXED** — message only, no behaviour change |
+| **37** | `RGB8 not supported by hardware` described an unconditional WebGPU expansion as a per-GPU shortfall — the same wrong wording Task 35 fixed for `LumAlpha8`, in the same function. | **FIXED** — message only, no behavior change |
 
 **Result**: `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }` on a cold start with storage cleared. Zero runtime shader translation; whatever startup cost remains is the browser's own WGSL→pipeline compilation (Task 14), which nothing here can remove.
 
@@ -5096,7 +5187,7 @@ A plain `WARN_PRINT`, not verbose-gated, because the failure is invisible otherw
 ---
 
 ### Task 37: `RGB8 not supported by hardware` says the same untrue thing Task 35 fixed for `LumAlpha8` `[FIXED]`
-**Status**: message corrected; behaviour unchanged.
+**Status**: message corrected; behavior unchanged.
 **Severity**: cosmetic, but it is the *second* time this exact wording sent someone looking for a fault that does not exist.
 
 **Symptom**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2928`), from the character's base-colour JPEG. It appears only under `--verbose` — upstream already gates the three-component formats behind `is_print_verbose_enabled() || !is_rgb_format` — which is why it surfaced in this run and not earlier ones, where the texture arrived as `.s3tc.ctex`.
