@@ -39,6 +39,7 @@
 #include "scene/3d/label_3d.h"
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/visual_instance_3d.h"
+#include "scene/resources/material.h"
 #include "scene/3d/sprite_3d.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
@@ -315,6 +316,17 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 
 	Ref<Material> material = p_resource;
 	if (material.is_valid()) {
+		// BaseMaterial3D does not build its shader when the material is loaded: it
+		// queues itself onto BaseMaterial3D::dirty_materials and waits for
+		// flush_changes(), which is a SceneTree idle callback
+		// (register_scene_types.cpp). No frame ticks during an export, so without
+		// this a freshly-loaded material has no shader data yet and the lookup
+		// below finds nothing to bake -- silently, since there is no error to
+		// report. Static and idempotent: it drains every queued material at once,
+		// so calling it per material is cheap after the first.
+		// See webgpu_notes/TASKS.md Task 32.
+		BaseMaterial3D::flush_changes();
+
 		RID material_rid = material->get_rid();
 		if (material_rid.is_valid()) {
 			RendererRD::MaterialStorage::ShaderData *shader_data = singleton->material_get_shader_data(material_rid);
