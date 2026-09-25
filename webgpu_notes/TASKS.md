@@ -4996,4 +4996,27 @@ A plain `WARN_PRINT`, not verbose-gated, because the failure is invisible otherw
 
 **Verified**: native editor builds clean and reports `480687d1f`; `shader_rd.cpp` compiles for the web target.
 
-**Also in this log**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8` — expected and verbose-only (WebGPU has no 3-component texture formats); it is the character's base-colour JPEG, which this export loaded as plain `.ctex` rather than the `.s3tc.ctex` earlier runs used, which is why it appeared now and not before. Unrelated to shaders.
+**Also in this log**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8` — expected and verbose-only (WebGPU has no 3-component texture formats); it is the character's base-colour JPEG, which this export loaded as plain `.ctex` rather than the `.s3tc.ctex` earlier runs used, which is why it appeared now and not before. Unrelated to shaders. Reworded in Task 37.
+
+---
+
+### Task 37: `RGB8 not supported by hardware` says the same untrue thing Task 35 fixed for `LumAlpha8` `[FIXED]`
+**Status**: message corrected; behaviour unchanged.
+**Severity**: cosmetic, but it is the *second* time this exact wording sent someone looking for a fault that does not exist.
+
+**Symptom**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2928`), from the character's base-colour JPEG. It appears only under `--verbose` — upstream already gates the three-component formats behind `is_print_verbose_enabled() || !is_rgb_format` — which is why it surfaced in this run and not earlier ones, where the texture arrived as `.s3tc.ctex`.
+
+**Why the wording is wrong here.** “Not supported by hardware” suggests a property of the user's GPU, something another machine might not hit. On WebGPU it is neither: the spec has **no** 3-component texture formats, so RGB8/RGBH/RGBF are expanded unconditionally on every device, forever. That is definitional, exactly like the L8/LA8 swizzle expansion Task 35 already rewrote — and it is the same function, twenty lines apart.
+
+**Change** (`_validate_texture_format`): the deliberate-expansion branch added in Task 35 now covers the RGB formats too, via `is_deliberate_expansion = is_la_format || is_rgb_format` under `WEBGPU_ENABLED`, and its message names the actual reason:
+```
+Expanded RGB8 to RGBA8 (WebGPU has no 3-component texture formats).
+Expanded LA8 to RGBA8 (WebGPU has no component swizzle; luminance broadcast baked into the data).
+```
+Still `print_verbose`, so it is no noisier than before; non-WebGPU builds are untouched and keep upstream's `WARN_PRINT` (there the shortfall really can be per-GPU).
+
+**Cost is genuinely negligible**, unlike Task 35: `_validate_texture_format()` runs from `texture_2d_initialize()` — once per texture at load — not per upload. The 4/3× memory growth is unavoidable on any WebGPU device regardless of what the log says.
+
+**Verified**: compiles for web with `WEBGPU_ENABLED` and for the native editor without it.
+
+**Standing lesson, now twice-earned**: when a driver makes a conversion *unconditional*, the log line must not describe it as a capability failure. A warning that cannot be acted on is a warning that costs someone an investigation.
