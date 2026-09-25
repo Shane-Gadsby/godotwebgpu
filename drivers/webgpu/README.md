@@ -84,14 +84,28 @@ Read `godotWebGPUShaderStats` in the browser devtools console to see which
 tier each shader stage actually came from:
 
 ```js
-godotWebGPUShaderStats   // { baked: 412, precompiled: 3, cached: 88, translated: 0 }
+godotWebGPUShaderStats   // { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37 }
 ```
 
 `translated` is the one that matters — it counts stages this driver ran Tint on
-at load time. Zero means every shader arrived ready, and whatever startup cost
-remains is the browser compiling WGSL into pipelines, which baking cannot
-remove. A non-zero value with baking enabled points at a real gap; run with
-`--verbose` and the driver names each one as it happens.
+at load time *that baking should have covered*. Zero means every shader arrived
+ready, and whatever startup cost remains is the browser compiling WGSL into
+pipelines, which baking cannot remove. A non-zero value with baking enabled
+points at a real gap; run with `--verbose` and the driver names each one as it
+happens (the log line carries the owning shader's name).
+
+`specialized` also runs Tint at load time, but is **not** a baking gap and is
+counted separately for that reason. It is a shader whose specialization
+constants had to be patched into the SPIR-V because
+`spirv_preprocess::spec_constants_overridable()` rejected it (non-scalar
+constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array
+sizes/composites/workgroup sizes — see "Specialization constants" above). The
+patched bytes are built at pipeline-creation time from values the exporter never
+saw, so no export-time bake could have produced them. The only way to reduce
+this number is to widen what `spec_constants_overridable()` accepts, so that
+more shaders specialize through WGSL `override` declarations on one base module
+instead. A high `specialized` with `translated: 0` is a working, fully-baked
+build.
 
 **Two traps worth knowing**, both of which look exactly like "baking did
 nothing":

@@ -149,18 +149,37 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 // i.e. the ones export-time baking actually paid for. Counted separately from
 // the three above because that path never reaches _spv_to_wgsl_cached() at all.
 [[maybe_unused]] static uint32_t _wgsl_baked_container_hits = 0;
+// Stages re-converted at runtime because a specialization constant had to be
+// patched into the SPIR-V itself (spec_constants_overridable() rejected the
+// shader). Counted apart from _spv_to_wgsl_cache_misses because it is NOT a
+// baking gap: the patched bytes differ per spec-constant combination and the
+// values aren't known until pipeline creation, so export-time baking could not
+// have covered them even in principle. Conflating the two makes a working build
+// look broken -- see _publish_shader_stats().
+[[maybe_unused]] static uint32_t _spv_to_wgsl_spec_reconvert_hits = 0;
 
 // Publishes the running shader-translation tally to `window`, so it can be read
 // from the browser devtools console at any time without a rebuild:
 //
 //     godotWebGPUShaderStats
-//     // { baked: 412, precompiled: 3, cached: 88, translated: 0 }
+//     // { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37 }
 //
 // `translated` is the number that matters: it counts stages this driver had to
-// run Tint on at load time, which is exactly what export-time baking exists to
-// drive to zero. A non-zero value names a real gap; zero means every shader
-// arrived ready and any remaining startup cost is the browser's own WGSL ->
-// pipeline compilation, which no amount of baking on our side removes.
+// run Tint on at load time *that export-time baking should have covered*, which
+// is exactly what baking exists to drive to zero. A non-zero value names a real
+// gap; zero means every shader arrived ready and any remaining startup cost is
+// the browser's own WGSL -> pipeline compilation, which no amount of baking on
+// our side removes.
+//
+// `specialized` is deliberately NOT part of `translated`, though both run Tint
+// at load time. It counts re-conversions forced by a specialization constant
+// being patched into the SPIR-V (the legacy path taken only when
+// spec_constants_overridable() rejects a shader). Those bytes are produced at
+// pipeline-creation time from values the exporter never saw, so no amount of
+// baking can pre-cover them -- only widening the override path reduces this
+// number. They were counted together until a real build reported translated=37
+// on an otherwise fully-baked project, which read as a baking failure and was
+// not one.
 //
 // Deliberately not behind WEBGPU_VERBOSE: the point is to be answerable on a
 // stock build, and it costs one small EM_ASM store per shader stage created
@@ -175,7 +194,8 @@ static void _publish_shader_stats() {
 		stats.precompiled = $1;
 		stats.cached = $2;
 		stats.translated = $3;
-		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses);
+		stats.specialized = $4;
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits);
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
@@ -222,7 +242,15 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 
 // Returns a malloc'd null-terminated WGSL string (caller must free), or nullptr on
 // failure. Checks: (1) in-memory cache, (2) precompiled table, (3) Tint fallback.
-static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
+//
+// p_spec_reconvert marks the caller as _create_module_with_spec_constants(), whose
+// SPIR-V was patched with specialization values at pipeline-creation time. Such a
+// miss is expected and unavoidable, so it's tallied separately and logged
+// differently from a stage the export bake simply failed to cover.
+// p_debug_name is the owning shader's name where the caller knows it (the
+// container path does; the spec path does not), purely so a real gap can be
+// identified instead of just counted.
+static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size, bool p_spec_reconvert = false, const String &p_debug_name = String()) {
 	uint32_t hash_lo = hash_murmur3_buffer(p_spv_ptr, p_spv_size);
 	uint32_t hash_hi = hash_murmur3_buffer(p_spv_ptr, p_spv_size, 0x9E3779B9);
 	uint64_t spv_hash = ((uint64_t)hash_hi << 32) | hash_lo;
@@ -262,15 +290,27 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	}
 
 	// 3. Fall back to Tint (for specialized shaders and shaders not in the table).
-	_spv_to_wgsl_cache_misses++;
+	if (p_spec_reconvert) {
+		_spv_to_wgsl_spec_reconvert_hits++;
+	} else {
+		_spv_to_wgsl_cache_misses++;
+	}
 	_publish_shader_stats();
 	// The one event worth a log line of its own: a stage that neither the
 	// export-time bake nor the build-time table covered, translated on the main
 	// thread while the player waits. Rare by design -- if these are frequent,
 	// either shader_baker/enabled is off for this export or something is
-	// stopping the bake from covering this shader.
-	print_verbose(vformat("WebGPU: translating a shader stage at runtime (no baked or precompiled WGSL). Totals so far: baked=%d precompiled=%d cached=%d translated=%d.",
-			_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses));
+	// stopping the bake from covering this shader. The spec-constant variant is
+	// worded differently on purpose: it is expected, and chasing it as a baking
+	// bug is a dead end (see _publish_shader_stats()).
+	if (p_spec_reconvert) {
+		print_verbose(vformat("WebGPU: re-translating a shader stage at runtime for patched specialization constants (expected; not a baking gap). Totals so far: baked=%d precompiled=%d cached=%d translated=%d specialized=%d.",
+				_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits));
+	} else {
+		print_verbose(vformat("WebGPU: translating shader stage '%s' at runtime (no baked or precompiled WGSL). Totals so far: baked=%d precompiled=%d cached=%d translated=%d specialized=%d.",
+				p_debug_name.is_empty() ? String("<unnamed>") : p_debug_name,
+				_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits));
+	}
 
 	char *wgsl_str = _translate_spirv_to_wgsl(p_spv_ptr, p_spv_size);
 
@@ -4876,7 +4916,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			_wgsl_baked_container_hits++;
 			_publish_shader_stats();
 		} else {
-			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size());
+			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size(), false, shader->name);
 		}
 
 		if (wgsl_str == nullptr) {
@@ -10001,7 +10041,7 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 	// reached for a shader spec_constants_overridable() rejected: anything it
 	// accepts keeps its constants as WGSL overrides and specializes through
 	// pipeline constants on the base module instead of coming through here.
-	char *wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size());
+	char *wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size(), true);
 
 	if (!wgsl_str) {
 		ERR_PRINT("WebGPU: SPIR-V→WGSL conversion failed for specialized shader module.");
