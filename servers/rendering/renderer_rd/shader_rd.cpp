@@ -703,6 +703,18 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 		// enumerated and what the runtime wants can be named rather than only
 		// counted. Matches the fingerprint the shader baker logs per baked version.
 		print_verbose(vformat("  ^ version is: %s", _version_get_debug_fingerprint(p_version)));
+		// The generated code itself, bounded. A hash says two versions differ; the
+		// code says what the shader actually *is*, which is the last step in naming
+		// an unbaked material when its uniforms and globals are identical to a baked
+		// one and only the generated body differs. Sections are small (hundreds of
+		// bytes for a BaseMaterial3D) and this only runs on a miss.
+		for (const KeyValue<StringName, CharString> &E : p_version->code_sections) {
+			String body = String::utf8(E.value.get_data()).strip_edges().replace("\n", " \\n ");
+			if (body.length() > 900) {
+				body = body.substr(0, 900) + "... [truncated]";
+			}
+			print_verbose(vformat("  ^ code[%s]: %s", String(E.key), body));
+		}
 		return false;
 	}
 
