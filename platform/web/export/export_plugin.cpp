@@ -49,8 +49,6 @@
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
 #include "modules/svg/image_loader_svg.h"
 
-bool EditorExportPlatformWeb::capture_spec_constants_enabled = false;
-
 Error EditorExportPlatformWeb::_extract_template(const String &p_template, const String &p_dir, const String &p_name, bool pwa) {
 	Ref<FileAccess> io_fa;
 	zlib_filefunc_def io = zipio_create_io(&io_fa);
@@ -146,14 +144,6 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	Array args;
 	for (int i = 0; i < flags.size(); i++) {
 		args.push_back(flags[i]);
-	}
-	// See capture_spec_constants_enabled's doc comment in export_plugin.h --
-	// read-only here (not cleared), so the editor's "Capture Shaders" toggle
-	// button is the sole owner of this state and stays in sync with it for as
-	// long as it's toggled on, across as many Run-in-Browser sessions as the
-	// developer wants, rather than silently un-arming itself after one.
-	if (capture_spec_constants_enabled) {
-		args.push_back("--webgpu-record-spec-constants");
 	}
 	config["canvasResizePolicy"] = p_preset->get("html/canvas_resize_policy");
 	config["experimentalVK"] = p_preset->get("html/experimental_virtual_keyboard");
@@ -445,23 +435,6 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// option. Presets created before this default changed therefore keep their
 	// stored `false` — the export warning below is what tells their owner.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), true));
-
-	// Task 13 Phase 2 (webgpu_notes/TASKS.md's 2026-09-20 scoping update):
-	// baking above never covers specialization-constant pipeline variants
-	// (lighting/shadow/material-feature combinations) since their *values*
-	// are only known at runtime -- this closes that gap for whichever
-	// combinations were actually seen during a real play session. Point this
-	// at a JSON file produced by setting
-	// `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS = true` in the browser
-	// devtools console on an exported debug build, playing through the
-	// scenes you want covered, then calling
-	// `godotWebGPUExportSpecConstantRecording()` in the console to download
-	// it (see rendering_device_driver_webgpu.cpp's
-	// _record_spec_constant_usage() for the full recording workflow). Only
-	// takes effect when shader_baker/enabled is also on; empty/missing is a
-	// harmless no-op (those variants keep falling back to runtime Tint,
-	// exactly as if this option didn't exist).
-	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "shader_baker/spec_constant_usage_file", PROPERTY_HINT_FILE, "*.json"), ""));
 }
 
 bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const {
@@ -472,10 +445,6 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 
 	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size") {
 		return p_preset->get("variant/thread_support").operator bool();
-	}
-
-	if (p_option == "shader_baker/spec_constant_usage_file") {
-		return p_preset->get("shader_baker/enabled").operator bool();
 	}
 
 	return true;

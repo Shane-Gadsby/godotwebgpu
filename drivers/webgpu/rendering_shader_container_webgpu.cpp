@@ -32,14 +32,11 @@
 
 #include "rendering_shader_container_webgpu.h"
 
-#include "core/io/file_access.h"
-#include "core/os/mutex.h"
-#include "core/os/os.h"
-
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
-#include "spirv_spec_constants.h"
 #include "wgsl_bake_subprocess.h"
 #endif
+
+#include <cstring>
 
 // =========================================================================
 // SPIR-V Storage + WGSL Precompilation
@@ -98,46 +95,6 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 		String wgsl = webgpu::bake_wgsl_via_subprocess(spirv_bytes.ptr(), (int)spirv_bytes.size());
 		wgsl_code.write[i] = wgsl.is_empty() ? CharString() : wgsl.utf8();
 
-		// Task 13 Phase 2 (see webgpu_notes/TASKS.md's 2026-09-20 scoping
-		// update): also bake any recorded specialization-constant variants
-		// for this exact base shader, from a prior playtest recording
-		// installed via webgpu::set_spec_constant_usage_table() before this
-		// export's baking pass started. A no-op (empty result) for the
-		// common case of a project that hasn't captured a Phase 1 recording
-		// -- this never blocks or slows down a normal, unbaked-for-this-
-		// feature export.
-		uint64_t base_spv_hash = webgpu::hash_spirv(spirv_bytes.ptr(), spirv_bytes.size());
-
-		// Debug aid for the spec-constant match-rate diagnostic
-		// (WebGPUSpecConstantBakerExportPlugin's "N of M matched" WARN_PRINT):
-		// WEBGPU_DUMP_ALL_BASE_HASHES=<path> appends every base_spv_hash this
-		// export computes to <path>, one per line -- diff that against a
-		// recording's own base_spv_hash list to see exactly which recorded
-		// hashes never turn up on the export side at all, instead of only
-		// knowing the aggregate mismatch count. Baking runs across
-		// WorkerThreadPool threads, hence the mutex.
-		if (String dump_path = OS::get_singleton()->get_environment("WEBGPU_DUMP_ALL_BASE_HASHES"); !dump_path.is_empty()) {
-			static Mutex dump_mutex;
-			MutexLock lock(dump_mutex);
-			Ref<FileAccess> dump_f = FileAccess::open(dump_path, FileAccess::READ_WRITE);
-			if (dump_f.is_null()) {
-				dump_f = FileAccess::open(dump_path, FileAccess::WRITE);
-			} else {
-				dump_f->seek_end();
-			}
-			if (dump_f.is_valid()) {
-				dump_f->store_line(String::num_uint64(base_spv_hash));
-			}
-		}
-
-		for (const Vector<RDD::PipelineSpecializationConstant> &constants : webgpu::get_spec_constant_usage_for_hash(base_spv_hash)) {
-			PackedByteArray patched = webgpu::patch_spirv_spec_constants(spirv_bytes, constants);
-			String spec_wgsl = webgpu::bake_wgsl_via_subprocess(patched.ptr(), (int)patched.size());
-			if (!spec_wgsl.is_empty()) {
-				uint64_t combo_hash = webgpu::hash_spec_constant_combo(base_spv_hash, constants);
-				webgpu::record_baked_spec_constant_variant(combo_hash, spec_wgsl);
-			}
-		}
 #else
 		wgsl_code.write[i] = CharString();
 #endif

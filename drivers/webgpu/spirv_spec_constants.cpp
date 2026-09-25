@@ -30,9 +30,9 @@
 
 #include "spirv_spec_constants.h"
 
-#include "core/os/mutex.h"
-#include "core/templates/hash_set.h"
-#include "core/templates/hashfuncs.h"
+#include "core/templates/hash_map.h"
+
+#include <cstring>
 
 namespace webgpu {
 
@@ -162,92 +162,6 @@ PackedByteArray patch_spirv_spec_constants(const PackedByteArray &p_spirv, Vecto
 	}
 
 	return out;
-}
-
-uint64_t hash_spirv(const uint8_t *p_spirv_ptr, int p_spirv_size) {
-	uint32_t hash_lo = hash_murmur3_buffer(p_spirv_ptr, p_spirv_size);
-	uint32_t hash_hi = hash_murmur3_buffer(p_spirv_ptr, p_spirv_size, 0x9E3779B9);
-	return ((uint64_t)hash_hi << 32) | hash_lo;
-}
-
-uint64_t hash_spec_constant_combo(uint64_t p_base_spirv_hash, VectorView<RDD::PipelineSpecializationConstant> p_constants) {
-	// Same "two independent 32-bit rolling hashes, different seeds, combined
-	// into 64 bits" shape as hash_spirv() above -- one chain seeded from the
-	// base hash's low half, one from its high half (further mixed with a
-	// different constant), each folding in every (constant_id, raw value)
-	// pair in order.
-	uint32_t lo = hash_murmur3_one_64(p_base_spirv_hash, HASH_MURMUR3_SEED);
-	uint32_t hi = hash_murmur3_one_64(p_base_spirv_hash, 0x9E3779B9);
-	for (uint32_t i = 0; i < p_constants.size(); i++) {
-		const RDD::PipelineSpecializationConstant &c = p_constants[i];
-		uint64_t word = (((uint64_t)c.constant_id) << 32) | spec_constant_raw_value(c);
-		lo = hash_murmur3_one_64(word, lo);
-		hi = hash_murmur3_one_64(word, hi);
-	}
-	return ((uint64_t)hi << 32) | lo;
-}
-
-namespace {
-Mutex spec_constant_usage_mutex;
-HashMap<uint64_t, Vector<Vector<RDD::PipelineSpecializationConstant>>> spec_constant_usage_table;
-HashSet<uint64_t> spec_constant_usage_matched_hashes;
-
-Mutex baked_spec_constant_variants_mutex;
-Vector<BakedSpecConstantVariant> baked_spec_constant_variants;
-} // namespace
-
-void set_spec_constant_usage_table(const Vector<SpecConstantUsageEntry> &p_entries) {
-	MutexLock lock(spec_constant_usage_mutex);
-	spec_constant_usage_table.clear();
-	spec_constant_usage_matched_hashes.clear();
-	for (const SpecConstantUsageEntry &entry : p_entries) {
-		spec_constant_usage_table[entry.base_spv_hash].push_back(entry.constants);
-	}
-}
-
-void clear_spec_constant_usage_data() {
-	{
-		MutexLock lock(spec_constant_usage_mutex);
-		spec_constant_usage_table.clear();
-		spec_constant_usage_matched_hashes.clear();
-	}
-	{
-		MutexLock lock(baked_spec_constant_variants_mutex);
-		baked_spec_constant_variants.clear();
-	}
-}
-
-Vector<Vector<RDD::PipelineSpecializationConstant>> get_spec_constant_usage_for_hash(uint64_t p_base_spv_hash) {
-	MutexLock lock(spec_constant_usage_mutex);
-	const Vector<Vector<RDD::PipelineSpecializationConstant>> *found = spec_constant_usage_table.getptr(p_base_spv_hash);
-	if (!found) {
-		return Vector<Vector<RDD::PipelineSpecializationConstant>>();
-	}
-	spec_constant_usage_matched_hashes.insert(p_base_spv_hash);
-	return *found;
-}
-
-SpecConstantMatchStats get_spec_constant_usage_match_stats() {
-	MutexLock lock(spec_constant_usage_mutex);
-	SpecConstantMatchStats stats;
-	stats.matched_hashes = (uint32_t)spec_constant_usage_matched_hashes.size();
-	stats.total_hashes = (uint32_t)spec_constant_usage_table.size();
-	return stats;
-}
-
-void record_baked_spec_constant_variant(uint64_t p_combo_hash, const String &p_wgsl) {
-	MutexLock lock(baked_spec_constant_variants_mutex);
-	BakedSpecConstantVariant variant;
-	variant.combo_hash = p_combo_hash;
-	variant.wgsl = p_wgsl;
-	baked_spec_constant_variants.push_back(variant);
-}
-
-Vector<BakedSpecConstantVariant> take_baked_spec_constant_variants() {
-	MutexLock lock(baked_spec_constant_variants_mutex);
-	Vector<BakedSpecConstantVariant> result = baked_spec_constant_variants;
-	baked_spec_constant_variants.clear();
-	return result;
 }
 
 } // namespace webgpu
