@@ -663,6 +663,17 @@ void BaseMaterial3D::_update_shader() {
 		return; //no update required in the end
 	}
 
+	// Names the material behind each generated scene shader. A generated shader has
+	// no resource path of its own, so when the shader baker and the runtime disagree
+	// about which variants exist there is otherwise nothing to identify the material
+	// responsible -- only a SHA1 of its generated code. Verbose-only, and only when
+	// a material's key actually changes. See webgpu_notes/TASKS.md Task 34.
+	if (OS::get_singleton()->is_stdout_verbose()) {
+		print_verbose(vformat("BaseMaterial3D: generating shader for '%s' (class %s): shading_mode=%d disable_fog=%d",
+				get_path().is_empty() ? String("<no path>") : get_path(),
+				get_class(), (int)shading_mode, (int)flags[FLAG_DISABLE_FOG]));
+	}
+
 	{
 		MutexLock lock(shader_map_mutex);
 		ShaderData *v = shader_map.getptr(current_key);

@@ -564,6 +564,14 @@ String ShaderRD::version_get_cache_file_relative_path(RID p_version, int p_group
 	return _get_cache_file_relative_path(version, p_group, p_api_name);
 }
 
+LocalVector<RID> ShaderRD::get_all_versions() const {
+	LocalVector<RID> versions;
+	for (const RID &rid : version_owner.get_owned_list()) {
+		versions.push_back(rid);
+	}
+	return versions;
+}
+
 String ShaderRD::version_get_debug_fingerprint(RID p_version) {
 	Version *version = version_owner.get_or_null(p_version);
 	ERR_FAIL_NULL_V(version, String());

@@ -194,6 +194,56 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 
 	material_storage->shader_embedded_set_unlock();
 
+	// Finally, for every ShaderRD reached above, bake every version it currently
+	// holds -- not just the ones an exported resource or scene led back to.
+	//
+	// Material shader versions are created with version_create(false), i.e. NOT
+	// embedded, on the assumption that the resource and scene walks will find the
+	// materials that matter. They do not always: a real export baked four
+	// SceneForwardClustered versions while the game asked for a fifth (an unshaded,
+	// fog-disabled variant of a textured BaseMaterial3D) that no walk reached, and
+	// four separate attempts to find the owner by reasoning about where materials
+	// come from were all wrong. The engine has already built every version it needs
+	// by this point, so taking them all is both simpler and complete.
+	//
+	// Only when a target capability override is active, i.e. only for a platform
+	// that opted in (currently WebGPU). It costs extra export-time work and bakes
+	// some versions the game will never ask for, which is a trade worth making only
+	// where an unbaked shader means a full GLSL->SPIR-V->WGSL compile on the main
+	// thread at load. Other platforms keep exactly their previous behaviour.
+	if (RD::get_singleton()->shader_bake_feature_override_is_active()) {
+		LocalVector<ShaderRD *> shaders_seen;
+		ShaderRD::shaders_embedded_set_lock();
+		for (Pair<ShaderRD *, RID> pair : ShaderRD::shaders_embedded_set_get()) {
+			if (!shaders_seen.has(pair.first)) {
+				shaders_seen.push_back(pair.first);
+			}
+		}
+		ShaderRD::shaders_embedded_set_unlock();
+
+		material_storage->shader_embedded_set_lock();
+		for (RID rid : material_storage->shader_embedded_set_get()) {
+			RendererRD::MaterialStorage::ShaderData *shader_data = material_storage->shader_get_data(rid);
+			if (shader_data != nullptr) {
+				Pair<ShaderRD *, RID> pair = shader_data->get_native_shader_and_version();
+				if (pair.first != nullptr && !shaders_seen.has(pair.first)) {
+					shaders_seen.push_back(pair.first);
+				}
+			}
+		}
+		material_storage->shader_embedded_set_unlock();
+
+		for (ShaderRD *shader : shaders_seen) {
+			for (RID version : shader->get_all_versions()) {
+				// Re-visiting a version already queued above is free:
+				// _customize_shader_version() skips any group whose cache path is
+				// already in shader_paths_processed, so the sweep only adds versions
+				// the earlier walks missed.
+				_customize_shader_version(shader, version, "all-versions sweep");
+			}
+		}
+	}
+
 	return true;
 }
 
