@@ -4699,3 +4699,33 @@ So one early run that predated a working bake wrote WGSL-less entries into `user
 2. This fix is what stops it recurring, and matters on every machine that has already run an older build.
 
 **Lesson worth keeping**: three fixes in a row were evaluated against a measurement that could not respond to them, because persistent client-side storage sat between the artifact and the observation. "The number is identical, not merely similar" was the tell, and it was visible from the second data point. When a metric repeats *exactly* across genuinely different builds, suspect the measurement path before adding another fix.
+
+---
+
+### Task 34: the last 16, positively identified as an enumeration gap — a 5th scene-shader version created at first draw `[DIAGNOSTIC ADDED]`
+**Status**: cause **narrowed to a fact, not a hypothesis**; the specific material is still unnamed and a fingerprint log is added to name it.
+
+**The decisive data.** With site storage cleared and verbose on, the run prints exactly one miss for the stuck group:
+```
+Shader cache miss for SceneForwardClusteredShaderRD/4db6da1a…/4d161e027d36dae3228a2fd069c9016607e1d80e
+```
+Checked against the artifacts on disk:
+- The **group** hash `4db6da1a…` is right — it is the BASE group directory that exists in the export.
+- The **version** sha1 `4d161e02…` is **not among the four baked** there (`347259af`, `9ae935cd`, `a784797 7`, `b600e18e`).
+- But it **does** exist in the editor's own cache: `.godot/shader_cache/…/4db6da1a…/4d161e02….vulkan.cache`.
+
+So it is settled: **not** a key mismatch, **not** a capability problem. The editor compiles this version; the baker never enumerates it; the game needs it. Task 32's original framing (an enumeration gap) was right after all — just not for the reason it proposed, and neither of its fixes reached this version.
+
+**Timing, which is the remaining clue.** During scene load, all eight variants of *another* version load from cache successfully — so the scene's own material **is** baked. The miss happens later, after `MultiUmaBuffer`/swap-chain setup, i.e. **at the first draw**. Something creates a fifth scene-shader version at first render that exists neither in the embedded sets nor in any scene the exporter walked.
+
+**Why the hash alone cannot finish this.** A version is identified everywhere by a SHA1 of its generated code, which says nothing about which material produced it. That is precisely why three fixes could be aimed at the wrong material without the numbers ever distinguishing them.
+
+**Diagnostic added**: `ShaderRD::version_get_debug_fingerprint()` returns a compact descriptor — code-section names, the sizes of the uniforms/vertex/fragment/compute blocks, and the head of the **uniforms** block. The uniforms block is the identifying part in practice: a `BaseMaterial3D` declares exactly the uniforms its enabled features need, so its head distinguishes one material's version from another's on sight. It is printed at verbose from both sides, in the same format:
+- runtime, under each `Shader cache miss` line;
+- baker, under each `Shader baker: baking '…' from <origin>` line.
+
+Matching the missing fingerprint against the four baked ones (with their origins) should name the material directly, or at minimum say what kind of material it is and which features it has enabled.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+**Also settled this round**: clearing site data restored `baked: 360` from the previous run's `baked: 0`, consistent with Task 33's shadowing diagnosis. Not fully conclusive, because that run also used a different template (`no GDExtension support`), so the two variables were not separated — but the res://-before-user:// ordering is correct on its own merits regardless, since on WebGPU a baked container strictly dominates a runtime-written one.

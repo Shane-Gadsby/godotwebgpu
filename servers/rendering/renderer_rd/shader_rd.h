@@ -181,6 +181,7 @@ private:
 	void _add_stage(const char *p_code, StageType p_stage_type);
 
 	String _version_get_sha1(Version *p_version) const;
+	String _version_get_debug_fingerprint(Version *p_version) const;
 	String _get_cache_file_relative_path(Version *p_version, int p_group, const String &p_api_name);
 	String _get_cache_file_path(Version *p_version, int p_group, const String &p_api_name, bool p_user_dir);
 	bool _load_from_cache(Version *p_version, int p_group);
@@ -299,6 +300,13 @@ public:
 	Vector<String> version_build_variant_stage_sources(RID p_version, int p_variant);
 	RenderingServerTypes::ShaderNativeSourceCode version_get_native_source_code(RID p_version);
 	String version_get_cache_file_relative_path(RID p_version, int p_group, const String &p_api_name);
+
+	// A short, human-readable descriptor of what a version *is* (which material's
+	// generated code it holds), for diagnosing a bake gap. A version is identified
+	// everywhere else only by a SHA1 of its code, which says nothing about which
+	// material produced it -- so a version present at runtime but missing from the
+	// bake cannot otherwise be named. Verbose-only. See TASKS.md Task 34.
+	String version_get_debug_fingerprint(RID p_version);
 
 	struct DynamicBuffer {
 		static uint64_t encode(uint32_t p_set_id, uint32_t p_binding) {
