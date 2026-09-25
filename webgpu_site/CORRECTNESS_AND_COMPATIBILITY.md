@@ -191,7 +191,7 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 | No `derivative_uniformity` guarantee | Prepend `diagnostic(off, derivative_uniformity)` to all WGSL |
 | `f32::MAX` decimal overflow in WGSL | Replace with hex float `0x1.fffffep+127f` |
 | Limited storage texture formats | Promote R8/RG8/R16/RG16 to 32-bit at texture + WGSL level |
-| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU |
+| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU; monochrome font atlases rasterised as RGBA8 up front |
 | No push constants | 256KB ring buffer emulation |
 | No combined image-samplers | SPIR-V-level split before Tint |
 | No subpasses | Flatten to separate render passes |
@@ -301,7 +301,7 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 ### Format Limitations
 - Float32 textures downgraded to float16 on Adreno (precision loss)
 - Storage textures require format promotion (R8→R32Float)
-- No texture component swizzle (L8/LA8 converted on CPU)
+- No texture component swizzle (L8/LA8 converted on CPU; font atlases avoid it by rasterising to RGBA8 directly)
 - sRGB viewFormats excluded for storage textures (Dawn rejects them)
 
 ---

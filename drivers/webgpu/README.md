@@ -71,6 +71,24 @@ Three tiers, checked in order:
    the `.pck`. The runtime reads it back by object identity, so there is no
    hash lookup to drift. Since specialization constants became WGSL overrides
    (below), one baked base module covers every value combination.
+
+   Three things make this actually complete on WebGPU, each of which was a real
+   gap once (`webgpu_notes/TASKS.md` Tasks 31–34):
+
+   - **The bake runs with the target's capabilities, not the editor's.**
+     Engine code derives `#define`s and shader-group choices from
+     `RenderingDevice::has_feature()`, so baking on the editor's Vulkan device
+     produced SDFGI, volumetric-fog and clustered variants the WebGPU runtime
+     never asks for. The platform plugin installs the target's answers for the
+     duration of the bake (`get_target_feature_overrides()`), and every group is
+     baked rather than only the ones the editor happened to enable.
+   - **Every live shader version is baked**, not just those an exported resource
+     or scene leads back to. Material versions are non-embedded, and a material
+     created during the first frame — with no resource path at all — is reachable
+     by no walk over resources or scenes.
+   - **`res://` is searched before `user://`** when loading the shader cache. The
+     baked cache carries WGSL; one written by the running game does not, so a
+     single earlier run could otherwise shadow the bake permanently.
 2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
    ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
    Keyed by SPIR-V hash, so it only hits when the engine's glslang output
@@ -85,9 +103,13 @@ tier each shader stage actually came from:
 
 ```js
 godotWebGPUShaderStats
-// { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37,
+// { baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0,
 //   translatedShaders: [] }
 ```
+
+`translated: 0` with an empty `translatedShaders` is the healthy state, and is
+what a correctly baked export reaches — verified on a real project from a cold
+start with browser storage cleared.
 
 `translatedShaders` names the shaders behind `translated`, one entry per distinct
 shader with an occurrence count (`"scene_forward_clustered x4"`), capped at 128
@@ -102,6 +124,19 @@ ready, and whatever startup cost remains is the browser compiling WGSL into
 pipelines, which baking cannot remove. A non-zero value with baking enabled
 points at a real gap; run with `--verbose` and the driver names each one as it
 happens (the log line carries the owning shader's name).
+
+Diagnosing such a gap is a matter of reading logs rather than guessing, since a
+shader version is otherwise identified only by a SHA1 of its generated code.
+Enable verbose in an exported build with the **`debug/settings/stdout/verbose_stdout`**
+project setting (a web export has no command line), and these line up:
+
+| Log line | Side | Says |
+|---|---|---|
+| `Shader baker: baking '<name>/<group>/<sha1>' from <origin>` | editor | which versions were baked, and what led the baker to each |
+| `Shader cache miss for <name>/<group>/<sha1>` | runtime | exactly which key the game wanted |
+| `^ version is: uni=… frag=… defines(n)=[…]` | both | every field the version SHA1 covers, hashed separately, so the *differing* field names itself |
+| `^ code[FRAGMENT]: …` | runtime | the generated shader body itself, when hashes are not enough |
+| `BaseMaterial3D: generating shader for '<path>' … shading_mode=… disable_fog=…` | both | which **material** produced a generated shader — a generated shader has no path of its own, the material usually does |
 
 `specialized` also runs Tint at load time, but is **not** a baking gap and is
 counted separately for that reason. It is a shader whose specialization
