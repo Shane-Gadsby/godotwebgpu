@@ -4374,8 +4374,8 @@ Why it got through: this file only compiles under Emscripten, which the sandbox 
 
 ---
 
-### Task 29: the last remaining shader-baker warning — one `Tint crashed` stage, almost certainly `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiles `[IN PROGRESS — HANDOFF NOTE, read this first]`
-**Status**: `IN PROGRESS` — root cause narrowed to two concrete engine leaks with a planned fix; **no code changed yet**. Branch `webgpu-4.7.2` is clean at `d53d41a9`. Written as a handoff so a fresh session can pick it up cold.
+### Task 29: the last remaining shader-baker warning — one `Tint crashed` stage, `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiles `[FIXED]`
+**Status**: `FIXED` (was `IN PROGRESS`) — root cause narrowed to two concrete engine leaks with a planned fix; **no code changed yet**. Branch `webgpu-4.7.2` is clean at `d53d41a9`. Written as a handoff so a fresh session can pick it up cold.
 **Severity**: LOW (the variant is never dispatched on WebGPU), but it is the last line of noise in an otherwise-clean bake, and the user asked for it gone.
 
 **What the user sees** (debug run via Remote Deploy on a Forward+ project, build `d53d41a96`):
@@ -4423,3 +4423,31 @@ Exactly **one**, down from 18 before Task 26's pre-bake check. Task 26's `_wgsl_
 5. Ask the user to rebuild and confirm the bake is now warning-free, and — the question still outstanding from Task 25 onward — to read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap.
 
 **Other open threads from this session, for context** (all recorded in their own tasks above): Task 25's driver edits and Task 26-28's instrumentation have now compiled on the user's real web build (`d53d41a9` built and ran); the scene shaders taking the override path has **not** yet been confirmed from a `--verbose` log. `giprobe_write.glsl` is a dead file (Task 27), not deleted. Commits must end with the `Co-Authored-By` / `Claude-Session` trailers used throughout; push with `git push -u origin webgpu-4.7.2`.
+
+---
+
+#### Task 29 — resolution
+
+The handoff's hypothesis was correct on both counts, confirmed by running the repro script it left behind.
+
+**Confirmed cause.** `servers/rendering/renderer_rd/shaders/effects/vrs.glsl`'s **vertex** stage is the only stage in the file that reads `gl_ViewIndex` (line 31, `uv_interp.z = ViewIndex;`), which is why the count was exactly one. Compiled with `#define SPLIT_RG` + `#define USE_MULTIVIEW` it emits `OpDecorate %gl_ViewIndex BuiltIn ViewIndex`, and `bin/tint_convert_cli` on it aborts with:
+```
+thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc:718 internal compiler error:
+TINT_UNIMPLEMENTED unhandled SPIR-V BuiltIn: ViewIndex (val = 4440)
+```
+The suspected second leak, `gi.cpp`'s SDFGI debug probes, is **not** a contributor: both `MODE_PROBES`/`USE_MULTIVIEW` and `MODE_VISIBILITY`/`USE_MULTIVIEW` convert cleanly through Tint (that shader reads the view index through a uniform, not the builtin). Its `// TODO disable multiview versions if turned off` was left alone — it wastes a little bake work but breaks nothing, and touching its debug pipeline setup was the risky half of the planned change.
+
+**Fix 1 — the baker** (`drivers/webgpu/wgsl_bake_subprocess.cpp`): third rule in `_wgsl_unsupported_reason()`, matching `BuiltIn` (decoration 11) = `ViewIndex` (4440) in both `OpDecorate` (opcode 71, value at word 3) and `OpMemberDecorate` (opcode 72, value at word 4) form, reported as "uses gl_ViewIndex (multiview), which WGSL does not have". The warning becomes a `print_verbose` line like the other two.
+
+Per the handoff's warning, this is **deliberately specific to ViewIndex** and the reasoning is now recorded in the function's own doc comment so it survives without TASKS.md: the check runs on *raw* SPIR-V before `spirv_preprocess`, and some builtins absent from Tint's reader list are rewritten away before Tint sees them — `HelperInvocation` is the live counter-example, stripped by `strip_helper_invocation_builtin()` and relied on by `cluster_render.glsl`. A general "any builtin Tint does not list" rule would skip shaders that bake perfectly well.
+
+**Fix 2 — the engine leak** (`servers/rendering/renderer_rd/effects/vrs.cpp`): added `set_variant_enabled(VRS_RG_MULTIVIEW, false)` beside the existing `VRS_MULTIVIEW` line in the `!is_xr_enabled()` block. Verified safe before changing it, as the handoff asked: the pipeline loop right below already guards every variant with `is_variant_enabled(i)` and calls `pipelines[i].clear()` otherwise, and `copy_vrs()` only ever selects `VRS_RG_MULTIVIEW`/`VRS_MULTIVIEW` when its `p_multiview` argument is true, which only happens under XR. The new line is exactly symmetric with the one above it. This stops the variant being compiled at all; Fix 1 is what actually silences the warning, and is kept because the editor is not the only thing that can hand the baker such a module.
+
+**Verification.**
+- **Truth table** (the handoff's step 4), mirroring the byte scan in Python over every module reachable from `wgsl_precompile.py`'s `SHADER_REGISTRY` plus the four multiview variants under suspicion: **282 modules, 0 GLSL compile failures, 2 flagged, 0 false positives, 0 unflagged failures.** The 2 flagged are exactly the `vrs.glsl` vertex stages (`USE_MULTIVIEW` and `SPLIT_RG`+`USE_MULTIVIEW`); every other module converts and is not flagged.
+- `g++ -fsyntax-only -std=c++17 -DWEBGPU_SHADER_BAKER_ENABLED drivers/webgpu/wgsl_bake_subprocess.cpp` — clean. Same for `vrs.cpp`.
+- `misc/scripts/em_asm_check.py` across the driver — clean.
+- Suites: `shader_corpus` 13/13, `preprocessing_tests` 205 passed / 0 failed / 1 skipped, `driver_unit_tests` 332/0, `wgsl_cache` `test_wgsl_precompile.py` 223/0 and `test_wgsl_cache.mjs` 20/0, `spec_constant_overrides` 5/0. No failures anywhere. (Counts differ from the figures quoted in the handoff — 223 vs 217, 20 vs 11, 5 vs 8 — those baselines predate later commits; what matters is zero failures.)
+- `clang-format` was **not** run: not installed in this environment. The edits follow the surrounding style but should be format-checked before any PR.
+
+**Still outstanding** (unchanged, needs the user — carried over from Task 25): rebuild and confirm the bake is warning-free, and read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap.
