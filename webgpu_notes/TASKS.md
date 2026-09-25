@@ -4855,3 +4855,19 @@ Task 14's question is now answerable: any remaining startup stall is the browser
 The scene-material walk and `flush_changes()` fixes are kept even though neither closed this case — both are real gaps for projects whose materials *are* scene sub-resources or standalone `.tres` files, and `flush_changes()` closes a hole that fails silently.
 
 **Diagnostics kept** (all verbose-only, no cost on a normal run): the per-field version fingerprint, the code-section dump on a cache miss, the baker's per-version origin log, and `BaseMaterial3D`'s material-name log. Between them, the next bake gap is a single export away from being named instead of guessed at.
+
+---
+
+#### Task 34 — confirmed cold, with storage cleared
+
+A second run with the app's storage cleared, so nothing could be served from a stale client-side cache (the Task 33 hazard):
+
+- **260 cache loads, 260 container creations — every one a hit.**
+- **Zero** `Shader cache miss`, **zero** `translating shader stage at runtime`, **zero** errors.
+- 60 distinct shaders, including all **32** `SceneForwardClusteredShaderRD` variant loads — the exact group that had been translating since Task 30.
+
+So `translated: 0` is not an artifact of a warm cache: on a cold start the bake covers everything the game asks for.
+
+**One detail worth recording**: the pathless unshaded `StandardMaterial3D` does **not** appear in this run at all — only the glTF character material does. Whatever creates it is **conditional** on some interaction or UI state rather than happening every startup. That explains why it resisted identification for so long: it is not reliably reproducible from a plain launch, so a naive repro would never have shown it. The all-versions sweep covers it whether or not it appears in a given session, which is the right property for something this intermittent — and a good argument for having fixed the class rather than the instance.
+
+**Remaining log noise, unrelated to shaders**: 83 × `WARNING: Image format LumAlpha8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2916`). Tracked separately as Task 35. The trailing `WebSocket connection to 'ws://127.0.0.1:6007/' failed` is just the debugger link with no editor listening — expected for a standalone run.
