@@ -216,6 +216,15 @@ prevents redundant re-creation.
   between material uniforms and push constant ring buffer.
 - **No 3-component texture formats** — RGB8, RGB16F, RGB32F are unsupported as
   texture formats in WebGPU. The driver maps these to RGBA equivalents.
+  Likewise **no texture component swizzle**, so L8/LA8 cannot broadcast to
+  `(R,R,R,1)`/`(R,R,R,G)` at sample time and are expanded to RGBA8 in the data.
+  Both expansions are unconditional on every WebGPU device, so they are logged
+  as plain verbose notes (`Expanded RGB8 to RGBA8 (WebGPU has no 3-component
+  texture formats)`), *not* as upstream's "not supported by hardware" warning —
+  that wording describes a per-GPU shortfall and cost two separate
+  investigations before it was changed. Monochrome font atlases sidestep the
+  conversion entirely by rasterising as RGBA8 up front (Task 35); the remaining
+  conversions run once per texture at load, not per upload.
 - **Multi-draw-indirect** — Uses the native `multi-draw-indirect` device feature
   when available and the indirect buffer's stride matches WebGPU's implicit
   tightly-packed draw-struct layout (16/20 bytes); falls back to dispatching
