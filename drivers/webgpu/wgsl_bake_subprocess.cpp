@@ -45,22 +45,36 @@ namespace webgpu {
 // Reports why a SPIR-V module can never become WGSL, or an empty string when
 // nothing rules it out up front.
 //
-// This is not a guess at what Tint happens to reject today -- both cases below
-// are WGSL language limitations with no workaround, and Tint's SPIR-V reader
-// aborts the process on them (TINT_ASSERT / TINT_UNIMPLEMENTED) rather than
-// returning an error. Checking first means not forking a child just to watch it
-// die, and not reporting a structural impossibility as if it were a surprise.
+// This is not a guess at what Tint happens to reject today -- all three cases
+// below are WGSL language limitations with no workaround, and Tint's SPIR-V
+// reader aborts the process on them (TINT_ASSERT / TINT_UNIMPLEMENTED) rather
+// than returning an error. Checking first means not forking a child just to
+// watch it die, and not reporting a structural impossibility as if it were a
+// surprise.
 //
 // The variants that hit this are ones the WebGPU renderer never selects: the
 // shader baker runs inside the editor and enumerates every variant the
 // *editor's* RenderingDevice declares, so a Vulkan editor offers FFX_HALF and
 // image-atomic variants that RenderingDeviceDriverWebGPU's own capability
 // checks never ask for (see RendererRD::FSR2Effect's modes_with_fp16 and
-// modes_atomic_fallback). They would be unusable on WebGPU regardless, since
-// what stops them is WGSL itself.
+// modes_atomic_fallback), and it compiles USE_MULTIVIEW variants even with XR
+// off (RendererRD::VRS leaves VRS_RG_MULTIVIEW enabled). They would be unusable
+// on WebGPU regardless, since what stops them is WGSL itself.
+//
+// The ViewIndex rule is deliberately specific to that one builtin, and must NOT
+// be generalized to "any BuiltIn missing from Tint's reader". This check runs on
+// *raw* SPIR-V, before spirv_preprocess, and some builtins Tint does not list
+// are rewritten away by a pass before Tint ever sees them -- HelperInvocation is
+// absent from Tint's list yet converts fine, because strip_helper_invocation_builtin()
+// removes it (cluster_render.glsl relies on this). A general rule would skip
+// shaders that bake perfectly well.
 static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size) {
 	static constexpr uint16_t OP_TYPE_INT = 21;
 	static constexpr uint16_t OP_IMAGE_TEXEL_POINTER = 60;
+	static constexpr uint16_t OP_DECORATE = 71;
+	static constexpr uint16_t OP_MEMBER_DECORATE = 72;
+	static constexpr uint32_t DECORATION_BUILT_IN = 11;
+	static constexpr uint32_t BUILT_IN_VIEW_INDEX = 4440;
 
 	const uint32_t total_words = (uint32_t)(p_spv_size / 4);
 	if (total_words < 5) {
@@ -88,6 +102,22 @@ static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size)
 		} else if (opcode == OP_IMAGE_TEXEL_POINTER) {
 			// Atomics on a texel, which WGSL has no equivalent for at all.
 			return String("uses image atomics (OpImageTexelPointer), which WGSL does not have");
+		} else if (opcode == OP_DECORATE && word_count >= 4) {
+			uint32_t decoration = 0;
+			memcpy(&decoration, p_spv_ptr + ((size_t)pos + 2) * 4, 4);
+			uint32_t value = 0;
+			memcpy(&value, p_spv_ptr + ((size_t)pos + 3) * 4, 4);
+			if (decoration == DECORATION_BUILT_IN && value == BUILT_IN_VIEW_INDEX) {
+				return String("uses gl_ViewIndex (multiview), which WGSL does not have");
+			}
+		} else if (opcode == OP_MEMBER_DECORATE && word_count >= 5) {
+			uint32_t decoration = 0;
+			memcpy(&decoration, p_spv_ptr + ((size_t)pos + 3) * 4, 4);
+			uint32_t value = 0;
+			memcpy(&value, p_spv_ptr + ((size_t)pos + 4) * 4, 4);
+			if (decoration == DECORATION_BUILT_IN && value == BUILT_IN_VIEW_INDEX) {
+				return String("uses gl_ViewIndex (multiview), which WGSL does not have");
+			}
 		}
 
 		pos += word_count;
