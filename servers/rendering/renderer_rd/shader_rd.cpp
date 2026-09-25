@@ -698,6 +698,27 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	// shaders the bake did not cover are still cached across runs as before.
 	if (shader_cache_res_dir_valid) {
 		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
+
+		// A shipped cache that never matches anything is the single most
+		// expensive silent failure here, and it looks exactly like "baking is
+		// broken". Its usual cause is not baking at all: base_sha256 mixes in
+		// GODOT_VERSION_HASH (see setup()), so an editor and an export template
+		// built from *different commits* produce different hashes for every
+		// shader, and not one entry of the shipped cache can ever be found.
+		// Everything then recompiles from GLSL on the main thread, and the only
+		// visible symptom is a slow start. Say it once, plainly.
+		static uint32_t res_hits = 0;
+		static uint32_t res_misses = 0;
+		static bool warned_res_cache_unusable = false;
+		if (f.is_null()) {
+			res_misses++;
+			if (!warned_res_cache_unusable && res_hits == 0 && res_misses >= 16) {
+				warned_res_cache_unusable = true;
+				WARN_PRINT("This export ships a baked shader cache, but none of it matches what this build asks for, so every shader is being compiled from source at load. Shader hashes include the engine version hash, so the editor that exported the project and this build must come from the same commit. Rebuild both from the same commit and export again.");
+			}
+		} else {
+			res_hits++;
+		}
 	}
 
 	if (f.is_null() && shader_cache_user_dir_valid) {
