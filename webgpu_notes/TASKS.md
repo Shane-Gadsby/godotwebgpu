@@ -4589,3 +4589,22 @@ Chosen by the user over the narrower alternatives, on the grounds that it fixes 
 6. **`ShaderBakerExportPluginPlatformWebGPU`** supplies the target answers as a loop over the whole `Features` enum setting every entry `false`, rather than a hand-written list. `RenderingDeviceDriverWebGPU::has_feature()` returns `false` for every case *including its `default:` arm*, so the invariant is "WebGPU supports no optional feature", and a list would go stale the day a feature is added — especially since the editor cannot even link against that driver (`drivers/webgpu/` is Emscripten-only). Added a `SUPPORTS_MAX` sentinel to the enum for this, deliberately not `BIND_ENUM_CONSTANT`'d.
 
 **Known remaining exposure**: `emulate_point_size` (`scene_shader_forward_clustered.cpp:655`) is read from `has_feature()` at init and reaches the shader as a *specialization constant*, not a define, so it does not affect baked SPIR-V — but it is now computed under whatever override is active if anything re-reads it during a bake. It is only read at init, so this is currently harmless; worth remembering if that changes.
+
+---
+
+#### Task 31 — confirmed on a real export, and one regression fixed
+
+**The fix works.** Exported and run on build `9a4d4ae9c`:
+```js
+{ baked: 360, precompiled: 1, cached: 17, translated: 16, specialized: 0 }
+translatedShaders: [ 8 × "SceneForwardClusteredShaderRD:<n> x2" ]
+```
+`translated` 37 → **16**, `baked` 339 → 360. Every SDFGI and VolumetricFog stage is gone, and what remains is exactly the eight `SceneForwardClustered` variants the corrected breakdown predicted would *not* be fixed by this. 21 of 37 closed, and the prediction held precisely, which is good evidence the mechanism is understood rather than merely correlated.
+
+**Regression it introduced, now fixed.** The same export printed 26 × `ERROR: shader_baker_export_plugin.cpp:472 - Unable to retrieve SPIR-V data for shader.` Cause: `bake_all_groups` was relaxing the *variant* gate as well as the *group* gate.
+
+That was wrong, and the reason is worth recording because it is not obvious from the call site. In the `VariantDefine` path, `ShaderRD::initialize()` pushes `variants_enabled = true` for **every** variant unconditionally; `VariantDefine::default_enabled` gates the **group**, not the variant (`shader_rd.cpp:1113-1138`). So a disabled *variant* is never an inference from the editor's capabilities — it is always an explicit `set_variant_enabled(..., false)` meaning "do not build this one". The real cases are `vrs.cpp`'s XR-off multiview variants and `scene_shader_forward_mobile`'s FP16/FP32. Baking them anyway asks glslang for sources that were deliberately excluded, and `compile_stages()` returns empty.
+
+There is a neat irony: one of the variants this forced back into the bake is `VRS_RG_MULTIVIEW`, which **Task 29 had just disabled** two commits earlier. The group relaxation is the part fog actually needed — variants inside the newly-baked group are enabled by default anyway — so restricting it to groups keeps the fix and drops the regression.
+
+**Remaining**: the 16 `SceneForwardClustered` stages, cause still unconfirmed (see the corrected breakdown above). Leading hypothesis unchanged: a material shader version created with `version_create(false)` (non-embedded), which the baker reaches only through `_customize_resource()`/`_customize_scene()`.
