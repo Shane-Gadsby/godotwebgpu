@@ -53,6 +53,7 @@ VRS::VRS() {
 
 		if (!RendererCompositorRD::get_singleton()->is_xr_enabled()) {
 			vrs_shader.shader.set_variant_enabled(VRS_MULTIVIEW, false);
+			vrs_shader.shader.set_variant_enabled(VRS_RG_MULTIVIEW, false);
 		}
 
 		vrs_shader.shader_version = vrs_shader.shader.version_create();
