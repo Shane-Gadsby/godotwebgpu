@@ -3578,6 +3578,48 @@ GI::~GI() {
 	singleton = nullptr;
 }
 
+// The SDFGI shaders' `#define` strings, in one place each, so the shader baker
+// can recompute them for the export target's capabilities instead of baking the
+// editor's. Called once from GI::init() and again from
+// _refresh_sdfgi_shader_defines() whenever a capability override is installed.
+//
+// SDFGI_NATIVE_STORAGE_FORMAT is the capability-dependent part: without
+// format-reinterpretation (WebGPU), SDFGI's light/occlusion/lightprobe textures
+// store already-decoded values instead of hand-packed bits, and the compute
+// shaders that write them need a matching storage-image declaration and store
+// path. See create()'s shareable_formats_supported comment.
+String GI::_sdfgi_native_storage_format_define() {
+	bool native = !RD::get_singleton()->has_feature(RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS);
+	return native ? "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n" : "";
+}
+
+String GI::_sdfgi_preprocess_defines() {
+	return "\n#define OCCLUSION_SIZE " + itos(SDFGI::CASCADE_SIZE / SDFGI::PROBE_DIVISOR) + "\n" + _sdfgi_native_storage_format_define();
+}
+
+String GI::_sdfgi_direct_light_defines() {
+	return "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n" + _sdfgi_native_storage_format_define();
+}
+
+String GI::_sdfgi_integrate_defines() {
+	String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n";
+	defines += "\n#define SH_SIZE " + itos(SDFGI::SH_SIZE) + "\n";
+	if (singleton && singleton->sdfgi_sky_use_octmap_array) {
+		defines += "\n#define USE_OCTMAP_ARRAY\n";
+	}
+	defines += _sdfgi_native_storage_format_define();
+	return defines;
+}
+
+void GI::_refresh_sdfgi_shader_defines() {
+	if (singleton == nullptr) {
+		return;
+	}
+	singleton->sdfgi_shader.preprocess.set_general_defines(_sdfgi_preprocess_defines());
+	singleton->sdfgi_shader.direct_light.set_general_defines(_sdfgi_direct_light_defines());
+	singleton->sdfgi_shader.integrate.set_general_defines(_sdfgi_integrate_defines());
+}
+
 void GI::init(SkyRD *p_sky) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
@@ -3641,8 +3683,13 @@ void GI::init(SkyRD *p_sky) {
 	// format-reinterpretation (WebGPU), SDFGI's light/occlusion/lightprobe textures store
 	// already-decoded values directly instead of hand-packed bits, so the compute shaders
 	// that write them need a matching storage-image declaration and store path.
-	bool sdfgi_native_storage_format = !RD::get_singleton()->has_feature(RD::SUPPORTS_SHAREABLE_TEXTURE_FORMATS);
-	String sdfgi_native_storage_format_define = sdfgi_native_storage_format ? "\n#define SDFGI_NATIVE_STORAGE_FORMAT\n" : "";
+	sdfgi_sky_use_octmap_array = p_sky->sky_use_octmap_array;
+	String sdfgi_native_storage_format_define = _sdfgi_native_storage_format_define();
+
+	// These three shaders' defines depend on a device capability, so the shader
+	// baker has to be able to recompute them for the export target rather than
+	// bake the editor's flavour. See TASKS.md Task 31.
+	ShaderRD::add_general_defines_refresh_callback(&GI::_refresh_sdfgi_shader_defines);
 
 	{
 		Vector<String> preprocess_modes;
@@ -3655,8 +3702,7 @@ void GI::init(SkyRD *p_sky) {
 		preprocess_modes.push_back("\n#define MODE_UPSCALE_JUMP_FLOOD\n");
 		preprocess_modes.push_back("\n#define MODE_OCCLUSION\n");
 		preprocess_modes.push_back("\n#define MODE_STORE\n");
-		String defines = "\n#define OCCLUSION_SIZE " + itos(SDFGI::CASCADE_SIZE / SDFGI::PROBE_DIVISOR) + "\n" + sdfgi_native_storage_format_define;
-		sdfgi_shader.preprocess.initialize(preprocess_modes, defines);
+		sdfgi_shader.preprocess.initialize(preprocess_modes, _sdfgi_preprocess_defines());
 		sdfgi_shader.preprocess_shader = sdfgi_shader.preprocess.version_create();
 		for (int i = 0; i < SDFGIShader::PRE_PROCESS_MAX; i++) {
 			sdfgi_shader.preprocess_pipeline[i].create_compute_pipeline(sdfgi_shader.preprocess.version_get_shader(sdfgi_shader.preprocess_shader, i));
@@ -3665,12 +3711,10 @@ void GI::init(SkyRD *p_sky) {
 
 	{
 		//calculate tables
-		String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n" + sdfgi_native_storage_format_define;
-
 		Vector<String> direct_light_modes;
 		direct_light_modes.push_back("\n#define MODE_PROCESS_STATIC\n");
 		direct_light_modes.push_back("\n#define MODE_PROCESS_DYNAMIC\n");
-		sdfgi_shader.direct_light.initialize(direct_light_modes, defines);
+		sdfgi_shader.direct_light.initialize(direct_light_modes, _sdfgi_direct_light_defines());
 		sdfgi_shader.direct_light_shader = sdfgi_shader.direct_light.version_create();
 		for (int i = 0; i < SDFGIShader::DIRECT_LIGHT_MODE_MAX; i++) {
 			sdfgi_shader.direct_light_pipeline[i].create_compute_pipeline(sdfgi_shader.direct_light.version_get_shader(sdfgi_shader.direct_light_shader, i));
@@ -3679,19 +3723,12 @@ void GI::init(SkyRD *p_sky) {
 
 	{
 		//calculate tables
-		String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n";
-		defines += "\n#define SH_SIZE " + itos(SDFGI::SH_SIZE) + "\n";
-		if (p_sky->sky_use_octmap_array) {
-			defines += "\n#define USE_OCTMAP_ARRAY\n";
-		}
-		defines += sdfgi_native_storage_format_define;
-
 		Vector<String> integrate_modes;
 		integrate_modes.push_back("\n#define MODE_PROCESS\n");
 		integrate_modes.push_back("\n#define MODE_STORE\n");
 		integrate_modes.push_back("\n#define MODE_SCROLL\n");
 		integrate_modes.push_back("\n#define MODE_SCROLL_STORE\n");
-		sdfgi_shader.integrate.initialize(integrate_modes, defines);
+		sdfgi_shader.integrate.initialize(integrate_modes, _sdfgi_integrate_defines());
 		sdfgi_shader.integrate_shader = sdfgi_shader.integrate.version_create();
 
 		for (int i = 0; i < SDFGIShader::INTEGRATE_MODE_MAX; i++) {

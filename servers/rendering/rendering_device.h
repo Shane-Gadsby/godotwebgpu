@@ -1033,6 +1033,11 @@ private:
 	void _draw_list_draw_bind_compat_webgpu_1(DrawListID p_list, bool p_use_indices, uint32_t p_instances, uint32_t p_procedural_vertices = 0);
 #endif
 
+	// Non-empty only while a shader bake is running; see
+	// shader_bake_feature_override_set(). Keyed by Features, but typed int so the
+	// header does not need HashMap specializations for the enum.
+	HashMap<int, bool> bake_feature_overrides;
+
 public:
 	RenderingDeviceDriver *get_device_driver() const { return driver; }
 	RenderingContextDriver *get_context_driver() const { return context; }
@@ -1040,6 +1045,25 @@ public:
 	const RDD::Capabilities &get_device_capabilities() const { return driver->get_capabilities(); }
 
 	bool has_feature(const Features p_feature) const;
+
+	// Shader-bake capability override.
+	//
+	// A lot of engine code builds its GLSL `#define` string from has_feature(),
+	// so the shader source depends on the device the *process* is running on. The
+	// shader baker runs inside the editor, on the editor's device, while the
+	// shaders it bakes are for the export target -- a different device, with
+	// different capabilities. Without this, every such shader is baked with the
+	// editor's answers and the exported game asks for a variant that was never
+	// baked, missing the shader cache entirely and recompiling from GLSL source
+	// on the main thread at load (see webgpu_notes/TASKS.md Task 31).
+	//
+	// ShaderBakerExportPlugin installs the target's answers for the duration of
+	// the bake and clears them afterwards. Targets that supply no overrides are
+	// completely unaffected, which is why enabling this changes nothing for the
+	// Vulkan/Metal/D3D12 bakers unless they opt in.
+	void shader_bake_feature_override_set(const HashMap<int, bool> &p_overrides);
+	void shader_bake_feature_override_clear();
+	bool shader_bake_feature_override_is_active() const { return !bake_feature_overrides.is_empty(); }
 
 	Vector<uint8_t> shader_compile_spirv_from_source(ShaderStage p_stage, const String &p_source_code, ShaderLanguage p_language = SHADER_LANGUAGE_GLSL, String *r_error = nullptr, bool p_allow_cache = true);
 	Vector<uint8_t> shader_compile_binary_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name = "");

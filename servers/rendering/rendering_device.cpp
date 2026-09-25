@@ -9424,7 +9424,25 @@ RenderingDevice *RenderingDevice::create_local_device() {
 	return rd;
 }
 
+void RenderingDevice::shader_bake_feature_override_set(const HashMap<int, bool> &p_overrides) {
+	bake_feature_overrides = p_overrides;
+}
+
+void RenderingDevice::shader_bake_feature_override_clear() {
+	bake_feature_overrides.clear();
+}
+
 bool RenderingDevice::has_feature(const Features p_feature) const {
+	// Answer as the export target would while a shader bake is running, so baked
+	// shaders get the defines the target will actually ask for rather than the
+	// editor's. Empty (the only possibility outside a bake), so this costs one
+	// is_empty() check on the normal path.
+	if (!bake_feature_overrides.is_empty()) {
+		if (const bool *overridden = bake_feature_overrides.getptr((int)p_feature)) {
+			return *overridden;
+		}
+	}
+
 	// Some features can be deduced from the capabilities without querying the driver and looking at the capabilities.
 	switch (p_feature) {
 		case SUPPORTS_MULTIVIEW: {

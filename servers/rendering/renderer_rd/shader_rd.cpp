@@ -1143,6 +1143,56 @@ void ShaderRD::initialize(const Vector<VariantDefine> &p_variant_defines, const 
 	}
 }
 
+LocalVector<ShaderRD::GeneralDefinesRefreshCallback> ShaderRD::general_defines_refresh_callbacks;
+
+void ShaderRD::set_general_defines(const String &p_general_defines) {
+	CharString new_defines = p_general_defines.utf8();
+	if (strcmp(new_defines.get_data(), general_defines.get_data()) == 0) {
+		return; // Nothing changed; don't churn the cache directories for nothing.
+	}
+
+	general_defines = new_defines;
+
+	// group_sha256 is derived from general_defines, so it has to be rebuilt or the
+	// baked cache would be filed under the old key and the runtime would look for
+	// it under the new one.
+	if (!shader_cache_user_dir.is_empty() || !shader_cache_res_dir.is_empty()) {
+		_initialize_cache();
+	}
+}
+
+void ShaderRD::set_variant_define_text(int p_variant, const String &p_text) {
+	ERR_FAIL_INDEX(p_variant, variant_defines.size());
+	CharString new_text = p_text.utf8();
+	if (strcmp(new_text.get_data(), variant_defines[p_variant].text.get_data()) == 0) {
+		return;
+	}
+
+	variant_defines.write[p_variant].text = new_text;
+
+	if (!shader_cache_user_dir.is_empty() || !shader_cache_res_dir.is_empty()) {
+		_initialize_cache();
+	}
+}
+
+String ShaderRD::get_general_defines() const {
+	return String::utf8(general_defines.get_data());
+}
+
+void ShaderRD::add_general_defines_refresh_callback(GeneralDefinesRefreshCallback p_callback) {
+	ERR_FAIL_NULL(p_callback);
+	if (general_defines_refresh_callbacks.has(p_callback)) {
+		return;
+	}
+	general_defines_refresh_callbacks.push_back(p_callback);
+}
+
+void ShaderRD::refresh_all_general_defines() {
+	for (GeneralDefinesRefreshCallback callback : general_defines_refresh_callbacks) {
+		callback();
+	}
+}
+
 void ShaderRD::shaders_embedded_set_lock() {
 	shader_versions_embedded_set_mutex.lock();
 }

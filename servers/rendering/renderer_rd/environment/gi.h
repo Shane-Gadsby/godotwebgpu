@@ -152,6 +152,8 @@ public:
 
 private:
 	static GI *singleton;
+	// Remembered from init()'s SkyRD so _sdfgi_integrate_defines() can be recomputed later.
+	bool sdfgi_sky_use_octmap_array = false;
 
 	/* VOXEL GI STORAGE */
 
@@ -442,6 +444,15 @@ private:
 
 public:
 	static GI *get_singleton() { return singleton; }
+
+	// See gi.cpp: the SDFGI shaders' defines depend on
+	// SUPPORTS_SHAREABLE_TEXTURE_FORMATS, so they have to be recomputable for the
+	// shader baker's export target rather than fixed at editor startup (Task 31).
+	static String _sdfgi_native_storage_format_define();
+	static String _sdfgi_preprocess_defines();
+	static String _sdfgi_direct_light_defines();
+	static String _sdfgi_integrate_defines();
+	static void _refresh_sdfgi_shader_defines();
 
 	/* GI */
 

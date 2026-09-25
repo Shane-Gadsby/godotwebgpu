@@ -66,6 +66,7 @@ bool ShaderBakerExportPlugin::_initialize_container_format(const Ref<EditorExpor
 		if (platform->matches_driver(shader_container_driver)) {
 			shader_container_format = platform->create_shader_container_format(p_platform, p_preset);
 			ERR_FAIL_NULL_V_MSG(shader_container_format, false, "Unable to create shader container format for the export platform.");
+			active_platform = platform;
 			return true;
 		}
 	}
@@ -140,6 +141,30 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 
 	RendererSceneRenderRD::get_singleton()->enable_features(renderer_features);
 
+	// Answer capability queries as the export target's device would, for the rest
+	// of the bake. Engine code builds its GLSL defines and picks its shader groups
+	// from RenderingDevice::has_feature(), so without this every such shader is
+	// baked in the editor's flavour and the exported game asks for one that was
+	// never baked -- missing the shader cache entirely and recompiling from GLSL
+	// on the main thread at load. See webgpu_notes/TASKS.md Task 31.
+	//
+	// Installed before any shader is enumerated, and paired with the clear in
+	// _end_customize_resources(). Platforms that supply no overrides leave the
+	// map empty and nothing below changes behaviour for them.
+	{
+		HashMap<int, bool> target_feature_overrides;
+		if (active_platform.is_valid()) {
+			active_platform->get_target_feature_overrides(target_feature_overrides);
+		}
+		if (!target_feature_overrides.is_empty()) {
+			RD::get_singleton()->shader_bake_feature_override_set(target_feature_overrides);
+			// Subsystems whose defines were computed from the editor's answers at
+			// startup recompute them now against the target's.
+			ShaderRD::refresh_all_general_defines();
+			print_verbose(vformat("Shader baker: baking with %d target capability override(s) instead of the editor's device answers.", target_feature_overrides.size()));
+		}
+	}
+
 	// Included all shaders created by renderers and effects.
 	ShaderRD::shaders_embedded_set_lock();
 	const ShaderRD::ShaderVersionPairSet &pair_set = ShaderRD::shaders_embedded_set_get();
@@ -182,6 +207,14 @@ bool ShaderBakerExportPlugin::_begin_customize_scenes(const Ref<EditorExportPlat
 }
 
 void ShaderBakerExportPlugin::_end_customize_resources() {
+	// Restore the editor's own capability answers and put the shader defines back
+	// the way the running editor expects them; see the matching block in
+	// _begin_customize_resources().
+	if (RD::get_singleton()->shader_bake_feature_override_is_active()) {
+		RD::get_singleton()->shader_bake_feature_override_clear();
+		ShaderRD::refresh_all_general_defines();
+	}
+
 	if (!_initialize_cache_directory()) {
 		return;
 	}
@@ -376,9 +409,18 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 	LocalVector<ShaderGroupItem> group_items;
 	group_items.resize(group_count);
 
+	// With a target capability override active, "enabled" reflects a choice the
+	// *editor's* device made and the target's may differ -- fog.cpp picks its
+	// shader group straight from has_feature() via _get_fog_shader_group(), so on
+	// WebGPU the runtime asks for the no-atomics group the Vulkan editor never
+	// enabled. Baking every group costs some extra export-time work and removes a
+	// whole class of "the target wanted a group the editor never turned on".
+	// Without an override this is exactly the previous behaviour.
+	const bool bake_all_groups = RD::get_singleton()->shader_bake_feature_override_is_active();
+
 	RBSet<uint32_t> groups_to_compile;
 	for (int64_t i = 0; i < group_count; i++) {
-		if (!p_shader->is_group_enabled(i)) {
+		if (!bake_all_groups && !p_shader->is_group_enabled(i)) {
 			continue;
 		}
 
@@ -401,7 +443,7 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 
 	for (int64_t i = 0; i < variant_count; i++) {
 		int group = p_shader->get_variant_to_group(i);
-		if (!p_shader->is_variant_enabled(i) || !groups_to_compile.has(group)) {
+		if ((!bake_all_groups && !p_shader->is_variant_enabled(i)) || !groups_to_compile.has(group)) {
 			continue;
 		}
 

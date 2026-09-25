@@ -379,6 +379,12 @@ public:
 	~SceneShaderForwardClustered();
 
 	void init(const String p_defines);
+
+	// See scene_shader_forward_clustered.cpp: the SDF variant's defines depend on
+	// device capabilities, so they must be recomputable for the shader baker's
+	// export target rather than fixed at editor startup (TASKS.md Task 31).
+	static String _sdf_variant_define(const String &p_base_define);
+	static void _refresh_sdf_variant_defines();
 	void set_default_specialization(const ShaderSpecialization &p_specialization);
 	void enable_multiview_shader_group();
 	void enable_advanced_shader_group(bool p_needs_multiview = false);
