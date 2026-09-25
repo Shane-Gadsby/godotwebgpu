@@ -571,26 +571,42 @@ String ShaderRD::version_get_debug_fingerprint(RID p_version) {
 }
 
 String ShaderRD::_version_get_debug_fingerprint(Version *version) const {
-	// The uniforms block is the most identifying part in practice: a
-	// BaseMaterial3D's generated code declares exactly the uniforms its enabled
-	// features need, so the head of it distinguishes one material's version from
-	// another's at a glance. Sizes are included because two materials can share a
-	// uniform prefix while differing later in the code.
-	String head = String::utf8(version->uniforms.get_data()).strip_edges().replace("\n", " ").replace("\t", " ");
-	if (head.length() > 110) {
-		head = head.substr(0, 110) + "...";
-	}
+	// Decomposes the version SHA1 field by field, because a single hash tells you
+	// two versions differ but not *where*. Each component gets its own short hash
+	// plus a byte count, so comparing a runtime miss against a baked version names
+	// the field responsible immediately -- which a combined hash, and a summary of
+	// only some fields, cannot. Learned the hard way: an earlier fingerprint
+	// printed the uniforms block and sizes, which matched exactly on both sides
+	// while the SHA1s still differed, leaving the real difference invisible.
+	auto part = [](const CharString &p_data) -> String {
+		String text = String::utf8(p_data.get_data());
+		return vformat("%s(%dB)", text.sha1_text().substr(0, 8), p_data.length());
+	};
 
 	Vector<String> sections;
-	for (const KeyValue<StringName, CharString> &E : version->code_sections) {
-		sections.push_back(String(E.key));
+	{
+		Vector<StringName> keys;
+		for (const KeyValue<StringName, CharString> &E : version->code_sections) {
+			keys.push_back(E.key);
+		}
+		keys.sort_custom<StringName::AlphCompare>();
+		for (const StringName &key : keys) {
+			sections.push_back(vformat("%s=%s", String(key), part(version->code_sections[key])));
+		}
 	}
-	sections.sort();
 
-	return vformat("uni=%dB vtx=%dB frag=%dB comp=%dB sections=[%s] uniforms=\"%s\"",
-			version->uniforms.length(), version->vertex_globals.length(),
-			version->fragment_globals.length(), version->compute_globals.length(),
-			String(", ").join(sections), head);
+	// Custom defines are printed in full rather than hashed: they are short, and
+	// they are the field most likely to differ between the editor that bakes a
+	// shader and the game that asks for it.
+	Vector<String> defines;
+	for (const CharString &define : version->custom_defines) {
+		defines.push_back(String::utf8(define.get_data()).strip_edges().replace("\n", " "));
+	}
+
+	return vformat("uni=%s vtx=%s frag=%s comp=%s sections=[%s] defines(%d)=[%s]",
+			part(version->uniforms), part(version->vertex_globals),
+			part(version->fragment_globals), part(version->compute_globals),
+			String(", ").join(sections), defines.size(), String(" | ").join(defines));
 }
 
 String ShaderRD::_version_get_sha1(Version *p_version) const {
