@@ -409,13 +409,22 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 	LocalVector<ShaderGroupItem> group_items;
 	group_items.resize(group_count);
 
-	// With a target capability override active, "enabled" reflects a choice the
-	// *editor's* device made and the target's may differ -- fog.cpp picks its
-	// shader group straight from has_feature() via _get_fog_shader_group(), so on
-	// WebGPU the runtime asks for the no-atomics group the Vulkan editor never
-	// enabled. Baking every group costs some extra export-time work and removes a
-	// whole class of "the target wanted a group the editor never turned on".
-	// Without an override this is exactly the previous behaviour.
+	// With a target capability override active, an enabled *group* reflects a
+	// choice the *editor's* device made and the target's may differ -- fog.cpp
+	// picks its shader group straight from has_feature() via
+	// _get_fog_shader_group(), so on WebGPU the runtime asks for the no-atomics
+	// group the Vulkan editor never enabled. Baking every group costs some extra
+	// export-time work and removes a whole class of "the target wanted a group the
+	// editor never turned on". Without an override this is exactly the previous
+	// behaviour.
+	//
+	// Groups only, never variants. In the VariantDefine path every variant starts
+	// enabled and `default_enabled` gates the *group*, so a disabled variant is
+	// never a capability inference -- it is always an explicit set_variant_enabled(
+	// ..., false) meaning "do not build this one" (vrs.cpp's XR-off multiview
+	// variants, scene_shader_forward_mobile's FP16/FP32). Baking those anyway
+	// produced 26 "Unable to retrieve SPIR-V data for shader" errors on a real
+	// export.
 	const bool bake_all_groups = RD::get_singleton()->shader_bake_feature_override_is_active();
 
 	RBSet<uint32_t> groups_to_compile;
@@ -443,7 +452,7 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 
 	for (int64_t i = 0; i < variant_count; i++) {
 		int group = p_shader->get_variant_to_group(i);
-		if ((!bake_all_groups && !p_shader->is_variant_enabled(i)) || !groups_to_compile.has(group)) {
+		if (!p_shader->is_variant_enabled(i) || !groups_to_compile.has(group)) {
 			continue;
 		}
 
