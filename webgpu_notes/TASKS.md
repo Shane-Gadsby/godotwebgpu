@@ -4346,3 +4346,28 @@ A stage a file doesn't have is counted as a glsl failure and skipped, which is e
 - Every declared stage exists: a check over all 81 entries × 274 stage-variants reports 0 mismatches (it reported 3 before the two fixes).
 - The generated header compiles (`g++ -fsyntax-only` against a TU that includes it).
 - `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` Python 217/0 and JS 11/0. The Python tier needed updating: it unpacked registry entries as 3-tuples, so the new 4-element entry broke it outright — it now unpacks positionally and asserts the arity and the flag's type. `ruff check`/`ruff format` clean, with formatting confined to the added region.
+
+---
+
+### Task 28: `_publish_shader_stats()`'s EM_ASM body was split by the preprocessor, breaking the web build `[DONE]`
+**Status**: `DONE` — fixed, and the failure mode is now caught by a pre-commit hook that needs no Emscripten.
+**Severity**: HIGH while it lasted — Task 25's instrumentation commit did not compile for `platform=web` at all, so the branch was unbuildable for the only target that matters.
+**Files**: `drivers/webgpu/rendering_device_driver_webgpu.cpp`, `misc/scripts/em_asm_check.py` (new), `.pre-commit-config.yaml`.
+
+**Issue**: the stats publisher was written as a single object literal:
+
+```cpp
+EM_ASM({ window.godotWebGPUShaderStats = { baked : $0, precompiled : $1, ... }; }, a, b, ...);
+```
+
+`EM_ASM(code, ...)` stringifies `code` with `#code`. Braces do not protect commas from macro argument splitting — only parentheses do — so the body ended at the first comma, and `precompiled : $1` onwards became variadic macro arguments that the compiler read as C++. It failed with `use of undeclared identifier 'precompiled'` and eleven follow-on errors pointing at `Transform3D::translated`, none of which name the real cause.
+
+Why it got through: this file only compiles under Emscripten, which the sandbox this work was done in does not have, so it was shipped on the strength of a clang-format pass. `_notify_js_shader_compile_activity()` right above it survives the same pattern only because its literal, `{ detail : { misses : $0 } }`, happens to contain no comma at all.
+
+**Fix**: build the object field by field, with no top-level comma in the body, and say why in a comment so the next edit does not reintroduce it.
+
+**Prevention** — `misc/scripts/em_asm_check.py`, registered as the `em-asm-check` pre-commit hook over C/C++ sources. It finds every `EM_ASM`/`EM_ASM_INT`/`EM_ASM_PTR`/`EM_ASM_DOUBLE` call, runs the **real** C preprocessor over Emscripten's own macro shape (`CODE_EXPR(#code) _EM_ASM_PREP_ARGS(...)`, reduced to the part that decides where the body ends) and reports any body whose stringified form comes back with unbalanced braces — the signature of a body cut short at a comma. No Emscripten needed, so it runs anywhere, including in a sandbox that cannot build the web target.
+
+**Verified**: flags the exact shipped line, printing what JavaScript actually received (`"{ window.godotWebGPUShaderStats = { baked : a0"`); does not flag the known-good nested literal beside it; and reports clean across all five files in the tree that use the macro family. Suites unaffected: `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` 217/0 and 11/0.
+
+**Standing lesson for this fork**: `drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}` and `rendering_context_driver_webgpu.cpp` cannot be compiled without Emscripten, and `drivers/webgpu/SCsub`'s native branch deliberately excludes them, so no native build of any kind covers them. Any edit to them is unverified until a real `platform=web` build runs. Prefer moving logic into a file the native baker subset does compile (`spirv_preprocess.cpp`, `spirv_spec_constants.cpp`, `rendering_shader_container_webgpu.cpp`, `wgsl_bake_subprocess.cpp`), all of which can be checked with `g++ -fsyntax-only -I. -Iplatform/linuxbsd -DUNIX_ENABLED -DLINUXBSD_ENABLED -DWEBGPU_SHADER_BAKER_ENABLED` once `scons` has generated the `.gen.h` headers.

@@ -229,3 +229,9 @@ repos:
 #     - id: new-local-hook
 # To add external repo hooks, bring the indentation back to:
 # - repo: my-remote-hook
+
+      - id: em-asm-check
+        name: em-asm-check
+        language: python
+        entry: python misc/scripts/em_asm_check.py
+        types_or: [c++, c]
