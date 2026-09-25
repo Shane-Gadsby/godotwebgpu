@@ -195,8 +195,6 @@
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.h"
-#include "editor/shader/shader_baker/webgpu_shader_capture_editor_plugin.h"
-#include "editor/shader/shader_baker/webgpu_spec_constant_baker_export_plugin.h"
 #endif
 
 #ifndef PHYSICS_2D_DISABLED
@@ -9535,26 +9533,6 @@ EditorNode::EditorNode() {
 #endif
 
 	EditorExport::get_singleton()->add_export_plugin(shader_baker_export_plugin);
-
-#ifdef WEBGPU_SHADER_BAKER_ENABLED
-	// Task 13 Phase 2 (webgpu_notes/TASKS.md's 2026-09-20 scoping update): a
-	// separate export plugin, not a change to ShaderBakerExportPlugin above,
-	// so this optional WebGPU-only feature can't affect Vulkan/Metal/D3D12
-	// baking. Registered after shader_baker_export_plugin (not that the
-	// relative order matters here -- add_export_plugin() doesn't imply
-	// execution ordering between unrelated plugins) purely for readability,
-	// since it depends on that plugin's baking having happened by the time
-	// its own _export_end() runs.
-	Ref<WebGPUSpecConstantBakerExportPlugin> webgpu_spec_constant_baker_export_plugin;
-	webgpu_spec_constant_baker_export_plugin.instantiate();
-	EditorExport::get_singleton()->add_export_plugin(webgpu_spec_constant_baker_export_plugin);
-
-	// Task 13 Phase 4: the "Capture Shaders" toolbar toggle -- see
-	// webgpu_shader_capture_editor_plugin.h's doc comment. An EditorPlugin,
-	// not an EditorExportPlugin like the two above, so registered via
-	// add_editor_plugin() instead of EditorExport's add_export_plugin().
-	add_editor_plugin(memnew(WebGPUShaderCaptureEditorPlugin));
-#endif
 
 	Ref<PackedSceneEditorTranslationParserPlugin> packed_scene_translation_parser_plugin;
 	packed_scene_translation_parser_plugin.instantiate();

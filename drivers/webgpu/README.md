@@ -61,6 +61,25 @@ fixups (depth image flags, position Y negation, point size stripping) are
 applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
 (`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
 
+### Shader Precompilation
+Three tiers, checked in order:
+
+1. **Export-time bake** — with `shader_baker/enabled` on (the default for Web
+   presets), `ShaderBakerExportPlugin` walks every `ShaderRD` the engine
+   embeds *and* every material shader reachable from the exported resources,
+   and stores each stage's WGSL inside that stage's own shader container in
+   the `.pck`. The runtime reads it back by object identity, so there is no
+   hash lookup to drift. Since specialization constants became WGSL overrides
+   (below), one baked base module covers every value combination.
+2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
+   ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
+   Keyed by SPIR-V hash, so it only hits when the engine's glslang output
+   matches what the table was generated from.
+3. **Runtime Tint** — anything that missed, translated in the browser on
+   demand. This is what an export with baking turned off uses for everything,
+   and it is the only route for a shader that does not exist at export time
+   (`Shader.new()` + `set_code()` at runtime).
+
 ### Specialization Constants
 Godot's specialization constants are always scalar (`bool`/`int`/`float`), which
 is exactly what WGSL's `override` mechanism covers, so they are normally left in
