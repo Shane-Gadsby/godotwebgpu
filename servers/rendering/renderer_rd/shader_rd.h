@@ -308,6 +308,12 @@ public:
 	// bake cannot otherwise be named. Verbose-only. See TASKS.md Task 34.
 	String version_get_debug_fingerprint(RID p_version);
 
+	// Every version this shader currently holds, including the non-embedded ones
+	// (material versions are created with version_create(false)). The shader baker
+	// uses this to bake variants the engine has built but that no exported resource
+	// or scene leads back to. See webgpu_notes/TASKS.md Task 34.
+	LocalVector<RID> get_all_versions() const;
+
 	struct DynamicBuffer {
 		static uint64_t encode(uint32_t p_set_id, uint32_t p_binding) {
 			return uint64_t(p_set_id) << 32ul | uint64_t(p_binding);

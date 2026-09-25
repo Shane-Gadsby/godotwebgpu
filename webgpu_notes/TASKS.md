@@ -4786,3 +4786,31 @@ The other three baked versions are the engine's own: `MODE_UNSHADED`+`FOG_DISABL
 **Method note**: this is the third diagnostic iteration on the same question (name → summary fingerprint → per-field decomposition → code body), and each step was needed only because the previous one summarised away the distinguishing detail. When identity matters, print the thing, not a digest of it.
 
 **Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+---
+
+#### Task 34 — the shader identified, the owner not; switching to a fix that does not need the owner
+
+The code body settled what the shader is:
+```
+^ code[FRAGMENT]: { vec2 m_base_uv=uv_interp;
+  vec4 m_albedo_tex=texture(sampler2D(m_texture_albedo, …), m_base_uv);
+  albedo_highp=(material.m_albedo.rgb * m_albedo_tex.rgb);
+  float m_metallic_tex=dot(texture(sampler2D(m_texture_metallic, …), …), material.m_metallic_texture_channel);
+  … roughness … alpha … }
+```
+A textured PBR `BaseMaterial3D` — albedo + metallic + roughness maps — compiled **unshaded** and **fog-disabled**.
+
+**The owner remains unidentified, and the obvious candidate is ruled out.** `MODE_UNSHADED` + `FOG_DISABLED` is what the glTF importer sets for `KHR_materials_unlit`, but the source `Школяр.glb` declares **no KHR extensions at all** (parsed its JSON chunk directly: no `unlit`, no `KHR_*`). Also ruled out: no `Sprite3D`/`Label3D` in any scene (the two `get_material_for_2d()` callers `_customize_scene()` already handles), no material assigned to any of the seven `MeshInstance3D` nodes in `main.tscn`, no material code in any of the five project scripts, and `RootMotionView` (the only other engine caller) is not in the scene. The imported `.scn` is compressed, so static inspection ends there.
+
+**Five inference attempts on this one group have now failed** (capability mismatch → scene-material walk → deferred `flush_changes()` → `get_material_for_2d` → glTF unlit). Each was plausible and each was wrong. Continuing to reason forward from "where do materials come from" is not converging, so both remaining moves stop depending on it.
+
+**1. A probe that names the material outright** (`scene/resources/material.cpp`): `BaseMaterial3D::_update_shader()` now logs, at verbose, the material's resource path, class, `shading_mode` and `disable_fog` whenever it generates a shader. A generated shader has no path of its own, which is the whole reason this has been so hard to pin; the *material* usually does. Only fires when a material's key actually changes.
+
+**2. A fix that does not need the name** (`editor/export/shader_baker_export_plugin.cpp`): after the existing walks, for every `ShaderRD` reached, bake **every version it currently holds** via the new `ShaderRD::get_all_versions()`. Material versions are deliberately non-embedded (`version_create(false)`) on the assumption that the resource and scene walks find what matters — an assumption this project disproves. By the time the bake runs, the engine has already built every version it needs, so taking them all is both simpler and complete.
+
+Gated on `shader_bake_feature_override_is_active()`, so only a platform that opted in (currently WebGPU) pays for it and every other baker keeps byte-identical behaviour. Re-visiting a version already queued is free: `_customize_shader_version()` skips any group whose cache path is already in `shader_paths_processed`, so the sweep only adds what the walks missed. Cost is some extra export work and a few versions the game never asks for — worth it where an unbaked shader means a full GLSL→SPIR-V→WGSL compile on the main thread at load.
+
+**Verified**: native editor builds clean; `material.cpp` and `shader_rd.cpp` compile for the web target; `shader_corpus` 13/13, `driver_unit_tests` 332/0.
+
+**Expected next result**: `translated: 0`. If anything still misses, the new `BaseMaterial3D: generating shader for '<path>'` lines name the material and the question is finally closed by observation rather than inference.
