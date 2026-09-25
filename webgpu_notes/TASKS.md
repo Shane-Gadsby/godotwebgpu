@@ -4759,3 +4759,30 @@ Also visible: the other three baked versions come from `embedded material` and a
 **Unrelated observation, noted so it is not mistaken for a bug later**: every shader's group SHA256 changed between the two builds (e.g. `BokehDofShaderRD` `19f50419…` → `e778cc8c…`). Bake and runtime still agree — `baked` stayed 360 — so this is consistent, not a mismatch; the hashes simply are not stable across engine builds. Worth remembering when comparing artifacts between builds: **only compare hashes produced by the same binary.**
 
 **Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+---
+
+#### Task 34 — the differing field, named
+
+The per-field decomposition worked. Comparing the runtime's missing version against the four the baker enumerated:
+
+| field | runtime wants | baker baked (project material) |
+|---|---|---|
+| `uniforms` | `1fbd2836` (286B) | `1fbd2836` (286B) — same |
+| `vertex_globals` | `31b13a4e` (218B) | `31b13a4e` (218B) — same |
+| `fragment_globals` | `31b13a4e` (218B) | `31b13a4e` (218B) — same |
+| `code[VERTEX]` | `8e419887` (86B) | `8e419887` (86B) — same |
+| **`code[FRAGMENT]`** | **`f566f20c` (758B)** | **`89a214f6` (703B)** |
+| **`custom_defines`** | **5**: `DIFFUSE_BURLEY`, `SPECULAR_SCHLICK_GGX`, **`MODE_UNSHADED`**, **`FOG_DISABLED`**, `UV_USED` | **3**: `DIFFUSE_BURLEY`, `SPECULAR_SCHLICK_GGX`, `UV_USED` |
+
+So the runtime wants an **unshaded, fog-disabled** variant of a textured `BaseMaterial3D`, and the baker baked only the **shaded** one. The uniform block is identical because *every* `BaseMaterial3D` shares it — which is exactly why the earlier summary fingerprint matched and misled.
+
+The other three baked versions are the engine's own: `MODE_UNSHADED`+`FOG_DISABLED` with **empty** uniforms (the overdraw material, a ShaderMaterial), `DEBUG_DRAW_PSSM_SPLITS`+`FOG_DISABLED` (debug shadow splits), and one with no defines at all (the default material).
+
+**`MODE_UNSHADED` + `FOG_DISABLED` on a `BaseMaterial3D` is the signature of `StandardMaterial3D::get_material_for_2d()`** (`material.cpp:3016` sets `SHADING_MODE_UNSHADED` when `p_shaded` is false). `_customize_scene()` already synthesises exactly that for `Label3D`/`Sprite3D` — but this project's scenes contain **neither**, and no `MeshInstance3D` in `main.tscn` has any material assigned (all seven use the default), no script touches materials, and the only other engine caller is `RootMotionView`, which is not in the scene either. So the owner is **not yet identified** and further guessing is not warranted.
+
+**Next diagnostic (added)**: print the generated code sections themselves on a cache miss, bounded to 900 characters each. A hash says two versions differ; the body says what the shader *is*. At 758 bytes the `FRAGMENT` section fits comfortably, and for a `BaseMaterial3D` it should name the feature set outright. Verbose-only, and only on a miss.
+
+**Method note**: this is the third diagnostic iteration on the same question (name → summary fingerprint → per-field decomposition → code body), and each step was needed only because the previous one summarised away the distinguishing detail. When identity matters, print the thing, not a digest of it.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
