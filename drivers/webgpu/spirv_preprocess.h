@@ -54,6 +54,19 @@ struct DepthImageFixResult {
 // to their non-specialization equivalents and strips SpecId decorations.
 Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes);
 
+// True when the module declares at least one SpecId-decorated specialization
+// constant.
+bool has_spec_constants(const Vector<uint8_t> &p_bytes);
+
+// True when the module has specialization constants AND every one of them can
+// survive SPIR-V -> WGSL as an `@id(N) override`, so freeze_spec_constant_ops()
+// can be skipped and the driver can specialize pipelines with WebGPU's own
+// pipeline constants instead of re-patching and re-converting the SPIR-V per
+// value combination. False both when there is nothing to preserve and when any
+// constant's type or use has no override equivalent (see the implementation for
+// the exact rules); the caller then freezes the module as before.
+bool spec_constants_overridable(const Vector<uint8_t> &p_bytes);
+
 // Convert push-constant variables to storage buffer (read-only) at
 // descriptor set 3, binding 120 (the ring-buffer slot used by the
 // WebGPU backend).
