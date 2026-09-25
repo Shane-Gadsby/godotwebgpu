@@ -56,6 +56,13 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 
 ## 5. Commit the export-time shader-baking work already done, then close its two known open tails
 
+> **Update 2026-09-25**: the baking work landed, and Task 25 (plan item 11) removed the need for the
+> specialization-constant half of it entirely — one base module now serves every value combination, so
+> export-time container baking is sufficient on its own and is default-on for Web presets. The
+> record-then-bake subsystem has been removed. The crash tail in point 1 below is unaffected and still
+> open; point 2's clean-build breakage should be re-checked rather than assumed. See Task 13's
+> 2026-09-25 update in `webgpu_notes/TASKS.md`.
+
 **Effort: 1-2 days**, mostly finishing/verifying already-written code rather than new design.
 
 **What already exists (uncommitted)**: Task 13's core design — subprocess-isolated export-time WGSL baking via `bin/tint_convert_cli --batch`, wired into `ShaderBakerExportPluginPlatformWebGPU` and `RenderingShaderContainerWebGPU::_set_code_from_spirv()` — is implemented, live-tested against the user's real `cameraSim` project, and has already had three real bugs found and fixed in the process (a Tint ICE in `EmitImageWrite`, a Tint ICE in `EmitImageFetchOrRead`, and a multithreaded-`fork()` hazard in the baking subprocess launcher, all documented in `webgpu_notes/TASKS.md`'s September 18 completion notes). This is real, substantial, verified work sitting uncommitted in the working tree.

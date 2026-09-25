@@ -3781,9 +3781,22 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
 ---
 
 ### Task 13: Ensure that webgpu exports are fully precompiling shaders on export
-**Status**: `Phases 1-3 DONE, live-verified against the real project (2026-09-20)` — the dominant gap turned out to be different from, and larger than, this task's original framing; see the scoping update and phase write-ups below for the full story, including a real `add_file()` lifecycle bug found and fixed during verification
+**Status**: `Phases 1-3 DONE, live-verified against the real project (2026-09-20)`; **the spec-constant half of this task (the "dominant remaining gap" below, and Phases 1-4's whole record-then-bake subsystem) is OBSOLETE as of Task 25** — see the 2026-09-25 update immediately below before reading any of it — the dominant gap turned out to be different from, and larger than, this task's original framing; see the scoping update and phase write-ups below for the full story, including a real `add_file()` lifecycle bug found and fixed during verification
 **Effort**: 1 day, needs a real GPU + browser session (original estimate; the actual spec-constant baking feature took substantially longer — see the scoping update and phase write-ups)
 **Dependencies**: none
+
+---
+
+**Update (2026-09-25) — the gap this task's Phases 1-4 were built to close no longer exists.** Task 25 made `freeze_spec_constant_ops()` conditional, so specialization constants now survive into WGSL as `@id(N) override`s and a pipeline sets them with WebGPU pipeline constants. One base shader module serves every value combination, and `_create_module_with_spec_constants()` — the function that bypassed the baked-WGSL container lookup entirely, and therefore the sole reason spec-constant *values* had to be observed at runtime — is no longer reached by any real Godot shader: all 37 of the 196 engine shader variants that declare specialization constants are overridable, 0 are rejected, and a project's own `.gdshader`/visual shaders inherit the ubershader's fixed four constants (GDShader cannot declare `constant_id`, and `sc_packed_*()` are function calls, so user code cannot produce the one form the guard rejects).
+
+What this means for the tiers:
+- **Export-time container baking (Task 4.1's `ShaderBakerExportPlugin` + `ShaderBakerExportPluginPlatformWebGPU`) is now sufficient on its own.** It already enumerates every `ShaderRD` (engine renderers and effects, via `ShaderRD::shaders_embedded_set_get()`) *and* every material shader reachable from the exported resources (via `MaterialStorage::shader_embedded_set_get()`), and it stores each stage's baked WGSL *inside that stage's own shader container* in the `.pck` — matched by object identity, with no hash lookup and therefore none of the SPIR-V reproducibility exposure that the side-car formats below had. Specialized pipelines now reuse that same baked base module.
+- **Phases 1-4's recording subsystem is dead weight**, and is removed in the commit that follows this update: `_record_spec_constant_usage()`, the `--webgpu-record-spec-constants` arg and its `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS` twin, `webgpu_baked_spec_variants.bin`, `WebGPUSpecConstantBakerExportPlugin`, `WebGPUShaderCaptureEditorPlugin`'s toolbar toggle, `WebGPUSpecConstantDebuggerPlugin`, the `shader_baker/spec_constant_usage_file` export option and `capture_spec_constant_recording.mjs`. `webgpu::patch_spirv_spec_constants()` stays: the legacy re-patch path is still the fallback for anything `spec_constants_overridable()` rejects.
+- Removing it also retires the bug surface it kept producing — the `_export_end()`/`add_file()` lifecycle bug, the missing `_get_customization_configuration_hash()` stale-cache bug, the `_customize_resource` required-override log spam, and the never-fully-explained 19-of-23 and 0-of-12 match rates, all recorded in Phases 2-4 below.
+
+The one thing export-time baking structurally cannot cover is a shader that does not exist at export time — `Shader.new()` + `set_code()` at runtime, or anything the resource-customization walk cannot reach. Recording never covered that either (it only ever saw what a session happened to exercise). The right answer there is persistence rather than precomputation: a per-viewer WGSL cache in the browser (IndexedDB) keyed by the SPIR-V hash `_spv_to_wgsl_cached()` already computes, so the cost is paid once per user per shader instead of once per page load. Not built; only worth building once a baked export is measured to have a non-zero `tint_misses`.
+
+Everything below is kept as the historical record of how the spec-constant gap was found, sized and worked around. Phases 1-4's conclusions about it are still accurate for the code as it was; they are simply no longer load-bearing.
 
 ---
 
@@ -3876,7 +3889,7 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
 ---
 
 ### Task 14: Attempt to make the loading of webgpu exports less blocking, and the progress bar more representative of how long is left to load
-**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified; actually reducing blocking time (subtask 2) still open, see Task 13's spec-constant-baking scoping update below
+**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified; actually reducing blocking time (subtask 2) still open, but its main cause is addressed: Task 25 removed the runtime Tint conversion for specialization-constant variants, and export-time baking is now default-on for Web presets, so the remaining stall should be measured again (`tint_misses` / the `godot-webgpu-shader-compile` event count) before any further work is scoped
 **Effort**: 1 day, needs a real GPU + browser session
 **Dependencies**: benefits from Task 13 being done first — an unclosed runtime-shader-fallback gap is itself a source of post-"100%" blocking this task would otherwise misattribute elsewhere
 
