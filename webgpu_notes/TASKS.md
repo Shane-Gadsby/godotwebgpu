@@ -4958,3 +4958,39 @@ Chased a single visible symptom (one bake warning) into five distinct defects. F
 3. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes targeted *where materials come from*; four changed nothing. Taking every version the engine had already built closed it immediately (Task 34).
 4. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change to it would have shipped uncompiled without `module_text_server_fb_enabled=yes` (Task 35).
 5. **Emscripten-only driver files can be compile-checked cheaply** by naming the object file as the scons target (~2 s against a warm tree) — superseding Task 28's "unverifiable without a full web build".
+
+---
+
+### Task 36: the editor and the export template must be built from the **same commit**, or the entire baked cache is dead `[FIXED + now self-reporting]`
+**Status**: root cause found and made self-announcing.
+**Severity**: **HIGH, and it masquerades as every other bug in this file.**
+
+**The symptom** (this run): `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`, a 10-second `requestAnimationFrame` stall, and every `Loading cache for shader X` immediately followed by a runtime translation — despite the export having staged **147 cache files** and the game loading from the newest export directory.
+
+**The cause.** `ShaderRD::setup()` folds **`GODOT_VERSION_HASH`** — the git commit hash — into `base_sha256` (`shader_rd.cpp:177-188`), and `base_sha256` feeds every group hash. So **any** difference in commit between the editor that bakes and the template that runs changes the hash of *every shader*, and not one baked entry can ever be found. Confirmed directly:
+
+| | build |
+|---|---|
+| editor binary (did the bake) | `custom_build.6b947bdc8` |
+| web template (ran the game) | `custom_build.480687d1f` |
+
+Two different commits, therefore two different hash spaces, therefore `baked: 0`.
+
+**Why this was so costly.** It is *silent* and it *looks like a baking bug*. It produces exactly the signature this file spent Tasks 30–34 chasing: a shipped cache that exists on disk, a runtime that says "cache miss", and a stat line that says nothing was baked. It also explains, retroactively, why group SHA256s appeared to "change every build" (they do — that is the version hash moving) and is the likely cause of at least one earlier `baked: 0 / translated: 193` run that was provisionally attributed to Task 33's user-cache shadowing.
+
+**Process trap worth naming**: building the engine *before* committing bakes the **pre-commit** hash into the binary. Build, commit, then rebuild — or expect the editor and any template built later to disagree.
+
+**Fix (operational)**: rebuild editor and export template from the same commit, then export. The editor has been rebuilt at `480687d1f` to match the template already in `bin/`.
+
+**Fix (so it never costs a round again)** — `ShaderRD::_load_from_cache()` now watches the `res://` lookups and, if the export ships a baked cache but the first 16 lookups all miss with **zero** hits, prints once:
+```
+WARNING: This export ships a baked shader cache, but none of it matches what this build asks for,
+so every shader is being compiled from source at load. Shader hashes include the engine version
+hash, so the editor that exported the project and this build must come from the same commit.
+Rebuild both from the same commit and export again.
+```
+A plain `WARN_PRINT`, not verbose-gated, because the failure is invisible otherwise and the cost is seconds of main-thread compilation. Two counters and a bool; nothing runs once it has fired or once anything hits.
+
+**Verified**: native editor builds clean and reports `480687d1f`; `shader_rd.cpp` compiles for the web target.
+
+**Also in this log**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8` — expected and verbose-only (WebGPU has no 3-component texture formats); it is the character's base-colour JPEG, which this export loaded as plain `.ctex` rather than the `.s3tc.ctex` earlier runs used, which is why it appeared now and not before. Unrelated to shaders.
