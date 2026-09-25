@@ -4022,11 +4022,54 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
      against a small export to separate fixed engine-init cost from project-size-dependent
      resource loading — which is also what decides whether subtask 1.5's threading branch has
      anything to win.
+
+   **RESULTS for 1.2 (2026-09-26) — small vs large, same editor build, same template, same bake** `[DONE]`
+
+   Control project: a hand-written minimal export (one `MeshInstance3D`, one
+   `DirectionalLight3D`, one `Label`, no imported assets) exported with the *same*
+   preset options as the user's project — release, dlink, `shader_baker/enabled`. Its
+   `index.pck` is 100 MB against the real project's 129 MB, and essentially all of that
+   is baked shaders, so the two differ almost purely in *project content*, not in shader
+   payload. Two runs each; figures are cold.
+
+   | | minimal control | user's project | delta |
+   |---|---|---|---|
+   | `callMain()` stall | **824–854 ms** | 1923–2632 ms | ≈ +1250 ms |
+   | CPU, in no WebGPU call | **813–840 ms** | 1131–1150 ms | ≈ +315 ms |
+   | all WebGPU calls | **12–14 ms** | 769–1479 ms | ≈ +900 ms |
+   | `createShaderModule` | 346 calls / 8 ms | 363 calls / 9 ms | ~fixed |
+   | `createComputePipeline` | 192 calls | 192 calls | **identical** |
+   | blocking `writeTexture` | **none** (3–4 ms of writes total) | one, 769–1479 ms | project-dependent |
+
+   **There is a ~825 ms fixed floor that even an empty scene pays**, and it is almost
+   entirely CPU inside `callMain()` — 98.6% of the minimal project's stall is in no WebGPU
+   call at all. Project content adds only ~315 ms of CPU on top of it. So resource loading
+   proper (image decode, `.ctex`, scene parse, GDScript) is **~315 ms of a ~2000 ms stall**
+   on the user's real project. **That is the answer subtask 1.5 was waiting for: moving
+   resource loading to a worker thread could win at most ~0.3 s here, which does not justify
+   patching Emscripten's dylink glue.** The threading branch should be treated as closed
+   unless a project with far heavier assets changes that number.
+
+   Sequencing the calls inside the window (timestamps relative to `callMain` entry) shows
+   the prologue is the same in both projects, to within a few ms:
+
+   | | minimal | user's project |
+   |---|---|---|
+   | callMain entry → first WebGPU call of any kind | 0 → 107 ms | 0 → 109 ms |
+   | CPU-only gap | 382 → 558 (176 ms) | 382 → 563 (181 ms) |
+   | CPU-only gap | 595 → 745 (150 ms) | 595 → 748 (153 ms) |
+   | rest | ends at 824 | continues to 2071 |
+
+   Those three identical stretches — a 107 ms pre-WebGPU boot and two ~165 ms CPU gaps at
+   fixed offsets — are **~430 ms of deterministic engine work that no project can avoid**,
+   and they are the concrete targets for the C++ marks noted above. Naming what happens in
+   them is worth more than further external measurement: they are a larger and far more
+   predictable term than resource loading.
 1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[SCOPED 2026-09-26, NOT STARTED]`
 
    *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
 
-   **Do subtask 1 first.** If measurement shows resource loading is a negligible share of the stall, this whole subtask is moot — do not start it on the assumption that threading is the answer. It is scoped here so that the decision is cheap when the time comes, not to pre-commit to it.
+   **Do subtask 1 first.** If measurement shows resource loading is a negligible share of the stall, this whole subtask is moot — do not start it on the assumption that threading is the answer. **Subtask 1.2 has now measured exactly that, and the answer is negligible: ~315 ms of a ~2000 ms stall (see 1.2's results above). Treat this subtask as closed** unless a project with much heavier assets moves that number; nothing below should be built on the strength of the current evidence. It is scoped here so that the decision is cheap when the time comes, not to pre-commit to it.
 
    **1.5.0 — Feasibility finding already in hand (do not re-derive, do not naively "fix")**
 
