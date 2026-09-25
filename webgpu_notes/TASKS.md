@@ -4871,3 +4871,27 @@ So `translated: 0` is not an artifact of a warm cache: on a cold start the bake 
 **One detail worth recording**: the pathless unshaded `StandardMaterial3D` does **not** appear in this run at all — only the glTF character material does. Whatever creates it is **conditional** on some interaction or UI state rather than happening every startup. That explains why it resisted identification for so long: it is not reliably reproducible from a plain launch, so a naive repro would never have shown it. The all-versions sweep covers it whether or not it appears in a given session, which is the right property for something this intermittent — and a good argument for having fixed the class rather than the instance.
 
 **Remaining log noise, unrelated to shaders**: 83 × `WARNING: Image format LumAlpha8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2916`). Tracked separately as Task 35. The trailing `WebSocket connection to 'ws://127.0.0.1:6007/' failed` is just the debugger link with no editor listening — expected for a standalone run.
+
+---
+
+### Task 35: the 83 `LumAlpha8 not supported by hardware` warnings — not a bug, but a misleading message `[FIXED — message only]`
+**Status**: investigated; **no behavioural defect found**. The conversion is correct and deliberate. Only the reporting changed.
+**Severity**: LOW (log noise and, more importantly, a false lead).
+
+**What they are.** `texture_storage.cpp` converts `L8` and `LA8` to `RGBA8` on WebGPU **on purpose**: WebGPU has no texture component swizzle, so the `(R,R,R,1)` / `(R,R,R,G)` broadcast those formats depend on cannot be expressed in a texture view and has to be baked into the pixel data instead. On Vulkan the same formats stay `R8` / `RG8` with a swizzle. This is the only correct path on this backend, not a fallback.
+
+**Checked and correct.** The manual `LA8 → RGBA8` expansion (`(L,A) → (L,L,L,A)`) derives its pixel count from total bytes / 2, which is right for Godot's tightly packed mip chains (no block compression, no per-level padding), and it preserves the mipmap flag via `Image::create_from_data(w, h, image->has_mipmaps(), …)`. No defect.
+
+**Not churn.** All 83 occur in one startup burst, during UI construction right after the scene loads. They only *look* spread out in the browser log because each one carries a ~100-line JavaScript stack trace from `onPrintError`. Nothing is re-converting per frame. `LumAlpha8` is the only format being converted at all — no RGB-format conversions in this project.
+
+**Why they appeared now.** The fork already suppressed them for non-verbose runs; they showed up only because `debug/settings/stdout/verbose_stdout` was turned on for the Task 34 shader investigation. Turning that setting back off makes them go away, with no code change needed.
+
+**What was actually wrong: the wording.** Under verbose these printed as `WARNING: Image format LumAlpha8 not supported by hardware`, which reads as a hardware shortfall worth investigating — and did cost a detour. Replaced with a plain verbose note that says what is happening and why:
+```
+Expanded LumAlpha8 to RGBA8 (WebGPU has no component swizzle; luminance broadcast baked into the data).
+```
+The generic "not supported by hardware" warning still fires for every other format, unchanged.
+
+**The one real cost, stated rather than fixed**: the expansion grows `L8` **4×** and `LA8` **2×** in memory. 83 such textures at startup in this project, almost certainly font atlases (a UI-heavy scene: 37 Labels, 20 HSliders, 8 Buttons). Nothing to do about it without component swizzle — the alternative would be teaching every sampling site that a given texture is luminance, which is far worse than the memory. Worth knowing if texture memory ever becomes a concern on this target; the new message makes the count visible under verbose without implying a fault.
+
+**Verified**: native editor builds clean; `texture_storage.cpp` compiles for the web target.
