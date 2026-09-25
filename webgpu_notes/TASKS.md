@@ -4456,7 +4456,7 @@ Per the handoff's warning, this is **deliberately specific to ViewIndex** and th
 
 ---
 
-### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[FIX LANDED, AWAITING REBUILD]`
+### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[DONE]`
 **Status**: `CLOSED` — instrumentation did its job; the shaders were named and root-caused. The underlying defect is Task 31.
 **Severity**: MEDIUM as a diagnostic bug (it makes a healthy build look broken, and sends the reader hunting a baking failure that isn't there). Unknown severity for whatever real gap it may be hiding — that is what the rebuild answers.
 
@@ -4519,7 +4519,7 @@ It is read from the console rather than only logged because a web export has no 
 
 ---
 
-### Task 31: the shader baker compiles with the **editor's** device capabilities, not the **target's** — root cause of all 37 runtime translations `[ROOT-CAUSED, FIX NOT STARTED]`
+### Task 31: the shader baker compiles with the **editor's** device capabilities, not the **target's** — cause of 21 of the 37 runtime translations `[FIXED]`
 **Status**: `ROOT-CAUSED` — cause proven by code reading on both sides; no fix attempted, because the reasonable fixes differ a lot in invasiveness and the choice is the user's.
 **Severity**: **HIGH for startup cost.** These 37 stages miss the baked cache entirely — not just the WGSL. A miss means the runtime does the *whole* pipeline on the main thread while the player waits: GLSL → glslang → SPIR-V → 12 preprocessing passes → Tint → WGSL. This is a prime suspect for the startup stall Task 14 has been chasing from the browser side.
 
@@ -4611,7 +4611,7 @@ There is a neat irony: one of the variants this forced back into the bake is `VR
 
 ---
 
-### Task 32: the last 16 — first believed an enumeration gap; actually Task 33 `[SUPERSEDED BY TASK 33]`
+### Task 32: the last 16 — right instinct (an enumeration gap), wrong mechanism; closed by Task 34 `[SUPERSEDED — fixes kept]`
 **Status**: `FIX IMPLEMENTED` — cause established from the user's own export artifacts, not inference; needs one export to confirm.
 **Severity**: MEDIUM. One material's worth of scene shaders (8 variants × 2 stages = 16) recompiled from GLSL on the main thread at load. Upstream-shaped: nothing about it is WebGPU-specific.
 
@@ -4668,7 +4668,7 @@ Together these answer the question that neither side can answer alone: whether a
 
 ---
 
-### Task 33: a stale `user://` shader cache permanently shadows the export's baked cache `[FIX IMPLEMENTED, AWAITING CLEARED-STORAGE TEST]`
+### Task 33: a stale `user://` shader cache permanently shadows the export's baked cache `[FIXED]`
 **Status**: `FIX IMPLEMENTED`. Explains the 16 that survived three unrelated fixes, and a much larger failure seen on a second export.
 **Severity**: **HIGH.** In the worst case observed, **every** shader in the build lost its baked WGSL: `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`. Baking is fully defeated and the game pays main-thread Tint for everything, on every run, forever.
 
@@ -4932,3 +4932,29 @@ Checked for leftovers: the only remaining `FORMAT_LA8` references are the generi
 **Verified**: native editor builds and starts (the unchanged LA8 path); **both** text servers compile for the web target with `WEBGPU_ENABLED` active, i.e. the `MONO_GLYPH_COLOR_SIZE = 4` code is the code that was compiled — `text_server_fb` needed `module_text_server_fb_enabled=yes` since it is off by default in this configuration and would otherwise have gone unchecked. `shader_corpus` 13/13, `driver_unit_tests` 332/0.
 
 **Not verified, and the thing to watch**: glyph rendering itself. Nothing local exercises the WebGPU path at runtime, so the first web run is the test. A wrong channel would make all text render wrong — obvious immediately, and a one-commit revert. Expect the `LumAlpha8`/`Expanded LumAlpha8` lines to be **entirely absent** from the next verbose run; if text looks right and those lines are gone, it worked.
+
+---
+
+## Tasks 29–35: shader baking, end to end — summary
+
+Chased a single visible symptom (one bake warning) into five distinct defects. Final state of each:
+
+| Task | What it was | Status |
+|---|---|---|
+| **29** | Bake warning: `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiled. Fixed in the baker (skip rule) *and* at source (`vrs.cpp` left `VRS_RG_MULTIVIEW` enabled). | **FIXED** — confirmed warning-free |
+| **30** | `translated` conflated a real baking gap with unavoidable spec-constant re-conversion. Split into `translated` / `specialized`, and named the shaders behind it. | **DONE** — `specialized: 0` proved the 37 were all real |
+| **31** | The baker compiled with the **editor's** device capabilities (Vulkan) rather than the export target's (WebGPU), so SDFGI/fog shaders were baked in a configuration the game never asks for. | **FIXED** — 37 → 16 |
+| **32** | Materials embedded in scenes are not enumerated by the baker. Right instinct, but not what was causing the remaining 16. | **SUPERSEDED** — both fixes kept as genuine gaps |
+| **33** | A stale `user://` shader cache permanently shadowed the export's baked cache, once defeating baking entirely (`baked: 0, translated: 193`). | **FIXED** — `res://` now searched first |
+| **34** | A pathless `StandardMaterial3D` created during the first frame, reachable by no exporter walk. Fixed by baking every live version rather than trying to reach the material. | **FIXED** — `translated: 0`, confirmed cold |
+| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterised as RGBA8 directly. | **AWAITING WEB RUN** |
+
+**Result**: `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }` on a cold start with storage cleared. Zero runtime shader translation; whatever startup cost remains is the browser's own WGSL→pipeline compilation (Task 14), which nothing here can remove.
+
+**Method notes worth carrying forward**, each of which cost real time:
+
+1. **An identical number across genuinely different builds indicts the measurement, not the fix.** `360/16` repeated *exactly* through three unrelated fixes because a stale client-side cache sat between the artifact and the observation (Task 33). "Identical, not merely similar" was the tell, visible from the second data point.
+2. **A partial fingerprint is worse than none.** A summary of *some* fields matched byte-for-byte on both sides while the hashes differed, which reads as proof of sameness (Task 34). When identity is the question, decompose every field the hash covers, or print the thing itself.
+3. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes targeted *where materials come from*; four changed nothing. Taking every version the engine had already built closed it immediately (Task 34).
+4. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change to it would have shipped uncompiled without `module_text_server_fb_enabled=yes` (Task 35).
+5. **Emscripten-only driver files can be compile-checked cheaply** by naming the object file as the scons target (~2 s against a warm tree) — superseding Task 28's "unverifiable without a full web build".
