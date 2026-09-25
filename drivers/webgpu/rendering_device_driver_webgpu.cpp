@@ -166,7 +166,16 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 // stock build, and it costs one small EM_ASM store per shader stage created
 // (not per frame).
 static void _publish_shader_stats() {
-	EM_ASM({ window.godotWebGPUShaderStats = { baked : $0, precompiled : $1, cached : $2, translated : $3 }; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses);
+	// Built field by field rather than as one object literal: EM_ASM stringifies
+	// its first macro argument, so a comma anywhere at the top level of the body
+	// is a macro argument separator and the rest gets compiled as C++ instead.
+	EM_ASM({
+		var stats = {};
+		stats.baked = $0;
+		stats.precompiled = $1;
+		stats.cached = $2;
+		stats.translated = $3;
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses);
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
