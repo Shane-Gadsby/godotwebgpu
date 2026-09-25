@@ -3931,6 +3931,77 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    1.1. Add timing instrumentation (temporary, or gated behind a debug flag) around: WASM fetch-complete → instantiate-complete, device-request start → resolve, and engine `main()` start → first rendered frame, for a real project export.
    1.2. Run this against both a small and a large (`cameraSim_*`-scale, per the user's real test project) export to see which phases scale with project size vs. stay roughly constant — this determines which phases are worth surfacing in the progress bar at all versus just genuinely fixed overhead.
    1.3. Identify the single largest contributor with the user's real project (this task's premise — "less blocking" — implies there's a known-bad case; confirm what it actually is before designing around a guess).
+1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[SCOPED 2026-09-26, NOT STARTED]`
+
+   *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
+
+   **Do subtask 1 first.** If measurement shows resource loading is a negligible share of the stall, this whole subtask is moot — do not start it on the assumption that threading is the answer. It is scoped here so that the decision is cheap when the time comes, not to pre-commit to it.
+
+   **1.5.0 — Feasibility finding already in hand (do not re-derive, do not naively "fix")**
+
+   The crash is `ASM_CONSTS[start] = eval(func)` in `addEmAsm()` (`~/emsdk/upstream/emscripten/src/lib/libdylink.js:842` at 6.0.9), with `ASM_CONSTS` undefined on a freshly-spawned pthread worker. **The obvious one-line guard (`ASM_CONSTS ??= {}`) is actively harmful.** Measured in a real build output (`bin/godot.web.template_debug.wasm32.dlink.js`):
+
+   | | byte offset |
+   |---|---|
+   | `addEmAsm`'s `ASM_CONSTS[start] = …` | 37,758 |
+   | `var ASM_CONSTS = { … }` | 901,256 |
+
+   `var` hoists the *declaration* (hence `undefined`, exactly matching the reported `Cannot set properties of undefined`), but the initializer runs ~863 KB later **and replaces the object wholesale**. A guard would therefore let the side module populate an object the main module then silently discards — converting a loud abort into side-module `EM_ASM` bodies that quietly do not exist. That is strictly worse than the crash, and is the single most important thing to carry into this work.
+
+   A real fix must do one of:
+   - **(a) queue and flush** — stash registrations when `ASM_CONSTS` is undefined, flush after the main module's assignment (needs a hook that provably runs after that point);
+   - **(b) merge instead of replace** — emit `var ASM_CONSTS = Object.assign(<pending>, { … })`;
+   - **(c) hoist initialization** — emit `var ASM_CONSTS = {}` early and populate by assignment.
+
+   (b) and (c) are **emitter-level** changes (`tools/` — `js_manipulation.py` and the link-time JS assembly), not `libdylink.js` alone. This is materially more than Task 12's "don't patch Emscripten" decision assumed, and it should be re-confirmed as still-correct with this new information rather than silently reversed. **A legitimate outcome of this subtask is "still don't".**
+
+   **1.5.1 — Decide scope of the machinery, with an explicit exit**
+   - 1.5.1.1. Re-derive the bug against the pinned toolchain (6.0.9) to confirm it still reproduces and that the mechanism above is still the mechanism.
+   - 1.5.1.2. Prototype (a)/(b)/(c) far enough to know which is smallest and how many files it touches. **Decision gate**: if the minimal viable fix spans the emitter and not just `libdylink.js`, record that and stop — report back before building machinery. Maintaining a fork of Emscripten's link-time JS assembly across emsdk bumps is a standing cost this fork has already declined once, and the answer may legitimately be to keep declining and close the threading branch instead.
+   - 1.5.1.3. If it *is* tractable, build the machinery below. It is worth building properly even for one patch, because the failure mode of an ad-hoc local edit is an un-reproducible toolchain.
+
+   **1.5.2 — Layout** (`misc/emsdk_patches/`, in-repo; the toolchain itself at `~/emsdk` is external and cannot be versioned)
+   ```
+   misc/emsdk_patches/
+     README.md                     apply / verify / retire, and the rationale below
+     0001-dylink-asm-consts-pthread-race.patch
+     repro/                        standalone bug reproducer (see 1.5.3)
+     apply.sh                      --check | --apply | --revert | --status
+   ```
+
+   **1.5.3 — Test for the bug, not for the patch** (this is the property that makes it self-retiring, and the direct answer to "how do we know when to remove it")
+   - 1.5.3.1. Build the smallest standalone reproducer that exhibits the race: `MAIN_MODULE` + a side module carrying at least one `EM_ASM`, `-pthread`, spawning a worker that triggers side-module instantiation. No Godot involved — it must be runnable in seconds and survive engine changes.
+   - 1.5.3.2. Run it against the **unpatched** toolchain, headless via the existing Playwright setup (`webgpu_tests/`), asserting on the specific abort signature rather than any failure.
+   - 1.5.3.3. `apply.sh` runs this **first**: bug absent → print "upstream has fixed this; delete `0001-*` and this repro" and exit without patching; bug present → proceed. Checking whether the patch still *applies cleanly* answers the wrong question and is exactly how workarounds outlive their cause.
+
+   **1.5.4 — Pin by content, not by line**
+   - 1.5.4.1. Record in the patch header: the emsdk version it was derived against (`6.0.9`), and the **SHA256 of the exact upstream hunk** being replaced.
+   - 1.5.4.2. On mismatch, `apply.sh` **refuses** and prints the recorded hash, the found hash, the file, and a pointer to the repro and to this subtask — i.e. the "migrate it forward" path is loud, not silent. Never fall back to a fuzzy apply.
+   - 1.5.4.3. Patch header carries a `GODOT WEBGPU PATCH:` block in the style of `thirdparty/tint/patches/0010-*.patch`: what it does, why, the `ASM_CONSTS` ordering trap from 1.5.0, the removal criterion, and a link to Task 12 and this subtask.
+
+   **1.5.5 — Make an unpatched toolchain visible at build time**
+   - 1.5.5.1. Under `platform=web threads=yes dlink_enabled=yes` only, have `SConstruct` check for the patch marker in the toolchain and **warn loudly** if absent, naming `misc/emsdk_patches/apply.sh`.
+   - 1.5.5.2. Rationale worth stating in the code comment: without this, a fresh `emsdk install` silently reverts the patch and the next person rediscovers the crash from scratch — the same silent-failure shape as Task 36's version-hash mismatch, which cost several rounds precisely because nothing announced it.
+
+   **1.5.6 — Propagation beyond this machine** (the patch is worthless to anyone who does not run the script)
+   - 1.5.6.1. Wire `apply.sh --apply` into CI's web-build job after emsdk setup.
+   - 1.5.6.2. Document in `CLAUDE.md`'s Build Commands that a `threads=yes dlink_enabled=yes` web build requires it, and that **`emsdk install` overwrites the toolchain tree, so it must be re-applied after every toolchain change** — not just after an emsdk *upgrade*.
+   - 1.5.6.3. Confirm whether Emscripten caches anything derived from `src/lib/*.js`. JS libraries appear to be processed at link time each link (`cache/` holds `build`/`ports`/`sysroot`/`symbol_lists`, i.e. compiled artifacts), but `symbol_lists` in particular is **unverified** for this — check whether `apply.sh` must also invalidate it, or the patch will appear not to take effect.
+
+   **1.5.7 — `apply.sh` contract**
+   - Idempotent (re-running is a no-op, not a double-apply); `--check` exits non-zero if unapplied, for CI and the SConstruct hook; `--revert` restores cleanly; `--status` prints emsdk version, hunk hash match, applied-or-not, and the repro's current verdict. Resolves the toolchain via `EMSDK`/`which emcc` rather than hard-coding `~/emsdk`.
+
+   **1.5.8 — Verify**
+   - 1.5.8.1. Repro fails before, passes after.
+   - 1.5.8.2. A real `threads=yes dlink_enabled=yes` web export of the user's project boots — the actual goal; the repro only proves the mechanism.
+   - 1.5.8.3. **Regression**: `threads=no dlink_enabled=yes` (the shipping config) still builds and passes `local_ci.sh --quick`, because that config must not be put at risk by a patch aimed at a config we do not currently ship.
+   - 1.5.8.4. Deliberately break the pin (edit the recorded hash) and confirm `apply.sh` refuses rather than fuzzily applying.
+   - 1.5.8.5. Only *then* return to subtask 1's numbers and ask whether threading actually buys anything measurable — the patch makes threading *possible*, which is not the same as making it *worthwhile*.
+
+   **Effort**: 1.5.1 is half a day and may terminate the whole subtask. The machinery is ~1 day if 1.5.1 clears. Needs a real browser session for 1.5.3 and 1.5.8.
+
+   **Risks worth stating up front**: this fixes a bug in someone else's toolchain, which we then carry indefinitely; every emsdk bump becomes a re-verification step; and the benefit is speculative until subtask 1 shows resource loading is actually significant. Those are the reasons the decision gate at 1.5.1.2 is real and not a formality.
+
 2. Reduce actual blocking time, not just report it better
    2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
