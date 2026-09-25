@@ -4895,3 +4895,19 @@ The generic "not supported by hardware" warning still fires for every other form
 **The one real cost, stated rather than fixed**: the expansion grows `L8` **4×** and `LA8` **2×** in memory. 83 such textures at startup in this project, almost certainly font atlases (a UI-heavy scene: 37 Labels, 20 HSliders, 8 Buttons). Nothing to do about it without component swizzle — the alternative would be teaching every sampling site that a given texture is luminance, which is far worse than the memory. Worth knowing if texture memory ever becomes a concern on this target; the new message makes the count visible under verbose without implying a fault.
 
 **Verified**: native editor builds clean; `texture_storage.cpp` compiles for the web target.
+
+---
+
+#### Task 35 — the cost is per-*upload*, not per-texture
+
+Follow-up measurement corrects the earlier framing. `TextureStorage::_texture_2d_update()` calls `_validate_texture_format()` on **every** update (`texture_storage.cpp:1635`), and a font atlas is re-uploaded whenever a glyph is added to it (`text_server_adv.cpp:3810`, `tex.texture->update(img)` once `tex.dirty`). So the 83 lines are not 83 distinct textures converted once — they are a handful of atlases expanded **in full, repeatedly**.
+
+At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordinary UI text, capped at 1024) each expansion allocates and rewrites ~256 KB: roughly **21 MB of transient allocation and memcpy** across the 83, recurring whenever a glyph first rasterises.
+
+**These atlases are generated in code, not imported**, so the format is a choice rather than a property of an asset: `text_server_adv.cpp:1112` picks `FORMAT_LA8` for monochrome fonts and `FORMAT_RGBA8` for colour ones, from `color_size = p_bgra ? 4 : 2`. Producing RGBA8 directly on WebGPU removes the conversion entirely.
+
+**Most of the groundwork already exists**: the atlas clear path has a correct 4-channel branch for non-MSDF that writes `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha broadcast wanted. What assumes a 2-byte stride is the glyph blit (`wr[ofs + 0] = 255; wr[ofs + 1] = alpha;` for `FT_PIXEL_MODE_MONO`/`GRAY`).
+
+**The trade**: GPU memory is unchanged (RGBA8 either way); CPU atlas RAM doubles, 128 KB → 256 KB per atlas, a few MB at most; per-upload conversion work drops to zero; and the log noise disappears because no conversion happens.
+
+`WEBGPU_ENABLED` is a global define (`platform/web/detect.py:279`), so the text server modules can gate on it, matching the pattern `texture_storage.cpp` already uses.
