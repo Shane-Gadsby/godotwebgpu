@@ -4937,9 +4937,9 @@ Correct text on screen is the load-bearing evidence here; the absence of the `Lu
 
 ---
 
-## Tasks 29–35: shader baking, end to end — summary
+## Tasks 29–37: shader baking, end to end — summary
 
-Chased a single visible symptom (one bake warning) into five distinct defects. Final state of each:
+Chased a single visible symptom (one bake warning) into five distinct defects, then two more found while verifying them. Final state of each. **Tasks 36 and 37 are written up *below* this summary**, having been found after it was first drafted.
 
 | Task | What it was | Status |
 |---|---|---|
@@ -4951,8 +4951,11 @@ Chased a single visible symptom (one bake warning) into five distinct defects. F
 | **34** | A pathless `StandardMaterial3D` created during the first frame, reachable by no exporter walk. Fixed by baking every live version rather than trying to reach the material. | **FIXED** — `translated: 0`, confirmed cold |
 | **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterised as RGBA8 directly. | **FIXED** — text confirmed correct in browser |
 | **36** | Editor and export template built from different commits → `GODOT_VERSION_HASH` differs → every group hash differs → the whole baked cache unreachable, silently. | **FIXED** — resolved by rebuilding both at one commit; runtime now warns |
+| **37** | `RGB8 not supported by hardware` described an unconditional WebGPU expansion as a per-GPU shortfall — the same wrong wording Task 35 fixed for `LumAlpha8`, in the same function. | **FIXED** — message only, no behaviour change |
 
 **Result**: `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }` on a cold start with storage cleared. Zero runtime shader translation; whatever startup cost remains is the browser's own WGSL→pipeline compilation (Task 14), which nothing here can remove.
+
+**Confirmed again after the Task 36 rebuild**: a full verbose run shows every shader arriving via `Loading cache for shader …` — `GiShaderRD`, `SdfgiDebug*`, `VolumetricFog*`, `BokehDof`, `Copy`, `Octmap*`, `Tonemap`, `SceneForwardClustered`, `Blit` — including the pathless `<no path>` `StandardMaterial3D` (`shading_mode=0 disable_fog=1`) that Task 34 exists for. No runtime translation anywhere. The `read_storage→sampled` and `rw_storage split` WGSL dumps in that log are the driver's own rewrite passes logging at verbose, not translation work; those shaders still came from the cache.
 
 **Method notes worth carrying forward**, each of which cost real time:
 
@@ -4960,7 +4963,9 @@ Chased a single visible symptom (one bake warning) into five distinct defects. F
 2. **A partial fingerprint is worse than none.** A summary of *some* fields matched byte-for-byte on both sides while the hashes differed, which reads as proof of sameness (Task 34). When identity is the question, decompose every field the hash covers, or print the thing itself.
 3. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes targeted *where materials come from*; four changed nothing. Taking every version the engine had already built closed it immediately (Task 34).
 4. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change to it would have shipped uncompiled without `module_text_server_fb_enabled=yes` (Task 35).
-5. **Emscripten-only driver files can be compile-checked cheaply** by naming the object file as the scons target (~2 s against a warm tree) — superseding Task 28's "unverifiable without a full web build".
+5. **Emscripten-only driver files can be compile-checked cheaply** by naming the object file as the scons target (~2 s against a warm tree) — superseding Task 28's "unverifiable without a full web build". Note the object name must carry the full variant suffix: with `threads=no` it is `….wasm32.nothreads.dlink.o`, and naming the wrong variant gets a cheerful `scons: Nothing to be done` that looks like success.
+6. **A log line that misdescribes a deliberate, unconditional conversion as a hardware failure will cost someone an investigation** — it did so twice here, for `LumAlpha8` (Task 35) and then `RGB8` (Task 37), from the same function. If a driver always does something, the message must say *why it always does it*, not imply a capability that varies by device.
+7. **Build, then commit, then rebuild.** A binary built before its commit carries the *previous* commit's `GODOT_VERSION_HASH`, which is exactly how the Task 36 mismatch arose — self-inflicted, and invisible until the version banners were compared side by side.
 
 ---
 

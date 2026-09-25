@@ -167,7 +167,7 @@ This matches the Vulkan driver's structure — `rendering_device_driver_vulkan.c
 
 **Limited/degraded**: Omni shadows (DP only, no cubemap), texture readback (async 1-frame delay), storage textures (format promoted), FSR (unavailable — storage bit removed from render targets).
 
-**Not available**: Subpass-based post-processing, multiview/VR, VRS, tessellation, geometry shaders, subgroups, half-float math, texture component swizzle (emulated on CPU for L8/LA8; monochrome font atlases are rasterised straight to RGBA8 instead, so they need no conversion).
+**Not available**: Subpass-based post-processing, multiview/VR, VRS, tessellation, geometry shaders, subgroups, half-float math, texture component swizzle (emulated on CPU for L8/LA8; monochrome font atlases are rasterised straight to RGBA8 instead, so they need no conversion), 3-component texture formats (RGB8/RGBH/RGBF gain an alpha channel at load).
 
 ### 19. Will my custom shaders work?
 
