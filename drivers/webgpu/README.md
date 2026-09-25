@@ -80,6 +80,34 @@ Three tiers, checked in order:
    and it is the only route for a shader that does not exist at export time
    (`Shader.new()` + `set_code()` at runtime).
 
+Read `godotWebGPUShaderStats` in the browser devtools console to see which
+tier each shader stage actually came from:
+
+```js
+godotWebGPUShaderStats   // { baked: 412, precompiled: 3, cached: 88, translated: 0 }
+```
+
+`translated` is the one that matters — it counts stages this driver ran Tint on
+at load time. Zero means every shader arrived ready, and whatever startup cost
+remains is the browser compiling WGSL into pipelines, which baking cannot
+remove. A non-zero value with baking enabled points at a real gap; run with
+`--verbose` and the driver names each one as it happens.
+
+**Two traps worth knowing**, both of which look exactly like "baking did
+nothing":
+
+- `bin/tint_convert_cli` is a **separate native build** from the editor
+  (`drivers/webgpu/tint_cli/build.sh`), and the baker runs the copy sitting
+  next to the editor executable. A stale copy bakes stale WGSL — and a copy
+  predating WGSL `override` support bakes shaders whose specialization
+  constants are frozen, which sends every specialized pipeline back down the
+  legacy runtime-translation path. Rebuild it whenever anything under
+  `drivers/webgpu/spirv_preprocess.*`, `tint_wrapper.*` or `thirdparty/tint`
+  changes.
+- Baked containers are cached between exports. After changing anything that
+  affects WGSL output, clear `res://.godot/shader_cache` before re-exporting
+  or the old bake is served back.
+
 ### Specialization Constants
 Godot's specialization constants are always scalar (`bool`/`int`/`float`), which
 is exactly what WGSL's `override` mechanism covers, so they are normally left in
