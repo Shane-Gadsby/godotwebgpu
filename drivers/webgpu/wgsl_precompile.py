@@ -232,6 +232,132 @@ GENERAL_DEFINES_SDFGI_DEBUG = "\n#define OCT_SIZE 5\n"
 # Empty general defines for effect shaders that need no special defines.
 GENERAL_DEFINES_NONE = ""
 
+# Scene Forward Clustered (Forward+) defines, mirroring
+# RenderForwardClustered::RenderForwardClustered()'s own `defines` string
+# (render_forward_clustered.cpp) in the same order it builds it:
+#   MAX_ROUGHNESS_LOD       get_roughness_layers() - 1, and
+#                           rendering/reflections/sky_reflections/roughness_layers
+#                           defaults to 8 (rendering_server.cpp)
+#   USE_RADIANCE_OCTMAP_ARRAY  sky_use_octmap_array, from
+#                           .../texture_array_reflections, which defaults to true
+#                           (its `.mobile` override to false does not apply to a
+#                           web export -- that tag is Android/iOS)
+#   SDFGI_OCT_SIZE          SDFGI::LIGHTPROBE_OCT_SIZE == 6 (gi.h)
+#   MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS / MAX_LIGHTMAP_TEXTURES / MAX_LIGHTMAPS / MATERIAL_UNIFORM_SET
+#                           MAX_DIRECTIONAL_LIGHTS and MAX_LIGHTMAPS are both 8,
+#                           MATERIAL_UNIFORM_SET is 3 (render_forward_clustered.h)
+# USE_VERTEX_LIGHTING and SPECULAR_OCCLUSION_DISABLED are omitted: both come from
+# non-default project settings (force_vertex_shading off, specular_occlusion on).
+# A project that changes any of these produces different SPIR-V and simply misses
+# this table, exactly as it does today for every shader listed here.
+GENERAL_DEFINES_FORWARD_CLUSTERED = (
+    "\n#define MAX_ROUGHNESS_LOD 7.0\n"
+    "\n#define USE_RADIANCE_OCTMAP_ARRAY \n"
+    "\n#define SDFGI_OCT_SIZE 6\n"
+    "\n#define MAX_DIRECTIONAL_LIGHT_DATA_STRUCTS 8\n"
+    "\n#define MAX_LIGHTMAP_TEXTURES 8\n"
+    "\n#define MAX_LIGHTMAPS 8\n"
+    "\n#define MATERIAL_UNIFORM_SET 3\n"
+)
+
+# FSR2 defines, from RendererRD::FSR2Effect::FSR2Effect()'s general_defines
+# (servers/rendering/renderer_rd/effects/fsr2.cpp).
+GENERAL_DEFINES_FSR2 = (
+    "\n#define FFX_GPU\n"
+    "\n#define FFX_GLSL 1\n"
+    "\n#define FFX_FSR2_OPTION_LOW_RESOLUTION_MOTION_VECTORS 1\n"
+    "\n#define FFX_FSR2_OPTION_HDR_COLOR_INPUT 1\n"
+    "\n#define FFX_FSR2_OPTION_INVERTED_DEPTH 1\n"
+    "\n#define FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_CLAMP 1\n"
+    "\n#define FFX_FSR2_OPTION_GODOT_DERIVE_INVALID_MOTION_VECTORS 1\n"
+)
+
+# Texture blit defines (texture_storage.cpp's _tex_blit_shader_initialize()).
+GENERAL_DEFINES_TEX_BLIT = "\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n#define MAX_GLOBAL_SHADER_UNIFORMS 256\n"
+
+# FSR2 declares two independent capability axes, and this script always
+# precompiles for the WebGPU driver, where both are false:
+#   RD::SUPPORTS_HALF_FLOAT        -> no FFX_HALF variant is ever declared.
+#     Its 16-bit integer types cannot be expressed in WGSL at all (WGSL has
+#     f16 but no integer narrower than 32 bits), so Tint aborts on them --
+#     see webgpu_notes/TASKS.md Task 26.
+#   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS variant is the
+#     one declared, for the two passes that have the axis at all. WGSL has no
+#     texture atomics, so the image-atomics variant cannot be translated either.
+# Only the variants the WebGPU renderer actually declares are listed below.
+FSR2_NO_IMAGE_ATOMICS = "\n#define NO_IMAGE_ATOMICS 1\n"
+
+# Optional 4th element of a registry entry. False means "compile and convert
+# this shader on every build, so a Tint regression in it still fails the build,
+# but keep its WGSL out of the generated table".
+#
+# Worth it for exactly one shader today: scene_forward_clustered.glsl's variants
+# come to ~3.7 MB of WGSL, two thirds of everything this script would otherwise
+# embed, and the table is compiled into the web template, so every export pays
+# that download whether it needs it or not. Export-time shader baking (on by
+# default for Web presets) already covers this shader with precisely the
+# variants a given project uses, and ships them in the .pck instead. Embedding
+# a second copy for every project to serve the deliberately-unbaked case is the
+# wrong trade -- but silently not testing the Forward+ renderer's main shader,
+# which is what happened before it was listed here at all, is worse. Flip this
+# to EMBED_ALWAYS to pay the size and get the table entry.
+EMBED_NONE = False
+EMBED_ALWAYS = True
+
+
+def _forward_clustered_variants():
+    """Mirror SceneShaderForwardClustered::init()'s own variant enumeration
+    (scene_shader_forward_clustered.cpp), minus the multiview groups.
+
+    The engine builds 2 x 9 depth variants plus 32 colour-pass flag
+    combinations. The multiview ones (SHADER_GROUP_MULTIVIEW /
+    SHADER_GROUP_ADVANCED_MULTIVIEW) are skipped here: they are only compiled
+    once a group is enabled for XR, and USE_MULTIVIEW is not wired up on this
+    driver. NO_IMAGE_ATOMICS and NEEDS_DUMMY_COLOR_ATTACHMENT are baked in for
+    the SDF variant because both of the capabilities they gate on
+    (SUPPORTS_IMAGE_ATOMIC_32_BIT, SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS)
+    are false on WebGPU.
+    """
+    variants = []
+    depth_modes = [
+        ("depth", "\n#define MODE_RENDER_DEPTH\n"),
+        ("depth_dp", "\n#define MODE_RENDER_DEPTH\n#define MODE_DUAL_PARABOLOID\n"),
+        ("depth_nr", "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n"),
+        (
+            "depth_nr_vgi",
+            "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n",
+        ),
+        ("depth_material", "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n"),
+        (
+            "depth_sdf",
+            "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n"
+            "\n#define NO_IMAGE_ATOMICS\n\n#define NEEDS_DUMMY_COLOR_ATTACHMENT\n",
+        ),
+    ]
+    for ubershader in (0, 1):
+        base = "\n#define UBERSHADER\n" if ubershader else ""
+        prefix = "uber_" if ubershader else ""
+        for name, define in depth_modes:
+            variants.append((prefix + name, base + define, [VERT, FRAG]))
+
+    # Colour pass: the same bitmask walk the engine does, skipping any
+    # combination that includes SHADER_COLOR_PASS_FLAG_MULTIVIEW (1 << 3).
+    colour_flags = [
+        ("uber", "\n#define UBERSHADER\n"),  # 1 << 0
+        ("sepspec", "\n#define MODE_SEPARATE_SPECULAR\n"),  # 1 << 1
+        ("lightmap", "\n#define USE_LIGHTMAP\n"),  # 1 << 2
+        ("multiview", "\n#define USE_MULTIVIEW\n"),  # 1 << 3
+        ("motion", "\n#define MOTION_VECTORS\n"),  # 1 << 4
+    ]
+    for i in range(1 << len(colour_flags)):
+        if i & (1 << 3):
+            continue
+        names = [colour_flags[j][0] for j in range(len(colour_flags)) if i & (1 << j)]
+        define = "".join(colour_flags[j][1] for j in range(len(colour_flags)) if i & (1 << j))
+        variants.append(("color_" + ("_".join(names) if names else "base"), define, [VERT, FRAG]))
+    return variants
+
+
 # Stage type constants matching glslangValidator -S flags.
 VERT = "vert"
 FRAG = "frag"
@@ -343,8 +469,12 @@ SHADER_REGISTRY = [
     ("servers/rendering/renderer_rd/shaders/effects/cube_to_dp.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
 
+    # Raster, not compute: CopyEffects sets this up with
+    # pipeline.setup(shader, RD::RENDER_PRIMITIVE_TRIANGLES, ...)
+    # (copy_effects.cpp). It was listed as COMP, which the file has no stage
+    # for, so it silently never precompiled at all.
     ("servers/rendering/renderer_rd/shaders/effects/cube_to_octmap.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+     GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
 
     # ── Tone Mapper ─────────────────────────────────────────────────
     # No "subpass"/"subpass_1d_lut" variants: tone_mapper.cpp disables
@@ -562,8 +692,12 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
 
     # ── Cluster ─────────────────────────────────────────────────────
+    # Compute, not raster: ClusterBuilderRD builds it with
+    # compute_pipeline_create() (cluster_builder_rd.cpp). It was listed as
+    # VERT+FRAG, which the file has no stages for, so it silently never
+    # precompiled at all.
     ("servers/rendering/renderer_rd/shaders/cluster_debug.glsl",
-     GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
+     GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/cluster_render.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
     ("servers/rendering/renderer_rd/shaders/cluster_store.glsl",
@@ -623,6 +757,59 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_SDFGI_INTEGRATE, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_preprocess.glsl",
      GENERAL_DEFINES_SDFGI_PREPROCESS, [("default", "", [COMP])]),
+
+    # ── Scene Forward Clustered (Forward+) ──────────────────────────
+    # The Forward+ scene ubershader, i.e. the largest and most-used shader in a
+    # Forward+ project. See _forward_clustered_variants() for which of the
+    # engine's variants are enumerated and why the multiview ones are not.
+    ("servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl",
+     GENERAL_DEFINES_FORWARD_CLUSTERED, _forward_clustered_variants(), EMBED_NONE),
+
+    # ── Forward Clustered LUT generators ────────────────────────────
+    # Both are one-mode compute shaders run once at renderer startup
+    # (RenderForwardClustered's constructor: best_fit_normal.shader.initialize()
+    # and dfg_lut.shader.initialize(), each with a single "\n" mode).
+    ("servers/rendering/renderer_rd/shaders/forward_clustered/best_fit_normal.glsl",
+     GENERAL_DEFINES_NONE, [("default", "\n", [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/forward_clustered/integrate_dfg.glsl",
+     GENERAL_DEFINES_NONE, [("default", "\n", [COMP])]),
+
+    # ── Texture blit ────────────────────────────────────────────────
+    # Four variants, one per output count (texture_storage.cpp's
+    # _tex_blit_shader_initialize()).
+    ("servers/rendering/renderer_rd/shaders/tex_blit.glsl",
+     GENERAL_DEFINES_TEX_BLIT, [
+        ("out1", "", [VERT, FRAG]),
+        ("out2", "\n#define USE_OUTPUT1\n", [VERT, FRAG]),
+        ("out3", "\n#define USE_OUTPUT1\n#define USE_OUTPUT2\n", [VERT, FRAG]),
+        ("out4", "\n#define USE_OUTPUT1\n#define USE_OUTPUT2\n#define USE_OUTPUT3\n", [VERT, FRAG]),
+     ]),
+
+    # ── FSR2 ────────────────────────────────────────────────────────
+    # One entry per pass, carrying only the variants the WebGPU renderer
+    # declares -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
+    # axes and why the others cannot be translated at all.
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_depth_clip_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_reconstruct_previous_depth_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_lock_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+    # The only FSR2 pass with a second non-capability mode: accumulate declares
+    # a sharpening variant alongside the plain one.
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_accumulate_pass.glsl",
+     GENERAL_DEFINES_FSR2, [
+        ("default", "\n", [COMP]),
+        ("sharpening", "\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n", [COMP]),
+     ]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_rcas_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_autogen_reactive_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+    ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_tcr_autogen_pass.glsl",
+     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
 ]
 # fmt: on
 
@@ -811,10 +998,16 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     # Collect all SPIR-V files for batch Tint conversion.
     spv_batch = []  # (key, spv_path)
     spv_data = {}  # key → spv_bytes
+    validate_only_keys = set()  # keys converted for validation but not embedded
 
     print(f"[WGSL Precompile] Processing {len(SHADER_REGISTRY)} shader files...")
 
-    for glsl_rel, general_defines, variants in SHADER_REGISTRY:
+    for entry in SHADER_REGISTRY:
+        # A 4th element, when present, is `embed`: False means "compile and
+        # convert this, so a Tint regression in it still fails the build, but
+        # keep its WGSL out of the generated table". See EMBED_NONE.
+        glsl_rel, general_defines, variants = entry[0], entry[1], entry[2]
+        embed = entry[3] if len(entry) > 3 else True
         glsl_path = os.path.join(repo_root, glsl_rel)
         if not os.path.exists(glsl_path):
             print(f"  SKIP: {glsl_rel} (file not found)")
@@ -855,6 +1048,8 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
                     f.write(spv_bytes)
                 spv_batch.append((key, spv_path))
                 spv_data[key] = spv_bytes
+                if not embed:
+                    validate_only_keys.add(key)
 
     # Batch convert all SPIR-V to WGSL.
     if spv_batch:
@@ -866,10 +1061,11 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
             if wgsl is None:
                 failed_convert += 1
             else:
-                spv_hash = compute_spv_hash(spv_data[key])
-                # Avoid duplicate hashes (same SPIR-V from different variants).
-                if not any(h == spv_hash for h, _ in entries):
-                    entries.append((spv_hash, wgsl))
+                if key not in validate_only_keys:
+                    spv_hash = compute_spv_hash(spv_data[key])
+                    # Avoid duplicate hashes (same SPIR-V from different variants).
+                    if not any(h == spv_hash for h, _ in entries):
+                        entries.append((spv_hash, wgsl))
                 compiled += 1
 
             # Debug: optionally dump SPIR-V for keys matching WGSL_DEBUG_DUMP substring.
@@ -895,6 +1091,11 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
         f"[WGSL Precompile] Results: {compiled} compiled, {failed_compile} glsl failures, {failed_convert} tint failures"
     )
     print(f"[WGSL Precompile] Unique entries: {len(entries)} (from {total} total modules)")
+    if validate_only_keys:
+        print(
+            f"[WGSL Precompile] Validated but not embedded: {len(validate_only_keys)} module(s) "
+            "(see EMBED_NONE in this file)"
+        )
     print(f"[WGSL Precompile] Output: {output_path}")
 
     return len(entries)

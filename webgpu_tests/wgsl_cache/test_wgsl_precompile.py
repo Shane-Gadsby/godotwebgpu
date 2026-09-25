@@ -307,14 +307,26 @@ print("\n=== Test 6: Shader registry validation ===")
 
 assert_true(len(wgsl_precompile.SHADER_REGISTRY) > 0, "Shader registry is non-empty")
 
+# An entry is (path, defines, variants) with an optional 4th `embed` flag, so
+# unpack positionally rather than by arity.
+registry = [(e[0], e[1], e[2], e[3] if len(e) > 3 else True) for e in wgsl_precompile.SHADER_REGISTRY]
+
+for entry in wgsl_precompile.SHADER_REGISTRY:
+    assert_true(
+        len(entry) in (3, 4),
+        f"Registry entry has 3 or 4 elements: {entry[0]}",
+    )
+    if len(entry) > 3:
+        assert_true(isinstance(entry[3], bool), f"`embed` flag is a bool: {entry[0]}")
+
 # Check that all registry paths are relative to repo root.
-for glsl_rel, general_defines, variants in wgsl_precompile.SHADER_REGISTRY:
+for glsl_rel, general_defines, variants, embed in registry:
     assert_true(not os.path.isabs(glsl_rel), f"Path is relative: {glsl_rel}")
 
 # Check that all registry entries exist on disk.
 missing_count = 0
 found_count = 0
-for glsl_rel, _, _ in wgsl_precompile.SHADER_REGISTRY:
+for glsl_rel, _, _, _ in registry:
     full_path = os.path.join(REPO_ROOT, glsl_rel)
     if os.path.exists(full_path):
         found_count += 1
@@ -326,7 +338,7 @@ if missing_count > 0:
     print(f"    NOTE: {missing_count} registry files not found (may be expected for partial checkout)")
 
 # Check variant structure.
-for glsl_rel, general_defines, variants in wgsl_precompile.SHADER_REGISTRY:
+for glsl_rel, general_defines, variants, embed in registry:
     for variant_name, variant_defines, stage_types in variants:
         for st in stage_types:
             assert_true(
