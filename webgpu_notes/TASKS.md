@@ -4457,7 +4457,7 @@ Per the handoff's warning, this is **deliberately specific to ViewIndex** and th
 ---
 
 ### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[FIX LANDED, AWAITING REBUILD]`
-**Status**: `IN PROGRESS` — split landed and **read back on a real build: `specialized: 0`, so all 37 are genuine bake gaps.** Now instrumented to name them; needs one more rebuild to identify which shaders.
+**Status**: `CLOSED` — instrumentation did its job; the shaders were named and root-caused. The underlying defect is Task 31.
 **Severity**: MEDIUM as a diagnostic bug (it makes a healthy build look broken, and sends the reader hunting a baking failure that isn't there). Unknown severity for whatever real gap it may be hiding — that is what the rebuild answers.
 
 **What the user reported** (build `d17857e49`, bake confirmed warning-free after Task 29):
@@ -4516,3 +4516,45 @@ It is read from the console rather than only logged because a web export has no 
 ```
 
 **Next step**: rebuild, then read `godotWebGPUShaderStats.translatedShaders`. That list names the shaders the export bake is not covering, and is the input to fixing it. Leading hypotheses to test against the names once known: shaders the `ShaderBakerExportPlugin` never enumerates (created outside the export-time shader-version walk), and shaders belonging to effects the editor's Vulkan RenderingDevice declares differently from the WebGPU runtime's own variant selection. Note `precompiled: 1` is also suspiciously low — the build-time `wgsl_precompiled.gen.h` table is nearly unused because export-time baking supersedes it, which is expected, but it means the table is not a safety net for these 37 either.
+
+---
+
+### Task 31: the shader baker compiles with the **editor's** device capabilities, not the **target's** — root cause of all 37 runtime translations `[ROOT-CAUSED, FIX NOT STARTED]`
+**Status**: `ROOT-CAUSED` — cause proven by code reading on both sides; no fix attempted, because the reasonable fixes differ a lot in invasiveness and the choice is the user's.
+**Severity**: **HIGH for startup cost.** These 37 stages miss the baked cache entirely — not just the WGSL. A miss means the runtime does the *whole* pipeline on the main thread while the player waits: GLSL → glslang → SPIR-V → 12 preprocessing passes → Tint → WGSL. This is a prime suspect for the startup stall Task 14 has been chasing from the browser side.
+
+**The names** (`godotWebGPUShaderStats.translatedShaders`, 29 distinct, 37 stages — compute shaders are 1 stage, vertex+fragment are 2, and the arithmetic checks out: 21 compute × 1 + 8 clustered variants × 2 = 37):
+| Shader | Variants | Stages |
+|---|---|---|
+| `SdfgiPreprocessShaderRD` | 0–8 (all nine) | 9 |
+| `SdfgiDirectLightShaderRD` | 0–1 | 2 |
+| `SdfgiIntegrateShaderRD` | 0–3 | 4 |
+| `VolumetricFogShaderRD` | 1 | 1 |
+| `VolumetricFogProcessShaderRD` | 5–9 | 5 |
+| `SceneForwardClusteredShaderRD` | 0, 1, 2, 9, 10, 11, 18, 19 (×2 each) | 16 |
+
+**Root cause.** Every one of these shaders computes its GLSL `defines` string from `RD::get_singleton()->has_feature(...)` — that is, from **the capabilities of the device the process is currently running on**:
+
+| Site | Feature queried | Define |
+|---|---|---|
+| `gi.cpp:3644` | `SUPPORTS_SHAREABLE_TEXTURE_FORMATS` | `SDFGI_NATIVE_STORAGE_FORMAT` |
+| `fog.cpp:53,64,71` | `SUPPORTS_IMAGE_ATOMIC_32_BIT`, `SUPPORTS_VULKAN_MEMORY_MODEL` | atomics/memory-model paths |
+| `scene_shader_forward_clustered.cpp:672` | `SUPPORTS_IMAGE_ATOMIC_32_BIT` | `NO_IMAGE_ATOMICS` |
+| `scene_shader_forward_clustered.cpp:688` | `SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS` | `NEEDS_DUMMY_COLOR_ATTACHMENT` |
+| `scene_shader_forward_clustered.cpp:655` | `SUPPORTS_POINT_SIZE` | `emulate_point_size` |
+
+The shader baker runs **inside the editor**, whose `RenderingDevice` is **Vulkan**. Confirmed values (`rendering_device_driver_vulkan.cpp:7391-7409` vs `rendering_device_driver_webgpu.cpp:11704-11745`): Vulkan returns `true` for all five; WebGPU returns `false` for all five. So the baker compiles each of these shaders **with the opposite defines from the ones the game will ask for**. Different defines → different GLSL → different SPIR-V → a different `ShaderRD` cache key, so at runtime it is a total miss and everything is rebuilt from source.
+
+This also means a share of the 339 `baked` stages is **wasted work**: SDFGI/fog/clustered entries baked in a Vulkan configuration that the WebGPU runtime can never ask for. (Not separately measured — would need a diff of the baked cache against the runtime's requests.)
+
+**Why the bake was still warning-free.** A bake warning means a stage was *skipped*. These stages were baked happily — just in the wrong configuration — and then not *found* at runtime. Different failures; only the first warns. This is why Task 29's clean bake and Task 30's 37 misses were never in contradiction.
+
+**Note this is an upstream-shaped bug that this fork hits much harder.** The `has_feature`-conditional define pattern is upstream Godot's (`fog.cpp`'s atomics predate this fork), so upstream has the same hazard whenever the editor's device disagrees with the export target's — e.g. baking a Metal or D3D12 export from a Vulkan editor. It bites this fork far harder because **five** capabilities disagree at once, several of them added by this fork's own Task 9.5 rounds precisely to make WebGPU work at runtime. Fixing runtime correctness quietly broke bake coverage, and nothing connected the two.
+
+**Fix options, none attempted** — they differ materially, so this is a decision, not a detail:
+- **A. Make the baker device-aware.** During the bake, have capability queries answer for the *target* driver rather than the editor's. Correct in principle and fixes the whole class at once (including upstream's cross-platform case), but these define strings are computed once at engine startup inside `GI::init()`/fog/scene-shader construction, long before an export begins, so it means re-initializing those shaders under a substituted capability source. Most invasive, widest blast radius, touches shared engine code.
+- **B. Compile both configurations.** Promote the capability-dependent defines to real `ShaderRD` variants/groups so both the feature-present and feature-absent forms are baked, and the runtime picks. Fits the existing variant machinery and keeps the baker device-agnostic, but grows the baked set for affected shaders and means touching each site.
+- **C. Target-specific define override in the WebGPU baker plugin.** Have `shader_baker_export_plugin_platform_webgpu.cpp` force the five WebGPU values for the duration of the bake. Narrowest and most surgical, but it is a second place where these capability→define rules live, so it can drift from the engine-side source of truth.
+- **D. Accept and document.** Leave the 37 translating at load. Cheapest, but keeps a real and probably significant startup cost, and the number will grow with every future `has_feature`-conditional define.
+
+**A cheap partial win, independent of the choice above**: `wgsl_precompile.py`'s `GENERAL_DEFINES_SDFGI_*` already include `SDFGI_NATIVE_STORAGE_FORMAT`, i.e. the build-time table is already generated in the *WebGPU* configuration. It reported only `precompiled: 1`, so its entries are not matching — worth checking whether the rest of its define string (e.g. `OCCLUSION_SIZE`) lines up with what `gi.cpp` actually emits. If it can be made to match, the build-time table would catch the SDFGI stages at the SPIR-V→WGSL step even while the GLSL→SPIR-V step stays unbaked.
