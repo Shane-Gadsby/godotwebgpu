@@ -54,6 +54,9 @@ public:
 	};
 
 	typedef Pair<ShaderRD *, RID> ShaderVersionPair;
+	// Declared here rather than beside its accessors because the private member
+	// list below refers to it.
+	typedef void (*GeneralDefinesRefreshCallback)();
 	typedef HashSet<ShaderVersionPair> ShaderVersionPairSet;
 
 private:
@@ -150,6 +153,7 @@ private:
 
 	static String shader_cache_user_dir;
 	static String shader_cache_res_dir;
+	static LocalVector<GeneralDefinesRefreshCallback> general_defines_refresh_callbacks;
 	static bool shader_cache_cleanup_on_start;
 	static bool shader_cache_save_compressed;
 	static bool shader_cache_save_compressed_zstd;
@@ -247,6 +251,35 @@ public:
 	const String &get_name() const;
 
 	const Vector<uint64_t> &get_dynamic_buffers() const;
+
+	// Rebuilds general_defines from the current device capabilities and refreshes
+	// the cache hashes derived from it. Only meaningful while a shader-bake
+	// capability override is installed (see
+	// RenderingDevice::shader_bake_feature_override_set()); outside that it
+	// recomputes exactly what is already there.
+	//
+	// Safe to call on a live shader: it touches only the strings the *source
+	// builder* and the *cache key* read, never an already-compiled Version, so
+	// the editor keeps rendering with the shaders it already has while the baker
+	// builds target-flavoured sources from the same objects. That works because
+	// the baker does not reuse compiled versions -- it calls
+	// version_build_variant_stage_sources() and compiles them itself.
+	void set_general_defines(const String &p_general_defines);
+	String get_general_defines() const;
+
+	// Same idea as set_general_defines(), for a single variant whose own define
+	// text depends on device capabilities (scene_forward_clustered's SDF variant
+	// picks NO_IMAGE_ATOMICS / NEEDS_DUMMY_COLOR_ATTACHMENT that way). The group
+	// hash covers variant define texts too, so this refreshes it as well.
+	void set_variant_define_text(int p_variant, const String &p_text);
+
+	// Subsystems whose general_defines depend on device capabilities register a
+	// callback here, so the baker can ask every one of them to recompute without
+	// knowing they exist. Keeping each formula next to the shader it belongs to
+	// is the point: the alternative (a table of capability -> define in the
+	// exporter) is a second source of truth that silently drifts.
+	static void add_general_defines_refresh_callback(GeneralDefinesRefreshCallback p_callback);
+	static void refresh_all_general_defines();
 
 	static void shaders_embedded_set_lock();
 	static const ShaderVersionPairSet &shaders_embedded_set_get();
