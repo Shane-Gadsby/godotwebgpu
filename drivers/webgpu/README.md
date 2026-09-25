@@ -84,8 +84,17 @@ Read `godotWebGPUShaderStats` in the browser devtools console to see which
 tier each shader stage actually came from:
 
 ```js
-godotWebGPUShaderStats   // { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37 }
+godotWebGPUShaderStats
+// { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37,
+//   translatedShaders: [] }
 ```
+
+`translatedShaders` names the shaders behind `translated`, one entry per distinct
+shader with an occurrence count (`"scene_forward_clustered x4"`), capped at 128
+distinct names. A count tells you a gap exists; this tells you which shader, which
+is what lets you fix it. The `--verbose` log carries the same thing, but a web
+export has no convenient way to pass `--verbose`, so it is readable straight from
+the console.
 
 `translated` is the one that matters — it counts stages this driver ran Tint on
 at load time *that baking should have covered*. Zero means every shader arrived
