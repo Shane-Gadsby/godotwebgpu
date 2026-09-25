@@ -4453,3 +4453,40 @@ Per the handoff's warning, this is **deliberately specific to ViewIndex** and th
 **Confirmed by the user on a real build** (2026-09-25, commit `d17857e497`): the bake is now **warning-free**. The `WebGPU shader baker: leaving one shader stage unbaked` warning is gone — down from 18 before Task 26, to 1 after it, to 0 now. Task 29 is closed.
 
 **Still outstanding** (needs the user — carried over from Task 25, the only thread left from the Task 25–29 run): read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap. Note this is a *separate* question from the bake warning — a clean bake means nothing was skipped at export time, not that nothing is being translated at load time.
+
+---
+
+### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[FIX LANDED, AWAITING REBUILD]`
+**Status**: `FIX LANDED` — instrumentation split and compiled for the web target; needs one rebuild to read the new numbers.
+**Severity**: MEDIUM as a diagnostic bug (it makes a healthy build look broken, and sends the reader hunting a baking failure that isn't there). Unknown severity for whatever real gap it may be hiding — that is what the rebuild answers.
+
+**What the user reported** (build `d17857e49`, bake confirmed warning-free after Task 29):
+```js
+godotWebGPUShaderStats
+// { baked: 339, precompiled: 1, cached: 17, translated: 37 }
+```
+Per Task 25's framing, `translated: 37` reads as "37 stages the bake failed to cover" — a real gap. That framing was wrong.
+
+**What `translated` was actually counting.** `_spv_to_wgsl_cache_misses` was incremented from **two** call sites with completely different meanings, and only one is a bake gap:
+1. `shader_create_from_container()` (~L4879) — the container carried no baked WGSL for this stage. **A genuine gap.**
+2. `_create_module_with_spec_constants()` (~L10004) — the SPIR-V had specialization values patched into it by `webgpu::patch_spirv_spec_constants()`. **Not a gap, and not fixable by baking**: those bytes are constructed at pipeline-creation time from values the exporter never saw, so no export-time bake could have produced them even in principle. This is the legacy path taken only when `spirv_preprocess::spec_constants_overridable()` rejects a shader (non-scalar constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array sizes/composites/workgroup sizes). The only lever on it is widening what `spec_constants_overridable()` accepts.
+
+Given the project is Forward+ with 339 stages baked and zero bake warnings, source 2 is the likely bulk of the 37 — but the counter cannot distinguish them, so that stays a hypothesis until the rebuild.
+
+**Fix** (`drivers/webgpu/rendering_device_driver_webgpu.cpp`): added `_spv_to_wgsl_spec_reconvert_hits`, published as a fifth field `specialized`. `_spv_to_wgsl_cached()` takes `p_spec_reconvert` to pick the counter, and `p_debug_name` so the container path can name the owning shader (`shader->name`, already set at ~L4700) instead of only counting it. The two `print_verbose` lines are worded differently on purpose — the spec one says outright that it is expected and not a baking gap, so the next reader doesn't repeat this investigation. Both counters count *actual Tint invocations*, so a spec re-conversion served from the in-memory cache still lands in `cached`, consistently with `translated`.
+
+`drivers/webgpu/README.md` updated to document `specialized`, including the key line: **a high `specialized` with `translated: 0` is a working, fully-baked build.**
+
+**Verification**: `misc/scripts/em_asm_check.py` clean across the driver (the `EM_ASM` body gained a field, which is exactly the hazard that check exists for).
+
+**Compiled for the real target.** `rendering_device_driver_webgpu.cpp` built clean under Emscripten — which Task 28's standing lesson said could not be checked short of a full web build. It can, and cheaply:
+```bash
+source ~/emsdk/emsdk_env.sh
+scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no \
+      bin/obj/drivers/webgpu/rendering_device_driver_webgpu.web.template_debug.wasm32.nothreads.dlink.o
+```
+Naming the **object file** as the scons target compiles that one translation unit and nothing else: **1.7 s** against a warm `bin/obj/` tree, versus a full link. This supersedes Task 28's "any edit to these files is unverified until a real `platform=web` build runs" — the compile half is now cheap and should be run on every edit to the Emscripten-only driver files. Only link- and run-time behaviour still needs the full build.
+
+**Next step**: user rebuilds and re-reads `godotWebGPUShaderStats`, now five fields.
+- `translated: 0` with a large `specialized` → baking is complete; the remaining lever is `spec_constants_overridable()` coverage, and any residual stall is Task 14's browser-side pipeline compilation.
+- `translated` still non-zero → a real gap, and `--verbose` now prints the **name** of each shader that takes it, which is what was missing to chase it.
