@@ -98,6 +98,15 @@ Three tiers, checked in order:
    and it is the only route for a shader that does not exist at export time
    (`Shader.new()` + `set_code()` at runtime).
 
+> **The editor and the export template must be built from the same commit.**
+> Shader cache hashes fold in `GODOT_VERSION_HASH` (`ShaderRD::setup()`), so if
+> the editor that exports and the template that runs come from different commits,
+> *every* hash differs and not one baked shader can be found — `baked: 0`, and
+> everything recompiles from GLSL on the main thread. It is silent and looks
+> exactly like a baking bug. Note that building *before* committing bakes the
+> pre-commit hash into the binary. Since Task 36 the runtime warns once when a
+> shipped cache is present but nothing matches.
+
 Read `godotWebGPUShaderStats` in the browser devtools console to see which
 tier each shader stage actually came from:
 
