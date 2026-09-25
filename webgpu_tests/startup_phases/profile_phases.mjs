@@ -139,6 +139,9 @@ async function main() {
 			computePipelines: P.computePipelines, gpuWrites: P.gpuWrites, gpuCreates: P.gpuCreates,
 			frames: P.frames,
 			shaderStats: window.godotWebGPUShaderStats || null,
+			// Phase marks pushed from C++ inside callMain() -- present only when the
+			// export is run with --benchmark (see OS_Web::benchmark_end_measure).
+			engineMarks: window.godotStartupMarks || null,
 			nav: performance.getEntriesByType('navigation').map((e) => ({ name: e.name, responseEnd: e.responseEnd, domContentLoaded: e.domContentLoadedEventEnd })),
 			resources: performance.getEntriesByType('resource')
 				.filter((e) => /\.(wasm|pck)$/.test(e.name))
@@ -214,6 +217,22 @@ function report(d) {
 	const unaccounted = cmWindow === null ? null : cmWindow - accountedTotal;
 	line('NOT in a WebGPU call', unaccounted,
 		cmWindow ? `${((unaccounted / cmWindow) * 100).toFixed(1)}% -- CPU: resource decode, scene parse, GDScript, engine init` : '');
+
+	// --- Engine-reported phases from inside callMain -------------------------
+	if (d.engineMarks && d.engineMarks.length) {
+		console.log('\n--- Engine phases reported from inside callMain() (--benchmark) ---');
+		console.log('    (nested phases overlap their parent; "Startup:*" are the top level)');
+		for (const k of d.engineMarks.slice().sort((a, b) => a.startMs - b.startMs)) {
+			line(k.name, k.durationMs, `${k.startMs.toFixed(0)} -> ${k.endMs.toFixed(0)} ms${cmStart !== undefined ? `  (callMain+${(k.startMs - cmStart).toFixed(0)})` : ''}`);
+		}
+		// What the top-level phases do not account for: time inside callMain that no
+		// Startup:* bracket covers, which is where a gap in main.cpp's own
+		// instrumentation would hide.
+		const top = d.engineMarks.filter((k) => k.name.startsWith('Startup:') && k.name !== 'Startup:Main::Setup2' && k.name !== 'Startup:Main::Setup');
+		const topTotal = sum(d.engineMarks.filter((k) => ['Startup:Main::Setup', 'Startup:Main::Setup2', 'Startup:Main::Start'].includes(k.name)).map((k) => k.durationMs));
+		line('Setup + Setup2 + Start', topTotal, cmWindow ? `${((topTotal / cmWindow) * 100).toFixed(1)}% of the stall; the rest is after Main::start() returns` : '');
+		void top;
+	}
 
 	// --- Independent confirmation from the rAF gap ---------------------------
 	console.log('\n--- Longest main-thread block (rAF gap, independent of engine events) ---');

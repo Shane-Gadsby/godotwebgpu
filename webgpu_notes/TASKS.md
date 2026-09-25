@@ -3932,7 +3932,7 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    1.2. Run this against both a small and a large (`cameraSim_*`-scale, per the user's real test project) export to see which phases scale with project size vs. stay roughly constant — this determines which phases are worth surfacing in the progress bar at all versus just genuinely fixed overhead.
    1.3. Identify the single largest contributor with the user's real project (this task's premise — "less blocking" — implies there's a known-bad case; confirm what it actually is before designing around a guess).
 
-   **RESULTS (2026-09-26) — subtask 1 measured; `webgpu_tests/startup_phases/`** `[DONE for 1.1 and 1.3; 1.2 outstanding]`
+   **RESULTS (2026-09-26) — subtask 1 measured; `webgpu_tests/startup_phases/`** `[DONE]`
 
    Tooling: `webgpu_tests/startup_phases/profile_phases.mjs` + `instrument.js` (see that
    directory's README). All instrumentation is monkey-patched into the page via
@@ -4012,16 +4012,51 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    Note the export must be produced **without** `--headless` or the shader baker never runs
    (a headless export of this project silently produced a 15 MB unbaked pck instead of 135 MB).
 
-   **What is left in subtask 1**
-   - The **1150 ms of engine CPU** is now the largest single term and is completely opaque from
-     outside `callMain()`. Breaking it down needs marks emitted from C++ — candidate boundaries:
-     `main()` entry, servers init, rendering-server init, main-scene load start/end, first frame.
-     That is the one piece here that requires a web template rebuild. Its ±1% stability across
-     runs says it is deterministic engine work, not GPU or I/O contention.
-   - **1.2 (small vs large export scaling)** is not done. The 1150 ms should be re-measured
-     against a small export to separate fixed engine-init cost from project-size-dependent
-     resource loading — which is also what decides whether subtask 1.5's threading branch has
-     anything to win.
+   **RESULTS for the in-`callMain()` breakdown (2026-09-26)** `[DONE — subtask 1 is complete]`
+
+   `main.cpp` already brackets every startup phase with
+   `OS::benchmark_begin_measure`/`benchmark_end_measure`, but `OS`'s implementations of both are
+   `#ifdef TOOLS_ENABLED`, so in an export template they compile to nothing — which is the one
+   build where it matters. `OS_Web` now overrides them (`platform/web/os_web.cpp`) and pushes each
+   completed phase onto `window.godotStartupMarks`, timestamped with `performance.now()` on the JS
+   side so it lands on the same clock as everything the page measures, with no epoch to reconcile.
+   Recording is gated on `--benchmark`, and measured cost when it is off is nil (5477 vs 5471 ms
+   on the same export). No shared-engine-code change was needed: `--benchmark`'s CLI parsing and
+   `set_use_benchmark()` are already outside the `TOOLS_ENABLED` guards. `profile_phases.mjs`
+   collects and prints the marks, and passes the flag with `--args --benchmark`.
+
+   | phase inside `callMain()` | minimal control | user's project | nature |
+   |---|---|---|---|
+   | `Main::Setup` (core init) | 60 ms | 60 ms | fixed |
+   | **`Servers:Rendering`** | **509 ms** | **513 ms** | **fixed** |
+   | `Servers:*` others (audio 29, extensions 29, display 5) | ~70 ms | ~67 ms | fixed |
+   | `Startup:Scene` (`Register Types` 72, `Modules and Extensions` 38) | 111 ms | 110 ms | fixed |
+   | `Startup:Finalize Setup` | 10 ms | 10 ms | fixed |
+   | `Startup:Main::Start` / of which `Load Game` | 16 / 8 ms | **328 / 325 ms** | project |
+   | **after `Main::start()` returns** — main-loop init + first frame | 57 ms | **835 ms** | project |
+   | total stall | 833 ms | 1925 ms | |
+
+   `Startup:Main::Setup2` measures 699 ms and 702 ms in the two projects — a 3 ms spread on a
+   completely different project, which is as direct a confirmation of the fixed floor as this can
+   produce. **The three terms worth attacking, in order:**
+
+   1. **The first frame, ~835 ms** — everything after `Main::start()` returns, and where the
+      single blocking `queue.writeTexture` (761 ms in this run) lives. The largest term, and the
+      one nothing currently accounts for.
+   2. **`Servers:Rendering`, ~510 ms, and entirely fixed** — every project pays it, including an
+      empty scene. `createShaderModule` for all 363 modules is 22 ms of it and pipeline creation
+      is 0 ms, so ~490 ms is CPU spent getting 344 baked shader containers out of the pck and
+      through the driver, not talking to WebGPU. This is the best target for a fix that helps
+      *every* project rather than one.
+   3. **`Load Game`, ~325 ms** — the main scene, i.e. genuine resource loading.
+
+   **A trap that cost real time here, worth stating plainly**: rebuilding the web template alone
+   makes every shipped bake miss, because the bake is keyed to the engine version hash. The
+   symptom is `{baked: 0, translated: 169}` and a ~5× slower load (833 ms → 4132 ms on the minimal
+   project), which looks exactly like a performance regression in whatever was just changed. **The
+   editor and the web template must be rebuilt from the same commit**, since the editor bakes and
+   the template consumes. Task 36's warning fired and named the cause correctly, which is what
+   made this a ten-minute detour instead of a wasted session.
 
    **RESULTS for 1.2 (2026-09-26) — small vs large, same editor build, same template, same bake** `[DONE]`
 
