@@ -4874,7 +4874,7 @@ So `translated: 0` is not an artifact of a warm cache: on a cold start the bake 
 
 ---
 
-### Task 35: the 83 `LumAlpha8 not supported by hardware` warnings — not a bug, but a misleading message `[FIXED — message only]`
+### Task 35: the 83 `LumAlpha8` conversions — misleading message, then removed entirely `[FIX IMPLEMENTED, AWAITING WEB RUN]`
 **Status**: investigated; **no behavioural defect found**. The conversion is correct and deliberate. Only the reporting changed.
 **Severity**: LOW (log noise and, more importantly, a false lead).
 
@@ -4911,3 +4911,24 @@ At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordina
 **The trade**: GPU memory is unchanged (RGBA8 either way); CPU atlas RAM doubles, 128 KB → 256 KB per atlas, a few MB at most; per-upload conversion work drops to zero; and the log noise disappears because no conversion happens.
 
 `WEBGPU_ENABLED` is a global define (`platform/web/detect.py:279`), so the text server modules can gate on it, matching the pattern `texture_storage.cpp` already uses.
+
+---
+
+#### Task 35 — monochrome glyph atlases now rasterise straight to RGBA8
+
+Rather than expanding `LA8 → RGBA8` on every atlas upload, the text servers now build monochrome atlases as RGBA8 in the first place when `WEBGPU_ENABLED`. The conversion disappears instead of being made quieter.
+
+**Changed** (`modules/text_server_adv/text_server_adv.cpp`, `modules/text_server_fb/text_server_fb.cpp`, kept identical):
+- `MONO_GLYPH_COLOR_SIZE` — 4 on WebGPU, 2 elsewhere — replaces the hard-coded `2` for `FT_PIXEL_MODE_MONO`/`GRAY` and for the HarfBuzz raster path's non-BGRA case. `require_format` then resolves to `FORMAT_RGBA8` through the existing ternary, with no change to that logic.
+- `_write_mono_glyph_texel()` writes one coverage texel: `(255,255,255,coverage)` on WebGPU, `(255,coverage)` otherwise. A helper rather than an `#ifdef` at each of the four blit sites, so the per-pixel loops stay branch-free and the two layouts cannot drift apart.
+- A TU-local `static constexpr int`, deliberately **not** a macro: the same name is defined in both files, and a macro would be one unity-build away from colliding.
+
+**Nothing else needed changing**, which is the main reason this is low-risk: the atlas clear path in both servers already had a correct 4-channel non-MSDF branch writing `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha initialisation an RGBA8 coverage atlas wants. Colour (`BGRA`), `LCD`, `LCD_V` and MSDF paths were already 4-channel and are untouched.
+
+Checked for leftovers: the only remaining `FORMAT_LA8` references are the generic `color_size == 2` branches (dead on WebGPU) and the `require_format` ternaries (which now yield RGBA8). Nothing assumes LA8 unconditionally. A font cache previously saved with LA8 atlases still loads — `find_texture_pos_for_glyph()` skips atlases whose format differs, so new glyphs simply start a fresh RGBA8 atlas.
+
+**Net effect**: GPU memory unchanged (RGBA8 either way); CPU-side atlas doubles, 128 KB → 256 KB each, a couple of MB at most; the per-upload full-atlas expansion drops to **zero**; and the log lines vanish because no conversion occurs. The `is_la_format` message added earlier stays as a safety net for any L8/LA8 that still reaches the texture layer from elsewhere.
+
+**Verified**: native editor builds and starts (the unchanged LA8 path); **both** text servers compile for the web target with `WEBGPU_ENABLED` active, i.e. the `MONO_GLYPH_COLOR_SIZE = 4` code is the code that was compiled — `text_server_fb` needed `module_text_server_fb_enabled=yes` since it is off by default in this configuration and would otherwise have gone unchecked. `shader_corpus` 13/13, `driver_unit_tests` 332/0.
+
+**Not verified, and the thing to watch**: glyph rendering itself. Nothing local exercises the WebGPU path at runtime, so the first web run is the test. A wrong channel would make all text render wrong — obvious immediately, and a one-commit revert. Expect the `LumAlpha8`/`Expanded LumAlpha8` lines to be **entirely absent** from the next verbose run; if text looks right and those lines are gone, it worked.

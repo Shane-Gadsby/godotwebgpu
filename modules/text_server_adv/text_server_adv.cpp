@@ -821,6 +821,38 @@ String TextServerAdvanced::_tag_to_name(int64_t p_tag) const {
 /* Font Glyph Rendering                                                  */
 /*************************************************************************/
 
+// Monochrome glyph atlases: how many channels, and how a texel is written.
+//
+// A grayscale glyph only needs coverage, so the natural format is LA8 -- one
+// luminance byte (always 255) plus alpha -- sampled through a (R,R,R,G) texture
+// swizzle. WebGPU has no component swizzle, so such an atlas has to be expanded
+// to RGBA8 before upload, and TextureStorage::_texture_2d_update() redoes that
+// expansion on *every* update. An atlas is re-uploaded whenever a glyph is added
+// to it, so a UI that keeps rasterising new glyphs pays a full-atlas conversion
+// each time (~256 KB per 256x256 atlas). Rasterising straight into RGBA8 removes
+// it: identical GPU memory, no conversion, at the cost of double the CPU-side
+// atlas (a couple of MB at most). See webgpu_notes/TASKS.md Task 35.
+//
+// A helper rather than an #ifdef at each blit so the per-pixel loops stay
+// branch-free and the two formats cannot drift apart.
+#ifdef WEBGPU_ENABLED
+static constexpr int MONO_GLYPH_COLOR_SIZE = 4;
+#else
+static constexpr int MONO_GLYPH_COLOR_SIZE = 2;
+#endif
+
+static _FORCE_INLINE_ void _write_mono_glyph_texel(uint8_t *p_dst, uint8_t p_coverage) {
+#ifdef WEBGPU_ENABLED
+	p_dst[0] = 255; // Luminance broadcast, baked in for want of a texture swizzle.
+	p_dst[1] = 255;
+	p_dst[2] = 255;
+	p_dst[3] = p_coverage;
+#else
+	p_dst[0] = 255; // Grayscale as 1; the (R,R,R,G) swizzle broadcasts at sample time.
+	p_dst[1] = p_coverage;
+#endif
+}
+
 _FORCE_INLINE_ TextServerAdvanced::FontTexturePosition TextServerAdvanced::find_texture_pos_for_glyph(FontForSizeAdvanced *p_data, int p_color_size, Image::Format p_image_format, int p_width, int p_height, bool p_msdf) const {
 	FontTexturePosition ret;
 
@@ -1101,7 +1133,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_hb_bi
 		return chr;
 	}
 
-	int color_size = p_bgra ? 4 : 2;
+	int color_size = p_bgra ? 4 : MONO_GLYPH_COLOR_SIZE;
 
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
@@ -1133,8 +1165,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_hb_bi
 					wr[ofs + 0] = img_src[ofs_color + 2];
 					wr[ofs + 3] = img_src[ofs_color + 3];
 				} else {
-					wr[ofs + 0] = 255; // grayscale as 1
-					wr[ofs + 1] = img_src[i * p_ext.stride + j];
+					_write_mono_glyph_texel(&wr[ofs], img_src[i * p_ext.stride + j]);
 				}
 			}
 		}
@@ -1171,7 +1202,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_bitma
 	switch (p_bitmap.pixel_mode) {
 		case FT_PIXEL_MODE_MONO:
 		case FT_PIXEL_MODE_GRAY: {
-			color_size = 2;
+			color_size = MONO_GLYPH_COLOR_SIZE;
 		} break;
 		case FT_PIXEL_MODE_BGRA: {
 			color_size = 4;
@@ -1211,12 +1242,10 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_bitma
 					case FT_PIXEL_MODE_MONO: {
 						int byte = i * p_bitmap.pitch + (j >> 3);
 						int bit = 1 << (7 - (j % 8));
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = (p_bitmap.buffer[byte] & bit) ? 255 : 0;
+						_write_mono_glyph_texel(&wr[ofs], (p_bitmap.buffer[byte] & bit) ? 255 : 0);
 					} break;
 					case FT_PIXEL_MODE_GRAY:
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = p_bitmap.buffer[i * p_bitmap.pitch + j];
+						_write_mono_glyph_texel(&wr[ofs], p_bitmap.buffer[i * p_bitmap.pitch + j]);
 						break;
 					case FT_PIXEL_MODE_BGRA: {
 						int ofs_color = i * p_bitmap.pitch + (j << 2);
