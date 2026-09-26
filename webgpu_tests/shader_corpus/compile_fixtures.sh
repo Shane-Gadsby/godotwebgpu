@@ -26,13 +26,22 @@ for src in "$FIXTURES_DIR"/*.vert "$FIXTURES_DIR"/*.frag "$FIXTURES_DIR"/*.comp;
     base="${name%.*}"
     out="$FIXTURES_DIR/${base}.spv"
 
+    # Subgroup ops need SPIR-V 1.3, which means targeting Vulkan 1.1. Applied per
+    # fixture rather than globally so the others keep producing byte-identical
+    # SPIR-V to what they always have -- the corpus compares against recorded
+    # output, and silently bumping every fixture's SPIR-V version would churn it.
+    extra_args=()
+    if grep -q "GL_KHR_shader_subgroup" "$src"; then
+        extra_args=(--target-env vulkan1.1)
+    fi
+
     printf "  %-35s" "$name"
-    if glslangValidator -V "$src" -o "$out" --quiet 2>/dev/null; then
+    if glslangValidator "${extra_args[@]}" -V "$src" -o "$out" --quiet 2>/dev/null; then
         echo "OK  ($(wc -c < "$out" | tr -d ' ') bytes)"
         count=$((count + 1))
     else
         echo "FAIL"
-        glslangValidator -V "$src" -o "$out" 2>&1 | sed 's/^/    /'
+        glslangValidator "${extra_args[@]}" -V "$src" -o "$out" 2>&1 | sed 's/^/    /'
         errors=$((errors + 1))
     fi
 done
