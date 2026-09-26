@@ -32,6 +32,8 @@
 		eagerDone: 0,
 		eagerFailed: 0,
 		probeFlushes: 0,
+		shaderMessages: [],
+		shaderSources: {},
 	};
 	window.__godotPhases = P;
 
@@ -127,9 +129,35 @@
 		if (!device || device.__godotPhasesPatched) { return device; }
 		device.__godotPhasesPatched = true;
 
+		// Shader-module diagnostics. The engine has an equivalent behind the
+		// compile-time WEBGPU_VERBOSE, but that needs a rebuild and costs ~12s of
+		// startup; doing it here works against any existing export and, more to the
+		// point, works in whichever browser is being driven. Firefox reports "1
+		// error(s)" for a failed module without ever printing the message, so this
+		// is the only way to see what its WGSL parser actually objected to.
+		const reportCompilation = (mod, label) => {
+			if (!mod || !mod.getCompilationInfo) { return; }
+			mod.getCompilationInfo().then((info) => {
+				if (!info || !info.messages) { return; }
+				for (const m of info.messages) {
+					if (m.type !== 'error' && m.type !== 'warning') { continue; }
+					P.shaderMessages.push({ label: label, type: m.type, line: m.lineNum, pos: m.linePos, message: String(m.message).substring(0, 2000) });
+				}
+			}, () => {});
+		};
+
 		const origCSM = device.createShaderModule.bind(device);
-		device.createShaderModule = (desc) => timeCall(P.shaderModules, (desc && desc.label) || '', () => origCSM(desc),
-			{ codeChars: desc && desc.code ? desc.code.length : 0 });
+		device.createShaderModule = (desc) => {
+			const label = (desc && desc.label) || '';
+			const mod = timeCall(P.shaderModules, label, () => origCSM(desc), { codeChars: desc && desc.code ? desc.code.length : 0 });
+			if (window.__shaderErrors) {
+				reportCompilation(mod, label);
+				// Keep the source of anything that fails, so the offending WGSL can be
+				// pulled out of the run instead of reproduced by hand.
+				P.shaderSources[label] = (desc && desc.code) || '';
+			}
+			return mod;
+		};
 
 		const origCRP = device.createRenderPipeline.bind(device);
 		device.createRenderPipeline = (desc) => {
