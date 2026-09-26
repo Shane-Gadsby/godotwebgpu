@@ -4311,10 +4311,51 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    **Where the remaining ~1150 ms sits** (user's project, after the fix): ~750 ms is the fixed
    floor subtask 1 measured, ~325 ms is `Load Game`, and the first frame is now unremarkable.
 
-   **The cliff itself is still there, and still unexplained** — this fix ducks under it rather than
-   removing it, so a project uploading more than ~30 MB before its first frame will still meet it.
-   The Chrome GPU trace stays the way to understand it, but its priority has dropped a long way
-   now that neither test project hits it.
+   **The cliff itself is ducked under rather than removed by this fix** — a project uploading more
+   than ~30 MB before its first frame will still meet it. It is root-caused immediately below.
+   **RESULTS (2026-09-26) — the cliff, explained: a full GPU command buffer, not compilation**
+   `[ROOT-CAUSED]`
+
+   Chrome GPU trace of a pre-fix export (`webgpu_tests/startup_phases/trace_block.mjs`, CDP
+   `Tracing` with the `gpu`, `toplevel`, `mojom` and `disabled-by-default-gpu.*` categories). The
+   trace clock and `performance.now()` share no base, so the script finds the block inside the
+   trace by matching its duration rather than mapping clocks.
+
+   The 734 ms block is **`CommandBufferProxyImpl::WaitForToken`** on the renderer's main thread,
+   i.e. `GpuChannel::WaitForTokenInRange` over mojo — **the renderer waiting for the GPU process to
+   consume the shared command buffer**. During that same window the GPU process is busy for
+   939.8 ms across 10 `CommandBuffer::Flush` / `CommandBufferService:PutChanged` slices under
+   `gpu | WebGPU`, the three largest being 408.6, 344.6 and 286.1 ms.
+
+   So the mechanism is a fixed-size command/transfer ring between the renderer and the GPU
+   process: writes fill it, and once it is full the renderer blocks until the GPU process has
+   chewed through what is queued. That accounts for every observation, including the ones that
+   killed the earlier hypotheses:
+   - **the cliff** — nothing blocks until the ring fills, which is why 16.8 MB is free and 29 MB
+     is not;
+   - **the flat cost** — the wait is for a mostly-full ring to drain, and the ring's size does not
+     depend on how much more we would go on to write;
+   - **why an empty `queue.submit()` every 2–8 MB did nothing** — flushing more often does not make
+     the GPU process consume faster, and consumption throughput is the bottleneck;
+   - **why eager async pipeline creation did nothing** — the GPU process is processing commands and
+     data, not compiling shaders.
+
+   **The only lever this leaves is the volume of WebGPU commands and data submitted before the
+   first frame**, which is exactly what the glyph-atlas fix above reduces, and why it removed the
+   block outright rather than shortening it. Nothing on this side can widen the ring or speed up
+   the GPU process, so this is now considered understood and closed rather than open.
+
+   **Remaining headroom on the user's project, for whoever picks this up next.** After the fix it
+   uploads 30.6 MB before the first frame and does not block — but that is not a comfortable
+   margin, since the control tripped the cliff at 29 MB, and the exact threshold depends on the
+   GPU process's throughput and so on the machine. **21.3 MB of that 30.6 MB is a single
+   2048×2048 `rgba8unorm` texture and its 12 mip levels** (the character), imported with
+   `compress/mode=0` — no VRAM compression. Turning that on would cut it several-fold and put the
+   project well clear of the cliff, as well as shrinking the download. It is not done here because
+   it is a quality and format decision on the user's own asset, and because the project sets
+   `textures/vram_compression/import_etc2_astc=true` while this adapter reports
+   `texture-compression-bc` — so which compressed format the target browsers actually accept needs
+   checking before recommending it as a straight win.
    2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export. **Measured 2026-09-26 (subtask 1): the main module does take the streaming path** (`application/wasm`, 10 ms for 1.3 MB) — but on a `dlink_enabled=yes` export the 51 MB **`index.side.wasm` goes through non-streaming `WebAssembly.instantiate` with a full ArrayBuffer** (48 ms fetch + 48 ms instantiate here, off a localhost server; over a real network that buffer must be fully downloaded before compilation can start). That path is Emscripten's dylink loader, not `config.js`'s override, so `instantiateWasm` does not cover it. ~96 ms locally is not where the stall is, so this is a real but low-priority finding — it matters mainly for cold loads over a slow link, where it serializes 51 MB of download against compilation that could have overlapped it.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
