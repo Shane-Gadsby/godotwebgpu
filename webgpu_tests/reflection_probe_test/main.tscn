@@ -1,0 +1,91 @@
+[gd_scene load_steps=15 format=3 uid="uid://creflect00001"]
+
+[sub_resource type="SphereMesh" id="Sphere_1"]
+radius = 1.2
+height = 2.4
+radial_segments = 64
+rings = 32
+
+[sub_resource type="StandardMaterial3D" id="Mat_metal"]
+albedo_color = Color(1, 1, 1, 1)
+metallic = 1.0
+roughness = 0.08
+
+[sub_resource type="BoxMesh" id="Wall_1"]
+size = Vector3(10, 4, 0.2)
+
+[sub_resource type="BoxMesh" id="Floor_1"]
+size = Vector3(10, 0.2, 10)
+
+[sub_resource type="StandardMaterial3D" id="Mat_floor"]
+albedo_color = Color(0.5, 0.5, 0.5, 1)
+metallic = 0.3
+roughness = 0.4
+
+[sub_resource type="StandardMaterial3D" id="Mat_WallRed"]
+albedo_color = Color(1, 0.05, 0.05, 1)
+emission_enabled = true
+emission = Color(1, 0.05, 0.05, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_WallGreen"]
+albedo_color = Color(0.05, 1, 0.05, 1)
+emission_enabled = true
+emission = Color(0.05, 1, 0.05, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_WallBlue"]
+albedo_color = Color(0.05, 0.05, 1, 1)
+emission_enabled = true
+emission = Color(0.05, 0.05, 1, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_WallYellow"]
+albedo_color = Color(1, 1, 0.05, 1)
+emission_enabled = true
+emission = Color(1, 1, 0.05, 1)
+emission_energy_multiplier = 3.0
+
+[node name="Main" type="Node3D"]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 4.5)
+
+[node name="Light" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 5, 0)
+light_energy = 0.6
+
+[node name="WallRed" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -5)
+mesh = SubResource("Wall_1")
+surface_material_override/0 = SubResource("Mat_WallRed")
+
+[node name="WallGreen" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5)
+mesh = SubResource("Wall_1")
+surface_material_override/0 = SubResource("Mat_WallGreen")
+
+[node name="WallBlue" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -5, 2, 0)
+mesh = SubResource("Wall_1")
+surface_material_override/0 = SubResource("Mat_WallBlue")
+
+[node name="WallYellow" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 5, 2, 0)
+mesh = SubResource("Wall_1")
+surface_material_override/0 = SubResource("Mat_WallYellow")
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+mesh = SubResource("Floor_1")
+surface_material_override/0 = SubResource("Mat_floor")
+
+[node name="MirrorSphere" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+mesh = SubResource("Sphere_1")
+surface_material_override/0 = SubResource("Mat_metal")
+
+[node name="ReflectionProbe" type="ReflectionProbe" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+size = Vector3(11, 5, 11)
+intensity = 1.0
+max_distance = 40.0
