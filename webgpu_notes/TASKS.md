@@ -5676,3 +5676,64 @@ and carry both variant sets.
 **Still unmeasured**: Safari (not available on this Linux host), and any mobile browser, which is
 exactly where ETC2/ASTC would show up. Both are needed before the export option is designed, since
 the point of the option is to let a developer choose per target.
+
+---
+
+### Task 40: interleaving editor and template builds ships a web template that dies on startup `[DIAGNOSED — workaround known, no code fix yet]`
+**Status**: reproduced and worked around; the underlying SCons dependency gap is not fixed.
+**Severity**: **HIGH** — the template builds and exports cleanly, then the export fails at `callMain()`
+with a JavaScript `TypeError` and no Godot-level message at all.
+
+**Symptom.** A freshly built `platform=web target=template_release` export throws before the engine
+prints anything:
+```
+TypeError: resolved is not a function
+  at stubs.<computed> (index.js)
+  at __Z14godot_web_mainiPPc
+```
+Nothing else. No Godot banner, no WebGPU error, no hint of which symbol.
+
+**How to identify it in seconds** (worth keeping — the stub is anonymous by default). Patch the
+export's `index.js` stub thunk to name the symbol before it throws:
+```js
+stubs[prop]=(...args)=>{resolved||=resolveSymbol(prop);
+  if(typeof resolved!=="function"){console.error("UNRESOLVED SYMBOL: "+prop);}return resolved(...args)}
+```
+Here it printed `UNRESOLVED SYMBOL: _Z23initialize_betsy_module25ModuleInitializationLevel`.
+
+**Cause.** `modules/register_module_types.gen.cpp` always emits *every discovered* module's
+initializer, each wrapped in `#ifdef MODULE_<NAME>_ENABLED` from `modules/modules_enabled.gen.h`, so
+what decides the outcome is which defines that header carried **when the object was compiled**. Betsy
+is editor-only (`modules/betsy/config.py`: `can_build` is `env.editor_build or
+env["betsy_export_templates"]`), so an editor build defines `MODULE_BETSY_ENABLED` and a template
+build does not. Build the editor, then the template, in the same tree and
+`bin/obj/modules/register_module_types.gen.web.*.o` **stays stale from the editor build**: the
+regenerated header correctly omits the define, but the object that consumed it is not recompiled. The
+side module then calls an initializer nothing defines, and Emscripten's dynamic linker turns that into
+the anonymous stub above.
+
+Both generated files are in the **shared source tree** (`modules/*.gen.*`), not a per-configuration
+build directory, which is what lets one configuration's result be handed to another.
+
+**This is a recurrence, not a new class.** `modules/SCsub:65-80` documents the identical bug for
+`objectdb_profiler` across a `template_debug` → `template_release` switch (Task 9.5 Round 15) and adds
+`env.Depends(lib, env.Value(env.module_list))` for it. That guard ties the **library** to the module
+list; it evidently does not force the **object** to recompile on an editor↔template switch.
+
+**Workaround** (what was actually done):
+```bash
+rm -f bin/obj/modules/register_module_types.gen.<platform>.<target>.*.o \
+      bin/obj/modules/libmodules.<platform>.<target>.*.a
+```
+then rebuild. Deleting the two `.gen.*` files or `.scons_env.json` does **not** help — the header
+regenerates correctly and the stale object is still linked.
+
+**Note for anyone bisecting a runtime failure after a rebuild**: this presents exactly like a
+regression in whatever was just changed. It is worth ruling out first, since it is cheap to check —
+`grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` should be 0 for a template build. It
+belongs alongside Task 36's warning (editor and template must come from the same commit) as the second
+way this build tree can produce a template that is wrong without saying so.
+
+**Proper fix, not attempted**: make the object depend on `modules_enabled.gen.h`'s *content* rather
+than relying on implicit include scanning — e.g. `env.Depends(register_module_types, modules_enabled)`
+at the object level, or emit the generated files per configuration instead of into the shared tree.
