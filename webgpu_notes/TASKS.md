@@ -6056,11 +6056,37 @@ is reaching a binding whose shader declares a *depth* texture, and elsewhere one
   (`entry.binding = u.binding * 2`), which the dumped WGSL confirms (GLSL 26→52, 27→54 … 36→72).
 - GLSL set 1 binding 24 is **`depth_buffer`**, declared `uniform texture2D depth_buffer`
   (`scene_forward_clustered_inc.glsl:440`) — a **float** texture, not a depth one.
-- The texture bound to it is a screen-sized `R32Float`, and that is upstream Godot behavior rather
-  than a bug: `RenderSceneBuffersRD::get_depth_format()` (`render_scene_buffers_rd.cpp:810`)
-  deliberately returns `R32_SFLOAT` for a resolved depth buffer when storage is required, because
-  depth formats cannot carry `TEXTURE_USAGE_STORAGE_BIT`. So this binding legitimately receives a real
-  depth texture in some configurations and a color one in others.
+- The texture bound to it is a screen-sized `R32Float`. **Corrected 2026-09-27**: this was first
+  attributed to `get_depth_format()`'s MSAA-resolve path, which was wrong — `demo_3d_particles` sets
+  no MSAA at all and fails identically. The real source is `RB_TEX_BACK_DEPTH`
+  (`renderer_scene_render_rd.cpp:418`), the depth *copy* used by the transparent pass, created as
+  `R32_SFLOAT` with `TEXTURE_USAGE_COLOR_ATTACHMENT_BIT` and carrying upstream's own comment:
+  *"Set this as color attachment because we're copying data into it, it's not actually used as a
+  depth buffer."*
+- **And the binding is polymorphic by design.** `render_forward_clustered.cpp:3674-3684` fills
+  `u.binding = 24` with either `RB_TEX_BACK_DEPTH` — a **color** `R32_SFLOAT` — or, when that does
+  not exist, `DEFAULT_RD_TEXTURE_DEPTH`, a **real depth** texture. On Vulkan a `texture2D` descriptor
+  accepts either, so upstream never has to choose. A WebGPU bind group layout must commit to one
+  sample type, so it cannot accept both.
+
+**Changing the texture format is not a way out** — asked directly, investigated, and closed for three
+independent reasons:
+1. **The failing texture is a color attachment on purpose.** `RB_TEX_BACK_DEPTH` carries
+   `COLOR_ATTACHMENT_BIT | STORAGE_BIT` because a copy pass renders into it. A depth format can be
+   neither a color attachment nor a storage image, so the format is forced.
+2. **The binding is polymorphic anyway** (above), so even making the copy a depth format would leave
+   one layout having to accept two texture kinds.
+3. **The MSAA path would not have been fixable either.** Forward+ resolves MSAA depth with a
+   *compute* shader (`effects/resolve.glsl`, `layout(r32f) ... dest_depth`) and storage images cannot
+   be depth formats; WebGPU additionally reports `SUPPORTS_FRAMEBUFFER_DEPTH_RESOLVE = false`
+   (correctly — `resolveTarget` is color-only), so `get_depth_format()` returns `R32_SFLOAT` on this
+   backend whichever branch it takes. Changing that would mean writing a raster depth-resolve pass —
+   new shared-engine work that does not address the non-MSAA case actually failing here.
+
+**The encouraging half**: WebGPU's `unfilterable-float` sample type accepts **both** a color
+`R32Float` and a depth-format texture, and this binding is sampled with `SAMPLER_NEAREST_CLAMP`, so
+one layout genuinely can serve both cases. The only obstacle is the WGSL declaring
+`texture_depth_2d`, which forces `sampleType: Depth`. Every route converges on the SPIR-V type split.
 
 **The actual defect is that the layout is not deterministic.** Dumping *every*
 `createBindGroupLayout` call rather than only the last shows the same label built twelve times with
