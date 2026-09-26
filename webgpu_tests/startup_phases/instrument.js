@@ -31,6 +31,7 @@
 		eagerKicked: 0,
 		eagerDone: 0,
 		eagerFailed: 0,
+		probeFlushes: 0,
 	};
 	window.__godotPhases = P;
 
@@ -167,10 +168,32 @@
 		const queue = device.queue;
 		if (queue && !queue.__godotPhasesPatched) {
 			queue.__godotPhasesPatched = true;
+
+			// Task 14 subtask 2 experiment: the ~800ms block fires on the first queue
+			// operation after roughly 25MB of writes have piled up, and does not grow
+			// as the total rises further -- the shape of a fixed-size transfer staging
+			// pool being exhausted and then forcing a synchronous round trip. If that
+			// is what it is, draining it more often should keep it from filling. An
+			// empty queue.submit() flushes the wire without submitting any GPU work,
+			// so it is the cheapest way to test that from outside the engine.
+			// window.__flushEveryMB sets the interval; 0 disables.
+			const flushEveryBytes = (window.__flushEveryMB || 0) * 1048576;
+			let bytesSinceFlush = 0;
+			const maybeFlush = (n) => {
+				if (!flushEveryBytes) { return; }
+				bytesSinceFlush += n || 0;
+				if (bytesSinceFlush < flushEveryBytes) { return; }
+				bytesSinceFlush = 0;
+				timeCall(P.gpuWrites, 'probeFlush', () => queue.submit([]), { bytes: 0 });
+				P.probeFlushes++;
+			};
+
 			const origWB = queue.writeBuffer.bind(queue);
 			queue.writeBuffer = function (buf, off, data, dOff, size) {
-				return timeCall(P.gpuWrites, 'writeBuffer', () => origWB(buf, off, data, dOff, size),
-					{ bytes: size ?? (data && data.byteLength) ?? 0 });
+				const n = size ?? (data && data.byteLength) ?? 0;
+				const out = timeCall(P.gpuWrites, 'writeBuffer', () => origWB(buf, off, data, dOff, size), { bytes: n });
+				maybeFlush(n);
+				return out;
 			};
 			const origWT = queue.writeTexture.bind(queue);
 			queue.writeTexture = function (dst, data, layout, size) {
@@ -178,7 +201,7 @@
 				// blocks for ~1s while the other ~1400 cost microseconds -- naming
 				// that one texture is what distinguishes "this upload is expensive"
 				// from "this call is where the wire happens to flush".
-				return timeCall(P.gpuWrites, 'writeTexture', () => origWT(dst, data, layout, size), {
+				const out = timeCall(P.gpuWrites, 'writeTexture', () => origWT(dst, data, layout, size), {
 					bytes: (data && data.byteLength) || 0,
 					dstLabel: (dst && dst.texture && dst.texture.label) || '',
 					dstFormat: (dst && dst.texture && dst.texture.format) || '',
@@ -186,6 +209,8 @@
 					writeSize: size ? `${size.width || size[0]}x${size.height || size[1]}` : '',
 					submitsBefore: P.gpuWrites.filter((x) => x.label === 'submit').length,
 				});
+				maybeFlush((data && data.byteLength) || 0);
+				return out;
 			};
 			const origSubmit = queue.submit.bind(queue);
 			queue.submit = function (buffers) {

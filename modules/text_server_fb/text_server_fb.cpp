@@ -39,6 +39,7 @@
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/translation_server.h"
+#include "servers/rendering/rendering_server.h"
 
 #include "modules/modules_enabled.gen.h" // For freetype, msdfgen, svg.
 
@@ -240,7 +241,7 @@ String TextServerFallback::_tag_to_name(int64_t p_tag) const {
 // Monochrome glyph atlases: see the matching comment in
 // modules/text_server_adv/text_server_adv.cpp. WebGPU has no texture component
 // swizzle, so an LA8 atlas would be expanded to RGBA8 on every upload -- and an
-// atlas is re-uploaded whenever a glyph is added to it. Rasterising straight
+// atlas is re-uploaded whenever a glyph is added to it. Rasterizing straight
 // into RGBA8 removes the conversion for identical GPU memory. Kept byte-for-byte
 // in step with the advanced text server so the two cannot drift.
 // See webgpu_notes/TASKS.md Task 35.
@@ -2479,6 +2480,126 @@ void TextServerFallback::_font_set_glyph_texture_idx(const RID &p_font_rid, cons
 	fgl.found = true;
 }
 
+/*************************************************************************/
+/*  Glyph atlas uploads                                                  */
+/*************************************************************************/
+
+// A glyph atlas is re-uploaded in FULL whenever any glyph is added to it, and
+// every Label in a scene adds glyphs while building its draw commands. On most
+// backends that is a cheap staging copy. On WebGPU it becomes one
+// `queue.writeTexture` of the whole atlas per glyph -- measured at 20.8 MB across
+// 1313 writes during one startup frame of a real project, and 78 MB for 40 Labels
+// on an otherwise empty scene (Task 14 subtask 2).
+//
+// Nothing needs the pixels at the moment the glyph is added: the draw command only
+// records the texture's RID, and rendering happens after the whole scene tree has
+// finished drawing. So on WebGPU the upload is deferred and every dirty atlas is
+// uploaded once, from `RenderingServer`'s `frame_pre_draw`. Elsewhere the upload
+// stays inline, byte for byte the behavior it always had.
+//
+// The very first upload of an atlas is never deferred, because the `ImageTexture`
+// has to exist before its RID can be handed to a draw command.
+void TextServerFallback::_ensure_atlas_texture(FontForSizeFallback *p_ffsd, int32_t p_texture_index, bool p_fix_edge, bool p_mipmaps) const {
+	ShelfPackTexture &tex = p_ffsd->textures.write[p_texture_index];
+	if (!tex.dirty) {
+		return;
+	}
+	if (p_fix_edge) {
+		// Same as the "fix alpha border" process option when importing SVGs
+		tex.image->fix_alpha_edges();
+	}
+
+	// `dirty` is cleared here, not after the upload, so the work it guards above
+	// and the mipmap generation below still run exactly once per change even when
+	// the upload itself is deferred.
+	tex.dirty = false;
+
+	if (tex.texture.is_null()) {
+		Ref<Image> img = tex.image;
+		if (p_mipmaps && !img->has_mipmaps()) {
+			img = tex.image->duplicate();
+			img->generate_mipmaps();
+		}
+		tex.texture = ImageTexture::create_from_image(img);
+		return;
+	}
+
+#ifdef WEBGPU_ENABLED
+	if (_defer_atlas_upload()) {
+		tex.upload_pending = true;
+		atlas_uploads_pending = true;
+		return;
+	}
+#endif
+
+	Ref<Image> img = tex.image;
+	if (p_mipmaps && !img->has_mipmaps()) {
+		img = tex.image->duplicate();
+		img->generate_mipmaps();
+	}
+	tex.texture->update(img);
+}
+
+#ifdef WEBGPU_ENABLED
+// Deferral is only safe if something will actually run the flush. `RenderingServer`
+// is what does, so without it -- a tool or test context with no rendering server --
+// this returns false and the caller uploads inline, rather than queueing an upload
+// nothing would ever perform.
+bool TextServerFallback::_defer_atlas_upload() const {
+	if (atlas_flush_connected) {
+		return true;
+	}
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		return false;
+	}
+	// const_cast because the four call sites that can find an atlas dirty are all
+	// const query/draw methods; the connection is set up once, lazily, because at
+	// construction time the rendering server does not exist yet.
+	rs->connect(SNAME("frame_pre_draw"), callable_mp(const_cast<TextServerFallback *>(this), &TextServerFallback::_flush_dirty_font_atlases));
+	atlas_flush_connected = true;
+	return true;
+}
+
+void TextServerFallback::_flush_dirty_font_atlases() {
+	_THREAD_SAFE_METHOD_
+	if (!atlas_uploads_pending) {
+		return;
+	}
+	atlas_uploads_pending = false;
+
+	LocalVector<RID> font_rids = font_owner.get_owned_list();
+	for (const RID &font_rid : font_rids) {
+		FontFallback *fd = font_owner.get_or_null(font_rid);
+		if (fd == nullptr) {
+			continue;
+		}
+		MutexLock lock(fd->mutex);
+		for (KeyValue<Vector2i, FontForSizeFallback *> &E : fd->cache) {
+			if (E.value == nullptr) {
+				continue;
+			}
+			for (uint32_t i = 0; i < E.value->textures.size(); i++) {
+				ShelfPackTexture &tex = E.value->textures.write[i];
+				if (!tex.upload_pending) {
+					continue;
+				}
+				tex.upload_pending = false;
+				if (tex.texture.is_null() || tex.image.is_null()) {
+					continue;
+				}
+				Ref<Image> img = tex.image;
+				if (fd->mipmaps && !img->has_mipmaps()) {
+					img = tex.image->duplicate();
+					img->generate_mipmaps();
+				}
+				tex.texture->update(img);
+			}
+		}
+	}
+}
+#endif // WEBGPU_ENABLED
+
 RID TextServerFallback::_font_get_glyph_texture_rid(const RID &p_font_rid, const Vector2i &p_size, int64_t p_glyph) const {
 	FontFallback *fd = _get_font_data(p_font_rid);
 	ERR_FAIL_NULL_V(fd, RID());
@@ -2505,24 +2626,7 @@ RID TextServerFallback::_font_get_glyph_texture_rid(const RID &p_font_rid, const
 	ERR_FAIL_COND_V(fgl.texture_idx < -1 || fgl.texture_idx >= ffsd->textures.size(), RID());
 
 	if (fgl.texture_idx != -1) {
-		if (ffsd->textures[fgl.texture_idx].dirty) {
-			ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-			Ref<Image> img = tex.image;
-			if (fgl.from_svg) {
-				// Same as the "fix alpha border" process option when importing SVGs
-				img->fix_alpha_edges();
-			}
-			if (fd->mipmaps && !img->has_mipmaps()) {
-				img = tex.image->duplicate();
-				img->generate_mipmaps();
-			}
-			if (tex.texture.is_null()) {
-				tex.texture = ImageTexture::create_from_image(img);
-			} else {
-				tex.texture->update(img);
-			}
-			tex.dirty = false;
-		}
+		_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.from_svg, fd->mipmaps);
 		return ffsd->textures[fgl.texture_idx].texture->get_rid();
 	}
 
@@ -2555,24 +2659,7 @@ Size2 TextServerFallback::_font_get_glyph_texture_size(const RID &p_font_rid, co
 	ERR_FAIL_COND_V(fgl.texture_idx < -1 || fgl.texture_idx >= ffsd->textures.size(), Size2());
 
 	if (fgl.texture_idx != -1) {
-		if (ffsd->textures[fgl.texture_idx].dirty) {
-			ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-			Ref<Image> img = tex.image;
-			if (fgl.from_svg) {
-				// Same as the "fix alpha border" process option when importing SVGs
-				img->fix_alpha_edges();
-			}
-			if (fd->mipmaps && !img->has_mipmaps()) {
-				img = tex.image->duplicate();
-				img->generate_mipmaps();
-			}
-			if (tex.texture.is_null()) {
-				tex.texture = ImageTexture::create_from_image(img);
-			} else {
-				tex.texture->update(img);
-			}
-			tex.dirty = false;
-		}
+		_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.from_svg, fd->mipmaps);
 		return ffsd->textures[fgl.texture_idx].texture->get_size();
 	}
 
@@ -2984,24 +3071,7 @@ void TextServerFallback::_font_draw_glyph(const RID &p_font_rid, const RID &p_ca
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
-			if (ffsd->textures[fgl.texture_idx].dirty) {
-				ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-				Ref<Image> img = tex.image;
-				if (fgl.from_svg) {
-					// Same as the "fix alpha border" process option when importing SVGs
-					img->fix_alpha_edges();
-				}
-				if (fd->mipmaps && !img->has_mipmaps()) {
-					img = tex.image->duplicate();
-					img->generate_mipmaps();
-				}
-				if (tex.texture.is_null()) {
-					tex.texture = ImageTexture::create_from_image(img);
-				} else {
-					tex.texture->update(img);
-				}
-				tex.dirty = false;
-			}
+			_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.from_svg, fd->mipmaps);
 			if (fd->msdf) {
 				Point2 cpos = p_pos;
 				cpos += fgl.rect.position * (double)p_size / (double)fd->msdf_source_size;
@@ -3127,20 +3197,7 @@ void TextServerFallback::_font_draw_glyph_outline(const RID &p_font_rid, const R
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
-			if (ffsd->textures[fgl.texture_idx].dirty) {
-				ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-				Ref<Image> img = tex.image;
-				if (fd->mipmaps && !img->has_mipmaps()) {
-					img = tex.image->duplicate();
-					img->generate_mipmaps();
-				}
-				if (tex.texture.is_null()) {
-					tex.texture = ImageTexture::create_from_image(img);
-				} else {
-					tex.texture->update(img);
-				}
-				tex.dirty = false;
-			}
+			_ensure_atlas_texture(ffsd, fgl.texture_idx, false, fd->mipmaps);
 			if (fd->msdf) {
 				Point2 cpos = p_pos;
 				cpos += fgl.rect.position * (double)p_size / (double)fd->msdf_source_size;
