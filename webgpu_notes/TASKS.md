@@ -5826,3 +5826,48 @@ below that. The cost of the promotion is memory (64 bits per texel against 32), 
 **Also confirmed**: Firefox creates **14 Octmap shader modules** (`CubeToOctmap`, `OctmapDownsampler`,
 `OctmapFilter`, `OctmapRoughness`) with **0 validation errors and 0 shader messages** — before the fix
 those bind group layouts were invalid and the chain never ran at all.
+
+---
+
+### Task 42: full `local_ci.sh` run — green, after two test-harness fixes `[DONE]`
+**Status**: `./webgpu_tests/local_ci.sh --no-safari` → **12 passed, 0 failed, 1 skipped**, exit 0.
+(Safari skips on Linux; the 11 `demo_*` scenes skip because `godot-demo-projects` is not checked out
+on this machine, which is environmental and pre-existing.)
+
+The first run came back **10 passed, 2 failed**. Neither failure was in engine code, and both are now
+fixed.
+
+**Failure 1 — `Compile GLSL fixtures`.** Self-inflicted by Task 38: the new `subgroup_cluster.frag`
+needs SPIR-V 1.3, and `compile_fixtures.sh` invokes `glslangValidator -V` with no `--target-env`. Fixed
+by detecting `GL_KHR_shader_subgroup` in the source and adding `--target-env vulkan1.1` **for that
+fixture only** — applied per file rather than globally so the other fixtures keep emitting
+byte-identical SPIR-V, since the corpus compares against recorded output and a silent SPIR-V version
+bump across all of them would churn it. 14 fixtures, 0 errors.
+
+**Failure 2 — `Scene smoketest — Firefox`**: 8 of 8 runnable scenes failing with 16 GPU errors each,
+all `WriteOnly access to storage textures with format Rgb10a2Unorm is not supported` — i.e. exactly
+the bug Task 41 had just fixed. The cause was **stale pre-exported bundles**: `exports/` dated
+**11-13 September**, whose `index.wasm` contains a two-week-old engine, so no amount of fixing the
+driver could affect them. Re-exported against the current build with the current template, and all
+**8/8 now pass in Firefox** (`sprites`, `pbr`, `instances`, `particles`, `animated`, `postfx`,
+`shadows`, `batching`).
+
+That re-export is worth more than a green tick: `run_scenes.mjs` exports with `--headless`, which per
+Task 14 skips the shader baker, so those scenes convert their shaders through the **runtime** Tint
+path. Task 38's subgroup lowering is therefore now verified on both paths — baked (the user's project)
+and runtime (these eight scenes) — and across eight scenes rather than two hand-built ones.
+
+**Two harness fixes made while getting there**, both small and both pre-existing gaps:
+- `scenes.json` hard-codes `editor_bin` as `../../bin/godot.macos.editor.arm64`, so `--export` could
+  not work on any non-macOS host. `run_scenes.mjs` now honors `GODOT_EDITOR_BIN` and
+  `GODOT_TEMPLATE_ZIP` overrides, resolved the same way the config's own values are.
+- `exportScene()` rewrites each project's committed `export_presets.cfg` with an absolute
+  `custom_template/release` path for the current machine and never restored it, so every run left
+  eight modified files behind — which is how `/Users/dwalter/...` came to be committed in the first
+  place. It now restores the original contents in a `finally`, verified by running `--export-only` and
+  confirming a clean `git status`.
+
+**Note for the next full run**: the suite's own rebuild step uses `dlink_enabled=yes`, while the
+smoketest's export path forces `extensions_support=false` and therefore needs the **non-dlink**
+`godot.web.template_release.wasm32.nothreads.zip`. Only re-exporting requires it; a plain run against
+existing exports does not.
