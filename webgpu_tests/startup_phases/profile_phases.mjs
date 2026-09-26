@@ -123,6 +123,10 @@ async function main() {
 	if (flag('eager-pipelines')) {
 		await page.addInitScript('window.__eagerPipelines = true;');
 	}
+	const flushEveryMB = arg('flush-every-mb', '');
+	if (flushEveryMB) {
+		await page.addInitScript(`window.__flushEveryMB = ${parseFloat(flushEveryMB)};`);
+	}
 	await page.addInitScript({ path: join(__dirname, 'instrument.js') });
 
 	console.log(`Export:   ${EXPORT_DIR}`);
@@ -142,6 +146,7 @@ async function main() {
 			computePipelines: P.computePipelines, gpuWrites: P.gpuWrites, gpuCreates: P.gpuCreates,
 			frames: P.frames,
 			eager: { kicked: P.eagerKicked, done: P.eagerDone, failed: P.eagerFailed },
+			probeFlushes: P.probeFlushes,
 			shaderStats: window.godotWebGPUShaderStats || null,
 			// Phase marks pushed from C++ inside callMain() -- present only when the
 			// export is run with --benchmark (see OS_Web::benchmark_end_measure).

@@ -32,6 +32,7 @@
 
 #include "rendering_device_driver_webgpu.h"
 
+#include "core/os/os.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/hashfuncs.h"
 #include "drivers/webgpu/pixel_formats_webgpu.h"
@@ -165,6 +166,31 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 static constexpr uint32_t TRANSLATED_NAME_CAP = 128;
 static HashMap<String, uint32_t> _translated_stage_names;
 
+// Startup cost accounting for shader_create_from_container(), published alongside
+// the tallies below. Subtask 1 of Task 14 measured `Servers:Rendering` at ~510 ms
+// on every project, empty scenes included, while all 363 createShaderModule calls
+// together came to 22 ms -- so most of that half second is CPU on this side of the
+// WebGPU API, and this says how much of it is this driver rather than ShaderRD's
+// file reads and the container's zstd decompression. Accumulated, not per-call:
+// one number for the whole load is what the question needs.
+static double _container_create_ms = 0.0;
+static uint32_t _container_create_calls = 0;
+// Of that total, the per-stage WGSL inspection and rewriting loop, which is the
+// part that reads and rebuilds shader text (a fragment stage can be 200K chars)
+// as opposed to the bind-group-layout construction that follows it.
+static double _container_stage_loop_ms = 0.0;
+
+// Scope guard, because shader_create_from_container() has many early-return error
+// paths and a missed one would silently under-report.
+struct _ContainerCreateTimer {
+	uint64_t from = 0;
+	_ContainerCreateTimer() { from = OS::get_singleton()->get_ticks_usec(); }
+	~_ContainerCreateTimer() {
+		_container_create_ms += double(OS::get_singleton()->get_ticks_usec() - from) / 1000.0;
+		_container_create_calls++;
+	}
+};
+
 // Publishes the running shader-translation tally to `window`, so it can be read
 // from the browser devtools console at any time without a rebuild:
 //
@@ -228,7 +254,10 @@ static void _publish_shader_stats() {
 		stats.specialized = $4;
 		var names = UTF8ToString($5);
 		stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : [];
-		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data());
+		stats.containerCreateMs = $6;
+		stats.containerCreateCalls = $7;
+		stats.containerStageLoopMs = $8;
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data(), _container_create_ms, _container_create_calls, _container_stage_loop_ms);
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
@@ -4768,6 +4797,7 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 }
 
 RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
+	_ContainerCreateTimer _create_timer;
 	ERR_FAIL_COND_V(p_shader_container.is_null(), ShaderID());
 
 	Ref<RenderingShaderContainerWebGPU> wg_container = p_shader_container;
@@ -4892,6 +4922,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// legacy specialize-by-re-patching path.
 	bool any_stage_froze_spec_constants = false;
 	Vector<RenderingShaderContainer::Shader> &stage_shaders = p_shader_container->shaders;
+	const uint64_t _stage_loop_from = OS::get_singleton()->get_ticks_usec();
 	for (int i = 0; i < stage_shaders.size(); i++) {
 		const RenderingShaderContainer::Shader &s = stage_shaders[i];
 
@@ -5959,6 +5990,8 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			shader->module = mod;
 		}
 	}
+
+	_container_stage_loop_ms += double(OS::get_singleton()->get_ticks_usec() - _stage_loop_from) / 1000.0;
 
 	shader->has_override_declarations = detected_override_declarations && !any_stage_froze_spec_constants;
 	if (shader->has_override_declarations) {

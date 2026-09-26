@@ -182,6 +182,11 @@ class TextServerAdvanced : public TextServerExtension {
 		Ref<Image> image;
 		Ref<ImageTexture> texture;
 		bool dirty = true;
+		// WebGPU only: the image has been processed but its GPU copy is stale, and
+		// the upload is waiting for this frame's single flush. Kept separate from
+		// `dirty` so the per-glyph work `dirty` guards (alpha-edge fixing, mipmap
+		// generation) still happens exactly once per change, as it always did.
+		bool upload_pending = false;
 
 		List<Shelf> shelves;
 
@@ -579,6 +584,19 @@ class TextServerAdvanced : public TextServerExtension {
 	};
 
 	// Common data.
+
+	// Glyph-atlas uploads. A glyph atlas is re-uploaded in full whenever any glyph
+	// is added to it, and on WebGPU each of those becomes one queue.writeTexture of
+	// the entire atlas -- 20 MB+ during a single startup frame in a UI-heavy scene
+	// (Task 14 subtask 2). On that backend the upload is deferred to one flush per
+	// frame instead; everywhere else it happens inline exactly as before.
+	void _ensure_atlas_texture(FontForSizeAdvanced *p_ffsd, int32_t p_texture_index, bool p_fix_edge, bool p_mipmaps) const;
+#ifdef WEBGPU_ENABLED
+	mutable bool atlas_uploads_pending = false;
+	mutable bool atlas_flush_connected = false;
+	bool _defer_atlas_upload() const;
+	void _flush_dirty_font_atlases();
+#endif
 
 	mutable RID_PtrOwner<FontAdvancedLinkedVariation> font_var_owner;
 	mutable RID_PtrOwner<FontAdvanced> font_owner;
