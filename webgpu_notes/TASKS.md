@@ -6085,12 +6085,58 @@ particular creation happened to convert, which differs because specialization re
 label carries no spec-constant hash. A layout whose entry types depend on which specialization was
 compiled cannot be right: the RD-level resource it has to accept is fixed.
 
-**Next step**: find why a `texture2D` declaration reaches Tint as a depth image in some
-specializations — `fix_depth2_images` resolving a `Depth=2` (unknown) image, or the depth-alias
-split, are the candidates — then key the entry's sample type off the *reflection*, which is stable,
-rather than off whichever WGSL text this creation produced. Binding a depth-format texture through an
-`unfilterable-float` entry is legal in WebGPU, so a single stable classification accepting both is
-likely available.
+**Answered (2026-09-26): one deduplicated `OpTypeImage`, shared by 22 variables.**
+
+Neither candidate was right. Dumping the engine's own SPIR-V (`GODOT_DUMP_SPIRV`) and reading the
+image types directly shows that **every** sampled image in
+`SceneForwardClusteredShaderRD:19.frag.spv` carries **`Depth=0`** — so `fix_depth2_images()` finds
+nothing to change and is not involved at all, and the depth-alias split is not what produced this
+either.
+
+What is actually there is a single type:
+
+```
+OpTypeImage %83  (float, 2D, Depth=0, Arrayed=0, MS=0, Sampled=1, Unknown)  shared by 22 variables:
+    set=1 binding=  5  shadow_atlas              <- sampled with OpImageSampleDref*
+    set=1 binding=  6  directional_shadow_atlas  <- sampled with OpImageSampleDref*
+    set=1 binding= 24  depth_buffer              <- plain textureLod
+    set=1 binding= 25  color_buffer
+    set=1 binding= 26  normal_roughness_buffer
+    set=3 binding=  1  m_texture_albedo
+    ... 16 more
+```
+(10 `Dref` sampling ops are present in the module.)
+
+SPIR-V deduplicates structurally identical types, so a plain `uniform texture2D` and a shadow atlas
+that will be paired with a comparison sampler **are literally the same type object**. Depth-ness in
+SPIR-V lives at the *use* site — `OpImageSampleDref*` against an `OpSampledImage` built from a
+comparison sampler — not in the variable's type. Tint's SPIR-V reader resolves that to WGSL, where
+depth-ness *is* part of the type (`texture_depth_2d`), and in doing so it can promote variables of
+the shared type. Which ones get promoted depends on which uses survive in that particular
+conversion, which is exactly why the classification moves around between specializations of one
+shader, and why `depth_buffer` — a float texture that is only ever sampled plainly — comes out as
+`texture_depth_2d`:
+
+```wgsl
+@group(1u) @binding(48u) var depth_buffer : texture_depth_2d;
+...
+m_proximity_depth_tex = textureSampleLevel(depth_buffer, SAMPLER_NEAREST_CLAMP, ..., 0i);
+```
+A plain, non-comparison sample of a texture Tint decided was a depth texture. Our BGL scan then
+faithfully reports `sampleType: Depth`, and binding the `R32Float` resolved-depth buffer to it fails.
+
+**So the driver's scan and the BGL are not the bug** — they report what Tint emitted. The bug is that
+Tint is handed an ambiguous module in which one image type serves both comparison and
+non-comparison use.
+
+**The fix that follows from this**: a preprocessing pass that gives the comparison-sampled images
+their own `OpTypeImage` (cloned, with `Depth=1`) and the pointer/variable types to match, leaving
+every other variable on a distinct `Depth=0` type. Tint then has unambiguous per-variable
+information, the shadow atlases stay `texture_depth_2d`, `depth_buffer` stays `texture_2d<f32>`, and
+the classification stops depending on which specialization was compiled. This sits alongside the
+existing passes in `spirv_preprocess.cpp` and touches nothing outside `drivers/webgpu/`. Worth
+checking first whether Tint's own `*_depth_alias` clone mechanism can be steered into doing this,
+since it already exists for the closely related `Depth=2` case.
 
 The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
 ```
