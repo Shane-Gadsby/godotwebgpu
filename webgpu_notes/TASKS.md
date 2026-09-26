@@ -6258,3 +6258,82 @@ data arrives later — and the self-test added in Task 42 now primes it across u
 still gets nothing, so "retry next frame" does not appear to be sufficient here. The same self-test
 **passes on native Vulkan** (center 118.1, corners 0.0), so the check itself is sound and this is
 WebGPU-specific. Left marked `known_limitation` pointing at this task.
+
+#### Task 44 — it was never Tint: our own `_reclassify_single_component_depth_textures()` `[FIXED]`
+
+**Two of the three 3D scenes pass now** (`demo_3d_platformer` and `stress_3d_platformer`: 44 errors
+each → **0**, Chrome). The producer of `depth_buffer : texture_depth_2d` is not Tint at all — it is
+this driver's own post-Tint WGSL pass, `_reclassify_single_component_depth_textures()`
+(`rendering_device_driver_webgpu.cpp:4372`, Task 7.13). The whole SPIR-V type-split design above was
+aimed at the wrong producer.
+
+**The evidence that settles it**, and that the earlier rounds could have gathered without a single
+rebuild:
+- Dumping 287 engine shaders (`GODOT_DUMP_SPIRV`, `godot-demo-projects/3d/particles` and
+  `3d/platformer`) and converting **every one** of them through `tint_convert_cli` yields
+  **zero** `texture_depth` occurrences outside the two shadow atlases. For
+  `SceneForwardClusteredShaderRD:19.frag` Tint emits exactly six: `shadow_atlas` (binding 10),
+  `directional_shadow_atlas` (binding 12) and four `fn v_NNN(shadow : texture_depth_2d, …)`
+  parameters. `depth_buffer` is not even declared in that WGSL — it is dead there.
+- Tint is per-*variable*, not per-type: `lower/texture.cc`'s `textures_to_convert_to_depth_` holds
+  `ir::Value*`s, `ConvertVarToDepth()` retypes one `var`, and `ConvertTextureParam()` walks call
+  sites and forks helpers. The shared `OpTypeImage` is therefore *not* a promotion vector, so §4.2's
+  "22 variables share one type, so Tint promotes them together" was a wrong inference from a true
+  observation.
+- The captured WGSL in §4.2 is *post*-reclassification, and says so on its face:
+  `textureSampleLevel(depth_buffer, SAMPLER_NEAREST_CLAMP, …, 0i)` has **no `.x` swizzle** and an
+  **`i32` level**. Tint emits `…).x` with an `f32` level for a `texture_2d<f32>`; dropping the
+  swizzle and wrapping the level in `i32()` is literally what this pass does. `tint_convert_cli`
+  does not link the driver, which is why the same SPIR-V converts clean on the command line.
+
+**Why the pass fires here.** `scene_forward_clustered_inc.glsl:440` declares
+`layout(set = 1, binding = 24) uniform texture2D depth_buffer` (Forward Mobile: set 1 binding 9), and
+user material code reads it through Godot's `DEPTH_TEXTURE` — proximity fade and refraction,
+`scene/resources/material.cpp:1805`/`:1834`, both `textureLod(depth_texture, …, 0.0).r`. Single
+component, name contains "depth": structurally identical to Bokeh DOF's `source_depth`, which this
+pass exists to rewrite. But what the engine binds is `RB_TEX_BACK_DEPTH` — `R32_SFLOAT` with
+`COLOR_ATTACHMENT_BIT | STORAGE_BIT`, a *copy* of depth, and polymorphic with
+`DEFAULT_RD_TEXTURE_DEPTH` — so the resulting `sampleType: Depth` entry can never match.
+
+That also explains the non-determinism recorded in §4.2 without invoking spec constants: every
+material shares one `ShaderRD`, so `bgl:SceneForwardClusteredShaderRD:19:set1` is **one label for
+every material's variant 19**. Materials that read `DEPTH_TEXTURE` get binding 48 reclassified;
+materials that don't (and whose shadow code is live) get bindings 10/12 instead. Same label, twelve
+different contents.
+
+**The fix** is the fifth disqualifying signal in that pass, alongside `half` and `dilated`: the exact
+name `depth_buffer` in **group 1** — the scene shaders' render-buffers set, whose names are fixed by
+engine GLSL. Left un-reclassified the WGSL keeps `texture_2d<f32>` plus the `.x` swizzle, which is
+exactly right for the `R32Float` copy; the pre-existing dummy-texture fallback only engages in the
+rarer `DEFAULT_RD_TEXTURE_DEPTH` case, where there is no depth copy to read anyway. Group 1 gating
+keeps the two other `depth_buffer` bindings in the engine working: `taa_resolve.glsl:47` (set 0,
+genuinely fed the real depth texture, and audited in Task 7.13 as one this pass *should* rewrite) and
+`cluster_debug.glsl:65` (set 0); a user material uniform of that name lands in group 3.
+
+**Verified**: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip,
+and the scene smoketest in Chrome with a freshly built non-dlink nothreads template —
+`demo_3d_platformer` and `stress_3d_platformer` **PASS** (gpu=0), where both reported 44 errors.
+
+**Not fixed, and now isolated**: `demo_3d_particles` (69 → 49 errors) has a *different* root cause,
+the "expected to be RGBA16Float" half of §4.1, and it is the only remaining error in that scene:
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, TextureFormat::R32Float)]
+  expected to be (TextureFormat::RGBA16Float).
+ - While validating entries[0] against { binding: 0, visibility: ShaderStage::Compute,
+     storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }.
+ - While validating [BindGroupDescriptor] against [BindGroupLayout (unlabeled)]
+```
+Everything after it is the usual cascade (`SetBindGroup(3, [Invalid BindGroup], …)` ×497,
+`[Invalid CommandBuffer]` ×497). One write-only storage-texture binding, group 3 binding 0, compute,
+screen-sized: the shape of `effects/copy.glsl:60-72`'s `dest_buffer`, which is declared `r32f`,
+`rgba8`, `rg16f` or `rgba16f` depending on the variant. So the suspect is the storage-format
+agreement between `_promote_storage_format()` (the texture) and the WGSL format remaps at
+`rendering_device_driver_webgpu.cpp:4840-4900` (the layout) — the two are documented as having to
+match, and here they do not. Start there, not at the shader.
+
+**Also noted while reading the fallback code**: the `UNIFORM_TYPE_SAMPLER_WITH_TEXTURE` branch has a
+reverse-mismatch fallback (BGL says Depth, texture is float → `fallback_depth_texture_view`, Task 24)
+that the plain `UNIFORM_TYPE_TEXTURE` branch appears to lack — which is why this bug surfaced as a
+hard Dawn error rather than as silently wrong pixels. Worth adding for robustness, but *after* this
+fix, not instead of it: the fallback would have hidden the bug behind a dummy depth texture and
+broken proximity fade quietly.
