@@ -5737,3 +5737,57 @@ way this build tree can produce a template that is wrong without saying so.
 **Proper fix, not attempted**: make the object depend on `modules_enabled.gen.h`'s *content* rather
 than relying on implicit include scanning — e.g. `env.Depends(register_module_types, modules_enabled)`
 at the object level, or emit the generated files per configuration instead of into the shared tree.
+
+---
+
+### Task 41: `rgb10a2unorm` storage textures fail on Firefox — the second Firefox blocker `[FIXED — VERIFIED IN BOTH BROWSERS]`
+**Status**: fixed by promoting the three `texture-formats-tier2` storage formats when the device lacks
+that feature. Firefox now loads the user's project with **zero** WebGPU validation errors.
+**Severity**: HIGH for Firefox — three shader classes never ran.
+
+**Symptom** (the residue left after Task 38 fixed the subgroup blocker):
+```
+Binding index 0: WriteOnly access to storage textures with format Rgb10a2Unorm is not supported
+BindGroupLayout with 'bgl:OctmapDownsamplerShaderRD:set1' label is invalid
+PipelineLayout with 'plyt:OctmapDownsamplerShaderRD' label is invalid
+```
+and the same for `OctmapFilterShaderRD:set2` and `OctmapRoughnessShaderRD:set1` — the octahedral
+reflection-probe filtering chain.
+
+**Cause.** `rgb10a2unorm`, `rgb10a2uint` and `rg11b10ufloat` are **not** storage-texel formats in core
+WebGPU; they are added by the optional **`texture-formats-tier2`** feature. Chrome exposes it (Task 39's
+matrix), Firefox does not, so a bind group layout declaring one is rejected outright, which invalidates
+the pipeline layout and every pipeline built from it.
+
+**Fix.** The driver already had the exact machinery for this, built for `texture-formats-tier1` and the
+r8/rg8 formats — it just had no tier2 equivalent. Added:
+- `has_texture_formats_tier2`, queried with `WGPUFeatureName_TextureFormatsTier2` (the enum exists in
+  emdawnwebgpu 6.0.9 alongside tier1), and reported either way under `print_verbose`.
+- Three cases in `_promote_storage_format()`: `RGB10A2Unorm` → `RGBA16Float`, `RGB10A2Uint` →
+  `RGBA16Uint`, `RG11B10Ufloat` → `RGBA16Float`, each returning the original format when tier2 *is*
+  present so Chrome keeps the packed format.
+- A matching remap in `_remap_unsupported_wgsl_storage_formats()`, gated on the same flag, rewriting
+  the `texture_storage_*<format, access>` declarations to the same three targets.
+
+**The two halves must agree**, which is the whole reason the texture promotion and the WGSL remap live
+next to each other: a texture promoted to `rgba16float` bound to a pipeline whose WGSL still says
+`rgb10a2unorm` fails validation just as surely as the original problem.
+
+**Promoted to rgba16, not rgba8**, deliberately: these formats exist to carry more than 8 bits per
+channel, and an octahedral radiance/normal atlas quantised to 8 bits bands visibly. `rgba16float` and
+`rgba16uint` are core storage formats, so the promotion needs no feature of its own. The cost is
+memory — 64 bits per texel against 32.
+
+**Why this works for baked shaders too**, which is not obvious: the WGSL remap runs in
+`shader_create_from_container()` *after* the WGSL has been taken from either the baked container or a
+runtime conversion, so it sees the real device's capabilities at load time. Unlike the subgroup problem
+(Task 38), this one did not need solving at bake time — the bake can stay device-agnostic.
+
+**Verified**: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0.
+Firefox loads the user's real project with **0 validation errors and 0 shader-compilation messages**,
+against 14 console errors before. Chrome is unchanged: 1038 ms stall against 1016-1038 ms before,
+`translated: 0`, 0 errors. The rendered frame is **byte-identical** to before the fix in this scene,
+which is the expected result rather than a disappointing one — the Octmap chain filters reflection
+probes, and this scene shows no visible probe contribution, so what the fix removes is the validation
+failure, not a visible artifact. **A scene that actually uses reflection probes on Firefox is the case
+that would show a visual difference, and has not been tested.**

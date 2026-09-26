@@ -94,6 +94,11 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPULimits device_limits = WGPU_LIMITS_INIT;
 	bool timestamp_supported = false;
 	bool has_texture_formats_tier1 = false;
+	// texture-formats-tier2 adds rgb10a2unorm, rgb10a2uint and rg11b10ufloat as
+	// storage-texel formats. Chrome exposes it, Firefox does not, and core WebGPU
+	// does not require it -- so without it those three have to be promoted, both in
+	// the texture and in the WGSL that binds it. See webgpu_notes/TASKS.md Task 41.
+	bool has_texture_formats_tier2 = false;
 	bool has_rw_storage_textures = false; // readonly-and-readwrite-storage-textures
 
 	// Source WGPUTexture → shadow WGPUTexture handles for read_write storage splits.
