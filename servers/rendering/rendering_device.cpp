@@ -9417,7 +9417,12 @@ void RenderingDevice::_set_max_fps(int p_max_fps) {
 
 RenderingDevice *RenderingDevice::create_local_device() {
 	RenderingDevice *rd = memnew(RenderingDevice);
-	if (rd->initialize(context) != OK) {
+	const Error err = rd->initialize(context);
+	if (err != OK) {
+		// Name the error rather than swallowing it. initialize() reports most of
+		// its own failures, but not all of them, and a bare null here leaves the
+		// caller with nothing at all to go on -- see webgpu_notes/TASKS.md Task 43.
+		ERR_PRINT(vformat("create_local_device: initializing the local RenderingDevice failed with error %d (%s).", (int)err, error_names[err]));
 		memdelete(rd);
 		return nullptr;
 	}
