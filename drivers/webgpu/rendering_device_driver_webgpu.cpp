@@ -77,7 +77,7 @@ static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStri
 
 	// Fence was freed while this callback was in flight — clean up.
 	if (fence->freed) {
-		delete fence;
+		memdelete(fence);
 		return;
 	}
 
@@ -1467,7 +1467,7 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 // =============================================================================
 
 RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
-	WGBuffer *buf = new WGBuffer();
+	WGBuffer *buf = memnew(WGBuffer());
 
 	// WebGPU buffer sizes must be a multiple of 4.
 	uint64_t aligned_size = (p_size + 3) & ~3ULL;
@@ -1520,7 +1520,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitFie
 
 	buf->handle = wgpuDeviceCreateBuffer(device, &desc);
 	if (buf->handle == nullptr) {
-		delete buf;
+		memdelete(buf);
 		ERR_FAIL_V(BufferID());
 	}
 
@@ -1528,7 +1528,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitFie
 }
 
 RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create_with_data(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, const uint8_t *p_data, uint64_t p_data_size) {
-	WGBuffer *buf = new WGBuffer();
+	WGBuffer *buf = memnew(WGBuffer());
 
 	uint64_t aligned_size = (p_size + 3) & ~3ULL;
 
@@ -1543,7 +1543,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create_with_data(uint64_t p_si
 
 	buf->handle = wgpuDeviceCreateBuffer(device, &desc);
 	if (buf->handle == nullptr) {
-		delete buf;
+		memdelete(buf);
 		ERR_FAIL_V(BufferID());
 	}
 
@@ -1602,7 +1602,7 @@ void RenderingDeviceDriverWebGPU::buffer_free(BufferID p_buffer) {
 	if (buf->shadow_map) {
 		memfree(buf->shadow_map);
 	}
-	delete buf;
+	memdelete(buf);
 }
 
 uint64_t RenderingDeviceDriverWebGPU::buffer_get_allocation_size(BufferID p_buffer) {
@@ -1632,7 +1632,7 @@ static void _buffer_deferred_map_cb(WGPUMapAsyncStatus p_status, WGPUStringView 
 		if (buf->shadow_map) {
 			memfree(buf->shadow_map);
 		}
-		delete buf;
+		memdelete(buf);
 		return;
 	}
 
@@ -2214,7 +2214,7 @@ static WGPUTextureFormat _get_srgb_view_format(WGPUTextureFormat p_format) {
 }
 
 RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 
 	tex->format = _data_format_to_wgpu(p_format.format);
 	tex->rd_format = p_format.format;
@@ -2304,7 +2304,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 
 	tex->handle = wgpuDeviceCreateTexture(device, &desc);
 	if (tex->handle == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V(TextureID());
 	}
 	tex->view_source = tex->handle; // Always the owning WGPUTexture; inherited by shared/sliced textures.
@@ -2323,7 +2323,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 	tex->default_view = wgpuTextureCreateView(tex->handle, &view_desc);
 	if (tex->default_view == nullptr) {
 		wgpuTextureRelease(tex->handle);
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for default view.");
 	}
 
@@ -2356,7 +2356,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
 
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig; // Copy base properties.
 
 	// Create a new view with potentially different format.
@@ -2394,12 +2394,12 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 
 	// view_source was already inherited from orig via *tex = *orig.
 	if (tex->view_source == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: texture_create_shared: original texture has no GPU handle (view_source is null).");
 	}
 	tex->default_view = wgpuTextureCreateView(tex->view_source, &view_desc);
 	if (tex->default_view == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for shared texture view.");
 	}
 	tex->handle = nullptr; // Shared texture does not own the WGPUTexture.
@@ -2411,7 +2411,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
 
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig;
 
 	WGPUTextureViewDescriptor view_desc = {};
@@ -2478,7 +2478,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 
 	// view_source was already inherited from orig via *tex = *orig.
 	if (tex->view_source == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: texture_create_shared_from_slice: original texture has no GPU handle (view_source is null).");
 	}
 
@@ -2491,7 +2491,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 
 	tex->default_view = wgpuTextureCreateView(tex->view_source, &view_desc);
 	if (tex->default_view == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for sliced texture view.");
 	}
 	tex->handle = nullptr;
@@ -2578,7 +2578,7 @@ void RenderingDeviceDriverWebGPU::texture_free(TextureID p_texture) {
 	if (tex->handle && !tex->is_from_swap_chain) {
 		wgpuTextureRelease(tex->handle);
 	}
-	delete tex;
+	memdelete(tex);
 }
 
 uint64_t RenderingDeviceDriverWebGPU::texture_get_allocation_size(TextureID p_texture) {
@@ -3446,7 +3446,7 @@ bool RenderingDeviceDriverWebGPU::sampler_is_format_supported_for_filter(DataFor
 // =============================================================================
 
 RDD::VertexFormatID RenderingDeviceDriverWebGPU::vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) {
-	WGVertexFormat *vf = new WGVertexFormat();
+	WGVertexFormat *vf = memnew(WGVertexFormat());
 
 	// Build attribute list.
 	for (uint32_t i = 0; i < p_vertex_attribs.size(); i++) {
@@ -3496,7 +3496,7 @@ RDD::VertexFormatID RenderingDeviceDriverWebGPU::vertex_format_create(Span<Verte
 
 void RenderingDeviceDriverWebGPU::vertex_format_free(VertexFormatID p_vertex_format) {
 	WGVertexFormat *vf = (WGVertexFormat *)(p_vertex_format.id);
-	delete vf;
+	memdelete(vf);
 }
 
 // =============================================================================
@@ -3580,7 +3580,7 @@ void RenderingDeviceDriverWebGPU::command_trace_rays(CommandBufferID p_cmd_buffe
 // =============================================================================
 
 RDD::FenceID RenderingDeviceDriverWebGPU::fence_create() {
-	WGFence *fence = new WGFence();
+	WGFence *fence = memnew(WGFence());
 	return FenceID(fence);
 }
 
@@ -3624,7 +3624,7 @@ void RenderingDeviceDriverWebGPU::fence_free(FenceID p_fence) {
 		return;
 	}
 
-	delete fence;
+	memdelete(fence);
 }
 
 // =============================================================================
@@ -3632,13 +3632,13 @@ void RenderingDeviceDriverWebGPU::fence_free(FenceID p_fence) {
 // =============================================================================
 
 RDD::SemaphoreID RenderingDeviceDriverWebGPU::semaphore_create() {
-	WGSemaphore *sem = new WGSemaphore();
+	WGSemaphore *sem = memnew(WGSemaphore());
 	return SemaphoreID(sem);
 }
 
 void RenderingDeviceDriverWebGPU::semaphore_free(SemaphoreID p_semaphore) {
 	WGSemaphore *sem = (WGSemaphore *)(p_semaphore.id);
-	delete sem;
+	memdelete(sem);
 }
 
 // =============================================================================
@@ -3650,7 +3650,7 @@ RDD::CommandQueueFamilyID RenderingDeviceDriverWebGPU::command_queue_family_get(
 }
 
 RDD::CommandQueueID RenderingDeviceDriverWebGPU::command_queue_create(CommandQueueFamilyID p_cmd_queue_family, bool p_identify_as_main_queue) {
-	WGCommandQueue *cq = new WGCommandQueue();
+	WGCommandQueue *cq = memnew(WGCommandQueue());
 	cq->queue = queue; // Share the single device queue.
 	return CommandQueueID(cq);
 }
@@ -3778,7 +3778,14 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 				}
 			}
 			cmd->written_query_pools.clear();
-			cmd->finished_buffer = nullptr;
+			// The queue holds its own reference until the work completes, so
+			// dropping ours here is safe -- and required: every other submit
+			// path in this file releases the finished buffer, and skipping it
+			// here leaked one Dawn command buffer object per frame.
+			if (cmd->finished_buffer) {
+				wgpuCommandBufferRelease(cmd->finished_buffer);
+				cmd->finished_buffer = nullptr;
+			}
 		}
 	}
 
@@ -3787,11 +3794,11 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 
 void RenderingDeviceDriverWebGPU::command_queue_free(CommandQueueID p_cmd_queue) {
 	WGCommandQueue *cq = (WGCommandQueue *)(p_cmd_queue.id);
-	delete cq;
+	memdelete(cq);
 }
 
 RDD::CommandPoolID RenderingDeviceDriverWebGPU::command_pool_create(CommandQueueFamilyID p_cmd_queue_family, CommandBufferType p_cmd_buffer_type) {
-	WGCommandPool *pool = new WGCommandPool();
+	WGCommandPool *pool = memnew(WGCommandPool());
 	pool->buffer_type = p_cmd_buffer_type;
 	return CommandPoolID(pool);
 }
@@ -3803,11 +3810,36 @@ bool RenderingDeviceDriverWebGPU::command_pool_reset(CommandPoolID p_cmd_pool) {
 
 void RenderingDeviceDriverWebGPU::command_pool_free(CommandPoolID p_cmd_pool) {
 	WGCommandPool *pool = (WGCommandPool *)(p_cmd_pool.id);
-	delete pool;
+	for (WGCommandBuffer *cmd : pool->command_buffers_created) {
+		// Release, don't end: ending a pass encoder whose parent command encoder
+		// was already finished is a validation error, and the encoder is being
+		// destroyed here regardless.
+		if (cmd->render_encoder) {
+			wgpuRenderPassEncoderRelease(cmd->render_encoder);
+			cmd->render_encoder = nullptr;
+		}
+		if (cmd->compute_encoder) {
+			wgpuComputePassEncoderRelease(cmd->compute_encoder);
+			cmd->compute_encoder = nullptr;
+		}
+		if (cmd->finished_buffer) {
+			wgpuCommandBufferRelease(cmd->finished_buffer);
+			cmd->finished_buffer = nullptr;
+		}
+		if (cmd->encoder) {
+			wgpuCommandEncoderRelease(cmd->encoder);
+			cmd->encoder = nullptr;
+		}
+		memdelete(cmd);
+	}
+	memdelete(pool);
 }
 
 RDD::CommandBufferID RenderingDeviceDriverWebGPU::command_buffer_create(CommandPoolID p_cmd_pool) {
-	WGCommandBuffer *cmd = new WGCommandBuffer();
+	WGCommandPool *pool = (WGCommandPool *)(p_cmd_pool.id);
+	ERR_FAIL_NULL_V(pool, CommandBufferID());
+	WGCommandBuffer *cmd = memnew(WGCommandBuffer());
+	pool->command_buffers_created.push_back(cmd);
 	return CommandBufferID(cmd);
 }
 
@@ -3897,7 +3929,7 @@ void RenderingDeviceDriverWebGPU::command_buffer_execute_secondary(CommandBuffer
 // =============================================================================
 
 RDD::SwapChainID RenderingDeviceDriverWebGPU::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {
-	WGSwapChain *sc = new WGSwapChain();
+	WGSwapChain *sc = memnew(WGSwapChain());
 	sc->surface = context_driver->surface_get_handle(p_surface);
 	sc->surface_id = p_surface;
 	sc->format = WGPUTextureFormat_BGRA8Unorm; // Fallback if capabilities can't be queried.
@@ -3920,7 +3952,7 @@ RDD::SwapChainID RenderingDeviceDriverWebGPU::swap_chain_create(RenderingContext
 
 	// Create a render pass descriptor for this swap chain.
 	// Used by swap_chain_get_render_pass() so the RD layer can create compatible pipelines.
-	WGRenderPass *rp = new WGRenderPass();
+	WGRenderPass *rp = memnew(WGRenderPass());
 	RDD::Attachment att;
 	att.format = _wgpu_to_data_format(sc->format);
 	att.samples = TEXTURE_SAMPLES_1;
@@ -3995,7 +4027,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::swap_chain_acquire_framebuffer(C
 
 	// Release resources from the previous frame.
 	if (sc->current_framebuffer) {
-		delete sc->current_framebuffer;
+		memdelete(sc->current_framebuffer);
 		sc->current_framebuffer = nullptr;
 	}
 	if (sc->current_view) {
@@ -4067,7 +4099,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::swap_chain_acquire_framebuffer(C
 
 	// Wrap in a WGFramebuffer. The WGTexture pointer is null since we manage
 	// the texture lifetime through the swap chain, not the framebuffer.
-	WGFramebuffer *fb = new WGFramebuffer();
+	WGFramebuffer *fb = memnew(WGFramebuffer());
 	fb->render_pass = sc->render_pass;
 	fb->width = sc->width;
 	fb->height = sc->height;
@@ -4104,7 +4136,7 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 	WGSwapChain *sc = (WGSwapChain *)(p_swap_chain.id);
 	ERR_FAIL_NULL(sc);
 	if (sc->current_framebuffer) {
-		delete sc->current_framebuffer;
+		memdelete(sc->current_framebuffer);
 	}
 	if (sc->current_view) {
 		wgpuTextureViewRelease(sc->current_view);
@@ -4113,12 +4145,12 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 		wgpuTextureRelease(sc->current_texture);
 	}
 	if (sc->render_pass) {
-		delete sc->render_pass;
+		memdelete(sc->render_pass);
 	}
 	if (sc->surface && sc->configured) {
 		wgpuSurfaceUnconfigure(sc->surface);
 	}
-	delete sc;
+	memdelete(sc);
 }
 
 // =============================================================================
@@ -4126,7 +4158,7 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 // =============================================================================
 
 RDD::FramebufferID RenderingDeviceDriverWebGPU::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
-	WGFramebuffer *fb = new WGFramebuffer();
+	WGFramebuffer *fb = memnew(WGFramebuffer());
 	fb->render_pass = (WGRenderPass *)(p_render_pass.id);
 	fb->width = p_width;
 	fb->height = p_height;
@@ -4142,7 +4174,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::framebuffer_create(RenderPassID 
 
 void RenderingDeviceDriverWebGPU::framebuffer_free(FramebufferID p_framebuffer) {
 	WGFramebuffer *fb = (WGFramebuffer *)(p_framebuffer.id);
-	delete fb;
+	memdelete(fb);
 }
 
 // =============================================================================
@@ -4805,7 +4837,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 	RenderingDeviceCommons::ShaderReflection shader_refl = p_shader_container->get_shader_reflection();
 
-	WGShader *shader = new WGShader();
+	WGShader *shader = memnew(WGShader());
 	shader->name = String(p_shader_container->shader_name.ptr());
 	shader->push_constant_bind_group = wg_container->get_push_constant_bind_group();
 	shader->push_constant_binding = wg_container->get_push_constant_binding();
@@ -6616,7 +6648,7 @@ cleanup:
 	if (shader->merged_pc_group_layout) {
 		wgpuBindGroupLayoutRelease(shader->merged_pc_group_layout);
 	}
-	delete shader;
+	memdelete(shader);
 	ERR_FAIL_V_MSG(ShaderID(), error_text);
 }
 
@@ -6649,7 +6681,7 @@ void RenderingDeviceDriverWebGPU::shader_free(ShaderID p_shader) {
 	if (shader->merged_pc_group_layout) {
 		wgpuBindGroupLayoutRelease(shader->merged_pc_group_layout);
 	}
-	delete shader;
+	memdelete(shader);
 }
 
 void RenderingDeviceDriverWebGPU::shader_destroy_modules(ShaderID p_shader) {
@@ -6758,7 +6790,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 	entries.reserve(p_uniforms.size() * 2);
 
 	// Allocate the uniform set early so texture handlers can store temp views.
-	WGUniformSet *us = new WGUniformSet();
+	WGUniformSet *us = memnew(WGUniformSet());
 	us->set_index = p_set_index;
 
 	// Track WGPUBuffer handles that have already been bound as STORAGE_BUFFER in this set.
@@ -7356,7 +7388,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 	WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
 	if (bg == nullptr) {
-		delete us;
+		memdelete(us);
 		ERR_FAIL_V_MSG(UniformSetID(), "WebGPU: wgpuDeviceCreateBindGroup failed.");
 	}
 
@@ -7690,7 +7722,7 @@ void RenderingDeviceDriverWebGPU::uniform_set_free(UniformSetID p_uniform_set) {
 	if (us->handle) {
 		wgpuBindGroupRelease(us->handle);
 	}
-	delete us;
+	memdelete(us);
 }
 
 uint32_t RenderingDeviceDriverWebGPU::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
@@ -7783,6 +7815,20 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 
 	cmd->end_active_encoder();
 
+	// Compressed formats must pass a block-aligned copy extent, the same rule
+	// command_copy_buffer_to_texture() already follows. It bites on the tail of a
+	// mip chain: the 2x2 and 1x1 levels of a BC texture are one 4x4 block
+	// physically, and WebGPU rejects a 2-wide copy outright -- which invalidates
+	// the whole command buffer, so the copy silently never happens and the texture
+	// samples as black. Found with BPTC on a 2048x2048 texture with 12 mips
+	// (webgpu_notes/TASKS.md Task 14).
+	uint32_t block_w = 1, block_h = 1;
+	if (src->rd_format != DATA_FORMAT_MAX) {
+		get_compressed_image_format_block_dimensions(src->rd_format, block_w, block_h);
+	} else if (dst->rd_format != DATA_FORMAT_MAX) {
+		get_compressed_image_format_block_dimensions(dst->rd_format, block_w, block_h);
+	}
+
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		const TextureCopyRegion &region = p_regions[i];
 
@@ -7798,7 +7844,14 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 		dst_copy.origin = { (uint32_t)region.dst_offset.x, (uint32_t)region.dst_offset.y, region.dst_subresources.base_layer };
 		dst_copy.aspect = WGPUTextureAspect_All;
 
-		WGPUExtent3D extent = { (uint32_t)region.size.x, (uint32_t)region.size.y, (uint32_t)region.size.z };
+		uint32_t copy_w = (uint32_t)region.size.x;
+		uint32_t copy_h = (uint32_t)region.size.y;
+		if (block_w > 1 || block_h > 1) {
+			copy_w = ((copy_w + block_w - 1) / block_w) * block_w;
+			copy_h = ((copy_h + block_h - 1) / block_h) * block_h;
+		}
+
+		WGPUExtent3D extent = { copy_w, copy_h, (uint32_t)region.size.z };
 
 		wgpuCommandEncoderCopyTextureToTexture(cmd->encoder, &src_copy, &dst_copy, &extent);
 	}
@@ -8669,7 +8722,7 @@ void RenderingDeviceDriverWebGPU::pipeline_free(PipelineID p_pipeline) {
 			wgpuShaderModuleRelease(pw->specialized_modules[i]);
 		}
 	}
-	delete pw;
+	memdelete(pw);
 }
 
 void RenderingDeviceDriverWebGPU::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
@@ -8986,7 +9039,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGPU::pipeline_cache_serialize() {
 // =============================================================================
 
 RDD::RenderPassID RenderingDeviceDriverWebGPU::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) {
-	WGRenderPass *rp = new WGRenderPass();
+	WGRenderPass *rp = memnew(WGRenderPass());
 	rp->view_count = p_view_count;
 
 	for (uint32_t i = 0; i < p_attachments.size(); i++) {
@@ -9007,7 +9060,7 @@ RDD::RenderPassID RenderingDeviceDriverWebGPU::render_pass_create(VectorView<Att
 
 void RenderingDeviceDriverWebGPU::render_pass_free(RenderPassID p_render_pass) {
 	WGRenderPass *rp = (WGRenderPass *)(p_render_pass.id);
-	delete rp;
+	memdelete(rp);
 }
 
 static bool _is_integer_wgpu_format(WGPUTextureFormat p_format) {
@@ -10876,7 +10929,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create render pipeline.");
 	}
 
-	WGPipelineWrapper *pw = new WGPipelineWrapper();
+	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
 	pw->type = WGPipelineWrapper::RENDER;
 	pw->render_handle = pipeline;
 	pw->shader = shader;
@@ -11208,7 +11261,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create compute pipeline.");
 	}
 
-	WGPipelineWrapper *pw = new WGPipelineWrapper();
+	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
 	pw->type = WGPipelineWrapper::COMPUTE;
 	pw->compute_handle = pipeline;
 	pw->shader = shader;
@@ -11221,7 +11274,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 // =============================================================================
 
 RDD::QueryPoolID RenderingDeviceDriverWebGPU::timestamp_query_pool_create(uint32_t p_query_count) {
-	WGQueryPool *pool = new WGQueryPool();
+	WGQueryPool *pool = memnew(WGQueryPool());
 	pool->count = p_query_count;
 	pool->cpu_results = (uint64_t *)memalloc(sizeof(uint64_t) * p_query_count);
 	memset(pool->cpu_results, 0, sizeof(uint64_t) * p_query_count);
@@ -11307,7 +11360,7 @@ void RenderingDeviceDriverWebGPU::timestamp_query_pool_free(QueryPoolID p_pool_i
 	if (pool->cpu_results) {
 		memfree(pool->cpu_results);
 	}
-	delete pool;
+	memdelete(pool);
 }
 
 void RenderingDeviceDriverWebGPU::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
@@ -11357,7 +11410,7 @@ static void _timestamp_readback_callback(WGPUMapAsyncStatus p_status, WGPUString
 		if (pool->cpu_results) {
 			memfree(pool->cpu_results);
 		}
-		delete pool;
+		memdelete(pool);
 		return;
 	}
 
