@@ -99,7 +99,9 @@ async function main() {
 	const server = await startServer(EXPORT_DIR);
 	const url = `http://127.0.0.1:${server.address().port}/index.html`;
 
-	const { chromium } = await import(join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
+	const pw = await import(join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
+	const BROWSER = arg('browser', 'chromium');
+	const chromium = pw[BROWSER] || pw.chromium;
 	const args = ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'];
 	if (!WARM) { args.push('--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'); }
 
@@ -107,9 +109,17 @@ async function main() {
 		? join(tmpdir(), 'godot-startup-phases-warm-profile')
 		: mkdtempSync(join(tmpdir(), 'godot-startup-phases-'));
 
+	// Firefox needs WebGPU turned on explicitly, and takes none of Chrome's flags.
+	const firefoxUserPrefs = {
+		'dom.webgpu.enabled': true,
+		'gfx.webrender.all': true,
+		'dom.webgpu.workers.enabled': true,
+		'gfx.webgpu.ignore-blocklist': true,
+	};
 	const context = await chromium.launchPersistentContext(userDataDir, {
 		headless: !HEADED,
-		args,
+		args: BROWSER === 'firefox' ? [] : args,
+		firefoxUserPrefs: BROWSER === 'firefox' ? firefoxUserPrefs : undefined,
 		viewport: { width: 1280, height: 720 },
 	});
 
@@ -123,6 +133,9 @@ async function main() {
 	if (flag('eager-pipelines')) {
 		await page.addInitScript('window.__eagerPipelines = true;');
 	}
+	if (flag('shader-errors')) {
+		await page.addInitScript('window.__shaderErrors = true;');
+	}
 	const flushEveryMB = arg('flush-every-mb', '');
 	if (flushEveryMB) {
 		await page.addInitScript(`window.__flushEveryMB = ${parseFloat(flushEveryMB)};`);
@@ -130,6 +143,7 @@ async function main() {
 	await page.addInitScript({ path: join(__dirname, 'instrument.js') });
 
 	console.log(`Export:   ${EXPORT_DIR}`);
+	console.log(`Browser:  ${BROWSER}`);
 	console.log(`Args:     ${EXTRA_ARGS || '(none)'}   console listener: ${NO_CONSOLE ? 'DETACHED' : 'attached'}`);
 	console.log(`Cache:    ${WARM ? 'WARM (reused browser profile)' : 'COLD (fresh profile, GPU shader cache disabled)'}`);
 	console.log(`Loading   ${url} -- observing for ${DURATION_SEC}s ...\n`);
@@ -147,6 +161,8 @@ async function main() {
 			frames: P.frames,
 			eager: { kicked: P.eagerKicked, done: P.eagerDone, failed: P.eagerFailed },
 			probeFlushes: P.probeFlushes,
+			shaderMessages: P.shaderMessages,
+			shaderSources: P.shaderSources,
 			shaderStats: window.godotWebGPUShaderStats || null,
 			// Phase marks pushed from C++ inside callMain() -- present only when the
 			// export is run with --benchmark (see OS_Web::benchmark_end_measure).
@@ -226,6 +242,20 @@ function report(d) {
 	const unaccounted = cmWindow === null ? null : cmWindow - accountedTotal;
 	line('NOT in a WebGPU call', unaccounted,
 		cmWindow ? `${((unaccounted / cmWindow) * 100).toFixed(1)}% -- CPU: resource decode, scene parse, GDScript, engine init` : '');
+
+	// --- Shader module compilation messages ----------------------------------
+	if (d.shaderMessages && d.shaderMessages.length) {
+		const errs = d.shaderMessages.filter((m) => m.type === 'error');
+		console.log(`\n--- Shader module messages (${errs.length} errors, ${d.shaderMessages.length - errs.length} warnings) ---`);
+		const seen = new Set();
+		for (const m of d.shaderMessages) {
+			const key = `${m.label}|${m.message.substring(0, 120)}`;
+			if (seen.has(key)) { continue; }
+			seen.add(key);
+			console.log(`  [${m.type}] ${m.label} @${m.line}:${m.pos}`);
+			console.log(`      ${m.message.split('\n').slice(0, 6).join('\n      ')}`);
+		}
+	}
 
 	// --- Engine-reported phases from inside callMain -------------------------
 	if (d.engineMarks && d.engineMarks.length) {

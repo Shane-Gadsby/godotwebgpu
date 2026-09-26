@@ -346,8 +346,14 @@ struct WGCommandQueue {
 	WGPUQueue queue = nullptr;
 };
 
+struct WGCommandBuffer; // Forward declaration for WGCommandPool.
+
 struct WGCommandPool {
 	RDD::CommandBufferType buffer_type = RDD::COMMAND_BUFFER_TYPE_PRIMARY;
+	// Command buffers are pool-owned, as in the Vulkan driver: the base API has
+	// no command_buffer_free(), so command_pool_free() is the only chance to
+	// release them.
+	LocalVector<WGCommandBuffer *> command_buffers_created;
 };
 
 struct WGQueryPool; // Forward declaration for WGCommandBuffer.
