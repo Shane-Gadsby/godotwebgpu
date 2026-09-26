@@ -4172,6 +4172,82 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    **Risks worth stating up front**: this fixes a bug in someone else's toolchain, which we then carry indefinitely; every emsdk bump becomes a re-verification step; and the benefit is speculative until subtask 1 shows resource loading is actually significant. Those are the reasons the decision gate at 1.5.1.2 is real and not a formality.
 
 2. Reduce actual blocking time, not just report it better
+   **RESULTS (2026-09-26) — subtask 2 first pass: the stall's largest term is a Chrome-internal
+   synchronization, and three plausible fixes are measured and ruled out** `[IN PROGRESS]`
+
+   Target, from subtask 1: the ~835 ms after `Main::start()` returns, of which ~760–850 ms is a
+   *single* blocking `queue.writeTexture` while the other ~1400 writes cost ~14 ms combined. Four
+   experiments, all against the user's real project and a purpose-built control, all with the
+   editor and template built from the same commit.
+
+   **Measured 1 — the block is a cliff, not a slope.** Built a control project (an empty 3D scene
+   plus N `Label`s) and swept the volume of `queue.write*` issued before the first frame:
+
+   | control | uploads before first frame | slowest single call | stall |
+   |---|---|---|---|
+   | 1 label | 16.8 MB | **2 ms (no block at all)** | 894 ms |
+   | 2 labels | 29.0 MB | 827 ms | 1676 ms |
+   | 3 labels | 38.0 MB | 821 ms | 1694 ms |
+   | 4 labels | 45.3 MB | 801 ms | 1683 ms |
+   | 5 labels | 52.3 MB | 766 ms | 1662 ms |
+   | 10 / 20 / 40 labels | 73.0 / 78.5 / 96.3 MB | 758 / 757 / 766 ms | 1654 / 1659 / 1718 ms |
+
+   Somewhere between **16.8 MB and 29 MB** of pre-first-frame uploads, a flat ~800 ms penalty
+   appears, and it does **not** grow as uploads rise a further 6×. Holding the atlas count fixed
+   (all labels at one font size, so one glyph atlas) reproduces the same cliff at 35 MB, so it
+   tracks upload volume, not the number of distinct textures. Note what this means for the user:
+   adding 40 `Label`s to an otherwise empty scene **doubles** the load stall, 894 → 1718 ms.
+
+   **Measured 2 — reducing the number of upload calls does nothing.** `texture_upload_region_size_px`
+   (default 64) makes `rendering_device.cpp` split every texture upload into 64×64 regions, one
+   `wgpuQueueWriteTexture` each — 1530 calls for the user's project, 16 of them for a single
+   256×256 atlas. Raising it to 2048 cut that to **300 calls** and changed the stall not at all
+   (1903/2055 ms vs 1925 ms; queue writes 746/891 ms vs 761 ms). The per-call overhead was never
+   the cost, which the raw data already implied. **Do not spend time coalescing these calls.**
+
+   **Measured 3 — it is not pipeline compilation.** The leading hypothesis was that Dawn compiles
+   lazily on first use, so the cost of the ~218 pipelines surfaces later as a blocking queue
+   operation. Tested by having the profiler fire `createComputePipelineAsync`/
+   `createRenderPipelineAsync` for every pipeline alongside the engine's synchronous creation
+   (`--eager-pipelines`), which should compile them eagerly and off the critical path. **All 218
+   completed** (`{kicked: 218, done: 218, failed: 0}`) and the block was unchanged: 849 ms, stall
+   2007 ms, against a 1976–2036 ms baseline. Two further reasons to believe this: the minimal
+   control creates the *same* 192 compute pipelines and blocks for 2 ms, and the block's duration
+   is constant across projects with very different pipeline usage. **This retires the "the
+   remaining stall is the browser's WGSL→pipeline compilation" line for good** — subtask 1 showed
+   it is not in `create*Pipeline`, and this shows it is not deferred compilation either. The
+   earlier cold-vs-warm observation (818 → 434 ms) should be treated as noise until re-measured;
+   run-to-run spread on this call is 756–849 ms.
+
+   **Measured 4 — where the upload volume actually comes from, and one genuine waste.**
+   Of the user's 66 MB: **20.8 MB in 1313 writes to 256×256 `rgba8unorm`** (glyph atlases),
+   21.3 MB into one 2048×2048 with 12 mips (the character texture), 23.5 MB of `writeBuffer`. The
+   glyph figure is not 82 atlases — it is a handful re-uploaded **in full, once per glyph added**,
+   exactly the mechanism Task 35 documented: `text_server_adv.cpp:3825` does
+   `tex.texture->update(img)` whenever `tex.dirty`, and that flag is set per glyph while every
+   `Label` in the scene builds its draw commands. The control makes the scale obvious: 40 labels
+   produce **78 MB** of full-atlas re-uploads where one upload per atlas per frame would be ~10 MB.
+   Worth fixing on its own merits (transient allocation, memcpy, wire traffic), but **it will not
+   clear the cliff for the user's project**: 66 MB → ~50 MB is still far above ~25 MB.
+
+   **Where this leaves subtask 2.** The largest single term in the load is a Chrome-internal
+   synchronization that is not proportional to our upload bytes, is not our pipeline compilation,
+   and appears above a ~20–30 MB upload threshold — most likely the Dawn wire's transfer staging
+   being exhausted and forcing a round trip whose cost is the GPU process draining submitted work.
+   Attributing it properly needs a **Chrome trace** (CDP `Tracing.start` with the `gpu` and
+   `disabled-by-default-gpu.debug` categories) rather than more black-box bisection; that is the
+   next concrete step and it is a fresh piece of work. Two things are worth doing regardless of
+   how that lands, and neither depends on it:
+   1. **Coalesce glyph-atlas uploads to one per atlas per frame** (defer on `dirty`, flush on
+      `RenderingServer`'s `frame_pre_draw`, which `rendering_server_default.cpp:446` already
+      emits before rendering). ~4× less atlas traffic. Gate on `WEBGPU_ENABLED` to contain the
+      risk, since a deferral bug here shows up as missing or stale glyphs.
+   2. **Tell the user the two things that already cost them seconds today**: `verbose_stdout`
+      (~1.5 s, subtask 1 Finding 2) and that a text-heavy scene pays the ~800 ms cliff — a real,
+      if blunt, argument for building UI with fewer distinct font sizes.
+
+   **Also closed from the original subtask 2 list**: 2.2 needs no work — `requestAdapter` starts
+   at 91 ms, well before and in parallel with the WASM fetches (subtask 1's table).
    2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export. **Measured 2026-09-26 (subtask 1): the main module does take the streaming path** (`application/wasm`, 10 ms for 1.3 MB) — but on a `dlink_enabled=yes` export the 51 MB **`index.side.wasm` goes through non-streaming `WebAssembly.instantiate` with a full ArrayBuffer** (48 ms fetch + 48 ms instantiate here, off a localhost server; over a real network that buffer must be fully downloaded before compilation can start). That path is Emscripten's dylink loader, not `config.js`'s override, so `instantiateWasm` does not cover it. ~96 ms locally is not where the stall is, so this is a real but low-priority finding — it matters mainly for cold loads over a slow link, where it serializes 51 MB of download against compilation that could have overlapped it.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
