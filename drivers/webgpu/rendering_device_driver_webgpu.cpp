@@ -4569,6 +4569,47 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 			if (has_dilated_in_name) {
 				continue;
 			}
+
+			// The scene shaders' own `depth_buffer` is the fifth false-positive
+			// shape, and the one that broke the three 3D demo scenes (Task 44):
+			// a *copy* of depth in a colour format, not a depth attachment.
+			// `scene_forward_clustered_inc.glsl:440` / `scene_forward_mobile_inc.glsl:397`
+			// declare `layout(set = 1, binding = 24/9) uniform texture2D depth_buffer`,
+			// which user material code reads through Godot's `DEPTH_TEXTURE`
+			// (proximity fade and refraction, `scene/resources/material.cpp:1805`/`:1834`,
+			// both `textureLod(depth_texture, ..., 0.0).r`) -- single-component, named
+			// "depth", so structurally indistinguishable from Bokeh DOF's genuinely
+			// depth-format `source_depth` that this pass exists for. What the engine
+			// binds there is `RB_TEX_BACK_DEPTH` (`renderer_scene_render_rd.cpp:418`),
+			// created `R32_SFLOAT` with `COLOR_ATTACHMENT_BIT | STORAGE_BIT` because a
+			// copy pass renders into it -- upstream's own comment says "Set this as
+			// color attachment because we're copying data into it, it's not actually
+			// used as a depth buffer". Reclassifying it makes the BGL entry
+			// `sampleType: Depth` while a colour `R32Float` is bound, which Dawn
+			// rejects outright:
+			//   None of the supported sample types (Float|UnfilterableFloat) of
+			//   [Texture 1152x648 R32Float] match the expected sample types (Depth).
+			// The binding is polymorphic on top of that (`render_forward_clustered.cpp`
+			// binds `DEFAULT_RD_TEXTURE_DEPTH` when the copy does not exist), so no
+			// single sample type can serve both -- and `Float` is the one that serves
+			// the case that actually renders. Left un-reclassified the WGSL keeps
+			// `texture_2d<f32>` plus the `.x` swizzle, which is exactly right for the
+			// R32Float copy; the fallback path only engages in the rarer
+			// default-texture case, where there is no depth copy to read anyway.
+			//
+			// Gated on group 1 -- the scene shaders' render-buffers set, whose binding
+			// names are fixed by engine GLSL -- so the two *other* `depth_buffer`
+			// bindings in this engine are untouched: `taa_resolve.glsl:47` (set 0,
+			// genuinely fed the real depth texture by `taa.cpp`, and audited in
+			// Task 7.13 as a binding this pass *should* rewrite) and
+			// `cluster_debug.glsl:65` (set 0). A user material uniform that happened
+			// to be named `depth_buffer` lands in group 3, also untouched.
+			if (name_len == 12 && strncmp(name, "depth_buffer", 12) == 0) {
+				unsigned int grp = 0, bnd = 0;
+				if (_find_preceding_group_binding(wgsl, c.name_start, grp, bnd) && grp == 1) {
+					continue;
+				}
+			}
 		}
 
 		bool disqualified = false;

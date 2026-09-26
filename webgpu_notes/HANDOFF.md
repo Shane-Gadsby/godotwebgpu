@@ -1,6 +1,6 @@
 # Handoff — WebGPU work in progress
 
-**As of 2026-09-27.** Branch `webgpu-4.7.2`, working tree clean, 16 commits ahead of
+**As of 2026-09-27 (second pass).** Branch `webgpu-4.7.2`, 17 commits ahead of
 `origin/webgpu-4.7.2` (nothing pushed — this fork never pushes).
 
 This is a snapshot for picking the work up cold. `webgpu_notes/TASKS.md` remains the living
@@ -12,11 +12,13 @@ which traps cost time. Task numbers below index into TASKS.md.
 ## 1. One-paragraph status
 
 The web export's load time and its Firefox support both moved a long way (Tasks 14, 38, 41, 44), and
-the test suite now covers roughly twice what it did (Tasks 42, 44). **One problem is open and
-well-understood but unfixed**: three 3D demo scenes fail in both browsers because Tint classifies a
-plain `texture2D` as a depth texture, which no configuration change can avoid — see §4. Everything
-else below is either landed and verified, or a correction to something previously written down
-wrongly.
+the test suite now covers roughly twice what it did (Tasks 42, 44). **The depth-texture problem is
+fixed** — and it was never Tint's: this driver's own post-Tint WGSL pass
+`_reclassify_single_component_depth_textures()` was rewriting the scene shaders' `depth_buffer` to
+`texture_depth_2d`. `demo_3d_platformer` and `stress_3d_platformer` now pass (44 errors each → 0).
+**One scene is still failing**, `demo_3d_particles`, on a genuinely separate storage-texture format
+mismatch — see §4. Everything else below is either landed and verified, or a correction to something
+previously written down wrongly.
 
 ---
 
@@ -27,14 +29,16 @@ wrongly.
 | `shader_corpus` | **14/14** | after the SDF fix |
 | `driver_unit_tests` | **332/0** | after the SDF fix |
 | `preprocessing_tests` | **205/0, 1 skipped** | after the SDF fix |
-| Scene smoketest — Chrome | **15 pass, 3 fail, 1 skip** | after the SDF fix |
-| Scene smoketest — Firefox | **15 pass, 3 fail, 1 skip** | 2026-09-27, latest |
+| Scene smoketest — Chrome | **the 3 failing scenes re-run: 2 pass, 1 fail** | 2026-09-27, after the reclassify fix |
+| Scene smoketest — Chrome (all 19) | **15 pass, 3 fail, 1 skip** | before the reclassify fix |
+| Scene smoketest — Firefox | **15 pass, 3 fail, 1 skip** | before the reclassify fix |
 | Resource lifecycle / screenshot comparison | pass | last full `local_ci.sh` |
 | Scene smoketest — Safari | skipped | macOS only; never run here |
 
-The three failures are the *same* three scenes in both browsers — `demo_3d_particles`,
-`demo_3d_platformer`, `stress_3d_platformer` — and are §4's open problem. Chrome reports 69/44/44
-errors, Firefox 3/2/2 for the same cause (Firefox coalesces repeats).
+The three failures were the *same* three scenes in both browsers — `demo_3d_particles`,
+`demo_3d_platformer`, `stress_3d_platformer`. Two of them are fixed (§4); `demo_3d_particles` is
+down from 69 to 49 errors, all of them one remaining cause. A full 19-scene run in both browsers has
+not been made since the fix.
 `demo_compute_heightmap` is the 1 skip, marked `known_limitation` in `scenes.json` (§4.3).
 
 **A full `./webgpu_tests/local_ci.sh --no-safari` has not been run since the SDF fix.** It will
@@ -62,68 +66,75 @@ equivalent to uncompressed at RMSE 0.0006.
 
 ---
 
-## 4. The open problem (Task 44)
+## 4. The depth-texture bug, fixed — and what is left (Task 44)
 
-### 4.1 Symptom
-`demo_3d_particles`, `demo_3d_platformer`, `stress_3d_platformer` fail in Chrome and Firefox:
+### 4.1 What it was
+`demo_3d_particles`, `demo_3d_platformer`, `stress_3d_platformer` failed in Chrome and Firefox on:
 ```
 None of the supported sample types (Float|UnfilterableFloat) of [Texture 1152x648 R32Float]
   match the expected sample types (Depth).
  - While validating entries[24] against { binding: 48, sampleType: Depth ... }
  - While validating [BindGroupDescriptor] against [BindGroupLayout "bgl:SceneForwardClusteredShaderRD:19:set1"]
 ```
+Binding 48 = GLSL set 1 binding 24 (the driver doubles every non-combined binding) = `depth_buffer`,
+declared `uniform texture2D` and fed `RB_TEX_BACK_DEPTH`: a *colour* `R32_SFLOAT` copy of depth,
+polymorphic with `DEFAULT_RD_TEXTURE_DEPTH`.
 
-### 4.2 Root cause (established, with evidence)
-- Binding 48 = GLSL set 1 binding 24 (**the driver doubles every non-combined binding**) =
-  `depth_buffer`, declared `uniform texture2D` — a *float* texture.
-- SPIR-V deduplicates identical types, so **one `OpTypeImage` is shared by 22 variables**, including
-  the shadow atlases (comparison-sampled) and `depth_buffer` (plainly sampled). Depth-ness in SPIR-V
-  lives at the *use* site, so this is legal and unambiguous there.
-- WGSL puts depth-ness *in the type*, so Tint infers it from usage and promotes variables of the
-  shared type. Which ones get promoted depends on which uses survive that conversion, so **the same
-  BGL label is built 12 times with different contents** — `entry[24]` is `float` on some creations and
-  `depth` on others. Bind groups fail on the `depth` ones.
-- Verified by dumping the **preprocessed** SPIR-V (`TINT_DEBUG_DUMP_PREPROCESSED`): every image still
-  has `Depth=0` going in, while the WGSL coming out has six `texture_depth` declarations.
+### 4.2 The cause was ours, not Tint's
+`_reclassify_single_component_depth_textures()` (`rendering_device_driver_webgpu.cpp:4372`, Task 7.13)
+rewrites a `texture_2d<f32>` binding to `texture_depth_2d` when it is named "*depth*" and only ever
+read one component at a time. Godot's `DEPTH_TEXTURE` (proximity fade, refraction —
+`scene/resources/material.cpp:1805`/`:1834`, both `textureLod(depth_texture, …, 0.0).r`) is exactly
+that shape, so the pass rewrote the scene shaders' `depth_buffer` and the BGL entry became
+`sampleType: Depth` with a colour `R32Float` bound.
 
-### 4.3 Ruled out — do not re-investigate
-- **`fix_depth2_images()`** — irrelevant. Every image is `Depth=0`; the pass finds nothing to do.
-- **Tint's `_depth_alias` clone mechanism** — *does not exist* in the vendored Tint. The string is
-  nowhere in `thirdparty/tint/`, and appears in none of 22 captured WGSL outputs. The driver code
-  that looks for it (`wgsl_depth_alias_bindings`, its name-suffix scan, the BGL entries it emits) is
-  **dead code**; it misled this investigation and should be removed or annotated.
-- **Changing the texture format** — closed for three reasons: the failing texture is
-  `RB_TEX_BACK_DEPTH`, a colour attachment *and* storage image by design (so a depth format is
-  impossible); the binding is polymorphic anyway (`DEFAULT_RD_TEXTURE_DEPTH` is bound when the copy
-  does not exist); and the MSAA path could not have been changed either, since Forward+ resolves
-  depth with a compute shader writing `r32f` and WebGPU has no framebuffer depth resolve.
-- **The BGL/driver scan** is *not* wrong — it faithfully reports what Tint emitted.
+Three checks pin it, none of which needs a rebuild:
+- 287 engine shaders dumped with `GODOT_DUMP_SPIRV` and converted with `tint_convert_cli` contain
+  **zero** `texture_depth` outside the two genuine shadow atlases. Tint never promotes `depth_buffer`.
+- Tint's `lower/texture.cc` is per-*variable* (`ConvertVarToDepth()` retypes one `var`;
+  `ConvertTextureParam()` walks call sites and forks helpers), so the shared `OpTypeImage` is not a
+  promotion vector at all.
+- The WGSL captured from the running export is post-reclassification on its face:
+  `textureSampleLevel(depth_buffer, …, 0i)` with **no `.x`** and an **`i32`** level is this pass's
+  own rewrite; Tint emits `….x` with an `f32` level.
 
-### 4.4 What was attempted and reverted
-`split_depth_sampled_image_types()` — clone the ambiguous `OpTypeImage` with `depth=1` plus its
-pointer/sampled-image types, repoint the comparison-sampled variables. Compiled, converted cleanly,
-and **declined on every real shader**: 9 of 10 comparison samples reach a function-local copy of a
-*function parameter*, not a descriptor variable, because `inline_opaque_functions()` has not
-flattened those call sites. Recoverable from commit `7a7ca33c6e`'s parent.
+The "same BGL label built 12 times with different contents" needs no spec-constant story either:
+every material shares one `ShaderRD`, so one label covers every material's variant 19.
 
-Two shortcuts that avoid function-signature work were checked and both fail:
-- Mutating the shared type to `depth=1` in place and cloning `depth=0` for plain users →
-  `area_light_atlas` is genuinely plain *and* passed to a function, so it would wrongly become depth.
-- Cloning `depth=0` for plain users only → invalid SPIR-V (structurally identical duplicate type).
+### 4.3 The fix
+A fifth disqualifying signal in that pass, beside `half` and `dilated`: the exact name `depth_buffer`
+in **group 1** (the scene shaders' render-buffers set, names fixed by engine GLSL). The WGSL then
+keeps `texture_2d<f32>` and the `.x` swizzle, which is right for the `R32Float` copy. Group 1 gating
+keeps `taa_resolve.glsl`'s and `cluster_debug.glsl`'s own `depth_buffer` (both set 0) rewriting as
+before; a user material uniform of that name lands in group 3.
 
-### 4.5 The way forward
-A correct split must follow data flow **through `OpFunctionCall` / `OpFunctionParameter`,
-`OpStore`/`OpLoad` of local copies, and `OpTypeFunction`**, duplicating any helper called with both a
-comparison and a non-comparison texture. That is a type-inference-and-specialization pass — day-scale.
+**Result**: `demo_3d_platformer` and `stress_3d_platformer` pass with gpu=0 (44 errors each before).
+`shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip.
 
-**Before committing to that, spend an hour on the narrow version**: the goal is only to stop *this
-binding* being classified as depth. WebGPU's `unfilterable-float` sample type accepts **both** a
-colour `R32Float` and a depth-format texture, and this binding is sampled with `SAMPLER_NEAREST_CLAMP`
-— so one layout can serve both cases if the WGSL stops saying `texture_depth_2d`. A pass that only
-splits variables which are *never* comparison-sampled *and* never cross a function boundary may be
-enough, and is far smaller.
+### 4.4 What is still open — `demo_3d_particles`, a storage-format mismatch
+69 → 49 errors, and the remainder is one cause with a cascade behind it:
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, R32Float)]
+  expected to be (TextureFormat::RGBA16Float).
+ - While validating entries[0] against { binding: 0, visibility: Compute,
+     storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }
+```
+then `SetBindGroup(3, [Invalid BindGroup], …)` ×497 and `[Invalid CommandBuffer]` ×497. A write-only
+storage texture, group 3 binding 0, compute, screen-sized — the shape of `effects/copy.glsl:60-72`'s
+`dest_buffer`, declared `r32f`/`rgba8`/`rg16f`/`rgba16f` by variant. The suspects are
+`_promote_storage_format()` (which sets the *texture's* format) and the WGSL format remaps at
+`rendering_device_driver_webgpu.cpp:4840-4900` (which set the *layout's*): the code says the two must
+agree, and here they do not. Look there, not at the shader.
 
----
+### 4.5 Ruled out — do not re-investigate
+- **Tint**, in every form: the SPIR-V type split, `fix_depth2_images()` (every image is `Depth=0`),
+  and the `_depth_alias` clone mechanism (which does not exist in the vendored Tint —
+  `wgsl_depth_alias_bindings` and its name-suffix scan are dead code and should be removed).
+- **`split_depth_sampled_image_types()`**, the SPIR-V pass designed and reverted earlier: it was
+  aimed at a producer that was never producing this. Do not revive it for this bug.
+- **Changing `RB_TEX_BACK_DEPTH`'s format** — it is a colour attachment and storage image by design,
+  and the binding is polymorphic anyway. TASKS.md Task 44 has the three independent reasons.
+- **The BGL/driver scan** is not wrong; it faithfully reports what the WGSL says.
 
 ## 5. Corrections — things recorded wrongly earlier
 
@@ -142,6 +153,13 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
    sampler.
 5. **Task 14's "the remaining stall is the browser's WGSL→pipeline compilation" is wrong.** Shader
    module and pipeline creation are ~10 ms of a ~2000 ms stall.
+6. **Task 44's whole Tint story was wrong** (§4.2). The depth promotion came from this driver's own
+   post-Tint pass, not from Tint's SPIR-V reader; the shared `OpTypeImage` was a real observation
+   with a wrong inference attached. The general lesson: WGSL captured from the *engine* has already
+   been through the driver's text passes, so it is not Tint's output — `tint_convert_cli` on the same
+   SPIR-V is, and comparing the two is a two-minute check that would have saved two rounds.
+7. **The twelve differing BGLs under one label are materials, not specializations.** Every material
+   shares one `ShaderRD`, and the label carries only shader name + variant index.
 
 ---
 
@@ -197,16 +215,26 @@ different modules, and designing against the wrong one cost this session a full 
 
 Also: Playwright cannot drive the user's own Firefox build (it needs its patched one), and raising
 the console-capture truncation is what made Dawn's `While validating …` chain visible — without it
-the errors are unreadable.
+the errors are unreadable. `scene_smoketest/run_scenes.mjs` still truncates to 200 characters and
+prints ~100, which cuts the `While validating …` chain off again, so a real diagnosis needs a
+throwaway Playwright script of one's own (serve the export directory, `page.on('console')`, dedupe
+into a Map, print 2000 characters) launched with the *same* Chrome flags the harness uses — a
+different adapter changes the limits and therefore the errors.
 
 ---
 
 ## 8. Suggested order for the next session
 
-1. **Task 44's narrow split** (§4.5) — the only thing standing between the suite and green.
-2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once.
-3. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
+1. **`demo_3d_particles`'s storage-format mismatch** (§4.4) — the last failing scene, and now a
+   one-cause failure with the exact Dawn message and two named suspects.
+2. **A full 19-scene run in both browsers** — the fix is verified on the three scenes it targeted and
+   on every offline tier, but not yet across the whole tier in Firefox.
+3. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once. While
+   there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
+   combined-sampler sibling has (Task 24), which is why §4.1 was a hard error rather than quiet
+   corruption.
+4. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
    which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
    container at export time is the biggest remaining load win and is entirely our own code.
-4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+5. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
