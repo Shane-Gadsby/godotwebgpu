@@ -252,6 +252,41 @@ function exportScene(scene, editorBin, templateZip) {
         }
     };
 
+    // Force the WebGPU renderer for the export. Godot picks the web driver from
+    // `rendering/renderer/rendering_method.web` specifically (see
+    // platform/web/export/export_plugin.cpp), and a project that only sets the
+    // unsuffixed `rendering_method` -- which every godot-demo-projects project
+    // does -- falls back to gl_compatibility, i.e. exports as OpenGL. That made
+    // all ten demo scenes silently test the *OpenGL* backend while reporting as
+    // WebGPU passes. Mirror the base method onto .web when the project has not
+    // set it and the base is an RD renderer.
+    const projectFile = join(projectPath, 'project.godot');
+    let originalProject = null;
+    if (existsSync(projectFile)) {
+        const pg = readFileSync(projectFile, 'utf8');
+        if (!/^renderer\/rendering_method\.web\s*=/m.test(pg)) {
+            const base = pg.match(/^renderer\/rendering_method\s*=\s*"([^"]+)"/m);
+            const baseMethod = base ? base[1] : '';
+            // An RD method is mirrored as-is. Anything else -- gl_compatibility, or
+            // the setting being absent entirely, which means Godot's forward_plus
+            // default -- becomes forward_plus, because a scene exported as OpenGL
+            // exercises none of this driver and would report as a WebGPU pass while
+            // testing nothing. scenes.json lists these as WebGPU scenes; this makes
+            // that true.
+            const method = (baseMethod === 'forward_plus' || baseMethod === 'mobile') ? baseMethod : 'forward_plus';
+            originalProject = pg;
+            const line = `renderer/rendering_method.web="${method}"`;
+            writeFileSync(projectFile, /^\[rendering\]/m.test(pg)
+                ? pg.replace(/^\[rendering\]/m, `[rendering]\n\n${line}`)
+                : `${pg}\n[rendering]\n\n${line}\n`);
+        }
+    }
+    const restoreProject = () => {
+        if (originalProject !== null) {
+            writeFileSync(projectFile, originalProject);
+        }
+    };
+
     // Some scenes need instrumentation the upstream project does not carry -- the
     // heightmap demo only runs its compute shader on a button press, so without a
     // self-test it would load, do nothing, and pass even with a broken compute
@@ -263,10 +298,12 @@ function exportScene(scene, editorBin, templateZip) {
         const target = join(projectPath, scene.script_patch.target);
         const patchFile = join(__dirname, 'patches', scene.script_patch.patch);
         if (!existsSync(target)) {
+            restoreProject();
             restorePresets();
             return { success: false, error: `script_patch target not found: ${target}` };
         }
         if (!existsSync(patchFile)) {
+            restoreProject();
             restorePresets();
             return { success: false, error: `script_patch file not found: ${patchFile}` };
         }
@@ -297,6 +334,7 @@ function exportScene(scene, editorBin, templateZip) {
         return { success: false, error: e.stderr?.toString().substring(0, 200) || e.message?.substring(0, 200) || 'export failed' };
     } finally {
         restoreScript();
+        restoreProject();
         restorePresets();
     }
 }

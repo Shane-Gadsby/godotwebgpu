@@ -9,12 +9,29 @@
 # appends cleanly without editing any existing function body.
 
 func _enter_tree() -> void:
-	# Deferred so it runs after _ready(), which is what resolves the @onready
-	# node references this relies on.
-	call_deferred("_webgpu_heightmap_selftest")
+	_webgpu_heightmap_selftest.call_deferred()
 
 
 func _webgpu_heightmap_selftest() -> void:
+	# On WebGPU, texture readback is asynchronous: the first texture_2d_get() call
+	# starts it and returns an empty Image, and the data arrives on a later frame
+	# (see TextureStorage::texture_2d_get, which documents exactly this). The demo's
+	# init_gpu() reads gradient_tex.get_image().get_data() once and would get
+	# nothing, failing texture_create() for the gradient and cascading into a
+	# uniform-set error that reads like a driver bug. So prime the readback here
+	# until it lands, then let the demo's own single call hit the warmed cache.
+	# On Vulkan the first call already returns data and this loop exits immediately.
+	var primed := false
+	for _i in range(120):
+		await get_tree().process_frame
+		var img := gradient_tex.get_image()
+		if img != null and not img.is_empty():
+			primed = true
+			break
+	if not primed:
+		print("[HEIGHTMAP-CHECK] FAIL gradient texture readback never completed")
+		return
+
 	var heightmap := prepare_image()
 	var input_bytes := heightmap.get_data()
 
