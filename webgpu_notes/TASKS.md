@@ -5790,4 +5790,39 @@ against 14 console errors before. Chrome is unchanged: 1038 ms stall against 101
 which is the expected result rather than a disappointing one — the Octmap chain filters reflection
 probes, and this scene shows no visible probe contribution, so what the fix removes is the validation
 failure, not a visible artifact. **A scene that actually uses reflection probes on Firefox is the case
-that would show a visual difference, and has not been tested.**
+that would show a visual difference** — now tested, below.
+
+#### Task 41 — tested against a scene that actually uses reflection probes
+
+`webgpu_tests/reflection_probe_test/` (new): a mirror-metallic sphere in a room of four brightly,
+distinctly colored emissive walls with a `ReflectionProbe` over it. The per-wall colors are the
+point — a channel swap or a precision collapse in the Octmap chain shows up as an obviously wrong
+reflection rather than a subtle one — and since only the sphere depends on the chain, the flat walls
+and floor gradient are controls in the same screenshot.
+
+**Chrome takes the native `rgb10a2unorm` path, Firefox the promoted `rgba16float` one**, which makes a
+straight cross-browser comparison the sharpest available test: Firefox cannot run the native path at
+all, so there is no Firefox-native reference to compare against instead.
+
+| region of the frame | mean abs error, Chrome vs Firefox |
+|---|---|
+| flat wall (no probe contribution) | 0.00001 |
+| floor gradient (no probe contribution) | 0.0001 |
+| **the sphere's reflection** | **0.0007** |
+
+The reflection reads identically — blue left, green center, yellow right, red behind, same specular
+highlights. It *is* measurably more different than the controls (7× the floor), and that is expected
+rather than alarming: the two paths quantise on different grids. Peak difference is 4.7% on a single
+channel, and the difference image shows it concentrated on **edges and banding contours**, with the
+smooth interior of each reflected colour patch unchanged — the signature of antialiasing and
+quantisation-step boundaries, not of a channel or precision error, which would differ across whole
+regions instead.
+
+**The promoted path is the more precise of the two, not the degraded one**, which is worth stating
+because the instinct is the opposite: `rgb10a2unorm` quantises to 1/1023 ≈ 0.001 per channel, while
+`rgba16float` carries a 10-11 bit mantissa with an exponent, so its step near 1.0 is ~0.0005 and finer
+below that. The cost of the promotion is memory (64 bits per texel against 32), not quality.
+
+**Also confirmed**: Firefox creates **14 Octmap shader modules** (`CubeToOctmap`, `OctmapDownsampler`,
+`OctmapFilter`, `OctmapRoughness`) with **0 validation errors and 0 shader messages** — before the fix
+those bind group layouts were invalid and the chain never ran at all.
