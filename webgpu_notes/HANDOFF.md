@@ -29,16 +29,23 @@ previously written down wrongly.
 | `shader_corpus` | **14/14** | after the SDF fix |
 | `driver_unit_tests` | **332/0** | after the SDF fix |
 | `preprocessing_tests` | **205/0, 1 skipped** | after the SDF fix |
-| Scene smoketest — Chrome | **the 3 failing scenes re-run: 2 pass, 1 fail** | 2026-09-27, after the reclassify fix |
-| Scene smoketest — Chrome (all 19) | **15 pass, 3 fail, 1 skip** | before the reclassify fix |
-| Scene smoketest — Firefox | **15 pass, 3 fail, 1 skip** | before the reclassify fix |
+| Scene smoketest — Chrome | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
+| Scene smoketest — Firefox | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
 | Resource lifecycle / screenshot comparison | pass | last full `local_ci.sh` |
 | Scene smoketest — Safari | skipped | macOS only; never run here |
 
 The three failures were the *same* three scenes in both browsers — `demo_3d_particles`,
-`demo_3d_platformer`, `stress_3d_platformer`. Two of them are fixed (§4); `demo_3d_particles` is
-down from 69 to 49 errors, all of them one remaining cause. A full 19-scene run in both browsers has
-not been made since the fix.
+`demo_3d_platformer`, `stress_3d_platformer`. Two of them are fixed (§4). The one left,
+`demo_3d_particles`, fails in both browsers on one remaining cause, which each browser words
+differently (Chrome: `Format (R32Float) … expected to be (RGBA16Float)`; Firefox: `Storage texture
+binding 0 expects format = Rgba16float`). Both full 19-scene runs above were made against a freshly
+built editor+template pair at this commit, with a fresh export of every scene.
+
+Two harness quirks seen in that run, neither caused by the fix and neither affecting a result:
+`benchmark_sprites`'s export fails on a missing `res://benchmark_profiler.gd` (it then tests the
+previous export and passes), and `demo_compute_heightmap` exports successfully but is skipped as
+"not exported" — the `index.html` existence check runs before the `known_limitation` check, so the
+reason string is misleading.
 `demo_compute_heightmap` is the 1 skip, marked `known_limitation` in `scenes.json` (§4.3).
 
 **A full `./webgpu_tests/local_ci.sh --no-safari` has not been run since the SDF fix.** It will
@@ -108,11 +115,13 @@ keeps `texture_2d<f32>` and the `.x` swizzle, which is right for the `R32Float` 
 keeps `taa_resolve.glsl`'s and `cluster_debug.glsl`'s own `depth_buffer` (both set 0) rewriting as
 before; a user material uniform of that name lands in group 3.
 
-**Result**: `demo_3d_platformer` and `stress_3d_platformer` pass with gpu=0 (44 errors each before).
+**Result**: `demo_3d_platformer` and `stress_3d_platformer` pass with gpu=0 (44 errors each before),
+and the whole tier is **17 pass, 1 fail, 1 skip in both Chrome and Firefox** (was 15/3/1).
 `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip.
 
 ### 4.4 What is still open — `demo_3d_particles`, a storage-format mismatch
-69 → 49 errors, and the remainder is one cause with a cascade behind it:
+The only failing scene left, in both browsers (Chrome 39 errors, Firefox 4), one cause with a cascade
+behind it:
 ```
 Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, R32Float)]
   expected to be (TextureFormat::RGBA16Float).
@@ -227,14 +236,12 @@ different adapter changes the limits and therefore the errors.
 
 1. **`demo_3d_particles`'s storage-format mismatch** (§4.4) — the last failing scene, and now a
    one-cause failure with the exact Dawn message and two named suspects.
-2. **A full 19-scene run in both browsers** — the fix is verified on the three scenes it targeted and
-   on every offline tier, but not yet across the whole tier in Firefox.
-3. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once. While
+2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once. While
    there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
    combined-sampler sibling has (Task 24), which is why §4.1 was a hard error rather than quiet
    corruption.
-4. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
+3. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
    which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
    container at export time is the biggest remaining load win and is entirely our own code.
-5. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.

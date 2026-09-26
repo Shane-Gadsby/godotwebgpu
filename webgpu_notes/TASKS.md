@@ -6311,10 +6311,17 @@ genuinely fed the real depth texture, and audited in Task 7.13 as one this pass 
 `cluster_debug.glsl:65` (set 0); a user material uniform of that name lands in group 3.
 
 **Verified**: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip,
-and the scene smoketest in Chrome with a freshly built non-dlink nothreads template —
-`demo_3d_platformer` and `stress_3d_platformer` **PASS** (gpu=0), where both reported 44 errors.
+and the full 19-scene smoketest re-exported against a freshly built editor+template pair at this
+commit — **17 pass, 1 fail, 1 skip in Chrome and the same in Firefox** (was 15/3/1 in both).
+`demo_3d_platformer` and `stress_3d_platformer` report gpu=0 where both reported 44 errors.
 
-**Not fixed, and now isolated**: `demo_3d_particles` (69 → 49 errors) has a *different* root cause,
+Two harness quirks turned up in that run, neither caused by this fix: `benchmark_sprites`'s export
+fails on a missing `res://benchmark_profiler.gd` (the scene then runs the previous export and passes),
+and `demo_compute_heightmap` exports fine but is reported `SKIP (not exported)` because
+`run_scenes.mjs` checks for `index.html` before it checks `known_limitation`.
+
+**Not fixed, and now isolated**: `demo_3d_particles` (69 → 39 errors in Chrome, 4 in Firefox, which
+coalesces repeats) has a *different* root cause,
 the "expected to be RGBA16Float" half of §4.1, and it is the only remaining error in that scene:
 ```
 Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, TextureFormat::R32Float)]
