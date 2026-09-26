@@ -4248,6 +4248,73 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
 
    **Also closed from the original subtask 2 list**: 2.2 needs no work — `requestAdapter` starts
    at 91 ms, well before and in parallel with the WASM fetches (subtask 1's table).
+
+   **RESULTS (2026-09-26) — subtask 2 second pass: glyph-atlas coalescing removes the block
+   entirely; ~800 ms off the user's real project** `[FIXED — VERIFIED IN BROWSER AND NATIVELY]`
+
+   **Note on the numbers throughout this task**: they were measured on a very fast desktop with
+   an integrated GPU. They are a **floor**, not a typical case — most machines will be slower, so
+   the stall a player sees elsewhere is larger than anything recorded here, and a saving measured
+   here is the smallest saving it will produce.
+
+   **Measured 5 — flushing the wire more often does not help either.** Before changing anything,
+   the staging-exhaustion reading of the cliff was tested directly: the profiler was made to issue
+   an empty `queue.submit([])` every N MB of writes (`--flush-every-mb`), which flushes the Dawn
+   wire without submitting GPU work. At 8, 4 and 2 MB intervals (3036–7664 probe flushes) the
+   block was unchanged: 737 / 708 / 715 ms against a 758 ms baseline, stall 1925–1949 ms
+   throughout. So the cliff is not simply a transfer pool that draining would keep clear.
+
+   **The fix** (`modules/text_server_adv/text_server_adv.cpp`, `modules/text_server_fb/text_server_fb.cpp`,
+   kept identical, as Task 35 established): both text servers now **defer glyph-atlas uploads to one
+   flush per frame** on WebGPU. Four near-identical inline "if the atlas is dirty, re-upload all of
+   it" blocks in each file collapse into `_ensure_atlas_texture()`; on WebGPU it marks the atlas
+   `upload_pending` and `_flush_dirty_font_atlases()` uploads every pending atlas once, from
+   `RenderingServer`'s `frame_pre_draw` (`rendering_server_default.cpp:446`), which runs after the
+   scene tree has finished recording draw commands and before rendering. Everywhere else the
+   upload stays inline, byte for byte as before.
+
+   Three details that carry the risk:
+   - **`upload_pending` is a new flag, separate from `dirty`.** Reusing `dirty` would have left it
+     set all frame, so the per-change work it guards — `fix_alpha_edges()` and `generate_mipmaps()`,
+     both O(atlas) — would have run on *every* glyph access instead of once, trading a GPU upload
+     for worse CPU. `dirty` is still cleared exactly when it always was.
+   - **The first upload of an atlas is never deferred**, because the `ImageTexture` has to exist
+     before its RID can be handed to a draw command.
+   - **Deferral is refused when there is no `RenderingServer`** (`_defer_atlas_upload()` returns
+     false), so a tool or test context with nothing to run the flush uploads inline rather than
+     queueing an upload that would never happen. The flush iterates live fonts through
+     `font_owner` rather than holding a pending list of `FontForSize*` pointers, so a font cache
+     freed between queue and flush cannot dangle.
+
+   **Result** — same machine, same commit, editor and template rebuilt together:
+
+   | | uploads before first frame | slowest queue call | stall |
+   |---|---|---|---|
+   | user's project, before | 66.1 MB / 1530 calls | 761–849 ms | 1925–2036 ms |
+   | user's project, after | **30.6 MB / 156 calls** | **11 ms** | **1146–1170 ms** |
+   | 40-label control, before | 96.3 MB / 459 calls | 766 ms | 1718 ms |
+   | 40-label control, after | **3.8 MB / 108 calls** | **4 ms** | **830–847 ms** |
+
+   **~800 ms off the user's real project (41%), and ~880 ms off the text-heavy control (51%).**
+   The blocking call is gone outright in both, not merely shortened: uploads fall below the cliff.
+   The reduction is larger than the 20.8 MB of atlas pixels alone, because the mipmap
+   regeneration each re-upload dragged along went with it.
+
+   **Verified**: `shader_corpus` 13/13, `driver_unit_tests` 332/0. Text renders correctly in the
+   browser for both the 40-label control and the user's real project (all labels, sliders and
+   readouts present and crisp — this is the load-bearing check, since a deferral bug shows up as
+   missing or stale glyphs). The **native Vulkan inline path** was checked the same way by running
+   the control project natively: all 40 labels render correctly. Native editor builds clean with
+   `module_text_server_fb_enabled=yes`, so the second text server was actually compiled rather
+   than skipped.
+
+   **Where the remaining ~1150 ms sits** (user's project, after the fix): ~750 ms is the fixed
+   floor subtask 1 measured, ~325 ms is `Load Game`, and the first frame is now unremarkable.
+
+   **The cliff itself is still there, and still unexplained** — this fix ducks under it rather than
+   removing it, so a project uploading more than ~30 MB before its first frame will still meet it.
+   The Chrome GPU trace stays the way to understand it, but its priority has dropped a long way
+   now that neither test project hits it.
    2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export. **Measured 2026-09-26 (subtask 1): the main module does take the streaming path** (`application/wasm`, 10 ms for 1.3 MB) — but on a `dlink_enabled=yes` export the 51 MB **`index.side.wasm` goes through non-streaming `WebAssembly.instantiate` with a full ArrayBuffer** (48 ms fetch + 48 ms instantiate here, off a localhost server; over a real network that buffer must be fully downloaded before compilation can start). That path is Emscripten's dylink loader, not `config.js`'s override, so `instantiateWasm` does not cover it. ~96 ms locally is not where the stall is, so this is a real but low-priority finding — it matters mainly for cold loads over a slow link, where it serializes 51 MB of download against compilation that could have overlapped it.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
