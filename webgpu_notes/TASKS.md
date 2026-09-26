@@ -6045,9 +6045,52 @@ None of the supported sample types (Float|UnfilterableFloat) of [Texture (unlabe
 1152×648 is a screen-resolution buffer, not the particle-collision heightfield (which is created
 correctly as `D32_SFLOAT` at a power-of-two size, `particles_storage.cpp:1890`). A colour `R32Float`
 is reaching a binding whose shader declares a *depth* texture, and elsewhere one that expects
-`RGBA16Float`. That points at the driver's depth-texture aliasing or at a storage-format promotion
-changing a texture out from under a bind group layout — **not** at a missing format fallback like the
-2D case. Not investigated further.
+`RGBA16Float`.
+
+**Localized (2026-09-26), not fixed.** The binding is now identified exactly:
+
+- The failing entry is `binding: 48, sampleType: Depth` in `bgl:SceneForwardClusteredShaderRD:19:set1`
+  (and `:18:`). Dawn's full message names `entries[24]` — visible only after raising the
+  console-capture truncation, which had been hiding the whole `While validating …` chain.
+- **Binding 48 is GLSL set 1 binding 24**: the driver doubles every non-combined binding
+  (`entry.binding = u.binding * 2`), which the dumped WGSL confirms (GLSL 26→52, 27→54 … 36→72).
+- GLSL set 1 binding 24 is **`depth_buffer`**, declared `uniform texture2D depth_buffer`
+  (`scene_forward_clustered_inc.glsl:440`) — a **float** texture, not a depth one.
+- The texture bound to it is a screen-sized `R32Float`, and that is upstream Godot behavior rather
+  than a bug: `RenderSceneBuffersRD::get_depth_format()` (`render_scene_buffers_rd.cpp:810`)
+  deliberately returns `R32_SFLOAT` for a resolved depth buffer when storage is required, because
+  depth formats cannot carry `TEXTURE_USAGE_STORAGE_BIT`. So this binding legitimately receives a real
+  depth texture in some configurations and a color one in others.
+
+**The actual defect is that the layout is not deterministic.** Dumping *every*
+`createBindGroupLayout` call rather than only the last shows the same label built twelve times with
+different contents:
+
+```
+bgl:SceneForwardClusteredShaderRD:19:set1 -- created 12 time(s)
+  #0 entries: 37  depth at: 10,12   entry[24]: {b:48, st:"float"}
+  #1 entries: 37  depth at: (none)  entry[24]: {b:48, st:"float"}
+  #4 entries: 37  depth at: 48      entry[24]: {b:48, st:"depth"}
+  #5 entries: 37  depth at: 48      entry[24]: {b:48, st:"depth"}
+```
+Bindings 10 and 12 (`shadow_atlas` and `directional_shadow_atlas`, legitimately `texture_depth_2d`)
+come and go as well. The bind groups fail on exactly the creations that classify binding 48 as
+`depth`.
+
+`wgsl_is_depth_texture` is populated only by scanning the emitted WGSL for `texture_depth_*`
+(`rendering_device_driver_webgpu.cpp:5659`), and **no dumped WGSL for these variants declares
+`depth_buffer` at all** — it is unused there. So the classification varies with whichever WGSL that
+particular creation happened to convert, which differs because specialization re-conversion
+(`_create_module_with_spec_constants()`) produces different code per spec-constant set while the BGL
+label carries no spec-constant hash. A layout whose entry types depend on which specialization was
+compiled cannot be right: the RD-level resource it has to accept is fixed.
+
+**Next step**: find why a `texture2D` declaration reaches Tint as a depth image in some
+specializations — `fix_depth2_images` resolving a `Depth=2` (unknown) image, or the depth-alias
+split, are the candidates — then key the entry's sample type off the *reflection*, which is stable,
+rather than off whichever WGSL text this creation produced. Binding a depth-format texture through an
+`unfilterable-float` entry is legal in WebGPU, so a single stable classification accepting both is
+likely available.
 
 The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
 ```
