@@ -6166,6 +6166,53 @@ variable's image type — and that type is the one shared by 22 variables.
 is now clearly the right one rather than a workaround — Tint is handed a module in which the answer
 is genuinely ambiguous, and steering cannot fix an ambiguous input.
 
+#### Task 44 — the split was written, and it is harder than the design assumed `[ATTEMPTED, REVERTED]`
+
+`split_depth_sampled_image_types()` was implemented and wired ahead of `fix_depth2_images()` in both
+pipeline copies: resolve each `OpImageSampleDref*` back to its variable, find image types shared
+between comparison and non-comparison users, clone the type with `depth=1`, clone the pointer and
+sampled-image types that reference it, and repoint the comparison-sampled variables and their loads.
+It compiled, converted the real scene shader without error, and produced byte-identical WGSL — which
+turned out to be the tell: **it declined on every real shader**, and the instrumented bail said why:
+
+```
+[SDT] dref=10 depthvars=1 ambiguous=1 unresolved=1 imgtypes=4
+```
+
+Nine of the ten comparison samples do not reach a descriptor variable at all. Tracing the
+*preprocessed* module (the form the pass actually receives, not glslang's output) shows the real
+shape: 7 of the 10 sample a **function-local variable named `shadow`**, which is a copy of a
+**function parameter**, and `inline_opaque_functions()` has not flattened those call sites. So the
+chain is `Dref → OpSampledImage → OpLoad → local var ← OpStore ← parameter ← OpFunctionCall arg`,
+crossing calls, parameters and local copies.
+
+Measuring the whole module makes the cost concrete — of 25 image-typed variables, **5 are reachable
+as comparison-sampled by a direct trace, and 2 of the 24 "plain" ones are passed into an
+`OpFunctionCall`**. One of those two is `directional_shadow_atlas`, which *is* genuinely
+comparison-sampled inside a callee: a direct trace misclassifies it. That kills the two shortcuts
+that would have avoided touching function signatures:
+- **Mutating the shared type to `depth=1` in place** and cloning `depth=0` for the plain users needs
+  no signature work and leaves the shadow helpers untouched — but `area_light_atlas`, a genuinely
+  plain texture that is also passed to a function, would stay on the mutated type and become a depth
+  texture. The bug would move, not go.
+- **Cloning `depth=0` for the plain users only** is invalid SPIR-V: the clone would be structurally
+  identical to the original, and duplicate non-aggregate type declarations are not allowed.
+
+So a correct split has to follow data flow **through calls, parameters, `OpStore`/`OpLoad` of local
+copies, and `OpTypeFunction`**, and duplicate any helper that is called with both a comparison and a
+non-comparison texture. That is a type-inference-and-specialization pass, not the local rewrite this
+was scoped as.
+
+**Reverted rather than left in place.** As written it is safe — it declines on anything it cannot
+prove — but it would never fire on the shader it exists for, and this task had just finished
+criticizing exactly that: dead code that the next person reasons from. The analysis above is the
+deliverable; the implementation is recoverable from this commit's parent if wanted.
+
+**If picked up again**, the order that would have saved time here: dump the *preprocessed* SPIR-V
+first (`TINT_DEBUG_DUMP_PREPROCESSED`) and trace the real `Dref` provenance in it, before designing
+the rewrite. Glslang's output and what reaches Tint are different modules, and the design was drawn
+against the wrong one.
+
 The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
 ```
 Bind group layout [BindGroupLayout "bgl:CanvasSdfShaderRD:0:set0"] of pipeline layout
