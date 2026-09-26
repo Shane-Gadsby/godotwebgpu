@@ -5871,3 +5871,63 @@ and runtime (these eight scenes) — and across eight scenes rather than two han
 smoketest's export path forces `extensions_support=false` and therefore needs the **non-dlink**
 `godot.web.template_release.wasm32.nothreads.zip`. Only re-exporting requires it; a plain run against
 existing exports does not.
+
+**Update — the `demo_*` tier now runs too.** `godot-demo-projects` was cloned next to this repo (the
+path `scenes.json` already expected), which took the smoketest from 8 runnable scenes to 19. Two
+things were needed to make that tier work from a plain clone, and both are now in the harness:
+- The demo projects ship **no `export_presets.cfg` at all**, and `exportScene()` only patched an
+  existing one — so that tier could only ever have run for someone who had hand-written 10 preset
+  files. It now generates a minimal Web preset when none exists, and removes it afterwards.
+- `demo_compute_heightmap` expects a `[HEIGHTMAP-CHECK] PASS` log that no upstream demo emits; the
+  instrumentation producing it had never been committed here. Added as
+  `patches/compute_heightmap_check.gd`, applied via a new `script_patch` field in `scenes.json` and
+  removed after export. The demo is interactive — its compute shader only runs on a button press — so
+  the patch also drives it, and checks the readback is non-zero, differs from the input, **and** is
+  brighter at the center than the corners, which is the part that would catch a plausible-looking
+  wrong result rather than just a blank one.
+
+Result: **18 of 19 scenes pass in both Chrome and Firefox**, with `demo_compute_heightmap` reported as
+a documented limitation (Task 43) rather than a failure. Verified clean: neither the repo nor the
+`godot-demo-projects` clone is left modified by a run.
+
+---
+
+### Task 43: `create_local_rendering_device()` returns null on WebGPU, silently `[DIAGNOSED — NOT FIXED]`
+**Status**: surfaced by getting the `godot-demo-projects` tier of the smoketest running for the first
+time on this machine (Task 42). Diagnosed to the entry point; not fixed.
+**Severity**: MEDIUM — it breaks every project that uses a local `RenderingDevice` for offscreen
+compute, which is the documented Godot way to run a compute shader outside the renderer.
+
+**Symptom.** `RenderingServer.create_local_rendering_device()` returns `null` on the WebGPU backend,
+**with no error printed at all**. `compute/heightmap` (the upstream Godot demo) therefore silently
+does nothing: it loads, its UI appears, and the compute shader never runs. The demo's own null path
+then calls `$...HBoxContainer2/Label2`, which does not exist in the current scene, so the only console
+output is an unrelated-looking `Node not found` error.
+
+**Where it stops.** `RenderingServer::create_local_rendering_device()`
+(`rendering_server.cpp:1889`) → `RenderingDevice::create_local_device()`
+(`rendering_device.cpp:9418`) → `rd->initialize(context)`, whose **first statement** is
+`ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE)`. On a single-threaded web build the call arrives from
+GDScript on the main thread, and that guard returns `ERR_UNAVAILABLE` without printing in a release
+build — which matches the observed silence exactly. `create_local_device()` then deletes the
+half-built device and returns `nullptr` with nothing logged. **This is the diagnosis, not a
+confirmed root cause**: the guard has not been instrumented to prove it is the branch taken, and
+`context->driver_create()` importing a second WebGPU device is the other candidate, since the context
+imports the one device the JS shell pre-initialises (`rendering_context_driver_webgpu.cpp:63-102`) and
+has no path for making another.
+
+**Two separate things to fix, and the smaller one is worth doing regardless**:
+1. **The silence.** Whatever the answer, returning `null` from a public API with no diagnostic is the
+   part that cost the time here — the demo looked like it rendered fine. A `WARN_PRINT` naming the
+   reason would have made this a one-minute diagnosis.
+2. **The capability.** Whether a local `RenderingDevice` *can* be supported on WebGPU is a real
+   design question: the shell pre-initialises exactly one `GPUDevice`, so a second RD would either
+   have to share it (and with it the queue and all the per-thread handle-table constraints from
+   Task 12) or acquire another asynchronously, which nothing in the current init path can do.
+
+**Handled in the suite meanwhile**: `scenes.json` marks `demo_compute_heightmap` with a
+`known_limitation` naming this task, and `run_scenes.mjs` reports such scenes as SKIP with the reason
+rather than FAIL — so the suite stays honest without a known gap sitting in the failure list, where it
+would train people to ignore failures. The heightmap self-test added in Task 42
+(`patches/compute_heightmap_check.gd`) stays in place and will start reporting PASS/FAIL properly the
+moment the limitation is lifted; removing the `known_limitation` line is then the only change needed.

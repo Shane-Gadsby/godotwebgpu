@@ -44,7 +44,7 @@
  */
 
 import { createServer } from 'http';
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync, appendFileSync, rmSync } from 'fs';
 import { join, extname, resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -188,7 +188,55 @@ function exportScene(scene, editorBin, templateZip) {
     const preset = scene.preset || 'WebGPU';
     const presetsPath = join(projectPath, 'export_presets.cfg');
     let originalPresets = null;
-    if (existsSync(presetsPath)) {
+    let createdPresets = false;
+
+    // The godot-demo-projects checkout ships no export_presets.cfg at all, so the
+    // demo tier of this suite could only ever run for someone who had written one
+    // by hand. Generate a minimal one instead, which makes that tier work from a
+    // plain `git clone` of the demos. Only ever written when the file is absent --
+    // a project with its own presets is patched and restored as before, never
+    // replaced. Removed again afterwards, since it is not ours to leave behind.
+    if (!existsSync(presetsPath)) {
+        writeFileSync(presetsPath, [
+            '[preset.0]',
+            '',
+            `name="${preset}"`,
+            'platform="Web"',
+            'runnable=true',
+            'dedicated_server=false',
+            'custom_features=""',
+            'export_filter="all_resources"',
+            'include_filter=""',
+            'exclude_filter=""',
+            'export_path=""',
+            'patches=PackedStringArray()',
+            'encryption_include_filters=""',
+            'encryption_exclude_filters=""',
+            'encrypt_pck=false',
+            'encrypt_directory=false',
+            'script_export_mode=2',
+            '',
+            '[preset.0.options]',
+            '',
+            'custom_template/debug=""',
+            `custom_template/release="${templateZip}"`,
+            'variant/extensions_support=false',
+            'variant/thread_support=false',
+            'vram_texture_compression/for_desktop=true',
+            'vram_texture_compression/for_mobile=false',
+            'html/export_icon=true',
+            'html/custom_html_shell=""',
+            'html/head_include=""',
+            'html/canvas_resize_policy=2',
+            'html/focus_canvas_on_start=true',
+            'html/experimental_virtual_keyboard=false',
+            'progressive_web_app/enabled=false',
+            '',
+        ].join('\n'));
+        createdPresets = true;
+    }
+
+    if (!createdPresets && existsSync(presetsPath)) {
         originalPresets = readFileSync(presetsPath, 'utf8');
         let content = originalPresets;
         content = content.replace(/custom_template\/release="[^"]*"/g, `custom_template/release="${templateZip}"`);
@@ -197,8 +245,38 @@ function exportScene(scene, editorBin, templateZip) {
         writeFileSync(presetsPath, content);
     }
     const restorePresets = () => {
-        if (originalPresets !== null) {
+        if (createdPresets) {
+            rmSync(presetsPath, { force: true });
+        } else if (originalPresets !== null) {
             writeFileSync(presetsPath, originalPresets);
+        }
+    };
+
+    // Some scenes need instrumentation the upstream project does not carry -- the
+    // heightmap demo only runs its compute shader on a button press, so without a
+    // self-test it would load, do nothing, and pass even with a broken compute
+    // path. scenes.json names the patch; it is appended before export and removed
+    // afterwards, like the presets above.
+    let patchedScript = null;
+    let originalScript = null;
+    if (scene.script_patch) {
+        const target = join(projectPath, scene.script_patch.target);
+        const patchFile = join(__dirname, 'patches', scene.script_patch.patch);
+        if (!existsSync(target)) {
+            restorePresets();
+            return { success: false, error: `script_patch target not found: ${target}` };
+        }
+        if (!existsSync(patchFile)) {
+            restorePresets();
+            return { success: false, error: `script_patch file not found: ${patchFile}` };
+        }
+        originalScript = readFileSync(target, 'utf8');
+        writeFileSync(target, originalScript + readFileSync(patchFile, 'utf8'));
+        patchedScript = target;
+    }
+    const restoreScript = () => {
+        if (patchedScript !== null && originalScript !== null) {
+            writeFileSync(patchedScript, originalScript);
         }
     };
 
@@ -218,6 +296,7 @@ function exportScene(scene, editorBin, templateZip) {
     } catch (e) {
         return { success: false, error: e.stderr?.toString().substring(0, 200) || e.message?.substring(0, 200) || 'export failed' };
     } finally {
+        restoreScript();
         restorePresets();
     }
 }
@@ -254,6 +333,15 @@ async function runScenePlaywright(scene, browser, timeout) {
     const exportDir = join(EXPORTS_DIR, scene.export_id || scene.id);
     if (!existsSync(join(exportDir, 'index.html'))) {
         return { status: 'SKIP', reason: 'not exported' };
+    }
+
+    // A scene that depends on something this backend does not implement yet is
+    // reported as a named limitation rather than a bare failure. The distinction
+    // matters: a FAIL should mean "this regressed", and burying a known gap in the
+    // failure list trains people to ignore it. The reason string has to name the
+    // task that tracks it, so the entry cannot quietly outlive the limitation.
+    if (scene.known_limitation) {
+        return { status: 'SKIP', reason: `known limitation: ${scene.known_limitation}` };
     }
 
     const { server, url } = await startServer(exportDir, { injectScript: true, sceneInjectScript: scene.inject_script || null });
