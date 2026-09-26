@@ -4369,6 +4369,60 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
 5. Document
    5.1. Record before/after timing numbers for the user's real project under this task, following this doc's established Verified-with-numbers convention.
 
+   **RESULTS (2026-09-26) — texture-compression investigation: BC1 is a large win, BC7 is broken**
+   `[IN PROGRESS — one real bug found, not yet fixed]`
+
+   Started because after the glyph fix the user's project still uploads 30.6 MB before the first
+   frame, 21.3 MB of it a single 2048×2048 `rgba8unorm` character texture plus its 12 mips, leaving
+   thin margin above the command-ring cliff on slower machines.
+
+   **The plumbing already exists on both sides.** `platform/web/export/export_plugin.cpp:358-364`
+   already emits `s3tc`/`bptc` for `vram_texture_compression/for_desktop` and `etc2`/`astc` for
+   `for_mobile`, and the driver supports all three families
+   (`rendering_device_driver_webgpu.cpp:1435-1445`, `pixel_formats_webgpu.h:338-394`). What made
+   this project upload uncompressed is the **per-texture import setting**, `compress/mode=0` with
+   `detect_3d/compress_to=0` — the export flags only select among variants the importer produced,
+   so a texture imported lossless ignores them entirely. That layering is the thing a developer-
+   facing option would need to address.
+
+   **BC1 (`for_desktop` + `compress/mode=2`) works and is worth having:**
+
+   | | 2048² texture upload | total before first frame | stall |
+   |---|---|---|---|
+   | uncompressed (today) | 21.3 MB | 30.6 MB | 1146–1170 ms |
+   | **BC1 / s3tc** | **2.7 MB** (`bc1-rgba-unorm`) | **11.9 MB** | **997–1027 ms** |
+   | BC7 / bptc | 5.3 MB (`bc7-rgba-unorm`) | 14.5 MB | 1006 ms |
+
+   The format reaching the GPU is the compressed one, so there is no CPU decompression on load.
+   BC1 quality against the uncompressed baseline is **RMSE 0.0006 of full scale** over the rendered
+   frame — indistinguishable at viewport scale (not pixel-peeped at 1:1). Another ~140 ms off, and
+   it puts the project comfortably under the cliff.
+
+   **BC7 / BPTC renders the character completely black.** Not a quality difference — a real defect:
+   ```
+   GPUValidationError: copySize.width (2) is not a multiple of compressed texture format block width (4).
+    - While validating source [Texture "unnamed#31 2048x2048x1 mip12 fmt62 usage0x7"] copy range.
+   GPUValidationError: [Invalid CommandBuffer] is invalid due to a previous error.
+   ```
+   A 2048² texture with 12 mips has 2×2 and 1×1 levels whose *physical* size is one 4×4 block, and
+   WebGPU requires a compressed copy extent to be a block multiple. `command_copy_buffer_to_texture`
+   already rounds for this (`block_w`/`block_h`, ~line 8300), but a **texture-to-texture** copy path
+   does not — three candidate sites, `wgpuCommandEncoderCopyTextureToTexture` at lines **7803, 8460
+   and 10975**. The failed copy invalidates the command buffer, so the upload never lands and the
+   albedo samples black. BC1 does not hit it (0 errors across two runs) even though it has the same
+   4×4 block size, so **which path runs only for BPTC is the first thing to establish** — that is
+   where the investigation stopped.
+
+   **Not yet measured**: ETC2/ASTC (`for_mobile`) at all; and the adapter feature coverage across
+   Chrome, Firefox and Safari that would decide which formats an export should actually ship. Both
+   matter for the export-option design, since shipping only BC would leave mobile browsers with no
+   matching variant.
+
+   **Next steps, in order**: (1) root-cause and fix the BPTC copy-extent bug — it is a correctness
+   defect independent of this task, and it silently blackens textures rather than failing loudly;
+   (2) measure ETC2/ASTC and the per-browser feature matrix; (3) only then design the export option,
+   which per the user should expose the lossy/lossless choice at export level rather than per asset.
+
 ---
 
 ### Task 15: `particles.glsl:default:comp` Tint ICE — REGRESSION from the `emsdk-upgrade` Tint resync (Dawn `db49a549...` → `b975919d...`), root-caused and fixed with a 10th vendored Tint patch `[DONE]`
