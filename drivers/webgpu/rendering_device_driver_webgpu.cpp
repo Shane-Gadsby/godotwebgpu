@@ -1417,6 +1417,17 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 		print_verbose("WebGPU: texture-formats-tier1 feature is available — r8/rg8 storage formats supported natively.");
 	}
 
+	// texture-formats-tier2: adds rgb10a2unorm, rgb10a2uint and rg11b10ufloat as
+	// storage-texel formats. Without it those three are promoted (see
+	// _promote_storage_format() and the WGSL remap that must match it), which is
+	// what keeps the Octmap shaders working on Firefox.
+	has_texture_formats_tier2 = wgpuDeviceHasFeature(device, WGPUFeatureName_TextureFormatsTier2);
+	if (has_texture_formats_tier2) {
+		print_verbose("WebGPU: texture-formats-tier2 feature is available — rgb10a2/rg11b10 storage formats supported natively.");
+	} else {
+		print_verbose("WebGPU: texture-formats-tier2 NOT available — rgb10a2/rg11b10 storage textures will be promoted to rgba16.");
+	}
+
 	// readonly-and-readwrite-storage-textures: allows read and read_write access
 	// modes on storage textures. Without this, only write-only is valid.
 	has_rw_storage_textures = (bool)EM_ASM_INT({
@@ -3191,6 +3202,28 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_promote_storage_format(WGPUTextu
 				return p_format;
 			}
 			return WGPUTextureFormat_RG32Sint;
+		// Packed 10/11-bit formats: valid storage-texel formats only with
+		// texture-formats-tier2, which Chrome exposes and Firefox does not. Promoted
+		// to rgba16 rather than rgba8 so the extra precision these formats exist for
+		// survives -- an octahedral radiance/normal atlas quantised to 8 bits per
+		// channel bands visibly. The WGSL remap below promotes the matching
+		// texture_storage_* declarations to exactly these formats; the two must agree
+		// or the bind group fails validation. See Task 41.
+		case WGPUTextureFormat_RGB10A2Unorm:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Float;
+		case WGPUTextureFormat_RGB10A2Uint:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Uint;
+		case WGPUTextureFormat_RG11B10Ufloat:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Float;
 		// 16-bit formats: always promote. Shaders reference the 32-bit version
 		// and there is no matching WGSL replacement for these.
 		case WGPUTextureFormat_R16Float:
@@ -4764,6 +4797,24 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 		ws = ws.replace("r8snorm", "r32float");
 		ws = ws.replace("r8uint", "r32uint");
 		ws = ws.replace("r8sint", "r32sint");
+		free(r_wgsl_str);
+		CharString cs = ws.utf8();
+		r_wgsl_str = (char *)malloc(cs.length() + 1);
+		memcpy(r_wgsl_str, cs.get_data(), cs.length() + 1);
+	}
+
+	// Without texture-formats-tier2, rgb10a2unorm/rgb10a2uint/rg11b10ufloat are not
+	// valid storage-texel formats. Firefox reports this as
+	// "WriteOnly access to storage textures with format Rgb10a2Unorm is not
+	// supported", which invalidates the bind group layout, then the pipeline layout,
+	// and the Octmap shaders never run. Promote to the same targets
+	// _promote_storage_format() uses for the texture itself -- the two must agree.
+	if (!has_texture_formats_tier2 &&
+			(strstr(r_wgsl_str, "rgb10a2") || strstr(r_wgsl_str, "rg11b10"))) {
+		String ws(r_wgsl_str);
+		ws = ws.replace("rgb10a2unorm", "rgba16float");
+		ws = ws.replace("rgb10a2uint", "rgba16uint");
+		ws = ws.replace("rg11b10ufloat", "rgba16float");
 		free(r_wgsl_str);
 		CharString cs = ws.utf8();
 		r_wgsl_str = (char *)malloc(cs.length() + 1);
