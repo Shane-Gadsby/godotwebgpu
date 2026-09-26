@@ -151,6 +151,8 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv = spirv_preprocess::split_initialized_local_arrays(spv);
 	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
 	spv = spirv_preprocess::fold_ballot_bit_count(spv);
+	// Must follow fold_ballot_bit_count(), which is what makes the ballots dead.
+	spv = spirv_preprocess::lower_subgroup_ops(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);
