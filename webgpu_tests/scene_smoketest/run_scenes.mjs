@@ -18,6 +18,8 @@
  *
  * Options:
  *   --export           Export scenes before running (requires Godot editor binary)
+ *                      GODOT_EDITOR_BIN / GODOT_TEMPLATE_ZIP override scenes.json's
+ *                      paths, which name macOS artifacts.
  *   --export-only      Export scenes and exit without running tests
  *   --skip-export      Only run already-exported scenes (default)
  *   --scene <name>     Run only the named scene (partial match supported)
@@ -178,16 +180,27 @@ function exportScene(scene, editorBin, templateZip) {
         return { success: false, error: `project.godot not found at ${projectPath}` };
     }
 
-    // Patch export preset to use our template
+    // Patch export preset to use our template. These files are committed, and the
+    // patch writes an absolute path for whichever machine is running, so the
+    // original is restored afterwards -- otherwise every run leaves eight modified
+    // files in the working tree (which is how a macOS path came to be committed in
+    // the first place).
     const preset = scene.preset || 'WebGPU';
     const presetsPath = join(projectPath, 'export_presets.cfg');
+    let originalPresets = null;
     if (existsSync(presetsPath)) {
-        let content = readFileSync(presetsPath, 'utf8');
+        originalPresets = readFileSync(presetsPath, 'utf8');
+        let content = originalPresets;
         content = content.replace(/custom_template\/release="[^"]*"/g, `custom_template/release="${templateZip}"`);
         content = content.replace(/variant\/extensions_support=true/g, 'variant/extensions_support=false');
         content = content.replace(/vram_texture_compression\/for_mobile=true/g, 'vram_texture_compression/for_mobile=false');
         writeFileSync(presetsPath, content);
     }
+    const restorePresets = () => {
+        if (originalPresets !== null) {
+            writeFileSync(presetsPath, originalPresets);
+        }
+    };
 
     const exportPath = join(exportDir, 'index.html');
 
@@ -204,6 +217,8 @@ function exportScene(scene, editorBin, templateZip) {
         return { success: true, exportDir };
     } catch (e) {
         return { success: false, error: e.stderr?.toString().substring(0, 200) || e.message?.substring(0, 200) || 'export failed' };
+    } finally {
+        restorePresets();
     }
 }
 
@@ -666,8 +681,12 @@ async function main() {
 
     // Export if requested
     if (doExport) {
-        const editorBin = resolve(__dirname, config.editor_bin || 'godot');
-        const templateZip = resolve(__dirname, config.template_zip || '../../bin/godot.web.template_release.wasm32.nothreads.zip');
+        // scenes.json's editor_bin and template_zip name macOS artifacts, so on any
+        // other host --export needs an override rather than an edit to the committed
+        // config. Absolute paths are honored as-is; relative ones resolve against
+        // this directory, as the config's own values do.
+        const editorBin = resolve(__dirname, process.env.GODOT_EDITOR_BIN || config.editor_bin || 'godot');
+        const templateZip = resolve(__dirname, process.env.GODOT_TEMPLATE_ZIP || config.template_zip || '../../bin/godot.web.template_release.wasm32.nothreads.zip');
 
         if (!existsSync(editorBin)) {
             console.error(`ERROR: Editor binary not found: ${editorBin}`);
