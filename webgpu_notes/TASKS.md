@@ -6138,6 +6138,34 @@ existing passes in `spirv_preprocess.cpp` and touches nothing outside `drivers/w
 checking first whether Tint's own `*_depth_alias` clone mechanism can be steered into doing this,
 since it already exists for the closely related `Depth=2` case.
 
+**Checked (2026-09-26): the `_depth_alias` route does not exist in this Tint, and the driver code
+that looks for it is dead.**
+- The string `_depth_alias` appears **nowhere** in `thirdparty/tint/` — not in the SPIR-V reader, its
+  parser, its lowering passes, or any vendored patch — and there is no "alias" mechanism anywhere
+  under `lang/spirv/reader/`.
+- It appears in **none of 22** real WGSL outputs captured from a running export.
+- So `wgsl_depth_alias_bindings` (`rendering_device_driver_webgpu.cpp:4945`), the name-suffix scan
+  that fills it (`:5709`) and the extra BGL entries it emits (`:6431`) are **dead code against the
+  Tint this fork vendors**; they presumably matched an older Dawn. There is nothing to steer, and
+  that code should either be removed or carry a note saying it is inert — this task reasoned from its
+  existence and was misled by it.
+
+**The promotion is also not driven by the SPIR-V `Depth` field**, which rules out the other
+candidate. Running `tint_convert_cli` on the real `SceneForwardClusteredShaderRD:19.frag.spv` with
+`TINT_DEBUG_DUMP_PREPROCESSED` and reading the dump back shows **every image still carries
+`Depth=0`** after all twelve preprocessing passes — `shadow_atlas` and `directional_shadow_atlas`
+included — while the WGSL Tint produces from that same input contains six `texture_depth`
+occurrences. So Tint promotes a texture to depth from **how it is used** (`OpImageSampleDref*`), not
+from the declared field, and `fix_depth2_images()` is irrelevant to this bug in both directions.
+That is consistent with `kIsDepthMatcher` (`lang/spirv/intrinsic/data.cc:1277`), which coerces an
+unconstrained depth parameter to `kDepth` when matching a depth-sampling overload, after which
+`TypeForImage()` (`lang/spirv/reader/lower/texture.cc:1119`) emits `depth_texture` from the
+variable's image type — and that type is the one shared by 22 variables.
+
+**Conclusion: pre-splitting the types in our own preprocessing is the only available route**, and it
+is now clearly the right one rather than a workaround — Tint is handed a module in which the answer
+is genuinely ambiguous, and steering cannot fix an ambiguous input.
+
 The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
 ```
 Bind group layout [BindGroupLayout "bgl:CanvasSdfShaderRD:0:set0"] of pipeline layout
