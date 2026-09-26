@@ -30,13 +30,12 @@
 
 #include "spirv_to_wgsl.h"
 
-#include "spirv_preprocess.h"
-#include "tint_wrapper.h"
-
 #include "core/error/error_macros.h"
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 #include "core/variant/variant.h"
+#include "drivers/webgpu/spirv_preprocess.h"
+#include "drivers/webgpu/tint_wrapper.h"
 
 #include <cstring>
 #include <vector>
@@ -86,6 +85,8 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	spv = spirv_preprocess::split_initialized_local_arrays(spv);
 	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
 	spv = spirv_preprocess::fold_ballot_bit_count(spv);
+	// Must follow fold_ballot_bit_count(), which is what makes the ballots dead.
+	spv = spirv_preprocess::lower_subgroup_ops(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);
 	spv = spirv_preprocess::infer_readonly_storage(spv);

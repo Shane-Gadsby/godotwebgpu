@@ -3165,6 +3165,305 @@ Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes) 
 	return out;
 }
 
+// ---- lower_subgroup_ops ----
+
+Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes) {
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	// GroupNonUniform opcodes. The family is contiguous from Elect (333) to the
+	// last arithmetic reduction (364); anything in that span this pass does not
+	// explicitly lower makes it bail, so a shader can never come out half-lowered
+	// with its capabilities stripped.
+	static constexpr uint16_t OP_CAPABILITY = 17;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_FIRST = 333;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_LAST = 364;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BROADCAST = 337;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BROADCAST_FIRST = 338;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BALLOT = 339;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_ARITH_FIRST = 349;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_ARITH_LAST = 364;
+
+	// Capability operands for the subgroup family (GroupNonUniform ..
+	// GroupNonUniformQuad).
+	static constexpr uint32_t CAP_GROUP_NONUNIFORM_FIRST = 61;
+	static constexpr uint32_t CAP_GROUP_NONUNIFORM_LAST = 68;
+
+	// GroupOperation: 0 = Reduce, 1 = InclusiveScan, 2 = ExclusiveScan. The first
+	// two are the lane's own value with one lane; ExclusiveScan would be the
+	// operation's identity element, which differs per operation, so a module
+	// containing one is left alone rather than guessed at.
+	static constexpr uint32_t GROUP_OP_REDUCE = 0;
+	static constexpr uint32_t GROUP_OP_INCLUSIVE_SCAN = 1;
+
+	// Instructions whose trailing words are literals rather than ids. The
+	// liveness scan below treats every word as a potential id reference, which is
+	// deliberately conservative -- it can only cause this pass to decline, never
+	// to rewrite something it should not -- but skipping the obvious literal
+	// carriers keeps a constant's *value* from being mistaken for a result id.
+	auto carries_literals = [](uint16_t p_op) {
+		switch (p_op) {
+			case 3: // OpSource
+			case 4: // OpSourceExtension
+			case 5: // OpName
+			case 6: // OpMemberName
+			case 7: // OpString
+			case 8: // OpLine
+			case 10: // OpExtension
+			case 11: // OpExtInstImport
+			case 14: // OpMemoryModel
+			case 15: // OpEntryPoint
+			case 16: // OpExecutionMode
+			case 17: // OpCapability
+			case 21: // OpTypeInt
+			case 22: // OpTypeFloat
+			case 43: // OpConstant
+			case 50: // OpSpecConstant
+			case 71: // OpDecorate
+			case 72: // OpMemberDecorate
+			case 251: // OpSwitch
+			case 330: // OpModuleProcessed
+				return true;
+			default:
+				return false;
+		}
+	};
+
+	// --- Pass 1: decide whether the whole module can be lowered, and collect the
+	// ballot results so their liveness can be checked.
+	HashSet<uint32_t> ballot_results;
+	bool found_any = false;
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op >= OP_GROUP_NONUNIFORM_FIRST && op <= OP_GROUP_NONUNIFORM_LAST) {
+			found_any = true;
+			if (op == OP_GROUP_NONUNIFORM_BROADCAST_FIRST && wc == 5) {
+				// Lowerable.
+			} else if (op == OP_GROUP_NONUNIFORM_BROADCAST && wc == 6) {
+				// Lowerable.
+			} else if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+				ballot_results.insert(read_word(data, len, pos + 2));
+			} else if (op >= OP_GROUP_NONUNIFORM_ARITH_FIRST && op <= OP_GROUP_NONUNIFORM_ARITH_LAST && wc == 6) {
+				// Layout: %result_type %result_id %scope %operation %value -- the
+				// scope is an id and the operation the literal after it.
+				uint32_t group_op = read_word(data, len, pos + 4);
+				if (group_op != GROUP_OP_REDUCE && group_op != GROUP_OP_INCLUSIVE_SCAN) {
+					return p_bytes; // ExclusiveScan or clustered/partitioned: not ours to fold.
+				}
+			} else {
+				// Elect, votes, shuffles, quad ops, a surviving BallotBitCount:
+				// not lowered here, so leave the module exactly as it is.
+				return p_bytes;
+			}
+		}
+
+		pos += wc;
+	}
+
+	if (!found_any) {
+		return p_bytes;
+	}
+
+	// A ballot's single-lane result is `uvec4(pred ? 1 : 0, 0, 0, 0)`: with one
+	// lane there is only bit 0 to set. That is built rather than assumed dead,
+	// because it is not -- cluster_render.glsl keeps the mask in a local, so the
+	// value is still stored even after fold_ballot_bit_count() has folded its only
+	// real consumer. Building it needs the component type of the ballot's vector
+	// result plus constants 0 and 1 of that type.
+	uint32_t uint_type_id = 0;
+	uint32_t const_zero_id = 0;
+	uint32_t const_one_id = 0;
+	if (!ballot_results.is_empty()) {
+		HashSet<uint32_t> ballot_result_types;
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+				ballot_result_types.insert(read_word(data, len, pos + 1));
+			}
+			pos += wc;
+		}
+
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_TYPE_VECTOR && wc == 4 && ballot_result_types.has(read_word(data, len, pos + 1))) {
+				uint_type_id = read_word(data, len, pos + 2);
+			}
+			pos += wc;
+		}
+		if (uint_type_id == 0) {
+			return p_bytes; // Cannot identify the component type; leave it alone.
+		}
+
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_CONSTANT && wc == 4 && read_word(data, len, pos + 1) == uint_type_id) {
+				uint32_t value = read_word(data, len, pos + 3);
+				if (value == 0 && const_zero_id == 0) {
+					const_zero_id = read_word(data, len, pos + 2);
+				} else if (value == 1 && const_one_id == 0) {
+					const_one_id = read_word(data, len, pos + 2);
+				}
+			}
+			pos += wc;
+		}
+	}
+
+	// --- Pass 2: rewrite.
+	const uint32_t nop_word = (1u << 16) | 0u; // OpNop.
+
+	// Ids for anything that has to be synthesized: the missing 0/1 constants and
+	// one OpSelect result per ballot.
+	uint32_t next_id = read_word(data, len, 3); // Header bound.
+	bool inject_zero = (!ballot_results.is_empty() && const_zero_id == 0);
+	bool inject_one = (!ballot_results.is_empty() && const_one_id == 0);
+	if (inject_zero) {
+		const_zero_id = next_id++;
+	}
+	if (inject_one) {
+		const_one_id = next_id++;
+	}
+	HashMap<uint32_t, uint32_t> ballot_select_id; // Ballot result id -> OpSelect result id.
+	for (const uint32_t &ballot_id : ballot_results) {
+		ballot_select_id[ballot_id] = next_id++;
+	}
+
+	Vector<uint8_t> out;
+	out.resize(0);
+	append_bytes(out, data, 0, 3 * 4);
+	push_word(out, next_id); // Updated bound.
+	append_bytes(out, data, 4 * 4, 4);
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			append_bytes(out, data, pos * 4, (total_words - pos) * 4);
+			break;
+		}
+
+		// Drop the subgroup capabilities, so Tint has no reason to emit
+		// `enable subgroups` -- the whole point of the pass.
+		if (op == OP_CAPABILITY && wc == 2) {
+			uint32_t cap = read_word(data, len, pos + 1);
+			if (cap >= CAP_GROUP_NONUNIFORM_FIRST && cap <= CAP_GROUP_NONUNIFORM_LAST) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// The synthesized constants go right before the first function, which in a
+		// valid module is after every type and constant declaration.
+		if (op == OP_FUNCTION && (inject_zero || inject_one)) {
+			if (inject_zero) {
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, uint_type_id);
+				push_word(out, const_zero_id);
+				push_word(out, 0u);
+			}
+			if (inject_one) {
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, uint_type_id);
+				push_word(out, const_one_id);
+				push_word(out, 1u);
+			}
+			inject_zero = false;
+			inject_one = false;
+		}
+
+		// `x = op(scope, x)` for one lane is `x`. OpCopyObject is shorter than
+		// every instruction it replaces, so the remainder is padded with OpNop
+		// rather than shifting every id in the module.
+		uint32_t value_word = 0;
+		bool copy_value = false;
+		if (op == OP_GROUP_NONUNIFORM_BROADCAST_FIRST && wc == 5) {
+			value_word = pos + 4;
+			copy_value = true;
+		} else if (op == OP_GROUP_NONUNIFORM_BROADCAST && wc == 6) {
+			value_word = pos + 4; // %value; the lane id operand becomes irrelevant.
+			copy_value = true;
+		} else if (op >= OP_GROUP_NONUNIFORM_ARITH_FIRST && op <= OP_GROUP_NONUNIFORM_ARITH_LAST && wc == 6) {
+			value_word = pos + 5;
+			copy_value = true;
+		}
+
+		if (copy_value) {
+			push_word(out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+			push_word(out, read_word(data, len, pos + 1)); // Result type.
+			push_word(out, read_word(data, len, pos + 2)); // Result id.
+			push_word(out, read_word(data, len, value_word));
+			for (uint32_t i = 4; i < wc; i++) {
+				push_word(out, nop_word);
+			}
+			pos += wc;
+			continue;
+		}
+
+		if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+			// uvec4(pred ? 1 : 0, 0, 0, 0) -- with one lane, only bit 0 exists.
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			uint32_t predicate = read_word(data, len, pos + 4);
+			uint32_t select_id = ballot_select_id[result_id];
+
+			push_word(out, (6u << 16) | (uint32_t)OP_SELECT);
+			push_word(out, uint_type_id);
+			push_word(out, select_id);
+			push_word(out, predicate);
+			push_word(out, const_one_id);
+			push_word(out, const_zero_id);
+
+			push_word(out, (7u << 16) | (uint32_t)OP_COMPOSITE_CONSTRUCT);
+			push_word(out, result_type);
+			push_word(out, result_id);
+			push_word(out, select_id);
+			push_word(out, const_zero_id);
+			push_word(out, const_zero_id);
+			push_word(out, const_zero_id);
+
+			pos += wc;
+			continue;
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
 // ---- fold_ballot_bit_count ----
 
 Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes) {

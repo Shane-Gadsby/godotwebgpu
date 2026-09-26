@@ -289,6 +289,37 @@ Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes);
 // electing one thread first -- see webgpu_notes/TASKS.md Task 9.1.
 Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes);
 
+// Lower the remaining subgroup (GroupNonUniform) instructions to what a
+// subgroup of one lane would compute, and drop the capabilities that go with
+// them. Firefox's WGSL parser (Naga) rejects `enable subgroups` outright --
+// "this enable-extension specifies standard functionality which is not yet
+// implemented in Naga" -- which invalidates ClusterRenderShaderRD's and
+// SceneForwardClusteredShaderRD's fragment stages and leaves a Firefox export
+// drawing no 3D at all. Chrome implements the extension, but the bake happens
+// in the editor against its Vulkan device and cannot know which browser will
+// run the result, so a web export has to target the lowest common denominator.
+// See webgpu_notes/TASKS.md Task 38.
+//
+// This is a lowering, not an approximation. Both shaders use subgroups only as
+// an optimization over a correct per-lane computation:
+//   - scene_forward_clustered.glsl widens each lane's cluster-iteration bounds
+//     to the subgroup's union (`subgroupBroadcastFirst(subgroupMin(...))`) so
+//     the loop is wave-uniform, then re-checks each lane's own bit inside --
+//     with one lane, the bounds are that lane's own and the re-check never
+//     rejects, which is the same set of items;
+//   - cluster_render.glsl elects a single lane per distinct cluster offset to
+//     perform an `atomicOr` -- and `atomicOr` is idempotent, so every lane
+//     doing its own yields the identical result (this is the same argument
+//     fold_ballot_bit_count() above already relies on).
+// The cost is the lost optimization, not lost work: a SIMD wave executes the
+// divergent union of iterations either way.
+//
+// Reduce and InclusiveScan fold to the lane's own value. ExclusiveScan would
+// need each operation's identity element, so a module containing one is left
+// untouched rather than guessed at, as is a ballot whose result reaches
+// anything other than the already-folded OpGroupNonUniformBallotBitCount.
+Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes);
+
 // NOTE: this pipeline used to carry two more passes here --
 // strip_handle_vars_from_entry_point_interface() and
 // broadcast_select_scalar_condition() -- working around a real Tint SPIR-V

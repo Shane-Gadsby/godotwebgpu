@@ -5525,8 +5525,8 @@ Still `print_verbose`, so it is no noisier than before; non-WebGPU builds are un
 
 ---
 
-### Task 38: Firefox renders **no 3D at all** — `enable subgroups` is Chrome-only `[ROOT-CAUSED, NOT FIXED]`
-**Status**: root-caused precisely, with a screenshot and the exact parser message. The fix is scoped below and not started.
+### Task 38: Firefox renders **no 3D at all** — `enable subgroups` is Chrome-only `[FIXED — VERIFIED IN BOTH BROWSERS]`
+**Status**: fixed by `spirv_preprocess::lower_subgroup_ops()`; Firefox now renders the full 3D scene. One independent blocker remains (rgb10a2unorm, below).
 **Severity**: **CRITICAL for Firefox** — the UI draws, the entire 3D scene does not.
 
 **Symptom.** On Firefox the canvas shows the full 2D UI (all labels, sliders, the camera diagram) and
@@ -5589,6 +5589,62 @@ storage formats — promote to a supported format, or fall back off the storage 
 
 **Also worth knowing**: Firefox reports `float32-blendable` as unavailable (the driver already warns
 and disables blending on float32 targets, so this is handled, not a defect).
+
+#### Task 38 — the fix: `lower_subgroup_ops()`
+
+Candidate 1 above was taken: a new SPIR-V pass, `drivers/webgpu/spirv_preprocess.cpp`, wired into both
+copies of the pipeline (`spirv_to_wgsl.cpp` for the runtime fallback and `tint_cli/main.cpp`, which is
+what the export-time baker actually runs). It rewrites each GroupNonUniform instruction to what a
+subgroup of one lane computes, then drops the `GroupNonUniform*` capabilities so Tint has no reason to
+emit `enable subgroups`:
+
+| instruction | lowered to |
+|---|---|
+| `OpGroupNonUniformBroadcastFirst` / `Broadcast` | the value operand (`OpCopyObject`) |
+| arithmetic reductions (349-364), Reduce/InclusiveScan | the value operand |
+| `OpGroupNonUniformBallot` | `OpSelect` + `OpCompositeConstruct` → `uvec4(pred ? 1 : 0, 0, 0, 0)` |
+| `OpGroupNonUniformBallotBitCount` | already folded to 0 by `fold_ballot_bit_count()`, which must run first |
+
+`OpCopyObject` is shorter than everything it replaces, so the remainder is padded with `OpNop` rather
+than shifting every id in the module. The ballot is the one case that grows, so it allocates ids and
+bumps the header bound.
+
+**The pass declines rather than guesses.** A module containing an ExclusiveScan (whose single-lane
+result is the operation's identity element, which differs per operation), an `Elect`, a vote, a
+shuffle, a quad op, or a `BallotBitCount` that survived the earlier fold is returned untouched. That
+keeps a half-lowered module with its capabilities stripped — which would be invalid SPIR-V — off the
+table entirely.
+
+**Three bugs found while writing it, all worth recording** because each produced a different wrong
+answer rather than a compile error:
+- The opcode constants were off by one: `BroadcastFirst` is **338** and `Ballot` **339**, not 339/340.
+  With the wrong values the pass silently declined on every real shader.
+- The GroupOperation literal is at word **4**, not 3 — word 3 is the execution-scope *id*. Reading the
+  wrong word made every reduction look like an ExclusiveScan and decline.
+- `OpSelect` is **6 words**, not 5; the short word count produced a module that failed validation with
+  "End of input reached while decoding OpSelect".
+
+**Verified.** `webgpu_tests/shader_corpus/fixtures/subgroup_cluster.frag` is a new fixture mirroring
+both shaders' subgroup usage (compiled with `--target-env vulkan1.1`, since subgroup ops need
+SPIR-V 1.3); its WGSL comes out with no `enable subgroups` and the expected single-lane shape — the
+election loop collapses, every lane does its own `atomicOr`, and the iteration bounds are the lane's
+own. `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0.
+**Firefox renders the full 3D scene**, matching Chrome to RMSE 0.0014 over the frame; 363 shader
+modules and 218 pipelines now build there with **zero** shader-compilation messages.
+**Chrome is unaffected**: stall 1016 ms against 1006-1025 ms before, `translated: 0`, and steady-state
+frame pacing 171 fps against 168 fps — i.e. no measurable regression.
+
+**On the performance cost**, which is real but was measured to be small here. The subgroup ops are not
+eliminating work in the scene shader: they widen each lane's cluster-iteration bounds to the
+subgroup's union so the loop is wave-uniform, and a SIMD wave executes that union either way. What is
+lost is scalarisation quality (uniform values can live in scalar registers and take scalar loads) and
+some scheduling freedom. In cluster_render the subgroups *do* eliminate work — one `atomicOr` per
+distinct cluster offset instead of one per lane — so a light-heavy scene pays more atomic traffic
+there. The user's project has three lights and shows no measurable change; **a scene with many lights
+or decals per cluster is where a cost would appear, and that has not been measured.**
+If it ever proves material, the escape hatch is baking both variants and selecting on
+`wgpuDeviceHasFeature(subgroups)` at runtime — more work, and it doubles the bake for two shader
+classes, so it is not worth doing before a measurement asks for it.
 
 ---
 
