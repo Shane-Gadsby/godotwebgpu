@@ -1,5 +1,5 @@
 {
-  "description": "WebGPU scene smoke test configuration — all scenes verified to run with 0 GPU errors unless noted",
+  "description": "WebGPU scene smoke test configuration \u2014 all scenes verified to run with 0 GPU errors unless noted",
   "editor_bin": "../../bin/godot.macos.editor.arm64",
   "scenes": [
     {
@@ -42,7 +42,7 @@
       "path": "../benchmark/godot/scene_f_postfx",
       "preset": "WebGPU",
       "max_errors": 2,
-      "description": "Post-processing (SubViewport + SSAO + Bloom) — known texture sync warning"
+      "description": "Post-processing (SubViewport + SSAO + Bloom) \u2014 known texture sync warning"
     },
     {
       "id": "benchmark_shadows",
@@ -84,7 +84,7 @@
       "path": "../../../godot-demo-projects/3d/lights_and_shadows",
       "preset": "Web",
       "max_errors": 2,
-      "description": "3D lights and shadows — known sky update warning"
+      "description": "3D lights and shadows \u2014 known sky update warning"
     },
     {
       "id": "demo_3d_particles",
@@ -116,8 +116,18 @@
       "preset": "Web",
       "max_errors": 0,
       "description": "Compute shader heightmap",
-      "pass_patterns": ["[HEIGHTMAP-CHECK] PASS"],
-      "pass_patterns_browsers": ["chrome", "firefox"]
+      "pass_patterns": [
+        "[HEIGHTMAP-CHECK] PASS"
+      ],
+      "pass_patterns_browsers": [
+        "chrome",
+        "firefox"
+      ],
+      "script_patch": {
+        "target": "main.gd",
+        "patch": "compute_heightmap_check.gd"
+      },
+      "known_limitation": "RenderingServer.create_local_rendering_device() returns null on WebGPU -- TASKS.md Task 43"
     },
     {
       "id": "demo_compute_texture",
