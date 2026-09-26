@@ -5990,7 +5990,66 @@ afterwards: an RD method is mirrored as-is, and `gl_compatibility` or an absent 
 | `demo_3d_platformer` | 36 |
 | `stress_3d_platformer` | 36 (same export) |
 
-The dominant signature is a **bind group bound to the wrong pipeline layout**:
+#### Task 44 — `demo_2d_particles` fixed: the SDF buffer had no format fallback
+
+**735 errors → 0, and the scene now passes.** The first error was the only real one; everything after
+it was cascade:
+```
+ERROR: Format 'R16_Snorm' does not support usage as sampling texture.
+  at: texture_create (rendering_device.cpp:1707)
+```
+`TextureStorage::_update_render_target_sdf()` (`texture_storage.cpp:5027`) creates the SDF read buffer
+as `R16_SNORM` unconditionally. That is not a core WebGPU texture format, the driver correctly reports
+it unsupported, `texture_create()` returned a null RID, `uniform_set_create()` then failed for the
+binding that referenced it, and every `compute_list_bind_uniform_set()` of that set after it errored —
+hundreds per frame.
+
+Fixed by asking whether the format is usable and falling back to the same-size **`R16_SFLOAT`** when it
+is not. The values stored are signed distances in [-1, 1], a range a half float carries at least as
+well as a 16-bit normalized integer. It is a capability question rather than a `WEBGPU_ENABLED` gate,
+so any driver lacking the format benefits, and it matches what FSR2 already does for exactly this
+format (`effects/fsr2.cpp`'s `convert_snorm16_to_sfloat16`).
+
+The shader side already agreed: `canvas_sdf.glsl` declares `layout(r16_snorm)`, and the driver's
+existing WGSL storage-format remap rewrites that to `r32float`, which is also what
+`_promote_storage_format()` turns an `R16_SFLOAT` storage texture into. Both halves land on the same
+format without further changes.
+
+**A wrong turn worth recording**, because the reasoning looks sound and is not: the first attempt was
+to support `R16_SNORM` natively. The enum values *do* now exist (`WGPUTextureFormat_R16Snorm` and
+friends in emdawnwebgpu 6.0.9), contradicting Task 7.10's note that they do not, and the WGSL remap
+already gates 16-bit snorm/unorm on `texture-formats-tier1`, so mapping them natively and gating the
+capability on tier1 looked like the tidy fix. It made things **worse** — 735 errors became thousands:
+Dawn reports `R16Snorm`'s supported sample types as `UnfilterableFloat`, and the SDF is sampled with a
+filtering sampler, so every bind group failed validation instead. Reverted. Native 16-bit
+snorm/unorm would additionally need non-filtering samplers at every sampling site, which is a far
+larger change than this bug warranted. **Task 7.10's conclusion still stands; only its stated reason
+is out of date.**
+
+**Verified**: the scene renders correctly in Chrome, SDF-collision polygons included (that is the
+feature itself working, not just the absence of errors). `shader_corpus` 14/14,
+`driver_unit_tests` 332/0, `preprocessing_tests` 205/0, native editor builds clean — the change is in
+shared RD code, so the Vulkan path compiles and is unaffected, since the fallback only triggers where
+the format is unsupported.
+
+#### Task 44 — still open: three 3D scenes, a different cause
+
+`demo_3d_particles` (69 errors), `demo_3d_platformer` and `stress_3d_platformer` (44 each) remain.
+Their real errors are two format/sample-type mismatches on a screen-sized `R32Float` texture, with the
+usual invalid-command-buffer cascade behind them:
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px)] expected to be (TextureFormat::RGBA16Float).
+None of the supported sample types (Float|UnfilterableFloat) of [Texture (unlabeled 1152x648 px,
+  TextureFormat::R32Float)] match the expected sample types (Depth).
+```
+1152×648 is a screen-resolution buffer, not the particle-collision heightfield (which is created
+correctly as `D32_SFLOAT` at a power-of-two size, `particles_storage.cpp:1890`). A colour `R32Float`
+is reaching a binding whose shader declares a *depth* texture, and elsewhere one that expects
+`RGBA16Float`. That points at the driver's depth-texture aliasing or at a storage-format promotion
+changing a texture out from under a bind group layout — **not** at a missing format fallback like the
+2D case. Not investigated further.
+
+The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
 ```
 Bind group layout [BindGroupLayout "bgl:CanvasSdfShaderRD:0:set0"] of pipeline layout
 [PipelineLayout "plyt:CanvasSdfShaderRD:0"] does not match layout

@@ -5027,6 +5027,20 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	tformat.format = RD::DATA_FORMAT_R16_SNORM;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
+	// R16_SNORM is not a core WebGPU texture format, so this texture simply failed
+	// to create there -- and with no fallback, its null RID took the SDF uniform
+	// set with it and produced hundreds of cascading errors per frame in any 2D
+	// scene using SDF (webgpu_notes/TASKS.md Task 44). Fall back to the same-size
+	// half-float, which every backend supports; the values stored here are signed
+	// distances in [-1, 1], a range a float carries at least as well as a 16-bit
+	// normalized integer. Asked as a capability question rather than gated on a
+	// backend, so any driver lacking the format gets the fallback. FSR2 already
+	// does the same thing for this format (effects/fsr2.cpp's
+	// convert_snorm16_to_sfloat16).
+	if (!RD::get_singleton()->texture_is_format_supported_for_usage(tformat.format, tformat.usage_bits)) {
+		tformat.format = RD::DATA_FORMAT_R16_SFLOAT;
+	}
+
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 
 	{
