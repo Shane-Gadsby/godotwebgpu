@@ -120,6 +120,9 @@ async function main() {
 	}
 	page.on('pageerror', (err) => consoleLog.push({ atMs: Date.now() - wallStart, type: 'pageerror', text: String(err.message).substring(0, 400) }));
 
+	if (flag('eager-pipelines')) {
+		await page.addInitScript('window.__eagerPipelines = true;');
+	}
 	await page.addInitScript({ path: join(__dirname, 'instrument.js') });
 
 	console.log(`Export:   ${EXPORT_DIR}`);
@@ -138,6 +141,7 @@ async function main() {
 			shaderModules: P.shaderModules, renderPipelines: P.renderPipelines,
 			computePipelines: P.computePipelines, gpuWrites: P.gpuWrites, gpuCreates: P.gpuCreates,
 			frames: P.frames,
+			eager: { kicked: P.eagerKicked, done: P.eagerDone, failed: P.eagerFailed },
 			shaderStats: window.godotWebGPUShaderStats || null,
 			// Phase marks pushed from C++ inside callMain() -- present only when the
 			// export is run with --benchmark (see OS_Web::benchmark_end_measure).

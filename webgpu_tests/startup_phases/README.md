@@ -15,6 +15,7 @@ node profile_phases.mjs --dir <export-dir> [options]
 | `--warm` | reuse the browser profile, so HTTP and GPU shader caches are warm. Default is cold: fresh profile, GPU shader disk cache disabled |
 | `--args <a,b>` | inject engine command-line args by rewriting `GODOT_CONFIG`'s `"args"` in the served HTML — e.g. `--args --verbose` profiles an existing export with verbose logging without re-exporting it |
 | `--no-console` | detach the CDP console listener, to separate the page's own logging cost from the profiler's observer effect |
+| `--eager-pipelines` | also create every pipeline through `create*PipelineAsync`, to test whether deferred GPU-side compilation is what a later blocking queue call waits on (it is not — Task 14 subtask 2, Measured 3) |
 | `--headless` | default is headed, which WebGPU is generally happier with |
 | `--label` / `--output` | name the run and its JSON |
 

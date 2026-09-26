@@ -28,6 +28,9 @@
 		gpuCreates: [],     // {kind, startMs, durationMs}
 		consoleTimes: [],   // {startMs, text}
 		frames: [],         // rAF timestamps, to spot the first painted frames
+		eagerKicked: 0,
+		eagerDone: 0,
+		eagerFailed: 0,
 	};
 	window.__godotPhases = P;
 
@@ -128,10 +131,31 @@
 			{ codeChars: desc && desc.code ? desc.code.length : 0 });
 
 		const origCRP = device.createRenderPipeline.bind(device);
-		device.createRenderPipeline = (desc) => timeCall(P.renderPipelines, (desc && desc.label) || '', () => origCRP(desc));
+		device.createRenderPipeline = (desc) => {
+			const pipe = timeCall(P.renderPipelines, (desc && desc.label) || '', () => origCRP(desc));
+			if (window.__eagerPipelines && device.createRenderPipelineAsync) {
+				P.eagerKicked++;
+				device.createRenderPipelineAsync(desc).then(() => { P.eagerDone++; }, () => { P.eagerFailed++; });
+			}
+			return pipe;
+		};
 
 		const origCCP = device.createComputePipeline.bind(device);
-		device.createComputePipeline = (desc) => timeCall(P.computePipelines, (desc && desc.label) || '', () => origCCP(desc));
+		device.createComputePipeline = (desc) => {
+			const pipe = timeCall(P.computePipelines, (desc && desc.label) || '', () => origCCP(desc));
+			// Diagnostic for Task 14 subtask 2: also kick off an *async* creation of
+			// the same pipeline, without awaiting it. Dawn compiles lazily on first
+			// use for a synchronous create, which is why the compile cost surfaces
+			// much later as a blocking queue operation; an async create is supposed
+			// to start compiling immediately. If firing these makes that later block
+			// shrink, then moving the driver to the async entry points would move
+			// compilation off the critical path.
+			if (window.__eagerPipelines && device.createComputePipelineAsync) {
+				P.eagerKicked++;
+				device.createComputePipelineAsync(desc).then(() => { P.eagerDone++; }, () => { P.eagerFailed++; });
+			}
+			return pipe;
+		};
 
 		const origCT = device.createTexture.bind(device);
 		device.createTexture = (desc) => timeCall(P.gpuCreates, 'texture', () => origCT(desc));
