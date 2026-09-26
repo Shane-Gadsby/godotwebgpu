@@ -5522,3 +5522,101 @@ Still `print_verbose`, so it is no noisier than before; non-WebGPU builds are un
 **Verified**: compiles for web with `WEBGPU_ENABLED` and for the native editor without it.
 
 **Standing lesson, now twice-earned**: when a driver makes a conversion *unconditional*, the log line must not describe it as a capability failure. A warning that cannot be acted on is a warning that costs someone an investigation.
+
+---
+
+### Task 38: Firefox renders **no 3D at all** — `enable subgroups` is Chrome-only `[ROOT-CAUSED, NOT FIXED]`
+**Status**: root-caused precisely, with a screenshot and the exact parser message. The fix is scoped below and not started.
+**Severity**: **CRITICAL for Firefox** — the UI draws, the entire 3D scene does not.
+
+**Symptom.** On Firefox the canvas shows the full 2D UI (all labels, sliders, the camera diagram) and
+**nothing 3D**: no character, no floor, no lighting. Reproduced from the user's own console log
+(`firefox-console-export-2026-9-26_11-59-15.log`) and independently under Playwright.
+
+**Root cause, one line.** Firefox's WGSL parser (Naga) rejects the extension our baked WGSL declares:
+```
+Shader 'mod:ClusterRenderShaderRD:stg1' parsing error: the `subgroups` enable-extension is not yet supported
+  ┌─ wgsl:1:8
+1 │ enable subgroups;
+  │        ^^^^^^^^^ this enable-extension specifies standard functionality which is not yet implemented in Naga
+```
+Ten reported errors collapse to **exactly one distinct cause**, hitting
+`ClusterRenderShaderRD:stg1` and `SceneForwardClusteredShaderRD:stg1`. Everything after it is
+cascade: module invalid → `Error matching ShaderStages(FRAGMENT) shader requirements against the
+pipeline` → `RenderPipeline 'pipe#9:SceneForwardClusteredShaderRD' is invalid` → nothing 3D draws.
+
+Firefox's own log says only "1 error(s)" without the message; the text above came from calling
+`getCompilationInfo()` from the profiler (`--shader-errors`), which is why this was diagnosable at
+all. The engine has an equivalent behind the compile-time `WEBGPU_VERBOSE`, but that needs a
+rebuild and costs ~12 s of startup.
+
+**Where the subgroups come from.** `servers/rendering/renderer_rd/shaders/cluster_render.glsl:68-70`
+enables `GL_KHR_shader_subgroup_ballot`/`_arithmetic`/`_vote` **unconditionally** — no capability
+gate anywhere — and uses `subgroupBroadcastFirst`, `subgroupBallot`,
+`subgroupBallotExclusiveBitCount` and `subgroupOr` (lines 129-155). Tint faithfully turns those into
+`enable subgroups;` plus subgroup builtins. Chrome implements the extension; Firefox does not.
+
+**The trap in fixing it by capability.** Gating on the *running* device's capability does not work
+here, because the shaders are **baked in the editor against its Vulkan device**, which always
+supports subgroups. The bake cannot know which browser will run the result, so the only safe target
+for a web export is the lowest common denominator: **compile WebGPU shaders without subgroups
+always**, losing a minor optimization on Chrome.
+
+**Two candidate fixes.**
+1. **Lower the subgroup ops in `spirv_preprocess.cpp`** — the fork's existing mechanism for exactly
+   this class of gap, and there is already a pass touching `OpGroupNonUniformBallotBitCount`
+   (`spirv_preprocess.cpp:3259`). Rewrite each op to its **single-lane** equivalent, which is what a
+   subgroup of size 1 would compute: `OpGroupNonUniformBroadcastFirst(x)` → `x`;
+   `OpGroupNonUniformBallot(c)` → `vec4(c ? 1 : 0, 0, 0, 0)`; `OpGroupNonUniformBallotBitCount(…,
+   ExclusiveScan)` → `0`; `OpGroupNonUniformBitwiseOr(x)` → `x`. This is semantically correct rather
+   than approximate: the cluster shader uses subgroups only to elect one lane per distinct cluster
+   offset and dedupe an `atomicOr`, and `atomicOr` is idempotent, so every lane doing its own is the
+   same result with more atomic traffic. The `while (true)` election loop collapses to a single
+   iteration. **Preferred** — it needs no changes outside `drivers/webgpu/`, so no other backend can
+   regress.
+2. **A `NO_SUBGROUPS` GLSL variant** gated through `ShaderRD`'s `general_defines` (the refresh-callback
+   mechanism in `shader_rd.h:256-283` already exists). Cleaner in principle, but it touches shared
+   shader source and needs the *baker* to select the define for a WebGPU target rather than the
+   running device — which is the trap above, and a good deal more plumbing.
+
+**Second, independent Firefox blocker** (do not conflate): `Binding index 0: WriteOnly access to
+storage textures with format Rgb10a2Unorm is not supported`, invalidating
+`bgl:OctmapDownsamplerShaderRD:set1`, `bgl:OctmapFilterShaderRD:set2`,
+`bgl:OctmapRoughnessShaderRD:set1` and their pipeline layouts. `rgb10a2unorm` as a write-only storage
+format is a Chrome extra (it sits in `texture-formats-tier2`, which Firefox does not expose); core
+WebGPU does not require it. Needs the same treatment the driver already gives other unsupported
+storage formats — promote to a supported format, or fall back off the storage path.
+
+**Also worth knowing**: Firefox reports `float32-blendable` as unavailable (the driver already warns
+and disables blending on float32 targets, so this is handled, not a defect).
+
+---
+
+### Task 39: WebGPU adapter feature matrix, and what a web export can safely ship `[MEASURED]`
+**Status**: measured on one machine; `webgpu_tests/startup_phases/features.mjs` reproduces it.
+
+Both browsers driven by Playwright against the same adapter (**NVIDIA Lovelace, discrete** — note
+this corrects Task 14's earlier description of this machine as having an integrated GPU, which came
+from the engine's own device-type log reporting "Integrated" for an adapter it could not identify):
+
+| feature | Chrome | Firefox |
+|---|---|---|
+| `texture-compression-bc` | **yes** | **yes** |
+| `texture-compression-etc2` | no | no |
+| `texture-compression-astc` | no | no |
+| `subgroups` | yes | **no** |
+| `texture-formats-tier1` / `tier2` | yes | no |
+| `float32-blendable` | yes | no |
+| `shader-f16` | no | yes |
+| total features | 24 | 12 |
+
+**What this settles for texture compression** (Task 14's export-option question): **BC is the right
+desktop format and both browsers expose it**, so `vram_texture_compression/for_desktop` (which emits
+the `s3tc` and `bptc` tags) is the correct switch for a desktop-targeted web export. ETC2/ASTC are
+not exposed by either browser on a desktop GPU — they are mobile formats, so `for_mobile` only earns
+its pck size when actually shipping to mobile browsers. An export that wants both must enable both
+and carry both variant sets.
+
+**Still unmeasured**: Safari (not available on this Linux host), and any mobile browser, which is
+exactly where ETC2/ASTC would show up. Both are needed before the export option is designed, since
+the point of the option is to let a developer choose per target.
