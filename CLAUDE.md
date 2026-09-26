@@ -129,6 +129,7 @@ Native validation: build the editor (see Build Commands) and run headless GDScri
 
 ### Where to look first
 
+- `webgpu_notes/HANDOFF.md` — snapshot of where the current work stands: verified test results, what landed, the one open problem and what has already been ruled out for it, corrections to things recorded wrongly elsewhere, and the build traps. Read this first when picking the work up cold; `TASKS.md` has the detail behind every line of it.
 - `webgpu_notes/TASKS.md` — the living task/status doc, organized by phase; check it before starting work to see what's known-broken or in-progress. Update it (status, completion notes) when you finish or discover something significant, following the existing per-task format (Status/Severity/Lines/Issue/Investigation).
 - `webgpu_site/ARCHITECTURE_AND_DESIGN.md`, `TECHNICAL_REFERENCE.md`, `PERFORMANCE_AND_OPTIMIZATION.md`, `CORRECTNESS_AND_COMPATIBILITY.md` — in-depth docs on the areas their names suggest.
 - `drivers/webgpu/README.md` — driver-local notes.
