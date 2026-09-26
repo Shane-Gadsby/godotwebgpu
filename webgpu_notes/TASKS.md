@@ -5892,9 +5892,10 @@ a documented limitation (Task 43) rather than a failure. Verified clean: neither
 
 ---
 
-### Task 43: `create_local_rendering_device()` returns null on WebGPU, silently `[DIAGNOSED — NOT FIXED]`
-**Status**: surfaced by getting the `godot-demo-projects` tier of the smoketest running for the first
-time on this machine (Task 42). Diagnosed to the entry point; not fixed.
+### Task 43: `create_local_rendering_device()` returned null with no diagnostic `[FIXED — and the original diagnosis was wrong]`
+**Status**: the silent-null part is **fixed**. The diagnostic it added then disproved this task's own
+original diagnosis twice over -- see the correction at the end, which is the useful part of this
+entry.
 **Severity**: MEDIUM — it breaks every project that uses a local `RenderingDevice` for offscreen
 compute, which is the documented Godot way to run a compute shader outside the renderer.
 
@@ -5931,3 +5932,80 @@ rather than FAIL — so the suite stays honest without a known gap sitting in th
 would train people to ignore failures. The heightmap self-test added in Task 42
 (`patches/compute_heightmap_check.gd`) stays in place and will start reporting PASS/FAIL properly the
 moment the limitation is lifted; removing the `known_limitation` line is then the only change needed.
+
+#### Task 43 — corrected: the diagnostic was the fix, and it proved the diagnosis wrong
+
+**What was added** (the actual ask -- a public API must not return `null` with nothing logged):
+- `RenderingServer::create_local_rendering_device()` now `ERR_PRINT`s when there is no
+  `RenderingDevice` singleton, naming the likely reason (the Compatibility renderer has none), and
+  `ERR_FAIL_NULL_V_MSG`s when the driver refuses to create the local device, pointing at the
+  preceding error.
+- `RenderingDevice::create_local_device()` now captures `initialize()`'s `Error` and prints its code
+  and name rather than discarding it.
+
+**Correction 1 — the render-thread guard was never the cause.** This task originally blamed
+`ERR_RENDER_THREAD_GUARD_V` at the top of `RenderingDevice::initialize()`. That macro is
+`ERR_FAIL_COND_V_MSG`, which **prints in every build**, so it cannot be a silent path. The guard was
+never reached.
+
+**Correction 2 — there was no WebGPU limitation at all.** With the diagnostic in place the real
+message appeared immediately: *no `RenderingDevice` is available*. The demo was running on
+**OpenGL**, not WebGPU. `platform/web/export/export_plugin.cpp` selects the web driver from
+`rendering/renderer/rendering_method.web` **specifically**, and `compute/heightmap` sets only the
+unsuffixed `rendering_method="mobile"`, so the export fell back to `gl_compatibility` — which has no
+`RenderingDevice`, so `create_local_rendering_device()` correctly returned null. Local
+`RenderingDevice` support on WebGPU was never in question; it works, as Task 44 shows.
+
+**The lesson worth keeping**: this task confidently recorded a root cause derived by reading code
+(a guard that looked silent) without instrumenting to confirm which branch was taken, and it was
+wrong in both the mechanism and the conclusion. One `ERR_PRINT` settled in one run what code-reading
+had got backwards. The entry is left in place, corrections and all, rather than rewritten.
+
+---
+
+### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[OPEN]`
+**Status**: the smoketest's renderer selection is **fixed**; the four real failures it exposed are
+open.
+**Severity**: **HIGH** — this was silent negative coverage: ten scenes reporting WebGPU passes while
+exercising none of this driver.
+
+**The coverage bug.** Godot picks the web driver from `rendering/renderer/rendering_method.web`.
+Every `godot-demo-projects` project either sets only the unsuffixed `rendering_method`, sets
+`gl_compatibility`, or sets nothing at all — so **all ten demo scenes exported as `opengl3`**, and
+`"renderingDriver":"opengl3"` sat in their `index.html` the whole time. They passed, and proved
+nothing. Only the eight `benchmark_*` scenes (which carry their own WebGPU presets) were ever
+testing this fork.
+
+`run_scenes.mjs` now writes `rendering_method.web` before exporting and restores `project.godot`
+afterwards: an RD method is mirrored as-is, and `gl_compatibility` or an absent setting becomes
+`forward_plus`, since a scene exported as OpenGL exercises nothing here. All 18 exports now report
+`"renderingDriver":"webgpu"`.
+
+**What that exposed** — four scenes, all previously "passing":
+
+| scene | GPU errors |
+|---|---|
+| `demo_2d_particles` | 735 |
+| `demo_3d_particles` | 69 |
+| `demo_3d_platformer` | 36 |
+| `stress_3d_platformer` | 36 (same export) |
+
+The dominant signature is a **bind group bound to the wrong pipeline layout**:
+```
+Bind group layout [BindGroupLayout "bgl:CanvasSdfShaderRD:0:set0"] of pipeline layout
+[PipelineLayout "plyt:CanvasSdfShaderRD:0"] does not match layout
+[BindGroupLayout "bgl:ParticlesCopyShaderRD:3..."]
+```
+followed by `No bind group set at group index 0`, `Parameter "uniform_set" is null` and a cascade of
+invalid command buffers. A uniform set built for `ParticlesCopyShaderRD` is reaching a
+`CanvasSdfShaderRD` pipeline, which points at uniform-set caching or bind-group-layout compatibility
+in the driver rather than at any one shader. Not investigated further.
+
+**Also open, and separate**: `demo_compute_heightmap`. Its local `RenderingDevice` is created fine
+once the scene actually runs WebGPU (Task 43), but `GradientTexture1D.get_image()` returns an empty
+image, so the demo's gradient `texture_create()` fails and the compute never runs.
+`TextureStorage::texture_2d_get()` documents WebGPU readback as asynchronous — first call starts it,
+data arrives later — and the self-test added in Task 42 now primes it across up to 120 frames and
+still gets nothing, so "retry next frame" does not appear to be sufficient here. The same self-test
+**passes on native Vulkan** (center 118.1, corners 0.0), so the check itself is sound and this is
+WebGPU-specific. Left marked `known_limitation` pointing at this task.

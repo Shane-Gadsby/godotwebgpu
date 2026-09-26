@@ -1889,9 +1889,16 @@ RenderingDevice *RenderingServer::get_rendering_device() const {
 RenderingDevice *RenderingServer::create_local_rendering_device() const {
 	RenderingDevice *device = RenderingDevice::get_singleton();
 	if (!device) {
+		// Returning null from a public API with nothing logged makes a project
+		// that uses a local RenderingDevice look like it simply did nothing --
+		// which is exactly how this cost an investigation. See
+		// webgpu_notes/TASKS.md Task 43.
+		ERR_PRINT("create_local_rendering_device: no RenderingDevice is available. This requires the Forward+ or Mobile rendering method; the Compatibility (OpenGL) method has no RenderingDevice.");
 		return nullptr;
 	}
-	return device->create_local_device();
+	RenderingDevice *local_device = device->create_local_device();
+	ERR_FAIL_NULL_V_MSG(local_device, nullptr, "create_local_rendering_device: the rendering driver could not create a local RenderingDevice. See the preceding error for the reason.");
+	return local_device;
 }
 
 static Vector<Ref<Image>> _get_imgvec(const TypedArray<Image> &p_layers) {
