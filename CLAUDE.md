@@ -51,7 +51,7 @@ cd webgpu_tests/preprocessing_tests && node run_tests.mjs
 
 # Resource lifecycle / screenshot comparison (standalone, need Playwright):
 cd webgpu_tests/resource_lifecycle && node run_tests.mjs
-cd webgpu_tests/screenshot_comparison && node run_tests.mjs
+cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
 
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + full suite

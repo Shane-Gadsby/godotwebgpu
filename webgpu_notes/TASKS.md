@@ -5963,12 +5963,13 @@ had got backwards. The entry is left in place, corrections and all, rather than 
 
 ---
 
-### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[3 of 4 FIXED]`
-**Status**: the smoketest's renderer selection is **fixed**, and three of the four failures it exposed
-are fixed — `demo_2d_particles` (the SDF format fallback) and `demo_3d_platformer` +
-`stress_3d_platformer` (the `depth_buffer` reclassification, see the `[FIXED]` entry at the end of
-this task). **`demo_3d_particles` remains open** on a storage-texture format mismatch, which is the
-last entry here and §4.4 of `HANDOFF.md`. Tier: **17 pass, 1 fail, 1 skip** in Chrome and Firefox.
+### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[DONE]`
+**Status**: **all four fixed.** The smoketest's renderer selection, `demo_2d_particles` (the SDF
+format fallback), `demo_3d_platformer` + `stress_3d_platformer` (the `depth_buffer` reclassification)
+and `demo_3d_particles` (the depth back-copy's storage format) — the last two are the `[FIXED]`
+entries at the end of this task. Tier: **18 pass, 0 fail, 1 skip in Chrome and Firefox**; the skip is
+`demo_compute_heightmap`, which is its own open `known_limitation` (the `GradientTexture1D` readback,
+last section here).
 **Severity**: **HIGH** — this was silent negative coverage: ten scenes reporting WebGPU passes while
 exercising none of this driver.
 
@@ -6347,3 +6348,53 @@ that the plain `UNIFORM_TYPE_TEXTURE` branch appears to lack — which is why th
 hard Dawn error rather than as silently wrong pixels. Worth adding for robustness, but *after* this
 fix, not instead of it: the fallback would have hidden the bug behind a dummy depth texture and
 broken proximity fade quietly.
+
+#### Task 44 — `demo_3d_particles` fixed: the depth back-copy used the `rgba16f` variant `[FIXED]`
+
+**The whole scene tier is green now — 18 pass, 0 fail, 1 skip in Chrome and Firefox** (the skip is
+`demo_compute_heightmap`, its own separate `known_limitation` below).
+
+The last error was one line of shared engine code. `_render_buffers_copy_depth_texture()`
+(`renderer_scene_render_rd.cpp:439`) copies the depth texture into `RB_TEX_BACK_DEPTH` — an
+`R32_SFLOAT` texture — and did it through `copy_effects->copy_to_rect()`, whose compute variant
+declares its storage image `rgba16f` (`copy.glsl:72`). WebGPU requires a storage-texture binding's
+declared format to match the bound texture's format **exactly**, with none of Vulkan's or Metal's
+format-compatibility-class laxity, so Dawn rejected the bind group:
+
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, R32Float)]
+  expected to be (TextureFormat::RGBA16Float).
+ - While validating entries[0] against { binding: 0, visibility: Compute,
+     storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }
+```
+and every command buffer for the rest of the frame went down with it — 1490 cascade errors behind
+one real one, which is why `capture_errors.mjs` sorts cause-first.
+
+`copy_effects->copy_depth_to_rect()` is the same copy with the `r32f`-declared variant
+(`copy.glsl:59-60`, `MODE_SIMPLE_COPY_DEPTH`), and `ss_effects.cpp:1561` already uses it for exactly
+this kind of depth→R32F copy. Switched to it. **Identical in result on every backend**: both variants
+copy the source's red channel and an `R32_SFLOAT` image stores nothing else, which is why this is a
+one-word change rather than a new shader variant.
+
+This is the third instance of the same class in this engine — after `copy.glsl`'s `DST_IMAGE_RG16F`
+(TAA's RG16F velocity buffers, 2026-09-19) and this one — so the pattern to check whenever a compute
+copy fails on WebGPU is: **what format does the destination texture actually have, and which
+`layout(...)` qualifier does the variant being dispatched declare?** Upstream can leave them
+mismatched; we cannot.
+
+**Why only this scene.** The back-depth copy only runs when something reads `DEPTH_TEXTURE`, which is
+the same Godot feature (proximity fade / refraction on the particle materials) that triggered the
+reclassification bug above. One scene feature, two independent WebGPU bugs, one behind the other.
+
+**Verified**:
+- Scene smoketest, freshly exported against an editor + non-dlink nothreads template pair rebuilt at
+  this change: **Chrome 18/0/1, Firefox 18/0/1** (exit code 0 in both).
+- Offline tiers unaffected and re-run green: `shader_corpus` 14/14, `driver_unit_tests` 332/0,
+  `preprocessing_tests` 205/0+1 skip, `resource_lifecycle` all pass, `screenshot_comparison` 8/0.
+- **Native Vulkan sanity check** (this is shared engine code, so it changes the Vulkan path too):
+  `godot-demo-projects/3d/particles` for 300 frames on an RTX 4080 SUPER — clean, no errors or
+  warnings.
+
+Two notes for whoever is next: `webgpu_tests/screenshot_comparison`'s entry point is
+`screenshot_tests.mjs`, not `run_tests.mjs` as `CLAUDE.md` said (fixed there), and its cross-browser
+`[WARN] chromium vs firefox — diff: 99%` lines are pre-existing and not counted as failures.

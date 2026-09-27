@@ -436,7 +436,22 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 		RID depth_back_texture = rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH, v, 0);
 
 		if (can_use_storage) {
-			copy_effects->copy_to_rect(depth_texture, depth_back_texture, Rect2i(0, 0, size.x, size.y));
+			// copy_depth_to_rect(), not copy_to_rect(): the destination is
+			// RB_TEX_BACK_DEPTH, an R32_SFLOAT texture (see
+			// _allocate_depth_backbuffer() just above), and copy_to_rect()'s
+			// compute variant declares its storage image `rgba16f` while
+			// copy_depth_to_rect()'s declares `r32f` (copy.glsl:59-72). WebGPU
+			// requires a storage-texture binding's declared format to match the
+			// bound texture's format exactly -- no format-compatibility-class
+			// laxity, unlike Vulkan/Metal -- so the rgba16f variant fails with
+			// "Format (R32Float) of [Texture ...] expected to be (RGBA16Float)"
+			// and takes the whole command buffer down with it. Identical in
+			// result on every backend: both variants copy the source's red
+			// channel, and an R32_SFLOAT image stores nothing else. This is the
+			// same class of bug as copy.glsl's DST_IMAGE_RG16F case, and
+			// ss_effects.cpp:1561 already uses copy_depth_to_rect() for the same
+			// kind of depth-to-R32F copy. See webgpu_notes/TASKS.md Task 44.
+			copy_effects->copy_depth_to_rect(depth_texture, depth_back_texture, Rect2i(0, 0, size.x, size.y));
 		} else {
 			RID depth_back_fb = FramebufferCacheRD::get_singleton()->get_cache(depth_back_texture);
 			if (p_use_msaa) {
