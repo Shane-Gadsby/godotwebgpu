@@ -133,6 +133,18 @@ jobs:
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
+      # wgsl_precompile.py shells out to glslangValidator for every engine shader
+      # variant during a webgpu=yes build. Without it the precompiler reported
+      # "0 compiled, 274 glsl failures" and produced an empty
+      # wgsl_precompiled.gen.h -- non-fatally -- so the template shipped with no
+      # baked WGSL at all and fell back to runtime translation for every shader
+      # ({baked: 0, translated: N}, ~5x slower start). The shader-corpus job has
+      # always installed this; this one never did.
+      - name: Install glslangValidator (needed to bake WGSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
+
       - name: Build WebGPU export template
         uses: ./.github/actions/godot-build
         with:
