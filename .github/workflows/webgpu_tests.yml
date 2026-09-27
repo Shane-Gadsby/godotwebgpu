@@ -270,6 +270,47 @@ jobs:
           path: webgpu_tests/test_project/export/
           retention-days: 7
 
+      # The scene smoketest needs 19 exports, and exports need the editor and a
+      # web template -- which only exist in this job. Exporting here and handing
+      # the result to the scene-smoketest job as an artifact is what makes that
+      # job test anything at all: exports/ is gitignored and nothing is checked
+      # in, so it used to find no exports, skip all 19 scenes, and exit 0.
+      # A plain clone rather than actions/checkout, because scenes.json expects the
+      # demos as a *sibling* of the repo root (../../../godot-demo-projects from
+      # webgpu_tests/scene_smoketest) and checkout refuses any path outside
+      # $GITHUB_WORKSPACE. The parent of the workspace is writable. Shallow, and on
+      # master, matching the local setup documented in webgpu_notes/HANDOFF.md.
+      - name: Clone godot-demo-projects (11 of the 19 scenes live there)
+        run: |
+          git clone --depth 1 --branch master \
+            https://github.com/godotengine/godot-demo-projects.git \
+            "${{ github.workspace }}/../godot-demo-projects"
+          ls "${{ github.workspace }}/../godot-demo-projects/compute/heightmap/project.godot"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Export all scene-smoketest scenes
+        working-directory: webgpu_tests/scene_smoketest
+        env:
+          # Only the dlink template is built in this job. run_scenes.mjs derives
+          # variant/extensions_support from the ".dlink." in this filename, so
+          # the export includes the side module the template carries.
+          GODOT_EDITOR_BIN: ${{ github.workspace }}/bin/godot.linuxbsd.editor.x86_64
+          GODOT_TEMPLATE_ZIP: ${{ github.workspace }}/bin/godot.web.template_release.wasm32.nothreads.dlink.zip
+        run: |
+          npm install
+          node run_scenes.mjs --export-only
+
+      - name: Upload scene exports
+        uses: actions/upload-artifact@v5
+        with:
+          name: scene-exports
+          path: webgpu_tests/scene_smoketest/exports/
+          retention-days: 7
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
   # ═══════════════════════════════════════════════════════════════════════════════
@@ -355,7 +396,11 @@ jobs:
   scene-smoketest:
     runs-on: ubuntu-24.04
     name: Scene Smoketest (Chrome + Firefox)
-    timeout-minutes: 20
+    # Needs the exports built-webgpu produces. Before this dependency existed the
+    # job ran in parallel with no exports on disk, skipped all 19 scenes and
+    # exited 0 -- green while testing nothing. It now waits for the build.
+    needs: build-webgpu
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -365,19 +410,27 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Download scene exports
+        uses: actions/download-artifact@v5
+        with:
+          name: scene-exports
+          path: webgpu_tests/scene_smoketest/exports/
+
       - name: Install Playwright and browsers
         run: |
           cd webgpu_tests/scene_smoketest
           npm install
           npx playwright install chromium firefox --with-deps
 
+      # --require-exports turns "no export on disk" from a skip into a failure,
+      # so this job can never again report success without having run a scene.
       - name: Run scene smoketest (Chrome)
         working-directory: webgpu_tests/scene_smoketest
-        run: node run_scenes.mjs --browser chrome --timeout 30000
+        run: node run_scenes.mjs --browser chrome --require-exports --timeout 30000
 
       - name: Run scene smoketest (Firefox)
         working-directory: webgpu_tests/scene_smoketest
-        run: node run_scenes.mjs --browser firefox --timeout 30000
+        run: node run_scenes.mjs --browser firefox --require-exports --timeout 30000
 
   # ═══════════════════════════════════════════════════════════════════════════════
   # Resource Lifecycle: Browser-based stress test

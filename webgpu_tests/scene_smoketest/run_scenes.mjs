@@ -18,6 +18,9 @@
  *
  * Options:
  *   --export           Export scenes before running (requires Godot editor binary)
+ *   --require-exports  Fail if any scene has no export on disk, instead of
+ *                      skipping it. Use in CI, where a silent all-skip run
+ *                      would otherwise report success having tested nothing.
  *                      GODOT_EDITOR_BIN / GODOT_TEMPLATE_ZIP override scenes.json's
  *                      paths, which name macOS artifacts.
  *   --export-only      Export scenes and exit without running tests
@@ -173,6 +176,20 @@ function startServer(dir, { injectScript = false, sceneInjectScript = null } = {
 
 function exportScene(scene, editorBin, templateZip) {
     const exportDir = join(EXPORTS_DIR, scene.export_id || scene.id);
+    // Wipe rather than overwrite. Two reasons, both seen for real:
+    //   - Files the new export does not write survive. Switching between the
+    //     dlink and non-dlink templates left eight export dirs carrying a
+    //     months-old 52 MB index.side.wasm next to a fresh index.wasm. Those
+    //     were inert (the loader only fetches a side module when the build
+    //     declares one) but they are 400 MB of confusion, and a case where they
+    //     are not inert is a version-mismatched engine nobody would think to
+    //     look for.
+    //   - A failed export used to leave the previous one in place, so the scene
+    //     ran the *old* build and reported PASS. That is the misleading
+    //     "benchmark_sprites exports fine after failing" note in
+    //     webgpu_notes/HANDOFF.md. Now a failed export leaves nothing, which
+    //     shows up as a skip -- or a failure under --require-exports.
+    rmSync(exportDir, { recursive: true, force: true });
     mkdirSync(exportDir, { recursive: true });
 
     const projectPath = resolve(__dirname, scene.path);
@@ -189,6 +206,16 @@ function exportScene(scene, editorBin, templateZip) {
     const presetsPath = join(projectPath, 'export_presets.cfg');
     let originalPresets = null;
     let createdPresets = false;
+
+    // extensions_support has to agree with the template being used, or the export
+    // is quietly broken. A dlink template zip carries a ~53 MB godot.side.wasm
+    // that the web export plugin only extracts when extensions_support is on;
+    // pair a dlink template with it off and the export loads a main module whose
+    // side module was never written. The non-dlink template is the reverse. So
+    // derive it from the template filename rather than hardcoding either. CI
+    // builds only the dlink template, local runs use the non-dlink one, and both
+    // now get a coherent preset.
+    const extensionsSupport = /\.dlink\./.test(templateZip);
 
     // The godot-demo-projects checkout ships no export_presets.cfg at all, so the
     // demo tier of this suite could only ever run for someone who had written one
@@ -220,7 +247,7 @@ function exportScene(scene, editorBin, templateZip) {
             '',
             'custom_template/debug=""',
             `custom_template/release="${templateZip}"`,
-            'variant/extensions_support=false',
+            `variant/extensions_support=${extensionsSupport}`,
             'variant/thread_support=false',
             'vram_texture_compression/for_desktop=true',
             'vram_texture_compression/for_mobile=false',
@@ -240,7 +267,7 @@ function exportScene(scene, editorBin, templateZip) {
         originalPresets = readFileSync(presetsPath, 'utf8');
         let content = originalPresets;
         content = content.replace(/custom_template\/release="[^"]*"/g, `custom_template/release="${templateZip}"`);
-        content = content.replace(/variant\/extensions_support=true/g, 'variant/extensions_support=false');
+        content = content.replace(/variant\/extensions_support=(true|false)/g, `variant/extensions_support=${extensionsSupport}`);
         content = content.replace(/vram_texture_compression\/for_mobile=true/g, 'vram_texture_compression/for_mobile=false');
         writeFileSync(presetsPath, content);
     }
@@ -783,6 +810,7 @@ function launchSafari() {
 
 async function main() {
     const args = process.argv.slice(2);
+    const requireExports = args.includes('--require-exports');
     const doExport = args.includes('--export') || args.includes('--export-only');
     const exportOnly = args.includes('--export-only');
     // Support both --scene and --scenes (common typo)
@@ -997,6 +1025,26 @@ async function main() {
     const totalPassed = allResults.filter(r => r.status === 'PASS').length;
     const totalSkipped = allResults.filter(r => r.status === 'SKIP').length;
     console.log(`Total: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped (${scenes.length} scenes × ${browserNames.length} browsers)\n`);
+
+    // A skip is not a pass. With no exports on disk every scene skips with
+    // "not exported", nothing fails, and the run exits 0 having tested nothing
+    // -- which is exactly what the CI job did until this flag existed, silently,
+    // for as long as the job has run. --require-exports makes that state a
+    // failure instead. It is opt-in so that a deliberate partial run (one scene,
+    // or a tier with a known_limitation) still behaves as before.
+    if (requireExports) {
+        const notExported = allResults.filter(r => r.status === 'SKIP' && r.reason === 'not exported');
+        if (notExported.length > 0) {
+            const names = [...new Set(notExported.map(r => r.scene))];
+            console.log(`ERROR: --require-exports: ${names.length} scene(s) had no export on disk: ${names.join(', ')}`);
+            console.log('The exports/ directory is gitignored — export first, or download the exports artifact.\n');
+            process.exit(1);
+        }
+        if (totalPassed === 0) {
+            console.log('ERROR: --require-exports: no scene actually ran.\n');
+            process.exit(1);
+        }
+    }
 
     process.exit(totalFailed > 0 ? 1 : 0);
 }
