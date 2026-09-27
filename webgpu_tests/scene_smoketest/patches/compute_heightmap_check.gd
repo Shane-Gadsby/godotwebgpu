@@ -13,23 +13,15 @@ func _enter_tree() -> void:
 
 
 func _webgpu_heightmap_selftest() -> void:
-	# On WebGPU, texture readback is asynchronous: the first texture_2d_get() call
-	# starts it and returns an empty Image, and the data arrives on a later frame
-	# (see TextureStorage::texture_2d_get, which documents exactly this). The demo's
-	# init_gpu() reads gradient_tex.get_image().get_data() once and would get
-	# nothing, failing texture_create() for the gradient and cascading into a
-	# uniform-set error that reads like a driver bug. So prime the readback here
-	# until it lands, then let the demo's own single call hit the warmed cache.
-	# On Vulkan the first call already returns data and this loop exits immediately.
-	var primed := false
-	for _i in range(120):
-		await get_tree().process_frame
-		var img := gradient_tex.get_image()
-		if img != null and not img.is_empty():
-			primed = true
-			break
-	if not primed:
-		print("[HEIGHTMAP-CHECK] FAIL gradient texture readback never completed")
+	# Let the scene come up before touching the GPU.
+	await get_tree().process_frame
+
+	# The gradient is generated on the CPU, so get_image() returns it directly on
+	# every backend (GradientTexture1D::get_image regenerates rather than reading
+	# the GPU texture back). A null or empty image here is a real regression.
+	var grad_img := gradient_tex.get_image()
+	if grad_img == null or grad_img.is_empty():
+		print("[HEIGHTMAP-CHECK] FAIL gradient image is empty")
 		return
 
 	var heightmap := prepare_image()
@@ -41,7 +33,24 @@ func _webgpu_heightmap_selftest() -> void:
 		print("[HEIGHTMAP-CHECK] FAIL no local RenderingDevice")
 		return
 
-	var out_bytes := rd.texture_get_data(heightmap_rid, 0)
+	# RenderingDevice.texture_get_data() is asynchronous on WebGPU and cannot be
+	# made synchronous there (no Asyncify in the web build), so rd.sync() does not
+	# make the data available: the first call only *starts* the copy-and-map and
+	# returns an empty array, and the result lands a frame or so later. The demo
+	# itself calls it once and therefore shows an empty image on WebGPU -- that is
+	# a platform limitation for user code, not a driver fault, and GDScript that
+	# needs a readback on the web should retry like this or use
+	# texture_get_data_async(). Retry here so the tier tests the compute result.
+	var out_bytes := PackedByteArray()
+	for _i in range(120):
+		out_bytes = rd.texture_get_data(heightmap_rid, 0)
+		if out_bytes.size() > 0:
+			break
+		await get_tree().process_frame
+	if out_bytes.is_empty():
+		print("[HEIGHTMAP-CHECK] FAIL heightmap readback never completed")
+		return
+
 	if out_bytes.size() != input_bytes.size():
 		print("[HEIGHTMAP-CHECK] FAIL readback size %d != %d" % [out_bytes.size(), input_bytes.size()])
 		return

@@ -126,8 +126,7 @@
       "script_patch": {
         "target": "main.gd",
         "patch": "compute_heightmap_check.gd"
-      },
-      "known_limitation": "GradientTexture1D.get_image() returns empty on WebGPU, so the demo's gradient texture_create() fails -- TASKS.md Task 44"
+      }
     },
     {
       "id": "demo_compute_texture",

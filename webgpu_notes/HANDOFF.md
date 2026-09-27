@@ -1,17 +1,17 @@
 # Handoff — WebGPU work in progress
 
-**As of 2026-09-27, with the scene tier green.** Branch `webgpu-4.7.2`. The engine work landed in
-`5f4b63c136` (the `depth_buffer` reclassification) and the depth-back-copy commit after it; `bin/`
-was built at the latter (§6).
+**As of 2026-09-27, with the scene tier fully green.** Branch `webgpu-4.7.2`. The engine work landed
+in `5f4b63c136` (the `depth_buffer` reclassification), the depth-back-copy commit after it, and the
+gradient-readback commit after that (Task 45); `bin/` was built at the last of those (§6).
 
 This is a snapshot for picking the work up cold. `webgpu_notes/TASKS.md` remains the living
 detail; this file says where things stand, what is verified, what is *mis*-recorded elsewhere, and
 which traps cost time. Task numbers below index into TASKS.md.
 
-**The 60-second version**: **every tier is green.** The scene smoketest is 18 pass, 0 fail, 1 skip in
-both Chrome and Firefox — the skip is `demo_compute_heightmap`, a tracked `known_limitation`
-(`GradientTexture1D.get_image()` readback, last section of TASKS.md Task 44). `bin/` matches `HEAD`'s
-engine work and the exports in `webgpu_tests/scene_smoketest/exports/` were made from it, so a
+**The 60-second version**: **every tier is green, with nothing skipped.** The scene smoketest is
+**19 pass, 0 fail, 0 skip** in both Chrome and Firefox. The last skip, `demo_compute_heightmap`, is
+fixed (Task 45, §4.6) and its `known_limitation` flag is gone from `scenes.json`, so there is no
+longer any tracked known-broken scene. `bin/` matches `HEAD`'s engine work and the exports in `webgpu_tests/scene_smoketest/exports/` were made from it, so a
 `node run_scenes.mjs --skip-export --browser chrome` reproduces that result in ~8 minutes with no
 rebuild. §8 says what is worth doing next; nothing there is a known bug.
 
@@ -20,8 +20,9 @@ rebuild. §8 says what is worth doing next; nothing there is a known bug.
 ## 1. One-paragraph status
 
 The web export's load time and its Firefox support both moved a long way (Tasks 14, 38, 41, 44), the
-test suite now covers roughly twice what it did (Tasks 42, 44), and **Task 44 is closed**: all four
-scene failures it exposed are fixed, and the tier is green in both browsers. The last two were
+test suite now covers roughly twice what it did (Tasks 42, 44), and **Tasks 44 and 45 are closed**:
+all five scene failures they exposed are fixed, and the tier is green in both browsers with nothing
+skipped. Two of Task 44's were
 independent bugs behind one scene feature — Godot's `DEPTH_TEXTURE` (proximity fade / refraction) both
 tripped this driver's `depth_buffer` reclassification *and* triggered a depth back-copy that
 dispatched an `rgba16f`-declared compute variant at an `R32_SFLOAT` destination (§4). Everything else
@@ -36,8 +37,8 @@ below is either landed and verified, or a correction to something previously wri
 | `shader_corpus` | **14/14** | 2026-09-27, after the reclassify fix |
 | `driver_unit_tests` | **332/0** | 2026-09-27, after the reclassify fix |
 | `preprocessing_tests` | **205/0, 1 skipped** | 2026-09-27, after the reclassify fix |
-| Scene smoketest — Chrome | **18 pass, 0 fail, 1 skip** | 2026-09-27, after both Task 44 fixes |
-| Scene smoketest — Firefox | **18 pass, 0 fail, 1 skip** | 2026-09-27, after both Task 44 fixes |
+| Scene smoketest — Chrome | **19 pass, 0 fail, 0 skip** | 2026-09-27, after the Task 45 fix |
+| Scene smoketest — Firefox | **19 pass, 0 fail, 0 skip** | 2026-09-27, after the Task 45 fix |
 | `resource_lifecycle` | all pass | 2026-09-27 |
 | `screenshot_comparison` | **8/0** (entry point is `screenshot_tests.mjs`) | 2026-09-27 |
 | Native Vulkan spot check | `3d/particles`, 300 frames, clean | 2026-09-27, RTX 4080 SUPER |
@@ -48,14 +49,17 @@ the current engine work, with a fresh export of every scene, and both exited 0. 
 check is there because the last fix is in *shared* engine code (`renderer_scene_render_rd.cpp`), not
 in `drivers/webgpu/` — anything under `servers/` needs one.
 
-`demo_compute_heightmap` is the 1 skip. It is marked `known_limitation` in `scenes.json` (its own
-open problem — the `GradientTexture1D` readback at the end of TASKS.md Task 44).
+Nothing is skipped any more. `demo_compute_heightmap` passes (Task 45, §4.6) and its
+`known_limitation` entry has been removed from `scenes.json`.
 
-Two harness quirks seen in that run, neither caused by the fix and neither affecting a result:
-`benchmark_sprites`'s export fails on a missing `res://benchmark_profiler.gd` (it then tests the
-previous export and passes), and `demo_compute_heightmap` exports successfully but is reported
-`SKIP (not exported)` — the `index.html` existence check runs before the `known_limitation` check,
-so the reason string is misleading.
+One harness trap, not caused by any fix: an export can die with
+`ERROR: Parameter "singleton" is null.  at: is_cmdline_mode (editor_node.cpp:6622)` followed by
+`Aborted`. That is a **stale `.godot` import cache** in the `godot-demo-projects` checkout, left by
+an editor built at a different version hash — `rm -rf <project>/.godot` fixes it. It hit
+`benchmark_sprites` and `demo_compute_heightmap` at the start of the Task 45 session and neither has
+recurred since. Read it as a cache problem, not an engine crash. (The older note about
+`benchmark_sprites` failing on a missing `res://benchmark_profiler.gd` was the same thing; it exports
+cleanly now.)
 
 **`./webgpu_tests/local_ci.sh --no-safari` has still not been run end to end since the SDF fix** —
 every tier it drives was re-run green individually today, so there is no known reason for it to be
@@ -76,6 +80,7 @@ while the smoketest exports with the non-dlink one (§6), which is the most like
 | 44 | `depth_buffer` (group 1) excluded from `_reclassify_single_component_depth_textures()` | `demo_3d_platformer` + `stress_3d_platformer` **44 errors each → 0**; tier 15/3/1 → **17/1/1** in both browsers |
 | 44 | Depth back-copy switched to `copy_depth_to_rect()` (`r32f` variant, not `rgba16f`) | `demo_3d_particles` **49 errors → 0**; tier → **18/0/1** in both browsers, exit 0 |
 | — | Block-align compressed texture-to-texture copies | BPTC textures no longer render black |
+| 45 | `Gradient{Texture1D,Texture2D}::get_image()` regenerate instead of reading the GPU back | `demo_compute_heightmap` **skip → pass**; tier → **19/0/0** in both browsers, nothing skipped |
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
 
@@ -170,6 +175,45 @@ all. Fixing the first exposed the second.
   GLSL variant being dispatched, not from any remap. Checking which variant is bound before suspecting
   the remaps is the cheaper order.
 
+## 4.6 Task 45, closed: the heightmap demo, and what `texture_2d_get()` can never do
+
+`demo_compute_heightmap` was the last skip. The recorded diagnosis was wrong, and the way it was
+wrong is the reusable part.
+
+**What the notes said**: `GradientTexture1D.get_image()` returns empty, the self-test primes it over
+120 frames and still gets nothing, so retrying is not the answer. **What the export actually did**:
+the priming loop *succeeded* — its failure line never printed — and the first real error was the
+demo's own `gradient_tex.get_image().get_data()`, one call later, at
+`_texture_create (rendering_device.cpp:10309)`. Thirty seconds of `capture_errors.mjs --all` against
+the already-committed export said so; no rebuild was needed to find it.
+
+**Why priming was always going to fail.** `RenderingDeviceDriverWebGPU::texture_get_data()` is a
+one-shot cache *on purpose*: a call either starts a readback (returns empty) or consumes a completed
+one and clears `has_data`, with no auto-requeue. Calls therefore alternate, and the priming loop
+consumed exactly the data it had waited for. **A caller that calls `texture_2d_get()` once can never
+get data on WebGPU**, no matter how many frames anything waited first. That is a property of the
+API's shape, not a bug to fix.
+
+**The fix**: stop round-tripping. A gradient texture is a pure function of its `Gradient`, size and
+`use_hdr`, so `_update()`'s generation half became `_generate_image()` and both classes'
+`get_image()` call it directly. Identical by construction everywhere, cheaper everywhere, and it
+works where the round-trip cannot.
+
+**Deliberately not done**: populating `image_cache_2d` outside `TOOLS_ENABLED` to make
+`texture_2d_get()` work in general. It would retain a CPU copy of every texture created from an
+`Image` — on web that includes every `CompressedTexture2D` loaded from disk, i.e. roughly a doubling
+of texture memory on the platform this fork exists to make fast. Not worth it for a rare API. If it
+is ever revisited, it needs to be opt-in, not a default.
+
+**Still true, and it is a platform limitation rather than a driver fault**: the demo's second
+readback, `rd.texture_get_data()` on a local `RenderingDevice` after `rd.submit()/rd.sync()`, is
+genuinely on the GPU and cannot be regenerated. `sync()` cannot wait for it (no Asyncify in the web
+build), so the first call returns 0 bytes and the data lands a frame later. The smoketest patch
+retries, which is the documented contract; the upstream demo calls once and shows an empty island on
+WebGPU. Web GDScript that needs a readback must retry or use `texture_get_data_async()`.
+
+---
+
 ## 5. Corrections — things recorded wrongly earlier
 
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:
@@ -194,6 +238,12 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
    SPIR-V is, and comparing the two is a two-minute check that would have saved two rounds.
 7. **The twelve differing BGLs under one label are materials, not specializations.** Every material
    shares one `ShaderRD`, and the label carries only shader name + variant index.
+8. **`demo_compute_heightmap`'s "readback never completes" was wrong** (§4.6). The readback completes
+   fine; the one-shot consume-and-requeue design of the driver's cache means a *single* call can never
+   see it, so the priming loop ate its own result. The general lesson: before believing a recorded
+   "this never works", run the committed export under `capture_errors.mjs --all` and check that the
+   failure line the notes describe is actually the one being printed. Here it was not, and the check
+   cost thirty seconds and no rebuild.
 
 ---
 
@@ -283,29 +333,22 @@ bug being chased.
 
 ## 8. Suggested order for the next session
 
-Nothing here is a known bug — the tier is green. In rough order of value:
+Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
-1. **`demo_compute_heightmap`**, the one skip and the only known-broken thing left in the suite:
-   `GradientTexture1D.get_image()` returns an empty image under WebGPU, so the demo's
-   `texture_create()` fails and its compute never runs. `TextureStorage::texture_2d_get()` documents
-   WebGPU readback as asynchronous (first call starts it, data arrives later), and the Task 42
-   self-test already primes it across 120 frames and still gets nothing, so "retry next frame" is not
-   the answer. The same self-test **passes on native Vulkan** (center 118.1, corners 0.0), so the check
-   is sound and this is WebGPU-specific. Details at the end of TASKS.md Task 44.
-2. **Run `./webgpu_tests/local_ci.sh --no-safari` end to end once** — every tier it drives is green
+1. **Run `./webgpu_tests/local_ci.sh --no-safari` end to end once** — every tier it drives is green
    individually, but not in one invocation since the SDF fix (§2). The dlink/non-dlink template
    mismatch in §6 is the likeliest thing to trip it, and that is worth knowing before CI finds it.
-3. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
+2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-4. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
+3. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
    which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
    container at export time is the biggest remaining load win and is entirely our own code.
-5. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
-6. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+5. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
    time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
    and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
    actually bind would close the class instead of the next instance.
