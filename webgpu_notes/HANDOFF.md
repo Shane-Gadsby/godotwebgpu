@@ -61,10 +61,20 @@ recurred since. Read it as a cache problem, not an engine crash. (The older note
 `benchmark_sprites` failing on a missing `res://benchmark_profiler.gd` was the same thing; it exports
 cleanly now.)
 
-**`./webgpu_tests/local_ci.sh --no-safari` has still not been run end to end since the SDF fix** —
-every tier it drives was re-run green individually today, so there is no known reason for it to be
-red, but it has not been proven in one invocation. Note its rebuild step builds the **dlink** template
-while the smoketest exports with the non-dlink one (§6), which is the most likely thing to trip it.
+**`./webgpu_tests/local_ci.sh --no-safari` has now been run end to end and passes**: 2026-09-27,
+**12 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag. That covers the two
+tiers not listed in the table above, which had never been run separately this session either:
+`spec_constant_overrides` and `wgsl_cache` (its Python and JS halves), both green. It needs
+`source ~/emsdk/emsdk_env.sh` first — the script does not do it, and Stage 0 fails without `emcc`.
+
+**The dlink/non-dlink worry was unfounded, and the reason is worth knowing**: Stage 0 builds
+`bin/godot.web.template_release.wasm32.nothreads.dlink.zip`, while the smoketest exports with
+`bin/godot.web.template_release.wasm32.nothreads.zip`. Different filenames, different object
+directories (`libmodules.…dlink.a` vs the plain one), so they coexist and neither clobbers the other
+— which also means **Stage 0 rebuilds a template that no later stage uses**. The smoketest stage
+does not pass `--export` either, so a full `local_ci.sh` run tests whatever exports happen to be on
+disk, not the engine it just built. It is a real coverage gap rather than a bug: a green run does
+*not* prove the working tree's engine is good. Re-export by hand (§7) when that is what you need.
 
 ---
 
@@ -341,9 +351,11 @@ bug being chased.
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
-1. **Run `./webgpu_tests/local_ci.sh --no-safari` end to end once** — every tier it drives is green
-   individually, but not in one invocation since the SDF fix (§2). The dlink/non-dlink template
-   mismatch in §6 is the likeliest thing to trip it, and that is worth knowing before CI finds it.
+1. **Make `local_ci.sh` test the engine it builds** (§2). Stage 0 builds the dlink template, the
+   smoketest uses the non-dlink one and does not re-export, so a green run says nothing about the
+   working tree's engine. Either build both templates and pass `--export`, or drop Stage 0 and say
+   plainly that the script tests the existing exports. The second is honest and cheap; the first is
+   what the script's name implies.
 2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
