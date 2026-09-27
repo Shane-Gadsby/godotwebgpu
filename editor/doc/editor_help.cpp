@@ -3173,9 +3173,17 @@ void EditorHelp::regenerate_script_doc_cache() {
 		return;
 	}
 
+	// ~EditorFileSystem frees the filesystem root without clearing its own
+	// singleton, so on a teardown path this is null and _regen_script_doc_thread
+	// would dereference it on the loader thread, far from here.
+	EditorFileSystemDirectory *filesystem = EditorFileSystem::get_singleton()->get_filesystem();
+	if (!filesystem) {
+		return;
+	}
+
 	_wait_for_thread(worker_thread);
 	_wait_for_thread(loader_thread);
-	loader_thread.start(_regen_script_doc_thread, EditorFileSystem::get_singleton()->get_filesystem());
+	loader_thread.start(_regen_script_doc_thread, filesystem);
 }
 
 // Runs on worker_thread since it writes to DocData.
