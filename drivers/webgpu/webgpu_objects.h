@@ -173,6 +173,8 @@ struct WGShader {
 		// dummy_nonfiltering_sampler / Task 8.9, Task 7.13).
 		WGPUBindGroupLayoutEntry paired_sampler_entry = {};
 		bool has_paired_sampler_entry = false;
+		// UNIFORM_TYPE_SAMPLER used by both a depth texture and another texture (see sampler_depth_use_shared_check).
+		bool sampler_shared_with_non_depth = false;
 	};
 	struct BindGroupInfo {
 		LocalVector<BindGroupEntry> entries;
@@ -344,8 +346,14 @@ struct WGCommandQueue {
 	WGPUQueue queue = nullptr;
 };
 
+struct WGCommandBuffer; // Forward declaration for WGCommandPool.
+
 struct WGCommandPool {
 	RDD::CommandBufferType buffer_type = RDD::COMMAND_BUFFER_TYPE_PRIMARY;
+	// Command buffers are pool-owned, as in the Vulkan driver: the base API has
+	// no command_buffer_free(), so command_pool_free() is the only chance to
+	// release them.
+	LocalVector<WGCommandBuffer *> command_buffers_created;
 };
 
 struct WGQueryPool; // Forward declaration for WGCommandBuffer.

@@ -30,7 +30,9 @@ node screenshot_tests.mjs
 ### Options
 ```
 --update-baselines    Save current screenshots as new baselines
---threshold 0.05      Set pixel difference threshold (0-1, default 0.01)
+--threshold 0.05      Fraction of pixels allowed to differ (0-1, default 0.01)
+--pixel-tolerance 16  Per-channel 0-255 delta below which two pixels count as
+                      the same (default 8)
 ```
 
 ## Output
@@ -55,8 +57,26 @@ screenshots/
 
 ## Comparison approach
 
-- **Same-browser regression**: Exact byte comparison with configurable threshold (default 1%)
-- **Cross-browser comparison**: Looser threshold (5x) since implementations legitimately differ in edge-case rasterization
+PNGs are decoded to RGBA8 (`png.mjs`, zlib only — no dependencies) and compared
+per pixel. A pixel counts as different when any channel differs by more than
+`--pixel-tolerance`; the test fails when more than `--threshold` of the pixels
+do. The tolerance exists because GPU rasterization differs slightly between
+machines and drivers — gradient dithering and edge coverage move pixels by one
+or two levels, while a real rendering change moves whole regions far further.
+
+- **Same-browser regression**: threshold 1% of pixels
+- **Cross-browser comparison**: looser threshold (5x), reported as a warning only, since implementations legitimately differ in edge-case rasterization
+
+Do **not** compare the raw PNG bytes: deflate output is not locally stable, so a
+single changed pixel rewrites most of the stream and reads as a ~99% difference
+between images that look identical. That is what this script used to do, and it
+failed every run on any machine but the one that produced the baselines.
+
+A capture that comes back entirely pure black is recorded as a skip, not a
+failure: it means the browser never composited (Firefox under Xvfb on a GPU-less
+runner does this), and these scenes are hand-written WebGPU JS that never touch
+the Godot driver, so nothing in this repo can turn one black. If *every* browser
+skips, the run fails rather than passing on nothing.
 
 ## CI integration
 

@@ -8,10 +8,12 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 |------|------------------|---------|---------------------|
 | [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
+| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
-| [Scene Smoketest](scene_smoketest/) | 18 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Scene Smoketest](scene_smoketest/) | 19 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
+| [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 
 ## How It Works
 
@@ -104,7 +106,7 @@ node smoke_test.mjs ./export/
 
 ### 4. Scene Smoketest — Multi-Browser (requires pre-exported scenes)
 
-Runs 18 demo and benchmark scenes across Chrome, Firefox, and Safari:
+Runs 19 demo and benchmark scenes across Chrome, Firefox, and Safari:
 
 ```bash
 cd webgpu_tests/scene_smoketest
@@ -124,6 +126,22 @@ node run_scenes.mjs --scene benchmark_pbr # Single scene, default browser
 ```bash
 node run_scenes.mjs --export --browser chrome
 ```
+
+**Diagnosing a failing scene** — `run_scenes.mjs` truncates each console message to 200 characters
+and prints ~100, which cuts off the `While validating … / While encoding … / While calling …` chain
+where Dawn puts the actual information. `capture_errors.mjs` runs one already-exported scene and
+prints every distinct message in full, deduplicated with a repeat count and ordered cause-first
+(a root error is usually seen once; its cascade thousands of times):
+
+```bash
+node capture_errors.mjs exports/demo_3d_particles
+node capture_errors.mjs exports/demo_3d_particles --browser firefox --wait 25000
+```
+
+It mirrors `run_scenes.mjs`'s Chrome modes (`WEBGPU_REAL_GPU=1`, `CI=1`, or neither = the system's
+own Chrome) on purpose: the adapter decides the device limits and therefore which errors appear at
+all, so diagnosing on a different adapter than the tier ran on can show an entirely different
+failure.
 
 ### 5. Resource Lifecycle (standalone, needs Playwright)
 

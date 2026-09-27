@@ -649,6 +649,36 @@ SceneShaderForwardClustered::~SceneShaderForwardClustered() {
 	material_storage->material_free(debug_shadow_splits_material);
 }
 
+// SHADER_VERSION_DEPTH_PASS_WITH_SDF's define text, in one place, so the shader
+// baker can recompute it for the export target's capabilities.
+//
+// NO_IMAGE_ATOMICS: the variant's imageAtomicOr(geom_facing_grid, ...) needs the
+// buffer-based fallback on any backend without real image atomics (WGSL has no
+// image-atomics concept at all). NEEDS_DUMMY_COLOR_ATTACHMENT: its fragment
+// stage declares no color output and renders into a zero-attachment framebuffer,
+// which needs SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS; without it, add a
+// real dummy color output for the pipeline/framebuffer to target. Both are
+// explained at length in TASKS.md Task 9.5 Rounds 12/13 and 26.
+String SceneShaderForwardClustered::_sdf_variant_define(const String &p_base_define) {
+	RenderingDevice *rd = RD::get_singleton();
+	const String no_image_atomics_define = rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? "" : "\n#define NO_IMAGE_ATOMICS\n";
+	const String needs_dummy_attachment_define = rd->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS) ? "" : "\n#define NEEDS_DUMMY_COLOR_ATTACHMENT\n";
+	return p_base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n" + no_image_atomics_define + needs_dummy_attachment_define;
+}
+
+void SceneShaderForwardClustered::_refresh_sdf_variant_defines() {
+	if (singleton == nullptr) {
+		return;
+	}
+	// One SDF variant per ubershader pass; the depth variants are laid out in two
+	// consecutive blocks of SHADER_VERSION_COLOR_PASS entries (see init()).
+	for (uint32_t ubershader = 0; ubershader < 2; ubershader++) {
+		const String base_define = ubershader ? "\n#define UBERSHADER\n" : "";
+		const int variant = ShaderVersion::SHADER_VERSION_DEPTH_PASS_WITH_SDF + (int)ubershader * ShaderVersion::SHADER_VERSION_COLOR_PASS;
+		singleton->shader.set_variant_define_text(variant, _sdf_variant_define(base_define));
+	}
+}
+
 void SceneShaderForwardClustered::init(const String p_defines) {
 	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
 
@@ -669,7 +699,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		// wiring at all, so its SDF variant unconditionally took the
 		// image-atomics branch regardless of driver support. See
 		// webgpu_notes/TASKS.md Task 9.5.
-		const String no_image_atomics_define = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? "" : "\n#define NO_IMAGE_ATOMICS\n";
+
 		// SHADER_VERSION_DEPTH_PASS_WITH_SDF's fragment stage declares no
 		// color output at all (MODE_RENDER_DEPTH without MODE_RENDER_MATERIAL
 		// or MODE_RENDER_NORMAL_ROUGHNESS writes exclusively via imageStore/
@@ -685,7 +715,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		// _render_sdfgi()'s matching framebuffer-side fix and
 		// _create_pipeline()'s matching blend-state fix. See
 		// webgpu_notes/TASKS.md Task 9.5 Round 26.
-		const String needs_dummy_attachment_define = RD::get_singleton()->has_feature(RD::SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS) ? "" : "\n#define NEEDS_DUMMY_COLOR_ATTACHMENT\n";
+
 		for (uint32_t ubershader = 0; ubershader < 2; ubershader++) {
 			const String base_define = ubershader ? "\n#define UBERSHADER\n" : "";
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_BASE, base_define + "\n#define MODE_RENDER_DEPTH\n", true)); // SHADER_VERSION_DEPTH_PASS
@@ -696,7 +726,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
-			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n" + no_image_atomics_define + needs_dummy_attachment_define, false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, _sdf_variant_define(base_define), false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
 		}
 
 		Vector<String> color_pass_flags = {
@@ -733,6 +763,11 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		Vector<uint64_t> dynamic_buffers;
 		dynamic_buffers.push_back(ShaderRD::DynamicBuffer::encode(RenderForwardClustered::RENDER_PASS_UNIFORM_SET, 2));
 		shader.initialize(shader_versions, p_defines, Vector<RD::PipelineImmutableSampler>(), dynamic_buffers);
+
+		// The SDF variant's defines come from device capabilities, so the shader
+		// baker has to be able to recompute them for the export target rather than
+		// bake the editor's flavour. See TASKS.md Task 31.
+		ShaderRD::add_general_defines_refresh_callback(&SceneShaderForwardClustered::_refresh_sdf_variant_defines);
 
 		if (RendererCompositorRD::get_singleton()->is_xr_enabled()) {
 			shader.enable_group(SHADER_GROUP_MULTIVIEW);

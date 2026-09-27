@@ -275,6 +275,20 @@ Implemented via SPIR-V binary patching:
 - L8 (Luminance) → RGBA8 with luminance baked into RGB channels
 - LA8 (Luminance-Alpha) → RGBA8 with (L,L,L,A) pattern
 
+This conversion runs in `_validate_texture_format()`, which
+`_texture_2d_update()` calls on **every** update — not just at creation. For a
+texture that is re-uploaded as it grows, that is a full re-expansion each time.
+
+Monochrome **font atlases** are the case where that mattered: an atlas is
+re-uploaded whenever a glyph is added to it, so a text-heavy UI paid a
+full-atlas LA8→RGBA8 expansion per new glyph (~256 KB per 256×256 atlas). The
+text servers therefore rasterise monochrome glyph atlases **directly as RGBA8**
+under `WEBGPU_ENABLED` (`MONO_GLYPH_COLOR_SIZE` /
+`_write_mono_glyph_texel()` in `text_server_adv` and `text_server_fb`), which
+removes the conversion rather than repeating it. GPU memory is identical; the
+CPU-side atlas doubles. Colour, LCD and MSDF glyph paths were already RGBA8 and
+are unchanged. See `webgpu_notes/TASKS.md` Task 35.
+
 ### 5.2 Buffer Operations
 
 **Upload (non-readback)**:
@@ -478,7 +492,8 @@ Release templates no longer accidentally enable assertions (was adding ~2MB and 
 | No derivative uniformity guarantee | Prepend `diagnostic(off, derivative_uniformity)` |
 | f32::MAX decimal overflow | Replace with hex float `0x1.fffffep+127f` |
 | Limited storage texture formats | Promote R8/RG8/R16/RG16 to 32-bit |
-| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU |
+| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU (once per texture at load); monochrome font atlases are rasterised as RGBA8 up front and skip it entirely |
+| No 3-component texture formats | RGB8/RGBH/RGBF expanded to RGBA8 on CPU (once per texture at load) |
 | No push constants | Ring buffer emulation |
 | No combined image-samplers | SPIR-V-level split |
 | No subpasses | Flatten to separate render passes |

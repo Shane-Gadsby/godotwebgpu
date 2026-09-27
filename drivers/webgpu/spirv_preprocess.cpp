@@ -134,6 +134,26 @@ static constexpr uint16_t OP_ATOMIC_STORE = 228;
 static constexpr uint16_t OP_IN_BOUNDS_PTR_ACCESS_CHAIN = 216;
 static constexpr uint16_t OP_DECORATION_GROUP = 73;
 
+// Arithmetic/bit opcodes that may appear as the operation of an
+// OpSpecConstantOp (used by spec_constants_overridable()).
+static constexpr uint16_t OP_FCONVERT = 115;
+static constexpr uint16_t OP_SNEGATE = 126;
+static constexpr uint16_t OP_IADD = 128;
+static constexpr uint16_t OP_ISUB = 130;
+static constexpr uint16_t OP_IMUL = 132;
+static constexpr uint16_t OP_UDIV = 134;
+static constexpr uint16_t OP_SDIV = 135;
+static constexpr uint16_t OP_UMOD = 137;
+static constexpr uint16_t OP_SREM = 138;
+static constexpr uint16_t OP_SMOD = 139;
+static constexpr uint16_t OP_SHIFT_RIGHT_LOGICAL = 194;
+static constexpr uint16_t OP_SHIFT_RIGHT_ARITHMETIC = 195;
+static constexpr uint16_t OP_SHIFT_LEFT_LOGICAL = 196;
+static constexpr uint16_t OP_BITWISE_OR = 197;
+static constexpr uint16_t OP_BITWISE_XOR = 198;
+static constexpr uint16_t OP_BITWISE_AND = 199;
+static constexpr uint16_t OP_NOT = 200;
+
 // SPIR-V storage class values.
 static constexpr uint32_t SC_UNIFORM_CONSTANT = 0;
 static constexpr uint32_t SC_INPUT = 1;
@@ -152,6 +172,7 @@ static constexpr uint32_t DECO_DESCRIPTOR_SET = 34;
 
 // SPIR-V BuiltIn values.
 static constexpr uint32_t BUILTIN_POSITION = 0;
+static constexpr uint32_t BUILTIN_WORKGROUP_SIZE = 25;
 
 // SPIR-V execution model values.
 static constexpr uint32_t EXEC_MODEL_VERTEX = 0;
@@ -291,6 +312,227 @@ static uint64_t eval_spec_op(uint32_t p_opcode, const Vector<uint64_t> &p_operan
 		default:
 			return 0;
 	}
+}
+
+// ---- spec_constants_overridable ----
+
+// OpSpecConstantOp operations that Tint's SPIR-V reader can lower into a WGSL
+// override expression (tint::spirv::reader's EmitSpecConstants switch). The
+// ones it rejects outright are SConvert/UConvert (no WGSL integer types of
+// differing width), CompositeInsert/VectorShuffle (a WGSL override must be
+// scalar) and anything not in its switch at all, all of which raise a
+// TINT_ICE — so a module using one has to be frozen instead of preserved.
+static bool is_tint_overridable_spec_op(uint32_t p_opcode) {
+	switch ((uint16_t)p_opcode) {
+		case OP_BITWISE_AND:
+		case OP_BITWISE_OR:
+		case OP_BITWISE_XOR:
+		case OP_NOT:
+		case OP_IEQUAL:
+		case OP_INOT_EQUAL:
+		case OP_SGREATER_THAN:
+		case OP_SGREATER_THAN_EQUAL:
+		case OP_SLESS_THAN:
+		case OP_SLESS_THAN_EQUAL:
+		case OP_UGREATER_THAN:
+		case OP_UGREATER_THAN_EQUAL:
+		case OP_ULESS_THAN:
+		case OP_ULESS_THAN_EQUAL:
+		case OP_LOGICAL_AND:
+		case OP_LOGICAL_OR:
+		case OP_LOGICAL_NOT:
+		case OP_LOGICAL_EQUAL:
+		case OP_LOGICAL_NOT_EQUAL:
+		case OP_FCONVERT:
+		case OP_SNEGATE:
+		case OP_IADD:
+		case OP_ISUB:
+		case OP_IMUL:
+		case OP_SDIV:
+		case OP_UDIV:
+		case OP_UMOD:
+		case OP_SMOD:
+		case OP_SREM:
+		case OP_SHIFT_LEFT_LOGICAL:
+		case OP_SHIFT_RIGHT_LOGICAL:
+		case OP_SHIFT_RIGHT_ARITHMETIC:
+		case OP_COMPOSITE_EXTRACT:
+		case OP_SELECT:
+			return true;
+		default:
+			return false;
+	}
+}
+
+// Shared scan behind has_spec_constants() and spec_constants_overridable():
+// walks the module once and reports whether it declares any SpecId-decorated
+// constant, and whether every specialization constant in it can survive into
+// WGSL as an override.
+struct SpecConstantScan {
+	bool any_spec_id = false;
+	bool overridable = true;
+};
+
+static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
+	SpecConstantScan result;
+
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return result;
+	}
+
+	// Scalar types are the only ones a WGSL override can have.
+	HashSet<uint32_t> scalar_type_ids;
+	// Every id produced by an OpSpecConstant* instruction, including the
+	// derived results of OpSpecConstantOp/OpSpecConstantComposite.
+	HashSet<uint32_t> spec_derived_ids;
+	// OpSpecConstantComposite results, tracked separately: Tint only accepts
+	// one whose operands are all plain literals (it then falls back to normal
+	// constant handling), and asserts outright if it carries a SpecId.
+	HashSet<uint32_t> spec_composite_ids;
+	HashSet<uint32_t> spec_id_targets;
+
+	// Pass 1: types, spec constants and their shapes.
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		switch (op) {
+			case OP_TYPE_BOOL:
+			case OP_TYPE_INT:
+			case OP_TYPE_FLOAT: {
+				if (wc >= 2) {
+					scalar_type_ids.insert(read_word(data, len, pos + 1));
+				}
+			} break;
+
+			case OP_SPEC_CONSTANT_TRUE:
+			case OP_SPEC_CONSTANT_FALSE:
+			case OP_SPEC_CONSTANT: {
+				if (wc >= 3) {
+					uint32_t type_id = read_word(data, len, pos + 1);
+					uint32_t result_id = read_word(data, len, pos + 2);
+					spec_derived_ids.insert(result_id);
+					if (!scalar_type_ids.has(type_id)) {
+						// A non-scalar specialization constant cannot be a WGSL
+						// override. (Not reachable from GLSL, which only has
+						// scalar `layout(constant_id = N) const`, but a
+						// hand-written or vendor-produced module could.)
+						result.overridable = false;
+					}
+				}
+			} break;
+
+			case OP_SPEC_CONSTANT_OP: {
+				if (wc >= 4) {
+					uint32_t type_id = read_word(data, len, pos + 1);
+					uint32_t result_id = read_word(data, len, pos + 2);
+					uint32_t spec_op = read_word(data, len, pos + 3);
+					spec_derived_ids.insert(result_id);
+					if (!scalar_type_ids.has(type_id) || !is_tint_overridable_spec_op(spec_op)) {
+						result.overridable = false;
+					}
+				}
+			} break;
+
+			case OP_SPEC_CONSTANT_COMPOSITE: {
+				if (wc >= 3) {
+					uint32_t result_id = read_word(data, len, pos + 2);
+					spec_derived_ids.insert(result_id);
+					spec_composite_ids.insert(result_id);
+					// A composite built out of literals is fine -- Tint's reader
+					// recognizes it as a plain constant. One built out of real
+					// specialization constants (GLSL's `vec3(SPEC_FLOAT)`) has no
+					// scalar WGSL override equivalent; Tint materializes it at
+					// each use site instead, which this driver has never
+					// exercised, so freeze those modules rather than rely on it.
+					// Constituents are declared before use, so spec_derived_ids
+					// is already complete for them here.
+					for (uint32_t i = 3; i < wc; i++) {
+						if (spec_derived_ids.has(read_word(data, len, pos + i))) {
+							result.overridable = false;
+							break;
+						}
+					}
+				}
+			} break;
+
+			default:
+				break;
+		}
+
+		pos += wc;
+	}
+
+	// An OpSpecConstantOp can reference another one declared before it, so a
+	// single forward pass already sees every operand; nothing to close over.
+
+	// Pass 2: rule out uses no WGSL override can stand in for.
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op == OP_DECORATE && wc >= 3) {
+			uint32_t target = read_word(data, len, pos + 1);
+			uint32_t deco = read_word(data, len, pos + 2);
+			if (deco == DECO_SPEC_ID) {
+				result.any_spec_id = true;
+				spec_id_targets.insert(target);
+			} else if (deco == DECO_BUILTIN && wc >= 4 && read_word(data, len, pos + 3) == BUILTIN_WORKGROUP_SIZE) {
+				// A spec-constant workgroup size would have to reach WGSL's
+				// @workgroup_size as an override expression; the driver has no
+				// plumbing for that, so freeze instead.
+				if (spec_derived_ids.has(target)) {
+					result.overridable = false;
+				}
+			}
+		} else if (op == OP_TYPE_ARRAY && wc >= 4) {
+			// A specialization-constant-sized array. WGSL only allows an
+			// override-sized array for a workgroup variable, and the later
+			// passes here read array lengths as literals, so these modules stay
+			// frozen. Only word 3 (the Length <id>) is checked: OpTypeVector and
+			// OpTypeMatrix carry their component count as a literal, which would
+			// collide numerically with an unrelated id.
+			if (spec_derived_ids.has(read_word(data, len, pos + 3))) {
+				result.overridable = false;
+			}
+		}
+
+		pos += wc;
+	}
+
+	// Tint asserts outright on an OpSpecConstantComposite that carries a SpecId
+	// of its own.
+	for (const uint32_t &composite_id : spec_composite_ids) {
+		if (spec_id_targets.has(composite_id)) {
+			result.overridable = false;
+			break;
+		}
+	}
+
+	return result;
+}
+
+bool has_spec_constants(const Vector<uint8_t> &p_bytes) {
+	return scan_spec_constants(p_bytes).any_spec_id;
+}
+
+bool spec_constants_overridable(const Vector<uint8_t> &p_bytes) {
+	SpecConstantScan scan = scan_spec_constants(p_bytes);
+	return scan.any_spec_id && scan.overridable;
 }
 
 // ---- freeze_spec_constant_ops ----
@@ -2923,6 +3165,279 @@ Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes) 
 	return out;
 }
 
+// ---- lower_subgroup_ops ----
+
+Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes) {
+	const uint8_t *data = p_bytes.ptr();
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	// GroupNonUniform opcodes. The family is contiguous from Elect (333) to the
+	// last arithmetic reduction (364); anything in that span this pass does not
+	// explicitly lower makes it bail, so a shader can never come out half-lowered
+	// with its capabilities stripped.
+	static constexpr uint16_t OP_CAPABILITY = 17;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_FIRST = 333;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_LAST = 364;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BROADCAST = 337;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BROADCAST_FIRST = 338;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_BALLOT = 339;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_ARITH_FIRST = 349;
+	static constexpr uint16_t OP_GROUP_NONUNIFORM_ARITH_LAST = 364;
+
+	// Capability operands for the subgroup family (GroupNonUniform ..
+	// GroupNonUniformQuad).
+	static constexpr uint32_t CAP_GROUP_NONUNIFORM_FIRST = 61;
+	static constexpr uint32_t CAP_GROUP_NONUNIFORM_LAST = 68;
+
+	// GroupOperation: 0 = Reduce, 1 = InclusiveScan, 2 = ExclusiveScan. The first
+	// two are the lane's own value with one lane; ExclusiveScan would be the
+	// operation's identity element, which differs per operation, so a module
+	// containing one is left alone rather than guessed at.
+	static constexpr uint32_t GROUP_OP_REDUCE = 0;
+	static constexpr uint32_t GROUP_OP_INCLUSIVE_SCAN = 1;
+
+	// There is deliberately no literal-carrier table here. An earlier draft
+	// scanned every trailing word as a potential id reference and needed one to
+	// keep a constant's *value* from being mistaken for a result id; the scans
+	// below are opcode-targeted instead (each checks `op` and `wc` and reads the
+	// operand positions it knows), which is strictly more precise and cannot make
+	// that mistake in the first place.
+
+	// --- Pass 1: decide whether the whole module can be lowered, and collect the
+	// ballot results so their liveness can be checked.
+	HashSet<uint32_t> ballot_results;
+	bool found_any = false;
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			break;
+		}
+
+		if (op >= OP_GROUP_NONUNIFORM_FIRST && op <= OP_GROUP_NONUNIFORM_LAST) {
+			found_any = true;
+			if (op == OP_GROUP_NONUNIFORM_BROADCAST_FIRST && wc == 5) {
+				// Lowerable.
+			} else if (op == OP_GROUP_NONUNIFORM_BROADCAST && wc == 6) {
+				// Lowerable.
+			} else if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+				ballot_results.insert(read_word(data, len, pos + 2));
+			} else if (op >= OP_GROUP_NONUNIFORM_ARITH_FIRST && op <= OP_GROUP_NONUNIFORM_ARITH_LAST && wc == 6) {
+				// Layout: %result_type %result_id %scope %operation %value -- the
+				// scope is an id and the operation the literal after it.
+				uint32_t group_op = read_word(data, len, pos + 4);
+				if (group_op != GROUP_OP_REDUCE && group_op != GROUP_OP_INCLUSIVE_SCAN) {
+					return p_bytes; // ExclusiveScan or clustered/partitioned: not ours to fold.
+				}
+			} else {
+				// Elect, votes, shuffles, quad ops, a surviving BallotBitCount:
+				// not lowered here, so leave the module exactly as it is.
+				return p_bytes;
+			}
+		}
+
+		pos += wc;
+	}
+
+	if (!found_any) {
+		return p_bytes;
+	}
+
+	// A ballot's single-lane result is `uvec4(pred ? 1 : 0, 0, 0, 0)`: with one
+	// lane there is only bit 0 to set. That is built rather than assumed dead,
+	// because it is not -- cluster_render.glsl keeps the mask in a local, so the
+	// value is still stored even after fold_ballot_bit_count() has folded its only
+	// real consumer. Building it needs the component type of the ballot's vector
+	// result plus constants 0 and 1 of that type.
+	uint32_t uint_type_id = 0;
+	uint32_t const_zero_id = 0;
+	uint32_t const_one_id = 0;
+	if (!ballot_results.is_empty()) {
+		HashSet<uint32_t> ballot_result_types;
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+				ballot_result_types.insert(read_word(data, len, pos + 1));
+			}
+			pos += wc;
+		}
+
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_TYPE_VECTOR && wc == 4 && ballot_result_types.has(read_word(data, len, pos + 1))) {
+				uint_type_id = read_word(data, len, pos + 2);
+			}
+			pos += wc;
+		}
+		if (uint_type_id == 0) {
+			return p_bytes; // Cannot identify the component type; leave it alone.
+		}
+
+		pos = 5;
+		while (pos < total_words) {
+			uint32_t w0 = read_word(data, len, pos);
+			uint32_t wc = (w0 >> 16);
+			uint16_t op = (uint16_t)(w0 & 0xFFFF);
+			if (wc == 0 || pos + wc > total_words) {
+				break;
+			}
+			if (op == OP_CONSTANT && wc == 4 && read_word(data, len, pos + 1) == uint_type_id) {
+				uint32_t value = read_word(data, len, pos + 3);
+				if (value == 0 && const_zero_id == 0) {
+					const_zero_id = read_word(data, len, pos + 2);
+				} else if (value == 1 && const_one_id == 0) {
+					const_one_id = read_word(data, len, pos + 2);
+				}
+			}
+			pos += wc;
+		}
+	}
+
+	// --- Pass 2: rewrite.
+	const uint32_t nop_word = (1u << 16) | 0u; // OpNop.
+
+	// Ids for anything that has to be synthesized: the missing 0/1 constants and
+	// one OpSelect result per ballot.
+	uint32_t next_id = read_word(data, len, 3); // Header bound.
+	bool inject_zero = (!ballot_results.is_empty() && const_zero_id == 0);
+	bool inject_one = (!ballot_results.is_empty() && const_one_id == 0);
+	if (inject_zero) {
+		const_zero_id = next_id++;
+	}
+	if (inject_one) {
+		const_one_id = next_id++;
+	}
+	HashMap<uint32_t, uint32_t> ballot_select_id; // Ballot result id -> OpSelect result id.
+	for (const uint32_t &ballot_id : ballot_results) {
+		ballot_select_id[ballot_id] = next_id++;
+	}
+
+	Vector<uint8_t> out;
+	out.resize(0);
+	append_bytes(out, data, 0, 3 * 4);
+	push_word(out, next_id); // Updated bound.
+	append_bytes(out, data, 4 * 4, 4);
+
+	pos = 5;
+	while (pos < total_words) {
+		uint32_t w0 = read_word(data, len, pos);
+		uint32_t wc = (w0 >> 16);
+		uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			append_bytes(out, data, pos * 4, (total_words - pos) * 4);
+			break;
+		}
+
+		// Drop the subgroup capabilities, so Tint has no reason to emit
+		// `enable subgroups` -- the whole point of the pass.
+		if (op == OP_CAPABILITY && wc == 2) {
+			uint32_t cap = read_word(data, len, pos + 1);
+			if (cap >= CAP_GROUP_NONUNIFORM_FIRST && cap <= CAP_GROUP_NONUNIFORM_LAST) {
+				pos += wc;
+				continue;
+			}
+		}
+
+		// The synthesized constants go right before the first function, which in a
+		// valid module is after every type and constant declaration.
+		if (op == OP_FUNCTION && (inject_zero || inject_one)) {
+			if (inject_zero) {
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, uint_type_id);
+				push_word(out, const_zero_id);
+				push_word(out, 0u);
+			}
+			if (inject_one) {
+				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
+				push_word(out, uint_type_id);
+				push_word(out, const_one_id);
+				push_word(out, 1u);
+			}
+			inject_zero = false;
+			inject_one = false;
+		}
+
+		// `x = op(scope, x)` for one lane is `x`. OpCopyObject is shorter than
+		// every instruction it replaces, so the remainder is padded with OpNop
+		// rather than shifting every id in the module.
+		uint32_t value_word = 0;
+		bool copy_value = false;
+		if (op == OP_GROUP_NONUNIFORM_BROADCAST_FIRST && wc == 5) {
+			value_word = pos + 4;
+			copy_value = true;
+		} else if (op == OP_GROUP_NONUNIFORM_BROADCAST && wc == 6) {
+			value_word = pos + 4; // %value; the lane id operand becomes irrelevant.
+			copy_value = true;
+		} else if (op >= OP_GROUP_NONUNIFORM_ARITH_FIRST && op <= OP_GROUP_NONUNIFORM_ARITH_LAST && wc == 6) {
+			value_word = pos + 5;
+			copy_value = true;
+		}
+
+		if (copy_value) {
+			push_word(out, (4u << 16) | (uint32_t)OP_COPY_OBJECT);
+			push_word(out, read_word(data, len, pos + 1)); // Result type.
+			push_word(out, read_word(data, len, pos + 2)); // Result id.
+			push_word(out, read_word(data, len, value_word));
+			for (uint32_t i = 4; i < wc; i++) {
+				push_word(out, nop_word);
+			}
+			pos += wc;
+			continue;
+		}
+
+		if (op == OP_GROUP_NONUNIFORM_BALLOT && wc == 5) {
+			// uvec4(pred ? 1 : 0, 0, 0, 0) -- with one lane, only bit 0 exists.
+			uint32_t result_type = read_word(data, len, pos + 1);
+			uint32_t result_id = read_word(data, len, pos + 2);
+			uint32_t predicate = read_word(data, len, pos + 4);
+			uint32_t select_id = ballot_select_id[result_id];
+
+			push_word(out, (6u << 16) | (uint32_t)OP_SELECT);
+			push_word(out, uint_type_id);
+			push_word(out, select_id);
+			push_word(out, predicate);
+			push_word(out, const_one_id);
+			push_word(out, const_zero_id);
+
+			push_word(out, (7u << 16) | (uint32_t)OP_COMPOSITE_CONSTRUCT);
+			push_word(out, result_type);
+			push_word(out, result_id);
+			push_word(out, select_id);
+			push_word(out, const_zero_id);
+			push_word(out, const_zero_id);
+			push_word(out, const_zero_id);
+
+			pos += wc;
+			continue;
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
 // ---- fold_ballot_bit_count ----
 
 Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes) {
@@ -4134,11 +4649,20 @@ Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 
 	spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
 	optimizer.SetMessageConsumer([](spv_message_level_t, const char *, const spv_position_t &, const char *) {});
-	optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass(/*preserve_interface=*/true, /*preserve_spec_constants=*/true));
+	// The second argument is remove_outputs, not spec-constant preservation --
+	// that one is an optimizer *option*, set below. It was mislabelled here;
+	// the value it has always run with is kept.
+	optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass(/*preserve_interface=*/true, /*remove_outputs=*/true));
 
 	std::vector<uint32_t> result;
-	spvtools::ValidatorOptions validator_options;
-	if (!optimizer.Run(words.data(), words.size(), &result, validator_options, /*skip_validation=*/true)) {
+	spvtools::OptimizerOptions optimizer_options;
+	optimizer_options.set_run_validator(false);
+	// A module whose specialization constants were left overridable (see
+	// spec_constants_overridable()) still declares them here. One that looks
+	// unreferenced is only unreferenced at its *default* value, so DCE must not
+	// remove it -- the pipeline still needs the override to set it.
+	optimizer_options.set_preserve_spec_constants(true);
+	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
 		// for tint_cli against shim core/templates/ headers with no error_macros.h.
 		fprintf(stderr, "WebGPU: eliminate_dead_resources: SPIRV-Tools optimizer pass failed; falling back to "
@@ -4178,11 +4702,20 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 	// store still sits between the two barrier calls this pass exists to make
 	// adjacent, and Tint's uniformity analysis rejects the second barrier
 	// exactly as before.
-	optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass(/*preserve_interface=*/true, /*preserve_spec_constants=*/true));
+	// The second argument is remove_outputs, not spec-constant preservation --
+	// that one is an optimizer *option*, set below. It was mislabelled here;
+	// the value it has always run with is kept.
+	optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass(/*preserve_interface=*/true, /*remove_outputs=*/true));
 
 	std::vector<uint32_t> result;
-	spvtools::ValidatorOptions validator_options;
-	if (!optimizer.Run(words.data(), words.size(), &result, validator_options, /*skip_validation=*/true)) {
+	spvtools::OptimizerOptions optimizer_options;
+	optimizer_options.set_run_validator(false);
+	// A module whose specialization constants were left overridable (see
+	// spec_constants_overridable()) still declares them here. One that looks
+	// unreferenced is only unreferenced at its *default* value, so DCE must not
+	// remove it -- the pipeline still needs the override to set it.
+	optimizer_options.set_preserve_spec_constants(true);
+	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
 		// for tint_cli against shim core/templates/ headers with no error_macros.h.
 		fprintf(stderr, "WebGPU: eliminate_local_single_block_vars: SPIRV-Tools optimizer pass failed; falling back "

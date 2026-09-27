@@ -54,6 +54,9 @@ public:
 	};
 
 	typedef Pair<ShaderRD *, RID> ShaderVersionPair;
+	// Declared here rather than beside its accessors because the private member
+	// list below refers to it.
+	typedef void (*GeneralDefinesRefreshCallback)();
 	typedef HashSet<ShaderVersionPair> ShaderVersionPairSet;
 
 private:
@@ -150,6 +153,7 @@ private:
 
 	static String shader_cache_user_dir;
 	static String shader_cache_res_dir;
+	static LocalVector<GeneralDefinesRefreshCallback> general_defines_refresh_callbacks;
 	static bool shader_cache_cleanup_on_start;
 	static bool shader_cache_save_compressed;
 	static bool shader_cache_save_compressed_zstd;
@@ -177,6 +181,7 @@ private:
 	void _add_stage(const char *p_code, StageType p_stage_type);
 
 	String _version_get_sha1(Version *p_version) const;
+	String _version_get_debug_fingerprint(Version *p_version) const;
 	String _get_cache_file_relative_path(Version *p_version, int p_group, const String &p_api_name);
 	String _get_cache_file_path(Version *p_version, int p_group, const String &p_api_name, bool p_user_dir);
 	bool _load_from_cache(Version *p_version, int p_group);
@@ -248,6 +253,35 @@ public:
 
 	const Vector<uint64_t> &get_dynamic_buffers() const;
 
+	// Rebuilds general_defines from the current device capabilities and refreshes
+	// the cache hashes derived from it. Only meaningful while a shader-bake
+	// capability override is installed (see
+	// RenderingDevice::shader_bake_feature_override_set()); outside that it
+	// recomputes exactly what is already there.
+	//
+	// Safe to call on a live shader: it touches only the strings the *source
+	// builder* and the *cache key* read, never an already-compiled Version, so
+	// the editor keeps rendering with the shaders it already has while the baker
+	// builds target-flavoured sources from the same objects. That works because
+	// the baker does not reuse compiled versions -- it calls
+	// version_build_variant_stage_sources() and compiles them itself.
+	void set_general_defines(const String &p_general_defines);
+	String get_general_defines() const;
+
+	// Same idea as set_general_defines(), for a single variant whose own define
+	// text depends on device capabilities (scene_forward_clustered's SDF variant
+	// picks NO_IMAGE_ATOMICS / NEEDS_DUMMY_COLOR_ATTACHMENT that way). The group
+	// hash covers variant define texts too, so this refreshes it as well.
+	void set_variant_define_text(int p_variant, const String &p_text);
+
+	// Subsystems whose general_defines depend on device capabilities register a
+	// callback here, so the baker can ask every one of them to recompute without
+	// knowing they exist. Keeping each formula next to the shader it belongs to
+	// is the point: the alternative (a table of capability -> define in the
+	// exporter) is a second source of truth that silently drifts.
+	static void add_general_defines_refresh_callback(GeneralDefinesRefreshCallback p_callback);
+	static void refresh_all_general_defines();
+
 	static void shaders_embedded_set_lock();
 	static const ShaderVersionPairSet &shaders_embedded_set_get();
 	static void shaders_embedded_set_unlock();
@@ -266,6 +300,19 @@ public:
 	Vector<String> version_build_variant_stage_sources(RID p_version, int p_variant);
 	RenderingServerTypes::ShaderNativeSourceCode version_get_native_source_code(RID p_version);
 	String version_get_cache_file_relative_path(RID p_version, int p_group, const String &p_api_name);
+
+	// A short, human-readable descriptor of what a version *is* (which material's
+	// generated code it holds), for diagnosing a bake gap. A version is identified
+	// everywhere else only by a SHA1 of its code, which says nothing about which
+	// material produced it -- so a version present at runtime but missing from the
+	// bake cannot otherwise be named. Verbose-only. See TASKS.md Task 34.
+	String version_get_debug_fingerprint(RID p_version);
+
+	// Every version this shader currently holds, including the non-embedded ones
+	// (material versions are created with version_create(false)). The shader baker
+	// uses this to bake variants the engine has built but that no exported resource
+	// or scene leads back to. See webgpu_notes/TASKS.md Task 34.
+	LocalVector<RID> get_all_versions() const;
 
 	struct DynamicBuffer {
 		static uint64_t encode(uint32_t p_set_id, uint32_t p_binding) {

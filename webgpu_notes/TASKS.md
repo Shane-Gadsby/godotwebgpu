@@ -3781,9 +3781,22 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
 ---
 
 ### Task 13: Ensure that webgpu exports are fully precompiling shaders on export
-**Status**: `Phases 1-3 DONE, live-verified against the real project (2026-09-20)` — the dominant gap turned out to be different from, and larger than, this task's original framing; see the scoping update and phase write-ups below for the full story, including a real `add_file()` lifecycle bug found and fixed during verification
+**Status**: `Phases 1-3 DONE, live-verified against the real project (2026-09-20)`; **the spec-constant half of this task (the "dominant remaining gap" below, and Phases 1-4's whole record-then-bake subsystem) is OBSOLETE as of Task 25** — see the 2026-09-25 update immediately below before reading any of it — the dominant gap turned out to be different from, and larger than, this task's original framing; see the scoping update and phase write-ups below for the full story, including a real `add_file()` lifecycle bug found and fixed during verification
 **Effort**: 1 day, needs a real GPU + browser session (original estimate; the actual spec-constant baking feature took substantially longer — see the scoping update and phase write-ups)
 **Dependencies**: none
+
+---
+
+**Update (2026-09-25) — the gap this task's Phases 1-4 were built to close no longer exists.** Task 25 made `freeze_spec_constant_ops()` conditional, so specialization constants now survive into WGSL as `@id(N) override`s and a pipeline sets them with WebGPU pipeline constants. One base shader module serves every value combination, and `_create_module_with_spec_constants()` — the function that bypassed the baked-WGSL container lookup entirely, and therefore the sole reason spec-constant *values* had to be observed at runtime — is no longer reached by any real Godot shader: all 37 of the 196 engine shader variants that declare specialization constants are overridable, 0 are rejected, and a project's own `.gdshader`/visual shaders inherit the ubershader's fixed four constants (GDShader cannot declare `constant_id`, and `sc_packed_*()` are function calls, so user code cannot produce the one form the guard rejects).
+
+What this means for the tiers:
+- **Export-time container baking (Task 4.1's `ShaderBakerExportPlugin` + `ShaderBakerExportPluginPlatformWebGPU`) is now sufficient on its own.** It already enumerates every `ShaderRD` (engine renderers and effects, via `ShaderRD::shaders_embedded_set_get()`) *and* every material shader reachable from the exported resources (via `MaterialStorage::shader_embedded_set_get()`), and it stores each stage's baked WGSL *inside that stage's own shader container* in the `.pck` — matched by object identity, with no hash lookup and therefore none of the SPIR-V reproducibility exposure that the side-car formats below had. Specialized pipelines now reuse that same baked base module.
+- **Phases 1-4's recording subsystem is dead weight**, and is removed in the commit that follows this update: `_record_spec_constant_usage()`, the `--webgpu-record-spec-constants` arg and its `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS` twin, `webgpu_baked_spec_variants.bin`, `WebGPUSpecConstantBakerExportPlugin`, `WebGPUShaderCaptureEditorPlugin`'s toolbar toggle, `WebGPUSpecConstantDebuggerPlugin`, the `shader_baker/spec_constant_usage_file` export option and `capture_spec_constant_recording.mjs`. `webgpu::patch_spirv_spec_constants()` stays: the legacy re-patch path is still the fallback for anything `spec_constants_overridable()` rejects.
+- Removing it also retires the bug surface it kept producing — the `_export_end()`/`add_file()` lifecycle bug, the missing `_get_customization_configuration_hash()` stale-cache bug, the `_customize_resource` required-override log spam, and the never-fully-explained 19-of-23 and 0-of-12 match rates, all recorded in Phases 2-4 below.
+
+The one thing export-time baking structurally cannot cover is a shader that does not exist at export time — `Shader.new()` + `set_code()` at runtime, or anything the resource-customization walk cannot reach. Recording never covered that either (it only ever saw what a session happened to exercise). The right answer there is persistence rather than precomputation: a per-viewer WGSL cache in the browser (IndexedDB) keyed by the SPIR-V hash `_spv_to_wgsl_cached()` already computes, so the cost is paid once per user per shader instead of once per page load. Not built; only worth building once a baked export is measured to have a non-zero `tint_misses`.
+
+Everything below is kept as the historical record of how the spec-constant gap was found, sized and worked around. Phases 1-4's conclusions about it are still accurate for the code as it was; they are simply no longer load-bearing.
 
 ---
 
@@ -3876,7 +3889,7 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
 ---
 
 ### Task 14: Attempt to make the loading of webgpu exports less blocking, and the progress bar more representative of how long is left to load
-**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified; actually reducing blocking time (subtask 2) still open, see Task 13's spec-constant-baking scoping update below
+**Status**: `IN PROGRESS` — progress-bar honesty (subtask 3-ish) done and live-user-verified. Subtask 1 is **measured as of 2026-09-26** (`webgpu_tests/startup_phases/`, results under subtask 1 below): the clean cold stall on the user's real project is **~2.0 s**, made of ~1150 ms of engine CPU inside `callMain()`, ~850 ms in a single blocking `queue.writeTexture` (a Dawn wire flush, about half of it GPU-process pipeline compilation), and **~10 ms of shader-module and pipeline creation** — so this task's long-standing "the remainder is the browser's WGSL→pipeline compilation" framing is wrong and is corrected there. Two independent wins are also quantified: `verbose_stdout` costs ~1.5 s, and Task 35's glyph-atlas change was worth ~5 s. **Subtask 2 is the remaining work**, now with numbers to aim at.
 **Effort**: 1 day, needs a real GPU + browser session
 **Dependencies**: benefits from Task 13 being done first — an unclosed runtime-shader-fallback gap is itself a source of post-"100%" blocking this task would otherwise misattribute elsewhere
 
@@ -3892,6 +3905,25 @@ The actual fix, live-verified by the user ("it's a lot better"):
 
 **Also investigated and ruled out as a contributor**: the user separately reported 16 `wgsl_bake_subprocess.cpp:212` "Tint crashed" warnings during their export, suspecting they were part of the stall. These match Task 22's already-catalogued benign class exactly (SDFGI voxelization image-atomics / FSR2 half-float / VR multiview variants that only fail to bake because the *editor's* live Vulkan renderer supports those capabilities during baking — the real WebGPU runtime correctly reports them unsupported and never requests these variants at all). Confirmed not a contributor; no action needed on these specific warnings.
 
+**2026-09-26 — scoping note for the next session (shaders are no longer the cause)**
+
+Tasks 29–37 drove runtime shader translation from 37 → 0 and the user reports the ahead-of-time baking "really cuts down on the total wait time". The remaining ask is a **thorough investigation of everything *else* that blocks the load** and makes the page look frozen. Starting position for that work:
+
+**What is already known and should not be re-derived**
+- **Shader translation is out of the picture.** A cold run with storage cleared reports `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }`. Any remaining stall attributed to Tint is now a measurement error — confirm with `godotWebGPUShaderStats` before believing otherwise.
+- **The stall happens inside `callMain()`**, before JS regains control (established earlier in this task). That is why DOM-based progress reporting cannot paint during it and why the CSS spinner exists. Any new instrumentation must account for this or it will measure nothing.
+- **Pipeline compilation is still main-thread-bound, and threads cannot change that.** This is the direct answer to the user's threading question, and it is counter-intuitive enough to state plainly: per Task 12, every `WGPU*` object handle lives in a **per-thread** JS lookup table (emdawnwebgpu's `WebGPU.Internals.jsObjects`), so a shader-module or pipeline creation call on a `WorkerThreadPool` thread cannot see handles the main thread created and hard-aborts. The fix was `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION`, which forces those three dispatch sites **back onto the calling thread**. So enabling threads would *not* let the browser's WGSL→pipeline compilation (Task 14's known residual cost) move off the critical path — that is a WebGPU/Emscripten object-model constraint, not a threading-configuration one.
+
+**What threading could still plausibly help**, and therefore what the investigation should separate out: resource loading proper — image decode, `.ctex` decompression, scene/`.scn` parsing, GDScript loading — none of which touch WGPU handles. Whether any of that is actually significant here is **unmeasured**; the log shows resource loads interleaved with cache loads but with no timings. Measure before scoping.
+
+**Threading's real cost/benefit ledger, as it stands today** (Task 12, don't re-litigate):
+- `threads=no dlink_enabled=yes` — this fork's shipping config, fully supported.
+- `threads=yes dlink_enabled=no` — works since bug #1 was fixed and live-verified.
+- `threads=yes dlink_enabled=yes` — **broken**, and deliberately not fixed: an initialization-order race inside Emscripten's own `libdylink.js` glue, not this fork's code. Since the user's project needs GDExtension support, *"getting threading fully working"* currently means either giving up `dlink_enabled=yes` or fixing an Emscripten runtime bug upstream. That trade should be the first thing established, because it may make the whole threading branch of the question moot.
+- Threads also cost cross-origin isolation headers (COOP/COEP) on whatever serves the export — worth confirming the deployment target can supply them before investing.
+
+**Suggested order of work** (subtask 1 below is still the right first step and is unchanged): instrument and quantify *first*, against the user's real project at `~/Downloads/cameraSim_.../testing`, and specifically bracket WASM fetch→instantiate, device acquisition, resource loading, pipeline creation, and first-frame separately. The premise of this task — "there is a known-bad case" — should be re-confirmed with numbers before any fix is designed, because the last eight tasks repeatedly showed that the intuitive culprit was not the real one. Note also that `local_ci.sh`/Playwright can capture this without needing the user in the loop for every iteration.
+
 **Motivation**: `platform/web/js/engine/preloader.js`'s `animateProgress()` (~L63-97) computes progress purely from bytes downloaded vs. total content-length across tracked fetches (`load_status.loaded`/`.total`, `preloadedFiles`). It has no visibility into, and the progress bar reaches 100% before: WASM compile/instantiate (can be seconds for a large release `.wasm`, especially if the browser can't stream-compile it), the async `GPUAdapter`/`GPUDevice` request cycle (device is pre-initialized by the JS shell per `CLAUDE.md`'s Device Init note, but this still has to complete before the engine can proceed), the precompiled-WGSL table's own memory setup, and (until Task 13 closes it) any runtime Tint shader fallback conversions. Any of these can produce a visible stall after the bar already reads 100%.
 
 **Subtasks**:
@@ -3899,8 +3931,432 @@ The actual fix, live-verified by the user ("it's a lot better"):
    1.1. Add timing instrumentation (temporary, or gated behind a debug flag) around: WASM fetch-complete → instantiate-complete, device-request start → resolve, and engine `main()` start → first rendered frame, for a real project export.
    1.2. Run this against both a small and a large (`cameraSim_*`-scale, per the user's real test project) export to see which phases scale with project size vs. stay roughly constant — this determines which phases are worth surfacing in the progress bar at all versus just genuinely fixed overhead.
    1.3. Identify the single largest contributor with the user's real project (this task's premise — "less blocking" — implies there's a known-bad case; confirm what it actually is before designing around a guess).
+
+   **RESULTS (2026-09-26) — subtask 1 measured; `webgpu_tests/startup_phases/`** `[DONE]`
+
+   Tooling: `webgpu_tests/startup_phases/profile_phases.mjs` + `instrument.js` (see that
+   directory's README). All instrumentation is monkey-patched into the page via
+   Playwright's `addInitScript`, so **no engine rebuild is needed to measure an export** —
+   it brackets downloads, WASM compile/instantiate, adapter/device acquisition, and the
+   `callMain()` window, and inside that window attributes time to each WebGPU API call,
+   leaving engine CPU work as the remainder. The stall is cross-checked against the longest
+   `requestAnimationFrame` gap, which is measured without relying on the engine's events.
+
+   Environment for every number below: Linux, Chrome via Playwright, integrated GPU,
+   localhost server, the user's real project (`~/Downloads/cameraSim_.../testing`),
+   re-exported release + dlink + `shader_baker/enabled` from a scratch copy.
+
+   **The headline: the stall is 2.0s, and it is *not* shader or pipeline compilation.**
+
+   | phase | cold |
+   |---|---|
+   | navigation → DOMContentLoaded | 103 ms |
+   | `index.wasm` (1.3 MB) fetch + `instantiateStreaming` | 3 ms + 10 ms |
+   | `index.side.wasm` (51 MB) fetch + `instantiate` | 48 ms + 48 ms |
+   | `index.pck` (129 MB) download | 307 ms |
+   | `requestAdapter` + `requestDevice` | 103 ms + 61 ms, **starting at 91 ms** — already parallel with the fetches, so subtask 2.2 needs no work |
+   | **`callMain()` stall (before-callmain → first presented frame)** | **1923–2632 ms** (n=4) |
+   |  ├ engine CPU, in no WebGPU call at all | **1131–1150 ms** — stable to ±1% across every run |
+   |  ├ one single blocking `queue.writeTexture` | **769–1479 ms** |
+   |  └ `createShaderModule` (363) + `createRenderPipeline` (26) + `createComputePipeline` (192) | **~10 ms combined** |
+
+   `godotWebGPUShaderStats` = `{baked: 360, precompiled: 1, cached: 1, translated: 0, specialized: 0}`,
+   so Task 34's result holds and runtime translation is confirmed absent.
+
+   **Correction to this task's standing assumption.** Tasks 25–37 repeatedly concluded that
+   "any remaining startup stall is the browser's own WGSL→pipeline compilation, which nothing
+   here can remove". Measured, shader-module and pipeline creation together are **~10 ms of a
+   ~2000 ms stall** — 0.5%. Browser-side compilation is *not* the residual cost, and the
+   sentence should not be repeated as-is. Compilation cost does exist, but it appears somewhere
+   unexpected; see the flush below.
+
+   **Finding 1 — one blocking `writeTexture` is ~40% of the stall, and it is a wire flush, not an upload.**
+   Exactly one `writeTexture` per load blocks for 0.8–1.5 s; the other ~1397 cost microseconds
+   in total. Its payload is **16 KB** (a 64×64 write into a 256×256 `rgba8unorm` texture), and an
+   identical write to the same texture moments later costs 0–3 ms, so the duration has nothing to
+   do with the data. What distinguishes it is position: it is the first write after the 7th
+   `queue.submit`. Warm vs cold GPU shader cache moves it **818 ms → 434 ms** (stall 1985 → 1601 ms),
+   which says roughly half of it *is* GPU-process pipeline compilation — Dawn compiles lazily on
+   first use and blocks the next queue operation while the wire drains. So the browser's
+   compilation cost is real, is about 400 ms here, and is invisible to anyone timing
+   `createRenderPipeline`. Investigating whether it can be moved off the critical path (e.g.
+   priming pipelines earlier, or `createRenderPipelineAsync`) is the most concrete lever for
+   subtask 2.
+
+   **Finding 2 — `debug/settings/stdout/verbose_stdout` costs ~1.5 s, and it was on in the export the user measured.**
+   Same export profiled with and without `--verbose`: **3818–3860 ms vs 1923–2632 ms**. Detaching
+   the CDP console listener changed nothing (3860 → 3818 ms), so this is the page's own cost, not
+   the profiler's observer effect. 15,345 console lines are emitted, including 192 lines of full
+   WGSL dumps from `rendering_device_driver_webgpu.cpp:5406`'s `print_verbose` of every
+   read_storage→sampled module. The user's `builds/` export from 2026-09-25 has
+   `verbose_stdout` baked into its `project.binary` (it is absent from the current
+   `project.godot`, so they have since turned it off) — worth telling them plainly that this
+   setting alone is seconds of load time, since nothing in the engine warns about it.
+
+   **Finding 3 — Task 35's glyph-atlas change was worth ~5 s on this project, confirmed after the fact.**
+   Profiling the user's own 2026-09-25 export (engine `ab4393217`, pre-Task-35) gives a
+   **9259 ms** stall with an identical console volume (15,506 lines) to the 3860 ms verbose run
+   above on engine `60ec32069`. The difference is **83 `Image format LumAlpha8 not supported by
+   hardware, converting to RGBA8` warnings spanning 5625–10010 ms**, exactly straddling the
+   long block — versus **1** warning post-Task-35. So the per-upload L8/LA8 expansion that
+   Task 35 removed accounted for most of the stall the user originally reported, and the
+   9.2 s → 2.0 s improvement they will see is Tasks 34–37 plus turning verbose off.
+
+   **Reproduce**:
+   ```bash
+   cd webgpu_tests/startup_phases
+   node profile_phases.mjs --dir <export-dir> --label cold            # cold baseline
+   node profile_phases.mjs --dir <export-dir> --label verbose --args --verbose
+   node profile_phases.mjs --dir <export-dir> --label warm --warm     # run twice
+   ```
+   Note the export must be produced **without** `--headless` or the shader baker never runs
+   (a headless export of this project silently produced a 15 MB unbaked pck instead of 135 MB).
+
+   **RESULTS for the in-`callMain()` breakdown (2026-09-26)** `[DONE — subtask 1 is complete]`
+
+   `main.cpp` already brackets every startup phase with
+   `OS::benchmark_begin_measure`/`benchmark_end_measure`, but `OS`'s implementations of both are
+   `#ifdef TOOLS_ENABLED`, so in an export template they compile to nothing — which is the one
+   build where it matters. `OS_Web` now overrides them (`platform/web/os_web.cpp`) and pushes each
+   completed phase onto `window.godotStartupMarks`, timestamped with `performance.now()` on the JS
+   side so it lands on the same clock as everything the page measures, with no epoch to reconcile.
+   Recording is gated on `--benchmark`, and measured cost when it is off is nil (5477 vs 5471 ms
+   on the same export). No shared-engine-code change was needed: `--benchmark`'s CLI parsing and
+   `set_use_benchmark()` are already outside the `TOOLS_ENABLED` guards. `profile_phases.mjs`
+   collects and prints the marks, and passes the flag with `--args --benchmark`.
+
+   | phase inside `callMain()` | minimal control | user's project | nature |
+   |---|---|---|---|
+   | `Main::Setup` (core init) | 60 ms | 60 ms | fixed |
+   | **`Servers:Rendering`** | **509 ms** | **513 ms** | **fixed** |
+   | `Servers:*` others (audio 29, extensions 29, display 5) | ~70 ms | ~67 ms | fixed |
+   | `Startup:Scene` (`Register Types` 72, `Modules and Extensions` 38) | 111 ms | 110 ms | fixed |
+   | `Startup:Finalize Setup` | 10 ms | 10 ms | fixed |
+   | `Startup:Main::Start` / of which `Load Game` | 16 / 8 ms | **328 / 325 ms** | project |
+   | **after `Main::start()` returns** — main-loop init + first frame | 57 ms | **835 ms** | project |
+   | total stall | 833 ms | 1925 ms | |
+
+   `Startup:Main::Setup2` measures 699 ms and 702 ms in the two projects — a 3 ms spread on a
+   completely different project, which is as direct a confirmation of the fixed floor as this can
+   produce. **The three terms worth attacking, in order:**
+
+   1. **The first frame, ~835 ms** — everything after `Main::start()` returns, and where the
+      single blocking `queue.writeTexture` (761 ms in this run) lives. The largest term, and the
+      one nothing currently accounts for.
+   2. **`Servers:Rendering`, ~510 ms, and entirely fixed** — every project pays it, including an
+      empty scene. `createShaderModule` for all 363 modules is 22 ms of it and pipeline creation
+      is 0 ms, so ~490 ms is CPU spent getting 344 baked shader containers out of the pck and
+      through the driver, not talking to WebGPU. This is the best target for a fix that helps
+      *every* project rather than one.
+   3. **`Load Game`, ~325 ms** — the main scene, i.e. genuine resource loading.
+
+   **A trap that cost real time here, worth stating plainly**: rebuilding the web template alone
+   makes every shipped bake miss, because the bake is keyed to the engine version hash. The
+   symptom is `{baked: 0, translated: 169}` and a ~5× slower load (833 ms → 4132 ms on the minimal
+   project), which looks exactly like a performance regression in whatever was just changed. **The
+   editor and the web template must be rebuilt from the same commit**, since the editor bakes and
+   the template consumes. Task 36's warning fired and named the cause correctly, which is what
+   made this a ten-minute detour instead of a wasted session.
+
+   **RESULTS for 1.2 (2026-09-26) — small vs large, same editor build, same template, same bake** `[DONE]`
+
+   Control project: a hand-written minimal export (one `MeshInstance3D`, one
+   `DirectionalLight3D`, one `Label`, no imported assets) exported with the *same*
+   preset options as the user's project — release, dlink, `shader_baker/enabled`. Its
+   `index.pck` is 100 MB against the real project's 129 MB, and essentially all of that
+   is baked shaders, so the two differ almost purely in *project content*, not in shader
+   payload. Two runs each; figures are cold.
+
+   | | minimal control | user's project | delta |
+   |---|---|---|---|
+   | `callMain()` stall | **824–854 ms** | 1923–2632 ms | ≈ +1250 ms |
+   | CPU, in no WebGPU call | **813–840 ms** | 1131–1150 ms | ≈ +315 ms |
+   | all WebGPU calls | **12–14 ms** | 769–1479 ms | ≈ +900 ms |
+   | `createShaderModule` | 346 calls / 8 ms | 363 calls / 9 ms | ~fixed |
+   | `createComputePipeline` | 192 calls | 192 calls | **identical** |
+   | blocking `writeTexture` | **none** (3–4 ms of writes total) | one, 769–1479 ms | project-dependent |
+
+   **There is a ~825 ms fixed floor that even an empty scene pays**, and it is almost
+   entirely CPU inside `callMain()` — 98.6% of the minimal project's stall is in no WebGPU
+   call at all. Project content adds only ~315 ms of CPU on top of it. So resource loading
+   proper (image decode, `.ctex`, scene parse, GDScript) is **~315 ms of a ~2000 ms stall**
+   on the user's real project. **That is the answer subtask 1.5 was waiting for: moving
+   resource loading to a worker thread could win at most ~0.3 s here, which does not justify
+   patching Emscripten's dylink glue.** The threading branch should be treated as closed
+   unless a project with far heavier assets changes that number.
+
+   Sequencing the calls inside the window (timestamps relative to `callMain` entry) shows
+   the prologue is the same in both projects, to within a few ms:
+
+   | | minimal | user's project |
+   |---|---|---|
+   | callMain entry → first WebGPU call of any kind | 0 → 107 ms | 0 → 109 ms |
+   | CPU-only gap | 382 → 558 (176 ms) | 382 → 563 (181 ms) |
+   | CPU-only gap | 595 → 745 (150 ms) | 595 → 748 (153 ms) |
+   | rest | ends at 824 | continues to 2071 |
+
+   Those three identical stretches — a 107 ms pre-WebGPU boot and two ~165 ms CPU gaps at
+   fixed offsets — are **~430 ms of deterministic engine work that no project can avoid**,
+   and they are the concrete targets for the C++ marks noted above. Naming what happens in
+   them is worth more than further external measurement: they are a larger and far more
+   predictable term than resource loading.
+1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[SCOPED 2026-09-26, NOT STARTED]`
+
+   *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
+
+   **Do subtask 1 first.** If measurement shows resource loading is a negligible share of the stall, this whole subtask is moot — do not start it on the assumption that threading is the answer. **Subtask 1.2 has now measured exactly that, and the answer is negligible: ~315 ms of a ~2000 ms stall (see 1.2's results above). Treat this subtask as closed** unless a project with much heavier assets moves that number; nothing below should be built on the strength of the current evidence. It is scoped here so that the decision is cheap when the time comes, not to pre-commit to it.
+
+   **1.5.0 — Feasibility finding already in hand (do not re-derive, do not naively "fix")**
+
+   The crash is `ASM_CONSTS[start] = eval(func)` in `addEmAsm()` (`~/emsdk/upstream/emscripten/src/lib/libdylink.js:842` at 6.0.9), with `ASM_CONSTS` undefined on a freshly-spawned pthread worker. **The obvious one-line guard (`ASM_CONSTS ??= {}`) is actively harmful.** Measured in a real build output (`bin/godot.web.template_debug.wasm32.dlink.js`):
+
+   | | byte offset |
+   |---|---|
+   | `addEmAsm`'s `ASM_CONSTS[start] = …` | 37,758 |
+   | `var ASM_CONSTS = { … }` | 901,256 |
+
+   `var` hoists the *declaration* (hence `undefined`, exactly matching the reported `Cannot set properties of undefined`), but the initializer runs ~863 KB later **and replaces the object wholesale**. A guard would therefore let the side module populate an object the main module then silently discards — converting a loud abort into side-module `EM_ASM` bodies that quietly do not exist. That is strictly worse than the crash, and is the single most important thing to carry into this work.
+
+   A real fix must do one of:
+   - **(a) queue and flush** — stash registrations when `ASM_CONSTS` is undefined, flush after the main module's assignment (needs a hook that provably runs after that point);
+   - **(b) merge instead of replace** — emit `var ASM_CONSTS = Object.assign(<pending>, { … })`;
+   - **(c) hoist initialization** — emit `var ASM_CONSTS = {}` early and populate by assignment.
+
+   (b) and (c) are **emitter-level** changes (`tools/` — `js_manipulation.py` and the link-time JS assembly), not `libdylink.js` alone. This is materially more than Task 12's "don't patch Emscripten" decision assumed, and it should be re-confirmed as still-correct with this new information rather than silently reversed. **A legitimate outcome of this subtask is "still don't".**
+
+   **1.5.1 — Decide scope of the machinery, with an explicit exit**
+   - 1.5.1.1. Re-derive the bug against the pinned toolchain (6.0.9) to confirm it still reproduces and that the mechanism above is still the mechanism.
+   - 1.5.1.2. Prototype (a)/(b)/(c) far enough to know which is smallest and how many files it touches. **Decision gate**: if the minimal viable fix spans the emitter and not just `libdylink.js`, record that and stop — report back before building machinery. Maintaining a fork of Emscripten's link-time JS assembly across emsdk bumps is a standing cost this fork has already declined once, and the answer may legitimately be to keep declining and close the threading branch instead.
+   - 1.5.1.3. If it *is* tractable, build the machinery below. It is worth building properly even for one patch, because the failure mode of an ad-hoc local edit is an un-reproducible toolchain.
+
+   **1.5.2 — Layout** (`misc/emsdk_patches/`, in-repo; the toolchain itself at `~/emsdk` is external and cannot be versioned)
+   ```
+   misc/emsdk_patches/
+     README.md                     apply / verify / retire, and the rationale below
+     0001-dylink-asm-consts-pthread-race.patch
+     repro/                        standalone bug reproducer (see 1.5.3)
+     apply.sh                      --check | --apply | --revert | --status
+   ```
+
+   **1.5.3 — Test for the bug, not for the patch** (this is the property that makes it self-retiring, and the direct answer to "how do we know when to remove it")
+   - 1.5.3.1. Build the smallest standalone reproducer that exhibits the race: `MAIN_MODULE` + a side module carrying at least one `EM_ASM`, `-pthread`, spawning a worker that triggers side-module instantiation. No Godot involved — it must be runnable in seconds and survive engine changes.
+   - 1.5.3.2. Run it against the **unpatched** toolchain, headless via the existing Playwright setup (`webgpu_tests/`), asserting on the specific abort signature rather than any failure.
+   - 1.5.3.3. `apply.sh` runs this **first**: bug absent → print "upstream has fixed this; delete `0001-*` and this repro" and exit without patching; bug present → proceed. Checking whether the patch still *applies cleanly* answers the wrong question and is exactly how workarounds outlive their cause.
+
+   **1.5.4 — Pin by content, not by line**
+   - 1.5.4.1. Record in the patch header: the emsdk version it was derived against (`6.0.9`), and the **SHA256 of the exact upstream hunk** being replaced.
+   - 1.5.4.2. On mismatch, `apply.sh` **refuses** and prints the recorded hash, the found hash, the file, and a pointer to the repro and to this subtask — i.e. the "migrate it forward" path is loud, not silent. Never fall back to a fuzzy apply.
+   - 1.5.4.3. Patch header carries a `GODOT WEBGPU PATCH:` block in the style of `thirdparty/tint/patches/0010-*.patch`: what it does, why, the `ASM_CONSTS` ordering trap from 1.5.0, the removal criterion, and a link to Task 12 and this subtask.
+
+   **1.5.5 — Make an unpatched toolchain visible at build time**
+   - 1.5.5.1. Under `platform=web threads=yes dlink_enabled=yes` only, have `SConstruct` check for the patch marker in the toolchain and **warn loudly** if absent, naming `misc/emsdk_patches/apply.sh`.
+   - 1.5.5.2. Rationale worth stating in the code comment: without this, a fresh `emsdk install` silently reverts the patch and the next person rediscovers the crash from scratch — the same silent-failure shape as Task 36's version-hash mismatch, which cost several rounds precisely because nothing announced it.
+
+   **1.5.6 — Propagation beyond this machine** (the patch is worthless to anyone who does not run the script)
+   - 1.5.6.1. Wire `apply.sh --apply` into CI's web-build job after emsdk setup.
+   - 1.5.6.2. Document in `CLAUDE.md`'s Build Commands that a `threads=yes dlink_enabled=yes` web build requires it, and that **`emsdk install` overwrites the toolchain tree, so it must be re-applied after every toolchain change** — not just after an emsdk *upgrade*.
+   - 1.5.6.3. Confirm whether Emscripten caches anything derived from `src/lib/*.js`. JS libraries appear to be processed at link time each link (`cache/` holds `build`/`ports`/`sysroot`/`symbol_lists`, i.e. compiled artifacts), but `symbol_lists` in particular is **unverified** for this — check whether `apply.sh` must also invalidate it, or the patch will appear not to take effect.
+
+   **1.5.7 — `apply.sh` contract**
+   - Idempotent (re-running is a no-op, not a double-apply); `--check` exits non-zero if unapplied, for CI and the SConstruct hook; `--revert` restores cleanly; `--status` prints emsdk version, hunk hash match, applied-or-not, and the repro's current verdict. Resolves the toolchain via `EMSDK`/`which emcc` rather than hard-coding `~/emsdk`.
+
+   **1.5.8 — Verify**
+   - 1.5.8.1. Repro fails before, passes after.
+   - 1.5.8.2. A real `threads=yes dlink_enabled=yes` web export of the user's project boots — the actual goal; the repro only proves the mechanism.
+   - 1.5.8.3. **Regression**: `threads=no dlink_enabled=yes` (the shipping config) still builds and passes `local_ci.sh --quick`, because that config must not be put at risk by a patch aimed at a config we do not currently ship.
+   - 1.5.8.4. Deliberately break the pin (edit the recorded hash) and confirm `apply.sh` refuses rather than fuzzily applying.
+   - 1.5.8.5. Only *then* return to subtask 1's numbers and ask whether threading actually buys anything measurable — the patch makes threading *possible*, which is not the same as making it *worthwhile*.
+
+   **Effort**: 1.5.1 is half a day and may terminate the whole subtask. The machinery is ~1 day if 1.5.1 clears. Needs a real browser session for 1.5.3 and 1.5.8.
+
+   **Risks worth stating up front**: this fixes a bug in someone else's toolchain, which we then carry indefinitely; every emsdk bump becomes a re-verification step; and the benefit is speculative until subtask 1 shows resource loading is actually significant. Those are the reasons the decision gate at 1.5.1.2 is real and not a formality.
+
 2. Reduce actual blocking time, not just report it better
-   2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export.
+   **RESULTS (2026-09-26) — subtask 2 first pass: the stall's largest term is a Chrome-internal
+   synchronization, and three plausible fixes are measured and ruled out** `[IN PROGRESS]`
+
+   Target, from subtask 1: the ~835 ms after `Main::start()` returns, of which ~760–850 ms is a
+   *single* blocking `queue.writeTexture` while the other ~1400 writes cost ~14 ms combined. Four
+   experiments, all against the user's real project and a purpose-built control, all with the
+   editor and template built from the same commit.
+
+   **Measured 1 — the block is a cliff, not a slope.** Built a control project (an empty 3D scene
+   plus N `Label`s) and swept the volume of `queue.write*` issued before the first frame:
+
+   | control | uploads before first frame | slowest single call | stall |
+   |---|---|---|---|
+   | 1 label | 16.8 MB | **2 ms (no block at all)** | 894 ms |
+   | 2 labels | 29.0 MB | 827 ms | 1676 ms |
+   | 3 labels | 38.0 MB | 821 ms | 1694 ms |
+   | 4 labels | 45.3 MB | 801 ms | 1683 ms |
+   | 5 labels | 52.3 MB | 766 ms | 1662 ms |
+   | 10 / 20 / 40 labels | 73.0 / 78.5 / 96.3 MB | 758 / 757 / 766 ms | 1654 / 1659 / 1718 ms |
+
+   Somewhere between **16.8 MB and 29 MB** of pre-first-frame uploads, a flat ~800 ms penalty
+   appears, and it does **not** grow as uploads rise a further 6×. Holding the atlas count fixed
+   (all labels at one font size, so one glyph atlas) reproduces the same cliff at 35 MB, so it
+   tracks upload volume, not the number of distinct textures. Note what this means for the user:
+   adding 40 `Label`s to an otherwise empty scene **doubles** the load stall, 894 → 1718 ms.
+
+   **Measured 2 — reducing the number of upload calls does nothing.** `texture_upload_region_size_px`
+   (default 64) makes `rendering_device.cpp` split every texture upload into 64×64 regions, one
+   `wgpuQueueWriteTexture` each — 1530 calls for the user's project, 16 of them for a single
+   256×256 atlas. Raising it to 2048 cut that to **300 calls** and changed the stall not at all
+   (1903/2055 ms vs 1925 ms; queue writes 746/891 ms vs 761 ms). The per-call overhead was never
+   the cost, which the raw data already implied. **Do not spend time coalescing these calls.**
+
+   **Measured 3 — it is not pipeline compilation.** The leading hypothesis was that Dawn compiles
+   lazily on first use, so the cost of the ~218 pipelines surfaces later as a blocking queue
+   operation. Tested by having the profiler fire `createComputePipelineAsync`/
+   `createRenderPipelineAsync` for every pipeline alongside the engine's synchronous creation
+   (`--eager-pipelines`), which should compile them eagerly and off the critical path. **All 218
+   completed** (`{kicked: 218, done: 218, failed: 0}`) and the block was unchanged: 849 ms, stall
+   2007 ms, against a 1976–2036 ms baseline. Two further reasons to believe this: the minimal
+   control creates the *same* 192 compute pipelines and blocks for 2 ms, and the block's duration
+   is constant across projects with very different pipeline usage. **This retires the "the
+   remaining stall is the browser's WGSL→pipeline compilation" line for good** — subtask 1 showed
+   it is not in `create*Pipeline`, and this shows it is not deferred compilation either. The
+   earlier cold-vs-warm observation (818 → 434 ms) should be treated as noise until re-measured;
+   run-to-run spread on this call is 756–849 ms.
+
+   **Measured 4 — where the upload volume actually comes from, and one genuine waste.**
+   Of the user's 66 MB: **20.8 MB in 1313 writes to 256×256 `rgba8unorm`** (glyph atlases),
+   21.3 MB into one 2048×2048 with 12 mips (the character texture), 23.5 MB of `writeBuffer`. The
+   glyph figure is not 82 atlases — it is a handful re-uploaded **in full, once per glyph added**,
+   exactly the mechanism Task 35 documented: `text_server_adv.cpp:3825` does
+   `tex.texture->update(img)` whenever `tex.dirty`, and that flag is set per glyph while every
+   `Label` in the scene builds its draw commands. The control makes the scale obvious: 40 labels
+   produce **78 MB** of full-atlas re-uploads where one upload per atlas per frame would be ~10 MB.
+   Worth fixing on its own merits (transient allocation, memcpy, wire traffic), but **it will not
+   clear the cliff for the user's project**: 66 MB → ~50 MB is still far above ~25 MB.
+
+   **Where this leaves subtask 2.** The largest single term in the load is a Chrome-internal
+   synchronization that is not proportional to our upload bytes, is not our pipeline compilation,
+   and appears above a ~20–30 MB upload threshold — most likely the Dawn wire's transfer staging
+   being exhausted and forcing a round trip whose cost is the GPU process draining submitted work.
+   Attributing it properly needs a **Chrome trace** (CDP `Tracing.start` with the `gpu` and
+   `disabled-by-default-gpu.debug` categories) rather than more black-box bisection; that is the
+   next concrete step and it is a fresh piece of work. Two things are worth doing regardless of
+   how that lands, and neither depends on it:
+   1. **Coalesce glyph-atlas uploads to one per atlas per frame** (defer on `dirty`, flush on
+      `RenderingServer`'s `frame_pre_draw`, which `rendering_server_default.cpp:446` already
+      emits before rendering). ~4× less atlas traffic. Gate on `WEBGPU_ENABLED` to contain the
+      risk, since a deferral bug here shows up as missing or stale glyphs.
+   2. **Tell the user the two things that already cost them seconds today**: `verbose_stdout`
+      (~1.5 s, subtask 1 Finding 2) and that a text-heavy scene pays the ~800 ms cliff — a real,
+      if blunt, argument for building UI with fewer distinct font sizes.
+
+   **Also closed from the original subtask 2 list**: 2.2 needs no work — `requestAdapter` starts
+   at 91 ms, well before and in parallel with the WASM fetches (subtask 1's table).
+
+   **RESULTS (2026-09-26) — subtask 2 second pass: glyph-atlas coalescing removes the block
+   entirely; ~800 ms off the user's real project** `[FIXED — VERIFIED IN BROWSER AND NATIVELY]`
+
+   **Note on the numbers throughout this task**: they were measured on a very fast desktop with
+   an integrated GPU. They are a **floor**, not a typical case — most machines will be slower, so
+   the stall a player sees elsewhere is larger than anything recorded here, and a saving measured
+   here is the smallest saving it will produce.
+
+   **Measured 5 — flushing the wire more often does not help either.** Before changing anything,
+   the staging-exhaustion reading of the cliff was tested directly: the profiler was made to issue
+   an empty `queue.submit([])` every N MB of writes (`--flush-every-mb`), which flushes the Dawn
+   wire without submitting GPU work. At 8, 4 and 2 MB intervals (3036–7664 probe flushes) the
+   block was unchanged: 737 / 708 / 715 ms against a 758 ms baseline, stall 1925–1949 ms
+   throughout. So the cliff is not simply a transfer pool that draining would keep clear.
+
+   **The fix** (`modules/text_server_adv/text_server_adv.cpp`, `modules/text_server_fb/text_server_fb.cpp`,
+   kept identical, as Task 35 established): both text servers now **defer glyph-atlas uploads to one
+   flush per frame** on WebGPU. Four near-identical inline "if the atlas is dirty, re-upload all of
+   it" blocks in each file collapse into `_ensure_atlas_texture()`; on WebGPU it marks the atlas
+   `upload_pending` and `_flush_dirty_font_atlases()` uploads every pending atlas once, from
+   `RenderingServer`'s `frame_pre_draw` (`rendering_server_default.cpp:446`), which runs after the
+   scene tree has finished recording draw commands and before rendering. Everywhere else the
+   upload stays inline, byte for byte as before.
+
+   Three details that carry the risk:
+   - **`upload_pending` is a new flag, separate from `dirty`.** Reusing `dirty` would have left it
+     set all frame, so the per-change work it guards — `fix_alpha_edges()` and `generate_mipmaps()`,
+     both O(atlas) — would have run on *every* glyph access instead of once, trading a GPU upload
+     for worse CPU. `dirty` is still cleared exactly when it always was.
+   - **The first upload of an atlas is never deferred**, because the `ImageTexture` has to exist
+     before its RID can be handed to a draw command.
+   - **Deferral is refused when there is no `RenderingServer`** (`_defer_atlas_upload()` returns
+     false), so a tool or test context with nothing to run the flush uploads inline rather than
+     queueing an upload that would never happen. The flush iterates live fonts through
+     `font_owner` rather than holding a pending list of `FontForSize*` pointers, so a font cache
+     freed between queue and flush cannot dangle.
+
+   **Result** — same machine, same commit, editor and template rebuilt together:
+
+   | | uploads before first frame | slowest queue call | stall |
+   |---|---|---|---|
+   | user's project, before | 66.1 MB / 1530 calls | 761–849 ms | 1925–2036 ms |
+   | user's project, after | **30.6 MB / 156 calls** | **11 ms** | **1146–1170 ms** |
+   | 40-label control, before | 96.3 MB / 459 calls | 766 ms | 1718 ms |
+   | 40-label control, after | **3.8 MB / 108 calls** | **4 ms** | **830–847 ms** |
+
+   **~800 ms off the user's real project (41%), and ~880 ms off the text-heavy control (51%).**
+   The blocking call is gone outright in both, not merely shortened: uploads fall below the cliff.
+   The reduction is larger than the 20.8 MB of atlas pixels alone, because the mipmap
+   regeneration each re-upload dragged along went with it.
+
+   **Verified**: `shader_corpus` 13/13, `driver_unit_tests` 332/0. Text renders correctly in the
+   browser for both the 40-label control and the user's real project (all labels, sliders and
+   readouts present and crisp — this is the load-bearing check, since a deferral bug shows up as
+   missing or stale glyphs). The **native Vulkan inline path** was checked the same way by running
+   the control project natively: all 40 labels render correctly. Native editor builds clean with
+   `module_text_server_fb_enabled=yes`, so the second text server was actually compiled rather
+   than skipped.
+
+   **Where the remaining ~1150 ms sits** (user's project, after the fix): ~750 ms is the fixed
+   floor subtask 1 measured, ~325 ms is `Load Game`, and the first frame is now unremarkable.
+
+   **The cliff itself is ducked under rather than removed by this fix** — a project uploading more
+   than ~30 MB before its first frame will still meet it. It is root-caused immediately below.
+   **RESULTS (2026-09-26) — the cliff, explained: a full GPU command buffer, not compilation**
+   `[ROOT-CAUSED]`
+
+   Chrome GPU trace of a pre-fix export (`webgpu_tests/startup_phases/trace_block.mjs`, CDP
+   `Tracing` with the `gpu`, `toplevel`, `mojom` and `disabled-by-default-gpu.*` categories). The
+   trace clock and `performance.now()` share no base, so the script finds the block inside the
+   trace by matching its duration rather than mapping clocks.
+
+   The 734 ms block is **`CommandBufferProxyImpl::WaitForToken`** on the renderer's main thread,
+   i.e. `GpuChannel::WaitForTokenInRange` over mojo — **the renderer waiting for the GPU process to
+   consume the shared command buffer**. During that same window the GPU process is busy for
+   939.8 ms across 10 `CommandBuffer::Flush` / `CommandBufferService:PutChanged` slices under
+   `gpu | WebGPU`, the three largest being 408.6, 344.6 and 286.1 ms.
+
+   So the mechanism is a fixed-size command/transfer ring between the renderer and the GPU
+   process: writes fill it, and once it is full the renderer blocks until the GPU process has
+   chewed through what is queued. That accounts for every observation, including the ones that
+   killed the earlier hypotheses:
+   - **the cliff** — nothing blocks until the ring fills, which is why 16.8 MB is free and 29 MB
+     is not;
+   - **the flat cost** — the wait is for a mostly-full ring to drain, and the ring's size does not
+     depend on how much more we would go on to write;
+   - **why an empty `queue.submit()` every 2–8 MB did nothing** — flushing more often does not make
+     the GPU process consume faster, and consumption throughput is the bottleneck;
+   - **why eager async pipeline creation did nothing** — the GPU process is processing commands and
+     data, not compiling shaders.
+
+   **The only lever this leaves is the volume of WebGPU commands and data submitted before the
+   first frame**, which is exactly what the glyph-atlas fix above reduces, and why it removed the
+   block outright rather than shortening it. Nothing on this side can widen the ring or speed up
+   the GPU process, so this is now considered understood and closed rather than open.
+
+   **Remaining headroom on the user's project, for whoever picks this up next.** After the fix it
+   uploads 30.6 MB before the first frame and does not block — but that is not a comfortable
+   margin, since the control tripped the cliff at 29 MB, and the exact threshold depends on the
+   GPU process's throughput and so on the machine. **21.3 MB of that 30.6 MB is a single
+   2048×2048 `rgba8unorm` texture and its 12 mip levels** (the character), imported with
+   `compress/mode=0` — no VRAM compression. Turning that on would cut it several-fold and put the
+   project well clear of the cliff, as well as shrinking the download. It is not done here because
+   it is a quality and format decision on the user's own asset, and because the project sets
+   `textures/vram_compression/import_etc2_astc=true` while this adapter reports
+   `texture-compression-bc` — so which compressed format the target browsers actually accept needs
+   checking before recommending it as a straight win.
+   2.1. For WASM instantiate: confirm `WebAssembly.instantiateStreaming` is actually taken (`config.js:339-352`'s `instantiateWasm` override already prefers it when available) and isn't silently falling back to the non-streaming `arrayBuffer()` path due to a missing/incorrect MIME type or response headers from whatever's serving the export. **Measured 2026-09-26 (subtask 1): the main module does take the streaming path** (`application/wasm`, 10 ms for 1.3 MB) — but on a `dlink_enabled=yes` export the 51 MB **`index.side.wasm` goes through non-streaming `WebAssembly.instantiate` with a full ArrayBuffer** (48 ms fetch + 48 ms instantiate here, off a localhost server; over a real network that buffer must be fully downloaded before compilation can start). That path is Emscripten's dylink loader, not `config.js`'s override, so `instantiateWasm` does not cover it. ~96 ms locally is not where the stall is, so this is a real but low-priority finding — it matters mainly for cold loads over a slow link, where it serializes 51 MB of download against compilation that could have overlapped it.
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
 3. Make the progress bar representative of what's left
@@ -3912,6 +4368,60 @@ The actual fix, live-verified by the user ("it's a lot better"):
    4.2. Visually confirm (screenshot/video capture per `LIVE_REPRO_METHODOLOGY.md`) the progress bar's behavior across a slow network throttle (to stress the download-progress phase) and a cold cache (to stress the post-download phases) — both should look reasonable, not just the common case.
 5. Document
    5.1. Record before/after timing numbers for the user's real project under this task, following this doc's established Verified-with-numbers convention.
+
+   **RESULTS (2026-09-26) — texture-compression investigation: BC1 is a large win, BC7 is broken**
+   `[IN PROGRESS — one real bug found, not yet fixed]`
+
+   Started because after the glyph fix the user's project still uploads 30.6 MB before the first
+   frame, 21.3 MB of it a single 2048×2048 `rgba8unorm` character texture plus its 12 mips, leaving
+   thin margin above the command-ring cliff on slower machines.
+
+   **The plumbing already exists on both sides.** `platform/web/export/export_plugin.cpp:358-364`
+   already emits `s3tc`/`bptc` for `vram_texture_compression/for_desktop` and `etc2`/`astc` for
+   `for_mobile`, and the driver supports all three families
+   (`rendering_device_driver_webgpu.cpp:1435-1445`, `pixel_formats_webgpu.h:338-394`). What made
+   this project upload uncompressed is the **per-texture import setting**, `compress/mode=0` with
+   `detect_3d/compress_to=0` — the export flags only select among variants the importer produced,
+   so a texture imported lossless ignores them entirely. That layering is the thing a developer-
+   facing option would need to address.
+
+   **BC1 (`for_desktop` + `compress/mode=2`) works and is worth having:**
+
+   | | 2048² texture upload | total before first frame | stall |
+   |---|---|---|---|
+   | uncompressed (today) | 21.3 MB | 30.6 MB | 1146–1170 ms |
+   | **BC1 / s3tc** | **2.7 MB** (`bc1-rgba-unorm`) | **11.9 MB** | **997–1027 ms** |
+   | BC7 / bptc | 5.3 MB (`bc7-rgba-unorm`) | 14.5 MB | 1006 ms |
+
+   The format reaching the GPU is the compressed one, so there is no CPU decompression on load.
+   BC1 quality against the uncompressed baseline is **RMSE 0.0006 of full scale** over the rendered
+   frame — indistinguishable at viewport scale (not pixel-peeped at 1:1). Another ~140 ms off, and
+   it puts the project comfortably under the cliff.
+
+   **BC7 / BPTC renders the character completely black.** Not a quality difference — a real defect:
+   ```
+   GPUValidationError: copySize.width (2) is not a multiple of compressed texture format block width (4).
+    - While validating source [Texture "unnamed#31 2048x2048x1 mip12 fmt62 usage0x7"] copy range.
+   GPUValidationError: [Invalid CommandBuffer] is invalid due to a previous error.
+   ```
+   A 2048² texture with 12 mips has 2×2 and 1×1 levels whose *physical* size is one 4×4 block, and
+   WebGPU requires a compressed copy extent to be a block multiple. `command_copy_buffer_to_texture`
+   already rounds for this (`block_w`/`block_h`, ~line 8300), but a **texture-to-texture** copy path
+   does not — three candidate sites, `wgpuCommandEncoderCopyTextureToTexture` at lines **7803, 8460
+   and 10975**. The failed copy invalidates the command buffer, so the upload never lands and the
+   albedo samples black. BC1 does not hit it (0 errors across two runs) even though it has the same
+   4×4 block size, so **which path runs only for BPTC is the first thing to establish** — that is
+   where the investigation stopped.
+
+   **Not yet measured**: ETC2/ASTC (`for_mobile`) at all; and the adapter feature coverage across
+   Chrome, Firefox and Safari that would decide which formats an export should actually ship. Both
+   matter for the export-option design, since shipping only BC would leave mobile browsers with no
+   matching variant.
+
+   **Next steps, in order**: (1) root-cause and fix the BPTC copy-extent bug — it is a correctness
+   defect independent of this task, and it silently blackens textures rather than failing loudly;
+   (2) measure ETC2/ASTC and the per-browser feature matrix; (3) only then design the export option,
+   which per the user should expose the lossy/lossless choice at export level rather than per asset.
 
 ---
 
@@ -4201,3 +4711,1761 @@ User reported 4 configurations from real-project exports: "all AA options at max
 **Investigation notes**: found with a Playwright hook that wraps `beginRenderPass`/`setScissorRect` and reads the depth atlas back with a compute shader (atlas was all zeros, then one populated tile). Pitfall: the export preset selects the template variant (`variant/extensions_support` -> dlink or not, `variant/thread_support`), so rebuild and reinstall *that* variant (`web_nothreads_release.zip` vs `web_dlink_nothreads_release.zip`) or the test silently runs a stale template.
 
 **Open**: WebGPU volumetric fog looked blockier than native in a scratch scene (froxel sampling); not investigated, not projector-specific.
+
+## Phase 13: CI editor builds ship the WebGPU shader baker (September 2026)
+
+> **Trigger**: the Windows editor from the GitHub release (`main-6691bb81cc`) lacked the shader capture toggle next to the renderer dropdown that a local Linux build had.
+
+### Task 13.1: CI editors built without `webgpu=yes`; `tint_convert_cli` had no Windows port
+**Status**: `DONE` (Windows port verified locally; CI changes need a CI run to confirm).
+**Files**: `.github/workflows/{windows,linux,macos}_builds.yml`, `drivers/webgpu/tint_cli/{build.sh,main.cpp}`, `drivers/webgpu/{wgsl_bake_subprocess,rendering_shader_container_webgpu}.cpp`, `drivers/webgpu/wgsl_precompile.py`, `platform/macos/platform_macos_builders.py`, `build-windows.ps1`, `webgpu_tests/*/run_tests.mjs`, `webgpu_tests/shader_corpus/validate_spirv_dump.mjs`.
+
+**Issue**: `WEBGPU_SHADER_BAKER_ENABLED` (export-time WGSL baking, the spec-constant baker/debugger plugins and `WebGPUShaderCaptureEditorPlugin`'s toolbar toggle) is only defined for editor builds with `webgpu=yes`. No CI editor job passed it, so every released editor (Windows, Linux and macOS) shipped without the baker. Enabling it also needs `tint_convert_cli` next to the editor executable (`_find_tint_convert_cli()`), which CI never shipped and which could not build on Windows (`build.sh` only knew Linux/macOS; `--batch` isolation used `fork()`).
+
+**Fix**:
+1. Editor jobs pass `webgpu=yes` and build `tint_convert_cli` into `bin/` so it lands in the artifact. Linux uses `g++-12` with static libstdc++ (the 22.04 runner's default GCC 11 is older than what Tint is otherwise built with), macOS builds it universal and `generate_bundle()` copies it into `Contents/MacOS` before signing, Windows uses Git Bash + the runner's LLVM `clang++` and smoke-tests `--batch`.
+2. `build.sh` supports MINGW/MSYS (Tint's `*_windows.cc` sources, `.exe` output, clang++ auto-detection), links through a response file (the object list overflows Windows' 32K command line), honors `CXXFLAGS`/`LDFLAGS`, and keeps objects in `.build/<os>/`. A checkout shared with WSL previously reused Linux ELF objects on Windows because they looked up to date.
+3. `main.cpp` on Windows: `--batch` isolation re-runs the executable as `--isolated-child` (SPIR-V on stdin, the same `W`/`E` status-byte protocol on stdout, stderr to `NUL`, abort message and WER dialogs suppressed); `wmain` passes UTF-8 arguments and files open through wide paths.
+4. `getenv()` → `OS::get_environment()` in the two baker files: MSVC's C4996 would fail the `dev_mode=yes` (werror) Windows CI build now that they compile there.
+5. `wgsl_precompile.py` and the test runners also look for `bin/tint_convert_cli.exe`.
+
+**Verification**: local Windows `tint_convert_cli.exe` passes the shader corpus (13/13), batch output is byte-identical to single-file output, and a 300-shader fuzz batch (corrupted fixtures) survived 131 child crashes (e.g. SPIRV-Tools `def_use_manager.cpp` assertion) with valid JSON for every entry. The MSVC editor built with `webgpu=yes` contains the capture plugin.
+
+**Open**: `build.sh` compiles SPIRV-Tools/Tint without `-DNDEBUG`, so their asserts are live in `tint_convert_cli` on every platform (they only surface as isolated "Tint crashed" entries).
+
+
+---
+
+## Phase 14: Specialization constants through WebGPU pipeline constants (September 2026)
+
+> **Trigger**: `plan-of-attack.md` item 11 — the last major architectural loose end in the driver. Every pipeline needing a non-default specialization value re-patched the shader's original SPIR-V and re-ran the entire preprocessing + Tint pipeline at runtime, once per distinct (shader, value-combination), even though the driver already had a complete, unused implementation of the fast path.
+
+### Task 25: `freeze_spec_constant_ops` made conditional — specialization constants now reach the GPU as WGSL `@id(N) override`s set by pipeline constants `[DONE at conversion + browser level; not yet verified in a real engine/browser run]`
+**Status**: `DONE` for everything reachable without Emscripten (see **Not verified** below). The premise was confirmed empirically before any change: across all 196 real engine shader variants, **0** produced a single `@id(` declaration, so `shader->has_override_declarations` was provably always false and the override path was dead code. After the change, **all 37** variants that declare specialization constants produce one override per `SpecId`, and all 196 still convert.
+**Severity**: HIGH (performance/architecture, not correctness) — this runtime re-conversion is the documented source of Task 14's ~16s post-"100%" loading stall, and the legacy path it forces carries at least one known correctness bug of its own (the RW-storage-texture split it never reproduced; Task 9.5 Rounds 20-23).
+**Files**: `drivers/webgpu/spirv_preprocess.{h,cpp}`, `drivers/webgpu/spirv_to_wgsl.cpp`, `drivers/webgpu/tint_cli/main.cpp`, `drivers/webgpu/rendering_device_driver_webgpu.cpp`, `drivers/webgpu/README.md`, `CLAUDE.md`, `webgpu_tests/spec_constant_overrides/` (new), `webgpu_tests/{preprocessing_tests,driver_unit_tests}`, `webgpu_tests/local_ci.sh`, `.github/workflows/webgpu_tests.yml`.
+
+**Issue**: `freeze_spec_constant_ops()` ran unconditionally as the second preprocessing pass on every shader, evaluating every `OpSpecConstantOp`/`OpSpecConstant*` to its default and stripping every `SpecId` decoration *before* Tint's SPIR-V reader ever saw the module. Nothing was left for Tint to represent as a WGSL `override`, so `detected_override_declarations` (a scan of the Tint output for `@id(`) never fired, `use_override_path` was never taken, and every specialization went through `_create_module_with_spec_constants()` instead.
+
+**Why the pass was written that way** (plan item 11 step 1, answered): not a Tint limitation. It was ported verbatim from the pre-Tint naga era (`webgpu_notes/naga_to_tint.md` lists it as "Ported"), where the translator handled spec constants through a patch instead. Its only recorded design discussion is the March 13 canvas bug (this doc, Phase 2 notes): freezing to defaults made the tonemap shader fall through to `tonemap_agx()` and render white, and the fix chosen then was to add the runtime re-patch path rather than to stop freezing. Tint's own SPIR-V reader has supported overrides all along — `EmitSpecConstants()`/`CreateOverride()` in `thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc`.
+
+**Fix**:
+1. New `spirv_preprocess::spec_constants_overridable()` decides per module whether every specialization constant can survive as a WGSL override; `spirv_to_wgsl.cpp` and `tint_cli/main.cpp` (the two copies of the pass list) only call `freeze_spec_constant_ops()` when it says no. Rejected, and therefore still frozen: a non-scalar specialization constant, an `OpSpecConstantOp` whose operation is outside what Tint's reader lowers (its `SConvert`/`UConvert`/`CompositeInsert`/`VectorShuffle` cases and its `default` all raise `TINT_ICE`), a non-scalar `OpSpecConstantOp` result, a specialization-constant-sized `OpTypeArray`, an `OpSpecConstantComposite` built out of specialization constants or carrying a `SpecId`, and a spec-constant `WorkgroupSize` builtin. A companion `has_spec_constants()` reports whether a module declares any at all.
+2. `shader_create_from_container()` gates `has_override_declarations` on *no* stage having been frozen while declaring specialization constants (`any_stage_froze_spec_constants`). Mixing the paths per stage would silently leave a frozen stage on its defaults while the others got real values; the existing per-constant `continue` in `render_pipeline_create()` only knows about ids absent from every stage, which is a legitimate case (glslang drops the constants a given stage never reads — the Forward Mobile uber variants genuinely declare only `SpecId 3`).
+3. **A real pre-existing bug found on the way**: both `CreateAggressiveDCEPass(/*preserve_interface=*/true, /*preserve_spec_constants=*/true)` calls were passing a mislabelled argument — SPIRV-Tools' second parameter is `remove_outputs`, and spec-constant preservation is an *optimizer option* (`OptimizerOptions::set_preserve_spec_constants`), never set. Harmless while everything was frozen first; with constants preserved, `eliminate_dead_resources()` deleted every override that looked unreferenced at its default value. Both call sites now pass `OptimizerOptions` with `set_preserve_spec_constants(true)` (and `set_run_validator(false)`, matching the `skip_validation=true` they had), with the argument relabelled and its value unchanged. Before this fix only 19 of 37 modules kept their overrides; after it, 37 of 37.
+
+**Verification** (all on this branch's tip, `tint_convert_cli` rebuilt each time):
+- **Real engine shaders**: all 196 variants regenerated from `wgsl_precompile.py`'s own `SHADER_REGISTRY`/`assemble_glsl()` (196 compiled, 0 glsl failures) and converted: 196/196 before, 196/196 after, zero new conversion failures. Every one of the 37 `SpecId`-declaring modules emits exactly one `@id()` per `SpecId` (checked count-for-count per module).
+- **The Task 19/23 sampler-limit risk, measured rather than reasoned about**: keeping branches live could have re-inflated per-stage resource counts and reintroduced "18 samplers in the Vertex stage". It does not: sampler and texture declaration counts are identical before/after in **0 of 196** modules changed, and the full `@group(g) @binding(b)` set is byte-identical per module. The mechanism is that this pipeline runs no dead-branch-elimination pass, so freezing never enabled branch folding in the first place.
+- **Determinism**: two back-to-back sweeps of all 196 produce byte-identical WGSL (196/196).
+- **Test suites**: `shader_corpus` 13/13; `preprocessing_tests` 205 passed / 0 failed / 1 skip (was 199, with 6 assertions rewritten from "spec constants folded" to the new contract plus 2 new tests for the freeze fallback); `driver_unit_tests` 332 passed / 0 failed (was 327, +5 modeling the new all-or-nothing stage gate).
+- **New test tier `webgpu_tests/spec_constant_overrides/`** (wired into `local_ci.sh` and the shader-corpus CI job): asserts the overrides survive offline, asserts a module that *cannot* use them is still frozen (get that wrong and Tint raises an internal error instead of converting), then drives a browser to build a compute pipeline from that WGSL twice — once with no pipeline constants, once with real values — and reads back what the shader wrote. Defaults gave `[30, 90, 90, 22]` and constants `{0:100, 1:200, 2:5}` gave `[300, 1500, 220, 55]`, both exactly the fixture's own arithmetic, with zero uncaptured WebGPU errors. This is the first time the `WGPUConstantEntry`/`use_override_path` plumbing has been exercised at all, and it works, including a derived un-`@id`'d `override v = SPEC_A + SPEC_B` recomputing from the new values.
+
+**Not verified** (no Emscripten and no GPU in the sandbox this was done in — state this plainly rather than implying a full pass):
+1. `rendering_device_driver_webgpu.cpp` **was not compiled**. `webgpu=yes` on a native platform builds only the baker subset (`drivers/webgpu/SCsub`'s else-branch), and the file needs Emscripten headers. The driver edit is small and self-contained (one bool, one per-stage bool, one call to the new `has_spec_constants()`), but it has not seen a compiler.
+2. The browser test ran on Dawn's **SwiftShader** adapter (`google / swiftshader`; this container has no `/dev/dri`), not hardware. Overrides are resolved by the implementation at pipeline-creation time, so this exercises the mechanism faithfully — but it is not a hardware run.
+3. **No real engine/browser run at all**: no web template build, so nothing here has been seen by the actual engine. The first live run should confirm (a) scene shaders take the override path (`print_verbose` logs which path each shader picks), (b) rendering is unchanged, and (c) Task 14's post-load stall shrinks.
+
+**Follow-ups this opens**:
+- **Task 7.17** (specialized shader module cleanup) is now moot for every engine shader — nothing populates `WGPipelineWrapper::specialized_modules` for them any more. It still applies to any shader the guard rejects, so it narrows rather than disappears.
+- The **RW-storage-split bug in `_create_module_with_spec_constants()`** (Task 9.5 Rounds 20-23, reverted and left open) becomes unreachable for engine shaders for the same reason — the override path reuses the base module, which already carries every WGSL-text fixup. Worth re-confirming live before closing it.
+- **Task 13's spec-constant recording/baking** (Phase 2-3) records combinations from inside `_create_module_with_spec_constants()`. For shaders on the override path there is nothing left to record or bake, which is the intended outcome; the feature still covers whatever the guard rejects.
+- The conservative rejections could be narrowed later if a real shader needs it — Tint does support `OpSpecConstantComposite` built from overrides (`spec_composites_`), and WGSL does allow an override `@workgroup_size` and override-sized workgroup arrays. `spec_constants.spv` in the corpus is a real example of the composite case (`vec3(AMBIENT_STRENGTH)`), and it stays frozen today.
+
+---
+
+### Task 26: the 18 "Tint crashed" bake warnings — root-caused to WGSL language limits on variants WebGPU never selects; skipped up front instead of crashing a child per shader `[DONE at bake level; also found 13 shaders missing from SHADER_REGISTRY]`
+**Status**: `DONE` — reproduced all three crash signatures directly, established none of them is a fixable Tint bug, and stopped the baker from spawning a doomed subprocess for them. Task 22 had already concluded this class was benign; this task explains *why* it exists and removes the noise.
+**Severity**: LOW as a correctness matter (nothing here reaches a running game), MEDIUM as a diagnostics matter — 18 identical WARN lines on every export is exactly the noise that makes a real bake failure invisible, and it was the first thing that looked wrong when export-time baking became the default.
+**Files**: `drivers/webgpu/wgsl_bake_subprocess.cpp`.
+
+**Reported**: a user's `--export-debug` Web run printed 18 × `WebGPU shader baker: leaving one shader stage unbaked (tint_convert_cli: Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature))`, unchanged after rebuilding `tint_convert_cli` and clearing `res://.godot/shader_cache` — so not staleness.
+
+**Reproduced locally**, without needing the user's project: compiled all 8 FSR2 passes through `wgsl_precompile.py`'s own `parse_glsl_file()`/`assemble_glsl()` with `RendererRD::FSR2Effect`'s real `general_defines`, across the four mode combinations that class declares (`""`, `FFX_HALF`, `NO_IMAGE_ATOMICS`, both), then ran each through `tint_convert_cli`. 18 convert, 2 fail to compile as GLSL at all, and **12 crash Tint in exactly three signatures**:
+
+1. **`TINT_ASSERT(int_ty->width() == 32)`** (`thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc:780`) — 8 modules, every one of them an `FFX_HALF` variant. Confirmed via `spirv-dis` that these declare `OpTypeInt 16`. Reading the assert's own context settles it: the `kFloat` case immediately below *does* handle `width() == 16` by returning `f16`, while the `kInteger` case asserts. **WGSL has no integer type other than i32/u32** — there is no i16/u16 to lower to. Not a Tint bug and not patchable.
+2. **`TINT_UNIMPLEMENTED unhandled SPIR-V instruction: OpImageTexelPointer`** (`parser.cc:2528`) — 2 modules, both the *base* (image-atomics) variant of `fsr2_compute_luminance_pyramid_pass` and `fsr2_reconstruct_previous_depth_pass`. Confirmed present in the base variants and absent from their `NO_IMAGE_ATOMICS` siblings, which convert cleanly. WGSL has no texture atomics.
+3. **`TINT_UNIMPLEMENTED ... OpUConvert`** — 2 modules, `FFX_HALF` on `fsr2_reconstruct_previous_depth_pass`. Tint's own switch says it outright: *"can't translate UConvert: WGSL does not have concrete integer types of different widths"*. Same limitation as (1).
+
+**Why these variants get baked when WebGPU never runs them**: the shader baker runs inside the editor and enumerates every variant the *editor's* `RenderingDevice` declared at startup. `FSR2Effect`'s constructor gates `FFX_HALF` on `RD::Features::SUPPORTS_HALF_FLOAT` and its atomic path on `SUPPORTS_IMAGE_ATOMIC_32_BIT`; both are true for the Vulkan editor that baking requires, and both are false under `RenderingDeviceDriverWebGPU`. So the editor offers variants the WebGPU renderer would never ask for, `ShaderBakerExportPlugin` dutifully bakes all of them, and the impossible ones abort a Tint child apiece. This is also why the count is stable across rebuilds and cache clears.
+
+**Fix**: `_wgsl_unsupported_reason()` in `wgsl_bake_subprocess.cpp` scans the SPIR-V for the two things WGSL structurally cannot express — an `OpTypeInt` of any width other than 32, and `OpImageTexelPointer` — and, when it finds one, skips the bake with a `print_verbose` naming the reason instead of forking a child that will abort and then reporting a language limitation at WARN. Anything else still fails loudly, so a genuine regression is as visible as before.
+
+**Verified** by mirroring the exact byte scan in Python and running it against all 226 real SPIR-V modules on hand (196 engine variants from `SHADER_REGISTRY` + the 30 FSR2 ones above), cross-checked against whether `tint_convert_cli` actually converts each:
+- 12 flagged, **all 12 genuinely unconvertible** — the ones now skipped.
+- **0 flagged that convert fine** — no bakeable shader is skipped by this.
+- **0 unflagged conversion failures** — every failure in the set is explained by one of the two rules, so nothing slips through into a silent skip either.
+- 214 untouched.
+
+No unit test: this lives in an editor-only translation unit that none of the existing tiers compile (`shader_corpus`/`preprocessing_tests` both drive `tint_convert_cli`, which does not link it). The 226-module truth table above is the evidence; the file compiles clean standalone.
+
+**Found in passing — 13 shader files are absent from `wgsl_precompile.py`'s `SHADER_REGISTRY` entirely**, so they get no build-time precompilation and, until now, were never exercised by the engine-shader sweep either:
+
+```
+effects/fsr2/fsr2_accumulate_pass.glsl              forward_clustered/best_fit_normal.glsl
+effects/fsr2/fsr2_autogen_reactive_pass.glsl        forward_clustered/integrate_dfg.glsl
+effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl  forward_clustered/scene_forward_clustered.glsl
+effects/fsr2/fsr2_depth_clip_pass.glsl              giprobe_write.glsl
+effects/fsr2/fsr2_lock_pass.glsl                    tex_blit.glsl
+effects/fsr2/fsr2_rcas_pass.glsl
+effects/fsr2/fsr2_reconstruct_previous_depth_pass.glsl
+effects/fsr2/fsr2_tcr_autogen_pass.glsl
+```
+
+`scene_forward_clustered.glsl` is the notable one: it is the Forward+ scene ubershader, i.e. the largest and most-used shader in a Forward+ project, and it has no build-time table entry. Export-time baking does cover it (that enumerates from `ShaderRD`, not from this registry), so a baked export is fine — but an unbaked one translates it in the browser, and every sweep that has ever claimed "196 compiled, 0 tint failures" never looked at it. Adding these to the registry needs each one's real variant defines enumerated the way the existing entries are; not attempted here. Worth doing both for build-time coverage and so the sweep stops having a blind spot over the Forward+ renderer's main shader.
+
+---
+
+### Task 27: the 13 shaders missing from `SHADER_REGISTRY`, added — plus two pre-existing wrong stage declarations that had silently disabled two more `[DONE]`
+**Status**: `DONE` — the registry now covers every live shader file under `servers/rendering`, the sweep goes from 196 to 274 modules with 0 failures, and two entries that had never precompiled at all are fixed.
+**Severity**: MEDIUM (coverage/diagnostics) — nothing here was broken at runtime, but the Forward+ renderer's main shader had no build-time precompilation and, worse, no Tint-regression coverage: every "196 compiled, 0 tint failures" sweep in this doc's history never looked at it.
+**Files**: `drivers/webgpu/wgsl_precompile.py`, `webgpu_tests/wgsl_cache/test_wgsl_precompile.py`.
+
+**Added**, with each one's defines and modes read off its real `initialize()` call rather than guessed:
+- **`scene_forward_clustered.glsl`** — 28 variants via `_forward_clustered_variants()`, mirroring `SceneShaderForwardClustered::init()`'s own enumeration (2 × 6 depth variants + the 16 colour-pass flag combinations that don't set `SHADER_COLOR_PASS_FLAG_MULTIVIEW`). `NO_IMAGE_ATOMICS` and `NEEDS_DUMMY_COLOR_ATTACHMENT` are baked into the SDF variant because both capabilities they gate on are false on WebGPU. General defines mirror `RenderForwardClustered`'s constructor: `MAX_ROUGHNESS_LOD 7.0` (roughness_layers defaults to 8), `USE_RADIANCE_OCTMAP_ARRAY` (texture_array_reflections defaults true; its `.mobile` override is Android/iOS, not web), `SDFGI_OCT_SIZE 6` (`SDFGI::LIGHTPROBE_OCT_SIZE`), and 8/8/8/3 for the directional-light, lightmap-texture, lightmap and material-uniform-set counts.
+- **All 8 FSR2 passes** — carrying only the variants the WebGPU renderer declares. `FFX_HALF` is excluded (`SUPPORTS_HALF_FLOAT` false) and the two passes with an atomics axis get `NO_IMAGE_ATOMICS` (`SUPPORTS_IMAGE_ATOMIC_32_BIT` false); those excluded variants are precisely Task 26's unconvertible ones, so including them would have re-added the crashes that task just removed. `fsr2_accumulate_pass` also gets its `FFX_FSR2_OPTION_APPLY_SHARPENING` variant.
+- **`best_fit_normal.glsl`**, **`integrate_dfg.glsl`** — one-mode compute LUT generators run once at renderer startup.
+- **`tex_blit.glsl`** — four variants, one per output count, with `SAMPLERS_BINDING_FIRST_INDEX 4` and `MAX_GLOBAL_SHADER_UNIFORMS 256`.
+
+**Not added: `giprobe_write.glsl`** — grepping the whole tree for it finds no `#include` of its generated header, no `ShaderRD` subclass, no `initialize()`. It is a dead file, and listing it would mean permanently precompiling a shader nothing can ever run. Left alone rather than deleted; worth removing separately if it really is orphaned.
+
+**Two pre-existing registry bugs found while validating stage lists**, both confirmed against the engine rather than assumed:
+- `cube_to_octmap.glsl` was listed as `[COMP]`, but `CopyEffects` builds it with `pipeline.setup(shader, RD::RENDER_PRIMITIVE_TRIANGLES, ...)` — it is a raster shader with only vertex and fragment stages. Now `[VERT, FRAG]`.
+- `cluster_debug.glsl` was listed as `[VERT, FRAG]`, but `ClusterBuilderRD` builds it with `compute_pipeline_create()` — compute only. Now `[COMP]`.
+
+A stage a file doesn't have is counted as a glsl failure and skipped, which is exactly the **"3 glsl failures"** that every sweep in this doc has reported alongside "196 compiled" (1 for `cube_to_octmap`, 2 for `cluster_debug`). Both shaders had therefore never been precompiled once. The count is now 0.
+
+**The size trade, and the one judgment call made here**: embedding all 28 clustered variants costs **3.72 MB of WGSL, 66.6% of everything the table would hold** (measured per-file across all 274 modules), and the table is compiled into the web template, so every export downloads it whether it needs it or not. Export-time baking — on by default for Web presets since Task 25's follow-up — already covers that shader with exactly the variants a given project uses, and ships them in the `.pck`. Embedding a second copy for everyone to serve the deliberately-unbaked iteration case is the wrong trade; not *testing* the Forward+ main shader is worse. So `SHADER_REGISTRY` entries gained an optional 4th element, `embed`, and `scene_forward_clustered.glsl` is listed `EMBED_NONE`: compiled and converted on every build, so a Tint regression in it still fails the build, but kept out of the generated table. Flip it to `EMBED_ALWAYS` to pay the size and get the entries.
+
+**Verified**:
+- `wgsl_precompile.py` end to end: **274 compiled, 0 glsl failures, 0 tint failures** (baseline on the same machine, from `git stash`: 196 compiled, 3 glsl failures, 0 tint failures).
+- Embedded unique entries **170 → 189**; generated header **1.5 MB → 1.8 MB**, versus 5.1 MB had the clustered variants been embedded.
+- Every declared stage exists: a check over all 81 entries × 274 stage-variants reports 0 mismatches (it reported 3 before the two fixes).
+- The generated header compiles (`g++ -fsyntax-only` against a TU that includes it).
+- `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` Python 217/0 and JS 11/0. The Python tier needed updating: it unpacked registry entries as 3-tuples, so the new 4-element entry broke it outright — it now unpacks positionally and asserts the arity and the flag's type. `ruff check`/`ruff format` clean, with formatting confined to the added region.
+
+---
+
+### Task 28: `_publish_shader_stats()`'s EM_ASM body was split by the preprocessor, breaking the web build `[DONE]`
+**Status**: `DONE` — fixed, and the failure mode is now caught by a pre-commit hook that needs no Emscripten.
+**Severity**: HIGH while it lasted — Task 25's instrumentation commit did not compile for `platform=web` at all, so the branch was unbuildable for the only target that matters.
+**Files**: `drivers/webgpu/rendering_device_driver_webgpu.cpp`, `misc/scripts/em_asm_check.py` (new), `.pre-commit-config.yaml`.
+
+**Issue**: the stats publisher was written as a single object literal:
+
+```cpp
+EM_ASM({ window.godotWebGPUShaderStats = { baked : $0, precompiled : $1, ... }; }, a, b, ...);
+```
+
+`EM_ASM(code, ...)` stringifies `code` with `#code`. Braces do not protect commas from macro argument splitting — only parentheses do — so the body ended at the first comma, and `precompiled : $1` onwards became variadic macro arguments that the compiler read as C++. It failed with `use of undeclared identifier 'precompiled'` and eleven follow-on errors pointing at `Transform3D::translated`, none of which name the real cause.
+
+Why it got through: this file only compiles under Emscripten, which the sandbox this work was done in does not have, so it was shipped on the strength of a clang-format pass. `_notify_js_shader_compile_activity()` right above it survives the same pattern only because its literal, `{ detail : { misses : $0 } }`, happens to contain no comma at all.
+
+**Fix**: build the object field by field, with no top-level comma in the body, and say why in a comment so the next edit does not reintroduce it.
+
+**Prevention** — `misc/scripts/em_asm_check.py`, registered as the `em-asm-check` pre-commit hook over C/C++ sources. It finds every `EM_ASM`/`EM_ASM_INT`/`EM_ASM_PTR`/`EM_ASM_DOUBLE` call, runs the **real** C preprocessor over Emscripten's own macro shape (`CODE_EXPR(#code) _EM_ASM_PREP_ARGS(...)`, reduced to the part that decides where the body ends) and reports any body whose stringified form comes back with unbalanced braces — the signature of a body cut short at a comma. No Emscripten needed, so it runs anywhere, including in a sandbox that cannot build the web target.
+
+**Verified**: flags the exact shipped line, printing what JavaScript actually received (`"{ window.godotWebGPUShaderStats = { baked : a0"`); does not flag the known-good nested literal beside it; and reports clean across all five files in the tree that use the macro family. Suites unaffected: `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` 217/0 and 11/0.
+
+**Standing lesson for this fork**: `drivers/webgpu/rendering_device_driver_webgpu.{h,cpp}` and `rendering_context_driver_webgpu.cpp` cannot be compiled without Emscripten, and `drivers/webgpu/SCsub`'s native branch deliberately excludes them, so no native build of any kind covers them. Any edit to them is unverified until a real `platform=web` build runs. Prefer moving logic into a file the native baker subset does compile (`spirv_preprocess.cpp`, `spirv_spec_constants.cpp`, `rendering_shader_container_webgpu.cpp`, `wgsl_bake_subprocess.cpp`), all of which can be checked with `g++ -fsyntax-only -I. -Iplatform/linuxbsd -DUNIX_ENABLED -DLINUXBSD_ENABLED -DWEBGPU_SHADER_BAKER_ENABLED` once `scons` has generated the `.gen.h` headers.
+
+---
+
+### Task 29: the last remaining shader-baker warning — one `Tint crashed` stage, `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiles `[FIXED]`
+**Status**: `FIXED` (was `IN PROGRESS`) — root cause narrowed to two concrete engine leaks with a planned fix; **no code changed yet**. Branch `webgpu-4.7.2` is clean at `d53d41a9`. Written as a handoff so a fresh session can pick it up cold.
+**Severity**: LOW (the variant is never dispatched on WebGPU), but it is the last line of noise in an otherwise-clean bake, and the user asked for it gone.
+
+**What the user sees** (debug run via Remote Deploy on a Forward+ project, build `d53d41a96`):
+```
+WARNING: drivers/webgpu/wgsl_bake_subprocess.cpp:287 - WebGPU shader baker: leaving one shader stage unbaked
+(tint_convert_cli: Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature)).
+```
+Exactly **one**, down from 18 before Task 26's pre-bake check. Task 26's `_wgsl_unsupported_reason()` already skips non-32-bit `OpTypeInt` and `OpImageTexelPointer`; this one is neither.
+
+**Why ViewIndex** (evidence, not assumed):
+- Task 22 catalogued its 16 bake failures into three causes, and exactly **1 of 16** was `TINT_UNIMPLEMENTED unhandled SPIR-V BuiltIn: ViewIndex`. The other two causes are the ones Task 26 now skips. One left over = this one.
+- Tint's SPIR-V reader maps a fixed builtin list in `Builtin(spv::BuiltIn)` (`thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc` ~L672-720: FragCoord, FragDepth, FrontFacing, GlobalInvocationId, InstanceIndex, LocalInvocationId/Index, NumWorkgroups, PointSize, Position, SampleId, SampleMask, Subgroup*, NumSubgroups, VertexIndex, WorkgroupId, ClipDistance, CullDistance, PrimitiveId) and `TINT_UNIMPLEMENTED`s on everything else. `ViewIndex` is not in it, and WGSL has no view-index builtin, so this is a language limit like the other two — not a Tint bug to patch.
+
+**Where it comes from** — `USE_MULTIVIEW` variants (they read `gl_ViewIndex`) that the *editor* compiles even with XR off. Every effect is supposed to call `set_variant_enabled(<MULTIVIEW>, false)` when `!RendererCompositorRD::get_singleton()->is_xr_enabled()`. Audited all sites; two do not do it fully:
+1. **`servers/rendering/renderer_rd/effects/vrs.cpp` `VRS::VRS()`** — declares `VRS_MULTIVIEW` *and* `VRS_RG_MULTIVIEW` (`"\n#define SPLIT_RG\n#define USE_MULTIVIEW\n"`), but the XR-off block only disables `VRS_MULTIVIEW`. `VRS_RG_MULTIVIEW` is left enabled. **Prime suspect** — a single leaked variant fits a count of one best (depends on how many of `vrs.glsl`'s stages actually reference `gl_ViewIndex`; check).
+2. **`servers/rendering/renderer_rd/environment/gi.cpp`** (~L3796-3806, SDFGI debug probes) — declares `MODE_PROBES`/`MODE_VISIBILITY` each with and without `USE_MULTIVIEW`, followed by a literal `// TODO disable multiview versions if turned off`. Never disabled. Would produce up to 4 stages, so likely *not* the one — but only if that shader is in the baked set at all (it is SDFGI debug, possibly not embedded).
+- Checked and correct: `tone_mapper.cpp` (both tonemap and tonemap_mobile), `copy_effects.cpp` (copy_to_fb, specular_merge), `sky.cpp`. `scene_forward_clustered`/`scene_forward_mobile` use shader *groups* for multiview, only enabled for XR.
+
+**Next steps, in order:**
+1. **Reproduce and confirm which shader it is.** The repro was about to run when this session stopped; this script does it (needs `bin/tint_convert_cli` built and `glslangValidator` installed — both were available in the sandbox via `./drivers/webgpu/tint_cli/build.sh` and `apt-get install glslang-tools spirv-tools`):
+   ```python
+   import os, sys, subprocess
+   REPO = "."  # repo root
+   sys.path.insert(0, "drivers/webgpu"); import wgsl_precompile as W
+   cases = [
+       ("effects/vrs.glsl", "", "vrs_rg_multiview", "\n#define SPLIT_RG\n#define USE_MULTIVIEW\n"),
+       ("environment/sdfgi_debug_probes.glsl", W.GENERAL_DEFINES_SDFGI_DEBUG, "probes_mv", "\n#define MODE_PROBES\n#define USE_MULTIVIEW\n"),
+       ("environment/sdfgi_debug_probes.glsl", W.GENERAL_DEFINES_SDFGI_DEBUG, "visibility_mv", "\n#define MODE_VISIBILITY\n#define USE_MULTIVIEW\n"),
+   ]
+   m = {"vertex": W.VERT, "fragment": W.FRAG, "compute": W.COMP}
+   for rel, gd, name, vd in cases:
+       for sk, lines in W.parse_glsl_file(f"servers/rendering/renderer_rd/shaders/{rel}").items():
+           if lines is None: continue
+           spv, err = W.compile_glsl_to_spirv(W.assemble_glsl(lines, gd, vd), m[sk], "glslangValidator")
+           if spv is None: print("GLSL_FAIL", rel, name, sk); continue
+           open(f"/tmp/{name}__{sk}.spv", "wb").write(spv)
+           p = subprocess.run(["bin/tint_convert_cli", f"/tmp/{name}__{sk}.spv"], capture_output=True, text=True)
+           print("OK " if p.returncode == 0 else "FAIL", rel, name, sk, (p.stderr or "")[-100:])
+   ```
+   Alternatively have the user capture the exact SPIR-V: `WEBGPU_BAKE_DEBUG_DUMP=/tmp/bakefail` in the editor's environment before exporting — since Task 27/28 that hook prints `wrote '<path>' -- reproduce with: bin/tint_convert_cli '<path>'`, or says why it could not.
+2. **Fix in the baker** (natively compilable — preferred per Task 28's lesson): extend `_wgsl_unsupported_reason()` in `drivers/webgpu/wgsl_bake_subprocess.cpp` with a third rule: `OpDecorate <id> BuiltIn ViewIndex` (opcode 71, decoration BuiltIn = 11, value **4440**) and the `OpMemberDecorate` form (opcode 72, BuiltIn at word 3, value at word 4). Message along the lines of "uses gl_ViewIndex (multiview), which WGSL does not have".
+   - **Do NOT generalize to "any builtin missing from Tint's list".** The pre-check runs on *raw* SPIR-V, before `spirv_preprocess`, and some unlisted builtins are rewritten by a pass before Tint sees them — `HelperInvocation` is absent from Tint's list yet fine, because `strip_helper_invocation_builtin()` removes it (used by `cluster_render.glsl`). A general rule would skip bakeable shaders. `ViewIndex` specifically, only.
+3. **Optionally also fix the engine leaks** (shared renderer code, so keep minimal): add `vrs_shader.shader.set_variant_enabled(VRS_RG_MULTIVIEW, false);` next to the existing `VRS_MULTIVIEW` line. Before doing so, confirm `VRS` never calls `version_get_shader()`/builds a pipeline for a disabled variant (the tonemap code guards with `is_variant_enabled(i)`; check vrs.cpp does equivalently). The `gi.cpp` TODO is riskier — its debug pipeline setup may touch all four modes — leave it unless it proves to be the source. Step 2 alone is enough to silence the warning; step 3 just stops wasted bake work, and fixes a genuine upstream-style omission.
+4. **Verify**: re-run Task 26's truth table (mirror the byte scan in Python over every SPIR-V module on hand — the 274 from `SHADER_REGISTRY` via `wgsl_precompile.py`'s own `parse_glsl_file`/`assemble_glsl`/`compile_glsl_to_spirv`, plus the FSR2 and multiview ones) and require: every flagged module genuinely fails `tint_convert_cli`, **zero flagged modules that convert**, zero unflagged failures. Then `g++ -fsyntax-only -std=c++17 -I. -Iplatform/linuxbsd -DUNIX_ENABLED -DLINUXBSD_ENABLED -DTOOLS_ENABLED -DDEBUG_ENABLED -DWEBGPU_SHADER_BAKER_ENABLED drivers/webgpu/wgsl_bake_subprocess.cpp` (after `scons platform=linuxbsd target=editor webgpu=yes <needed .gen.h targets>` has generated headers), clang-format, `python3 misc/scripts/em_asm_check.py` over the driver, and the suites: `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0, `wgsl_cache` 217/0 + 11/0, `spec_constant_overrides` 8/0.
+5. Ask the user to rebuild and confirm the bake is now warning-free, and — the question still outstanding from Task 25 onward — to read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap.
+
+**Other open threads from this session, for context** (all recorded in their own tasks above): Task 25's driver edits and Task 26-28's instrumentation have now compiled on the user's real web build (`d53d41a9` built and ran); the scene shaders taking the override path has **not** yet been confirmed from a `--verbose` log. `giprobe_write.glsl` is a dead file (Task 27), not deleted. Commits must end with the `Co-Authored-By` / `Claude-Session` trailers used throughout; push with `git push -u origin webgpu-4.7.2`.
+
+---
+
+#### Task 29 — resolution
+
+The handoff's hypothesis was correct on both counts, confirmed by running the repro script it left behind.
+
+**Confirmed cause.** `servers/rendering/renderer_rd/shaders/effects/vrs.glsl`'s **vertex** stage is the only stage in the file that reads `gl_ViewIndex` (line 31, `uv_interp.z = ViewIndex;`), which is why the count was exactly one. Compiled with `#define SPLIT_RG` + `#define USE_MULTIVIEW` it emits `OpDecorate %gl_ViewIndex BuiltIn ViewIndex`, and `bin/tint_convert_cli` on it aborts with:
+```
+thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc:718 internal compiler error:
+TINT_UNIMPLEMENTED unhandled SPIR-V BuiltIn: ViewIndex (val = 4440)
+```
+The suspected second leak, `gi.cpp`'s SDFGI debug probes, is **not** a contributor: both `MODE_PROBES`/`USE_MULTIVIEW` and `MODE_VISIBILITY`/`USE_MULTIVIEW` convert cleanly through Tint (that shader reads the view index through a uniform, not the builtin). Its `// TODO disable multiview versions if turned off` was left alone — it wastes a little bake work but breaks nothing, and touching its debug pipeline setup was the risky half of the planned change.
+
+**Fix 1 — the baker** (`drivers/webgpu/wgsl_bake_subprocess.cpp`): third rule in `_wgsl_unsupported_reason()`, matching `BuiltIn` (decoration 11) = `ViewIndex` (4440) in both `OpDecorate` (opcode 71, value at word 3) and `OpMemberDecorate` (opcode 72, value at word 4) form, reported as "uses gl_ViewIndex (multiview), which WGSL does not have". The warning becomes a `print_verbose` line like the other two.
+
+Per the handoff's warning, this is **deliberately specific to ViewIndex** and the reasoning is now recorded in the function's own doc comment so it survives without TASKS.md: the check runs on *raw* SPIR-V before `spirv_preprocess`, and some builtins absent from Tint's reader list are rewritten away before Tint sees them — `HelperInvocation` is the live counter-example, stripped by `strip_helper_invocation_builtin()` and relied on by `cluster_render.glsl`. A general "any builtin Tint does not list" rule would skip shaders that bake perfectly well.
+
+**Fix 2 — the engine leak** (`servers/rendering/renderer_rd/effects/vrs.cpp`): added `set_variant_enabled(VRS_RG_MULTIVIEW, false)` beside the existing `VRS_MULTIVIEW` line in the `!is_xr_enabled()` block. Verified safe before changing it, as the handoff asked: the pipeline loop right below already guards every variant with `is_variant_enabled(i)` and calls `pipelines[i].clear()` otherwise, and `copy_vrs()` only ever selects `VRS_RG_MULTIVIEW`/`VRS_MULTIVIEW` when its `p_multiview` argument is true, which only happens under XR. The new line is exactly symmetric with the one above it. This stops the variant being compiled at all; Fix 1 is what actually silences the warning, and is kept because the editor is not the only thing that can hand the baker such a module.
+
+**Verification.**
+- **Truth table** (the handoff's step 4), mirroring the byte scan in Python over every module reachable from `wgsl_precompile.py`'s `SHADER_REGISTRY` plus the four multiview variants under suspicion: **282 modules, 0 GLSL compile failures, 2 flagged, 0 false positives, 0 unflagged failures.** The 2 flagged are exactly the `vrs.glsl` vertex stages (`USE_MULTIVIEW` and `SPLIT_RG`+`USE_MULTIVIEW`); every other module converts and is not flagged.
+- `g++ -fsyntax-only -std=c++17 -DWEBGPU_SHADER_BAKER_ENABLED drivers/webgpu/wgsl_bake_subprocess.cpp` — clean. Same for `vrs.cpp`.
+- `misc/scripts/em_asm_check.py` across the driver — clean.
+- Suites: `shader_corpus` 13/13, `preprocessing_tests` 205 passed / 0 failed / 1 skipped, `driver_unit_tests` 332/0, `wgsl_cache` `test_wgsl_precompile.py` 223/0 and `test_wgsl_cache.mjs` 20/0, `spec_constant_overrides` 5/0. No failures anywhere. (Counts differ from the figures quoted in the handoff — 223 vs 217, 20 vs 11, 5 vs 8 — those baselines predate later commits; what matters is zero failures.)
+- `clang-format` was **not** run: not installed in this environment. The edits follow the surrounding style but should be format-checked before any PR.
+
+**Confirmed by the user on a real build** (2026-09-25, commit `d17857e497`): the bake is now **warning-free**. The `WebGPU shader baker: leaving one shader stage unbaked` warning is gone — down from 18 before Task 26, to 1 after it, to 0 now. Task 29 is closed.
+
+**Still outstanding** (needs the user — carried over from Task 25, the only thread left from the Task 25–29 run): read `godotWebGPUShaderStats` in the browser console (`{ baked, precompiled, cached, translated }`). `translated: 0` means precompilation is complete and any remaining load stall is the browser's own WGSL→pipeline compilation (Task 14); non-zero names a real gap. Note this is a *separate* question from the bake warning — a clean bake means nothing was skipped at export time, not that nothing is being translated at load time.
+
+---
+
+### Task 30: `translated: 37` on a fully-baked build — the stat conflates a baking gap with unavoidable spec-constant re-conversion `[DONE]`
+**Status**: `CLOSED` — instrumentation did its job; the shaders were named and root-caused. The underlying defect is Task 31.
+**Severity**: MEDIUM as a diagnostic bug (it makes a healthy build look broken, and sends the reader hunting a baking failure that isn't there). Unknown severity for whatever real gap it may be hiding — that is what the rebuild answers.
+
+**What the user reported** (build `d17857e49`, bake confirmed warning-free after Task 29):
+```js
+godotWebGPUShaderStats
+// { baked: 339, precompiled: 1, cached: 17, translated: 37 }
+```
+Per Task 25's framing, `translated: 37` reads as "37 stages the bake failed to cover" — a real gap. That framing was wrong.
+
+**What `translated` was actually counting.** `_spv_to_wgsl_cache_misses` was incremented from **two** call sites with completely different meanings, and only one is a bake gap:
+1. `shader_create_from_container()` (~L4879) — the container carried no baked WGSL for this stage. **A genuine gap.**
+2. `_create_module_with_spec_constants()` (~L10004) — the SPIR-V had specialization values patched into it by `webgpu::patch_spirv_spec_constants()`. **Not a gap, and not fixable by baking**: those bytes are constructed at pipeline-creation time from values the exporter never saw, so no export-time bake could have produced them even in principle. This is the legacy path taken only when `spirv_preprocess::spec_constants_overridable()` rejects a shader (non-scalar constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array sizes/composites/workgroup sizes). The only lever on it is widening what `spec_constants_overridable()` accepts.
+
+Given the project is Forward+ with 339 stages baked and zero bake warnings, source 2 is the likely bulk of the 37 — but the counter cannot distinguish them, so that stays a hypothesis until the rebuild.
+
+**Fix** (`drivers/webgpu/rendering_device_driver_webgpu.cpp`): added `_spv_to_wgsl_spec_reconvert_hits`, published as a fifth field `specialized`. `_spv_to_wgsl_cached()` takes `p_spec_reconvert` to pick the counter, and `p_debug_name` so the container path can name the owning shader (`shader->name`, already set at ~L4700) instead of only counting it. The two `print_verbose` lines are worded differently on purpose — the spec one says outright that it is expected and not a baking gap, so the next reader doesn't repeat this investigation. Both counters count *actual Tint invocations*, so a spec re-conversion served from the in-memory cache still lands in `cached`, consistently with `translated`.
+
+`drivers/webgpu/README.md` updated to document `specialized`, including the key line: **a high `specialized` with `translated: 0` is a working, fully-baked build.**
+
+**Verification**: `misc/scripts/em_asm_check.py` clean across the driver (the `EM_ASM` body gained a field, which is exactly the hazard that check exists for).
+
+**Compiled for the real target.** `rendering_device_driver_webgpu.cpp` built clean under Emscripten — which Task 28's standing lesson said could not be checked short of a full web build. It can, and cheaply:
+```bash
+source ~/emsdk/emsdk_env.sh
+scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no \
+      bin/obj/drivers/webgpu/rendering_device_driver_webgpu.web.template_debug.wasm32.nothreads.dlink.o
+```
+Naming the **object file** as the scons target compiles that one translation unit and nothing else: **1.7 s** against a warm `bin/obj/` tree, versus a full link. This supersedes Task 28's "any edit to these files is unverified until a real `platform=web` build runs" — the compile half is now cheap and should be run on every edit to the Emscripten-only driver files. Only link- and run-time behavior still needs the full build.
+
+**Next step**: user rebuilds and re-reads `godotWebGPUShaderStats`, now five fields.
+- `translated: 0` with a large `specialized` → baking is complete; the remaining lever is `spec_constants_overridable()` coverage, and any residual stall is Task 14's browser-side pipeline compilation.
+- `translated` still non-zero → a real gap, and `--verbose` now prints the **name** of each shader that takes it, which is what was missing to chase it.
+
+---
+
+#### Task 30 — the split's result: the 37 are real
+
+Rebuilt and re-read on the user's project:
+```js
+{ baked: 339, precompiled: 1, cached: 17, translated: 37, specialized: 0 }
+```
+
+**`specialized: 0` refutes the hypothesis above.** The spec-constant re-conversion path (`_create_module_with_spec_constants()`) never ran at all on this project, so it accounts for none of the 37. Every one of them is a `shader_create_from_container()` miss: a stage that arrived with no baked WGSL and had to go through Tint on the main thread while the player waited. **This is a genuine baking gap**, and the bake being warning-free (Task 29) does not contradict it — a warning means a stage was *skipped*, whereas these stages were never offered to the baker in the first place. Those are different failures and only the first one warns.
+
+Worth keeping: the split did not explain the problem away, it made it legible. Before it, 37 was ambiguous between "serious gap" and "expected and unfixable"; the two would have been chased identically.
+
+**Instrumented to name them.** A count cannot be acted on. Added `_translated_stage_names` (HashMap name -> occurrences, capped at `TRANSLATED_NAME_CAP` = 128 distinct names so a project creating shaders at runtime in a loop cannot turn a diagnostic into a leak; past the cap the *count* still rises, only new *names* stop being recorded), published as `stats.translatedShaders`, e.g. `["scene_forward_clustered x4", ...]`.
+
+Published as a newline-joined string split on the JS side, keeping it to one extra `EM_ASM` argument instead of one call per name. Newline as separator because a shader name may plausibly contain a comma or space but not a line break, and `String.fromCharCode(10)` on the JS side rather than a `'\n'` literal — same instinct as the body avoiding commas, it keeps the stringified `EM_ASM` body free of escapes whose survival through the preprocessor would have to be reasoned about.
+
+It is read from the console rather than only logged because a web export has no convenient `--verbose`; the verbose line still carries the shader name too.
+
+**Verification**: `em_asm_check.py` clean, and the object compiles under Emscripten via the single-object target from the section above. The `EM_ASM` body was additionally read back out of the compiled `.o` with `strings` to confirm it survived the preprocessor whole (this is the exact hazard commit `d53d41a96` fixed, so it is checked rather than assumed):
+```
+{ var stats = {}; stats.baked = $0; ... stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : []; window.godotWebGPUShaderStats = stats; }
+```
+
+**Next step**: rebuild, then read `godotWebGPUShaderStats.translatedShaders`. That list names the shaders the export bake is not covering, and is the input to fixing it. Leading hypotheses to test against the names once known: shaders the `ShaderBakerExportPlugin` never enumerates (created outside the export-time shader-version walk), and shaders belonging to effects the editor's Vulkan RenderingDevice declares differently from the WebGPU runtime's own variant selection. Note `precompiled: 1` is also suspiciously low — the build-time `wgsl_precompiled.gen.h` table is nearly unused because export-time baking supersedes it, which is expected, but it means the table is not a safety net for these 37 either.
+
+---
+
+### Task 31: the shader baker compiles with the **editor's** device capabilities, not the **target's** — cause of 21 of the 37 runtime translations `[FIXED]`
+**Status**: `ROOT-CAUSED` — cause proven by code reading on both sides; no fix attempted, because the reasonable fixes differ a lot in invasiveness and the choice is the user's.
+**Severity**: **HIGH for startup cost.** These 37 stages miss the baked cache entirely — not just the WGSL. A miss means the runtime does the *whole* pipeline on the main thread while the player waits: GLSL → glslang → SPIR-V → 12 preprocessing passes → Tint → WGSL. This is a prime suspect for the startup stall Task 14 has been chasing from the browser side.
+
+**The names** (`godotWebGPUShaderStats.translatedShaders`, 29 distinct, 37 stages — compute shaders are 1 stage, vertex+fragment are 2, and the arithmetic checks out: 21 compute × 1 + 8 clustered variants × 2 = 37):
+| Shader | Variants | Stages |
+|---|---|---|
+| `SdfgiPreprocessShaderRD` | 0–8 (all nine) | 9 |
+| `SdfgiDirectLightShaderRD` | 0–1 | 2 |
+| `SdfgiIntegrateShaderRD` | 0–3 | 4 |
+| `VolumetricFogShaderRD` | 1 | 1 |
+| `VolumetricFogProcessShaderRD` | 5–9 | 5 |
+| `SceneForwardClusteredShaderRD` | 0, 1, 2, 9, 10, 11, 18, 19 (×2 each) | 16 |
+
+**Root cause.** Every one of these shaders computes its GLSL `defines` string from `RD::get_singleton()->has_feature(...)` — that is, from **the capabilities of the device the process is currently running on**:
+
+| Site | Feature queried | Define |
+|---|---|---|
+| `gi.cpp:3644` | `SUPPORTS_SHAREABLE_TEXTURE_FORMATS` | `SDFGI_NATIVE_STORAGE_FORMAT` |
+| `fog.cpp:53,64,71` | `SUPPORTS_IMAGE_ATOMIC_32_BIT`, `SUPPORTS_VULKAN_MEMORY_MODEL` | atomics/memory-model paths |
+| `scene_shader_forward_clustered.cpp:672` | `SUPPORTS_IMAGE_ATOMIC_32_BIT` | `NO_IMAGE_ATOMICS` |
+| `scene_shader_forward_clustered.cpp:688` | `SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS` | `NEEDS_DUMMY_COLOR_ATTACHMENT` |
+| `scene_shader_forward_clustered.cpp:655` | `SUPPORTS_POINT_SIZE` | `emulate_point_size` |
+
+The shader baker runs **inside the editor**, whose `RenderingDevice` is **Vulkan**. Confirmed values (`rendering_device_driver_vulkan.cpp:7391-7409` vs `rendering_device_driver_webgpu.cpp:11704-11745`): Vulkan returns `true` for all five; WebGPU returns `false` for all five. So the baker compiles each of these shaders **with the opposite defines from the ones the game will ask for**. Different defines → different GLSL → different SPIR-V → a different `ShaderRD` cache key, so at runtime it is a total miss and everything is rebuilt from source.
+
+This also means a share of the 339 `baked` stages is **wasted work**: SDFGI/fog/clustered entries baked in a Vulkan configuration that the WebGPU runtime can never ask for. (Not separately measured — would need a diff of the baked cache against the runtime's requests.)
+
+**Why the bake was still warning-free.** A bake warning means a stage was *skipped*. These stages were baked happily — just in the wrong configuration — and then not *found* at runtime. Different failures; only the first warns. This is why Task 29's clean bake and Task 30's 37 misses were never in contradiction.
+
+**Note this is an upstream-shaped bug that this fork hits much harder.** The `has_feature`-conditional define pattern is upstream Godot's (`fog.cpp`'s atomics predate this fork), so upstream has the same hazard whenever the editor's device disagrees with the export target's — e.g. baking a Metal or D3D12 export from a Vulkan editor. It bites this fork far harder because **five** capabilities disagree at once, several of them added by this fork's own Task 9.5 rounds precisely to make WebGPU work at runtime. Fixing runtime correctness quietly broke bake coverage, and nothing connected the two.
+
+**Fix options, none attempted** — they differ materially, so this is a decision, not a detail:
+- **A. Make the baker device-aware.** During the bake, have capability queries answer for the *target* driver rather than the editor's. Correct in principle and fixes the whole class at once (including upstream's cross-platform case), but these define strings are computed once at engine startup inside `GI::init()`/fog/scene-shader construction, long before an export begins, so it means re-initializing those shaders under a substituted capability source. Most invasive, widest blast radius, touches shared engine code.
+- **B. Compile both configurations.** Promote the capability-dependent defines to real `ShaderRD` variants/groups so both the feature-present and feature-absent forms are baked, and the runtime picks. Fits the existing variant machinery and keeps the baker device-agnostic, but grows the baked set for affected shaders and means touching each site.
+- **C. Target-specific define override in the WebGPU baker plugin.** Have `shader_baker_export_plugin_platform_webgpu.cpp` force the five WebGPU values for the duration of the bake. Narrowest and most surgical, but it is a second place where these capability→define rules live, so it can drift from the engine-side source of truth.
+- **D. Accept and document.** Leave the 37 translating at load. Cheapest, but keeps a real and probably significant startup cost, and the number will grow with every future `has_feature`-conditional define.
+
+**A cheap partial win, independent of the choice above**: `wgsl_precompile.py`'s `GENERAL_DEFINES_SDFGI_*` already include `SDFGI_NATIVE_STORAGE_FORMAT`, i.e. the build-time table is already generated in the *WebGPU* configuration. It reported only `precompiled: 1`, so its entries are not matching — worth checking whether the rest of its define string (e.g. `OCCLUSION_SIZE`) lines up with what `gi.cpp` actually emits. If it can be made to match, the build-time table would catch the SDFGI stages at the SPIR-V→WGSL step even while the GLSL→SPIR-V step stays unbaked.
+
+---
+
+#### Task 31 — correction: it is **not** one root cause for all 37
+
+The original entry above claimed the capability mismatch explained all 37 stages. Checking each group against the actual code shows that is wrong, and the error was assuming the shape of the cause generalized from the first two groups. Corrected split:
+
+| Group | Stages | Cause | Confidence |
+|---|---|---|---|
+| `SdfgiPreprocess` / `DirectLight` / `Integrate` | 15 | **Defines mismatch.** `gi.cpp:3644` derives `SDFGI_NATIVE_STORAGE_FORMAT` from `SUPPORTS_SHAREABLE_TEXTURE_FORMATS`. | **Proven** — read on both sides. |
+| `VolumetricFog` / `VolumetricFogProcess` | 6 | **Group mismatch.** `fog.cpp`'s general defines are capability-free; the capability choice is a *shader group* (`_get_fog_shader_group()`, from `SUPPORTS_IMAGE_ATOMIC_32_BIT` + `SUPPORTS_VULKAN_MEMORY_MODEL`). The baker skips groups the editor never enabled (`shader_baker_export_plugin.cpp:381`), so the WebGPU no-atomics group is never baked. | **Proven** — read on both sides. |
+| `SceneForwardClustered` variants 0,1,2,9,10,11,18,19 | 16 | **Not the capability mismatch.** All eight are `SHADER_GROUP_BASE` (always enabled) and carry **no** capability-dependent defines — the only clustered variant that does is `SHADER_VERSION_DEPTH_PASS_WITH_SDF` (index 8/17), which is *not* in the missing list. Leading hypothesis: these are a **material** shader version, created via `version_create(false)` (`scene_shader_forward_clustered.cpp:189`) hence **not embedded**, so the baker only reaches it through `_customize_resource()`/`_customize_scene()` — which find materials saved as resources or placed in scenes, but not one created at runtime, nor an engine default material. `x2` = the variant's vertex+fragment stages, so this is one version × 8 variants. | **Unconfirmed** — a plausible mechanism, not yet verified. |
+
+So the fix below addresses **21 of 37**. The remaining 16 need their own investigation, and the question to answer first is *which material* that version belongs to.
+
+---
+
+#### Task 31 — fix implemented (option A: make the baker device-aware)
+
+Chosen by the user over the narrower alternatives, on the grounds that it fixes the class rather than the instance and also covers upstream's cross-platform export case.
+
+**What makes this tractable** — and it is the reason option A is not as invasive as it first looks: the baker does **not** reuse the editor's compiled shaders. It calls `version_build_variant_stage_sources()` and compiles those sources itself into `shader_work_results`. So the bake only needs the *define strings and group selection* to be target-correct for the duration of the export; nothing about the editor's already-compiled shaders has to be disturbed, and the editor keeps rendering normally throughout.
+
+1. **`RenderingDevice`** gains a bake-scoped capability override (`shader_bake_feature_override_set/_clear/_is_active`), consulted at the top of `has_feature()`. It is a single chokepoint — every engine-side capability query already funnels through it. Costs one `is_empty()` check outside a bake.
+2. **`ShaderRD`** gains `set_general_defines()` and `set_variant_define_text()`, each refreshing `group_sha256` via `_initialize_cache()` — necessary because the cache key is derived from exactly those strings, so changing them without rehashing would file the bake under one key and have the runtime look under another. Plus a registry of refresh callbacks (`add_general_defines_refresh_callback()` / `refresh_all_general_defines()`), so the baker can ask every affected subsystem to recompute without knowing they exist.
+3. **Each formula moved into one recomputable place, next to the shader it belongs to** — `GI::_sdfgi_{preprocess,direct_light,integrate}_defines()` and `SceneShaderForwardClustered::_sdf_variant_define()`, each called once from init and again from the refresh callback. This is the direct answer to the objection against the narrower option C: there is still exactly **one** source of truth per formula, rather than a capability→define table in the exporter that drifts.
+4. **`ShaderBakerExportPluginPlatform::get_target_feature_overrides()`**, defaulting to empty. The plugin installs the overrides at the start of `_begin_customize_resources()` and clears them in `_end_customize_resources()`. **A platform that supplies nothing is bit-for-bit unaffected**, so the Vulkan/Metal/D3D12 bakers do not change behavior.
+5. **All groups are baked while an override is active** (`bake_all_groups`), which is what covers the fog case: the target may want a group the editor never enabled. Costs some extra export-time work; without an override the behavior is exactly as before.
+6. **`ShaderBakerExportPluginPlatformWebGPU`** supplies the target answers as a loop over the whole `Features` enum setting every entry `false`, rather than a hand-written list. `RenderingDeviceDriverWebGPU::has_feature()` returns `false` for every case *including its `default:` arm*, so the invariant is "WebGPU supports no optional feature", and a list would go stale the day a feature is added — especially since the editor cannot even link against that driver (`drivers/webgpu/` is Emscripten-only). Added a `SUPPORTS_MAX` sentinel to the enum for this, deliberately not `BIND_ENUM_CONSTANT`'d.
+
+**Known remaining exposure**: `emulate_point_size` (`scene_shader_forward_clustered.cpp:655`) is read from `has_feature()` at init and reaches the shader as a *specialization constant*, not a define, so it does not affect baked SPIR-V — but it is now computed under whatever override is active if anything re-reads it during a bake. It is only read at init, so this is currently harmless; worth remembering if that changes.
+
+---
+
+#### Task 31 — confirmed on a real export, and one regression fixed
+
+**The fix works.** Exported and run on build `9a4d4ae9c`:
+```js
+{ baked: 360, precompiled: 1, cached: 17, translated: 16, specialized: 0 }
+translatedShaders: [ 8 × "SceneForwardClusteredShaderRD:<n> x2" ]
+```
+`translated` 37 → **16**, `baked` 339 → 360. Every SDFGI and VolumetricFog stage is gone, and what remains is exactly the eight `SceneForwardClustered` variants the corrected breakdown predicted would *not* be fixed by this. 21 of 37 closed, and the prediction held precisely, which is good evidence the mechanism is understood rather than merely correlated.
+
+**Regression it introduced, now fixed.** The same export printed 26 × `ERROR: shader_baker_export_plugin.cpp:472 - Unable to retrieve SPIR-V data for shader.` Cause: `bake_all_groups` was relaxing the *variant* gate as well as the *group* gate.
+
+That was wrong, and the reason is worth recording because it is not obvious from the call site. In the `VariantDefine` path, `ShaderRD::initialize()` pushes `variants_enabled = true` for **every** variant unconditionally; `VariantDefine::default_enabled` gates the **group**, not the variant (`shader_rd.cpp:1113-1138`). So a disabled *variant* is never an inference from the editor's capabilities — it is always an explicit `set_variant_enabled(..., false)` meaning "do not build this one". The real cases are `vrs.cpp`'s XR-off multiview variants and `scene_shader_forward_mobile`'s FP16/FP32. Baking them anyway asks glslang for sources that were deliberately excluded, and `compile_stages()` returns empty.
+
+There is a neat irony: one of the variants this forced back into the bake is `VRS_RG_MULTIVIEW`, which **Task 29 had just disabled** two commits earlier. The group relaxation is the part fog actually needed — variants inside the newly-baked group are enabled by default anyway — so restricting it to groups keeps the fix and drops the regression.
+
+**Remaining**: the 16 `SceneForwardClustered` stages, cause still unconfirmed (see the corrected breakdown above). Leading hypothesis unchanged: a material shader version created with `version_create(false)` (non-embedded), which the baker reaches only through `_customize_resource()`/`_customize_scene()`.
+
+---
+
+### Task 32: the last 16 — right instinct (an enumeration gap), wrong mechanism; closed by Task 34 `[SUPERSEDED — fixes kept]`
+**Status**: `FIX IMPLEMENTED` — cause established from the user's own export artifacts, not inference; needs one export to confirm.
+**Severity**: MEDIUM. One material's worth of scene shaders (8 variants × 2 stages = 16) recompiled from GLSL on the main thread at load. Upstream-shaped: nothing about it is WebGPU-specific.
+
+**How it was pinned down.** Counting baked versions on disk settled what static reading could not. In the user's project:
+- `/.godot/exported/<id>/shader_baker/Web/webgpu/SceneForwardClusteredShaderRD/` — 4 group directories, **4 version files each**.
+- `/.godot/shader_cache/SceneForwardClusteredShaderRD/` (the editor's own) — **16** versions in the base group.
+
+So the baker enumerated 4 material versions where the engine has many, and the runtime wanted a 5th. The project itself narrowed which: it contains **no** `.gdshader`, `.tres` or `.material` files and no 3D materials in any `.tscn` (only a `ProceduralSkyMaterial`). Its 3D content is one glTF model, `character/source/Школяр.glb`, instantiated as a `PackedScene` — whose materials live as sub-resources *inside the imported scene*.
+
+**Cause.** Neither baker path reaches such a material:
+- `_customize_resource()` is called for resources being exported, and handles `Ref<Material>` — but a material embedded as a sub-resource of a scene is not handed to it.
+- `_customize_scene()` walks the node tree but only ever special-cased `Label3D` and `Sprite3D` (to synthesize their runtime-generated 2D materials). It never looked at mesh materials.
+- The embedded-material snapshot in `_begin_customize_resources()` cannot cover them either, because it is taken **before** any scene is customized — a material shader created while loading a scene comes too late to be in the set.
+
+**Fix** (`editor/export/shader_baker_export_plugin.cpp`): the scene walk now also collects, for every node it visits, `GeometryInstance3D::get_material_override()` / `get_material_overlay()`, and for a `MeshInstance3D` each surface's `mesh->surface_get_material(i)` and `get_surface_override_material(i)`. Each is passed to the existing `_customize_resource()`, which ignores a null `Ref`, so unset slots cost nothing. Both the mesh's own material and the scene's override are collected because either can be the one actually drawn.
+
+**Verified so far**: native editor builds clean. **Not yet verified**: that this closes the 16 — it needs a real export, since no local test exercises the bake path.
+
+**Known not covered** (deliberately, pending evidence any project here needs them): `MultiMeshInstance3D`, `CSGShape3D`, `GridMap`, and particle draw-pass materials. Each would be the same one-line-per-slot addition if a gap shows up.
+
+---
+
+#### Task 32 — the scene walk alone changed nothing: `BaseMaterial3D` had no shader yet
+
+Exported on `b7046948f` and the numbers did not move at all: `baked` **360** (unchanged), `translated` **16**, same eight entries. Not "a bit better" — *identical*, which is the useful signal: the new walk contributed **zero** extra bakes, so either it found no materials or what it found had nothing to enumerate.
+
+It was the second. `BaseMaterial3D` does not build its shader when the material is loaded — `_queue_shader_change()` adds it to the static `dirty_materials` list and the shader is only generated by `BaseMaterial3D::flush_changes()` (`material.cpp:2086`), which is registered as a **SceneTree idle callback** (`register_scene_types.cpp:910`). **No frame ticks during an export**, so every material loaded while customizing sits queued, and `material_get_shader_data()` finds nothing to bake. It fails silently: there is no error path, the material simply contributes nothing.
+
+This also explains why the walk looked correct in isolation and why the existing `Label3D`/`Sprite3D` handling did work — those go through `StandardMaterial3D::get_material_for_2d()`, whose materials are created and flushed long before an export starts.
+
+**Fix**: `_customize_resource()` calls `BaseMaterial3D::flush_changes()` before looking up the material's shader data. Static and idempotent — it drains every queued material at once, so the cost after the first call is nil. It belongs in `_customize_resource()` rather than the scene walk because *every* route into the baker has the same exposure, including a standalone `.tres` material resource, which would have been just as silently skipped.
+
+**Method note worth keeping**: the thing that identified this was the count staying *exactly* the same rather than partially improving. A partial change would have meant the walk worked and was incomplete; an identical count meant it contributed nothing at all, which pointed at the enumeration finding nothing rather than at the set of nodes being walked. Worth reaching for that distinction earlier next time.
+
+Editor rebuilt clean. Still needs an export to confirm.
+
+---
+
+#### Task 32 — the flush was not it either; switching from inference to instrumentation
+
+Exported on `ab4393217`: `baked` **360**, `translated` **16**, same eight entries. Third identical result. Checked the export artifacts directly — `.godot/exported/1894244148/shader_baker/Web/webgpu/SceneForwardClusteredShaderRD/` still holds **4 versions per group**, so neither the scene-material walk nor `flush_changes()` added a single version.
+
+(One thing did change and is worth noting as confirmation the Task 31 work is live: the **group hashes** moved, `4f831fc1…` → `4db6da1a…`, which is `set_variant_define_text()` on the SDF variant feeding the group hash. So the capability override is definitely being applied — the remaining gap is purely about *which versions* get enumerated.)
+
+**Stopping the inference loop.** Three wrong diagnoses in a row for this one group (capability mismatch → scene walk → deferred material shader), each plausible from reading the code and each refuted by an unchanged number. The counting evidence was always sound; the model of *why* enumeration comes up empty kept being wrong. So: make both sides say what they did, and compare.
+
+The runtime half already exists and was simply never used: `ShaderRD::_load_from_cache()` prints `Shader cache miss for <name>/<group_sha256>/<version_sha1>` at verbose (`shader_rd.cpp:634`). That is exactly the key the runtime wanted. It needs no code change to reach the browser — the project setting **`debug/settings/stdout/verbose_stdout = true`** turns on `print_verbose` in an exported build (`main.cpp:2274-2277`), including the web console.
+
+The bake half was missing, and is added here: `_customize_shader_version()` takes a `p_origin` label and logs, at verbose, `Shader baker: baking '<name>/<group>/<sha1>' from <origin>`, where origin is `embedded shader`, `embedded material`, or the resource path. Call sites labeled accordingly.
+
+Together these answer the question that neither side can answer alone: whether a version was **never enumerated** (absent from the baker's log) or **enumerated under a different key** (present, different sha1). Those two have completely different fixes and had been indistinguishable all along — which is why three fixes in a row addressed the wrong one.
+
+**Next**: user sets `verbose_stdout`, exports, and supplies the editor's `Shader baker: baking ...` lines plus the browser's `Shader cache miss for ...` lines. The four baked version sha1s are already known from disk, so the miss lines alone may settle it.
+
+---
+
+### Task 33: a stale `user://` shader cache permanently shadows the export's baked cache `[FIXED]`
+**Status**: `FIX IMPLEMENTED`. Explains the 16 that survived three unrelated fixes, and a much larger failure seen on a second export.
+**Severity**: **HIGH.** In the worst case observed, **every** shader in the build lost its baked WGSL: `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`. Baking is fully defeated and the game pays main-thread Tint for everything, on every run, forever.
+
+**The evidence.** A verbose run shows, for each of the eight stuck variants:
+```
+Loading cache for shader SceneForwardClusteredShaderRD, variant 0
+WebGPU: shader_create_from_container 'SceneForwardClusteredShaderRD:0' (2 stages, push_const_size=16)
+WebGPU: translating shader stage 'SceneForwardClusteredShaderRD:0' at runtime (no baked or precompiled WGSL)
+```
+The cache **hit** — and the container still had no WGSL. That single pairing kills every hypothesis chased in Tasks 31–32 for this group: the version was neither missing from the bake nor filed under a different key. It was found, and what was found was incomplete.
+
+**Cause.** `ShaderRD::_load_from_cache()` searched `user://shader_cache` **before** `res://.godot/shader_cache`. The two are keyed identically (base hash + defines + group + version sha1 + API name) so they describe the same shader, but they are not equally complete:
+- `res://.godot/shader_cache` is the **export's baked cache**, written by the exporter with the container's baker enabled → carries ready-to-use **WGSL**.
+- `user://shader_cache` is written by the **running game** (`_save_to_cache()` after a runtime compile), whose container has no baker compiled in (`WEBGPU_SHADER_BAKER_ENABLED` is editor-only) → carries **SPIR-V only**.
+
+So one early run that predated a working bake wrote WGSL-less entries into `user://`, and from then on those were found first — permanently shadowing the baked cache. Every later run paid full translation cost regardless of how correct the bake had become. On web `user://` is IndexedDB-backed, so it survives reloads and is invisible unless site data is cleared.
+
+**This is why the 16 never moved.** Task 31's fix, the scene-material walk and the `flush_changes()` fix were all being measured against a browser that was not reading the baked cache for those entries at all. The numbers were `360/16` *identically* every time because they were coming from fixed, stale storage — which also explains the otherwise strange precision of that repetition. The `baked: 0 / translated: 193` run is the same bug having spread to every shader.
+
+**Correction to Task 32**: the scene-material walk and `flush_changes()` fixes were aimed at a cause that was not operating. They are kept — both are real gaps for a project whose materials *are* scene sub-resources, and `flush_changes()` in particular closes a silent hole — but neither was responsible for the 16, and Task 32's diagnosis should be read as superseded.
+
+**Fix** (`servers/rendering/renderer_rd/shader_rd.cpp`): try `res://` before `user://`. Safe because `res://` is only set for an exported project that actually shipped a baked cache (`renderer_compositor_rd.cpp:352-356`), so the editor and non-baked exports are untouched, and `user://` remains the fallback so shaders the bake did not cover are still cached across runs.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target; `shader_corpus` 13/13, `preprocessing_tests` 205/0/1 skip, `driver_unit_tests` 332/0.
+
+**Next**: re-export and test **with site data cleared** (DevTools → Application → Clear storage, or a fresh incognito window). Two things to separate:
+1. Cleared storage alone proves the diagnosis — the stuck entries should disappear even before this fix matters.
+2. This fix is what stops it recurring, and matters on every machine that has already run an older build.
+
+**Lesson worth keeping**: three fixes in a row were evaluated against a measurement that could not respond to them, because persistent client-side storage sat between the artifact and the observation. "The number is identical, not merely similar" was the tell, and it was visible from the second data point. When a metric repeats *exactly* across genuinely different builds, suspect the measurement path before adding another fix.
+
+---
+
+### Task 34: the last 16 — a runtime-created material the exporter cannot reach `[FIXED]`
+**Status**: cause **narrowed to a fact, not a hypothesis**; the specific material is still unnamed and a fingerprint log is added to name it.
+
+**The decisive data.** With site storage cleared and verbose on, the run prints exactly one miss for the stuck group:
+```
+Shader cache miss for SceneForwardClusteredShaderRD/4db6da1a…/4d161e027d36dae3228a2fd069c9016607e1d80e
+```
+Checked against the artifacts on disk:
+- The **group** hash `4db6da1a…` is right — it is the BASE group directory that exists in the export.
+- The **version** sha1 `4d161e02…` is **not among the four baked** there (`347259af`, `9ae935cd`, `a784797 7`, `b600e18e`).
+- But it **does** exist in the editor's own cache: `.godot/shader_cache/…/4db6da1a…/4d161e02….vulkan.cache`.
+
+So it is settled: **not** a key mismatch, **not** a capability problem. The editor compiles this version; the baker never enumerates it; the game needs it. Task 32's original framing (an enumeration gap) was right after all — just not for the reason it proposed, and neither of its fixes reached this version.
+
+**Timing, which is the remaining clue.** During scene load, all eight variants of *another* version load from cache successfully — so the scene's own material **is** baked. The miss happens later, after `MultiUmaBuffer`/swap-chain setup, i.e. **at the first draw**. Something creates a fifth scene-shader version at first render that exists neither in the embedded sets nor in any scene the exporter walked.
+
+**Why the hash alone cannot finish this.** A version is identified everywhere by a SHA1 of its generated code, which says nothing about which material produced it. That is precisely why three fixes could be aimed at the wrong material without the numbers ever distinguishing them.
+
+**Diagnostic added**: `ShaderRD::version_get_debug_fingerprint()` returns a compact descriptor — code-section names, the sizes of the uniforms/vertex/fragment/compute blocks, and the head of the **uniforms** block. The uniforms block is the identifying part in practice: a `BaseMaterial3D` declares exactly the uniforms its enabled features need, so its head distinguishes one material's version from another's on sight. It is printed at verbose from both sides, in the same format:
+- runtime, under each `Shader cache miss` line;
+- baker, under each `Shader baker: baking '…' from <origin>` line.
+
+Matching the missing fingerprint against the four baked ones (with their origins) should name the material directly, or at minimum say what kind of material it is and which features it has enabled.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+**Also settled this round**: clearing site data restored `baked: 360` from the previous run's `baked: 0`, consistent with Task 33's shadowing diagnosis. Not fully conclusive, because that run also used a different template (`no GDExtension support`), so the two variables were not separated — but the res://-before-user:// ordering is correct on its own merits regardless, since on WebGPU a baked container strictly dominates a runtime-written one.
+
+---
+
+#### Task 34 — the fingerprints match, so it is the *same material*, differing in a field the summary did not show
+
+The fingerprint worked well enough to eliminate the entire class of hypothesis this investigation had been running on.
+
+**Runtime miss:**
+```
+Shader cache miss for SceneForwardClusteredShaderRD/3d910648…/4d161e027d36dae3228a2fd069c9016607e1d80e
+  ^ version is: uni=286B vtx=218B frag=218B comp=0B sections=[FRAGMENT, VERTEX] uniforms="highp vec4 m_albedo; ivec2 m_albedo_texture_size; …"
+```
+**Baked (`from material (no path)`):**
+```
+Shader baker: baking '…/9ae935cd107ff04dc4904f4d9a48208144d11fe5.webgpu.cache' from material (no path)
+  ^ version is: uni=286B vtx=218B frag=218B comp=0B sections=[FRAGMENT, VERTEX] uniforms="highp vec4 m_albedo; ivec2 m_albedo_texture_size; …"
+```
+
+**Byte-for-byte identical fingerprints, different SHA1s.** So:
+- It is **not** a different material. `m_albedo` / `m_albedo_texture_size` / `m_point_size` / `m_roughness` is a `BaseMaterial3D`, and the baker *did* enumerate it — as `material (no path)`, i.e. reached through `_customize_resource()` with no resource path, which is what an embedded sub-resource looks like.
+- It is **not** an enumeration gap in the sense of "the baker never saw this material" (Task 32's framing) — the baker saw exactly this material and baked it.
+- The two versions differ in a field `_version_get_sha1()` hashes but the fingerprint summarized away: the **contents** of the `FRAGMENT`/`VERTEX` code sections (only their names were printed), or **`custom_defines`** (not printed at all).
+
+Also visible: the other three baked versions come from `embedded material` and are empty (`uni=0B`, no code) — the engine's own default/overdraw/debug materials. So the project contributes exactly one scene material, it is baked, and the game still asks for a different version of it.
+
+**A useful negative result about the diagnostic itself**: a fingerprint that summarizes *some* fields can match on both sides while the hash differs, which is worse than no fingerprint — it looks like proof of sameness. Replaced with a decomposition of *every* field the SHA1 covers: a short hash plus byte count for uniforms, each stage's globals and each code section individually, and `custom_defines` printed in full (short, and the likeliest to differ between the editor that bakes and the game that runs). Whichever component's hash differs now names itself.
+
+**Unrelated observation, noted so it is not mistaken for a bug later**: every shader's group SHA256 changed between the two builds (e.g. `BokehDofShaderRD` `19f50419…` → `e778cc8c…`). Bake and runtime still agree — `baked` stayed 360 — so this is consistent, not a mismatch; the hashes simply are not stable across engine builds. Worth remembering when comparing artifacts between builds: **only compare hashes produced by the same binary.**
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+---
+
+#### Task 34 — the differing field, named
+
+The per-field decomposition worked. Comparing the runtime's missing version against the four the baker enumerated:
+
+| field | runtime wants | baker baked (project material) |
+|---|---|---|
+| `uniforms` | `1fbd2836` (286B) | `1fbd2836` (286B) — same |
+| `vertex_globals` | `31b13a4e` (218B) | `31b13a4e` (218B) — same |
+| `fragment_globals` | `31b13a4e` (218B) | `31b13a4e` (218B) — same |
+| `code[VERTEX]` | `8e419887` (86B) | `8e419887` (86B) — same |
+| **`code[FRAGMENT]`** | **`f566f20c` (758B)** | **`89a214f6` (703B)** |
+| **`custom_defines`** | **5**: `DIFFUSE_BURLEY`, `SPECULAR_SCHLICK_GGX`, **`MODE_UNSHADED`**, **`FOG_DISABLED`**, `UV_USED` | **3**: `DIFFUSE_BURLEY`, `SPECULAR_SCHLICK_GGX`, `UV_USED` |
+
+So the runtime wants an **unshaded, fog-disabled** variant of a textured `BaseMaterial3D`, and the baker baked only the **shaded** one. The uniform block is identical because *every* `BaseMaterial3D` shares it — which is exactly why the earlier summary fingerprint matched and misled.
+
+The other three baked versions are the engine's own: `MODE_UNSHADED`+`FOG_DISABLED` with **empty** uniforms (the overdraw material, a ShaderMaterial), `DEBUG_DRAW_PSSM_SPLITS`+`FOG_DISABLED` (debug shadow splits), and one with no defines at all (the default material).
+
+**`MODE_UNSHADED` + `FOG_DISABLED` on a `BaseMaterial3D` is the signature of `StandardMaterial3D::get_material_for_2d()`** (`material.cpp:3016` sets `SHADING_MODE_UNSHADED` when `p_shaded` is false). `_customize_scene()` already synthesizes exactly that for `Label3D`/`Sprite3D` — but this project's scenes contain **neither**, and no `MeshInstance3D` in `main.tscn` has any material assigned (all seven use the default), no script touches materials, and the only other engine caller is `RootMotionView`, which is not in the scene either. So the owner is **not yet identified** and further guessing is not warranted.
+
+**Next diagnostic (added)**: print the generated code sections themselves on a cache miss, bounded to 900 characters each. A hash says two versions differ; the body says what the shader *is*. At 758 bytes the `FRAGMENT` section fits comfortably, and for a `BaseMaterial3D` it should name the feature set outright. Verbose-only, and only on a miss.
+
+**Method note**: this is the third diagnostic iteration on the same question (name → summary fingerprint → per-field decomposition → code body), and each step was needed only because the previous one summarized away the distinguishing detail. When identity matters, print the thing, not a digest of it.
+
+**Verified**: native editor builds clean; `shader_rd.cpp` compiles for the web target.
+
+---
+
+#### Task 34 — the shader identified, the owner not; switching to a fix that does not need the owner
+
+The code body settled what the shader is:
+```
+^ code[FRAGMENT]: { vec2 m_base_uv=uv_interp;
+  vec4 m_albedo_tex=texture(sampler2D(m_texture_albedo, …), m_base_uv);
+  albedo_highp=(material.m_albedo.rgb * m_albedo_tex.rgb);
+  float m_metallic_tex=dot(texture(sampler2D(m_texture_metallic, …), …), material.m_metallic_texture_channel);
+  … roughness … alpha … }
+```
+A textured PBR `BaseMaterial3D` — albedo + metallic + roughness maps — compiled **unshaded** and **fog-disabled**.
+
+**The owner remains unidentified, and the obvious candidate is ruled out.** `MODE_UNSHADED` + `FOG_DISABLED` is what the glTF importer sets for `KHR_materials_unlit`, but the source `Школяр.glb` declares **no KHR extensions at all** (parsed its JSON chunk directly: no `unlit`, no `KHR_*`). Also ruled out: no `Sprite3D`/`Label3D` in any scene (the two `get_material_for_2d()` callers `_customize_scene()` already handles), no material assigned to any of the seven `MeshInstance3D` nodes in `main.tscn`, no material code in any of the five project scripts, and `RootMotionView` (the only other engine caller) is not in the scene. The imported `.scn` is compressed, so static inspection ends there.
+
+**Five inference attempts on this one group have now failed** (capability mismatch → scene-material walk → deferred `flush_changes()` → `get_material_for_2d` → glTF unlit). Each was plausible and each was wrong. Continuing to reason forward from "where do materials come from" is not converging, so both remaining moves stop depending on it.
+
+**1. A probe that names the material outright** (`scene/resources/material.cpp`): `BaseMaterial3D::_update_shader()` now logs, at verbose, the material's resource path, class, `shading_mode` and `disable_fog` whenever it generates a shader. A generated shader has no path of its own, which is the whole reason this has been so hard to pin; the *material* usually does. Only fires when a material's key actually changes.
+
+**2. A fix that does not need the name** (`editor/export/shader_baker_export_plugin.cpp`): after the existing walks, for every `ShaderRD` reached, bake **every version it currently holds** via the new `ShaderRD::get_all_versions()`. Material versions are deliberately non-embedded (`version_create(false)`) on the assumption that the resource and scene walks find what matters — an assumption this project disproves. By the time the bake runs, the engine has already built every version it needs, so taking them all is both simpler and complete.
+
+Gated on `shader_bake_feature_override_is_active()`, so only a platform that opted in (currently WebGPU) pays for it and every other baker keeps byte-identical behavior. Re-visiting a version already queued is free: `_customize_shader_version()` skips any group whose cache path is already in `shader_paths_processed`, so the sweep only adds what the walks missed. Cost is some extra export work and a few versions the game never asks for — worth it where an unbaked shader means a full GLSL→SPIR-V→WGSL compile on the main thread at load.
+
+**Verified**: native editor builds clean; `material.cpp` and `shader_rd.cpp` compile for the web target; `shader_corpus` 13/13, `driver_unit_tests` 332/0.
+
+**Expected next result**: `translated: 0`. If anything still misses, the new `BaseMaterial3D: generating shader for '<path>'` lines name the material and the question is finally closed by observation rather than inference.
+
+---
+
+#### Task 34 — `translated: 0`
+
+Confirmed on the user's real build:
+```js
+{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }
+translatedShaders: []
+```
+**Zero runtime shader translation.** `baked` rose 360 → 392, the 32 stages being exactly what the all-versions sweep added. Every shader the game asks for now arrives as ready WGSL.
+
+**And the probe named the material**, which four rounds of inference had failed to do:
+```
+BaseMaterial3D: generating shader for '<no path>' (class StandardMaterial3D): shading_mode=0 disable_fog=1
+```
+`shading_mode=0` is `SHADING_MODE_UNSHADED`, `disable_fog=1` — matching the missing version's `MODE_UNSHADED` + `FOG_DISABLED` exactly. Critically it has **no resource path**: a `StandardMaterial3D` constructed at runtime, first generated *after* the `BlitShaderRD` load, i.e. at the first draw, and again a second time.
+
+Alongside it, the glTF character material logged as expected and *was* baked:
+```
+BaseMaterial3D: generating shader for 'res://character/source/Школяр.glb::StandardMaterial3D_ctgke' (class StandardMaterial3D): shading_mode=1 disable_fog=0
+```
+Shaded, `disable_fog=0` — the 703B/3-define version the baker had. So the two really were different materials that happened to share a uniform block, which is why every fingerprint short of a full field decomposition looked identical.
+
+**Which object owns the pathless one is still unknown**, and it no longer matters for correctness: a material with no resource path, created during the first frame, is reachable by *no* exporter walk over resources or scenes, by construction. That is precisely the class the sweep exists to cover. Left unidentified deliberately rather than guessing a sixth time.
+
+**Final state of the whole chain:**
+
+| stage | `translated` |
+|---|---|
+| start (Task 30) | 37 |
+| Task 31 — device-aware baker | 16 |
+| Task 34 — all-versions sweep | **0** |
+
+Task 14's question is now answerable: any remaining startup stall is the browser's own WGSL→pipeline compilation, which nothing on this side can remove.
+
+**What actually solved it, versus what looked like it should.** Five fixes were aimed at *where materials come from* (capability defines, scene-material walk, `flush_changes()`, `get_material_for_2d`, glTF unlit); four of the five changed nothing measurable. What worked was giving up on reaching the material and instead taking every version the engine had already built. The general lesson: when the producer of a thing cannot be enumerated reliably, enumerate the things themselves.
+
+The scene-material walk and `flush_changes()` fixes are kept even though neither closed this case — both are real gaps for projects whose materials *are* scene sub-resources or standalone `.tres` files, and `flush_changes()` closes a hole that fails silently.
+
+**Diagnostics kept** (all verbose-only, no cost on a normal run): the per-field version fingerprint, the code-section dump on a cache miss, the baker's per-version origin log, and `BaseMaterial3D`'s material-name log. Between them, the next bake gap is a single export away from being named instead of guessed at.
+
+---
+
+#### Task 34 — confirmed cold, with storage cleared
+
+A second run with the app's storage cleared, so nothing could be served from a stale client-side cache (the Task 33 hazard):
+
+- **260 cache loads, 260 container creations — every one a hit.**
+- **Zero** `Shader cache miss`, **zero** `translating shader stage at runtime`, **zero** errors.
+- 60 distinct shaders, including all **32** `SceneForwardClusteredShaderRD` variant loads — the exact group that had been translating since Task 30.
+
+So `translated: 0` is not an artifact of a warm cache: on a cold start the bake covers everything the game asks for.
+
+**One detail worth recording**: the pathless unshaded `StandardMaterial3D` does **not** appear in this run at all — only the glTF character material does. Whatever creates it is **conditional** on some interaction or UI state rather than happening every startup. That explains why it resisted identification for so long: it is not reliably reproducible from a plain launch, so a naive repro would never have shown it. The all-versions sweep covers it whether or not it appears in a given session, which is the right property for something this intermittent — and a good argument for having fixed the class rather than the instance.
+
+**Remaining log noise, unrelated to shaders**: 83 × `WARNING: Image format LumAlpha8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2916`). Tracked separately as Task 35. The trailing `WebSocket connection to 'ws://127.0.0.1:6007/' failed` is just the debugger link with no editor listening — expected for a standalone run.
+
+---
+
+### Task 35: the 83 `LumAlpha8` conversions — misleading message, then removed entirely `[FIXED — VERIFIED IN BROWSER]`
+**Status**: investigated; **no behavioral defect found**. The conversion is correct and deliberate. Only the reporting changed.
+**Severity**: LOW (log noise and, more importantly, a false lead).
+
+**What they are.** `texture_storage.cpp` converts `L8` and `LA8` to `RGBA8` on WebGPU **on purpose**: WebGPU has no texture component swizzle, so the `(R,R,R,1)` / `(R,R,R,G)` broadcast those formats depend on cannot be expressed in a texture view and has to be baked into the pixel data instead. On Vulkan the same formats stay `R8` / `RG8` with a swizzle. This is the only correct path on this backend, not a fallback.
+
+**Checked and correct.** The manual `LA8 → RGBA8` expansion (`(L,A) → (L,L,L,A)`) derives its pixel count from total bytes / 2, which is right for Godot's tightly packed mip chains (no block compression, no per-level padding), and it preserves the mipmap flag via `Image::create_from_data(w, h, image->has_mipmaps(), …)`. No defect.
+
+**Not churn.** All 83 occur in one startup burst, during UI construction right after the scene loads. They only *look* spread out in the browser log because each one carries a ~100-line JavaScript stack trace from `onPrintError`. Nothing is re-converting per frame. `LumAlpha8` is the only format being converted at all — no RGB-format conversions in this project.
+
+**Why they appeared now.** The fork already suppressed them for non-verbose runs; they showed up only because `debug/settings/stdout/verbose_stdout` was turned on for the Task 34 shader investigation. Turning that setting back off makes them go away, with no code change needed.
+
+**What was actually wrong: the wording.** Under verbose these printed as `WARNING: Image format LumAlpha8 not supported by hardware`, which reads as a hardware shortfall worth investigating — and did cost a detour. Replaced with a plain verbose note that says what is happening and why:
+```
+Expanded LumAlpha8 to RGBA8 (WebGPU has no component swizzle; luminance broadcast baked into the data).
+```
+The generic "not supported by hardware" warning still fires for every other format, unchanged.
+
+**The one real cost, stated rather than fixed**: the expansion grows `L8` **4×** and `LA8` **2×** in memory. 83 such textures at startup in this project, almost certainly font atlases (a UI-heavy scene: 37 Labels, 20 HSliders, 8 Buttons). Nothing to do about it without component swizzle — the alternative would be teaching every sampling site that a given texture is luminance, which is far worse than the memory. Worth knowing if texture memory ever becomes a concern on this target; the new message makes the count visible under verbose without implying a fault.
+
+**Verified**: native editor builds clean; `texture_storage.cpp` compiles for the web target.
+
+---
+
+#### Task 35 — the cost is per-*upload*, not per-texture
+
+Follow-up measurement corrects the earlier framing. `TextureStorage::_texture_2d_update()` calls `_validate_texture_format()` on **every** update (`texture_storage.cpp:1635`), and a font atlas is re-uploaded whenever a glyph is added to it (`text_server_adv.cpp:3810`, `tex.texture->update(img)` once `tex.dirty`). So the 83 lines are not 83 distinct textures converted once — they are a handful of atlases expanded **in full, repeatedly**.
+
+At the typical atlas size (`MAX(font_size * 0.125, 256)`, so 256×256 for ordinary UI text, capped at 1024) each expansion allocates and rewrites ~256 KB: roughly **21 MB of transient allocation and memcpy** across the 83, recurring whenever a glyph first rasterizes.
+
+**These atlases are generated in code, not imported**, so the format is a choice rather than a property of an asset: `text_server_adv.cpp:1112` picks `FORMAT_LA8` for monochrome fonts and `FORMAT_RGBA8` for colour ones, from `color_size = p_bgra ? 4 : 2`. Producing RGBA8 directly on WebGPU removes the conversion entirely.
+
+**Most of the groundwork already exists**: the atlas clear path has a correct 4-channel branch for non-MSDF that writes `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha broadcast wanted. What assumes a 2-byte stride is the glyph blit (`wr[ofs + 0] = 255; wr[ofs + 1] = alpha;` for `FT_PIXEL_MODE_MONO`/`GRAY`).
+
+**The trade**: GPU memory is unchanged (RGBA8 either way); CPU atlas RAM doubles, 128 KB → 256 KB per atlas, a few MB at most; per-upload conversion work drops to zero; and the log noise disappears because no conversion happens.
+
+`WEBGPU_ENABLED` is a global define (`platform/web/detect.py:279`), so the text server modules can gate on it, matching the pattern `texture_storage.cpp` already uses.
+
+---
+
+#### Task 35 — monochrome glyph atlases now rasterize straight to RGBA8
+
+Rather than expanding `LA8 → RGBA8` on every atlas upload, the text servers now build monochrome atlases as RGBA8 in the first place when `WEBGPU_ENABLED`. The conversion disappears instead of being made quieter.
+
+**Changed** (`modules/text_server_adv/text_server_adv.cpp`, `modules/text_server_fb/text_server_fb.cpp`, kept identical):
+- `MONO_GLYPH_COLOR_SIZE` — 4 on WebGPU, 2 elsewhere — replaces the hard-coded `2` for `FT_PIXEL_MODE_MONO`/`GRAY` and for the HarfBuzz raster path's non-BGRA case. `require_format` then resolves to `FORMAT_RGBA8` through the existing ternary, with no change to that logic.
+- `_write_mono_glyph_texel()` writes one coverage texel: `(255,255,255,coverage)` on WebGPU, `(255,coverage)` otherwise. A helper rather than an `#ifdef` at each of the four blit sites, so the per-pixel loops stay branch-free and the two layouts cannot drift apart.
+- A TU-local `static constexpr int`, deliberately **not** a macro: the same name is defined in both files, and a macro would be one unity-build away from colliding.
+
+**Nothing else needed changing**, which is the main reason this is low-risk: the atlas clear path in both servers already had a correct 4-channel non-MSDF branch writing `(255, 255, 255, 0)` — exactly the white-RGB + zero-alpha initialization an RGBA8 coverage atlas wants. Colour (`BGRA`), `LCD`, `LCD_V` and MSDF paths were already 4-channel and are untouched.
+
+Checked for leftovers: the only remaining `FORMAT_LA8` references are the generic `color_size == 2` branches (dead on WebGPU) and the `require_format` ternaries (which now yield RGBA8). Nothing assumes LA8 unconditionally. A font cache previously saved with LA8 atlases still loads — `find_texture_pos_for_glyph()` skips atlases whose format differs, so new glyphs simply start a fresh RGBA8 atlas.
+
+**Net effect**: GPU memory unchanged (RGBA8 either way); CPU-side atlas doubles, 128 KB → 256 KB each, a couple of MB at most; the per-upload full-atlas expansion drops to **zero**; and the log lines vanish because no conversion occurs. The `is_la_format` message added earlier stays as a safety net for any L8/LA8 that still reaches the texture layer from elsewhere.
+
+**Verified**: native editor builds and starts (the unchanged LA8 path); **both** text servers compile for the web target with `WEBGPU_ENABLED` active, i.e. the `MONO_GLYPH_COLOR_SIZE = 4` code is the code that was compiled — `text_server_fb` needed `module_text_server_fb_enabled=yes` since it is off by default in this configuration and would otherwise have gone unchecked. `shader_corpus` 13/13, `driver_unit_tests` 332/0.
+
+**Verified in the browser**: text renders correctly with the RGBA8 atlases. This was the one open risk — `_write_mono_glyph_texel()` writing coverage to the wrong channel would have made *all* text render wrong, immediately and unmistakably. It does not. The RGB=255 / A=coverage layout matches what the sampling path expects, and the pre-existing 4-channel atlas clear (`255,255,255,0`) initializes it correctly.
+
+Correct text on screen is the load-bearing evidence here; the absence of the `LumAlpha8` log lines was not separately re-confirmed in this run, but it follows from the same code path — no LA8 atlas is created, so nothing can be converted.
+
+---
+
+## Tasks 29–37: shader baking, end to end — summary
+
+Chased a single visible symptom (one bake warning) into five distinct defects, then two more found while verifying them. Final state of each. **Tasks 36 and 37 are written up *below* this summary**, having been found after it was first drafted.
+
+| Task | What it was | Status |
+|---|---|---|
+| **29** | Bake warning: `BuiltIn ViewIndex` from a multiview variant the XR-off editor still compiled. Fixed in the baker (skip rule) *and* at source (`vrs.cpp` left `VRS_RG_MULTIVIEW` enabled). | **FIXED** — confirmed warning-free |
+| **30** | `translated` conflated a real baking gap with unavoidable spec-constant re-conversion. Split into `translated` / `specialized`, and named the shaders behind it. | **DONE** — `specialized: 0` proved the 37 were all real |
+| **31** | The baker compiled with the **editor's** device capabilities (Vulkan) rather than the export target's (WebGPU), so SDFGI/fog shaders were baked in a configuration the game never asks for. | **FIXED** — 37 → 16 |
+| **32** | Materials embedded in scenes are not enumerated by the baker. Right instinct, but not what was causing the remaining 16. | **SUPERSEDED** — both fixes kept as genuine gaps |
+| **33** | A stale `user://` shader cache permanently shadowed the export's baked cache, once defeating baking entirely (`baked: 0, translated: 193`). | **FIXED** — `res://` now searched first |
+| **34** | A pathless `StandardMaterial3D` created during the first frame, reachable by no exporter walk. Fixed by baking every live version rather than trying to reach the material. | **FIXED** — `translated: 0`, confirmed cold |
+| **35** | Monochrome glyph atlases expanded LA8→RGBA8 on *every* upload. Now rasterized as RGBA8 directly. | **FIXED** — text confirmed correct in browser |
+| **36** | Editor and export template built from different commits → `GODOT_VERSION_HASH` differs → every group hash differs → the whole baked cache unreachable, silently. | **FIXED** — resolved by rebuilding both at one commit; runtime now warns |
+| **37** | `RGB8 not supported by hardware` described an unconditional WebGPU expansion as a per-GPU shortfall — the same wrong wording Task 35 fixed for `LumAlpha8`, in the same function. | **FIXED** — message only, no behavior change |
+
+**Result**: `{ baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0 }` on a cold start with storage cleared. Zero runtime shader translation; whatever startup cost remains is the browser's own WGSL→pipeline compilation (Task 14), which nothing here can remove.
+
+**Confirmed again after the Task 36 rebuild**: a full verbose run shows every shader arriving via `Loading cache for shader …` — `GiShaderRD`, `SdfgiDebug*`, `VolumetricFog*`, `BokehDof`, `Copy`, `Octmap*`, `Tonemap`, `SceneForwardClustered`, `Blit` — including the pathless `<no path>` `StandardMaterial3D` (`shading_mode=0 disable_fog=1`) that Task 34 exists for. No runtime translation anywhere. The `read_storage→sampled` and `rw_storage split` WGSL dumps in that log are the driver's own rewrite passes logging at verbose, not translation work; those shaders still came from the cache.
+
+**Method notes worth carrying forward**, each of which cost real time:
+
+1. **An identical number across genuinely different builds indicts the measurement, not the fix.** `360/16` repeated *exactly* through three unrelated fixes because a stale client-side cache sat between the artifact and the observation (Task 33). "Identical, not merely similar" was the tell, visible from the second data point.
+2. **A partial fingerprint is worse than none.** A summary of *some* fields matched byte-for-byte on both sides while the hashes differed, which reads as proof of sameness (Task 34). When identity is the question, decompose every field the hash covers, or print the thing itself.
+3. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes targeted *where materials come from*; four changed nothing. Taking every version the engine had already built closed it immediately (Task 34).
+4. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change to it would have shipped uncompiled without `module_text_server_fb_enabled=yes` (Task 35).
+5. **Emscripten-only driver files can be compile-checked cheaply** by naming the object file as the scons target (~2 s against a warm tree) — superseding Task 28's "unverifiable without a full web build". Note the object name must carry the full variant suffix: with `threads=no` it is `….wasm32.nothreads.dlink.o`, and naming the wrong variant gets a cheerful `scons: Nothing to be done` that looks like success.
+6. **A log line that misdescribes a deliberate, unconditional conversion as a hardware failure will cost someone an investigation** — it did so twice here, for `LumAlpha8` (Task 35) and then `RGB8` (Task 37), from the same function. If a driver always does something, the message must say *why it always does it*, not imply a capability that varies by device.
+7. **Build, then commit, then rebuild.** A binary built before its commit carries the *previous* commit's `GODOT_VERSION_HASH`, which is exactly how the Task 36 mismatch arose — self-inflicted, and invisible until the version banners were compared side by side.
+
+---
+
+### Task 36: the editor and the export template must be built from the **same commit**, or the entire baked cache is dead `[FIXED + now self-reporting]`
+**Status**: root cause found and made self-announcing.
+**Severity**: **HIGH, and it masquerades as every other bug in this file.**
+
+**The symptom** (this run): `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`, a 10-second `requestAnimationFrame` stall, and every `Loading cache for shader X` immediately followed by a runtime translation — despite the export having staged **147 cache files** and the game loading from the newest export directory.
+
+**The cause.** `ShaderRD::setup()` folds **`GODOT_VERSION_HASH`** — the git commit hash — into `base_sha256` (`shader_rd.cpp:177-188`), and `base_sha256` feeds every group hash. So **any** difference in commit between the editor that bakes and the template that runs changes the hash of *every shader*, and not one baked entry can ever be found. Confirmed directly:
+
+| | build |
+|---|---|
+| editor binary (did the bake) | `custom_build.6b947bdc8` |
+| web template (ran the game) | `custom_build.480687d1f` |
+
+Two different commits, therefore two different hash spaces, therefore `baked: 0`.
+
+**Why this was so costly.** It is *silent* and it *looks like a baking bug*. It produces exactly the signature this file spent Tasks 30–34 chasing: a shipped cache that exists on disk, a runtime that says "cache miss", and a stat line that says nothing was baked. It also explains, retroactively, why group SHA256s appeared to "change every build" (they do — that is the version hash moving) and is the likely cause of at least one earlier `baked: 0 / translated: 193` run that was provisionally attributed to Task 33's user-cache shadowing.
+
+**Process trap worth naming**: building the engine *before* committing bakes the **pre-commit** hash into the binary. Build, commit, then rebuild — or expect the editor and any template built later to disagree.
+
+**Fix (operational)**: rebuild editor and export template from the same commit, then export. **Confirmed by the user**: rebuilding to resolve the mismatch restored baking. This closes the task — the `baked: 0 / translated: 193` report was entirely the version-hash mismatch, with no residual defect behind it.
+
+**Fix (so it never costs a round again)** — `ShaderRD::_load_from_cache()` now watches the `res://` lookups and, if the export ships a baked cache but the first 16 lookups all miss with **zero** hits, prints once:
+```
+WARNING: This export ships a baked shader cache, but none of it matches what this build asks for,
+so every shader is being compiled from source at load. Shader hashes include the engine version
+hash, so the editor that exported the project and this build must come from the same commit.
+Rebuild both from the same commit and export again.
+```
+A plain `WARN_PRINT`, not verbose-gated, because the failure is invisible otherwise and the cost is seconds of main-thread compilation. Two counters and a bool; nothing runs once it has fired or once anything hits.
+
+**Verified**: native editor builds clean and reports `480687d1f`; `shader_rd.cpp` compiles for the web target.
+
+**Also in this log**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8` — expected and verbose-only (WebGPU has no 3-component texture formats); it is the character's base-colour JPEG, which this export loaded as plain `.ctex` rather than the `.s3tc.ctex` earlier runs used, which is why it appeared now and not before. Unrelated to shaders. Reworded in Task 37.
+
+---
+
+### Task 37: `RGB8 not supported by hardware` says the same untrue thing Task 35 fixed for `LumAlpha8` `[FIXED]`
+**Status**: message corrected; behavior unchanged.
+**Severity**: cosmetic, but it is the *second* time this exact wording sent someone looking for a fault that does not exist.
+
+**Symptom**: `WARNING: Image format RGB8 not supported by hardware, converting to RGBA8.` (`texture_storage.cpp:2928`), from the character's base-colour JPEG. It appears only under `--verbose` — upstream already gates the three-component formats behind `is_print_verbose_enabled() || !is_rgb_format` — which is why it surfaced in this run and not earlier ones, where the texture arrived as `.s3tc.ctex`.
+
+**Why the wording is wrong here.** “Not supported by hardware” suggests a property of the user's GPU, something another machine might not hit. On WebGPU it is neither: the spec has **no** 3-component texture formats, so RGB8/RGBH/RGBF are expanded unconditionally on every device, forever. That is definitional, exactly like the L8/LA8 swizzle expansion Task 35 already rewrote — and it is the same function, twenty lines apart.
+
+**Change** (`_validate_texture_format`): the deliberate-expansion branch added in Task 35 now covers the RGB formats too, via `is_deliberate_expansion = is_la_format || is_rgb_format` under `WEBGPU_ENABLED`, and its message names the actual reason:
+```
+Expanded RGB8 to RGBA8 (WebGPU has no 3-component texture formats).
+Expanded LA8 to RGBA8 (WebGPU has no component swizzle; luminance broadcast baked into the data).
+```
+Still `print_verbose`, so it is no noisier than before; non-WebGPU builds are untouched and keep upstream's `WARN_PRINT` (there the shortfall really can be per-GPU).
+
+**Cost is genuinely negligible**, unlike Task 35: `_validate_texture_format()` runs from `texture_2d_initialize()` — once per texture at load — not per upload. The 4/3× memory growth is unavoidable on any WebGPU device regardless of what the log says.
+
+**Verified**: compiles for web with `WEBGPU_ENABLED` and for the native editor without it.
+
+**Standing lesson, now twice-earned**: when a driver makes a conversion *unconditional*, the log line must not describe it as a capability failure. A warning that cannot be acted on is a warning that costs someone an investigation.
+
+---
+
+### Task 38: Firefox renders **no 3D at all** — `enable subgroups` is Chrome-only `[FIXED — VERIFIED IN BOTH BROWSERS]`
+**Status**: fixed by `spirv_preprocess::lower_subgroup_ops()`; Firefox now renders the full 3D scene. One independent blocker remains (rgb10a2unorm, below).
+**Severity**: **CRITICAL for Firefox** — the UI draws, the entire 3D scene does not.
+
+**Symptom.** On Firefox the canvas shows the full 2D UI (all labels, sliders, the camera diagram) and
+**nothing 3D**: no character, no floor, no lighting. Reproduced from the user's own console log
+(`firefox-console-export-2026-9-26_11-59-15.log`) and independently under Playwright.
+
+**Root cause, one line.** Firefox's WGSL parser (Naga) rejects the extension our baked WGSL declares:
+```
+Shader 'mod:ClusterRenderShaderRD:stg1' parsing error: the `subgroups` enable-extension is not yet supported
+  ┌─ wgsl:1:8
+1 │ enable subgroups;
+  │        ^^^^^^^^^ this enable-extension specifies standard functionality which is not yet implemented in Naga
+```
+Ten reported errors collapse to **exactly one distinct cause**, hitting
+`ClusterRenderShaderRD:stg1` and `SceneForwardClusteredShaderRD:stg1`. Everything after it is
+cascade: module invalid → `Error matching ShaderStages(FRAGMENT) shader requirements against the
+pipeline` → `RenderPipeline 'pipe#9:SceneForwardClusteredShaderRD' is invalid` → nothing 3D draws.
+
+Firefox's own log says only "1 error(s)" without the message; the text above came from calling
+`getCompilationInfo()` from the profiler (`--shader-errors`), which is why this was diagnosable at
+all. The engine has an equivalent behind the compile-time `WEBGPU_VERBOSE`, but that needs a
+rebuild and costs ~12 s of startup.
+
+**Where the subgroups come from.** `servers/rendering/renderer_rd/shaders/cluster_render.glsl:68-70`
+enables `GL_KHR_shader_subgroup_ballot`/`_arithmetic`/`_vote` **unconditionally** — no capability
+gate anywhere — and uses `subgroupBroadcastFirst`, `subgroupBallot`,
+`subgroupBallotExclusiveBitCount` and `subgroupOr` (lines 129-155). Tint faithfully turns those into
+`enable subgroups;` plus subgroup builtins. Chrome implements the extension; Firefox does not.
+
+**The trap in fixing it by capability.** Gating on the *running* device's capability does not work
+here, because the shaders are **baked in the editor against its Vulkan device**, which always
+supports subgroups. The bake cannot know which browser will run the result, so the only safe target
+for a web export is the lowest common denominator: **compile WebGPU shaders without subgroups
+always**, losing a minor optimization on Chrome.
+
+**Two candidate fixes.**
+1. **Lower the subgroup ops in `spirv_preprocess.cpp`** — the fork's existing mechanism for exactly
+   this class of gap, and there is already a pass touching `OpGroupNonUniformBallotBitCount`
+   (`spirv_preprocess.cpp:3259`). Rewrite each op to its **single-lane** equivalent, which is what a
+   subgroup of size 1 would compute: `OpGroupNonUniformBroadcastFirst(x)` → `x`;
+   `OpGroupNonUniformBallot(c)` → `vec4(c ? 1 : 0, 0, 0, 0)`; `OpGroupNonUniformBallotBitCount(…,
+   ExclusiveScan)` → `0`; `OpGroupNonUniformBitwiseOr(x)` → `x`. This is semantically correct rather
+   than approximate: the cluster shader uses subgroups only to elect one lane per distinct cluster
+   offset and dedupe an `atomicOr`, and `atomicOr` is idempotent, so every lane doing its own is the
+   same result with more atomic traffic. The `while (true)` election loop collapses to a single
+   iteration. **Preferred** — it needs no changes outside `drivers/webgpu/`, so no other backend can
+   regress.
+2. **A `NO_SUBGROUPS` GLSL variant** gated through `ShaderRD`'s `general_defines` (the refresh-callback
+   mechanism in `shader_rd.h:256-283` already exists). Cleaner in principle, but it touches shared
+   shader source and needs the *baker* to select the define for a WebGPU target rather than the
+   running device — which is the trap above, and a good deal more plumbing.
+
+**Second, independent Firefox blocker** (do not conflate): `Binding index 0: WriteOnly access to
+storage textures with format Rgb10a2Unorm is not supported`, invalidating
+`bgl:OctmapDownsamplerShaderRD:set1`, `bgl:OctmapFilterShaderRD:set2`,
+`bgl:OctmapRoughnessShaderRD:set1` and their pipeline layouts. `rgb10a2unorm` as a write-only storage
+format is a Chrome extra (it sits in `texture-formats-tier2`, which Firefox does not expose); core
+WebGPU does not require it. Needs the same treatment the driver already gives other unsupported
+storage formats — promote to a supported format, or fall back off the storage path.
+
+**Also worth knowing**: Firefox reports `float32-blendable` as unavailable (the driver already warns
+and disables blending on float32 targets, so this is handled, not a defect).
+
+#### Task 38 — the fix: `lower_subgroup_ops()`
+
+Candidate 1 above was taken: a new SPIR-V pass, `drivers/webgpu/spirv_preprocess.cpp`, wired into both
+copies of the pipeline (`spirv_to_wgsl.cpp` for the runtime fallback and `tint_cli/main.cpp`, which is
+what the export-time baker actually runs). It rewrites each GroupNonUniform instruction to what a
+subgroup of one lane computes, then drops the `GroupNonUniform*` capabilities so Tint has no reason to
+emit `enable subgroups`:
+
+| instruction | lowered to |
+|---|---|
+| `OpGroupNonUniformBroadcastFirst` / `Broadcast` | the value operand (`OpCopyObject`) |
+| arithmetic reductions (349-364), Reduce/InclusiveScan | the value operand |
+| `OpGroupNonUniformBallot` | `OpSelect` + `OpCompositeConstruct` → `uvec4(pred ? 1 : 0, 0, 0, 0)` |
+| `OpGroupNonUniformBallotBitCount` | already folded to 0 by `fold_ballot_bit_count()`, which must run first |
+
+`OpCopyObject` is shorter than everything it replaces, so the remainder is padded with `OpNop` rather
+than shifting every id in the module. The ballot is the one case that grows, so it allocates ids and
+bumps the header bound.
+
+**The pass declines rather than guesses.** A module containing an ExclusiveScan (whose single-lane
+result is the operation's identity element, which differs per operation), an `Elect`, a vote, a
+shuffle, a quad op, or a `BallotBitCount` that survived the earlier fold is returned untouched. That
+keeps a half-lowered module with its capabilities stripped — which would be invalid SPIR-V — off the
+table entirely.
+
+**Three bugs found while writing it, all worth recording** because each produced a different wrong
+answer rather than a compile error:
+- The opcode constants were off by one: `BroadcastFirst` is **338** and `Ballot` **339**, not 339/340.
+  With the wrong values the pass silently declined on every real shader.
+- The GroupOperation literal is at word **4**, not 3 — word 3 is the execution-scope *id*. Reading the
+  wrong word made every reduction look like an ExclusiveScan and decline.
+- `OpSelect` is **6 words**, not 5; the short word count produced a module that failed validation with
+  "End of input reached while decoding OpSelect".
+
+**Verified.** `webgpu_tests/shader_corpus/fixtures/subgroup_cluster.frag` is a new fixture mirroring
+both shaders' subgroup usage (compiled with `--target-env vulkan1.1`, since subgroup ops need
+SPIR-V 1.3); its WGSL comes out with no `enable subgroups` and the expected single-lane shape — the
+election loop collapses, every lane does its own `atomicOr`, and the iteration bounds are the lane's
+own. `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0.
+**Firefox renders the full 3D scene**, matching Chrome to RMSE 0.0014 over the frame; 363 shader
+modules and 218 pipelines now build there with **zero** shader-compilation messages.
+**Chrome is unaffected**: stall 1016 ms against 1006-1025 ms before, `translated: 0`, and steady-state
+frame pacing 171 fps against 168 fps — i.e. no measurable regression.
+
+**On the performance cost**, which is real but was measured to be small here. The subgroup ops are not
+eliminating work in the scene shader: they widen each lane's cluster-iteration bounds to the
+subgroup's union so the loop is wave-uniform, and a SIMD wave executes that union either way. What is
+lost is scalarisation quality (uniform values can live in scalar registers and take scalar loads) and
+some scheduling freedom. In cluster_render the subgroups *do* eliminate work — one `atomicOr` per
+distinct cluster offset instead of one per lane — so a light-heavy scene pays more atomic traffic
+there. The user's project has three lights and shows no measurable change; **a scene with many lights
+or decals per cluster is where a cost would appear, and that has not been measured.**
+If it ever proves material, the escape hatch is baking both variants and selecting on
+`wgpuDeviceHasFeature(subgroups)` at runtime — more work, and it doubles the bake for two shader
+classes, so it is not worth doing before a measurement asks for it.
+
+---
+
+### Task 39: WebGPU adapter feature matrix, and what a web export can safely ship `[MEASURED]`
+**Status**: measured on one machine; `webgpu_tests/startup_phases/features.mjs` reproduces it.
+
+Both browsers driven by Playwright against the same adapter (**NVIDIA Lovelace, discrete** — note
+this corrects Task 14's earlier description of this machine as having an integrated GPU, which came
+from the engine's own device-type log reporting "Integrated" for an adapter it could not identify):
+
+| feature | Chrome | Firefox |
+|---|---|---|
+| `texture-compression-bc` | **yes** | **yes** |
+| `texture-compression-etc2` | no | no |
+| `texture-compression-astc` | no | no |
+| `subgroups` | yes | **no** |
+| `texture-formats-tier1` / `tier2` | yes | no |
+| `float32-blendable` | yes | no |
+| `shader-f16` | no | yes |
+| total features | 24 | 12 |
+
+**What this settles for texture compression** (Task 14's export-option question): **BC is the right
+desktop format and both browsers expose it**, so `vram_texture_compression/for_desktop` (which emits
+the `s3tc` and `bptc` tags) is the correct switch for a desktop-targeted web export. ETC2/ASTC are
+not exposed by either browser on a desktop GPU — they are mobile formats, so `for_mobile` only earns
+its pck size when actually shipping to mobile browsers. An export that wants both must enable both
+and carry both variant sets.
+
+**Still unmeasured**: Safari (not available on this Linux host), and any mobile browser, which is
+exactly where ETC2/ASTC would show up. Both are needed before the export option is designed, since
+the point of the option is to let a developer choose per target.
+
+---
+
+### Task 40: interleaving editor and template builds ships a web template that dies on startup `[DIAGNOSED — workaround known, no code fix yet]`
+**Status**: reproduced and worked around; the underlying SCons dependency gap is not fixed.
+**Severity**: **HIGH** — the template builds and exports cleanly, then the export fails at `callMain()`
+with a JavaScript `TypeError` and no Godot-level message at all.
+
+**Symptom.** A freshly built `platform=web target=template_release` export throws before the engine
+prints anything:
+```
+TypeError: resolved is not a function
+  at stubs.<computed> (index.js)
+  at __Z14godot_web_mainiPPc
+```
+Nothing else. No Godot banner, no WebGPU error, no hint of which symbol.
+
+**How to identify it in seconds** (worth keeping — the stub is anonymous by default). Patch the
+export's `index.js` stub thunk to name the symbol before it throws:
+```js
+stubs[prop]=(...args)=>{resolved||=resolveSymbol(prop);
+  if(typeof resolved!=="function"){console.error("UNRESOLVED SYMBOL: "+prop);}return resolved(...args)}
+```
+Here it printed `UNRESOLVED SYMBOL: _Z23initialize_betsy_module25ModuleInitializationLevel`.
+
+**Cause.** `modules/register_module_types.gen.cpp` always emits *every discovered* module's
+initializer, each wrapped in `#ifdef MODULE_<NAME>_ENABLED` from `modules/modules_enabled.gen.h`, so
+what decides the outcome is which defines that header carried **when the object was compiled**. Betsy
+is editor-only (`modules/betsy/config.py`: `can_build` is `env.editor_build or
+env["betsy_export_templates"]`), so an editor build defines `MODULE_BETSY_ENABLED` and a template
+build does not. Build the editor, then the template, in the same tree and
+`bin/obj/modules/register_module_types.gen.web.*.o` **stays stale from the editor build**: the
+regenerated header correctly omits the define, but the object that consumed it is not recompiled. The
+side module then calls an initializer nothing defines, and Emscripten's dynamic linker turns that into
+the anonymous stub above.
+
+Both generated files are in the **shared source tree** (`modules/*.gen.*`), not a per-configuration
+build directory, which is what lets one configuration's result be handed to another.
+
+**This is a recurrence, not a new class.** `modules/SCsub:65-80` documents the identical bug for
+`objectdb_profiler` across a `template_debug` → `template_release` switch (Task 9.5 Round 15) and adds
+`env.Depends(lib, env.Value(env.module_list))` for it. That guard ties the **library** to the module
+list; it evidently does not force the **object** to recompile on an editor↔template switch.
+
+**Workaround** (what was actually done):
+```bash
+rm -f bin/obj/modules/register_module_types.gen.<platform>.<target>.*.o \
+      bin/obj/modules/libmodules.<platform>.<target>.*.a
+```
+then rebuild. Deleting the two `.gen.*` files or `.scons_env.json` does **not** help — the header
+regenerates correctly and the stale object is still linked.
+
+**Note for anyone bisecting a runtime failure after a rebuild**: this presents exactly like a
+regression in whatever was just changed. It is worth ruling out first, since it is cheap to check —
+`grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` should be 0 for a template build. It
+belongs alongside Task 36's warning (editor and template must come from the same commit) as the second
+way this build tree can produce a template that is wrong without saying so.
+
+**Proper fix, not attempted**: make the object depend on `modules_enabled.gen.h`'s *content* rather
+than relying on implicit include scanning — e.g. `env.Depends(register_module_types, modules_enabled)`
+at the object level, or emit the generated files per configuration instead of into the shared tree.
+
+---
+
+### Task 41: `rgb10a2unorm` storage textures fail on Firefox — the second Firefox blocker `[FIXED — VERIFIED IN BOTH BROWSERS]`
+**Status**: fixed by promoting the three `texture-formats-tier2` storage formats when the device lacks
+that feature. Firefox now loads the user's project with **zero** WebGPU validation errors.
+**Severity**: HIGH for Firefox — three shader classes never ran.
+
+**Symptom** (the residue left after Task 38 fixed the subgroup blocker):
+```
+Binding index 0: WriteOnly access to storage textures with format Rgb10a2Unorm is not supported
+BindGroupLayout with 'bgl:OctmapDownsamplerShaderRD:set1' label is invalid
+PipelineLayout with 'plyt:OctmapDownsamplerShaderRD' label is invalid
+```
+and the same for `OctmapFilterShaderRD:set2` and `OctmapRoughnessShaderRD:set1` — the octahedral
+reflection-probe filtering chain.
+
+**Cause.** `rgb10a2unorm`, `rgb10a2uint` and `rg11b10ufloat` are **not** storage-texel formats in core
+WebGPU; they are added by the optional **`texture-formats-tier2`** feature. Chrome exposes it (Task 39's
+matrix), Firefox does not, so a bind group layout declaring one is rejected outright, which invalidates
+the pipeline layout and every pipeline built from it.
+
+**Fix.** The driver already had the exact machinery for this, built for `texture-formats-tier1` and the
+r8/rg8 formats — it just had no tier2 equivalent. Added:
+- `has_texture_formats_tier2`, queried with `WGPUFeatureName_TextureFormatsTier2` (the enum exists in
+  emdawnwebgpu 6.0.9 alongside tier1), and reported either way under `print_verbose`.
+- Three cases in `_promote_storage_format()`: `RGB10A2Unorm` → `RGBA16Float`, `RGB10A2Uint` →
+  `RGBA16Uint`, `RG11B10Ufloat` → `RGBA16Float`, each returning the original format when tier2 *is*
+  present so Chrome keeps the packed format.
+- A matching remap in `_remap_unsupported_wgsl_storage_formats()`, gated on the same flag, rewriting
+  the `texture_storage_*<format, access>` declarations to the same three targets.
+
+**The two halves must agree**, which is the whole reason the texture promotion and the WGSL remap live
+next to each other: a texture promoted to `rgba16float` bound to a pipeline whose WGSL still says
+`rgb10a2unorm` fails validation just as surely as the original problem.
+
+**Promoted to rgba16, not rgba8**, deliberately: these formats exist to carry more than 8 bits per
+channel, and an octahedral radiance/normal atlas quantised to 8 bits bands visibly. `rgba16float` and
+`rgba16uint` are core storage formats, so the promotion needs no feature of its own. The cost is
+memory — 64 bits per texel against 32.
+
+**Why this works for baked shaders too**, which is not obvious: the WGSL remap runs in
+`shader_create_from_container()` *after* the WGSL has been taken from either the baked container or a
+runtime conversion, so it sees the real device's capabilities at load time. Unlike the subgroup problem
+(Task 38), this one did not need solving at bake time — the bake can stay device-agnostic.
+
+**Verified**: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0.
+Firefox loads the user's real project with **0 validation errors and 0 shader-compilation messages**,
+against 14 console errors before. Chrome is unchanged: 1038 ms stall against 1016-1038 ms before,
+`translated: 0`, 0 errors. The rendered frame is **byte-identical** to before the fix in this scene,
+which is the expected result rather than a disappointing one — the Octmap chain filters reflection
+probes, and this scene shows no visible probe contribution, so what the fix removes is the validation
+failure, not a visible artifact. **A scene that actually uses reflection probes on Firefox is the case
+that would show a visual difference** — now tested, below.
+
+#### Task 41 — tested against a scene that actually uses reflection probes
+
+`webgpu_tests/reflection_probe_test/` (new): a mirror-metallic sphere in a room of four brightly,
+distinctly colored emissive walls with a `ReflectionProbe` over it. The per-wall colors are the
+point — a channel swap or a precision collapse in the Octmap chain shows up as an obviously wrong
+reflection rather than a subtle one — and since only the sphere depends on the chain, the flat walls
+and floor gradient are controls in the same screenshot.
+
+**Chrome takes the native `rgb10a2unorm` path, Firefox the promoted `rgba16float` one**, which makes a
+straight cross-browser comparison the sharpest available test: Firefox cannot run the native path at
+all, so there is no Firefox-native reference to compare against instead.
+
+| region of the frame | mean abs error, Chrome vs Firefox |
+|---|---|
+| flat wall (no probe contribution) | 0.00001 |
+| floor gradient (no probe contribution) | 0.0001 |
+| **the sphere's reflection** | **0.0007** |
+
+The reflection reads identically — blue left, green center, yellow right, red behind, same specular
+highlights. It *is* measurably more different than the controls (7× the floor), and that is expected
+rather than alarming: the two paths quantise on different grids. Peak difference is 4.7% on a single
+channel, and the difference image shows it concentrated on **edges and banding contours**, with the
+smooth interior of each reflected colour patch unchanged — the signature of antialiasing and
+quantisation-step boundaries, not of a channel or precision error, which would differ across whole
+regions instead.
+
+**The promoted path is the more precise of the two, not the degraded one**, which is worth stating
+because the instinct is the opposite: `rgb10a2unorm` quantises to 1/1023 ≈ 0.001 per channel, while
+`rgba16float` carries a 10-11 bit mantissa with an exponent, so its step near 1.0 is ~0.0005 and finer
+below that. The cost of the promotion is memory (64 bits per texel against 32), not quality.
+
+**Also confirmed**: Firefox creates **14 Octmap shader modules** (`CubeToOctmap`, `OctmapDownsampler`,
+`OctmapFilter`, `OctmapRoughness`) with **0 validation errors and 0 shader messages** — before the fix
+those bind group layouts were invalid and the chain never ran at all.
+
+---
+
+### Task 42: full `local_ci.sh` run — green, after two test-harness fixes `[DONE]`
+**Status**: `./webgpu_tests/local_ci.sh --no-safari` → **12 passed, 0 failed, 1 skipped**, exit 0.
+(Safari skips on Linux; the 11 `demo_*` scenes skip because `godot-demo-projects` is not checked out
+on this machine, which is environmental and pre-existing.)
+
+The first run came back **10 passed, 2 failed**. Neither failure was in engine code, and both are now
+fixed.
+
+**Failure 1 — `Compile GLSL fixtures`.** Self-inflicted by Task 38: the new `subgroup_cluster.frag`
+needs SPIR-V 1.3, and `compile_fixtures.sh` invokes `glslangValidator -V` with no `--target-env`. Fixed
+by detecting `GL_KHR_shader_subgroup` in the source and adding `--target-env vulkan1.1` **for that
+fixture only** — applied per file rather than globally so the other fixtures keep emitting
+byte-identical SPIR-V, since the corpus compares against recorded output and a silent SPIR-V version
+bump across all of them would churn it. 14 fixtures, 0 errors.
+
+**Failure 2 — `Scene smoketest — Firefox`**: 8 of 8 runnable scenes failing with 16 GPU errors each,
+all `WriteOnly access to storage textures with format Rgb10a2Unorm is not supported` — i.e. exactly
+the bug Task 41 had just fixed. The cause was **stale pre-exported bundles**: `exports/` dated
+**11-13 September**, whose `index.wasm` contains a two-week-old engine, so no amount of fixing the
+driver could affect them. Re-exported against the current build with the current template, and all
+**8/8 now pass in Firefox** (`sprites`, `pbr`, `instances`, `particles`, `animated`, `postfx`,
+`shadows`, `batching`).
+
+That re-export is worth more than a green tick: `run_scenes.mjs` exports with `--headless`, which per
+Task 14 skips the shader baker, so those scenes convert their shaders through the **runtime** Tint
+path. Task 38's subgroup lowering is therefore now verified on both paths — baked (the user's project)
+and runtime (these eight scenes) — and across eight scenes rather than two hand-built ones.
+
+**Two harness fixes made while getting there**, both small and both pre-existing gaps:
+- `scenes.json` hard-codes `editor_bin` as `../../bin/godot.macos.editor.arm64`, so `--export` could
+  not work on any non-macOS host. `run_scenes.mjs` now honors `GODOT_EDITOR_BIN` and
+  `GODOT_TEMPLATE_ZIP` overrides, resolved the same way the config's own values are.
+- `exportScene()` rewrites each project's committed `export_presets.cfg` with an absolute
+  `custom_template/release` path for the current machine and never restored it, so every run left
+  eight modified files behind — which is how `/Users/dwalter/...` came to be committed in the first
+  place. It now restores the original contents in a `finally`, verified by running `--export-only` and
+  confirming a clean `git status`.
+
+**Note for the next full run**: the suite's own rebuild step uses `dlink_enabled=yes`, while the
+smoketest's export path forces `extensions_support=false` and therefore needs the **non-dlink**
+`godot.web.template_release.wasm32.nothreads.zip`. Only re-exporting requires it; a plain run against
+existing exports does not.
+
+**Update — the `demo_*` tier now runs too.** `godot-demo-projects` was cloned next to this repo (the
+path `scenes.json` already expected), which took the smoketest from 8 runnable scenes to 19. Two
+things were needed to make that tier work from a plain clone, and both are now in the harness:
+- The demo projects ship **no `export_presets.cfg` at all**, and `exportScene()` only patched an
+  existing one — so that tier could only ever have run for someone who had hand-written 10 preset
+  files. It now generates a minimal Web preset when none exists, and removes it afterwards.
+- `demo_compute_heightmap` expects a `[HEIGHTMAP-CHECK] PASS` log that no upstream demo emits; the
+  instrumentation producing it had never been committed here. Added as
+  `patches/compute_heightmap_check.gd`, applied via a new `script_patch` field in `scenes.json` and
+  removed after export. The demo is interactive — its compute shader only runs on a button press — so
+  the patch also drives it, and checks the readback is non-zero, differs from the input, **and** is
+  brighter at the center than the corners, which is the part that would catch a plausible-looking
+  wrong result rather than just a blank one.
+
+Result: **18 of 19 scenes pass in both Chrome and Firefox**, with `demo_compute_heightmap` reported as
+a documented limitation (Task 43) rather than a failure. Verified clean: neither the repo nor the
+`godot-demo-projects` clone is left modified by a run.
+
+---
+
+### Task 43: `create_local_rendering_device()` returned null with no diagnostic `[FIXED — and the original diagnosis was wrong]`
+**Status**: the silent-null part is **fixed**. The diagnostic it added then disproved this task's own
+original diagnosis twice over -- see the correction at the end, which is the useful part of this
+entry.
+**Severity**: MEDIUM — it breaks every project that uses a local `RenderingDevice` for offscreen
+compute, which is the documented Godot way to run a compute shader outside the renderer.
+
+**Symptom.** `RenderingServer.create_local_rendering_device()` returns `null` on the WebGPU backend,
+**with no error printed at all**. `compute/heightmap` (the upstream Godot demo) therefore silently
+does nothing: it loads, its UI appears, and the compute shader never runs. The demo's own null path
+then calls `$...HBoxContainer2/Label2`, which does not exist in the current scene, so the only console
+output is an unrelated-looking `Node not found` error.
+
+**Where it stops.** `RenderingServer::create_local_rendering_device()`
+(`rendering_server.cpp:1889`) → `RenderingDevice::create_local_device()`
+(`rendering_device.cpp:9418`) → `rd->initialize(context)`, whose **first statement** is
+`ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE)`. On a single-threaded web build the call arrives from
+GDScript on the main thread, and that guard returns `ERR_UNAVAILABLE` without printing in a release
+build — which matches the observed silence exactly. `create_local_device()` then deletes the
+half-built device and returns `nullptr` with nothing logged. **This is the diagnosis, not a
+confirmed root cause**: the guard has not been instrumented to prove it is the branch taken, and
+`context->driver_create()` importing a second WebGPU device is the other candidate, since the context
+imports the one device the JS shell pre-initialises (`rendering_context_driver_webgpu.cpp:63-102`) and
+has no path for making another.
+
+**Two separate things to fix, and the smaller one is worth doing regardless**:
+1. **The silence.** Whatever the answer, returning `null` from a public API with no diagnostic is the
+   part that cost the time here — the demo looked like it rendered fine. A `WARN_PRINT` naming the
+   reason would have made this a one-minute diagnosis.
+2. **The capability.** Whether a local `RenderingDevice` *can* be supported on WebGPU is a real
+   design question: the shell pre-initialises exactly one `GPUDevice`, so a second RD would either
+   have to share it (and with it the queue and all the per-thread handle-table constraints from
+   Task 12) or acquire another asynchronously, which nothing in the current init path can do.
+
+**Handled in the suite meanwhile**: `scenes.json` marks `demo_compute_heightmap` with a
+`known_limitation` naming this task, and `run_scenes.mjs` reports such scenes as SKIP with the reason
+rather than FAIL — so the suite stays honest without a known gap sitting in the failure list, where it
+would train people to ignore failures. The heightmap self-test added in Task 42
+(`patches/compute_heightmap_check.gd`) stays in place and will start reporting PASS/FAIL properly the
+moment the limitation is lifted; removing the `known_limitation` line is then the only change needed.
+
+#### Task 43 — corrected: the diagnostic was the fix, and it proved the diagnosis wrong
+
+**What was added** (the actual ask -- a public API must not return `null` with nothing logged):
+- `RenderingServer::create_local_rendering_device()` now `ERR_PRINT`s when there is no
+  `RenderingDevice` singleton, naming the likely reason (the Compatibility renderer has none), and
+  `ERR_FAIL_NULL_V_MSG`s when the driver refuses to create the local device, pointing at the
+  preceding error.
+- `RenderingDevice::create_local_device()` now captures `initialize()`'s `Error` and prints its code
+  and name rather than discarding it.
+
+**Correction 1 — the render-thread guard was never the cause.** This task originally blamed
+`ERR_RENDER_THREAD_GUARD_V` at the top of `RenderingDevice::initialize()`. That macro is
+`ERR_FAIL_COND_V_MSG`, which **prints in every build**, so it cannot be a silent path. The guard was
+never reached.
+
+**Correction 2 — there was no WebGPU limitation at all.** With the diagnostic in place the real
+message appeared immediately: *no `RenderingDevice` is available*. The demo was running on
+**OpenGL**, not WebGPU. `platform/web/export/export_plugin.cpp` selects the web driver from
+`rendering/renderer/rendering_method.web` **specifically**, and `compute/heightmap` sets only the
+unsuffixed `rendering_method="mobile"`, so the export fell back to `gl_compatibility` — which has no
+`RenderingDevice`, so `create_local_rendering_device()` correctly returned null. Local
+`RenderingDevice` support on WebGPU was never in question; it works, as Task 44 shows.
+
+**The lesson worth keeping**: this task confidently recorded a root cause derived by reading code
+(a guard that looked silent) without instrumenting to confirm which branch was taken, and it was
+wrong in both the mechanism and the conclusion. One `ERR_PRINT` settled in one run what code-reading
+had got backwards. The entry is left in place, corrections and all, rather than rewritten.
+
+---
+
+### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[DONE]`
+**Status**: **all four fixed.** The smoketest's renderer selection, `demo_2d_particles` (the SDF
+format fallback), `demo_3d_platformer` + `stress_3d_platformer` (the `depth_buffer` reclassification)
+and `demo_3d_particles` (the depth back-copy's storage format) — the last two are the `[FIXED]`
+entries at the end of this task. Tier: **18 pass, 0 fail, 1 skip in Chrome and Firefox**; the skip is
+`demo_compute_heightmap`, which is its own open `known_limitation` (the `GradientTexture1D` readback,
+last section here).
+**Severity**: **HIGH** — this was silent negative coverage: ten scenes reporting WebGPU passes while
+exercising none of this driver.
+
+**The coverage bug.** Godot picks the web driver from `rendering/renderer/rendering_method.web`.
+Every `godot-demo-projects` project either sets only the unsuffixed `rendering_method`, sets
+`gl_compatibility`, or sets nothing at all — so **all ten demo scenes exported as `opengl3`**, and
+`"renderingDriver":"opengl3"` sat in their `index.html` the whole time. They passed, and proved
+nothing. Only the eight `benchmark_*` scenes (which carry their own WebGPU presets) were ever
+testing this fork.
+
+`run_scenes.mjs` now writes `rendering_method.web` before exporting and restores `project.godot`
+afterwards: an RD method is mirrored as-is, and `gl_compatibility` or an absent setting becomes
+`forward_plus`, since a scene exported as OpenGL exercises nothing here. All 18 exports now report
+`"renderingDriver":"webgpu"`.
+
+**What that exposed** — four scenes, all previously "passing":
+
+| scene | GPU errors |
+|---|---|
+| `demo_2d_particles` | 735 |
+| `demo_3d_particles` | 69 |
+| `demo_3d_platformer` | 36 |
+| `stress_3d_platformer` | 36 (same export) |
+
+#### Task 44 — `demo_2d_particles` fixed: the SDF buffer had no format fallback
+
+**735 errors → 0, and the scene now passes.** The first error was the only real one; everything after
+it was cascade:
+```
+ERROR: Format 'R16_Snorm' does not support usage as sampling texture.
+  at: texture_create (rendering_device.cpp:1707)
+```
+`TextureStorage::_update_render_target_sdf()` (`texture_storage.cpp:5027`) creates the SDF read buffer
+as `R16_SNORM` unconditionally. That is not a core WebGPU texture format, the driver correctly reports
+it unsupported, `texture_create()` returned a null RID, `uniform_set_create()` then failed for the
+binding that referenced it, and every `compute_list_bind_uniform_set()` of that set after it errored —
+hundreds per frame.
+
+Fixed by asking whether the format is usable and falling back to the same-size **`R16_SFLOAT`** when it
+is not. The values stored are signed distances in [-1, 1], a range a half float carries at least as
+well as a 16-bit normalized integer. It is a capability question rather than a `WEBGPU_ENABLED` gate,
+so any driver lacking the format benefits, and it matches what FSR2 already does for exactly this
+format (`effects/fsr2.cpp`'s `convert_snorm16_to_sfloat16`).
+
+The shader side already agreed: `canvas_sdf.glsl` declares `layout(r16_snorm)`, and the driver's
+existing WGSL storage-format remap rewrites that to `r32float`, which is also what
+`_promote_storage_format()` turns an `R16_SFLOAT` storage texture into. Both halves land on the same
+format without further changes.
+
+**A wrong turn worth recording**, because the reasoning looks sound and is not: the first attempt was
+to support `R16_SNORM` natively. The enum values *do* now exist (`WGPUTextureFormat_R16Snorm` and
+friends in emdawnwebgpu 6.0.9), contradicting Task 7.10's note that they do not, and the WGSL remap
+already gates 16-bit snorm/unorm on `texture-formats-tier1`, so mapping them natively and gating the
+capability on tier1 looked like the tidy fix. It made things **worse** — 735 errors became thousands:
+Dawn reports `R16Snorm`'s supported sample types as `UnfilterableFloat`, and the SDF is sampled with a
+filtering sampler, so every bind group failed validation instead. Reverted. Native 16-bit
+snorm/unorm would additionally need non-filtering samplers at every sampling site, which is a far
+larger change than this bug warranted. **Task 7.10's conclusion still stands; only its stated reason
+is out of date.**
+
+**Verified**: the scene renders correctly in Chrome, SDF-collision polygons included (that is the
+feature itself working, not just the absence of errors). `shader_corpus` 14/14,
+`driver_unit_tests` 332/0, `preprocessing_tests` 205/0, native editor builds clean — the change is in
+shared RD code, so the Vulkan path compiles and is unaffected, since the fallback only triggers where
+the format is unsupported.
+
+#### Task 44 — still open: three 3D scenes, a different cause
+
+`demo_3d_particles` (69 errors), `demo_3d_platformer` and `stress_3d_platformer` (44 each) remain.
+Their real errors are two format/sample-type mismatches on a screen-sized `R32Float` texture, with the
+usual invalid-command-buffer cascade behind them:
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px)] expected to be (TextureFormat::RGBA16Float).
+None of the supported sample types (Float|UnfilterableFloat) of [Texture (unlabeled 1152x648 px,
+  TextureFormat::R32Float)] match the expected sample types (Depth).
+```
+1152×648 is a screen-resolution buffer, not the particle-collision heightfield (which is created
+correctly as `D32_SFLOAT` at a power-of-two size, `particles_storage.cpp:1890`). A colour `R32Float`
+is reaching a binding whose shader declares a *depth* texture, and elsewhere one that expects
+`RGBA16Float`.
+
+**Localized (2026-09-26), not fixed.** The binding is now identified exactly:
+
+- The failing entry is `binding: 48, sampleType: Depth` in `bgl:SceneForwardClusteredShaderRD:19:set1`
+  (and `:18:`). Dawn's full message names `entries[24]` — visible only after raising the
+  console-capture truncation, which had been hiding the whole `While validating …` chain.
+- **Binding 48 is GLSL set 1 binding 24**: the driver doubles every non-combined binding
+  (`entry.binding = u.binding * 2`), which the dumped WGSL confirms (GLSL 26→52, 27→54 … 36→72).
+- GLSL set 1 binding 24 is **`depth_buffer`**, declared `uniform texture2D depth_buffer`
+  (`scene_forward_clustered_inc.glsl:440`) — a **float** texture, not a depth one.
+- The texture bound to it is a screen-sized `R32Float`. **Corrected 2026-09-27**: this was first
+  attributed to `get_depth_format()`'s MSAA-resolve path, which was wrong — `demo_3d_particles` sets
+  no MSAA at all and fails identically. The real source is `RB_TEX_BACK_DEPTH`
+  (`renderer_scene_render_rd.cpp:418`), the depth *copy* used by the transparent pass, created as
+  `R32_SFLOAT` with `TEXTURE_USAGE_COLOR_ATTACHMENT_BIT` and carrying upstream's own comment:
+  *"Set this as color attachment because we're copying data into it, it's not actually used as a
+  depth buffer."*
+- **And the binding is polymorphic by design.** `render_forward_clustered.cpp:3674-3684` fills
+  `u.binding = 24` with either `RB_TEX_BACK_DEPTH` — a **color** `R32_SFLOAT` — or, when that does
+  not exist, `DEFAULT_RD_TEXTURE_DEPTH`, a **real depth** texture. On Vulkan a `texture2D` descriptor
+  accepts either, so upstream never has to choose. A WebGPU bind group layout must commit to one
+  sample type, so it cannot accept both.
+
+**Changing the texture format is not a way out** — asked directly, investigated, and closed for three
+independent reasons:
+1. **The failing texture is a color attachment on purpose.** `RB_TEX_BACK_DEPTH` carries
+   `COLOR_ATTACHMENT_BIT | STORAGE_BIT` because a copy pass renders into it. A depth format can be
+   neither a color attachment nor a storage image, so the format is forced.
+2. **The binding is polymorphic anyway** (above), so even making the copy a depth format would leave
+   one layout having to accept two texture kinds.
+3. **The MSAA path would not have been fixable either.** Forward+ resolves MSAA depth with a
+   *compute* shader (`effects/resolve.glsl`, `layout(r32f) ... dest_depth`) and storage images cannot
+   be depth formats; WebGPU additionally reports `SUPPORTS_FRAMEBUFFER_DEPTH_RESOLVE = false`
+   (correctly — `resolveTarget` is color-only), so `get_depth_format()` returns `R32_SFLOAT` on this
+   backend whichever branch it takes. Changing that would mean writing a raster depth-resolve pass —
+   new shared-engine work that does not address the non-MSAA case actually failing here.
+
+**The encouraging half**: WebGPU's `unfilterable-float` sample type accepts **both** a color
+`R32Float` and a depth-format texture, and this binding is sampled with `SAMPLER_NEAREST_CLAMP`, so
+one layout genuinely can serve both cases. The only obstacle is the WGSL declaring
+`texture_depth_2d`, which forces `sampleType: Depth`. Every route converges on the SPIR-V type split.
+
+**The actual defect is that the layout is not deterministic.** Dumping *every*
+`createBindGroupLayout` call rather than only the last shows the same label built twelve times with
+different contents:
+
+```
+bgl:SceneForwardClusteredShaderRD:19:set1 -- created 12 time(s)
+  #0 entries: 37  depth at: 10,12   entry[24]: {b:48, st:"float"}
+  #1 entries: 37  depth at: (none)  entry[24]: {b:48, st:"float"}
+  #4 entries: 37  depth at: 48      entry[24]: {b:48, st:"depth"}
+  #5 entries: 37  depth at: 48      entry[24]: {b:48, st:"depth"}
+```
+Bindings 10 and 12 (`shadow_atlas` and `directional_shadow_atlas`, legitimately `texture_depth_2d`)
+come and go as well. The bind groups fail on exactly the creations that classify binding 48 as
+`depth`.
+
+`wgsl_is_depth_texture` is populated only by scanning the emitted WGSL for `texture_depth_*`
+(`rendering_device_driver_webgpu.cpp:5659`), and **no dumped WGSL for these variants declares
+`depth_buffer` at all** — it is unused there. So the classification varies with whichever WGSL that
+particular creation happened to convert, which differs because specialization re-conversion
+(`_create_module_with_spec_constants()`) produces different code per spec-constant set while the BGL
+label carries no spec-constant hash. A layout whose entry types depend on which specialization was
+compiled cannot be right: the RD-level resource it has to accept is fixed.
+
+**Answered (2026-09-26): one deduplicated `OpTypeImage`, shared by 22 variables.**
+
+Neither candidate was right. Dumping the engine's own SPIR-V (`GODOT_DUMP_SPIRV`) and reading the
+image types directly shows that **every** sampled image in
+`SceneForwardClusteredShaderRD:19.frag.spv` carries **`Depth=0`** — so `fix_depth2_images()` finds
+nothing to change and is not involved at all, and the depth-alias split is not what produced this
+either.
+
+What is actually there is a single type:
+
+```
+OpTypeImage %83  (float, 2D, Depth=0, Arrayed=0, MS=0, Sampled=1, Unknown)  shared by 22 variables:
+    set=1 binding=  5  shadow_atlas              <- sampled with OpImageSampleDref*
+    set=1 binding=  6  directional_shadow_atlas  <- sampled with OpImageSampleDref*
+    set=1 binding= 24  depth_buffer              <- plain textureLod
+    set=1 binding= 25  color_buffer
+    set=1 binding= 26  normal_roughness_buffer
+    set=3 binding=  1  m_texture_albedo
+    ... 16 more
+```
+(10 `Dref` sampling ops are present in the module.)
+
+SPIR-V deduplicates structurally identical types, so a plain `uniform texture2D` and a shadow atlas
+that will be paired with a comparison sampler **are literally the same type object**. Depth-ness in
+SPIR-V lives at the *use* site — `OpImageSampleDref*` against an `OpSampledImage` built from a
+comparison sampler — not in the variable's type. Tint's SPIR-V reader resolves that to WGSL, where
+depth-ness *is* part of the type (`texture_depth_2d`), and in doing so it can promote variables of
+the shared type. Which ones get promoted depends on which uses survive in that particular
+conversion, which is exactly why the classification moves around between specializations of one
+shader, and why `depth_buffer` — a float texture that is only ever sampled plainly — comes out as
+`texture_depth_2d`:
+
+```wgsl
+@group(1u) @binding(48u) var depth_buffer : texture_depth_2d;
+...
+m_proximity_depth_tex = textureSampleLevel(depth_buffer, SAMPLER_NEAREST_CLAMP, ..., 0i);
+```
+A plain, non-comparison sample of a texture Tint decided was a depth texture. Our BGL scan then
+faithfully reports `sampleType: Depth`, and binding the `R32Float` resolved-depth buffer to it fails.
+
+**So the driver's scan and the BGL are not the bug** — they report what Tint emitted. The bug is that
+Tint is handed an ambiguous module in which one image type serves both comparison and
+non-comparison use.
+
+**The fix that follows from this**: a preprocessing pass that gives the comparison-sampled images
+their own `OpTypeImage` (cloned, with `Depth=1`) and the pointer/variable types to match, leaving
+every other variable on a distinct `Depth=0` type. Tint then has unambiguous per-variable
+information, the shadow atlases stay `texture_depth_2d`, `depth_buffer` stays `texture_2d<f32>`, and
+the classification stops depending on which specialization was compiled. This sits alongside the
+existing passes in `spirv_preprocess.cpp` and touches nothing outside `drivers/webgpu/`. Worth
+checking first whether Tint's own `*_depth_alias` clone mechanism can be steered into doing this,
+since it already exists for the closely related `Depth=2` case.
+
+**Checked (2026-09-26): the `_depth_alias` route does not exist in this Tint, and the driver code
+that looks for it is dead.**
+- The string `_depth_alias` appears **nowhere** in `thirdparty/tint/` — not in the SPIR-V reader, its
+  parser, its lowering passes, or any vendored patch — and there is no "alias" mechanism anywhere
+  under `lang/spirv/reader/`.
+- It appears in **none of 22** real WGSL outputs captured from a running export.
+- So `wgsl_depth_alias_bindings` (`rendering_device_driver_webgpu.cpp:4945`), the name-suffix scan
+  that fills it (`:5709`) and the extra BGL entries it emits (`:6431`) are **dead code against the
+  Tint this fork vendors**; they presumably matched an older Dawn. There is nothing to steer, and
+  that code should either be removed or carry a note saying it is inert — this task reasoned from its
+  existence and was misled by it.
+
+**The promotion is also not driven by the SPIR-V `Depth` field**, which rules out the other
+candidate. Running `tint_convert_cli` on the real `SceneForwardClusteredShaderRD:19.frag.spv` with
+`TINT_DEBUG_DUMP_PREPROCESSED` and reading the dump back shows **every image still carries
+`Depth=0`** after all twelve preprocessing passes — `shadow_atlas` and `directional_shadow_atlas`
+included — while the WGSL Tint produces from that same input contains six `texture_depth`
+occurrences. So Tint promotes a texture to depth from **how it is used** (`OpImageSampleDref*`), not
+from the declared field, and `fix_depth2_images()` is irrelevant to this bug in both directions.
+That is consistent with `kIsDepthMatcher` (`lang/spirv/intrinsic/data.cc:1277`), which coerces an
+unconstrained depth parameter to `kDepth` when matching a depth-sampling overload, after which
+`TypeForImage()` (`lang/spirv/reader/lower/texture.cc:1119`) emits `depth_texture` from the
+variable's image type — and that type is the one shared by 22 variables.
+
+**Conclusion: pre-splitting the types in our own preprocessing is the only available route**, and it
+is now clearly the right one rather than a workaround — Tint is handed a module in which the answer
+is genuinely ambiguous, and steering cannot fix an ambiguous input.
+
+#### Task 44 — the split was written, and it is harder than the design assumed `[ATTEMPTED, REVERTED]`
+
+`split_depth_sampled_image_types()` was implemented and wired ahead of `fix_depth2_images()` in both
+pipeline copies: resolve each `OpImageSampleDref*` back to its variable, find image types shared
+between comparison and non-comparison users, clone the type with `depth=1`, clone the pointer and
+sampled-image types that reference it, and repoint the comparison-sampled variables and their loads.
+It compiled, converted the real scene shader without error, and produced byte-identical WGSL — which
+turned out to be the tell: **it declined on every real shader**, and the instrumented bail said why:
+
+```
+[SDT] dref=10 depthvars=1 ambiguous=1 unresolved=1 imgtypes=4
+```
+
+Nine of the ten comparison samples do not reach a descriptor variable at all. Tracing the
+*preprocessed* module (the form the pass actually receives, not glslang's output) shows the real
+shape: 7 of the 10 sample a **function-local variable named `shadow`**, which is a copy of a
+**function parameter**, and `inline_opaque_functions()` has not flattened those call sites. So the
+chain is `Dref → OpSampledImage → OpLoad → local var ← OpStore ← parameter ← OpFunctionCall arg`,
+crossing calls, parameters and local copies.
+
+Measuring the whole module makes the cost concrete — of 25 image-typed variables, **5 are reachable
+as comparison-sampled by a direct trace, and 2 of the 24 "plain" ones are passed into an
+`OpFunctionCall`**. One of those two is `directional_shadow_atlas`, which *is* genuinely
+comparison-sampled inside a callee: a direct trace misclassifies it. That kills the two shortcuts
+that would have avoided touching function signatures:
+- **Mutating the shared type to `depth=1` in place** and cloning `depth=0` for the plain users needs
+  no signature work and leaves the shadow helpers untouched — but `area_light_atlas`, a genuinely
+  plain texture that is also passed to a function, would stay on the mutated type and become a depth
+  texture. The bug would move, not go.
+- **Cloning `depth=0` for the plain users only** is invalid SPIR-V: the clone would be structurally
+  identical to the original, and duplicate non-aggregate type declarations are not allowed.
+
+So a correct split has to follow data flow **through calls, parameters, `OpStore`/`OpLoad` of local
+copies, and `OpTypeFunction`**, and duplicate any helper that is called with both a comparison and a
+non-comparison texture. That is a type-inference-and-specialization pass, not the local rewrite this
+was scoped as.
+
+**Reverted rather than left in place.** As written it is safe — it declines on anything it cannot
+prove — but it would never fire on the shader it exists for, and this task had just finished
+criticizing exactly that: dead code that the next person reasons from. The analysis above is the
+deliverable; the implementation is recoverable from this commit's parent if wanted.
+
+**If picked up again**, the order that would have saved time here: dump the *preprocessed* SPIR-V
+first (`TINT_DEBUG_DUMP_PREPROCESSED`) and trace the real `Dref` provenance in it, before designing
+the rewrite. Glslang's output and what reaches Tint are different modules, and the design was drawn
+against the wrong one.
+
+The dominant signature in the 2D case was also a **bind group bound to the wrong pipeline layout**:
+```
+Bind group layout [BindGroupLayout "bgl:CanvasSdfShaderRD:0:set0"] of pipeline layout
+[PipelineLayout "plyt:CanvasSdfShaderRD:0"] does not match layout
+[BindGroupLayout "bgl:ParticlesCopyShaderRD:3..."]
+```
+followed by `No bind group set at group index 0`, `Parameter "uniform_set" is null` and a cascade of
+invalid command buffers. A uniform set built for `ParticlesCopyShaderRD` is reaching a
+`CanvasSdfShaderRD` pipeline, which points at uniform-set caching or bind-group-layout compatibility
+in the driver rather than at any one shader. Not investigated further.
+
+**Also open, and separate**: `demo_compute_heightmap`. Its local `RenderingDevice` is created fine
+once the scene actually runs WebGPU (Task 43), but `GradientTexture1D.get_image()` returns an empty
+image, so the demo's gradient `texture_create()` fails and the compute never runs.
+`TextureStorage::texture_2d_get()` documents WebGPU readback as asynchronous — first call starts it,
+data arrives later — and the self-test added in Task 42 now primes it across up to 120 frames and
+still gets nothing, so "retry next frame" does not appear to be sufficient here. The same self-test
+**passes on native Vulkan** (center 118.1, corners 0.0), so the check itself is sound and this is
+WebGPU-specific. Left marked `known_limitation` pointing at this task.
+
+#### Task 44 — it was never Tint: our own `_reclassify_single_component_depth_textures()` `[FIXED]`
+
+**Two of the three 3D scenes pass now** (`demo_3d_platformer` and `stress_3d_platformer`: 44 errors
+each → **0**, Chrome). The producer of `depth_buffer : texture_depth_2d` is not Tint at all — it is
+this driver's own post-Tint WGSL pass, `_reclassify_single_component_depth_textures()`
+(`rendering_device_driver_webgpu.cpp:4372`, Task 7.13). The whole SPIR-V type-split design above was
+aimed at the wrong producer.
+
+**The evidence that settles it**, and that the earlier rounds could have gathered without a single
+rebuild:
+- Dumping 287 engine shaders (`GODOT_DUMP_SPIRV`, `godot-demo-projects/3d/particles` and
+  `3d/platformer`) and converting **every one** of them through `tint_convert_cli` yields
+  **zero** `texture_depth` occurrences outside the two shadow atlases. For
+  `SceneForwardClusteredShaderRD:19.frag` Tint emits exactly six: `shadow_atlas` (binding 10),
+  `directional_shadow_atlas` (binding 12) and four `fn v_NNN(shadow : texture_depth_2d, …)`
+  parameters. `depth_buffer` is not even declared in that WGSL — it is dead there.
+- Tint is per-*variable*, not per-type: `lower/texture.cc`'s `textures_to_convert_to_depth_` holds
+  `ir::Value*`s, `ConvertVarToDepth()` retypes one `var`, and `ConvertTextureParam()` walks call
+  sites and forks helpers. The shared `OpTypeImage` is therefore *not* a promotion vector, so §4.2's
+  "22 variables share one type, so Tint promotes them together" was a wrong inference from a true
+  observation.
+- The captured WGSL in §4.2 is *post*-reclassification, and says so on its face:
+  `textureSampleLevel(depth_buffer, SAMPLER_NEAREST_CLAMP, …, 0i)` has **no `.x` swizzle** and an
+  **`i32` level**. Tint emits `…).x` with an `f32` level for a `texture_2d<f32>`; dropping the
+  swizzle and wrapping the level in `i32()` is literally what this pass does. `tint_convert_cli`
+  does not link the driver, which is why the same SPIR-V converts clean on the command line.
+
+**Why the pass fires here.** `scene_forward_clustered_inc.glsl:440` declares
+`layout(set = 1, binding = 24) uniform texture2D depth_buffer` (Forward Mobile: set 1 binding 9), and
+user material code reads it through Godot's `DEPTH_TEXTURE` — proximity fade and refraction,
+`scene/resources/material.cpp:1805`/`:1834`, both `textureLod(depth_texture, …, 0.0).r`. Single
+component, name contains "depth": structurally identical to Bokeh DOF's `source_depth`, which this
+pass exists to rewrite. But what the engine binds is `RB_TEX_BACK_DEPTH` — `R32_SFLOAT` with
+`COLOR_ATTACHMENT_BIT | STORAGE_BIT`, a *copy* of depth, and polymorphic with
+`DEFAULT_RD_TEXTURE_DEPTH` — so the resulting `sampleType: Depth` entry can never match.
+
+That also explains the non-determinism recorded in §4.2 without invoking spec constants: every
+material shares one `ShaderRD`, so `bgl:SceneForwardClusteredShaderRD:19:set1` is **one label for
+every material's variant 19**. Materials that read `DEPTH_TEXTURE` get binding 48 reclassified;
+materials that don't (and whose shadow code is live) get bindings 10/12 instead. Same label, twelve
+different contents.
+
+**The fix** is the fifth disqualifying signal in that pass, alongside `half` and `dilated`: the exact
+name `depth_buffer` in **group 1** — the scene shaders' render-buffers set, whose names are fixed by
+engine GLSL. Left un-reclassified the WGSL keeps `texture_2d<f32>` plus the `.x` swizzle, which is
+exactly right for the `R32Float` copy; the pre-existing dummy-texture fallback only engages in the
+rarer `DEFAULT_RD_TEXTURE_DEPTH` case, where there is no depth copy to read anyway. Group 1 gating
+keeps the two other `depth_buffer` bindings in the engine working: `taa_resolve.glsl:47` (set 0,
+genuinely fed the real depth texture, and audited in Task 7.13 as one this pass *should* rewrite) and
+`cluster_debug.glsl:65` (set 0); a user material uniform of that name lands in group 3.
+
+**Verified**: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip,
+and the full 19-scene smoketest re-exported against a freshly built editor+template pair at this
+commit — **17 pass, 1 fail, 1 skip in Chrome and the same in Firefox** (was 15/3/1 in both).
+`demo_3d_platformer` and `stress_3d_platformer` report gpu=0 where both reported 44 errors.
+
+Two harness quirks turned up in that run, neither caused by this fix: `benchmark_sprites`'s export
+fails on a missing `res://benchmark_profiler.gd` (the scene then runs the previous export and passes),
+and `demo_compute_heightmap` exports fine but is reported `SKIP (not exported)` because
+`run_scenes.mjs` checks for `index.html` before it checks `known_limitation`.
+
+**Not fixed, and now isolated**: `demo_3d_particles` (69 → 39 errors in Chrome, 4 in Firefox, which
+coalesces repeats) has a *different* root cause,
+the "expected to be RGBA16Float" half of §4.1, and it is the only remaining error in that scene:
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, TextureFormat::R32Float)]
+  expected to be (TextureFormat::RGBA16Float).
+ - While validating entries[0] against { binding: 0, visibility: ShaderStage::Compute,
+     storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }.
+ - While validating [BindGroupDescriptor] against [BindGroupLayout (unlabeled)]
+```
+Everything after it is the usual cascade (`SetBindGroup(3, [Invalid BindGroup], …)` ×497,
+`[Invalid CommandBuffer]` ×497). One write-only storage-texture binding, group 3 binding 0, compute,
+screen-sized: the shape of `effects/copy.glsl:60-72`'s `dest_buffer`, which is declared `r32f`,
+`rgba8`, `rg16f` or `rgba16f` depending on the variant. So the suspect is the storage-format
+agreement between `_promote_storage_format()` (the texture) and the WGSL format remaps at
+`rendering_device_driver_webgpu.cpp:4840-4900` (the layout) — the two are documented as having to
+match, and here they do not. Start there, not at the shader.
+
+**Also noted while reading the fallback code**: the `UNIFORM_TYPE_SAMPLER_WITH_TEXTURE` branch has a
+reverse-mismatch fallback (BGL says Depth, texture is float → `fallback_depth_texture_view`, Task 24)
+that the plain `UNIFORM_TYPE_TEXTURE` branch appears to lack — which is why this bug surfaced as a
+hard Dawn error rather than as silently wrong pixels. Worth adding for robustness, but *after* this
+fix, not instead of it: the fallback would have hidden the bug behind a dummy depth texture and
+broken proximity fade quietly.
+
+#### Task 44 — `demo_3d_particles` fixed: the depth back-copy used the `rgba16f` variant `[FIXED]`
+
+**The whole scene tier is green now — 18 pass, 0 fail, 1 skip in Chrome and Firefox** (the skip is
+`demo_compute_heightmap`, its own separate `known_limitation` below).
+
+The last error was one line of shared engine code. `_render_buffers_copy_depth_texture()`
+(`renderer_scene_render_rd.cpp:439`) copies the depth texture into `RB_TEX_BACK_DEPTH` — an
+`R32_SFLOAT` texture — and did it through `copy_effects->copy_to_rect()`, whose compute variant
+declares its storage image `rgba16f` (`copy.glsl:72`). WebGPU requires a storage-texture binding's
+declared format to match the bound texture's format **exactly**, with none of Vulkan's or Metal's
+format-compatibility-class laxity, so Dawn rejected the bind group:
+
+```
+Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, R32Float)]
+  expected to be (TextureFormat::RGBA16Float).
+ - While validating entries[0] against { binding: 0, visibility: Compute,
+     storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }
+```
+and every command buffer for the rest of the frame went down with it — 1490 cascade errors behind
+one real one, which is why `capture_errors.mjs` sorts cause-first.
+
+`copy_effects->copy_depth_to_rect()` is the same copy with the `r32f`-declared variant
+(`copy.glsl:59-60`, `MODE_SIMPLE_COPY_DEPTH`), and `ss_effects.cpp:1561` already uses it for exactly
+this kind of depth→R32F copy. Switched to it. **Identical in result on every backend**: both variants
+copy the source's red channel and an `R32_SFLOAT` image stores nothing else, which is why this is a
+one-word change rather than a new shader variant.
+
+This is the third instance of the same class in this engine — after `copy.glsl`'s `DST_IMAGE_RG16F`
+(TAA's RG16F velocity buffers, 2026-09-19) and this one — so the pattern to check whenever a compute
+copy fails on WebGPU is: **what format does the destination texture actually have, and which
+`layout(...)` qualifier does the variant being dispatched declare?** Upstream can leave them
+mismatched; we cannot.
+
+**Why only this scene.** The back-depth copy only runs when something reads `DEPTH_TEXTURE`, which is
+the same Godot feature (proximity fade / refraction on the particle materials) that triggered the
+reclassification bug above. One scene feature, two independent WebGPU bugs, one behind the other.
+
+**Verified**:
+- Scene smoketest, freshly exported against an editor + non-dlink nothreads template pair rebuilt at
+  this change: **Chrome 18/0/1, Firefox 18/0/1** (exit code 0 in both).
+- Offline tiers unaffected and re-run green: `shader_corpus` 14/14, `driver_unit_tests` 332/0,
+  `preprocessing_tests` 205/0+1 skip, `resource_lifecycle` all pass, `screenshot_comparison` 8/0.
+- **Native Vulkan sanity check** (this is shared engine code, so it changes the Vulkan path too):
+  `godot-demo-projects/3d/particles` for 300 frames on an RTX 4080 SUPER — clean, no errors or
+  warnings.
+
+Two notes for whoever is next: `webgpu_tests/screenshot_comparison`'s entry point is
+`screenshot_tests.mjs`, not `run_tests.mjs` as `CLAUDE.md` said (fixed there), and its cross-browser
+`[WARN] chromium vs firefox — diff: 99%` lines are pre-existing and not counted as failures.
+
+#### Task 45 — the heightmap demo: the gradient round-trip, and the async-readback contract `[FIXED]`
+
+**The tier is 19 pass, 0 fail, 0 skip in Chrome and Firefox.** This was the last known-broken thing
+in the suite and the only `known_limitation` left in `scenes.json`; that flag is now gone.
+
+**The recorded diagnosis was wrong.** Task 44's closing note said "`GradientTexture1D.get_image()`
+returns an empty image … the Task 42 self-test primes it across 120 frames and still gets nothing,
+so 'retry next frame' is not the answer". Running the committed export with `capture_errors.mjs
+--all` showed the opposite: the priming loop **succeeded** (its
+`FAIL gradient texture readback never completed` line never printed), and the first real error was
+
+```
+ERROR: Condition "byte_slice.is_empty()" is true. Returning: RID()
+   at: _texture_create (servers/rendering/rendering_device.cpp:10309)
+```
+
+i.e. the *demo's own* `gradient_tex.get_image().get_data()` at `main.gd:136` got nothing, one call
+after the priming loop had just got data.
+
+**Why priming could never help.** `RenderingDeviceDriverWebGPU::texture_get_data()` is a
+one-shot cache by design: a call either *starts* a readback (returns empty) or *consumes* a completed
+one (`entry->has_data = false`, deliberately no auto-requeue — see the comment there about
+scroll-screenshot showing t_(n-1)). So each call alternates, and the patch's assumption that the
+demo's single call would "hit the warmed cache" was wrong: the priming loop consumed the very data it
+had just waited for. **A caller that calls `texture_2d_get()` exactly once can never get data on
+WebGPU**, however many frames it waited beforehand.
+
+**The fix, part 1 — don't round-trip a CPU-generated image through the GPU.**
+`GradientTexture1D::get_image()` and `GradientTexture2D::get_image()` uploaded an image in `_update()`
+and then read it back out of the GPU with `texture_2d_get()`. A gradient texture is a pure function of
+its `Gradient`, `width`/`height` and `use_hdr`, so the generation half of `_update()` is now
+`_generate_image()` and `get_image()` calls it directly. Identical by construction on every backend,
+cheaper everywhere (no GPU round-trip), and it works on WebGPU where the round-trip cannot.
+
+This deliberately does **not** try to fix `texture_2d_get()` in general. The obvious general fix —
+keeping `image_cache_2d` populated outside `TOOLS_ENABLED` — would retain a CPU copy of every texture
+created from an `Image`, which on web includes every `CompressedTexture2D` loaded from disk. That is
+a texture-memory doubling on the platform this fork exists to make fast, and it is not worth it to
+serve a rare API. Gradient textures are fixed at the source instead.
+
+**The fix, part 2 — the self-test now honors the async contract.** With the gradient fixed, the
+demo got as far as its compute dispatch and failed on the *second* readback:
+`rd.texture_get_data(heightmap_rid, 0)` on the local `RenderingDevice`, which returns 262144 bytes
+on Vulkan and 0 on the first WebGPU call. That one is genuinely on the GPU and cannot be regenerated;
+`rd.sync()` cannot wait for it either (no Asyncify in the web build). The smoketest patch retries it
+across frames, which is the documented contract, and lands on the second call.
+
+**The upstream demo itself still shows an empty island on WebGPU**, because it calls
+`texture_get_data()` once after `rd.sync()`. That is a real platform limitation for user GDScript,
+not a driver fault: web code that needs a readback must retry or use `texture_get_data_async()`. It
+costs two engine `ERROR:` prints in the scene, neither of which is a GPU error, so the tier counts
+`gpu=0`.
+
+**Verified**:
+- Scene smoketest, every scene re-exported against an editor + non-dlink nothreads template pair
+  rebuilt at this change: **Chrome 19/0/0, Firefox 19/0/0**, exit 0 in both. The heightmap self-test
+  reports `PASS center 98.2 corners 0.0 nonzero 1431/1688`.
+- Offline tiers: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip,
+  `resource_lifecycle` all pass, `screenshot_comparison` 8/0.
+- **Native Vulkan** (`gradient_texture.cpp` is shared engine code): a headless GDScript suite checks
+  both classes' LDR and HDR paths, image size/format, the single-point 2D fill branch, repeatability,
+  the no-gradient-returns-null case, and pixel values against `Gradient.sample()` at both ends and the
+  midpoint — 13/13.
+
+**One harness note, not caused by this change**: `benchmark_sprites` and `demo_compute_heightmap` both
+failed to export at the start of this session with
+`ERROR: Parameter "singleton" is null.  at: is_cmdline_mode (editor_node.cpp:6622)` followed by
+`Aborted`. It is a stale `.godot` import cache in the `godot-demo-projects` checkout, left by an
+editor built at a different version hash; `rm -rf <project>/.godot` fixes it and both have exported
+cleanly on every run since. Worth knowing before reading it as an engine crash.

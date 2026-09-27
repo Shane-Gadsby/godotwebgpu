@@ -2909,11 +2909,31 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	// the intended path, not a fallback, so don't print the "not supported"
 	// warning for them unless --verbose is on.
 	const bool is_la_format = original_format == Image::FORMAT_L8 || original_format == Image::FORMAT_LA8;
+	// Same story for the 3-component formats: WebGPU has no RGB texture formats at
+	// all, so on this driver the expansion is unconditional and definitional rather
+	// than a property of the user's GPU.
+	const bool is_deliberate_expansion = is_la_format || is_rgb_format;
 #else
 	const bool is_la_format = false;
+	const bool is_deliberate_expansion = false;
 #endif
-	if ((is_print_verbose_enabled() || (!is_rgb_format && !is_la_format)) && original_format != image->get_format()) {
-		WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
+	if (original_format != image->get_format()) {
+		if (is_deliberate_expansion) {
+			// Deliberate, not a hardware shortfall. WebGPU has no texture component
+			// swizzle, so the (R,R,R,1) / (R,R,R,G) broadcast that L8 and LA8 rely on
+			// has to be baked into the data instead; and it has no 3-component texture
+			// formats, so RGB8/RGBH/RGBF must gain an alpha channel. Reported as a plain
+			// verbose note rather than a warning, because "not supported by hardware"
+			// reads as a problem to investigate and these are the only correct paths --
+			// it cost a real debugging detour once already. The memory trade is worth
+			// stating: L8 grows 4x, LA8 and RGB 2x and 4/3x respectively, which is why
+			// it is worth knowing how many there are even though nothing is wrong.
+			print_verbose(vformat("Expanded %s to %s (WebGPU has no %s).",
+					Image::get_format_name(original_format), Image::get_format_name(image->get_format()),
+					is_la_format ? "component swizzle; luminance broadcast baked into the data" : "3-component texture formats"));
+		} else if (is_print_verbose_enabled() || !is_rgb_format) {
+			WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
+		}
 	}
 
 	return image;
@@ -5006,6 +5026,20 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 
 	tformat.format = RD::DATA_FORMAT_R16_SNORM;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
+
+	// R16_SNORM is not a core WebGPU texture format, so this texture simply failed
+	// to create there -- and with no fallback, its null RID took the SDF uniform
+	// set with it and produced hundreds of cascading errors per frame in any 2D
+	// scene using SDF (webgpu_notes/TASKS.md Task 44). Fall back to the same-size
+	// half-float, which every backend supports; the values stored here are signed
+	// distances in [-1, 1], a range a float carries at least as well as a 16-bit
+	// normalized integer. Asked as a capability question rather than gated on a
+	// backend, so any driver lacking the format gets the fallback. FSR2 already
+	// does the same thing for this format (effects/fsr2.cpp's
+	// convert_snorm16_to_sfloat16).
+	if (!RD::get_singleton()->texture_is_format_supported_for_usage(tformat.format, tformat.usage_bits)) {
+		tformat.format = RD::DATA_FORMAT_R16_SFLOAT;
+	}
 
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 

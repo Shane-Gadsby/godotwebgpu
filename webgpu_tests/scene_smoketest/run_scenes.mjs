@@ -18,6 +18,11 @@
  *
  * Options:
  *   --export           Export scenes before running (requires Godot editor binary)
+ *   --require-exports  Fail if any scene has no export on disk, instead of
+ *                      skipping it. Use in CI, where a silent all-skip run
+ *                      would otherwise report success having tested nothing.
+ *                      GODOT_EDITOR_BIN / GODOT_TEMPLATE_ZIP override scenes.json's
+ *                      paths, which name macOS artifacts.
  *   --export-only      Export scenes and exit without running tests
  *   --skip-export      Only run already-exported scenes (default)
  *   --scene <name>     Run only the named scene (partial match supported)
@@ -42,7 +47,7 @@
  */
 
 import { createServer } from 'http';
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSync, appendFileSync, rmSync } from 'fs';
 import { join, extname, resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -171,6 +176,20 @@ function startServer(dir, { injectScript = false, sceneInjectScript = null } = {
 
 function exportScene(scene, editorBin, templateZip) {
     const exportDir = join(EXPORTS_DIR, scene.export_id || scene.id);
+    // Wipe rather than overwrite. Two reasons, both seen for real:
+    //   - Files the new export does not write survive. Switching between the
+    //     dlink and non-dlink templates left eight export dirs carrying a
+    //     months-old 52 MB index.side.wasm next to a fresh index.wasm. Those
+    //     were inert (the loader only fetches a side module when the build
+    //     declares one) but they are 400 MB of confusion, and a case where they
+    //     are not inert is a version-mismatched engine nobody would think to
+    //     look for.
+    //   - A failed export used to leave the previous one in place, so the scene
+    //     ran the *old* build and reported PASS. That is the misleading
+    //     "benchmark_sprites exports fine after failing" note in
+    //     webgpu_notes/HANDOFF.md. Now a failed export leaves nothing, which
+    //     shows up as a skip -- or a failure under --require-exports.
+    rmSync(exportDir, { recursive: true, force: true });
     mkdirSync(exportDir, { recursive: true });
 
     const projectPath = resolve(__dirname, scene.path);
@@ -178,25 +197,180 @@ function exportScene(scene, editorBin, templateZip) {
         return { success: false, error: `project.godot not found at ${projectPath}` };
     }
 
-    // Patch export preset to use our template
+    // Patch export preset to use our template. These files are committed, and the
+    // patch writes an absolute path for whichever machine is running, so the
+    // original is restored afterwards -- otherwise every run leaves eight modified
+    // files in the working tree (which is how a macOS path came to be committed in
+    // the first place).
     const preset = scene.preset || 'WebGPU';
     const presetsPath = join(projectPath, 'export_presets.cfg');
-    if (existsSync(presetsPath)) {
-        let content = readFileSync(presetsPath, 'utf8');
+    let originalPresets = null;
+    let createdPresets = false;
+
+    // extensions_support has to agree with the template being used, or the export
+    // is quietly broken. A dlink template zip carries a ~53 MB godot.side.wasm
+    // that the web export plugin only extracts when extensions_support is on;
+    // pair a dlink template with it off and the export loads a main module whose
+    // side module was never written. The non-dlink template is the reverse. So
+    // derive it from the template filename rather than hardcoding either. CI
+    // builds only the dlink template, local runs use the non-dlink one, and both
+    // now get a coherent preset.
+    const extensionsSupport = /\.dlink\./.test(templateZip);
+
+    // The godot-demo-projects checkout ships no export_presets.cfg at all, so the
+    // demo tier of this suite could only ever run for someone who had written one
+    // by hand. Generate a minimal one instead, which makes that tier work from a
+    // plain `git clone` of the demos. Only ever written when the file is absent --
+    // a project with its own presets is patched and restored as before, never
+    // replaced. Removed again afterwards, since it is not ours to leave behind.
+    if (!existsSync(presetsPath)) {
+        writeFileSync(presetsPath, [
+            '[preset.0]',
+            '',
+            `name="${preset}"`,
+            'platform="Web"',
+            'runnable=true',
+            'dedicated_server=false',
+            'custom_features=""',
+            'export_filter="all_resources"',
+            'include_filter=""',
+            'exclude_filter=""',
+            'export_path=""',
+            'patches=PackedStringArray()',
+            'encryption_include_filters=""',
+            'encryption_exclude_filters=""',
+            'encrypt_pck=false',
+            'encrypt_directory=false',
+            'script_export_mode=2',
+            '',
+            '[preset.0.options]',
+            '',
+            'custom_template/debug=""',
+            `custom_template/release="${templateZip}"`,
+            `variant/extensions_support=${extensionsSupport}`,
+            'variant/thread_support=false',
+            'vram_texture_compression/for_desktop=true',
+            'vram_texture_compression/for_mobile=false',
+            'html/export_icon=true',
+            'html/custom_html_shell=""',
+            'html/head_include=""',
+            'html/canvas_resize_policy=2',
+            'html/focus_canvas_on_start=true',
+            'html/experimental_virtual_keyboard=false',
+            'progressive_web_app/enabled=false',
+            '',
+        ].join('\n'));
+        createdPresets = true;
+    }
+
+    if (!createdPresets && existsSync(presetsPath)) {
+        originalPresets = readFileSync(presetsPath, 'utf8');
+        let content = originalPresets;
         content = content.replace(/custom_template\/release="[^"]*"/g, `custom_template/release="${templateZip}"`);
-        content = content.replace(/variant\/extensions_support=true/g, 'variant/extensions_support=false');
+        content = content.replace(/variant\/extensions_support=(true|false)/g, `variant/extensions_support=${extensionsSupport}`);
         content = content.replace(/vram_texture_compression\/for_mobile=true/g, 'vram_texture_compression/for_mobile=false');
         writeFileSync(presetsPath, content);
     }
+    const restorePresets = () => {
+        if (createdPresets) {
+            rmSync(presetsPath, { force: true });
+        } else if (originalPresets !== null) {
+            writeFileSync(presetsPath, originalPresets);
+        }
+    };
+
+    // Force the WebGPU renderer for the export. Godot picks the web driver from
+    // `rendering/renderer/rendering_method.web` specifically (see
+    // platform/web/export/export_plugin.cpp), and a project that only sets the
+    // unsuffixed `rendering_method` -- which every godot-demo-projects project
+    // does -- falls back to gl_compatibility, i.e. exports as OpenGL. That made
+    // all ten demo scenes silently test the *OpenGL* backend while reporting as
+    // WebGPU passes. Mirror the base method onto .web when the project has not
+    // set it and the base is an RD renderer.
+    const projectFile = join(projectPath, 'project.godot');
+    let originalProject = null;
+    if (existsSync(projectFile)) {
+        const pg = readFileSync(projectFile, 'utf8');
+        if (!/^renderer\/rendering_method\.web\s*=/m.test(pg)) {
+            const base = pg.match(/^renderer\/rendering_method\s*=\s*"([^"]+)"/m);
+            const baseMethod = base ? base[1] : '';
+            // An RD method is mirrored as-is. Anything else -- gl_compatibility, or
+            // the setting being absent entirely, which means Godot's forward_plus
+            // default -- becomes forward_plus, because a scene exported as OpenGL
+            // exercises none of this driver and would report as a WebGPU pass while
+            // testing nothing. scenes.json lists these as WebGPU scenes; this makes
+            // that true.
+            const method = (baseMethod === 'forward_plus' || baseMethod === 'mobile') ? baseMethod : 'forward_plus';
+            originalProject = pg;
+            const line = `renderer/rendering_method.web="${method}"`;
+            writeFileSync(projectFile, /^\[rendering\]/m.test(pg)
+                ? pg.replace(/^\[rendering\]/m, `[rendering]\n\n${line}`)
+                : `${pg}\n[rendering]\n\n${line}\n`);
+        }
+    }
+    const restoreProject = () => {
+        if (originalProject !== null) {
+            writeFileSync(projectFile, originalProject);
+        }
+    };
+
+    // Some scenes need instrumentation the upstream project does not carry -- the
+    // heightmap demo only runs its compute shader on a button press, so without a
+    // self-test it would load, do nothing, and pass even with a broken compute
+    // path. scenes.json names the patch; it is appended before export and removed
+    // afterwards, like the presets above.
+    let patchedScript = null;
+    let originalScript = null;
+    if (scene.script_patch) {
+        const target = join(projectPath, scene.script_patch.target);
+        const patchFile = join(__dirname, 'patches', scene.script_patch.patch);
+        if (!existsSync(target)) {
+            restoreProject();
+            restorePresets();
+            return { success: false, error: `script_patch target not found: ${target}` };
+        }
+        if (!existsSync(patchFile)) {
+            restoreProject();
+            restorePresets();
+            return { success: false, error: `script_patch file not found: ${patchFile}` };
+        }
+        originalScript = readFileSync(target, 'utf8');
+        writeFileSync(target, originalScript + readFileSync(patchFile, 'utf8'));
+        patchedScript = target;
+    }
+    const restoreScript = () => {
+        if (patchedScript !== null && originalScript !== null) {
+            writeFileSync(patchedScript, originalScript);
+        }
+    };
 
     const exportPath = join(exportDir, 'index.html');
 
+    const runExport = () => execSync(
+        `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
+        { timeout: 90000, stdio: 'pipe' }
+    );
+
     try {
         console.log(`    Exporting ${scene.id}...`);
-        execSync(
-            `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
-            { timeout: 90000, stdio: 'pipe' }
-        );
+        try {
+            runExport();
+        } catch (e) {
+            // A .godot import cache written by an editor at a different version
+            // hash aborts the export before it starts, with a null EditorNode
+            // singleton. It reads like an engine crash and is not one -- the cache
+            // is regenerable, so drop it and try once more. Rebuilding the editor
+            // is what makes this likely, which is exactly what local_ci.sh does
+            // before it exports. See webgpu_notes/HANDOFF.md section 6.
+            const out = `${e.stderr?.toString() || ''}${e.stdout?.toString() || ''}`;
+            const importCache = join(projectPath, '.godot');
+            if (!/is_cmdline_mode|Parameter "singleton" is null/.test(out) || !existsSync(importCache)) {
+                throw e;
+            }
+            console.log(`    Stale .godot cache — clearing and retrying ${scene.id}...`);
+            rmSync(importCache, { recursive: true, force: true });
+            runExport();
+        }
 
         if (!existsSync(join(exportDir, 'index.html'))) {
             return { success: false, error: 'Export produced no index.html' };
@@ -204,6 +378,10 @@ function exportScene(scene, editorBin, templateZip) {
         return { success: true, exportDir };
     } catch (e) {
         return { success: false, error: e.stderr?.toString().substring(0, 200) || e.message?.substring(0, 200) || 'export failed' };
+    } finally {
+        restoreScript();
+        restoreProject();
+        restorePresets();
     }
 }
 
@@ -241,6 +419,15 @@ async function runScenePlaywright(scene, browser, timeout) {
         return { status: 'SKIP', reason: 'not exported' };
     }
 
+    // A scene that depends on something this backend does not implement yet is
+    // reported as a named limitation rather than a bare failure. The distinction
+    // matters: a FAIL should mean "this regressed", and burying a known gap in the
+    // failure list trains people to ignore it. The reason string has to name the
+    // task that tracks it, so the entry cannot quietly outlive the limitation.
+    if (scene.known_limitation) {
+        return { status: 'SKIP', reason: `known limitation: ${scene.known_limitation}` };
+    }
+
     const { server, url } = await startServer(exportDir, { injectScript: true, sceneInjectScript: scene.inject_script || null });
 
     const page = await browser.newPage();
@@ -249,13 +436,25 @@ async function runScenePlaywright(scene, browser, timeout) {
     const shaderErrors = [];
     const consoleErrors = [];
     let deviceLost = false;
+    let deviceLostMessage = '';
     let engineStarted = false;
+    // Closing the page destroys the GPUDevice, which resolves engine.js's
+    // `device.lost` promise with reason "destroyed" and logs "device lost" like any
+    // other loss. That console event can still be delivered while page.close() is in
+    // flight, and the verdict is computed after the close -- so a perfectly healthy
+    // scene could be failed by its own teardown, more easily on a slow machine than a
+    // fast one. Stop listening before tearing down, and ignore anything that arrives
+    // after.
+    let capturing = true;
 
     // Per-scene console output validation (e.g. [HEIGHTMAP-CHECK] PASS).
     const passPatterns = scene.pass_patterns || [];
     const matchedPatterns = new Set();
 
     page.on('console', (msg) => {
+        if (!capturing) {
+            return;
+        }
         const text = msg.text();
 
         if (text.includes('UNCAPTURED-GPU-ERROR') || text.includes('GPUValidationError')) {
@@ -268,6 +467,12 @@ async function runScenePlaywright(scene, browser, timeout) {
 
         if (text.includes('device lost') || text.includes('Device lost')) {
             deviceLost = true;
+            // Keep the first one: the reason ("destroyed", "unknown", an OOM message)
+            // is the whole diagnosis, and without it a device-lost failure says only
+            // that something went wrong somewhere.
+            if (!deviceLostMessage) {
+                deviceLostMessage = text.substring(0, 300);
+            }
         }
 
         if (text.includes('Godot Engine v')) {
@@ -341,6 +546,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         }
     } catch {}
 
+    capturing = false;
     await page.close();
     server.close();
 
@@ -356,6 +562,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         shaderErrors: shaderErrors.length,
         consoleErrors: consoleErrors.length,
         deviceLost,
+        deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
         totalErrors,
@@ -523,6 +730,7 @@ async function runSceneSafari(scene, timeout) {
         shaderErrors: result.shaderFails,
         consoleErrors: result.allErrors,
         deviceLost,
+        deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
         totalErrors,
@@ -623,6 +831,7 @@ function launchSafari() {
 
 async function main() {
     const args = process.argv.slice(2);
+    const requireExports = args.includes('--require-exports');
     const doExport = args.includes('--export') || args.includes('--export-only');
     const exportOnly = args.includes('--export-only');
     // Support both --scene and --scenes (common typo)
@@ -666,8 +875,12 @@ async function main() {
 
     // Export if requested
     if (doExport) {
-        const editorBin = resolve(__dirname, config.editor_bin || 'godot');
-        const templateZip = resolve(__dirname, config.template_zip || '../../bin/godot.web.template_release.wasm32.nothreads.zip');
+        // scenes.json's editor_bin and template_zip name macOS artifacts, so on any
+        // other host --export needs an override rather than an edit to the committed
+        // config. Absolute paths are honored as-is; relative ones resolve against
+        // this directory, as the config's own values do.
+        const editorBin = resolve(__dirname, process.env.GODOT_EDITOR_BIN || config.editor_bin || 'godot');
+        const templateZip = resolve(__dirname, process.env.GODOT_TEMPLATE_ZIP || config.template_zip || '../../bin/godot.web.template_release.wasm32.nothreads.zip');
 
         if (!existsSync(editorBin)) {
             console.error(`ERROR: Editor binary not found: ${editorBin}`);
@@ -768,6 +981,11 @@ async function main() {
                 const blankNote = result.blankCanvas ? ', blank_canvas=true' : '';
                 const patNote = result.unmatchedPatterns?.length ? ', missing_patterns=' + result.unmatchedPatterns.length : '';
                 console.log(`FAIL  (gpu=${result.gpuErrors}, shader=${result.shaderErrors}, device_lost=${result.deviceLost}${blankNote}${patNote})`);
+                // A device-lost failure with no GPU errors prints nothing else
+                // otherwise, which says only that something went wrong somewhere.
+                if (result.deviceLost && result.deviceLostMessage) {
+                    console.log(`         ${result.deviceLostMessage}`);
+                }
                 if (result.blankCanvas) {
                     console.log(`         Canvas rendered but is blank/black`);
                 }
@@ -833,6 +1051,26 @@ async function main() {
     const totalPassed = allResults.filter(r => r.status === 'PASS').length;
     const totalSkipped = allResults.filter(r => r.status === 'SKIP').length;
     console.log(`Total: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped (${scenes.length} scenes × ${browserNames.length} browsers)\n`);
+
+    // A skip is not a pass. With no exports on disk every scene skips with
+    // "not exported", nothing fails, and the run exits 0 having tested nothing
+    // -- which is exactly what the CI job did until this flag existed, silently,
+    // for as long as the job has run. --require-exports makes that state a
+    // failure instead. It is opt-in so that a deliberate partial run (one scene,
+    // or a tier with a known_limitation) still behaves as before.
+    if (requireExports) {
+        const notExported = allResults.filter(r => r.status === 'SKIP' && r.reason === 'not exported');
+        if (notExported.length > 0) {
+            const names = [...new Set(notExported.map(r => r.scene))];
+            console.log(`ERROR: --require-exports: ${names.length} scene(s) had no export on disk: ${names.join(', ')}`);
+            console.log('The exports/ directory is gitignored — export first, or download the exports artifact.\n');
+            process.exit(1);
+        }
+        if (totalPassed === 0) {
+            console.log('ERROR: --require-exports: no scene actually ran.\n');
+            process.exit(1);
+        }
+    }
 
     process.exit(totalFailed > 0 ? 1 : 0);
 }

@@ -564,6 +564,59 @@ String ShaderRD::version_get_cache_file_relative_path(RID p_version, int p_group
 	return _get_cache_file_relative_path(version, p_group, p_api_name);
 }
 
+LocalVector<RID> ShaderRD::get_all_versions() const {
+	LocalVector<RID> versions;
+	for (const RID &rid : version_owner.get_owned_list()) {
+		versions.push_back(rid);
+	}
+	return versions;
+}
+
+String ShaderRD::version_get_debug_fingerprint(RID p_version) {
+	Version *version = version_owner.get_or_null(p_version);
+	ERR_FAIL_NULL_V(version, String());
+	return _version_get_debug_fingerprint(version);
+}
+
+String ShaderRD::_version_get_debug_fingerprint(Version *version) const {
+	// Decomposes the version SHA1 field by field, because a single hash tells you
+	// two versions differ but not *where*. Each component gets its own short hash
+	// plus a byte count, so comparing a runtime miss against a baked version names
+	// the field responsible immediately -- which a combined hash, and a summary of
+	// only some fields, cannot. Learned the hard way: an earlier fingerprint
+	// printed the uniforms block and sizes, which matched exactly on both sides
+	// while the SHA1s still differed, leaving the real difference invisible.
+	auto part = [](const CharString &p_data) -> String {
+		String text = String::utf8(p_data.get_data());
+		return vformat("%s(%dB)", text.sha1_text().substr(0, 8), p_data.length());
+	};
+
+	Vector<String> sections;
+	{
+		Vector<StringName> keys;
+		for (const KeyValue<StringName, CharString> &E : version->code_sections) {
+			keys.push_back(E.key);
+		}
+		keys.sort_custom<StringName::AlphCompare>();
+		for (const StringName &key : keys) {
+			sections.push_back(vformat("%s=%s", String(key), part(version->code_sections[key])));
+		}
+	}
+
+	// Custom defines are printed in full rather than hashed: they are short, and
+	// they are the field most likely to differ between the editor that bakes a
+	// shader and the game that asks for it.
+	Vector<String> defines;
+	for (const CharString &define : version->custom_defines) {
+		defines.push_back(String::utf8(define.get_data()).strip_edges().replace("\n", " "));
+	}
+
+	return vformat("uni=%s vtx=%s frag=%s comp=%s sections=[%s] defines(%d)=[%s]",
+			part(version->uniforms), part(version->vertex_globals),
+			part(version->fragment_globals), part(version->compute_globals),
+			String(", ").join(sections), defines.size(), String(" | ").join(defines));
+}
+
 String ShaderRD::_version_get_sha1(Version *p_version) const {
 	StringBuilder hash_build;
 
@@ -621,17 +674,76 @@ String ShaderRD::_get_cache_file_path(Version *p_version, int p_group, const Str
 bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	String api_safe_name = String(RD::get_singleton()->get_device_api_name()).validate_filename().to_lower();
 	Ref<FileAccess> f;
-	if (shader_cache_user_dir_valid) {
-		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
+
+	// res:// (the export's baked cache) is tried BEFORE user:// (whatever this
+	// installation compiled for itself on an earlier run). Both are keyed by the
+	// same content hash, so they describe the same shader -- but they are not
+	// equally complete. The baked one is written by the exporter, which runs the
+	// target's RenderingShaderContainer with baking enabled; the user one is
+	// written by the running game, whose container has no baker compiled in.
+	//
+	// On WebGPU that difference is the whole point of baking: a baked container
+	// carries ready-to-use WGSL, a runtime-written one carries only SPIR-V, so
+	// loading the user copy means running Tint over every shader again on the main
+	// thread. With user:// searched first, one early run that predates a working
+	// bake writes WGSL-less entries and then shadows the baked cache permanently --
+	// every later run pays full translation cost no matter how correct the bake
+	// became. That is exactly what happened here: eight scene-shader variants kept
+	// translating across three unrelated bake fixes because the stale user-side
+	// entries were being found first. See webgpu_notes/TASKS.md Task 33.
+	//
+	// res:// is only set for an exported project that actually shipped a baked
+	// cache (renderer_compositor_rd.cpp), so this changes nothing in the editor and
+	// nothing for an export without baked shaders. user:// remains the fallback, so
+	// shaders the bake did not cover are still cached across runs as before.
+	if (shader_cache_res_dir_valid) {
+		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
+
+		// A shipped cache that never matches anything is the single most
+		// expensive silent failure here, and it looks exactly like "baking is
+		// broken". Its usual cause is not baking at all: base_sha256 mixes in
+		// GODOT_VERSION_HASH (see setup()), so an editor and an export template
+		// built from *different commits* produce different hashes for every
+		// shader, and not one entry of the shipped cache can ever be found.
+		// Everything then recompiles from GLSL on the main thread, and the only
+		// visible symptom is a slow start. Say it once, plainly.
+		static uint32_t res_hits = 0;
+		static uint32_t res_misses = 0;
+		static bool warned_res_cache_unusable = false;
+		if (f.is_null()) {
+			res_misses++;
+			if (!warned_res_cache_unusable && res_hits == 0 && res_misses >= 16) {
+				warned_res_cache_unusable = true;
+				WARN_PRINT("This export ships a baked shader cache, but none of it matches what this build asks for, so every shader is being compiled from source at load. Shader hashes include the engine version hash, so the editor that exported the project and this build must come from the same commit. Rebuild both from the same commit and export again.");
+			}
+		} else {
+			res_hits++;
+		}
 	}
 
-	if (f.is_null() && shader_cache_res_dir_valid) {
-		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
+	if (f.is_null() && shader_cache_user_dir_valid) {
+		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
 	}
 
 	if (f.is_null()) {
 		const String &sha1 = _version_get_sha1(p_version);
 		print_verbose(vformat("Shader cache miss for %s", name.path_join(group_sha256[p_group]).path_join(sha1)));
+		// Says which material's version this is, so a gap between what the baker
+		// enumerated and what the runtime wants can be named rather than only
+		// counted. Matches the fingerprint the shader baker logs per baked version.
+		print_verbose(vformat("  ^ version is: %s", _version_get_debug_fingerprint(p_version)));
+		// The generated code itself, bounded. A hash says two versions differ; the
+		// code says what the shader actually *is*, which is the last step in naming
+		// an unbaked material when its uniforms and globals are identical to a baked
+		// one and only the generated body differs. Sections are small (hundreds of
+		// bytes for a BaseMaterial3D) and this only runs on a miss.
+		for (const KeyValue<StringName, CharString> &E : p_version->code_sections) {
+			String body = String::utf8(E.value.get_data()).strip_edges().replace("\n", " \\n ");
+			if (body.length() > 900) {
+				body = body.substr(0, 900) + "... [truncated]";
+			}
+			print_verbose(vformat("  ^ code[%s]: %s", String(E.key), body));
+		}
 		return false;
 	}
 
@@ -1140,6 +1252,56 @@ void ShaderRD::initialize(const Vector<VariantDefine> &p_variant_defines, const 
 	if (!shader_cache_user_dir.is_empty()) {
 		group_sha256.resize(max_group_id + 1);
 		_initialize_cache();
+	}
+}
+
+LocalVector<ShaderRD::GeneralDefinesRefreshCallback> ShaderRD::general_defines_refresh_callbacks;
+
+void ShaderRD::set_general_defines(const String &p_general_defines) {
+	CharString new_defines = p_general_defines.utf8();
+	if (strcmp(new_defines.get_data(), general_defines.get_data()) == 0) {
+		return; // Nothing changed; don't churn the cache directories for nothing.
+	}
+
+	general_defines = new_defines;
+
+	// group_sha256 is derived from general_defines, so it has to be rebuilt or the
+	// baked cache would be filed under the old key and the runtime would look for
+	// it under the new one.
+	if (!shader_cache_user_dir.is_empty() || !shader_cache_res_dir.is_empty()) {
+		_initialize_cache();
+	}
+}
+
+void ShaderRD::set_variant_define_text(int p_variant, const String &p_text) {
+	ERR_FAIL_INDEX(p_variant, variant_defines.size());
+	CharString new_text = p_text.utf8();
+	if (strcmp(new_text.get_data(), variant_defines[p_variant].text.get_data()) == 0) {
+		return;
+	}
+
+	variant_defines.write[p_variant].text = new_text;
+
+	if (!shader_cache_user_dir.is_empty() || !shader_cache_res_dir.is_empty()) {
+		_initialize_cache();
+	}
+}
+
+String ShaderRD::get_general_defines() const {
+	return String::utf8(general_defines.get_data());
+}
+
+void ShaderRD::add_general_defines_refresh_callback(GeneralDefinesRefreshCallback p_callback) {
+	ERR_FAIL_NULL(p_callback);
+	if (general_defines_refresh_callbacks.has(p_callback)) {
+		return;
+	}
+	general_defines_refresh_callbacks.push_back(p_callback);
+}
+
+void ShaderRD::refresh_all_general_defines() {
+	for (GeneralDefinesRefreshCallback callback : general_defines_refresh_callbacks) {
+		callback();
 	}
 }
 

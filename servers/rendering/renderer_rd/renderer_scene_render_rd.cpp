@@ -436,7 +436,22 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 		RID depth_back_texture = rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH, v, 0);
 
 		if (can_use_storage) {
-			copy_effects->copy_to_rect(depth_texture, depth_back_texture, Rect2i(0, 0, size.x, size.y));
+			// copy_depth_to_rect(), not copy_to_rect(): the destination is
+			// RB_TEX_BACK_DEPTH, an R32_SFLOAT texture (see
+			// _allocate_depth_backbuffer() just above), and copy_to_rect()'s
+			// compute variant declares its storage image `rgba16f` while
+			// copy_depth_to_rect()'s declares `r32f` (copy.glsl:59-72). WebGPU
+			// requires a storage-texture binding's declared format to match the
+			// bound texture's format exactly -- no format-compatibility-class
+			// laxity, unlike Vulkan/Metal -- so the rgba16f variant fails with
+			// "Format (R32Float) of [Texture ...] expected to be (RGBA16Float)"
+			// and takes the whole command buffer down with it. Identical in
+			// result on every backend: both variants copy the source's red
+			// channel, and an R32_SFLOAT image stores nothing else. This is the
+			// same class of bug as copy.glsl's DST_IMAGE_RG16F case, and
+			// ss_effects.cpp:1561 already uses copy_depth_to_rect() for the same
+			// kind of depth-to-R32F copy. See webgpu_notes/TASKS.md Task 44.
+			copy_effects->copy_depth_to_rect(depth_texture, depth_back_texture, Rect2i(0, 0, size.x, size.y));
 		} else {
 			RID depth_back_fb = FramebufferCacheRD::get_singleton()->get_cache(depth_back_texture);
 			if (p_use_msaa) {
@@ -1864,21 +1879,34 @@ void RendererSceneRenderRD::init() {
 	bool can_use_storage = _render_buffers_can_be_storage();
 	bool can_use_vrs = is_vrs_supported();
 	BitField<RendererRD::CopyEffects::RasterEffects> raster_effects = {};
+
+	// This path can be used to redirect certain devices to use the raster version of the effect, either due to performance, lack of capabilities, or driver errors.
+	bool use_raster_for_octmaps = false;
+
+	// `octmap_filter.glsl` writes six mip levels from one compute dispatch, so it binds
+	// six storage images (`dest_octmap0`..`dest_octmap5`) in a single stage. WebGPU only
+	// guarantees four per stage, and an adapter that reports exactly the baseline --
+	// software rasterizers, and low-end hardware -- rejects the bind group layout
+	// outright, which invalidates every command buffer behind it and can lose the
+	// device. The raster octmap path has no such requirement, so prefer it whenever the
+	// limit cannot cover the shader. This is deliberately outside the `!can_use_storage`
+	// check below: the shader needs six storage images whichever renderer asks for it.
+	if (RD::get_singleton()->limit_get(RD::LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET) < RendererRD::CopyEffects::OCTMAP_FILTER_STORAGE_IMAGES) {
+		use_raster_for_octmaps = true;
+	}
+
 	if (!can_use_storage) {
 		raster_effects.set_flag(RendererRD::CopyEffects::RASTER_EFFECT_COPY);
 		raster_effects.set_flag(RendererRD::CopyEffects::RASTER_EFFECT_GAUSSIAN_BLUR);
-
-		// This path can be used to redirect certain devices to use the raster version of the effect, either due to performance, lack of capabilities, or driver errors.
-		bool use_raster_for_octmaps = false;
 
 		// Some devices may not support the A2B10G10R10 format as a storage image on the Mobile renderer.
 		if (!RD::get_singleton()->texture_is_format_supported_for_usage(_render_buffers_get_preferred_color_format(), RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT)) {
 			use_raster_for_octmaps = true;
 		}
+	}
 
-		if (use_raster_for_octmaps) {
-			raster_effects.set_flag(RendererRD::CopyEffects::RASTER_EFFECT_OCTMAP);
-		}
+	if (use_raster_for_octmaps) {
+		raster_effects.set_flag(RendererRD::CopyEffects::RASTER_EFFECT_OCTMAP);
 	}
 
 	bokeh_dof = memnew(RendererRD::BokehDOF(!can_use_storage));
