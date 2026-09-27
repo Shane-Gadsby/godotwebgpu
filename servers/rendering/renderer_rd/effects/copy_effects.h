@@ -55,6 +55,14 @@ public:
 		RASTER_EFFECT_OCTMAP = 1 << 2,
 	};
 
+	// How many storage images `octmap_filter.glsl` binds in one compute stage: it
+	// writes six mip levels per dispatch (`dest_octmap0`..`dest_octmap5`). A device
+	// whose per-stage storage-image limit is below this cannot run the compute path at
+	// all and must use RASTER_EFFECT_OCTMAP instead -- see the limit check in
+	// RendererSceneRenderRD::init(). Kept beside the flag so the two stay in step if the
+	// shader ever writes a different number of mips.
+	static constexpr uint32_t OCTMAP_FILTER_STORAGE_IMAGES = 6;
+
 private:
 	BitField<RasterEffects> raster_effects;
 
