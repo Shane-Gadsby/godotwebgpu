@@ -87,8 +87,7 @@ Error RenderingContextDriverWebGPU::initialize() {
 		if (!d) {
 			return 0;
 		}
-		return WebGPU["importJsDevice"](d, $0);
-	}, instance);
+		return WebGPU["importJsDevice"](d, $0); }, instance);
 	ERR_FAIL_COND_V_MSG(device == nullptr, ERR_CANT_CREATE, "WebGPU: Failed to get pre-initialized device. Ensure JS shell calls navigator.gpu.requestDevice() before WASM.");
 
 	queue = wgpuDeviceGetQueue(device);

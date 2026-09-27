@@ -223,7 +223,7 @@ prevents redundant re-creation.
   texture formats)`), *not* as upstream's "not supported by hardware" warning —
   that wording describes a per-GPU shortfall and cost two separate
   investigations before it was changed. Monochrome font atlases sidestep the
-  conversion entirely by rasterising as RGBA8 up front (Task 35); the remaining
+  conversion entirely by rasterizing as RGBA8 up front (Task 35); the remaining
   conversions run once per texture at load, not per upload.
 - **Multi-draw-indirect** — Uses the native `multi-draw-indirect` device feature
   when available and the indirect buffer's stride matches WebGPU's implicit

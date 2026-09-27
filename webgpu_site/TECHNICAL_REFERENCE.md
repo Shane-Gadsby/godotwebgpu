@@ -282,7 +282,7 @@ texture that is re-uploaded as it grows, that is a full re-expansion each time.
 Monochrome **font atlases** are the case where that mattered: an atlas is
 re-uploaded whenever a glyph is added to it, so a text-heavy UI paid a
 full-atlas LA8→RGBA8 expansion per new glyph (~256 KB per 256×256 atlas). The
-text servers therefore rasterise monochrome glyph atlases **directly as RGBA8**
+text servers therefore rasterize monochrome glyph atlases **directly as RGBA8**
 under `WEBGPU_ENABLED` (`MONO_GLYPH_COLOR_SIZE` /
 `_write_mono_glyph_texel()` in `text_server_adv` and `text_server_fb`), which
 removes the conversion rather than repeating it. GPU memory is identical; the
@@ -492,7 +492,7 @@ Release templates no longer accidentally enable assertions (was adding ~2MB and 
 | No derivative uniformity guarantee | Prepend `diagnostic(off, derivative_uniformity)` |
 | f32::MAX decimal overflow | Replace with hex float `0x1.fffffep+127f` |
 | Limited storage texture formats | Promote R8/RG8/R16/RG16 to 32-bit |
-| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU (once per texture at load); monochrome font atlases are rasterised as RGBA8 up front and skip it entirely |
+| No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU (once per texture at load); monochrome font atlases are rasterized as RGBA8 up front and skip it entirely |
 | No 3-component texture formats | RGB8/RGBH/RGBF expanded to RGBA8 on CPU (once per texture at load) |
 | No push constants | Ring buffer emulation |
 | No combined image-samplers | SPIR-V-level split |

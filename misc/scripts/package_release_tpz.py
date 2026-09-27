@@ -73,7 +73,9 @@ def main():
     take("windows-template", "godot.windows.template_release.x86_64.exe", "windows_release_x86_64.exe")
     take("windows-template", "godot.windows.template_release.x86_64.console.exe", "windows_release_x86_64_console.exe")
     take("windows-template-debug", "godot.windows.template_debug.x86_64.exe", "windows_debug_x86_64.exe")
-    take("windows-template-debug", "godot.windows.template_debug.x86_64.console.exe", "windows_debug_x86_64_console.exe")
+    take(
+        "windows-template-debug", "godot.windows.template_debug.x86_64.console.exe", "windows_debug_x86_64_console.exe"
+    )
 
     # --- macOS (get_platform_name() + ".zip") ---
     # macos_builds.yml now runs SCons's own generate_bundle step, which
