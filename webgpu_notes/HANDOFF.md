@@ -1,30 +1,31 @@
 # Handoff — WebGPU work in progress
 
-**As of 2026-09-27, after the Task 44 reclassify fix.** Branch `webgpu-4.7.2`, which currently
-matches `origin/webgpu-4.7.2` (`24a1272f3e`). The engine work landed in `5f4b63c136` and
-`1d5a037218`; `bin/` was built at `5f4b63c136` (§6).
+**As of 2026-09-27, with the scene tier green.** Branch `webgpu-4.7.2`. The engine work landed in
+`5f4b63c136` (the `depth_buffer` reclassification) and the depth-back-copy commit after it; `bin/`
+was built at the latter (§6).
 
 This is a snapshot for picking the work up cold. `webgpu_notes/TASKS.md` remains the living
 detail; this file says where things stand, what is verified, what is *mis*-recorded elsewhere, and
 which traps cost time. Task numbers below index into TASKS.md.
 
-**The 60-second version**: one scene fails (`demo_3d_particles`), one cause, already isolated —
-§4.4 has the full Dawn message and the two files to read. `bin/` is current and needs no rebuild to
-reproduce it: `cd webgpu_tests/scene_smoketest && node capture_errors.mjs exports/demo_3d_particles`
-prints it in about a minute.
+**The 60-second version**: **every tier is green.** The scene smoketest is 18 pass, 0 fail, 1 skip in
+both Chrome and Firefox — the skip is `demo_compute_heightmap`, a tracked `known_limitation`
+(`GradientTexture1D.get_image()` readback, last section of TASKS.md Task 44). `bin/` matches `HEAD`'s
+engine work and the exports in `webgpu_tests/scene_smoketest/exports/` were made from it, so a
+`node run_scenes.mjs --skip-export --browser chrome` reproduces that result in ~8 minutes with no
+rebuild. §8 says what is worth doing next; nothing there is a known bug.
 
 ---
 
 ## 1. One-paragraph status
 
-The web export's load time and its Firefox support both moved a long way (Tasks 14, 38, 41, 44), and
-the test suite now covers roughly twice what it did (Tasks 42, 44). **The depth-texture problem is
-fixed** — and it was never Tint's: this driver's own post-Tint WGSL pass
-`_reclassify_single_component_depth_textures()` was rewriting the scene shaders' `depth_buffer` to
-`texture_depth_2d`. `demo_3d_platformer` and `stress_3d_platformer` now pass (44 errors each → 0).
-**One scene is still failing**, `demo_3d_particles`, on a genuinely separate storage-texture format
-mismatch — see §4. Everything else below is either landed and verified, or a correction to something
-previously written down wrongly.
+The web export's load time and its Firefox support both moved a long way (Tasks 14, 38, 41, 44), the
+test suite now covers roughly twice what it did (Tasks 42, 44), and **Task 44 is closed**: all four
+scene failures it exposed are fixed, and the tier is green in both browsers. The last two were
+independent bugs behind one scene feature — Godot's `DEPTH_TEXTURE` (proximity fade / refraction) both
+tripped this driver's `depth_buffer` reclassification *and* triggered a depth back-copy that
+dispatched an `rgba16f`-declared compute variant at an `R32_SFLOAT` destination (§4). Everything else
+below is either landed and verified, or a correction to something previously written down wrongly.
 
 ---
 
@@ -35,17 +36,17 @@ previously written down wrongly.
 | `shader_corpus` | **14/14** | 2026-09-27, after the reclassify fix |
 | `driver_unit_tests` | **332/0** | 2026-09-27, after the reclassify fix |
 | `preprocessing_tests` | **205/0, 1 skipped** | 2026-09-27, after the reclassify fix |
-| Scene smoketest — Chrome | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
-| Scene smoketest — Firefox | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
-| Resource lifecycle / screenshot comparison | pass | last full `local_ci.sh` |
+| Scene smoketest — Chrome | **18 pass, 0 fail, 1 skip** | 2026-09-27, after both Task 44 fixes |
+| Scene smoketest — Firefox | **18 pass, 0 fail, 1 skip** | 2026-09-27, after both Task 44 fixes |
+| `resource_lifecycle` | all pass | 2026-09-27 |
+| `screenshot_comparison` | **8/0** (entry point is `screenshot_tests.mjs`) | 2026-09-27 |
+| Native Vulkan spot check | `3d/particles`, 300 frames, clean | 2026-09-27, RTX 4080 SUPER |
 | Scene smoketest — Safari | skipped | macOS only; never run here |
 
-The three failures were the *same* three scenes in both browsers — `demo_3d_particles`,
-`demo_3d_platformer`, `stress_3d_platformer`. Two of them are fixed (§4). The one left,
-`demo_3d_particles`, fails in both browsers on one remaining cause, which each browser words
-differently (Chrome: `Format (R32Float) … expected to be (RGBA16Float)`; Firefox: `Storage texture
-binding 0 expects format = Rgba16float`). Both full 19-scene runs above were made against a freshly
-built editor+template pair at this commit, with a fresh export of every scene.
+Both 19-scene runs were made against a freshly built editor + non-dlink nothreads template pair at
+the current engine work, with a fresh export of every scene, and both exited 0. The native Vulkan spot
+check is there because the last fix is in *shared* engine code (`renderer_scene_render_rd.cpp`), not
+in `drivers/webgpu/` — anything under `servers/` needs one.
 
 `demo_compute_heightmap` is the 1 skip. It is marked `known_limitation` in `scenes.json` (its own
 open problem — the `GradientTexture1D` readback at the end of TASKS.md Task 44).
@@ -56,11 +57,10 @@ previous export and passes), and `demo_compute_heightmap` exports successfully b
 `SKIP (not exported)` — the `index.html` existence check runs before the `known_limitation` check,
 so the reason string is misleading.
 
-**A full `./webgpu_tests/local_ci.sh --no-safari` has not been run since the SDF fix.** It will
-report the scene smoketest as failing until §4.4 is fixed; every other tier was green on the last
-full run, and all four offline tiers were re-run green individually today. Re-running it is a
-reasonable first act, but expect red for a known reason — and note that its rebuild step builds the
-**dlink** template while the smoketest exports with the non-dlink one (§6).
+**`./webgpu_tests/local_ci.sh --no-safari` has still not been run end to end since the SDF fix** —
+every tier it drives was re-run green individually today, so there is no known reason for it to be
+red, but it has not been proven in one invocation. Note its rebuild step builds the **dlink** template
+while the smoketest exports with the non-dlink one (§6), which is the most likely thing to trip it.
 
 ---
 
@@ -74,6 +74,7 @@ reasonable first act, but expect red for a known reason — and note that its re
 | 41 | tier2 storage-format promotion (`rgb10a2unorm` → `rgba16float`) | Firefox Octmap shaders run; **0 validation errors** where there were 14 |
 | 44 | Canvas SDF `R16_SNORM` → `R16_SFLOAT` fallback | `demo_2d_particles` **735 errors → 0**, now passes |
 | 44 | `depth_buffer` (group 1) excluded from `_reclassify_single_component_depth_textures()` | `demo_3d_platformer` + `stress_3d_platformer` **44 errors each → 0**; tier 15/3/1 → **17/1/1** in both browsers |
+| 44 | Depth back-copy switched to `copy_depth_to_rect()` (`r32f` variant, not `rgba16f`) | `demo_3d_particles` **49 errors → 0**; tier → **18/0/1** in both browsers, exit 0 |
 | — | Block-align compressed texture-to-texture copies | BPTC textures no longer render black |
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
@@ -84,9 +85,9 @@ equivalent to uncompressed at RMSE 0.0006.
 
 ---
 
-## 4. The depth-texture bug, fixed — and what is left (Task 44)
+## 4. Task 44, closed: two bugs behind one scene feature
 
-### 4.1 What it was
+### 4.1 The first bug: what it was
 `demo_3d_particles`, `demo_3d_platformer`, `stress_3d_platformer` failed in Chrome and Firefox on:
 ```
 None of the supported sample types (Float|UnfilterableFloat) of [Texture 1152x648 R32Float]
@@ -119,7 +120,7 @@ Three checks pin it, none of which needs a rebuild:
 The "same BGL label built 12 times with different contents" needs no spec-constant story either:
 every material shares one `ShaderRD`, so one label covers every material's variant 19.
 
-### 4.3 The fix
+### 4.3 The first fix
 A fifth disqualifying signal in that pass, beside `half` and `dilated`: the exact name `depth_buffer`
 in **group 1** (the scene shaders' render-buffers set, names fixed by engine GLSL). The WGSL then
 keeps `texture_2d<f32>` and the `.x` swizzle, which is right for the `R32Float` copy. Group 1 gating
@@ -127,24 +128,33 @@ keeps `taa_resolve.glsl`'s and `cluster_debug.glsl`'s own `depth_buffer` (both s
 before; a user material uniform of that name lands in group 3.
 
 **Result**: `demo_3d_platformer` and `stress_3d_platformer` pass with gpu=0 (44 errors each before),
-and the whole tier is **17 pass, 1 fail, 1 skip in both Chrome and Firefox** (was 15/3/1).
-`shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip.
+taking the tier from 15/3/1 to 17/1/1 in both browsers. `demo_3d_particles` needed §4.4 as well.
 
-### 4.4 What is still open — `demo_3d_particles`, a storage-format mismatch
-The only failing scene left, in both browsers (Chrome 39 errors, Firefox 4), one cause with a cascade
-behind it:
+### 4.4 The second bug: the depth back-copy's storage format
+`demo_3d_particles` kept failing after the fix above, on a genuinely separate cause:
 ```
 Format (TextureFormat::R32Float) of [Texture (unlabeled 1152x648 px, R32Float)]
   expected to be (TextureFormat::RGBA16Float).
  - While validating entries[0] against { binding: 0, visibility: Compute,
      storageTexture: {format: RGBA16Float, viewDimension: e2D, access: WriteOnly} }
 ```
-then `SetBindGroup(3, [Invalid BindGroup], …)` ×497 and `[Invalid CommandBuffer]` ×497. A write-only
-storage texture, group 3 binding 0, compute, screen-sized — the shape of `effects/copy.glsl:60-72`'s
-`dest_buffer`, declared `r32f`/`rgba8`/`rg16f`/`rgba16f` by variant. The suspects are
-`_promote_storage_format()` (which sets the *texture's* format) and the WGSL format remaps at
-`rendering_device_driver_webgpu.cpp:4840-4900` (which set the *layout's*): the code says the two must
-agree, and here they do not. Look there, not at the shader.
+`_render_buffers_copy_depth_texture()` (`renderer_scene_render_rd.cpp:439`) copies depth into
+`RB_TEX_BACK_DEPTH`, an `R32_SFLOAT` texture, through `copy_to_rect()` — whose compute variant
+declares its storage image `rgba16f` (`copy.glsl:72`). WebGPU requires a storage binding's declared
+format to match the bound texture's exactly, with none of Vulkan's compatibility-class laxity, so Dawn
+rejected the bind group and every command buffer behind it (1490 cascade errors from one real one).
+`copy_depth_to_rect()` is the same copy with the `r32f`-declared variant, and `ss_effects.cpp:1561`
+already used it for this exact kind of copy. Identical in result on every backend — both copy the red
+channel, and an `R32_SFLOAT` image stores nothing else.
+
+**This is the third instance of one class**, after `copy.glsl`'s `DST_IMAGE_RG16F` (TAA's RG16F
+velocity buffers). When a compute copy fails on WebGPU, the question is always: what format does the
+destination texture really have, and what does the dispatched variant's `layout(...)` declare?
+Upstream can leave those mismatched; we cannot.
+
+**Both bugs sat behind one scene feature.** `DEPTH_TEXTURE` (proximity fade / refraction on the
+particle materials) is what reclassified `depth_buffer` *and* what makes the back-depth copy run at
+all. Fixing the first exposed the second.
 
 ### 4.5 Ruled out — do not re-investigate
 - **Tint**, in every form: the SPIR-V type split, `fix_depth2_images()` (every image is `Depth=0`),
@@ -155,6 +165,10 @@ agree, and here they do not. Look there, not at the shader.
 - **Changing `RB_TEX_BACK_DEPTH`'s format** — it is a colour attachment and storage image by design,
   and the binding is polymorphic anyway. TASKS.md Task 44 has the three independent reasons.
 - **The BGL/driver scan** is not wrong; it faithfully reports what the WGSL says.
+- **Everything in §4.4's earlier write-up as "suspects"** — `_promote_storage_format()` and the WGSL
+  format remaps — turned out *not* to be involved: the layout's `rgba16float` came straight from the
+  GLSL variant being dispatched, not from any remap. Checking which variant is bound before suspecting
+  the remaps is the cheaper order.
 
 ## 5. Corrections — things recorded wrongly earlier
 
@@ -269,27 +283,29 @@ bug being chased.
 
 ## 8. Suggested order for the next session
 
-1. **`demo_3d_particles`'s storage-format mismatch** (§4.4) — the last failing scene, one cause, and
-   it needs no rebuild to see. Concretely:
-   1. `cd webgpu_tests/scene_smoketest && node capture_errors.mjs exports/demo_3d_particles` — the
-      export in the tree is current, and this prints the cause first and its 1490-deep cascade last.
-   2. Read `_promote_storage_format()` (`rendering_device_driver_webgpu.cpp:3166`, plus its callers at
-      `:2245`/`:2379`/`:2437`, which set the *texture's* and the *view's* format) against the WGSL
-      format remaps at `:4840-4900` (which set the *layout's*). Both carry comments saying the two
-      must agree; the failure is one place where they do not.
-   3. The binding is group 3 binding 0, compute, write-only, screen-sized — the shape of
-      `effects/copy.glsl:60-72`'s `dest_buffer`, declared `r32f`/`rgba8`/`rg16f`/`rgba16f` by variant.
-      Confirming *which* variant is bound (and whether the layout's `rgba16float` came from a remap or
-      from the GLSL) is the first fact to establish, and `GODOT_DUMP_SPIRV` + `tint_convert_cli` on
-      `CopyShaderRD:*.comp.spv` answers it offline, without a browser.
-   4. Note the BGL is **unlabeled**, unlike the scene ones — so it is built somewhere that does not
-      label, which is itself a clue about which code path creates it.
-2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once. While
-   there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
-   combined-sampler sibling has (Task 24), which is why §4.1 was a hard error rather than quiet
-   corruption.
-3. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
+Nothing here is a known bug — the tier is green. In rough order of value:
+
+1. **`demo_compute_heightmap`**, the one skip and the only known-broken thing left in the suite:
+   `GradientTexture1D.get_image()` returns an empty image under WebGPU, so the demo's
+   `texture_create()` fails and its compute never runs. `TextureStorage::texture_2d_get()` documents
+   WebGPU readback as asynchronous (first call starts it, data arrives later), and the Task 42
+   self-test already primes it across 120 frames and still gets nothing, so "retry next frame" is not
+   the answer. The same self-test **passes on native Vulkan** (center 118.1, corners 0.0), so the check
+   is sound and this is WebGPU-specific. Details at the end of TASKS.md Task 44.
+2. **Run `./webgpu_tests/local_ci.sh --no-safari` end to end once** — every tier it drives is green
+   individually, but not in one invocation since the SDF fix (§2). The dlink/non-dlink template
+   mismatch in §6 is the likeliest thing to trip it, and that is worth knowing before CI finds it.
+3. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
+   round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
+   fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
+   rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
+   §4.1, so add it only with that understood.
+4. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
    which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
    container at export time is the biggest remaining load win and is entirely our own code.
-4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+5. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
+6. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+   time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
+   and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
+   actually bind would close the class instead of the next instance.
