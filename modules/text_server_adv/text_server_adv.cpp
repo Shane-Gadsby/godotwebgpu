@@ -39,6 +39,7 @@
 #include "core/os/os.h"
 #include "core/string/translation_server.h"
 #include "scene/resources/image_texture.h"
+#include "servers/rendering/rendering_server.h"
 
 #include "modules/modules_enabled.gen.h" // For freetype, msdfgen, svg.
 
@@ -821,6 +822,38 @@ String TextServerAdvanced::_tag_to_name(int64_t p_tag) const {
 /* Font Glyph Rendering                                                  */
 /*************************************************************************/
 
+// Monochrome glyph atlases: how many channels, and how a texel is written.
+//
+// A grayscale glyph only needs coverage, so the natural format is LA8 -- one
+// luminance byte (always 255) plus alpha -- sampled through a (R,R,R,G) texture
+// swizzle. WebGPU has no component swizzle, so such an atlas has to be expanded
+// to RGBA8 before upload, and TextureStorage::_texture_2d_update() redoes that
+// expansion on *every* update. An atlas is re-uploaded whenever a glyph is added
+// to it, so a UI that keeps rasterizing new glyphs pays a full-atlas conversion
+// each time (~256 KB per 256x256 atlas). Rasterizing straight into RGBA8 removes
+// it: identical GPU memory, no conversion, at the cost of double the CPU-side
+// atlas (a couple of MB at most). See webgpu_notes/TASKS.md Task 35.
+//
+// A helper rather than an #ifdef at each blit so the per-pixel loops stay
+// branch-free and the two formats cannot drift apart.
+#ifdef WEBGPU_ENABLED
+static constexpr int MONO_GLYPH_COLOR_SIZE = 4;
+#else
+static constexpr int MONO_GLYPH_COLOR_SIZE = 2;
+#endif
+
+static _FORCE_INLINE_ void _write_mono_glyph_texel(uint8_t *p_dst, uint8_t p_coverage) {
+#ifdef WEBGPU_ENABLED
+	p_dst[0] = 255; // Luminance broadcast, baked in for want of a texture swizzle.
+	p_dst[1] = 255;
+	p_dst[2] = 255;
+	p_dst[3] = p_coverage;
+#else
+	p_dst[0] = 255; // Grayscale as 1; the (R,R,R,G) swizzle broadcasts at sample time.
+	p_dst[1] = p_coverage;
+#endif
+}
+
 _FORCE_INLINE_ TextServerAdvanced::FontTexturePosition TextServerAdvanced::find_texture_pos_for_glyph(FontForSizeAdvanced *p_data, int p_color_size, Image::Format p_image_format, int p_width, int p_height, bool p_msdf) const {
 	FontTexturePosition ret;
 
@@ -1101,7 +1134,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_hb_bi
 		return chr;
 	}
 
-	int color_size = p_bgra ? 4 : 2;
+	int color_size = p_bgra ? 4 : MONO_GLYPH_COLOR_SIZE;
 
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
@@ -1133,8 +1166,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_hb_bi
 					wr[ofs + 0] = img_src[ofs_color + 2];
 					wr[ofs + 3] = img_src[ofs_color + 3];
 				} else {
-					wr[ofs + 0] = 255; // grayscale as 1
-					wr[ofs + 1] = img_src[i * p_ext.stride + j];
+					_write_mono_glyph_texel(&wr[ofs], img_src[i * p_ext.stride + j]);
 				}
 			}
 		}
@@ -1171,7 +1203,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_bitma
 	switch (p_bitmap.pixel_mode) {
 		case FT_PIXEL_MODE_MONO:
 		case FT_PIXEL_MODE_GRAY: {
-			color_size = 2;
+			color_size = MONO_GLYPH_COLOR_SIZE;
 		} break;
 		case FT_PIXEL_MODE_BGRA: {
 			color_size = 4;
@@ -1211,12 +1243,10 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_bitma
 					case FT_PIXEL_MODE_MONO: {
 						int byte = i * p_bitmap.pitch + (j >> 3);
 						int bit = 1 << (7 - (j % 8));
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = (p_bitmap.buffer[byte] & bit) ? 255 : 0;
+						_write_mono_glyph_texel(&wr[ofs], (p_bitmap.buffer[byte] & bit) ? 255 : 0);
 					} break;
 					case FT_PIXEL_MODE_GRAY:
-						wr[ofs + 0] = 255; // grayscale as 1
-						wr[ofs + 1] = p_bitmap.buffer[i * p_bitmap.pitch + j];
+						_write_mono_glyph_texel(&wr[ofs], p_bitmap.buffer[i * p_bitmap.pitch + j]);
 						break;
 					case FT_PIXEL_MODE_BGRA: {
 						int ofs_color = i * p_bitmap.pitch + (j << 2);
@@ -3767,6 +3797,126 @@ void TextServerAdvanced::_font_set_glyph_texture_idx(const RID &p_font_rid, cons
 	fgl.found = true;
 }
 
+/*************************************************************************/
+/*  Glyph atlas uploads                                                  */
+/*************************************************************************/
+
+// A glyph atlas is re-uploaded in FULL whenever any glyph is added to it, and
+// every Label in a scene adds glyphs while building its draw commands. On most
+// backends that is a cheap staging copy. On WebGPU it becomes one
+// `queue.writeTexture` of the whole atlas per glyph -- measured at 20.8 MB across
+// 1313 writes during one startup frame of a real project, and 78 MB for 40 Labels
+// on an otherwise empty scene (Task 14 subtask 2).
+//
+// Nothing needs the pixels at the moment the glyph is added: the draw command only
+// records the texture's RID, and rendering happens after the whole scene tree has
+// finished drawing. So on WebGPU the upload is deferred and every dirty atlas is
+// uploaded once, from `RenderingServer`'s `frame_pre_draw`. Elsewhere the upload
+// stays inline, byte for byte the behavior it always had.
+//
+// The very first upload of an atlas is never deferred, because the `ImageTexture`
+// has to exist before its RID can be handed to a draw command.
+void TextServerAdvanced::_ensure_atlas_texture(FontForSizeAdvanced *p_ffsd, int32_t p_texture_index, bool p_fix_edge, bool p_mipmaps) const {
+	ShelfPackTexture &tex = p_ffsd->textures.write[p_texture_index];
+	if (!tex.dirty) {
+		return;
+	}
+	if (p_fix_edge) {
+		// Same as the "fix alpha border" process option when importing SVGs
+		tex.image->fix_alpha_edges();
+	}
+
+	// `dirty` is cleared here, not after the upload, so the work it guards above
+	// and the mipmap generation below still run exactly once per change even when
+	// the upload itself is deferred.
+	tex.dirty = false;
+
+	if (tex.texture.is_null()) {
+		Ref<Image> img = tex.image;
+		if (p_mipmaps && !img->has_mipmaps()) {
+			img = tex.image->duplicate();
+			img->generate_mipmaps();
+		}
+		tex.texture = ImageTexture::create_from_image(img);
+		return;
+	}
+
+#ifdef WEBGPU_ENABLED
+	if (_defer_atlas_upload()) {
+		tex.upload_pending = true;
+		atlas_uploads_pending = true;
+		return;
+	}
+#endif
+
+	Ref<Image> img = tex.image;
+	if (p_mipmaps && !img->has_mipmaps()) {
+		img = tex.image->duplicate();
+		img->generate_mipmaps();
+	}
+	tex.texture->update(img);
+}
+
+#ifdef WEBGPU_ENABLED
+// Deferral is only safe if something will actually run the flush. `RenderingServer`
+// is what does, so without it -- a tool or test context with no rendering server --
+// this returns false and the caller uploads inline, rather than queueing an upload
+// nothing would ever perform.
+bool TextServerAdvanced::_defer_atlas_upload() const {
+	if (atlas_flush_connected) {
+		return true;
+	}
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		return false;
+	}
+	// const_cast because the four call sites that can find an atlas dirty are all
+	// const query/draw methods; the connection is set up once, lazily, because at
+	// construction time the rendering server does not exist yet.
+	rs->connect(SNAME("frame_pre_draw"), callable_mp(const_cast<TextServerAdvanced *>(this), &TextServerAdvanced::_flush_dirty_font_atlases));
+	atlas_flush_connected = true;
+	return true;
+}
+
+void TextServerAdvanced::_flush_dirty_font_atlases() {
+	_THREAD_SAFE_METHOD_
+	if (!atlas_uploads_pending) {
+		return;
+	}
+	atlas_uploads_pending = false;
+
+	LocalVector<RID> font_rids = font_owner.get_owned_list();
+	for (const RID &font_rid : font_rids) {
+		FontAdvanced *fd = font_owner.get_or_null(font_rid);
+		if (fd == nullptr) {
+			continue;
+		}
+		MutexLock lock(fd->mutex);
+		for (KeyValue<Vector2i, FontForSizeAdvanced *> &E : fd->cache) {
+			if (E.value == nullptr) {
+				continue;
+			}
+			for (uint32_t i = 0; i < E.value->textures.size(); i++) {
+				ShelfPackTexture &tex = E.value->textures.write[i];
+				if (!tex.upload_pending) {
+					continue;
+				}
+				tex.upload_pending = false;
+				if (tex.texture.is_null() || tex.image.is_null()) {
+					continue;
+				}
+				Ref<Image> img = tex.image;
+				if (fd->mipmaps && !img->has_mipmaps()) {
+					img = tex.image->duplicate();
+					img->generate_mipmaps();
+				}
+				tex.texture->update(img);
+			}
+		}
+	}
+}
+#endif // WEBGPU_ENABLED
+
 RID TextServerAdvanced::_font_get_glyph_texture_rid(const RID &p_font_rid, const Vector2i &p_size, int64_t p_glyph) const {
 	FontAdvanced *fd = _get_font_data(p_font_rid);
 	ERR_FAIL_NULL_V(fd, RID());
@@ -3793,24 +3943,7 @@ RID TextServerAdvanced::_font_get_glyph_texture_rid(const RID &p_font_rid, const
 	ERR_FAIL_COND_V(fgl.texture_idx < -1 || fgl.texture_idx >= ffsd->textures.size(), RID());
 
 	if (fgl.texture_idx != -1) {
-		if (ffsd->textures[fgl.texture_idx].dirty) {
-			ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-			Ref<Image> img = tex.image;
-			if (fgl.fix_edge) {
-				// Same as the "fix alpha border" process option when importing SVGs
-				img->fix_alpha_edges();
-			}
-			if (fd->mipmaps && !img->has_mipmaps()) {
-				img = tex.image->duplicate();
-				img->generate_mipmaps();
-			}
-			if (tex.texture.is_null()) {
-				tex.texture = ImageTexture::create_from_image(img);
-			} else {
-				tex.texture->update(img);
-			}
-			tex.dirty = false;
-		}
+		_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.fix_edge, fd->mipmaps);
 		return ffsd->textures[fgl.texture_idx].texture->get_rid();
 	}
 
@@ -3843,24 +3976,7 @@ Size2 TextServerAdvanced::_font_get_glyph_texture_size(const RID &p_font_rid, co
 	ERR_FAIL_COND_V(fgl.texture_idx < -1 || fgl.texture_idx >= ffsd->textures.size(), Size2());
 
 	if (fgl.texture_idx != -1) {
-		if (ffsd->textures[fgl.texture_idx].dirty) {
-			ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-			Ref<Image> img = tex.image;
-			if (fgl.fix_edge) {
-				// Same as the "fix alpha border" process option when importing SVGs
-				img->fix_alpha_edges();
-			}
-			if (fd->mipmaps && !img->has_mipmaps()) {
-				img = tex.image->duplicate();
-				img->generate_mipmaps();
-			}
-			if (tex.texture.is_null()) {
-				tex.texture = ImageTexture::create_from_image(img);
-			} else {
-				tex.texture->update(img);
-			}
-			tex.dirty = false;
-		}
+		_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.fix_edge, fd->mipmaps);
 		return ffsd->textures[fgl.texture_idx].texture->get_size();
 	}
 
@@ -4319,24 +4435,7 @@ void TextServerAdvanced::_font_draw_glyph(const RID &p_font_rid, const RID &p_ca
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
-			if (ffsd->textures[fgl.texture_idx].dirty) {
-				ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-				Ref<Image> img = tex.image;
-				if (fgl.fix_edge) {
-					// Same as the "fix alpha border" process option when importing SVGs
-					img->fix_alpha_edges();
-				}
-				if (fd->mipmaps && !img->has_mipmaps()) {
-					img = tex.image->duplicate();
-					img->generate_mipmaps();
-				}
-				if (tex.texture.is_null()) {
-					tex.texture = ImageTexture::create_from_image(img);
-				} else {
-					tex.texture->update(img);
-				}
-				tex.dirty = false;
-			}
+			_ensure_atlas_texture(ffsd, fgl.texture_idx, fgl.fix_edge, fd->mipmaps);
 			if (fd->msdf) {
 				Point2 cpos = p_pos;
 				cpos += fgl.rect.position * (double)p_size / (double)fd->msdf_source_size;
@@ -4462,20 +4561,7 @@ void TextServerAdvanced::_font_draw_glyph_outline(const RID &p_font_rid, const R
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
-			if (ffsd->textures[fgl.texture_idx].dirty) {
-				ShelfPackTexture &tex = ffsd->textures.write[fgl.texture_idx];
-				Ref<Image> img = tex.image;
-				if (fd->mipmaps && !img->has_mipmaps()) {
-					img = tex.image->duplicate();
-					img->generate_mipmaps();
-				}
-				if (tex.texture.is_null()) {
-					tex.texture = ImageTexture::create_from_image(img);
-				} else {
-					tex.texture->update(img);
-				}
-				tex.dirty = false;
-			}
+			_ensure_atlas_texture(ffsd, fgl.texture_idx, false, fd->mipmaps);
 			if (fd->msdf) {
 				Point2 cpos = p_pos;
 				cpos += fgl.rect.position * (double)p_size / (double)fd->msdf_source_size;

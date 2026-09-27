@@ -33,10 +33,14 @@
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/os/os.h"
 #include "core/string/string_builder.h"
 #include "core/version.h"
 #include "editor/editor_node.h"
 #include "scene/3d/label_3d.h"
+#include "scene/3d/mesh_instance_3d.h"
+#include "scene/3d/visual_instance_3d.h"
+#include "scene/resources/material.h"
 #include "scene/3d/sprite_3d.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
@@ -66,6 +70,7 @@ bool ShaderBakerExportPlugin::_initialize_container_format(const Ref<EditorExpor
 		if (platform->matches_driver(shader_container_driver)) {
 			shader_container_format = platform->create_shader_container_format(p_platform, p_preset);
 			ERR_FAIL_NULL_V_MSG(shader_container_format, false, "Unable to create shader container format for the export platform.");
+			active_platform = platform;
 			return true;
 		}
 	}
@@ -140,11 +145,35 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 
 	RendererSceneRenderRD::get_singleton()->enable_features(renderer_features);
 
+	// Answer capability queries as the export target's device would, for the rest
+	// of the bake. Engine code builds its GLSL defines and picks its shader groups
+	// from RenderingDevice::has_feature(), so without this every such shader is
+	// baked in the editor's flavour and the exported game asks for one that was
+	// never baked -- missing the shader cache entirely and recompiling from GLSL
+	// on the main thread at load. See webgpu_notes/TASKS.md Task 31.
+	//
+	// Installed before any shader is enumerated, and paired with the clear in
+	// _end_customize_resources(). Platforms that supply no overrides leave the
+	// map empty and nothing below changes behaviour for them.
+	{
+		HashMap<int, bool> target_feature_overrides;
+		if (active_platform.is_valid()) {
+			active_platform->get_target_feature_overrides(target_feature_overrides);
+		}
+		if (!target_feature_overrides.is_empty()) {
+			RD::get_singleton()->shader_bake_feature_override_set(target_feature_overrides);
+			// Subsystems whose defines were computed from the editor's answers at
+			// startup recompute them now against the target's.
+			ShaderRD::refresh_all_general_defines();
+			print_verbose(vformat("Shader baker: baking with %d target capability override(s) instead of the editor's device answers.", target_feature_overrides.size()));
+		}
+	}
+
 	// Included all shaders created by renderers and effects.
 	ShaderRD::shaders_embedded_set_lock();
 	const ShaderRD::ShaderVersionPairSet &pair_set = ShaderRD::shaders_embedded_set_get();
 	for (Pair<ShaderRD *, RID> pair : pair_set) {
-		_customize_shader_version(pair.first, pair.second);
+		_customize_shader_version(pair.first, pair.second, "embedded shader");
 	}
 
 	ShaderRD::shaders_embedded_set_unlock();
@@ -158,12 +187,62 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 		if (shader_data != nullptr) {
 			Pair<ShaderRD *, RID> shader_version_pair = shader_data->get_native_shader_and_version();
 			if (shader_version_pair.first != nullptr) {
-				_customize_shader_version(shader_version_pair.first, shader_version_pair.second);
+				_customize_shader_version(shader_version_pair.first, shader_version_pair.second, "embedded material");
 			}
 		}
 	}
 
 	material_storage->shader_embedded_set_unlock();
+
+	// Finally, for every ShaderRD reached above, bake every version it currently
+	// holds -- not just the ones an exported resource or scene led back to.
+	//
+	// Material shader versions are created with version_create(false), i.e. NOT
+	// embedded, on the assumption that the resource and scene walks will find the
+	// materials that matter. They do not always: a real export baked four
+	// SceneForwardClustered versions while the game asked for a fifth (an unshaded,
+	// fog-disabled variant of a textured BaseMaterial3D) that no walk reached, and
+	// four separate attempts to find the owner by reasoning about where materials
+	// come from were all wrong. The engine has already built every version it needs
+	// by this point, so taking them all is both simpler and complete.
+	//
+	// Only when a target capability override is active, i.e. only for a platform
+	// that opted in (currently WebGPU). It costs extra export-time work and bakes
+	// some versions the game will never ask for, which is a trade worth making only
+	// where an unbaked shader means a full GLSL->SPIR-V->WGSL compile on the main
+	// thread at load. Other platforms keep exactly their previous behaviour.
+	if (RD::get_singleton()->shader_bake_feature_override_is_active()) {
+		LocalVector<ShaderRD *> shaders_seen;
+		ShaderRD::shaders_embedded_set_lock();
+		for (Pair<ShaderRD *, RID> pair : ShaderRD::shaders_embedded_set_get()) {
+			if (!shaders_seen.has(pair.first)) {
+				shaders_seen.push_back(pair.first);
+			}
+		}
+		ShaderRD::shaders_embedded_set_unlock();
+
+		material_storage->shader_embedded_set_lock();
+		for (RID rid : material_storage->shader_embedded_set_get()) {
+			RendererRD::MaterialStorage::ShaderData *shader_data = material_storage->shader_get_data(rid);
+			if (shader_data != nullptr) {
+				Pair<ShaderRD *, RID> pair = shader_data->get_native_shader_and_version();
+				if (pair.first != nullptr && !shaders_seen.has(pair.first)) {
+					shaders_seen.push_back(pair.first);
+				}
+			}
+		}
+		material_storage->shader_embedded_set_unlock();
+
+		for (ShaderRD *shader : shaders_seen) {
+			for (RID version : shader->get_all_versions()) {
+				// Re-visiting a version already queued above is free:
+				// _customize_shader_version() skips any group whose cache path is
+				// already in shader_paths_processed, so the sweep only adds versions
+				// the earlier walks missed.
+				_customize_shader_version(shader, version, "all-versions sweep");
+			}
+		}
+	}
 
 	return true;
 }
@@ -182,6 +261,14 @@ bool ShaderBakerExportPlugin::_begin_customize_scenes(const Ref<EditorExportPlat
 }
 
 void ShaderBakerExportPlugin::_end_customize_resources() {
+	// Restore the editor's own capability answers and put the shader defines back
+	// the way the running editor expects them; see the matching block in
+	// _begin_customize_resources().
+	if (RD::get_singleton()->shader_bake_feature_override_is_active()) {
+		RD::get_singleton()->shader_bake_feature_override_clear();
+		ShaderRD::refresh_all_general_defines();
+	}
+
 	if (!_initialize_cache_directory()) {
 		return;
 	}
@@ -280,13 +367,24 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 
 	Ref<Material> material = p_resource;
 	if (material.is_valid()) {
+		// BaseMaterial3D does not build its shader when the material is loaded: it
+		// queues itself onto BaseMaterial3D::dirty_materials and waits for
+		// flush_changes(), which is a SceneTree idle callback
+		// (register_scene_types.cpp). No frame ticks during an export, so without
+		// this a freshly-loaded material has no shader data yet and the lookup
+		// below finds nothing to bake -- silently, since there is no error to
+		// report. Static and idempotent: it drains every queued material at once,
+		// so calling it per material is cheap after the first.
+		// See webgpu_notes/TASKS.md Task 32.
+		BaseMaterial3D::flush_changes();
+
 		RID material_rid = material->get_rid();
 		if (material_rid.is_valid()) {
 			RendererRD::MaterialStorage::ShaderData *shader_data = singleton->material_get_shader_data(material_rid);
 			if (shader_data != nullptr) {
 				Pair<ShaderRD *, RID> shader_version_pair = shader_data->get_native_shader_and_version();
 				if (shader_version_pair.first != nullptr) {
-					_customize_shader_version(shader_version_pair.first, shader_version_pair.second);
+					_customize_shader_version(shader_version_pair.first, shader_version_pair.second, p_path.is_empty() ? String("material (no path)") : p_path);
 				}
 			}
 		}
@@ -356,6 +454,40 @@ Node *ShaderBakerExportPlugin::_customize_scene(Node *p_root, const String &p_pa
 			}
 		}
 
+		// Materials attached to geometry in the scene. Without this they are baked
+		// only when they happen to be standalone resource files -- _customize_resource()
+		// is not called for a material embedded as a sub-resource of a scene, and the
+		// walk above only ever handled Label3D/Sprite3D. A model imported from glTF
+		// keeps its materials inside the imported scene exactly that way, so its
+		// shaders went unbaked and were recompiled from GLSL at load.
+		//
+		// The embedded-material snapshot in _begin_customize_resources() cannot cover
+		// these either: it is taken before any scene is customized, so a material
+		// shader created while loading one comes too late to be in it.
+		//
+		// _customize_resource() ignores a null Ref, so unset slots cost nothing.
+		// See webgpu_notes/TASKS.md Task 31.
+		GeometryInstance3D *geometry_instance = Object::cast_to<GeometryInstance3D>(node);
+		if (geometry_instance != nullptr) {
+			_customize_resource(geometry_instance->get_material_override(), String());
+			_customize_resource(geometry_instance->get_material_overlay(), String());
+		}
+
+		MeshInstance3D *mesh_instance = Object::cast_to<MeshInstance3D>(node);
+		if (mesh_instance != nullptr) {
+			Ref<Mesh> mesh = mesh_instance->get_mesh();
+			if (mesh.is_valid()) {
+				int surface_count = mesh->get_surface_count();
+				for (int i = 0; i < surface_count; i++) {
+					// Both slots matter: the mesh's own material is what ships with the
+					// asset, the override is what the scene set on top of it, and either
+					// can be the one actually drawn.
+					_customize_resource(mesh->surface_get_material(i), String());
+					_customize_resource(mesh_instance->get_surface_override_material(i), String());
+				}
+			}
+		}
+
 		// Visit children.
 		int child_count = node->get_child_count();
 		for (int i = 0; i < child_count; i++) {
@@ -370,15 +502,45 @@ uint64_t ShaderBakerExportPlugin::_get_customization_configuration_hash() const 
 	return customization_configuration_hash;
 }
 
-void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID p_version) {
+void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin) {
+	// Names every version the baker actually enumerates. A missing shader at
+	// runtime prints "Shader cache miss for <name>/<group>/<sha1>" (ShaderRD::
+	// _load_from_cache), so the two logs together say whether a version was never
+	// enumerated or was enumerated under a different key -- which is the
+	// distinction that matters and is invisible from either side alone.
+	if (OS::get_singleton()->is_stdout_verbose()) {
+		print_verbose(vformat("Shader baker: baking '%s' from %s",
+				p_shader->version_get_cache_file_relative_path(p_version, 0, shader_container_driver),
+				p_origin.is_empty() ? String("<unknown>") : p_origin));
+		print_verbose(vformat("  ^ version is: %s", p_shader->version_get_debug_fingerprint(p_version)));
+	}
+
 	const int64_t variant_count = p_shader->get_variant_count();
 	const int64_t group_count = p_shader->get_group_count();
 	LocalVector<ShaderGroupItem> group_items;
 	group_items.resize(group_count);
 
+	// With a target capability override active, an enabled *group* reflects a
+	// choice the *editor's* device made and the target's may differ -- fog.cpp
+	// picks its shader group straight from has_feature() via
+	// _get_fog_shader_group(), so on WebGPU the runtime asks for the no-atomics
+	// group the Vulkan editor never enabled. Baking every group costs some extra
+	// export-time work and removes a whole class of "the target wanted a group the
+	// editor never turned on". Without an override this is exactly the previous
+	// behaviour.
+	//
+	// Groups only, never variants. In the VariantDefine path every variant starts
+	// enabled and `default_enabled` gates the *group*, so a disabled variant is
+	// never a capability inference -- it is always an explicit set_variant_enabled(
+	// ..., false) meaning "do not build this one" (vrs.cpp's XR-off multiview
+	// variants, scene_shader_forward_mobile's FP16/FP32). Baking those anyway
+	// produced 26 "Unable to retrieve SPIR-V data for shader" errors on a real
+	// export.
+	const bool bake_all_groups = RD::get_singleton()->shader_bake_feature_override_is_active();
+
 	RBSet<uint32_t> groups_to_compile;
 	for (int64_t i = 0; i < group_count; i++) {
-		if (!p_shader->is_group_enabled(i)) {
+		if (!bake_all_groups && !p_shader->is_group_enabled(i)) {
 			continue;
 		}
 

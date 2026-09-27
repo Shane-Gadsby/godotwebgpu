@@ -32,8 +32,6 @@
 
 #include "rendering_device_driver_webgpu.h"
 
-#include "core/debugger/engine_debugger.h"
-#include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/hashfuncs.h"
@@ -79,7 +77,7 @@ static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStri
 
 	// Fence was freed while this callback was in flight — clean up.
 	if (fence->freed) {
-		delete fence;
+		memdelete(fence);
 		return;
 	}
 
@@ -148,6 +146,119 @@ static HashMap<uint64_t, String> _spv_to_wgsl_cache;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_cache_hits = 0;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_cache_misses = 0;
 [[maybe_unused]] static uint32_t _spv_to_wgsl_precompiled_hits = 0;
+// Stages that came straight from the shader container's export-time-baked WGSL,
+// i.e. the ones export-time baking actually paid for. Counted separately from
+// the three above because that path never reaches _spv_to_wgsl_cached() at all.
+[[maybe_unused]] static uint32_t _wgsl_baked_container_hits = 0;
+// Stages re-converted at runtime because a specialization constant had to be
+// patched into the SPIR-V itself (spec_constants_overridable() rejected the
+// shader). Counted apart from _spv_to_wgsl_cache_misses because it is NOT a
+// baking gap: the patched bytes differ per spec-constant combination and the
+// values aren't known until pipeline creation, so export-time baking could not
+// have covered them even in principle. Conflating the two makes a working build
+// look broken -- see _publish_shader_stats().
+[[maybe_unused]] static uint32_t _spv_to_wgsl_spec_reconvert_hits = 0;
+// Distinct shader names behind `translated`, with an occurrence count each, so
+// a gap can be named from the devtools console instead of only counted. Bounded:
+// a project that creates shaders at runtime in a loop must not turn a diagnostic
+// into a leak, and past the cap the count still rises even though no new name is
+// recorded. Keyed by name, so repeated stages of one shader collapse to one row.
+static constexpr uint32_t TRANSLATED_NAME_CAP = 128;
+static HashMap<String, uint32_t> _translated_stage_names;
+
+// Startup cost accounting for shader_create_from_container(), published alongside
+// the tallies below. Subtask 1 of Task 14 measured `Servers:Rendering` at ~510 ms
+// on every project, empty scenes included, while all 363 createShaderModule calls
+// together came to 22 ms -- so most of that half second is CPU on this side of the
+// WebGPU API, and this says how much of it is this driver rather than ShaderRD's
+// file reads and the container's zstd decompression. Accumulated, not per-call:
+// one number for the whole load is what the question needs.
+static double _container_create_ms = 0.0;
+static uint32_t _container_create_calls = 0;
+// Of that total, the per-stage WGSL inspection and rewriting loop, which is the
+// part that reads and rebuilds shader text (a fragment stage can be 200K chars)
+// as opposed to the bind-group-layout construction that follows it.
+static double _container_stage_loop_ms = 0.0;
+
+// Scope guard, because shader_create_from_container() has many early-return error
+// paths and a missed one would silently under-report.
+struct _ContainerCreateTimer {
+	uint64_t from = 0;
+	_ContainerCreateTimer() { from = OS::get_singleton()->get_ticks_usec(); }
+	~_ContainerCreateTimer() {
+		_container_create_ms += double(OS::get_singleton()->get_ticks_usec() - from) / 1000.0;
+		_container_create_calls++;
+	}
+};
+
+// Publishes the running shader-translation tally to `window`, so it can be read
+// from the browser devtools console at any time without a rebuild:
+//
+//     godotWebGPUShaderStats
+//     // { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37 }
+//
+// `translated` is the number that matters: it counts stages this driver had to
+// run Tint on at load time *that export-time baking should have covered*, which
+// is exactly what baking exists to drive to zero. A non-zero value names a real
+// gap; zero means every shader arrived ready and any remaining startup cost is
+// the browser's own WGSL -> pipeline compilation, which no amount of baking on
+// our side removes.
+//
+// `specialized` is deliberately NOT part of `translated`, though both run Tint
+// at load time. It counts re-conversions forced by a specialization constant
+// being patched into the SPIR-V (the legacy path taken only when
+// spec_constants_overridable() rejects a shader). Those bytes are produced at
+// pipeline-creation time from values the exporter never saw, so no amount of
+// baking can pre-cover them -- only widening the override path reduces this
+// number. They were counted together until a real build reported translated=37,
+// which was indistinguishable from a baking failure; splitting them showed that
+// build's 37 were in fact all genuine gaps (specialized came back 0), so the
+// split is what made the real problem legible rather than explaining it away.
+//
+// `translatedShaders` lists the distinct shader names behind `translated`, with
+// an occurrence count each. A bare number says a gap exists; this says which
+// shader, which is what actually lets it be fixed. The verbose log carries the
+// same information, but a web export has no convenient --verbose, so it has to
+// be readable from the console.
+//
+// Deliberately not behind WEBGPU_VERBOSE: the point is to be answerable on a
+// stock build, and it costs one small EM_ASM store per shader stage created
+// (not per frame).
+static void _publish_shader_stats() {
+	// Newline-joined "<name> x<count>" records, split back into an array on the
+	// JS side. A joined string keeps this to a single extra EM_ASM argument;
+	// building a JS array element by element from C++ would mean one EM_ASM call
+	// per name. Newline is the separator because a shader name can plausibly
+	// contain a comma or a space but not a line break.
+	String joined;
+	for (const KeyValue<String, uint32_t> &kv : _translated_stage_names) {
+		if (!joined.is_empty()) {
+			joined += "\n";
+		}
+		joined += vformat("%s x%d", kv.key, kv.value);
+	}
+	CharString joined_utf8 = joined.utf8();
+
+	// Built field by field rather than as one object literal: EM_ASM stringifies
+	// its first macro argument, so a comma anywhere at the top level of the body
+	// is a macro argument separator and the rest gets compiled as C++ instead.
+	// String.fromCharCode(10) rather than a '\n' literal for the same reason the
+	// body avoids commas: it keeps the stringified body free of escapes whose
+	// survival through the preprocessor would have to be reasoned about.
+	EM_ASM({
+		var stats = {};
+		stats.baked = $0;
+		stats.precompiled = $1;
+		stats.cached = $2;
+		stats.translated = $3;
+		stats.specialized = $4;
+		var names = UTF8ToString($5);
+		stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : [];
+		stats.containerCreateMs = $6;
+		stats.containerCreateCalls = $7;
+		stats.containerStageLoopMs = $8;
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data(), _container_create_ms, _container_create_calls, _container_stage_loop_ms);
+}
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
 // this event to know a synchronous Tint compile just ran on the main thread, since
@@ -193,7 +304,15 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 
 // Returns a malloc'd null-terminated WGSL string (caller must free), or nullptr on
 // failure. Checks: (1) in-memory cache, (2) precompiled table, (3) Tint fallback.
-static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
+//
+// p_spec_reconvert marks the caller as _create_module_with_spec_constants(), whose
+// SPIR-V was patched with specialization values at pipeline-creation time. Such a
+// miss is expected and unavoidable, so it's tallied separately and logged
+// differently from a stage the export bake simply failed to cover.
+// p_debug_name is the owning shader's name where the caller knows it (the
+// container path does; the spec path does not), purely so a real gap can be
+// identified instead of just counted.
+static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size, bool p_spec_reconvert = false, const String &p_debug_name = String()) {
 	uint32_t hash_lo = hash_murmur3_buffer(p_spv_ptr, p_spv_size);
 	uint32_t hash_hi = hash_murmur3_buffer(p_spv_ptr, p_spv_size, 0x9E3779B9);
 	uint64_t spv_hash = ((uint64_t)hash_hi << 32) | hash_lo;
@@ -202,6 +321,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	const String *cached = _spv_to_wgsl_cache.getptr(spv_hash);
 	if (cached) {
 		_spv_to_wgsl_cache_hits++;
+		_publish_shader_stats();
 		CharString cs = cached->utf8();
 		size_t len = (size_t)cs.length() + 1;
 		char *out = (char *)malloc(len);
@@ -216,6 +336,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	const char *precompiled = _lookup_precompiled_wgsl(spv_hash);
 	if (precompiled) {
 		_spv_to_wgsl_precompiled_hits++;
+		_publish_shader_stats();
 		WEBGPU_DIAG({
 			if ($0 <= 5 || ($0 % 50) === 0) {
 				console.log('[SHADER] Precompiled WGSL hit #' + $0);
@@ -231,7 +352,33 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size) {
 	}
 
 	// 3. Fall back to Tint (for specialized shaders and shaders not in the table).
-	_spv_to_wgsl_cache_misses++;
+	if (p_spec_reconvert) {
+		_spv_to_wgsl_spec_reconvert_hits++;
+	} else {
+		_spv_to_wgsl_cache_misses++;
+		String name = p_debug_name.is_empty() ? String("<unnamed>") : p_debug_name;
+		if (uint32_t *existing = _translated_stage_names.getptr(name)) {
+			(*existing)++;
+		} else if (_translated_stage_names.size() < TRANSLATED_NAME_CAP) {
+			_translated_stage_names[name] = 1;
+		}
+	}
+	_publish_shader_stats();
+	// The one event worth a log line of its own: a stage that neither the
+	// export-time bake nor the build-time table covered, translated on the main
+	// thread while the player waits. Rare by design -- if these are frequent,
+	// either shader_baker/enabled is off for this export or something is
+	// stopping the bake from covering this shader. The spec-constant variant is
+	// worded differently on purpose: it is expected, and chasing it as a baking
+	// bug is a dead end (see _publish_shader_stats()).
+	if (p_spec_reconvert) {
+		print_verbose(vformat("WebGPU: re-translating a shader stage at runtime for patched specialization constants (expected; not a baking gap). Totals so far: baked=%d precompiled=%d cached=%d translated=%d specialized=%d.",
+				_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits));
+	} else {
+		print_verbose(vformat("WebGPU: translating shader stage '%s' at runtime (no baked or precompiled WGSL). Totals so far: baked=%d precompiled=%d cached=%d translated=%d specialized=%d.",
+				p_debug_name.is_empty() ? String("<unnamed>") : p_debug_name,
+				_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits));
+	}
 
 	char *wgsl_str = _translate_spirv_to_wgsl(p_spv_ptr, p_spv_size);
 
@@ -1270,6 +1417,17 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 		print_verbose("WebGPU: texture-formats-tier1 feature is available — r8/rg8 storage formats supported natively.");
 	}
 
+	// texture-formats-tier2: adds rgb10a2unorm, rgb10a2uint and rg11b10ufloat as
+	// storage-texel formats. Without it those three are promoted (see
+	// _promote_storage_format() and the WGSL remap that must match it), which is
+	// what keeps the Octmap shaders working on Firefox.
+	has_texture_formats_tier2 = wgpuDeviceHasFeature(device, WGPUFeatureName_TextureFormatsTier2);
+	if (has_texture_formats_tier2) {
+		print_verbose("WebGPU: texture-formats-tier2 feature is available — rgb10a2/rg11b10 storage formats supported natively.");
+	} else {
+		print_verbose("WebGPU: texture-formats-tier2 NOT available — rgb10a2/rg11b10 storage textures will be promoted to rgba16.");
+	}
+
 	// readonly-and-readwrite-storage-textures: allows read and read_write access
 	// modes on storage textures. Without this, only write-only is valid.
 	has_rw_storage_textures = (bool)EM_ASM_INT({
@@ -1320,7 +1478,7 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 // =============================================================================
 
 RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
-	WGBuffer *buf = new WGBuffer();
+	WGBuffer *buf = memnew(WGBuffer());
 
 	// WebGPU buffer sizes must be a multiple of 4.
 	uint64_t aligned_size = (p_size + 3) & ~3ULL;
@@ -1373,7 +1531,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitFie
 
 	buf->handle = wgpuDeviceCreateBuffer(device, &desc);
 	if (buf->handle == nullptr) {
-		delete buf;
+		memdelete(buf);
 		ERR_FAIL_V(BufferID());
 	}
 
@@ -1381,7 +1539,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create(uint64_t p_size, BitFie
 }
 
 RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create_with_data(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, const uint8_t *p_data, uint64_t p_data_size) {
-	WGBuffer *buf = new WGBuffer();
+	WGBuffer *buf = memnew(WGBuffer());
 
 	uint64_t aligned_size = (p_size + 3) & ~3ULL;
 
@@ -1396,7 +1554,7 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create_with_data(uint64_t p_si
 
 	buf->handle = wgpuDeviceCreateBuffer(device, &desc);
 	if (buf->handle == nullptr) {
-		delete buf;
+		memdelete(buf);
 		ERR_FAIL_V(BufferID());
 	}
 
@@ -1455,7 +1613,7 @@ void RenderingDeviceDriverWebGPU::buffer_free(BufferID p_buffer) {
 	if (buf->shadow_map) {
 		memfree(buf->shadow_map);
 	}
-	delete buf;
+	memdelete(buf);
 }
 
 uint64_t RenderingDeviceDriverWebGPU::buffer_get_allocation_size(BufferID p_buffer) {
@@ -1485,7 +1643,7 @@ static void _buffer_deferred_map_cb(WGPUMapAsyncStatus p_status, WGPUStringView 
 		if (buf->shadow_map) {
 			memfree(buf->shadow_map);
 		}
-		delete buf;
+		memdelete(buf);
 		return;
 	}
 
@@ -2067,7 +2225,7 @@ static WGPUTextureFormat _get_srgb_view_format(WGPUTextureFormat p_format) {
 }
 
 RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 
 	tex->format = _data_format_to_wgpu(p_format.format);
 	tex->rd_format = p_format.format;
@@ -2157,7 +2315,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 
 	tex->handle = wgpuDeviceCreateTexture(device, &desc);
 	if (tex->handle == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V(TextureID());
 	}
 	tex->view_source = tex->handle; // Always the owning WGPUTexture; inherited by shared/sliced textures.
@@ -2176,7 +2334,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 	tex->default_view = wgpuTextureCreateView(tex->handle, &view_desc);
 	if (tex->default_view == nullptr) {
 		wgpuTextureRelease(tex->handle);
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for default view.");
 	}
 
@@ -2209,7 +2367,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
 
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig; // Copy base properties.
 
 	// Create a new view with potentially different format.
@@ -2247,12 +2405,12 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 
 	// view_source was already inherited from orig via *tex = *orig.
 	if (tex->view_source == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: texture_create_shared: original texture has no GPU handle (view_source is null).");
 	}
 	tex->default_view = wgpuTextureCreateView(tex->view_source, &view_desc);
 	if (tex->default_view == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for shared texture view.");
 	}
 	tex->handle = nullptr; // Shared texture does not own the WGPUTexture.
@@ -2264,7 +2422,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
 
-	WGTexture *tex = new WGTexture();
+	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig;
 
 	WGPUTextureViewDescriptor view_desc = {};
@@ -2331,7 +2489,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 
 	// view_source was already inherited from orig via *tex = *orig.
 	if (tex->view_source == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: texture_create_shared_from_slice: original texture has no GPU handle (view_source is null).");
 	}
 
@@ -2344,7 +2502,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(Tex
 
 	tex->default_view = wgpuTextureCreateView(tex->view_source, &view_desc);
 	if (tex->default_view == nullptr) {
-		delete tex;
+		memdelete(tex);
 		ERR_FAIL_V_MSG(TextureID(), "WebGPU: wgpuTextureCreateView failed for sliced texture view.");
 	}
 	tex->handle = nullptr;
@@ -2431,7 +2589,7 @@ void RenderingDeviceDriverWebGPU::texture_free(TextureID p_texture) {
 	if (tex->handle && !tex->is_from_swap_chain) {
 		wgpuTextureRelease(tex->handle);
 	}
-	delete tex;
+	memdelete(tex);
 }
 
 uint64_t RenderingDeviceDriverWebGPU::texture_get_allocation_size(TextureID p_texture) {
@@ -3044,6 +3202,28 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_promote_storage_format(WGPUTextu
 				return p_format;
 			}
 			return WGPUTextureFormat_RG32Sint;
+		// Packed 10/11-bit formats: valid storage-texel formats only with
+		// texture-formats-tier2, which Chrome exposes and Firefox does not. Promoted
+		// to rgba16 rather than rgba8 so the extra precision these formats exist for
+		// survives -- an octahedral radiance/normal atlas quantised to 8 bits per
+		// channel bands visibly. The WGSL remap below promotes the matching
+		// texture_storage_* declarations to exactly these formats; the two must agree
+		// or the bind group fails validation. See Task 41.
+		case WGPUTextureFormat_RGB10A2Unorm:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Float;
+		case WGPUTextureFormat_RGB10A2Uint:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Uint;
+		case WGPUTextureFormat_RG11B10Ufloat:
+			if (has_texture_formats_tier2) {
+				return p_format;
+			}
+			return WGPUTextureFormat_RGBA16Float;
 		// 16-bit formats: always promote. Shaders reference the 32-bit version
 		// and there is no matching WGSL replacement for these.
 		case WGPUTextureFormat_R16Float:
@@ -3234,6 +3414,10 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 	WGPUSampler sampler = wgpuDeviceCreateSampler(device, &desc);
 	ERR_FAIL_COND_V(sampler == nullptr, SamplerID());
 
+	if (desc.magFilter == WGPUFilterMode_Linear || desc.minFilter == WGPUFilterMode_Linear) {
+		linear_filtering_samplers.insert((uint64_t)sampler);
+	}
+
 	// Store the WGPUSampler handle directly as the ID (no wrapper struct needed).
 	return SamplerID((uint64_t)sampler);
 }
@@ -3241,6 +3425,7 @@ RDD::SamplerID RenderingDeviceDriverWebGPU::sampler_create(const SamplerState &p
 void RenderingDeviceDriverWebGPU::sampler_free(SamplerID p_sampler) {
 	WGPUSampler sampler = (WGPUSampler)(p_sampler.id);
 	if (sampler) {
+		linear_filtering_samplers.erase((uint64_t)sampler);
 		wgpuSamplerRelease(sampler);
 	}
 }
@@ -3294,7 +3479,7 @@ bool RenderingDeviceDriverWebGPU::sampler_is_format_supported_for_filter(DataFor
 // =============================================================================
 
 RDD::VertexFormatID RenderingDeviceDriverWebGPU::vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) {
-	WGVertexFormat *vf = new WGVertexFormat();
+	WGVertexFormat *vf = memnew(WGVertexFormat());
 
 	// Build attribute list.
 	for (uint32_t i = 0; i < p_vertex_attribs.size(); i++) {
@@ -3344,7 +3529,7 @@ RDD::VertexFormatID RenderingDeviceDriverWebGPU::vertex_format_create(Span<Verte
 
 void RenderingDeviceDriverWebGPU::vertex_format_free(VertexFormatID p_vertex_format) {
 	WGVertexFormat *vf = (WGVertexFormat *)(p_vertex_format.id);
-	delete vf;
+	memdelete(vf);
 }
 
 // =============================================================================
@@ -3428,7 +3613,7 @@ void RenderingDeviceDriverWebGPU::command_trace_rays(CommandBufferID p_cmd_buffe
 // =============================================================================
 
 RDD::FenceID RenderingDeviceDriverWebGPU::fence_create() {
-	WGFence *fence = new WGFence();
+	WGFence *fence = memnew(WGFence());
 	return FenceID(fence);
 }
 
@@ -3472,7 +3657,7 @@ void RenderingDeviceDriverWebGPU::fence_free(FenceID p_fence) {
 		return;
 	}
 
-	delete fence;
+	memdelete(fence);
 }
 
 // =============================================================================
@@ -3480,13 +3665,13 @@ void RenderingDeviceDriverWebGPU::fence_free(FenceID p_fence) {
 // =============================================================================
 
 RDD::SemaphoreID RenderingDeviceDriverWebGPU::semaphore_create() {
-	WGSemaphore *sem = new WGSemaphore();
+	WGSemaphore *sem = memnew(WGSemaphore());
 	return SemaphoreID(sem);
 }
 
 void RenderingDeviceDriverWebGPU::semaphore_free(SemaphoreID p_semaphore) {
 	WGSemaphore *sem = (WGSemaphore *)(p_semaphore.id);
-	delete sem;
+	memdelete(sem);
 }
 
 // =============================================================================
@@ -3498,7 +3683,7 @@ RDD::CommandQueueFamilyID RenderingDeviceDriverWebGPU::command_queue_family_get(
 }
 
 RDD::CommandQueueID RenderingDeviceDriverWebGPU::command_queue_create(CommandQueueFamilyID p_cmd_queue_family, bool p_identify_as_main_queue) {
-	WGCommandQueue *cq = new WGCommandQueue();
+	WGCommandQueue *cq = memnew(WGCommandQueue());
 	cq->queue = queue; // Share the single device queue.
 	return CommandQueueID(cq);
 }
@@ -3626,7 +3811,14 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 				}
 			}
 			cmd->written_query_pools.clear();
-			cmd->finished_buffer = nullptr;
+			// The queue holds its own reference until the work completes, so
+			// dropping ours here is safe -- and required: every other submit
+			// path in this file releases the finished buffer, and skipping it
+			// here leaked one Dawn command buffer object per frame.
+			if (cmd->finished_buffer) {
+				wgpuCommandBufferRelease(cmd->finished_buffer);
+				cmd->finished_buffer = nullptr;
+			}
 		}
 	}
 
@@ -3635,11 +3827,11 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 
 void RenderingDeviceDriverWebGPU::command_queue_free(CommandQueueID p_cmd_queue) {
 	WGCommandQueue *cq = (WGCommandQueue *)(p_cmd_queue.id);
-	delete cq;
+	memdelete(cq);
 }
 
 RDD::CommandPoolID RenderingDeviceDriverWebGPU::command_pool_create(CommandQueueFamilyID p_cmd_queue_family, CommandBufferType p_cmd_buffer_type) {
-	WGCommandPool *pool = new WGCommandPool();
+	WGCommandPool *pool = memnew(WGCommandPool());
 	pool->buffer_type = p_cmd_buffer_type;
 	return CommandPoolID(pool);
 }
@@ -3651,11 +3843,36 @@ bool RenderingDeviceDriverWebGPU::command_pool_reset(CommandPoolID p_cmd_pool) {
 
 void RenderingDeviceDriverWebGPU::command_pool_free(CommandPoolID p_cmd_pool) {
 	WGCommandPool *pool = (WGCommandPool *)(p_cmd_pool.id);
-	delete pool;
+	for (WGCommandBuffer *cmd : pool->command_buffers_created) {
+		// Release, don't end: ending a pass encoder whose parent command encoder
+		// was already finished is a validation error, and the encoder is being
+		// destroyed here regardless.
+		if (cmd->render_encoder) {
+			wgpuRenderPassEncoderRelease(cmd->render_encoder);
+			cmd->render_encoder = nullptr;
+		}
+		if (cmd->compute_encoder) {
+			wgpuComputePassEncoderRelease(cmd->compute_encoder);
+			cmd->compute_encoder = nullptr;
+		}
+		if (cmd->finished_buffer) {
+			wgpuCommandBufferRelease(cmd->finished_buffer);
+			cmd->finished_buffer = nullptr;
+		}
+		if (cmd->encoder) {
+			wgpuCommandEncoderRelease(cmd->encoder);
+			cmd->encoder = nullptr;
+		}
+		memdelete(cmd);
+	}
+	memdelete(pool);
 }
 
 RDD::CommandBufferID RenderingDeviceDriverWebGPU::command_buffer_create(CommandPoolID p_cmd_pool) {
-	WGCommandBuffer *cmd = new WGCommandBuffer();
+	WGCommandPool *pool = (WGCommandPool *)(p_cmd_pool.id);
+	ERR_FAIL_NULL_V(pool, CommandBufferID());
+	WGCommandBuffer *cmd = memnew(WGCommandBuffer());
+	pool->command_buffers_created.push_back(cmd);
 	return CommandBufferID(cmd);
 }
 
@@ -3745,7 +3962,7 @@ void RenderingDeviceDriverWebGPU::command_buffer_execute_secondary(CommandBuffer
 // =============================================================================
 
 RDD::SwapChainID RenderingDeviceDriverWebGPU::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {
-	WGSwapChain *sc = new WGSwapChain();
+	WGSwapChain *sc = memnew(WGSwapChain());
 	sc->surface = context_driver->surface_get_handle(p_surface);
 	sc->surface_id = p_surface;
 	sc->format = WGPUTextureFormat_BGRA8Unorm; // Fallback if capabilities can't be queried.
@@ -3768,7 +3985,7 @@ RDD::SwapChainID RenderingDeviceDriverWebGPU::swap_chain_create(RenderingContext
 
 	// Create a render pass descriptor for this swap chain.
 	// Used by swap_chain_get_render_pass() so the RD layer can create compatible pipelines.
-	WGRenderPass *rp = new WGRenderPass();
+	WGRenderPass *rp = memnew(WGRenderPass());
 	RDD::Attachment att;
 	att.format = _wgpu_to_data_format(sc->format);
 	att.samples = TEXTURE_SAMPLES_1;
@@ -3843,7 +4060,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::swap_chain_acquire_framebuffer(C
 
 	// Release resources from the previous frame.
 	if (sc->current_framebuffer) {
-		delete sc->current_framebuffer;
+		memdelete(sc->current_framebuffer);
 		sc->current_framebuffer = nullptr;
 	}
 	if (sc->current_view) {
@@ -3915,7 +4132,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::swap_chain_acquire_framebuffer(C
 
 	// Wrap in a WGFramebuffer. The WGTexture pointer is null since we manage
 	// the texture lifetime through the swap chain, not the framebuffer.
-	WGFramebuffer *fb = new WGFramebuffer();
+	WGFramebuffer *fb = memnew(WGFramebuffer());
 	fb->render_pass = sc->render_pass;
 	fb->width = sc->width;
 	fb->height = sc->height;
@@ -3952,7 +4169,7 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 	WGSwapChain *sc = (WGSwapChain *)(p_swap_chain.id);
 	ERR_FAIL_NULL(sc);
 	if (sc->current_framebuffer) {
-		delete sc->current_framebuffer;
+		memdelete(sc->current_framebuffer);
 	}
 	if (sc->current_view) {
 		wgpuTextureViewRelease(sc->current_view);
@@ -3961,12 +4178,12 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 		wgpuTextureRelease(sc->current_texture);
 	}
 	if (sc->render_pass) {
-		delete sc->render_pass;
+		memdelete(sc->render_pass);
 	}
 	if (sc->surface && sc->configured) {
 		wgpuSurfaceUnconfigure(sc->surface);
 	}
-	delete sc;
+	memdelete(sc);
 }
 
 // =============================================================================
@@ -3974,7 +4191,7 @@ void RenderingDeviceDriverWebGPU::swap_chain_free(SwapChainID p_swap_chain) {
 // =============================================================================
 
 RDD::FramebufferID RenderingDeviceDriverWebGPU::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
-	WGFramebuffer *fb = new WGFramebuffer();
+	WGFramebuffer *fb = memnew(WGFramebuffer());
 	fb->render_pass = (WGRenderPass *)(p_render_pass.id);
 	fb->width = p_width;
 	fb->height = p_height;
@@ -3990,7 +4207,7 @@ RDD::FramebufferID RenderingDeviceDriverWebGPU::framebuffer_create(RenderPassID 
 
 void RenderingDeviceDriverWebGPU::framebuffer_free(FramebufferID p_framebuffer) {
 	WGFramebuffer *fb = (WGFramebuffer *)(p_framebuffer.id);
-	delete fb;
+	memdelete(fb);
 }
 
 // =============================================================================
@@ -4352,6 +4569,47 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 			if (has_dilated_in_name) {
 				continue;
 			}
+
+			// The scene shaders' own `depth_buffer` is the fifth false-positive
+			// shape, and the one that broke the three 3D demo scenes (Task 44):
+			// a *copy* of depth in a colour format, not a depth attachment.
+			// `scene_forward_clustered_inc.glsl:440` / `scene_forward_mobile_inc.glsl:397`
+			// declare `layout(set = 1, binding = 24/9) uniform texture2D depth_buffer`,
+			// which user material code reads through Godot's `DEPTH_TEXTURE`
+			// (proximity fade and refraction, `scene/resources/material.cpp:1805`/`:1834`,
+			// both `textureLod(depth_texture, ..., 0.0).r`) -- single-component, named
+			// "depth", so structurally indistinguishable from Bokeh DOF's genuinely
+			// depth-format `source_depth` that this pass exists for. What the engine
+			// binds there is `RB_TEX_BACK_DEPTH` (`renderer_scene_render_rd.cpp:418`),
+			// created `R32_SFLOAT` with `COLOR_ATTACHMENT_BIT | STORAGE_BIT` because a
+			// copy pass renders into it -- upstream's own comment says "Set this as
+			// color attachment because we're copying data into it, it's not actually
+			// used as a depth buffer". Reclassifying it makes the BGL entry
+			// `sampleType: Depth` while a colour `R32Float` is bound, which Dawn
+			// rejects outright:
+			//   None of the supported sample types (Float|UnfilterableFloat) of
+			//   [Texture 1152x648 R32Float] match the expected sample types (Depth).
+			// The binding is polymorphic on top of that (`render_forward_clustered.cpp`
+			// binds `DEFAULT_RD_TEXTURE_DEPTH` when the copy does not exist), so no
+			// single sample type can serve both -- and `Float` is the one that serves
+			// the case that actually renders. Left un-reclassified the WGSL keeps
+			// `texture_2d<f32>` plus the `.x` swizzle, which is exactly right for the
+			// R32Float copy; the fallback path only engages in the rarer
+			// default-texture case, where there is no depth copy to read anyway.
+			//
+			// Gated on group 1 -- the scene shaders' render-buffers set, whose binding
+			// names are fixed by engine GLSL -- so the two *other* `depth_buffer`
+			// bindings in this engine are untouched: `taa_resolve.glsl:47` (set 0,
+			// genuinely fed the real depth texture by `taa.cpp`, and audited in
+			// Task 7.13 as a binding this pass *should* rewrite) and
+			// `cluster_debug.glsl:65` (set 0). A user material uniform that happened
+			// to be named `depth_buffer` lands in group 3, also untouched.
+			if (name_len == 12 && strncmp(name, "depth_buffer", 12) == 0) {
+				unsigned int grp = 0, bnd = 0;
+				if (_find_preceding_group_binding(wgsl, c.name_start, grp, bnd) && grp == 1) {
+					continue;
+				}
+			}
 		}
 
 		bool disqualified = false;
@@ -4586,6 +4844,24 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 		memcpy(r_wgsl_str, cs.get_data(), cs.length() + 1);
 	}
 
+	// Without texture-formats-tier2, rgb10a2unorm/rgb10a2uint/rg11b10ufloat are not
+	// valid storage-texel formats. Firefox reports this as
+	// "WriteOnly access to storage textures with format Rgb10a2Unorm is not
+	// supported", which invalidates the bind group layout, then the pipeline layout,
+	// and the Octmap shaders never run. Promote to the same targets
+	// _promote_storage_format() uses for the texture itself -- the two must agree.
+	if (!has_texture_formats_tier2 &&
+			(strstr(r_wgsl_str, "rgb10a2") || strstr(r_wgsl_str, "rg11b10"))) {
+		String ws(r_wgsl_str);
+		ws = ws.replace("rgb10a2unorm", "rgba16float");
+		ws = ws.replace("rgb10a2uint", "rgba16uint");
+		ws = ws.replace("rg11b10ufloat", "rgba16float");
+		free(r_wgsl_str);
+		CharString cs = ws.utf8();
+		r_wgsl_str = (char *)malloc(cs.length() + 1);
+		memcpy(r_wgsl_str, cs.get_data(), cs.length() + 1);
+	}
+
 	// If texture-formats-tier1 is not available, remap 16-bit SNORM/UNORM storage
 	// texture format names to their float equivalents in the WGSL text.
 	// Uses String::replace() (not fixed-length memcpy) so a future Tint WGSL-writer
@@ -4645,6 +4921,7 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 }
 
 RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
+	_ContainerCreateTimer _create_timer;
 	ERR_FAIL_COND_V(p_shader_container.is_null(), ShaderID());
 
 	Ref<RenderingShaderContainerWebGPU> wg_container = p_shader_container;
@@ -4652,7 +4929,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 	RenderingDeviceCommons::ShaderReflection shader_refl = p_shader_container->get_shader_reflection();
 
-	WGShader *shader = new WGShader();
+	WGShader *shader = memnew(WGShader());
 	shader->name = String(p_shader_container->shader_name.ptr());
 	shader->push_constant_bind_group = wg_container->get_push_constant_bind_group();
 	shader->push_constant_binding = wg_container->get_push_constant_binding();
@@ -4734,6 +5011,11 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// See webgpu_notes/TASKS.md Task 8.8.
 	HashMap<uint32_t, bool> wgsl_sampler_needs_nonfiltering;
 
+	// Same key as above. Bit 1: the sampler is used with a depth texture, bit 2: with any other texture. A sampler
+	// with both bits set is forced to a nearest sampler at bind time (see uniform_set_create()), which silently
+	// point-samples every non-depth read through it.
+	HashMap<uint32_t, uint8_t> sampler_depth_use_shared_check;
+
 	// Maps (set_index << 16 | binding) → WGPUShaderStage bitmask of stages that actually
 	// declare this binding in their WGSL. Each SPIR-V stage is translated to WGSL
 	// independently, so a @group/@binding only shows up in a given stage's WGSL text if
@@ -4756,7 +5038,15 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 	// --- Create one WGPUShaderModule per stage ---
 	bool detected_override_declarations = false;
+	// Set when some stage declares specialization constants that were frozen to
+	// their defaults instead of surviving as WGSL overrides (see
+	// spirv_preprocess::spec_constants_overridable()). Passing pipeline
+	// constants would then silently leave that stage at its defaults while the
+	// other stages got the real values, so the whole shader falls back to the
+	// legacy specialize-by-re-patching path.
+	bool any_stage_froze_spec_constants = false;
 	Vector<RenderingShaderContainer::Shader> &stage_shaders = p_shader_container->shaders;
+	const uint64_t _stage_loop_from = OS::get_singleton()->get_ticks_usec();
 	for (int i = 0; i < stage_shaders.size(); i++) {
 		const RenderingShaderContainer::Shader &s = stage_shaders[i];
 
@@ -4817,8 +5107,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			size_t baked_len = strlen(baked_wgsl) + 1;
 			wgsl_str = (char *)malloc(baked_len);
 			memcpy(wgsl_str, baked_wgsl, baked_len);
+			_wgsl_baked_container_hits++;
+			_publish_shader_stats();
 		} else {
-			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size());
+			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size(), false, shader->name);
 		}
 
 		if (wgsl_str == nullptr) {
@@ -5524,6 +5816,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					uint32_t tex_key = wgsl_var_binding_key[tex_name];
 					if (wgsl_is_depth_texture.has(tex_key) && wgsl_is_depth_texture[tex_key]) {
 						wgsl_sampler_needs_nonfiltering[wgsl_var_binding_key[samp_name]] = true;
+						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 1;
+					} else {
+						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 2;
 					}
 				}
 			}
@@ -5731,6 +6026,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// body (beyond the declaration line). Safari's WebGPU WGSL→MSL compiler
 		// crashes when pipeline constants are passed for unreferenced overrides.
 		{
+			bool stage_has_override_decls = false;
 			const char *scan = wgsl_str;
 			while ((scan = strstr(scan, "@id(")) != nullptr) {
 				scan += 4; // skip "@id("
@@ -5743,6 +6039,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				}
 				if (has_digits && *scan == ')') {
 					detected_override_declarations = true;
+					stage_has_override_decls = true;
 					// Extract variable name: skip ") override " then read name up to ":".
 					const char *p = scan + 1; // skip ')'
 					while (*p == ' ' || *p == '\t' || *p == '\n') {
@@ -5798,6 +6095,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					}
 				}
 			}
+			if (!stage_has_override_decls && spirv_preprocess::has_spec_constants(spv_bytes)) {
+				any_stage_froze_spec_constants = true;
+			}
 		}
 
 		free(wgsl_str); // Free the EM_ASM-allocated string.
@@ -5815,9 +6115,13 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		}
 	}
 
-	shader->has_override_declarations = detected_override_declarations;
-	if (detected_override_declarations) {
+	_container_stage_loop_ms += double(OS::get_singleton()->get_ticks_usec() - _stage_loop_from) / 1000.0;
+
+	shader->has_override_declarations = detected_override_declarations && !any_stage_froze_spec_constants;
+	if (shader->has_override_declarations) {
 		print_verbose(vformat("WebGPU: shader '%s' has override declarations — will use pipeline constants for specialization.", shader->name));
+	} else if (detected_override_declarations) {
+		print_verbose(vformat("WebGPU: shader '%s' has override declarations in some stages but not all stages that need them — using the legacy specialization path.", shader->name));
 	}
 
 	if (!error_text.is_empty()) {
@@ -5909,6 +6213,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						entry.sampler.type = resolve_sampler_type(k);
 						bge.layout_entry = entry;
 						bge.array_length = 1;
+						bge.sampler_shared_with_non_depth = sampler_depth_use_shared_check.has(k) && sampler_depth_use_shared_check[k] == 3;
 					} break;
 
 					case RDD::UNIFORM_TYPE_TEXTURE:
@@ -6435,7 +6740,7 @@ cleanup:
 	if (shader->merged_pc_group_layout) {
 		wgpuBindGroupLayoutRelease(shader->merged_pc_group_layout);
 	}
-	delete shader;
+	memdelete(shader);
 	ERR_FAIL_V_MSG(ShaderID(), error_text);
 }
 
@@ -6468,7 +6773,7 @@ void RenderingDeviceDriverWebGPU::shader_free(ShaderID p_shader) {
 	if (shader->merged_pc_group_layout) {
 		wgpuBindGroupLayoutRelease(shader->merged_pc_group_layout);
 	}
-	delete shader;
+	memdelete(shader);
 }
 
 void RenderingDeviceDriverWebGPU::shader_destroy_modules(ShaderID p_shader) {
@@ -6577,7 +6882,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 	entries.reserve(p_uniforms.size() * 2);
 
 	// Allocate the uniform set early so texture handlers can store temp views.
-	WGUniformSet *us = new WGUniformSet();
+	WGUniformSet *us = memnew(WGUniformSet());
 	us->set_index = p_set_index;
 
 	// Track WGPUBuffer handles that have already been bound as STORAGE_BUFFER in this set.
@@ -6612,6 +6917,9 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						for (const auto &bge : shader->bind_group_infos[p_set_index].entries) {
 							if (bge.layout_entry.binding == entry.binding &&
 									bge.layout_entry.sampler.type == WGPUSamplerBindingType_NonFiltering) {
+								if (bge.sampler_shared_with_non_depth && linear_filtering_samplers.has((uint64_t)entry.sampler)) {
+									WARN_PRINT_ONCE(vformat("WebGPU: linear sampler at set %d binding %d is shared by a depth texture and a filterable texture, so every read through it is point-sampled. Give the depth reads their own nearest sampler in the shader.", (int)p_set_index, (int)uniform.binding));
+								}
 								entry.sampler = dummy_nonfiltering_sampler;
 								break;
 							}
@@ -7172,7 +7480,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 	WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
 	if (bg == nullptr) {
-		delete us;
+		memdelete(us);
 		ERR_FAIL_V_MSG(UniformSetID(), "WebGPU: wgpuDeviceCreateBindGroup failed.");
 	}
 
@@ -7506,7 +7814,7 @@ void RenderingDeviceDriverWebGPU::uniform_set_free(UniformSetID p_uniform_set) {
 	if (us->handle) {
 		wgpuBindGroupRelease(us->handle);
 	}
-	delete us;
+	memdelete(us);
 }
 
 uint32_t RenderingDeviceDriverWebGPU::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
@@ -7599,6 +7907,20 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 
 	cmd->end_active_encoder();
 
+	// Compressed formats must pass a block-aligned copy extent, the same rule
+	// command_copy_buffer_to_texture() already follows. It bites on the tail of a
+	// mip chain: the 2x2 and 1x1 levels of a BC texture are one 4x4 block
+	// physically, and WebGPU rejects a 2-wide copy outright -- which invalidates
+	// the whole command buffer, so the copy silently never happens and the texture
+	// samples as black. Found with BPTC on a 2048x2048 texture with 12 mips
+	// (webgpu_notes/TASKS.md Task 14).
+	uint32_t block_w = 1, block_h = 1;
+	if (src->rd_format != DATA_FORMAT_MAX) {
+		get_compressed_image_format_block_dimensions(src->rd_format, block_w, block_h);
+	} else if (dst->rd_format != DATA_FORMAT_MAX) {
+		get_compressed_image_format_block_dimensions(dst->rd_format, block_w, block_h);
+	}
+
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		const TextureCopyRegion &region = p_regions[i];
 
@@ -7614,7 +7936,14 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 		dst_copy.origin = { (uint32_t)region.dst_offset.x, (uint32_t)region.dst_offset.y, region.dst_subresources.base_layer };
 		dst_copy.aspect = WGPUTextureAspect_All;
 
-		WGPUExtent3D extent = { (uint32_t)region.size.x, (uint32_t)region.size.y, (uint32_t)region.size.z };
+		uint32_t copy_w = (uint32_t)region.size.x;
+		uint32_t copy_h = (uint32_t)region.size.y;
+		if (block_w > 1 || block_h > 1) {
+			copy_w = ((copy_w + block_w - 1) / block_w) * block_w;
+			copy_h = ((copy_h + block_h - 1) / block_h) * block_h;
+		}
+
+		WGPUExtent3D extent = { copy_w, copy_h, (uint32_t)region.size.z };
 
 		wgpuCommandEncoderCopyTextureToTexture(cmd->encoder, &src_copy, &dst_copy, &extent);
 	}
@@ -8485,7 +8814,7 @@ void RenderingDeviceDriverWebGPU::pipeline_free(PipelineID p_pipeline) {
 			wgpuShaderModuleRelease(pw->specialized_modules[i]);
 		}
 	}
-	delete pw;
+	memdelete(pw);
 }
 
 void RenderingDeviceDriverWebGPU::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
@@ -8802,7 +9131,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGPU::pipeline_cache_serialize() {
 // =============================================================================
 
 RDD::RenderPassID RenderingDeviceDriverWebGPU::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) {
-	WGRenderPass *rp = new WGRenderPass();
+	WGRenderPass *rp = memnew(WGRenderPass());
 	rp->view_count = p_view_count;
 
 	for (uint32_t i = 0; i < p_attachments.size(); i++) {
@@ -8823,7 +9152,7 @@ RDD::RenderPassID RenderingDeviceDriverWebGPU::render_pass_create(VectorView<Att
 
 void RenderingDeviceDriverWebGPU::render_pass_free(RenderPassID p_render_pass) {
 	WGRenderPass *rp = (WGRenderPass *)(p_render_pass.id);
-	delete rp;
+	memdelete(rp);
 }
 
 static bool _is_integer_wgpu_format(WGPUTextureFormat p_format) {
@@ -9916,228 +10245,6 @@ void RenderingDeviceDriverWebGPU::command_render_set_line_width(CommandBufferID 
 // Specialization Constant Support
 // =============================================================================
 
-// SPIR-V opcodes for specialization constant handling.
-// Opt-in recording of specialization-constant usage, for export-time baking
-// coverage. Export-time WGSL baking (RenderingShaderContainerWebGPU) only
-// ever covers Godot's built-in ubershader variants -- it has no way to know
-// which specialization-constant *values* (light/decal counts, material
-// feature flags, etc.; see _create_module_with_spec_constants() below) a
-// specific project's scenes will actually request at runtime, since those
-// are only decided at draw time. This records that usage from a real play
-// session so a future export-time baking pass can pre-bake exactly those
-// combinations, closing the last major gap that forces runtime Tint
-// conversion. See webgpu_notes/TASKS.md Task 13's 2026-09-20 scoping update
-// for the full three-phase design -- this is Phase 1 (recording only; baking
-// and the runtime lookup change are separate, not-yet-implemented phases).
-//
-// This can only capture usage from the real WebGPU driver, which only exists
-// under platform=web -- there is no way to record from the native editor.
-//
-// Two independent ways to enable it:
-// 1. Manual: set `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS = true` in the
-//    browser devtools console (checked on every call while off, so it can be
-//    toggled on mid-session without a reload). Retrieve results at any time
-//    by calling `godotWebGPUExportSpecConstantRecording()` in the console,
-//    which downloads a JSON file of everything captured so far.
-// 2. Automatic, via the editor's remote debugger connection: pass
-//    `--webgpu-record-spec-constants` on the command line (checked once at
-//    startup, since cmdline args can't change mid-session) -- this is what
-//    the editor's "Capture Shaders" toolbar button does when launching Play,
-//    letting a captured combo stream straight back to
-//    WebGPUSpecConstantRecorderPlugin (editor/debugger/) over the same
-//    WebSocket connection Play already uses for the remote scene tree/
-//    profiler, instead of requiring the manual devtools/download dance.
-// Whichever way it's enabled, results are sent both ways when possible (via
-// EngineDebugger::send_message() when a debugger session is active, and via
-// the browser-global JSON accumulator always) -- the two audiences (a human
-// at devtools vs. the editor-side capture plugin) aren't mutually exclusive,
-// and sending both costs nothing extra given how infrequently a genuinely
-// new combo is found (see the dedup check below).
-static HashSet<uint32_t> _spec_constant_recording_seen;
-
-static bool _spec_constant_recording_enabled() {
-	static bool cmdline_checked = false;
-	static bool cmdline_enabled = false;
-	if (!cmdline_checked) {
-		cmdline_checked = true;
-		for (const String &arg : OS::get_singleton()->get_cmdline_args()) {
-			if (arg == "--webgpu-record-spec-constants") {
-				cmdline_enabled = true;
-				break;
-			}
-		}
-	}
-	if (cmdline_enabled) {
-		return true;
-	}
-
-	static bool js_enabled = false;
-	if (!js_enabled) {
-		js_enabled = EM_ASM_INT({ return (typeof window != 'undefined' && window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS) ? 1 : 0; }) != 0;
-	}
-	return js_enabled;
-}
-
-static void _record_spec_constant_usage(const uint8_t *p_base_spv_ptr, int p_base_spv_size, VectorView<RDD::PipelineSpecializationConstant> p_constants) {
-	if (!_spec_constant_recording_enabled()) {
-		return;
-	}
-
-	// Shared with the export-time baker and the runtime baked-variant lookup
-	// (see webgpu::hash_spirv()) so all three agree byte-for-byte on a given
-	// shader's identity.
-	uint64_t base_spv_hash = webgpu::hash_spirv(p_base_spv_ptr, p_base_spv_size);
-
-	// Dedup key: the same (shader, constant values) combo recurs constantly
-	// once enabled (e.g. every draw with the same light count) -- a 32-bit
-	// rolling hash is more than enough for a dev-tool dedup set, no need for
-	// the 64-bit collision-resistance the main WGSL cache needs at ~1k entries.
-	uint32_t combo_hash = hash_murmur3_one_64(base_spv_hash);
-	for (uint32_t i = 0; i < p_constants.size(); i++) {
-		const RDD::PipelineSpecializationConstant &c = p_constants[i];
-		uint32_t val = 0;
-		switch (c.type) {
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
-				val = c.bool_value ? 1 : 0;
-				break;
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
-				val = (uint32_t)c.int_value;
-				break;
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
-				memcpy(&val, &c.float_value, sizeof(float));
-				break;
-		}
-		combo_hash = hash_murmur3_one_64((((uint64_t)c.constant_id) << 32) | val, combo_hash);
-	}
-
-	if (_spec_constant_recording_seen.has(combo_hash)) {
-		return;
-	}
-	_spec_constant_recording_seen.insert(combo_hash);
-
-	// Stream straight back to the editor over the remote debugger connection
-	// (the same one Run-in-Browser already opens for the scene tree/profiler)
-	// when one is active -- see WebGPUSpecConstantDebuggerPlugin
-	// (editor/shader/shader_baker/), which captures this message and writes
-	// the usage file automatically. `base_spv_hash` is sent as its raw bit
-	// pattern reinterpreted as int64 (Variant::INT has no unsigned 64-bit
-	// type) -- the receiving side must reinterpret it back to uint64_t the
-	// same way, never treat it as a real (possibly negative) integer.
-	if (EngineDebugger::is_active()) {
-		Dictionary entry_dict;
-		entry_dict["base_spv_hash"] = (int64_t)base_spv_hash;
-		Array constants_arr;
-		for (uint32_t i = 0; i < p_constants.size(); i++) {
-			const RDD::PipelineSpecializationConstant &c = p_constants[i];
-			uint32_t val = 0;
-			switch (c.type) {
-				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
-					val = c.bool_value ? 1 : 0;
-					break;
-				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
-					val = (uint32_t)c.int_value;
-					break;
-				case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
-					memcpy(&val, &c.float_value, sizeof(float));
-					break;
-			}
-			Dictionary c_dict;
-			c_dict["id"] = (int)c.constant_id;
-			c_dict["type"] = (int)c.type;
-			c_dict["value"] = (int64_t)val; // Always fits positively -- val is a raw uint32.
-			constants_arr.push_back(c_dict);
-		}
-		entry_dict["constants"] = constants_arr;
-		Array data;
-		data.push_back(entry_dict);
-		EngineDebugger::get_singleton()->send_message("webgpu:spec_constant_usage", data);
-	}
-
-	String json = "{\"base_spv_hash\":\"" + String::num_uint64(base_spv_hash) + "\",\"constants\":[";
-	for (uint32_t i = 0; i < p_constants.size(); i++) {
-		const RDD::PipelineSpecializationConstant &c = p_constants[i];
-		uint32_t val = 0;
-		switch (c.type) {
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
-				val = c.bool_value ? 1 : 0;
-				break;
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
-				val = (uint32_t)c.int_value;
-				break;
-			case RDD::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
-				memcpy(&val, &c.float_value, sizeof(float));
-				break;
-		}
-		if (i > 0) {
-			json += ",";
-		}
-		// "value" is always the raw uint32 bit pattern (see the per-type
-		// conversions above, shared with _patch_spirv_spec_constants()) --
-		// a future baking pass reinterprets it per "type" the same way,
-		// rather than this recording trying to pretty-print floats/bools.
-		json += "{\"id\":" + itos(c.constant_id) + ",\"type\":" + itos((int)c.type) + ",\"value\":" + itos((int64_t)val) + "}";
-	}
-	json += "]}";
-
-	CharString utf8 = json.utf8();
-	EM_ASM({
-		var entry = JSON.parse(UTF8ToString($0));
-		if (!window.__godotWebGPUSpecConstantRecording) {
-			window.__godotWebGPUSpecConstantRecording = [];
-			console.log('[spec-constant-recording] Recording started. Call godotWebGPUExportSpecConstantRecording() in the console at any time to save what has been captured so far.');
-			window.godotWebGPUExportSpecConstantRecording = function () {
-				var blob = new Blob([JSON.stringify(window.__godotWebGPUSpecConstantRecording, null, 2)], { type: 'application/json' });
-				var url = URL.createObjectURL(blob);
-				var a = document.createElement('a');
-				a.href = url;
-				a.download = 'webgpu_spec_constant_usage.json';
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				URL.revokeObjectURL(url);
-				console.log('[spec-constant-recording] Saved ' + window.__godotWebGPUSpecConstantRecording.length + ' entries to webgpu_spec_constant_usage.json.');
-			}
-		}
-		window.__godotWebGPUSpecConstantRecording.push(entry); }, utf8.get_data());
-}
-
-// Lazily loads the export-time-baked specialization-constant variant table
-// (see spirv_spec_constants.h), once per process. Absent entirely for a
-// project that was never exported with baking on (or ran an export before
-// this feature existed) -- that's not an error, it just means every lookup
-// below misses and this driver behaves exactly as it did before this table
-// existed, falling through to the Tint path.
-static const HashMap<uint64_t, String> &_get_baked_spec_constant_variants() {
-	static HashMap<uint64_t, String> table;
-	static bool loaded = false;
-	if (loaded) {
-		return table;
-	}
-	loaded = true;
-
-	Ref<FileAccess> f = FileAccess::open(webgpu::BAKED_SPEC_VARIANTS_PATH, FileAccess::READ);
-	if (f.is_null()) {
-		return table;
-	}
-
-	uint32_t magic = f->get_32();
-	if (magic != webgpu::BAKED_SPEC_VARIANTS_MAGIC) {
-		WARN_PRINT("WebGPU: baked specialization-constant variants file has an unrecognized format; ignoring it.");
-		return table;
-	}
-	uint32_t count = f->get_32();
-	for (uint32_t i = 0; i < count && !f->eof_reached(); i++) {
-		uint64_t combo_hash = f->get_64();
-		uint32_t wgsl_len = f->get_32();
-		PackedByteArray wgsl_bytes = f->get_buffer(wgsl_len);
-		String wgsl;
-		wgsl.append_utf8((const char *)wgsl_bytes.ptr(), wgsl_bytes.size());
-		table[combo_hash] = wgsl;
-	}
-	print_verbose(vformat("WebGPU: loaded %d baked specialization-constant shader variant(s) from %s.", table.size(), String(webgpu::BAKED_SPEC_VARIANTS_PATH)));
-	return table;
-}
-
 // Creates a WGPUShaderModule from SPIR-V with specialization constants applied.
 // Returns nullptr on failure.
 WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants(
@@ -10145,28 +10252,13 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		VectorView<PipelineSpecializationConstant> p_constants,
 		ShaderStage p_stage,
 		const HashMap<uint32_t, uint32_t> &p_rw_storage_splits) {
-	_record_spec_constant_usage(p_spirv.ptr(), (int)p_spirv.size(), p_constants);
-
 	PackedByteArray patched = webgpu::patch_spirv_spec_constants(p_spirv, p_constants);
 
-	// Export-time-baked variant lookup (Task 13 Phase 2/3) -- skips Tint
-	// entirely for a (shader, constant-values) combination a prior recorded
-	// playtest already covered and the project was exported with baking on.
-	char *wgsl_str = nullptr;
-	uint64_t combo_hash = webgpu::hash_spec_constant_combo(webgpu::hash_spirv(p_spirv.ptr(), (int)p_spirv.size()), p_constants);
-	const String *baked_wgsl = _get_baked_spec_constant_variants().getptr(combo_hash);
-	if (baked_wgsl) {
-		CharString cs = baked_wgsl->utf8();
-		wgsl_str = (char *)malloc((size_t)cs.length() + 1);
-		if (wgsl_str) {
-			memcpy(wgsl_str, cs.get_data(), (size_t)cs.length() + 1);
-		}
-	}
-
-	if (!wgsl_str) {
-		// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above).
-		wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size());
-	}
+	// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above). Only
+	// reached for a shader spec_constants_overridable() rejected: anything it
+	// accepts keeps its constants as WGSL overrides and specializes through
+	// pipeline constants on the base module instead of coming through here.
+	char *wgsl_str = _spv_to_wgsl_cached(patched.ptr(), (int)patched.size(), true);
 
 	if (!wgsl_str) {
 		ERR_PRINT("WebGPU: SPIR-V→WGSL conversion failed for specialized shader module.");
@@ -10929,7 +11021,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create render pipeline.");
 	}
 
-	WGPipelineWrapper *pw = new WGPipelineWrapper();
+	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
 	pw->type = WGPipelineWrapper::RENDER;
 	pw->render_handle = pipeline;
 	pw->shader = shader;
@@ -11261,7 +11353,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create compute pipeline.");
 	}
 
-	WGPipelineWrapper *pw = new WGPipelineWrapper();
+	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
 	pw->type = WGPipelineWrapper::COMPUTE;
 	pw->compute_handle = pipeline;
 	pw->shader = shader;
@@ -11274,7 +11366,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 // =============================================================================
 
 RDD::QueryPoolID RenderingDeviceDriverWebGPU::timestamp_query_pool_create(uint32_t p_query_count) {
-	WGQueryPool *pool = new WGQueryPool();
+	WGQueryPool *pool = memnew(WGQueryPool());
 	pool->count = p_query_count;
 	pool->cpu_results = (uint64_t *)memalloc(sizeof(uint64_t) * p_query_count);
 	memset(pool->cpu_results, 0, sizeof(uint64_t) * p_query_count);
@@ -11360,7 +11452,7 @@ void RenderingDeviceDriverWebGPU::timestamp_query_pool_free(QueryPoolID p_pool_i
 	if (pool->cpu_results) {
 		memfree(pool->cpu_results);
 	}
-	delete pool;
+	memdelete(pool);
 }
 
 void RenderingDeviceDriverWebGPU::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
@@ -11410,7 +11502,7 @@ static void _timestamp_readback_callback(WGPUMapAsyncStatus p_status, WGPUString
 		if (pool->cpu_results) {
 			memfree(pool->cpu_results);
 		}
-		delete pool;
+		memdelete(pool);
 		return;
 	}
 

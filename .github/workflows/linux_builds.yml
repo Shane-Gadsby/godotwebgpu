@@ -34,9 +34,14 @@ jobs:
           - name: Editor (target=editor)
             cache-name: linux-editor
             target: editor
-            scons-flags: compiledb=yes
+            # webgpu=yes: builds in the WebGPU shader baker (export-time WGSL
+            # baking + the shader capture toolbar toggle); see tint-cli below.
+            scons-flags: compiledb=yes webgpu=yes
             bin: ./bin/godot.linuxbsd.editor.x86_64
             artifact: true
+            # The baker runs tint_convert_cli from the editor's own directory,
+            # so it ships in the editor artifact.
+            tint-cli: true
 
           - name: Template (target=template_release)
             cache-name: linux-template
@@ -232,6 +237,22 @@ jobs:
           scons-flags: target=template_debug dev_build=yes verbose=yes
           godot-cpp-branch: ${{ env.GODOT_CPP_BRANCH }}
 
+      - name: Cache tint_convert_cli build
+        if: matrix.tint-cli
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+
+      # g++-12 (preinstalled) rather than 22.04's default GCC 11 for Tint's C++20;
+      # static libstdc++ keeps the shipped binary runnable on older distros.
+      - name: Build tint_convert_cli
+        if: matrix.tint-cli
+        env:
+          CXX: g++-12
+          LDFLAGS: -static-libstdc++ -static-libgcc
+        run: ./drivers/webgpu/tint_cli/build.sh
+
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
         with:
@@ -255,6 +276,9 @@ jobs:
           rm -rf ./bin/build_deps
           strip bin/godot.*
           chmod +x bin/godot.*
+          if [ -f bin/tint_convert_cli ]; then
+            strip bin/tint_convert_cli
+          fi
 
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact

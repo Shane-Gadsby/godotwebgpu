@@ -49,8 +49,6 @@
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
 #include "modules/svg/image_loader_svg.h"
 
-bool EditorExportPlatformWeb::capture_spec_constants_enabled = false;
-
 Error EditorExportPlatformWeb::_extract_template(const String &p_template, const String &p_dir, const String &p_name, bool pwa) {
 	Ref<FileAccess> io_fa;
 	zlib_filefunc_def io = zipio_create_io(&io_fa);
@@ -146,14 +144,6 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	Array args;
 	for (int i = 0; i < flags.size(); i++) {
 		args.push_back(flags[i]);
-	}
-	// See capture_spec_constants_enabled's doc comment in export_plugin.h --
-	// read-only here (not cleared), so the editor's "Capture Shaders" toggle
-	// button is the sole owner of this state and stays in sync with it for as
-	// long as it's toggled on, across as many Run-in-Browser sessions as the
-	// developer wants, rather than silently un-arming itself after one.
-	if (capture_spec_constants_enabled) {
-		args.push_back("--webgpu-record-spec-constants");
 	}
 	config["canvasResizePolicy"] = p_preset->get("html/canvas_resize_policy");
 	config["experimentalVK"] = p_preset->get("html/experimental_virtual_keyboard");
@@ -429,24 +419,22 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// `webgpu=yes` (see drivers/webgpu/README.md) so this container format
 	// is available at all — if it wasn't, export proceeds without baking and
 	// shaders fall back to the existing runtime Tint translation.
-	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), false));
-
-	// Task 13 Phase 2 (webgpu_notes/TASKS.md's 2026-09-20 scoping update):
-	// baking above never covers specialization-constant pipeline variants
-	// (lighting/shadow/material-feature combinations) since their *values*
-	// are only known at runtime -- this closes that gap for whichever
-	// combinations were actually seen during a real play session. Point this
-	// at a JSON file produced by setting
-	// `window.GODOT_WEBGPU_RECORD_SPEC_CONSTANTS = true` in the browser
-	// devtools console on an exported debug build, playing through the
-	// scenes you want covered, then calling
-	// `godotWebGPUExportSpecConstantRecording()` in the console to download
-	// it (see rendering_device_driver_webgpu.cpp's
-	// _record_spec_constant_usage() for the full recording workflow). Only
-	// takes effect when shader_baker/enabled is also on; empty/missing is a
-	// harmless no-op (those variants keep falling back to runtime Tint,
-	// exactly as if this option didn't exist).
-	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "shader_baker/spec_constant_usage_file", PROPERTY_HINT_FILE, "*.json"), ""));
+	//
+	// Defaults on: for WebGPU the cost of *not* baking is paid by every player
+	// as a multi-second freeze on first load, which is not a sane thing to
+	// leave behind an unticked box. Turning it off is still fully supported and
+	// means exactly what it says — nothing is baked, and the running game
+	// translates its shaders in the browser through Tint on demand — which is
+	// what you want while iterating, since baking every declared variant of
+	// every shader the project uses is the slowest part of an export.
+	//
+	// Note that flipping this default only reaches presets that don't already
+	// store a value for it: EditorExport::update_export_presets() applies an
+	// option's default solely when `!preset->has(option_name)`
+	// (editor/export/editor_export.cpp), and export_presets.cfg persists every
+	// option. Presets created before this default changed therefore keep their
+	// stored `false` — the export warning below is what tells their owner.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), true));
 }
 
 bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const {
@@ -457,10 +445,6 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 
 	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size") {
 		return p_preset->get("variant/thread_support").operator bool();
-	}
-
-	if (p_option == "shader_baker/spec_constant_usage_file") {
-		return p_preset->get("shader_baker/enabled").operator bool();
 	}
 
 	return true;
@@ -544,12 +528,12 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 		// multi-second startup stall/jank documented in
 		// webgpu_notes/STARTUP_PROFILING.md. Baking bakes ahead of time everything
 		// it can (see drivers/webgpu/README.md and webgpu_notes/TASKS.md's shader
-		// baking task), which is a real, large reduction even though
-		// spec-constant-patched variants specifically are never covered by it
-		// (they depend on values only known at runtime) -- see
-		// webgpu_notes/finish_async_shader_comp.md Section 10 for the full
-		// architectural writeup of why that residual gap can't currently be
-		// closed without deeper, riskier engine changes.
+		// baking task), and since Task 25 it covers specialization-constant
+		// pipeline variants too: those no longer produce their own shader
+		// modules at all, so they reuse the baked base module through WebGPU
+		// pipeline constants. What baking still cannot cover is a shader that
+		// does not exist at export time, e.g. one built at runtime from
+		// Shader.new() + set_code().
 		if (!p_preset->get("shader_baker/enabled").operator bool()) {
 			err += TTR("\"Shader Baker\" (shader_baker/enabled) is disabled. Exported WebGPU games will do significant shader-compilation work on the player's machine at load time, which can look like a freeze on first launch. Enabling it moves most of that work to export time instead.") + "\n";
 		} else if (RendererSceneRenderRD::get_singleton() == nullptr) {

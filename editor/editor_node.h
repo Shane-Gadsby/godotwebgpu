@@ -441,7 +441,10 @@ private:
 	bool script_distraction_free = false;
 
 	bool changing_scene = false;
-	bool cmdline_mode = false;
+	// Static so that is_cmdline_mode() still answers correctly once the
+	// EditorNode singleton is gone: teardown code asks, and a wrong "false"
+	// there restarts work the editor only does interactively.
+	static bool cmdline_mode;
 	bool convert_old = false;
 	bool immediate_dialog_confirmed = false;
 	bool restoring_scenes = false;

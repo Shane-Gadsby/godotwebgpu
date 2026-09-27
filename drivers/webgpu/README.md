@@ -61,6 +61,140 @@ fixups (depth image flags, position Y negation, point size stripping) are
 applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
 (`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
 
+### Shader Precompilation
+Three tiers, checked in order:
+
+1. **Export-time bake** — with `shader_baker/enabled` on (the default for Web
+   presets), `ShaderBakerExportPlugin` walks every `ShaderRD` the engine
+   embeds *and* every material shader reachable from the exported resources,
+   and stores each stage's WGSL inside that stage's own shader container in
+   the `.pck`. The runtime reads it back by object identity, so there is no
+   hash lookup to drift. Since specialization constants became WGSL overrides
+   (below), one baked base module covers every value combination.
+
+   Three things make this actually complete on WebGPU, each of which was a real
+   gap once (`webgpu_notes/TASKS.md` Tasks 31–34):
+
+   - **The bake runs with the target's capabilities, not the editor's.**
+     Engine code derives `#define`s and shader-group choices from
+     `RenderingDevice::has_feature()`, so baking on the editor's Vulkan device
+     produced SDFGI, volumetric-fog and clustered variants the WebGPU runtime
+     never asks for. The platform plugin installs the target's answers for the
+     duration of the bake (`get_target_feature_overrides()`), and every group is
+     baked rather than only the ones the editor happened to enable.
+   - **Every live shader version is baked**, not just those an exported resource
+     or scene leads back to. Material versions are non-embedded, and a material
+     created during the first frame — with no resource path at all — is reachable
+     by no walk over resources or scenes.
+   - **`res://` is searched before `user://`** when loading the shader cache. The
+     baked cache carries WGSL; one written by the running game does not, so a
+     single earlier run could otherwise shadow the bake permanently.
+2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
+   ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
+   Keyed by SPIR-V hash, so it only hits when the engine's glslang output
+   matches what the table was generated from.
+3. **Runtime Tint** — anything that missed, translated in the browser on
+   demand. This is what an export with baking turned off uses for everything,
+   and it is the only route for a shader that does not exist at export time
+   (`Shader.new()` + `set_code()` at runtime).
+
+> **The editor and the export template must be built from the same commit.**
+> Shader cache hashes fold in `GODOT_VERSION_HASH` (`ShaderRD::setup()`), so if
+> the editor that exports and the template that runs come from different commits,
+> *every* hash differs and not one baked shader can be found — `baked: 0`, and
+> everything recompiles from GLSL on the main thread. It is silent and looks
+> exactly like a baking bug. Note that building *before* committing bakes the
+> pre-commit hash into the binary. Since Task 36 the runtime warns once when a
+> shipped cache is present but nothing matches.
+
+Read `godotWebGPUShaderStats` in the browser devtools console to see which
+tier each shader stage actually came from:
+
+```js
+godotWebGPUShaderStats
+// { baked: 392, precompiled: 1, cached: 1, translated: 0, specialized: 0,
+//   translatedShaders: [] }
+```
+
+`translated: 0` with an empty `translatedShaders` is the healthy state, and is
+what a correctly baked export reaches — verified on a real project from a cold
+start with browser storage cleared.
+
+`translatedShaders` names the shaders behind `translated`, one entry per distinct
+shader with an occurrence count (`"scene_forward_clustered x4"`), capped at 128
+distinct names. A count tells you a gap exists; this tells you which shader, which
+is what lets you fix it. The `--verbose` log carries the same thing, but a web
+export has no convenient way to pass `--verbose`, so it is readable straight from
+the console.
+
+`translated` is the one that matters — it counts stages this driver ran Tint on
+at load time *that baking should have covered*. Zero means every shader arrived
+ready, and whatever startup cost remains is the browser compiling WGSL into
+pipelines, which baking cannot remove. A non-zero value with baking enabled
+points at a real gap; run with `--verbose` and the driver names each one as it
+happens (the log line carries the owning shader's name).
+
+Diagnosing such a gap is a matter of reading logs rather than guessing, since a
+shader version is otherwise identified only by a SHA1 of its generated code.
+Enable verbose in an exported build with the **`debug/settings/stdout/verbose_stdout`**
+project setting (a web export has no command line), and these line up:
+
+| Log line | Side | Says |
+|---|---|---|
+| `Shader baker: baking '<name>/<group>/<sha1>' from <origin>` | editor | which versions were baked, and what led the baker to each |
+| `Shader cache miss for <name>/<group>/<sha1>` | runtime | exactly which key the game wanted |
+| `^ version is: uni=… frag=… defines(n)=[…]` | both | every field the version SHA1 covers, hashed separately, so the *differing* field names itself |
+| `^ code[FRAGMENT]: …` | runtime | the generated shader body itself, when hashes are not enough |
+| `BaseMaterial3D: generating shader for '<path>' … shading_mode=… disable_fog=…` | both | which **material** produced a generated shader — a generated shader has no path of its own, the material usually does |
+
+`specialized` also runs Tint at load time, but is **not** a baking gap and is
+counted separately for that reason. It is a shader whose specialization
+constants had to be patched into the SPIR-V because
+`spirv_preprocess::spec_constants_overridable()` rejected it (non-scalar
+constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array
+sizes/composites/workgroup sizes — see "Specialization constants" above). The
+patched bytes are built at pipeline-creation time from values the exporter never
+saw, so no export-time bake could have produced them. The only way to reduce
+this number is to widen what `spec_constants_overridable()` accepts, so that
+more shaders specialize through WGSL `override` declarations on one base module
+instead. A high `specialized` with `translated: 0` is a working, fully-baked
+build.
+
+**Two traps worth knowing**, both of which look exactly like "baking did
+nothing":
+
+- `bin/tint_convert_cli` is a **separate native build** from the editor
+  (`drivers/webgpu/tint_cli/build.sh`), and the baker runs the copy sitting
+  next to the editor executable. A stale copy bakes stale WGSL — and a copy
+  predating WGSL `override` support bakes shaders whose specialization
+  constants are frozen, which sends every specialized pipeline back down the
+  legacy runtime-translation path. Rebuild it whenever anything under
+  `drivers/webgpu/spirv_preprocess.*`, `tint_wrapper.*` or `thirdparty/tint`
+  changes.
+- Baked containers are cached between exports. After changing anything that
+  affects WGSL output, clear `res://.godot/shader_cache` before re-exporting
+  or the old bake is served back.
+
+### Specialization Constants
+Godot's specialization constants are always scalar (`bool`/`int`/`float`), which
+is exactly what WGSL's `override` mechanism covers, so they are normally left in
+the SPIR-V for Tint to turn into `@id(N) override` declarations and set with
+WebGPU pipeline constants at `wgpuDeviceCreate*Pipeline()` time — one base shader
+module serves every value combination, with no runtime SPIR-V patching or Tint
+conversion.
+
+`spirv_preprocess::spec_constants_overridable()` decides this per module. A
+module whose constants cannot all become overrides — a non-scalar one, an
+`OpSpecConstantOp` operation Tint cannot lower, a specialization-constant-sized
+array, an `OpSpecConstantComposite` built from one, a spec-constant workgroup
+size — is frozen to its defaults by `freeze_spec_constant_ops()` instead, and
+such a shader specializes through the legacy path:
+`_create_module_with_spec_constants()` re-patches the original SPIR-V with the
+real values and re-runs the whole pipeline, once per distinct combination, at
+runtime. The choice is all-or-nothing per shader: if any stage that declares
+specialization constants ends up frozen, the whole shader takes the legacy path,
+since mixing the two would leave that stage silently on its defaults.
+
 ### Barrier No-ops
 WebGPU tracks resource hazards automatically. All barrier/sync commands are
 no-ops.
@@ -82,6 +216,15 @@ prevents redundant re-creation.
   between material uniforms and push constant ring buffer.
 - **No 3-component texture formats** — RGB8, RGB16F, RGB32F are unsupported as
   texture formats in WebGPU. The driver maps these to RGBA equivalents.
+  Likewise **no texture component swizzle**, so L8/LA8 cannot broadcast to
+  `(R,R,R,1)`/`(R,R,R,G)` at sample time and are expanded to RGBA8 in the data.
+  Both expansions are unconditional on every WebGPU device, so they are logged
+  as plain verbose notes (`Expanded RGB8 to RGBA8 (WebGPU has no 3-component
+  texture formats)`), *not* as upstream's "not supported by hardware" warning —
+  that wording describes a per-GPU shortfall and cost two separate
+  investigations before it was changed. Monochrome font atlases sidestep the
+  conversion entirely by rasterising as RGBA8 up front (Task 35); the remaining
+  conversions run once per texture at load, not per upload.
 - **Multi-draw-indirect** — Uses the native `multi-draw-indirect` device feature
   when available and the indirect buffer's stride matches WebGPU's implicit
   tightly-packed draw-struct layout (16/20 bytes); falls back to dispatching

@@ -5,7 +5,10 @@
 #   ./drivers/webgpu/tint_cli/build.sh          # Build with auto-detected parallelism
 #   ./drivers/webgpu/tint_cli/build.sh --clean   # Remove build artifacts and rebuild
 #
-# Output: bin/tint_convert_cli
+# Output: bin/tint_convert_cli (bin/tint_convert_cli.exe on Windows)
+#
+# On Windows, run from Git Bash or MSYS2 with LLVM's clang++ (targets the MSVC
+# ABI and finds the Visual Studio installation on its own). Set CXX to override.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,11 +19,37 @@ cd "$REPO_ROOT"
 TINT_DIR="thirdparty/tint"
 SPIRV_TOOLS_DIR="thirdparty/spirv-tools"
 SPIRV_HEADERS_DIR="thirdparty/spirv-headers"
-BUILD_DIR="drivers/webgpu/tint_cli/.build"
 SHIM_DIR="drivers/webgpu/tint_cli"
 
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-CXX="${CXX:-c++}"
+
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) IS_WINDOWS=true ;;
+    *) IS_WINDOWS=false ;;
+esac
+
+if [[ "$IS_WINDOWS" == true ]]; then
+    if [[ -z "${CXX:-}" ]]; then
+        if command -v clang++ >/dev/null 2>&1; then
+            CXX=clang++
+        elif [[ -x "/c/Program Files/LLVM/bin/clang++.exe" ]]; then
+            CXX="/c/Program Files/LLVM/bin/clang++.exe"
+        else
+            echo "Error: clang++ not found. Install LLVM (https://github.com/llvm/llvm-project/releases) or set CXX." >&2
+            exit 1
+        fi
+    fi
+    EXE_SUFFIX=".exe"
+else
+    CXX="${CXX:-c++}"
+    EXE_SUFFIX=""
+fi
+OUTPUT="bin/tint_convert_cli$EXE_SUFFIX"
+
+# Per-OS object directory: a checkout shared between OSes (WSL, dual boot, a
+# network drive) would otherwise reuse another OS's up-to-date-looking objects
+# and fail to link.
+BUILD_DIR="drivers/webgpu/tint_cli/.build/$(uname -s | cut -d_ -f1 | tr '[:upper:]' '[:lower:]')"
 
 # Parse args.
 CLEAN=false
@@ -37,7 +66,9 @@ mkdir -p "$BUILD_DIR/spirv_tools" "$BUILD_DIR/tint" "$BUILD_DIR/cli"
 
 # Common flags.
 WARNINGS="-w"  # Suppress warnings from thirdparty code.
-COMMON_FLAGS="-O2 $WARNINGS"
+# CXXFLAGS/LDFLAGS from the environment are passed through, e.g.
+# CXXFLAGS="-arch arm64 -arch x86_64" for a universal macOS binary.
+COMMON_FLAGS="-O2 $WARNINGS ${CXXFLAGS:-}"
 
 # Include paths for SPIRV-Tools.
 SPIRV_TOOLS_INCLUDES=(
@@ -75,6 +106,12 @@ TINT_DEFINES=(
     -DTINT_BUILD_IR_BINARY=0
 )
 
+# Keep <windows.h> (pulled in by Tint's *_windows.cc sources) from defining
+# min()/max() macros that break std::min/std::max in everything else.
+if [[ "$IS_WINDOWS" == true ]]; then
+    TINT_DEFINES+=(-DNOMINMAX -DWIN32_LEAN_AND_MEAN)
+fi
+
 # Detect platform-specific Tint sources.
 case "$(uname -s)" in
     Darwin)
@@ -95,6 +132,16 @@ case "$(uname -s)" in
             "src/tint/utils/system/executable_path_linux.cc"
             "src/tint/utils/system/terminal_posix.cc"
             "src/tint/utils/text/styled_text_printer_posix.cc"
+        )
+        ;;
+    MINGW* | MSYS* | CYGWIN*)
+        TINT_PLATFORM_SOURCES=(
+            "src/tint/utils/command/command_windows.cc"
+            "src/tint/utils/file/tmpfile_windows.cc"
+            "src/tint/utils/system/env_windows.cc"
+            "src/tint/utils/system/executable_path_windows.cc"
+            "src/tint/utils/system/terminal_windows.cc"
+            "src/tint/utils/text/styled_text_printer_windows.cc"
         )
         ;;
     *)
@@ -123,7 +170,7 @@ compile_one() {
     fi
 
     mkdir -p "$(dirname "$obj")"
-    $CXX -c "$src" -o "$obj" -std="$std" $COMMON_FLAGS "${flags[@]}"
+    "$CXX" -c "$src" -o "$obj" -std="$std" $COMMON_FLAGS "${flags[@]}"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,7 +323,12 @@ done
 echo "  Linking ${#LINK_OBJS[@]} objects..."
 
 mkdir -p bin
-$CXX -o bin/tint_convert_cli "${LINK_OBJS[@]}" -O2
+# Pass the object list through a response file: a couple of thousand paths
+# overflow Windows' 32K command-line limit (and are harmless elsewhere).
+LINK_RSP="$BUILD_DIR/link.rsp"
+printf '"%s"
+' "${LINK_OBJS[@]}" >"$LINK_RSP"
+"$CXX" -o "$OUTPUT" "@$LINK_RSP" -O2 ${CXXFLAGS:-} ${LDFLAGS:-}
 
 echo ""
-echo "Built: bin/tint_convert_cli ($(du -h bin/tint_convert_cli | cut -f1))"
+echo "Built: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"

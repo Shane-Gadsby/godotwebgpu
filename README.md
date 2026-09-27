@@ -79,15 +79,68 @@ Building on that base, this fork has two main goals:
 
 ## Browser Compatibility
 
-| Platform | Browser | Status                                                                                                                |
-|----------|---------|-----------------------------------------------------------------------------------------------------------------------|
-| macOS | Chrome 113+ | 100%                                                                                                                  |
-| macOS | Safari 18+ | 100%                                                                                                                  |
-| macOS | Firefox | 100%                                                                                                                  |
-| Android | Chrome | 100%                                                                                                                  |
-| iOS | Safari | 100% (Safari 26.0+)
-| Windows | Chrome, Firefox, Edge | 100% (works out of the box)                                                                                           |
-| Linux | Chrome, Firefox, Vivaldi | 100% (requires enabling Vulkan + WebGPU flags; native package install only — not compatible with Flatpak/Snap builds) |
+| Platform | Browser | Verified by | Result |
+|----------|---------|-------------|--------|
+| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
+| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
+| Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
+| Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
+| macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
+| Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behavior, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
+| iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
+
+The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
+
+### Known Issues
+
+Outstanding problems as of **2026-09-27**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the current state and what to pick up next.
+
+**Rendering**
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Volumetric fog looks blockier than native (froxel sampling) | open, uninvestigated (Task 12.1) | Not projector- or shadow-specific; noticed while verifying light projectors, which are otherwise pixel-equivalent to native Vulkan |
+| `command_render_clear_attachments` is a no-op | won't fix | WebGPU has no mid-pass attachment clear. Confirmed dead code on every Godot backend today |
+| `draw_indexed_indirect_count` / `draw_indirect_count` ignore the count buffer | won't fix | WebGPU has no multi-draw-indirect-count. No current renderer uses count-buffer indirect draws |
+| Explicit `command_resolve_texture()` is a stub | won't fix for now | MSAA goes through render-pass `resolveTarget`, which is implemented. Only out-of-pass resolves are missing |
+| No hardware multiview, VRS, or subgroups; subpass post-processing disabled; `binding_array` flattened to one element (no multi-lightmap); omni shadows forced to dual-paraboloid | by design | WebGPU feature gaps — see [Correctness & Compatibility](webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md) |
+
+**Readback and formats**
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| `buffer_map()` returns a CPU shadow copy, so readback is a frame behind | open (Task 7.8) | Synchronous GPU readback is impossible on single-threaded WASM. Some paths load from disk instead |
+| `RenderingDevice.texture_get_data()` returns nothing on the first call | open (Task 45) | Consequence of the above: the first call starts the copy-and-map and the data lands a frame later, and `rd.sync()` cannot wait for it. Web GDScript that needs a readback must retry or use `texture_get_data_async()`. `GradientTexture1D/2D.get_image()` no longer round-trips through the GPU and works normally |
+| 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | emdawnwebgpu has no `R16Unorm`/`Snorm` family at all. Costs memory; correctness is fine. Vertex attributes are unaffected |
+| Canvas SDF uses `R16_SFLOAT` instead of `R16_SNORM` | workaround (Task 44) | Dawn reports `R16Snorm`'s sample type as `UnfilterableFloat` while the SDF samples it with a filtering sampler |
+| Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load |
+| Float32 textures downgraded to float16 on Adreno | vendor workaround | Precision loss on affected Android GPUs |
+
+**Build and export**
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| `threads=yes` with `dlink_enabled=yes` (threads *and* GDExtension support) fails on startup | unsupported (Task 12) | An `ASM_CONSTS` initialization-order race inside Emscripten's own dylink+pthread glue, not this fork's code. The other three combinations all work |
+| Exports with `variant/extensions_support` off can abort on load with `Aborted(native code called abort())` | open, upstream (Task 11) | Root-caused to a 4-byte heap-buffer-overflow in the pinned emdawnwebgpu port's `WGPUInstanceImpl` constructor. Not fixable here without vendoring a port patch or a toolchain bump; enabling extension support is the workaround |
+| Interleaving editor and web builds in one tree ships a template that dies in `callMain()` | workaround (Task 40) | Stale `register_module_types.gen` object. Delete it plus `libmodules.a` and rebuild; verify with `grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` (want 0) |
+| The editor and the export template must be built from the same commit | by design (Task 36) | Baked shader caches are keyed to the engine version hash. A mismatch silently discards the whole cache (`{baked: 0, translated: N}` and a ~5× slower load); the engine now reports it |
+| An export made with `--headless` silently skips the shader baker | workaround | 15 MB `.pck` instead of ~135 MB. Use `xvfb-run` with a real rendering driver |
+| `tint_convert_cli` is compiled without `-DNDEBUG` | open (Task 13.1) | SPIRV-Tools/Tint asserts are live in the host tool; they surface as isolated "Tint crashed" bake entries |
+
+**Performance and lifetime**
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| A fixed ~500 ms `Servers:Rendering` engine-init cost on every project, ~180 ms of it our own per-stage WGSL text scanning | open (Task 14) | Baking binding metadata into the shader container at export time is the remaining win. Project-dependent load time is already down from ~9.2 s to ~1.0 s |
+| Temporary texture views in `WGUniformSet::temp_views` may not be released | open (Task 7.15) | Suspected leak; not yet characterized as per-frame or unbounded |
+| Specialized shader modules may not be released by `pipeline_free()` | open (Task 7.17) | Narrowed by Task 25's move to WGSL `@id(N) override`s, which removes most re-specialization |
+| WGSL format-name remapping patches strings in place, assuming equal lengths | open (Task 7.18) | Fragile if Tint's output names change. Task 9.15 moved some of these patches to Tint IR transforms and made the rest `memcpy`-safe |
+| No device-loss recovery | open | Logged only; the page must be reloaded |
+
+**Verification gaps**
+
+- Safari has never been run against the scene smoketest (macOS only); the 100% figures above come from manual testing.
+- Texture compression is settled on desktop (BC, both browsers); Safari and mobile formats are unmeasured (Task 39).
 
 ---
 

@@ -45,6 +45,18 @@ class ShaderBakerExportPluginPlatform : public RefCounted {
 public:
 	virtual RenderingShaderContainerFormat *create_shader_container_format(const Ref<EditorExportPlatform> &p_platform, const Ref<EditorExportPreset> &p_preset) = 0;
 	virtual bool matches_driver(const String &p_driver) = 0;
+
+	// Capability answers the *export target's* device would give, for the
+	// duration of the bake. Engine code builds its GLSL defines and picks its
+	// shader groups from RenderingDevice::has_feature(), so without this the
+	// baker compiles everything for the editor's device and the exported game
+	// asks for variants that were never baked (webgpu_notes/TASKS.md Task 31).
+	//
+	// Default is empty, meaning "bake exactly as before". Only a platform that
+	// knows its target disagrees with the editor needs to override this, so
+	// existing bakers are unaffected.
+	virtual void get_target_feature_overrides(HashMap<int, bool> &r_overrides) const {}
+
 	virtual ~ShaderBakerExportPluginPlatform() {}
 };
 
@@ -81,6 +93,9 @@ protected:
 	RenderingShaderContainerFormat *shader_container_format = nullptr;
 	String shader_container_driver;
 	Vector<Ref<ShaderBakerExportPluginPlatform>> platforms;
+	// The one matched by _initialize_container_format(); kept so the bake can ask
+	// it for the target's capability answers (see get_target_feature_overrides()).
+	Ref<ShaderBakerExportPluginPlatform> active_platform;
 	uint64_t customization_configuration_hash = 0;
 	uint32_t tasks_processed = 0;
 	uint32_t tasks_total = 0;
@@ -99,7 +114,11 @@ protected:
 	virtual Ref<Resource> _customize_resource(const Ref<Resource> &p_resource, const String &p_path) override;
 	virtual Node *_customize_scene(Node *p_root, const String &p_path) override;
 	virtual uint64_t _get_customization_configuration_hash() const override;
-	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version);
+	// p_origin is a short label for where this version came from ("embedded",
+	// "embedded material", or a resource path), logged at verbose so a bake gap can
+	// be diagnosed by comparing what the baker enumerated against what the runtime
+	// asks for. See webgpu_notes/TASKS.md Task 32.
+	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin = String());
 	void _process_work_item(WorkItem p_work_item);
 
 public:

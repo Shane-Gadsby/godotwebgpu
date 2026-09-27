@@ -195,8 +195,6 @@
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.h"
-#include "editor/shader/shader_baker/webgpu_shader_capture_editor_plugin.h"
-#include "editor/shader/shader_baker/webgpu_spec_constant_baker_export_plugin.h"
 #endif
 
 #ifndef PHYSICS_2D_DISABLED
@@ -216,6 +214,7 @@
 #include <cstdlib>
 
 EditorNode *EditorNode::singleton = nullptr;
+bool EditorNode::cmdline_mode = false;
 
 static const String EDITOR_NODE_CONFIG_SECTION = "EditorNode";
 
@@ -1528,7 +1527,7 @@ void EditorNode::_sources_changed(bool p_exist) {
 		}
 
 		// Start preview thread now that it's safe.
-		if (!singleton->cmdline_mode) {
+		if (!cmdline_mode) {
 			EditorResourcePreview::get_singleton()->start();
 		}
 
@@ -2336,7 +2335,7 @@ void EditorNode::_save_scene_with_preview(String p_file, int p_idx) {
 	save_scene_progress->step(TTR("Saving Scene"), 4);
 	_save_scene(p_file, p_idx);
 
-	if (!singleton->cmdline_mode) {
+	if (!cmdline_mode) {
 		EditorResourcePreview::get_singleton()->check_for_invalidation(p_file);
 	}
 
@@ -5931,7 +5930,7 @@ static double last_progress_time = 0;
 void EditorNode::progress_add_task(const String &p_task, const String &p_label, int p_steps, bool p_can_cancel) {
 	if (!singleton) {
 		return;
-	} else if (singleton->cmdline_mode) {
+	} else if (cmdline_mode) {
 		print_line_rich(vformat("[   0%% ] [color=gray][b]%s[/b] | Started %s (%d steps)[/color]", p_task, p_label, p_steps));
 		progress_total_steps[p_task] = p_steps;
 	} else if (singleton->progress_dialog) {
@@ -5942,7 +5941,7 @@ void EditorNode::progress_add_task(const String &p_task, const String &p_label, 
 bool EditorNode::progress_task_step(const String &p_task, const String &p_state, int p_step, bool p_force_refresh) {
 	if (!singleton) {
 		return false;
-	} else if (singleton->cmdline_mode) {
+	} else if (cmdline_mode) {
 		double current_time = USEC_TO_SEC(OS::get_singleton()->get_ticks_usec());
 		double elapsed_time = current_time - last_progress_time;
 		if (p_task != last_progress_task || p_state != last_progress_state || p_step != last_progress_step || elapsed_time >= 1.0) {
@@ -5966,7 +5965,7 @@ bool EditorNode::progress_task_step(const String &p_task, const String &p_state,
 void EditorNode::progress_end_task(const String &p_task) {
 	if (!singleton) {
 		return;
-	} else if (singleton->cmdline_mode) {
+	} else if (cmdline_mode) {
 		progress_total_steps.erase(p_task);
 		print_line_rich(vformat("[color=green][ DONE ][/color] [b]%s[/b]\n", p_task));
 	} else if (singleton->progress_dialog) {
@@ -6621,8 +6620,13 @@ bool EditorNode::immediate_confirmation_dialog(const String &p_text, const Strin
 }
 
 bool EditorNode::is_cmdline_mode() {
-	ERR_FAIL_NULL_V(singleton, false);
-	return singleton->cmdline_mode;
+	// Deliberately not guarded on `singleton`: this is asked during teardown,
+	// after ~EditorNode has cleared it, and answering "false" there makes
+	// callers start interactive-only work on a half-destroyed editor. It cost a
+	// crash on every `--headless --export-release` run: EditorHelp went on to
+	// regenerate the script doc cache and handed its loader thread an
+	// already-freed EditorFileSystem root.
+	return cmdline_mode;
 }
 
 void EditorNode::cleanup() {
@@ -9535,26 +9539,6 @@ EditorNode::EditorNode() {
 #endif
 
 	EditorExport::get_singleton()->add_export_plugin(shader_baker_export_plugin);
-
-#ifdef WEBGPU_SHADER_BAKER_ENABLED
-	// Task 13 Phase 2 (webgpu_notes/TASKS.md's 2026-09-20 scoping update): a
-	// separate export plugin, not a change to ShaderBakerExportPlugin above,
-	// so this optional WebGPU-only feature can't affect Vulkan/Metal/D3D12
-	// baking. Registered after shader_baker_export_plugin (not that the
-	// relative order matters here -- add_export_plugin() doesn't imply
-	// execution ordering between unrelated plugins) purely for readability,
-	// since it depends on that plugin's baking having happened by the time
-	// its own _export_end() runs.
-	Ref<WebGPUSpecConstantBakerExportPlugin> webgpu_spec_constant_baker_export_plugin;
-	webgpu_spec_constant_baker_export_plugin.instantiate();
-	EditorExport::get_singleton()->add_export_plugin(webgpu_spec_constant_baker_export_plugin);
-
-	// Task 13 Phase 4: the "Capture Shaders" toolbar toggle -- see
-	// webgpu_shader_capture_editor_plugin.h's doc comment. An EditorPlugin,
-	// not an EditorExportPlugin like the two above, so registered via
-	// add_editor_plugin() instead of EditorExport's add_export_plugin().
-	add_editor_plugin(memnew(WebGPUShaderCaptureEditorPlugin));
-#endif
 
 	Ref<PackedSceneEditorTranslationParserPlugin> packed_scene_translation_parser_plugin;
 	packed_scene_translation_parser_plugin.instantiate();
