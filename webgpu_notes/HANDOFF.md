@@ -64,7 +64,10 @@ cleanly now.)
 **`./webgpu_tests/local_ci.sh --no-safari` passes end to end, and now actually tests the engine it
 builds**: 2026-09-27, **15 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag.
 It covers two tiers missing from the table above, `spec_constant_overrides` and `wgsl_cache` (both
-its Python and JS halves), and both are green.
+its Python and JS halves), and both are green. Re-confirmed with `--dev-mode` at the final commit of
+that day's work, so the 15/0/1 above is the state of `HEAD`, not of an earlier commit: all three
+builds under `warnings=extra werror=yes`, all 19 scenes re-exported from them and re-run in both
+browsers.
 
 **What it used to do, and why a green run meant less than it looked.** Stage 0 built the *dlink*
 template, `…wasm32.nothreads.dlink.zip`, while the smoketest exports with the non-dlink
