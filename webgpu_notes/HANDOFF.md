@@ -314,6 +314,63 @@ so every claim here is from reproducing the workflow's own commands locally.
 
 ---
 
+## 4.9 The octmap filter needs six storage images; WebGPU guarantees four
+
+The first real Actions run after §4.8 landed (`36300685747`) confirmed the §4.7 werror fix —
+`build-webgpu` passed in 51m37s after two days red, and the whole export → dedupe → upload →
+download → restore chain worked. `scene-smoketest` then failed **19 of 19**, which is the job doing
+for the first time what it had never done. What it caught is a real bug.
+
+```
+Chrome GPU: swiftshader (software)
+GPUValidationError: The number of storage textures (6) in the Compute stage
+  exceeds the maximum per-stage limit (4).
+ - While validating [BindGroupLayoutDescriptor "bgl:OctmapFilterShaderRD:0:set2"]
+```
+
+`octmap_filter.glsl:34-39` declares `dest_octmap0`..`dest_octmap5`: six write-only storage images in
+one compute stage, because it writes six mip levels per dispatch. **WebGPU guarantees only four**
+(`maxStorageTexturesPerShaderStage`). `platform/web/js/engine/engine.js` already requests the
+adapter's maximum for that limit, so this is invisible on hardware — measured here, a real GPU
+reports **8** and a software adapter reports exactly the baseline **4**. At 4 the bind group layout
+is rejected, everything behind it is invalidated, and the device is lost, so every scene dies at
+startup regardless of what it draws.
+
+That baseline is not a CI curiosity: it is what a conformant low-end or mobile adapter is allowed to
+report, so this broke real users too.
+
+**The fix** uses machinery the engine already has. `RASTER_EFFECT_OCTMAP` exists for exactly this —
+its comment says "performance, lack of capabilities, or driver errors" — but was only ever set by an
+A2B10G10R10 *format* check nested inside `if (!can_use_storage)`. The octmap decision is now hoisted
+out of that block (the shader needs six storage images whichever renderer asks) and adds a limit
+check against `CopyEffects::OCTMAP_FILTER_STORAGE_IMAGES`, a constant kept beside the flag so it
+cannot drift from the shader. Setting the flag also stops the compute shader being created at all,
+so there is no invalid layout left to lose the device over.
+
+**Verified both adapters**, which is the point:
+- **SwiftShader** (`CI=1`, the CI adapter): **19 pass, 0 fail, 0 skip**, exit 0. Was 0/19 before.
+- **Real GPU**: `local_ci.sh --no-safari --dev-mode` — 15 passed, 0 failed, 1 skipped, exit 0. That
+  adapter reports 8, so it still takes the compute path; the raster fallback changed nothing there.
+
+**The reusable part**: `run_scenes.mjs`'s `CI=1` mode launches the bundled Chromium on SwiftShader,
+which is the adapter CI uses. **A scene bug that only CI sees can be reproduced locally with
+`CI=1`** — no pushing, no waiting on a 50-minute build. Use it before concluding anything about a
+CI-only scene failure.
+
+**Correction to §7's note.** It recorded this exact message as "that adapter's limit and not the bug
+being chased", seen once on a plain `--enable-unsafe-webgpu` launch, and moved on. The limit was
+real and so was the bug; the launch mode only decided whether it was visible. When an adapter
+reports a lower limit and the engine then fails, the question is whether the engine is within the
+*guaranteed* limits, not whether the adapter is unusual.
+
+**One trap worth naming**, because it cost a wrong conclusion here: a first verification appeared to
+show the fix not working. It had tested a **stale web template** — the rebuild was a `&&` chain in
+which `source emsdk_env.sh` can short-circuit before the web build, and the whole thing finished in
+21 s, far too fast for two builds. Check that a build actually produced a new template (timestamp on
+the zip) before believing a "the fix didn't work" result.
+
+---
+
 ## 5. Corrections — things recorded wrongly earlier
 
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:
@@ -435,11 +492,12 @@ correctly (§4.2).
 
 Also: Playwright cannot drive the user's own Firefox build (it needs its patched one). And the
 adapter decides the errors — `capture_errors.mjs` mirrors `run_scenes.mjs`'s three Chrome modes
-(`WEBGPU_REAL_GPU=1`, `CI=1`, or neither = the system's own headed Chrome, which is what every
-recorded result here was measured on) precisely because a plain `--enable-unsafe-webgpu` launch
-reports an entirely different failure for `demo_3d_particles`: "The number of storage textures (6) in
-the Compute stage exceeds the maximum per-stage limit (4)", which is that adapter's limit and not the
-bug being chased.
+(`WEBGPU_REAL_GPU=1`, `CI=1`, or neither = the system's own headed Chrome, which is what most recorded
+results here were measured on). **`CI=1` is the CI adapter**: bundled Chromium on SwiftShader, which
+reports WebGPU's baseline limits. Use it to reproduce a CI-only scene failure locally instead of
+pushing — that is what found §4.9. A software adapter reporting "The number of storage textures (6)
+in the Compute stage exceeds the maximum per-stage limit (4)" was once written off here as that
+adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
