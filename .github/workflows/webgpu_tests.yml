@@ -265,11 +265,15 @@ jobs:
           # killed by a signal (e.g. SIGSEGV/SIGABRT from a native crash), the
           # last buffered lines — often the actual error — aren't lost before
           # the process exits without flushing.
+          # `cmd; GODOT_EXIT=$?` never reaches the assignment: the step runs
+          # under `bash -e`, so a nonzero exit kills the shell first and the
+          # diagnostic below is lost. `|| GODOT_EXIT=$?` keeps it.
+          GODOT_EXIT=0
           GODOT_DUMP_SPIRV=/tmp/spirv_dump timeout 300 \
             xvfb-run -a stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --audio-driver Dummy --path webgpu_tests/test_project \
-            2>&1; GODOT_EXIT=$?
+            2>&1 || GODOT_EXIT=$?
           echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
 
           echo "SPIR-V files dumped:"
@@ -303,16 +307,25 @@ jobs:
 
           # Packing/exporting itself doesn't need a real RenderingDevice, so
           # --headless is fine here (unlike the shader-compiling run above).
+          # See the note on the same pattern in the SPIR-V dump step above.
+          GODOT_EXIT=0
           timeout 120 \
             stdbuf -oL -eL \
             bin/godot.linuxbsd.editor.x86_64 \
               --headless --path webgpu_tests/test_project \
               --export-release "WebGPU" export/index.html \
-            2>&1; GODOT_EXIT=$?
+            2>&1 || GODOT_EXIT=$?
           echo "Editor exit code: $GODOT_EXIT (124 = timed out; >128 = killed by signal $((GODOT_EXIT - 128)))"
 
           if [ ! -f webgpu_tests/test_project/export/index.html ]; then
             echo "::error::Export produced no export/index.html — see the editor output above for the real error."
+            exit 1
+          fi
+
+          # A crash on the way out still produced the files, so this is reported
+          # separately from the check above rather than folded into it.
+          if [ "$GODOT_EXIT" -ne 0 ]; then
+            echo "::error::Export wrote index.html but the editor exited $GODOT_EXIT — see the backtrace above."
             exit 1
           fi
 
