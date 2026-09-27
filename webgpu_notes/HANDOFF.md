@@ -61,20 +61,33 @@ recurred since. Read it as a cache problem, not an engine crash. (The older note
 `benchmark_sprites` failing on a missing `res://benchmark_profiler.gd` was the same thing; it exports
 cleanly now.)
 
-**`./webgpu_tests/local_ci.sh --no-safari` has now been run end to end and passes**: 2026-09-27,
-**12 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag. That covers the two
-tiers not listed in the table above, which had never been run separately this session either:
-`spec_constant_overrides` and `wgsl_cache` (its Python and JS halves), both green. It needs
-`source ~/emsdk/emsdk_env.sh` first — the script does not do it, and Stage 0 fails without `emcc`.
+**`./webgpu_tests/local_ci.sh --no-safari` passes end to end, and now actually tests the engine it
+builds**: 2026-09-27, **14 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag.
+It covers two tiers missing from the table above, `spec_constant_overrides` and `wgsl_cache` (both
+its Python and JS halves), and both are green.
 
-**The dlink/non-dlink worry was unfounded, and the reason is worth knowing**: Stage 0 builds
-`bin/godot.web.template_release.wasm32.nothreads.dlink.zip`, while the smoketest exports with
-`bin/godot.web.template_release.wasm32.nothreads.zip`. Different filenames, different object
-directories (`libmodules.…dlink.a` vs the plain one), so they coexist and neither clobbers the other
-— which also means **Stage 0 rebuilds a template that no later stage uses**. The smoketest stage
-does not pass `--export` either, so a full `local_ci.sh` run tests whatever exports happen to be on
-disk, not the engine it just built. It is a real coverage gap rather than a bug: a green run does
-*not* prove the working tree's engine is good. Re-export by hand (§7) when that is what you need.
+**What it used to do, and why a green run meant less than it looked.** Stage 0 built the *dlink*
+template, `…wasm32.nothreads.dlink.zip`, while the smoketest exports with the non-dlink
+`…wasm32.nothreads.zip` — different filenames with different object directories, so they coexist
+and neither clobbers the other. The dlink/non-dlink *mismatch* the earlier note feared therefore
+could not happen, but the flip side was worse: **Stage 0 rebuilt a template no later stage loaded**,
+and the smoketest stage did not re-export, so a full run tested whatever exports happened to be on
+disk. A green result said nothing about the working tree's engine.
+
+**Fixed.** Stage 0 now builds the **editor and the non-dlink nothreads template** — the exact pair
+the smoketest uses — in that order, clearing the Task 40 stale `register_module_types.gen` objects
+between them, and a new step re-exports all 19 scenes from those binaries before any browser runs.
+Export failure is fatal rather than counted, because everything after it would be testing the
+previous exports. `--no-export` keeps the old behavior, `--export` re-exports without rebuilding,
+and export follows the rebuild by default. The script also sources `$EMSDK_ENV`
+(default `~/emsdk/emsdk_env.sh`) when `emcc` is not already on `PATH`, which it previously required
+the caller to have done; verified by running with `emcc` deliberately stripped from `PATH`.
+
+`run_scenes.mjs` also recovers from the stale-`.godot` abort (§6) now: on that exact signature it
+clears the cache and retries the export once. Rebuilding the editor is what arms that trap, and the
+script rebuilds before every export, so it would otherwise have hit it routinely. Both directions
+are tested with a stub editor — the signature retries and succeeds, an unrelated failure fails fast
+without deleting anything.
 
 ---
 
@@ -293,9 +306,9 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   `opengl3` and none of the WebGPU path runs.
 - `godot-demo-projects` is cloned at `/mnt/109313D2109313D2/godot-editors/godot-demo-projects`
   (shallow, `master`). The smoketest expects exactly that path. Leaving it absent makes 11 scenes skip.
-- The smoketest's non-dlink template comes from `bin/godot.web.template_release.wasm32.nothreads.zip`;
-  `local_ci.sh`'s own rebuild step builds the **dlink** one, so re-exporting needs the non-dlink build
-  made separately.
+- The smoketest's non-dlink template comes from `bin/godot.web.template_release.wasm32.nothreads.zip`.
+  `local_ci.sh` builds exactly that one (and the editor) and re-exports from them, so it no longer
+  needs a separate build — this used to be the caveat that it built the dlink template instead.
 
 ---
 
@@ -351,22 +364,17 @@ bug being chased.
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
-1. **Make `local_ci.sh` test the engine it builds** (§2). Stage 0 builds the dlink template, the
-   smoketest uses the non-dlink one and does not re-export, so a green run says nothing about the
-   working tree's engine. Either build both templates and pass `--export`, or drop Stage 0 and say
-   plainly that the script tests the existing exports. The second is honest and cheap; the first is
-   what the script's name implies.
-2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
+1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-3. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
+2. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
    which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
    container at export time is the biggest remaining load win and is entirely our own code.
-4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+3. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
-5. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+4. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
    time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
    and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
    actually bind would close the class instead of the next instance.
