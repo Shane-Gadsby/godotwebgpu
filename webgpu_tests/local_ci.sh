@@ -11,6 +11,8 @@
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
 #   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
+#   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
+#                                           # (warnings=extra werror=yes)
 #
 # What the rebuild builds, and why it matters:
 #   The editor, the dlink web template, and the **non-dlink, nothreads** one --
@@ -53,6 +55,7 @@ JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 NO_SAFARI=false
 QUICK=false
 DO_DLINK=true
+DEV_MODE=false
 REBUILD_EXPLICIT=""  # "", "yes", or "no"
 EXPORT_EXPLICIT=""   # "", "yes", or "no"
 for arg in "$@"; do
@@ -63,7 +66,25 @@ for arg in "$@"; do
     [[ "$arg" == "--export" ]] && EXPORT_EXPLICIT="yes"
     [[ "$arg" == "--no-export" ]] && EXPORT_EXPLICIT="no"
     [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
+    [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
 done
+
+# dev_mode=yes is what CI builds with (webgpu_tests.yml's SCONS_FLAGS), and in
+# Godot it implies warnings=extra werror=yes. Nothing local used it, which is how
+# an unused-variable error sat in drivers/webgpu/spirv_preprocess.cpp failing
+# every CI run for two days while every tier here stayed green. Off by default
+# because turning it on recompiles every object with different flags -- so it is
+# a deliberate "check what CI will say", not the normal path.
+# A scalar, not an array: macOS still ships bash 3.2, where expanding an empty
+# array under `set -u` is an unbound-variable error, and this script runs there
+# for the Safari tier. Unquoted expansion of an empty scalar contributes no
+# argument at all, and "dev_mode=yes" has no whitespace to split on.
+DEV_MODE_FLAG=""
+DEV_MODE_NOTE=""
+if [[ "$DEV_MODE" == true ]]; then
+    DEV_MODE_FLAG="dev_mode=yes"
+    DEV_MODE_NOTE=" [dev_mode]"
+fi
 
 # Rebuild logic: full mode rebuilds by default, --quick does not.
 # --rebuild/--no-rebuild always override.
@@ -184,6 +205,9 @@ if [[ "$DO_REBUILD" == true ]]; then
 else
     echo "  Rebuild: no"
 fi
+if [[ "$DEV_MODE" == true ]]; then
+    echo "  dev_mode: yes — warnings=extra werror=yes, as CI builds"
+fi
 if [[ "$DO_EXPORT" == true ]]; then
     echo "  Re-export: yes — all scenes, from the binaries above"
 else
@@ -230,8 +254,8 @@ if [[ "$DO_REBUILD" == true ]]; then
 
     # webgpu=yes on the editor is what enables the export-time WGSL baker; without
     # it the export ships unbaked shaders and loads ~5x slower.
-    build_step "scons editor ($SCONS_PLATFORM)" \
-        scons_in_repo platform="$SCONS_PLATFORM" target=editor webgpu=yes -j"$JOBS"
+    build_step "scons editor ($SCONS_PLATFORM)$DEV_MODE_NOTE" \
+        scons_in_repo platform="$SCONS_PLATFORM" target=editor webgpu=yes $DEV_MODE_FLAG -j"$JOBS"
 
     # Task 40: an editor build leaves the web target's register_module_types.gen
     # object stale, and the resulting template dies in callMain() with
@@ -272,8 +296,8 @@ if [[ "$DO_REBUILD" == true ]]; then
     # extra ~1 minute is not wanted.
     if [[ "$DO_DLINK" == true ]]; then
         clear_stale_module_objects "wasm32.nothreads.dlink"
-        build_step "scons web template (dlink, nothreads)" \
-            scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
+        build_step "scons web template (dlink, nothreads)$DEV_MODE_NOTE" \
+            scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no $DEV_MODE_FLAG -j"$JOBS"
     else
         printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, nothreads)"
         SKIPPED=$((SKIPPED + 1))
@@ -284,8 +308,8 @@ if [[ "$DO_REBUILD" == true ]]; then
     # and therefore the one everything after Stage 0 is actually testing. Built
     # last, so it is the freshest thing on disk when the export runs.
     clear_stale_module_objects "wasm32.nothreads"
-    build_step "scons web template (non-dlink, nothreads)" \
-        scons_in_repo platform=web target=template_release webgpu=yes opengl3=no threads=no -j"$JOBS"
+    build_step "scons web template (non-dlink, nothreads)$DEV_MODE_NOTE" \
+        scons_in_repo platform=web target=template_release webgpu=yes opengl3=no threads=no $DEV_MODE_FLAG -j"$JOBS"
 
     echo ""
 fi

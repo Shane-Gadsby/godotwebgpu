@@ -241,6 +241,62 @@ WebGPU. Web GDScript that needs a readback must retry or use `texture_get_data_a
 
 ---
 
+## 4.7 GitHub Actions: red for two days on a werror nobody could see locally
+
+`gh run list --repo Shane-Gadsby/godotwebgpu` showed 🧪 WebGPU Tests failing on every push since
+2026-09-25, always in the same step (`Build WebGPU export template`). The logs had expired, but the
+step name plus the timings said enough: successful runs take 47-49 minutes, the three failures died
+at 6-9. Reproducing the job's exact scons line locally found it in one build:
+
+```
+drivers/webgpu/spirv_preprocess.cpp:3209:7: error: unused variable 'carries_literals'
+  [-Werror,-Wunused-variable]
+```
+
+**Why nothing here caught it.** `webgpu_tests.yml` sets `SCONS_FLAGS: dev_mode=yes`, and in Godot
+`dev_mode` implies `warnings=extra werror=yes`. No local build used it — not the commands in
+CLAUDE.md, not `local_ci.sh` — so every tier stayed green while CI was red. `local_ci.sh --dev-mode`
+now exists for exactly this, off by default because it recompiles every object with different flags.
+**Run it before assuming CI will agree with a local green.**
+
+The lambda was dead, not accidentally unwired: its comment describes a liveness scan that walks every
+trailing word and therefore needs to know which opcodes carry literals, but the scans that shipped
+are opcode-targeted and cannot make that mistake. Deleted, with a note in its place so nobody adds
+one back.
+
+## 4.8 The CI scene-smoketest job tested nothing, for as long as it existed
+
+Same shape as §2's `local_ci.sh` problem, found while checking the workflows. The job checked out the
+repo, installed browsers and ran `run_scenes.mjs` — with no exports on disk, no export artifact and
+no `godot-demo-projects`. `exports/` is gitignored and nothing is checked in, so all 19 scenes skipped
+with `not exported`, `totalFailed` stayed 0, and `process.exit(totalFailed > 0 ? 1 : 0)` exited 0.
+Verified rather than inferred: moving `exports/` aside locally and running the job's exact command
+gives `0 passed, 0 failed, 19 skipped` and exit 0.
+
+**Fixed in two halves.** `build-webgpu` — the only job with both an editor and a web template — now
+clones `godot-demo-projects` as a sibling of the workspace (a plain `git clone`, because
+`actions/checkout` refuses a path outside `$GITHUB_WORKSPACE` and `scenes.json` wants a sibling),
+exports all 19 scenes and uploads them as the `scene-exports` artifact. `scene-smoketest` gains
+`needs: build-webgpu`, downloads that artifact, and runs with **`--require-exports`**, which turns
+"no export on disk" from a skip into a failure so the job can never silently pass again.
+
+**CI builds only the dlink template**, and `run_scenes.mjs` used to hardcode
+`variant/extensions_support=false`, which would have produced a broken export — the dlink zip carries
+a ~53 MB `godot.side.wasm` that the web export plugin only extracts when that flag is on. It is now
+derived from whether the template filename contains `.dlink.`, so CI and local runs each get a
+coherent preset. Verified locally by exporting a scene with the dlink template (`index.side.wasm`
+present) and running it in Chrome: PASS.
+
+**Cost to know about**: each dlink export is ~45 MB `index.wasm` plus ~52 MB `index.side.wasm`, so
+`scene-exports` is ~1.8 GB raw, roughly 450-500 MB compressed, at 7-day retention. Every export's
+side module is byte-identical, so uploading one copy and fanning it out would halve that; not done,
+because a subtle mistake there breaks a job that cannot be tested without pushing.
+
+**None of §4.7 or §4.8 has been observed in a real Actions run** — this fork is local-commits-only,
+so every claim here is from reproducing the workflow's own commands locally.
+
+---
+
 ## 5. Corrections — things recorded wrongly earlier
 
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:
@@ -310,6 +366,12 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   `opengl3` and none of the WebGPU path runs.
 - `godot-demo-projects` is cloned at `/mnt/109313D2109313D2/godot-editors/godot-demo-projects`
   (shallow, `master`). The smoketest expects exactly that path. Leaving it absent makes 11 scenes skip.
+- **An export dir is wiped before it is written.** It used not to be, and two things followed: files
+  the new export does not produce survived (eight dirs carried a months-old 52 MB `index.side.wasm`
+  from a dlink export next to a fresh non-dlink `index.wasm` — inert, but 400 MB of confusion), and a
+  *failed* export left the previous one in place so the scene ran the old build and reported PASS.
+  That second one is the misleading "benchmark_sprites exports fine after failing" note this file
+  used to carry. A failed export now leaves nothing.
 - The smoketest's non-dlink template comes from `bin/godot.web.template_release.wasm32.nothreads.zip`.
   `local_ci.sh` builds exactly that one (and the editor) and re-exports from them, so it no longer
   needs a separate build — this used to be the caveat that it built the dlink template instead.
