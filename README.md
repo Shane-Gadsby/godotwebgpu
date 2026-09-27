@@ -81,15 +81,15 @@ Building on that base, this fork has two main goals:
 
 | Platform | Browser | Verified by | Result |
 |----------|---------|-------------|--------|
-| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **18 pass, 0 fail, 1 skip** (the skip is the `GradientTexture1D` readback below, not a browser difference). Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
-| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **18 pass, 0 fail, 1 skip** — same scene, same cause. Same flag and native-package requirements |
+| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
+| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
 | Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
 | Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
 | macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
-| Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behaviour, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
+| Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behavior, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
 | iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
 
-The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. The one skip is identical on every platform tested, because it is a readback issue rather than a browser difference.
+The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
 
 ### Known Issues
 
@@ -110,7 +110,7 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 | Issue | Status | Notes |
 |-------|--------|-------|
 | `buffer_map()` returns a CPU shadow copy, so readback is a frame behind | open (Task 7.8) | Synchronous GPU readback is impossible on single-threaded WASM. Some paths load from disk instead |
-| `GradientTexture1D.get_image()` returns an empty image | open (Task 44) | Consequence of the above; the `compute/heightmap` demo's `texture_create()` fails because of it, and that scene is the smoketest's one skip. Priming the readback across 120 frames does not help, and the same check passes on native Vulkan |
+| `RenderingDevice.texture_get_data()` returns nothing on the first call | open (Task 45) | Consequence of the above: the first call starts the copy-and-map and the data lands a frame later, and `rd.sync()` cannot wait for it. Web GDScript that needs a readback must retry or use `texture_get_data_async()`. `GradientTexture1D/2D.get_image()` no longer round-trips through the GPU and works normally |
 | 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | emdawnwebgpu has no `R16Unorm`/`Snorm` family at all. Costs memory; correctness is fine. Vertex attributes are unaffected |
 | Canvas SDF uses `R16_SFLOAT` instead of `R16_SNORM` | workaround (Task 44) | Dawn reports `R16Snorm`'s sample type as `UnfilterableFloat` while the SDF samples it with a filtering sampler |
 | Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load |
@@ -132,7 +132,7 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 | Issue | Status | Notes |
 |-------|--------|-------|
 | A fixed ~500 ms `Servers:Rendering` engine-init cost on every project, ~180 ms of it our own per-stage WGSL text scanning | open (Task 14) | Baking binding metadata into the shader container at export time is the remaining win. Project-dependent load time is already down from ~9.2 s to ~1.0 s |
-| Temporary texture views in `WGUniformSet::temp_views` may not be released | open (Task 7.15) | Suspected leak; not yet characterised as per-frame or unbounded |
+| Temporary texture views in `WGUniformSet::temp_views` may not be released | open (Task 7.15) | Suspected leak; not yet characterized as per-frame or unbounded |
 | Specialized shader modules may not be released by `pipeline_free()` | open (Task 7.17) | Narrowed by Task 25's move to WGSL `@id(N) override`s, which removes most re-specialization |
 | WGSL format-name remapping patches strings in place, assuming equal lengths | open (Task 7.18) | Fragile if Tint's output names change. Task 9.15 moved some of these patches to Tint IR transforms and made the rest `memcpy`-safe |
 | No device-loss recovery | open | Logged only; the page must be reloaded |

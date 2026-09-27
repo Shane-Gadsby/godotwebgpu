@@ -6398,3 +6398,74 @@ reclassification bug above. One scene feature, two independent WebGPU bugs, one 
 Two notes for whoever is next: `webgpu_tests/screenshot_comparison`'s entry point is
 `screenshot_tests.mjs`, not `run_tests.mjs` as `CLAUDE.md` said (fixed there), and its cross-browser
 `[WARN] chromium vs firefox — diff: 99%` lines are pre-existing and not counted as failures.
+
+#### Task 45 — the heightmap demo: the gradient round-trip, and the async-readback contract `[FIXED]`
+
+**The tier is 19 pass, 0 fail, 0 skip in Chrome and Firefox.** This was the last known-broken thing
+in the suite and the only `known_limitation` left in `scenes.json`; that flag is now gone.
+
+**The recorded diagnosis was wrong.** Task 44's closing note said "`GradientTexture1D.get_image()`
+returns an empty image … the Task 42 self-test primes it across 120 frames and still gets nothing,
+so 'retry next frame' is not the answer". Running the committed export with `capture_errors.mjs
+--all` showed the opposite: the priming loop **succeeded** (its
+`FAIL gradient texture readback never completed` line never printed), and the first real error was
+
+```
+ERROR: Condition "byte_slice.is_empty()" is true. Returning: RID()
+   at: _texture_create (servers/rendering/rendering_device.cpp:10309)
+```
+
+i.e. the *demo's own* `gradient_tex.get_image().get_data()` at `main.gd:136` got nothing, one call
+after the priming loop had just got data.
+
+**Why priming could never help.** `RenderingDeviceDriverWebGPU::texture_get_data()` is a
+one-shot cache by design: a call either *starts* a readback (returns empty) or *consumes* a completed
+one (`entry->has_data = false`, deliberately no auto-requeue — see the comment there about
+scroll-screenshot showing t_(n-1)). So each call alternates, and the patch's assumption that the
+demo's single call would "hit the warmed cache" was wrong: the priming loop consumed the very data it
+had just waited for. **A caller that calls `texture_2d_get()` exactly once can never get data on
+WebGPU**, however many frames it waited beforehand.
+
+**The fix, part 1 — don't round-trip a CPU-generated image through the GPU.**
+`GradientTexture1D::get_image()` and `GradientTexture2D::get_image()` uploaded an image in `_update()`
+and then read it back out of the GPU with `texture_2d_get()`. A gradient texture is a pure function of
+its `Gradient`, `width`/`height` and `use_hdr`, so the generation half of `_update()` is now
+`_generate_image()` and `get_image()` calls it directly. Identical by construction on every backend,
+cheaper everywhere (no GPU round-trip), and it works on WebGPU where the round-trip cannot.
+
+This deliberately does **not** try to fix `texture_2d_get()` in general. The obvious general fix —
+keeping `image_cache_2d` populated outside `TOOLS_ENABLED` — would retain a CPU copy of every texture
+created from an `Image`, which on web includes every `CompressedTexture2D` loaded from disk. That is
+a texture-memory doubling on the platform this fork exists to make fast, and it is not worth it to
+serve a rare API. Gradient textures are fixed at the source instead.
+
+**The fix, part 2 — the self-test now honors the async contract.** With the gradient fixed, the
+demo got as far as its compute dispatch and failed on the *second* readback:
+`rd.texture_get_data(heightmap_rid, 0)` on the local `RenderingDevice`, which returns 262144 bytes
+on Vulkan and 0 on the first WebGPU call. That one is genuinely on the GPU and cannot be regenerated;
+`rd.sync()` cannot wait for it either (no Asyncify in the web build). The smoketest patch retries it
+across frames, which is the documented contract, and lands on the second call.
+
+**The upstream demo itself still shows an empty island on WebGPU**, because it calls
+`texture_get_data()` once after `rd.sync()`. That is a real platform limitation for user GDScript,
+not a driver fault: web code that needs a readback must retry or use `texture_get_data_async()`. It
+costs two engine `ERROR:` prints in the scene, neither of which is a GPU error, so the tier counts
+`gpu=0`.
+
+**Verified**:
+- Scene smoketest, every scene re-exported against an editor + non-dlink nothreads template pair
+  rebuilt at this change: **Chrome 19/0/0, Firefox 19/0/0**, exit 0 in both. The heightmap self-test
+  reports `PASS center 98.2 corners 0.0 nonzero 1431/1688`.
+- Offline tiers: `shader_corpus` 14/14, `driver_unit_tests` 332/0, `preprocessing_tests` 205/0+1 skip,
+  `resource_lifecycle` all pass, `screenshot_comparison` 8/0.
+- **Native Vulkan** (`gradient_texture.cpp` is shared engine code): a headless GDScript suite checks
+  both classes' LDR and HDR paths, image size/format, the single-point 2D fill branch, repeatability,
+  the no-gradient-returns-null case, and pixel values against `Gradient.sample()` at both ends and the
+  midpoint — 13/13.
+
+**One harness note, not caused by this change**: `benchmark_sprites` and `demo_compute_heightmap` both
+failed to export at the start of this session with
+`ERROR: Parameter "singleton" is null.  at: is_cmdline_mode (editor_node.cpp:6622)` followed by
+`Aborted`. It is a stale `.godot` import cache in the `godot-demo-projects` checkout, left by an
+editor built at a different version hash; `rm -rf <project>/.godot` fixes it and both have exported
+cleanly on every run since. Worth knowing before reading it as an engine crash.
