@@ -10,13 +10,18 @@
 #   ./webgpu_tests/local_ci.sh --quick --rebuild  # Rebuild + quick tests only
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
+#   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
 #
 # What the rebuild builds, and why it matters:
-#   The editor and the **non-dlink, nothreads** web template -- the exact pair the
-#   scene smoketest exports with. This used to build the *dlink* template instead,
-#   which is a different file (…nothreads.dlink.zip) that no later stage ever
-#   loaded, so a green run said nothing about the engine in the working tree. The
-#   run now re-exports every scene from what it just built, so it does.
+#   The editor, the dlink web template, and the **non-dlink, nothreads** one --
+#   that last being the exact pair, with the editor, that the scene smoketest
+#   exports with. This used to build *only* the dlink template, which is a
+#   different file (…nothreads.dlink.zip) that no later stage ever loaded, so a
+#   green run said nothing about the engine in the working tree. The run now
+#   re-exports every scene from what it just built, so it does.
+#
+#   The dlink build is kept as a compile check -- nothing loads it, but dropping
+#   it would let a dlink-only build break through unnoticed. --no-dlink skips it.
 #
 #   The two builds have to happen in this order, and the web one has to come last:
 #   interleaving them in one tree goes stale in register_module_types.gen and ships
@@ -47,6 +52,7 @@ JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 # Parse args
 NO_SAFARI=false
 QUICK=false
+DO_DLINK=true
 REBUILD_EXPLICIT=""  # "", "yes", or "no"
 EXPORT_EXPLICIT=""   # "", "yes", or "no"
 for arg in "$@"; do
@@ -56,6 +62,7 @@ for arg in "$@"; do
     [[ "$arg" == "--no-rebuild" ]] && REBUILD_EXPLICIT="no"
     [[ "$arg" == "--export" ]] && EXPORT_EXPLICIT="yes"
     [[ "$arg" == "--no-export" ]] && EXPORT_EXPLICIT="no"
+    [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
 done
 
 # Rebuild logic: full mode rebuilds by default, --quick does not.
@@ -169,7 +176,11 @@ else
     echo "  Mode: full"
 fi
 if [[ "$DO_REBUILD" == true ]]; then
-    echo "  Rebuild: yes (-j$JOBS) — editor + non-dlink nothreads web template"
+    if [[ "$DO_DLINK" == true ]]; then
+        echo "  Rebuild: yes (-j$JOBS) — editor + dlink and non-dlink web templates"
+    else
+        echo "  Rebuild: yes (-j$JOBS) — editor + non-dlink web template (--no-dlink)"
+    fi
 else
     echo "  Rebuild: no"
 fi
@@ -213,7 +224,7 @@ build_step() {
 
 if [[ "$DO_REBUILD" == true ]]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Stage 0: Engine Rebuild (editor + non-dlink web template)"
+    echo "  Stage 0: Engine Rebuild (editor + web templates)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
@@ -222,10 +233,16 @@ if [[ "$DO_REBUILD" == true ]]; then
     build_step "scons editor ($SCONS_PLATFORM)" \
         scons_in_repo platform="$SCONS_PLATFORM" target=editor webgpu=yes -j"$JOBS"
 
-    # Task 40: the editor build leaves this object stale for the web target, and
-    # the resulting template dies in callMain() with "resolved is not a function".
-    rm -f "$REPO_ROOT"/bin/obj/modules/register_module_types.gen.web.template_release.wasm32.nothreads.o \
-          "$REPO_ROOT"/bin/obj/modules/libmodules.web.template_release.wasm32.nothreads.a
+    # Task 40: an editor build leaves the web target's register_module_types.gen
+    # object stale, and the resulting template dies in callMain() with
+    # "resolved is not a function". Clear it per variant, right before that
+    # variant is built -- the dlink and non-dlink objects have separate names, so
+    # each needs its own.
+    clear_stale_module_objects() {
+        local variant="$1" # e.g. wasm32.nothreads or wasm32.nothreads.dlink
+        rm -f "$REPO_ROOT/bin/obj/modules/register_module_types.gen.web.template_release.$variant.o" \
+              "$REPO_ROOT/bin/obj/modules/libmodules.web.template_release.$variant.a"
+    }
 
     # emcc is only needed from here on, so check for it after the editor is built.
     if ! command -v emcc >/dev/null 2>&1; then
@@ -248,9 +265,25 @@ if [[ "$DO_REBUILD" == true ]]; then
         fi
     fi
 
-    # The non-dlink nothreads template: the one the scene smoketest exports with.
-    # The dlink variant is a different file that nothing downstream loads, so it
-    # is deliberately not built here.
+    # The dlink (GDExtension-support) template. Nothing downstream loads it -- the
+    # smoketest exports with the non-dlink one -- so this is a compile check, not
+    # a tested artifact. It is built first so the non-dlink template stays the
+    # last thing written before the export, and skipped by --no-dlink when the
+    # extra ~1 minute is not wanted.
+    if [[ "$DO_DLINK" == true ]]; then
+        clear_stale_module_objects "wasm32.nothreads.dlink"
+        build_step "scons web template (dlink, nothreads)" \
+            scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
+    else
+        printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, nothreads)"
+        SKIPPED=$((SKIPPED + 1))
+        RESULTS+=("SKIP  scons web template (dlink, nothreads)")
+    fi
+
+    # The non-dlink nothreads template: the one the scene smoketest exports with,
+    # and therefore the one everything after Stage 0 is actually testing. Built
+    # last, so it is the freshest thing on disk when the export runs.
+    clear_stale_module_objects "wasm32.nothreads"
     build_step "scons web template (non-dlink, nothreads)" \
         scons_in_repo platform=web target=template_release webgpu=yes opengl3=no threads=no -j"$JOBS"
 
