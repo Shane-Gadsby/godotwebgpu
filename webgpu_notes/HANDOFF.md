@@ -371,6 +371,38 @@ the zip) before believing a "the fix didn't work" result.
 
 ---
 
+## 4.10 CI was shipping an unbaked template, and saying so 274 times
+
+Noticed while watching a build: the `build-webgpu` log is full of `FAIL:` lines. They are not new,
+not caused by anything above, and they were present in the runs that **passed** — but they are not
+harmless either.
+
+```
+FAIL: scene_forward_mobile.glsl:color_pass:vert — [Errno 2] No such file or directory: 'glslangValidator'
+[WGSL Precompile] Results: 0 compiled, 274 glsl failures, 0 tint failures
+[WGSL Precompile] Unique entries: 0 (from 274 total modules)
+```
+
+`glslangValidator` was never installed in that job — only the `shader-corpus` job installs
+`glslang-tools`. `wgsl_precompile.py` shells out to it for every shader variant, so all 274 failed
+identically, `wgsl_precompiled.gen.h` came out empty, and since per-shader failures are non-fatal by
+design the build carried on and **shipped a template with no baked WGSL at all**. Every shader then
+translated at runtime: the `{baked: 0, translated: N}` state Task 36 warns about, roughly a 5× slower
+start. For comparison, the same precompile run locally with glslang present reports
+**274 compiled, 0 glsl failures, 0 tint failures, 189 unique entries**.
+
+Two changes. The job now installs `glslang-tools` before building. And `wgsl_precompile.py` checks
+for the binary up front and exits with a clear message, exactly as it already did for a missing
+`tint_convert_cli` — because a missing compiler does not fail *a* shader, it fails *every* shader in
+the same way, and that deserves one unmissable error rather than a few hundred ordinary-looking
+ones and a summary nobody reads.
+
+**The general lesson**: a non-fatal per-item failure path will eventually swallow a whole-system
+misconfiguration. When every item fails identically, that is a configuration error, and the code
+should say so once, loudly, instead of reporting it as N item failures.
+
+---
+
 ## 5. Corrections — things recorded wrongly earlier
 
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:

@@ -17,6 +17,7 @@ SPIR-V → WGSL conversion for ubershaders on every page load.
 
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -987,6 +988,22 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     if not os.path.isfile(tint_cli):
         print("[WGSL Precompile] ERROR: bin/tint_convert_cli not found.", file=sys.stderr)
         print("[WGSL Precompile] Run: ./drivers/webgpu/tint_cli/build.sh", file=sys.stderr)
+        sys.exit(1)
+
+    # Every shader variant is compiled by shelling out to glslangValidator, so a
+    # missing binary does not fail one shader -- it fails all of them, identically,
+    # with "[Errno 2] No such file or directory". That used to be reported as a few
+    # hundred ordinary per-shader FAIL lines and a "0 compiled" summary, and because
+    # neither is fatal the build went on to ship a template with an empty
+    # wgsl_precompiled.gen.h: every shader translated at runtime instead, roughly a
+    # 5x slower start, with nothing saying why. Fail here instead, the same way a
+    # missing tint_convert_cli already does.
+    if shutil.which(glslang_path) is None and not os.path.isfile(glslang_path):
+        print(f"[WGSL Precompile] ERROR: glslangValidator not found (looked for '{glslang_path}').", file=sys.stderr)
+        print("[WGSL Precompile] Every shader would fail to compile and the template would", file=sys.stderr)
+        print("[WGSL Precompile] ship with no baked WGSL at all. Install it (Debian/Ubuntu:", file=sys.stderr)
+        print("[WGSL Precompile] 'apt install glslang-tools', macOS: 'brew install glslang')", file=sys.stderr)
+        print("[WGSL Precompile] or pass GLSLANG=<path> to scons.", file=sys.stderr)
         sys.exit(1)
 
     total = 0
