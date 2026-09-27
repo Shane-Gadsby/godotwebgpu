@@ -8,11 +8,15 @@ on:
       - 'drivers/webgpu/**'
       - 'webgpu_tests/**'
       - 'servers/rendering/**'
+      # Without this, a change to this workflow does not run this workflow, so a
+      # fix to the CI itself cannot be tested by pushing it.
+      - '.github/workflows/webgpu_tests.yml'
   pull_request:
     paths:
       - 'drivers/webgpu/**'
       - 'webgpu_tests/**'
       - 'servers/rendering/**'
+      - '.github/workflows/webgpu_tests.yml'
 
 # Global Settings
 env:
