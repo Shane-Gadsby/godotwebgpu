@@ -58,9 +58,10 @@ cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
 ./webgpu_tests/local_ci.sh --quick          # shader corpus + scene smoketest only, no rebuild
 ./webgpu_tests/local_ci.sh --no-safari      # skip Safari (no AppleScript needed)
 ./webgpu_tests/local_ci.sh --no-export      # rebuild but keep the existing exports
+./webgpu_tests/local_ci.sh --no-dlink       # skip the dlink template compile check
 ```
 
-`local_ci.sh` builds the editor and the **non-dlink nothreads** web template — the pair the scene smoketest exports with — and re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
+`local_ci.sh` builds the editor, the dlink web template (a compile check only — nothing loads it) and the **non-dlink nothreads** one, which with the editor is the pair the scene smoketest exports with. It re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
 
 SPIR-V dump validation and the smoke/scene-smoketest tiers need a full editor + web template build first (see `webgpu_tests/README.md` for exact commands and `GODOT_DUMP_SPIRV` env var usage). `webgpu_tests/shader_corpus/expected_failures.json` is the baseline of known/accepted Tint conversion failures (Vulkan-only shader variants never used by the WebGPU runtime) — CI only fails on failures *not* in that baseline.
 

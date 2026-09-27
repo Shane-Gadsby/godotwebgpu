@@ -62,7 +62,7 @@ recurred since. Read it as a cache problem, not an engine crash. (The older note
 cleanly now.)
 
 **`./webgpu_tests/local_ci.sh --no-safari` passes end to end, and now actually tests the engine it
-builds**: 2026-09-27, **14 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag.
+builds**: 2026-09-27, **15 passed, 0 failed, 1 skipped**, exit 0 — the skip is Safari, by the flag.
 It covers two tiers missing from the table above, `spec_constant_overrides` and `wgsl_cache` (both
 its Python and JS halves), and both are green.
 
@@ -74,9 +74,13 @@ could not happen, but the flip side was worse: **Stage 0 rebuilt a template no l
 and the smoketest stage did not re-export, so a full run tested whatever exports happened to be on
 disk. A green result said nothing about the working tree's engine.
 
-**Fixed.** Stage 0 now builds the **editor and the non-dlink nothreads template** — the exact pair
-the smoketest uses — in that order, clearing the Task 40 stale `register_module_types.gen` objects
-between them, and a new step re-exports all 19 scenes from those binaries before any browser runs.
+**Fixed.** Stage 0 now builds the **editor, the dlink template, and the non-dlink nothreads
+template** — that last one, with the editor, being the exact pair the smoketest uses. It clears the
+Task 40 stale `register_module_types.gen` objects per variant right before each web build, and
+builds the non-dlink one **last** so it is the freshest thing on disk when the export runs. A new
+step then re-exports all 19 scenes from those binaries before any browser runs. The dlink template
+is kept purely as a compile check — nothing downstream loads it, but dropping it would let a
+dlink-only build break through unnoticed; `--no-dlink` skips it.
 Export failure is fatal rather than counted, because everything after it would be testing the
 previous exports. `--no-export` keeps the old behavior, `--export` re-exports without rebuilding,
 and export follows the rebuild by default. The script also sources `$EMSDK_ENV`
