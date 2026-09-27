@@ -250,11 +250,13 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
 ## 6. Build and environment state — read before rebuilding
 
 - **`bin/` is current**: both `godot.linuxbsd.editor.x86_64` and
-  `godot.web.template_release.wasm32.nothreads.zip` were built at commit `5f4b63c136`, so the pair
-  matches itself and the recorded scene results were measured on it. `HEAD` has since moved through
-  documentation-only commits, which does not matter *until* something is rebuilt: the engine version
-  hash comes from the git commit and **baked shader caches are keyed to it**, so rebuilding one of
-  the pair produces a mismatch. **Rebuild both, or neither.** The tell is `{baked: 0, translated: N}`
+  `godot.web.template_release.wasm32.nothreads.zip` were built together, from the Task 45 source but
+  before it was committed, so they carry the version hash `2e3ccd321` rather than `HEAD`'s. The pair
+  matches itself, the exports in `webgpu_tests/scene_smoketest/exports/` were all made from it, and
+  the 19/0/0 results were measured on that set — so `--skip-export` reproduces them as-is. The stale
+  hash matters only *when something is rebuilt*: the engine version hash comes from the git commit
+  and **baked shader caches are keyed to it**, so rebuilding one of the pair produces a mismatch.
+  **Rebuild both, or neither** — and re-export afterwards. The tell is `{baked: 0, translated: N}`
   plus a ~5× slower load, and Task 36's warning names it.
 - **Rebuild cost, measured today**: the editor is ~30 s and the web template ~47 s incrementally on
   this machine, so "rebuild both" is a minute, not an afternoon. The exact commands:
@@ -272,6 +274,10 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   `TypeError: resolved is not a function`. Workaround:
   `rm -f bin/obj/modules/register_module_types.gen.<platform>.<target>.*.o bin/obj/modules/libmodules.<...>.a`
   then rebuild. Check with `grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` (want 0).
+- **A stale `.godot` in a demo project kills its export.** Left by an editor built at a different
+  version hash, it aborts with `ERROR: Parameter "singleton" is null.  at: is_cmdline_mode
+  (editor_node.cpp:6622)` and `Aborted`, which reads like an engine crash and is not one.
+  `rm -rf <project>/.godot` fixes it. Rebuilding the editor is what makes it likely.
 - **An export made with `--headless` silently skips the shader baker** (15 MB pck instead of 135 MB).
 - **A scratch project needs `renderer/rendering_method.web="forward_plus"`** or the export picks
   `opengl3` and none of the WebGPU path runs.
