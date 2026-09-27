@@ -136,8 +136,33 @@ jobs:
           cache-name: web-webgpu-test
         continue-on-error: true
 
+      # actions/setup-python resolves its download from a manifest keyed by distro,
+      # using lsb_release -- so on any Ubuntu derivative it fails with
+      # "The version '3.x' ... was not found for <Distro> <version>" (Zorin 18 here).
+      # ImageOS does not help; that is read by setup-node, not setup-python. Rather
+      # than patch .github/actions/godot-deps, which is shared with every other
+      # workflow in this repo, skip it on a self-hosted runner and use the Python and
+      # SCons already installed there.
       - name: Setup Python and SCons
+        if: ${{ !vars.CI_RUNNER }}
         uses: ./.github/actions/godot-deps
+
+      - name: Use the runner's own Python and SCons
+        if: ${{ vars.CI_RUNNER }}
+        shell: bash
+        run: |
+          # pip --user installs land here, and the runner does not always inherit it.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v python3 >/dev/null || { echo "::error::python3 not found on the runner."; exit 1; }
+          if ! command -v scons >/dev/null; then
+            echo "::error::scons not found on the runner. Install it (pip install --user scons) and restart the runner."
+            exit 1
+          fi
+          python3 --version
+          scons --version | head -3
+          # godot-deps does this too; the build output is far less readable without it.
+          echo ::add-matcher::misc/utility/problem-matchers.json
 
       # wgsl_precompile.py shells out to glslangValidator for every engine shader
       # variant during a webgpu=yes build. Without it the precompiler reported
