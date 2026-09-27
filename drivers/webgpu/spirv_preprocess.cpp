@@ -3201,38 +3201,12 @@ Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes) {
 	static constexpr uint32_t GROUP_OP_REDUCE = 0;
 	static constexpr uint32_t GROUP_OP_INCLUSIVE_SCAN = 1;
 
-	// Instructions whose trailing words are literals rather than ids. The
-	// liveness scan below treats every word as a potential id reference, which is
-	// deliberately conservative -- it can only cause this pass to decline, never
-	// to rewrite something it should not -- but skipping the obvious literal
-	// carriers keeps a constant's *value* from being mistaken for a result id.
-	auto carries_literals = [](uint16_t p_op) {
-		switch (p_op) {
-			case 3: // OpSource
-			case 4: // OpSourceExtension
-			case 5: // OpName
-			case 6: // OpMemberName
-			case 7: // OpString
-			case 8: // OpLine
-			case 10: // OpExtension
-			case 11: // OpExtInstImport
-			case 14: // OpMemoryModel
-			case 15: // OpEntryPoint
-			case 16: // OpExecutionMode
-			case 17: // OpCapability
-			case 21: // OpTypeInt
-			case 22: // OpTypeFloat
-			case 43: // OpConstant
-			case 50: // OpSpecConstant
-			case 71: // OpDecorate
-			case 72: // OpMemberDecorate
-			case 251: // OpSwitch
-			case 330: // OpModuleProcessed
-				return true;
-			default:
-				return false;
-		}
-	};
+	// There is deliberately no literal-carrier table here. An earlier draft
+	// scanned every trailing word as a potential id reference and needed one to
+	// keep a constant's *value* from being mistaken for a result id; the scans
+	// below are opcode-targeted instead (each checks `op` and `wc` and reads the
+	// operand positions it knows), which is strictly more precise and cannot make
+	// that mistake in the first place.
 
 	// --- Pass 1: decide whether the whole module can be lowered, and collect the
 	// ballot results so their liveness can be checked.
