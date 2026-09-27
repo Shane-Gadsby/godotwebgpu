@@ -27,7 +27,7 @@ jobs:
   # Shader Corpus: Standalone SPIR-V → WGSL validation (fast, no build needed)
   # ═══════════════════════════════════════════════════════════════════════════════
   shader-corpus:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Shader Corpus (SPIR-V → WGSL)
     timeout-minutes: 25
     steps:
@@ -43,8 +43,14 @@ jobs:
 
       - name: Install glslangValidator
         run: |
-          sudo apt-get update
-          sudo apt-get install -y glslang-tools
+          # Already present on a self-hosted runner, which also has no interactive
+          # sudo -- installing unconditionally would fail there for no reason.
+          if command -v glslangValidator >/dev/null 2>&1; then
+            echo "glslangValidator already present: $(command -v glslangValidator)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y glslang-tools
+          fi
 
       # tint_convert_cli is what run_tests.mjs actually uses to validate SPIR-V → WGSL;
       # without it the "validation" step silently no-ops (see run_tests.mjs's
@@ -86,7 +92,7 @@ jobs:
   # Driver Unit Tests: Algorithmic correctness of WebGPU driver subsystems
   # ═══════════════════════════════════════════════════════════════════════════════
   driver-unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Driver Unit Tests (JS)
     timeout-minutes: 5
     steps:
@@ -106,7 +112,7 @@ jobs:
   # Engine Build: Compile WebGPU export template + dump all SPIR-V
   # ═══════════════════════════════════════════════════════════════════════════════
   build-webgpu:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Build WebGPU Template + Dump SPIR-V
     timeout-minutes: 90
     steps:
@@ -142,8 +148,25 @@ jobs:
       # always installed this; this one never did.
       - name: Install glslangValidator (needed to bake WGSL)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y glslang-tools
+          # See the note in the shader-corpus job: skip when it is already there, so
+          # this works on a self-hosted runner without passwordless sudo.
+          if command -v glslangValidator >/dev/null 2>&1; then
+            echo "glslangValidator already present: $(command -v glslangValidator)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y glslang-tools
+          fi
+
+      # A webgpu=yes build runs wgsl_precompile.py, which builds tint_convert_cli
+      # first -- ~570 objects of Tint and SPIRV-Tools with no incremental cache of
+      # its own. Measured at 7m31s of a 50m run (08:42:41 to 08:50:12 in run
+      # 36306976289), rebuilt every time because only the shader-corpus job cached
+      # it. Same path and key as there, so the two jobs share one cache entry.
+      - name: Cache tint_convert_cli build
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
 
       - name: Build WebGPU export template
         uses: ./.github/actions/godot-build
@@ -184,11 +207,19 @@ jobs:
           # glslang/SPIR-V RD path at all, so GODOT_DUMP_SPIRV then dumps zero
           # files (and some engine shaders, e.g. fog, aren't even implemented
           # for that renderer, so it also errors outright).
-          sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          # Skip when already satisfied: a self-hosted runner normally has these and
+          # has no passwordless sudo, so an unconditional install just fails.
+          if command -v xvfb-run >/dev/null 2>&1 && [ -f /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ]; then
+            echo "xvfb and Vulkan loader already present"
+          else
+            sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          fi
 
       - name: Verify software Vulkan is actually usable
         run: |
-          sudo apt-get install -y vulkan-tools
+          if ! command -v vulkaninfo >/dev/null 2>&1; then
+            sudo apt-get install -y vulkan-tools
+          fi
           xvfb-run -a vulkaninfo --summary
 
       - name: Run test project to compile & dump all shaders
@@ -335,7 +366,7 @@ jobs:
   # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
   # ═══════════════════════════════════════════════════════════════════════════════
   validate-spirv:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Validate Engine SPIR-V (Tint)
     needs: [build-webgpu]
     timeout-minutes: 10
@@ -377,7 +408,7 @@ jobs:
   # Smoke Test: Run exported project in headless Chrome
   # ═══════════════════════════════════════════════════════════════════════════════
   smoke-test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Headless Chrome Smoke Test
     needs: [build-webgpu]
     timeout-minutes: 15
@@ -401,10 +432,19 @@ jobs:
           cd webgpu_tests/test_project
           npm init -y
           npm install playwright
-          npx playwright install chromium --with-deps
+          if sudo -n true 2>/dev/null; then
+            npx playwright install chromium --with-deps
+          else
+            npx playwright install chromium
+          fi
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        run: |
+          if command -v xvfb-run >/dev/null 2>&1; then
+            echo "xvfb already present"
+          else
+            sudo apt-get update && sudo apt-get install -y xvfb
+          fi
 
       - name: Run smoke test
         working-directory: webgpu_tests/test_project
@@ -414,7 +454,7 @@ jobs:
   # Scene Smoketest: 18 demos/benchmarks across Chrome + Firefox
   # ═══════════════════════════════════════════════════════════════════════════════
   scene-smoketest:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Scene Smoketest (Chrome + Firefox)
     # Needs the exports built-webgpu produces. Before this dependency existed the
     # job ran in parallel with no exports on disk, skipped all 19 scenes and
@@ -447,7 +487,11 @@ jobs:
         run: |
           cd webgpu_tests/scene_smoketest
           npm install
-          npx playwright install chromium firefox --with-deps
+          if sudo -n true 2>/dev/null; then
+            npx playwright install chromium firefox --with-deps
+          else
+            npx playwright install chromium firefox
+          fi
 
       # --require-exports turns "no export on disk" from a skip into a failure,
       # so this job can never again report success without having run a scene.
@@ -463,7 +507,7 @@ jobs:
   # Resource Lifecycle: Browser-based stress test
   # ═══════════════════════════════════════════════════════════════════════════════
   resource-lifecycle:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Resource Lifecycle (Chrome WebGPU)
     timeout-minutes: 15
     steps:
@@ -480,7 +524,11 @@ jobs:
           cd webgpu_tests/resource_lifecycle
           npm init -y
           npm install playwright
-          npx playwright install chromium --with-deps
+          if sudo -n true 2>/dev/null; then
+            npx playwright install chromium --with-deps
+          else
+            npx playwright install chromium
+          fi
 
       - name: Run resource lifecycle stress tests
         working-directory: webgpu_tests/resource_lifecycle
@@ -490,7 +538,7 @@ jobs:
   # Screenshot Comparison: Multi-browser visual regression
   # ═══════════════════════════════════════════════════════════════════════════════
   screenshot-comparison:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Screenshot Comparison (Chrome + Firefox)
     timeout-minutes: 20
     steps:
@@ -507,8 +555,18 @@ jobs:
           cd webgpu_tests/screenshot_comparison
           npm init -y
           npm install playwright
-          npx playwright install chromium firefox --with-deps
-          sudo apt-get update && sudo apt-get install -y xvfb
+          # --with-deps needs root. Use it only where sudo works unattended (the
+          # GitHub-hosted runners); a self-hosted box already has the libraries.
+          if sudo -n true 2>/dev/null; then
+            if sudo -n true 2>/dev/null; then
+            npx playwright install chromium firefox --with-deps
+          else
+            npx playwright install chromium firefox
+          fi
+            sudo apt-get update && sudo apt-get install -y xvfb
+          else
+            npx playwright install chromium firefox
+          fi
 
       - name: Run screenshot tests
         working-directory: webgpu_tests/screenshot_comparison
@@ -532,7 +590,7 @@ jobs:
   # Summary
   # ═══════════════════════════════════════════════════════════════════════════════
   test-summary:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Test Summary
     needs: [shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, screenshot-comparison]
     if: always()
