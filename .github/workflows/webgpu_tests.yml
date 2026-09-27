@@ -583,11 +583,7 @@ jobs:
           # --with-deps needs root. Use it only where sudo works unattended (the
           # GitHub-hosted runners); a self-hosted box already has the libraries.
           if sudo -n true 2>/dev/null; then
-            if sudo -n true 2>/dev/null; then
             npx playwright install chromium firefox --with-deps
-          else
-            npx playwright install chromium firefox
-          fi
             sudo apt-get update && sudo apt-get install -y xvfb
           else
             npx playwright install chromium firefox
