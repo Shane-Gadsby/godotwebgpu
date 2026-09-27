@@ -95,6 +95,7 @@ ignore-words-list = [
 	"numer",
 	"ot",
 	"outin",
+	"paeth",
 	"parm",
 	"pEvent",
 	"requestor",
