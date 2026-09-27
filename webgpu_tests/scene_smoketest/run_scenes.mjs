@@ -319,12 +319,31 @@ function exportScene(scene, editorBin, templateZip) {
 
     const exportPath = join(exportDir, 'index.html');
 
+    const runExport = () => execSync(
+        `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
+        { timeout: 90000, stdio: 'pipe' }
+    );
+
     try {
         console.log(`    Exporting ${scene.id}...`);
-        execSync(
-            `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
-            { timeout: 90000, stdio: 'pipe' }
-        );
+        try {
+            runExport();
+        } catch (e) {
+            // A .godot import cache written by an editor at a different version
+            // hash aborts the export before it starts, with a null EditorNode
+            // singleton. It reads like an engine crash and is not one -- the cache
+            // is regenerable, so drop it and try once more. Rebuilding the editor
+            // is what makes this likely, which is exactly what local_ci.sh does
+            // before it exports. See webgpu_notes/HANDOFF.md section 6.
+            const out = `${e.stderr?.toString() || ''}${e.stdout?.toString() || ''}`;
+            const importCache = join(projectPath, '.godot');
+            if (!/is_cmdline_mode|Parameter "singleton" is null/.test(out) || !existsSync(importCache)) {
+                throw e;
+            }
+            console.log(`    Stale .godot cache — clearing and retrying ${scene.id}...`);
+            rmSync(importCache, { recursive: true, force: true });
+            runExport();
+        }
 
         if (!existsSync(join(exportDir, 'index.html'))) {
             return { success: false, error: 'Export produced no index.html' };
