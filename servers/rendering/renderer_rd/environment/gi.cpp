@@ -3688,7 +3688,7 @@ void GI::init(SkyRD *p_sky) {
 
 	// These three shaders' defines depend on a device capability, so the shader
 	// baker has to be able to recompute them for the export target rather than
-	// bake the editor's flavour. See TASKS.md Task 31.
+	// bake the editor's flavor. See TASKS.md Task 31.
 	ShaderRD::add_general_defines_refresh_callback(&GI::_refresh_sdfgi_shader_defines);
 
 	{
