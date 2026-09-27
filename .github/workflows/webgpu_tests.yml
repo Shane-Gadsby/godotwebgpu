@@ -304,6 +304,14 @@ jobs:
           npm install
           node run_scenes.mjs --export-only
 
+      # Every export carries an identical ~52 MB index.side.wasm from the dlink
+      # template, which would make this artifact ~1.8 GB raw. Keep one copy plus a
+      # manifest; the scene-smoketest job fans it back out. The script verifies
+      # they really are identical and refuses rather than guessing.
+      - name: Dedupe side modules
+        working-directory: webgpu_tests/scene_smoketest
+        run: ./side_module_dedupe.sh pack exports
+
       - name: Upload scene exports
         uses: actions/upload-artifact@v5
         with:
@@ -415,6 +423,13 @@ jobs:
         with:
           name: scene-exports
           path: webgpu_tests/scene_smoketest/exports/
+
+      # Puts the single uploaded index.side.wasm back into each export that had
+      # one. Without this the exports are unrunnable: the loader fetches a side
+      # module the dlink build declares and would 404.
+      - name: Restore deduped side modules
+        working-directory: webgpu_tests/scene_smoketest
+        run: ./side_module_dedupe.sh unpack exports
 
       - name: Install Playwright and browsers
         run: |

@@ -287,10 +287,24 @@ derived from whether the template filename contains `.dlink.`, so CI and local r
 coherent preset. Verified locally by exporting a scene with the dlink template (`index.side.wasm`
 present) and running it in Chrome: PASS.
 
-**Cost to know about**: each dlink export is ~45 MB `index.wasm` plus ~52 MB `index.side.wasm`, so
-`scene-exports` is ~1.8 GB raw, roughly 450-500 MB compressed, at 7-day retention. Every export's
-side module is byte-identical, so uploading one copy and fanning it out would halve that; not done,
-because a subtle mistake there breaks a job that cannot be tested without pushing.
+**The artifact is deduped**, because each dlink export carries an identical ~52 MB
+`index.side.wasm` from the same template and 19 of them would be ~1.8 GB raw.
+`side_module_dedupe.sh pack exports` keeps one copy in `exports/_side_module/` with a manifest of
+which directories had one and deletes the rest; `unpack` fans it back out after download and removes
+the store. Measured on three real dlink exports: **199 MB raw → 80 MB packed → 21 MB zipped**, then
+restored to 199 MB, and all three scenes pass in Chrome after the full round trip. Extrapolated to 19
+scenes the artifact is roughly 130 MB rather than ~500 MB.
+
+The directory is `_side_module`, not `.side_module`, because `actions/upload-artifact` omits hidden
+files unless `include-hidden-files` is set — which would drop it silently and leave every export
+without the side module its loader fetches.
+
+`pack` **verifies the copies are byte-identical and refuses** if they are not, rather than fanning
+one out over modules that differ: that would hand some scenes an engine not matching their main
+module, which would read like a driver bug. Both subcommands are no-ops when there is no side module,
+so the workflow still works if CI ever exports with the non-dlink template. The failure paths are
+covered: differing modules refuse and leave the originals in place, a manifest naming a directory
+absent from the artifact fails, and a store without a manifest fails.
 
 **None of §4.7 or §4.8 has been observed in a real Actions run** — this fork is local-commits-only,
 so every claim here is from reproducing the workflow's own commands locally.
