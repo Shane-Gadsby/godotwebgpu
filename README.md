@@ -81,25 +81,24 @@ Building on that base, this fork has two main goals:
 
 | Platform | Browser | Verified by | Result |
 |----------|---------|-------------|--------|
-| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **15 pass, 3 fail, 1 skip** (the 3 are the Task 44 depth-texture bug below, not browser-specific). Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
-| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **15 pass, 3 fail, 1 skip** — the same three scenes, same cause. Same flag and native-package requirements |
+| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **18 pass, 0 fail, 1 skip** (the skip is the `GradientTexture1D` readback below, not a browser difference). Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
+| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **18 pass, 0 fail, 1 skip** — same scene, same cause. Same flag and native-package requirements |
 | Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
 | Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
 | macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
 | Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behaviour, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
 | iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
 
-The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. The three failures and the one skip are identical on every platform tested, because both are shader-conversion and readback issues rather than browser differences.
+The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. The one skip is identical on every platform tested, because it is a readback issue rather than a browser difference.
 
 ### Known Issues
 
-Outstanding problems as of **2026-09-27**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the detail on the depth-texture one.
+Outstanding problems as of **2026-09-27**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the current state and what to pick up next.
 
 **Rendering**
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Tint classifies a plainly-sampled `texture2D` as a depth texture, so `SceneForwardClusteredShaderRD`'s `depth_buffer` binding fails bind-group validation | **open** (Task 44) | SPIR-V shares one `OpTypeImage` across 22 variables, including the comparison-sampled shadow atlases; WGSL puts depth-ness in the type, so Tint promotes them all. Breaks 3 of 18 smoketest scenes (`demo_3d_particles`, `demo_3d_platformer`, `stress_3d_platformer`) in both Chrome and Firefox. Not avoidable by configuration or texture-format choice; needs a data-flow-aware SPIR-V type split |
 | Volumetric fog looks blockier than native (froxel sampling) | open, uninvestigated (Task 12.1) | Not projector- or shadow-specific; noticed while verifying light projectors, which are otherwise pixel-equivalent to native Vulkan |
 | `command_render_clear_attachments` is a no-op | won't fix | WebGPU has no mid-pass attachment clear. Confirmed dead code on every Godot backend today |
 | `draw_indexed_indirect_count` / `draw_indirect_count` ignore the count buffer | won't fix | WebGPU has no multi-draw-indirect-count. No current renderer uses count-buffer indirect draws |
@@ -111,7 +110,7 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 | Issue | Status | Notes |
 |-------|--------|-------|
 | `buffer_map()` returns a CPU shadow copy, so readback is a frame behind | open (Task 7.8) | Synchronous GPU readback is impossible on single-threaded WASM. Some paths load from disk instead |
-| `GradientTexture1D.get_image()` returns an empty image | open (Task 44) | Consequence of the above; the `compute/heightmap` demo's `texture_create()` fails because of it, and that scene is skipped in the smoketest |
+| `GradientTexture1D.get_image()` returns an empty image | open (Task 44) | Consequence of the above; the `compute/heightmap` demo's `texture_create()` fails because of it, and that scene is the smoketest's one skip. Priming the readback across 120 frames does not help, and the same check passes on native Vulkan |
 | 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | emdawnwebgpu has no `R16Unorm`/`Snorm` family at all. Costs memory; correctness is fine. Vertex attributes are unaffected |
 | Canvas SDF uses `R16_SFLOAT` instead of `R16_SNORM` | workaround (Task 44) | Dawn reports `R16Snorm`'s sample type as `UnfilterableFloat` while the SDF samples it with a filtering sampler |
 | Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load |
