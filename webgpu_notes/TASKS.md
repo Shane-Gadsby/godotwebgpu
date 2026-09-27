@@ -5963,9 +5963,12 @@ had got backwards. The entry is left in place, corrections and all, rather than 
 
 ---
 
-### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[OPEN]`
-**Status**: the smoketest's renderer selection is **fixed**; the four real failures it exposed are
-open.
+### Task 44: ten demo scenes were testing OpenGL, not WebGPU — and four fail once they don't `[3 of 4 FIXED]`
+**Status**: the smoketest's renderer selection is **fixed**, and three of the four failures it exposed
+are fixed — `demo_2d_particles` (the SDF format fallback) and `demo_3d_platformer` +
+`stress_3d_platformer` (the `depth_buffer` reclassification, see the `[FIXED]` entry at the end of
+this task). **`demo_3d_particles` remains open** on a storage-texture format mismatch, which is the
+last entry here and §4.4 of `HANDOFF.md`. Tier: **17 pass, 1 fail, 1 skip** in Chrome and Firefox.
 **Severity**: **HIGH** — this was silent negative coverage: ten scenes reporting WebGPU passes while
 exercising none of this driver.
 

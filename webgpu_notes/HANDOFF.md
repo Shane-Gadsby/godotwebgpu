@@ -1,11 +1,17 @@
 # Handoff — WebGPU work in progress
 
-**As of 2026-09-27 (second pass).** Branch `webgpu-4.7.2`, 17 commits ahead of
-`origin/webgpu-4.7.2` (nothing pushed — this fork never pushes).
+**As of 2026-09-27, after the Task 44 reclassify fix.** Branch `webgpu-4.7.2`, which currently
+matches `origin/webgpu-4.7.2` (`24a1272f3e`). The engine work landed in `5f4b63c136` and
+`1d5a037218`; `bin/` was built at `5f4b63c136` (§6).
 
 This is a snapshot for picking the work up cold. `webgpu_notes/TASKS.md` remains the living
 detail; this file says where things stand, what is verified, what is *mis*-recorded elsewhere, and
 which traps cost time. Task numbers below index into TASKS.md.
+
+**The 60-second version**: one scene fails (`demo_3d_particles`), one cause, already isolated —
+§4.4 has the full Dawn message and the two files to read. `bin/` is current and needs no rebuild to
+reproduce it: `cd webgpu_tests/scene_smoketest && node capture_errors.mjs exports/demo_3d_particles`
+prints it in about a minute.
 
 ---
 
@@ -26,9 +32,9 @@ previously written down wrongly.
 
 | tier | result | measured |
 |---|---|---|
-| `shader_corpus` | **14/14** | after the SDF fix |
-| `driver_unit_tests` | **332/0** | after the SDF fix |
-| `preprocessing_tests` | **205/0, 1 skipped** | after the SDF fix |
+| `shader_corpus` | **14/14** | 2026-09-27, after the reclassify fix |
+| `driver_unit_tests` | **332/0** | 2026-09-27, after the reclassify fix |
+| `preprocessing_tests` | **205/0, 1 skipped** | 2026-09-27, after the reclassify fix |
 | Scene smoketest — Chrome | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
 | Scene smoketest — Firefox | **17 pass, 1 fail, 1 skip** | 2026-09-27, after the reclassify fix |
 | Resource lifecycle / screenshot comparison | pass | last full `local_ci.sh` |
@@ -41,16 +47,20 @@ differently (Chrome: `Format (R32Float) … expected to be (RGBA16Float)`; Firef
 binding 0 expects format = Rgba16float`). Both full 19-scene runs above were made against a freshly
 built editor+template pair at this commit, with a fresh export of every scene.
 
+`demo_compute_heightmap` is the 1 skip. It is marked `known_limitation` in `scenes.json` (its own
+open problem — the `GradientTexture1D` readback at the end of TASKS.md Task 44).
+
 Two harness quirks seen in that run, neither caused by the fix and neither affecting a result:
 `benchmark_sprites`'s export fails on a missing `res://benchmark_profiler.gd` (it then tests the
-previous export and passes), and `demo_compute_heightmap` exports successfully but is skipped as
-"not exported" — the `index.html` existence check runs before the `known_limitation` check, so the
-reason string is misleading.
-`demo_compute_heightmap` is the 1 skip, marked `known_limitation` in `scenes.json` (§4.3).
+previous export and passes), and `demo_compute_heightmap` exports successfully but is reported
+`SKIP (not exported)` — the `index.html` existence check runs before the `known_limitation` check,
+so the reason string is misleading.
 
 **A full `./webgpu_tests/local_ci.sh --no-safari` has not been run since the SDF fix.** It will
-report the scene smoketest as failing until §4 is fixed; every other tier was green on the last full
-run. Re-running it is a reasonable first act, but expect red for a known reason.
+report the scene smoketest as failing until §4.4 is fixed; every other tier was green on the last
+full run, and all four offline tiers were re-run green individually today. Re-running it is a
+reasonable first act, but expect red for a known reason — and note that its rebuild step builds the
+**dlink** template while the smoketest exports with the non-dlink one (§6).
 
 ---
 
@@ -63,6 +73,7 @@ run. Re-running it is a reasonable first act, but expect red for a known reason.
 | 38 | `lower_subgroup_ops()` SPIR-V pass | **Firefox renders 3D again** (was: UI only, no scene at all) |
 | 41 | tier2 storage-format promotion (`rgb10a2unorm` → `rgba16float`) | Firefox Octmap shaders run; **0 validation errors** where there were 14 |
 | 44 | Canvas SDF `R16_SNORM` → `R16_SFLOAT` fallback | `demo_2d_particles` **735 errors → 0**, now passes |
+| 44 | `depth_buffer` (group 1) excluded from `_reclassify_single_component_depth_textures()` | `demo_3d_platformer` + `stress_3d_platformer` **44 errors each → 0**; tier 15/3/1 → **17/1/1** in both browsers |
 | — | Block-align compressed texture-to-texture copies | BPTC textures no longer render black |
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
@@ -174,11 +185,24 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
 
 ## 6. Build and environment state — read before rebuilding
 
-- **Binaries in `bin/` were built at commit `93f452121c`**; `HEAD` has since moved through
-  documentation-only commits. The engine version hash comes from the git commit, and **baked shader
-  caches are keyed to it**, so rebuilding *one* of the editor/template pair now produces a mismatch.
-  **Rebuild both, or neither.** The tell is `{baked: 0, translated: N}` plus a ~5× slower load, and
-  Task 36's warning names it.
+- **`bin/` is current**: both `godot.linuxbsd.editor.x86_64` and
+  `godot.web.template_release.wasm32.nothreads.zip` were built at commit `5f4b63c136`, so the pair
+  matches itself and the recorded scene results were measured on it. `HEAD` has since moved through
+  documentation-only commits, which does not matter *until* something is rebuilt: the engine version
+  hash comes from the git commit and **baked shader caches are keyed to it**, so rebuilding one of
+  the pair produces a mismatch. **Rebuild both, or neither.** The tell is `{baked: 0, translated: N}`
+  plus a ~5× slower load, and Task 36's warning names it.
+- **Rebuild cost, measured today**: the editor is ~30 s and the web template ~47 s incrementally on
+  this machine, so "rebuild both" is a minute, not an afternoon. The exact commands:
+  ```bash
+  scons platform=linuxbsd target=editor webgpu=yes -j$(nproc)     # webgpu=yes = the WGSL baker
+  rm -f bin/obj/modules/register_module_types.gen.web.template_release.wasm32.nothreads.o \
+        bin/obj/modules/libmodules.web.template_release.wasm32.nothreads.a   # Task 40, see below
+  source ~/emsdk/emsdk_env.sh
+  scons platform=web target=template_release webgpu=yes opengl3=no threads=no -j$(nproc)
+  ```
+  Build the **web one last**, so the stale-object trap below lands on the next rebuild rather than on
+  the template that is about to be shipped into an export.
 - **Interleaving editor and web builds in one tree ships a broken template** (Task 40). The
   `register_module_types.gen` object goes stale and the export dies in `callMain()` with
   `TypeError: resolved is not a function`. Workaround:
@@ -211,8 +235,14 @@ node trace_block.mjs --dir <export-dir>   # Chrome GPU trace around the longest 
 cd webgpu_tests/scene_smoketest
 GODOT_EDITOR_BIN=../../bin/godot.linuxbsd.editor.x86_64 \
 GODOT_TEMPLATE_ZIP=../../bin/godot.web.template_release.wasm32.nothreads.zip \
-  node run_scenes.mjs --export-only            # re-export all 18
+  node run_scenes.mjs --export-only            # re-export all 19
 node run_scenes.mjs --browser firefox          # or chrome
+node run_scenes.mjs --scenes demo_3d_particles --export --browser chrome   # one scene, fresh export
+
+# Full-text Dawn errors for one exported scene -- the harness truncates to 200
+# characters and prints ~100, which cuts off the "While validating ..." chain that
+# holds the actual information. Deduped, cause first, cascade last.
+node capture_errors.mjs exports/demo_3d_particles [--browser firefox] [--wait 25000]
 
 # SPIR-V investigation
 GODOT_DUMP_SPIRV=/tmp/spv ./bin/godot.linuxbsd.editor.x86_64 --path <proj> --quit-after 120
@@ -222,20 +252,38 @@ TINT_DEBUG_DUMP_PREPROCESSED=/tmp/out.spv ./bin/tint_convert_cli <file.spv>
 **Lesson worth carrying**: trace against the **preprocessed** SPIR-V, not glslang's output. They are
 different modules, and designing against the wrong one cost this session a full implementation.
 
-Also: Playwright cannot drive the user's own Firefox build (it needs its patched one), and raising
-the console-capture truncation is what made Dawn's `While validating …` chain visible — without it
-the errors are unreadable. `scene_smoketest/run_scenes.mjs` still truncates to 200 characters and
-prints ~100, which cuts the `While validating …` chain off again, so a real diagnosis needs a
-throwaway Playwright script of one's own (serve the export directory, `page.on('console')`, dedupe
-into a Map, print 2000 characters) launched with the *same* Chrome flags the harness uses — a
-different adapter changes the limits and therefore the errors.
+**Second lesson, from the round that actually fixed it**: WGSL captured from the *engine* has already
+been through the driver's own text passes, so it is **not** Tint's output. `tint_convert_cli` on the
+same SPIR-V is. Diffing the two is a two-minute check and it is what finally attributed Task 44
+correctly (§4.2).
+
+Also: Playwright cannot drive the user's own Firefox build (it needs its patched one). And the
+adapter decides the errors — `capture_errors.mjs` mirrors `run_scenes.mjs`'s three Chrome modes
+(`WEBGPU_REAL_GPU=1`, `CI=1`, or neither = the system's own headed Chrome, which is what every
+recorded result here was measured on) precisely because a plain `--enable-unsafe-webgpu` launch
+reports an entirely different failure for `demo_3d_particles`: "The number of storage textures (6) in
+the Compute stage exceeds the maximum per-stage limit (4)", which is that adapter's limit and not the
+bug being chased.
 
 ---
 
 ## 8. Suggested order for the next session
 
-1. **`demo_3d_particles`'s storage-format mismatch** (§4.4) — the last failing scene, and now a
-   one-cause failure with the exact Dawn message and two named suspects.
+1. **`demo_3d_particles`'s storage-format mismatch** (§4.4) — the last failing scene, one cause, and
+   it needs no rebuild to see. Concretely:
+   1. `cd webgpu_tests/scene_smoketest && node capture_errors.mjs exports/demo_3d_particles` — the
+      export in the tree is current, and this prints the cause first and its 1490-deep cascade last.
+   2. Read `_promote_storage_format()` (`rendering_device_driver_webgpu.cpp:3166`, plus its callers at
+      `:2245`/`:2379`/`:2437`, which set the *texture's* and the *view's* format) against the WGSL
+      format remaps at `:4840-4900` (which set the *layout's*). Both carry comments saying the two
+      must agree; the failure is one place where they do not.
+   3. The binding is group 3 binding 0, compute, write-only, screen-sized — the shape of
+      `effects/copy.glsl:60-72`'s `dest_buffer`, declared `r32f`/`rgba8`/`rg16f`/`rgba16f` by variant.
+      Confirming *which* variant is bound (and whether the layout's `rgba16float` came from a remap or
+      from the GLSL) is the first fact to establish, and `GODOT_DUMP_SPIRV` + `tint_convert_cli` on
+      `CopyShaderRD:*.comp.spv` answers it offline, without a browser.
+   4. Note the BGL is **unlabeled**, unlike the scene ones — so it is built somewhere that does not
+      label, which is itself a clue about which code path creates it.
 2. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled once. While
    there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
    combined-sampler sibling has (Task 24), which is why §4.1 was a hard error rather than quiet
