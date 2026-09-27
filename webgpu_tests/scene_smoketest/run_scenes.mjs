@@ -436,13 +436,25 @@ async function runScenePlaywright(scene, browser, timeout) {
     const shaderErrors = [];
     const consoleErrors = [];
     let deviceLost = false;
+    let deviceLostMessage = '';
     let engineStarted = false;
+    // Closing the page destroys the GPUDevice, which resolves engine.js's
+    // `device.lost` promise with reason "destroyed" and logs "device lost" like any
+    // other loss. That console event can still be delivered while page.close() is in
+    // flight, and the verdict is computed after the close -- so a perfectly healthy
+    // scene could be failed by its own teardown, more easily on a slow machine than a
+    // fast one. Stop listening before tearing down, and ignore anything that arrives
+    // after.
+    let capturing = true;
 
     // Per-scene console output validation (e.g. [HEIGHTMAP-CHECK] PASS).
     const passPatterns = scene.pass_patterns || [];
     const matchedPatterns = new Set();
 
     page.on('console', (msg) => {
+        if (!capturing) {
+            return;
+        }
         const text = msg.text();
 
         if (text.includes('UNCAPTURED-GPU-ERROR') || text.includes('GPUValidationError')) {
@@ -455,6 +467,12 @@ async function runScenePlaywright(scene, browser, timeout) {
 
         if (text.includes('device lost') || text.includes('Device lost')) {
             deviceLost = true;
+            // Keep the first one: the reason ("destroyed", "unknown", an OOM message)
+            // is the whole diagnosis, and without it a device-lost failure says only
+            // that something went wrong somewhere.
+            if (!deviceLostMessage) {
+                deviceLostMessage = text.substring(0, 300);
+            }
         }
 
         if (text.includes('Godot Engine v')) {
@@ -528,6 +546,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         }
     } catch {}
 
+    capturing = false;
     await page.close();
     server.close();
 
@@ -543,6 +562,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         shaderErrors: shaderErrors.length,
         consoleErrors: consoleErrors.length,
         deviceLost,
+        deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
         totalErrors,
@@ -710,6 +730,7 @@ async function runSceneSafari(scene, timeout) {
         shaderErrors: result.shaderFails,
         consoleErrors: result.allErrors,
         deviceLost,
+        deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
         totalErrors,
@@ -960,6 +981,11 @@ async function main() {
                 const blankNote = result.blankCanvas ? ', blank_canvas=true' : '';
                 const patNote = result.unmatchedPatterns?.length ? ', missing_patterns=' + result.unmatchedPatterns.length : '';
                 console.log(`FAIL  (gpu=${result.gpuErrors}, shader=${result.shaderErrors}, device_lost=${result.deviceLost}${blankNote}${patNote})`);
+                // A device-lost failure with no GPU errors prints nothing else
+                // otherwise, which says only that something went wrong somewhere.
+                if (result.deviceLost && result.deviceLostMessage) {
+                    console.log(`         ${result.deviceLostMessage}`);
+                }
                 if (result.blankCanvas) {
                     console.log(`         Canvas rendered but is blank/black`);
                 }
