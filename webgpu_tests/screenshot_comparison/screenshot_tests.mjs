@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { decodePng, encodePng } from './png.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,7 +45,19 @@ const MIME_TYPES = {
 
 const args = process.argv.slice(2);
 const UPDATE_BASELINES = args.includes('--update-baselines');
-const THRESHOLD = parseFloat(args[args.indexOf('--threshold') + 1] || '0.01');
+// `args[args.indexOf(flag) + 1]` reads args[0] when the flag is absent, which
+// is another flag, so parse the value only when the flag is really there.
+function argValue(flag, fallback) {
+    const i = args.indexOf(flag);
+    return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback;
+}
+
+// Fraction of pixels allowed to differ before a screenshot counts as changed.
+const THRESHOLD = parseFloat(argValue('--threshold', '0.01'));
+// Per-channel 0-255 delta below which two pixels count as the same. Covers
+// driver-level rasterization noise between the machine that produced the
+// baselines and the one running the test; override with --pixel-tolerance.
+const PIXEL_TOLERANCE = parseInt(argValue('--pixel-tolerance', '8'), 10);
 
 // ─── HTTP Server ──────────────────────────────────────────────────────────────
 
@@ -75,35 +88,87 @@ function startServer() {
 // ─── PNG Comparison ───────────────────────────────────────────────────────────
 
 /**
- * Compare two PNG buffers pixel-by-pixel.
- * Returns { match: bool, diffRatio: number, diffPixels: number, diffImage: Buffer|null }
+ * Compare two PNG buffers pixel by pixel.
+ * Returns { match, diffRatio, diffPixels, diffImage }
  *
- * Uses raw PNG decoding (no external deps) — works with uncompressed RGBA data.
- * For production use, swap in pixelmatch or sharp.
+ * diffRatio is the fraction of *pixels* that differ by more than
+ * PIXEL_TOLERANCE on any channel — not a byte ratio. Comparing the compressed
+ * PNG bytes (what this used to do) is meaningless: deflate output is not
+ * locally stable, so one changed pixel rewrites most of the stream and reads as
+ * a ~99% difference even when the two images look the same.
+ *
+ * GPU rasterization differs slightly between machines and drivers (gradient
+ * dithering, edge coverage), so an exact match is not something a baseline can
+ * require; PIXEL_TOLERANCE absorbs that while still catching a real rendering
+ * change, which moves whole regions far further than a couple of levels.
  */
 function comparePngs(baseline, current, threshold) {
-    // Use a simple structural comparison:
-    // If the files are identical bytes, they match.
-    // Otherwise compute byte-level difference ratio.
-    if (Buffer.compare(baseline, current) === 0) {
-        return { match: true, diffRatio: 0, diffPixels: 0, diffImage: null };
+    let a, b;
+    try {
+        a = decodePng(baseline);
+        b = decodePng(current);
+    } catch (e) {
+        // A PNG we cannot decode is a failure to report, not a crash.
+        return { match: false, diffRatio: 1, diffPixels: 0, diffImage: null, error: e.message };
     }
 
-    // For non-identical PNGs, we need pixel-level comparison.
-    // Since we can't decode PNG without deps, we use a byte-level heuristic
-    // on the raw file data. The proper comparison happens in CI with pixelmatch.
-    const minLen = Math.min(baseline.length, current.length);
-    const maxLen = Math.max(baseline.length, current.length);
-    let diffBytes = Math.abs(baseline.length - current.length);
-
-    for (let i = 0; i < minLen; i++) {
-        if (baseline[i] !== current[i]) diffBytes++;
+    if (a.width !== b.width || a.height !== b.height) {
+        return {
+            match: false,
+            diffRatio: 1,
+            diffPixels: a.width * a.height,
+            diffImage: null,
+            error: `size mismatch: baseline ${a.width}x${a.height}, current ${b.width}x${b.height}`,
+        };
     }
 
-    const diffRatio = diffBytes / maxLen;
+    const total = a.width * a.height;
+    const diff = Buffer.alloc(total * 4);
+    let diffPixels = 0;
+
+    for (let i = 0, p = 0; i < total; i++, p += 4) {
+        const delta = Math.max(
+            Math.abs(a.data[p] - b.data[p]),
+            Math.abs(a.data[p + 1] - b.data[p + 1]),
+            Math.abs(a.data[p + 2] - b.data[p + 2]),
+            Math.abs(a.data[p + 3] - b.data[p + 3]),
+        );
+        if (delta > PIXEL_TOLERANCE) {
+            diffPixels++;
+            diff[p] = 255; diff[p + 1] = 0; diff[p + 2] = 0; diff[p + 3] = 255;
+        } else {
+            // Matching pixels stay as a dimmed copy of the baseline, so the
+            // diff image shows *where* in the scene the change is.
+            diff[p] = a.data[p] >> 2;
+            diff[p + 1] = a.data[p + 1] >> 2;
+            diff[p + 2] = a.data[p + 2] >> 2;
+            diff[p + 3] = 255;
+        }
+    }
+
+    const diffRatio = diffPixels / total;
     const match = diffRatio <= threshold;
 
-    return { match, diffRatio, diffPixels: diffBytes, diffImage: null };
+    return {
+        match,
+        diffRatio,
+        diffPixels,
+        diffImage: match ? null : encodePng(a.width, a.height, diff),
+    };
+}
+
+/** True when every pixel of a capture is opaque pure black — see its use below. */
+function isBlankBlack(buffer) {
+    let img;
+    try {
+        img = decodePng(buffer);
+    } catch {
+        return false;
+    }
+    for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i] || img.data[i + 1] || img.data[i + 2]) return false;
+    }
+    return true;
 }
 
 // ─── Screenshot Capture ───────────────────────────────────────────────────────
@@ -201,6 +266,23 @@ async function captureScreenshots(baseUrl) {
                 const screenshot = await canvas.screenshot({ type: 'png' });
 
                 const filename = `${browserName}_${scene}.png`;
+
+                // Firefox on a GPU-less runner under Xvfb reports an adapter and
+                // finishes without error, but nothing is ever composited, so the
+                // screenshot comes back pure black. None of these scenes renders
+                // an all-black frame (even compute_pattern, which clears to
+                // black, draws over it), so this is a capture failure and not a
+                // rendering regression to report against the baseline — these
+                // scenes are hand-written WebGPU JS and never touch the Godot
+                // driver, so nothing in this repo can turn one black.
+                if (isBlankBlack(screenshot)) {
+                    const why = 'rendered blank (no compositing — browser has no working WebGPU on this machine)';
+                    console.log(`    SKIP: ${why}`);
+                    captures.push({ browser: browserName, scene, error: why });
+                    await page.close();
+                    continue;
+                }
+
                 captures.push({ browser: browserName, scene, filename, data: screenshot });
 
             } catch (e) {
@@ -292,9 +374,20 @@ async function main() {
             passed++;
             results.push({ browser: cap.browser, scene: cap.scene, filename: cap.filename, status: 'pass', diffRatio: comparison.diffRatio });
         } else {
-            console.log(`  [FAIL] ${cap.filename} (diff: ${(comparison.diffRatio * 100).toFixed(3)}% > ${(THRESHOLD * 100).toFixed(1)}%)`);
+            const reason = comparison.error
+                ? comparison.error
+                : `diff: ${(comparison.diffRatio * 100).toFixed(3)}% of pixels > ${(THRESHOLD * 100).toFixed(1)}%`;
+            console.log(`  [FAIL] ${cap.filename} (${reason})`);
+            // The diff image is the only thing that says *what* changed once the
+            // artifact is all that is left of the run.
+            if (comparison.diffImage) {
+                writeFileSync(join(DIFFS_DIR, cap.filename), comparison.diffImage);
+            }
             failed++;
-            results.push({ browser: cap.browser, scene: cap.scene, filename: cap.filename, status: 'fail', diffRatio: comparison.diffRatio });
+            results.push({
+                browser: cap.browser, scene: cap.scene, filename: cap.filename,
+                status: 'fail', diffRatio: comparison.diffRatio, error: comparison.error,
+            });
         }
     }
 
@@ -350,6 +443,14 @@ async function main() {
     if (noBaseline > 0 && failed === 0) {
         console.log('\n  No baselines exist yet. Run with --update-baselines to create them.');
         process.exit(0);
+    }
+
+    // Every browser skipping is how this job would go green while testing
+    // nothing at all (a browser that stops rendering skips rather than fails).
+    // At least one image has to have been compared for the run to mean anything.
+    if (passed + failed === 0) {
+        console.log('\n  No screenshot was compared — every browser skipped. See the SKIP reasons above.');
+        process.exit(1);
     }
 
     process.exit(failed > 0 ? 1 : 0);
