@@ -144,7 +144,12 @@ jobs:
           # Smoke-test --batch's per-shader child process (the Windows-only
           # CreateProcess path): an invalid module must come back as a JSON error.
           head -c 16 /dev/zero > "$RUNNER_TEMP/invalid.spv"
-          ./bin/tint_convert_cli.exe --batch "$RUNNER_TEMP/invalid.spv" | tee /dev/stderr | grep -q "Invalid SPIR-V"
+          # Output captured rather than piped through `tee /dev/stderr`: Git Bash
+          # (MSYS) has no /dev/stderr, so that tee failed and -o pipefail turned it
+          # into a step failure even though the tool itself behaved correctly.
+          out=$(./bin/tint_convert_cli.exe --batch "$RUNNER_TEMP/invalid.spv")
+          echo "$out"
+          echo "$out" | grep -q "Invalid SPIR-V"
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
