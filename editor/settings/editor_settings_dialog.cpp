@@ -351,17 +351,18 @@ void EditorSettingsDialog::_update_icons() {
 }
 
 void EditorSettingsDialog::_event_config_confirmed() {
-	Ref<InputEventKey> k = shortcut_editor->get_event();
-	if (k.is_null()) {
+	// Shortcuts accept both keys and mouse buttons, so the event is not narrowed to a key here.
+	Ref<InputEvent> ev = shortcut_editor->get_event();
+	if (ev.is_null()) {
 		return;
 	}
 
 	if (current_event_index == -1) {
 		// Add new event
-		current_events.push_back(k);
+		current_events.push_back(ev);
 	} else {
 		// Edit existing event
-		current_events[current_event_index] = k;
+		current_events[current_event_index] = ev;
 	}
 
 	if (is_editing_action) {
@@ -733,6 +734,10 @@ void EditorSettingsDialog::_shortcut_button_pressed(Object *p_item, int p_column
 		current_event_index = -1;
 	}
 
+	// Editor shortcuts accept mouse buttons as well as keys. Built-in actions stay keyboard-only:
+	// they are matched by the text controls through InputMap actions, which only handle key events.
+	shortcut_editor->set_allowed_input_types(is_editing_action ? INPUT_KEY : (INPUT_KEY | INPUT_MOUSE_BUTTON));
+
 	switch (button_idx) {
 		case EditorSettingsDialog::SHORTCUT_ADD: {
 			// Only for "shortcut" types
@@ -1069,7 +1074,7 @@ EditorSettingsDialog::EditorSettingsDialog() {
 	// Adding event dialog
 	shortcut_editor = memnew(InputEventConfigurationDialog);
 	shortcut_editor->connect(SceneStringName(confirmed), callable_mp(this, &EditorSettingsDialog::_event_config_confirmed));
-	shortcut_editor->set_allowed_input_types(INPUT_KEY);
+	shortcut_editor->set_allowed_input_types(INPUT_KEY | INPUT_MOUSE_BUTTON);
 	add_child(shortcut_editor);
 
 	set_hide_on_ok(true);

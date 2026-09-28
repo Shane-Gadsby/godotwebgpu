@@ -1200,6 +1200,9 @@
 			prime-run %command%
 			[/codeblock]
 		</member>
+		<member name="editor/script/default_script_folder" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new scripts are created in by default, e.g. [code]res://scripts[/code]. When empty (the default), new scripts are instead proposed next to the scene or resource they are created for. This is ignored when creating a script from a specific folder in the FileSystem dock, and if the folder does not exist.
+		</member>
 		<member name="editor/script/search_in_file_extensions" type="PackedStringArray" setter="" getter="">
 			Text-based file extensions to include in the script editor's "Find in Files" feature. You can add e.g. [code]tscn[/code] if you wish to also parse your scene files, especially if you use built-in scripts which are serialized in the scene files.
 		</member>
