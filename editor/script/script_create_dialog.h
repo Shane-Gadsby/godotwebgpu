@@ -112,13 +112,14 @@ class ScriptCreateDialog : public ConfirmationDialog {
 	ScriptLanguage::ScriptTemplate _parse_template(const ScriptLanguage *p_language, const String &p_path, const String &p_filename, const ScriptLanguage::TemplateLocation &p_origin, const String &p_inherits) const;
 	String _get_script_origin_label(const ScriptLanguage::TemplateLocation &p_origin) const;
 	String _adjust_file_path(const String &p_base_path) const;
+	String _apply_default_script_folder(const String &p_base_path) const;
 
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
-	void config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled = true, bool p_load_enabled = true);
+	void config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled = true, bool p_load_enabled = true, bool p_use_default_folder = true);
 	void set_inheritance_base_type(const String &p_base);
 	ScriptCreateDialog();
 };

@@ -2666,7 +2666,7 @@ void FileSystemDock::_file_option(int p_option, const Vector<String> &p_selected
 			if (!fpath.ends_with("/")) {
 				fpath = fpath.get_base_dir();
 			}
-			make_script_dialog->config("Node", fpath.path_join("new_script.gd"), false, false);
+			make_script_dialog->config("Node", fpath.path_join("new_script.gd"), false, false, false);
 			make_script_dialog->popup_centered();
 		} break;
 
@@ -2813,7 +2813,7 @@ void FileSystemDock::_resource_created() {
 		make_shader_dialog->popup_centered();
 		return;
 	} else if (ClassDB::is_parent_class(type_name, "Script")) {
-		make_script_dialog->config("Node", fpath.path_join("new_script"), false, false);
+		make_script_dialog->config("Node", fpath.path_join("new_script"), false, false, false);
 		make_script_dialog->popup_centered();
 		return;
 	}

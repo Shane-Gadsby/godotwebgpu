@@ -876,23 +876,20 @@ static constexpr float ZOOM_FACTOR_PRESETS[8] = { 0.5f, 0.75f, 0.9f, 1.0f, 1.1f,
 void CodeTextEditor::input(const Ref<InputEvent> &event) {
 	ERR_FAIL_COND(event.is_null());
 
-	const Ref<InputEventKey> key_event = event;
-
-	if (key_event.is_null()) {
-		return;
-	}
-	if (!key_event->is_pressed()) {
+	// Shortcuts can be bound to mouse buttons as well as keys, so the event is matched
+	// as-is instead of being narrowed to InputEventKey.
+	if (!event->is_pressed()) {
 		return;
 	}
 
 	if (!text_editor->has_focus()) {
 		if ((find_replace_bar != nullptr && find_replace_bar->is_visible()) && (find_replace_bar->has_focus() || (get_viewport()->gui_get_focus_owner() && find_replace_bar->is_ancestor_of(get_viewport()->gui_get_focus_owner())))) {
-			if (ED_IS_SHORTCUT("script_text_editor/find_next", key_event)) {
+			if (ED_IS_SHORTCUT("script_text_editor/find_next", event)) {
 				find_replace_bar->search_next();
 				accept_event();
 				return;
 			}
-			if (ED_IS_SHORTCUT("script_text_editor/find_previous", key_event)) {
+			if (ED_IS_SHORTCUT("script_text_editor/find_previous", event)) {
 				find_replace_bar->search_prev();
 				accept_event();
 				return;
@@ -901,32 +898,32 @@ void CodeTextEditor::input(const Ref<InputEvent> &event) {
 		return;
 	}
 
-	if (ED_IS_SHORTCUT("script_text_editor/move_up", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/move_up", event)) {
 		text_editor->move_lines_up();
 		accept_event();
 		return;
 	}
-	if (ED_IS_SHORTCUT("script_text_editor/move_down", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/move_down", event)) {
 		text_editor->move_lines_down();
 		accept_event();
 		return;
 	}
-	if (ED_IS_SHORTCUT("script_text_editor/delete_line", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/delete_line", event)) {
 		text_editor->delete_lines();
 		accept_event();
 		return;
 	}
-	if (ED_IS_SHORTCUT("script_text_editor/join_lines", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/join_lines", event)) {
 		text_editor->join_lines();
 		accept_event();
 		return;
 	}
-	if (ED_IS_SHORTCUT("script_text_editor/duplicate_selection", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/duplicate_selection", event)) {
 		text_editor->duplicate_selection();
 		accept_event();
 		return;
 	}
-	if (ED_IS_SHORTCUT("script_text_editor/duplicate_lines", key_event)) {
+	if (ED_IS_SHORTCUT("script_text_editor/duplicate_lines", event)) {
 		text_editor->duplicate_lines();
 		accept_event();
 		return;
@@ -960,25 +957,21 @@ void CodeTextEditor::_text_editor_gui_input(const Ref<InputEvent> &p_event) {
 	}
 #endif
 
-	Ref<InputEventKey> k = p_event;
-
-	if (k.is_valid()) {
-		if (k->is_pressed()) {
-			if (ED_IS_SHORTCUT("script_editor/zoom_in", p_event)) {
-				_zoom_in();
-				accept_event();
-				return;
-			}
-			if (ED_IS_SHORTCUT("script_editor/zoom_out", p_event)) {
-				_zoom_out();
-				accept_event();
-				return;
-			}
-			if (ED_IS_SHORTCUT("script_editor/reset_zoom", p_event)) {
-				_zoom_to(1);
-				accept_event();
-				return;
-			}
+	if (p_event->is_pressed()) {
+		if (ED_IS_SHORTCUT("script_editor/zoom_in", p_event)) {
+			_zoom_in();
+			accept_event();
+			return;
+		}
+		if (ED_IS_SHORTCUT("script_editor/zoom_out", p_event)) {
+			_zoom_out();
+			accept_event();
+			return;
+		}
+		if (ED_IS_SHORTCUT("script_editor/reset_zoom", p_event)) {
+			_zoom_to(1);
+			accept_event();
+			return;
 		}
 	}
 }

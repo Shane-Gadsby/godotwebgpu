@@ -149,6 +149,9 @@ protected:
 		void _bookmark_item_pressed(int p_idx);
 
 	public:
+		// Matches p_event against the menu items' shortcuts and runs the first one that matches.
+		bool activate_shortcut(const Ref<InputEvent> &p_event);
+
 		EditMenus();
 	};
 
@@ -195,6 +198,10 @@ public:
 	virtual void enable_editor();
 
 	virtual Control *get_edit_menu() = 0;
+
+	// Runs the edit menus' shortcut for p_event, if any. Used for shortcuts bound to mouse
+	// buttons, which never reach the menus through shortcut_input().
+	static bool activate_menu_shortcut(const Ref<InputEvent> &p_event);
 
 	virtual Control *get_base_editor() const override { return code_editor->get_text_editor(); }
 	virtual CodeTextEditor *get_code_editor() const { return code_editor; }

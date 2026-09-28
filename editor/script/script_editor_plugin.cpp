@@ -3053,9 +3053,8 @@ void ScriptEditor::input(const Ref<InputEvent> &p_event) {
 	// the shortcut to be used regardless of the click location.
 	// This feature can be disabled to avoid interfering with other uses of the additional
 	// mouse buttons, such as push-to-talk in a VoIP program.
+	const Ref<InputEventMouseButton> mb = p_event;
 	if (EDITOR_GET("interface/editor/input/mouse_extra_buttons_navigate_history")) {
-		const Ref<InputEventMouseButton> mb = p_event;
-
 		// Navigate the script history using additional mouse buttons present on some mice.
 		// This must be hardcoded as the editor shortcuts dialog doesn't allow assigning
 		// more than one shortcut per action.
@@ -3067,6 +3066,19 @@ void ScriptEditor::input(const Ref<InputEvent> &p_event) {
 			if (mb->get_button_index() == MouseButton::MB_XBUTTON2) {
 				_history_forward();
 			}
+		}
+	}
+
+	// Shortcuts bound to a mouse button never reach `shortcut_input()` or the menus: the Control
+	// under the cursor consumes the click first. They are matched here instead, where the click
+	// is still unhandled, and regardless of the click location like the history shortcuts above.
+	if (mb.is_valid() && mb->is_pressed() && is_visible_in_tree()) {
+		shortcut_input(p_event);
+		if (get_viewport()->is_input_handled()) {
+			return;
+		}
+		if (TextEditorBase::activate_menu_shortcut(p_event)) {
+			accept_event();
 		}
 	}
 }

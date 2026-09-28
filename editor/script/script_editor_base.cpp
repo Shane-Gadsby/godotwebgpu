@@ -178,6 +178,25 @@ void TextEditorBase::EditMenus::_bookmark_item_pressed(int p_idx) {
 	}
 }
 
+bool TextEditorBase::EditMenus::activate_shortcut(const Ref<InputEvent> &p_event) {
+	// Submenus are covered by activate_item_by_event() itself.
+	MenuButton *menus[] = { edit_menu, search_menu, goto_menu };
+	for (MenuButton *menu : menus) {
+		if (menu && !menu->is_disabled() && menu->is_visible_in_tree() && menu->get_popup()->activate_item_by_event(p_event, false)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool TextEditorBase::activate_menu_shortcut(const Ref<InputEvent> &p_event) {
+	ERR_FAIL_COND_V(p_event.is_null(), false);
+	if (!edit_menus || !edit_menus->is_visible_in_tree()) {
+		return false;
+	}
+	return edit_menus->activate_shortcut(p_event);
+}
+
 TextEditorBase::EditMenus::EditMenus() {
 	edit_menu = memnew(MenuButton);
 	edit_menu->set_flat(false);

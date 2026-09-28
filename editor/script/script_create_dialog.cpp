@@ -31,6 +31,7 @@
 #include "script_create_dialog.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
@@ -195,12 +196,25 @@ String ScriptCreateDialog::_adjust_file_path(const String &p_base_path) const {
 	return base_dir.path_join(file_name + "." + extension);
 }
 
-void ScriptCreateDialog::config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled, bool p_load_enabled) {
+String ScriptCreateDialog::_apply_default_script_folder(const String &p_base_path) const {
+	if (p_base_path.is_empty()) {
+		return p_base_path;
+	}
+
+	const String default_folder = GLOBAL_GET("editor/script/default_script_folder");
+	if (default_folder.is_empty() || !DirAccess::dir_exists_absolute(default_folder)) {
+		return p_base_path;
+	}
+
+	return default_folder.path_join(p_base_path.get_file());
+}
+
+void ScriptCreateDialog::config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled, bool p_load_enabled, bool p_use_default_folder) {
 	parent_name->set_text(p_base_name);
 	parent_name->deselect();
 	built_in_name->set_text("");
 
-	file_path->set_text(p_base_path);
+	file_path->set_text(p_use_default_folder ? _apply_default_script_folder(p_base_path) : p_base_path);
 	file_path->deselect();
 
 	built_in_enabled = p_built_in_enabled;
@@ -850,7 +864,7 @@ String ScriptCreateDialog::_get_script_origin_label(const ScriptLanguage::Templa
 }
 
 void ScriptCreateDialog::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("config", "inherits", "path", "built_in_enabled", "load_enabled"), &ScriptCreateDialog::config, DEFVAL(true), DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("config", "inherits", "path", "built_in_enabled", "load_enabled", "use_default_folder"), &ScriptCreateDialog::config, DEFVAL(true), DEFVAL(true), DEFVAL(true));
 
 	ADD_SIGNAL(MethodInfo("script_created", PropertyInfo(Variant::OBJECT, "script", PROPERTY_HINT_RESOURCE_TYPE, Script::get_class_static())));
 }
