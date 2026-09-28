@@ -189,7 +189,12 @@ while IFS= read -r src; do
     compile_one "$src" "$obj" "c++17" "${SPIRV_TOOLS_INCLUDES[@]}" &
     # Limit parallelism.
     if (( $(jobs -r | wc -l) >= JOBS )); then
-        wait -n 2>/dev/null || true
+        # `wait -n` (wait for the *next* job, keeping a rolling window) needs bash
+        # >= 4.3. macOS's system bash is 3.2, where it fails instantly -- and with
+        # the old `|| true` that failure was swallowed, silently disabling the
+        # throttle and launching all ~570 compiles at once. Draining the current
+        # wave instead is slower than a rolling window but correct everywhere.
+        wait -n 2>/dev/null || wait
     fi
 done < <(find "$SPIRV_TOOLS_DIR/source" -name '*.cpp' -not -name '*test*' -not -name '*_test.cpp' -not -path '*/test/*' | sort)
 wait
@@ -212,7 +217,12 @@ while IFS= read -r src; do
     TINT_OBJS+=("$obj")
     compile_one "$src" "$obj" "c++20" "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" &
     if (( $(jobs -r | wc -l) >= JOBS )); then
-        wait -n 2>/dev/null || true
+        # `wait -n` (wait for the *next* job, keeping a rolling window) needs bash
+        # >= 4.3. macOS's system bash is 3.2, where it fails instantly -- and with
+        # the old `|| true` that failure was swallowed, silently disabling the
+        # throttle and launching all ~570 compiles at once. Draining the current
+        # wave instead is slower than a rolling window but correct everywhere.
+        wait -n 2>/dev/null || wait
     fi
 done < <(find "$TINT_DIR/src/tint" -name '*.cc' \
     -not -name '*_test.cc' \
