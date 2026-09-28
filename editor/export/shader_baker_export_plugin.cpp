@@ -39,9 +39,9 @@
 #include "editor/editor_node.h"
 #include "scene/3d/label_3d.h"
 #include "scene/3d/mesh_instance_3d.h"
+#include "scene/3d/sprite_3d.h"
 #include "scene/3d/visual_instance_3d.h"
 #include "scene/resources/material.h"
-#include "scene/3d/sprite_3d.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/rendering_shader_container.h"
@@ -148,13 +148,13 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 	// Answer capability queries as the export target's device would, for the rest
 	// of the bake. Engine code builds its GLSL defines and picks its shader groups
 	// from RenderingDevice::has_feature(), so without this every such shader is
-	// baked in the editor's flavour and the exported game asks for one that was
+	// baked in the editor's flavor and the exported game asks for one that was
 	// never baked -- missing the shader cache entirely and recompiling from GLSL
 	// on the main thread at load. See webgpu_notes/TASKS.md Task 31.
 	//
 	// Installed before any shader is enumerated, and paired with the clear in
 	// _end_customize_resources(). Platforms that supply no overrides leave the
-	// map empty and nothing below changes behaviour for them.
+	// map empty and nothing below changes behavior for them.
 	{
 		HashMap<int, bool> target_feature_overrides;
 		if (active_platform.is_valid()) {
@@ -210,7 +210,7 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 	// that opted in (currently WebGPU). It costs extra export-time work and bakes
 	// some versions the game will never ask for, which is a trade worth making only
 	// where an unbaked shader means a full GLSL->SPIR-V->WGSL compile on the main
-	// thread at load. Other platforms keep exactly their previous behaviour.
+	// thread at load. Other platforms keep exactly their previous behavior.
 	if (RD::get_singleton()->shader_bake_feature_override_is_active()) {
 		LocalVector<ShaderRD *> shaders_seen;
 		ShaderRD::shaders_embedded_set_lock();
@@ -527,7 +527,7 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 	// group the Vulkan editor never enabled. Baking every group costs some extra
 	// export-time work and removes a whole class of "the target wanted a group the
 	// editor never turned on". Without an override this is exactly the previous
-	// behaviour.
+	// behavior.
 	//
 	// Groups only, never variants. In the VariantDefine path every variant starts
 	// enabled and `default_enabled` gates the *group*, so a disabled variant is

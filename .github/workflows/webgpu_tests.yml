@@ -8,11 +8,15 @@ on:
       - 'drivers/webgpu/**'
       - 'webgpu_tests/**'
       - 'servers/rendering/**'
+      # Without this, a change to this workflow does not run this workflow, so a
+      # fix to the CI itself cannot be tested by pushing it.
+      - '.github/workflows/webgpu_tests.yml'
   pull_request:
     paths:
       - 'drivers/webgpu/**'
       - 'webgpu_tests/**'
       - 'servers/rendering/**'
+      - '.github/workflows/webgpu_tests.yml'
 
 # Global Settings
 env:
@@ -361,12 +365,27 @@ jobs:
       # webgpu_tests/scene_smoketest) and checkout refuses any path outside
       # $GITHUB_WORKSPACE. The parent of the workspace is writable. Shallow, and on
       # master, matching the local setup documented in webgpu_notes/HANDOFF.md.
+      #
+      # Sitting outside the workspace, this directory is *not* cleaned between
+      # runs on a self-hosted runner, so a plain `git clone` fails with "already
+      # exists and is not an empty directory" on every run after the first.
+      # Update an existing clone in place instead, and re-clone only when what is
+      # there is not a usable git repository.
       - name: Clone godot-demo-projects (11 of the 19 scenes live there)
         run: |
-          git clone --depth 1 --branch master \
-            https://github.com/godotengine/godot-demo-projects.git \
-            "${{ github.workspace }}/../godot-demo-projects"
-          ls "${{ github.workspace }}/../godot-demo-projects/compute/heightmap/project.godot"
+          DEMOS="${{ github.workspace }}/../godot-demo-projects"
+          if [ -d "$DEMOS/.git" ] && git -C "$DEMOS" rev-parse --git-dir >/dev/null 2>&1; then
+            echo "Reusing existing clone at $DEMOS"
+            git -C "$DEMOS" fetch --depth 1 origin master
+            git -C "$DEMOS" reset --hard FETCH_HEAD
+            git -C "$DEMOS" clean -ffdx
+          else
+            rm -rf "$DEMOS"
+            git clone --depth 1 --branch master \
+              https://github.com/godotengine/godot-demo-projects.git \
+              "$DEMOS"
+          fi
+          ls "$DEMOS/compute/heightmap/project.godot"
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
