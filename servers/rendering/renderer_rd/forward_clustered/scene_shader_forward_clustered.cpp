@@ -766,7 +766,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 
 		// The SDF variant's defines come from device capabilities, so the shader
 		// baker has to be able to recompute them for the export target rather than
-		// bake the editor's flavour. See TASKS.md Task 31.
+		// bake the editor's flavor. See TASKS.md Task 31.
 		ShaderRD::add_general_defines_refresh_callback(&SceneShaderForwardClustered::_refresh_sdf_variant_defines);
 
 		if (RendererCompositorRD::get_singleton()->is_xr_enabled()) {

@@ -33,7 +33,7 @@
 #include "rendering_shader_container_webgpu.h"
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
-#include "wgsl_bake_subprocess.h"
+#include "drivers/webgpu/wgsl_bake_subprocess.h"
 #endif
 
 #include <cstring>
