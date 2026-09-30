@@ -57,6 +57,7 @@
 #include "main/main.h"
 #include "scene/gui/color_picker.h"
 #include "scene/gui/file_dialog.h"
+#include "scene/gui/text_edit.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 #include "scene/resources/animation.h"
@@ -816,6 +817,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 
 	// Behavior: Navigation
 	_initial_set("text_editor/behavior/navigation/move_caret_on_right_click", true, true);
+	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_ENUM, "text_editor/behavior/navigation/multiple_carets_modifier", TextEdit::MULTIPLE_CARETS_MODIFIER_ALT, "Alt,Cmd or Ctrl")
 	_initial_set("text_editor/behavior/navigation/scroll_past_end_of_file", false, true);
 	_initial_set("text_editor/behavior/navigation/smooth_scrolling", true, true);
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_RANGE, "text_editor/behavior/navigation/v_scroll_speed", 80, "1,10000,1")

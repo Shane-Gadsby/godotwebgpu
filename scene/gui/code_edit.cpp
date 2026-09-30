@@ -601,7 +601,7 @@ void CodeEdit::gui_input(const Ref<InputEvent> &p_gui_input) {
 			}
 		} else {
 			if (mb->get_button_index() == MouseButton::LEFT) {
-				if (mb->is_command_or_control_pressed() && !symbol_lookup_word.is_empty()) {
+				if (_is_symbol_lookup_on_click_active() && mb->is_command_or_control_pressed() && !symbol_lookup_word.is_empty()) {
 					Vector2i mpos = mb->get_position();
 					if (is_layout_rtl()) {
 						mpos.x = get_size().x - mpos.x;
@@ -627,7 +627,7 @@ void CodeEdit::gui_input(const Ref<InputEvent> &p_gui_input) {
 			mpos.x = get_size().x - mpos.x;
 		}
 
-		if (symbol_lookup_on_click_enabled) {
+		if (_is_symbol_lookup_on_click_active()) {
 			if (mm->is_command_or_control_pressed() && mm->get_button_mask().is_empty()) {
 				symbol_lookup_pos = get_line_column_at_pos(mpos, false, false);
 				symbol_lookup_new_word = get_lookup_word(symbol_lookup_pos.y, symbol_lookup_pos.x);
@@ -685,7 +685,7 @@ void CodeEdit::gui_input(const Ref<InputEvent> &p_gui_input) {
 	/* Ctrl + Hover symbols */
 	bool mac_keys = OS::prefer_meta_over_ctrl();
 	if ((mac_keys && k->get_keycode() == Key::META) || (!mac_keys && k->get_keycode() == Key::CTRL)) {
-		if (symbol_lookup_on_click_enabled) {
+		if (_is_symbol_lookup_on_click_active()) {
 			if (k->is_pressed() && !is_dragging_cursor()) {
 				Point2i lookup_pos = get_line_column_at_pos(get_local_mouse_pos(), false, false);
 				symbol_lookup_new_word = get_lookup_word(lookup_pos.y, lookup_pos.x);
@@ -2669,6 +2669,11 @@ TypedArray<int> CodeEdit::get_line_length_guidelines() const {
 }
 
 /* Symbol lookup */
+bool CodeEdit::_is_symbol_lookup_on_click_active() const {
+	// Cmd/Ctrl + click adding a caret takes precedence over looking the symbol up.
+	return symbol_lookup_on_click_enabled && get_multiple_carets_modifier() != MULTIPLE_CARETS_MODIFIER_CMD_OR_CTRL;
+}
+
 void CodeEdit::set_symbol_lookup_on_click_enabled(bool p_enabled) {
 	symbol_lookup_on_click_enabled = p_enabled;
 	set_symbol_lookup_word_as_valid(false);

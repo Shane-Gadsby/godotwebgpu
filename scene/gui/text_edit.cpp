@@ -2343,8 +2343,9 @@ void TextEdit::gui_input(const Ref<InputEvent> &p_gui_input) {
 				const int triple_click_tolerance = 5;
 				bool is_triple_click = (!mb->is_double_click() && (OS::get_singleton()->get_ticks_msec() - last_dblclk) < triple_click_timeout && mb->get_position().distance_to(last_dblclk_pos) < triple_click_tolerance);
 
+				const bool multi_caret_modifier_pressed = multi_carets_modifier == MULTIPLE_CARETS_MODIFIER_CMD_OR_CTRL ? mb->is_command_or_control_pressed() : mb->is_alt_pressed();
 				if (!mb->is_double_click() && !is_triple_click) {
-					if (mb->is_alt_pressed()) {
+					if (multi_caret_modifier_pressed) {
 						prev_line = line;
 						prev_col = col;
 
@@ -5281,6 +5282,14 @@ bool TextEdit::is_multiple_carets_enabled() const {
 	return multi_carets_enabled;
 }
 
+void TextEdit::set_multiple_carets_modifier(MultipleCaretsModifier p_modifier) {
+	multi_carets_modifier = p_modifier;
+}
+
+TextEdit::MultipleCaretsModifier TextEdit::get_multiple_carets_modifier() const {
+	return multi_carets_modifier;
+}
+
 int TextEdit::add_caret(int p_line, int p_column) {
 	if (!multi_carets_enabled) {
 		return -1;
@@ -7358,6 +7367,9 @@ void TextEdit::_bind_methods() {
 	BIND_ENUM_CONSTANT(CARET_TYPE_LINE);
 	BIND_ENUM_CONSTANT(CARET_TYPE_BLOCK);
 
+	BIND_ENUM_CONSTANT(MULTIPLE_CARETS_MODIFIER_ALT);
+	BIND_ENUM_CONSTANT(MULTIPLE_CARETS_MODIFIER_CMD_OR_CTRL);
+
 	ClassDB::bind_method(D_METHOD("set_caret_type", "type"), &TextEdit::set_caret_type);
 	ClassDB::bind_method(D_METHOD("get_caret_type"), &TextEdit::get_caret_type);
 
@@ -7378,6 +7390,8 @@ void TextEdit::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_multiple_carets_enabled", "enabled"), &TextEdit::set_multiple_carets_enabled);
 	ClassDB::bind_method(D_METHOD("is_multiple_carets_enabled"), &TextEdit::is_multiple_carets_enabled);
+	ClassDB::bind_method(D_METHOD("set_multiple_carets_modifier", "modifier"), &TextEdit::set_multiple_carets_modifier);
+	ClassDB::bind_method(D_METHOD("get_multiple_carets_modifier"), &TextEdit::get_multiple_carets_modifier);
 
 	ClassDB::bind_method(D_METHOD("add_caret", "line", "column"), &TextEdit::add_caret);
 	ClassDB::bind_method(D_METHOD("remove_caret", "caret"), &TextEdit::remove_caret);
@@ -7651,6 +7665,7 @@ void TextEdit::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "caret_move_on_right_click"), "set_move_caret_on_right_click_enabled", "is_move_caret_on_right_click_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "caret_mid_grapheme"), "set_caret_mid_grapheme_enabled", "is_caret_mid_grapheme_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "caret_multiple"), "set_multiple_carets_enabled", "is_multiple_carets_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "caret_multiple_modifier", PROPERTY_HINT_ENUM, "Alt,Cmd or Ctrl"), "set_multiple_carets_modifier", "get_multiple_carets_modifier");
 
 	ADD_GROUP("Word Separators", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_default_word_separators"), "set_use_default_word_separators", "is_default_word_separators_enabled");
