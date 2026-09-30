@@ -55,6 +55,12 @@ public:
 		CARET_TYPE_BLOCK
 	};
 
+	/* Modifier held to add or remove a caret by clicking. */
+	enum MultipleCaretsModifier {
+		MULTIPLE_CARETS_MODIFIER_ALT,
+		MULTIPLE_CARETS_MODIFIER_CMD_OR_CTRL,
+	};
+
 	/* Selection */
 	enum SelectionMode {
 		SELECTION_MODE_NONE,
@@ -474,6 +480,7 @@ private:
 	bool caret_mid_grapheme_enabled = false;
 
 	bool multi_carets_enabled = true;
+	MultipleCaretsModifier multi_carets_modifier = MULTIPLE_CARETS_MODIFIER_ALT;
 
 	bool drag_action = false;
 	bool drag_caret_force_displayed = false;
@@ -968,6 +975,9 @@ public:
 	void set_multiple_carets_enabled(bool p_enabled);
 	bool is_multiple_carets_enabled() const;
 
+	void set_multiple_carets_modifier(MultipleCaretsModifier p_modifier);
+	MultipleCaretsModifier get_multiple_carets_modifier() const;
+
 	int add_caret(int p_line, int p_column);
 	void remove_caret(int p_caret);
 	void remove_drag_caret();
@@ -1208,6 +1218,7 @@ public:
 
 VARIANT_ENUM_CAST(TextEdit::EditAction);
 VARIANT_ENUM_CAST(TextEdit::CaretType);
+VARIANT_ENUM_CAST(TextEdit::MultipleCaretsModifier);
 VARIANT_ENUM_CAST(TextEdit::LineWrappingMode);
 VARIANT_ENUM_CAST(TextEdit::SelectionMode);
 VARIANT_ENUM_CAST(TextEdit::GutterType);

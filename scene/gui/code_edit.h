@@ -239,6 +239,8 @@ private:
 
 	/* Symbol lookup */
 	bool symbol_lookup_on_click_enabled = false;
+	// False while Cmd/Ctrl is the modifier for adding carets by clicking, which takes precedence.
+	bool _is_symbol_lookup_on_click_active() const;
 	Point2i symbol_lookup_pos; // Column and line.
 	String symbol_lookup_new_word;
 	String symbol_lookup_word;
