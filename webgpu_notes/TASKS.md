@@ -5432,6 +5432,37 @@ Checked for leftovers: the only remaining `FORMAT_LA8` references are the generi
 
 Correct text on screen is the load-bearing evidence here; the absence of the `LumAlpha8` log lines was not separately re-confirmed in this run, but it follows from the same code path — no LA8 atlas is created, so nothing can be converted.
 
+> **Follow-up (2026-10-04): this change had a colour regression that the above verification could not have caught.** See the next subsection. "Text renders correctly" was checked with white text, and the regression forces text to *be* white — so the two are indistinguishable in that test. Any future check of this area needs a non-white font colour, or an outline colour that differs from the fill.
+
+#### Task 35 — follow-up: RGBA8 mono atlases made every glyph look like a colour glyph `[FIXED — VERIFIED IN BROWSER]`
+
+**Symptom**: user-reported, "the text/font appears to be wrong on the web export". All text renders white regardless of its theme colour, and a dark outline turns white, so outlined text becomes a pale blob. Reproduced conceptually against the user's `apple-orchard-game`, whose theme sets `RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)` with `outline_size = 5` — a black 5 px outline rendering white is what made it obvious.
+
+**Root cause**: both text servers decide whether a glyph carries its own colour (emoji/CBDT/COLR, which must not be tinted by the text colour) by sniffing the *atlas pixel format*:
+
+```cpp
+if (!fd->modulate_color_glyphs && fd->face && ...image->get_format() == Image::FORMAT_RGBA8 && !lcd_aa && !fd->msdf) {
+    modulate.r = modulate.g = modulate.b = 1.0;
+}
+```
+
+That inference only holds while a grayscale atlas is `LA8`. Task 35 made `MONO_GLYPH_COLOR_SIZE` 4 under `WEBGPU_ENABLED`, so grayscale atlases are `RGBA8` too, the test matches *every* ordinary glyph, and the modulate is dropped for all text. `modulate_color_glyphs` defaults to `false` and `lcd_aa`/`msdf` are off by default, so nothing else gates it. Four sites: `text_server_adv.cpp` `_font_draw_glyph`/`_font_draw_glyph_outline`, and the same pair in `text_server_fb.cpp`.
+
+**Fix**: record the answer where it is actually known instead of inferring it later.
+- `FontGlyph` gains `bool color_glyph = false` in both headers.
+- Set at rasterization: `chr.color_glyph = p_bgra` in the HarfBuzz raster path, and `chr.color_glyph = (p_bitmap.pixel_mode == FT_PIXEL_MODE_BGRA)` in the FreeType bitmap path. `LCD`/`LCD_V` are four-channel but are subpixel-AA grayscale, not colour, and the draw-time check already excludes them via `lcd_aa`.
+- At the four draw sites, `#ifdef WEBGPU_ENABLED` consults the flag; every other backend keeps the original format test, so glyphs restored from a pre-baked font cache (which carries no flag, since the cache round-trips through the public per-field `_font_set_glyph_*` API) behave exactly as before.
+- Also collapsed an upstream inconsistency at `text_server_adv.cpp` `_font_draw_glyph_outline`, where the `.is_valid()` check read `fd->cache[size]->textures[...]` while the format check read `ffsd->textures[...]`. `_ensure_cache_for_size()` assigns `r_cache_for_size = E->value` from `p_font_data->cache.find(p_size)`, so these are the same object and the change is a no-op.
+
+**Verified**: native editor full rebuild, 0 errors. `text_server_fb` compiled explicitly via a single-object scons target with `module_text_server_fb_enabled=yes` (off by default in this configuration, so it would otherwise have gone unchecked — same trap Task 35 itself hit). The `WEBGPU_ENABLED` branch was confirmed to be the branch actually compiled by temporarily injecting `static_assert(false)` inside it and observing the web build fail there, then restoring and recompiling clean. `pre-commit` passes on all four files.
+
+**Verified in the browser (2026-10-04)**: user rebuilt the web templates, re-exported, and confirmed — "fonts look correct again".
+
+This check *is* discriminating, unlike Task 35's own. The reporting project (`apple-orchard-game`) renders its interaction text through a theme that sets `RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)` with `outline_size = 5`, i.e. white fill with a black 5 px outline. Under the bug that outline rendered white and the text became a pale blob; "correct" therefore means the outline came back black, which only happens if the modulate reaches the glyph. A white-text-only check could not have distinguished the two states — that is exactly how the regression survived Task 35's original verification.
+
+**Still not separately exercised**: a real colour-glyph font (emoji/CBDT/COLR) on WebGPU, which is the case the `color_glyph` flag is *supposed* to keep untinted. The fix makes that path strictly more correct than the format-sniffing it replaced, and the flag is set directly from `FT_PIXEL_MODE_BGRA`/`p_bgra`, but no emoji font was rendered to confirm it. The reporting project uses none.
+
+
 ---
 
 ## Tasks 29–37: shader baking, end to end — summary

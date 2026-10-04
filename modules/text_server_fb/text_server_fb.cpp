@@ -561,6 +561,10 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_bitma
 		} break;
 	}
 
+	//LCD/LCD_V are subpixel-antialiased grayscale, not color glyphs; they just
+	//happen to need four channels. The draw-time check excludes them via lcd_aa.
+	chr.color_glyph = (p_bitmap.pixel_mode == FT_PIXEL_MODE_BGRA);
+
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
 
@@ -3067,7 +3071,21 @@ void TextServerFallback::_font_draw_glyph(const RID &p_font_rid, const RID &p_ca
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (!fd->modulate_color_glyphs && fd->face && ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (!fd->modulate_color_glyphs && fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
@@ -3193,7 +3211,21 @@ void TextServerFallback::_font_draw_glyph_outline(const RID &p_font_rid, const R
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (fd->face && ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif

@@ -113,6 +113,7 @@ without deleting anything.
 | 45 | `Gradient{Texture1D,Texture2D}::get_image()` regenerate instead of reading the GPU back | `demo_compute_heightmap` **skip → pass**; tier → **19/0/0** in both browsers, nothing skipped |
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
+| 35 | Per-glyph `color_glyph` flag replaces atlas-format sniffing in both text servers | **All text was rendering white** on WebGPU (dark outlines too); theme font colors work again |
 
 Reference numbers worth keeping: the user's project loads with a **~1.0 s** cold stall (was ~9.2 s at
 the start of this work), `{baked: 360, translated: 0}`, and BC1 texture compression is verified
@@ -404,6 +405,15 @@ should say so once, loudly, instead of reporting it as N item failures.
 ---
 
 ## 5. Corrections — things recorded wrongly earlier
+
+**Task 35 was marked "verified in a browser" on evidence that could not have caught its own regression.**
+It made monochrome glyph atlases RGBA8 on WebGPU, and verified it with "text renders correctly". But the
+side effect was that every glyph then matched the *colour-glyph* test (which sniffs the atlas format), so
+the text colour was discarded and all text rendered **white** — which white text is indistinguishable from.
+Found 2026-10-04 from a user report, fixed, and re-verified against a black-outlined label, where the two
+states *are* distinguishable. Any future check in this area needs a non-white fill or a contrasting
+outline; "text appears" is not sufficient. Full write-up: `TASKS.md`, "Task 35 — follow-up".
+
 
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:
 1. **Task 43's diagnosis was wrong twice.** The render-thread guard is `ERR_FAIL_COND_V_MSG` and

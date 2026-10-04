@@ -177,6 +177,10 @@ class TextServerFallback : public TextServerExtension {
 		Rect2 rect;
 		Rect2 uv_rect;
 		Vector2 advance;
+		//true only for a glyph that carries its own color (an emoji/CBDT/COLR
+		//bitmap). The atlas pixel format cannot stand in for this on WebGPU --
+		//see the draw-time check in _font_draw_glyph().
+		bool color_glyph = false;
 		bool from_svg = false;
 	};
 
