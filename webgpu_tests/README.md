@@ -13,6 +13,8 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Scene Smoketest](scene_smoketest/) | 19 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
+| [Font Rendering](scene_smoketest/test_font_visual.mjs) | Text renders in the colors it was asked to — guards the glyph-modulate regression | ~20s | Yes (pre-exported) |
+| [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 
 ## How It Works
@@ -54,6 +56,31 @@ cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
 node run_tests.mjs       # SPIR-V → WGSL validation (skips gracefully if no Tint CLI)
 ```
+
+### Font Rendering (needs the `font_rendering` scene exported)
+
+Renders text in deliberately non-white colors and asserts the pixels that reach
+the canvas. It exists because a previous regression made **all** text render
+white, and was missed by a check done against white text — where broken and
+working look identical.
+
+```bash
+cd webgpu_tests/scene_smoketest
+node run_scenes.mjs --export-only --scene font_rendering   # once, after an engine build
+node test_font_visual.mjs --browser chrome                 # or --browser all
+```
+
+The thresholds are themselves tested, against two committed reference images (a
+correct render, and one with the regression's effect simulated). That runs
+standalone, with no browser, export or GPU:
+
+```bash
+cd webgpu_tests/scene_smoketest && node self_test_font_visual.mjs
+```
+
+If you ever need to regenerate the references, render
+`webgpu_tests/font_rendering/godot/font_check` and save the viewport — but do not
+relax the colors: the test's whole value is that the text is not white.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 

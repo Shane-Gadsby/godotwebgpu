@@ -112,6 +112,14 @@ jobs:
         working-directory: webgpu_tests/driver_unit_tests
         run: node run_tests.mjs
 
+      # Checks test_font_visual.mjs's own assertions against two committed
+      # reference images -- a correct render and one with the glyph-modulate
+      # regression simulated. Guards against the thresholds being weakened until
+      # the browser test can no longer fail. No browser or export needed.
+      - name: Run font visual assertion self-test
+        working-directory: webgpu_tests/scene_smoketest
+        run: node self_test_font_visual.mjs
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # Engine Build: Compile WebGPU export template + dump all SPIR-V
   # ═══════════════════════════════════════════════════════════════════════════════
@@ -559,6 +567,17 @@ jobs:
       - name: Run scene smoketest (Firefox)
         working-directory: webgpu_tests/scene_smoketest
         run: node run_scenes.mjs --browser firefox --require-exports --timeout 30000
+
+      # Colour-correctness of rendered text. Separate from the scene smoketest
+      # above because that one only counts GPU errors, and this regression
+      # produced none -- it rendered the wrong colors silently.
+      - name: Run font rendering colour check (Chrome)
+        working-directory: webgpu_tests/scene_smoketest
+        run: node test_font_visual.mjs --browser chrome
+
+      - name: Run font rendering colour check (Firefox)
+        working-directory: webgpu_tests/scene_smoketest
+        run: node test_font_visual.mjs --browser firefox
 
   # ═══════════════════════════════════════════════════════════════════════════════
   # Resource Lifecycle: Browser-based stress test
