@@ -5462,6 +5462,8 @@ This check *is* discriminating, unlike Task 35's own. The reporting project (`ap
 
 **Still not separately exercised**: a real colour-glyph font (emoji/CBDT/COLR) on WebGPU, which is the case the `color_glyph` flag is *supposed* to keep untinted. The fix makes that path strictly more correct than the format-sniffing it replaced, and the flag is set directly from `FT_PIXEL_MODE_BGRA`/`p_bgra`, but no emoji font was rendered to confirm it. The reporting project uses none.
 
+**Regression test added, and verified against the real bug rather than a simulation.** `webgpu_tests/font_rendering/godot/font_check` plus `scene_smoketest/test_font_visual.mjs` render text in deliberately non-white colors and assert the canvas pixels; `self_test_font_visual.mjs` checks those assertions against two committed reference images so the thresholds cannot be weakened into uselessness. The full cycle was exercised end to end on real-GPU Chrome: **PASS with the fix, then the fix reverted and the web template rebuilt from that reverted source → FAIL with all three diagnostics, then restored → PASS again.** The reverted build's numbers (`red 0.0% white 18.1% black 0.0%`) match the simulated reference image exactly, which also validates the simulation the thresholds were derived from. This is the check Task 35 did not have.
+
 
 ---
 

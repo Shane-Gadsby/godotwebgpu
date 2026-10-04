@@ -360,6 +360,10 @@ run_test "WGSL precompile JS tests" \
     "$SCRIPT_DIR/wgsl_cache" \
     node test_wgsl_cache.mjs
 
+run_test "Font visual assertion self-test" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node self_test_font_visual.mjs
+
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -407,22 +411,30 @@ else
     echo "    Testing whatever is already in scene_smoketest/exports/."
 fi
 
-run_test "Scene smoketest — Chrome (19 scenes)" \
+run_test "Scene smoketest — Chrome (20 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser chrome --timeout 30000
 
-run_test "Scene smoketest — Firefox (19 scenes)" \
+run_test "Scene smoketest — Firefox (20 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser firefox --timeout 30000
 
+run_test "Font rendering colors — Chrome" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node test_font_visual.mjs --browser chrome
+
+run_test "Font rendering colors — Firefox" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node test_font_visual.mjs --browser firefox
+
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
-    run_test "Scene smoketest — Safari (19 scenes)" \
+    run_test "Scene smoketest — Safari (20 scenes)" \
         "$SCRIPT_DIR/scene_smoketest" \
         node run_scenes.mjs --browser safari --timeout 30000
 else
-    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (19 scenes)"
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (20 scenes)"
     SKIPPED=$((SKIPPED + 1))
-    RESULTS+=("SKIP  Scene smoketest — Safari (19 scenes)")
+    RESULTS+=("SKIP  Scene smoketest — Safari (20 scenes)")
 fi
 
 echo ""
