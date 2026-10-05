@@ -11806,11 +11806,26 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 			return 256;
 		case API_TRAIT_SECONDARY_VIEWPORT_SCISSOR:
 			return 0;
-		case API_TRAIT_CLEARS_WITH_COPY_ENGINE:
+		// 4.8 split the old single API_TRAIT_CLEARS_WITH_COPY_ENGINE into a
+		// buffer and a texture variant. Both stay 0 here: WebGPU has no
+		// copy-engine clear at all -- buffer clears go through
+		// wgpuCommandEncoderClearBuffer and texture clears through a render
+		// pass with a clear load op, neither of which is a transfer-queue
+		// operation the draw graph needs to account for.
+		case API_TRAIT_BUFFER_CLEARS_WITH_COPY_ENGINE:
+			return 0;
+		case API_TRAIT_TEXTURE_CLEARS_WITH_COPY_ENGINE:
 			return 0;
 		case API_TRAIT_USE_GENERAL_IN_COPY_QUEUES:
 			return 0;
 		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS:
+			return 0;
+		// WebGPU has no explicit image layout; the implementation tracks usage
+		// internally, so there is no layout transition for the draw graph to
+		// emit. (API_TRAIT_HONORS_PIPELINE_BARRIERS is already 0, which gates
+		// most consumers, but rendering_device_graph.cpp caches this one on its
+		// own.)
+		case API_TRAIT_TEXTURES_REQUIRE_LAYOUT_TRANSITIONS:
 			return 0;
 		case API_TRAIT_TEXTURE_OUTPUTS_REQUIRE_CLEARS:
 			return 0;

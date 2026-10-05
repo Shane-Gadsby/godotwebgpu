@@ -759,7 +759,7 @@ bool Box3DMeshShape3D::build(Box3DShapeInstance &p_instance, b3BodyId p_body, co
 		BOX3D_UNSUPPORTED_KEYED("Triangle mesh collision on a moving body",
 				"A concave (trimesh) or heightmap collision shape was attached to a kinematic or rigid body.",
 				"Box3D only generates contacts for triangle meshes and height fields on static bodies.",
-				vformat("shape=%s type=%s owners=%s", to_string(), get_type() == PhysicsServer3D::SHAPE_HEIGHTMAP ? "heightmap" : "concave_polygon", _owners_to_string()),
+				vformat("shape=%s type=%s owners=%s", to_string(), get_type() == PS3DE::SHAPE_HEIGHTMAP ? "heightmap" : "concave_polygon", _owners_to_string()),
 				"mesh_on_moving_body");
 	}
 

@@ -272,30 +272,30 @@ void Box3DSpace3D::call_queries() {
 	}
 }
 
-double Box3DSpace3D::get_param(PhysicsServer3D::SpaceParameter p_param) const {
+double Box3DSpace3D::get_param(PS3DE::SpaceParameter p_param) const {
 	switch (p_param) {
-		case PhysicsServer3D::SPACE_PARAM_CONTACT_RECYCLE_RADIUS: {
+		case PS3DE::SPACE_PARAM_CONTACT_RECYCLE_RADIUS: {
 			return SPACE_DEFAULT_CONTACT_RECYCLE_RADIUS;
 		}
-		case PhysicsServer3D::SPACE_PARAM_CONTACT_MAX_SEPARATION: {
+		case PS3DE::SPACE_PARAM_CONTACT_MAX_SEPARATION: {
 			return SPACE_DEFAULT_CONTACT_MAX_SEPARATION;
 		}
-		case PhysicsServer3D::SPACE_PARAM_CONTACT_MAX_ALLOWED_PENETRATION: {
+		case PS3DE::SPACE_PARAM_CONTACT_MAX_ALLOWED_PENETRATION: {
 			return SPACE_DEFAULT_CONTACT_MAX_ALLOWED_PENETRATION;
 		}
-		case PhysicsServer3D::SPACE_PARAM_CONTACT_DEFAULT_BIAS: {
+		case PS3DE::SPACE_PARAM_CONTACT_DEFAULT_BIAS: {
 			return SPACE_DEFAULT_CONTACT_DEFAULT_BIAS;
 		}
-		case PhysicsServer3D::SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD: {
+		case PS3DE::SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD: {
 			return SPACE_DEFAULT_SLEEP_THRESHOLD_LINEAR;
 		}
-		case PhysicsServer3D::SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD: {
+		case PS3DE::SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD: {
 			return SPACE_DEFAULT_SLEEP_THRESHOLD_ANGULAR;
 		}
-		case PhysicsServer3D::SPACE_PARAM_BODY_TIME_TO_SLEEP: {
+		case PS3DE::SPACE_PARAM_BODY_TIME_TO_SLEEP: {
 			return B3_TIME_TO_SLEEP;
 		}
-		case PhysicsServer3D::SPACE_PARAM_SOLVER_ITERATIONS: {
+		case PS3DE::SPACE_PARAM_SOLVER_ITERATIONS: {
 			return SPACE_DEFAULT_SOLVER_ITERATIONS;
 		}
 		default: {
@@ -304,7 +304,7 @@ double Box3DSpace3D::get_param(PhysicsServer3D::SpaceParameter p_param) const {
 	}
 }
 
-void Box3DSpace3D::set_param(PhysicsServer3D::SpaceParameter p_param, double p_value) {
+void Box3DSpace3D::set_param(PS3DE::SpaceParameter p_param, double p_value) {
 	static const char *const names[] = {
 		"contact recycle radius",
 		"contact max separation",
