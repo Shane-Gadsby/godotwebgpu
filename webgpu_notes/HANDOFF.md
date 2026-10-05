@@ -552,12 +552,29 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-2. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
-   which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
-   container at export time is the biggest remaining load win and is entirely our own code.
-3. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+2. **Measure Task 46, which is landed but unprofiled.** The shader container no longer copies its
+   baked WGSL and no longer ships the SPIR-V where nothing can read it, and `ShaderRD` no longer
+   holds ~120 MB of shader bytes for the session — but none of it has been profiled in a browser
+   yet. One run of `profile_phases.mjs` against a *baked* export, twice (once with
+   `WEBGPU_BAKE_KEEP_SPIRV=1` for the A/B), sizes all of it; `godotWebGPUShaderStats` now carries
+   `spirvBytes`/`wgslBytes`/`footerParseMs` and there is a new `godotWebGPUFrameStats` for
+   per-frame cost. A baked export needs a non-`--headless` editor with a real RenderingDevice —
+   `xvfb-run --rendering-driver vulkan` with Mesa lavapipe is enough, no GPU needed.
+   **Note the remaining ~180 ms is the per-stage WGSL *text* scanning, and baking that is harder
+   than this file previously implied**: the scans also *rewrite* the WGSL, and the rewrites depend
+   on the player's adapter (`has_rw_storage_textures`, `has_texture_formats_tier2`, storage-format
+   promotion), so the rewritten text cannot be baked. Only the adapter-independent scan results
+   (texture dimensions, sample types, depth-ness, comparison samplers, per-binding stage
+   visibility) can be. See Task 46 §3.
+3. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
+   is fetched and compiled *non-streaming* by Emscripten's dylink loader, outside `config.js`'s
+   `instantiateWasm` override. On localhost that is 96 ms, which is why it was ranked low; at
+   20 Mbit/s it is ~20 s that cannot overlap compilation, which would dwarf everything else in
+   Task 14. Playwright can throttle directly via CDP. This is the cheapest high-value measurement
+   left and it has never been taken.
+4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
-4. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+5. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
    time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
    and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
    actually bind would close the class instead of the next instance.

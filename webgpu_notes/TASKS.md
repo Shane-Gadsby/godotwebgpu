@@ -6502,3 +6502,188 @@ failed to export at the start of this session with
 `Aborted`. It is a stale `.godot` import cache in the `godot-demo-projects` checkout, left by an
 editor built at a different version hash; `rm -rf <project>/.godot` fixes it and both have exported
 cleanly on every run since. Worth knowing before reading it as an engine crash.
+
+---
+
+### Task 46: performance audit — the container payload, and what a per-frame audit can and cannot conclude without measuring `[PARTLY FIXED — the load-time half is landed, the per-frame half is instrumented not fixed]`
+
+**Status**: the shader-container work is implemented and compiles clean on both targets; the
+per-frame work is deliberately stopped at instrumentation. **Severity**: load time is the
+user-visible one; the per-frame findings are small except where noted.
+
+Prompted by Task 14 subtask 1.2's leftover: `Servers:Rendering` is ~510 ms on *every* project,
+an empty scene included, and ~490 ms of it is CPU spent before WebGPU is involved at all
+(`createShaderModule` for all 363 modules is 22 ms, pipeline creation 0 ms).
+
+#### 1. Corrections to the previous session's scoping — do not re-derive these
+
+The plan carried into this work was "the SPIR-V is dead weight at runtime once WGSL is baked;
+drop it". **That premise was wrong, and acting on it directly would have been a silent rendering
+regression.** `shader_create_from_container()` walks the raw SPIR-V of *every* stage, baked or
+not, through `_extract_pre_dce_storage_image_info()`, to recover a storage image's declared
+format, dimension and component type for bindings our own `eliminate_dead_resources()` strips --
+the fix from Task 9.5 rounds 18-27. Dropping the bytes without first baking that would have put
+SDFGI and GI back to the "Format (R8Unorm) expected to be (RGBA8Unorm)" / Uint-vs-Float class of
+failure, which presents as a Dawn error naming a texture the shader does not appear to use.
+
+The runtime reads a stage's SPIR-V for exactly four things, and that is the complete list:
+
+1. `_extract_pre_dce_storage_image_info()` — the pre-DCE image declarations, every stage.
+2. `spirv_preprocess::has_spec_constants()` — one bit, every stage.
+3. `_spv_to_wgsl_cached()` — the Tint fallback, only for a stage with no baked WGSL.
+4. `shader->stage_spirv[]` — the legacy specialization path, which re-patches the bytes with
+   constant values and re-converts them.
+
+**Second correction**: the previous note put the SPIR-V and the WGSL at roughly equal size.
+Measured across the 14 corpus fixtures, SPIR-V is **64%** of the combined payload and WGSL 36%
+(`wgsl/spv = 0.56`). The SPIR-V is the *larger* of the two. Treat the 64% as indicative only --
+those fixtures are small hand-written shaders and a real scene shader's WGSL is far larger, so
+re-measure against a real export before quoting it.
+
+**Third correction, to this file's own framing of approach (C)** ("move the read and parse off the
+main thread"): it is not merely unattractive, it is **impossible in the shipping configuration**,
+and this is settled at code level rather than inferred. `threads=no` means `platform/web/detect.py`
+never passes `-sUSE_PTHREADS=1`, so `THREADS_ENABLED` is undefined, so `Thread::start()` is
+literally `{}` (`core/os/thread.h:198`) and `OS_Web::get_default_thread_pool_size()` returns 1.
+`WorkerThreadPool` has no worker threads at all and runs every task on the calling thread. There is
+no thread to move the parse to. `threads=yes dlink_enabled=yes` remains broken (Task 12 bug #2) and
+dlink is what GDExtension needs, so the only route to that ~490 ms is to **do less work**, not to
+relocate it. Subtask 1.5's "still don't patch Emscripten" conclusion stands and this is another
+reason for it.
+
+#### 2. What landed
+
+- **The baked WGSL is read as a window, not a copy.** `from_bytes()` retains the buffer it parsed
+  (a new non-pure `_from_bytes_begin()` hook on `RenderingShaderContainer`, a no-op by default) and
+  the footer parse records `(offset, length)` per stage instead of allocating a `CharString` and
+  copying the text in. The driver copies the text anyway -- its WGSL passes mutate it in place --
+  so the intermediate copy bought nothing.
+- **The SPIR-V is omitted when nothing can read it** (`FLAG_SPIRV_OMITTED`). Items 1 and 2 above
+  are now baked into the footer, item 3 is moot for a baked stage, and item 4 is what the bake-time
+  rule tests for: a stage that declares specialization constants whose WGSL carries no `@id(N)`
+  override keeps the bytes for the whole container. Erring towards keeping them is the safe
+  direction -- erring the other way means a shader quietly rendering at default specialization
+  values, so the driver `ERR_PRINT_ONCE`s if it ever reaches the legacy path with no SPIR-V.
+- **The pre-DCE walk moved to `drivers/webgpu/spirv_lite_reflect.{h,cpp}`**, which has no
+  SPIRV-Tools dependency and so can be compiled into the native editor's baker subset. The half
+  that maps its output to WebGPU enums stays in the driver, the only side that speaks them.
+- **`ShaderRD` frees a group's bytecode once it has loaded**
+  (`API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD`). Nothing reads `Version::variant_data` after
+  `shader_create_from_bytecode` and `_save_to_cache` for that group; ~120 MB of WASM heap was being
+  held for the session for bytes nothing would read again. This also lowers how far a 32 MB
+  `INITIAL_MEMORY` has to grow during the most allocation-heavy phase of startup.
+
+Net bytes moved per load, in units of the WGSL payload W and the SPIR-V payload S (S ≈ 1.8W on the
+corpus): **3W + 2S before, 2W after** -- the pck read plus the driver's one mutable copy. The pck
+shrinks by S/(W+S) of its shader payload.
+
+`WEBGPU_BAKE_KEEP_SPIRV=1` on the exporting editor keeps the SPIR-V anyway: the A/B for the saving
+from a single build, and an escape hatch for the one change here that discards data.
+
+#### 3. Per-frame: one real find, and why the rest is instrumented rather than changed
+
+**`command_bind_render_uniform_sets()` carried a dead nested scan.** A leftover diagnostic walked
+every bound texture of every set against every framebuffer attachment, including a `HashMap` walk
+per set, looking for a sync-scope conflict. Its prints had been removed but its loops had not, so
+it only incremented a counter nothing read -- and its `< 20` guard self-limited on *matches found*,
+so in the normal case of no conflict the full scan ran on every bind of every set of every draw,
+forever, in the hottest function in the driver. Removed. Also made
+`_get_compatible_bind_group()`'s rebind-cache hit one hash lookup instead of two.
+
+**Everything else found in the per-draw path is already handled**, which is worth recording so the
+next pass does not re-look: `SetVertexBuffer`, `SetIndexBuffer` and static `SetBindGroup` are all
+redundancy-filtered; push constants use a CPU shadow with dirty-range tracking and a batched
+`wgpuQueueWriteBuffer`; `multi-draw-indirect` has a native fast path where the extension exists;
+buffer-to-texture upload goes straight from the shadow map via `wgpuQueueWriteTexture` and clears
+`map_dirty` so the following `buffer_unmap()` does not redundantly flush a 32 MB staging buffer.
+The other `static int _x_log` diagnostics in this file are fine -- their bodies are inside
+`WEBGPU_DIAG`, which is `((void)0)` in release, leaving a static read and compare.
+
+Three candidates were found and **deliberately not implemented**, because this driver's history is
+a long argument for measuring bind-state and hazard changes before making them:
+
+- **Sets with a dynamic offset are rebound unconditionally**, on the stated grounds that the frame
+  index they encode rotates. It rotates once per *frame*, not per draw, so most of those binds
+  should be identical to the one before. Extending the redundancy cache to compare offsets means
+  also making the static path's check require a zero offset count, or a previously-dynamic bind of
+  the same group will wrongly satisfy it. Note `last_bound_state[]` cannot serve as the cache: it
+  is deliberately *not* cleared by `invalidate_bind_groups()`, because the mid-pass restart path
+  rebinds from it, so it is stale across a render pass boundary.
+- **A uniform set with read_write-storage-texture shadow companions does a full source-to-shadow
+  texture copy on every bind, and breaks and restarts the compute pass to do it**, because nothing
+  tracks whether the source changed. Zero on an adapter with
+  `readonly-and-readwrite-storage-textures`; potentially large on one without. A fix needs a
+  per-texture GPU-write epoch, and getting it wrong brings back the solid-black-DOF bug.
+- **`_get_region_clear_pipeline()` builds a `String` key** with `vformat` + `rtos` + a concatenation
+  per color format, on every call. Only reached for a region clear, so a handful of heap
+  allocations per frame at most -- real but small, and a struct key would be the tidy fix.
+
+**So the per-frame half of this task is instrumented, not fixed.** The counters existed but only
+ever surfaced through a `console.log` compiled in behind `WEBGPU_VERBOSE` -- and turning verbose
+output on costs ~1.5 s of load time by itself (subtask 1, Finding 2), so profiling with it changes
+what is being profiled. They now also publish to **`window.godotWebGPUFrameStats`**
+unconditionally, once per second, the same way `godotWebGPUShaderStats` does and for the same
+reason: the build that matters is the release one. `profile_phases.mjs` collects it. Four counters
+were added to answer exactly the questions above: `dynamicBindGroups` against `bindGroupSkips`,
+`indirectDraws` split out of `drawCalls` (indirect draws were not counted at all before), and
+`rwShadowRefreshes`. `begin_segment()` also stopped timing its sampling window with a
+`performance.now()` call through `EM_ASM`, which was a C→JS crossing every frame.
+
+#### 4. The largest un-investigated cost is not in this engine's code at all
+
+`index.side.wasm` is **51 MB**, and on a `dlink_enabled=yes` export it goes through Emscripten's
+dylink loader, not `config.js`'s `instantiateWasm` override -- so it is fetched into a full
+ArrayBuffer and compiled with non-streaming `WebAssembly.instantiate` (confirmed in
+`libdylink.js:947` at 6.0.9; `loadLibData()` reads it from the FS or `asyncLoad`s it, so there is at
+least one extra 51 MB copy as well). Subtask 2.1 recorded this and ranked it low **because it was
+measured on localhost**, where it is 48 ms of fetch plus 48 ms of instantiate.
+
+That ranking is an artifact of the measurement. At 20 Mbit/s the same 51 MB is ~20 seconds of
+download that **cannot overlap compilation**, which would dwarf every other number in this task.
+Nobody has profiled this export under network throttling, and Playwright can do it directly
+(CDP `Network.emulateNetworkConditions`). That is the cheapest high-value measurement left.
+
+Two mitigations are available without patching Emscripten, and should be costed against that
+measurement rather than guessed at: a `<link rel="preload" as="fetch">` or an early `fetch()` of
+`.side.wasm` from the shell, so its download overlaps the main module's compile and the pck
+download instead of serializing after them; and a non-dlink export wherever GDExtension is not
+needed, which has no side module at all. Note `loadWebAssemblyModule()` does accept a
+`WebAssembly.Module` directly, so a genuine streaming-compile path exists in principle, but
+Emscripten exposes no public hook to inject one (`preloadedWasm` holds exports, `sharedModules` is
+pthreads-only).
+
+#### 5. Smaller items, recorded so they are not re-derived
+
+- **`-Os` + thin LTO is already the production setting**, with a comment explaining why not `-O3`
+  or `-Oz`. `EXPORT_ALL=1` applies to the 1.3 MB *main* module, not the side module, so it is not
+  the cause of the 51 MB; the side module is just all of Godot with `ClassDB` keeping it reachable.
+  The levers on it are module-level (`module_*_enabled=no`) and transport compression, both outside
+  the engine.
+- **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`.** For a project whose peak heap is
+  known, raising it avoids the growth steps during load outright; the `variant_data` change above
+  lowers the figure needed by ~120 MB.
+- **`has_feature(SUPPORTS_HALF_FLOAT)` is hardcoded `false`** with the comment "not reliably
+  available". `shader-f16` is available in Chrome on most desktop hardware, and the driver already
+  demonstrates the right pattern for this (`has_rw_storage_textures` queries
+  `device.features.has(...)` at runtime). Enabling it would halve bandwidth and register pressure
+  in shaders that use it and open FSR2's FFX_HALF path. It is **not** a safe flip: it changes which
+  variants the engine generates, the baker's `get_target_feature_overrides()` has to agree, and
+  Task 22's catalog of benign bake failures would need re-checking. A real experiment, with real
+  upside on mobile.
+- **`_check_device_lost()` does one `EM_ASM_INT` per frame** while the device is alive. ~1 µs, or
+  0.006% of a 60 fps budget. Left alone; recorded so it is not "found" again.
+- **Subpass post-processing is off under `WEB_ENABLED`** (no input attachments in WebGPU), costing
+  one extra render pass with a full attachment load/store per frame. `merge_transparent_pass` does
+  stay on. Not fixable without input attachments.
+- `uniform_set_create()` is 586 lines with nested linear scans over `bind_group_infos[].entries`
+  per uniform, but it is behind the engine's own uniform-set cache and every RD backend pays the
+  same shape of cost. Not WebGPU-specific; not worth attacking here.
+
+#### 6. What to measure first, next session
+
+Everything in §3 and §4 is sized by one profiling run that has never been done:
+`profile_phases.mjs` against a **baked** export, twice -- once normally and once with
+`WEBGPU_BAKE_KEEP_SPIRV=1` -- reading `godotWebGPUShaderStats` (now carrying `spirvBytes`,
+`wgslBytes` and `footerParseMs`) and `godotWebGPUFrameStats`, and once more under CDP network
+throttling for §4. A baked export needs a non-`--headless` editor with a real RenderingDevice;
+`xvfb-run --rendering-driver vulkan` with Mesa's lavapipe is enough and needs no GPU.
