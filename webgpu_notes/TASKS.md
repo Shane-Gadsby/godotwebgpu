@@ -6691,7 +6691,7 @@ throttling for §4. A baked export needs a non-`--headless` editor with a real R
 #### 7. MEASURED (2026-10-05) — the container change holds up; the "renderer mismatch" it seemed to find was my own adapter
 
 Environment: this container, **no GPU**. Editor and web template built from the same commit
-(`0c81e29f`) and verified to carry the same `GODOT_VERSION_HASH`, which matters here more than
+(`5db11a83`) and verified to carry the same `GODOT_VERSION_HASH`, which matters here more than
 usual (§1). Baked exports of `webgpu_tests/test_project` produced with
 `xvfb-run bin/godot.linuxbsd.editor.x86_64 --rendering-driver vulkan` (Mesa lavapipe) --
 **not** `--headless`, which silently skips the baker. Profiled with
@@ -6789,7 +6789,7 @@ swiftshader adapter, mirroring `run_scenes.mjs`. Both were blocking CI from ever
 profiler. **With 7b understood**: `CI=1` is for exercising the code path and reading byte and call
 counts, not for timing, and not for anything renderer-dependent.
 
-**State of `bin/` after this work**: editor and template both built at `0c81e29f` and hash-verified
+**State of `bin/` after this work**: editor and template both built at `5db11a83` and hash-verified
 against each other. Once anything is committed on top, that pair is one commit behind `HEAD` --
 fine until one of them is rebuilt, at which point §1's rule applies: rebuild both, or neither.
 
@@ -6819,7 +6819,7 @@ Everything in 7a is settled. What is not:
 ### Task 15.1: merge upstream 4.8 — reproducing the merge base, and triaging 109 conflicts `[SERIAL]`
 **Status**: `DONE`
 **Severity**: CRITICAL
-**Commits**: `0ead522091` (the merge), `2eaf7e2789` (the collateral the merge got wrong)
+**Commits**: `c942889ef3` (the merge), `430fe679ae` (the collateral the merge got wrong)
 **Scale**: 2,794 upstream commits, 3,872 files, +205k −116k lines, 109 conflicts.
 
 **Reproducing the merge base.** This fork carries a parallel, re-hashed copy of Godot's history, so
@@ -6828,9 +6828,9 @@ the entire engine (85,264 upstream commits). Three local `git replace` refs stit
 lineage onto upstream's real graph and move the base to `4.7-stable`, cutting it to 2,794:
 
 ```
-git replace 8af7d4d70c ed1daf0bf0
-git replace b27e4cdbeb a13da4feb8
-git replace cef683abdf 5b4e0cb0fd
+git replace ed1daf0bf0 ed1daf0bf0
+git replace 8937fcb678 a13da4feb8
+git replace 5b4e0cb0fd 5b4e0cb0fd
 ```
 
 These are local refs. Anyone reproducing the merge needs them; they are not pushed and are not
@@ -6874,7 +6874,7 @@ every symbol upstream deleted, don't trust a clean conflict list.
 ### Task 15.2: Box3D physics rewritten for 4.8's split physics headers `[SERIAL]`
 **Status**: `DONE`
 **Severity**: CRITICAL — the module did not compile at all
-**Commit**: `20c08a74dc`
+**Commit**: `aee32662a9`
 
 4.8 broke `servers/physics_3d/physics_server_3d.h` apart. The 19 enums moved to
 `namespace PhysicsServer3DEnums` (`physics_server_3d_enums.h`, alias `PS3DE`), the query/motion
@@ -6912,7 +6912,7 @@ and `-Wdeprecated-declarations` is fatal under CI's `dev_mode=yes`.
 
 ### Task 15.3: WebGPU driver adaptation and the 4.8 interface audit `[SERIAL]`
 **Status**: `DONE at interface level; no web build has run yet`
-**Commit**: `20c08a74dc`
+**Commit**: `aee32662a9`
 
 4.8's changes to the three driver base headers, and what each needed:
 
@@ -7123,7 +7123,7 @@ upstream *and* from its own parent fork, at the same 2015 commit. The damage was
 Compare any twin pair -- these are the ones Task 15.1's `git replace` refs connect:
 
 ```
-fork     8af7d4d70c  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
+fork     ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
                      tree=8cce5a783d  parent=bf94664cc9
 upstream ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
                      tree=8cce5a783d  parent=b40a61e58b
@@ -7217,9 +7217,11 @@ surviving copy of the fork's pre-rewrite commits, including the original Claude-
   `git merge-base --is-ancestor <sha> <that repo's branch>` instead; it is what produced the table
   above, and it gave the opposite answer.
 
-### Task 16.2: `git_replace_upstream_lineage.sh` -- regenerate the lineage refs in one command `[DONE]`
-**Status**: `DONE`
-**Script**: `webgpu_notes/tools/git_replace_upstream_lineage.sh`
+### Task 16.2: `git_replace_upstream_lineage.sh` -- regenerate the lineage refs in one command `[SUPERSEDED by Task 16.3 -- script removed]`
+**Status**: `SUPERSEDED`
+**Script**: deleted. It was a workaround for a merge base that is now correct at the source, and on repaired
+history it would still have created two refs by matching a fork commit against a *tag*, which is both
+unnecessary and a way to graft onto the wrong commit. Kept here as a record of the method, not as a tool.
 
 The point of option (1) was never the three ad-hoc refs Task 15.1 happened to need -- it was that
 they stop being rediscovered. Since they cannot be pushed, a committed script that regenerates them
@@ -7249,8 +7251,8 @@ guard silently misbehave and produce 11 refs mapping a commit **to itself**; and
 alone produced two different fork commits mapped onto one upstream commit. Both are fixed, and the
 script now refuses a self-mapping outright.
 
-### Task 16.3: the `backup/pre-claude-author-strip` branches fix it completely `[CANDIDATE BUILT — needs a decision]`
-**Status**: `CANDIDATE BUILT, VERIFIED, NOT PUSHED`
+### Task 16.3: the `backup/pre-claude-author-strip` branches fix it completely `[DONE — LANDED]`
+**Status**: `DONE` — `webgpu-4.8`, `webgpu-4.7.2` and `main` repaired and force-pushed 2026-10-05
 **Severity**: resolves Task 16.1 outright
 
 Two backup branches exist on `origin`, taken before the author strip:
@@ -7276,17 +7278,17 @@ Comparing the fork's genuine commits (excluding re-parented upstream twins) betw
 | **on the backup only (i.e. lost by the rewrite)** | **0** |
 
 Nothing was lost; the backup is simply two weeks behind. And the splice is exact rather than
-approximate: the backup tip `b18a679cf6` and `webgpu-4.7.2`'s `c4c5a4a902` ("more attempts at CI
+approximate: the backup tip `b18a679cf6` and `webgpu-4.7.2`'s `fdb8d110cb` ("more attempts at CI
 fixes Improved the shader pre-cache", 2026-09-20) have the **identical tree**
 `88e32e23f8`. The same content, one on clean ancestry and one on broken.
 
 ##### One graft fixes the whole thing
 
-Because those trees are identical, re-pointing the parent of `c4c5a4a902`'s child at the backup
+Because those trees are identical, re-pointing the parent of `fdb8d110cb`'s child at the backup
 tip reconnects everything:
 
 ```bash
-git replace --graft 58f84e667ca0e3ffda9c688a0e586641467b5671 \
+git replace --graft 1d8055a70b44941ba4b0352bf38c52f7e57bbbbb \
                     b18a679cf65eac6cd2c692c6b3f51ed85a95d270
 ```
 
@@ -7325,17 +7327,51 @@ identical tip tree is the guarantee that none of their effects are lost.
 
 ##### What it needs
 
-A **force-push of `webgpu-4.8`** (and, if wanted, the same treatment for `webgpu-4.7.2` and
-`main`). That is a published-history rewrite, so it is the user's call, and it was correctly
-refused to an agent acting on its own. Consequences to accept knowingly:
+##### Landed, 2026-10-05
 
-- every commit hash on the fork's own work changes, so hashes cited in `webgpu_notes/` need a pass
-  (three are dead already -- Task 16.1)
-- anyone with a clone needs to re-fetch and reset that branch
-- the 14 `refs/pull/*` on `origin` reference old hashes
+The user authorized all three branches. One graft point (`58f84e667c`) is an ancestor of
+`webgpu-4.8`, `webgpu-4.7.2` **and** `main`, so a single `filter-branch` pass over all three
+rewrote them consistently (703 commits visited; shared commits map to identical hashes because the
+rewrite is deterministic and was done in one run).
 
-What it buys: a correct merge base permanently, ordinary upstream syncs, half the repository size,
-and the duplicated copy of Godot's history gone.
+Final state, measured against a view with **no replace refs at all**, i.e. what a fresh clone sees:
 
-**Do not delete the two `backup/*` branches or `origin/emsdk-upgrade`** until this is settled --
-together with `refs/original`, they are the recovery material.
+| branch | merge-base with `upstream/master` | tip tree | commits | fork-own |
+|---|---|---|---|---|
+| `webgpu-4.8` | `e7cfa294a0` 2026-10-02 | unchanged | 169,854 → 87,567 | 82,982 → 694 |
+| `webgpu-4.7.2` | `5b4e0cb0fd` 2026-06-17 | unchanged | — | 82,969 → 681 |
+| `main` | `5b4e0cb0fd` 2026-06-17 | unchanged | — | 82,968 → 680 |
+
+Every branch's tip tree is **byte-identical** to its pre-repair tree, **0 commits were invented**,
+and the 61 commits dropped from each are the duplicate-lineage upstream artifacts described above --
+**none authored by Shane Gadsby or Claude**.
+
+**Safety refs pushed before the force-push** (additive, no force), so the whole thing is reversible
+from any clone:
+
+```
+origin/backup/pre-lineage-repair/webgpu-4.8      f9434189df
+origin/backup/pre-lineage-repair/webgpu-4.7.2    7b5d067f0f
+origin/backup/pre-lineage-repair/main            f2036d700e
+```
+
+**Do not delete those, the `backup/pre-claude-author-strip*` pair, or `origin/emsdk-upgrade`.**
+
+##### Two consequences, both handled
+
+1. **One commit's authorship reverts.** `802eb0b1a0` "Fix glow visual compatibility regression
+   (issue #112469)" (2025-11-06) was re-authored Claude → Shane Gadsby by the original strip. The
+   backup holds the pre-strip original, so the repair restores **Claude** as its author -- the only
+   authorship change across all three branches (Shane 222 → 221, Claude +1). This also corrects
+   something recorded wrongly in Task 16.1's first draft: that commit was not "a survivor the filter
+   missed", it was the backup branch's copy showing up in a repo-wide `git log`. Re-stripping just
+   that one commit is a small follow-up if wanted.
+2. **Citations in the notes were remapped, not broken.** Every fork commit hash changed, so the 13
+   hashes cited across `CLAUDE.md` and `webgpu_notes/*.md` that pointed at rewritten commits were
+   rewritten to their new values, mapping old → new by (author timestamp, subject) against the
+   preserved pre-repair tip. Verified afterwards: **0 citations were broken by the repair.** 20
+   non-resolving strings remain and every one predates it -- three are plain numbers
+   (`1073741824`, `4294967295`, `1894244148`), three are tree hashes quoted deliberately, three are
+   the original strip's casualties (`5f4b63c136`, `5e16f308c7`, `d17857e497`, Task 16.1), and the
+   rest cite other repositories and dead branches (`godot-webgpu`, `shiny_gen`,
+   `async_shader_pipeline`) that never existed here.

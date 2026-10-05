@@ -6,6 +6,13 @@
 > state and is what every measurement in this file was taken on; it is the thing to compare
 > against, not the thing to build on.
 >
+> **The history is repaired.** A past rewrite had detached this repo from upstream's lineage
+> entirely (`merge-base` landed in November 2015); `webgpu-4.8`, `webgpu-4.7.2` and `main` are now
+> grafted back onto upstream's real history from the `backup/pre-claude-author-strip` branches, with
+> every tip tree byte-identical and no commit invented. Syncs are ordinary again. TASKS.md Phase 16
+> has the diagnosis and Task 16.3 the repair; pre-repair tips are kept on `origin` as
+> `backup/pre-lineage-repair/*` and **must not be deleted**.
+>
 > `webgpu-4.8` is `webgpu-4.7.2` merged with upstream `master`
 > `e7cfa294a0b81bed7986be04a848cc1832a3f083` (Godot 4.8, code freeze, pinned not floating) —
 > 2,794 upstream commits, 3,872 files, 109 conflicts. **Phase 15 in TASKS.md is the detail**;
