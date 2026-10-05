@@ -543,6 +543,31 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 			// shaders with no error at all (see webgpu_notes/TASKS.md's shader baking
 			// task for how easy this was to hit and how confusing the silent failure was).
 			err += TTR("\"Shader Baker\" is enabled, but the editor is not currently running with a RenderingDevice-based renderer (Vulkan/Metal/D3D12). Baking will silently produce zero baked shaders. Restart the editor with --rendering-driver vulkan (or switch Advanced Settings > Rendering > Renderer to Forward+/Mobile) before exporting.") + "\n";
+		} else if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
+			// The baker can only bake the scene shader of whichever scene renderer
+			// the *editor* is currently running, because those are the only ShaderRD
+			// instances that exist in the process doing the baking. The web runtime
+			// does not necessarily pick the same one: RendererCompositorRD::initialize()
+			// falls back to Forward Mobile whenever the device reports fewer than 48
+			// textures per shader stage, and on WebGPU that limit is the adapter's
+			// maxSampledTexturesPerShaderStage, whose spec baseline is 16. So a
+			// project set to Forward+ commonly runs Forward Mobile in the browser
+			// while the editor runs Forward Clustered -- and then *every* version of
+			// the scene shader, the largest shader class in the engine, misses the
+			// baked cache and is translated on the player's main thread instead.
+			//
+			// Measured on webgpu_tests/test_project (webgpu_notes/TASKS.md Task 46):
+			// exporting from a Forward+ editor shipped 56 SceneForwardClusteredShaderRD
+			// cache entries that the runtime never asks for and zero of the
+			// SceneForwardMobileShaderRD ones it does, leaving Servers:Rendering at
+			// 6041 ms against 1047 ms for the same project exported from an editor
+			// launched with --rendering-method mobile -- and a 57.1 MB pck against
+			// 29.7 MB. Nothing about what the export *renders* changes either way;
+			// only whether the baked shaders are the ones it will look for.
+			//
+			// This cannot be fixed from here: the editor's scene renderer is chosen
+			// at startup, long before an export runs. Hence a warning.
+			err += TTR("This project uses the Forward+ renderer, but a WebGPU export usually runs the Mobile renderer in the browser (WebGPU adapters commonly report fewer textures per shader stage than Forward+ requires). \"Shader Baker\" can only bake the renderer the editor itself is running, so every scene shader would miss the baked cache and be compiled on the player's machine instead. Export from an editor started with --rendering-method mobile to bake the shaders this export will actually use.") + "\n";
 		}
 	}
 
