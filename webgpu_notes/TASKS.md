@@ -6972,3 +6972,95 @@ Remaining, in the order that finds problems fastest:
    is fatal in CI is invisible in every command above.
 5. `bin/`'s editor+template pair is from `0c81e29f` on the 4.7.2 line and **does not match this
    branch**. Task 36's rule applies: rebuild both, or neither.
+
+---
+
+## Phase 16: Why this fork's git history does not match upstream's (October 2026)
+
+> **Goal**: Explain why `git` cannot relate this fork's history to `godotengine/godot`, and work out
+> whether the relationship can be restored. Raised while the 4.8 port was in flight, because the
+> port is where the cost of it shows up: Task 15.1 needed three `git replace` refs before the merge
+> was even attemptable.
+>
+> **Last Updated**: October 5, 2026 — diagnosed, not yet acted on.
+
+### Task 16.1: diagnose the history divergence `[DIAGNOSED — no fix attempted]`
+**Status**: `DIAGNOSED`
+**Severity**: MEDIUM — costs real time at every upstream sync, risks nothing in the shipped engine
+
+**The thing to know first: no authorship or message was ever lost.** That was the worry behind the
+question, and it is not what happened. Every one of these commits still carries its original
+author, author date, committer, committer date and full message. `git log` on this fork and on
+`godotengine/godot` print the same thing for the same commit — the oldest three commits
+(`68e708cd25`, `0e49da1687` "first commit", `0b806ee0fc` "GODOT IS OPEN SOURCE") are even the same
+*hashes*. There is nothing to restore in the sense of recovering lost metadata.
+
+**What actually diverges is topology.** Measured:
+
+| | count |
+|---|---|
+| commits on `webgpu-4.7.2` that `upstream/master` does not have *by hash* | **83,030** |
+| commits on `upstream/master` that `webgpu-4.7.2` does not have *by hash* | **85,081** |
+| `git merge-base webgpu-4.7.2 upstream/master` | `b70e2b754d` — **2015-11-07** |
+
+83,030 "fork-only" commits, of which 31,297 are authored by Rémi Verschelde, 6,135 by Thaddeus
+Crews, 2,709 by Juan Linietsky, and so on down the list of Godot's actual top contributors. They
+are not fork work. They are upstream Godot commits that exist in this repository under *different
+hashes*.
+
+**Why the hashes differ.** Compare any of the three pairs Task 15.1's `git replace` refs connect:
+
+```
+fork     8af7d4d70c  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable \o/"
+                     tree=8cce5a783d  parent=bf94664cc9
+upstream ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable \o/"
+                     tree=8cce5a783d  parent=b40a61e58b
+```
+
+Identical author, identical date, identical message, **identical tree** — the content is
+byte-for-byte the same commit. Only the parent differs. A commit's hash covers its parents, so a
+different parent is a different hash, and the difference then cascades to every descendant forever.
+The same holds for the 4.7.1 and 4.7-stable pairs.
+
+So: at some point around late 2015 this lineage was **rewritten** — a `filter-branch` /
+`filter-repo` / whole-tree rebase, or a replay of upstream onto a different root — which re-parented
+everything from that point on. Content survived perfectly; identity did not. `git` has no way to
+know `8af7d4d70c` and `ed1daf0bf0` are the same commit, so `merge-base` walks back to the last
+commit whose hash still matches on both sides, which is a commit from **November 2015**.
+
+**What it costs.** Every upstream sync looks like a merge of two engines that forked eleven years
+ago. Task 15.1 measured it: without intervention the 4.8 merge wanted to replay **85,264** upstream
+commits; with three `git replace` refs moving the base to `4.7-stable` it was **2,794**. Those refs
+are local to one clone and are not pushed, so the next person to attempt a sync starts from
+85,264 again and has to rediscover this.
+
+##### Options, in increasing order of blast radius
+
+1. **Push the `replace` refs** (`git push origin 'refs/replace/*'`). Replace refs are a first-class
+   git feature and are *additive* — they change nothing about the existing commits, break no clone,
+   invalidate no branch or PR, and anyone who fetches them gets the corrected merge base
+   automatically. The three from Task 15.1 cover the 4.7 line; a few more would cover each earlier
+   release boundary. **Cheapest by a wide margin, and reversible by deleting the ref.** The catch is
+   that `refs/replace/*` is not fetched by default, so it needs saying out loud in CLAUDE.md.
+2. **Find the one rewrite boundary and replace *that*.** Three refs were enough for 4.8 only because
+   the merge needed those three boundaries. If the rewrite happened at a single point, one replace
+   ref there would reconnect the entire lineage at once and make every future sync behave normally.
+   Worth establishing before doing (1) piecemeal: bisect for the oldest commit whose
+   `(author, date, message, tree)` has an upstream twin under a different hash.
+3. **Rewrite history to match upstream exactly.** This is what "restore the commit history" asks for
+   literally, and it is the one option to be careful about: it changes every commit hash on the fork,
+   so every existing clone, branch, tag, open PR, and every commit hash written down in
+   `webgpu_notes/` (TASKS.md and HANDOFF.md cite dozens, as do the commit messages themselves) stops
+   resolving. It buys nothing that (1) or (2) does not, since the metadata is already correct.
+   **Not recommended**, and it should not be done without the user explicitly choosing it knowing
+   that cost.
+
+##### What is NOT yet established
+
+- Whether there is one rewrite boundary or several. Option (2) depends entirely on this, and it is
+  the first thing to measure.
+- Whether `dwalter/godotwebgpu` (this fork's own `origin`) shares the rewritten lineage or has yet
+  another. Only `godotengine/godot` has been compared so far.
+- Why the rewrite happened. A 2015 boundary predates the WebGPU work by a decade, so it is likely
+  inherited — this fork may have been made from an already-rewritten copy rather than having done
+  the rewriting itself. Worth checking before attributing it.
