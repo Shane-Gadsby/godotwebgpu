@@ -55,6 +55,11 @@ public:
 
 	public:
 		virtual bool handles(ScriptEditorBase *p_seb) = 0;
+
+		// Matches p_event against this menu's items' shortcuts and runs the first one that
+		// matches. Only menus that own MenuButtons implement it; see
+		// DocumentEditorContainer::activate_menu_shortcut() for why it exists at all.
+		virtual bool activate_shortcut(const Ref<InputEvent> &p_event) { return false; }
 	};
 
 	struct EditedFileData {
@@ -157,8 +162,7 @@ protected:
 		void _bookmark_item_pressed(int p_idx);
 
 	public:
-		// Matches p_event against the menu items' shortcuts and runs the first one that matches.
-		bool activate_shortcut(const Ref<InputEvent> &p_event);
+		virtual bool activate_shortcut(const Ref<InputEvent> &p_event) override;
 
 		EditMenus(DocumentEditorContainer *p_document_editor_container);
 	};
@@ -211,10 +215,6 @@ public:
 	virtual void enable_editor();
 
 	virtual EditMenusBase *create_edit_menu(DocumentEditorContainer *p_document_editor_container) = 0;
-
-	// Runs the edit menus' shortcut for p_event, if any. Used for shortcuts bound to mouse
-	// buttons, which never reach the menus through shortcut_input().
-	static bool activate_menu_shortcut(const Ref<InputEvent> &p_event);
 
 	virtual Control *get_base_editor() const override { return code_editor->get_text_editor(); }
 	virtual CodeTextEditor *get_code_editor() const { return code_editor; }
