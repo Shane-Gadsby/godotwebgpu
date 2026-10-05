@@ -7163,10 +7163,12 @@ it changes the ranking, because the hashes here are *already* wrong relative to 
 repository and three of them are already dead in our own notes. The usual "never rewrite published
 history" objection is much weaker when the published history is the thing that is broken.
 
-1. **Push the `replace` refs** (`git push origin 'refs/replace/*'`). Additive, reversible, breaks no
-   clone, invalidates no branch or PR; anyone who fetches them gets a correct merge base. Cheapest
-   by a wide margin. It treats the symptom, not the cause, and `refs/replace/*` is not fetched by
-   default so it has to be documented. Good immediate mitigation whatever else is chosen.
+1. **The `replace` refs** -- `[DONE as far as it can be, see Task 16.2]`. Additive, reversible,
+   breaks no clone, invalidates no branch or PR. It treats the symptom, not the cause. **Pushing
+   them is refused**: GitHub returns 403 on `git-receive-pack` for the `refs/replace/*` namespace
+   from this session's scoped token, while branch pushes to the same repository succeed. So the
+   refs cannot be shared through the remote, and the durable form of this option is a committed
+   script that regenerates them -- which is what Task 16.2 is.
 2. **Rebuild the branch on upstream's real lineage.** Only **805 commits (1%)** are genuinely this
    fork's; the other 82,225 are upstream's, already in `upstream/master` under their correct hashes.
    Replaying the fork's own commits onto real upstream history restores a correct merge base
@@ -7176,11 +7178,36 @@ history" objection is much weaker when the published history is the thing that i
 3. **Leave it and keep re-deriving the `replace` refs per clone.** The default. Costs an hour of
    rediscovery at every sync.
 
+##### `origin/emsdk-upgrade` escaped the rewrite
+
+Found while validating the `replace` refs, and it matters for option (2). Per-branch merge base
+against `upstream/master`:
+
+| branch | merge base |
+|---|---|
+| `origin/emsdk-upgrade` | `5b4e0cb0fd` -- **2026-06-17, "Bump version to 4.7-stable"** |
+| `origin/main` | `b70e2b754d` -- 2015-11-07 |
+| `origin/webgpu-4.7.2` | `b70e2b754d` -- 2015-11-07 |
+| `origin/webgpu-4.8` | `e7cfa294a0` -- 2026-10-02 (correct, via the 4.8 merge's upstream parent) |
+
+`origin/emsdk-upgrade` has **clean, un-rewritten history** -- a proper merge base, holding upstream's
+real hashes, with only 548 commits of its own. The rewrite did not reach it. That makes option (2)
+considerably cheaper and safer than first estimated: the pre-rewrite lineage is still published in
+this repository, so a clean `webgpu-4.7.2` could be reconstructed from `emsdk-upgrade` rather than
+rebuilt from upstream by replaying 805 commits.
+
+It is also worth checking before anything is deleted or garbage-collected: it may be the only
+surviving copy of the fork's pre-rewrite commits, including the original Claude-authored ones.
+
 ##### Still unestablished
 
-- Whether `dwalter/godotwebgpu` still holds the fork's **pre-rewrite** commits, which would let the
-  original Claude-authored history be recovered verbatim if ever wanted. Untested: fetch-by-SHA
-  needs the full 40-character hash and only 10-character abbreviations survive in the notes.
+- Whether `origin/emsdk-upgrade`'s clean history covers all of the fork's own work or only the
+  subset on that branch. 548 commits vs the 805 genuinely-unique ones found above suggests not all
+  of it.
+- Whether the three commit hashes the notes cite but no longer resolve (`5f4b63c136`, `5e16f308c7`,
+  `d17857e497`) exist on `emsdk-upgrade`. Fetch-by-SHA needs the full 40 characters and only the
+  10-character abbreviations survive, but `git log --all --format='%h %s'` on a clone that has
+  `emsdk-upgrade` can be searched by subject instead.
 - Which tool and invocation did the rewrite. The 2015 structural boundary points at
   `filter-repo`-style pruning, but that is inference from the shape, not a record of the command.
 - **A caveat for anyone re-testing this**: GitHub fork networks share object storage, so
@@ -7189,3 +7216,35 @@ history" objection is much weaker when the published history is the thing that i
   `ed1daf0bf0` -- fetch successfully from dwalter. Use
   `git merge-base --is-ancestor <sha> <that repo's branch>` instead; it is what produced the table
   above, and it gave the opposite answer.
+
+### Task 16.2: `git_replace_upstream_lineage.sh` -- regenerate the lineage refs in one command `[DONE]`
+**Status**: `DONE`
+**Script**: `webgpu_notes/tools/git_replace_upstream_lineage.sh`
+
+The point of option (1) was never the three ad-hoc refs Task 15.1 happened to need -- it was that
+they stop being rediscovered. Since they cannot be pushed, a committed script that regenerates them
+deterministically delivers the same benefit in every clone.
+
+It pairs each `Bump version to <X>-stable` commit in this fork's history with the upstream commit
+having the **same tree, same author timestamp and same subject**, then creates a `git replace` ref.
+Keying on all three matters: tree alone is not unique (a release bump and its backport onto a
+release branch can share one), and mapping to the wrong twin would silently graft the fork onto the
+wrong lineage. Anything it cannot verify it skips with a message rather than guessing.
+
+```bash
+./webgpu_notes/tools/git_replace_upstream_lineage.sh            # create
+./webgpu_notes/tools/git_replace_upstream_lineage.sh --dry-run   # show, change nothing
+./webgpu_notes/tools/git_replace_upstream_lineage.sh --delete    # undo
+```
+
+Measured effect: **12 refs created**, idempotent on re-run, and
+`merge-base(webgpu-4.7.2, upstream/master)` moves from **2015-11-07** to **2026-06-17
+("Add changelog for Godot 4.7")**, cutting a future sync's replay from **85,264** upstream commits
+to **2,795**. `webgpu-4.8` needs none of them -- the 4.8 merge has upstream's real `e7cfa294` as a
+direct parent, so its merge base is already correct.
+
+Two bugs found while writing it, worth not repeating: `git merge-base --is-ancestor` takes exactly
+two arguments, so passing a list of upstream refs made the "is this already upstream's own hash"
+guard silently misbehave and produce 11 refs mapping a commit **to itself**; and matching on tree
+alone produced two different fork commits mapped onto one upstream commit. Both are fixed, and the
+script now refuses a self-mapping outright.
