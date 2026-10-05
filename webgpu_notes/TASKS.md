@@ -7248,3 +7248,94 @@ two arguments, so passing a list of upstream refs made the "is this already upst
 guard silently misbehave and produce 11 refs mapping a commit **to itself**; and matching on tree
 alone produced two different fork commits mapped onto one upstream commit. Both are fixed, and the
 script now refuses a self-mapping outright.
+
+### Task 16.3: the `backup/pre-claude-author-strip` branches fix it completely `[CANDIDATE BUILT — needs a decision]`
+**Status**: `CANDIDATE BUILT, VERIFIED, NOT PUSHED`
+**Severity**: resolves Task 16.1 outright
+
+Two backup branches exist on `origin`, taken before the author strip:
+
+```
+refs/heads/backup/pre-claude-author-strip          b18a679cf6   tip 2026-09-20
+refs/heads/backup/pre-claude-author-strip-threads  6893725f61   tip 2026-09-18
+```
+
+Both have **clean, un-rewritten lineage** -- `merge-base` with `upstream/master` is `5b4e0cb0fd`
+(2026-06-17, "Bump version to 4.7-stable"), the same healthy base `origin/emsdk-upgrade` has.
+
+##### They lost nothing, and there is an exact splice point
+
+Comparing the fork's genuine commits (excluding re-parented upstream twins) between
+`webgpu-4.7.2` and the backup:
+
+| | |
+|---|---|
+| genuine fork commits on `webgpu-4.7.2` | 741 |
+| genuine fork commits on the backup | 564 |
+| on `webgpu-4.7.2` only (post-backup work, 2026-09-20 → 10-05) | 177 |
+| **on the backup only (i.e. lost by the rewrite)** | **0** |
+
+Nothing was lost; the backup is simply two weeks behind. And the splice is exact rather than
+approximate: the backup tip `b18a679cf6` and `webgpu-4.7.2`'s `c4c5a4a902` ("more attempts at CI
+fixes Improved the shader pre-cache", 2026-09-20) have the **identical tree**
+`88e32e23f8`. The same content, one on clean ancestry and one on broken.
+
+##### One graft fixes the whole thing
+
+Because those trees are identical, re-pointing the parent of `c4c5a4a902`'s child at the backup
+tip reconnects everything:
+
+```bash
+git replace --graft 58f84e667ca0e3ffda9c688a0e586641467b5671 \
+                    b18a679cf65eac6cd2c692c6b3f51ed85a95d270
+```
+
+| | without | with the graft |
+|---|---|---|
+| `merge-base(webgpu-4.7.2, upstream/master)` | 2015-11-07 | **2026-06-17, 4.7-stable** |
+| commits reachable from `webgpu-4.8` | 169,853 | **87,566** |
+| of those, not in upstream | 82,981 | **693** |
+| `webgpu-4.8` tip tree | `72f20a3ad1` | **`72f20a3ad1` (unchanged)** |
+
+That one ref does what Task 16.2's twelve release-bump refs could not: it drops the duplicated copy
+of Godot's history out of the branch entirely, rather than papering over the merge base. **Task
+16.2's script becomes unnecessary if this lands** -- and CLAUDE.md's instruction to run it should be
+removed at the same time, or the two will contradict each other.
+
+##### The baked candidate: `webgpu-4.8-clean`
+
+With the graft active, `git filter-branch -- webgpu-4.8-clean --not upstream/master upstream/4.7`
+bakes it into real commits (the graft itself is a local replace ref and cannot be pushed -- see
+Task 16.1). Result, **built and verified but deliberately not pushed**:
+
+- tip tree **byte-identical** to `webgpu-4.8`'s (`72f20a3ad1`) -- the code is provably unchanged
+- `merge-base` with `upstream/master` is `e7cfa294a0`, correct
+- 87,566 commits, 693 of them not upstream's (from 169,853 / 82,981)
+- **0 commits invented**: every commit on the clean branch exists on `webgpu-4.8`
+- authorship preserved, including 221 commits by Shane Gadsby and 19 by Claude
+- `refs/original/refs/heads/webgpu-4.8-clean` holds the pre-rewrite tip, so it is reversible locally
+
+Checked against **all 17** upstream branches (3.0 through 4.7 and master), 61 commits on
+`webgpu-4.8` are absent from the clean branch. All 61 are upstream Godot commits from 2015-2024 by
+Godot contributors -- 22 by Rémi Verschelde, others by Juan Linietsky, Ignacio Etcheverry, bruvzg
+and so on, the newest being 2024-11-15 "fixed navigation obstacle carving broken during 28d5836".
+**None is authored by Shane Gadsby or Claude.** They are commits from the duplicated lineage whose
+trees do not match upstream's copy exactly, which is precisely what this change removes. The
+identical tip tree is the guarantee that none of their effects are lost.
+
+##### What it needs
+
+A **force-push of `webgpu-4.8`** (and, if wanted, the same treatment for `webgpu-4.7.2` and
+`main`). That is a published-history rewrite, so it is the user's call, and it was correctly
+refused to an agent acting on its own. Consequences to accept knowingly:
+
+- every commit hash on the fork's own work changes, so hashes cited in `webgpu_notes/` need a pass
+  (three are dead already -- Task 16.1)
+- anyone with a clone needs to re-fetch and reset that branch
+- the 14 `refs/pull/*` on `origin` reference old hashes
+
+What it buys: a correct merge base permanently, ordinary upstream syncs, half the repository size,
+and the duplicated copy of Godot's history gone.
+
+**Do not delete the two `backup/*` branches or `origin/emsdk-upgrade`** until this is settled --
+together with `refs/original`, they are the recovery material.
