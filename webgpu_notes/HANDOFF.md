@@ -552,36 +552,25 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-2. **Export your web builds from an editor started with `--rendering-method mobile`** (Task 46 §7).
-   This is the biggest single load-time item found so far and it is a one-flag change with no
-   effect on what the export renders. `RendererCompositorRD::initialize()` falls back to Forward
-   Mobile whenever the device reports fewer than 48 textures per shader stage, which WebGPU
-   adapters commonly do — so a project on Godot's default Forward+ runs **Mobile** in the browser
-   while the exporting editor runs **Clustered**, and the shader baker can only bake the renderer
-   the editor is running. Measured on `webgpu_tests/test_project`: 56 Clustered cache entries
-   shipped that the runtime never asks for and zero Mobile ones it does, `Servers:Rendering`
-   6041 ms against 1047 ms, pck 57.1 MB against 29.7 MB. The project *setting* is not enough —
-   only the CLI flag moved it. An export-time warning now names this; the real fix (bake the
-   target's renderer, not the editor's) is not written.
-3. **Task 46's second gap is still open**: a material created from script at runtime
-   (`StandardMaterial3D.new()` in `_ready()`) exists in no resource the exporter can walk, so its
-   scene-shader version misses the bake and is translated on the player's main thread.
-   `godotWebGPUShaderStats.translatedShaders` names them now.
-4. **Task 46 is measured, but only on swiftshader.** The container work (−44.4 MB of pck, −43.7%)
-   and the byte and call counts are solid; the milliseconds are not a player's. The shader container no longer copies its
-   baked WGSL and no longer ships the SPIR-V where nothing can read it, and `ShaderRD` no longer
-   holds ~120 MB of shader bytes for the session — but none of it has been profiled in a browser
-   yet. One run of `profile_phases.mjs` against a *baked* export, twice (once with
-   `WEBGPU_BAKE_KEEP_SPIRV=1` for the A/B), sizes all of it; `godotWebGPUShaderStats` now carries
-   `spirvBytes`/`wgslBytes`/`footerParseMs` and there is a new `godotWebGPUFrameStats` for
-   per-frame cost. A baked export needs a non-`--headless` editor with a real RenderingDevice —
-   `xvfb-run --rendering-driver vulkan` with Mesa lavapipe is enough, no GPU needed.
-   **Note the remaining ~180 ms is the per-stage WGSL *text* scanning, and baking that is harder
-   than this file previously implied**: the scans also *rewrite* the WGSL, and the rewrites depend
-   on the player's adapter (`has_rw_storage_textures`, `has_texture_formats_tier2`, storage-format
-   promotion), so the rewritten text cannot be baked. Only the adapter-independent scan results
-   (texture dimensions, sample types, depth-ness, comparison samplers, per-binding stage
-   visibility) can be. See Task 46 §3.
+2. **A real-GPU profile of a Forward+ baked export** — the configuration this fork actually ships,
+   and the one no number in Task 46 covers. Task 46 §7a measured the container change
+   (`index.pck` 101.5 MB → 57.1 MB, −43.7%, every behavioral counter byte-identical, SPIR-V 66.8%
+   of a baked container's payload) but did it on **swiftshader**, which §7b establishes runs
+   **Forward Mobile**, not Forward+: it reports `maxSampledTexturesPerShaderStage = 16`, and
+   `RendererCompositorRD::initialize()` falls back to Mobile below 48. Expect `translated` near 0
+   on real hardware (the one real-hardware data point on record, the user's own project, reports
+   `translated: 0`); anything else is a real baking gap worth chasing.
+3. **Know that a `CI=1` / swiftshader run is not testing this fork's renderer.** This is the thing
+   to carry from Task 46 §7b, where it cost a wrong conclusion and a since-removed export warning.
+   A software-adapter run exercises Forward Mobile, so `translated: 404` on one is expected rather
+   than a bug, and nothing renderer-dependent — scene-shader coverage, per-stage binding budgets,
+   the 48-texture branch itself — can be validated there. Byte counts and call counts from such a
+   run are still good; timings and renderer behavior are not.
+4. **`CLAUDE.md` says "It targets the Forward Mobile renderer" and that is wrong** — this fork
+   targets Forward+. `platform/web/js/engine/engine.js`'s `limitsToMax` list, whose comments cite
+   "a real Forward+ (Clustered) live run", and `webgpu_tests/test_project`'s own
+   `rendering_method="forward_plus"` both say so. Worth fixing before it misleads someone else the
+   way it contributed to misleading Task 46.
 5. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
    is fetched and compiled *non-streaming* by Emscripten's dylink loader, outside `config.js`'s
    `instantiateWasm` override. On localhost that is 96 ms, which is why it was ranked low; at
