@@ -552,7 +552,23 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-2. **Measure Task 46, which is landed but unprofiled.** The shader container no longer copies its
+2. **Export your web builds from an editor started with `--rendering-method mobile`** (Task 46 §7).
+   This is the biggest single load-time item found so far and it is a one-flag change with no
+   effect on what the export renders. `RendererCompositorRD::initialize()` falls back to Forward
+   Mobile whenever the device reports fewer than 48 textures per shader stage, which WebGPU
+   adapters commonly do — so a project on Godot's default Forward+ runs **Mobile** in the browser
+   while the exporting editor runs **Clustered**, and the shader baker can only bake the renderer
+   the editor is running. Measured on `webgpu_tests/test_project`: 56 Clustered cache entries
+   shipped that the runtime never asks for and zero Mobile ones it does, `Servers:Rendering`
+   6041 ms against 1047 ms, pck 57.1 MB against 29.7 MB. The project *setting* is not enough —
+   only the CLI flag moved it. An export-time warning now names this; the real fix (bake the
+   target's renderer, not the editor's) is not written.
+3. **Task 46's second gap is still open**: a material created from script at runtime
+   (`StandardMaterial3D.new()` in `_ready()`) exists in no resource the exporter can walk, so its
+   scene-shader version misses the bake and is translated on the player's main thread.
+   `godotWebGPUShaderStats.translatedShaders` names them now.
+4. **Task 46 is measured, but only on swiftshader.** The container work (−44.4 MB of pck, −43.7%)
+   and the byte and call counts are solid; the milliseconds are not a player's. The shader container no longer copies its
    baked WGSL and no longer ships the SPIR-V where nothing can read it, and `ShaderRD` no longer
    holds ~120 MB of shader bytes for the session — but none of it has been profiled in a browser
    yet. One run of `profile_phases.mjs` against a *baked* export, twice (once with
@@ -566,15 +582,15 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    promotion), so the rewritten text cannot be baked. Only the adapter-independent scan results
    (texture dimensions, sample types, depth-ness, comparison samplers, per-binding stage
    visibility) can be. See Task 46 §3.
-3. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
+5. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
    is fetched and compiled *non-streaming* by Emscripten's dylink loader, outside `config.js`'s
    `instantiateWasm` override. On localhost that is 96 ms, which is why it was ranked low; at
    20 Mbit/s it is ~20 s that cannot overlap compilation, which would dwarf everything else in
    Task 14. Playwright can throttle directly via CDP. This is the cheapest high-value measurement
    left and it has never been taken.
-4. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+6. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
-5. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+7. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
    time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
    and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
    actually bind would close the class instead of the next instance.

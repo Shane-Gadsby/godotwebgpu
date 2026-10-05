@@ -6505,7 +6505,7 @@ cleanly on every run since. Worth knowing before reading it as an engine crash.
 
 ---
 
-### Task 46: performance audit — the container payload, and what a per-frame audit can and cannot conclude without measuring `[PARTLY FIXED — the load-time half is landed, the per-frame half is instrumented not fixed]`
+### Task 46: performance audit — the container payload, and a renderer mismatch that costs 5.8× of `Servers:Rendering` `[PARTLY FIXED — container work landed and measured; the renderer mismatch is diagnosed, proven and warned about, not fixed]`
 
 **Status**: the shader-container work is implemented and compiles clean on both targets; the
 per-frame work is deliberately stopped at instrumentation. **Severity**: load time is the
@@ -6687,3 +6687,114 @@ Everything in §3 and §4 is sized by one profiling run that has never been done
 `wgslBytes` and `footerParseMs`) and `godotWebGPUFrameStats`, and once more under CDP network
 throttling for §4. A baked export needs a non-`--headless` editor with a real RenderingDevice;
 `xvfb-run --rendering-driver vulkan` with Mesa's lavapipe is enough and needs no GPU.
+
+#### 7. MEASURED (2026-10-05) — and the measurement found something much bigger than the thing being measured
+
+Environment: this container, no GPU. Editor and web template built from the same commit
+(`0c81e29f`) and verified to carry the same `GODOT_VERSION_HASH`, which matters here more than
+usual (§1). Baked exports of `webgpu_tests/test_project` produced with
+`xvfb-run bin/godot.linuxbsd.editor.x86_64 --rendering-driver vulkan` (Mesa lavapipe) --
+**not** `--headless`, which silently skips the baker. Profiled with
+`CI=1 profile_phases.mjs`, i.e. headless Chromium on **swiftshader**.
+
+**Read the absolute milliseconds below as adapter-specific and slow, not as a player's numbers.**
+What is comparable is the byte counts, the call counts, and the ratio between two runs on this same
+machine. That caveat is load-bearing for one number in particular: `containerStageLoopMs` comes out
+at ~27-31 s here, because this project translates hundreds of shaders at runtime (below) and
+swiftshader is where Tint output goes to die.
+
+**The container change, measured.** Two exports from one build, `WEBGPU_BAKE_KEEP_SPIRV=1` for the
+counterfactual:
+
+| | keep SPIR-V | omit SPIR-V | delta |
+|---|---|---|---|
+| `index.pck` | 101,474,564 | **57,118,692** | **−44,355,872 (−43.7%)** |
+| `spirvBytes` (loaded containers) | 29,541,644 | 27,864,744 | −1,676,900 |
+| `wgslBytes` | 834,434 | 834,434 | 0 |
+| `baked` / `precompiled` / `cached` / `translated` / `specialized` | 171/29/58/404/0 | 171/29/58/404/0 | **identical** |
+| `godotWebGPUFrameStats` | identical | identical | — |
+
+So: **44.4 MB off a 101.5 MB pck**, and every behavioral counter byte-identical. Of the containers
+this run actually loaded from the baked cache, the SPIR-V that got dropped was 1.68 MB against
+0.83 MB of WGSL -- **SPIR-V is 66.8% of a baked container's payload**, which confirms the 64%
+estimated from the corpus fixtures in §1 on real engine shaders. (`spirvBytes` stays at ~28 MB in
+the omit run because most of this project's shaders are compiled *in the browser*, and a container
+built at runtime has no baker in its build and so always stores SPIR-V. Correctly: there is no
+baked WGSL for the runtime to use instead.)
+
+**The much bigger find: the baker bakes the wrong renderer's scene shader.** Both runs above report
+`translated: 404` -- `SceneForwardMobileShaderRD` variants 0-4 and 9-13, 40 versions each. Zero
+bake *failures* (the export log shows "Started Baking shaders (992 steps)" and not one "leaving one
+shader stage unbaked"), and the editor/template hashes match, so neither of this file's existing
+explanations applies. Inspecting the pck settles it:
+
+```
+$ strings -n 20 index.pck | grep -oE "shader_cache/SceneForward[A-Za-z]+ShaderRD/" | sort | uniq -c
+     56 shader_cache/SceneForwardClusteredShaderRD/
+```
+
+**Fifty-six Forward Clustered cache entries, and zero Forward Mobile ones -- while the runtime asks
+only for Mobile.** `RendererCompositorRD::initialize()` picks the scene renderer from the project
+setting *and* a device limit: `textures_per_stage < 48` falls back to Forward Mobile. On WebGPU that
+limit is the adapter's `maxSampledTexturesPerShaderStage`, whose spec baseline is 16, so the browser
+runs Mobile. The exporting editor runs real Vulkan, reports ≥48, and so runs Clustered -- and the
+baker can only bake the scene shader of whichever renderer exists in the process doing the baking.
+The result is that the single largest shader class in the engine misses the bake **completely**, for
+any project on Godot's default renderer.
+
+Proven by re-exporting the same project from an editor launched with `--rendering-method mobile`:
+
+| | editor = Forward+ | editor = Mobile |
+|---|---|---|
+| scene shader shipped | 56 × Clustered (never asked for) | 56 × **Mobile** |
+| `baked` | 171 | **273** |
+| `wgslBytes` | 834,434 | **2,460,369** |
+| `translated` | 404 | 352 |
+| **`Servers:Rendering`** | **6,041 ms** | **1,047 ms** |
+| `Startup:Main::Setup2` | 6,460 ms | 1,744 ms |
+| `index.pck` | 57,118,692 | **29,709,108** |
+
+**5.8× off `Servers:Rendering` and half the pck, from one flag on the exporting editor, with no
+change to what the export renders** -- the runtime was already using Mobile; only the baked shaders
+were for something else. Note the project setting alone is *not* enough: setting both
+`renderer/rendering_method` and `.web` to `"mobile"` in `project.godot` still baked Clustered. Only
+the CLI `--rendering-method mobile` moved it, which is worth knowing before anyone tries to fix this
+by editing project settings.
+
+This cannot be fixed inside the export plugin -- the editor's scene renderer is chosen at startup,
+long before an export runs -- so what landed is an **export-time warning** in
+`platform/web/export/export_plugin.cpp`, next to the two existing shader-baker warnings, naming the
+mismatch and the flag. A real fix would have the baker enumerate the target's scene renderer rather
+than the editor's, and is a bigger piece of work than this task.
+
+**The second, smaller gap, still open.** Even with the right renderer baked, `translated` is 352:
+`SceneForwardMobileShaderRD` × 35 versions. `webgpu_tests/test_project` creates 21
+`StandardMaterial3D.new()` in `_ready()`, i.e. *after* export, so those versions exist in no
+resource the exporter can walk. This is the class Task 31-34's "every live shader version is baked"
+addressed for versions live **in the editor**; a version a script will create at runtime is a
+different problem and is not covered. Worth knowing that a project which builds its materials from
+script pays full GLSL → SPIR-V → 12 passes → Tint on the player's main thread for each one, and
+that `godotWebGPUShaderStats.translatedShaders` now names them.
+
+**Per-frame, measured.** `godotWebGPUFrameStats` on this scene:
+`drawCalls 133, setBindGroup 259, bindGroupSkips 0, dynamicBindGroups 48, setVertexBuffer 158,
+renderPasses 58, pushConstantWrites 111, ringOverflows 0, rwShadowRefreshes 0`.
+
+This **argues against** the dynamic-offset optimization §3 flagged, at least here: 58 render passes
+for 133 draws is 2.3 draws per pass, and a new pass invalidates the bind-group cache, so
+`bindGroupSkips` is 0 -- the cache has no opportunity to begin with and the dynamic path is only 48
+of 259 binds. `ringOverflows: 0` and `rwShadowRefreshes: 0` say neither of those costs is being paid
+on this adapter. A draw-heavy, pass-light scene could answer differently; the point is that the
+instrument now exists to ask, which it did not before.
+
+**Harness changes needed to take any of this.** `profile_phases.mjs` could not run here at all:
+it imported Playwright only from `webgpu_tests/scene_smoketest/node_modules` (an ESM `import()`
+does not consult `NODE_PATH`), and its launch flags ask for a real Vulkan device, which a box with
+no `/dev/dri` does not have. It now takes `PLAYWRIGHT_IMPORT` for an install elsewhere and honors
+`CI=1` to select the headless swiftshader adapter, mirroring `run_scenes.mjs`. Both were blocking
+CI from ever running this profiler, not just this container.
+
+**State of `bin/` after this work**: editor and template both built at `0c81e29f` and
+hash-verified against each other. Once anything is committed on top, that pair is one commit behind
+`HEAD` -- which is fine until one of them is rebuilt, at which point §1's rule applies: rebuild
+both, or neither.
