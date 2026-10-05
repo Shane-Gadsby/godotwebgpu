@@ -6953,25 +6953,95 @@ audit; only a real web build catches those.
    (that is the whole reason `_extract_pre_dce_storage_image_info` existed), and reflection runs
    after. They may well not be equivalent.
 
-### Task 15.4: build and test the port `[IN PROGRESS]`
-**Status**: `NOT DONE` — native editor build running at time of writing; nothing below has run.
+### Task 15.4: build and test the port `[DONE — every tier that can run in a Linux container is green]`
+**Status**: `DONE`
 
-Remaining, in the order that finds problems fastest:
+| tier | result at 4.8 | 4.7.2 baseline |
+|---|---|---|
+| native editor (`linuxbsd target=editor dev_build=yes webgpu=yes`) | **0 errors**, reports `4.8.dev.custom_build` | — |
+| web template (`web template_release webgpu=yes opengl3=no threads=no`) | **0 errors, 0 warnings**, 12.1 MB zip | — |
+| `wgsl_precompile.py` over 4.8's shaders | **274 compiled, 0 glsl failures, 0 tint failures**, 189 unique | identical (HANDOFF.md:422) |
+| `shader_corpus` | **14 / 0** | 14 / 0 |
+| `driver_unit_tests` | **370 / 0 / 0** | 332 / 0 (grew with Task 46's tests) |
+| `preprocessing_tests` | **238 / 0 / 1** | 205 / 0 / 1 (same one skip) |
+| `resource_lifecycle` | **6 / 0** | 6 / 0 |
+| scene smoketest — Chrome, 20 scenes, re-exported | **20 pass, 0 fail, 0 skip** | 19 / 0 / 0 |
 
-1. **Native editor** (`scons platform=linuxbsd target=editor dev_build=yes webgpu=yes`) — validates
-   all shared engine code and the baker subset of `drivers/webgpu/`. The physics and mbedtls breaks
-   above were both found this way.
-2. **Web template** (`platform=web webgpu=yes target=template_release dlink_enabled=yes opengl3=no
-   threads=no`) — the only thing that compiles the real driver, and so the only thing that catches a
-   signature mismatch against 4.8's base headers.
-3. **Shader precompile** — `wgsl_precompile.py` over 4.8's shaders, to find new Tint failures from
-   4.8 engine features. Phase 8's Task 8.2 is the precedent: the 4.7 sync's one real regression was
-   a brand-new engine shader feature (LTC area lights) that Tint could not convert, and it was
-   invisible until the shaders were actually compiled.
-4. **`./webgpu_tests/local_ci.sh --dev-mode`** — `dev_mode=yes` implies `werror`, and a warning that
-   is fatal in CI is invisible in every command above.
-5. `bin/`'s editor+template pair is from `0c81e29f` on the 4.7.2 line and **does not match this
-   branch**. Task 36's rule applies: rebuild both, or neither.
+The precompile number is the one that matters most for a sync: Phase 8's Task 8.2 is the precedent
+that an upstream release's *new engine shader features* are what break Tint, and that it stays
+invisible until the shaders are actually compiled. 4.8 introduces none. Note that the precompile's
+scons rule depends only on `wgsl_precompile.py`, **not on the shaders**, so it does not rerun on its
+own when they change — delete `drivers/webgpu/wgsl_precompiled.gen.h` to force it, or a sync will
+ship the previous release's WGSL.
+
+##### Running the browser tiers in a Linux container, and what they are worth there
+
+The scene smoketest needs three things that are not obvious:
+
+```bash
+# 1. CI=1 selects the harness's bundled-Chromium + swiftshader launch path.
+#    Without it, run_scenes.mjs wants real Chrome at /usr/bin/google-chrome-stable.
+# 2. --export is opt-in; the default is --skip-export, which silently SKIPs
+#    every scene that has no existing export (reported as "not exported", which
+#    reads like a failure and is not one).
+# 3. scenes.json hardcodes a macOS arm64 editor path, so both binaries must be
+#    named explicitly, exactly as local_ci.sh does.
+cd webgpu_tests/scene_smoketest
+CI=1 GODOT_EDITOR_BIN=../../bin/godot.linuxbsd.editor.x86_64      GODOT_TEMPLATE_ZIP=../../bin/godot.web.template_release.wasm32.nothreads.zip      node run_scenes.mjs --export --browser chrome
+```
+
+The 11 `godot-demo-projects` scenes need that repo cloned where `scenes.json`'s relative paths
+expect it — `../../../godot-demo-projects` from `scene_smoketest/`. Absent, they SKIP.
+
+**What a container run does and does not establish.** Task 46 §7b's rule applies in full: a
+software adapter reports `maxSampledTexturesPerShaderStage = 16`, and
+`RendererCompositorRD::initialize()` falls back to Forward Mobile below 48, so **this is not a test
+of the Forward+ renderer this fork ships**. A 20/20 here means the engine boots, every scene loads,
+and nothing errors or crashes at 4.8 — which is exactly what a port needs to establish, and is not
+a statement about Forward+ output.
+
+**Three tiers cannot run in this container at all**, and none of it is a 4.8 problem:
+
+- **Everything in Firefox.** Playwright's Firefox build is not installed and cannot be downloaded
+  (the proxy blocks the CDN). Note that `local_ci.sh` nonetheless printed
+  `Font rendering colors — Firefox ✓` — that pass is vacuous, since the browser does not exist.
+  Do not read it as a result.
+- **`screenshot_comparison`.** It vendors its own newer Playwright (wants `chromium-1243`; the
+  container has `1194`), and `npx playwright install chromium` fails on the same blocked CDN. It is
+  a visual-regression tier whose baselines were captured on real hardware anyway, so comparing
+  against a swiftshader render would be meaningless even if it launched.
+- **`test_font_visual.mjs` (font rendering colors).** This one is worth recording carefully,
+  because it fails in a way that reads exactly like a real regression:
+
+  ```
+  chrome: canvas 1280x720  fill[red 0.0% white 100.0%]  outline[black 0.0%]
+      red text not rendered red (red 0.0% < 5.0%) -- glyph modulate is being dropped
+  ```
+
+  "glyph modulate is being dropped" is a specific, plausible accusation, and it is wrong. The scene
+  *did* load — the test only reaches its assertions after seeing `[FontCheck] READY`, so GDScript
+  ran. What fails is the canvas capture. Proven by probing a scene that **passes** the smoketest in
+  the same browser on the same adapter: `benchmark_pbr` screenshots as **1280x720 with exactly one
+  distinct colour, rgb(255,255,255), 100%**. Nothing presents to a capturable canvas under headless
+  swiftshader here, so every pixel-based assertion fails identically regardless of what the engine
+  rendered. The tier's own `self_test_font_visual.mjs` passes, which confirms the assertion logic
+  is fine and it is the pixels that are absent.
+
+  **Before treating any pixel-based failure in a container as a bug, screenshot a known-passing
+  scene first.** One blank capture of `benchmark_pbr` settles it in under a minute.
+
+##### Still outstanding
+
+1. A **real-GPU, Forward+** run of all of the above — the configuration this fork ships, and the
+   only thing that can confirm the port renders correctly rather than merely running. Carried over
+   from Task 46 §7e.
+2. Firefox, which this fork supports and which Tasks 38 and 41 were specifically about.
+3. `./webgpu_tests/local_ci.sh --dev-mode` (`warnings=extra werror=yes`, as CI builds). The three
+   warnings this task fixed were found with a plain build; `--dev-mode` is the only thing that
+   proves none are left.
+4. `bin/` now holds a matched 4.8 editor + non-dlink template pair, and
+   `webgpu_tests/scene_smoketest/exports/` was re-exported from it — so `--skip-export` reproduces
+   the 20/20 as-is. Task 36's rule still governs: rebuild both, or neither.
 
 ---
 

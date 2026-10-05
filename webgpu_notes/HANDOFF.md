@@ -12,13 +12,26 @@
 > Task 15.1 has the three `git replace` refs needed to reproduce the merge base at all, without
 > which the merge replays 85,264 commits instead of 2,794.
 >
-> **What is verified on `webgpu-4.8`**: the native editor builds clean
-> (`platform=linuxbsd target=editor dev_build=yes webgpu=yes`, 0 errors) and reports
-> `4.8.dev.custom_build`; `modules/box3d_physics` builds clean at `warnings=extra`; every
-> pure virtual in all three driver base headers has an override.
+> **What is verified on `webgpu-4.8`** — every tier that can run in a Linux container is green,
+> and Task 15.4 has the table: native editor and web template both build with 0 errors (the
+> template with 0 warnings too), `wgsl_precompile.py` over 4.8's shaders gives **274 compiled,
+> 0 glsl failures, 0 tint failures** (byte-for-byte §3's 4.7.2 number, so 4.8 adds no Tint
+> failures), `shader_corpus` 14/0, `driver_unit_tests` 370/0, `preprocessing_tests` 238/0/1,
+> `resource_lifecycle` 6/0, and the scene smoketest **20 pass, 0 fail, 0 skip** in Chrome with
+> every scene re-exported from the 4.8 pair now in `bin/`.
 >
-> **What is not**: the web template, the shader precompile, and every test tier. Nothing in
-> §2 below has been re-measured at 4.8, and §6's `bin/` description is about the 4.7.2 line.
+> **What is not**: anything on a real GPU, anything in Forward+, anything in Firefox, and
+> `--dev-mode`. Task 46 §7b's rule is in force — the smoketest above ran on swiftshader, which
+> runs **Forward Mobile**, so it establishes that 4.8 boots and loads every scene without error,
+> not that Forward+ renders correctly. §2's numbers below are still the 4.7.2 measurements.
+> §6's `bin/` description is about the 4.7.2 line; `bin/` now holds a matched 4.8 pair.
+>
+> **One trap worth knowing before it costs an hour**: in a container, every pixel-based
+> assertion fails identically whatever the engine drew, because nothing presents to a capturable
+> canvas under headless swiftshader. `test_font_visual.mjs` says
+> "glyph modulate is being dropped", which is specific and plausible and wrong — a scene that
+> *passes* the smoketest, `benchmark_pbr`, screenshots as one colour, rgb(255,255,255), 100%.
+> Screenshot a known-passing scene before believing any of it. Task 15.4 has the detail.
 >
 > **The one thing to carry forward**: on a merge this size, a clean conflict list proves
 > nothing. Five breaks in fork-touched shared code produced no conflict at all, because the
