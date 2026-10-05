@@ -671,6 +671,34 @@ String ShaderRD::_get_cache_file_path(Version *p_version, int p_group, const Str
 	return shader_cache_dir.path_join(relative_path);
 }
 
+// Drops the shader bytecode of every variant in a group once that group is fully
+// loaded, on backends whose api_trait says it is worth doing
+// (API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD -- see its doc comment).
+//
+// Safe because nothing reads variant_data after this point: the only consumers
+// are shader_create_from_bytecode_with_samplers() (already called for every
+// variant in the group by the time either caller below runs) and _save_to_cache()
+// for this same group (likewise already done, where it runs at all). Anything
+// that needs the bytecode again -- a variant being enabled later, a version whose
+// code changed -- goes through _initialize_version()/_compile_version_start(),
+// which recompiles or re-reads it from the cache file. Scoped to the group rather
+// than the whole version precisely because the other groups have not necessarily
+// been compiled or saved yet.
+void ShaderRD::_release_group_bytecode(Version *p_version, int p_group) {
+	if (!RD::get_singleton()->releases_shader_bytecode_after_load()) {
+		return;
+	}
+	if (p_version->variant_data.is_empty()) {
+		return;
+	}
+	for (uint32_t i = 0; i < group_to_variant_map[p_group].size(); i++) {
+		int variant_id = group_to_variant_map[p_group][i];
+		if (variant_id < p_version->variant_data.size()) {
+			p_version->variant_data.write[variant_id] = Vector<uint8_t>();
+		}
+	}
+}
+
 bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	String api_safe_name = String(RD::get_singleton()->get_device_api_name()).validate_filename().to_lower();
 	Ref<FileAccess> f;
@@ -803,6 +831,8 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 		}
 	}
 
+	_release_group_bytecode(p_version, p_group);
+
 	p_version->valid = true;
 	return true;
 }
@@ -919,6 +949,9 @@ void ShaderRD::_compile_version_finish(Version *p_version, int p_group) {
 		_save_to_cache(p_version, p_group);
 	}
 #endif
+
+	// After _save_to_cache(), which is the last reader of this group's bytecode.
+	_release_group_bytecode(p_version, p_group);
 
 	p_version->valid = true;
 }
