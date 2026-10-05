@@ -164,6 +164,11 @@ async function main() {
 			shaderMessages: P.shaderMessages,
 			shaderSources: P.shaderSources,
 			shaderStats: window.godotWebGPUShaderStats || null,
+			// Per-frame driver counters, averaged over the last sampled second.
+			// Only present once the export has been running long enough for one
+			// sampling window to close, so a short profile run will see null --
+			// the default --duration 45 is well past it.
+			frameStats: window.godotWebGPUFrameStats || null,
 			// Phase marks pushed from C++ inside callMain() -- present only when the
 			// export is run with --benchmark (see OS_Web::benchmark_end_measure).
 			engineMarks: window.godotStartupMarks || null,
@@ -285,6 +290,10 @@ function report(d) {
 	// --- Shader translation sanity check ------------------------------------
 	console.log('\n--- godotWebGPUShaderStats (Task 34: translated must be 0) ---');
 	console.log(`  ${d.shaderStats ? JSON.stringify(d.shaderStats) : '(not exposed -- engine may not have reached that point)'}`);
+
+	// --- Per-frame driver cost ----------------------------------------------
+	console.log('\n--- godotWebGPUFrameStats (per-frame averages over one second) ---');
+	console.log(`  ${d.frameStats ? JSON.stringify(d.frameStats) : '(not exposed -- needs >1s of rendering under --duration)'}`);
 
 	// --- Whole timeline ------------------------------------------------------
 	console.log('\n--- All marks, in order ---');
