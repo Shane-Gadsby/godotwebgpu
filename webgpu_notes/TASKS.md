@@ -6903,7 +6903,7 @@ reads the same value back, validates it the way Jolt and GodotPhysics3D do, and 
 `Box3DDiagnostics::_report_dropped()` rather than a bare `WARN_PRINT_ONCE` — the module's standing
 convention for a Box3D gap.
 
-4.8 also deprecated `ShapeResult::collider` and `RayResult::collider` in favour of `collider_id`
+4.8 also deprecated `ShapeResult::collider` and `RayResult::collider` in favor of `collider_id`
 plus a `get_collider()` accessor. The three writes in `box3d_physics_direct_space_state_3d.cpp` are
 dropped, as upstream dropped Jolt's — they were a second copy of what `collider_id` already carries,
 and `-Wdeprecated-declarations` is fatal under CI's `dev_mode=yes`.
@@ -6944,7 +6944,7 @@ audit; only a real web build catches those.
    `command_begin_compute_pass`/`command_end_compute_pass`, which hands the driver exactly the
    information the splitter was reconstructing. Closing the encoder in `command_end_compute_pass`
    would make each list its own scope — more correct, and less work for the heuristic. It is also a
-   behaviour change with a real cost (more encoders = more JS crossings), so it is deliberately
+   behavior change with a real cost (more encoders = more JS crossings), so it is deliberately
    *not* part of this port: do it once the port is green and measurable, not before.
 2. **4.8's `ShaderUniform::texture_type`/`texture_format` may overlap the fork's baked
    `image_decls`.** Task 46 added a `FLAG_IMAGE_DECLS_BAKED` footer carrying SPIR-V image

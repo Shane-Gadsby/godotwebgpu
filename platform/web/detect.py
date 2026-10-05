@@ -80,7 +80,14 @@ def get_flags():
         "arch": "wasm32",
         "target": "template_debug",
         "builtin_pcre2_with_jit": False,
+        # Upstream's default for web; `webgpu=yes` flips it back on in SConstruct, since
+        # this fork's whole purpose is a RenderingDevice driver for the browser.
         "rendering_device": False,
+        # 4.7.2 set this here directly. 4.8 relies on SConstruct's
+        # `not env["rendering_device"]` cascade to turn the three API drivers off instead,
+        # and that cascade no longer fires for a `webgpu=yes` web build -- so keep saying
+        # it, or drivers/SCsub tries to compile the Vulkan driver into the web template.
+        "vulkan": False,
         # Embree is heavy and requires too much memory (GH-70621).
         "module_raycast_enabled": False,
         # Use -Os to prioritize optimizing for reduced file size. This is
@@ -255,8 +262,9 @@ def configure(env: "SConsEnvironment"):
         # not found" error instead of this clear one.
         if cc_semver < (4, 0, 10):
             print_error(
-                "webgpu=yes requires Emscripten 4.0.10 or newer (detected %s.%s.%s) for the emdawnwebgpu port."
-                % cc_semver
+                "webgpu=yes requires Emscripten 4.0.10 or newer (detected {}.{}.{}) for the emdawnwebgpu port.".format(
+                    *cc_semver
+                )
             )
             sys.exit(255)
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])

@@ -269,7 +269,7 @@ Ref<Image> CompressedTexture2D::get_image() const {
 				f->get_32(); // reserved
 				f->get_32(); // reserved
 				// 4.8 dropped load_image_from_file()'s p_size_limit parameter; the fork passed 0
-				// (no limit), which is now the only behaviour.
+				// (no limit), which is now the only behavior.
 				Ref<Image> img = load_image_from_file(f);
 				if (img.is_valid() && !img->is_empty()) {
 					return img;

@@ -60,12 +60,14 @@ if env["opengl3"]:
     SConscript("gl_context/SCsub")
     SConscript("gles3/SCsub")
     SConscript("egl/SCsub")
-# Deliberately outside the `if env["rendering_device"]:` block above, unlike
-# every other RenderingDevice driver. 4.8 made SConstruct force
-# rendering_device = False for the web platform ("Not available in the web
-# platform"), so a webgpu entry inside that block would silently never compile
-# the driver for its only real target. The fork defines RD_ENABLED for web
-# itself, in platform/web/detect.py, rather than through that option.
+# Deliberately outside the `if env["rendering_device"]:` block above, unlike every
+# other RenderingDevice driver, so that `webgpu=yes` is what decides whether this
+# driver is built and nothing else can quietly switch it off. 4.8 added the
+# `rendering_device` option and defaults it to False for the web platform ("Not
+# available in the web platform"); SConstruct flips it back on for a `webgpu=yes`
+# web build precisely so the RenderingDevice sources this driver needs get compiled,
+# but the dependency runs that way round -- webgpu=yes implies rendering_device, not
+# the reverse.
 if env["webgpu"]:
     if "webgpu" not in supported:
         print_error("Target platform '{}' does not support the WebGPU rendering driver".format(env["platform"]))
