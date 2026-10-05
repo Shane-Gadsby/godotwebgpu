@@ -1189,6 +1189,10 @@ bool RenderingDevice::requires_synchronous_pipeline_compilation() {
 	return driver->api_trait_get(RDD::API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION) != 0;
 }
 
+bool RenderingDevice::releases_shader_bytecode_after_load() {
+	return driver->api_trait_get(RDD::API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD) != 0;
+}
+
 uint32_t RenderingDevice::get_max_supported_texture_samples() {
 	return (uint32_t)driver->api_trait_get(RDD::API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES);
 }

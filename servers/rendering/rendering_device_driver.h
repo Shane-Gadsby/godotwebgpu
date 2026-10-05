@@ -1093,6 +1093,22 @@ public:
 		// out-of-range-sample-index behavior is defined-but-meaningless, not a hard
 		// error. See webgpu_notes/TASKS.md Task 24 round 5.
 		API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES,
+		// If non-zero, ShaderRD drops each variant's shader bytecode as soon as the
+		// group it belongs to has finished loading, instead of keeping it for the
+		// lifetime of the shader version.
+		//
+		// Nothing reads it after that point -- the cache file for the group has
+		// already been written, and a recompile refills it -- so this is a plain
+		// memory saving on every backend. It is a trait rather than unconditional
+		// behavior because what it saves is worth very different amounts: a Vulkan
+		// or Metal container holds one zstd-compressed SPIR-V payload per variant,
+		// which is small enough that upstream Godot has never had reason to free
+		// it. A WebGPU container holds two *uncompressed* payloads -- the SPIR-V and
+		// the WGSL baked from it -- and a real project's export runs to ~120 MB of
+		// them across ~344 containers. In a web build that is 120 MB of WASM heap
+		// held for the whole session, in an address space with no swap and a hard
+		// ceiling, for bytes nothing will read again.
+		API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD,
 	};
 
 	enum ShaderChangeInvalidation {
