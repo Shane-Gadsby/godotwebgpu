@@ -30,6 +30,8 @@
 
 #include "spirv_preprocess.h"
 
+#include "spirv_lite_reflect.h"
+
 #include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/vector.h"
@@ -527,7 +529,12 @@ static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
 }
 
 bool has_spec_constants(const Vector<uint8_t> &p_bytes) {
-	return scan_spec_constants(p_bytes).any_spec_id;
+	// Delegated rather than read off scan_spec_constants().any_spec_id, which
+	// computes the same thing for its own use below: the export-time shader
+	// baker needs this predicate too and cannot link this file (see
+	// spirv_lite_reflect.h), so the choice is one implementation in a file both
+	// builds compile, or two that have to be kept saying the same thing.
+	return spirv_lite_reflect::has_spec_id_decoration(p_bytes);
 }
 
 bool spec_constants_overridable(const Vector<uint8_t> &p_bytes) {

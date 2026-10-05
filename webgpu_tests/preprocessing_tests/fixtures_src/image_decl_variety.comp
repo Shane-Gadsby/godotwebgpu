@@ -1,0 +1,55 @@
+#version 450
+
+#extension GL_EXT_samplerless_texture_functions : require
+
+// Covers every shape spirv_lite_reflect::extract_raw_image_decls() has to
+// resolve, so the walk is tested against SPIR-V glslang actually emitted rather
+// than against a reimplementation of it. The baker records what this walk finds
+// into every shader container, and the runtime driver trusts it for a binding's
+// BindGroupLayout format, dimension and sample type -- so a disagreement here
+// shows up as a Dawn validation error naming a texture the shader does not
+// appear to use, or as silently wrong pixels, rather than as a crash.
+//
+// The interesting cases, each of which has been a real bug (webgpu_notes/TASKS.md
+// Task 9.5 rounds 18-27):
+//   - a 3D storage image (dimension, not just format)
+//   - unsigned and signed integer storage images (component type)
+//   - an array-of-textures uniform, whose pointee is an OpTypeArray wrapping the
+//     real OpTypeImage -- missing the unwrap silently skipped every such binding
+//   - a utexture2D, where the sample type is Uint and defaulting to Float is
+//     what Dawn rejects
+//   - cube and 2D-array sampled textures (arrayed flag)
+//   - a combined sampler2D, which is NOT an image declaration and must be
+//     skipped rather than reported with a bogus format
+
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image3D vol;
+layout(set = 0, binding = 1, r32ui) uniform uimage2D counters;
+layout(set = 0, binding = 2, r32i) uniform iimage2D deltas;
+
+layout(set = 1, binding = 3) uniform texture3D sdf_cascades[4];
+layout(set = 1, binding = 4) uniform utexture2D voxel_gi_buffer;
+layout(set = 1, binding = 5) uniform textureCube env;
+layout(set = 1, binding = 6) uniform texture2DArray layers;
+
+layout(set = 2, binding = 7) uniform sampler2D combined;
+layout(set = 2, binding = 9) uniform sampler env_sampler;
+
+layout(set = 2, binding = 8) buffer Out {
+	vec4 data[];
+}
+out_buf;
+
+void main() {
+	ivec3 c = ivec3(gl_GlobalInvocationID);
+	imageStore(vol, c, vec4(1.0));
+	imageStore(counters, c.xy, uvec4(1u));
+	imageStore(deltas, c.xy, ivec4(1));
+	vec4 acc = texelFetch(sdf_cascades[1], c, 0);
+	acc += vec4(texelFetch(voxel_gi_buffer, c.xy, 0));
+	acc += texture(samplerCube(env, env_sampler), vec3(0.0));
+	acc += texture(sampler2DArray(layers, env_sampler), vec3(0.0));
+	acc += texture(combined, vec2(0.0));
+	out_buf.data[0] = acc;
+}

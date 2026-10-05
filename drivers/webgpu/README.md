@@ -33,9 +33,10 @@ Forward+ and Mobile renderers to run in the browser.
 |------|-------|---------|
 | `rendering_device_driver_webgpu.cpp/h` | ~5250 | Main driver: buffers, textures, pipelines, draw, compute |
 | `rendering_context_driver_webgpu.cpp/h` | ~290 | Device bootstrap, surface/swap chain management |
-| `rendering_shader_container_webgpu.cpp/h` | ~210 | Shader container format (SPIR-V storage + Tint WGSL conversion) |
+| `rendering_shader_container_webgpu.cpp/h` | ~480 | Shader container format (SPIR-V storage, baked WGSL, baked reflection) |
 | `webgpu_objects.h` | ~320 | GPU object wrappers (WGBuffer, WGTexture, WGShader, etc.) |
 | `spirv_preprocess.cpp/h` | ~1700 | SPIR-V preprocessing passes before Tint conversion |
+| `spirv_lite_reflect.cpp/h` | ~220 | Raw SPIR-V reflection with no SPIRV-Tools dependency, so the editor-side baker can run it too |
 | `tint_wrapper.cpp/h` | ~55 | C++20 isolation wrapper for Tint API |
 | `pixel_formats_webgpu.h` | ~710 | Godot DataFormat → WGPUTextureFormat mapping table |
 
@@ -106,6 +107,50 @@ Three tiers, checked in order:
 > exactly like a baking bug. Note that building *before* committing bakes the
 > pre-commit hash into the binary. Since Task 36 the runtime warns once when a
 > shipped cache is present but nothing matches.
+
+### What a container ships, and why the SPIR-V is usually not in it
+
+Every shader container used to carry two descriptions of the same shader: the
+SPIR-V glslang produced, and the WGSL Tint baked from that SPIR-V. Both
+uncompressed — the WebGPU container is the one container format in the engine
+that never compresses its code, because the web runtime pays CPU for
+decompression in the one place where CPU is the scarce resource.
+
+That matters because loading shaders is most of a web export's startup. `Servers:Rendering`
+measures ~510 ms on *every* project, an empty scene included, of which
+`createShaderModule` for all 363 modules is ~22 ms and pipeline creation is
+0 ms. The rest is CPU spent moving shader bytes around: out of the `.pck`, into
+a container, into a buffer the driver can hand to Dawn.
+
+So a container now ships only what the runtime will read:
+
+- **The baked WGSL is read as a window, not a copy.** `from_bytes()` keeps a
+  reference to the buffer it parsed (`_from_bytes_begin()` on the base class)
+  and the footer parse records `(offset, length)` per stage instead of
+  allocating a `CharString` and copying the text into it. The driver has to copy
+  the text anyway — its WGSL text passes mutate it in place — so the
+  intermediate copy bought nothing.
+- **The SPIR-V is dropped entirely when nothing can need it**
+  (`FLAG_SPIRV_OMITTED`). The runtime reads a stage's SPIR-V for exactly four
+  things, and three of them are now baked into the container instead: the
+  pre-DCE image declarations (see `spirv_lite_reflect.h`), the "declares
+  specialization constants" bit, and — moot once the WGSL is baked — the Tint
+  fallback. The fourth is the legacy specialization path, which re-patches the
+  SPIR-V with constant values and re-converts it; a shader that can reach that
+  path keeps its bytes. SPIR-V is the *larger* of the two payloads, so this is
+  the larger saving, and it shrinks the `.pck` by the same amount.
+- **`ShaderRD` frees each variant's bytecode once its group has loaded**
+  (`API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD`). Nothing reads it after that,
+  and holding ~120 MB of it for the session is a different proposition in a WASM
+  heap than on a desktop.
+
+`WEBGPU_BAKE_KEEP_SPIRV=1` on the exporting editor keeps the SPIR-V anyway. It
+is how the saving was measured (two exports, one build) and an escape hatch if
+a shader ever turns out to need bytes the rule thought it could not.
+
+If the rule is ever wrong, the driver says so: a shader that reaches the legacy
+specialization path with no SPIR-V to re-patch prints an error naming itself,
+rather than quietly rendering with default specialization values.
 
 Read `godotWebGPUShaderStats` in the browser devtools console to see which
 tier each shader stage actually came from:

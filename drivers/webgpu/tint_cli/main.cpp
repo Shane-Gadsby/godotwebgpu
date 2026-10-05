@@ -39,6 +39,7 @@
 //   tint_convert_cli <file.spv>                       # single file → WGSL to stdout
 //   tint_convert_cli --batch <file1.spv> <file2.spv>  # batch → JSON to stdout
 
+#include "../spirv_lite_reflect.h"
 #include "../spirv_preprocess.h"
 #include "../tint_wrapper.h"
 
@@ -490,6 +491,55 @@ static void print_usage() {
 	fprintf(stderr, "Usage:\n");
 	fprintf(stderr, "  tint_convert_cli <file.spv>                       Single file → WGSL to stdout\n");
 	fprintf(stderr, "  tint_convert_cli --batch <file1.spv> [file2.spv]  Batch → JSON to stdout\n");
+	fprintf(stderr, "  tint_convert_cli --image-decls <file.spv>         Raw image declarations → JSON to stdout\n");
+}
+
+// Prints what spirv_lite_reflect::extract_raw_image_decls() reads out of a
+// module, plus whether it declares specialization constants: exactly the two
+// things the export-time shader baker records into a shader container so the
+// runtime driver does not have to re-derive them (and, where they cover
+// everything it needed the bytes for, so the container can ship without the
+// SPIR-V at all -- see RenderingShaderContainerWebGPU::FLAG_SPIRV_OMITTED).
+//
+// Exists so that walk can be tested against real SPIR-V rather than against a
+// reimplementation of it, since a disagreement between what the baker records
+// and what the driver would have found is a silent wrong-rendering bug rather
+// than a crash. Doubles as the way to inspect it by hand when a binding's
+// format, dimension or sample type comes out wrong.
+static int run_image_decls(const char *p_path) {
+	auto spv_bytes = read_file(p_path);
+	if (spv_bytes.empty()) {
+		fprintf(stderr, "Error: Failed to read '%s'\n", p_path);
+		return 1;
+	}
+
+	Vector<uint8_t> spv;
+	spv.resize((int64_t)spv_bytes.size());
+	memcpy(spv.ptrw(), spv_bytes.data(), spv_bytes.size());
+
+	const Vector<spirv_lite_reflect::RawImageDecl> decls = spirv_lite_reflect::extract_raw_image_decls(spv);
+	const bool has_spec = spirv_lite_reflect::has_spec_id_decoration(spv);
+
+	std::cout << "{" << std::endl;
+	std::cout << "  \"hasSpecConstants\": " << (has_spec ? "true" : "false") << "," << std::endl;
+	std::cout << "  \"imageDecls\": [" << std::endl;
+	for (int64_t i = 0; i < decls.size(); i++) {
+		const spirv_lite_reflect::RawImageDecl &d = decls[i];
+		std::cout << "    {\"set\": " << d.set
+				  << ", \"binding\": " << d.binding
+				  << ", \"spvFormat\": " << d.spv_format
+				  << ", \"spvDim\": " << d.spv_dim
+				  << ", \"arrayed\": " << d.arrayed
+				  << ", \"intSignedness\": " << d.int_signedness
+				  << "}";
+		if (i + 1 < decls.size()) {
+			std::cout << ",";
+		}
+		std::cout << std::endl;
+	}
+	std::cout << "  ]" << std::endl;
+	std::cout << "}" << std::endl;
+	return 0;
 }
 
 static int run(int argc, char *argv[]) {
@@ -510,6 +560,14 @@ static int run(int argc, char *argv[]) {
 		return run_isolated_child();
 	}
 #endif
+
+	if (strcmp(argv[1], "--image-decls") == 0) {
+		if (argc < 3) {
+			fprintf(stderr, "Error: --image-decls requires a file argument.\n");
+			return 1;
+		}
+		return run_image_decls(argv[2]);
+	}
 
 	bool batch_mode = (strcmp(argv[1], "--batch") == 0);
 
