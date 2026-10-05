@@ -40,7 +40,7 @@ class Box3DPhysicsDirectBodyState3D;
 
 class Box3DBody3D final : public Box3DObject3D {
 public:
-	typedef PhysicsServer3D::BodyDampMode DampMode;
+	typedef PS3DE::BodyDampMode DampMode;
 
 	struct Contact {
 		Vector3 normal;
@@ -86,10 +86,10 @@ private:
 
 	Box3DPhysicsDirectBodyState3D *direct_state = nullptr;
 
-	PhysicsServer3D::BodyMode mode = PhysicsServer3D::BODY_MODE_RIGID;
+	PS3DE::BodyMode mode = PS3DE::BODY_MODE_RIGID;
 
-	DampMode linear_damp_mode = PhysicsServer3D::BODY_DAMP_MODE_COMBINE;
-	DampMode angular_damp_mode = PhysicsServer3D::BODY_DAMP_MODE_COMBINE;
+	DampMode linear_damp_mode = PS3DE::BODY_DAMP_MODE_COMBINE;
+	DampMode angular_damp_mode = PS3DE::BODY_DAMP_MODE_COMBINE;
 
 	float mass = 1.0f;
 	float bounce = 0.0f;
@@ -158,11 +158,11 @@ public:
 
 	void set_transform(Transform3D p_transform);
 
-	Variant get_state(PhysicsServer3D::BodyState p_state) const;
-	void set_state(PhysicsServer3D::BodyState p_state, const Variant &p_value);
+	Variant get_state(PS3DE::BodyState p_state) const;
+	void set_state(PS3DE::BodyState p_state, const Variant &p_value);
 
-	Variant get_param(PhysicsServer3D::BodyParameter p_param) const;
-	void set_param(PhysicsServer3D::BodyParameter p_param, const Variant &p_value);
+	Variant get_param(PS3DE::BodyParameter p_param) const;
+	void set_param(PS3DE::BodyParameter p_param, const Variant &p_value);
 
 	bool has_state_sync_callback() const { return state_sync_callback.is_valid(); }
 	void set_state_sync_callback(const Callable &p_callback) { state_sync_callback = p_callback; }
@@ -257,14 +257,14 @@ public:
 
 	Box3DPhysicsDirectBodyState3D *get_direct_state();
 
-	PhysicsServer3D::BodyMode get_mode() const { return mode; }
+	PS3DE::BodyMode get_mode() const { return mode; }
 
-	void set_mode(PhysicsServer3D::BodyMode p_mode);
+	void set_mode(PS3DE::BodyMode p_mode);
 
-	bool is_static() const { return mode == PhysicsServer3D::BODY_MODE_STATIC; }
-	bool is_kinematic() const { return mode == PhysicsServer3D::BODY_MODE_KINEMATIC; }
-	bool is_rigid_free() const { return mode == PhysicsServer3D::BODY_MODE_RIGID; }
-	bool is_rigid_linear() const { return mode == PhysicsServer3D::BODY_MODE_RIGID_LINEAR; }
+	bool is_static() const { return mode == PS3DE::BODY_MODE_STATIC; }
+	bool is_kinematic() const { return mode == PS3DE::BODY_MODE_KINEMATIC; }
+	bool is_rigid_free() const { return mode == PS3DE::BODY_MODE_RIGID; }
+	bool is_rigid_linear() const { return mode == PS3DE::BODY_MODE_RIGID_LINEAR; }
 	bool is_rigid() const { return is_rigid_free() || is_rigid_linear(); }
 
 	bool is_ccd_enabled() const { return ccd_enabled; }
@@ -308,8 +308,8 @@ public:
 	DampMode get_angular_damp_mode() const { return angular_damp_mode; }
 	void set_angular_damp_mode(DampMode p_mode);
 
-	bool is_axis_locked(PhysicsServer3D::BodyAxis p_axis) const;
-	void set_axis_lock(PhysicsServer3D::BodyAxis p_axis, bool p_enabled);
+	bool is_axis_locked(PS3DE::BodyAxis p_axis) const;
+	void set_axis_lock(PS3DE::BodyAxis p_axis, bool p_enabled);
 	bool are_axes_locked() const { return locked_axes != 0; }
 
 	void notify_environment_changed();

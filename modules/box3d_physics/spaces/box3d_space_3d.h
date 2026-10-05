@@ -104,8 +104,8 @@ public:
 
 	bool is_stepping() const { return stepping; }
 
-	double get_param(PhysicsServer3D::SpaceParameter p_param) const;
-	void set_param(PhysicsServer3D::SpaceParameter p_param, double p_value);
+	double get_param(PS3DE::SpaceParameter p_param) const;
+	void set_param(PS3DE::SpaceParameter p_param, double p_value);
 
 	Box3DPhysicsDirectSpaceState3D *get_direct_state();
 

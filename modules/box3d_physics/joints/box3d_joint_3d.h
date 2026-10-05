@@ -88,7 +88,7 @@ public:
 	Box3DJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b);
 	virtual ~Box3DJoint3D();
 
-	virtual PhysicsServer3D::JointType get_type() const { return PhysicsServer3D::JOINT_TYPE_MAX; }
+	virtual PS3DE::JointType get_type() const { return PS3DE::JOINT_TYPE_MAX; }
 
 	RID get_rid() const { return rid; }
 	void set_rid(const RID &p_rid) { rid = p_rid; }
@@ -131,7 +131,7 @@ class Box3DPinJoint3D final : public Box3DJoint3D {
 public:
 	Box3DPinJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Vector3 &p_local_a, const Vector3 &p_local_b);
 
-	virtual PhysicsServer3D::JointType get_type() const override { return PhysicsServer3D::JOINT_TYPE_PIN; }
+	virtual PS3DE::JointType get_type() const override { return PS3DE::JOINT_TYPE_PIN; }
 
 	Vector3 get_local_a() const { return local_ref_a.origin; }
 	void set_local_a(const Vector3 &p_local_a);
@@ -139,8 +139,8 @@ public:
 	Vector3 get_local_b() const { return local_ref_b.origin; }
 	void set_local_b(const Vector3 &p_local_b);
 
-	double get_param(PhysicsServer3D::PinJointParam p_param) const;
-	void set_param(PhysicsServer3D::PinJointParam p_param, double p_value);
+	double get_param(PS3DE::PinJointParam p_param) const;
+	void set_param(PS3DE::PinJointParam p_param, double p_value);
 };
 
 class Box3DHingeJoint3D final : public Box3DJoint3D {
@@ -158,13 +158,13 @@ class Box3DHingeJoint3D final : public Box3DJoint3D {
 public:
 	Box3DHingeJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b);
 
-	virtual PhysicsServer3D::JointType get_type() const override { return PhysicsServer3D::JOINT_TYPE_HINGE; }
+	virtual PS3DE::JointType get_type() const override { return PS3DE::JOINT_TYPE_HINGE; }
 
-	double get_param(PhysicsServer3D::HingeJointParam p_param) const;
-	void set_param(PhysicsServer3D::HingeJointParam p_param, double p_value);
+	double get_param(PS3DE::HingeJointParam p_param) const;
+	void set_param(PS3DE::HingeJointParam p_param, double p_value);
 
-	bool get_flag(PhysicsServer3D::HingeJointFlag p_flag) const;
-	void set_flag(PhysicsServer3D::HingeJointFlag p_flag, bool p_enabled);
+	bool get_flag(PS3DE::HingeJointFlag p_flag) const;
+	void set_flag(PS3DE::HingeJointFlag p_flag, bool p_enabled);
 };
 
 class Box3DSliderJoint3D final : public Box3DJoint3D {
@@ -176,10 +176,10 @@ class Box3DSliderJoint3D final : public Box3DJoint3D {
 public:
 	Box3DSliderJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b);
 
-	virtual PhysicsServer3D::JointType get_type() const override { return PhysicsServer3D::JOINT_TYPE_SLIDER; }
+	virtual PS3DE::JointType get_type() const override { return PS3DE::JOINT_TYPE_SLIDER; }
 
-	double get_param(PhysicsServer3D::SliderJointParam p_param) const;
-	void set_param(PhysicsServer3D::SliderJointParam p_param, double p_value);
+	double get_param(PS3DE::SliderJointParam p_param) const;
+	void set_param(PS3DE::SliderJointParam p_param, double p_value);
 };
 
 class Box3DConeTwistJoint3D final : public Box3DJoint3D {
@@ -191,10 +191,10 @@ class Box3DConeTwistJoint3D final : public Box3DJoint3D {
 public:
 	Box3DConeTwistJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b);
 
-	virtual PhysicsServer3D::JointType get_type() const override { return PhysicsServer3D::JOINT_TYPE_CONE_TWIST; }
+	virtual PS3DE::JointType get_type() const override { return PS3DE::JOINT_TYPE_CONE_TWIST; }
 
-	double get_param(PhysicsServer3D::ConeTwistJointParam p_param) const;
-	void set_param(PhysicsServer3D::ConeTwistJointParam p_param, double p_value);
+	double get_param(PS3DE::ConeTwistJointParam p_param) const;
+	void set_param(PS3DE::ConeTwistJointParam p_param, double p_value);
 };
 
 class Box3DGeneric6DOFJoint3D final : public Box3DJoint3D {
@@ -220,6 +220,14 @@ class Box3DGeneric6DOFJoint3D final : public Box3DJoint3D {
 	double spring_damping[AXIS_COUNT] = {};
 	double spring_equilibrium[AXIS_COUNT] = {};
 
+	// 4.8's Quaternion angular target rotation. Box3D has no generic 6DOF joint
+	// at all (this one is emulated from the simpler Box3D joint types), so there
+	// is nothing to apply it to -- it is stored only so a script that sets it can
+	// read the same value back, and reported through Box3DDiagnostics. Jolt is the
+	// only backend that implements it; GodotPhysics3D also warns and ignores.
+	Quaternion angular_target_rotation;
+	bool has_angular_target_rotation = false;
+
 	virtual b3JointId _create(b3WorldId p_world, const Frames &p_frames) override;
 
 	bool _is_locked(int p_axis) const { return limit_enabled[p_axis] && limit_lower[p_axis] == limit_upper[p_axis]; }
@@ -228,11 +236,14 @@ class Box3DGeneric6DOFJoint3D final : public Box3DJoint3D {
 public:
 	Box3DGeneric6DOFJoint3D(const Box3DJoint3D &p_old_joint, Box3DBody3D *p_body_a, Box3DBody3D *p_body_b, const Transform3D &p_local_ref_a, const Transform3D &p_local_ref_b);
 
-	virtual PhysicsServer3D::JointType get_type() const override { return PhysicsServer3D::JOINT_TYPE_6DOF; }
+	virtual PS3DE::JointType get_type() const override { return PS3DE::JOINT_TYPE_6DOF; }
 
-	double get_param(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param) const;
-	void set_param(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param, double p_value);
+	double get_param(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param) const;
+	void set_param(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param, double p_value);
 
-	bool get_flag(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag) const;
-	void set_flag(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag, bool p_enabled);
+	bool get_flag(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag) const;
+	void set_flag(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag, bool p_enabled);
+
+	Quaternion get_angular_target_rotation() const;
+	void set_angular_target_rotation(const Quaternion &p_target_rotation);
 };

@@ -54,15 +54,15 @@ void Box3DSoftBody3D::set_mesh(const RID &p_mesh) {
 	mesh = p_mesh;
 }
 
-Variant Box3DSoftBody3D::get_state(PhysicsServer3D::BodyState p_state) const {
+Variant Box3DSoftBody3D::get_state(PS3DE::BodyState p_state) const {
 	switch (p_state) {
-		case PhysicsServer3D::BODY_STATE_TRANSFORM: {
+		case PS3DE::BODY_STATE_TRANSFORM: {
 			return transform;
 		}
-		case PhysicsServer3D::BODY_STATE_SLEEPING: {
+		case PS3DE::BODY_STATE_SLEEPING: {
 			return false;
 		}
-		case PhysicsServer3D::BODY_STATE_CAN_SLEEP: {
+		case PS3DE::BODY_STATE_CAN_SLEEP: {
 			return true;
 		}
 		default: {
@@ -71,8 +71,8 @@ Variant Box3DSoftBody3D::get_state(PhysicsServer3D::BodyState p_state) const {
 	}
 }
 
-void Box3DSoftBody3D::set_state(PhysicsServer3D::BodyState p_state, const Variant &p_value) {
-	if (p_state == PhysicsServer3D::BODY_STATE_TRANSFORM) {
+void Box3DSoftBody3D::set_state(PS3DE::BodyState p_state, const Variant &p_value) {
+	if (p_state == PS3DE::BODY_STATE_TRANSFORM) {
 		transform = p_value;
 	}
 }

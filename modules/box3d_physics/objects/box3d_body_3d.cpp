@@ -39,16 +39,18 @@
 #include "box3d_area_3d.h"
 #include "box3d_physics_direct_body_state_3d.h"
 
+#include "servers/physics_3d/physics_server_3d_constants.h"
+
 b3BodyType Box3DBody3D::_get_body_type() const {
 	switch (mode) {
-		case PhysicsServer3D::BODY_MODE_STATIC: {
+		case PS3DE::BODY_MODE_STATIC: {
 			return b3_staticBody;
 		}
-		case PhysicsServer3D::BODY_MODE_KINEMATIC: {
+		case PS3DE::BODY_MODE_KINEMATIC: {
 			return b3_kinematicBody;
 		}
-		case PhysicsServer3D::BODY_MODE_RIGID:
-		case PhysicsServer3D::BODY_MODE_RIGID_LINEAR: {
+		case PS3DE::BODY_MODE_RIGID:
+		case PS3DE::BODY_MODE_RIGID_LINEAR: {
 			return b3_dynamicBody;
 		}
 		default: {
@@ -95,12 +97,12 @@ b3MotionLocks Box3DBody3D::_calculate_motion_locks() const {
 
 	// Ordered as the linear axes followed by the angular axes, each one x, y and z.
 	return b3MotionLocks{
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_LINEAR_X),
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_LINEAR_Y),
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_LINEAR_Z),
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_ANGULAR_X) || is_rigid_linear(),
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_ANGULAR_Y) || is_rigid_linear(),
-		is_axis_locked(PhysicsServer3D::BODY_AXIS_ANGULAR_Z) || is_rigid_linear(),
+		is_axis_locked(PS3DE::BODY_AXIS_LINEAR_X),
+		is_axis_locked(PS3DE::BODY_AXIS_LINEAR_Y),
+		is_axis_locked(PS3DE::BODY_AXIS_LINEAR_Z),
+		is_axis_locked(PS3DE::BODY_AXIS_ANGULAR_X) || is_rigid_linear(),
+		is_axis_locked(PS3DE::BODY_AXIS_ANGULAR_Y) || is_rigid_linear(),
+		is_axis_locked(PS3DE::BODY_AXIS_ANGULAR_Z) || is_rigid_linear(),
 	};
 }
 
@@ -235,8 +237,8 @@ void Box3DBody3D::_update_environmental_properties() {
 	const Vector3 position = get_position();
 
 	bool gravity_done = false;
-	bool linear_damp_done = linear_damp_mode == PhysicsServer3D::BODY_DAMP_MODE_REPLACE;
-	bool angular_damp_done = angular_damp_mode == PhysicsServer3D::BODY_DAMP_MODE_REPLACE;
+	bool linear_damp_done = linear_damp_mode == PS3DE::BODY_DAMP_MODE_REPLACE;
+	bool angular_damp_done = angular_damp_mode == PS3DE::BODY_DAMP_MODE_REPLACE;
 
 	for (const Box3DArea3D *area : areas) {
 		if (!gravity_done) {
@@ -277,19 +279,19 @@ void Box3DBody3D::_update_environmental_properties() {
 	total_gravity *= gravity_scale;
 
 	switch (linear_damp_mode) {
-		case PhysicsServer3D::BODY_DAMP_MODE_COMBINE: {
+		case PS3DE::BODY_DAMP_MODE_COMBINE: {
 			total_linear_damp += linear_damp;
 		} break;
-		case PhysicsServer3D::BODY_DAMP_MODE_REPLACE: {
+		case PS3DE::BODY_DAMP_MODE_REPLACE: {
 			total_linear_damp = linear_damp;
 		} break;
 	}
 
 	switch (angular_damp_mode) {
-		case PhysicsServer3D::BODY_DAMP_MODE_COMBINE: {
+		case PS3DE::BODY_DAMP_MODE_COMBINE: {
 			total_angular_damp += angular_damp;
 		} break;
-		case PhysicsServer3D::BODY_DAMP_MODE_REPLACE: {
+		case PS3DE::BODY_DAMP_MODE_REPLACE: {
 			total_angular_damp = angular_damp;
 		} break;
 	}
@@ -525,21 +527,21 @@ bool Box3DBody3D::apply_kinematic_move(float p_step) {
 	return false;
 }
 
-Variant Box3DBody3D::get_state(PhysicsServer3D::BodyState p_state) const {
+Variant Box3DBody3D::get_state(PS3DE::BodyState p_state) const {
 	switch (p_state) {
-		case PhysicsServer3D::BODY_STATE_TRANSFORM: {
+		case PS3DE::BODY_STATE_TRANSFORM: {
 			return get_transform_scaled();
 		}
-		case PhysicsServer3D::BODY_STATE_LINEAR_VELOCITY: {
+		case PS3DE::BODY_STATE_LINEAR_VELOCITY: {
 			return in_space() ? get_linear_velocity() : linear_velocity_cache;
 		}
-		case PhysicsServer3D::BODY_STATE_ANGULAR_VELOCITY: {
+		case PS3DE::BODY_STATE_ANGULAR_VELOCITY: {
 			return in_space() ? get_angular_velocity() : angular_velocity_cache;
 		}
-		case PhysicsServer3D::BODY_STATE_SLEEPING: {
+		case PS3DE::BODY_STATE_SLEEPING: {
 			return is_sleeping();
 		}
-		case PhysicsServer3D::BODY_STATE_CAN_SLEEP: {
+		case PS3DE::BODY_STATE_CAN_SLEEP: {
 			return is_sleep_allowed();
 		}
 		default: {
@@ -548,21 +550,21 @@ Variant Box3DBody3D::get_state(PhysicsServer3D::BodyState p_state) const {
 	}
 }
 
-void Box3DBody3D::set_state(PhysicsServer3D::BodyState p_state, const Variant &p_value) {
+void Box3DBody3D::set_state(PS3DE::BodyState p_state, const Variant &p_value) {
 	switch (p_state) {
-		case PhysicsServer3D::BODY_STATE_TRANSFORM: {
+		case PS3DE::BODY_STATE_TRANSFORM: {
 			set_transform(p_value);
 		} break;
-		case PhysicsServer3D::BODY_STATE_LINEAR_VELOCITY: {
+		case PS3DE::BODY_STATE_LINEAR_VELOCITY: {
 			set_linear_velocity(p_value);
 		} break;
-		case PhysicsServer3D::BODY_STATE_ANGULAR_VELOCITY: {
+		case PS3DE::BODY_STATE_ANGULAR_VELOCITY: {
 			set_angular_velocity(p_value);
 		} break;
-		case PhysicsServer3D::BODY_STATE_SLEEPING: {
+		case PS3DE::BODY_STATE_SLEEPING: {
 			set_is_sleeping(p_value);
 		} break;
-		case PhysicsServer3D::BODY_STATE_CAN_SLEEP: {
+		case PS3DE::BODY_STATE_CAN_SLEEP: {
 			set_is_sleep_allowed(p_value);
 		} break;
 		default: {
@@ -571,36 +573,36 @@ void Box3DBody3D::set_state(PhysicsServer3D::BodyState p_state, const Variant &p
 	}
 }
 
-Variant Box3DBody3D::get_param(PhysicsServer3D::BodyParameter p_param) const {
+Variant Box3DBody3D::get_param(PS3DE::BodyParameter p_param) const {
 	switch (p_param) {
-		case PhysicsServer3D::BODY_PARAM_BOUNCE: {
+		case PS3DE::BODY_PARAM_BOUNCE: {
 			return get_bounce();
 		}
-		case PhysicsServer3D::BODY_PARAM_FRICTION: {
+		case PS3DE::BODY_PARAM_FRICTION: {
 			return get_friction();
 		}
-		case PhysicsServer3D::BODY_PARAM_MASS: {
+		case PS3DE::BODY_PARAM_MASS: {
 			return get_mass();
 		}
-		case PhysicsServer3D::BODY_PARAM_INERTIA: {
+		case PS3DE::BODY_PARAM_INERTIA: {
 			return get_inertia();
 		}
-		case PhysicsServer3D::BODY_PARAM_CENTER_OF_MASS: {
+		case PS3DE::BODY_PARAM_CENTER_OF_MASS: {
 			return get_center_of_mass_custom();
 		}
-		case PhysicsServer3D::BODY_PARAM_GRAVITY_SCALE: {
+		case PS3DE::BODY_PARAM_GRAVITY_SCALE: {
 			return get_gravity_scale();
 		}
-		case PhysicsServer3D::BODY_PARAM_LINEAR_DAMP_MODE: {
+		case PS3DE::BODY_PARAM_LINEAR_DAMP_MODE: {
 			return get_linear_damp_mode();
 		}
-		case PhysicsServer3D::BODY_PARAM_ANGULAR_DAMP_MODE: {
+		case PS3DE::BODY_PARAM_ANGULAR_DAMP_MODE: {
 			return get_angular_damp_mode();
 		}
-		case PhysicsServer3D::BODY_PARAM_LINEAR_DAMP: {
+		case PS3DE::BODY_PARAM_LINEAR_DAMP: {
 			return get_linear_damp();
 		}
-		case PhysicsServer3D::BODY_PARAM_ANGULAR_DAMP: {
+		case PS3DE::BODY_PARAM_ANGULAR_DAMP: {
 			return get_angular_damp();
 		}
 		default: {
@@ -609,36 +611,36 @@ Variant Box3DBody3D::get_param(PhysicsServer3D::BodyParameter p_param) const {
 	}
 }
 
-void Box3DBody3D::set_param(PhysicsServer3D::BodyParameter p_param, const Variant &p_value) {
+void Box3DBody3D::set_param(PS3DE::BodyParameter p_param, const Variant &p_value) {
 	switch (p_param) {
-		case PhysicsServer3D::BODY_PARAM_BOUNCE: {
+		case PS3DE::BODY_PARAM_BOUNCE: {
 			set_bounce(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_FRICTION: {
+		case PS3DE::BODY_PARAM_FRICTION: {
 			set_friction(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_MASS: {
+		case PS3DE::BODY_PARAM_MASS: {
 			set_mass(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_INERTIA: {
+		case PS3DE::BODY_PARAM_INERTIA: {
 			set_inertia(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_CENTER_OF_MASS: {
+		case PS3DE::BODY_PARAM_CENTER_OF_MASS: {
 			set_center_of_mass_custom(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_GRAVITY_SCALE: {
+		case PS3DE::BODY_PARAM_GRAVITY_SCALE: {
 			set_gravity_scale(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_LINEAR_DAMP_MODE: {
+		case PS3DE::BODY_PARAM_LINEAR_DAMP_MODE: {
 			set_linear_damp_mode((DampMode)(int)p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_ANGULAR_DAMP_MODE: {
+		case PS3DE::BODY_PARAM_ANGULAR_DAMP_MODE: {
 			set_angular_damp_mode((DampMode)(int)p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_LINEAR_DAMP: {
+		case PS3DE::BODY_PARAM_LINEAR_DAMP: {
 			set_linear_damp(p_value);
 		} break;
-		case PhysicsServer3D::BODY_PARAM_ANGULAR_DAMP: {
+		case PS3DE::BODY_PARAM_ANGULAR_DAMP: {
 			set_angular_damp(p_value);
 		} break;
 		default: {
@@ -808,7 +810,7 @@ void Box3DBody3D::set_center_of_mass_custom(const Vector3 &p_center_of_mass) {
 }
 
 void Box3DBody3D::set_max_contacts_reported(int p_count) {
-	ERR_FAIL_INDEX(p_count, MAX_CONTACTS_REPORTED_3D_MAX);
+	ERR_FAIL_INDEX(p_count, PS3DC::MAX_CONTACTS_REPORTED_3D_MAX);
 
 	if (unlikely((int)contacts.size() == p_count)) {
 		return;
@@ -1188,16 +1190,16 @@ Box3DPhysicsDirectBodyState3D *Box3DBody3D::get_direct_state() {
 	return direct_state;
 }
 
-void Box3DBody3D::set_mode(PhysicsServer3D::BodyMode p_mode) {
+void Box3DBody3D::set_mode(PS3DE::BodyMode p_mode) {
 	if (p_mode == mode) {
 		return;
 	}
 
-	const PhysicsServer3D::BodyMode previous_mode = mode;
+	const PS3DE::BodyMode previous_mode = mode;
 	mode = p_mode;
 
 	if (in_space()) {
-		if (previous_mode == PhysicsServer3D::BODY_MODE_KINEMATIC) {
+		if (previous_mode == PS3DE::BODY_MODE_KINEMATIC) {
 			space->dequeue_kinematic(&kinematic_element);
 			kinematic_move_pending = false;
 		}
@@ -1303,11 +1305,11 @@ void Box3DBody3D::set_angular_damp_mode(DampMode p_mode) {
 	_update_environmental_properties();
 }
 
-bool Box3DBody3D::is_axis_locked(PhysicsServer3D::BodyAxis p_axis) const {
+bool Box3DBody3D::is_axis_locked(PS3DE::BodyAxis p_axis) const {
 	return (locked_axes & (uint32_t)p_axis) != 0;
 }
 
-void Box3DBody3D::set_axis_lock(PhysicsServer3D::BodyAxis p_axis, bool p_enabled) {
+void Box3DBody3D::set_axis_lock(PS3DE::BodyAxis p_axis, bool p_enabled) {
 	const uint32_t previous_locked_axes = locked_axes;
 
 	if (p_enabled) {

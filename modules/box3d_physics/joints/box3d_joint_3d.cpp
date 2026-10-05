@@ -50,7 +50,7 @@ constexpr double HINGE_DEFAULT_LIMIT_BIAS = 0.3;
 constexpr double HINGE_DEFAULT_SOFTNESS = 0.9;
 constexpr double HINGE_DEFAULT_RELAXATION = 1.0;
 
-constexpr double SLIDER_DEFAULTS[PhysicsServer3D::SLIDER_JOINT_MAX] = {
+constexpr double SLIDER_DEFAULTS[PS3DE::SLIDER_JOINT_MAX] = {
 	0.0,
 	0.0, // Linear limit upper and lower are stored on the joint itself.
 	1.0,
@@ -170,7 +170,7 @@ String Box3DJoint3D::_bodies_to_string() const {
 
 void Box3DJoint3D::_report_dropped(const String &p_feature, const String &p_detail) const {
 	BOX3D_UNSUPPORTED_KEYED(p_feature,
-			vformat("A %s joint was configured with a setting that Box3D joints cannot express.", PhysicsServer3D::JointType(get_type()) == PhysicsServer3D::JOINT_TYPE_6DOF ? "6DOF" : "physics"),
+			vformat("A %s joint was configured with a setting that Box3D joints cannot express.", PS3DE::JointType(get_type()) == PS3DE::JOINT_TYPE_6DOF ? "6DOF" : "physics"),
 			"Box3D only has pin (spherical), hinge (revolute), slider (prismatic), weld and wheel joint types, so this setting has no equivalent.",
 			vformat("joint=%s type=%d bodies=%s %s", rid, (int)get_type(), _bodies_to_string(), p_detail),
 			vformat("joint_%s_%d", p_feature, (int)get_type()));
@@ -342,7 +342,7 @@ void Box3DJoint3D::rebuild() {
 		rebuild_element.remove_from_list();
 	}
 
-	if (!enabled || get_type() == PhysicsServer3D::JOINT_TYPE_MAX) {
+	if (!enabled || get_type() == PS3DE::JOINT_TYPE_MAX) {
 		return;
 	}
 
@@ -402,15 +402,15 @@ void Box3DPinJoint3D::set_local_b(const Vector3 &p_local_b) {
 	_wake_up_bodies();
 }
 
-double Box3DPinJoint3D::get_param(PhysicsServer3D::PinJointParam p_param) const {
+double Box3DPinJoint3D::get_param(PS3DE::PinJointParam p_param) const {
 	switch (p_param) {
-		case PhysicsServer3D::PIN_JOINT_BIAS: {
+		case PS3DE::PIN_JOINT_BIAS: {
 			return PIN_DEFAULT_BIAS;
 		}
-		case PhysicsServer3D::PIN_JOINT_DAMPING: {
+		case PS3DE::PIN_JOINT_DAMPING: {
 			return PIN_DEFAULT_DAMPING;
 		}
-		case PhysicsServer3D::PIN_JOINT_IMPULSE_CLAMP: {
+		case PS3DE::PIN_JOINT_IMPULSE_CLAMP: {
 			return PIN_DEFAULT_IMPULSE_CLAMP;
 		}
 		default: {
@@ -419,15 +419,15 @@ double Box3DPinJoint3D::get_param(PhysicsServer3D::PinJointParam p_param) const 
 	}
 }
 
-void Box3DPinJoint3D::set_param(PhysicsServer3D::PinJointParam p_param, double p_value) {
+void Box3DPinJoint3D::set_param(PS3DE::PinJointParam p_param, double p_value) {
 	switch (p_param) {
-		case PhysicsServer3D::PIN_JOINT_BIAS: {
+		case PS3DE::PIN_JOINT_BIAS: {
 			_report_default_only("Pin joint bias", p_value, PIN_DEFAULT_BIAS);
 		} break;
-		case PhysicsServer3D::PIN_JOINT_DAMPING: {
+		case PS3DE::PIN_JOINT_DAMPING: {
 			_report_default_only("Pin joint damping", p_value, PIN_DEFAULT_DAMPING);
 		} break;
-		case PhysicsServer3D::PIN_JOINT_IMPULSE_CLAMP: {
+		case PS3DE::PIN_JOINT_IMPULSE_CLAMP: {
 			_report_default_only("Pin joint impulse clamp", p_value, PIN_DEFAULT_IMPULSE_CLAMP);
 		} break;
 		default: {
@@ -472,30 +472,30 @@ b3JointId Box3DHingeJoint3D::_create(b3WorldId p_world, const Frames &p_frames) 
 	return b3CreateRevoluteJoint(p_world, &def);
 }
 
-double Box3DHingeJoint3D::get_param(PhysicsServer3D::HingeJointParam p_param) const {
+double Box3DHingeJoint3D::get_param(PS3DE::HingeJointParam p_param) const {
 	switch (p_param) {
-		case PhysicsServer3D::HINGE_JOINT_BIAS: {
+		case PS3DE::HINGE_JOINT_BIAS: {
 			return HINGE_DEFAULT_BIAS;
 		}
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_UPPER: {
+		case PS3DE::HINGE_JOINT_LIMIT_UPPER: {
 			return limit_upper;
 		}
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_LOWER: {
+		case PS3DE::HINGE_JOINT_LIMIT_LOWER: {
 			return limit_lower;
 		}
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_BIAS: {
+		case PS3DE::HINGE_JOINT_LIMIT_BIAS: {
 			return HINGE_DEFAULT_LIMIT_BIAS;
 		}
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_SOFTNESS: {
+		case PS3DE::HINGE_JOINT_LIMIT_SOFTNESS: {
 			return HINGE_DEFAULT_SOFTNESS;
 		}
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_RELAXATION: {
+		case PS3DE::HINGE_JOINT_LIMIT_RELAXATION: {
 			return HINGE_DEFAULT_RELAXATION;
 		}
-		case PhysicsServer3D::HINGE_JOINT_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::HINGE_JOINT_MOTOR_TARGET_VELOCITY: {
 			return motor_target_speed;
 		}
-		case PhysicsServer3D::HINGE_JOINT_MOTOR_MAX_IMPULSE: {
+		case PS3DE::HINGE_JOINT_MOTOR_MAX_IMPULSE: {
 			// Godot uses a max impulse instead of a max torque, so this is estimated from the physics step.
 			return motor_max_torque * estimate_physics_step();
 		}
@@ -505,38 +505,38 @@ double Box3DHingeJoint3D::get_param(PhysicsServer3D::HingeJointParam p_param) co
 	}
 }
 
-void Box3DHingeJoint3D::set_param(PhysicsServer3D::HingeJointParam p_param, double p_value) {
+void Box3DHingeJoint3D::set_param(PS3DE::HingeJointParam p_param, double p_value) {
 	switch (p_param) {
-		case PhysicsServer3D::HINGE_JOINT_BIAS: {
+		case PS3DE::HINGE_JOINT_BIAS: {
 			_report_default_only("Hinge joint bias", p_value, HINGE_DEFAULT_BIAS);
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_UPPER: {
+		case PS3DE::HINGE_JOINT_LIMIT_UPPER: {
 			limit_upper = p_value;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_LOWER: {
+		case PS3DE::HINGE_JOINT_LIMIT_LOWER: {
 			limit_lower = p_value;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_BIAS: {
+		case PS3DE::HINGE_JOINT_LIMIT_BIAS: {
 			_report_default_only("Hinge joint limit bias", p_value, HINGE_DEFAULT_LIMIT_BIAS);
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_SOFTNESS: {
+		case PS3DE::HINGE_JOINT_LIMIT_SOFTNESS: {
 			_report_default_only("Hinge joint limit softness", p_value, HINGE_DEFAULT_SOFTNESS);
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_LIMIT_RELAXATION: {
+		case PS3DE::HINGE_JOINT_LIMIT_RELAXATION: {
 			_report_default_only("Hinge joint limit relaxation", p_value, HINGE_DEFAULT_RELAXATION);
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::HINGE_JOINT_MOTOR_TARGET_VELOCITY: {
 			motor_target_speed = p_value;
 			if (B3_IS_NON_NULL(joint_id) && motor_enabled) {
 				b3RevoluteJoint_SetMotorSpeed(joint_id, (float)-motor_target_speed);
 			}
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_MOTOR_MAX_IMPULSE: {
+		case PS3DE::HINGE_JOINT_MOTOR_MAX_IMPULSE: {
 			// Godot uses a max impulse instead of a max torque, so this is estimated from the physics step.
 			motor_max_torque = p_value / estimate_physics_step();
 			if (B3_IS_NON_NULL(joint_id) && motor_enabled) {
@@ -550,12 +550,12 @@ void Box3DHingeJoint3D::set_param(PhysicsServer3D::HingeJointParam p_param, doub
 	}
 }
 
-bool Box3DHingeJoint3D::get_flag(PhysicsServer3D::HingeJointFlag p_flag) const {
+bool Box3DHingeJoint3D::get_flag(PS3DE::HingeJointFlag p_flag) const {
 	switch (p_flag) {
-		case PhysicsServer3D::HINGE_JOINT_FLAG_USE_LIMIT: {
+		case PS3DE::HINGE_JOINT_FLAG_USE_LIMIT: {
 			return limits_enabled;
 		}
-		case PhysicsServer3D::HINGE_JOINT_FLAG_ENABLE_MOTOR: {
+		case PS3DE::HINGE_JOINT_FLAG_ENABLE_MOTOR: {
 			return motor_enabled;
 		}
 		default: {
@@ -564,14 +564,14 @@ bool Box3DHingeJoint3D::get_flag(PhysicsServer3D::HingeJointFlag p_flag) const {
 	}
 }
 
-void Box3DHingeJoint3D::set_flag(PhysicsServer3D::HingeJointFlag p_flag, bool p_enabled) {
+void Box3DHingeJoint3D::set_flag(PS3DE::HingeJointFlag p_flag, bool p_enabled) {
 	switch (p_flag) {
-		case PhysicsServer3D::HINGE_JOINT_FLAG_USE_LIMIT: {
+		case PS3DE::HINGE_JOINT_FLAG_USE_LIMIT: {
 			limits_enabled = p_enabled;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::HINGE_JOINT_FLAG_ENABLE_MOTOR: {
+		case PS3DE::HINGE_JOINT_FLAG_ENABLE_MOTOR: {
 			motor_enabled = p_enabled;
 			request_rebuild();
 			_wake_up_bodies();
@@ -610,14 +610,14 @@ b3JointId Box3DSliderJoint3D::_create(b3WorldId p_world, const Frames &p_frames)
 	return b3CreatePrismaticJoint(p_world, &def);
 }
 
-double Box3DSliderJoint3D::get_param(PhysicsServer3D::SliderJointParam p_param) const {
-	ERR_FAIL_INDEX_V((int)p_param, (int)PhysicsServer3D::SLIDER_JOINT_MAX, 0.0);
+double Box3DSliderJoint3D::get_param(PS3DE::SliderJointParam p_param) const {
+	ERR_FAIL_INDEX_V((int)p_param, (int)PS3DE::SLIDER_JOINT_MAX, 0.0);
 
 	switch (p_param) {
-		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_UPPER: {
+		case PS3DE::SLIDER_JOINT_LINEAR_LIMIT_UPPER: {
 			return limit_upper;
 		}
-		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_LOWER: {
+		case PS3DE::SLIDER_JOINT_LINEAR_LIMIT_LOWER: {
 			return limit_lower;
 		}
 		default: {
@@ -626,16 +626,16 @@ double Box3DSliderJoint3D::get_param(PhysicsServer3D::SliderJointParam p_param) 
 	}
 }
 
-void Box3DSliderJoint3D::set_param(PhysicsServer3D::SliderJointParam p_param, double p_value) {
-	ERR_FAIL_INDEX((int)p_param, (int)PhysicsServer3D::SLIDER_JOINT_MAX);
+void Box3DSliderJoint3D::set_param(PS3DE::SliderJointParam p_param, double p_value) {
+	ERR_FAIL_INDEX((int)p_param, (int)PS3DE::SLIDER_JOINT_MAX);
 
 	switch (p_param) {
-		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_UPPER: {
+		case PS3DE::SLIDER_JOINT_LINEAR_LIMIT_UPPER: {
 			limit_upper = p_value;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::SLIDER_JOINT_LINEAR_LIMIT_LOWER: {
+		case PS3DE::SLIDER_JOINT_LINEAR_LIMIT_LOWER: {
 			limit_lower = p_value;
 			request_rebuild();
 			_wake_up_bodies();
@@ -680,21 +680,21 @@ b3JointId Box3DConeTwistJoint3D::_create(b3WorldId p_world, const Frames &p_fram
 	return b3CreateSphericalJoint(p_world, &def);
 }
 
-double Box3DConeTwistJoint3D::get_param(PhysicsServer3D::ConeTwistJointParam p_param) const {
+double Box3DConeTwistJoint3D::get_param(PS3DE::ConeTwistJointParam p_param) const {
 	switch (p_param) {
-		case PhysicsServer3D::CONE_TWIST_JOINT_SWING_SPAN: {
+		case PS3DE::CONE_TWIST_JOINT_SWING_SPAN: {
 			return swing_span;
 		}
-		case PhysicsServer3D::CONE_TWIST_JOINT_TWIST_SPAN: {
+		case PS3DE::CONE_TWIST_JOINT_TWIST_SPAN: {
 			return twist_span;
 		}
-		case PhysicsServer3D::CONE_TWIST_JOINT_BIAS: {
+		case PS3DE::CONE_TWIST_JOINT_BIAS: {
 			return CONE_TWIST_DEFAULT_BIAS;
 		}
-		case PhysicsServer3D::CONE_TWIST_JOINT_SOFTNESS: {
+		case PS3DE::CONE_TWIST_JOINT_SOFTNESS: {
 			return CONE_TWIST_DEFAULT_SOFTNESS;
 		}
-		case PhysicsServer3D::CONE_TWIST_JOINT_RELAXATION: {
+		case PS3DE::CONE_TWIST_JOINT_RELAXATION: {
 			return CONE_TWIST_DEFAULT_RELAXATION;
 		}
 		default: {
@@ -703,25 +703,25 @@ double Box3DConeTwistJoint3D::get_param(PhysicsServer3D::ConeTwistJointParam p_p
 	}
 }
 
-void Box3DConeTwistJoint3D::set_param(PhysicsServer3D::ConeTwistJointParam p_param, double p_value) {
+void Box3DConeTwistJoint3D::set_param(PS3DE::ConeTwistJointParam p_param, double p_value) {
 	switch (p_param) {
-		case PhysicsServer3D::CONE_TWIST_JOINT_SWING_SPAN: {
+		case PS3DE::CONE_TWIST_JOINT_SWING_SPAN: {
 			swing_span = p_value;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::CONE_TWIST_JOINT_TWIST_SPAN: {
+		case PS3DE::CONE_TWIST_JOINT_TWIST_SPAN: {
 			twist_span = p_value;
 			request_rebuild();
 			_wake_up_bodies();
 		} break;
-		case PhysicsServer3D::CONE_TWIST_JOINT_BIAS: {
+		case PS3DE::CONE_TWIST_JOINT_BIAS: {
 			_report_default_only("Cone twist joint bias", p_value, CONE_TWIST_DEFAULT_BIAS);
 		} break;
-		case PhysicsServer3D::CONE_TWIST_JOINT_SOFTNESS: {
+		case PS3DE::CONE_TWIST_JOINT_SOFTNESS: {
 			_report_default_only("Cone twist joint softness", p_value, CONE_TWIST_DEFAULT_SOFTNESS);
 		} break;
-		case PhysicsServer3D::CONE_TWIST_JOINT_RELAXATION: {
+		case PS3DE::CONE_TWIST_JOINT_RELAXATION: {
 			_report_default_only("Cone twist joint relaxation", p_value, CONE_TWIST_DEFAULT_RELAXATION);
 		} break;
 		default: {
@@ -838,75 +838,75 @@ b3JointId Box3DGeneric6DOFJoint3D::_create(b3WorldId p_world, const Frames &p_fr
 	return b3_nullJointId;
 }
 
-double Box3DGeneric6DOFJoint3D::get_param(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param) const {
+double Box3DGeneric6DOFJoint3D::get_param(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param) const {
 	const int axis = (int)p_axis;
 	ERR_FAIL_INDEX_V(axis, 3, 0.0);
 
 	switch (p_param) {
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_LOWER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_LOWER_LIMIT: {
 			return limit_lower[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_UPPER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_UPPER_LIMIT: {
 			return limit_upper[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_LIMIT_SOFTNESS: {
+		case PS3DE::G6DOF_JOINT_LINEAR_LIMIT_SOFTNESS: {
 			return 0.7;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_RESTITUTION: {
+		case PS3DE::G6DOF_JOINT_LINEAR_RESTITUTION: {
 			return 0.5;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_DAMPING: {
+		case PS3DE::G6DOF_JOINT_LINEAR_DAMPING: {
 			return 1.0;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::G6DOF_JOINT_LINEAR_MOTOR_TARGET_VELOCITY: {
 			return motor_speed[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_MOTOR_FORCE_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_MOTOR_FORCE_LIMIT: {
 			return motor_limit[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_STIFFNESS: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_STIFFNESS: {
 			return spring_stiffness[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_DAMPING: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_DAMPING: {
 			return spring_damping[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
 			return spring_equilibrium[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
 			return limit_lower[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_UPPER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_UPPER_LIMIT: {
 			return limit_upper[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_LIMIT_SOFTNESS: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_LIMIT_SOFTNESS: {
 			return 0.5;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_DAMPING: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_DAMPING: {
 			return 1.0;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_RESTITUTION: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_RESTITUTION: {
 			return 0.0;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_FORCE_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_FORCE_LIMIT: {
 			return 0.0;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_ERP: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_ERP: {
 			return 0.5;
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_MOTOR_TARGET_VELOCITY: {
 			return motor_speed[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_MOTOR_FORCE_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_MOTOR_FORCE_LIMIT: {
 			return motor_limit[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_STIFFNESS: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_STIFFNESS: {
 			return spring_stiffness[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_DAMPING: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_DAMPING: {
 			return spring_damping[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
 			return spring_equilibrium[AXIS_ANGULAR_X + axis];
 		}
 		default: {
@@ -915,68 +915,68 @@ double Box3DGeneric6DOFJoint3D::get_param(Vector3::Axis p_axis, PhysicsServer3D:
 	}
 }
 
-void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param, double p_value) {
+void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param, double p_value) {
 	const int axis = (int)p_axis;
 	ERR_FAIL_INDEX(axis, 3);
 
 	bool rebuild_needed = false;
 
 	switch (p_param) {
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_LOWER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_LOWER_LIMIT: {
 			limit_lower[AXIS_LINEAR_X + axis] = p_value;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_UPPER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_UPPER_LIMIT: {
 			limit_upper[AXIS_LINEAR_X + axis] = p_value;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_LIMIT_SOFTNESS:
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_RESTITUTION:
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_DAMPING:
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_LIMIT_SOFTNESS:
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_DAMPING:
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_RESTITUTION:
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_FORCE_LIMIT:
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_ERP: {
+		case PS3DE::G6DOF_JOINT_LINEAR_LIMIT_SOFTNESS:
+		case PS3DE::G6DOF_JOINT_LINEAR_RESTITUTION:
+		case PS3DE::G6DOF_JOINT_LINEAR_DAMPING:
+		case PS3DE::G6DOF_JOINT_ANGULAR_LIMIT_SOFTNESS:
+		case PS3DE::G6DOF_JOINT_ANGULAR_DAMPING:
+		case PS3DE::G6DOF_JOINT_ANGULAR_RESTITUTION:
+		case PS3DE::G6DOF_JOINT_ANGULAR_FORCE_LIMIT:
+		case PS3DE::G6DOF_JOINT_ANGULAR_ERP: {
 			_report_default_only("6DOF joint solver parameter", p_value, get_param(p_axis, p_param));
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::G6DOF_JOINT_LINEAR_MOTOR_TARGET_VELOCITY: {
 			motor_speed[AXIS_LINEAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_MOTOR_FORCE_LIMIT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_MOTOR_FORCE_LIMIT: {
 			motor_limit[AXIS_LINEAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_STIFFNESS: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_STIFFNESS: {
 			spring_stiffness[AXIS_LINEAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_DAMPING: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_DAMPING: {
 			spring_damping[AXIS_LINEAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
+		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
 			spring_equilibrium[AXIS_LINEAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
 			// Godot's angular axes run the opposite way of Box3D's, so the limits are mirrored.
 			limit_upper[AXIS_ANGULAR_X + axis] = -p_value;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_UPPER_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_UPPER_LIMIT: {
 			limit_lower[AXIS_ANGULAR_X + axis] = -p_value;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_MOTOR_TARGET_VELOCITY: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_MOTOR_TARGET_VELOCITY: {
 			motor_speed[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_MOTOR_FORCE_LIMIT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_MOTOR_FORCE_LIMIT: {
 			motor_limit[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_STIFFNESS: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_STIFFNESS: {
 			spring_stiffness[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_DAMPING: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_DAMPING: {
 			spring_damping[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
+		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
 			spring_equilibrium[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
 		default: {
@@ -990,27 +990,27 @@ void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PhysicsServer3D::G
 	}
 }
 
-bool Box3DGeneric6DOFJoint3D::get_flag(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag) const {
+bool Box3DGeneric6DOFJoint3D::get_flag(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag) const {
 	const int axis = (int)p_axis;
 	ERR_FAIL_INDEX_V(axis, 3, false);
 
 	switch (p_flag) {
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_LIMIT: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_LIMIT: {
 			return limit_enabled[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_LIMIT: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_LIMIT: {
 			return limit_enabled[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_SPRING: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_SPRING: {
 			return spring_enabled[AXIS_LINEAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_SPRING: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_SPRING: {
 			return spring_enabled[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_MOTOR: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_MOTOR: {
 			return motor_enabled[AXIS_ANGULAR_X + axis];
 		}
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR: {
 			return motor_enabled[AXIS_LINEAR_X + axis];
 		}
 		default: {
@@ -1019,34 +1019,34 @@ bool Box3DGeneric6DOFJoint3D::get_flag(Vector3::Axis p_axis, PhysicsServer3D::G6
 	}
 }
 
-void Box3DGeneric6DOFJoint3D::set_flag(Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag, bool p_enabled) {
+void Box3DGeneric6DOFJoint3D::set_flag(Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag, bool p_enabled) {
 	const int axis = (int)p_axis;
 	ERR_FAIL_INDEX(axis, 3);
 
 	bool rebuild_needed = false;
 
 	switch (p_flag) {
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_LIMIT: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_LIMIT: {
 			limit_enabled[AXIS_LINEAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_LIMIT: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_LIMIT: {
 			limit_enabled[AXIS_ANGULAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_SPRING: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_SPRING: {
 			spring_enabled[AXIS_LINEAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_SPRING: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_ANGULAR_SPRING: {
 			spring_enabled[AXIS_ANGULAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_MOTOR: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_MOTOR: {
 			motor_enabled[AXIS_ANGULAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
-		case PhysicsServer3D::G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR: {
+		case PS3DE::G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR: {
 			motor_enabled[AXIS_LINEAR_X + axis] = p_enabled;
 			rebuild_needed = true;
 		} break;
@@ -1059,4 +1059,21 @@ void Box3DGeneric6DOFJoint3D::set_flag(Vector3::Axis p_axis, PhysicsServer3D::G6
 		request_rebuild();
 		_wake_up_bodies();
 	}
+}
+
+Quaternion Box3DGeneric6DOFJoint3D::get_angular_target_rotation() const {
+	// Identity until something sets it, matching GodotPhysics3D's return value for
+	// a joint with no target rotation.
+	return has_angular_target_rotation ? angular_target_rotation : Quaternion();
+}
+
+void Box3DGeneric6DOFJoint3D::set_angular_target_rotation(const Quaternion &p_target_rotation) {
+	ERR_FAIL_COND_MSG(!p_target_rotation.is_finite() || p_target_rotation.length_squared() <= CMP_EPSILON, "Angular target rotation must be a finite, non-zero quaternion.");
+
+	angular_target_rotation = p_target_rotation.normalized();
+	has_angular_target_rotation = true;
+
+	// Stored for round-tripping only; see the member's comment in the header.
+	_report_dropped("Angular target rotation",
+			vformat("target_rotation=%s", angular_target_rotation));
 }
