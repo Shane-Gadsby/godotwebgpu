@@ -30,11 +30,11 @@
 
 #include "wayland_thread.h"
 
+#ifdef WAYLAND_ENABLED
+
 #include "core/config/engine.h"
 #include "core/io/image.h"
 #include "core/os/os.h"
-
-#ifdef WAYLAND_ENABLED
 
 #ifdef __FreeBSD__
 #include <dev/evdev/input-event-codes.h>
@@ -1169,9 +1169,7 @@ void WaylandThread::_wl_registry_on_global_remove(void *data, struct wl_registry
 
 			for (struct zwp_tablet_tool_v2 *tool : ss->tablet_tools) {
 				TabletToolState *state = wp_tablet_tool_get_state(tool);
-				if (state) {
-					memdelete(state);
-				}
+				memdelete(state);
 
 				zwp_tablet_tool_v2_destroy(tool);
 			}
@@ -1236,9 +1234,7 @@ void WaylandThread::_wl_registry_on_global_remove(void *data, struct wl_registry
 
 					for (struct zwp_tablet_tool_v2 *tool : ss->tablet_tools) {
 						TabletToolState *state = wp_tablet_tool_get_state(tool);
-						if (state) {
-							memdelete(state);
-						}
+						memdelete(state);
 
 						zwp_tablet_tool_v2_destroy(tool);
 					}
@@ -3262,9 +3258,7 @@ void WaylandThread::_wp_tablet_tool_on_removed(void *data, struct zwp_tablet_too
 	if (E && E->get()) {
 		struct zwp_tablet_tool_v2 *tool = E->get();
 		TabletToolState *state = wp_tablet_tool_get_state(tool);
-		if (state) {
-			memdelete(state);
-		}
+		memdelete(state);
 
 		zwp_tablet_tool_v2_destroy(tool);
 		ss->tablet_tools.erase(E);
@@ -4451,6 +4445,9 @@ void WaylandThread::window_create_popup(DisplayServerEnums::WindowID p_window_id
 
 	p_rect.position = scale_vector2i(p_rect.position, 1.0 / parent_scale);
 	p_rect.size = scale_vector2i(p_rect.size, 1.0 / parent_scale);
+
+	p_rect.size = p_rect.size.maxi(1);
+
 	// We manually scaled based on the parent. If we don't set the relevant fields,
 	// the resizing routines will get confused and scale once more.
 	ws.preferred_fractional_scale = parent.preferred_fractional_scale;
@@ -5441,7 +5438,7 @@ void WaylandThread::pointer_set_hint(const Point2i &p_hint) {
 
 	// NOTE: It looks like it's not really recommended to convert from
 	// "godot-space" to "wayland-space" and in general I received mixed feelings
-	// discussing about this. I'm not really sure about the maths behind this but,
+	// discussing about this. I'm not really sure about the math behind this but,
 	// oh well, we're setting a cursor hint. ¯\_(ツ)_/¯
 	// See: https://oftc.irclog.whitequark.org/wayland/2023-08-23#1692756914-1692816818
 	int hint_x = Math::round(p_hint.x / window_state_get_scale_factor(ws));
@@ -5494,7 +5491,7 @@ void WaylandThread::pointer_warp(const Point2i &p_to) {
 
 	// NOTE: It looks like it's not really recommended to convert from
 	// "godot-space" to "wayland-space" and in general I received mixed feelings
-	// discussing about this. I'm not really sure about the maths behind this but,
+	// discussing about this. I'm not really sure about the math behind this but,
 	// oh well. ¯\_(ツ)_/¯
 	// See: https://oftc.irclog.whitequark.org/wayland/2023-08-23#1692756914-1692816818
 	int wl_pos_x = Math::round(p_to.x / window_state_get_scale_factor(ws));
@@ -5557,7 +5554,8 @@ Error WaylandThread::init() {
 
 	if (embedder_enabled && Engine::get_singleton()->is_editor_hint() && !Engine::get_singleton()->is_project_manager_hint()) {
 		print_verbose("Initializing Wayland embedder.");
-		Error embedder_status = embedder.init();
+		bool embedder_debug = OS::get_singleton()->get_environment("GODOT_WAYLAND_EMBEDDER_DEBUG") == "1";
+		Error embedder_status = embedder.init(embedder_debug);
 		ERR_FAIL_COND_V_MSG(embedder_status != OK, ERR_CANT_CREATE, "Can't initialize Wayland embedder.");
 
 		embedder_socket_path = embedder.get_socket_path();

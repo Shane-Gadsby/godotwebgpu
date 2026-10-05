@@ -486,7 +486,9 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		}
 
 		tf_render.format = RD::DATA_FORMAT_R32_UINT;
+		tf_render.usage_bits |= RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
 		render_geom_facing = create_clear_texture(tf_render, "SDFGI Render Geometry Facing");
+		tf_render.usage_bits &= ~RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
 
 		tf_render.format = RD::DATA_FORMAT_R8G8B8A8_UINT;
 		render_sdf[0] = create_clear_texture(tf_render, "SDFGI Render SDF 0");
@@ -3605,7 +3607,12 @@ String GI::_sdfgi_integrate_defines() {
 	String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n";
 	defines += "\n#define SH_SIZE " + itos(SDFGI::SH_SIZE) + "\n";
 	if (singleton && singleton->sdfgi_sky_use_octmap_array) {
-		defines += "\n#define USE_OCTMAP_ARRAY\n";
+		// USE_RADIANCE_OCTMAP_ARRAY as of 4.8. Both this fork and upstream 4.7.2
+		// emitted USE_OCTMAP_ARRAY here, which no shader ever read -- an upstream
+		// quirk the fork copied faithfully when Task 31 moved these defines into a
+		// helper. 4.8's sdfgi_integrate.glsl reads USE_RADIANCE_OCTMAP_ARRAY, so
+		// the variant is finally distinguished for real, at bake time included.
+		defines += "\n#define USE_RADIANCE_OCTMAP_ARRAY\n";
 	}
 	defines += _sdfgi_native_storage_format_define();
 	return defines;
