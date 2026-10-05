@@ -105,6 +105,23 @@ protected:
 	virtual uint32_t _format() const = 0;
 	virtual uint32_t _format_version() const = 0;
 
+	// Called once at the start of from_bytes(), with the whole buffer the rest of
+	// the parse reads out of, before any of the _from_bytes_* hooks below run.
+	// Default does nothing.
+	//
+	// It exists so a format can keep a *reference* to that buffer and have its
+	// own _from_bytes_* hooks record offsets into it rather than copying bytes
+	// out of it. PackedByteArray is refcounted, so retaining it costs a refcount
+	// bump and no memory; the payoff is one fewer full copy of whatever the
+	// format's extra data is. The WebGPU container does this for its baked-WGSL
+	// footer, which is the largest single payload in any container this engine
+	// writes (hundreds of KB per shader, ~60 MB across a real project's export),
+	// and copying it per load was measurable in the web export's startup time.
+	//
+	// A format that overrides this must assume nothing about the buffer beyond
+	// its contents: it is the caller's array, which from_bytes() does not own.
+	virtual void _from_bytes_begin(const PackedByteArray &p_bytes);
+
 	// These methods will always be called with a valid pointer.
 	virtual uint32_t _from_bytes_header_extra_data(const uint8_t *p_bytes);
 	virtual uint32_t _from_bytes_reflection_extra_data(const uint8_t *p_bytes);

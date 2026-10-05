@@ -17,6 +17,8 @@
  *   9. Texture copyable layout computations
  *  10. Texture format read/write conversions
  *  11. Bind group layout compatibility
+ *  12. Raw SPIR-V image declaration -> BindGroupLayout mapping
+ *  13. Shader container payloads: SPIR-V omission rule and footer layout
  *
  * Usage:
  *   node run_tests.mjs
@@ -35,6 +37,8 @@ import { runTests as testTextureLayout } from './test_texture_layout.mjs';
 import { runTests as testTextureConversion } from './test_texture_conversion.mjs';
 import { runTests as testBindGroupCompat } from './test_bind_group_compat.mjs';
 import { runTests as testOverrideFiltering } from './test_override_filtering.mjs';
+import { runTests as testImageDeclMapping } from './test_image_decl_mapping.mjs';
+import { runTests as testContainerPayload } from './test_container_payload.mjs';
 
 console.log('================================================================');
 console.log('  WebGPU Driver Unit Tests');
@@ -54,6 +58,8 @@ testTextureLayout();
 testTextureConversion();
 testBindGroupCompat();
 testOverrideFiltering();
+testImageDeclMapping();
+testContainerPayload();
 
 // Print summary and exit.
 const results = summary();

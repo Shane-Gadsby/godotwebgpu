@@ -75,6 +75,10 @@ const Span<uint32_t> RenderingShaderContainer::ReflectShaderStage::spirv() const
 	return _spirv_data.span().reinterpret<uint32_t>();
 }
 
+void RenderingShaderContainer::_from_bytes_begin(const PackedByteArray &p_bytes) {
+	// Formats that do not read out of the source buffer lazily need nothing here.
+}
+
 uint32_t RenderingShaderContainer::_from_bytes_header_extra_data(const uint8_t *p_bytes) {
 	return 0;
 }
@@ -770,6 +774,8 @@ bool RenderingShaderContainer::from_bytes(const PackedByteArray &p_bytes) {
 	const uint8_t *bytes_ptr = p_bytes.ptr();
 	uint64_t bytes_offset = 0;
 
+	_from_bytes_begin(p_bytes);
+
 	// Read container header.
 	ERR_FAIL_COND_V_MSG(int64_t(bytes_offset + sizeof(ContainerHeader)) > p_bytes.size(), false, "Not enough bytes for a container header in shader container.");
 	const ContainerHeader &container_header = *(const ContainerHeader *)(&bytes_ptr[bytes_offset]);
@@ -854,7 +860,13 @@ bool RenderingShaderContainer::from_bytes(const PackedByteArray &p_bytes) {
 		shader.code_compression_flags = header.code_compression_flags;
 		shader.code_decompressed_size = header.code_decompressed_size;
 		shader.code_compressed_bytes.resize(header.code_compressed_size);
-		memcpy(shader.code_compressed_bytes.ptrw(), &bytes_ptr[bytes_offset], header.code_compressed_size);
+		if (header.code_compressed_size > 0) {
+			// Guarded because a zero-size payload is a normal shape here, not a
+			// malformed container: the WebGPU format omits the SPIR-V entirely
+			// for a shader whose WGSL was baked at export time, and ptrw() on an
+			// empty Vector is null.
+			memcpy(shader.code_compressed_bytes.ptrw(), &bytes_ptr[bytes_offset], header.code_compressed_size);
+		}
 		bytes_offset = aligned_to(bytes_offset + header.code_compressed_size, alignment);
 		bytes_offset += _from_bytes_shader_extra_data(&bytes_ptr[bytes_offset], i);
 	}

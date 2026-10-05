@@ -38,6 +38,7 @@
 #include "drivers/webgpu/pixel_formats_webgpu.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
+#include "drivers/webgpu/spirv_lite_reflect.h"
 #include "drivers/webgpu/spirv_preprocess.h"
 #include "drivers/webgpu/spirv_spec_constants.h"
 #include "drivers/webgpu/spirv_to_wgsl.h"
@@ -239,6 +240,15 @@ static void _publish_shader_stats() {
 	}
 	CharString joined_utf8 = joined.utf8();
 
+	// How many bytes of shader the load actually moved, split by which of the
+	// two payloads every container carries they came from (see
+	// RenderingShaderContainerWebGPU::LoadStats). Counted on the container side,
+	// so it covers containers this driver never got as far as creating a module
+	// for. Passed as doubles because EM_ASM has no 64-bit integer argument type
+	// and these run to tens of millions -- exact to 2^53, which is far past any
+	// plausible total.
+	const RenderingShaderContainerWebGPU::LoadStats &load_stats = RenderingShaderContainerWebGPU::get_load_stats();
+
 	// Built field by field rather than as one object literal: EM_ASM stringifies
 	// its first macro argument, so a comma anywhere at the top level of the body
 	// is a macro argument separator and the rest gets compiled as C++ instead.
@@ -257,7 +267,11 @@ static void _publish_shader_stats() {
 		stats.containerCreateMs = $6;
 		stats.containerCreateCalls = $7;
 		stats.containerStageLoopMs = $8;
-		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data(), _container_create_ms, _container_create_calls, _container_stage_loop_ms);
+		stats.containersParsed = $9;
+		stats.spirvBytes = $10;
+		stats.wgslBytes = $11;
+		stats.footerParseMs = $12;
+		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data(), _container_create_ms, _container_create_calls, _container_stage_loop_ms, (double)load_stats.containers, (double)load_stats.spirv_bytes, (double)load_stats.wgsl_bytes, load_stats.footer_parse_ms);
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
@@ -527,7 +541,7 @@ static WGPUTextureFormat _wgsl_storage_format_string_to_wgpu(const String &p_fmt
 // `OpTypeImage`'s Format operand, e.g. R8=15 for GLSL's `layout(r8, ...)`) to
 // the equivalent WGPUTextureFormat. Numeric counterpart to
 // _wgsl_storage_format_string_to_wgpu() above, for use directly on raw
-// SPIR-V -- see _extract_pre_dce_storage_image_info()'s doc comment for why a
+// SPIR-V -- see PreDceImageInfo's doc comment for why a
 // second, SPIR-V-level source of this same information is needed at all.
 // Covers the same format set as the string-based table (plus the signed/
 // unsigned integer variants that only arise from raw SPIR-V, never from a
@@ -618,10 +632,9 @@ static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 	}
 }
 
-// Scans raw (unpreprocessed) SPIR-V directly -- *before* eliminate_dead_resources()
-// (Task 8.7's AggressiveDCE pass) gets a chance to run -- for every storage-image
-// (`OpTypeImage` behind a `UniformConstant`-storage-class `OpVariable`) binding's
-// declared texel format, keyed by (set << 16 | binding).
+// What a storage-image binding's declared texel format, dimension and component
+// type are, keyed by (set << 16 | binding), read from the raw SPIR-V *before*
+// eliminate_dead_resources() (Task 8.7's AggressiveDCE pass) has run.
 //
 // Why this needs to exist as a *second*, independent source of truth alongside
 // the various post-Tint WGSL-text scans elsewhere in this file (all of which,
@@ -651,13 +664,18 @@ static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 // *can* be recovered here, by reading it before DCE has a chance to remove
 // the declaration that carries it.
 //
-// This does not need to run through the rest of the preprocessing pipeline
-// (specialization constants, push-constant conversion, etc. -- none of that
-// affects a plain OpTypeImage/OpVariable/OpDecorate triad), so it operates
-// directly on the same raw per-stage SPIR-V bytes shader_create_from_container()
-// already has on hand, independent of (and safely callable regardless of)
-// whether the eventual WGSL for this stage comes from a fresh Tint run or the
-// build-time precompiled cache.
+// None of this needs the rest of the preprocessing pipeline (specialization
+// constants, push-constant conversion and the rest leave a plain
+// OpTypeImage/OpVariable/OpDecorate triad alone), so it reads the raw bytes --
+// which means it can equally well be done once, at export time, and shipped in
+// the container. It now is: the walk lives in
+// spirv_lite_reflect::extract_raw_image_decls(), the shader baker runs it and
+// records the result, and _pre_dce_image_info_from_decls() below turns either
+// source -- baked declarations or a fresh walk of the SPIR-V this driver still
+// has -- into the same map. Baking it is also what lets a container ship
+// without its SPIR-V at all (see RenderingShaderContainerWebGPU's
+// FLAG_SPIRV_OMITTED), since this was one of only four things the runtime read
+// those bytes for.
 struct PreDceImageInfo {
 	WGPUTextureFormat format = WGPUTextureFormat_Undefined;
 	WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
@@ -671,153 +689,34 @@ struct PreDceImageInfo {
 	WGPUTextureSampleType sample_type = WGPUTextureSampleType_Undefined;
 };
 
-static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(const uint8_t *p_spv_ptr, int p_spv_size) {
+// Maps the raw SPIR-V operands spirv_lite_reflect reports to the WebGPU facts a
+// BindGroupLayout entry needs, keyed the way the post-Tint WGSL scans key theirs.
+//
+// Taking RawImageDecls rather than SPIR-V bytes is what lets the same mapping
+// serve both sources: a container that shipped its declarations baked (the
+// normal case for an exported project) and one the driver has to walk the
+// SPIR-V of itself. The walk and the mapping used to be one function; splitting
+// them is what made the baked path possible, since the editor that bakes has no
+// WebGPU enums in its build at all.
+static HashMap<uint32_t, PreDceImageInfo> _pre_dce_image_info_from_decls(const Vector<spirv_lite_reflect::RawImageDecl> &p_decls) {
 	HashMap<uint32_t, PreDceImageInfo> result;
-	if (p_spv_size < 20 || (p_spv_size % 4) != 0) {
-		return result;
-	}
-	const uint32_t *words = (const uint32_t *)p_spv_ptr;
-	uint32_t word_count = (uint32_t)(p_spv_size / 4);
-	if (words[0] != 0x07230203u) {
-		return result; // Not a valid SPIR-V magic number.
-	}
 
-	// First pass: collect the small amount of type/decoration info needed,
-	// keyed by SPIR-V result <id>.
-	struct ImageTypeInfo {
-		uint32_t format = 0; // SPIR-V ImageFormat operand.
-		uint32_t dim = 0; // SPIR-V Dim operand (0=1D, 1=2D, 2=3D, 3=Cube, ...).
-		uint32_t arrayed = 0;
-		uint32_t sampled_type_id = 0; // SPIR-V <id> of the component (Sampled Type) operand.
-	};
-	HashMap<uint32_t, ImageTypeInfo> image_types; // image type id -> info
-	HashMap<uint32_t, bool> int_type_signed; // OpTypeInt result id -> Signedness (true = signed)
-	HashMap<uint32_t, uint32_t> pointer_pointee; // UniformConstant pointer type id -> pointee type id
-	HashMap<uint32_t, uint32_t> var_pointer_type; // UniformConstant variable id -> its pointer type id
-	HashMap<uint32_t, uint32_t> decorate_set; // target id -> DescriptorSet value
-	HashMap<uint32_t, uint32_t> decorate_binding; // target id -> Binding value
-	// array type id -> element type id. A GLSL array-of-textures uniform
-	// (e.g. gi.glsl's "texture3D sdf_cascades[SDFGI_MAX_CASCADES]") declares
-	// its UniformConstant pointer's pointee as an OpTypeArray/OpTypeRuntimeArray
-	// wrapping the real OpTypeImage, not the image type directly -- without
-	// unwrapping this, the second pass below's `image_types.getptr(*pointee)`
-	// always misses for such a binding, silently skipping it (see below).
-	HashMap<uint32_t, uint32_t> array_to_elem;
-
-	uint32_t pos = 5; // Skip the 5-word header.
-	while (pos < word_count) {
-		uint32_t inst_word0 = words[pos];
-		uint32_t inst_len = inst_word0 >> 16;
-		uint32_t opcode = inst_word0 & 0xFFFFu;
-		if (inst_len == 0 || pos + inst_len > word_count) {
-			break; // Malformed/truncated -- bail out safely with whatever was already found.
-		}
-		switch (opcode) {
-			case 71: // OpDecorate: <id>Target, Decoration, [operands...]
-				if (inst_len >= 4) {
-					uint32_t target = words[pos + 1];
-					uint32_t decoration = words[pos + 2];
-					if (decoration == 34) { // DescriptorSet
-						decorate_set[target] = words[pos + 3];
-					} else if (decoration == 33) { // Binding
-						decorate_binding[target] = words[pos + 3];
-					}
-				}
-				break;
-			case 25: // OpTypeImage: <id>Result, <id>SampledType, Dim, Depth, Arrayed, MS, Sampled, Format, [AccessQualifier]
-				if (inst_len >= 9) {
-					uint32_t result_id = words[pos + 1];
-					ImageTypeInfo info;
-					info.sampled_type_id = words[pos + 2];
-					info.dim = words[pos + 3];
-					info.arrayed = words[pos + 5];
-					info.format = words[pos + 8];
-					image_types[result_id] = info;
-				}
-				break;
-			case 21: // OpTypeInt: <id>Result, Width, Signedness
-				if (inst_len >= 4) {
-					int_type_signed[words[pos + 1]] = words[pos + 3] != 0;
-				}
-				break;
-			case 32: // OpTypePointer: <id>Result, StorageClass, <id>Type
-				if (inst_len >= 4) {
-					uint32_t storage_class = words[pos + 2];
-					if (storage_class == 0) { // UniformConstant
-						uint32_t result_id = words[pos + 1];
-						uint32_t pointee = words[pos + 3];
-						pointer_pointee[result_id] = pointee;
-					}
-				}
-				break;
-			case 28: // OpTypeArray: <id>Result, <id>ElementType, <id>Length
-				if (inst_len >= 3) {
-					array_to_elem[words[pos + 1]] = words[pos + 2];
-				}
-				break;
-			case 29: // OpTypeRuntimeArray: <id>Result, <id>ElementType
-				if (inst_len >= 3) {
-					array_to_elem[words[pos + 1]] = words[pos + 2];
-				}
-				break;
-			case 59: // OpVariable: <id>ResultType, <id>Result, StorageClass, [Initializer]
-				if (inst_len >= 4) {
-					uint32_t storage_class = words[pos + 3];
-					if (storage_class == 0) { // UniformConstant
-						uint32_t result_type = words[pos + 1];
-						uint32_t result_id = words[pos + 2];
-						var_pointer_type[result_id] = result_type;
-					}
-				}
-				break;
-			default:
-				break;
-		}
-		pos += inst_len;
-	}
-
-	// Second pass: resolve each UniformConstant image variable to its
-	// (set, binding) -> (format, dimension) info.
-	for (const KeyValue<uint32_t, uint32_t> &kv : var_pointer_type) {
-		uint32_t var_id = kv.key;
-		uint32_t ptr_type_id = kv.value;
-		const uint32_t *pointee = pointer_pointee.getptr(ptr_type_id);
-		if (!pointee) {
-			continue;
-		}
-		// A GLSL array-of-textures uniform's pointee is an OpTypeArray/
-		// OpTypeRuntimeArray wrapping the element image type, not the image
-		// type directly -- unwrap it (one level is sufficient; SPIR-V/GLSL
-		// don't nest arrays of opaque handle types) before the image-type
-		// lookup below, or every such binding is silently skipped.
-		uint32_t elem_type_id = *pointee;
-		if (const uint32_t *arr_elem = array_to_elem.getptr(elem_type_id)) {
-			elem_type_id = *arr_elem;
-		}
-		const ImageTypeInfo *img = image_types.getptr(elem_type_id);
-		if (!img) {
-			continue; // Not an image type (e.g. a sampler or combined-image-sampler variable).
-		}
-		const uint32_t *set = decorate_set.getptr(var_id);
-		const uint32_t *binding = decorate_binding.getptr(var_id);
-		if (!set || !binding) {
-			continue;
-		}
+	for (const spirv_lite_reflect::RawImageDecl &decl : p_decls) {
 		PreDceImageInfo info;
-		info.format = _spirv_image_format_to_wgpu(img->format);
+		info.format = _spirv_image_format_to_wgpu(decl.spv_format);
 		// SPIR-V Dim: 0=1D, 1=2D, 2=3D, 3=Cube, 4=Rect, 5=Buffer, 6=SubpassData.
-		switch (img->dim) {
+		switch (decl.spv_dim) {
 			case 0:
 				info.dim = WGPUTextureViewDimension_1D;
 				break;
 			case 1:
-				info.dim = img->arrayed ? WGPUTextureViewDimension_2DArray : WGPUTextureViewDimension_2D;
+				info.dim = decl.arrayed ? WGPUTextureViewDimension_2DArray : WGPUTextureViewDimension_2D;
 				break;
 			case 2:
 				info.dim = WGPUTextureViewDimension_3D;
 				break;
 			case 3:
-				info.dim = img->arrayed ? WGPUTextureViewDimension_CubeArray : WGPUTextureViewDimension_Cube;
+				info.dim = decl.arrayed ? WGPUTextureViewDimension_CubeArray : WGPUTextureViewDimension_Cube;
 				break;
 			default:
 				info.dim = WGPUTextureViewDimension_Undefined;
@@ -825,29 +724,33 @@ static HashMap<uint32_t, PreDceImageInfo> _extract_pre_dce_storage_image_info(co
 		}
 		// Only an integer component type needs recovering here -- Float is
 		// already the correct fallback default everywhere info.sample_type is
-		// consulted, so a genuine float image (or one we can't resolve, e.g.
-		// SampledType id not found in int_type_signed) is deliberately left
-		// as Undefined rather than asserted to Float.
-		if (const bool *is_signed = int_type_signed.getptr(img->sampled_type_id)) {
-			info.sample_type = *is_signed ? WGPUTextureSampleType_Sint : WGPUTextureSampleType_Uint;
+		// consulted, so a genuine float image (or one whose component type could
+		// not be resolved) is deliberately left Undefined rather than asserted
+		// to Float.
+		if (decl.int_signedness == 1) {
+			info.sample_type = WGPUTextureSampleType_Sint;
+		} else if (decl.int_signedness == 0) {
+			info.sample_type = WGPUTextureSampleType_Uint;
 		}
+
 		if (info.format == WGPUTextureFormat_Undefined && info.dim == WGPUTextureViewDimension_Undefined &&
 				info.sample_type == WGPUTextureSampleType_Undefined) {
 			continue; // Nothing usable -- leave it for the WGSL-text scans to handle normally.
 		}
+
 		// split_combined_samplers() (spirv_preprocess.cpp) doubles every
 		// non-combined binding's number (image2D/image3D storage bindings are
 		// never "combined" -- that only applies to sampler2D-style GLSL types)
-		// when it runs, later in the pipeline, on the *preprocessed* copy of
-		// this same SPIR-V -- but this function reads the raw bytes before any
-		// of that happens, so it still sees the original, undoubled GLSL
-		// binding number. Every other populator of wgsl_storage_tex_format /
-		// wgsl_tex_dims keys on the final, doubled WGSL binding (it's reading
-		// @binding(B) directly out of Tint's output), so this key must double
-		// it too to land in the same key space.
-		uint32_t key = ((*set) << 16) | ((*binding) * 2);
-		result[key] = info;
+		// when it runs on the *preprocessed* copy of this SPIR-V -- but these
+		// declarations were read from the raw bytes before any of that, so they
+		// still carry the original, undoubled GLSL binding number. Every other
+		// populator of wgsl_storage_tex_format / wgsl_tex_dims keys on the
+		// final, doubled WGSL binding (it reads @binding(B) straight out of
+		// Tint's output), so this key must double it too to land in the same
+		// key space.
+		result[(decl.set << 16) | (decl.binding * 2)] = info;
 	}
+
 	return result;
 }
 
@@ -5045,14 +4948,21 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// other stages got the real values, so the whole shader falls back to the
 	// legacy specialize-by-re-patching path.
 	bool any_stage_froze_spec_constants = false;
+	// This container shipped no SPIR-V, because the bake established nothing at
+	// runtime can need it. See RenderingShaderContainerWebGPU::FLAG_SPIRV_OMITTED.
+	const bool spirv_omitted = wg_container->is_spirv_omitted();
 	Vector<RenderingShaderContainer::Shader> &stage_shaders = p_shader_container->shaders;
 	const uint64_t _stage_loop_from = OS::get_singleton()->get_ticks_usec();
 	for (int i = 0; i < stage_shaders.size(); i++) {
 		const RenderingShaderContainer::Shader &s = stage_shaders[i];
 
-		// The code_compressed_bytes holds raw SPIR-V (no compression — code_decompressed_size == 0).
+		// The code_compressed_bytes holds raw SPIR-V (no compression — code_decompressed_size == 0),
+		// or nothing at all for a container that established at bake time that
+		// the runtime can never need it (FLAG_SPIRV_OMITTED). That is the normal
+		// shape of an exported project's shaders, and it is the larger of the
+		// two payloads a container would otherwise carry.
 		const PackedByteArray &spv_bytes = s.code_compressed_bytes;
-		if (spv_bytes.is_empty()) {
+		if (spv_bytes.is_empty() && !spirv_omitted) {
 			error_text = "WebGPU: empty SPIR-V for shader stage.";
 			break;
 		}
@@ -5061,7 +4971,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			break;
 		}
 
-		// Store raw SPIR-V for potential re-conversion with specialization constants.
+		// Kept for the legacy specialization path, which re-patches these bytes
+		// with constant values and re-converts them. Empty when the container
+		// shipped without SPIR-V, which it only does when that path cannot be
+		// reached for this shader.
 		shader->stage_spirv[(int)s.shader_stage] = spv_bytes;
 
 		// Seed wgsl_storage_tex_format/wgsl_tex_dims with every storage image's
@@ -5074,9 +4987,15 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// finding real evidence for the same key always takes precedence over
 		// this static declaration-only guess (e.g. a read_write split's
 		// shadow companion needs the *shadow's* binding, which doesn't exist
-		// yet in the original SPIR-V at all). See
-		// _extract_pre_dce_storage_image_info()'s doc comment.
-		for (const KeyValue<uint32_t, PreDceImageInfo> &kv : _extract_pre_dce_storage_image_info(spv_bytes.ptr(), (int)spv_bytes.size())) {
+		// yet in the original SPIR-V at all). See PreDceImageInfo's doc comment.
+		//
+		// From the container when the bake recorded them -- which is both faster
+		// (the walk is not repeated per load) and the only option when the
+		// SPIR-V is not here to walk -- and from a fresh walk otherwise, so a
+		// container written before this was baked still behaves exactly as it did.
+		const Vector<spirv_lite_reflect::RawImageDecl> *baked_decls = wg_container->get_baked_image_decls((uint32_t)i);
+		const Vector<spirv_lite_reflect::RawImageDecl> image_decls = baked_decls ? *baked_decls : spirv_lite_reflect::extract_raw_image_decls(spv_bytes);
+		for (const KeyValue<uint32_t, PreDceImageInfo> &kv : _pre_dce_image_info_from_decls(image_decls)) {
 			if (kv.value.format != WGPUTextureFormat_Undefined && !wgsl_storage_tex_format.has(kv.key)) {
 				wgsl_storage_tex_format[kv.key] = _promote_storage_format(kv.value.format);
 			}
@@ -5102,13 +5021,25 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// passes below own and mutate/free `wgsl_str` in place; the container's
 		// copy must stay untouched for any later shader_create_from_container() call.
 		char *wgsl_str = nullptr;
-		const char *baked_wgsl = wg_container->get_wgsl_code((uint32_t)i);
-		if (baked_wgsl) {
-			size_t baked_len = strlen(baked_wgsl) + 1;
-			wgsl_str = (char *)malloc(baked_len);
+		const char *baked_wgsl = nullptr;
+		uint32_t baked_len = 0;
+		if (wg_container->get_wgsl_code((uint32_t)i, baked_wgsl, baked_len)) {
+			// Not NUL-terminated at the source -- it is a window into the
+			// container's own bytes, with the next stage's length prefix right
+			// behind it -- so terminate the copy here.
+			wgsl_str = (char *)malloc((size_t)baked_len + 1);
 			memcpy(wgsl_str, baked_wgsl, baked_len);
+			wgsl_str[baked_len] = '\0';
 			_wgsl_baked_container_hits++;
 			_publish_shader_stats();
+		} else if (spv_bytes.is_empty()) {
+			// A container that dropped its SPIR-V but has no WGSL for this stage
+			// has nothing left to make a module from. The bake cannot produce
+			// that combination (FLAG_SPIRV_OMITTED is only set once every stage
+			// has baked WGSL), so reaching this means a truncated or corrupt
+			// container -- reported rather than passed to Tint as a null pointer.
+			error_text = vformat("WebGPU: shader container for '%s' has neither baked WGSL nor SPIR-V for stage %d.", shader->name, (int)s.shader_stage);
+			break;
 		} else {
 			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size(), false, shader->name);
 		}
@@ -6095,7 +6026,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 					}
 				}
 			}
-			if (!stage_has_override_decls && spirv_preprocess::has_spec_constants(spv_bytes)) {
+			// From the container when the bake recorded it, for the same two
+			// reasons as the image declarations above: it is one fewer walk per
+			// load, and it is the only answer available when the SPIR-V is not
+			// shipped.
+			const bool stage_declares_spec_constants = wg_container->has_baked_image_decls()
+					? wg_container->get_stage_has_spec_constants((uint32_t)i)
+					: spirv_preprocess::has_spec_constants(spv_bytes);
+			if (!stage_has_override_decls && stage_declares_spec_constants) {
 				any_stage_froze_spec_constants = true;
 			}
 		}
@@ -6118,6 +6056,17 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	_container_stage_loop_ms += double(OS::get_singleton()->get_ticks_usec() - _stage_loop_from) / 1000.0;
 
 	shader->has_override_declarations = detected_override_declarations && !any_stage_froze_spec_constants;
+	// The bake is supposed to have ruled this combination out before dropping
+	// the SPIR-V: a frozen stage means pipeline creation takes the legacy path,
+	// which re-patches the SPIR-V that is no longer here, and would instead
+	// quietly leave the shader at its default specialization values. Said out
+	// loud rather than left to show up as a rendering difference, because the
+	// only way to reach it is a disagreement between the baker's `@id(` test and
+	// this function's -- which is a bug in one of the two, and nothing a project
+	// can cause or work around.
+	if (spirv_omitted && any_stage_froze_spec_constants) {
+		ERR_PRINT_ONCE(vformat("WebGPU: shader '%s' needs the legacy specialization path, but its container shipped without SPIR-V. Specialization constants will fall back to their defaults. This is a shader-baking bug; please report it.", shader->name));
+	}
 	if (shader->has_override_declarations) {
 		print_verbose(vformat("WebGPU: shader '%s' has override declarations — will use pipeline constants for specialization.", shader->name));
 	} else if (detected_override_declarations) {
@@ -11874,6 +11823,13 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// texture has. See webgpu_notes/TASKS.md Task 24 round 5.
 		case API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES:
 			return 4;
+		// A WebGPU container carries both the SPIR-V and the WGSL baked from it,
+		// both uncompressed, which is ~120 MB across a real project's shaders --
+		// and nothing reads any of it once the shader modules exist. Holding it for
+		// the session costs a web build's WASM heap far more than it costs a native
+		// one. See the trait's doc comment in rendering_device_driver.h.
+		case API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD:
+			return 1;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}

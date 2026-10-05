@@ -294,6 +294,14 @@ compile_one "drivers/webgpu/spirv_preprocess.cpp" \
     -I"$SHIM_DIR" \
     "${SPIRV_TOOLS_INCLUDES[@]}" &
 
+# spirv_lite_reflect.cpp — the SPIRV-Tools-free half of the reflection, which
+# spirv_preprocess.cpp delegates has_spec_constants() to. Same shim include
+# path, no SPIRV-Tools includes needed.
+compile_one "drivers/webgpu/spirv_lite_reflect.cpp" \
+    "$BUILD_DIR/cli/spirv_lite_reflect.o" \
+    "c++17" \
+    -I"$SHIM_DIR" &
+
 # tint_wrapper.cpp — compiled with Tint C++20 environment.
 compile_one "drivers/webgpu/tint_wrapper.cpp" \
     "$BUILD_DIR/cli/tint_wrapper.o" \
@@ -325,7 +333,7 @@ wait
 echo "[4/4] Linking tint_convert_cli..."
 
 # Filter to only .o files that were successfully compiled.
-LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
+LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
 for obj in "${SPIRV_TOOLS_OBJS[@]}" "${TINT_OBJS[@]}"; do
     [[ -f "$obj" ]] && LINK_OBJS+=("$obj")
 done
