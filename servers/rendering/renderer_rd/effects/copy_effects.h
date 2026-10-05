@@ -308,7 +308,6 @@ private:
 		PipelineCacheRD raster_pipelines[FILTER_MODE_RASTER_MAX];
 
 		RID uniform_set;
-		RID image_uniform_set;
 		RID coefficient_buffer;
 		bool use_high_quality;
 

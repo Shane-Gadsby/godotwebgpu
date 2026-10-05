@@ -163,12 +163,16 @@ RID RenderingDevice::_index_buffer_create_bind_compat_101561(uint32_t p_size_ind
 	return _index_buffer_create(p_size_indices, p_format, p_data, p_use_restart_indices, 0);
 }
 
-RID RenderingDevice::_texture_create_from_extension_compat_105570(TextureType p_type, DataFormat p_format, TextureSamples p_samples, BitField<RenderingDevice::TextureUsageBits> p_usage, uint64_t p_image, uint64_t p_width, uint64_t p_height, uint64_t p_depth, uint64_t p_layers) {
+RID RenderingDevice::_texture_create_from_extension_bind_compat_105570(TextureType p_type, DataFormat p_format, TextureSamples p_samples, BitField<RenderingDevice::TextureUsageBits> p_usage, uint64_t p_image, uint64_t p_width, uint64_t p_height, uint64_t p_depth, uint64_t p_layers) {
 	return texture_create_from_extension(p_type, p_format, p_samples, p_usage, p_image, p_width, p_height, p_depth, p_layers, 1);
 }
 
 void RenderingDevice::_draw_list_draw_bind_compat_webgpu_1(DrawListID p_list, bool p_use_indices, uint32_t p_instances, uint32_t p_procedural_vertices) {
 	draw_list_draw(p_list, p_use_indices, p_instances, p_procedural_vertices);
+}
+
+RID RenderingDevice::_texture_create_shared_from_slice_bind_compat_121937(const Ref<RDTextureView> &p_view, RID p_with_texture, uint32_t p_layer, uint32_t p_mipmap, uint32_t p_mipmaps, TextureSliceType p_slice_type) {
+	return _texture_create_shared_from_slice(p_view, p_with_texture, p_layer, p_mipmap, p_mipmaps, p_slice_type, 0);
 }
 
 void RenderingDevice::_bind_compatibility_methods() {
@@ -200,7 +204,8 @@ void RenderingDevice::_bind_compatibility_methods() {
 	ClassDB::bind_compatibility_method(D_METHOD("vertex_buffer_create", "size_bytes", "data", "use_as_storage"), &RenderingDevice::_vertex_buffer_create_bind_compat_101561, DEFVAL(Vector<uint8_t>()), DEFVAL(false));
 	ClassDB::bind_compatibility_method(D_METHOD("index_buffer_create", "size_indices", "format", "data", "use_restart_indices"), &RenderingDevice::_index_buffer_create_bind_compat_101561, DEFVAL(Vector<uint8_t>()), DEFVAL(false));
 
-	ClassDB::bind_compatibility_method(D_METHOD("texture_create_from_extension", "type", "format", "samples", "usage_flags", "image", "width", "height", "depth", "layers"), &RenderingDevice::_texture_create_from_extension_compat_105570);
+	ClassDB::bind_compatibility_method(D_METHOD("texture_create_shared_from_slice", "view", "with_texture", "layer", "mipmap", "mipmaps", "slice_type"), &RenderingDevice::_texture_create_shared_from_slice_bind_compat_121937, DEFVAL(1), DEFVAL(TEXTURE_SLICE_2D));
+	ClassDB::bind_compatibility_method(D_METHOD("texture_create_from_extension", "type", "format", "samples", "usage_flags", "image", "width", "height", "depth", "layers"), &RenderingDevice::_texture_create_from_extension_bind_compat_105570);
 
 	ClassDB::bind_compatibility_method(D_METHOD("draw_list_draw", "draw_list", "use_indices", "instances", "procedural_vertex_count"), &RenderingDevice::_draw_list_draw_bind_compat_webgpu_1, DEFVAL(0));
 }

@@ -1069,6 +1069,8 @@ public:
 		// found (a real bug: WebGPU's driver previously bound only the first array
 		// element for every such uniform, silently discarding the runtime index).
 		SUPPORTS_TEXTURE_ARRAY_BINDINGS,
+		SUPPORTS_RASTERIZATION_RATE_MAP,
+		SUPPORTS_GPU_MAPPABLE_BUFFER,
 		// Sentinel, so code that has to answer for every feature (the shader
 		// baker's target capability override) stays correct when one is added.
 		// Deliberately not BIND_ENUM_CONSTANT'd: it is not a feature.
@@ -1091,6 +1093,7 @@ public:
 		bool avoid_compute_after_draw = false;
 		bool dont_print_on_render_pipeline_creation_failure = false;
 		bool disable_ubershaders = false;
+		bool avoid_store_op_dont_care_in_draw_list_with_no_bound_pipeline = false;
 	};
 
 	////////////////////////////////////////////
@@ -1109,13 +1112,15 @@ protected:
 	/**** TEXTURE ****/
 	/*****************/
 
+	static const char *const TEXTURE_TYPE_NAMES[TEXTURE_TYPE_MAX];
+
 	static const uint32_t MAX_IMAGE_FORMAT_PLANES = 2;
 
 	static const uint32_t TEXTURE_SAMPLES_COUNT[TEXTURE_SAMPLES_MAX];
 
 	static void get_compressed_image_format_block_dimensions(DataFormat p_format, uint32_t &r_w, uint32_t &r_h);
 	uint32_t get_compressed_image_format_block_byte_size(DataFormat p_format) const;
-	static uint32_t get_compressed_image_format_pixel_rshift(DataFormat p_format);
+	static uint32_t get_compressed_image_format_pixels_shifted(DataFormat p_format, uint32_t p_pixels);
 	static uint32_t get_image_format_required_size(DataFormat p_format, uint32_t p_width, uint32_t p_height, uint32_t p_depth, uint32_t p_mipmaps, uint32_t *r_blockw = nullptr, uint32_t *r_blockh = nullptr, uint32_t *r_depth = nullptr);
 	static uint32_t get_image_required_mipmaps(uint32_t p_width, uint32_t p_height, uint32_t p_depth);
 	static bool format_has_depth(DataFormat p_format);
@@ -1153,9 +1158,11 @@ public:
 		uint32_t binding = 0;
 		BitField<ShaderStage> stages = {};
 		uint32_t length = 0; // Size of arrays (in total elements), or ubos (in bytes * total elements).
+		TextureType texture_type = TEXTURE_TYPE_MAX;
+		DataFormat texture_format = DATA_FORMAT_MAX;
 
 		bool operator!=(const ShaderUniform &p_other) const {
-			return binding != p_other.binding || type != p_other.type || writable != p_other.writable || stages != p_other.stages || length != p_other.length;
+			return binding != p_other.binding || type != p_other.type || writable != p_other.writable || stages != p_other.stages || length != p_other.length || texture_type != p_other.texture_type || texture_format != p_other.texture_format;
 		}
 
 		bool operator<(const ShaderUniform &p_other) const {
@@ -1174,6 +1181,12 @@ public:
 			if (length != p_other.length) {
 				return length < p_other.length;
 			}
+			if (texture_type != p_other.texture_type) {
+				return texture_type < p_other.texture_type;
+			}
+			if (texture_format != p_other.texture_format) {
+				return texture_format < p_other.texture_format;
+			}
 			return false;
 		}
 	};
@@ -1189,6 +1202,7 @@ public:
 		uint32_t fragment_output_mask = 0;
 		PipelineType pipeline_type = PIPELINE_TYPE_RASTERIZATION;
 		bool has_multiview = false;
+		bool has_physical_storage_buffer_addresses = false;
 		bool has_dynamic_buffers = false;
 		uint32_t compute_local_size[3] = {};
 		uint32_t push_constant_size = 0;
