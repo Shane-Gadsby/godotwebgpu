@@ -1,5 +1,34 @@
 # Handoff — WebGPU work in progress
 
+> ## Read this first: the work has moved to `webgpu-4.8`
+>
+> **As of 2026-10-05**, the 4.8 port is the live branch. `webgpu-4.7.2` is the last fully green
+> state and is what every measurement in this file was taken on; it is the thing to compare
+> against, not the thing to build on.
+>
+> `webgpu-4.8` is `webgpu-4.7.2` merged with upstream `master`
+> `e7cfa294a0b81bed7986be04a848cc1832a3f083` (Godot 4.8, code freeze, pinned not floating) —
+> 2,794 upstream commits, 3,872 files, 109 conflicts. **Phase 15 in TASKS.md is the detail**;
+> Task 15.1 has the three `git replace` refs needed to reproduce the merge base at all, without
+> which the merge replays 85,264 commits instead of 2,794.
+>
+> **What is verified on `webgpu-4.8`**: the native editor builds clean
+> (`platform=linuxbsd target=editor dev_build=yes webgpu=yes`, 0 errors) and reports
+> `4.8.dev.custom_build`; `modules/box3d_physics` builds clean at `warnings=extra`; every
+> pure virtual in all three driver base headers has an override.
+>
+> **What is not**: the web template, the shader precompile, and every test tier. Nothing in
+> §2 below has been re-measured at 4.8, and §6's `bin/` description is about the 4.7.2 line.
+>
+> **The one thing to carry forward**: on a merge this size, a clean conflict list proves
+> nothing. Five breaks in fork-touched shared code produced no conflict at all, because the
+> fork's lines and 4.8's change sat in different places in the same file — a removed helper
+> (`get_compressed_image_format_pixel_rshift`), a moved header, a deleted static member, a
+> dropped function parameter, and a duplicated local declaration. Each was found by a build or
+> a grep, never by git. After the next sync, grep for every symbol upstream deleted.
+
+---
+
 **As of 2026-09-27, with the scene tier fully green.** Branch `webgpu-4.7.2`. The engine work landed
 in `5f4b63c136` (the `depth_buffer` reclassification), the depth-back-copy commit after it, and the
 gradient-readback commit after that (Task 45); `bin/` was built at the last of those (§6).
@@ -566,11 +595,9 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    than a bug, and nothing renderer-dependent — scene-shader coverage, per-stage binding budgets,
    the 48-texture branch itself — can be validated there. Byte counts and call counts from such a
    run are still good; timings and renderer behavior are not.
-4. **`CLAUDE.md` says "It targets the Forward Mobile renderer" and that is wrong** — this fork
-   targets Forward+. `platform/web/js/engine/engine.js`'s `limitsToMax` list, whose comments cite
-   "a real Forward+ (Clustered) live run", and `webgpu_tests/test_project`'s own
-   `rendering_method="forward_plus"` both say so. Worth fixing before it misleads someone else the
-   way it contributed to misleading Task 46.
+4. ~~**`CLAUDE.md` says "It targets the Forward Mobile renderer"**~~ — **done**. `CLAUDE.md` now
+   says Forward+ (Clustered) and carries the `<48`-textures fallback caveat, so a software-adapter
+   run can no longer be mistaken for this fork's renderer the way it was in Task 46 §7b.
 5. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
    is fetched and compiled *non-streaming* by Emscripten's dylink loader, outside `config.js`'s
    `instantiateWasm` override. On localhost that is 96 ms, which is why it was ranked low; at
