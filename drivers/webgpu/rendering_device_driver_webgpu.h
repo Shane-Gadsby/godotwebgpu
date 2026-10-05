@@ -70,6 +70,21 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 		uint32_t gap_bind_group_calls = 0;
 		uint32_t first_instance_draws = 0;
 		uint32_t ring_overflows = 0;
+		// Draws that went through an indirect path. WebGPU has no
+		// multi-draw-indirect, so a batch of N becomes N separate draws here --
+		// worth being able to see as its own number rather than folded into
+		// draw_calls.
+		uint32_t indirect_draw_calls = 0;
+		// Set binds the redundancy cache skipped, against sets with dynamic
+		// offsets that it cannot skip today. The ratio says whether extending
+		// the cache to compare offsets is worth doing.
+		uint32_t bind_group_redundant_skips = 0;
+		uint32_t dynamic_bind_group_binds = 0;
+		// Full source-to-shadow texture copies done when binding a uniform set
+		// that carries read_write-storage-texture shadow companions, which only
+		// happens on an adapter without readonly-and-readwrite-storage-textures.
+		// Each one also breaks and restarts the compute pass.
+		uint32_t rw_shadow_refreshes = 0;
 		double last_log_time = 0;
 		uint32_t frames_since_log = 0;
 		void reset() {
@@ -84,8 +99,17 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 			gap_bind_group_calls = 0;
 			first_instance_draws = 0;
 			ring_overflows = 0;
+			indirect_draw_calls = 0;
+			bind_group_redundant_skips = 0;
+			dynamic_bind_group_binds = 0;
+			rw_shadow_refreshes = 0;
 		}
 	} perf;
+
+	// Averages the counters above over the sampling second and stores them on
+	// `window` as godotWebGPUFrameStats. See its definition for what each field
+	// is for and why it is not behind WEBGPU_VERBOSE.
+	void _publish_frame_stats(uint32_t p_fps, uint32_t p_frames);
 
 	Capabilities capabilities;
 	MultiviewCapabilities multiview_capabilities;

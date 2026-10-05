@@ -274,6 +274,55 @@ static void _publish_shader_stats() {
 		window.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, joined_utf8.get_data(), _container_create_ms, _container_create_calls, _container_stage_loop_ms, (double)load_stats.containers, (double)load_stats.spirv_bytes, (double)load_stats.wgsl_bytes, load_stats.footer_parse_ms);
 }
 
+// Publishes the per-frame counters to `window`, averaged over the last second,
+// so per-draw cost can be read from the devtools console or collected by a
+// Playwright harness without a rebuild and without WEBGPU_VERBOSE:
+//
+//     godotWebGPUFrameStats
+//     // { fps: 60, drawCalls: 1843, setBindGroup: 2104, ... }
+//
+// Every field is a per-frame average over the sampling second, except `fps` and
+// `frames`. The ones worth knowing why they exist:
+//
+// `setBindGroup` against `bindGroupSkips` is the redundancy cache's hit rate.
+// `dynamicBindGroups` is the part of setBindGroup the cache cannot skip today,
+// because a set carrying a dynamic offset is rebound unconditionally -- the
+// frame index it encodes rotates once per frame, not per draw, so most of those
+// binds are identical to the one before. That number is what says whether
+// teaching the cache to compare offsets is worth the risk.
+//
+// `indirectDraws` is how many draws came from an indirect path. WebGPU has no
+// multi-draw-indirect, so a batch of N arrives here as N separate draws.
+//
+// `rwShadowRefreshes` is full source-to-shadow texture copies, each of which
+// also breaks and restarts the compute pass. It is zero on an adapter with
+// readonly-and-readwrite-storage-textures and can be large on one without.
+//
+// `ringOverflows` should be zero: each one flushes and submits mid-pass, then
+// rebuilds the whole encoder state.
+//
+// Deliberately not behind WEBGPU_VERBOSE, and deliberately once per second
+// rather than per frame: a release build is the one that matters, and the
+// alternative -- compiling verbose in to see any of this -- costs ~1.5 s of
+// load time on its own and so changes what is being measured.
+void RenderingDeviceDriverWebGPU::_publish_frame_stats(uint32_t p_fps, uint32_t p_frames) {
+	EM_ASM({
+		var s = {};
+		s.fps = $0;
+		s.frames = $1;
+		s.drawCalls = $2;
+		s.indirectDraws = $3;
+		s.setBindGroup = $4;
+		s.bindGroupSkips = $5;
+		s.dynamicBindGroups = $6;
+		s.setVertexBuffer = $7;
+		s.renderPasses = $8;
+		s.pushConstantWrites = $9;
+		s.ringOverflows = $10;
+		s.rwShadowRefreshes = $11;
+		window.godotWebGPUFrameStats = s; }, p_fps, p_frames, perf.draw_calls / p_frames, perf.indirect_draw_calls / p_frames, perf.set_bind_group_calls / p_frames, perf.bind_group_redundant_skips / p_frames, perf.dynamic_bind_group_binds / p_frames, perf.set_vertex_buffer_calls / p_frames, perf.render_passes / p_frames, perf.push_constant_writes / p_frames, perf.ring_overflows / p_frames, perf.rw_shadow_refreshes / p_frames);
+}
+
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
 // this event to know a synchronous Tint compile just ran on the main thread, since
 // that's the actual source of the multi-second startup stall the progress bar
@@ -7470,9 +7519,11 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 		return p_us->handle;
 	}
 
-	// Check rebind cache.
-	if (p_us->rebind_cache.has(target_layout)) {
-		return p_us->rebind_cache[target_layout];
+	// Check rebind cache. One lookup, not two: this is the common path for every
+	// draw whose uniform set was built against a different shader than the
+	// pipeline currently bound.
+	if (const WGPUBindGroup *cached = p_us->rebind_cache.getptr(target_layout)) {
+		return *cached;
 	}
 
 	// Build adapted entries: copy cached entries and fix sampler type mismatches.
@@ -9852,53 +9903,24 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 
 	WGShader *pipeline_shader = cmd->render_state.current_pipeline ? cmd->render_state.current_pipeline->shader : nullptr;
 
-	// Diagnostic: log texture bindings and push constant info on swap chain pass.
 	// Invalidate bind group tracking if the pipeline shader changed.
 	if (pipeline_shader != cmd->bound_shader) {
 		cmd->invalidate_bind_groups();
 		cmd->bound_shader = pipeline_shader;
 	}
 
-	// Diagnostic: detect the sync-scope conflict that's causing the
+	// Removed here: a leftover diagnostic that walked every bound texture of
+	// every set against every framebuffer attachment looking for the
 	// "includes writable usage and another usage in the same synchronization
-	// scope" validation error. This fires whenever a bound texture's parent
-	// matches a framebuffer attachment's parent. Limited to a few prints so
-	// we don't spam the console after a match.
-	static int _sync_conflict_log_count = 0;
-	WGFramebuffer *_cur_fb = cmd->render_state.framebuffer;
-	if (_cur_fb && _sync_conflict_log_count < 20) {
-		for (uint32_t i = 0; i < p_set_count; i++) {
-			WGUniformSet *us = (WGUniformSet *)(p_uniform_sets[i].id);
-			if (!us) {
-				continue;
-			}
-			for (const KeyValue<uint32_t, WGTexture *> &kv : us->bound_textures) {
-				WGTexture *btex = kv.value;
-				if (!btex || !btex->view_source) {
-					continue;
-				}
-				for (uint32_t a = 0; a < _cur_fb->attachments.size(); a++) {
-					WGTexture *atex = _cur_fb->attachments[a];
-					if (!atex) {
-						continue;
-					}
-					WGPUTexture a_src = atex->gpu_handle();
-					if (a_src == btex->view_source) {
-						_sync_conflict_log_count++;
-						if (_sync_conflict_log_count >= 20) {
-							break;
-						}
-					}
-				}
-				if (_sync_conflict_log_count >= 20) {
-					break;
-				}
-			}
-			if (_sync_conflict_log_count >= 20) {
-				break;
-			}
-		}
-	}
+	// scope" conflict. Its prints were taken out but its loops were not, so all
+	// it did was increment a counter nothing read -- and its own `< 20` guard
+	// only ever stopped it once 20 matches had been found, so in the normal case
+	// (no conflict) the full nested scan, including a HashMap walk per set, ran
+	// on every bind of every set of every draw, forever. This is the hottest
+	// function in the driver.
+	//
+	// If that conflict needs chasing again, it belongs behind WEBGPU_VERBOSE
+	// like the other diagnostics in this file, not in the shipping path.
 
 	// Task 7.5: Unpack 4-bit frame indices from p_dynamic_offsets as we walk the sets.
 	// Every set with `us->dynamic_buffers.size()` entries consumes that many 4-bit
@@ -9980,10 +10002,16 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 					cmd->bound_bind_groups[set_idx] = num_dyn > 0 ? nullptr : bg_to_bind;
 				}
 			} else if (num_dyn > 0) {
-				// Non-PC set with material dynamic buffers: must always rebind because
-				// the frame_idx rotates — bypass the redundant-bind cache.
+				// Non-PC set with material dynamic buffers: always rebound today,
+				// because the frame index packed into the offsets rotates. It
+				// rotates once per frame rather than per draw, though, so most of
+				// these are identical to the bind before them -- perf's
+				// dynamic_bind_group_binds is here to size that before the
+				// redundancy cache is taught to compare offsets, which is a
+				// change this driver's history says to measure first.
 				wgpuRenderPassEncoderSetBindGroup(cmd->render_encoder, set_idx, bg_to_bind, num_dyn, set_dyn_offsets);
 				perf.set_bind_group_calls++;
+				perf.dynamic_bind_group_binds++;
 				// Save full state for mid-pass restart.
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 					auto &bs = cmd->last_bound_state[set_idx];
@@ -9997,6 +10025,7 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 			} else {
 				// Static non-PC set — skip if already bound.
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS && cmd->bound_bind_groups[set_idx] == bg_to_bind) {
+					perf.bind_group_redundant_skips++;
 					continue;
 				}
 				wgpuRenderPassEncoderSetBindGroup(cmd->render_encoder, set_idx, bg_to_bind, 0, nullptr);
@@ -10081,11 +10110,15 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indexed_indirect(CommandBu
 	// interleaved per-draw data) safely falls through to the per-draw loop below.
 	static constexpr uint32_t DRAW_INDEXED_INDIRECT_NATIVE_STRIDE = sizeof(uint32_t) * 5;
 	if (has_multi_draw_indirect && p_stride == DRAW_INDEXED_INDIRECT_NATIVE_STRIDE) {
+		perf.draw_calls++;
+		perf.indirect_draw_calls++;
 		wgpuRenderPassEncoderMultiDrawIndexedIndirect(cmd->render_encoder, indirect->handle, p_offset, p_draw_count, nullptr, 0);
 		return;
 	}
 
 	// WebGPU has no multi-draw-indirect — must loop.
+	perf.draw_calls += p_draw_count;
+	perf.indirect_draw_calls += p_draw_count;
 	for (uint32_t i = 0; i < p_draw_count; i++) {
 		wgpuRenderPassEncoderDrawIndexedIndirect(cmd->render_encoder, indirect->handle, p_offset + i * p_stride);
 	}
@@ -10113,10 +10146,14 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indirect(CommandBufferID p
 	// firstVertex, firstInstance.
 	static constexpr uint32_t DRAW_INDIRECT_NATIVE_STRIDE = sizeof(uint32_t) * 4;
 	if (has_multi_draw_indirect && p_stride == DRAW_INDIRECT_NATIVE_STRIDE) {
+		perf.draw_calls++;
+		perf.indirect_draw_calls++;
 		wgpuRenderPassEncoderMultiDrawIndirect(cmd->render_encoder, indirect->handle, p_offset, p_draw_count, nullptr, 0);
 		return;
 	}
 
+	perf.draw_calls += p_draw_count;
+	perf.indirect_draw_calls += p_draw_count;
 	for (uint32_t i = 0; i < p_draw_count; i++) {
 		wgpuRenderPassEncoderDrawIndirect(cmd->render_encoder, indirect->handle, p_offset + i * p_stride);
 	}
@@ -11059,6 +11096,7 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 		cmd->compute_encoder = nullptr;
 
 		for (const WGUniformSet::RWShadowRegistration &reg : us->rw_shadow_registrations) {
+			perf.rw_shadow_refreshes++;
 			WGPUTexelCopyTextureInfo src_copy = {};
 			src_copy.texture = reg.source;
 			src_copy.aspect = WGPUTextureAspect_All;
@@ -11557,20 +11595,32 @@ void RenderingDeviceDriverWebGPU::begin_segment(uint32_t p_frame_index, uint32_t
 	frame_index = p_frame_index;
 	frames_drawn = p_frames_drawn;
 
-	// Performance counter tracking — gated behind WEBGPU_VERBOSE (see the
-	// #define near the top of this file). This used to be always-on with the
-	// reasoning that a 1 log/sec console.log is negligible overhead, but it
-	// spams the browser console in production builds (see plan-of-attack.md
-	// Tier 1 #4) — anyone profiling should opt in explicitly instead.
-#ifdef WEBGPU_VERBOSE
+	// Per-frame counters, summarized once a second.
+	//
+	// Publishing to `window.godotWebGPUFrameStats` is unconditional, for the
+	// same reason godotWebGPUShaderStats is (see _publish_shader_stats): the
+	// point is to be answerable on a stock release build. Per-frame cost on
+	// this driver was otherwise only visible with WEBGPU_VERBOSE compiled in --
+	// and turning verbose output on costs ~1.5 s of load time all by itself
+	// (Task 14 subtask 1, Finding 2), so profiling with it distorts what is
+	// being profiled. One small store per second does not.
+	//
+	// The console.log stays behind WEBGPU_VERBOSE: it used to be always-on,
+	// which spammed production consoles, and anyone who wants a running log
+	// should opt in.
+	//
+	// Timed with get_ticks_usec() rather than a performance.now() call through
+	// EM_ASM, which was a C->JS crossing on every frame.
 	perf.frames_since_log++;
-	double now = EM_ASM_DOUBLE({ return performance.now(); });
+	const double now = double(OS::get_singleton()->get_ticks_usec()) / 1000.0;
 	if (perf.last_log_time == 0) {
 		perf.last_log_time = now;
 	} else if (now - perf.last_log_time >= 1000.0) {
-		double elapsed = (now - perf.last_log_time) / 1000.0;
-		uint32_t fps = (uint32_t)(perf.frames_since_log / elapsed);
-		uint32_t f = perf.frames_since_log > 0 ? perf.frames_since_log : 1;
+		const double elapsed = (now - perf.last_log_time) / 1000.0;
+		const uint32_t fps = (uint32_t)(perf.frames_since_log / elapsed);
+		const uint32_t f = perf.frames_since_log > 0 ? perf.frames_since_log : 1;
+		_publish_frame_stats(fps, f);
+#ifdef WEBGPU_VERBOSE
 		EM_ASM({ console.log('[PERF] fps=' + $0 +
 						 ' draws/f=' + $1 +
 						 ' SetBG/f=' + $2 +
@@ -11579,11 +11629,11 @@ void RenderingDeviceDriverWebGPU::begin_segment(uint32_t p_frame_index, uint32_t
 						 ' SetVB/f=' + $5 +
 						 ' FI/f=' + $6 +
 						 ' RingOF/f=' + $7); }, fps, perf.draw_calls / f, perf.set_bind_group_calls / f, perf.push_constant_writes / f, perf.render_passes / f, perf.set_vertex_buffer_calls / f, perf.first_instance_draws / f, perf.ring_overflows / f);
+#endif
 		perf.reset();
 		perf.frames_since_log = 0;
 		perf.last_log_time = now;
 	}
-#endif
 
 	// Reset push constant ring buffer offset and shadow buffer tracking at the start of each segment.
 	push_constant_ring_offset = 0;
