@@ -7087,83 +7087,105 @@ a `werror` failure from this work could come from.
 >
 > **Last Updated**: October 5, 2026 — diagnosed, not yet acted on.
 
-### Task 16.1: diagnose the history divergence `[DIAGNOSED — no fix attempted]`
-**Status**: `DIAGNOSED`
+### Task 16.1: diagnose the history divergence `[ROOT-CAUSED]`
+**Status**: `ROOT-CAUSED — no fix attempted`
 **Severity**: MEDIUM — costs real time at every upstream sync, risks nothing in the shipped engine
 
-**The thing to know first: no authorship or message was ever lost.** That was the worry behind the
-question, and it is not what happened. Every one of these commits still carries its original
-author, author date, committer, committer date and full message. `git log` on this fork and on
-`godotengine/godot` print the same thing for the same commit — the oldest three commits
-(`68e708cd25`, `0e49da1687` "first commit", `0b806ee0fc` "GODOT IS OPEN SOURCE") are even the same
-*hashes*. There is nothing to restore in the sense of recovering lost metadata.
+**Cause**: a whole-history rewrite performed **in this repository** (`Shane-Gadsby/godotwebgpu`),
+intended only to strip the `Claude <noreply@anthropic.com>` author from the fork's own commits. Its
+blast radius vastly exceeded that intent: it re-parented **82,225 upstream Godot commits** and
+destroyed the merge base with both `godotengine/godot` and the fork's own parent,
+`dwalter/godotwebgpu`.
 
-**What actually diverges is topology.** Measured:
+**First: nothing was lost.** Every commit still carries its original author, author date, committer,
+committer date and message. The oldest three commits (`68e708cd25`, `0e49da1687` "first commit",
+`0b806ee0fc` "GODOT IS OPEN SOURCE") are even the same *hashes* as upstream's. There is no metadata
+to recover.
 
-| | count |
+##### The measurements
+
+| | |
 |---|---|
-| commits on `webgpu-4.7.2` that `upstream/master` does not have *by hash* | **83,030** |
-| commits on `upstream/master` that `webgpu-4.7.2` does not have *by hash* | **85,081** |
-| `git merge-base webgpu-4.7.2 upstream/master` | `b70e2b754d` — **2015-11-07** |
+| commits on `webgpu-4.7.2` absent from `upstream/master` by hash | **83,030** |
+| ...of those, with an exact upstream twin (same tree + author + author-date + subject, new hash) | **82,225 (99.0%)** |
+| ...genuinely not in upstream in any form (the fork's own work, plus some strays) | **805 (1.0%)** |
+| `merge-base webgpu-4.7.2 upstream/master` | `b70e2b754d` -- **2015-11-07** |
+| `merge-base webgpu-4.7.2 dwalter/webgpu-4.6.2` | `b70e2b754d` -- **the same 2015 commit** |
+| `merge-base dwalter/webgpu-4.6.2 upstream/master` | `89cea14398` -- **2026-01-25, "Bump version to 4.6-stable"** |
 
-83,030 "fork-only" commits, of which 31,297 are authored by Rémi Verschelde, 6,135 by Thaddeus
-Crews, 2,709 by Juan Linietsky, and so on down the list of Godot's actual top contributors. They
-are not fork work. They are upstream Godot commits that exist in this repository under *different
-hashes*.
+That last row is what settles it. **`dwalter/godotwebgpu`'s history is healthy** -- a clean merge
+base at 4.6-stable, and it contains upstream's *real* hashes (`61c4c5795f` is an ancestor of its
+branch) rather than the re-parented ones (`46b8d6af6d` is not). This repository is detached from
+upstream *and* from its own parent fork, at the same 2015 commit. The damage was done here.
 
-**Why the hashes differ.** Compare any of the three pairs Task 15.1's `git replace` refs connect:
+##### Why the hashes differ, and why the boundary is 2015 and not 2025
+
+Compare any twin pair -- these are the ones Task 15.1's `git replace` refs connect:
 
 ```
-fork     8af7d4d70c  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable \o/"
+fork     8af7d4d70c  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
                      tree=8cce5a783d  parent=bf94664cc9
-upstream ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable \o/"
+upstream ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
                      tree=8cce5a783d  parent=b40a61e58b
 ```
 
-Identical author, identical date, identical message, **identical tree** — the content is
-byte-for-byte the same commit. Only the parent differs. A commit's hash covers its parents, so a
-different parent is a different hash, and the difference then cascades to every descendant forever.
-The same holds for the 4.7.1 and 4.7-stable pairs.
+Identical author, date, message and **tree** -- byte-for-byte the same commit. Only the parent
+differs, and a commit's hash covers its parents, so the difference cascades to every descendant
+forever. Walking the first divergent commit back 34 steps reaches the boundary: `46b8d6af6d`, a
+**2015-09-20** merge whose first parent is in upstream but whose second parent (`040db02e8a`) is not.
 
-So: at some point around late 2015 this lineage was **rewritten** — a `filter-branch` /
-`filter-repo` / whole-tree rebase, or a replay of upstream onto a different root — which re-parented
-everything from that point on. Content survived perfectly; identity did not. `git` has no way to
-know `8af7d4d70c` and `ed1daf0bf0` are the same commit, so `merge-base` walks back to the last
-commit whose hash still matches on both sides, which is a commit from **November 2015**.
+An author-identity filter should only re-parent from the earliest commit it *edits*, which would be
+2025 at the earliest. A 2015 boundary is consistent with the rewriter altering something
+**structural** in that merge's second-parent lineage -- `git filter-repo` prunes empty and
+degenerate commits by default, and dropping one commit there re-parents the merge and cascades from
+it. The author edit is not what re-hashed the engine; the pruning is.
 
-**What it costs.** Every upstream sync looks like a merge of two engines that forked eleven years
-ago. Task 15.1 measured it: without intervention the 4.8 merge wanted to replay **85,264** upstream
-commits; with three `git replace` refs moving the base to `4.7-stable` it was **2,794**. Those refs
-are local to one clone and are not pushed, so the next person to attempt a sync starts from
-85,264 again and has to rediscover this.
+##### What it cost, measured
 
-##### Options, in increasing order of blast radius
+- **Every upstream sync looks like a merge of two engines that forked eleven years ago.** Task 15.1:
+  the 4.8 merge wanted to replay **85,264** upstream commits; three `git replace` refs brought it to
+  **2,794**. Those refs are local to one clone and are not pushed, so the next person to sync starts
+  from 85,264 and has to rediscover all of this.
+- **Three commit hashes cited in this fork's own notes no longer exist**: `5f4b63c136` (HANDOFF.md's
+  header, "the `depth_buffer` reclassification"), `5e16f308c7` (TASKS.md and `emsdk-upgrade.md`),
+  `d17857e497` (Task 29's user-confirmed warning-free bake). 40 of the 47 hex strings cited across
+  the two notes still resolve; those three are dead, and the other four non-resolving strings are
+  plain numbers and one tree hash, not commits.
+- **The author strip itself only partly took.** 17 commits are still authored
+  `Claude <noreply@anthropic.com>`: 16 from 2026-10-05 (added *after* the rewrite) and one survivor
+  the filter missed, `802eb0b1a0` (2025-11-06, "Fix glow visual compatibility regression").
 
-1. **Push the `replace` refs** (`git push origin 'refs/replace/*'`). Replace refs are a first-class
-   git feature and are *additive* — they change nothing about the existing commits, break no clone,
-   invalidate no branch or PR, and anyone who fetches them gets the corrected merge base
-   automatically. The three from Task 15.1 cover the 4.7 line; a few more would cover each earlier
-   release boundary. **Cheapest by a wide margin, and reversible by deleting the ref.** The catch is
-   that `refs/replace/*` is not fetched by default, so it needs saying out loud in CLAUDE.md.
-2. **Find the one rewrite boundary and replace *that*.** Three refs were enough for 4.8 only because
-   the merge needed those three boundaries. If the rewrite happened at a single point, one replace
-   ref there would reconnect the entire lineage at once and make every future sync behave normally.
-   Worth establishing before doing (1) piecemeal: bisect for the oldest commit whose
-   `(author, date, message, tree)` has an upstream twin under a different hash.
-3. **Rewrite history to match upstream exactly.** This is what "restore the commit history" asks for
-   literally, and it is the one option to be careful about: it changes every commit hash on the fork,
-   so every existing clone, branch, tag, open PR, and every commit hash written down in
-   `webgpu_notes/` (TASKS.md and HANDOFF.md cite dozens, as do the commit messages themselves) stops
-   resolving. It buys nothing that (1) or (2) does not, since the metadata is already correct.
-   **Not recommended**, and it should not be done without the user explicitly choosing it knowing
-   that cost.
+##### Options, re-ranked now that the cause is known
 
-##### What is NOT yet established
+An earlier draft of this task guessed the divergence was inherited from an already-rewritten copy,
+and recommended against rewriting on that basis. **That guess was wrong** -- dwalter is clean -- and
+it changes the ranking, because the hashes here are *already* wrong relative to every other
+repository and three of them are already dead in our own notes. The usual "never rewrite published
+history" objection is much weaker when the published history is the thing that is broken.
 
-- Whether there is one rewrite boundary or several. Option (2) depends entirely on this, and it is
-  the first thing to measure.
-- Whether `dwalter/godotwebgpu` (this fork's own `origin`) shares the rewritten lineage or has yet
-  another. Only `godotengine/godot` has been compared so far.
-- Why the rewrite happened. A 2015 boundary predates the WebGPU work by a decade, so it is likely
-  inherited — this fork may have been made from an already-rewritten copy rather than having done
-  the rewriting itself. Worth checking before attributing it.
+1. **Push the `replace` refs** (`git push origin 'refs/replace/*'`). Additive, reversible, breaks no
+   clone, invalidates no branch or PR; anyone who fetches them gets a correct merge base. Cheapest
+   by a wide margin. It treats the symptom, not the cause, and `refs/replace/*` is not fetched by
+   default so it has to be documented. Good immediate mitigation whatever else is chosen.
+2. **Rebuild the branch on upstream's real lineage.** Only **805 commits (1%)** are genuinely this
+   fork's; the other 82,225 are upstream's, already in `upstream/master` under their correct hashes.
+   Replaying the fork's own commits onto real upstream history restores a correct merge base
+   *permanently* and makes every future sync ordinary. The only option that actually fixes it. Cost:
+   new hashes for the fork's own commits, so the notes' citations need updating (three are already
+   broken) and any open branch or PR needs rebasing. Needs the user's explicit go-ahead.
+3. **Leave it and keep re-deriving the `replace` refs per clone.** The default. Costs an hour of
+   rediscovery at every sync.
+
+##### Still unestablished
+
+- Whether `dwalter/godotwebgpu` still holds the fork's **pre-rewrite** commits, which would let the
+  original Claude-authored history be recovered verbatim if ever wanted. Untested: fetch-by-SHA
+  needs the full 40-character hash and only 10-character abbreviations survive in the notes.
+- Which tool and invocation did the rewrite. The 2015 structural boundary points at
+  `filter-repo`-style pruning, but that is inference from the shape, not a record of the command.
+- **A caveat for anyone re-testing this**: GitHub fork networks share object storage, so
+  `git fetch <repo> <sha>` succeeding proves only that the object exists *somewhere in the network*,
+  not that it is on that repository's branch. All three test hashes -- including upstream's own
+  `ed1daf0bf0` -- fetch successfully from dwalter. Use
+  `git merge-base --is-ancestor <sha> <that repo's branch>` instead; it is what produced the table
+  above, and it gave the opposite answer.
