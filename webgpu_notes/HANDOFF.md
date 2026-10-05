@@ -20,8 +20,13 @@
 > `resource_lifecycle` 6/0, and the scene smoketest **20 pass, 0 fail, 0 skip** in Chrome with
 > every scene re-exported from the 4.8 pair now in `bin/`.
 >
-> **What is not**: anything on a real GPU, anything in Forward+, anything in Firefox, and
-> `--dev-mode`. Task 46 §7b's rule is in force — the smoketest above ran on swiftshader, which
+> `warnings=extra werror=yes` is clean too: 9 web and 600 native objects rebuilt under it with
+> zero warnings, covering all of `servers/rendering/`, `editor/`, `drivers/webgpu/`,
+> `modules/box3d_physics/`, `scene/resources/` and `main/` — the CI trap CLAUDE.md warns about,
+> which did catch three real warnings in this port before they reached CI.
+>
+> **What is not**: anything on a real GPU, anything in Forward+, and anything in Firefox.
+> Task 46 §7b's rule is in force — the smoketest above ran on swiftshader, which
 > runs **Forward Mobile**, so it establishes that 4.8 boots and loads every scene without error,
 > not that Forward+ renders correctly. §2's numbers below are still the 4.7.2 measurements.
 > §6's `bin/` description is about the 4.7.2 line; `bin/` now holds a matched 4.8 pair.

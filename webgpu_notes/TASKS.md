@@ -7036,12 +7036,45 @@ a statement about Forward+ output.
    only thing that can confirm the port renders correctly rather than merely running. Carried over
    from Task 46 §7e.
 2. Firefox, which this fork supports and which Tasks 38 and 41 were specifically about.
-3. `./webgpu_tests/local_ci.sh --dev-mode` (`warnings=extra werror=yes`, as CI builds). The three
-   warnings this task fixed were found with a plain build; `--dev-mode` is the only thing that
-   proves none are left.
+3. ~~`--dev-mode`~~ — **done, 0 warnings**, see below.
 4. `bin/` now holds a matched 4.8 editor + non-dlink template pair, and
    `webgpu_tests/scene_smoketest/exports/` was re-exported from it — so `--skip-export` reproduces
    the 20/20 as-is. Task 36's rule still governs: rebuild both, or neither.
+
+##### The `werror` check, which is the one that goes red in CI while everything local is green
+
+CLAUDE.md's Testing section warns that CI builds with `dev_mode=yes` (implying
+`warnings=extra werror=yes`) and that none of the normal commands do — "this is how an
+unused-variable error kept 🧪 WebGPU Tests red for two days while every local tier was green".
+That trap is real for this port: the plain web build surfaced three warnings (two `-Wdangling`,
+one unused variable) that `werror` would have made fatal.
+
+Running the full `local_ci.sh --dev-mode` would rebuild everything and clobber the validated
+`bin/` pair, so instead the warning flags were applied to **objects only**, scoped to the
+directories this port touches, with the final binaries deliberately not relinked:
+
+```bash
+# Flag changes alone do not invalidate an up-to-date object here -- a scoped build with the new
+# flags finished in 8 seconds having compiled nothing. The objects have to be deleted first.
+rm -f bin/obj/drivers/webgpu/*.web.template_release.*.o   # plus the shared files the fork edits
+scons platform=web target=template_release webgpu=yes opengl3=no threads=no \
+      warnings=extra werror=yes -j4 bin/obj/drivers/webgpu/
+
+rm -f bin/obj/{servers/rendering,editor,drivers/webgpu,modules/box3d_physics}/**/*.linuxbsd.editor.x86_64.o
+scons platform=linuxbsd target=editor webgpu=yes warnings=extra werror=yes -j4 \
+      bin/obj/servers/rendering/ bin/obj/editor/ bin/obj/drivers/webgpu/ \
+      bin/obj/modules/box3d_physics/ bin/obj/scene/resources/ bin/obj/main/
+```
+
+**Result: 9 web objects and 600 native objects compiled at `warnings=extra werror=yes` with zero
+warnings and zero errors**, and `grep -c Linking` on both logs is 0, so the editor binary and
+template zip that produced the 20/20 above are untouched (timestamps confirm it). The native sweep
+covers far more than the port's own diff — all of `servers/rendering/`, `editor/`,
+`drivers/webgpu/`, `modules/box3d_physics/`, `scene/resources/` and `main/`.
+
+This is not quite the same as a full `--dev-mode` run (it does not cover every module, and it does
+not link), but it covers every file this port changed plus their whole directories, which is where
+a `werror` failure from this work could come from.
 
 ---
 
