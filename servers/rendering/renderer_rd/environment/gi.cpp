@@ -3691,7 +3691,6 @@ void GI::init(SkyRD *p_sky) {
 	// already-decoded values directly instead of hand-packed bits, so the compute shaders
 	// that write them need a matching storage-image declaration and store path.
 	sdfgi_sky_use_octmap_array = p_sky->sky_use_octmap_array;
-	String sdfgi_native_storage_format_define = _sdfgi_native_storage_format_define();
 
 	// These three shaders' defines depend on a device capability, so the shader
 	// baker has to be able to recompute them for the export target rather than

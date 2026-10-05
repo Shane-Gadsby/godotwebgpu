@@ -712,16 +712,23 @@ if env["scu_build"]:
 
     methods.set_scu_folders(scu_builders.generate_scu_files(max_includes_per_scu))
 
+if env["platform"] == "web":
+    # 4.8 added the `rendering_device` option and made the web platform default it to
+    # False ("Not available in the web platform"), which is correct for an upstream web
+    # build -- there is no RenderingDevice driver there. This fork exists to provide one,
+    # so `webgpu=yes` turns it back on. Without this, servers/rendering/SCsub never
+    # compiles rendering_device.cpp / rendering_device_graph.cpp / renderer_rd/ at all and
+    # the link fails on `undefined symbol: RenderingDevice::RenderingDevice()`.
+    # `vulkan` stays off for web through platform/web/detect.py's get_flags(), not through
+    # the `not env["rendering_device"]` cascade below, which no longer fires here.
+    env["rendering_device"] = env["webgpu"]
+
 if env["rendering_device"]:
-    if env["platform"] == "web":
-        # Not available in the web platform.
-        env["rendering_device"] = False
-    else:
-        env.Append(CPPDEFINES=["RD_ENABLED"])
-        if env["forward_mobile_renderer"]:
-            env.Append(CPPDEFINES=["MOBILE_RD_ENABLED"])
-        if env["forward_plus_renderer"]:
-            env.Append(CPPDEFINES=["FORWARD_RD_ENABLED"])
+    env.Append(CPPDEFINES=["RD_ENABLED"])
+    if env["forward_mobile_renderer"]:
+        env.Append(CPPDEFINES=["MOBILE_RD_ENABLED"])
+    if env["forward_plus_renderer"]:
+        env.Append(CPPDEFINES=["FORWARD_RD_ENABLED"])
 # These need to be set before platform detection.
 if not env["rendering_device"] or not (env["forward_mobile_renderer"] or env["forward_plus_renderer"]):
     env["d3d12"] = False
