@@ -200,14 +200,6 @@ bool TextEditorBase::EditMenus::activate_shortcut(const Ref<InputEvent> &p_event
 	return false;
 }
 
-bool TextEditorBase::activate_menu_shortcut(const Ref<InputEvent> &p_event) {
-	ERR_FAIL_COND_V(p_event.is_null(), false);
-	if (!edit_menus || !edit_menus->is_visible_in_tree()) {
-		return false;
-	}
-	return edit_menus->activate_shortcut(p_event);
-}
-
 TextEditorBase::EditMenus::EditMenus(DocumentEditorContainer *p_document_editor_container) {
 	document_editor_container = p_document_editor_container;
 

@@ -395,6 +395,10 @@ class DocumentEditorContainer : public MarginContainer {
 	virtual void input(const Ref<InputEvent> &p_event) override;
 	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
 
+	// Runs the visible editor's edit-menu shortcut for p_event, if any. Used for shortcuts
+	// bound to mouse buttons, which never reach the menus through shortcut_input().
+	bool activate_menu_shortcut(const Ref<InputEvent> &p_event);
+
 	void _prepare_file_menu();
 	void _file_menu_closed();
 

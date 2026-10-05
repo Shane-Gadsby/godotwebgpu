@@ -3194,7 +3194,6 @@ Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, c
 	uint32_t staging_pixel_size = (get_data_request.gpu_pixel_size > 0) ? get_data_request.gpu_pixel_size : pixel_size;
 
 	uint32_t w, h, d;
-	uint32_t pixel_size = get_image_format_pixel_size(tex->format);
 	uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	uint32_t pitch_step = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_DATA_ROW_PITCH_STEP);
 	uint32_t region_size = texture_download_region_size_px;

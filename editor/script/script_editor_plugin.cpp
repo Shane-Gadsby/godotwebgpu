@@ -3304,10 +3304,24 @@ void DocumentEditorContainer::input(const Ref<InputEvent> &p_event) {
 		if (get_viewport()->is_input_handled()) {
 			return;
 		}
-		if (TextEditorBase::activate_menu_shortcut(p_event)) {
+		if (activate_menu_shortcut(p_event)) {
 			accept_event();
 		}
 	}
+}
+
+bool DocumentEditorContainer::activate_menu_shortcut(const Ref<InputEvent> &p_event) {
+	ERR_FAIL_COND_V(p_event.is_null(), false);
+
+	// 4.8 gives every editor type its own EditMenusBase, all parented here with only the
+	// current editor's shown (see _add_script_editor()), so there is no single edit-menu
+	// instance to ask -- walk them and try whichever one is visible.
+	for (ScriptEditorBase::EditMenusBase *editor_menu : editor_menus) {
+		if (editor_menu->is_visible_in_tree() && editor_menu->activate_shortcut(p_event)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void DocumentEditorContainer::shortcut_input(const Ref<InputEvent> &p_event) {

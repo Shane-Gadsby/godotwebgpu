@@ -6805,3 +6805,170 @@ Everything in 7a is settled. What is not:
    (`webgpu_tests/test_project` creates 21 `StandardMaterial3D.new()` in `_ready()`) misses the bake
    for those versions on real hardware too. On swiftshader it cannot be told apart from 7b's
    renderer effect.
+
+---
+
+## Phase 15: Godot 4.8 Upstream Sync (October 2026)
+
+> **Goal**: Port the fork from 4.7.2 to Godot 4.8, which entered code freeze. Branch `webgpu-4.8`,
+> pinned to `upstream/master` `e7cfa294a0b81bed7986be04a848cc1832a3f083` (2026-10-02) rather than a
+> moving tip so the port is reproducible. Same merge-not-rebase strategy as Phase 8.
+>
+> **Last Updated**: October 5, 2026 (Task 15.3)
+
+### Task 15.1: merge upstream 4.8 — reproducing the merge base, and triaging 109 conflicts `[SERIAL]`
+**Status**: `DONE`
+**Severity**: CRITICAL
+**Commits**: `0ead522091` (the merge), `2eaf7e2789` (the collateral the merge got wrong)
+**Scale**: 2,794 upstream commits, 3,872 files, +205k −116k lines, 109 conflicts.
+
+**Reproducing the merge base.** This fork carries a parallel, re-hashed copy of Godot's history, so
+`git merge-base` against `godotengine/godot` lands on a 2015 commit and the merge tries to replay
+the entire engine (85,264 upstream commits). Three local `git replace` refs stitch the fork's
+lineage onto upstream's real graph and move the base to `4.7-stable`, cutting it to 2,794:
+
+```
+git replace 8af7d4d70c ed1daf0bf0
+git replace b27e4cdbeb a13da4feb8
+git replace cef683abdf 5b4e0cb0fd
+```
+
+These are local refs. Anyone reproducing the merge needs them; they are not pushed and are not
+needed to *use* the result.
+
+**Conflict triage.** `git diff --name-only 4.7.2-stable webgpu-4.7.2` separates the files the fork
+genuinely owns from the collateral. Of the 109 conflicts, 81 were collateral and 28 were fork files.
+`git diff 4.7.2-stable webgpu-4.7.2 -- <file>` sizes each fork delta before choosing a strategy —
+e.g. `platform/windows/display_server_windows.cpp` had 10 conflicting hunks but the fork's entire
+delta to it is a single `set_current_rendering_driver_name()` call, so all 10 take upstream's side
+and the one line is then verified present.
+
+**Resolutions worth knowing about:**
+
+- **`drivers/SCsub`**: the `webgpu` block stays *outside* `if env["rendering_device"]:`, unlike every
+  other RenderingDevice driver. 4.8's SConstruct forces `rendering_device = False` for the web
+  platform ("Not available in the web platform"), so a webgpu entry inside that block would silently
+  never compile the driver for its only real target. The fork defines `RD_ENABLED` for web itself,
+  in `platform/web/detect.py`.
+- **`servers/rendering/renderer_rd/shader_rd.cpp`**: 4.8 added a *second* shader-creation dispatch
+  site — `_load_variant_from_cache` on `WorkerThreadPool` — that the fork's existing
+  `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` guard did not cover. WGPU handles live in
+  per-thread JS lookup tables (Task 12), so cross-thread creation hard-aborts. `_load_from_cache`
+  now loads every variant inline on the calling thread when the trait is set.
+- **`servers/rendering/renderer_rd/environment/gi.cpp`**: 4.8's `sdfgi_integrate.glsl` reads
+  `USE_RADIANCE_OCTMAP_ARRAY` where 4.7.2 read `USE_OCTMAP_ARRAY`; `_sdfgi_integrate_defines()` now
+  emits the new name.
+- **`main/main.cpp`**: 4.8 moves `AccessibilityServer` init earlier and promotes the driver index to
+  a file static. **An earlier "ours" resolution here silently dropped the whole block** — the
+  `accessibility_driver_idx` reference count fell from 8 to 1 — because the relocation reads like a
+  fork change. Take upstream's wholesale and check the count.
+
+**The build break no conflict marked.** 4.8 removed
+`get_compressed_image_format_pixel_rshift()` outright, replacing the `>> rshift` idiom with
+`get_compressed_image_format_pixels_shifted(format, pixels)`. Fork-only staging-size code in
+`rendering_device.cpp` still called the removed helper. Git reported no conflict, because the fork's
+lines and upstream's deletion touched different regions. Found by grepping for the old name after
+the merge resolved cleanly — **the lesson for the next sync**: after a merge of this size, grep for
+every symbol upstream deleted, don't trust a clean conflict list.
+
+### Task 15.2: Box3D physics rewritten for 4.8's split physics headers `[SERIAL]`
+**Status**: `DONE`
+**Severity**: CRITICAL — the module did not compile at all
+**Commit**: `20c08a74dc`
+
+4.8 broke `servers/physics_3d/physics_server_3d.h` apart. The 19 enums moved to
+`namespace PhysicsServer3DEnums` (`physics_server_3d_enums.h`, alias `PS3DE`), the query/motion
+structs to `PhysicsServer3DTypes` (`PS3DT`), `MAX_CONTACTS_REPORTED_3D_MAX` to
+`PhysicsServer3DConstants` (`PS3DC`), and `PhysicsServer3DManager` to its own header. Upstream did
+the same rewrite to `modules/jolt_physics/` in the same release, which is the reference for exactly
+how it should look — `modules/box3d_physics/` mirrors Jolt by design, so it mirrors this too.
+
+340 qualified and 88 unqualified references needed requalifying. **Drive the rewrite off the names
+actually declared in the three new headers**, not a hand-written list, so it cannot silently miss
+one. Two names still needed handling separately:
+`G6DOF_JOINT_FLAG_ENABLE_MOTOR` and `G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR` sit behind
+`#ifndef DISABLE_DEPRECATED` *inside* their enum body, which breaks naive enumerator extraction.
+
+**Two genuinely new pure virtuals**, not just renames:
+
+```
+generic_6dof_joint_set_angular_target_rotation(RID, const Quaternion &)
+generic_6dof_joint_get_angular_target_rotation(RID) const
+```
+
+Box3D has no generic 6DOF joint at all — the module emulates one from the simpler Box3D joint types
+— so as with GodotPhysics3D there is nothing to apply a quaternion target rotation to. Jolt is the
+only backend that implements it. `Box3DGeneric6DOFJoint3D` stores the value so a script that sets it
+reads the same value back, validates it the way Jolt and GodotPhysics3D do, and reports it through
+`Box3DDiagnostics::_report_dropped()` rather than a bare `WARN_PRINT_ONCE` — the module's standing
+convention for a Box3D gap.
+
+4.8 also deprecated `ShapeResult::collider` and `RayResult::collider` in favour of `collider_id`
+plus a `get_collider()` accessor. The three writes in `box3d_physics_direct_space_state_3d.cpp` are
+dropped, as upstream dropped Jolt's — they were a second copy of what `collider_id` already carries,
+and `-Wdeprecated-declarations` is fatal under CI's `dev_mode=yes`.
+
+**Verified**: the module builds clean at `warnings=extra` — zero errors, zero warnings.
+
+### Task 15.3: WebGPU driver adaptation and the 4.8 interface audit `[SERIAL]`
+**Status**: `DONE at interface level; no web build has run yet`
+**Commit**: `20c08a74dc`
+
+4.8's changes to the three driver base headers, and what each needed:
+
+| 4.8 change | WebGPU answer |
+|---|---|
+| `API_TRAIT_CLEARS_WITH_COPY_ENGINE` split into `_BUFFER_` / `_TEXTURE_` variants | both 0 — no copy-engine clear at all (buffer clears via `wgpuCommandEncoderClearBuffer`, texture clears via a render pass clear load op) |
+| new `API_TRAIT_TEXTURES_REQUIRE_LAYOUT_TRANSITIONS` | 0 — no explicit image layout. `API_TRAIT_HONORS_PIPELINE_BARRIERS` being 0 already gates most consumers, but `rendering_device_graph.cpp` caches this one on its own |
+| new Features `SUPPORTS_RASTERIZATION_RATE_MAP`, `SUPPORTS_GPU_MAPPABLE_BUFFER` | already false via `has_feature()`'s `default:`, and the shader baker's target-capability override loops to `SUPPORTS_MAX` so it picks them up with no edit — which is exactly why Task 31 wrote it as a loop rather than a table |
+| new `MEMORY_ALLOCATION_TYPE_GPU_MAPPABLE` | never reaches the driver: `_get_buffer_alloc_type()` gates it on `SUPPORTS_GPU_MAPPABLE_BUFFER` |
+| `ReflectImageTraits` removed; `texture_type`/`texture_format` added to `ShaderUniform` and `ReflectionBindingData` | no change needed — the WebGPU container never read `uniform.image.format`. See "worth revisiting" below |
+| new `command_begin_compute_pass` / `command_end_compute_pass` | default no-ops; the driver's lazy compute-encoder management is unaffected. See "worth revisiting" |
+| new `Workarounds::avoid_store_op_dont_care_in_draw_list_with_no_bound_pipeline` | Vulkan/NVIDIA-only; default false is correct |
+| `CONTAINER_VERSION` | **unchanged at 2**, even though `ReflectionBindingData` grew two fields. Upstream relies on `GODOT_VERSION_HASH` keying the shader cache instead, which the fork inherits — no `FORMAT_VERSION` bump needed on the WebGPU container either |
+
+**Pure-virtual audit** (CLAUDE.md's standing rule after any base-header change): all 138
+`RenderingDeviceDriver`, 25 `RenderingContextDriver` and 6 `RenderingShaderContainer` pure virtuals
+have an override in `drivers/webgpu/`. Note when redoing this that `command_group_begin/end`,
+`linear_uniform_set_pools_reset` and `swap_chain_set_max_fps` are `virtual ... {}`, not `= 0` — a
+regex that spans lines will false-positive on them. Signature *mismatches* are not covered by this
+audit; only a real web build catches those.
+
+##### Two things worth revisiting now that 4.8 makes them possible
+
+1. **`command_end_compute_pass` could replace the compute-pass conflict splitter.** The fork's
+   `split_compute_pass_if_conflicting()` exists because the driver could not tell where a Godot
+   compute list ended, so consecutive lists shared one `WGPUComputePassEncoder` — and a WebGPU
+   compute pass is one synchronization scope, so a write in list N and a read in list N+1 inside it
+   is a validation error. 4.8's `rendering_device_graph.cpp` now brackets every compute list with
+   `command_begin_compute_pass`/`command_end_compute_pass`, which hands the driver exactly the
+   information the splitter was reconstructing. Closing the encoder in `command_end_compute_pass`
+   would make each list its own scope — more correct, and less work for the heuristic. It is also a
+   behaviour change with a real cost (more encoders = more JS crossings), so it is deliberately
+   *not* part of this port: do it once the port is green and measurable, not before.
+2. **4.8's `ShaderUniform::texture_type`/`texture_format` may overlap the fork's baked
+   `image_decls`.** Task 46 added a `FLAG_IMAGE_DECLS_BAKED` footer carrying SPIR-V image
+   declarations so the container could stop shipping SPIR-V. If 4.8's new reflection fields cover
+   the same ground, that footer could go. **Check before assuming**: the fork's decls are *pre-DCE*
+   (that is the whole reason `_extract_pre_dce_storage_image_info` existed), and reflection runs
+   after. They may well not be equivalent.
+
+### Task 15.4: build and test the port `[IN PROGRESS]`
+**Status**: `NOT DONE` — native editor build running at time of writing; nothing below has run.
+
+Remaining, in the order that finds problems fastest:
+
+1. **Native editor** (`scons platform=linuxbsd target=editor dev_build=yes webgpu=yes`) — validates
+   all shared engine code and the baker subset of `drivers/webgpu/`. The physics and mbedtls breaks
+   above were both found this way.
+2. **Web template** (`platform=web webgpu=yes target=template_release dlink_enabled=yes opengl3=no
+   threads=no`) — the only thing that compiles the real driver, and so the only thing that catches a
+   signature mismatch against 4.8's base headers.
+3. **Shader precompile** — `wgsl_precompile.py` over 4.8's shaders, to find new Tint failures from
+   4.8 engine features. Phase 8's Task 8.2 is the precedent: the 4.7 sync's one real regression was
+   a brand-new engine shader feature (LTC area lights) that Tint could not convert, and it was
+   invisible until the shaders were actually compiled.
+4. **`./webgpu_tests/local_ci.sh --dev-mode`** — `dev_mode=yes` implies `werror`, and a warning that
+   is fatal in CI is invisible in every command above.
+5. `bin/`'s editor+template pair is from `0c81e29f` on the 4.7.2 line and **does not match this
+   branch**. Task 36's rule applies: rebuild both, or neither.
