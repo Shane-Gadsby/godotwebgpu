@@ -873,6 +873,9 @@ double Box3DGeneric6DOFJoint3D::get_param(Vector3::Axis p_axis, PS3DE::G6DOFJoin
 		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
 			return spring_equilibrium[AXIS_LINEAR_X + axis];
 		}
+		case PS3DE::G6DOF_JOINT_LINEAR_DRIVE_FORCE_LIMIT: {
+			return drive_limit[AXIS_LINEAR_X + axis];
+		}
 		case PS3DE::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
 			return limit_lower[AXIS_ANGULAR_X + axis];
 		}
@@ -908,6 +911,9 @@ double Box3DGeneric6DOFJoint3D::get_param(Vector3::Axis p_axis, PS3DE::G6DOFJoin
 		}
 		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
 			return spring_equilibrium[AXIS_ANGULAR_X + axis];
+		}
+		case PS3DE::G6DOF_JOINT_ANGULAR_DRIVE_TORQUE_LIMIT: {
+			return drive_limit[AXIS_ANGULAR_X + axis];
 		}
 		default: {
 			ERR_FAIL_V_MSG(0.0, vformat("Unhandled parameter: '%d'. This should not happen. Please report this.", p_param));
@@ -955,6 +961,9 @@ void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PS3DE::G6DOFJointA
 		case PS3DE::G6DOF_JOINT_LINEAR_SPRING_EQUILIBRIUM_POINT: {
 			spring_equilibrium[AXIS_LINEAR_X + axis] = p_value;
 		} break;
+		case PS3DE::G6DOF_JOINT_LINEAR_DRIVE_FORCE_LIMIT: {
+			drive_limit[AXIS_LINEAR_X + axis] = p_value;
+		} break;
 		case PS3DE::G6DOF_JOINT_ANGULAR_LOWER_LIMIT: {
 			// Godot's angular axes run the opposite way of Box3D's, so the limits are mirrored.
 			limit_upper[AXIS_ANGULAR_X + axis] = -p_value;
@@ -978,6 +987,9 @@ void Box3DGeneric6DOFJoint3D::set_param(Vector3::Axis p_axis, PS3DE::G6DOFJointA
 		} break;
 		case PS3DE::G6DOF_JOINT_ANGULAR_SPRING_EQUILIBRIUM_POINT: {
 			spring_equilibrium[AXIS_ANGULAR_X + axis] = p_value;
+		} break;
+		case PS3DE::G6DOF_JOINT_ANGULAR_DRIVE_TORQUE_LIMIT: {
+			drive_limit[AXIS_ANGULAR_X + axis] = p_value;
 		} break;
 		default: {
 			ERR_FAIL_MSG(vformat("Unhandled parameter: '%d'. This should not happen. Please report this.", p_param));

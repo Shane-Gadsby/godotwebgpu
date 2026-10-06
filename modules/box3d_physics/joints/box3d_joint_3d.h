@@ -216,6 +216,11 @@ class Box3DGeneric6DOFJoint3D final : public Box3DJoint3D {
 
 	double motor_speed[AXIS_COUNT] = {};
 	double motor_limit[AXIS_COUNT] = {};
+	// 4.8's DRIVE force/torque limits, stored independently of the legacy motor
+	// limits above (as Jolt does) so that setting one never clobbers the other.
+	// Box3D has no generic 6DOF joint and drops the motors entirely, so these are
+	// stored for round-tripping only; FLT_MAX is "unlimited", the engine default.
+	double drive_limit[AXIS_COUNT] = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
 	double spring_stiffness[AXIS_COUNT] = {};
 	double spring_damping[AXIS_COUNT] = {};
 	double spring_equilibrium[AXIS_COUNT] = {};
