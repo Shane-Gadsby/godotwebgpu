@@ -130,10 +130,12 @@ repos:
         # tint_cli is a standalone native host tool built by its own build.sh
         # (see drivers/webgpu/tint_cli/build.sh), not by the main SCons build,
         # and its -I flags are set up for short/relative includes rather than
-        # Godot's project-rooted convention. tint_wrapper.cpp/tint_ir_transforms.{h,cpp}
-        # are compiled by both build.sh and the main SCons build (drivers/webgpu/SCsub)
-        # and must keep same-directory relative includes to satisfy both.
-        exclude: ^drivers/webgpu/(tint_cli/|tint_wrapper\.cpp$|tint_ir_transforms\.(h|cpp)$)
+        # Godot's project-rooted convention. tint_wrapper.cpp,
+        # tint_ir_transforms.{h,cpp}, spirv_preprocess.cpp and
+        # spirv_lite_reflect.{h,cpp} are compiled by both build.sh and the main
+        # SCons build (drivers/webgpu/SCsub) and must keep same-directory
+        # relative includes to satisfy both.
+        exclude: ^drivers/webgpu/(tint_cli/|tint_wrapper\.cpp$|tint_ir_transforms\.(h|cpp)$|spirv_preprocess\.cpp$|spirv_lite_reflect\.(h|cpp)$)
 
       - id: eslint
         name: eslint
