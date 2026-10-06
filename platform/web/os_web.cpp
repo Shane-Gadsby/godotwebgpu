@@ -64,21 +64,19 @@ void OS_Web::alert(const String &p_alert, const String &p_title) {
 // they land on the same clock as everything else the page measures, with no epoch to
 // reconcile.
 //
-// Recording is gated on `--benchmark`, so a normal load pays nothing but one
-// already-false branch per phase.
+// The same phase names also drive the loading bar: every completed phase is reported
+// to the page through `godot_js_os_startup_progress()`, which the export shell turns
+// into real progress through the startup rather than a bar that fills during download
+// and then sits at 100% for the rest of the load. That reporting is unconditional --
+// a few dozen calls across the whole startup -- while the `godotStartupMarks` array the
+// profiler reads stays gated on `--benchmark`.
 void OS_Web::benchmark_begin_measure(const String &p_context, const String &p_what) {
 	OS_Unix::benchmark_begin_measure(p_context, p_what);
-	if (!is_use_benchmark_set()) {
-		return;
-	}
 	startup_marks_from[p_context + ":" + p_what] = get_ticks_usec();
 }
 
 void OS_Web::benchmark_end_measure(const String &p_context, const String &p_what) {
 	OS_Unix::benchmark_end_measure(p_context, p_what);
-	if (!is_use_benchmark_set()) {
-		return;
-	}
 	const String key = p_context + ":" + p_what;
 	HashMap<String, uint64_t>::Iterator from = startup_marks_from.find(key);
 	if (from == startup_marks_from.end()) {
@@ -88,6 +86,11 @@ void OS_Web::benchmark_end_measure(const String &p_context, const String &p_what
 	startup_marks_from.remove(from);
 
 	const CharString key_utf8 = key.utf8();
+	godot_js_os_startup_progress(key_utf8.get_data(), duration_ms);
+
+	if (!is_use_benchmark_set()) {
+		return;
+	}
 	EM_ASM({
 		var marks = window.godotStartupMarks;
 		if (!marks) {

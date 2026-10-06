@@ -130,6 +130,89 @@ void print_web_header() {
 	print_line(vformat("Build configuration: %s.", String(", ").join(build_configuration)));
 }
 
+// Startup is run as a small state machine, one step per animation frame, rather than
+// as one unbroken block. Every step below used to run back-to-back inside the single
+// `callMain()` call, which is exactly why no amount of JS-side progress reporting could
+// ever show up during the load: the thread that would have painted it was the one
+// blocked for the whole startup, and it only returned to the browser once the first
+// frame was already on screen. Returning between steps gives the browser a chance to
+// paint the phase progress `OS_Web::benchmark_end_measure()` reports, so the loading
+// bar can move through the startup instead of stopping at "download complete".
+//
+// The two-phase `Main::setup()`/`Main::setup2()` split this relies on is the same one
+// Android and iOS already use (`java_godot_lib_jni.cpp`, `main_ios.mm`); it is not new
+// engine surgery. Granularity is bounded by the longest single phase -- `Servers:Rendering`
+// is ~500 ms on its own and cannot be broken up from here -- so the bar advances in a
+// handful of real increments, not smoothly. See webgpu_notes/TASKS.md Task 14.
+enum StartupStep {
+	STARTUP_STEP_SETUP2,
+	STARTUP_STEP_START,
+	STARTUP_STEP_FIRST_FRAME,
+};
+
+static StartupStep startup_step = STARTUP_STEP_SETUP2;
+
+// Shuts down cleanly from inside a startup step, where simply returning an exit code
+// from `godot_web_main()` is no longer possible (it has already returned).
+static void startup_failed() {
+	emscripten_cancel_main_loop();
+	emscripten_set_main_loop(exit_callback, -1, false);
+	godot_js_os_finish_async(cleanup_after_sync);
+}
+
+void startup_step_callback() {
+	switch (startup_step) {
+		case STARTUP_STEP_SETUP2: {
+			if (Main::setup2() != OK) {
+				// Matches what Android does with the same failure (`java_godot_lib_jni.cpp`):
+				// report and exit. `Main::setup()`'s own `error:` cleanup is not reachable
+				// from here, and `Main::cleanup()` is not safe to call on a setup that never
+				// completed -- which is why `main_started` is still false at this point.
+				ERR_PRINT("Unable to complete engine setup!");
+				startup_failed();
+				return;
+			}
+
+			print_web_header();
+
+			main_started = true;
+
+			// Ease up compatibility.
+			ResourceLoader::set_abort_on_missing_resources(false);
+
+			startup_step = STARTUP_STEP_START;
+		} break;
+
+		case STARTUP_STEP_START: {
+			int ret = Main::start();
+			os->set_exit_code(ret);
+			os->get_main_loop()->initialize();
+#ifdef TOOLS_ENABLED
+			if (Engine::get_singleton()->is_project_manager_hint() && FileAccess::exists("/tmp/preload.zip")) {
+				PackedStringArray ps;
+				ps.push_back("/tmp/preload.zip");
+				SceneTree::get_singleton()->get_root()->emit_signal(SNAME("files_dropped"), ps);
+			}
+#endif
+			startup_step = STARTUP_STEP_FIRST_FRAME;
+		} break;
+
+		case STARTUP_STEP_FIRST_FRAME: {
+			// Hand over to the real main loop. The first iteration is run immediately
+			// rather than waiting for the next frame: we are inside an animation frame
+			// already and want to draw on the newly set up canvas straight away.
+			emscripten_cancel_main_loop();
+			emscripten_set_main_loop(main_loop_callback, -1, false);
+			main_loop_callback();
+
+			// Nothing further is bracketed by `main.cpp`, so report the last stretch --
+			// main-loop initialization and the first rendered frame -- explicitly, or the
+			// loading bar would stop just short of done on every load.
+			godot_js_os_startup_progress("Startup:First Frame", 0.0);
+		} break;
+	}
+}
+
 /// When calling main, it is assumed FS is setup and synced.
 extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 	godot_init_profiler();
@@ -143,7 +226,7 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 	// We must override main when testing is enabled
 	TEST_MAIN_OVERRIDE
 
-	Error err = Main::setup(argv[0], argc - 1, &argv[1]);
+	Error err = Main::setup(argv[0], argc - 1, &argv[1], false);
 
 	// Proper shutdown in case of setup failure.
 	if (err != OK) {
@@ -156,27 +239,8 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	print_web_header();
+	// The rest of the startup runs one step per frame from here on; see above.
+	emscripten_set_main_loop(startup_step_callback, -1, false);
 
-	main_started = true;
-
-	// Ease up compatibility.
-	ResourceLoader::set_abort_on_missing_resources(false);
-
-	int ret = Main::start();
-	os->set_exit_code(ret);
-	os->get_main_loop()->initialize();
-#ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_project_manager_hint() && FileAccess::exists("/tmp/preload.zip")) {
-		PackedStringArray ps;
-		ps.push_back("/tmp/preload.zip");
-		SceneTree::get_singleton()->get_root()->emit_signal(SNAME("files_dropped"), ps);
-	}
-#endif
-	emscripten_set_main_loop(main_loop_callback, -1, false);
-	// Immediately run the first iteration.
-	// We are inside an animation frame, we want to immediately draw on the newly setup canvas.
-	main_loop_callback();
-
-	return os->get_exit_code();
+	return EXIT_SUCCESS;
 }

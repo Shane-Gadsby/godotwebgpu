@@ -3755,6 +3755,42 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
    4.3. Confirm `threads=no` still builds and behaves identically to before (this task must not regress the documented, working configuration).
 5. Document
    5.1. Update the `CLAUDE.md` build-commands note and this doc's Phase 2 "Worker thread WebGPU isolation" line to reflect the new state (fixed, partially fixed with a documented limitation, or confirmed genuinely unsupported and why).
+6. **Cross-origin isolation (COOP/COEP) — everything we own has to serve the headers, and the export UI has to say so** `[NOTED 2026-10-07, NOT STARTED]`
+
+   `threads=yes` needs `SharedArrayBuffer`, which needs the page to be cross-origin isolated:
+   `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+   This is not WebGPU-specific — it is the same requirement upstream Godot's own threaded web
+   export has always had, and upstream already handles it in the places it owns. Surveyed
+   2026-10-07; the point of this subtask is that **our** additions have not been.
+
+   **Already correct, inherited from upstream — do not re-derive:**
+   - `platform/web/export/editor_http_server.cpp:112-113` — the editor's own HTTP server, i.e.
+     *Remote Deploy* / "Run in Browser", sets both headers unconditionally.
+   - `platform/web/serve.py:24-25` — the `scons` helper server.
+   - `misc/dist/html/service-worker.js:40-52` — the PWA fallback that re-serves responses with
+     the headers injected when the real server does not, driven by the export preset's
+     `ensureCrossOriginIsolationHeaders` option.
+   - `platform/web/export/export_plugin.cpp:390` — the `variant/thread_support` preset option
+     already exists and already selects the threaded template.
+
+   **Ours, and missing the headers** (each spins up its own `http.createServer`, so a
+   `threads=yes` export will simply fail to boot under them with no obvious reason why):
+   `webgpu_tests/startup_phases/features.mjs`, `webgpu_tests/resource_lifecycle/run_tests.mjs`,
+   `webgpu_tests/spec_constant_overrides/run_tests.mjs`, and all five
+   `webgpu_tests/sdfgi_race_repro/run_*.mjs`. `webgpu_tests/benchmark/run_benchmark.sh:220-221`
+   already sets them and is the pattern to copy. Worth factoring into one shared static-server
+   helper rather than adding the two lines nine times, since the next test server added will
+   otherwise miss them too.
+
+   **Export-window warning.** Nothing in the editor tells anyone that enabling
+   `variant/thread_support` makes the export undeployable on a host that cannot set those
+   headers — it just produces an export that fails to start, in a way that looks like an engine
+   bug rather than a hosting problem. Add a warning/reminder to the export dialog when
+   `variant/thread_support` is on (`EditorExportPlatformWeb::get_export_option_warning()` or
+   `has_valid_export_configuration()`'s `r_error` path, following how other platforms surface
+   non-fatal preset advice), naming both header values and pointing at
+   `ensureCrossOriginIsolationHeaders` as the fallback for hosts that cannot. This is the single
+   cheapest thing on this list and the one most likely to save someone else the debugging round.
 
 ---
 
@@ -4360,6 +4396,122 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    2.2. For device request: check whether the JS shell's device pre-initialization (`Module["preinitializedWebGPUDevice"]`) is actually kicked off as early as possible (in parallel with the WASM fetch/instantiate), not serialized after it.
    2.3. If Task 13 isn't done yet, treat any runtime shader-fallback stalls it would produce as out of scope here but flag them explicitly rather than silently working around them in the progress UI.
 3. Make the progress bar representative of what's left
+
+   **RESULTS (2026-10-07) — the startup is now split into frame-sized steps and the bar covers
+   the engine's own phases, not just the download** `[DONE — BROWSER-VERIFIED]`
+
+   The reason subtasks 3.1-3.3 could not be done before: **everything the bar needed to report
+   happened inside one `callMain()` that never returned to JS**, so the thread that would paint
+   the progress was the one blocked for the whole startup. The 2026-09-20 round already found
+   this the hard way — a first attempt at DOM-based progress reporting had *zero* visible effect.
+   The fix is to stop making the startup one indivisible block:
+
+   - **`platform/web/web_main.cpp`** — `godot_web_main()` now calls
+     `Main::setup(..., /* p_second_phase = */ false)` and hands the rest to a three-step state
+     machine (`startup_step_callback()`) driven one step per animation frame by
+     `emscripten_set_main_loop()`: `Main::setup2()` → `Main::start()` + main-loop init → hand
+     over to `main_loop_callback()` and draw the first frame. **This is not new engine surgery**:
+     the two-phase `setup`/`setup2` split is the same one Android (`java_godot_lib_jni.cpp:224,353`)
+     and iOS (`main_ios.mm:62`) already use, including `setup2()`'s own failure handling, which
+     this follows (report + exit; `Main::cleanup()` is not safe on a setup that never completed,
+     which is why `main_started` stays false until `setup2()` succeeds).
+   - **`platform/web/os_web.cpp`** — `benchmark_begin/end_measure` now report **every** completed
+     phase to the page through the new `godot_js_os_startup_progress()`, unconditionally. The
+     `godotStartupMarks` array the profiler reads stays gated on `--benchmark`, so
+     `webgpu_tests/startup_phases/` is unaffected. This reuses `main.cpp`'s *existing* phase
+     brackets rather than adding a parallel set of instrumentation — the phase names are already
+     the ones subtask 1 measured.
+   - **`platform/web/js/libs/library_godot_os.js`, `godot_js.h`, `js/engine/config.js`** — new
+     `onStartupProgress(name, durationMs)` config callback, plumbed through `GodotConfig` the
+     same way `onExit`/`onProgress` are.
+   - **`platform/web/js/engine/engine.js`** — `start()`'s promise contract had to be repaired.
+     `callMain()` now returns almost immediately (after setup phase 1), where the documented
+     contract is "resolves once the engine started". It therefore resolves on the terminal
+     `Startup:First Frame` phase instead, and rejects via the exit path, so a failed startup
+     cannot leave a promise nothing will ever settle. **Anything that calls `startGame()` and
+     acts on the resolution depends on this** — `iframe.js`, `editor.html`, custom shells.
+   - **`misc/dist/html/full-size.html`** — one bar covering both halves of the load: downloads
+     fill the first 55%, the engine's startup phases the rest, weighted by the millisecond costs
+     subtask 1 measured (`Servers:Rendering` 510, `Startup:Load Game` 325, and so on down to 1).
+     Only *leaf* phases are weighted; `main.cpp` also brackets wrappers around them
+     (`Startup:Servers`, `Startup:Main::Setup2`, `Startup:Main::Start`) and counting those too
+     would double-count their children. Unknown phase names are ignored rather than trusted, so
+     a future engine version cannot push the bar past 100%. A new `#status-label` names the phase
+     *that comes next* rather than the one that just finished, since the callback paints during
+     the gap before the next phase runs.
+   - The WebGPU "Starting engine..." notice no longer *replaces* the bar (it used to switch the
+     overlay to `notice` mode, which hides `#status-progress`) — it now updates the label and
+     keeps the bar visible. The CSS spinner is kept exactly as-is and still matters: granularity
+     is bounded by the longest single phase, and `Servers:Rendering` alone paints nothing for
+     ~500 ms.
+
+   **What this does and does not change.** It does not make the load faster — the 1150 ms is the
+   same 1150 ms. It makes the load *legible*: the bar moves through roughly 17 real milestones
+   instead of filling during the download and then sitting at 100% for the longer half of the
+   wait. The one genuine cost is up to a frame of latency per step (3 steps, so <50 ms).
+
+   **Verified in Chrome** against a fresh `demo_3d_platformer` export (editor, non-dlink
+   nothreads template and export all rebuilt from the same tree). Sampling `#status-progress`
+   and `#status-label` every animation frame gives the states a player actually sees:
+
+   | t | bar | label |
+   |---|---|---|
+   | 98 ms | indeterminate | Initializing WebGPU... |
+   | 139-241 ms | 9 → 109 / 1000 | Downloading... 2% → 31% |
+   | 630 ms | 350 / 1000 | Downloading... 100% |
+   | 636 ms | 350 / 1000 | Starting engine... |
+   | 681 ms | 380 / 1000 | Initializing engine... |
+   | 5237 ms | 746 / 1000 | Loading autoloads... |
+   | 11138 ms | 920 / 1000 | Rendering first frame... |
+   | 12298 ms | **1000 / 1000** | Compiling shaders... (341) |
+
+   Before this change that load read 100% at 630 ms and then showed nothing for 11.7 s. (The
+   11.7 s tail is *not* representative: `run_scenes.mjs` never sets `shader_baker/enabled`, so
+   every smoketest export runs the unbaked path — `{baked: 0, translated: 355}`. That is
+   pre-existing and worth fixing separately; this tier has been measuring the unbaked path all
+   along. It made a conveniently long window to observe the bar in.)
+
+   **Two defects that first trace exposed, both fixed and re-verified:**
+   - The bar stopped at **997/1000**, because not every weighted phase runs in every
+     configuration (no XR, no autoloads) and the weights are fixed estimates. The terminal
+     `Startup:First Frame` now snaps to full by definition rather than relying on the
+     accumulated weight landing exactly.
+   - `DOWNLOAD_SHARE` was 0.55, which made the bar race to the midpoint in 450 ms and then crawl
+     for 11 s. Measured, the download is the *smaller* half of a local load, so it is now 0.35.
+     Over a slow link that understates the download — but a slowly-filling segment still moves,
+     whereas overweighting it reproduces the exact "100% then frozen" impression this change
+     exists to remove, so the error is biased deliberately. Recorded in the code comment.
+
+   **Regression**: full scene smoketest, **21/21 PASS** in Chrome, every scene re-exported from
+   the rebuilt editor + template (so a green run reflects this change, not stale exports). This
+   is the load-bearing check — the split is on the path of every web load, not just WebGPU ones.
+   `pre-commit run` passes on all eight changed files, including `jsdoc` and `em-asm-check`.
+
+   **Known limitation, stated plainly: the bar has about four real paint points, not seventeen.**
+   All of `setup2`'s internal phases complete inside one blocked step, so their weights determine
+   *where* the single jump lands but cannot paint individually — hence the 380 → 746 jump across
+   4.5 s above. Finer granularity means making `Main::setup2()` itself resumable, which is real
+   engine surgery and was deliberately not attempted. In the baked configuration this matters
+   much less: `setup2` is ~700 ms of a ~1150 ms startup, so four paint points cover it adequately.
+
+   **Still unverified, and not claimed:**
+   - No clean before/after total-load comparison exists for this export (there is no pre-split
+     measurement of it), so the added cost is *reasoned* — bounded by three animation frames,
+     ~50 ms — rather than measured. Measuring it properly needs the user's own baked export
+     against the 1146-1170 ms baseline.
+   - The editor shell (`misc/dist/html/editor.html`) and `iframe.js` both consume `startGame()`'s
+     now-later resolution; neither was exercised.
+   - The non-WebGPU (`opengl3`) path shares `web_main.cpp` and so shares the split, but was not
+     built or run.
+   - Boot splash: `Main::setup2()` is called with its default `p_show_boot_logo = true`, matching
+     what single-phase `setup()` did. Android deliberately passes `false` here and shows the logo
+     a frame later — worth a look at whether web now wants the same.
+
+   **A measurement note for whoever profiles this next**: `profile_phases.mjs` reports the stall
+   as the longest `requestAnimationFrame` gap. That number drops sharply now purely because the
+   work is spread across frames. **It is not a speedup.** Total time to first frame is the only
+   honest metric from here on.
+
    3.1. Extend `preloader.js`'s progress model to include estimated weight for the post-download phases identified in step 1 (e.g. reserve a fixed tail percentage for "starting engine" once download hits 100%, rather than jumping straight to a blank/frozen bar).
    3.2. Wire real phase-completion signals (WASM instantiated, device acquired, first frame rendered) into that tail-progress update via `Config.prototype.onProgress` (`config.js:197-217`) rather than a fixed-timer guess, so the bar reflects actual milestones, not an animation.
    3.3. Handle the case where a phase takes far longer than expected (e.g. cold shader-compile fallback) gracefully — a stalled-looking-but-not-frozen indicator (e.g. a secondary "initializing renderer..." label) beats a bar that either freezes at 99% or snaps to 100% then hangs.

@@ -238,6 +238,30 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		onProgress: null,
 		/**
+		 * A callback function for reporting the engine's own startup progress, after all
+		 * downloads have finished.
+		 *
+		 * Downloading is only the first part of a Web load: the engine then has to
+		 * initialize its servers, register types, and load the main scene, which on a large
+		 * project takes longer than the download did. This callback is invoked once per
+		 * completed startup phase so a loading bar can keep moving through that, instead of
+		 * reaching 100% when the download ends and then appearing to freeze.
+		 *
+		 * Phase names are the engine's own internal ones (``"Servers:Rendering"``,
+		 * ``"Startup:Load Game"``, ...) and are **not** a stable API -- treat an unknown
+		 * name as "some progress was made" rather than failing on it. The terminal phase is
+		 * ``"Startup:First Frame"``.
+		 *
+		 * @callback EngineConfig.onStartupProgress
+		 * @param {string} name The name of the startup phase that just completed.
+		 * @param {number} durationMs How long that phase took, in milliseconds.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(string, number)}
+		 */
+		onStartupProgress: null,
+		/**
 		 * A callback function for handling the standard output stream. This method should usually only be used in debug pages.
 		 *
 		 * By default, ``console.log()`` is used.
@@ -317,6 +341,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.onPrintError = parse('onPrintError', this.onPrintError);
 		this.onPrint = parse('onPrint', this.onPrint);
 		this.onProgress = parse('onProgress', this.onProgress);
+		this.onStartupProgress = parse('onStartupProgress', this.onStartupProgress);
 
 		// Godot config
 		this.canvas = parse('canvas', this.canvas);
@@ -443,6 +468,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 					onExit(p_code);
 				}
 			},
+			'onStartupProgress': this.onStartupProgress,
 		};
 	};
 	return new Config(initConfig);

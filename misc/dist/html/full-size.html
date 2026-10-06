@@ -78,7 +78,7 @@ body {
 	image-rendering: pixelated;
 }
 
-#status-progress, #status-notice {
+#status-progress, #status-notice, #status-label {
 	display: none;
 }
 
@@ -86,6 +86,27 @@ body {
 	bottom: 10%;
 	width: 50%;
 	margin: 0 auto;
+}
+
+/* Sits just above the progress bar and names the phase the engine is working
+   through. Deliberately styled as neutral chrome, not like #status-notice, which
+   is the red error box -- "Loading main scene" is not a problem report. */
+#status-label {
+	position: absolute;
+	bottom: calc(10% + 1.5rem);
+	left: 0;
+	right: 0;
+	color: #e0e0e0;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 0.9rem;
+	line-height: 1.3;
+	opacity: 0.85;
+	text-align: center;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+#status-label.visible {
+	display: block;
 }
 
 #status-notice {
@@ -176,6 +197,7 @@ body {
 		<div id="status">
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
+			<div id="status-label"></div>
 			<div id="webgpu-spinner"></div>
 			<div id="status-notice"></div>
 		</div>
@@ -244,7 +266,115 @@ const engine = new Engine(GODOT_CONFIG);
 	const statusOverlay = document.getElementById('status');
 	const statusProgress = document.getElementById('status-progress');
 	const statusNotice = document.getElementById('status-notice');
+	const statusLabel = document.getElementById('status-label');
 	const webgpuSpinner = document.getElementById('webgpu-spinner');
+
+	// --- Unified loading progress -------------------------------------------------
+	//
+	// Downloading is only the first half of a Web load. Once the last byte has
+	// arrived the engine still has to bring up its servers, register types and load
+	// the main scene, and on a real project that takes longer than the download did --
+	// which is why a download-only bar fills to 100% and then appears to freeze. The
+	// bar below therefore covers both: downloads fill the first DOWNLOAD_SHARE of it,
+	// the engine's own startup phases fill the rest.
+	//
+	// The engine reports each completed phase through the `onStartupProgress` config
+	// callback (platform/web/os_web.cpp forwards `main.cpp`'s existing phase
+	// brackets). The weights below are *approximate* costs in milliseconds, measured
+	// on a real project -- see webgpu_notes/TASKS.md Task 14 for where they come from.
+	// They do not need to be accurate to be useful; they only need to stop a 500 ms
+	// phase and a 2 ms phase from advancing the bar by the same amount.
+	//
+	// Only leaf phases are listed. `main.cpp` also brackets wrappers around these
+	// ("Startup:Servers", "Startup:Main::Setup2", "Startup:Main::Start"), and counting
+	// those as well would double-count their children. Anything not listed -- a phase
+	// from a future engine version, an editor-only one -- is simply ignored, so an
+	// unknown name can never push the bar past 100%.
+	// How much of the bar the download owns. Measured on a fast local connection the
+	// download is ~450 ms against ~1150 ms of engine startup, so weighting it at half
+	// the bar makes it race to the midpoint and then crawl. Over a slow link the
+	// opposite is true and this understates it -- but a download segment that fills
+	// slowly is a bar that keeps moving, whereas overweighting it reproduces exactly
+	// the "100% then frozen" impression this whole change exists to remove. So the
+	// error is deliberately biased towards the engine phases.
+	const DOWNLOAD_SHARE = 0.35;
+
+	// [phase name, weight, label for the work that follows it]
+	const STARTUP_PHASES = [
+		['Startup:Main::Setup', 60, 'Initializing engine'],
+		['Startup:Initialize Early Settings', 10, 'Initializing engine'],
+		['Servers:Modules and Extensions', 30, 'Loading extensions'],
+		['Servers:Input', 2, 'Starting display'],
+		['Servers:Display', 5, 'Starting renderer'],
+		['Servers:Rendering', 510, 'Starting audio'],
+		['Servers:Audio', 30, 'Starting engine'],
+		['Servers:XR', 1, 'Starting engine'],
+		['Startup:Setup Window and Boot', 5, 'Loading translations'],
+		['Startup:Translations and Remaps', 5, 'Loading fonts'],
+		['Startup:Text Server', 20, 'Registering types'],
+		['Startup:Scene', 110, 'Registering types'],
+		['Startup:Platforms', 1, 'Finalizing setup'],
+		['Startup:Finalize Setup', 10, 'Loading autoloads'],
+		['Startup:Load Autoloads', 20, 'Loading main scene'],
+		['Startup:Load Game', 325, 'Rendering first frame'],
+		['Startup:First Frame', 150, ''],
+	];
+
+	const phaseWeightTotal = STARTUP_PHASES.reduce((sum, phase) => sum + phase[1], 0);
+	const phaseIndex = new Map(STARTUP_PHASES.map((phase, i) => [phase[0], i]));
+	const phasesSeen = new Set();
+	let phaseWeightDone = 0;
+	let downloadFraction = 0;
+	let downloadIndeterminate = false;
+
+	function updateProgressBar() {
+		if (downloadIndeterminate && phaseWeightDone === 0) {
+			// No content-length to work from and the engine has not started yet, so
+			// there is genuinely nothing to report -- an indeterminate bar is honest.
+			statusProgress.removeAttribute('value');
+			statusProgress.removeAttribute('max');
+			return;
+		}
+		const fraction = (downloadFraction * DOWNLOAD_SHARE)
+			+ ((phaseWeightDone / phaseWeightTotal) * (1 - DOWNLOAD_SHARE));
+		statusProgress.max = 1000;
+		statusProgress.value = Math.round(Math.min(fraction, 1) * 1000);
+	}
+
+	function setStatusLabel(text) {
+		statusLabel.textContent = text || '';
+		statusLabel.classList.toggle('visible', !!text);
+	}
+
+	function onStartupProgress(name) {
+		const index = phaseIndex.get(name);
+		if (index === undefined || phasesSeen.has(name)) {
+			return; // Unknown phase, or a repeat -- never move the bar backwards.
+		}
+		phasesSeen.add(name);
+		if (name === 'Startup:First Frame') {
+			// Terminal phase: the startup is over, so the bar is full by definition.
+			// Accumulated weight alone stops a few points short, because not every
+			// phase runs in every configuration (no XR, no autoloads, ...) and the
+			// weights are fixed estimates.
+			phaseWeightDone = phaseWeightTotal;
+		} else {
+			phaseWeightDone += STARTUP_PHASES[index][1];
+		}
+		// Downloads are necessarily finished by the time the engine is running, and a
+		// download whose total was never known would otherwise leave that share of the
+		// bar permanently empty.
+		downloadFraction = 1;
+		downloadIndeterminate = false;
+		updateProgressBar();
+		// Name the work that comes *next*, not the phase that just finished: this
+		// callback paints during the gap before the next phase runs, so "what is it
+		// doing right now" is the useful thing to show.
+		const nextLabel = STARTUP_PHASES[index][2];
+		if (nextLabel) {
+			setStatusLabel(`${nextLabel}...`);
+		}
+	}
 
 	let initializing = true;
 	let statusMode = '';
@@ -261,7 +391,8 @@ const engine = new Engine(GODOT_CONFIG);
 		statusOverlay.style.visibility = 'visible';
 		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-		if (mode !== 'notice') {
+		if (mode !== 'progress') {
+			setStatusLabel('');
 			webgpuSpinner.classList.remove('visible');
 		}
 		statusMode = mode;
@@ -292,13 +423,19 @@ const engine = new Engine(GODOT_CONFIG);
 		initializing = false;
 	}
 
-	// Like setStatusNotice(), but also shows the CSS spinner -- for notices that
-	// mean "still working, please wait", as opposed to a terminal error/failure
-	// notice (displayFailureNotice() above), where a spinner would be misleading.
-	function setBusyNotice(text) {
-		setStatusNotice(text);
+	// For "still working" messages during startup. This keeps the progress bar on
+	// screen rather than replacing it with the notice box (which displayFailureNotice()
+	// above owns, and which reads as an error): the engine now reports real progress
+	// while it starts up, so hiding the bar at exactly the point it finally has
+	// something to say would be the wrong trade. The spinner still matters, because a
+	// phase that blocks for hundreds of milliseconds paints nothing at all while it
+	// runs, and a
+	// compositor-driven CSS animation is the only thing that keeps visibly moving
+	// through that (see the long comment below).
+	function setBusyLabel(text) {
+		setStatusMode('progress');
+		setStatusLabel(text);
 		webgpuSpinner.classList.add('visible');
-		setStatusMode('notice');
 	}
 
 	// The WebGPU device can be lost well after startup (e.g. a GPU crash/driver
@@ -365,8 +502,7 @@ const engine = new Engine(GODOT_CONFIG);
 		setStatusMode('progress');
 		// Show WebGPU initialization status if applicable.
 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
-			setStatusNotice('Initializing WebGPU...');
-			setStatusMode('notice');
+			setStatusLabel('Initializing WebGPU...');
 		}
 
 		// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
@@ -406,7 +542,7 @@ const engine = new Engine(GODOT_CONFIG);
 		let lastShaderCompileTime = 0;
 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
 			window.addEventListener('godot-before-callmain', () => {
-				setBusyNotice('Starting engine...\nThis can take up to 30 seconds on first load while shaders compile. The page is not frozen -- please wait.');
+				setBusyLabel('Starting engine...');
 			});
 			window.addEventListener('godot-webgpu-first-frame', () => {
 				firstFramePresented = true;
@@ -414,7 +550,7 @@ const engine = new Engine(GODOT_CONFIG);
 			window.addEventListener('godot-webgpu-shader-compile', (event) => {
 				shaderCompileCount = event.detail.misses;
 				lastShaderCompileTime = performance.now();
-				setBusyNotice(`Starting engine — compiling shaders... (${shaderCompileCount})\nThis can take up to 30 seconds on first load. Please wait.`);
+				setBusyLabel(`Compiling shaders... (${shaderCompileCount})`);
 			});
 		}
 
@@ -441,13 +577,18 @@ const engine = new Engine(GODOT_CONFIG);
 			'onProgress': function (current, total) {
 				setStatusMode('progress');
 				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
+					downloadFraction = current / total;
+					downloadIndeterminate = false;
+					setStatusLabel(`Downloading... ${Math.round(downloadFraction * 100)}%`);
 				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
+					// No usable content-length (chunked or compressed responses, or not
+					// every download has started yet) -- see EngineConfig.onProgress.
+					downloadIndeterminate = true;
+					setStatusLabel('Downloading...');
 				}
+				updateProgressBar();
 			},
+			'onStartupProgress': onStartupProgress,
 			'onWebGPUDeviceLost': showDeviceLostOverlay,
 		}).then(() => {
 			if (GODOT_RENDERING_DRIVER !== 'webgpu') {

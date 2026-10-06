@@ -65,6 +65,7 @@ const GodotConfig = {
 		on_execute: null,
 		on_terminate_pid: null,
 		on_exit: null,
+		on_startup_progress: null,
 		pid: 0,
 
 		init_config: function (p_opts) {
@@ -78,6 +79,7 @@ const GodotConfig = {
 			GodotConfig.on_execute = p_opts['onExecute'];
 			GodotConfig.on_terminate_pid = p_opts['onTerminatePID'];
 			GodotConfig.on_exit = p_opts['onExit'];
+			GodotConfig.on_startup_progress = p_opts['onStartupProgress'];
 			if (p_opts['focusCanvas']) {
 				GodotConfig.canvas.focus();
 			}
@@ -95,6 +97,7 @@ const GodotConfig = {
 			GodotConfig.debug_port = null;
 			GodotConfig.on_execute = null;
 			GodotConfig.on_exit = null;
+			GodotConfig.on_startup_progress = null;
 		},
 	},
 
@@ -287,6 +290,15 @@ const GodotOS = {
 	godot_js_os_finish_async: function (p_callback) {
 		const func = GodotRuntime.get_func(p_callback);
 		GodotOS.finish_async(func);
+	},
+
+	godot_js_os_startup_progress__proxy: 'sync',
+	godot_js_os_startup_progress__sig: 'vid',
+	godot_js_os_startup_progress: function (p_name, p_duration_ms) {
+		if (GodotConfig.on_startup_progress == null) {
+			return;
+		}
+		GodotConfig.on_startup_progress(GodotRuntime.parseString(p_name), p_duration_ms);
 	},
 
 	godot_js_os_request_quit_cb__proxy: 'sync',

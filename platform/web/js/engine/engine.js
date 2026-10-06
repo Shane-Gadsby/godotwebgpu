@@ -151,14 +151,43 @@ const Engine = (function () {
 						return Promise.reject(new Error('The engine must be initialized before it can be started'));
 					}
 
+					// `callMain()` no longer runs the whole startup: the engine splits it
+					// into steps that each return to the browser, so the page can paint the
+					// loading progress between them (see platform/web/web_main.cpp). That
+					// means callMain() returns long before the engine has actually started,
+					// while this method's documented contract is to resolve once it *has*.
+					// So resolve on the engine's terminal startup phase instead, and fall
+					// back to the exit path so a failed startup rejects rather than hanging
+					// forever on a promise nothing will ever settle.
+					let startupSettle = null;
+					const startupStarted = new Promise(function (resolve, reject) {
+						startupSettle = { resolve: resolve, reject: reject };
+					});
+
 					let config = {};
 					try {
 						config = me.config.getGodotConfig(function () {
 							me.rtenv = null;
+							if (startupSettle) {
+								startupSettle.reject(new Error('The engine quit before it finished starting'));
+								startupSettle = null;
+							}
 						});
 					} catch (e) {
 						return Promise.reject(e);
 					}
+
+					const userStartupProgress = config['onStartupProgress'];
+					config['onStartupProgress'] = function (name, durationMs) {
+						if (typeof userStartupProgress === 'function') {
+							userStartupProgress(name, durationMs);
+						}
+						if (name === 'Startup:First Frame' && startupSettle) {
+							startupSettle.resolve();
+							startupSettle = null;
+						}
+					};
+
 					// Godot configuration.
 					me.rtenv['initConfig'](config);
 
@@ -177,7 +206,7 @@ const Engine = (function () {
 							me.rtenv['callMain'](me.config.args);
 							initPromise = null;
 							me.installServiceWorker();
-							resolve();
+							startupStarted.then(resolve, reject);
 						}
 
 						if (me.config.renderingDriver === 'webgpu' && typeof window !== 'undefined') {
