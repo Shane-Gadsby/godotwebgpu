@@ -486,7 +486,19 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		}
 
 		tf_render.format = RD::DATA_FORMAT_R32_UINT;
-		tf_render.usage_bits |= RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
+		// Only ask for atomic storage where the driver actually has image
+		// atomics. scene_forward_clustered.glsl writes geom_facing_grid with
+		// imageAtomicOr() only in its non-NO_IMAGE_ATOMICS variant; the
+		// NO_IMAGE_ATOMICS variant selected when RD reports no
+		// SUPPORTS_IMAGE_ATOMIC_32_BIT (WebGPU, which has no texture atomics
+		// at all) does a plain imageLoad/imageStore read-modify-write instead,
+		// so the atomic usage bit buys nothing there -- and requesting it is
+		// fatal, since texture_create() rejects any format whose driver does
+		// not report TEXTURE_USAGE_STORAGE_ATOMIC_BIT, taking the whole SDFGI
+		// setup (and every uniform set built from it) down with it.
+		if (RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+			tf_render.usage_bits |= RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
+		}
 		render_geom_facing = create_clear_texture(tf_render, "SDFGI Render Geometry Facing");
 		tf_render.usage_bits &= ~RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
 

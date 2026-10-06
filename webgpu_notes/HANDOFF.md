@@ -32,10 +32,21 @@
 > `modules/box3d_physics/`, `scene/resources/` and `main/` — the CI trap CLAUDE.md warns about,
 > which did catch three real warnings in this port before they reached CI.
 >
-> **What is not**: anything on a real GPU, anything in Forward+, and anything in Firefox.
-> Task 46 §7b's rule is in force — the smoketest above ran on swiftshader, which
-> runs **Forward Mobile**, so it establishes that 4.8 boots and loads every scene without error,
-> not that Forward+ renders correctly. §2's numbers below are still the 4.7.2 measurements.
+> **Real GPU / Forward+ / Firefox are now verified too, and they found two black-screen
+> regressions the suite could not see — see Task 15.5.** The smoketest above runs on swiftshader,
+> which falls back to **Forward Mobile**, and SSAO/SSIL are Forward+-only while SDFGI voxelization
+> lives in `scene_forward_clustered.glsl` — so a fully green Task 15.4 coexisted with 3D rendering
+> entirely black on real hardware. Both causes came from the 4.8 merge: SSAO's `RB_FINAL` kept this
+> fork's old `RGBA8_UNORM` override after upstream moved both `ssao_interleave.glsl` and the texture
+> to `r8` (one invalid bind group invalidates the whole command buffer, so `Queue.Submit` dropped
+> every 3D frame), and 4.8's new `STORAGE_ATOMIC` usage bit on SDFGI's geometry-facing texture was
+> requested unconditionally although WebGPU has no texture atomics. Both fixed and verified against
+> the user's own project on an RTX 4080 SUPER: Chrome **0 errors** (was 6,658+), Firefox 0 real
+> errors, both reporting **Forward+**, output matching a native-Vulkan Forward+ capture of the same
+> project. **Task 46 §7b's rule still stands for everything else** — a container run proves the
+> engine boots and loads scenes, never that Forward+ renders.
+>
+> §2's numbers below are still the 4.7.2 measurements.
 > §6's `bin/` description is about the 4.7.2 line; `bin/` now holds a matched 4.8 pair.
 >
 > **One trap worth knowing before it costs an hour**: in a container, every pixel-based

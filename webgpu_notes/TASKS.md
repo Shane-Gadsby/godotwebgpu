@@ -6814,7 +6814,7 @@ Everything in 7a is settled. What is not:
 > pinned to `upstream/master` `e7cfa294a0b81bed7986be04a848cc1832a3f083` (2026-10-02) rather than a
 > moving tip so the port is reproducible. Same merge-not-rebase strategy as Phase 8.
 >
-> **Last Updated**: October 5, 2026 (Task 15.3)
+> **Last Updated**: October 6, 2026 (Task 15.5)
 
 ### Task 15.1: merge upstream 4.8 — reproducing the merge base, and triaging 109 conflicts `[SERIAL]`
 **Status**: `DONE`
@@ -6954,6 +6954,10 @@ audit; only a real web build catches those.
    after. They may well not be equivalent.
 
 ### Task 15.4: build and test the port `[DONE — every tier that can run in a Linux container is green]`
+
+> **Read with Task 15.5.** Every tier below runs under swiftshader, which falls back to Forward
+> Mobile — so none of them exercised SSAO/SSIL/SDFGI under Forward+, where the 4.8 port had two
+> black-screen regressions. Green here does not mean the port renders.
 **Status**: `DONE`
 
 | tier | result at 4.8 | 4.7.2 baseline |
@@ -7075,6 +7079,103 @@ covers far more than the port's own diff — all of `servers/rendering/`, `edito
 This is not quite the same as a full `--dev-mode` run (it does not cover every module, and it does
 not link), but it covers every file this port changed plus their whole directories, which is where
 a `werror` failure from this work could come from.
+
+---
+
+### Task 15.5: the 4.8 port's first real-hardware Forward+ run — two black-3D regressions `[SERIAL]`
+
+**Status**: `DONE`
+**Severity**: CRITICAL (3D renders entirely black; 2D/UI unaffected)
+**Reported**: user's own project (`cameraSim_.../testing`) on 4.8-dev7, Chrome + Firefox, with
+Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and
+Adjustments all enabled.
+
+**Why Task 15.4 was green and this was not.** 15.4's scene smoketest runs under `CI=1`
+(swiftshader), and a software adapter reports `maxSampledTexturesPerShaderStage < 48`, so
+`RendererCompositorRD::initialize()` silently falls back to **Forward Mobile**. SSAO and SSIL are
+Forward+-only (`environment_storage.cpp` gates them outright) and SDFGI's voxelization lives in
+`scene_forward_clustered.glsl`. So every tier in 15.4's table passed without ever executing a line
+of the code both of these bugs live in. This is exactly the trap `CLAUDE.md` warns about and
+Task 46 §7b already paid for once; **a 4.8-port sign-off needs a real-GPU Forward+ run against a
+real project, not just the suite.**
+
+#### Bug 1 — SSAO storage-image format mismatch (the actual black screen)
+
+Upstream 4.8 changed `ssao_interleave.glsl`'s `dest_image` from `layout(rgba8, ...)` to
+`layout(r8, ...)` **and** SSAO's `RB_FINAL` texture from `R8G8B8A8_UNORM` to `R8_UNORM`, in the
+same commit — consistent on both sides. The Task 15.1 merge took upstream's shader change but kept
+this fork's deliberate `RGBA8_UNORM` override of the texture, which had been added back when the
+shader genuinely was `rgba8`. Net result: bind group layout declares `R8Unorm`, bound texture is
+`RGBA8Unorm`.
+
+Vulkan/Metal/D3D12 tolerate a storage image's declared format differing from its bound resource's;
+WebGPU's bind-time validation does not. And the failure is not local — an invalid bind group
+poisons the whole `CommandEncoder`, so `Queue.Submit` drops the **entire 3D frame**:
+
+```
+Format (TextureFormat::RGBA8Unorm) of [Texture ...] expected to be (TextureFormat::R8Unorm).
+ - While validating [BindGroupDescriptor] against [BindGroupLayout "bgl:SsaoInterleaveShaderRD:set0"]
+ - While encoding [ComputePassEncoder].SetBindGroup(...)   x6908
+ - While calling [Queue].Submit([[Invalid CommandBuffer]])  x6907
+```
+
+2D/UI kept working because it submits separately. **Fix**: drop the override, back to upstream's
+`R8_UNORM` (`ss_effects.cpp`), comment rewritten to say the two must stay in lockstep rather than
+asserting a format the shader no longer uses.
+
+Firefox showed the same bug through its own path — it lacks `texture-formats-tier1`, so
+`_promote_storage_format()` promotes R8→R32Float on both sides, giving
+`expects format = R32Float, but given a view with format = RGBA8Unorm`.
+
+#### Bug 2 — SDFGI atomic storage usage, new in 4.8
+
+4.8 added `tf_render.usage_bits |= TEXTURE_USAGE_STORAGE_ATOMIC_BIT` for SDFGI's "Render Geometry
+Facing" texture; 4.7.2's `gi.cpp` contained no `STORAGE_ATOMIC` at all. WebGPU has no texture
+atomics (`SUPPORTS_IMAGE_ATOMIC_32_BIT` is false), `texture_get_usages_supported_by_format()` never
+reports that bit, and `texture_create()` hard-fails on it:
+
+```
+ERROR: Format 'R32_Uint' does not support usage as atomic storage image.
+ERROR: Cannot create texture: SDFGI Render Geometry Facing
+ERROR: Image (binding: 6) should provide one ID referencing a texture (IDs provided: 0).  (cascade)
+```
+
+The shader side was **already** handled — `scene_forward_clustered.glsl`'s `NO_IMAGE_ATOMICS`
+variant does a plain `imageLoad`/`imageStore` read-modify-write instead of `imageAtomicOr`, and
+`scene_shader_forward_clustered.cpp:665` already selects it off this same feature flag. Only the
+usage bit was ungated. **Fix**: request it only when the driver reports image atomics — the idiom
+`fog.cpp:466` already uses for volumetric fog's density maps, which is why volumetric fog did *not*
+break despite also depending on atomics.
+
+#### Swept for the same class, found clean
+
+Volumetric fog already gated (above); 4.8's new `screen_space_contact_shadows.glsl` is consistent
+(`r8` shader / `R8_UNORM` texture); `TEXTURE_USAGE_STORAGE_ATOMIC_BIT` has no other caller in
+`servers/`; and every storage-image format the renderer declares (`rgba16f` ×32, `r32ui` ×18, `r8`
+×15, `rgba8` ×13, `r32f` ×10, `r16ui` ×8, `rgba8ui` ×6, `rg16f`/`r16f` ×5, `rg8` ×4, `rgba32i` ×3,
+`rgba16i`/`rg16i`/`r8ui` ×2, `rg8ui` ×1) is already covered by the driver's capability switch and
+`_promote_storage_format()`.
+
+#### Verification — real GPU, real Forward+, the user's real project
+
+Per `LIVE_REPRO_METHODOLOGY.md`: scratch copy, export against an explicit `custom_template/release`
+(sidesteps the stale-installed-template trap entirely), freshness checksum-verified
+(`index.side.wasm` == `godot.side.web.template_release.wasm32.nothreads.dlink.wasm`).
+
+| check | before | after |
+|---|---|---|
+| Chrome console (90s) | 6,658 + 6,658 uncaptured errors, 61,627-line log | **ERROR COUNT: 0** |
+| Firefox console (75s) | SDFGI create failure + bind-group/format errors | **0 real errors** (2 are the `float32-blendable` WARN, pre-existing) |
+| renderer reported | Forward+ | **Forward+** (real GPU, not swiftshader) |
+| 3D output | black | **renders** — character, floor, shadows, DOF, AO |
+| native Vulkan reference | — | RTX 4080 SUPER / Forward+ capture **matches** the WebGPU frame |
+
+Chrome headless + Firefox **headed** both render correctly. Headless Firefox screenshots come back
+fully black *including the 2D UI* — that is this environment's known headless-Firefox compositor
+limitation (`RenderCompositorSWGL failed mapping default framebuffer`, recorded at Task 9.5's
+limits probe), not a render failure; its console capture is clean and reaches Forward+ steady state.
+
+`local_ci.sh --no-safari` green across every stage.
 
 ---
 
