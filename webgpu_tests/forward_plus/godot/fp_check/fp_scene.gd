@@ -404,7 +404,12 @@ func _build_extras() -> void:
 	particles.seed = 20261006
 	particles.fixed_fps = 30
 	particles.interpolate = false
-	particles.preprocess = 2.0
+	# Kept small on purpose: preprocess re-runs on every _reset(), so a large
+	# value multiplies across the whole matrix (66 features x 2 states) and was
+	# enough on its own to push the native sweep past a 15-minute timeout. The
+	# fixed seed and fixed step are what make the A/B reproducible; preprocess
+	# only needs to be long enough for particles to be on screen at all.
+	particles.preprocess = 0.4
 	particles.transform = Transform3D(Basis(), Vector3(0, 0.4, 2.0))
 	particles.visible = false
 	particles.emitting = false
