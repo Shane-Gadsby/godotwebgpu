@@ -1,0 +1,4 @@
+.godot/
+*.uid
+*.bak
+export_presets.cfg
