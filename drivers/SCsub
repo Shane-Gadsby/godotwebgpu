@@ -87,7 +87,7 @@ env.add_source_files(env.drivers_sources, "*.cpp")
 lib = env.add_library("drivers", env.drivers_sources)
 env.Prepend(LIBS=[lib])
 
-if env["webgpu"] and env["platform"] != "web":
+if env["webgpu"] and env["platform"] not in ["web", "macos", "ios"]:
     # Native editor "shader baker" build (WEBGPU_SHADER_BAKER_ENABLED, see
     # drivers/webgpu/SCsub): unlike every other driver here, nothing else in
     # libdrivers.a references RenderingShaderContainerWebGPU's constructor
@@ -101,4 +101,9 @@ if env["webgpu"] and env["platform"] != "web":
     # a single left-to-right static-lib link pass closes libdrivers.a before
     # ever reaching libeditor.a's reference to it. Re-listing libdrivers.a a
     # second time, after libeditor.a, lets that second pass resolve it.
+    #
+    # Apple's ld64 resolves all archives together rather than in a single
+    # left-to-right pass, so it doesn't need the repeat -- and it warns
+    # ("ignoring duplicate libraries"), which `werror=yes` turns into
+    # `-fatal_warnings` and a failed link. Hence the platform exclusion above.
     env.Append(LIBS=[lib])

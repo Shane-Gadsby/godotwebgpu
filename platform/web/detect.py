@@ -132,7 +132,7 @@ def configure(env: "SConsEnvironment"):
     env["EXPORTED_RUNTIME_METHODS"] = []
 
     # Validate arch.
-    supported_arches = ["wasm32"]
+    supported_arches = ["wasm32", "wasm64"]
     validate_arch(env["arch"], get_name(), supported_arches)
 
     try:
