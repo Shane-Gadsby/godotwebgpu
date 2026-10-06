@@ -42,8 +42,12 @@ const FEATURES := [
 	"normal_map", "emission", "rim", "clearcoat", "anisotropy",
 	"subsurface_scattering", "backlight", "refraction", "heightmap", "triplanar",
 	"transparency", "alpha_scissor", "alpha_hash", "proximity_fade", "distance_fade",
-	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range",
-	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
+	# skeletal_animation and particle_trails have _apply() arms below but are
+	# deliberately NOT listed: the fixture cannot drive either to a measurable
+	# result yet, so they live in features.mjs's UNCOVERED list instead. Put
+	# them back here the moment the fixture can actually move them.
+	"multimesh", "blend_shapes", "mesh_lod", "visibility_range",
+	"gpu_particles", "particle_collision", "particle_attractor",
 	"msaa", "taa", "fxaa", "debanding", "scaling_3d", "fsr2",
 	"dof_far", "dof_near", "auto_exposure",
 ]
@@ -307,8 +311,8 @@ func _build_geometry() -> void:
 	lod_mesh.height = 1.4
 	var im := ImporterMesh.new()
 	im.add_surface(Mesh.PRIMITIVE_TRIANGLES, lod_mesh.get_mesh_arrays())
-	im.generate_lods(25.0, [])
-	lod_inst = _mesh_instance(im.get_mesh(), mat_box, Transform3D(Basis(), Vector3(-6.4, 0.8, 2.4)))
+	im.generate_lods(25.0, 60.0, [])
+	lod_inst = _mesh_instance(im.get_mesh(), mat_box, Transform3D(Basis(), Vector3(-4.6, 0.8, 2.0)))
 	fade_inst = _mesh_instance(lod_mesh, mat_box, Transform3D(Basis(), Vector3(4.6, 0.8, 1.6)))
 
 
@@ -392,6 +396,9 @@ func _build_extras() -> void:
 	pmat.gravity = Vector3(0, -2.0, 0)
 	pmat.scale_min = 0.5
 	pmat.scale_max = 1.0
+	# Without this the GPUParticlesCollision* nodes do nothing at all -- the
+	# collider is consulted only when the process material opts in.
+	pmat.collision_mode = ParticleProcessMaterial.COLLISION_RIGID
 	var pdraw := SphereMesh.new()
 	pdraw.radius = 0.12
 	pdraw.height = 0.24
@@ -410,6 +417,7 @@ func _build_extras() -> void:
 	# fixed seed and fixed step are what make the A/B reproducible; preprocess
 	# only needs to be long enough for particles to be on screen at all.
 	particles.preprocess = 0.4
+	particles.collision_base_size = 0.14
 	particles.transform = Transform3D(Basis(), Vector3(0, 0.4, 2.0))
 	particles.visible = false
 	particles.emitting = false
@@ -450,7 +458,9 @@ func _build_skinned() -> void:
 	for i in segs:
 		var y0 := float(i) / float(segs) * 2.4
 		var y1 := float(i + 1) / float(segs) * 2.4
-		for s in [[-0.3, y0], [0.3, y0], [0.3, y1], [-0.3, y0], [0.3, y1], [-0.3, y1]]:
+		# Clockwise: Godot front-faces are clockwise, and a counter-clockwise
+		# strip here is back-face culled without any error at all.
+		for s in [[-0.3, y0], [0.3, y1], [0.3, y0], [-0.3, y0], [-0.3, y1], [0.3, y1]]:
 			var y: float = s[1]
 			var w: float = clampf(y / 2.4, 0.0, 1.0)
 			st.set_bones([0, 1, 0, 0])
@@ -477,8 +487,9 @@ func _build_blendshape() -> void:
 	var base := PackedVector3Array()
 	var norms := PackedVector3Array()
 	for i in 6:
-		var quad := [Vector3(-0.6, 0, 0), Vector3(0.6, 0, 0), Vector3(0.6, 1.8, 0),
-			Vector3(-0.6, 0, 0), Vector3(0.6, 1.8, 0), Vector3(-0.6, 1.8, 0)]
+		# Clockwise, for the same reason as the skinned strip above.
+		var quad := [Vector3(-0.6, 0, 0), Vector3(0.6, 1.8, 0), Vector3(0.6, 0, 0),
+			Vector3(-0.6, 0, 0), Vector3(-0.6, 1.8, 0), Vector3(0.6, 1.8, 0)]
 		base.append(quad[i])
 		norms.append(Vector3(0, 0, 1))
 	var shaped := PackedVector3Array()
@@ -830,7 +841,7 @@ func _apply(id: String, on: bool) -> bool:
 			multimesh_inst.visible = on
 		"skeletal_animation":
 			skinned.visible = true
-			skeleton.set_bone_pose_rotation(1, Quaternion(Vector3(0, 0, 1), 1.0) if on else Quaternion())
+			skeleton.set_bone_pose_rotation(1, Quaternion(Vector3(0, 0, 1), 2.2) if on else Quaternion())
 		"blend_shapes":
 			blendshape_inst.visible = true
 			blendshape_inst.set_blend_shape_value(0, 1.0 if on else 0.0)

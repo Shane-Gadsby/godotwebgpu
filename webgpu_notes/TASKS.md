@@ -7210,6 +7210,73 @@ limits probe), not a render failure; its console capture is clean and reaches Fo
 
 ---
 
+## Phase 17: Forward+ feature matrix (October 2026)
+
+> **Goal**: a per-feature regression suite for Forward+, so a feature that silently stops rendering
+> is caught by the suite rather than by a user. Built after Task 15.5, where SSAO and SDFGI both
+> shipped broken through a completely green test run. Lives in `webgpu_tests/forward_plus/`; its
+> README carries the add-a-feature rule and the real-GPU requirement.
+
+### Task 17.1: the matrix, and what its first run found `[SERIAL]`
+**Status**: `DONE` (suite landed); three port bugs it found are open, below.
+
+64 features are covered, each rendered with the feature off and on, asserting the frame changed by a
+calibrated amount with no driver errors. Thresholds are one third of the delta measured on **native
+Vulkan** through the same fixture (`-- --fp-matrix=DIR`), never on WebGPU — calibrating against the
+port would bake in whatever it currently does, bugs included. 10 further features are listed in
+`features.mjs`'s `UNCOVERED` with a reason each.
+
+**Current result: 61 / 64 pass on Chrome, real GPU.** WebGPU and native Vulkan agree closely across
+the rest, which is the useful headline — the port renders essentially the whole Forward+ surface.
+
+#### Bug 1 — VoxelGI's 8-bit integer storage formats `[FIXED]`
+
+`texture_get_usages_supported_by_format()` omitted `R8_UINT`/`R8_SINT`/`R8G8_UINT`/`R8G8_SINT`,
+although `_promote_storage_format()` had always handled all four. `voxel_gi_sdf.glsl` declares
+`layout(r8ui) uimage3D sdf_tex`, so the whole bake failed with "Format 'R8G8_Uint' does not support
+usage as storage image", and the null texture then made every uniform set built from it invalid —
+the driver errored every frame afterwards. Exactly the omission class as the `R16_UINT` pair fixed
+earlier for SDFGI. Fixed in `87d32a26c2`.
+
+#### Bug 2 — VoxelGI contributes far too little `[OPEN]`
+
+With bug 1 fixed VoxelGI no longer errors, but its effect is **1.051 on WebGPU against 7.742 on
+native Vulkan through the identical fixture** — roughly a seventh. Something in the bake or the
+lighting lookup is still wrong. Not investigated.
+
+#### Bug 3 — heightmap/parallax raises a bind-group validation error `[OPEN]`
+
+`BaseMaterial3D.heightmap_enabled` produces `GPUValidationError: Bind group layout
+[BindGroupLayout "bgl:SceneForwardClusteredShader..."]` on WebGPU; native Vulkan renders it at 1.723
+delta. Note this was **initially misattributed to `proximity_fade`**: WebGPU uncaptured errors arrive
+asynchronously, and a feature whose textures fail keeps erroring on later features' frames. The
+harness now reloads the page after any feature that fails with errors, which is what pinned it to
+heightmap. Worth remembering for any future WebGPU error triage.
+
+#### Bug 4 — mesh LOD does nothing `[OPEN]`
+
+`Viewport.mesh_lod_threshold` changes the drawn LOD on native Vulkan (1.512 delta) and produces
+**exactly 0.000** on WebGPU, i.e. the LOD switch never happens. Not investigated.
+
+#### Fixture limits, recorded honestly
+
+Five features initially read as port bugs and were, on comparison with the Vulkan column, faults in
+the fixture: screen-space contact shadows are gated by a project setting that defaults off; a skinned
+`MeshInstance3D` renders in its skeleton's space so the test strip was buried inside another mesh;
+blend shapes need `set_blend_shape_value()` rather than a property path; primitive meshes carry no
+LODs (the chain is now generated at runtime via `ImporterMesh`); and CSM splits only diverge over a
+long receding range. **Godot treats clockwise winding as front-facing**, and two procedurally built
+meshes were wound counter-clockwise — they built without any error, reported a correct blend-shape
+count, and drew nothing at all.
+
+Two remain uncovered because the fixture still cannot drive them to a measurable result, and a
+threshold low enough to accommodate them would pass even if the feature were entirely broken:
+`skeletal_animation` (the procedural skin does not deform — 0.045 on Vulkan for a 2.2 rad pose
+change) and `particle_trails` (0.000 on Vulkan). Both are real Forward+ paths and should be covered
+once the fixture can express them.
+
+---
+
 ## Phase 16: Why this fork's git history does not match upstream's (October 2026)
 
 > **Goal**: Explain why `git` cannot relate this fork's history to `godotengine/godot`, and work out

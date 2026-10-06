@@ -31,3 +31,6 @@ anti_aliasing/quality/use_debanding=false
 ; toggles the per-light allow flag, so the feature must be enabled here or
 ; there is nothing for that toggle to switch.
 lights_and_shadows/contact_shadow/enabled=true
+; Longest trace and a thick surface, so the effect is large enough to measure.
+lights_and_shadows/contact_shadow/shadow_length=2
+lights_and_shadows/contact_shadow/surface_thickness=0.05

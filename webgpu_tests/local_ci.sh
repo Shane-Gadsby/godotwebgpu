@@ -380,6 +380,10 @@ run_test "Fog visual assertion self-test" \
     "$SCRIPT_DIR/scene_smoketest" \
     node self_test_fog_visual.mjs
 
+run_test "Forward+ matrix self-test" \
+    "$SCRIPT_DIR/forward_plus" \
+    node self_test_forward_plus.mjs
+
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -415,6 +419,12 @@ if [[ "$DO_EXPORT" == true ]]; then
     run_test "Re-export scenes (editor + template above)" \
         "$SCRIPT_DIR/scene_smoketest" \
         node run_scenes.mjs --export-only
+    # The Forward+ matrix keeps its fixture outside scene_smoketest (it is one
+    # scene driven through 64 configurations, not a scene per feature), so it
+    # needs its own export from the same pair of binaries.
+    run_test "Re-export Forward+ fixture" \
+        "$SCRIPT_DIR/forward_plus" \
+        ./export.sh
     if [[ $FAILED -gt 0 ]]; then
         echo ""
         echo "Export failed — aborting rather than testing stale exports."
@@ -454,6 +464,14 @@ run_test "Fog smoothness — Chrome" \
 run_test "Fog smoothness — Firefox" \
     "$SCRIPT_DIR/scene_smoketest" \
     node test_fog_visual.mjs --browser firefox
+
+# The per-feature Forward+ regression matrix. SKIPs without a real GPU adapter:
+# under a software adapter the engine falls back to Forward Mobile, where a
+# third of the matrix does not exist. See webgpu_tests/forward_plus/README.md.
+ensure_playwright "$SCRIPT_DIR/forward_plus"
+run_test "Forward+ feature matrix — Chrome" \
+    "$SCRIPT_DIR/forward_plus" \
+    node run_forward_plus.mjs --browser chrome
 
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
     run_test "Scene smoketest — Safari (21 scenes)" \

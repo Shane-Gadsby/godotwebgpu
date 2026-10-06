@@ -209,6 +209,8 @@ Last full run **2026-10-06**, on Godot 4.8. Everything is green except one known
 | Font rendering colors — Firefox | **fail — known false positive**, see Verification gaps | Editor + web template build |
 | Fog smoothness — Chrome / Firefox | pass on a real GPU; **skips** under a software adapter, which renders no fog | Editor + web template build, real GPU |
 | Fog assertion self-test | pass | Node |
+| Forward+ feature matrix (64 features) | **61 / 64**; 3 open port bugs, 10 features documented as uncovered | Own export, **real GPU** |
+| Forward+ matrix self-test | pass | Node |
 | Scene smoketest — Safari | not run | macOS + AppleScript |
 | `./webgpu_tests/local_ci.sh --no-safari` (all of the above plus `spec_constant_overrides` and `wgsl_cache`) | **17 passed, 1 failed, 1 skipped** | Full rebuild + re-export |
 
@@ -222,6 +224,17 @@ volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures. 
 template (compile check only) and the non-dlink nothreads template, then re-exports every scene from
 them before testing — so a green run reflects the working tree rather than whatever exports happened
 to be on disk.
+
+**Every Forward+ feature has a regression test, and new ones must get one.**
+[`webgpu_tests/forward_plus`](webgpu_tests/forward_plus) renders each of 64
+Forward+ features with it off and on and asserts the frame changed — the failure
+this port keeps producing is a feature silently doing nothing, which logs
+nothing and looks correct in isolation. Any feature added to the renderer,
+including code merged from upstream, must get an entry there or a documented
+reason in its `UNCOVERED` list; the suite fails and names the offender if the
+fixture and the feature table disagree. It needs a real GPU and skips rather
+than passing without one, and its thresholds are calibrated against native
+Vulkan rather than against WebGPU.
 
 One trap worth knowing up front: **CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`,
 and none of the individual tiers do.** A warning that is fatal in CI is invisible locally; run

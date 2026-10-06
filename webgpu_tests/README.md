@@ -17,6 +17,8 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 
 ## How It Works
@@ -119,6 +121,35 @@ cd webgpu_tests/scene_smoketest && node self_test_fog_visual.mjs
 Do not lower the scene's fog density or light energies when regenerating — a dim
 fog makes the artifact unmeasurable, which is the failure this test exists to
 avoid.
+
+### Forward+ Feature Matrix (needs its own export, and a real GPU)
+
+The per-feature regression suite: for each of 64 Forward+ features, render the
+fixture with it off and on and assert the frame actually changed, with no driver
+errors. It exists because the failure this port keeps producing is a feature
+**silently doing nothing** — which logs nothing and looks fine unless compared
+against the same frame without it. SSAO and SDFGI both shipped broken through a
+fully green suite in the 4.8 port for exactly that reason.
+
+```bash
+cd webgpu_tests/forward_plus
+./export.sh                                     # after an engine build
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
+node run_forward_plus.mjs --list                # covered and uncovered features
+```
+
+**Any feature added to the renderer — including code merged from upstream Godot
+— must get an entry in this matrix, or an entry in `features.mjs`'s `UNCOVERED`
+list saying why not.** This is enforced: the fixture publishes its feature list
+at boot and the harness fails the run, naming the offender, if that list and
+`features.mjs` disagree in either direction.
+
+**It requires a real GPU** and skips (exit 2) rather than passing without one —
+a software adapter falls back to Forward Mobile, where a third of the matrix
+does not exist. Thresholds are calibrated against native Vulkan, never against
+WebGPU. See [`forward_plus/README.md`](forward_plus/README.md) for the full
+rules, the recalibration procedure, and the triage table that separates a port
+bug from a fixture weakness.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 
