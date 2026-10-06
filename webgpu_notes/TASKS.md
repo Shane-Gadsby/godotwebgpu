@@ -4494,18 +4494,56 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    engine surgery and was deliberately not attempted. In the baked configuration this matters
    much less: `setup2` is ~700 ms of a ~1150 ms startup, so four paint points cover it adequately.
 
-   **Still unverified, and not claimed:**
-   - No clean before/after total-load comparison exists for this export (there is no pre-split
-     measurement of it), so the added cost is *reasoned* — bounded by three animation frames,
-     ~50 ms — rather than measured. Measuring it properly needs the user's own baked export
-     against the 1146-1170 ms baseline.
-   - The editor shell (`misc/dist/html/editor.html`) and `iframe.js` both consume `startGame()`'s
-     now-later resolution; neither was exercised.
-   - The non-WebGPU (`opengl3`) path shares `web_main.cpp` and so shares the split, but was not
-     built or run.
-   - Boot splash: `Main::setup2()` is called with its default `p_show_boot_logo = true`, matching
-     what single-phase `setup()` did. Android deliberately passes `false` here and shows the logo
-     a frame later — worth a look at whether web now wants the same.
+   **The four items left open above, now closed (2026-10-07):**
+
+   1. **Per-step cost: measured, ~48 ms.** The planned before/after A/B was abandoned as
+      worthless — run-to-run spread on this unbaked export is 11.8-14.8 s, which cannot resolve
+      50 ms. Timing every reported phase instead gives a clean read on the `setup`→`setup2`
+      boundary: `Startup:Main::Setup` ends at 583 ms and the next phase completes at 612 ms
+      having itself taken 14 ms, so the frame wait is **~15 ms, exactly one frame**. The other
+      two boundaries have real engine work mixed in (963 ms of unbracketed `Main::start()`
+      prologue; 578 ms of main-loop init plus first frame) so cannot be isolated the same way,
+      but each adds exactly one rAF by construction. **Three frames, ~48 ms at 60 Hz.**
+
+      That run also confirmed the weighting scheme. Phases that are never weighted *do* fire —
+      `Core:Register Types`, `Scene:Register Types`, `Servers:Register Extensions`,
+      `Servers:Tablet Driver`, `Core:Register Singletons` — and every one is a **child of a
+      wrapper that is weighted**, so nothing is lost and nothing is double-counted. Note also
+      that on this unbaked export `Servers:Rendering` measures 2810 ms against the 510 ms the
+      weights were derived from: the weights are right for the baked configuration they came
+      from, and are estimates everywhere else, which is why only their ratios matter.
+
+   2. **`editor.html` / `iframe.js`: unaffected.** `iframe.js` does
+      `engine.start().then(() => notify('started'))` and `editor.html` hides its overlay on that.
+      The old `callMain()` also returned only after the first frame had been drawn, so the new
+      resolution point is the same moment to within a frame. **One real gap, not a regression**:
+      the web editor only forwards `onProgress` *bytes* over the iframe `postMessage` protocol,
+      so its own bar still stops at download-complete. Wiring the phases through means extending
+      that protocol and reshaping `LoadStatus`'s `[current, total]` model — not done.
+
+   3. **OpenGL3: built and run.** `scons platform=web target=template_release opengl3=yes
+      webgpu=no threads=no` builds clean (the two `$GodotWebXR`/`$MainLoop` JS-library warnings
+      are pre-existing and unrelated). A purpose-built `gl_compatibility` project exported with
+      that template confirms `"renderingDriver":"opengl3"` in the shell and the bar advancing
+      through the engine phases exactly as on WebGPU — 1.2 s total. `Startup:First Frame` is
+      emitted from `web_main.cpp` unconditionally, not behind `WEBGPU_ENABLED`, which is what
+      makes the resolution work on both paths.
+
+   4. **Boot splash: unchanged.** `Main::setup2()` is called with its default
+      `p_show_boot_logo = true`, identical to what single-phase `setup()` passed. The question is
+      moot in a second sense: the shell's `#status` overlay covers the canvas until after the
+      first frame regardless. Android's `setup2(false)` exists for its own reasons and web has no
+      equivalent need.
+
+   **Also done in the same round**: the CSS spinner was moved from the center of the overlay
+   (where it landed on top of the splash art, visible in a capture) to just above the status
+   label, with the rest of the loading chrome.
+
+   **A method note worth keeping**: `page.screenshot()` stalls while the main thread is blocked,
+   so screenshots taken on a wall-clock schedule during a web startup are **mislabelled** — they
+   land wherever the renderer next produced a frame, not at the requested time. Trigger captures
+   on DOM state (`waitForFunction`) instead. A timed set taken here appeared to show the game
+   running 8 s before its own first frame, which is how this was found.
 
    **A measurement note for whoever profiles this next**: `profile_phases.mjs` reports the stall
    as the longest `requestAnimationFrame` gap. That number drops sharply now purely because the

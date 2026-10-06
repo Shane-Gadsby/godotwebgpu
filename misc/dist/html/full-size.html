@@ -129,10 +129,18 @@ body {
    runs synchronously inside the WASM callMain() call, before control ever
    returns to JS, so nothing JS-driven (progress text, event listeners) can
    paint during that window. This spinner is the only feedback that can. */
+/* Sits above the status label rather than in the middle of the overlay, where it
+   landed on top of the splash art. Absolutely positioned for the same reason
+   #status-label is: #status is a centering flex container, and the loading chrome
+   belongs at the bottom with the bar, not stacked through the splash image. */
 #webgpu-spinner {
-	width: 2rem;
-	height: 2rem;
-	margin: 0 auto 0.75rem;
+	position: absolute;
+	bottom: calc(10% + 3.25rem);
+	left: 0;
+	right: 0;
+	width: 1.5rem;
+	height: 1.5rem;
+	margin: 0 auto;
 	border-radius: 50%;
 	border: 3px solid rgba(255, 255, 255, 0.25);
 	border-top-color: #e0e0e0;
