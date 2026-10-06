@@ -73,7 +73,7 @@ This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/
 
 Building on that base, this fork has two main goals:
 
-- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox, matching a native-Vulkan Forward+ capture of the same scene.
+- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10.
 - **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` Phase 15 for the port, Phase 8 for the earlier 4.7.2 sync).
 - **Box3D as the default 3D physics engine.** A new `PhysicsServer3D` implementation on top of Erin Catto's [Box3D](https://github.com/erincatto/box3d) — see [3D Physics](#3d-physics-box3d) below. Independent of the renderer work; it happens to matter most on the web, where Godot's other 3D physics options are the heaviest part of the build.
 - **Editor quality-of-life.** Small in-editor additions on top of upstream: mouse events in the script editor, and a per-project default directory for newly created scripts.
@@ -140,7 +140,6 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Volumetric fog looks blockier than native (froxel sampling) | open, uninvestigated (Task 12.1) | Not projector- or shadow-specific; noticed while verifying light projectors, which are otherwise pixel-equivalent to native Vulkan |
 | `command_render_clear_attachments` is a no-op | won't fix | WebGPU has no mid-pass attachment clear. Confirmed dead code on every Godot backend today |
 | `draw_indexed_indirect_count` / `draw_indirect_count` ignore the count buffer | won't fix | WebGPU has no multi-draw-indirect-count. No current renderer uses count-buffer indirect draws |
 | Explicit `command_resolve_texture()` is a stub | won't fix for now | MSAA goes through render-pass `resolveTarget`, which is implemented. Only out-of-pass resolves are missing |

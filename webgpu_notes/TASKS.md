@@ -4710,7 +4710,38 @@ User reported 4 configurations from real-project exports: "all AA options at max
 
 **Investigation notes**: found with a Playwright hook that wraps `beginRenderPass`/`setScissorRect` and reads the depth atlas back with a compute shader (atlas was all zeros, then one populated tile). Pitfall: the export preset selects the template variant (`variant/extensions_support` -> dlink or not, `variant/thread_support`), so rebuild and reinstall *that* variant (`web_nothreads_release.zip` vs `web_dlink_nothreads_release.zip`) or the test silently runs a stale template.
 
-**Open**: WebGPU volumetric fog looked blockier than native in a scratch scene (froxel sampling); not investigated, not projector-specific.
+**Closed 2026-10-06 — not reproducible, measured.** The froxel-sampling suspicion does not survive a
+controlled comparison. Built a fog-dominated scene (two shadow-casting spots, `volumetric_fog_density`
+0.18, `detail_spread` 2.0, fixed camera) and captured it through native Vulkan Forward+ (RTX 4080
+SUPER) and the WebGPU export at matched 960x540, then compared whole-frame difference plus two
+high-frequency statistics chosen to detect banding: mean `|Laplacian|` and the horizontal-gradient
+distribution over the lit fog region.
+
+| configuration | max abs diff | mean `\|laplacian\|` Vulkan → WebGPU |
+|---|---|---|
+| 64³ froxels, temporal reprojection off | 10 / 255 | 0.857 → 0.870 (+1.6%) |
+| 64³ froxels, temporal reprojection on (default) | 10 / 255 | 0.860 → 0.871 (+1.3%) |
+| **32³ froxels** (amplified — unfiltered sampling would be blatant) | 7 / 255 | 0.784 → 0.794 (+1.2%) |
+| 32³ froxels, Firefox (different promotion path: no tier1/tier2) | 8 / 255 | 0.785 → 0.788 (+0.4%) |
+
+**The metric was validated against a positive control before trusting it**, because "the numbers match"
+is worthless from an insensitive measure. Nearest-resampling the same WebGPU frame through a 32×18 grid
+(what genuinely unfiltered froxel sampling would look like) moves mean `|Laplacian|` 0.876 → 1.880
+(2.1×) and p99 3.14 → 43.9 (14×); even mild 8×8 block quantization gives 0.874 → 1.934 and p99 → 18.0,
+with the plateau signature (`dx` p50 0.715 → 0.000). A real blockiness difference would therefore be
+visible as a multiple, not the ~1% seen here.
+
+Also confirmed statically: nothing gates fog on web. `volume_size`/`volume_depth` default to 64 with no
+web-specific clamp, `fog_map` is `R16G16B16A16_SFLOAT` (filterable in WebGPU without any optional
+feature), and sampled bindings default to `WGPUTextureSampleType_Float`, not `UnfilterableFloat`.
+
+Not attributed to a specific fix — several fog-adjacent changes landed between the observation and now
+(Task 9.5's `volumetric_fog.glsl` `Volatile`-decoration fix among them). Recorded as not reproducible
+on the current build rather than as fixed by any one change. **Caveat**: this is a purpose-built scene,
+not the original unspecified scratch scene, so it cannot prove that scene was fine — it does establish
+that fog is not systematically blockier on WebGPU at default or amplified froxel resolution, in either
+browser. The user's own project (volumetric fog among ten enabled environment features) agrees at
+matched 1920x1080: mean abs diff 0.57/255, max 10, mean `|Laplacian|` 2.9983 → 3.0020.
 
 ## Phase 13: CI editor builds ship the WebGPU shader baker (September 2026)
 
