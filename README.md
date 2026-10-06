@@ -209,7 +209,7 @@ Last full run **2026-10-06**, on Godot 4.8. Everything is green except one known
 | Font rendering colors — Firefox | **fail — known false positive**, see Verification gaps | Editor + web template build |
 | Fog smoothness — Chrome / Firefox | pass on a real GPU; **skips** under a software adapter, which renders no fog | Editor + web template build, real GPU |
 | Fog assertion self-test | pass | Node |
-| Forward+ feature matrix (64 features) | **61 / 64**; 3 open port bugs, 10 features documented as uncovered | Own export, **real GPU** |
+| Forward+ feature matrix (64 features) | **62 / 64**; 2 open port bugs, 10 features documented as uncovered | Own export, **real GPU** |
 | Forward+ matrix self-test | pass | Node |
 | Scene smoketest — Safari | not run | macOS + AppleScript |
 | `./webgpu_tests/local_ci.sh --no-safari` (all of the above plus `spec_constant_overrides` and `wgsl_cache`) | **17 passed, 1 failed, 1 skipped** | Full rebuild + re-export |

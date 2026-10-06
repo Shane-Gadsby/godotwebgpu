@@ -309,10 +309,19 @@ func _build_geometry() -> void:
 	var lod_mesh := SphereMesh.new()
 	lod_mesh.radius = 0.7
 	lod_mesh.height = 1.4
-	var im := ImporterMesh.new()
-	im.add_surface(Mesh.PRIMITIVE_TRIANGLES, lod_mesh.get_mesh_arrays())
-	im.generate_lods(25.0, 60.0, [])
-	lod_inst = _mesh_instance(im.get_mesh(), mat_box, Transform3D(Basis(), Vector3(-4.6, 0.8, 2.0)))
+	# The LOD subject is a committed mesh with its LOD chain already baked
+	# (make_lod_mesh.gd regenerates it). Generating LODs at runtime instead
+	# looks tempting but is wrong twice over: ImporterMesh.generate_lods()
+	# produces zero LODs in a web template (it works in a native one, so this
+	# is web-specific), and runtime generation is not how a shipped project
+	# gets LODs anyway -- the importer bakes them. A committed resource tests
+	# the path users actually ship.
+	var lod_res: Mesh = load("res://lod_sphere.res")
+	# Reported because a missing resource and broken LOD switching produce the
+	# same zero delta, and the two need telling apart.
+	print("[FP] LODSUBJECT %s" % ("baked" if lod_res else "MISSING -- mesh_lod cannot pass"))
+	lod_inst = _mesh_instance(lod_res if lod_res else lod_mesh, mat_box,
+		Transform3D(Basis(), Vector3(-4.6, 0.8, 2.0)))
 	fade_inst = _mesh_instance(lod_mesh, mat_box, Transform3D(Basis(), Vector3(4.6, 0.8, 1.6)))
 
 
@@ -351,11 +360,14 @@ func _build_gi() -> void:
 	probe.visible = false
 	add_child(probe)
 
-	# VoxelGI needs baked data. bake() is callable at runtime but is slow and
-	# needs the scene already in the tree, so it is deferred to first use.
+	# VoxelGI needs baked data, loaded below from a committed resource.
 	voxel_gi = VoxelGI.new()
 	voxel_gi.size = Vector3(16, 8, 16)
 	voxel_gi.transform = Transform3D(Basis(), Vector3(0, 3.0, 0))
+	var vg_data: VoxelGIData = load("res://voxel_gi_data.res")
+	if vg_data:
+		voxel_gi.data = vg_data
+	print("[FP] VOXELGI %s" % ("baked" if vg_data else "MISSING"))
 	voxel_gi.visible = false
 	add_child(voxel_gi)
 
@@ -769,8 +781,11 @@ func _apply(id: String, on: bool) -> bool:
 			mat_probe.metallic = 1.0
 			mat_probe.roughness = 0.1
 		"voxel_gi":
-			if on and voxel_gi.data == null:
-				voxel_gi.bake(self, false)
+			# Baked data is loaded, not produced at runtime: a shipped project
+			# bakes in the editor, and baking inside the matrix competed with
+			# the settle window and made the measurement non-reproducible
+			# (1.051 one run, 0.040 the next). make_bake_assets.gd regenerates
+			# voxel_gi_data.res when the static geometry changes.
 			voxel_gi.visible = on
 		"decal":
 			decal.visible = on
