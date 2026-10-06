@@ -7226,7 +7226,8 @@ Vulkan** through the same fixture (`-- --fp-matrix=DIR`), never on WebGPU — ca
 port would bake in whatever it currently does, bugs included. 10 further features are listed in
 `features.mjs`'s `UNCOVERED` with a reason each.
 
-**Current result: 62 / 64 pass on Chrome, real GPU** (bugs 2 and 3 below fixed since). WebGPU and native Vulkan agree closely across
+**Current result: 63 / 64 pass on Chrome, real GPU.** The one failure is a rare residual
+bind-group error (bug 4), not a feature that fails to render. WebGPU and native Vulkan agree closely across
 the rest, which is the useful headline — the port renders essentially the whole Forward+ surface.
 
 #### Bug 1 — VoxelGI's 8-bit integer storage formats `[FIXED]`
@@ -7262,13 +7263,11 @@ The web-template behavior of `generate_lods()` is a genuine, separate engine-lev
 generation silently does nothing in a web export. Not chased; it is not a renderer bug and not on the
 path a shipped project takes.
 
-#### Bug 4 — set-0 bind-group layouts differ between shader variants `[OPEN — root-caused]`
+#### Bug 4 — uniform sets bound against the wrong shader's layout `[FIXED]`
 
-The real bug behind what was first filed as "heightmap raises a bind-group error". It is not
-heightmap-specific at all: the error lands on whichever feature's capture window it happens to
-arrive in, and has been blamed on `proximity_fade`, `heightmap` and `alpha_hash` across three runs.
-It does not reproduce in a short sequence — it needs enough history for a late variant to be
-compiled.
+First filed as "heightmap raises a bind-group error", which was wrong twice: not heightmap-specific
+(it landed on `proximity_fade`, `heightmap`, `alpha_hash` and `alpha_scissor` across runs, whichever
+feature's capture window the async error arrived in) and not a layout-construction bug.
 
 ```
 Bind group layout [BindGroupLayout "bgl:SceneForwardClusteredShaderRD:18:set0"]
@@ -7277,55 +7276,42 @@ does not match layout [BindGroupLayout "bgl:SceneForwardClusteredShaderRD:11:set
 of bind group set at group index 0.
 ```
 
-Godot builds **one** render-pass uniform set and binds it across every variant of the shader,
-relying on set 0 being identical for all of them — true on Vulkan, where descriptor sets match by
-layout *compatibility*. WebGPU requires exact equality, and on this driver set 0 is **not** identical
-across variants. Dumped both layouts entry by entry; exactly two fields diverge:
+Every variant of a ShaderRD gets its own `WGPUBindGroupLayout` objects here, because the per-entry
+details are resolved from that variant's WGSL and `eliminate_dead_resources()` (Task 23) strips
+bindings a variant never reaches. Dumping two variants' set 0 entry by entry showed exactly two
+fields diverging — `visibility` (Fragment vs **none at all**, on nine bindings) and `sampler.type`
+(Comparison vs Filtering, on the shadow sampler). So a bind group built for one variant genuinely
+cannot be bound under another's pipeline.
 
-| field | variant 18 | variants 11 / 2 |
-|---|---|---|
-| `visibility` (bindings 4, 6, 8, 10, 12, 14, 20, 22, 24) | `2` (Fragment) | `0` (**no stage at all**) |
-| `sampler.type` (binding 4, the shadow sampler) | Comparison | Filtering |
+The driver already had the machinery for this: `_get_compatible_bind_group()` rebuilds a bind group
+against a target shader's layout and caches it per layout. **It was being handed the wrong target.**
+`command_bind_render_uniform_sets()` receives `ShaderID p_shader` — the shader RenderingDevice is
+binding these sets *for* — and discarded it, deriving the target from `cmd->render_state
+.current_pipeline` instead. That is wrong in both directions: the render graph can emit the bind
+before the draw's pipeline is bound (null target, so no adaptation at all), and after a pipeline
+change RenderingDevice re-binds every set — which is precisely why this driver reports
+`SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS` — passing the new shader in that same discarded
+parameter. The fix is to trust `p_shader`, falling back to the bound pipeline only when it is null.
 
-Both come from the same cause: `eliminate_dead_resources()` (Task 23) strips bindings a given
-variant never reaches, and the BGL's per-entry details are then resolved from that variant's
-*surviving* WGSL. A stripped binding therefore falls back to defaults — visibility none, sampler
-Filtering — while a variant that still uses it gets the real values.
+`command_bind_compute_uniform_sets()` had the same bug and worse: it read the **render** pipeline's
+shader while binding sets for a compute dispatch.
 
-`PreDceImageInfo` already exists to recover exactly this class of information from the raw SPIR-V,
-but it covers a storage image's format/dimension and a texture's Uint/Sint sample type. Neither
-diverging field here is recoverable that way: visibility and sampler-comparison-ness are *use*
-properties, not type properties — its own doc comment calls out the sampler-comparison case as
-unrecoverable.
+**This also fixed bug 5 (proximity fade), with no separate change.** Proximity fade samples the depth
+texture out of the render-pass uniform set; with a bind group from another variant bound it was
+reading the wrong resource, so the fade barely registered. It went from 0.320 to **3.234** against
+Vulkan's 3.265 the moment the binding was corrected — one root cause, two symptoms, which is also
+why the "~10x too weak" reading was never going to be explained by anything in the fade's own code.
 
-Directions, neither attempted: resolve a shared set's entries from Godot's own reflection (whose
-stage mask is a legal superset, and identical for every variant) instead of the per-variant WGSL;
-or bake the per-binding sampler-comparison and visibility facts into the shader container once for
-the whole ShaderRD rather than per variant. Not a small change, and it sits in the most delicate
-part of the driver, so it wants its own pass with a full matrix re-run.
+**Residual, open.** The error is not gone, only rare: 30 occurrences in one pre-fix run, 22 in
+another, **2** after the fix, and still moving between features. It does not reproduce in a trace of
+every feature up to the failing one, with or without screenshots, so it needs some timing or
+compilation-order condition not yet pinned. The frame renders correctly throughout — every feature's
+delta is right, and the matrix only fails it on error count. Worth chasing when it can be made to
+reproduce; the likely remaining hole is a path where `p_shader` arrives null.
 
-#### Bug 5 — proximity fade is ~10x too weak `[OPEN]`
-
-`BaseMaterial3D.proximity_fade_enabled` measures **0.320 on WebGPU against 3.265 on native Vulkan**,
-reproducibly and with no errors. Proximity fade reads the depth buffer, which is the area this
-driver has the most special handling around, so that is the place to start.
-
-#### Fixture limits, recorded honestly
-
-Five features initially read as port bugs and were, on comparison with the Vulkan column, faults in
-the fixture: screen-space contact shadows are gated by a project setting that defaults off; a skinned
-`MeshInstance3D` renders in its skeleton's space so the test strip was buried inside another mesh;
-blend shapes need `set_blend_shape_value()` rather than a property path; primitive meshes carry no
-LODs (the chain is now generated at runtime via `ImporterMesh`); and CSM splits only diverge over a
-long receding range. **Godot treats clockwise winding as front-facing**, and two procedurally built
-meshes were wound counter-clockwise — they built without any error, reported a correct blend-shape
-count, and drew nothing at all.
-
-Two remain uncovered because the fixture still cannot drive them to a measurable result, and a
-threshold low enough to accommodate them would pass even if the feature were entirely broken:
-`skeletal_animation` (the procedural skin does not deform — 0.045 on Vulkan for a 2.2 rad pose
-change) and `particle_trails` (0.000 on Vulkan). Both are real Forward+ paths and should be covered
-once the fixture can express them.
+**Regression checked** after the change, since this is on the hottest path in the driver (every bind
+of every set of every draw): scene smoketest 21/21, screenshot comparison 8/0, resource lifecycle
+all pass, Forward+ matrix 63/64.
 
 ---
 

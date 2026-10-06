@@ -9914,7 +9914,25 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 	ERR_FAIL_NULL(cmd);
 	ERR_FAIL_COND(!cmd->render_encoder);
 
-	WGShader *pipeline_shader = cmd->render_state.current_pipeline ? cmd->render_state.current_pipeline->shader : nullptr;
+	// Use the shader RenderingDevice says these sets are being bound FOR, not
+	// whatever pipeline happens to be bound on the encoder right now. Every
+	// variant of a ShaderRD has its own BindGroupLayout objects here, and
+	// _get_compatible_bind_group() below rebuilds the bind group against the
+	// target shader's layout -- so handing it the wrong target silently leaves
+	// a bind group built for another variant's layout bound, which WebGPU
+	// rejects at draw time ("Bind group layout ...:18:set0 of pipeline layout
+	// does not match layout ...:11:set0 of bind group").
+	//
+	// current_pipeline is the wrong source twice over: the render graph can
+	// emit this call before the pipeline for the draw is bound (null), and
+	// after a pipeline change RenderingDevice re-binds every set -- which is
+	// why this driver reports SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS
+	// -- but it does so by passing the new shader here, which was being
+	// discarded. See TASKS.md Task 17.1 bug 4.
+	WGShader *pipeline_shader = (WGShader *)(p_shader.id);
+	if (pipeline_shader == nullptr) {
+		pipeline_shader = cmd->render_state.current_pipeline ? cmd->render_state.current_pipeline->shader : nullptr;
+	}
 
 	// Invalidate bind group tracking if the pipeline shader changed.
 	if (pipeline_shader != cmd->bound_shader) {
@@ -11086,7 +11104,10 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 	ERR_FAIL_NULL(cmd);
 	ERR_FAIL_COND(!cmd->compute_encoder);
 
-	WGShader *pipeline_shader = cmd->render_state.current_pipeline ? cmd->render_state.current_pipeline->shader : nullptr;
+	// Same as the render path: trust the shader RenderingDevice names. The
+	// previous source was additionally wrong here -- it read the *render*
+	// pipeline's shader while binding sets for a compute dispatch.
+	WGShader *pipeline_shader = (WGShader *)(p_shader.id);
 
 	// Task 7.5: mirror the render path's dynamic offset unpacking.
 	static constexpr uint32_t MAX_DYNAMIC_BUFFERS = 8;
