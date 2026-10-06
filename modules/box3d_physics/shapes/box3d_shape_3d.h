@@ -113,7 +113,7 @@ protected:
 	bool _build_hull(Box3DShapeInstance &p_instance, b3BodyId p_body, const b3ShapeDef &p_def, const b3HullData *p_hull, const Transform3D &p_xform) const;
 
 public:
-	typedef PhysicsServer3D::ShapeType ShapeType;
+	typedef PS3DE::ShapeType ShapeType;
 
 	virtual ~Box3DShape3D() = 0;
 
@@ -124,7 +124,7 @@ public:
 	void remove_owner(Box3DObject3D *p_owner);
 	void remove_self();
 
-	virtual ShapeType get_type() const = 0;
+	virtual PS3DE::ShapeType get_type() const = 0;
 	virtual bool is_convex() const = 0;
 
 	virtual Variant get_data() const = 0;
@@ -155,7 +155,7 @@ class Box3DWorldBoundaryShape3D final : public Box3DShape3D {
 	Plane plane;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_WORLD_BOUNDARY; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_WORLD_BOUNDARY; }
 	virtual bool is_convex() const override { return false; }
 
 	virtual Variant get_data() const override { return plane; }
@@ -175,7 +175,7 @@ class Box3DSeparationRayShape3D final : public Box3DShape3D {
 	bool slide_on_slope = false;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_SEPARATION_RAY; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_SEPARATION_RAY; }
 	virtual bool is_convex() const override { return true; }
 
 	virtual Variant get_data() const override;
@@ -196,7 +196,7 @@ class Box3DSphereShape3D final : public Box3DShape3D {
 	float radius = 0.0f;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_SPHERE; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_SPHERE; }
 	virtual bool is_convex() const override { return true; }
 
 	virtual Variant get_data() const override { return radius; }
@@ -216,7 +216,7 @@ class Box3DBoxShape3D final : public Box3DShape3D {
 	Vector3 half_extents;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_BOX; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_BOX; }
 	virtual bool is_convex() const override { return true; }
 
 	virtual Variant get_data() const override { return half_extents; }
@@ -237,7 +237,7 @@ class Box3DCapsuleShape3D final : public Box3DShape3D {
 	float radius = 0.0f;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_CAPSULE; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_CAPSULE; }
 	virtual bool is_convex() const override { return true; }
 
 	virtual Variant get_data() const override;
@@ -280,7 +280,7 @@ class Box3DCylinderShape3D final : public Box3DHullShape3D {
 	virtual b3HullData *_create_hull() const override;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_CYLINDER; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_CYLINDER; }
 
 	virtual Variant get_data() const override;
 	virtual void set_data(const Variant &p_data) override;
@@ -300,7 +300,7 @@ class Box3DConvexPolygonShape3D final : public Box3DHullShape3D {
 	virtual b3HullData *_create_hull() const override;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_CONVEX_POLYGON; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_CONVEX_POLYGON; }
 
 	virtual Variant get_data() const override { return vertices; }
 	virtual void set_data(const Variant &p_data) override;
@@ -338,7 +338,7 @@ class Box3DConcavePolygonShape3D final : public Box3DMeshShape3D {
 	virtual b3MeshData *_create_mesh(const Transform3D &p_xform) const override;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_CONCAVE_POLYGON; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_CONCAVE_POLYGON; }
 
 	virtual Variant get_data() const override;
 	virtual void set_data(const Variant &p_data) override;
@@ -361,7 +361,7 @@ class Box3DHeightMapShape3D final : public Box3DMeshShape3D {
 	AABB _calculate_aabb() const;
 
 public:
-	virtual ShapeType get_type() const override { return PhysicsServer3D::SHAPE_HEIGHTMAP; }
+	virtual PS3DE::ShapeType get_type() const override { return PS3DE::SHAPE_HEIGHTMAP; }
 
 	virtual Variant get_data() const override;
 	virtual void set_data(const Variant &p_data) override;

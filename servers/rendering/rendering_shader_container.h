@@ -61,6 +61,7 @@ protected:
 		uint32_t specialization_constants_count = 0;
 		RDC::PipelineType pipeline_type = RDC::PIPELINE_TYPE_RASTERIZATION;
 		uint32_t has_multiview = 0;
+		uint32_t has_physical_storage_buffer_addresses = 0;
 		uint32_t has_dynamic_buffers = 0;
 		uint32_t compute_local_size[3] = {};
 		uint32_t set_count = 0;
@@ -76,6 +77,8 @@ protected:
 		uint32_t stages = 0;
 		uint32_t length = 0; // Size of arrays (in total elements), or UBOs (in bytes * total elements).
 		uint32_t writable = 0;
+		RDC::TextureType texture_type = RDC::TEXTURE_TYPE_MAX;
+		RDC::DataFormat texture_format = RDC::DATA_FORMAT_MAX;
 
 		bool operator<(const ReflectionBindingData &p_other) const {
 			return binding < p_other.binding;
@@ -104,6 +107,23 @@ protected:
 
 	virtual uint32_t _format() const = 0;
 	virtual uint32_t _format_version() const = 0;
+
+	// Called once at the start of from_bytes(), with the whole buffer the rest of
+	// the parse reads out of, before any of the _from_bytes_* hooks below run.
+	// Default does nothing.
+	//
+	// It exists so a format can keep a *reference* to that buffer and have its
+	// own _from_bytes_* hooks record offsets into it rather than copying bytes
+	// out of it. PackedByteArray is refcounted, so retaining it costs a refcount
+	// bump and no memory; the payoff is one fewer full copy of whatever the
+	// format's extra data is. The WebGPU container does this for its baked-WGSL
+	// footer, which is the largest single payload in any container this engine
+	// writes (hundreds of KB per shader, ~60 MB across a real project's export),
+	// and copying it per load was measurable in the web export's startup time.
+	//
+	// A format that overrides this must assume nothing about the buffer beyond
+	// its contents: it is the caller's array, which from_bytes() does not own.
+	virtual void _from_bytes_begin(const PackedByteArray &p_bytes);
 
 	// These methods will always be called with a valid pointer.
 	virtual uint32_t _from_bytes_header_extra_data(const uint8_t *p_bytes);
@@ -162,18 +182,13 @@ protected:
 		void set_spv_reflect(RDC::ShaderStage p_stage, const T *p_spv);
 	};
 
-	struct ReflectImageTraits {
-		RDC::DataFormat format = RDC::DATA_FORMAT_MAX;
-	};
-
 	struct ReflectUniform : ReflectSymbol<SpvReflectDescriptorBinding> {
 		RDC::UniformType type = RDC::UniformType::UNIFORM_TYPE_MAX;
 		uint32_t binding = 0;
-
-		ReflectImageTraits image;
-
 		uint32_t length = 0; // Size of arrays (in total elements), or ubos (in bytes * total elements).
 		bool writable = false;
+		RDC::TextureType texture_type = RDC::TEXTURE_TYPE_MAX;
+		RDC::DataFormat texture_format = RDC::DATA_FORMAT_MAX;
 
 		bool operator<(const ReflectUniform &p_other) const {
 			if (binding != p_other.binding) {
@@ -231,6 +246,7 @@ protected:
 		uint32_t compute_local_size[3] = {};
 		uint32_t push_constant_size = 0;
 		bool has_multiview = false;
+		bool has_physical_storage_buffer_addresses = false;
 		bool has_dynamic_buffers = false;
 		RDC::PipelineType pipeline_type = RDC::PIPELINE_TYPE_RASTERIZATION;
 

@@ -8,6 +8,13 @@
  *
  * Usage:
  *   node profile_phases.mjs --dir <export-dir> [--duration 45] [--headed]
+ *
+ * CI=1 forces the headless software (swiftshader) adapter, for a machine with
+ * no real GPU. Absolute timings from such a run are not comparable with a
+ * real-GPU run; the byte and call counts are.
+ *
+ * PLAYWRIGHT_IMPORT points at a Playwright install outside
+ * webgpu_tests/scene_smoketest/node_modules.
  *                           [--warm] [--label name] [--output path.json]
  *
  * --warm reuses the browser profile between runs so the second run measures a
@@ -99,10 +106,52 @@ async function main() {
 	const server = await startServer(EXPORT_DIR);
 	const url = `http://127.0.0.1:${server.address().port}/index.html`;
 
-	const pw = await import(join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
+	// scene_smoketest's node_modules is where this suite's Playwright normally
+	// lives. A CI runner or a prebuilt container may have it somewhere else
+	// entirely, and an ESM import() does not consult NODE_PATH, so there has to
+	// be a way to say where: PLAYWRIGHT_IMPORT is a path to its index.mjs (or to
+	// the package directory). A bare specifier is tried last, for the case where
+	// it is a real dependency of whatever is running this.
+	const pwCandidates = [
+		join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'),
+		...(process.env.PLAYWRIGHT_IMPORT
+			? [process.env.PLAYWRIGHT_IMPORT.endsWith('.mjs') || process.env.PLAYWRIGHT_IMPORT.endsWith('.js')
+				? process.env.PLAYWRIGHT_IMPORT
+				: join(process.env.PLAYWRIGHT_IMPORT, 'index.mjs')]
+			: []),
+		'playwright',
+	];
+	let pw = null;
+	const pwErrors = [];
+	for (const candidate of pwCandidates) {
+		try {
+			pw = await import(candidate);
+			break;
+		} catch (e) {
+			pwErrors.push(`  ${candidate}: ${e.code || e.message}`);
+		}
+	}
+	if (!pw) {
+		console.error('Could not load Playwright. Tried:\n' + pwErrors.join('\n'));
+		console.error('Set PLAYWRIGHT_IMPORT to its index.mjs, or npm install in webgpu_tests/scene_smoketest.');
+		process.exit(1);
+	}
 	const BROWSER = arg('browser', 'chromium');
 	const chromium = pw[BROWSER] || pw.chromium;
-	const args = ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'];
+
+	// CI=1 selects the software adapter, mirroring run_scenes.mjs: a headless
+	// Linux box with no /dev/dri gets no WebGPU at all from the flags below,
+	// which ask for a real Vulkan device. swiftshader is a materially different
+	// adapter -- it reports WebGPU's baseline limits and is far slower -- so the
+	// absolute timings from a CI run are not comparable with a real-GPU run.
+	// What *is* comparable across the two is everything that does not depend on
+	// the adapter: the byte counts in godotWebGPUShaderStats, the per-frame call
+	// counts in godotWebGPUFrameStats, and the ratio between two runs made on
+	// the same machine.
+	const SOFTWARE_ADAPTER = !!process.env.CI;
+	const args = SOFTWARE_ADAPTER
+		? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
+		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'];
 	if (!WARM) { args.push('--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'); }
 
 	const userDataDir = WARM
@@ -117,7 +166,8 @@ async function main() {
 		'gfx.webgpu.ignore-blocklist': true,
 	};
 	const context = await chromium.launchPersistentContext(userDataDir, {
-		headless: !HEADED,
+		// A software-adapter run has no display to be headed on.
+		headless: SOFTWARE_ADAPTER ? true : !HEADED,
 		args: BROWSER === 'firefox' ? [] : args,
 		firefoxUserPrefs: BROWSER === 'firefox' ? firefoxUserPrefs : undefined,
 		viewport: { width: 1280, height: 720 },
@@ -164,6 +214,11 @@ async function main() {
 			shaderMessages: P.shaderMessages,
 			shaderSources: P.shaderSources,
 			shaderStats: window.godotWebGPUShaderStats || null,
+			// Per-frame driver counters, averaged over the last sampled second.
+			// Only present once the export has been running long enough for one
+			// sampling window to close, so a short profile run will see null --
+			// the default --duration 45 is well past it.
+			frameStats: window.godotWebGPUFrameStats || null,
 			// Phase marks pushed from C++ inside callMain() -- present only when the
 			// export is run with --benchmark (see OS_Web::benchmark_end_measure).
 			engineMarks: window.godotStartupMarks || null,
@@ -285,6 +340,10 @@ function report(d) {
 	// --- Shader translation sanity check ------------------------------------
 	console.log('\n--- godotWebGPUShaderStats (Task 34: translated must be 0) ---');
 	console.log(`  ${d.shaderStats ? JSON.stringify(d.shaderStats) : '(not exposed -- engine may not have reached that point)'}`);
+
+	// --- Per-frame driver cost ----------------------------------------------
+	console.log('\n--- godotWebGPUFrameStats (per-frame averages over one second) ---');
+	console.log(`  ${d.frameStats ? JSON.stringify(d.frameStats) : '(not exposed -- needs >1s of rendering under --duration)'}`);
 
 	// --- Whole timeline ------------------------------------------------------
 	console.log('\n--- All marks, in order ---');

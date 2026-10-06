@@ -4710,7 +4710,38 @@ User reported 4 configurations from real-project exports: "all AA options at max
 
 **Investigation notes**: found with a Playwright hook that wraps `beginRenderPass`/`setScissorRect` and reads the depth atlas back with a compute shader (atlas was all zeros, then one populated tile). Pitfall: the export preset selects the template variant (`variant/extensions_support` -> dlink or not, `variant/thread_support`), so rebuild and reinstall *that* variant (`web_nothreads_release.zip` vs `web_dlink_nothreads_release.zip`) or the test silently runs a stale template.
 
-**Open**: WebGPU volumetric fog looked blockier than native in a scratch scene (froxel sampling); not investigated, not projector-specific.
+**Closed 2026-10-06 — not reproducible, measured.** The froxel-sampling suspicion does not survive a
+controlled comparison. Built a fog-dominated scene (two shadow-casting spots, `volumetric_fog_density`
+0.18, `detail_spread` 2.0, fixed camera) and captured it through native Vulkan Forward+ (RTX 4080
+SUPER) and the WebGPU export at matched 960x540, then compared whole-frame difference plus two
+high-frequency statistics chosen to detect banding: mean `|Laplacian|` and the horizontal-gradient
+distribution over the lit fog region.
+
+| configuration | max abs diff | mean `\|laplacian\|` Vulkan → WebGPU |
+|---|---|---|
+| 64³ froxels, temporal reprojection off | 10 / 255 | 0.857 → 0.870 (+1.6%) |
+| 64³ froxels, temporal reprojection on (default) | 10 / 255 | 0.860 → 0.871 (+1.3%) |
+| **32³ froxels** (amplified — unfiltered sampling would be blatant) | 7 / 255 | 0.784 → 0.794 (+1.2%) |
+| 32³ froxels, Firefox (different promotion path: no tier1/tier2) | 8 / 255 | 0.785 → 0.788 (+0.4%) |
+
+**The metric was validated against a positive control before trusting it**, because "the numbers match"
+is worthless from an insensitive measure. Nearest-resampling the same WebGPU frame through a 32×18 grid
+(what genuinely unfiltered froxel sampling would look like) moves mean `|Laplacian|` 0.876 → 1.880
+(2.1×) and p99 3.14 → 43.9 (14×); even mild 8×8 block quantization gives 0.874 → 1.934 and p99 → 18.0,
+with the plateau signature (`dx` p50 0.715 → 0.000). A real blockiness difference would therefore be
+visible as a multiple, not the ~1% seen here.
+
+Also confirmed statically: nothing gates fog on web. `volume_size`/`volume_depth` default to 64 with no
+web-specific clamp, `fog_map` is `R16G16B16A16_SFLOAT` (filterable in WebGPU without any optional
+feature), and sampled bindings default to `WGPUTextureSampleType_Float`, not `UnfilterableFloat`.
+
+Not attributed to a specific fix — several fog-adjacent changes landed between the observation and now
+(Task 9.5's `volumetric_fog.glsl` `Volatile`-decoration fix among them). Recorded as not reproducible
+on the current build rather than as fixed by any one change. **Caveat**: this is a purpose-built scene,
+not the original unspecified scratch scene, so it cannot prove that scene was fine — it does establish
+that fog is not systematically blockier on WebGPU at default or amplified froxel resolution, in either
+browser. The user's own project (volumetric fog among ten enabled environment features) agrees at
+matched 1920x1080: mean abs diff 0.57/255, max 10, mean `|Laplacian|` 2.9983 → 3.0020.
 
 ## Phase 13: CI editor builds ship the WebGPU shader baker (September 2026)
 
@@ -5431,6 +5462,39 @@ Checked for leftovers: the only remaining `FORMAT_LA8` references are the generi
 **Verified in the browser**: text renders correctly with the RGBA8 atlases. This was the one open risk — `_write_mono_glyph_texel()` writing coverage to the wrong channel would have made *all* text render wrong, immediately and unmistakably. It does not. The RGB=255 / A=coverage layout matches what the sampling path expects, and the pre-existing 4-channel atlas clear (`255,255,255,0`) initializes it correctly.
 
 Correct text on screen is the load-bearing evidence here; the absence of the `LumAlpha8` log lines was not separately re-confirmed in this run, but it follows from the same code path — no LA8 atlas is created, so nothing can be converted.
+
+> **Follow-up (2026-10-04): this change had a colour regression that the above verification could not have caught.** See the next subsection. "Text renders correctly" was checked with white text, and the regression forces text to *be* white — so the two are indistinguishable in that test. Any future check of this area needs a non-white font colour, or an outline colour that differs from the fill.
+
+#### Task 35 — follow-up: RGBA8 mono atlases made every glyph look like a colour glyph `[FIXED — VERIFIED IN BROWSER]`
+
+**Symptom**: user-reported, "the text/font appears to be wrong on the web export". All text renders white regardless of its theme colour, and a dark outline turns white, so outlined text becomes a pale blob. Reproduced conceptually against the user's `apple-orchard-game`, whose theme sets `RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)` with `outline_size = 5` — a black 5 px outline rendering white is what made it obvious.
+
+**Root cause**: both text servers decide whether a glyph carries its own colour (emoji/CBDT/COLR, which must not be tinted by the text colour) by sniffing the *atlas pixel format*:
+
+```cpp
+if (!fd->modulate_color_glyphs && fd->face && ...image->get_format() == Image::FORMAT_RGBA8 && !lcd_aa && !fd->msdf) {
+    modulate.r = modulate.g = modulate.b = 1.0;
+}
+```
+
+That inference only holds while a grayscale atlas is `LA8`. Task 35 made `MONO_GLYPH_COLOR_SIZE` 4 under `WEBGPU_ENABLED`, so grayscale atlases are `RGBA8` too, the test matches *every* ordinary glyph, and the modulate is dropped for all text. `modulate_color_glyphs` defaults to `false` and `lcd_aa`/`msdf` are off by default, so nothing else gates it. Four sites: `text_server_adv.cpp` `_font_draw_glyph`/`_font_draw_glyph_outline`, and the same pair in `text_server_fb.cpp`.
+
+**Fix**: record the answer where it is actually known instead of inferring it later.
+- `FontGlyph` gains `bool color_glyph = false` in both headers.
+- Set at rasterization: `chr.color_glyph = p_bgra` in the HarfBuzz raster path, and `chr.color_glyph = (p_bitmap.pixel_mode == FT_PIXEL_MODE_BGRA)` in the FreeType bitmap path. `LCD`/`LCD_V` are four-channel but are subpixel-AA grayscale, not colour, and the draw-time check already excludes them via `lcd_aa`.
+- At the four draw sites, `#ifdef WEBGPU_ENABLED` consults the flag; every other backend keeps the original format test, so glyphs restored from a pre-baked font cache (which carries no flag, since the cache round-trips through the public per-field `_font_set_glyph_*` API) behave exactly as before.
+- Also collapsed an upstream inconsistency at `text_server_adv.cpp` `_font_draw_glyph_outline`, where the `.is_valid()` check read `fd->cache[size]->textures[...]` while the format check read `ffsd->textures[...]`. `_ensure_cache_for_size()` assigns `r_cache_for_size = E->value` from `p_font_data->cache.find(p_size)`, so these are the same object and the change is a no-op.
+
+**Verified**: native editor full rebuild, 0 errors. `text_server_fb` compiled explicitly via a single-object scons target with `module_text_server_fb_enabled=yes` (off by default in this configuration, so it would otherwise have gone unchecked — same trap Task 35 itself hit). The `WEBGPU_ENABLED` branch was confirmed to be the branch actually compiled by temporarily injecting `static_assert(false)` inside it and observing the web build fail there, then restoring and recompiling clean. `pre-commit` passes on all four files.
+
+**Verified in the browser (2026-10-04)**: user rebuilt the web templates, re-exported, and confirmed — "fonts look correct again".
+
+This check *is* discriminating, unlike Task 35's own. The reporting project (`apple-orchard-game`) renders its interaction text through a theme that sets `RichTextLabel/colors/font_outline_color = Color(0, 0, 0, 1)` with `outline_size = 5`, i.e. white fill with a black 5 px outline. Under the bug that outline rendered white and the text became a pale blob; "correct" therefore means the outline came back black, which only happens if the modulate reaches the glyph. A white-text-only check could not have distinguished the two states — that is exactly how the regression survived Task 35's original verification.
+
+**Still not separately exercised**: a real colour-glyph font (emoji/CBDT/COLR) on WebGPU, which is the case the `color_glyph` flag is *supposed* to keep untinted. The fix makes that path strictly more correct than the format-sniffing it replaced, and the flag is set directly from `FT_PIXEL_MODE_BGRA`/`p_bgra`, but no emoji font was rendered to confirm it. The reporting project uses none.
+
+**Regression test added, and verified against the real bug rather than a simulation.** `webgpu_tests/font_rendering/godot/font_check` plus `scene_smoketest/test_font_visual.mjs` render text in deliberately non-white colors and assert the canvas pixels; `self_test_font_visual.mjs` checks those assertions against two committed reference images so the thresholds cannot be weakened into uselessness. The full cycle was exercised end to end on real-GPU Chrome: **PASS with the fix, then the fix reverted and the web template rebuilt from that reverted source → FAIL with all three diagnostics, then restored → PASS again.** The reverted build's numbers (`red 0.0% white 18.1% black 0.0%`) match the simulated reference image exactly, which also validates the simulation the thresholds were derived from. This is the check Task 35 did not have.
+
 
 ---
 
@@ -6469,3 +6533,1082 @@ failed to export at the start of this session with
 `Aborted`. It is a stale `.godot` import cache in the `godot-demo-projects` checkout, left by an
 editor built at a different version hash; `rm -rf <project>/.godot` fixes it and both have exported
 cleanly on every run since. Worth knowing before reading it as an engine crash.
+
+---
+
+### Task 46: performance audit — the container payload (landed, measured) and a per-frame audit that is instrumented rather than fixed `[PARTLY FIXED — see §7b for a wrong turn this task took and corrected: a software adapter runs Forward Mobile, not the Forward+ this fork targets]`
+
+**Status**: the shader-container work is implemented and compiles clean on both targets; the
+per-frame work is deliberately stopped at instrumentation. **Severity**: load time is the
+user-visible one; the per-frame findings are small except where noted.
+
+Prompted by Task 14 subtask 1.2's leftover: `Servers:Rendering` is ~510 ms on *every* project,
+an empty scene included, and ~490 ms of it is CPU spent before WebGPU is involved at all
+(`createShaderModule` for all 363 modules is 22 ms, pipeline creation 0 ms).
+
+#### 1. Corrections to the previous session's scoping — do not re-derive these
+
+The plan carried into this work was "the SPIR-V is dead weight at runtime once WGSL is baked;
+drop it". **That premise was wrong, and acting on it directly would have been a silent rendering
+regression.** `shader_create_from_container()` walks the raw SPIR-V of *every* stage, baked or
+not, through `_extract_pre_dce_storage_image_info()`, to recover a storage image's declared
+format, dimension and component type for bindings our own `eliminate_dead_resources()` strips --
+the fix from Task 9.5 rounds 18-27. Dropping the bytes without first baking that would have put
+SDFGI and GI back to the "Format (R8Unorm) expected to be (RGBA8Unorm)" / Uint-vs-Float class of
+failure, which presents as a Dawn error naming a texture the shader does not appear to use.
+
+The runtime reads a stage's SPIR-V for exactly four things, and that is the complete list:
+
+1. `_extract_pre_dce_storage_image_info()` — the pre-DCE image declarations, every stage.
+2. `spirv_preprocess::has_spec_constants()` — one bit, every stage.
+3. `_spv_to_wgsl_cached()` — the Tint fallback, only for a stage with no baked WGSL.
+4. `shader->stage_spirv[]` — the legacy specialization path, which re-patches the bytes with
+   constant values and re-converts them.
+
+**Second correction**: the previous note put the SPIR-V and the WGSL at roughly equal size.
+Measured across the 14 corpus fixtures, SPIR-V is **64%** of the combined payload and WGSL 36%
+(`wgsl/spv = 0.56`). The SPIR-V is the *larger* of the two. Treat the 64% as indicative only --
+those fixtures are small hand-written shaders and a real scene shader's WGSL is far larger, so
+re-measure against a real export before quoting it.
+
+**Third correction, to this file's own framing of approach (C)** ("move the read and parse off the
+main thread"): it is not merely unattractive, it is **impossible in the shipping configuration**,
+and this is settled at code level rather than inferred. `threads=no` means `platform/web/detect.py`
+never passes `-sUSE_PTHREADS=1`, so `THREADS_ENABLED` is undefined, so `Thread::start()` is
+literally `{}` (`core/os/thread.h:198`) and `OS_Web::get_default_thread_pool_size()` returns 1.
+`WorkerThreadPool` has no worker threads at all and runs every task on the calling thread. There is
+no thread to move the parse to. `threads=yes dlink_enabled=yes` remains broken (Task 12 bug #2) and
+dlink is what GDExtension needs, so the only route to that ~490 ms is to **do less work**, not to
+relocate it. Subtask 1.5's "still don't patch Emscripten" conclusion stands and this is another
+reason for it.
+
+#### 2. What landed
+
+- **The baked WGSL is read as a window, not a copy.** `from_bytes()` retains the buffer it parsed
+  (a new non-pure `_from_bytes_begin()` hook on `RenderingShaderContainer`, a no-op by default) and
+  the footer parse records `(offset, length)` per stage instead of allocating a `CharString` and
+  copying the text in. The driver copies the text anyway -- its WGSL passes mutate it in place --
+  so the intermediate copy bought nothing.
+- **The SPIR-V is omitted when nothing can read it** (`FLAG_SPIRV_OMITTED`). Items 1 and 2 above
+  are now baked into the footer, item 3 is moot for a baked stage, and item 4 is what the bake-time
+  rule tests for: a stage that declares specialization constants whose WGSL carries no `@id(N)`
+  override keeps the bytes for the whole container. Erring towards keeping them is the safe
+  direction -- erring the other way means a shader quietly rendering at default specialization
+  values, so the driver `ERR_PRINT_ONCE`s if it ever reaches the legacy path with no SPIR-V.
+- **The pre-DCE walk moved to `drivers/webgpu/spirv_lite_reflect.{h,cpp}`**, which has no
+  SPIRV-Tools dependency and so can be compiled into the native editor's baker subset. The half
+  that maps its output to WebGPU enums stays in the driver, the only side that speaks them.
+- **`ShaderRD` frees a group's bytecode once it has loaded**
+  (`API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD`). Nothing reads `Version::variant_data` after
+  `shader_create_from_bytecode` and `_save_to_cache` for that group; ~120 MB of WASM heap was being
+  held for the session for bytes nothing would read again. This also lowers how far a 32 MB
+  `INITIAL_MEMORY` has to grow during the most allocation-heavy phase of startup.
+
+Net bytes moved per load, in units of the WGSL payload W and the SPIR-V payload S (S ≈ 1.8W on the
+corpus): **3W + 2S before, 2W after** -- the pck read plus the driver's one mutable copy. The pck
+shrinks by S/(W+S) of its shader payload.
+
+`WEBGPU_BAKE_KEEP_SPIRV=1` on the exporting editor keeps the SPIR-V anyway: the A/B for the saving
+from a single build, and an escape hatch for the one change here that discards data.
+
+#### 3. Per-frame: one real find, and why the rest is instrumented rather than changed
+
+**`command_bind_render_uniform_sets()` carried a dead nested scan.** A leftover diagnostic walked
+every bound texture of every set against every framebuffer attachment, including a `HashMap` walk
+per set, looking for a sync-scope conflict. Its prints had been removed but its loops had not, so
+it only incremented a counter nothing read -- and its `< 20` guard self-limited on *matches found*,
+so in the normal case of no conflict the full scan ran on every bind of every set of every draw,
+forever, in the hottest function in the driver. Removed. Also made
+`_get_compatible_bind_group()`'s rebind-cache hit one hash lookup instead of two.
+
+**Everything else found in the per-draw path is already handled**, which is worth recording so the
+next pass does not re-look: `SetVertexBuffer`, `SetIndexBuffer` and static `SetBindGroup` are all
+redundancy-filtered; push constants use a CPU shadow with dirty-range tracking and a batched
+`wgpuQueueWriteBuffer`; `multi-draw-indirect` has a native fast path where the extension exists;
+buffer-to-texture upload goes straight from the shadow map via `wgpuQueueWriteTexture` and clears
+`map_dirty` so the following `buffer_unmap()` does not redundantly flush a 32 MB staging buffer.
+The other `static int _x_log` diagnostics in this file are fine -- their bodies are inside
+`WEBGPU_DIAG`, which is `((void)0)` in release, leaving a static read and compare.
+
+Three candidates were found and **deliberately not implemented**, because this driver's history is
+a long argument for measuring bind-state and hazard changes before making them:
+
+- **Sets with a dynamic offset are rebound unconditionally**, on the stated grounds that the frame
+  index they encode rotates. It rotates once per *frame*, not per draw, so most of those binds
+  should be identical to the one before. Extending the redundancy cache to compare offsets means
+  also making the static path's check require a zero offset count, or a previously-dynamic bind of
+  the same group will wrongly satisfy it. Note `last_bound_state[]` cannot serve as the cache: it
+  is deliberately *not* cleared by `invalidate_bind_groups()`, because the mid-pass restart path
+  rebinds from it, so it is stale across a render pass boundary.
+- **A uniform set with read_write-storage-texture shadow companions does a full source-to-shadow
+  texture copy on every bind, and breaks and restarts the compute pass to do it**, because nothing
+  tracks whether the source changed. Zero on an adapter with
+  `readonly-and-readwrite-storage-textures`; potentially large on one without. A fix needs a
+  per-texture GPU-write epoch, and getting it wrong brings back the solid-black-DOF bug.
+- **`_get_region_clear_pipeline()` builds a `String` key** with `vformat` + `rtos` + a concatenation
+  per color format, on every call. Only reached for a region clear, so a handful of heap
+  allocations per frame at most -- real but small, and a struct key would be the tidy fix.
+
+**So the per-frame half of this task is instrumented, not fixed.** The counters existed but only
+ever surfaced through a `console.log` compiled in behind `WEBGPU_VERBOSE` -- and turning verbose
+output on costs ~1.5 s of load time by itself (subtask 1, Finding 2), so profiling with it changes
+what is being profiled. They now also publish to **`window.godotWebGPUFrameStats`**
+unconditionally, once per second, the same way `godotWebGPUShaderStats` does and for the same
+reason: the build that matters is the release one. `profile_phases.mjs` collects it. Four counters
+were added to answer exactly the questions above: `dynamicBindGroups` against `bindGroupSkips`,
+`indirectDraws` split out of `drawCalls` (indirect draws were not counted at all before), and
+`rwShadowRefreshes`. `begin_segment()` also stopped timing its sampling window with a
+`performance.now()` call through `EM_ASM`, which was a C→JS crossing every frame.
+
+#### 4. The largest un-investigated cost is not in this engine's code at all
+
+`index.side.wasm` is **51 MB**, and on a `dlink_enabled=yes` export it goes through Emscripten's
+dylink loader, not `config.js`'s `instantiateWasm` override -- so it is fetched into a full
+ArrayBuffer and compiled with non-streaming `WebAssembly.instantiate` (confirmed in
+`libdylink.js:947` at 6.0.9; `loadLibData()` reads it from the FS or `asyncLoad`s it, so there is at
+least one extra 51 MB copy as well). Subtask 2.1 recorded this and ranked it low **because it was
+measured on localhost**, where it is 48 ms of fetch plus 48 ms of instantiate.
+
+That ranking is an artifact of the measurement. At 20 Mbit/s the same 51 MB is ~20 seconds of
+download that **cannot overlap compilation**, which would dwarf every other number in this task.
+Nobody has profiled this export under network throttling, and Playwright can do it directly
+(CDP `Network.emulateNetworkConditions`). That is the cheapest high-value measurement left.
+
+Two mitigations are available without patching Emscripten, and should be costed against that
+measurement rather than guessed at: a `<link rel="preload" as="fetch">` or an early `fetch()` of
+`.side.wasm` from the shell, so its download overlaps the main module's compile and the pck
+download instead of serializing after them; and a non-dlink export wherever GDExtension is not
+needed, which has no side module at all. Note `loadWebAssemblyModule()` does accept a
+`WebAssembly.Module` directly, so a genuine streaming-compile path exists in principle, but
+Emscripten exposes no public hook to inject one (`preloadedWasm` holds exports, `sharedModules` is
+pthreads-only).
+
+#### 5. Smaller items, recorded so they are not re-derived
+
+- **`-Os` + thin LTO is already the production setting**, with a comment explaining why not `-O3`
+  or `-Oz`. `EXPORT_ALL=1` applies to the 1.3 MB *main* module, not the side module, so it is not
+  the cause of the 51 MB; the side module is just all of Godot with `ClassDB` keeping it reachable.
+  The levers on it are module-level (`module_*_enabled=no`) and transport compression, both outside
+  the engine.
+- **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`.** For a project whose peak heap is
+  known, raising it avoids the growth steps during load outright; the `variant_data` change above
+  lowers the figure needed by ~120 MB.
+- **`has_feature(SUPPORTS_HALF_FLOAT)` is hardcoded `false`** with the comment "not reliably
+  available". `shader-f16` is available in Chrome on most desktop hardware, and the driver already
+  demonstrates the right pattern for this (`has_rw_storage_textures` queries
+  `device.features.has(...)` at runtime). Enabling it would halve bandwidth and register pressure
+  in shaders that use it and open FSR2's FFX_HALF path. It is **not** a safe flip: it changes which
+  variants the engine generates, the baker's `get_target_feature_overrides()` has to agree, and
+  Task 22's catalog of benign bake failures would need re-checking. A real experiment, with real
+  upside on mobile.
+- **`_check_device_lost()` does one `EM_ASM_INT` per frame** while the device is alive. ~1 µs, or
+  0.006% of a 60 fps budget. Left alone; recorded so it is not "found" again.
+- **Subpass post-processing is off under `WEB_ENABLED`** (no input attachments in WebGPU), costing
+  one extra render pass with a full attachment load/store per frame. `merge_transparent_pass` does
+  stay on. Not fixable without input attachments.
+- `uniform_set_create()` is 586 lines with nested linear scans over `bind_group_infos[].entries`
+  per uniform, but it is behind the engine's own uniform-set cache and every RD backend pays the
+  same shape of cost. Not WebGPU-specific; not worth attacking here.
+
+#### 6. What to measure first, next session
+
+Everything in §3 and §4 is sized by one profiling run that has never been done:
+`profile_phases.mjs` against a **baked** export, twice -- once normally and once with
+`WEBGPU_BAKE_KEEP_SPIRV=1` -- reading `godotWebGPUShaderStats` (now carrying `spirvBytes`,
+`wgslBytes` and `footerParseMs`) and `godotWebGPUFrameStats`, and once more under CDP network
+throttling for §4. A baked export needs a non-`--headless` editor with a real RenderingDevice;
+`xvfb-run --rendering-driver vulkan` with Mesa's lavapipe is enough and needs no GPU.
+
+#### 7. MEASURED (2026-10-05) — the container change holds up; the "renderer mismatch" it seemed to find was my own adapter
+
+Environment: this container, **no GPU**. Editor and web template built from the same commit
+(`5db11a83`) and verified to carry the same `GODOT_VERSION_HASH`, which matters here more than
+usual (§1). Baked exports of `webgpu_tests/test_project` produced with
+`xvfb-run bin/godot.linuxbsd.editor.x86_64 --rendering-driver vulkan` (Mesa lavapipe) --
+**not** `--headless`, which silently skips the baker. Profiled with
+`CI=1 profile_phases.mjs`, i.e. headless Chromium on **swiftshader**.
+
+##### 7a. The container change, measured — this part is adapter-independent and stands
+
+Two exports from one build, `WEBGPU_BAKE_KEEP_SPIRV=1` for the counterfactual:
+
+| | keep SPIR-V | omit SPIR-V | delta |
+|---|---|---|---|
+| `index.pck` | 101,474,564 | **57,118,692** | **−44,355,872 (−43.7%)** |
+| `spirvBytes` (loaded containers) | 29,541,644 | 27,864,744 | −1,676,900 |
+| `wgslBytes` | 834,434 | 834,434 | 0 |
+| `baked` / `precompiled` / `cached` / `translated` / `specialized` | 171/29/58/404/0 | 171/29/58/404/0 | **identical** |
+| `godotWebGPUFrameStats` | identical | identical | — |
+
+**44.4 MB off a 101.5 MB pck, with every behavioral counter byte-identical.** Of the containers
+this run loaded from the baked cache, the SPIR-V dropped was 1.68 MB against 0.83 MB of WGSL --
+**SPIR-V is 66.8% of a baked container's payload**, confirming the 64% estimated from the corpus
+fixtures in §1 against real engine shaders. Both exports here are **Forward+** exports, which is
+this fork's target renderer, so these are the right numbers for it.
+
+(`spirvBytes` stays near 28 MB in the omit run because most of this project's shaders are compiled
+*in the browser* on this adapter -- see 7b -- and a container built at runtime has no baker in its
+build, so it always stores SPIR-V. Correctly: there is no baked WGSL for the runtime to use.)
+
+##### 7b. A wrong turn worth recording: swiftshader does not run the renderer this fork targets
+
+Both runs above reported `translated: 404` -- `SceneForwardMobileShaderRD` variants 0-4 and 9-13,
+40 versions each -- with **zero** bake failures (the export log shows "Started Baking shaders
+(992 steps)" and not one "leaving one shader stage unbaked") and matching engine hashes. Inspecting
+the pck showed 56 `SceneForwardClusteredShaderRD` cache entries and zero
+`SceneForwardMobileShaderRD` ones, while the runtime asked only for Mobile.
+
+I read that as a general bug -- "the baker bakes the editor's renderer, the runtime runs another" --
+re-exported with `--rendering-method mobile`, measured `Servers:Rendering` 6041 ms → 1047 ms and the
+pck 57.1 MB → 29.7 MB, and added an export-time warning telling people to do that. **All of that
+was wrong, and the warning has been removed.** What it actually measured was: force the bake to
+match a renderer my adapter had forced, on an adapter this fork does not target.
+
+The mechanism, now checked rather than assumed. `RendererCompositorRD::initialize()` falls back to
+Forward Mobile when `LIMIT_MAX_TEXTURES_PER_SHADER_STAGE < 48`, which on WebGPU is the adapter's
+`maxSampledTexturesPerShaderStage`. Queried directly:
+
+```
+google / swiftshader : maxSampledTexturesPerShaderStage = 16   (the WebGPU spec baseline)
+                       maxSamplersPerShaderStage        = 16
+                       maxStorageTexturesPerShaderStage = 4
+```
+
+16 < 48, so **swiftshader forces Forward Mobile**. On a real GPU the limit is far higher and
+`platform/web/js/engine/engine.js` already requests `maxSampledTexturesPerShaderStage` at the
+adapter's own max (its `limitsToMax` list, whose own comments cite findings from "a real Forward+
+(Clustered) live run"), so the Forward+ branch is taken and the Clustered bake is the correct one.
+That is consistent with the one real-hardware data point on record: the user's real project reports
+`{baked: 360, precompiled: 1, cached: 1, translated: 0}` -- translated **zero**, because Forward+
+ran and the Clustered bake matched.
+
+**So the standing conclusions are:**
+
+- **This fork targets Forward+.** `CLAUDE.md`'s summary line says "It targets the Forward Mobile
+  renderer", which contradicts that and should be corrected -- `engine.js`'s limit list, the
+  Forward+-driven findings in Task 9.5 Round 5, and the test project's own
+  `rendering_method="forward_plus"` all point the other way.
+- **A `CI=1` / swiftshader run exercises Forward Mobile, not Forward+.** This is the thing to carry
+  forward from the wrong turn, because it is not obvious and it limits what a green software-adapter
+  run means: it is not testing the renderer this fork ships. `translated: 404` on such a run is
+  expected and is not a baking bug. Anything that depends on the scene renderer -- scene shader
+  coverage, bind-group budgets, the 48-texture branch itself -- needs a real adapter.
+- **`_render_buffers_can_be_storage()`, per-stage binding budgets and the Mobile/Clustered split all
+  hinge on that one limit**, so a cheap, honest way to see which renderer a session is actually
+  running would prevent the next person making this mistake. The engine logs it nowhere obvious.
+
+##### 7c. Per-frame, measured (this adapter, this scene)
+
+`godotWebGPUFrameStats`:
+`drawCalls 133, setBindGroup 259, bindGroupSkips 0, dynamicBindGroups 48, setVertexBuffer 158,
+renderPasses 58, pushConstantWrites 111, ringOverflows 0, rwShadowRefreshes 0`.
+
+This **argues against** the dynamic-offset optimization §3 flagged, at least here: 58 render passes
+for 133 draws is 2.3 draws per pass, a new pass invalidates the bind-group cache, so
+`bindGroupSkips` is 0 -- the cache has no opportunity to begin with and the dynamic path is only 48
+of 259 binds. `ringOverflows: 0` and `rwShadowRefreshes: 0` say neither of those costs is paid here.
+Caveat per 7b: this is the Mobile renderer, so a Forward+ run on real hardware will have a different
+pass/draw shape and could answer differently. The instrument now exists to ask.
+
+##### 7d. Harness changes needed to take any of this
+
+`profile_phases.mjs` could not run here at all: it imported Playwright only from
+`webgpu_tests/scene_smoketest/node_modules` (an ESM `import()` does not consult `NODE_PATH`), and
+its launch flags ask for a real Vulkan device, which a box with no `/dev/dri` does not have. It now
+takes `PLAYWRIGHT_IMPORT` for an install elsewhere and honors `CI=1` to select the headless
+swiftshader adapter, mirroring `run_scenes.mjs`. Both were blocking CI from ever running this
+profiler. **With 7b understood**: `CI=1` is for exercising the code path and reading byte and call
+counts, not for timing, and not for anything renderer-dependent.
+
+**State of `bin/` after this work**: editor and template both built at `5db11a83` and hash-verified
+against each other. Once anything is committed on top, that pair is one commit behind `HEAD` --
+fine until one of them is rebuilt, at which point §1's rule applies: rebuild both, or neither.
+
+##### 7e. What is still worth measuring, on real hardware
+
+Everything in 7a is settled. What is not:
+
+1. A **real-GPU** profile of a Forward+ baked export, which is the configuration this fork ships and
+   the one no number above covers. Expect `translated` near 0; if it is not, that is a real baking
+   gap and worth chasing.
+2. The 51 MB side module under network throttling (§4), still the largest un-investigated cost.
+3. Whether a project that builds materials from script at runtime
+   (`webgpu_tests/test_project` creates 21 `StandardMaterial3D.new()` in `_ready()`) misses the bake
+   for those versions on real hardware too. On swiftshader it cannot be told apart from 7b's
+   renderer effect.
+
+---
+
+## Phase 15: Godot 4.8 Upstream Sync (October 2026)
+
+> **Goal**: Port the fork from 4.7.2 to Godot 4.8, which entered code freeze. Branch `webgpu-4.8`,
+> pinned to `upstream/master` `e7cfa294a0b81bed7986be04a848cc1832a3f083` (2026-10-02) rather than a
+> moving tip so the port is reproducible. Same merge-not-rebase strategy as Phase 8.
+>
+> **Last Updated**: October 6, 2026 (Task 15.5)
+
+### Task 15.1: merge upstream 4.8 — reproducing the merge base, and triaging 109 conflicts `[SERIAL]`
+**Status**: `DONE`
+**Severity**: CRITICAL
+**Commits**: `c942889ef3` (the merge), `430fe679ae` (the collateral the merge got wrong)
+**Scale**: 2,794 upstream commits, 3,872 files, +205k −116k lines, 109 conflicts.
+
+**Reproducing the merge base.** This fork carries a parallel, re-hashed copy of Godot's history, so
+`git merge-base` against `godotengine/godot` lands on a 2015 commit and the merge tries to replay
+the entire engine (85,264 upstream commits). Three local `git replace` refs stitch the fork's
+lineage onto upstream's real graph and move the base to `4.7-stable`, cutting it to 2,794:
+
+```
+git replace ed1daf0bf0 ed1daf0bf0
+git replace 8937fcb678 a13da4feb8
+git replace 5b4e0cb0fd 5b4e0cb0fd
+```
+
+These are local refs. Anyone reproducing the merge needs them; they are not pushed and are not
+needed to *use* the result.
+
+**Conflict triage.** `git diff --name-only 4.7.2-stable webgpu-4.7.2` separates the files the fork
+genuinely owns from the collateral. Of the 109 conflicts, 81 were collateral and 28 were fork files.
+`git diff 4.7.2-stable webgpu-4.7.2 -- <file>` sizes each fork delta before choosing a strategy —
+e.g. `platform/windows/display_server_windows.cpp` had 10 conflicting hunks but the fork's entire
+delta to it is a single `set_current_rendering_driver_name()` call, so all 10 take upstream's side
+and the one line is then verified present.
+
+**Resolutions worth knowing about:**
+
+- **`drivers/SCsub`**: the `webgpu` block stays *outside* `if env["rendering_device"]:`, unlike every
+  other RenderingDevice driver. 4.8's SConstruct forces `rendering_device = False` for the web
+  platform ("Not available in the web platform"), so a webgpu entry inside that block would silently
+  never compile the driver for its only real target. The fork defines `RD_ENABLED` for web itself,
+  in `platform/web/detect.py`.
+- **`servers/rendering/renderer_rd/shader_rd.cpp`**: 4.8 added a *second* shader-creation dispatch
+  site — `_load_variant_from_cache` on `WorkerThreadPool` — that the fork's existing
+  `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` guard did not cover. WGPU handles live in
+  per-thread JS lookup tables (Task 12), so cross-thread creation hard-aborts. `_load_from_cache`
+  now loads every variant inline on the calling thread when the trait is set.
+- **`servers/rendering/renderer_rd/environment/gi.cpp`**: 4.8's `sdfgi_integrate.glsl` reads
+  `USE_RADIANCE_OCTMAP_ARRAY` where 4.7.2 read `USE_OCTMAP_ARRAY`; `_sdfgi_integrate_defines()` now
+  emits the new name.
+- **`main/main.cpp`**: 4.8 moves `AccessibilityServer` init earlier and promotes the driver index to
+  a file static. **An earlier "ours" resolution here silently dropped the whole block** — the
+  `accessibility_driver_idx` reference count fell from 8 to 1 — because the relocation reads like a
+  fork change. Take upstream's wholesale and check the count.
+
+**The build break no conflict marked.** 4.8 removed
+`get_compressed_image_format_pixel_rshift()` outright, replacing the `>> rshift` idiom with
+`get_compressed_image_format_pixels_shifted(format, pixels)`. Fork-only staging-size code in
+`rendering_device.cpp` still called the removed helper. Git reported no conflict, because the fork's
+lines and upstream's deletion touched different regions. Found by grepping for the old name after
+the merge resolved cleanly — **the lesson for the next sync**: after a merge of this size, grep for
+every symbol upstream deleted, don't trust a clean conflict list.
+
+### Task 15.2: Box3D physics rewritten for 4.8's split physics headers `[SERIAL]`
+**Status**: `DONE`
+**Severity**: CRITICAL — the module did not compile at all
+**Commit**: `aee32662a9`
+
+4.8 broke `servers/physics_3d/physics_server_3d.h` apart. The 19 enums moved to
+`namespace PhysicsServer3DEnums` (`physics_server_3d_enums.h`, alias `PS3DE`), the query/motion
+structs to `PhysicsServer3DTypes` (`PS3DT`), `MAX_CONTACTS_REPORTED_3D_MAX` to
+`PhysicsServer3DConstants` (`PS3DC`), and `PhysicsServer3DManager` to its own header. Upstream did
+the same rewrite to `modules/jolt_physics/` in the same release, which is the reference for exactly
+how it should look — `modules/box3d_physics/` mirrors Jolt by design, so it mirrors this too.
+
+340 qualified and 88 unqualified references needed requalifying. **Drive the rewrite off the names
+actually declared in the three new headers**, not a hand-written list, so it cannot silently miss
+one. Two names still needed handling separately:
+`G6DOF_JOINT_FLAG_ENABLE_MOTOR` and `G6DOF_JOINT_FLAG_ENABLE_LINEAR_MOTOR` sit behind
+`#ifndef DISABLE_DEPRECATED` *inside* their enum body, which breaks naive enumerator extraction.
+
+**Two genuinely new pure virtuals**, not just renames:
+
+```
+generic_6dof_joint_set_angular_target_rotation(RID, const Quaternion &)
+generic_6dof_joint_get_angular_target_rotation(RID) const
+```
+
+Box3D has no generic 6DOF joint at all — the module emulates one from the simpler Box3D joint types
+— so as with GodotPhysics3D there is nothing to apply a quaternion target rotation to. Jolt is the
+only backend that implements it. `Box3DGeneric6DOFJoint3D` stores the value so a script that sets it
+reads the same value back, validates it the way Jolt and GodotPhysics3D do, and reports it through
+`Box3DDiagnostics::_report_dropped()` rather than a bare `WARN_PRINT_ONCE` — the module's standing
+convention for a Box3D gap.
+
+4.8 also deprecated `ShapeResult::collider` and `RayResult::collider` in favor of `collider_id`
+plus a `get_collider()` accessor. The three writes in `box3d_physics_direct_space_state_3d.cpp` are
+dropped, as upstream dropped Jolt's — they were a second copy of what `collider_id` already carries,
+and `-Wdeprecated-declarations` is fatal under CI's `dev_mode=yes`.
+
+**Verified**: the module builds clean at `warnings=extra` — zero errors, zero warnings.
+
+### Task 15.3: WebGPU driver adaptation and the 4.8 interface audit `[SERIAL]`
+**Status**: `DONE at interface level; no web build has run yet`
+**Commit**: `aee32662a9`
+
+4.8's changes to the three driver base headers, and what each needed:
+
+| 4.8 change | WebGPU answer |
+|---|---|
+| `API_TRAIT_CLEARS_WITH_COPY_ENGINE` split into `_BUFFER_` / `_TEXTURE_` variants | both 0 — no copy-engine clear at all (buffer clears via `wgpuCommandEncoderClearBuffer`, texture clears via a render pass clear load op) |
+| new `API_TRAIT_TEXTURES_REQUIRE_LAYOUT_TRANSITIONS` | 0 — no explicit image layout. `API_TRAIT_HONORS_PIPELINE_BARRIERS` being 0 already gates most consumers, but `rendering_device_graph.cpp` caches this one on its own |
+| new Features `SUPPORTS_RASTERIZATION_RATE_MAP`, `SUPPORTS_GPU_MAPPABLE_BUFFER` | already false via `has_feature()`'s `default:`, and the shader baker's target-capability override loops to `SUPPORTS_MAX` so it picks them up with no edit — which is exactly why Task 31 wrote it as a loop rather than a table |
+| new `MEMORY_ALLOCATION_TYPE_GPU_MAPPABLE` | never reaches the driver: `_get_buffer_alloc_type()` gates it on `SUPPORTS_GPU_MAPPABLE_BUFFER` |
+| `ReflectImageTraits` removed; `texture_type`/`texture_format` added to `ShaderUniform` and `ReflectionBindingData` | no change needed — the WebGPU container never read `uniform.image.format`. See "worth revisiting" below |
+| new `command_begin_compute_pass` / `command_end_compute_pass` | default no-ops; the driver's lazy compute-encoder management is unaffected. See "worth revisiting" |
+| new `Workarounds::avoid_store_op_dont_care_in_draw_list_with_no_bound_pipeline` | Vulkan/NVIDIA-only; default false is correct |
+| `CONTAINER_VERSION` | **unchanged at 2**, even though `ReflectionBindingData` grew two fields. Upstream relies on `GODOT_VERSION_HASH` keying the shader cache instead, which the fork inherits — no `FORMAT_VERSION` bump needed on the WebGPU container either |
+
+**Pure-virtual audit** (CLAUDE.md's standing rule after any base-header change): all 138
+`RenderingDeviceDriver`, 25 `RenderingContextDriver` and 6 `RenderingShaderContainer` pure virtuals
+have an override in `drivers/webgpu/`. Note when redoing this that `command_group_begin/end`,
+`linear_uniform_set_pools_reset` and `swap_chain_set_max_fps` are `virtual ... {}`, not `= 0` — a
+regex that spans lines will false-positive on them. Signature *mismatches* are not covered by this
+audit; only a real web build catches those.
+
+##### Two things worth revisiting now that 4.8 makes them possible
+
+1. **`command_end_compute_pass` could replace the compute-pass conflict splitter.** The fork's
+   `split_compute_pass_if_conflicting()` exists because the driver could not tell where a Godot
+   compute list ended, so consecutive lists shared one `WGPUComputePassEncoder` — and a WebGPU
+   compute pass is one synchronization scope, so a write in list N and a read in list N+1 inside it
+   is a validation error. 4.8's `rendering_device_graph.cpp` now brackets every compute list with
+   `command_begin_compute_pass`/`command_end_compute_pass`, which hands the driver exactly the
+   information the splitter was reconstructing. Closing the encoder in `command_end_compute_pass`
+   would make each list its own scope — more correct, and less work for the heuristic. It is also a
+   behavior change with a real cost (more encoders = more JS crossings), so it is deliberately
+   *not* part of this port: do it once the port is green and measurable, not before.
+2. **4.8's `ShaderUniform::texture_type`/`texture_format` may overlap the fork's baked
+   `image_decls`.** Task 46 added a `FLAG_IMAGE_DECLS_BAKED` footer carrying SPIR-V image
+   declarations so the container could stop shipping SPIR-V. If 4.8's new reflection fields cover
+   the same ground, that footer could go. **Check before assuming**: the fork's decls are *pre-DCE*
+   (that is the whole reason `_extract_pre_dce_storage_image_info` existed), and reflection runs
+   after. They may well not be equivalent.
+
+### Task 15.4: build and test the port `[DONE — every tier that can run in a Linux container is green]`
+
+> **Read with Task 15.5.** Every tier below runs under swiftshader, which falls back to Forward
+> Mobile — so none of them exercised SSAO/SSIL/SDFGI under Forward+, where the 4.8 port had two
+> black-screen regressions. Green here does not mean the port renders.
+**Status**: `DONE`
+
+| tier | result at 4.8 | 4.7.2 baseline |
+|---|---|---|
+| native editor (`linuxbsd target=editor dev_build=yes webgpu=yes`) | **0 errors**, reports `4.8.dev.custom_build` | — |
+| web template (`web template_release webgpu=yes opengl3=no threads=no`) | **0 errors, 0 warnings**, 12.1 MB zip | — |
+| `wgsl_precompile.py` over 4.8's shaders | **274 compiled, 0 glsl failures, 0 tint failures**, 189 unique | identical (HANDOFF.md:422) |
+| `shader_corpus` | **14 / 0** | 14 / 0 |
+| `driver_unit_tests` | **370 / 0 / 0** | 332 / 0 (grew with Task 46's tests) |
+| `preprocessing_tests` | **238 / 0 / 1** | 205 / 0 / 1 (same one skip) |
+| `resource_lifecycle` | **6 / 0** | 6 / 0 |
+| scene smoketest — Chrome, 20 scenes, re-exported | **20 pass, 0 fail, 0 skip** | 19 / 0 / 0 |
+
+The precompile number is the one that matters most for a sync: Phase 8's Task 8.2 is the precedent
+that an upstream release's *new engine shader features* are what break Tint, and that it stays
+invisible until the shaders are actually compiled. 4.8 introduces none. Note that the precompile's
+scons rule depends only on `wgsl_precompile.py`, **not on the shaders**, so it does not rerun on its
+own when they change — delete `drivers/webgpu/wgsl_precompiled.gen.h` to force it, or a sync will
+ship the previous release's WGSL.
+
+##### Running the browser tiers in a Linux container, and what they are worth there
+
+The scene smoketest needs three things that are not obvious:
+
+```bash
+# 1. CI=1 selects the harness's bundled-Chromium + swiftshader launch path.
+#    Without it, run_scenes.mjs wants real Chrome at /usr/bin/google-chrome-stable.
+# 2. --export is opt-in; the default is --skip-export, which silently SKIPs
+#    every scene that has no existing export (reported as "not exported", which
+#    reads like a failure and is not one).
+# 3. scenes.json hardcodes a macOS arm64 editor path, so both binaries must be
+#    named explicitly, exactly as local_ci.sh does.
+cd webgpu_tests/scene_smoketest
+CI=1 GODOT_EDITOR_BIN=../../bin/godot.linuxbsd.editor.x86_64      GODOT_TEMPLATE_ZIP=../../bin/godot.web.template_release.wasm32.nothreads.zip      node run_scenes.mjs --export --browser chrome
+```
+
+The 11 `godot-demo-projects` scenes need that repo cloned where `scenes.json`'s relative paths
+expect it — `../../../godot-demo-projects` from `scene_smoketest/`. Absent, they SKIP.
+
+**What a container run does and does not establish.** Task 46 §7b's rule applies in full: a
+software adapter reports `maxSampledTexturesPerShaderStage = 16`, and
+`RendererCompositorRD::initialize()` falls back to Forward Mobile below 48, so **this is not a test
+of the Forward+ renderer this fork ships**. A 20/20 here means the engine boots, every scene loads,
+and nothing errors or crashes at 4.8 — which is exactly what a port needs to establish, and is not
+a statement about Forward+ output.
+
+**Three tiers cannot run in this container at all**, and none of it is a 4.8 problem:
+
+- **Everything in Firefox.** Playwright's Firefox build is not installed and cannot be downloaded
+  (the proxy blocks the CDN). Note that `local_ci.sh` nonetheless printed
+  `Font rendering colors — Firefox ✓` — that pass is vacuous, since the browser does not exist.
+  Do not read it as a result.
+- **`screenshot_comparison`.** It vendors its own newer Playwright (wants `chromium-1243`; the
+  container has `1194`), and `npx playwright install chromium` fails on the same blocked CDN. It is
+  a visual-regression tier whose baselines were captured on real hardware anyway, so comparing
+  against a swiftshader render would be meaningless even if it launched.
+- **`test_font_visual.mjs` (font rendering colors).** This one is worth recording carefully,
+  because it fails in a way that reads exactly like a real regression:
+
+  ```
+  chrome: canvas 1280x720  fill[red 0.0% white 100.0%]  outline[black 0.0%]
+      red text not rendered red (red 0.0% < 5.0%) -- glyph modulate is being dropped
+  ```
+
+  "glyph modulate is being dropped" is a specific, plausible accusation, and it is wrong. The scene
+  *did* load — the test only reaches its assertions after seeing `[FontCheck] READY`, so GDScript
+  ran. What fails is the canvas capture. Proven by probing a scene that **passes** the smoketest in
+  the same browser on the same adapter: `benchmark_pbr` screenshots as **1280x720 with exactly one
+  distinct colour, rgb(255,255,255), 100%**. Nothing presents to a capturable canvas under headless
+  swiftshader here, so every pixel-based assertion fails identically regardless of what the engine
+  rendered. The tier's own `self_test_font_visual.mjs` passes, which confirms the assertion logic
+  is fine and it is the pixels that are absent.
+
+  **Before treating any pixel-based failure in a container as a bug, screenshot a known-passing
+  scene first.** One blank capture of `benchmark_pbr` settles it in under a minute.
+
+##### Still outstanding
+
+1. A **real-GPU, Forward+** run of all of the above — the configuration this fork ships, and the
+   only thing that can confirm the port renders correctly rather than merely running. Carried over
+   from Task 46 §7e.
+2. Firefox, which this fork supports and which Tasks 38 and 41 were specifically about.
+3. ~~`--dev-mode`~~ — **done, 0 warnings**, see below.
+4. `bin/` now holds a matched 4.8 editor + non-dlink template pair, and
+   `webgpu_tests/scene_smoketest/exports/` was re-exported from it — so `--skip-export` reproduces
+   the 20/20 as-is. Task 36's rule still governs: rebuild both, or neither.
+
+##### The `werror` check, which is the one that goes red in CI while everything local is green
+
+CLAUDE.md's Testing section warns that CI builds with `dev_mode=yes` (implying
+`warnings=extra werror=yes`) and that none of the normal commands do — "this is how an
+unused-variable error kept 🧪 WebGPU Tests red for two days while every local tier was green".
+That trap is real for this port: the plain web build surfaced three warnings (two `-Wdangling`,
+one unused variable) that `werror` would have made fatal.
+
+Running the full `local_ci.sh --dev-mode` would rebuild everything and clobber the validated
+`bin/` pair, so instead the warning flags were applied to **objects only**, scoped to the
+directories this port touches, with the final binaries deliberately not relinked:
+
+```bash
+# Flag changes alone do not invalidate an up-to-date object here -- a scoped build with the new
+# flags finished in 8 seconds having compiled nothing. The objects have to be deleted first.
+rm -f bin/obj/drivers/webgpu/*.web.template_release.*.o   # plus the shared files the fork edits
+scons platform=web target=template_release webgpu=yes opengl3=no threads=no \
+      warnings=extra werror=yes -j4 bin/obj/drivers/webgpu/
+
+rm -f bin/obj/{servers/rendering,editor,drivers/webgpu,modules/box3d_physics}/**/*.linuxbsd.editor.x86_64.o
+scons platform=linuxbsd target=editor webgpu=yes warnings=extra werror=yes -j4 \
+      bin/obj/servers/rendering/ bin/obj/editor/ bin/obj/drivers/webgpu/ \
+      bin/obj/modules/box3d_physics/ bin/obj/scene/resources/ bin/obj/main/
+```
+
+**Result: 9 web objects and 600 native objects compiled at `warnings=extra werror=yes` with zero
+warnings and zero errors**, and `grep -c Linking` on both logs is 0, so the editor binary and
+template zip that produced the 20/20 above are untouched (timestamps confirm it). The native sweep
+covers far more than the port's own diff — all of `servers/rendering/`, `editor/`,
+`drivers/webgpu/`, `modules/box3d_physics/`, `scene/resources/` and `main/`.
+
+This is not quite the same as a full `--dev-mode` run (it does not cover every module, and it does
+not link), but it covers every file this port changed plus their whole directories, which is where
+a `werror` failure from this work could come from.
+
+---
+
+### Task 15.5: the 4.8 port's first real-hardware Forward+ run — two black-3D regressions `[SERIAL]`
+
+**Status**: `DONE`
+**Severity**: CRITICAL (3D renders entirely black; 2D/UI unaffected)
+**Reported**: user's own project (`cameraSim_.../testing`) on 4.8-dev7, Chrome + Firefox, with
+Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and
+Adjustments all enabled.
+
+**Why Task 15.4 was green and this was not.** 15.4's scene smoketest runs under `CI=1`
+(swiftshader), and a software adapter reports `maxSampledTexturesPerShaderStage < 48`, so
+`RendererCompositorRD::initialize()` silently falls back to **Forward Mobile**. SSAO and SSIL are
+Forward+-only (`environment_storage.cpp` gates them outright) and SDFGI's voxelization lives in
+`scene_forward_clustered.glsl`. So every tier in 15.4's table passed without ever executing a line
+of the code both of these bugs live in. This is exactly the trap `CLAUDE.md` warns about and
+Task 46 §7b already paid for once; **a 4.8-port sign-off needs a real-GPU Forward+ run against a
+real project, not just the suite.**
+
+#### Bug 1 — SSAO storage-image format mismatch (the actual black screen)
+
+Upstream 4.8 changed `ssao_interleave.glsl`'s `dest_image` from `layout(rgba8, ...)` to
+`layout(r8, ...)` **and** SSAO's `RB_FINAL` texture from `R8G8B8A8_UNORM` to `R8_UNORM`, in the
+same commit — consistent on both sides. The Task 15.1 merge took upstream's shader change but kept
+this fork's deliberate `RGBA8_UNORM` override of the texture, which had been added back when the
+shader genuinely was `rgba8`. Net result: bind group layout declares `R8Unorm`, bound texture is
+`RGBA8Unorm`.
+
+Vulkan/Metal/D3D12 tolerate a storage image's declared format differing from its bound resource's;
+WebGPU's bind-time validation does not. And the failure is not local — an invalid bind group
+poisons the whole `CommandEncoder`, so `Queue.Submit` drops the **entire 3D frame**:
+
+```
+Format (TextureFormat::RGBA8Unorm) of [Texture ...] expected to be (TextureFormat::R8Unorm).
+ - While validating [BindGroupDescriptor] against [BindGroupLayout "bgl:SsaoInterleaveShaderRD:set0"]
+ - While encoding [ComputePassEncoder].SetBindGroup(...)   x6908
+ - While calling [Queue].Submit([[Invalid CommandBuffer]])  x6907
+```
+
+2D/UI kept working because it submits separately. **Fix**: drop the override, back to upstream's
+`R8_UNORM` (`ss_effects.cpp`), comment rewritten to say the two must stay in lockstep rather than
+asserting a format the shader no longer uses.
+
+Firefox showed the same bug through its own path — it lacks `texture-formats-tier1`, so
+`_promote_storage_format()` promotes R8→R32Float on both sides, giving
+`expects format = R32Float, but given a view with format = RGBA8Unorm`.
+
+#### Bug 2 — SDFGI atomic storage usage, new in 4.8
+
+4.8 added `tf_render.usage_bits |= TEXTURE_USAGE_STORAGE_ATOMIC_BIT` for SDFGI's "Render Geometry
+Facing" texture; 4.7.2's `gi.cpp` contained no `STORAGE_ATOMIC` at all. WebGPU has no texture
+atomics (`SUPPORTS_IMAGE_ATOMIC_32_BIT` is false), `texture_get_usages_supported_by_format()` never
+reports that bit, and `texture_create()` hard-fails on it:
+
+```
+ERROR: Format 'R32_Uint' does not support usage as atomic storage image.
+ERROR: Cannot create texture: SDFGI Render Geometry Facing
+ERROR: Image (binding: 6) should provide one ID referencing a texture (IDs provided: 0).  (cascade)
+```
+
+The shader side was **already** handled — `scene_forward_clustered.glsl`'s `NO_IMAGE_ATOMICS`
+variant does a plain `imageLoad`/`imageStore` read-modify-write instead of `imageAtomicOr`, and
+`scene_shader_forward_clustered.cpp:665` already selects it off this same feature flag. Only the
+usage bit was ungated. **Fix**: request it only when the driver reports image atomics — the idiom
+`fog.cpp:466` already uses for volumetric fog's density maps, which is why volumetric fog did *not*
+break despite also depending on atomics.
+
+#### Swept for the same class, found clean
+
+Volumetric fog already gated (above); 4.8's new `screen_space_contact_shadows.glsl` is consistent
+(`r8` shader / `R8_UNORM` texture); `TEXTURE_USAGE_STORAGE_ATOMIC_BIT` has no other caller in
+`servers/`; and every storage-image format the renderer declares (`rgba16f` ×32, `r32ui` ×18, `r8`
+×15, `rgba8` ×13, `r32f` ×10, `r16ui` ×8, `rgba8ui` ×6, `rg16f`/`r16f` ×5, `rg8` ×4, `rgba32i` ×3,
+`rgba16i`/`rg16i`/`r8ui` ×2, `rg8ui` ×1) is already covered by the driver's capability switch and
+`_promote_storage_format()`.
+
+#### Verification — real GPU, real Forward+, the user's real project
+
+Per `LIVE_REPRO_METHODOLOGY.md`: scratch copy, export against an explicit `custom_template/release`
+(sidesteps the stale-installed-template trap entirely), freshness checksum-verified
+(`index.side.wasm` == `godot.side.web.template_release.wasm32.nothreads.dlink.wasm`).
+
+| check | before | after |
+|---|---|---|
+| Chrome console (90s) | 6,658 + 6,658 uncaptured errors, 61,627-line log | **ERROR COUNT: 0** |
+| Firefox console (75s) | SDFGI create failure + bind-group/format errors | **0 real errors** (2 are the `float32-blendable` WARN, pre-existing) |
+| renderer reported | Forward+ | **Forward+** (real GPU, not swiftshader) |
+| 3D output | black | **renders** — character, floor, shadows, DOF, AO |
+| native Vulkan reference | — | RTX 4080 SUPER / Forward+ capture **matches** the WebGPU frame |
+
+Chrome headless + Firefox **headed** both render correctly. Headless Firefox screenshots come back
+fully black *including the 2D UI* — that is this environment's known headless-Firefox compositor
+limitation (`RenderCompositorSWGL failed mapping default framebuffer`, recorded at Task 9.5's
+limits probe), not a render failure; its console capture is clean and reaches Forward+ steady state.
+
+`local_ci.sh --no-safari` green across every stage.
+
+---
+
+## Phase 17: Forward+ feature matrix (October 2026)
+
+> **Goal**: a per-feature regression suite for Forward+, so a feature that silently stops rendering
+> is caught by the suite rather than by a user. Built after Task 15.5, where SSAO and SDFGI both
+> shipped broken through a completely green test run. Lives in `webgpu_tests/forward_plus/`; its
+> README carries the add-a-feature rule and the real-GPU requirement.
+
+### Task 17.1: the matrix, and what its first run found `[SERIAL]`
+**Status**: `DONE` (suite landed); three port bugs it found are open, below.
+
+64 features are covered, each rendered with the feature off and on, asserting the frame changed by a
+calibrated amount with no driver errors. Thresholds are one third of the delta measured on **native
+Vulkan** through the same fixture (`-- --fp-matrix=DIR`), never on WebGPU — calibrating against the
+port would bake in whatever it currently does, bugs included. 10 further features are listed in
+`features.mjs`'s `UNCOVERED` with a reason each.
+
+**Current result: 63 / 64 pass on Chrome, real GPU.** The one failure is a rare residual
+bind-group error (bug 4), not a feature that fails to render. WebGPU and native Vulkan agree closely across
+the rest, which is the useful headline — the port renders essentially the whole Forward+ surface.
+
+#### Bug 1 — VoxelGI's 8-bit integer storage formats `[FIXED]`
+
+`texture_get_usages_supported_by_format()` omitted `R8_UINT`/`R8_SINT`/`R8G8_UINT`/`R8G8_SINT`,
+although `_promote_storage_format()` had always handled all four. `voxel_gi_sdf.glsl` declares
+`layout(r8ui) uimage3D sdf_tex`, so the whole bake failed with "Format 'R8G8_Uint' does not support
+usage as storage image", and the null texture then made every uniform set built from it invalid —
+the driver errored every frame afterwards. Exactly the omission class as the `R16_UINT` pair fixed
+earlier for SDFGI. Fixed in `87d32a26c2`.
+
+#### Bug 2 — VoxelGI contributed far too little `[FIXED — fixture]`
+
+With bug 1 fixed VoxelGI stopped erroring but measured 1.051 against Vulkan's 7.742, and varied
+between runs (1.051, then 0.040). Not a renderer fault: the fixture called `VoxelGI.bake()` at
+runtime, inside the feature's own settle window, so the measurement raced the bake. A shipped project
+bakes in the editor and loads the result, so the fixture now does the same (`voxel_gi_data.res`,
+regenerated by `make_bake_assets.gd`). WebGPU now measures **12.243**.
+
+Note that is *higher* than Vulkan's 7.742 — the feature plainly works, but the magnitude differs by
+~1.6x and that is not explained. The matrix asserts a floor so it passes; worth a look.
+
+#### Bug 3 — mesh LOD did nothing `[FIXED — fixture]`
+
+Also not a renderer fault, and the same mistake as bug 2: the fixture built its LOD chain at runtime
+with `ImporterMesh.generate_lods()`. That returns **zero LODs in a web template** while working in a
+native template (confirmed by exporting the same fixture to Linux: 9 LODs there, 0 on web), so there
+was nothing to switch between. Real projects get LODs from the importer, so the subject is now a
+committed mesh with its chain baked (`lod_sphere.res`, regenerated by `make_lod_mesh.gd`). WebGPU
+now measures **1.513** against Vulkan's 1.512.
+
+The web-template behavior of `generate_lods()` is a genuine, separate engine-level gap — runtime LOD
+generation silently does nothing in a web export. Not chased; it is not a renderer bug and not on the
+path a shipped project takes.
+
+#### Bug 4 — uniform sets bound against the wrong shader's layout `[FIXED]`
+
+First filed as "heightmap raises a bind-group error", which was wrong twice: not heightmap-specific
+(it landed on `proximity_fade`, `heightmap`, `alpha_hash` and `alpha_scissor` across runs, whichever
+feature's capture window the async error arrived in) and not a layout-construction bug.
+
+```
+Bind group layout [BindGroupLayout "bgl:SceneForwardClusteredShaderRD:18:set0"]
+of pipeline layout [PipelineLayout "plyt:SceneForwardClusteredShaderRD:18"]
+does not match layout [BindGroupLayout "bgl:SceneForwardClusteredShaderRD:11:set0"]
+of bind group set at group index 0.
+```
+
+Every variant of a ShaderRD gets its own `WGPUBindGroupLayout` objects here, because the per-entry
+details are resolved from that variant's WGSL and `eliminate_dead_resources()` (Task 23) strips
+bindings a variant never reaches. Dumping two variants' set 0 entry by entry showed exactly two
+fields diverging — `visibility` (Fragment vs **none at all**, on nine bindings) and `sampler.type`
+(Comparison vs Filtering, on the shadow sampler). So a bind group built for one variant genuinely
+cannot be bound under another's pipeline.
+
+The driver already had the machinery for this: `_get_compatible_bind_group()` rebuilds a bind group
+against a target shader's layout and caches it per layout. **It was being handed the wrong target.**
+`command_bind_render_uniform_sets()` receives `ShaderID p_shader` — the shader RenderingDevice is
+binding these sets *for* — and discarded it, deriving the target from `cmd->render_state
+.current_pipeline` instead. That is wrong in both directions: the render graph can emit the bind
+before the draw's pipeline is bound (null target, so no adaptation at all), and after a pipeline
+change RenderingDevice re-binds every set — which is precisely why this driver reports
+`SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS` — passing the new shader in that same discarded
+parameter. The fix is to trust `p_shader`, falling back to the bound pipeline only when it is null.
+
+`command_bind_compute_uniform_sets()` had the same bug and worse: it read the **render** pipeline's
+shader while binding sets for a compute dispatch.
+
+**This also fixed bug 5 (proximity fade), with no separate change.** Proximity fade samples the depth
+texture out of the render-pass uniform set; with a bind group from another variant bound it was
+reading the wrong resource, so the fade barely registered. It went from 0.320 to **3.234** against
+Vulkan's 3.265 the moment the binding was corrected — one root cause, two symptoms, which is also
+why the "~10x too weak" reading was never going to be explained by anything in the fade's own code.
+
+**Residual, open.** The error is not gone, only rare: 30 occurrences in one pre-fix run, 22 in
+another, **2** after the fix, and still moving between features. It does not reproduce in a trace of
+every feature up to the failing one, with or without screenshots, so it needs some timing or
+compilation-order condition not yet pinned. The frame renders correctly throughout — every feature's
+delta is right, and the matrix only fails it on error count. Worth chasing when it can be made to
+reproduce; the likely remaining hole is a path where `p_shader` arrives null.
+
+**Regression checked** after the change, since this is on the hottest path in the driver (every bind
+of every set of every draw): scene smoketest 21/21, screenshot comparison 8/0, resource lifecycle
+all pass, Forward+ matrix 63/64.
+
+---
+
+## Phase 16: Why this fork's git history does not match upstream's (October 2026)
+
+> **Goal**: Explain why `git` cannot relate this fork's history to `godotengine/godot`, and work out
+> whether the relationship can be restored. Raised while the 4.8 port was in flight, because the
+> port is where the cost of it shows up: Task 15.1 needed three `git replace` refs before the merge
+> was even attemptable.
+>
+> **Last Updated**: October 5, 2026 — diagnosed, not yet acted on.
+
+### Task 16.1: diagnose the history divergence `[ROOT-CAUSED]`
+**Status**: `ROOT-CAUSED — no fix attempted`
+**Severity**: MEDIUM — costs real time at every upstream sync, risks nothing in the shipped engine
+
+**Cause**: a whole-history rewrite performed **in this repository** (`Shane-Gadsby/godotwebgpu`),
+intended only to strip the `Claude <noreply@anthropic.com>` author from the fork's own commits. Its
+blast radius vastly exceeded that intent: it re-parented **82,225 upstream Godot commits** and
+destroyed the merge base with both `godotengine/godot` and the fork's own parent,
+`dwalter/godotwebgpu`.
+
+**First: nothing was lost.** Every commit still carries its original author, author date, committer,
+committer date and message. The oldest three commits (`68e708cd25`, `0e49da1687` "first commit",
+`0b806ee0fc` "GODOT IS OPEN SOURCE") are even the same *hashes* as upstream's. There is no metadata
+to recover.
+
+##### The measurements
+
+| | |
+|---|---|
+| commits on `webgpu-4.7.2` absent from `upstream/master` by hash | **83,030** |
+| ...of those, with an exact upstream twin (same tree + author + author-date + subject, new hash) | **82,225 (99.0%)** |
+| ...genuinely not in upstream in any form (the fork's own work, plus some strays) | **805 (1.0%)** |
+| `merge-base webgpu-4.7.2 upstream/master` | `b70e2b754d` -- **2015-11-07** |
+| `merge-base webgpu-4.7.2 dwalter/webgpu-4.6.2` | `b70e2b754d` -- **the same 2015 commit** |
+| `merge-base dwalter/webgpu-4.6.2 upstream/master` | `89cea14398` -- **2026-01-25, "Bump version to 4.6-stable"** |
+
+That last row is what settles it. **`dwalter/godotwebgpu`'s history is healthy** -- a clean merge
+base at 4.6-stable, and it contains upstream's *real* hashes (`61c4c5795f` is an ancestor of its
+branch) rather than the re-parented ones (`46b8d6af6d` is not). This repository is detached from
+upstream *and* from its own parent fork, at the same 2015 commit. The damage was done here.
+
+##### Why the hashes differ, and why the boundary is 2015 and not 2025
+
+Compare any twin pair -- these are the ones Task 15.1's `git replace` refs connect:
+
+```
+fork     ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
+                     tree=8cce5a783d  parent=bf94664cc9
+upstream ed1daf0bf0  2026-08-16  Thaddeus Crews  "Bump version to 4.7.2-stable"
+                     tree=8cce5a783d  parent=b40a61e58b
+```
+
+Identical author, date, message and **tree** -- byte-for-byte the same commit. Only the parent
+differs, and a commit's hash covers its parents, so the difference cascades to every descendant
+forever. Walking the first divergent commit back 34 steps reaches the boundary: `46b8d6af6d`, a
+**2015-09-20** merge whose first parent is in upstream but whose second parent (`040db02e8a`) is not.
+
+An author-identity filter should only re-parent from the earliest commit it *edits*, which would be
+2025 at the earliest. A 2015 boundary is consistent with the rewriter altering something
+**structural** in that merge's second-parent lineage -- `git filter-repo` prunes empty and
+degenerate commits by default, and dropping one commit there re-parents the merge and cascades from
+it. The author edit is not what re-hashed the engine; the pruning is.
+
+##### What it cost, measured
+
+- **Every upstream sync looks like a merge of two engines that forked eleven years ago.** Task 15.1:
+  the 4.8 merge wanted to replay **85,264** upstream commits; three `git replace` refs brought it to
+  **2,794**. Those refs are local to one clone and are not pushed, so the next person to sync starts
+  from 85,264 and has to rediscover all of this.
+- **Three commit hashes cited in this fork's own notes no longer exist**: `5f4b63c136` (HANDOFF.md's
+  header, "the `depth_buffer` reclassification"), `5e16f308c7` (TASKS.md and `emsdk-upgrade.md`),
+  `d17857e497` (Task 29's user-confirmed warning-free bake). 40 of the 47 hex strings cited across
+  the two notes still resolve; those three are dead, and the other four non-resolving strings are
+  plain numbers and one tree hash, not commits.
+- **The author strip itself only partly took.** 17 commits are still authored
+  `Claude <noreply@anthropic.com>`: 16 from 2026-10-05 (added *after* the rewrite) and one survivor
+  the filter missed, `802eb0b1a0` (2025-11-06, "Fix glow visual compatibility regression").
+
+##### Options, re-ranked now that the cause is known
+
+An earlier draft of this task guessed the divergence was inherited from an already-rewritten copy,
+and recommended against rewriting on that basis. **That guess was wrong** -- dwalter is clean -- and
+it changes the ranking, because the hashes here are *already* wrong relative to every other
+repository and three of them are already dead in our own notes. The usual "never rewrite published
+history" objection is much weaker when the published history is the thing that is broken.
+
+1. **The `replace` refs** -- `[DONE as far as it can be, see Task 16.2]`. Additive, reversible,
+   breaks no clone, invalidates no branch or PR. It treats the symptom, not the cause. **Pushing
+   them is refused**: GitHub returns 403 on `git-receive-pack` for the `refs/replace/*` namespace
+   from this session's scoped token, while branch pushes to the same repository succeed. So the
+   refs cannot be shared through the remote, and the durable form of this option is a committed
+   script that regenerates them -- which is what Task 16.2 is.
+2. **Rebuild the branch on upstream's real lineage.** Only **805 commits (1%)** are genuinely this
+   fork's; the other 82,225 are upstream's, already in `upstream/master` under their correct hashes.
+   Replaying the fork's own commits onto real upstream history restores a correct merge base
+   *permanently* and makes every future sync ordinary. The only option that actually fixes it. Cost:
+   new hashes for the fork's own commits, so the notes' citations need updating (three are already
+   broken) and any open branch or PR needs rebasing. Needs the user's explicit go-ahead.
+3. **Leave it and keep re-deriving the `replace` refs per clone.** The default. Costs an hour of
+   rediscovery at every sync.
+
+##### `origin/emsdk-upgrade` escaped the rewrite
+
+Found while validating the `replace` refs, and it matters for option (2). Per-branch merge base
+against `upstream/master`:
+
+| branch | merge base |
+|---|---|
+| `origin/emsdk-upgrade` | `5b4e0cb0fd` -- **2026-06-17, "Bump version to 4.7-stable"** |
+| `origin/main` | `b70e2b754d` -- 2015-11-07 |
+| `origin/webgpu-4.7.2` | `b70e2b754d` -- 2015-11-07 |
+| `origin/webgpu-4.8` | `e7cfa294a0` -- 2026-10-02 (correct, via the 4.8 merge's upstream parent) |
+
+`origin/emsdk-upgrade` has **clean, un-rewritten history** -- a proper merge base, holding upstream's
+real hashes, with only 548 commits of its own. The rewrite did not reach it. That makes option (2)
+considerably cheaper and safer than first estimated: the pre-rewrite lineage is still published in
+this repository, so a clean `webgpu-4.7.2` could be reconstructed from `emsdk-upgrade` rather than
+rebuilt from upstream by replaying 805 commits.
+
+It is also worth checking before anything is deleted or garbage-collected: it may be the only
+surviving copy of the fork's pre-rewrite commits, including the original Claude-authored ones.
+
+##### Still unestablished
+
+- Whether `origin/emsdk-upgrade`'s clean history covers all of the fork's own work or only the
+  subset on that branch. 548 commits vs the 805 genuinely-unique ones found above suggests not all
+  of it.
+- Whether the three commit hashes the notes cite but no longer resolve (`5f4b63c136`, `5e16f308c7`,
+  `d17857e497`) exist on `emsdk-upgrade`. Fetch-by-SHA needs the full 40 characters and only the
+  10-character abbreviations survive, but `git log --all --format='%h %s'` on a clone that has
+  `emsdk-upgrade` can be searched by subject instead.
+- Which tool and invocation did the rewrite. The 2015 structural boundary points at
+  `filter-repo`-style pruning, but that is inference from the shape, not a record of the command.
+- **A caveat for anyone re-testing this**: GitHub fork networks share object storage, so
+  `git fetch <repo> <sha>` succeeding proves only that the object exists *somewhere in the network*,
+  not that it is on that repository's branch. All three test hashes -- including upstream's own
+  `ed1daf0bf0` -- fetch successfully from dwalter. Use
+  `git merge-base --is-ancestor <sha> <that repo's branch>` instead; it is what produced the table
+  above, and it gave the opposite answer.
+
+### Task 16.2: `git_replace_upstream_lineage.sh` -- regenerate the lineage refs in one command `[SUPERSEDED by Task 16.3 -- script removed]`
+**Status**: `SUPERSEDED`
+**Script**: deleted. It was a workaround for a merge base that is now correct at the source, and on repaired
+history it would still have created two refs by matching a fork commit against a *tag*, which is both
+unnecessary and a way to graft onto the wrong commit. Kept here as a record of the method, not as a tool.
+
+The point of option (1) was never the three ad-hoc refs Task 15.1 happened to need -- it was that
+they stop being rediscovered. Since they cannot be pushed, a committed script that regenerates them
+deterministically delivers the same benefit in every clone.
+
+It pairs each `Bump version to <X>-stable` commit in this fork's history with the upstream commit
+having the **same tree, same author timestamp and same subject**, then creates a `git replace` ref.
+Keying on all three matters: tree alone is not unique (a release bump and its backport onto a
+release branch can share one), and mapping to the wrong twin would silently graft the fork onto the
+wrong lineage. Anything it cannot verify it skips with a message rather than guessing.
+
+```bash
+./webgpu_notes/tools/git_replace_upstream_lineage.sh            # create
+./webgpu_notes/tools/git_replace_upstream_lineage.sh --dry-run   # show, change nothing
+./webgpu_notes/tools/git_replace_upstream_lineage.sh --delete    # undo
+```
+
+Measured effect: **12 refs created**, idempotent on re-run, and
+`merge-base(webgpu-4.7.2, upstream/master)` moves from **2015-11-07** to **2026-06-17
+("Add changelog for Godot 4.7")**, cutting a future sync's replay from **85,264** upstream commits
+to **2,795**. `webgpu-4.8` needs none of them -- the 4.8 merge has upstream's real `e7cfa294` as a
+direct parent, so its merge base is already correct.
+
+Two bugs found while writing it, worth not repeating: `git merge-base --is-ancestor` takes exactly
+two arguments, so passing a list of upstream refs made the "is this already upstream's own hash"
+guard silently misbehave and produce 11 refs mapping a commit **to itself**; and matching on tree
+alone produced two different fork commits mapped onto one upstream commit. Both are fixed, and the
+script now refuses a self-mapping outright.
+
+### Task 16.3: the `backup/pre-claude-author-strip` branches fix it completely `[DONE — LANDED]`
+**Status**: `DONE` — `webgpu-4.8`, `webgpu-4.7.2` and `main` repaired and force-pushed 2026-10-05
+**Severity**: resolves Task 16.1 outright
+
+Two backup branches exist on `origin`, taken before the author strip:
+
+```
+refs/heads/backup/pre-claude-author-strip          b18a679cf6   tip 2026-09-20
+refs/heads/backup/pre-claude-author-strip-threads  6893725f61   tip 2026-09-18
+```
+
+Both have **clean, un-rewritten lineage** -- `merge-base` with `upstream/master` is `5b4e0cb0fd`
+(2026-06-17, "Bump version to 4.7-stable"), the same healthy base `origin/emsdk-upgrade` has.
+
+##### They lost nothing, and there is an exact splice point
+
+Comparing the fork's genuine commits (excluding re-parented upstream twins) between
+`webgpu-4.7.2` and the backup:
+
+| | |
+|---|---|
+| genuine fork commits on `webgpu-4.7.2` | 741 |
+| genuine fork commits on the backup | 564 |
+| on `webgpu-4.7.2` only (post-backup work, 2026-09-20 → 10-05) | 177 |
+| **on the backup only (i.e. lost by the rewrite)** | **0** |
+
+Nothing was lost; the backup is simply two weeks behind. And the splice is exact rather than
+approximate: the backup tip `b18a679cf6` and `webgpu-4.7.2`'s `fdb8d110cb` ("more attempts at CI
+fixes Improved the shader pre-cache", 2026-09-20) have the **identical tree**
+`88e32e23f8`. The same content, one on clean ancestry and one on broken.
+
+##### One graft fixes the whole thing
+
+Because those trees are identical, re-pointing the parent of `fdb8d110cb`'s child at the backup
+tip reconnects everything:
+
+```bash
+git replace --graft 1d8055a70b44941ba4b0352bf38c52f7e57bbbbb \
+                    b18a679cf65eac6cd2c692c6b3f51ed85a95d270
+```
+
+| | without | with the graft |
+|---|---|---|
+| `merge-base(webgpu-4.7.2, upstream/master)` | 2015-11-07 | **2026-06-17, 4.7-stable** |
+| commits reachable from `webgpu-4.8` | 169,853 | **87,566** |
+| of those, not in upstream | 82,981 | **693** |
+| `webgpu-4.8` tip tree | `72f20a3ad1` | **`72f20a3ad1` (unchanged)** |
+
+That one ref does what Task 16.2's twelve release-bump refs could not: it drops the duplicated copy
+of Godot's history out of the branch entirely, rather than papering over the merge base. **Task
+16.2's script becomes unnecessary if this lands** -- and CLAUDE.md's instruction to run it should be
+removed at the same time, or the two will contradict each other.
+
+##### The baked candidate: `webgpu-4.8-clean`
+
+With the graft active, `git filter-branch -- webgpu-4.8-clean --not upstream/master upstream/4.7`
+bakes it into real commits (the graft itself is a local replace ref and cannot be pushed -- see
+Task 16.1). Result, **built and verified but deliberately not pushed**:
+
+- tip tree **byte-identical** to `webgpu-4.8`'s (`72f20a3ad1`) -- the code is provably unchanged
+- `merge-base` with `upstream/master` is `e7cfa294a0`, correct
+- 87,566 commits, 693 of them not upstream's (from 169,853 / 82,981)
+- **0 commits invented**: every commit on the clean branch exists on `webgpu-4.8`
+- authorship preserved, including 221 commits by Shane Gadsby and 19 by Claude
+- `refs/original/refs/heads/webgpu-4.8-clean` holds the pre-rewrite tip, so it is reversible locally
+
+Checked against **all 17** upstream branches (3.0 through 4.7 and master), 61 commits on
+`webgpu-4.8` are absent from the clean branch. All 61 are upstream Godot commits from 2015-2024 by
+Godot contributors -- 22 by Rémi Verschelde, others by Juan Linietsky, Ignacio Etcheverry, bruvzg
+and so on, the newest being 2024-11-15 "fixed navigation obstacle carving broken during 28d5836".
+**None is authored by Shane Gadsby or Claude.** They are commits from the duplicated lineage whose
+trees do not match upstream's copy exactly, which is precisely what this change removes. The
+identical tip tree is the guarantee that none of their effects are lost.
+
+##### What it needs
+
+##### Landed, 2026-10-05
+
+The user authorized all three branches. One graft point (`58f84e667c`) is an ancestor of
+`webgpu-4.8`, `webgpu-4.7.2` **and** `main`, so a single `filter-branch` pass over all three
+rewrote them consistently (703 commits visited; shared commits map to identical hashes because the
+rewrite is deterministic and was done in one run).
+
+Final state, measured against a view with **no replace refs at all**, i.e. what a fresh clone sees:
+
+| branch | merge-base with `upstream/master` | tip tree | commits | fork-own |
+|---|---|---|---|---|
+| `webgpu-4.8` | `e7cfa294a0` 2026-10-02 | unchanged | 169,854 → 87,567 | 82,982 → 694 |
+| `webgpu-4.7.2` | `5b4e0cb0fd` 2026-06-17 | unchanged | — | 82,969 → 681 |
+| `main` | `5b4e0cb0fd` 2026-06-17 | unchanged | — | 82,968 → 680 |
+
+Every branch's tip tree is **byte-identical** to its pre-repair tree, **0 commits were invented**,
+and the 61 commits dropped from each are the duplicate-lineage upstream artifacts described above --
+**none authored by Shane Gadsby or Claude**.
+
+**Safety refs pushed before the force-push** (additive, no force), so the whole thing is reversible
+from any clone:
+
+```
+origin/backup/pre-lineage-repair/webgpu-4.8      f9434189df
+origin/backup/pre-lineage-repair/webgpu-4.7.2    7b5d067f0f
+origin/backup/pre-lineage-repair/main            f2036d700e
+```
+
+**Do not delete those, the `backup/pre-claude-author-strip*` pair, or `origin/emsdk-upgrade`.**
+
+##### Two consequences, both handled
+
+1. **One commit's authorship reverts.** `802eb0b1a0` "Fix glow visual compatibility regression
+   (issue #112469)" (2025-11-06) was re-authored Claude → Shane Gadsby by the original strip. The
+   backup holds the pre-strip original, so the repair restores **Claude** as its author -- the only
+   authorship change across all three branches (Shane 222 → 221, Claude +1). This also corrects
+   something recorded wrongly in Task 16.1's first draft: that commit was not "a survivor the filter
+   missed", it was the backup branch's copy showing up in a repo-wide `git log`. Re-stripping just
+   that one commit is a small follow-up if wanted.
+2. **Citations in the notes were remapped, not broken.** Every fork commit hash changed, so the 13
+   hashes cited across `CLAUDE.md` and `webgpu_notes/*.md` that pointed at rewritten commits were
+   rewritten to their new values, mapping old → new by (author timestamp, subject) against the
+   preserved pre-repair tip. Verified afterwards: **0 citations were broken by the repair.** 20
+   non-resolving strings remain and every one predates it -- three are plain numbers
+   (`1073741824`, `4294967295`, `1894244148`), three are tree hashes quoted deliberately, three are
+   the original strip's casualties (`5f4b63c136`, `5e16f308c7`, `d17857e497`, Task 16.1), and the
+   rest cite other repositories and dead branches (`godot-webgpu`, `shiny_gen`,
+   `async_shader_pipeline`) that never existed here.

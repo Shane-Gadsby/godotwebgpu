@@ -39,7 +39,7 @@ class Box3DBody3D;
 
 class Box3DArea3D final : public Box3DObject3D {
 public:
-	typedef PhysicsServer3D::AreaSpaceOverrideMode OverrideMode;
+	typedef PS3DE::AreaSpaceOverrideMode OverrideMode;
 
 private:
 	// One overlapping shape of another object, keyed by the Box3D shape id of that shape.
@@ -52,7 +52,7 @@ private:
 	};
 
 	struct PendingEvent {
-		PhysicsServer3D::AreaBodyStatus status = PhysicsServer3D::AREA_BODY_ADDED;
+		PS3DE::AreaBodyStatus status = PS3DE::AREA_BODY_ADDED;
 		RID rid;
 		ObjectID instance_id;
 		int other_shape_index = 0;
@@ -82,9 +82,9 @@ private:
 	float wind_pressure = 0.0f;
 	float wind_attenuation_factor = 0.0f;
 
-	OverrideMode gravity_mode = PhysicsServer3D::AREA_SPACE_OVERRIDE_DISABLED;
-	OverrideMode linear_damp_mode = PhysicsServer3D::AREA_SPACE_OVERRIDE_DISABLED;
-	OverrideMode angular_damp_mode = PhysicsServer3D::AREA_SPACE_OVERRIDE_DISABLED;
+	OverrideMode gravity_mode = PS3DE::AREA_SPACE_OVERRIDE_DISABLED;
+	OverrideMode linear_damp_mode = PS3DE::AREA_SPACE_OVERRIDE_DISABLED;
+	OverrideMode angular_damp_mode = PS3DE::AREA_SPACE_OVERRIDE_DISABLED;
 
 	bool monitorable = false;
 	bool point_gravity = false;
@@ -116,8 +116,8 @@ public:
 
 	void set_transform(Transform3D p_transform);
 
-	Variant get_param(PhysicsServer3D::AreaParameter p_param) const;
-	void set_param(PhysicsServer3D::AreaParameter p_param, const Variant &p_value);
+	Variant get_param(PS3DE::AreaParameter p_param) const;
+	void set_param(PS3DE::AreaParameter p_param, const Variant &p_value);
 
 	bool has_body_monitor_callback() const { return body_monitor_callback.is_valid(); }
 	void set_body_monitor_callback(const Callable &p_callback);
@@ -198,28 +198,28 @@ public:
 	// Incorporates the value provided by `p_getter` into `p_value` according to the override mode `p_mode`.
 	// Returns true if further calls to this function should stop (i.e. value has been replaced entirely).
 	template <typename TValue, typename TGetter>
-	static bool apply_override(TValue &p_value, PhysicsServer3D::AreaSpaceOverrideMode p_mode, TGetter &&p_getter);
+	static bool apply_override(TValue &p_value, PS3DE::AreaSpaceOverrideMode p_mode, TGetter &&p_getter);
 };
 
 template <typename TValue, typename TGetter>
-inline bool Box3DArea3D::apply_override(TValue &p_value, PhysicsServer3D::AreaSpaceOverrideMode p_mode, TGetter &&p_getter) {
+inline bool Box3DArea3D::apply_override(TValue &p_value, PS3DE::AreaSpaceOverrideMode p_mode, TGetter &&p_getter) {
 	switch (p_mode) {
-		case PhysicsServer3D::AREA_SPACE_OVERRIDE_DISABLED: {
+		case PS3DE::AREA_SPACE_OVERRIDE_DISABLED: {
 			return false;
 		}
-		case PhysicsServer3D::AREA_SPACE_OVERRIDE_COMBINE: {
+		case PS3DE::AREA_SPACE_OVERRIDE_COMBINE: {
 			p_value += p_getter();
 			return false;
 		}
-		case PhysicsServer3D::AREA_SPACE_OVERRIDE_COMBINE_REPLACE: {
+		case PS3DE::AREA_SPACE_OVERRIDE_COMBINE_REPLACE: {
 			p_value += p_getter();
 			return true;
 		}
-		case PhysicsServer3D::AREA_SPACE_OVERRIDE_REPLACE: {
+		case PS3DE::AREA_SPACE_OVERRIDE_REPLACE: {
 			p_value = p_getter();
 			return true;
 		}
-		case PhysicsServer3D::AREA_SPACE_OVERRIDE_REPLACE_COMBINE: {
+		case PS3DE::AREA_SPACE_OVERRIDE_REPLACE_COMBINE: {
 			p_value = p_getter();
 			return false;
 		}

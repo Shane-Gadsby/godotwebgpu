@@ -90,6 +90,10 @@ String TextServerFallback::_get_name() const {
 	return "Fallback (Built-in)";
 }
 
+String TextServerFallback::_get_short_name() const {
+	return "fallback";
+}
+
 int64_t TextServerFallback::_get_features() const {
 	int64_t interface_features = FEATURE_SIMPLE_LAYOUT | FEATURE_FONT_BITMAP;
 #ifdef MODULE_FREETYPE_ENABLED
@@ -346,6 +350,11 @@ _FORCE_INLINE_ TextServerFallback::FontTexturePosition TextServerFallback::find_
 
 #ifdef MODULE_MSDFGEN_ENABLED
 
+// FreeType outline coordinates are 26.6 fixed point, so one pixel is 64 units.
+// Godot versions before 4.8 used an incorrect divisor of 60, which can be
+// restored via the `gui/fonts/compatibility/msdf_legacy_scaling` project setting.
+static double ft_units_per_pixel = 64.0;
+
 struct MSContext {
 	msdfgen::Point2 position;
 	msdfgen::Shape *shape = nullptr;
@@ -374,7 +383,7 @@ struct MSDFThreadData {
 };
 
 static msdfgen::Point2 ft_point2(const FT_Vector &vector) {
-	return msdfgen::Point2(vector.x / 60.0f, vector.y / 60.0f);
+	return msdfgen::Point2(vector.x / ft_units_per_pixel, vector.y / ft_units_per_pixel);
 }
 
 static int ft_move_to(const FT_Vector *to, void *user) {
@@ -461,8 +470,9 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_msdf(
 	chr.advance = p_advance;
 
 	if (shape.validate() && shape.contours.size() > 0) {
-		int w = (bounds.r - bounds.l);
-		int h = (bounds.t - bounds.b);
+		// Round the glyph size up to whole pixels so the bitmap fully covers the shape.
+		int w = Math::ceil(bounds.r - bounds.l);
+		int h = Math::ceil(bounds.t - bounds.b);
 
 		if (w == 0 || h == 0) {
 			chr.texture_idx = -1;
@@ -518,7 +528,9 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_msdf(
 		chr.texture_idx = tex_pos.index;
 
 		chr.uv_rect = Rect2(tex_pos.x + p_rect_margin, tex_pos.y + p_rect_margin, w + p_rect_margin * 2, h + p_rect_margin * 2);
-		chr.rect.position = Vector2(bounds.l - p_rect_margin, -bounds.t - p_rect_margin);
+		// Derive the glyph position from the same bottom-left anchor the rasterizer uses,
+		// rather than top-left, so the two agree about glyph placement.
+		chr.rect.position = Vector2(bounds.l - p_rect_margin, -(bounds.b + h) - p_rect_margin);
 		chr.rect.size = chr.uv_rect.size;
 	}
 	return chr;
@@ -560,6 +572,10 @@ _FORCE_INLINE_ TextServerFallback::FontGlyph TextServerFallback::rasterize_bitma
 			h /= 3;
 		} break;
 	}
+
+	//LCD/LCD_V are subpixel-antialiased grayscale, not color glyphs; they just
+	//happen to need four channels. The draw-time check excludes them via lcd_aa.
+	chr.color_glyph = (p_bitmap.pixel_mode == FT_PIXEL_MODE_BGRA);
 
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
@@ -2807,6 +2823,8 @@ Vector2 TextServerFallback::_font_get_kerning(const RID &p_font_rid, int64_t p_s
 			int32_t glyph_a = FT_Get_Char_Index(fd->face, p_glyph_pair.x);
 			int32_t glyph_b = FT_Get_Char_Index(fd->face, p_glyph_pair.y);
 			FT_Get_Kerning(fd->face, glyph_a, glyph_b, FT_KERNING_DEFAULT, &delta);
+			delta.x /= 64;
+			delta.y /= 64;
 			if (fd->msdf) {
 				return Vector2(delta.x, delta.y) * (double)p_size / (double)fd->msdf_source_size;
 			} else if (fd->fixed_size > 0 && fd->fixed_size_scale_mode != FIXED_SIZE_SCALE_DISABLE && size.x != p_size * 64) {
@@ -3067,7 +3085,21 @@ void TextServerFallback::_font_draw_glyph(const RID &p_font_rid, const RID &p_ca
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (!fd->modulate_color_glyphs && fd->face && ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (!fd->modulate_color_glyphs && fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
@@ -3193,7 +3225,21 @@ void TextServerFallback::_font_draw_glyph_outline(const RID &p_font_rid, const R
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (fd->face && ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
@@ -5454,6 +5500,11 @@ void TextServerFallback::_update_settings() {
 TextServerFallback::TextServerFallback() {
 	_insert_feature_sets();
 	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &TextServerFallback::_update_settings));
+#if defined(MODULE_MSDFGEN_ENABLED) && !defined(DISABLE_DEPRECATED)
+	if (GLOBAL_GET("gui/fonts/compatibility/msdf_legacy_scaling")) {
+		ft_units_per_pixel = 60.0;
+	}
+#endif
 }
 
 void TextServerFallback::_font_clear_system_fallback_cache() {

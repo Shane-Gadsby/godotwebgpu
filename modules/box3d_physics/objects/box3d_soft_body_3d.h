@@ -90,8 +90,8 @@ public:
 	void remove_collision_exception(const RID &p_excepted_body) { exceptions.erase(p_excepted_body); }
 	const LocalVector<RID> &get_collision_exceptions() const { return exceptions; }
 
-	Variant get_state(PhysicsServer3D::BodyState p_state) const;
-	void set_state(PhysicsServer3D::BodyState p_state, const Variant &p_value);
+	Variant get_state(PS3DE::BodyState p_state) const;
+	void set_state(PS3DE::BodyState p_state, const Variant &p_value);
 
 	void set_transform(const Transform3D &p_transform) { transform = p_transform; }
 	void set_pickable(bool p_enabled) { pickable = p_enabled; }

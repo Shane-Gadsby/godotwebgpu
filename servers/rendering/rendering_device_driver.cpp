@@ -47,12 +47,16 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 			return 1;
 		case API_TRAIT_SECONDARY_VIEWPORT_SCISSOR:
 			return 1;
-		case API_TRAIT_CLEARS_WITH_COPY_ENGINE:
+		case API_TRAIT_BUFFER_CLEARS_WITH_COPY_ENGINE:
+			return true;
+		case API_TRAIT_TEXTURE_CLEARS_WITH_COPY_ENGINE:
 			return true;
 		case API_TRAIT_USE_GENERAL_IN_COPY_QUEUES:
 			return false;
 		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS:
 			return false;
+		case API_TRAIT_TEXTURES_REQUIRE_LAYOUT_TRANSITIONS:
+			return true;
 		case API_TRAIT_TEXTURE_OUTPUTS_REQUIRE_CLEARS:
 			return false;
 		case API_TRAIT_TEXTURE_GET_DATA_VIA_DRIVER:
@@ -65,6 +69,7 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 		case API_TRAIT_FIRST_INSTANCE_INDEX:
 		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY:
 		case API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION:
+		case API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD:
 			// Optional WebGPU-only traits: 0/false is the correct default for every
 			// other backend, which should not have to override api_trait_get() just
 			// to opt out of these.
@@ -81,5 +86,11 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 }
 
 /******************/
+
+void RenderingDeviceDriver::command_begin_compute_pass(CommandBufferID p_cmd_buffer) {
+}
+
+void RenderingDeviceDriver::command_end_compute_pass(CommandBufferID p_cmd_buffer) {
+}
 
 RenderingDeviceDriver::~RenderingDeviceDriver() {}

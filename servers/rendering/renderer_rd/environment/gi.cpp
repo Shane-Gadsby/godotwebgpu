@@ -486,7 +486,21 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 		}
 
 		tf_render.format = RD::DATA_FORMAT_R32_UINT;
+		// Only ask for atomic storage where the driver actually has image
+		// atomics. scene_forward_clustered.glsl writes geom_facing_grid with
+		// imageAtomicOr() only in its non-NO_IMAGE_ATOMICS variant; the
+		// NO_IMAGE_ATOMICS variant selected when RD reports no
+		// SUPPORTS_IMAGE_ATOMIC_32_BIT (WebGPU, which has no texture atomics
+		// at all) does a plain imageLoad/imageStore read-modify-write instead,
+		// so the atomic usage bit buys nothing there -- and requesting it is
+		// fatal, since texture_create() rejects any format whose driver does
+		// not report TEXTURE_USAGE_STORAGE_ATOMIC_BIT, taking the whole SDFGI
+		// setup (and every uniform set built from it) down with it.
+		if (RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+			tf_render.usage_bits |= RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
+		}
 		render_geom_facing = create_clear_texture(tf_render, "SDFGI Render Geometry Facing");
+		tf_render.usage_bits &= ~RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT;
 
 		tf_render.format = RD::DATA_FORMAT_R8G8B8A8_UINT;
 		render_sdf[0] = create_clear_texture(tf_render, "SDFGI Render SDF 0");
@@ -3605,7 +3619,12 @@ String GI::_sdfgi_integrate_defines() {
 	String defines = "\n#define OCT_SIZE " + itos(SDFGI::LIGHTPROBE_OCT_SIZE) + "\n";
 	defines += "\n#define SH_SIZE " + itos(SDFGI::SH_SIZE) + "\n";
 	if (singleton && singleton->sdfgi_sky_use_octmap_array) {
-		defines += "\n#define USE_OCTMAP_ARRAY\n";
+		// USE_RADIANCE_OCTMAP_ARRAY as of 4.8. Both this fork and upstream 4.7.2
+		// emitted USE_OCTMAP_ARRAY here, which no shader ever read -- an upstream
+		// quirk the fork copied faithfully when Task 31 moved these defines into a
+		// helper. 4.8's sdfgi_integrate.glsl reads USE_RADIANCE_OCTMAP_ARRAY, so
+		// the variant is finally distinguished for real, at bake time included.
+		defines += "\n#define USE_RADIANCE_OCTMAP_ARRAY\n";
 	}
 	defines += _sdfgi_native_storage_format_define();
 	return defines;
@@ -3684,7 +3703,6 @@ void GI::init(SkyRD *p_sky) {
 	// already-decoded values directly instead of hand-packed bits, so the compute shaders
 	// that write them need a matching storage-image declaration and store path.
 	sdfgi_sky_use_octmap_array = p_sky->sky_use_octmap_array;
-	String sdfgi_native_storage_format_define = _sdfgi_native_storage_format_define();
 
 	// These three shaders' defines depend on a device capability, so the shader
 	// baker has to be able to recompute them for the export target rather than

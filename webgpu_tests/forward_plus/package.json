@@ -1,0 +1,11 @@
+{
+  "name": "forward_plus",
+  "version": "1.0.0",
+  "description": "Forward+ feature matrix for the WebGPU port: proves every Forward+ feature still changes the frame.",
+  "type": "module",
+  "private": true,
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
+}

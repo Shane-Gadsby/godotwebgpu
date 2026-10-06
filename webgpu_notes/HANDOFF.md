@@ -1,5 +1,70 @@
 # Handoff — WebGPU work in progress
 
+> ## Read this first: the work has moved to `webgpu-4.8`
+>
+> **As of 2026-10-05**, the 4.8 port is the live branch. `webgpu-4.7.2` is the last fully green
+> state and is what every measurement in this file was taken on; it is the thing to compare
+> against, not the thing to build on.
+>
+> **The history is repaired.** A past rewrite had detached this repo from upstream's lineage
+> entirely (`merge-base` landed in November 2015); `webgpu-4.8`, `webgpu-4.7.2` and `main` are now
+> grafted back onto upstream's real history from the `backup/pre-claude-author-strip` branches, with
+> every tip tree byte-identical and no commit invented. Syncs are ordinary again. TASKS.md Phase 16
+> has the diagnosis and Task 16.3 the repair; pre-repair tips are kept on `origin` as
+> `backup/pre-lineage-repair/*` and **must not be deleted**.
+>
+> `webgpu-4.8` is `webgpu-4.7.2` merged with upstream `master`
+> `e7cfa294a0b81bed7986be04a848cc1832a3f083` (Godot 4.8, code freeze, pinned not floating) —
+> 2,794 upstream commits, 3,872 files, 109 conflicts. **Phase 15 in TASKS.md is the detail**;
+> Task 15.1 has the three `git replace` refs needed to reproduce the merge base at all, without
+> which the merge replays 85,264 commits instead of 2,794.
+>
+> **What is verified on `webgpu-4.8`** — every tier that can run in a Linux container is green,
+> and Task 15.4 has the table: native editor and web template both build with 0 errors (the
+> template with 0 warnings too), `wgsl_precompile.py` over 4.8's shaders gives **274 compiled,
+> 0 glsl failures, 0 tint failures** (byte-for-byte §3's 4.7.2 number, so 4.8 adds no Tint
+> failures), `shader_corpus` 14/0, `driver_unit_tests` 370/0, `preprocessing_tests` 238/0/1,
+> `resource_lifecycle` 6/0, and the scene smoketest **20 pass, 0 fail, 0 skip** in Chrome with
+> every scene re-exported from the 4.8 pair now in `bin/`.
+>
+> `warnings=extra werror=yes` is clean too: 9 web and 600 native objects rebuilt under it with
+> zero warnings, covering all of `servers/rendering/`, `editor/`, `drivers/webgpu/`,
+> `modules/box3d_physics/`, `scene/resources/` and `main/` — the CI trap CLAUDE.md warns about,
+> which did catch three real warnings in this port before they reached CI.
+>
+> **Real GPU / Forward+ / Firefox are now verified too, and they found two black-screen
+> regressions the suite could not see — see Task 15.5.** The smoketest above runs on swiftshader,
+> which falls back to **Forward Mobile**, and SSAO/SSIL are Forward+-only while SDFGI voxelization
+> lives in `scene_forward_clustered.glsl` — so a fully green Task 15.4 coexisted with 3D rendering
+> entirely black on real hardware. Both causes came from the 4.8 merge: SSAO's `RB_FINAL` kept this
+> fork's old `RGBA8_UNORM` override after upstream moved both `ssao_interleave.glsl` and the texture
+> to `r8` (one invalid bind group invalidates the whole command buffer, so `Queue.Submit` dropped
+> every 3D frame), and 4.8's new `STORAGE_ATOMIC` usage bit on SDFGI's geometry-facing texture was
+> requested unconditionally although WebGPU has no texture atomics. Both fixed and verified against
+> the user's own project on an RTX 4080 SUPER: Chrome **0 errors** (was 6,658+), Firefox 0 real
+> errors, both reporting **Forward+**, output matching a native-Vulkan Forward+ capture of the same
+> project. **Task 46 §7b's rule still stands for everything else** — a container run proves the
+> engine boots and loads scenes, never that Forward+ renders.
+>
+> §2's numbers below are still the 4.7.2 measurements.
+> §6's `bin/` description is about the 4.7.2 line; `bin/` now holds a matched 4.8 pair.
+>
+> **One trap worth knowing before it costs an hour**: in a container, every pixel-based
+> assertion fails identically whatever the engine drew, because nothing presents to a capturable
+> canvas under headless swiftshader. `test_font_visual.mjs` says
+> "glyph modulate is being dropped", which is specific and plausible and wrong — a scene that
+> *passes* the smoketest, `benchmark_pbr`, screenshots as one colour, rgb(255,255,255), 100%.
+> Screenshot a known-passing scene before believing any of it. Task 15.4 has the detail.
+>
+> **The one thing to carry forward**: on a merge this size, a clean conflict list proves
+> nothing. Five breaks in fork-touched shared code produced no conflict at all, because the
+> fork's lines and 4.8's change sat in different places in the same file — a removed helper
+> (`get_compressed_image_format_pixel_rshift`), a moved header, a deleted static member, a
+> dropped function parameter, and a duplicated local declaration. Each was found by a build or
+> a grep, never by git. After the next sync, grep for every symbol upstream deleted.
+
+---
+
 **As of 2026-09-27, with the scene tier fully green.** Branch `webgpu-4.7.2`. The engine work landed
 in `5f4b63c136` (the `depth_buffer` reclassification), the depth-back-copy commit after it, and the
 gradient-readback commit after that (Task 45); `bin/` was built at the last of those (§6).
@@ -113,6 +178,7 @@ without deleting anything.
 | 45 | `Gradient{Texture1D,Texture2D}::get_image()` regenerate instead of reading the GPU back | `demo_compute_heightmap` **skip → pass**; tier → **19/0/0** in both browsers, nothing skipped |
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
+| 35 | Per-glyph `color_glyph` flag replaces atlas-format sniffing in both text servers | **All text was rendering white** on WebGPU (dark outlines too); theme font colors work again |
 
 Reference numbers worth keeping: the user's project loads with a **~1.0 s** cold stall (was ~9.2 s at
 the start of this work), `{baked: 360, translated: 0}`, and BC1 texture compression is verified
@@ -405,6 +471,15 @@ should say so once, loudly, instead of reporting it as N item failures.
 
 ## 5. Corrections — things recorded wrongly earlier
 
+**Task 35 was marked "verified in a browser" on evidence that could not have caught its own regression.**
+It made monochrome glyph atlases RGBA8 on WebGPU, and verified it with "text renders correctly". But the
+side effect was that every glyph then matched the *colour-glyph* test (which sniffs the atlas format), so
+the text colour was discarded and all text rendered **white** — which white text is indistinguishable from.
+Found 2026-10-04 from a user report, fixed, and re-verified against a black-outlined label, where the two
+states *are* distinguishable. Any future check in this area needs a non-white fill or a contrasting
+outline; "text appears" is not sufficient. Full write-up: `TASKS.md`, "Task 35 — follow-up".
+
+
 These are fixed in TASKS.md but listed here because reasoning from the old versions wastes a session:
 1. **Task 43's diagnosis was wrong twice.** The render-thread guard is `ERR_FAIL_COND_V_MSG` and
    prints in every build, so it was never the silent path; and there was no WebGPU limitation — the
@@ -542,12 +617,32 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error
    rather than quietly wrong pixels. Adding it is robustness, not a fix — and it would have *hidden*
    §4.1, so add it only with that understood.
-2. **Task 14 subtask 2 leftovers**: `Servers:Rendering` is ~500 ms and *fixed* for every project, of
-   which ~180 ms is our own per-stage WGSL text scanning. Baking that binding metadata into the
-   container at export time is the biggest remaining load win and is entirely our own code.
-3. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
+2. **A real-GPU profile of a Forward+ baked export** — the configuration this fork actually ships,
+   and the one no number in Task 46 covers. Task 46 §7a measured the container change
+   (`index.pck` 101.5 MB → 57.1 MB, −43.7%, every behavioral counter byte-identical, SPIR-V 66.8%
+   of a baked container's payload) but did it on **swiftshader**, which §7b establishes runs
+   **Forward Mobile**, not Forward+: it reports `maxSampledTexturesPerShaderStage = 16`, and
+   `RendererCompositorRD::initialize()` falls back to Mobile below 48. Expect `translated` near 0
+   on real hardware (the one real-hardware data point on record, the user's own project, reports
+   `translated: 0`); anything else is a real baking gap worth chasing.
+3. **Know that a `CI=1` / swiftshader run is not testing this fork's renderer.** This is the thing
+   to carry from Task 46 §7b, where it cost a wrong conclusion and a since-removed export warning.
+   A software-adapter run exercises Forward Mobile, so `translated: 404` on one is expected rather
+   than a bug, and nothing renderer-dependent — scene-shader coverage, per-stage binding budgets,
+   the 48-texture branch itself — can be validated there. Byte counts and call counts from such a
+   run are still good; timings and renderer behavior are not.
+4. ~~**`CLAUDE.md` says "It targets the Forward Mobile renderer"**~~ — **done**. `CLAUDE.md` now
+   says Forward+ (Clustered) and carries the `<48`-textures fallback caveat, so a software-adapter
+   run can no longer be mistaken for this fork's renderer the way it was in Task 46 §7b.
+5. **Profile a dlink export under network throttling** (Task 46 §4). `index.side.wasm` is 51 MB and
+   is fetched and compiled *non-streaming* by Emscripten's dylink loader, outside `config.js`'s
+   `instantiateWasm` override. On localhost that is 96 ms, which is why it was ranked low; at
+   20 Mbit/s it is ~20 s that cannot overlap compilation, which would dwarf everything else in
+   Task 14. Playwright can throttle directly via CDP. This is the cheapest high-value measurement
+   left and it has never been taken.
+6. **Texture compression as an export option** (Task 39) — desktop is settled (BC, both browsers);
    Safari and mobile are unmeasured, and that is what the option exists to serve.
-4. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
+7. **Audit the rest of the storage-format class** (§4.4): three instances have been found one at a
    time by running scenes. `copy.glsl` is not the only shader with a format-by-variant storage image,
    and a pass over every `layout(<fmt>, set = …) uniform … image*` against what its C++ callers
    actually bind would close the class instead of the next instance.

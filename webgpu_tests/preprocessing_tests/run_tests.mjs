@@ -1477,6 +1477,94 @@ console.log("\n=== Test 21: Pass interaction ===");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 22: raw image declaration reflection (spirv_lite_reflect)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Not a preprocessing pass, but the same shape of thing and tested the same way:
+// a walk over raw SPIR-V whose output the export-time shader baker records into
+// every shader container, so the runtime driver does not have to repeat it --
+// and, where it covers everything the driver needed the bytes for, so the
+// container can ship without the SPIR-V at all.
+//
+// Worth testing against SPIR-V glslang actually emitted rather than against a
+// reimplementation: when this disagrees with what the driver would have found
+// itself, the result is a Dawn validation error naming a texture the shader does
+// not appear to use, or silently wrong pixels -- not a crash. Every case in the
+// fixture has been a real bug (see fixtures_src/image_decl_variety.comp).
+function testImageDeclReflection() {
+  console.log("\n=== Test 22: raw image declaration reflection ===\n");
+
+  const src = join(__dirname, "fixtures_src", "image_decl_variety.comp");
+  const spvOut = join(tmpdir(), `image_decl_variety_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["-V", src, "-o", spvOut], { encoding: "utf-8" });
+  } catch (e) {
+    skip(`glslangValidator unavailable: ${e.message}`);
+    return;
+  }
+
+  let out;
+  try {
+    out = JSON.parse(execFileSync(TINT_CLI, ["--image-decls", spvOut], { encoding: "utf-8", timeout: 30000 }));
+  } catch (e) {
+    assert(false, `--image-decls failed: ${e.stderr || e.message}`);
+    return;
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+
+  assertEq(out.hasSpecConstants, false, "fixture declares no specialization constants");
+
+  // Hash-map order on the C++ side, so key it rather than index it.
+  const byKey = new Map();
+  for (const d of out.imageDecls) {
+    byKey.set(`${d.set}:${d.binding}`, d);
+  }
+
+  // SPIR-V ImageFormat operands: 0=Unknown, 2=Rgba16f, 24=R32i, 33=R32ui.
+  // SPIR-V Dim operands: 1=2D, 2=3D, 3=Cube.
+  const expected = [
+    // A 3D storage image: the dimension matters as much as the format, and
+    // defaulting it to 2D is what Dawn rejects.
+    { key: "0:0", spvFormat: 2, spvDim: 2, arrayed: 0, intSignedness: -1, what: "image3D rgba16f" },
+    // Unsigned and signed integer storage images.
+    { key: "0:1", spvFormat: 33, spvDim: 1, arrayed: 0, intSignedness: 0, what: "uimage2D r32ui" },
+    { key: "0:2", spvFormat: 24, spvDim: 1, arrayed: 0, intSignedness: 1, what: "iimage2D r32i" },
+    // An array-of-textures uniform, whose UniformConstant pointer points at an
+    // OpTypeArray wrapping the image type. Without unwrapping that, this
+    // binding is silently skipped entirely.
+    { key: "1:3", spvFormat: 0, spvDim: 2, arrayed: 0, intSignedness: -1, what: "texture3D[4] array-of-textures" },
+    // A utexture2D: sample type Uint, where the default of Float is wrong.
+    { key: "1:4", spvFormat: 0, spvDim: 1, arrayed: 0, intSignedness: 0, what: "utexture2D" },
+    { key: "1:5", spvFormat: 0, spvDim: 3, arrayed: 0, intSignedness: -1, what: "textureCube" },
+    { key: "1:6", spvFormat: 0, spvDim: 1, arrayed: 1, intSignedness: -1, what: "texture2DArray" },
+  ];
+
+  for (const e of expected) {
+    const d = byKey.get(e.key);
+    if (!d) {
+      assert(false, `${e.what} at set/binding ${e.key} was not reported at all`);
+      continue;
+    }
+    assertEq(d.spvFormat, e.spvFormat, `${e.what}: SPIR-V ImageFormat operand`);
+    assertEq(d.spvDim, e.spvDim, `${e.what}: SPIR-V Dim operand`);
+    assertEq(d.arrayed, e.arrayed, `${e.what}: arrayed flag`);
+    assertEq(d.intSignedness, e.intSignedness, `${e.what}: component signedness`);
+  }
+
+  // A combined sampler2D is not an image declaration. Reporting it would give
+  // its binding a storage-image format it does not have; it is also at the
+  // pre-split binding number, so a bogus entry would land on a real binding's
+  // key. A plain sampler and an SSBO must likewise not appear.
+  assert(!byKey.has("2:7"), "combined sampler2D is not reported as an image declaration");
+  assert(!byKey.has("2:9"), "a plain sampler is not reported as an image declaration");
+  assert(!byKey.has("2:8"), "a storage buffer is not reported as an image declaration");
+  assertEq(out.imageDecls.length, expected.length, "no declarations beyond the expected set");
+}
+
+testImageDeclReflection();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"=".repeat(50)}`);

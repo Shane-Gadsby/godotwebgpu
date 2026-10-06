@@ -367,6 +367,10 @@ String TextServerAdvanced::_get_name() const {
 	return "ICU / HarfBuzz / Graphite (Built-in)";
 }
 
+String TextServerAdvanced::_get_short_name() const {
+	return "advanced";
+}
+
 int64_t TextServerAdvanced::_get_features() const {
 	int64_t interface_features = FEATURE_SIMPLE_LAYOUT | FEATURE_BIDI_LAYOUT | FEATURE_VERTICAL_LAYOUT | FEATURE_SHAPING | FEATURE_KASHIDA_JUSTIFICATION | FEATURE_BREAK_ITERATORS | FEATURE_FONT_BITMAP | FEATURE_FONT_VARIABLE | FEATURE_CONTEXT_SENSITIVE_CASE_CONVERSION | FEATURE_USE_SUPPORT_DATA;
 #ifdef MODULE_FREETYPE_ENABLED
@@ -936,6 +940,11 @@ _FORCE_INLINE_ TextServerAdvanced::FontTexturePosition TextServerAdvanced::find_
 
 #ifdef MODULE_MSDFGEN_ENABLED
 
+// FreeType outline coordinates are 26.6 fixed point, so one pixel is 64 units.
+// Godot versions before 4.8 used an incorrect divisor of 60, which can be
+// restored via the `gui/fonts/compatibility/msdf_legacy_scaling` project setting.
+static double ft_units_per_pixel = 64.0;
+
 struct MSContext {
 	msdfgen::Point2 position;
 	msdfgen::Shape *shape = nullptr;
@@ -964,7 +973,7 @@ struct MSDFThreadData {
 };
 
 static msdfgen::Point2 ft_point2(const FT_Vector &vector) {
-	return msdfgen::Point2(vector.x / 60.0f, vector.y / 60.0f);
+	return msdfgen::Point2(vector.x / ft_units_per_pixel, vector.y / ft_units_per_pixel);
 }
 
 static int ft_move_to(const FT_Vector *to, void *user) {
@@ -1051,8 +1060,9 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_msdf(
 	chr.advance = p_advance;
 
 	if (shape.validate() && shape.contours.size() > 0) {
-		int w = (bounds.r - bounds.l);
-		int h = (bounds.t - bounds.b);
+		// Round the glyph size up to whole pixels so the bitmap fully covers the shape.
+		int w = Math::ceil(bounds.r - bounds.l);
+		int h = Math::ceil(bounds.t - bounds.b);
 
 		if (w == 0 || h == 0) {
 			chr.texture_idx = -1;
@@ -1109,8 +1119,9 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_msdf(
 		chr.texture_idx = tex_pos.index;
 
 		chr.uv_rect = Rect2(tex_pos.x + p_rect_margin, tex_pos.y + p_rect_margin, w + p_rect_margin * 2, h + p_rect_margin * 2);
-		chr.rect.position = Vector2(bounds.l - p_rect_margin, -bounds.t - p_rect_margin);
-
+		// Derive the glyph position from the same bottom-left anchor the rasterizer uses,
+		// rather than top-left, so the two agree about glyph placement.
+		chr.rect.position = Vector2(bounds.l - p_rect_margin, -(bounds.b + h) - p_rect_margin);
 		chr.rect.size = chr.uv_rect.size;
 	}
 	return chr;
@@ -1135,6 +1146,7 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_hb_bi
 	}
 
 	int color_size = p_bgra ? 4 : MONO_GLYPH_COLOR_SIZE;
+	chr.color_glyph = p_bgra;
 
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
@@ -1217,6 +1229,10 @@ _FORCE_INLINE_ TextServerAdvanced::FontGlyph TextServerAdvanced::rasterize_bitma
 			h /= 3;
 		} break;
 	}
+
+	//LCD/LCD_V are subpixel-antialiased grayscale, not color glyphs; they just
+	//happen to need four channels. The draw-time check excludes them via lcd_aa.
+	chr.color_glyph = (p_bitmap.pixel_mode == FT_PIXEL_MODE_BGRA);
 
 	int mw = w + p_rect_margin * 4;
 	int mh = h + p_rect_margin * 4;
@@ -4431,7 +4447,21 @@ void TextServerAdvanced::_font_draw_glyph(const RID &p_font_rid, const RID &p_ca
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (!fd->modulate_color_glyphs && fd->face && ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (!fd->modulate_color_glyphs && fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
@@ -4557,7 +4587,21 @@ void TextServerAdvanced::_font_draw_glyph_outline(const RID &p_font_rid, const R
 		if (fgl.texture_idx != -1) {
 			Color modulate = p_color;
 #ifdef MODULE_FREETYPE_ENABLED
-			if (fd->face && fd->cache[size]->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8) && !lcd_aa && !fd->msdf) {
+			//A glyph that carries its own color must not be tinted by the text color.
+			//Upstream infers that from the atlas being RGBA8, because a grayscale
+			//atlas is LA8. On WebGPU MONO_GLYPH_COLOR_SIZE is 4 (there is no texture
+			//swizzle to broadcast luminance), so grayscale atlases are RGBA8 too and
+			//that inference matches every ordinary glyph -- dropping the modulate and
+			//rendering all text white. Use the flag recorded at rasterization time
+			//instead. Off WebGPU the original test is kept, so glyphs restored from a
+			//pre-baked font cache (which carries no flag) behave exactly as before.
+			//See webgpu_notes/TASKS.md Task 35.
+#ifdef WEBGPU_ENABLED
+			const bool self_colored = fgl.color_glyph;
+#else
+			const bool self_colored = ffsd->textures[fgl.texture_idx].image.is_valid() && (ffsd->textures[fgl.texture_idx].image->get_format() == Image::FORMAT_RGBA8);
+#endif
+			if (fd->face && !lcd_aa && !fd->msdf && self_colored) {
 				modulate.r = modulate.g = modulate.b = 1.0;
 			}
 #endif
@@ -7155,9 +7199,21 @@ UBreakIterator *TextServerAdvanced::_create_line_break_iterator_for_locale(const
 	return ubrk_clone(bi, r_err);
 }
 
-void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_start, int64_t p_end, const String &p_language, hb_script_t p_script, hb_direction_t p_direction, FontPriorityList &p_fonts, int64_t p_span, int64_t p_fb_index, int64_t p_prev_start, int64_t p_prev_end, RID p_prev_font) {
+_FORCE_INLINE_ int TextServerAdvanced::_find_span(ShapedTextDataAdvanced *p_sd, int64_t p_index, int64_t p_span_start, int64_t p_span_end) {
+	if (p_span_start == p_span_end) {
+		return p_span_start;
+	}
+	for (int i = MIN(p_span_start, p_span_end); i <= MAX(p_span_start, p_span_end); i++) {
+		if (p_index >= p_sd->spans[i].start && p_index < p_sd->spans[i].end) {
+			return i;
+		}
+	}
+	return p_span_start;
+}
+
+void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_start, int64_t p_end, const String &p_language, hb_script_t p_script, hb_direction_t p_direction, FontPriorityList &p_fonts, int64_t p_span_start, int64_t p_span_end, int64_t p_fb_index, int64_t p_prev_start, int64_t p_prev_end, RID p_prev_font) {
 	RID f;
-	int fs = p_sd->spans[p_span].font_size;
+	int fs = p_sd->spans[p_span_start].font_size;
 	if (p_fb_index >= 0 && p_fb_index < p_fonts.size()) {
 		// Try font from list.
 		f = p_fonts[p_fb_index];
@@ -7191,7 +7247,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 		for (int i = fb_from; i != fb_to; i += fb_delta) {
 			if (p_sd->preserve_invalid || (p_sd->preserve_control && is_control(p_sd->text[i]))) {
 				Glyph gl;
-				gl.span_index = p_span;
+				gl.span_index = _find_span(p_sd, i + p_sd->start, p_span_start, p_span_end);
 				gl.start = i + p_sd->start;
 				gl.end = i + 1 + p_sd->start;
 				gl.count = 1;
@@ -7273,7 +7329,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 
 	if (p_script == HB_TAG('Z', 's', 'y', 'e') && !color && _font_is_allow_system_fallback(p_fonts[0])) {
 		// Color emoji is requested, skip non-color font.
-		_shape_run(p_sd, p_start, p_end, p_language, p_script, p_direction, p_fonts, p_span, p_fb_index + 1, p_start, p_end, f);
+		_shape_run(p_sd, p_start, p_end, p_language, p_script, p_direction, p_fonts, p_span_start, p_span_end, p_fb_index + 1, p_start, p_end, f);
 		return;
 	}
 
@@ -7306,7 +7362,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 
 	Vector<hb_feature_t> ftrs;
 	_add_features(_font_get_opentype_feature_overrides(f), ftrs);
-	_add_features(p_sd->spans[p_span].features, ftrs);
+	_add_features(p_sd->spans[p_span_start].features, ftrs);
 
 	hb_shape(hb_font, p_sd->hb_buffer, ftrs.is_empty() ? nullptr : &ftrs[0], ftrs.size());
 
@@ -7378,7 +7434,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 			Glyph &gl = w[i];
 			gl = Glyph();
 
-			gl.span_index = p_span;
+			gl.span_index = _find_span(p_sd, glyph_info[i].cluster, p_span_start, p_span_end);
 			gl.start = glyph_info[i].cluster;
 			gl.end = end;
 			gl.count = 0;
@@ -7484,7 +7540,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 		for (unsigned int i = 0; i < glyph_count; i++) {
 			if ((w[i].flags & GRAPHEME_IS_VALID) == GRAPHEME_IS_VALID) {
 				if (failed_subrun_start != p_end + 1) {
-					_shape_run(p_sd, failed_subrun_start, failed_subrun_end, p_language, p_script, p_direction, p_fonts, p_span, p_fb_index + 1, p_start, p_end, (p_fb_index >= p_fonts.size()) ? f : RID());
+					_shape_run(p_sd, failed_subrun_start, failed_subrun_end, p_language, p_script, p_direction, p_fonts, p_span_start, p_span_end, p_fb_index + 1, p_start, p_end, (p_fb_index >= p_fonts.size()) ? f : RID());
 					failed_subrun_start = p_end + 1;
 					failed_subrun_end = p_start;
 				}
@@ -7515,7 +7571,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 		}
 		memfree(w);
 		if (failed_subrun_start != p_end + 1) {
-			_shape_run(p_sd, failed_subrun_start, failed_subrun_end, p_language, p_script, p_direction, p_fonts, p_span, p_fb_index + 1, p_start, p_end, (p_fb_index >= p_fonts.size()) ? f : RID());
+			_shape_run(p_sd, failed_subrun_start, failed_subrun_end, p_language, p_script, p_direction, p_fonts, p_span_start, p_span_end, p_fb_index + 1, p_start, p_end, (p_fb_index >= p_fonts.size()) ? f : RID());
 		}
 		p_sd->ascent = MAX(p_sd->ascent, _font_get_ascent(f, fs) + _font_get_spacing(f, SPACING_TOP));
 		p_sd->descent = MAX(p_sd->descent, _font_get_descent(f, fs) + _font_get_spacing(f, SPACING_BOTTOM));
@@ -7526,7 +7582,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 			Glyph gl;
 			gl.start = p_start;
 			gl.end = p_end;
-			gl.span_index = p_span;
+			gl.span_index = _find_span(p_sd, p_start, p_span_start, p_span_end);
 			gl.font_rid = f;
 			gl.font_size = fs;
 			gl.flags = GRAPHEME_IS_VALID;
@@ -7537,7 +7593,7 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 			p_sd->upos = MAX(p_sd->upos, _font_get_underline_position(f, fs));
 			p_sd->uthk = MAX(p_sd->uthk, _font_get_underline_thickness(f, fs));
 		} else {
-			_shape_run(p_sd, p_start, p_end, p_language, p_script, p_direction, p_fonts, p_span, p_fb_index + 1, p_start, p_end, f);
+			_shape_run(p_sd, p_start, p_end, p_language, p_script, p_direction, p_fonts, p_span_start, p_span_end, p_fb_index + 1, p_start, p_end, f);
 		}
 	}
 }
@@ -7735,6 +7791,25 @@ bool TextServerAdvanced::_shaped_text_shape(const RID &p_shaped) {
 							}
 							sd->glyphs.push_back(gl);
 						} else {
+							int span_start = span.start;
+							int span_end = span.end;
+							int old_k = k;
+
+							int next = k + spn_delta;
+							while (next >= 0 && next < sd->spans.size()) {
+								const ShapedTextDataAdvanced::Span &nspan = sd->spans[next];
+								if (nspan.start - sd->start >= script_run_end || nspan.end - sd->start <= script_run_start - col_key_off) {
+									break;
+								}
+								if (span.fonts == nspan.fonts && span.font_size == nspan.font_size && span.language == nspan.language && span.features == nspan.features && nspan.embedded_key == Variant()) {
+									span_start = MIN(span_start, nspan.start);
+									span_end = MAX(span_end, nspan.end);
+								} else {
+									break;
+								}
+								k = next;
+								next += spn_delta;
+							}
 							// Select best matching language for the run.
 							String language = span.language;
 							if (!language.contains("force")) {
@@ -7746,7 +7821,7 @@ bool TextServerAdvanced::_shaped_text_shape(const RID &p_shaped) {
 								}
 							}
 							FontPriorityList fonts(this, span.fonts, language.left(3).remove_char('_'), script_code, sd->script_iter->script_ranges[j].script == HB_TAG('Z', 's', 'y', 'e'));
-							_shape_run(sd, MAX(span.start - sd->start, script_run_start), MIN(span.end - sd->start, script_run_end), language, sd->script_iter->script_ranges[j].script, bidi_run_direction, fonts, k, 0, 0, 0, RID());
+							_shape_run(sd, MAX(span_start - sd->start, script_run_start), MIN(span_end - sd->start, script_run_end), language, sd->script_iter->script_ranges[j].script, bidi_run_direction, fonts, old_k, k, 0, 0, 0, RID());
 						}
 					}
 				}
@@ -8497,6 +8572,11 @@ TextServerAdvanced::TextServerAdvanced() {
 	_bmp_create_font_funcs();
 	_update_settings();
 	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &TextServerAdvanced::_update_settings));
+#if defined(MODULE_MSDFGEN_ENABLED) && !defined(DISABLE_DEPRECATED)
+	if (GLOBAL_GET("gui/fonts/compatibility/msdf_legacy_scaling")) {
+		ft_units_per_pixel = 60.0;
+	}
+#endif
 }
 
 void TextServerAdvanced::_font_clear_system_fallback_cache() {

@@ -75,6 +75,10 @@ const Span<uint32_t> RenderingShaderContainer::ReflectShaderStage::spirv() const
 	return _spirv_data.span().reinterpret<uint32_t>();
 }
 
+void RenderingShaderContainer::_from_bytes_begin(const PackedByteArray &p_bytes) {
+	// Formats that do not read out of the source buffer lazily need nothing here.
+}
+
 uint32_t RenderingShaderContainer::_from_bytes_header_extra_data(const uint8_t *p_bytes) {
 	return 0;
 }
@@ -139,7 +143,22 @@ void RenderingShaderContainer::_set_from_shader_reflection_post(const ReflectSha
 	// Do nothing.
 }
 
-static RenderingDeviceCommons::DataFormat spv_image_format_to_data_format(const SpvImageFormat p_format) {
+static RenderingDeviceCommons::TextureType _spv_image_dim_to_texture_type(SpvDim p_dim, bool p_arrayed) {
+	switch (p_dim) {
+		case SpvDim1D:
+			return p_arrayed ? RenderingDeviceCommons::TEXTURE_TYPE_1D_ARRAY : RenderingDeviceCommons::TEXTURE_TYPE_1D;
+		case SpvDim2D:
+			return p_arrayed ? RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY : RenderingDeviceCommons::TEXTURE_TYPE_2D;
+		case SpvDim3D:
+			return RenderingDeviceCommons::TEXTURE_TYPE_3D;
+		case SpvDimCube:
+			return p_arrayed ? RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY : RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+		default:
+			return RenderingDeviceCommons::TEXTURE_TYPE_MAX;
+	}
+}
+
+static RenderingDeviceCommons::DataFormat _spv_image_format_to_data_format(const SpvImageFormat p_format) {
 	using RDC = RenderingDeviceCommons;
 	switch (p_format) {
 		case SpvImageFormatUnknown:
@@ -292,11 +311,11 @@ Error RenderingShaderContainer::reflect_spirv(const String &p_shader_name, Span<
 		// This makes no practical difference in current graphics drivers, since Vulkan is the outlier.
 		BitField<RDC::ShaderStage> uniform_stage_flags;
 		if (pipeline_type == RDC::PIPELINE_TYPE_RAYTRACING) {
-			uniform_stage_flags = RDC::SHADER_STAGE_RAYGEN |
-					RDC::SHADER_STAGE_ANY_HIT |
-					RDC::SHADER_STAGE_CLOSEST_HIT |
-					RDC::SHADER_STAGE_MISS |
-					RDC::SHADER_STAGE_INTERSECTION;
+			uniform_stage_flags = RDC::SHADER_STAGE_RAYGEN_BIT |
+					RDC::SHADER_STAGE_ANY_HIT_BIT |
+					RDC::SHADER_STAGE_CLOSEST_HIT_BIT |
+					RDC::SHADER_STAGE_MISS_BIT |
+					RDC::SHADER_STAGE_INTERSECTION_BIT;
 		} else {
 			uniform_stage_flags = stage_flag;
 		}
@@ -309,9 +328,15 @@ Error RenderingShaderContainer::reflect_spirv(const String &p_shader_name, Span<
 					"Reflection of SPIR-V shader stage '" + String(RDC::SHADER_STAGE_NAMES[p_spirv[i].shader_stage]) + "' failed parsing shader.");
 
 			for (uint32_t j = 0; j < module.capability_count; j++) {
-				if (module.capabilities[j].value == SpvCapabilityMultiView) {
-					reflection.has_multiview = true;
-					break;
+				switch (module.capabilities[j].value) {
+					case SpvCapabilityMultiView: {
+						reflection.has_multiview = true;
+					} break;
+					case SpvCapabilityPhysicalStorageBufferAddresses: {
+						reflection.has_physical_storage_buffer_addresses = true;
+					} break;
+					default: {
+					}
 				}
 			}
 
@@ -438,8 +463,14 @@ Error RenderingShaderContainer::reflect_spirv(const String &p_shader_name, Span<
 						uniform.writable = false;
 					}
 
-					if (is_image) {
-						uniform.image.format = spv_image_format_to_data_format(binding.image.image_format);
+					// Gather the texture type and format for runtime validation when creating uniform sets.
+					// We cannot enforce the type for input attachments since they do not indicate whether the texture is 2D or 2D array for multiview.
+					if (is_image && binding.descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_INPUT_ATTACHMENT) {
+						uniform.texture_type = _spv_image_dim_to_texture_type(binding.image.dim, binding.image.arrayed);
+						uniform.texture_format = _spv_image_format_to_data_format(binding.image.image_format);
+
+						ERR_FAIL_COND_V_MSG(uniform.texture_type == RDC::TEXTURE_TYPE_MAX, FAILED,
+								"On shader stage '" + String(RDC::SHADER_STAGE_NAMES[stage]) + "', uniform '" + binding.name + "' does not have a valid texture type.");
 					}
 
 					uniform.binding = binding.binding;
@@ -664,6 +695,7 @@ void RenderingShaderContainer::set_from_shader_reflection(const ReflectShader &p
 	reflection_data.specialization_constants_count = p_reflection.specialization_constants.size();
 	reflection_data.pipeline_type = p_reflection.pipeline_type;
 	reflection_data.has_multiview = p_reflection.has_multiview;
+	reflection_data.has_physical_storage_buffer_addresses = p_reflection.has_physical_storage_buffer_addresses;
 	reflection_data.has_dynamic_buffers = p_reflection.has_dynamic_buffers;
 	reflection_data.compute_local_size[0] = p_reflection.compute_local_size[0];
 	reflection_data.compute_local_size[1] = p_reflection.compute_local_size[1];
@@ -681,6 +713,8 @@ void RenderingShaderContainer::set_from_shader_reflection(const ReflectShader &p
 			binding_data.stages = uint32_t(uniform.stages);
 			binding_data.length = uniform.length;
 			binding_data.writable = uint32_t(uniform.writable);
+			binding_data.texture_type = uniform.texture_type;
+			binding_data.texture_format = uniform.texture_format;
 			reflection_binding_set_uniforms_data.push_back(binding_data);
 		}
 
@@ -721,6 +755,7 @@ RenderingDeviceCommons::ShaderReflection RenderingShaderContainer::get_shader_re
 	shader_refl.fragment_output_mask = reflection_data.fragment_output_mask;
 	shader_refl.pipeline_type = reflection_data.pipeline_type;
 	shader_refl.has_multiview = reflection_data.has_multiview;
+	shader_refl.has_physical_storage_buffer_addresses = reflection_data.has_physical_storage_buffer_addresses;
 	shader_refl.has_dynamic_buffers = reflection_data.has_dynamic_buffers;
 	shader_refl.compute_local_size[0] = reflection_data.compute_local_size[0];
 	shader_refl.compute_local_size[1] = reflection_data.compute_local_size[1];
@@ -743,6 +778,8 @@ RenderingDeviceCommons::ShaderReflection RenderingShaderContainer::get_shader_re
 			uniform.length = binding.length;
 			uniform.binding = binding.binding;
 			uniform.stages = binding.stages;
+			uniform.texture_type = binding.texture_type;
+			uniform.texture_format = binding.texture_format;
 		}
 	}
 
@@ -769,6 +806,8 @@ bool RenderingShaderContainer::from_bytes(const PackedByteArray &p_bytes) {
 	const uint64_t alignment = sizeof(uint32_t);
 	const uint8_t *bytes_ptr = p_bytes.ptr();
 	uint64_t bytes_offset = 0;
+
+	_from_bytes_begin(p_bytes);
 
 	// Read container header.
 	ERR_FAIL_COND_V_MSG(int64_t(bytes_offset + sizeof(ContainerHeader)) > p_bytes.size(), false, "Not enough bytes for a container header in shader container.");
@@ -854,7 +893,13 @@ bool RenderingShaderContainer::from_bytes(const PackedByteArray &p_bytes) {
 		shader.code_compression_flags = header.code_compression_flags;
 		shader.code_decompressed_size = header.code_decompressed_size;
 		shader.code_compressed_bytes.resize(header.code_compressed_size);
-		memcpy(shader.code_compressed_bytes.ptrw(), &bytes_ptr[bytes_offset], header.code_compressed_size);
+		if (header.code_compressed_size > 0) {
+			// Guarded because a zero-size payload is a normal shape here, not a
+			// malformed container: the WebGPU format omits the SPIR-V entirely
+			// for a shader whose WGSL was baked at export time, and ptrw() on an
+			// empty Vector is null.
+			memcpy(shader.code_compressed_bytes.ptrw(), &bytes_ptr[bytes_offset], header.code_compressed_size);
+		}
 		bytes_offset = aligned_to(bytes_offset + header.code_compressed_size, alignment);
 		bytes_offset += _from_bytes_shader_extra_data(&bytes_ptr[bytes_offset], i);
 	}

@@ -140,9 +140,9 @@ void Box3DPhysicsServer3D::shape_set_custom_solver_bias(RID p_shape, real_t p_bi
 	shape->set_solver_bias((float)p_bias);
 }
 
-PhysicsServer3D::ShapeType Box3DPhysicsServer3D::shape_get_type(RID p_shape) const {
+PS3DE::ShapeType Box3DPhysicsServer3D::shape_get_type(RID p_shape) const {
 	const Box3DShape3D *shape = shape_owner.get_or_null(p_shape);
-	ERR_FAIL_NULL_V(shape, SHAPE_CUSTOM);
+	ERR_FAIL_NULL_V(shape, PS3DE::SHAPE_CUSTOM);
 
 	return shape->get_type();
 }
@@ -202,14 +202,14 @@ bool Box3DPhysicsServer3D::space_is_active(RID p_space) const {
 	return active_spaces.has(space);
 }
 
-void Box3DPhysicsServer3D::space_set_param(RID p_space, SpaceParameter p_param, real_t p_value) {
+void Box3DPhysicsServer3D::space_set_param(RID p_space, PS3DE::SpaceParameter p_param, real_t p_value) {
 	Box3DSpace3D *space = space_owner.get_or_null(p_space);
 	ERR_FAIL_NULL(space);
 
 	space->set_param(p_param, (double)p_value);
 }
 
-real_t Box3DPhysicsServer3D::space_get_param(RID p_space, SpaceParameter p_param) const {
+real_t Box3DPhysicsServer3D::space_get_param(RID p_space, PS3DE::SpaceParameter p_param) const {
 	const Box3DSpace3D *space = space_owner.get_or_null(p_space);
 	ERR_FAIL_NULL_V(space, 0.0);
 
@@ -404,7 +404,7 @@ ObjectID Box3DPhysicsServer3D::area_get_object_instance_id(RID p_area) const {
 	return area->get_instance_id();
 }
 
-void Box3DPhysicsServer3D::area_set_param(RID p_area, AreaParameter p_param, const Variant &p_value) {
+void Box3DPhysicsServer3D::area_set_param(RID p_area, PS3DE::AreaParameter p_param, const Variant &p_value) {
 	RID area_rid = p_area;
 
 	if (space_owner.owns(area_rid)) {
@@ -418,7 +418,7 @@ void Box3DPhysicsServer3D::area_set_param(RID p_area, AreaParameter p_param, con
 	area->set_param(p_param, p_value);
 }
 
-Variant Box3DPhysicsServer3D::area_get_param(RID p_area, AreaParameter p_param) const {
+Variant Box3DPhysicsServer3D::area_get_param(RID p_area, PS3DE::AreaParameter p_param) const {
 	RID area_rid = p_area;
 
 	if (space_owner.owns(area_rid)) {
@@ -536,16 +536,16 @@ RID Box3DPhysicsServer3D::body_get_space(RID p_body) const {
 	return space->get_rid();
 }
 
-void Box3DPhysicsServer3D::body_set_mode(RID p_body, BodyMode p_mode) {
+void Box3DPhysicsServer3D::body_set_mode(RID p_body, PS3DE::BodyMode p_mode) {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
 	body->set_mode(p_mode);
 }
 
-PhysicsServer3D::BodyMode Box3DPhysicsServer3D::body_get_mode(RID p_body) const {
+PS3DE::BodyMode Box3DPhysicsServer3D::body_get_mode(RID p_body) const {
 	const Box3DBody3D *body = body_owner.get_or_null(p_body);
-	ERR_FAIL_NULL_V(body, BODY_MODE_STATIC);
+	ERR_FAIL_NULL_V(body, PS3DE::BODY_MODE_STATIC);
 
 	return body->get_mode();
 }
@@ -703,14 +703,14 @@ uint32_t Box3DPhysicsServer3D::body_get_user_flags(RID p_body) const {
 	return 0;
 }
 
-void Box3DPhysicsServer3D::body_set_param(RID p_body, BodyParameter p_param, const Variant &p_value) {
+void Box3DPhysicsServer3D::body_set_param(RID p_body, PS3DE::BodyParameter p_param, const Variant &p_value) {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
 	body->set_param(p_param, p_value);
 }
 
-Variant Box3DPhysicsServer3D::body_get_param(RID p_body, BodyParameter p_param) const {
+Variant Box3DPhysicsServer3D::body_get_param(RID p_body, PS3DE::BodyParameter p_param) const {
 	const Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, Variant());
 
@@ -724,14 +724,14 @@ void Box3DPhysicsServer3D::body_reset_mass_properties(RID p_body) {
 	body->reset_mass_properties();
 }
 
-void Box3DPhysicsServer3D::body_set_state(RID p_body, BodyState p_state, const Variant &p_value) {
+void Box3DPhysicsServer3D::body_set_state(RID p_body, PS3DE::BodyState p_state, const Variant &p_value) {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
 	body->set_state(p_state, p_value);
 }
 
-Variant Box3DPhysicsServer3D::body_get_state(RID p_body, BodyState p_state) const {
+Variant Box3DPhysicsServer3D::body_get_state(RID p_body, PS3DE::BodyState p_state) const {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, Variant());
 
@@ -836,14 +836,14 @@ void Box3DPhysicsServer3D::body_set_axis_velocity(RID p_body, const Vector3 &p_a
 	body->set_axis_velocity(p_axis_velocity);
 }
 
-void Box3DPhysicsServer3D::body_set_axis_lock(RID p_body, BodyAxis p_axis, bool p_lock) {
+void Box3DPhysicsServer3D::body_set_axis_lock(RID p_body, PS3DE::BodyAxis p_axis, bool p_lock) {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
 	body->set_axis_lock(p_axis, p_lock);
 }
 
-bool Box3DPhysicsServer3D::body_is_axis_locked(RID p_body, BodyAxis p_axis) const {
+bool Box3DPhysicsServer3D::body_is_axis_locked(RID p_body, PS3DE::BodyAxis p_axis) const {
 	const Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, false);
 
@@ -930,7 +930,7 @@ void Box3DPhysicsServer3D::body_set_ray_pickable(RID p_body, bool p_enable) {
 	body->set_pickable(p_enable);
 }
 
-bool Box3DPhysicsServer3D::body_test_motion(RID p_body, const MotionParameters &p_parameters, MotionResult *r_result) {
+bool Box3DPhysicsServer3D::body_test_motion(RID p_body, const PS3DT::MotionParameters &p_parameters, PS3DT::MotionResult *r_result) {
 	Box3DBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, false);
 
@@ -1060,14 +1060,14 @@ void Box3DPhysicsServer3D::soft_body_get_collision_exceptions(RID p_body, List<R
 	}
 }
 
-void Box3DPhysicsServer3D::soft_body_set_state(RID p_body, BodyState p_state, const Variant &p_value) {
+void Box3DPhysicsServer3D::soft_body_set_state(RID p_body, PS3DE::BodyState p_state, const Variant &p_value) {
 	Box3DSoftBody3D *body = soft_body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
 	body->set_state(p_state, p_value);
 }
 
-Variant Box3DPhysicsServer3D::soft_body_get_state(RID p_body, BodyState p_state) const {
+Variant Box3DPhysicsServer3D::soft_body_get_state(RID p_body, PS3DE::BodyState p_state) const {
 	Box3DSoftBody3D *body = soft_body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, Variant());
 
@@ -1236,7 +1236,7 @@ void Box3DPhysicsServer3D::joint_clear(RID p_joint) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	if (joint->get_type() != JOINT_TYPE_MAX) {
+	if (joint->get_type() != PS3DE::JOINT_TYPE_MAX) {
 		Box3DJoint3D *empty_joint = memnew(Box3DJoint3D);
 		empty_joint->set_rid(joint->get_rid());
 
@@ -1265,21 +1265,21 @@ void Box3DPhysicsServer3D::joint_make_pin(RID p_joint, RID p_body_a, const Vecto
 	joint_owner.replace(p_joint, new_joint);
 }
 
-void Box3DPhysicsServer3D::pin_joint_set_param(RID p_joint, PinJointParam p_param, real_t p_value) {
+void Box3DPhysicsServer3D::pin_joint_set_param(RID p_joint, PS3DE::PinJointParam p_param, real_t p_value) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_PIN);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_PIN);
 	Box3DPinJoint3D *pin_joint = static_cast<Box3DPinJoint3D *>(joint);
 
 	pin_joint->set_param(p_param, (double)p_value);
 }
 
-real_t Box3DPhysicsServer3D::pin_joint_get_param(RID p_joint, PinJointParam p_param) const {
+real_t Box3DPhysicsServer3D::pin_joint_get_param(RID p_joint, PS3DE::PinJointParam p_param) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, 0.0);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_PIN, 0.0);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_PIN, 0.0);
 	const Box3DPinJoint3D *pin_joint = static_cast<const Box3DPinJoint3D *>(joint);
 
 	return (real_t)pin_joint->get_param(p_param);
@@ -1289,7 +1289,7 @@ void Box3DPhysicsServer3D::pin_joint_set_local_a(RID p_joint, const Vector3 &p_l
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_PIN);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_PIN);
 	Box3DPinJoint3D *pin_joint = static_cast<Box3DPinJoint3D *>(joint);
 
 	pin_joint->set_local_a(p_local_a);
@@ -1299,7 +1299,7 @@ Vector3 Box3DPhysicsServer3D::pin_joint_get_local_a(RID p_joint) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, Vector3());
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_PIN, Vector3());
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_PIN, Vector3());
 	const Box3DPinJoint3D *pin_joint = static_cast<const Box3DPinJoint3D *>(joint);
 
 	return pin_joint->get_local_a();
@@ -1309,7 +1309,7 @@ void Box3DPhysicsServer3D::pin_joint_set_local_b(RID p_joint, const Vector3 &p_l
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_PIN);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_PIN);
 	Box3DPinJoint3D *pin_joint = static_cast<Box3DPinJoint3D *>(joint);
 
 	pin_joint->set_local_b(p_local_b);
@@ -1319,7 +1319,7 @@ Vector3 Box3DPhysicsServer3D::pin_joint_get_local_b(RID p_joint) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, Vector3());
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_PIN, Vector3());
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_PIN, Vector3());
 	const Box3DPinJoint3D *pin_joint = static_cast<const Box3DPinJoint3D *>(joint);
 
 	return pin_joint->get_local_b();
@@ -1356,41 +1356,41 @@ void Box3DPhysicsServer3D::joint_make_hinge_simple(RID p_joint, RID p_body_a, co
 	joint_make_hinge(p_joint, p_body_a, make_frame(p_pivot_a, p_axis_a), p_body_b, make_frame(p_pivot_b, p_axis_b));
 }
 
-void Box3DPhysicsServer3D::hinge_joint_set_param(RID p_joint, HingeJointParam p_param, real_t p_value) {
+void Box3DPhysicsServer3D::hinge_joint_set_param(RID p_joint, PS3DE::HingeJointParam p_param, real_t p_value) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_HINGE);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_HINGE);
 	Box3DHingeJoint3D *hinge_joint = static_cast<Box3DHingeJoint3D *>(joint);
 
 	return hinge_joint->set_param(p_param, (double)p_value);
 }
 
-real_t Box3DPhysicsServer3D::hinge_joint_get_param(RID p_joint, HingeJointParam p_param) const {
+real_t Box3DPhysicsServer3D::hinge_joint_get_param(RID p_joint, PS3DE::HingeJointParam p_param) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, 0.0);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_HINGE, 0.0);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_HINGE, 0.0);
 	const Box3DHingeJoint3D *hinge_joint = static_cast<const Box3DHingeJoint3D *>(joint);
 
 	return (real_t)hinge_joint->get_param(p_param);
 }
 
-void Box3DPhysicsServer3D::hinge_joint_set_flag(RID p_joint, HingeJointFlag p_flag, bool p_enabled) {
+void Box3DPhysicsServer3D::hinge_joint_set_flag(RID p_joint, PS3DE::HingeJointFlag p_flag, bool p_enabled) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_HINGE);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_HINGE);
 	Box3DHingeJoint3D *hinge_joint = static_cast<Box3DHingeJoint3D *>(joint);
 
 	return hinge_joint->set_flag(p_flag, p_enabled);
 }
 
-bool Box3DPhysicsServer3D::hinge_joint_get_flag(RID p_joint, HingeJointFlag p_flag) const {
+bool Box3DPhysicsServer3D::hinge_joint_get_flag(RID p_joint, PS3DE::HingeJointFlag p_flag) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, false);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_HINGE, false);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_HINGE, false);
 	const Box3DHingeJoint3D *hinge_joint = static_cast<const Box3DHingeJoint3D *>(joint);
 
 	return hinge_joint->get_flag(p_flag);
@@ -1414,21 +1414,21 @@ void Box3DPhysicsServer3D::joint_make_slider(RID p_joint, RID p_body_a, const Tr
 	joint_owner.replace(p_joint, new_joint);
 }
 
-void Box3DPhysicsServer3D::slider_joint_set_param(RID p_joint, SliderJointParam p_param, real_t p_value) {
+void Box3DPhysicsServer3D::slider_joint_set_param(RID p_joint, PS3DE::SliderJointParam p_param, real_t p_value) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_SLIDER);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_SLIDER);
 	Box3DSliderJoint3D *slider_joint = static_cast<Box3DSliderJoint3D *>(joint);
 
 	return slider_joint->set_param(p_param, (real_t)p_value);
 }
 
-real_t Box3DPhysicsServer3D::slider_joint_get_param(RID p_joint, SliderJointParam p_param) const {
+real_t Box3DPhysicsServer3D::slider_joint_get_param(RID p_joint, PS3DE::SliderJointParam p_param) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, 0.0);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_SLIDER, 0.0);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_SLIDER, 0.0);
 	const Box3DSliderJoint3D *slider_joint = static_cast<const Box3DSliderJoint3D *>(joint);
 
 	return slider_joint->get_param(p_param);
@@ -1452,21 +1452,21 @@ void Box3DPhysicsServer3D::joint_make_cone_twist(RID p_joint, RID p_body_a, cons
 	joint_owner.replace(p_joint, new_joint);
 }
 
-void Box3DPhysicsServer3D::cone_twist_joint_set_param(RID p_joint, ConeTwistJointParam p_param, real_t p_value) {
+void Box3DPhysicsServer3D::cone_twist_joint_set_param(RID p_joint, PS3DE::ConeTwistJointParam p_param, real_t p_value) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_CONE_TWIST);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_CONE_TWIST);
 	Box3DConeTwistJoint3D *cone_twist_joint = static_cast<Box3DConeTwistJoint3D *>(joint);
 
 	return cone_twist_joint->set_param(p_param, (double)p_value);
 }
 
-real_t Box3DPhysicsServer3D::cone_twist_joint_get_param(RID p_joint, ConeTwistJointParam p_param) const {
+real_t Box3DPhysicsServer3D::cone_twist_joint_get_param(RID p_joint, PS3DE::ConeTwistJointParam p_param) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, 0.0);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_CONE_TWIST, 0.0);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_CONE_TWIST, 0.0);
 	const Box3DConeTwistJoint3D *cone_twist_joint = static_cast<const Box3DConeTwistJoint3D *>(joint);
 
 	return (real_t)cone_twist_joint->get_param(p_param);
@@ -1490,49 +1490,69 @@ void Box3DPhysicsServer3D::joint_make_generic_6dof(RID p_joint, RID p_body_a, co
 	joint_owner.replace(p_joint, new_joint);
 }
 
-void Box3DPhysicsServer3D::generic_6dof_joint_set_param(RID p_joint, Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param, real_t p_value) {
+void Box3DPhysicsServer3D::generic_6dof_joint_set_param(RID p_joint, Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param, real_t p_value) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_6DOF);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_6DOF);
 	Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<Box3DGeneric6DOFJoint3D *>(joint);
 
 	return g6dof_joint->set_param(p_axis, p_param, (double)p_value);
 }
 
-real_t Box3DPhysicsServer3D::generic_6dof_joint_get_param(RID p_joint, Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisParam p_param) const {
+real_t Box3DPhysicsServer3D::generic_6dof_joint_get_param(RID p_joint, Vector3::Axis p_axis, PS3DE::G6DOFJointAxisParam p_param) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, 0.0);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_6DOF, 0.0);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_6DOF, 0.0);
 	const Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<const Box3DGeneric6DOFJoint3D *>(joint);
 
 	return (real_t)g6dof_joint->get_param(p_axis, p_param);
 }
 
-void Box3DPhysicsServer3D::generic_6dof_joint_set_flag(RID p_joint, Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag, bool p_enable) {
+void Box3DPhysicsServer3D::generic_6dof_joint_set_flag(RID p_joint, Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag, bool p_enable) {
 	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	ERR_FAIL_COND(joint->get_type() != JOINT_TYPE_6DOF);
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_6DOF);
 	Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<Box3DGeneric6DOFJoint3D *>(joint);
 
 	return g6dof_joint->set_flag(p_axis, p_flag, p_enable);
 }
 
-bool Box3DPhysicsServer3D::generic_6dof_joint_get_flag(RID p_joint, Vector3::Axis p_axis, PhysicsServer3D::G6DOFJointAxisFlag p_flag) const {
+bool Box3DPhysicsServer3D::generic_6dof_joint_get_flag(RID p_joint, Vector3::Axis p_axis, PS3DE::G6DOFJointAxisFlag p_flag) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL_V(joint, false);
 
-	ERR_FAIL_COND_V(joint->get_type() != JOINT_TYPE_6DOF, false);
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_6DOF, false);
 	const Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<const Box3DGeneric6DOFJoint3D *>(joint);
 
 	return g6dof_joint->get_flag(p_axis, p_flag);
 }
 
-PhysicsServer3D::JointType Box3DPhysicsServer3D::joint_get_type(RID p_joint) const {
+void Box3DPhysicsServer3D::generic_6dof_joint_set_angular_target_rotation(RID p_joint, const Quaternion &p_target_rotation) {
+	Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(joint);
+
+	ERR_FAIL_COND(joint->get_type() != PS3DE::JOINT_TYPE_6DOF);
+	Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<Box3DGeneric6DOFJoint3D *>(joint);
+
+	g6dof_joint->set_angular_target_rotation(p_target_rotation);
+}
+
+Quaternion Box3DPhysicsServer3D::generic_6dof_joint_get_angular_target_rotation(RID p_joint) const {
 	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
-	ERR_FAIL_NULL_V(joint, JOINT_TYPE_PIN);
+	ERR_FAIL_NULL_V(joint, Quaternion());
+
+	ERR_FAIL_COND_V(joint->get_type() != PS3DE::JOINT_TYPE_6DOF, Quaternion());
+	const Box3DGeneric6DOFJoint3D *g6dof_joint = static_cast<const Box3DGeneric6DOFJoint3D *>(joint);
+
+	return g6dof_joint->get_angular_target_rotation();
+}
+
+PS3DE::JointType Box3DPhysicsServer3D::joint_get_type(RID p_joint) const {
+	const Box3DJoint3D *joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL_V(joint, PS3DE::JOINT_TYPE_PIN);
 
 	return joint->get_type();
 }
@@ -1631,21 +1651,21 @@ bool Box3DPhysicsServer3D::is_flushing_queries() const {
 	return flushing_queries;
 }
 
-int Box3DPhysicsServer3D::get_process_info(ProcessInfo p_process_info) {
+int Box3DPhysicsServer3D::get_process_info(PS3DE::ProcessInfo p_process_info) {
 	int count = 0;
 
 	switch (p_process_info) {
-		case INFO_ACTIVE_OBJECTS: {
+		case PS3DE::INFO_ACTIVE_OBJECTS: {
 			for (const Box3DSpace3D *space : active_spaces) {
 				count += space->get_awake_body_count();
 			}
 		} break;
-		case INFO_COLLISION_PAIRS: {
+		case PS3DE::INFO_COLLISION_PAIRS: {
 			for (const Box3DSpace3D *space : active_spaces) {
 				count += b3World_GetCounters(space->get_world()).contactCount;
 			}
 		} break;
-		case INFO_ISLAND_COUNT: {
+		case PS3DE::INFO_ISLAND_COUNT: {
 			for (const Box3DSpace3D *space : active_spaces) {
 				count += b3World_GetCounters(space->get_world()).islandCount;
 			}

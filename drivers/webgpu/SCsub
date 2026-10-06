@@ -775,6 +775,13 @@ else:
     baker_sources = [
         "#drivers/webgpu/rendering_shader_container_webgpu.cpp",
         "#drivers/webgpu/wgsl_bake_subprocess.cpp",
+        # Raw SPIR-V reflection the baker records into each container so the
+        # runtime does not have to re-derive it (and, where it covers
+        # everything the runtime needs, so the container can ship without the
+        # SPIR-V at all). A plain instruction-stream walk with no SPIRV-Tools
+        # dependency, which is what lets it be here -- see
+        # spirv_lite_reflect.h's doc comment.
+        "#drivers/webgpu/spirv_lite_reflect.cpp",
         # Needed to bake recorded specialization-constant variants at export
         # time (Task 13 Phase 2) -- pure SPIR-V byte patching + hashing, no
         # SPIRV-Tools/Tint dependency, so safe to add here unlike

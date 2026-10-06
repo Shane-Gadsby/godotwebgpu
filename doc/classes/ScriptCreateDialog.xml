@@ -33,8 +33,10 @@
 			<param index="1" name="path" type="String" />
 			<param index="2" name="built_in_enabled" type="bool" default="true" />
 			<param index="3" name="load_enabled" type="bool" default="true" />
+			<param index="4" name="use_default_folder" type="bool" default="true" />
 			<description>
 				Prefills required fields to configure the ScriptCreateDialog for use.
+				If [param use_default_folder] is [code]true[/code] and [member ProjectSettings.editor/script/default_script_folder] is set, the file name of [param path] is placed in that folder instead of the directory given by [param path].
 			</description>
 		</method>
 	</methods>

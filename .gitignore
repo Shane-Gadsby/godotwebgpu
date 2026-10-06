@@ -402,3 +402,4 @@ $RECYCLE.BIN/
 tmp/
 errors-chrome.txt
 sdks/MacOSX15.5.tar.xz
+/.logs/

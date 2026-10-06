@@ -19,10 +19,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Beta-gray?style=flat-square" alt="Beta">
   <img src="https://img.shields.io/badge/Fork_of-dwalter%2Fgodotwebgpu-8957e5?style=flat-square" alt="Fork of dwalter/godotwebgpu">
-  <img src="https://img.shields.io/badge/Godot-4.7.2-478cbf?style=flat-square" alt="Godot 4.7.2">
+  <img src="https://img.shields.io/badge/Godot-4.8--dev-478cbf?style=flat-square" alt="Godot 4.8-dev">
   <img src="https://img.shields.io/badge/Renderer-Forward%2B-478cbf?style=flat-square" alt="Forward+ Renderer">
   <img src="https://img.shields.io/badge/WebGPU-1.0-478cbf?style=flat-square" alt="WebGPU 1.0">
   <img src="https://img.shields.io/badge/Compute_Shaders-supported-d29922?style=flat-square" alt="Compute Shaders">
+  <img src="https://img.shields.io/badge/3D_Physics-Box3D-d29922?style=flat-square" alt="Box3D Physics">
   <img src="https://img.shields.io/badge/Chrome-113+-478cbf?style=flat-square" alt="Chrome 113+">
   <img src="https://img.shields.io/badge/Safari-18+-478cbf?style=flat-square" alt="Safari 18+">
   <img src="https://img.shields.io/badge/Firefox-120+-478cbf?style=flat-square" alt="Firefox 120+">
@@ -47,7 +48,7 @@
   <tr>
     <td align="center"><strong>5x</strong><br><sub>FPS vs WebGL</sub></td>
     <td align="center"><strong>80%</strong><br><sub>FPS vs Native</sub></td>
-    <td align="center"><strong>20K+</strong><br><sub>Lines Written</sub></td>
+    <td align="center"><strong>34K+</strong><br><sub>Lines Written</sub></td>
     <td align="center"><strong>146</strong><br><sub>Shaders Converted</sub></td>
   </tr>
 </table>
@@ -72,8 +73,48 @@ This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/
 
 Building on that base, this fork has two main goals:
 
-- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI.
-- **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.7.2** (see `webgpu_notes/TASKS.md` Phase 8 for sync history and status).
+- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10.
+- **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` Phase 15 for the port, Phase 8 for the earlier 4.7.2 sync).
+- **Box3D as the default 3D physics engine.** A new `PhysicsServer3D` implementation on top of Erin Catto's [Box3D](https://github.com/erincatto/box3d) — see [3D Physics](#3d-physics-box3d) below. Independent of the renderer work; it happens to matter most on the web, where Godot's other 3D physics options are the heaviest part of the build.
+- **Editor quality-of-life.** Small in-editor additions on top of upstream: mouse events in the script editor, and a per-project default directory for newly created scripts.
+
+---
+
+## 3D Physics: Box3D
+
+`modules/box3d_physics/` implements Godot's `PhysicsServer3D` on top of the official
+[Box3D](https://github.com/erincatto/box3d) rigid-body engine (vendored in `thirdparty/box3d`, plain C17, MIT).
+It registers as **"Box3D Physics"** with default priority, so `physics/3d/physics_engine = DEFAULT`
+resolves to it and new projects created by the editor are written with it. **"Jolt Physics"** and
+**"GodotPhysics3D"** remain selectable in the project settings, so nothing here is one-way.
+
+It is a real physics server, not a GDExtension exposing its own node types: it backs `RigidBody3D`,
+`CharacterBody3D`, `StaticBody3D`, `Area3D` and the `PhysicsDirectSpaceState3D` queries like any other
+backend. The module mirrors `modules/jolt_physics/` in structure (`objects/`, `shapes/`, `spaces/`, `joints/`).
+
+**Validated** against headless GDScript scenes run under Box3D, Jolt and GodotPhysics3D with matching
+results: rigid/kinematic/static bodies, every shape type, areas (monitoring, gravity/damping overrides,
+area-area, ray picking), contact reporting, `CharacterBody3D` (`body_test_motion`, floor detection, moving
+platforms), ray/point/shape queries, `cast_motion`, `collide_shape`, `get_rest_info`, hinge/slider/pin/cone-twist
+joints with limits and motors, constant surface velocity, CCD, custom integrators, axis locks, the separate
+physics-thread mode, and a randomized create/destroy/modify stress test.
+
+**Known gaps**, each reported once through `Box3DDiagnostics::report_unsupported()` with the requested
+values and the reason, so they can be diagnosed from a log alone: soft bodies (`SoftBody3D` is inert),
+generic 6DOF joints (approximated as weld/ball/prismatic where the locked axes allow, otherwise not
+built), joint motors/springs beyond hinge motors, joint solver priority/iteration overrides, custom shape
+solver bias, non-uniform scale on spheres/capsules, concave/heightmap shapes on non-static bodies, back-face
+collision on concave shapes, angular constant velocity on static bodies, debug contact visualization, and
+`cast_motion` with rest info.
+
+**Approximations worth remembering**: cylinders are 32-sided prisms, `WorldBoundaryShape3D` is a 2000 m
+box, height maps are triangle meshes, and damping uses Box3D's formula rather than Godot's, so heavily
+damped bodies differ slightly. Web builds always run Box3D single-threaded (`workerCount = 1`) — its own
+thread creation cannot work from the web export's fixed pthread pool.
+
+See `webgpu_notes/TASKS.md` Phase 11 for the full status, and `CLAUDE.md` for the architectural notes
+that are easy to trip over (Box3D shapes belong to one body with their transform baked in; Godot's
+one-directional layer/mask rules are enforced by a custom filter rather than Box3D's symmetric bits).
 
 ---
 
@@ -81,28 +122,28 @@ Building on that base, this fork has two main goals:
 
 | Platform | Browser | Verified by | Result |
 |----------|---------|-------------|--------|
-| Linux | Chrome | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
-| Linux | Firefox | Scene smoketest, 19 scenes, 2026-09-27 | **19 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
+| Linux | Chrome | Scene smoketest, 21 scenes, 2026-10-06 | **21 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
+| Linux | Firefox | Scene smoketest, 21 scenes, 2026-10-06 | **21 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
 | Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
 | Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
 | macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
 | Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behavior, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
 | iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
 
-The smoketest is the only automated per-scene measurement, and it covers 19 scenes (8 benchmarks, 10 demos, 1 stress test) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
+The smoketest is the only automated per-scene measurement, and it covers 21 scenes (8 benchmarks, 10 demos, 1 stress test, and 2 that exist to be asserted on — font rendering and volumetric fog) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
 
 ### Known Issues
 
-Outstanding problems as of **2026-09-27**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the current state and what to pick up next.
+Outstanding problems as of **2026-10-06**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the current state and what to pick up next.
 
 **Rendering**
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| Volumetric fog looks blockier than native (froxel sampling) | open, uninvestigated (Task 12.1) | Not projector- or shadow-specific; noticed while verifying light projectors, which are otherwise pixel-equivalent to native Vulkan |
 | `command_render_clear_attachments` is a no-op | won't fix | WebGPU has no mid-pass attachment clear. Confirmed dead code on every Godot backend today |
 | `draw_indexed_indirect_count` / `draw_indirect_count` ignore the count buffer | won't fix | WebGPU has no multi-draw-indirect-count. No current renderer uses count-buffer indirect draws |
 | Explicit `command_resolve_texture()` is a stub | won't fix for now | MSAA goes through render-pass `resolveTarget`, which is implemented. Only out-of-pass resolves are missing |
+| No image/texture atomics (`SUPPORTS_IMAGE_ATOMIC_32_BIT` is false) | by design | WGSL has no image-atomics concept. Engine code that wants them must select its `NO_IMAGE_ATOMICS` shader variant *and* leave `TEXTURE_USAGE_STORAGE_ATOMIC_BIT` off the texture, or `texture_create()` hard-fails — see `fog.cpp` and `gi.cpp` for the gating idiom |
 | No hardware multiview, VRS, or subgroups; subpass post-processing disabled; `binding_array` flattened to one element (no multi-lightmap); omni shadows forced to dual-paraboloid | by design | WebGPU feature gaps — see [Correctness & Compatibility](webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md) |
 
 **Readback and formats**
@@ -113,7 +154,8 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 | `RenderingDevice.texture_get_data()` returns nothing on the first call | open (Task 45) | Consequence of the above: the first call starts the copy-and-map and the data lands a frame later, and `rd.sync()` cannot wait for it. Web GDScript that needs a readback must retry or use `texture_get_data_async()`. `GradientTexture1D/2D.get_image()` no longer round-trips through the GPU and works normally |
 | 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | emdawnwebgpu has no `R16Unorm`/`Snorm` family at all. Costs memory; correctness is fine. Vertex attributes are unaffected |
 | Canvas SDF uses `R16_SFLOAT` instead of `R16_SNORM` | workaround (Task 44) | Dawn reports `R16Snorm`'s sample type as `UnfilterableFloat` while the SDF samples it with a filtering sampler |
-| Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load |
+| A storage image's `layout(<format>, ...)` in GLSL must match the bound texture's `DataFormat` exactly | by design | Vulkan/Metal/D3D12 tolerate a mismatch; WebGPU rejects it at bind time, and one invalid bind group invalidates the whole command buffer — so `Queue.Submit` silently drops the entire frame. A shared-engine-code change that moves one side must move the other; this is what blacked out 3D after the 4.8 merge (Task 15.5) |
+| Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load. Promotion is applied to the texture and the WGSL declaration together, so the rule above still holds |
 | Float32 textures downgraded to float16 on Adreno | vendor workaround | Precision loss on affected Android GPUs |
 
 **Build and export**
@@ -126,6 +168,7 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 | The editor and the export template must be built from the same commit | by design (Task 36) | Baked shader caches are keyed to the engine version hash. A mismatch silently discards the whole cache (`{baked: 0, translated: N}` and a ~5× slower load); the engine now reports it |
 | An export made with `--headless` silently skips the shader baker | workaround | 15 MB `.pck` instead of ~135 MB. Use `xvfb-run` with a real rendering driver |
 | `tint_convert_cli` is compiled without `-DNDEBUG` | open (Task 13.1) | SPIRV-Tools/Tint asserts are live in the host tool; they surface as isolated "Tint crashed" bake entries |
+| Box3D has never run physics in a browser | open (Task 11.1) | The web link is no longer in doubt — the module compiles for `wasm32` with `-msimd128 -msse2` and links into both shipped templates (symbols present in `godot.side.web.*.wasm`). What is still unverified is an actual in-browser physics run: no smoketest scene exercises 3D physics on the web. `precision=double` (`BOX3D_DOUBLE_PRECISION`) is wired but never built |
 
 **Performance and lifetime**
 
@@ -139,8 +182,63 @@ Outstanding problems as of **2026-09-27**. Everything here is reproduced and dia
 
 **Verification gaps**
 
+- **A green test suite does not mean Forward+ renders.** In a container the suite runs on a software adapter, which reports fewer than 48 textures per shader stage — and `RendererCompositorRD::initialize()` silently falls back to **Forward Mobile** when it sees that. SSAO and SSIL are Forward+-only, and SDFGI's voxelization lives in the clustered shader, so none of them execute there. The 4.8 port had every tier green while 3D rendered entirely black on real hardware (Task 15.5). Treat a container run as "the engine boots and loads every scene", and use a real-GPU run against a real project for anything renderer-dependent — `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` is the procedure.
+- **Pixel assertions are unreliable headless.** Under headless swiftshader nothing presents to a capturable canvas, so every pixel-based check fails identically whatever the engine drew. Headless Firefox additionally cannot initialize a compositor here at all (`RenderCompositorSWGL failed mapping default framebuffer`) and screenshots come back fully black *including the 2D UI*, while the same build headed renders correctly. This is why `local_ci.sh` currently reports one failure — "Font rendering colors — Firefox", claiming "glyph modulate is being dropped" — which is specific, plausible and wrong. Chrome's equivalent passes.
 - Safari has never been run against the scene smoketest (macOS only); the 100% figures above come from manual testing.
 - Texture compression is settled on desktop (BC, both browsers); Safari and mobile formats are unmeasured (Task 39).
+- Box3D is validated natively against Jolt and GodotPhysics3D, but not in a browser; no scene in the smoketest exercises 3D physics under Box3D on the web.
+
+---
+
+## Test Suite
+
+Last full run **2026-10-06**, on Godot 4.8. Everything is green except one known-false-positive tier
+(see below) and Safari (macOS only, and no macOS machine is in this fork's loop). See
+[`webgpu_tests/README.md`](webgpu_tests/README.md) for what each tier covers and how to run it.
+
+| Tier | Result | Needs |
+|------|--------|-------|
+| `shader_corpus` | **14 / 14** | `tint_convert_cli` only — no engine build |
+| `driver_unit_tests` | **370 pass, 0 fail** | Node |
+| `preprocessing_tests` | **238 pass, 0 fail, 1 skipped** | Node |
+| `resource_lifecycle` | all pass | Playwright |
+| `screenshot_comparison` | all pass | Playwright |
+| Scene smoketest — Chrome | **21 pass, 0 fail, 0 skip** | Editor + web template build |
+| Scene smoketest — Firefox | **21 pass, 0 fail, 0 skip** | Editor + web template build |
+| Font rendering colors — Chrome | pass | Editor + web template build |
+| Font rendering colors — Firefox | **fail — known false positive**, see Verification gaps | Editor + web template build |
+| Fog smoothness — Chrome / Firefox | pass on a real GPU; **skips** under a software adapter, which renders no fog | Editor + web template build, real GPU |
+| Fog assertion self-test | pass | Node |
+| Forward+ feature matrix (64 features) | **63 / 64**; 1 rare residual error, 10 features documented as uncovered | Own export, **real GPU** |
+| Forward+ matrix self-test | pass | Node |
+| Scene smoketest — Safari | not run | macOS + AppleScript |
+| `./webgpu_tests/local_ci.sh --no-safari` (all of the above plus `spec_constant_overrides` and `wgsl_cache`) | **17 passed, 1 failed, 1 skipped** | Full rebuild + re-export |
+
+The one failure is the headless-Firefox pixel assertion described under
+[Verification gaps](#known-issues): headless Firefox cannot composite in this environment, so the
+canvas reads back black and the test blames glyph modulate. Chrome's equivalent passes, and the same
+build renders correctly in headed Firefox.
+
+The 21 scenes are 8 benchmarks, 10 demos, 1 stress test and 2 assertion fixtures (font rendering and
+volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures. `local_ci.sh` rebuilds the editor, the dlink
+template (compile check only) and the non-dlink nothreads template, then re-exports every scene from
+them before testing — so a green run reflects the working tree rather than whatever exports happened
+to be on disk.
+
+**Every Forward+ feature has a regression test, and new ones must get one.**
+[`webgpu_tests/forward_plus`](webgpu_tests/forward_plus) renders each of 64
+Forward+ features with it off and on and asserts the frame changed — the failure
+this port keeps producing is a feature silently doing nothing, which logs
+nothing and looks correct in isolation. Any feature added to the renderer,
+including code merged from upstream, must get an entry there or a documented
+reason in its `UNCOVERED` list; the suite fails and names the offender if the
+fixture and the feature table disagree. It needs a real GPU and skips rather
+than passing without one, and its thresholds are calibrated against native
+Vulkan rather than against WebGPU.
+
+One trap worth knowing up front: **CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`,
+and none of the individual tiers do.** A warning that is fatal in CI is invisible locally; run
+`./webgpu_tests/local_ci.sh --dev-mode` before assuming a local green means CI will agree.
 
 ---
 
@@ -264,15 +362,34 @@ Pre-built macOS editor with WebGPU export support.
 
 ## Building from Source
 
+Three things get built, and they are independent of each other:
+
 ```bash
-# WebGPU-only release template:
-scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no
+# 1. The native editor — fast, no Emscripten needed. This is what exports web builds.
+scons platform=linuxbsd target=editor dev_build=yes -j$(nproc)   # or platform=macos / windows
+
+# 2. The WebGPU export template — the real target, needs Emscripten:
+source ~/emsdk/emsdk_env.sh
+scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)
+
+# 3. tint_convert_cli — the host tool that precompiles SPIR-V to WGSL at build time:
+./drivers/webgpu/tint_cli/build.sh          # --clean for a full rebuild
 ```
+
+`webgpu=yes` only takes effect with `platform=web`; `drivers/webgpu/` is not compiled into native builds
+at all. An editor built with `webgpu=yes` additionally gets the export-time WGSL shader baker, and runs
+`tint_convert_cli` from its own executable's directory — so the two must sit next to each other.
 
 Requirements:
 - Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
 - No Rust toolchain needed (Tint C++ translator is compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
+
+Two build traps that have each cost a day:
+- **The editor and the export template must be built from the same commit.** Baked shader caches are
+  keyed to the engine version hash; a mismatch silently discards the whole cache and loads ~5× slower.
+- **An export made with `--headless` skips the shader baker entirely** — a 15 MB `.pck` instead of
+  ~135 MB. Use `xvfb-run` with a real rendering driver.
 
 ---
 
@@ -306,12 +423,15 @@ Common questions about the WebGPU backend — architecture, performance, compati
 
 | Metric | Value |
 |--------|-------|
-| Total new code | ~20,000+ lines |
-| Driver implementation | 7,733 lines (single `.cpp`) |
-| Shaders converted | 146 (SPIR-V → WGSL via Tint) |
+| WebGPU driver | 23,369 lines across `drivers/webgpu/`, 11,968 of them in the core `.cpp` |
+| Box3D physics module | 11,141 lines in `modules/box3d_physics/` |
+| Shaders converted | 146 engine shaders (SPIR-V → WGSL via Tint), 189 WGSL variants baked into the current build |
+| SPIR-V rewriting passes | 12 (combined-sampler splitting, push-constant emulation, depth fixups, subgroup lowering, …) |
 | Renderer | Forward+ (this fork) / Forward Mobile (original) |
+| 3D physics | Box3D by default; Jolt and GodotPhysics3D still selectable |
 | Performance vs native | ~80% of Vulkan/Metal FPS |
 | Performance vs WebGL | Up to 5x faster |
+| Cold load time | ~1.0 s on the reference project, down from ~9.2 s |
 | Browser support | Chrome 113+, Firefox 120+, Safari 18+, Chrome Android, Safari iOS |
 
 ---

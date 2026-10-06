@@ -1,0 +1,76 @@
+; Guards the volumetric-fog froxel-sampling regression reported under
+; TASKS.md Task 12.1 ("fog looks blockier than native"). The scene is built so
+; the froxel volume is sampled across most of the frame, with smooth gradients
+; and no large flat areas -- if the fog volume were ever sampled without
+; trilinear filtering, or its resolution silently dropped, the shafts below
+; would band visibly and test_fog_visual.mjs's high-frequency check would fire.
+;
+; Two shadow-casting spots give strong god rays; the boxes exist only to carve
+; shadow edges into the fog. Do not lower the density or the light energies --
+; a dim fog makes the artifact unmeasurable, which is the failure mode this
+; test exists to avoid.
+
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="Environment" id="Env"]
+background_mode = 1
+background_color = Color(0.02, 0.02, 0.03, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.1, 0.12, 0.18, 1)
+ambient_light_energy = 0.3
+tonemap_mode = 2
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.18
+volumetric_fog_emission_energy = 0.0
+volumetric_fog_gi_inject = 0.0
+volumetric_fog_length = 48.0
+volumetric_fog_detail_spread = 2.0
+
+[sub_resource type="BoxMesh" id="Box"]
+size = Vector3(2, 6, 2)
+
+[sub_resource type="PlaneMesh" id="Plane"]
+size = Vector2(60, 60)
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(0.5, 0.5, 0.55, 1)
+
+[node name="Root" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.966, 0.259, 0, -0.259, 0.966, 0, 4, 16)
+fov = 60.0
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+mesh = SubResource("Plane")
+material_override = SubResource("Mat")
+
+[node name="BoxA" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3, 0)
+mesh = SubResource("Box")
+material_override = SubResource("Mat")
+
+[node name="BoxB" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3, -3)
+mesh = SubResource("Box")
+material_override = SubResource("Mat")
+
+[node name="Spot" type="SpotLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.342, 0.940, 0, -0.940, 0.342, 0, 12, 2)
+light_energy = 16.0
+light_volumetric_fog_energy = 6.0
+spot_range = 40.0
+spot_angle = 32.0
+shadow_enabled = true
+
+[node name="Spot2" type="SpotLight3D" parent="."]
+transform = Transform3D(0.707, -0.5, 0.5, 0, 0.707, 0.707, -0.707, -0.5, 0.5, -9, 10, 4)
+light_color = Color(1, 0.7, 0.4, 1)
+light_energy = 14.0
+light_volumetric_fog_energy = 6.0
+spot_range = 40.0
+spot_angle = 28.0
+shadow_enabled = true

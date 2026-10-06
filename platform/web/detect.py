@@ -80,6 +80,13 @@ def get_flags():
         "arch": "wasm32",
         "target": "template_debug",
         "builtin_pcre2_with_jit": False,
+        # Upstream's default for web; `webgpu=yes` flips it back on in SConstruct, since
+        # this fork's whole purpose is a RenderingDevice driver for the browser.
+        "rendering_device": False,
+        # 4.7.2 set this here directly. 4.8 relies on SConstruct's
+        # `not env["rendering_device"]` cascade to turn the three API drivers off instead,
+        # and that cascade no longer fires for a `webgpu=yes` web build -- so keep saying
+        # it, or drivers/SCsub tries to compile the Vulkan driver into the web template.
         "vulkan": False,
         # Embree is heavy and requires too much memory (GH-70621).
         "module_raycast_enabled": False,
@@ -115,8 +122,8 @@ def configure(env: "SConsEnvironment"):
     cc_semver = (cc_version["major"], cc_version["minor"], cc_version["patch"])
 
     # Minimum emscripten requirements.
-    if cc_semver < (4, 0, 0):
-        print_error("The minimum Emscripten version to build Godot is 4.0.0, detected: %s.%s.%s" % cc_semver)
+    if cc_semver < (6, 0, 1):
+        print_error("The minimum Emscripten version to build Godot is 6.0.1, detected: {}.{}.{}".format(*cc_semver))
         sys.exit(255)
 
     env.Append(LIBEMITTER=[library_emitter])
@@ -125,7 +132,7 @@ def configure(env: "SConsEnvironment"):
     env["EXPORTED_RUNTIME_METHODS"] = []
 
     # Validate arch.
-    supported_arches = ["wasm32", "wasm64"]
+    supported_arches = ["wasm32"]
     validate_arch(env["arch"], get_name(), supported_arches)
 
     try:
@@ -160,24 +167,14 @@ def configure(env: "SConsEnvironment"):
         print_info("Forcing `initial_memory=64` as it is required for the web editor.")
         env["initial_memory"] = 64
 
-    env.Append(LINKFLAGS=["-sINITIAL_MEMORY=%sMB" % env["initial_memory"]])
+    env.Append(LINKFLAGS=[f"-sINITIAL_MEMORY={env['initial_memory']}MB"])
 
     ## Copy env variables.
     env["ENV"] = os.environ
 
-    # This makes `wasm-ld` treat all warnings as errors.
-    if env["werror"]:
-        env.Append(LINKFLAGS=["-Wl,--fatal-warnings"])
-
     # LTO
     if env["lto"] == "auto":  # Enable LTO for production.
         env["lto"] = "thin"
-
-    if env["lto"] == "thin" and cc_semver < (4, 0, 9):
-        print_warning(
-            '"lto=thin" support requires Emscripten 4.0.9 (detected %s.%s.%s), using "lto=full" instead.' % cc_semver
-        )
-        env["lto"] = "full"
 
     if env["lto"] != "none":
         if env["lto"] == "thin":
@@ -204,13 +201,6 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-sSAFE_HEAP=1"])
 
     # Closure compiler
-    if env["use_closure_compiler"] and cc_semver < (4, 0, 11):
-        print_warning(
-            '"use_closure_compiler=yes" support requires Emscripten 4.0.11 (detected %s.%s.%s), using "use_closure_compiler=no" instead.'
-            % cc_semver
-        )
-        env["use_closure_compiler"] = False
-
     if env["use_closure_compiler"]:
         # For emscripten support code.
         env.Append(LINKFLAGS=["--closure", "1"])
@@ -272,8 +262,9 @@ def configure(env: "SConsEnvironment"):
         # not found" error instead of this clear one.
         if cc_semver < (4, 0, 10):
             print_error(
-                "webgpu=yes requires Emscripten 4.0.10 or newer (detected %s.%s.%s) for the emdawnwebgpu port."
-                % cc_semver
+                "webgpu=yes requires Emscripten 4.0.10 or newer (detected {}.{}.{}) for the emdawnwebgpu port.".format(
+                    *cc_semver
+                )
             )
             sys.exit(255)
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
@@ -285,16 +276,16 @@ def configure(env: "SConsEnvironment"):
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])
 
-    env.Append(LINKFLAGS=["-s%s=%sKB" % ("STACK_SIZE", env["stack_size"])])
+    env.Append(LINKFLAGS=[f"-sSTACK_SIZE={env['stack_size']}KB"])
 
     if env["threads"]:
         # Thread support (via SharedArrayBuffer).
         env.Append(CPPDEFINES=["PTHREAD_NO_RENAME"])
-        env.Append(CCFLAGS=["-sUSE_PTHREADS=1"])
-        env.Append(LINKFLAGS=["-sUSE_PTHREADS=1"])
-        env.Append(LINKFLAGS=["-sDEFAULT_PTHREAD_STACK_SIZE=%sKB" % env["default_pthread_stack_size"]])
+        env.Append(CCFLAGS=["-pthread"])
+        env.Append(LINKFLAGS=["-pthread"])
+        env.Append(LINKFLAGS=[f"-sDEFAULT_PTHREAD_STACK_SIZE={env['default_pthread_stack_size']}KB"])
         env.Append(LINKFLAGS=["-sPTHREAD_POOL_SIZE=\"Module['emscriptenPoolSize']||8\""])
-        env.Append(LINKFLAGS=["-sWASM_MEM_MAX=2048MB"])
+        env.Append(LINKFLAGS=["-sMAXIMUM_MEMORY=2048MB"])
         if not env["dlink_enabled"]:
             # Workaround https://github.com/emscripten-core/emscripten/issues/21844#issuecomment-2116936414.
             # Not needed (and potentially dangerous) when dlink_enabled=yes, since we set EXPORT_ALL=1 in that case.

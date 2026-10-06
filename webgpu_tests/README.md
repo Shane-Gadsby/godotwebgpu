@@ -10,9 +10,15 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
-| [Scene Smoketest](scene_smoketest/) | 19 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Scene Smoketest](scene_smoketest/) | 21 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
+| [Font Rendering](scene_smoketest/test_font_visual.mjs) | Text renders in the colors it was asked to — guards the glyph-modulate regression | ~20s | Yes (pre-exported) |
+| [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
+| [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
+| [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 
 ## How It Works
@@ -54,6 +60,96 @@ cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
 node run_tests.mjs       # SPIR-V → WGSL validation (skips gracefully if no Tint CLI)
 ```
+
+### Font Rendering (needs the `font_rendering` scene exported)
+
+Renders text in deliberately non-white colors and asserts the pixels that reach
+the canvas. It exists because a previous regression made **all** text render
+white, and was missed by a check done against white text — where broken and
+working look identical.
+
+```bash
+cd webgpu_tests/scene_smoketest
+node run_scenes.mjs --export-only --scene font_rendering   # once, after an engine build
+node test_font_visual.mjs --browser chrome                 # or --browser all
+```
+
+The thresholds are themselves tested, against two committed reference images (a
+correct render, and one with the regression's effect simulated). That runs
+standalone, with no browser, export or GPU:
+
+```bash
+cd webgpu_tests/scene_smoketest && node self_test_font_visual.mjs
+```
+
+If you ever need to regenerate the references, render
+`webgpu_tests/font_rendering/godot/font_check` and save the viewport — but do not
+relax the colors: the test's whole value is that the text is not white.
+
+### Fog Smoothness (needs the `volumetric_fog` scene exported, and a real GPU)
+
+Guards the froxel-sampling regression from TASKS.md Task 12.1 — fog banding if
+the volume is ever sampled without trilinear filtering, or its resolution drops.
+It asserts on shape rather than an exact image: the share of hard edges
+(`p99 |laplacian|`) and of flat plateaus in the lit fog, both measured at a
+canonical 960x540 so canvas size does not move them.
+
+```bash
+cd webgpu_tests/scene_smoketest
+node run_scenes.mjs --export --scene volumetric_fog    # once, after an engine build
+WEBGPU_REAL_GPU=1 node test_fog_visual.mjs --browser chrome
+node test_fog_visual.mjs --browser firefox             # needs a display, not headless
+```
+
+**It SKIPs rather than passes where it cannot run** (exit code 2), and there are
+two such cases, both measured rather than assumed: the default Chrome launch
+forces the swiftshader adapter, under which this scene renders no volumetric fog
+at all; and headless Firefox cannot composite here, returning a black canvas.
+Volumetric fog is also Forward+-only — `render_forward_mobile.cpp` has no fog
+code whatsoever — so the test skips if the adapter fell back to Forward Mobile.
+
+As with the font test the thresholds are themselves tested, against committed
+images: a correct render, the same frame resampled through a 64-wide grid with
+no filtering (the engine's default fog volume width, sampled the way the
+regression would), a blatant 16-wide case, and a black frame that must be
+rejected by the liveness guard rather than pass for having no edges:
+
+```bash
+cd webgpu_tests/scene_smoketest && node self_test_fog_visual.mjs
+```
+
+Do not lower the scene's fog density or light energies when regenerating — a dim
+fog makes the artifact unmeasurable, which is the failure this test exists to
+avoid.
+
+### Forward+ Feature Matrix (needs its own export, and a real GPU)
+
+The per-feature regression suite: for each of 64 Forward+ features, render the
+fixture with it off and on and assert the frame actually changed, with no driver
+errors. It exists because the failure this port keeps producing is a feature
+**silently doing nothing** — which logs nothing and looks fine unless compared
+against the same frame without it. SSAO and SDFGI both shipped broken through a
+fully green suite in the 4.8 port for exactly that reason.
+
+```bash
+cd webgpu_tests/forward_plus
+./export.sh                                     # after an engine build
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
+node run_forward_plus.mjs --list                # covered and uncovered features
+```
+
+**Any feature added to the renderer — including code merged from upstream Godot
+— must get an entry in this matrix, or an entry in `features.mjs`'s `UNCOVERED`
+list saying why not.** This is enforced: the fixture publishes its feature list
+at boot and the harness fails the run, naming the offender, if that list and
+`features.mjs` disagree in either direction.
+
+**It requires a real GPU** and skips (exit 2) rather than passing without one —
+a software adapter falls back to Forward Mobile, where a third of the matrix
+does not exist. Thresholds are calibrated against native Vulkan, never against
+WebGPU. See [`forward_plus/README.md`](forward_plus/README.md) for the full
+rules, the recalibration procedure, and the triage table that separates a port
+bug from a fixture weakness.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 
