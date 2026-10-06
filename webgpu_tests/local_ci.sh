@@ -159,11 +159,23 @@ run_test() {
         return
     fi
 
-    local output
-    if output=$(cd "$dir" && "${cmd[@]}" 2>&1); then
+    local output status
+    output=$(cd "$dir" && "${cmd[@]}" 2>&1)
+    status=$?
+    # Exit 2 means "this environment cannot run the tier" (e.g. no real GPU
+    # adapter, or no display), as distinct from 0 pass and 1 fail. Without it a
+    # tier that skipped everything would be reported as PASS, which is how a
+    # suite ends up claiming coverage it does not have.
+    if [[ $status -eq 0 ]]; then
         printf "${GREEN}PASS${NC}\n"
         PASSED=$((PASSED + 1))
         RESULTS+=("PASS  $name")
+    elif [[ $status -eq 2 ]]; then
+        local why
+        why=$(echo "$output" | grep -m1 -- 'SKIP --' | sed 's/.*SKIP -- //')
+        printf "${YELLOW}SKIP${NC} (%s)\n" "${why:-not runnable here}"
+        SKIPPED=$((SKIPPED + 1))
+        RESULTS+=("SKIP  $name")
     else
         printf "${RED}FAIL${NC}\n"
         # Show last 10 lines of output on failure
@@ -364,13 +376,17 @@ run_test "Font visual assertion self-test" \
     "$SCRIPT_DIR/scene_smoketest" \
     node self_test_font_visual.mjs
 
+run_test "Fog visual assertion self-test" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node self_test_fog_visual.mjs
+
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. Scene Smoketest (multi-browser)
 # ──────────────────────────────────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Stage 3: Scene Smoketest (19 scenes x browsers)"
+echo "  Stage 3: Scene Smoketest (21 scenes x browsers)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -411,11 +427,11 @@ else
     echo "    Testing whatever is already in scene_smoketest/exports/."
 fi
 
-run_test "Scene smoketest — Chrome (20 scenes)" \
+run_test "Scene smoketest — Chrome (21 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser chrome --timeout 30000
 
-run_test "Scene smoketest — Firefox (20 scenes)" \
+run_test "Scene smoketest — Firefox (21 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser firefox --timeout 30000
 
@@ -427,14 +443,26 @@ run_test "Font rendering colors — Firefox" \
     "$SCRIPT_DIR/scene_smoketest" \
     node test_font_visual.mjs --browser firefox
 
+# Both of these SKIP unless the environment can actually render volumetric fog:
+# Chrome needs WEBGPU_REAL_GPU=1 (the default launch's swiftshader adapter draws
+# no fog at all), Firefox needs a display (headless cannot composite here). The
+# assertion itself is covered everywhere by the self-test above.
+run_test "Fog smoothness — Chrome" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node test_fog_visual.mjs --browser chrome
+
+run_test "Fog smoothness — Firefox" \
+    "$SCRIPT_DIR/scene_smoketest" \
+    node test_fog_visual.mjs --browser firefox
+
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
-    run_test "Scene smoketest — Safari (20 scenes)" \
+    run_test "Scene smoketest — Safari (21 scenes)" \
         "$SCRIPT_DIR/scene_smoketest" \
         node run_scenes.mjs --browser safari --timeout 30000
 else
-    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (20 scenes)"
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (21 scenes)"
     SKIPPED=$((SKIPPED + 1))
-    RESULTS+=("SKIP  Scene smoketest — Safari (20 scenes)")
+    RESULTS+=("SKIP  Scene smoketest — Safari (21 scenes)")
 fi
 
 echo ""

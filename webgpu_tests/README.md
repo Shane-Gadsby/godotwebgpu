@@ -10,11 +10,13 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
-| [Scene Smoketest](scene_smoketest/) | 19 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Scene Smoketest](scene_smoketest/) | 21 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
 | [Font Rendering](scene_smoketest/test_font_visual.mjs) | Text renders in the colors it was asked to — guards the glyph-modulate regression | ~20s | Yes (pre-exported) |
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
+| [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
+| [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 
 ## How It Works
@@ -81,6 +83,42 @@ cd webgpu_tests/scene_smoketest && node self_test_font_visual.mjs
 If you ever need to regenerate the references, render
 `webgpu_tests/font_rendering/godot/font_check` and save the viewport — but do not
 relax the colors: the test's whole value is that the text is not white.
+
+### Fog Smoothness (needs the `volumetric_fog` scene exported, and a real GPU)
+
+Guards the froxel-sampling regression from TASKS.md Task 12.1 — fog banding if
+the volume is ever sampled without trilinear filtering, or its resolution drops.
+It asserts on shape rather than an exact image: the share of hard edges
+(`p99 |laplacian|`) and of flat plateaus in the lit fog, both measured at a
+canonical 960x540 so canvas size does not move them.
+
+```bash
+cd webgpu_tests/scene_smoketest
+node run_scenes.mjs --export --scene volumetric_fog    # once, after an engine build
+WEBGPU_REAL_GPU=1 node test_fog_visual.mjs --browser chrome
+node test_fog_visual.mjs --browser firefox             # needs a display, not headless
+```
+
+**It SKIPs rather than passes where it cannot run** (exit code 2), and there are
+two such cases, both measured rather than assumed: the default Chrome launch
+forces the swiftshader adapter, under which this scene renders no volumetric fog
+at all; and headless Firefox cannot composite here, returning a black canvas.
+Volumetric fog is also Forward+-only — `render_forward_mobile.cpp` has no fog
+code whatsoever — so the test skips if the adapter fell back to Forward Mobile.
+
+As with the font test the thresholds are themselves tested, against committed
+images: a correct render, the same frame resampled through a 64-wide grid with
+no filtering (the engine's default fog volume width, sampled the way the
+regression would), a blatant 16-wide case, and a black frame that must be
+rejected by the liveness guard rather than pass for having no edges:
+
+```bash
+cd webgpu_tests/scene_smoketest && node self_test_fog_visual.mjs
+```
+
+Do not lower the scene's fog density or light energies when regenerating — a dim
+fog makes the artifact unmeasurable, which is the failure this test exists to
+avoid.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 

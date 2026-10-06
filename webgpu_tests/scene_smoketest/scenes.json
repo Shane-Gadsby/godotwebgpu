@@ -155,6 +155,13 @@
       "preset": "WebGPU",
       "max_errors": 0,
       "description": "Text in non-white colors; guards the glyph-modulate regression (see test_font_visual.mjs)"
+    },
+    {
+      "id": "volumetric_fog",
+      "path": "../volumetric_fog/godot/fog_check",
+      "preset": "WebGPU",
+      "max_errors": 0,
+      "description": "Fog-dominated scene; guards froxel-sampling banding (see test_fog_visual.mjs)"
     }
   ]
 }

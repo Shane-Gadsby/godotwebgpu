@@ -122,15 +122,15 @@ one-directional layer/mask rules are enforced by a custom filter rather than Box
 
 | Platform | Browser | Verified by | Result |
 |----------|---------|-------------|--------|
-| Linux | Chrome | Scene smoketest, 20 scenes, 2026-10-06 | **20 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
-| Linux | Firefox | Scene smoketest, 20 scenes, 2026-10-06 | **20 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
+| Linux | Chrome | Scene smoketest, 21 scenes, 2026-10-06 | **21 pass, 0 fail, 0 skip**. Needs Vulkan + WebGPU browser flags, and a native package install — Flatpak and Snap sandboxing blocks the required GPU access |
+| Linux | Firefox | Scene smoketest, 21 scenes, 2026-10-06 | **21 pass, 0 fail, 0 skip**. Same flag and native-package requirements |
 | Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
 | Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
 | macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
 | Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behavior, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
 | iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
 
-The smoketest is the only automated per-scene measurement, and it covers 20 scenes (8 benchmarks, 10 demos, 1 stress test, 1 font-rendering scene) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
+The smoketest is the only automated per-scene measurement, and it covers 21 scenes (8 benchmarks, 10 demos, 1 stress test, and 2 that exist to be asserted on — font rendering and volumetric fog) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
 
 ### Known Issues
 
@@ -203,10 +203,12 @@ Last full run **2026-10-06**, on Godot 4.8. Everything is green except one known
 | `preprocessing_tests` | **238 pass, 0 fail, 1 skipped** | Node |
 | `resource_lifecycle` | all pass | Playwright |
 | `screenshot_comparison` | all pass | Playwright |
-| Scene smoketest — Chrome | **20 pass, 0 fail, 0 skip** | Editor + web template build |
-| Scene smoketest — Firefox | **20 pass, 0 fail, 0 skip** | Editor + web template build |
+| Scene smoketest — Chrome | **21 pass, 0 fail, 0 skip** | Editor + web template build |
+| Scene smoketest — Firefox | **21 pass, 0 fail, 0 skip** | Editor + web template build |
 | Font rendering colors — Chrome | pass | Editor + web template build |
 | Font rendering colors — Firefox | **fail — known false positive**, see Verification gaps | Editor + web template build |
+| Fog smoothness — Chrome / Firefox | pass on a real GPU; **skips** under a software adapter, which renders no fog | Editor + web template build, real GPU |
+| Fog assertion self-test | pass | Node |
 | Scene smoketest — Safari | not run | macOS + AppleScript |
 | `./webgpu_tests/local_ci.sh --no-safari` (all of the above plus `spec_constant_overrides` and `wgsl_cache`) | **17 passed, 1 failed, 1 skipped** | Full rebuild + re-export |
 
@@ -215,8 +217,8 @@ The one failure is the headless-Firefox pixel assertion described under
 canvas reads back black and the test blames glyph modulate. Chrome's equivalent passes, and the same
 build renders correctly in headed Firefox.
 
-The 20 scenes are 8 benchmarks, 10 demos, 1 stress test and 1 font-rendering scene, drawn from
-`godot-demo-projects` and this repo's own fixtures. `local_ci.sh` rebuilds the editor, the dlink
+The 21 scenes are 8 benchmarks, 10 demos, 1 stress test and 2 assertion fixtures (font rendering and
+volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures. `local_ci.sh` rebuilds the editor, the dlink
 template (compile check only) and the non-dlink nothreads template, then re-exports every scene from
 them before testing — so a green run reflects the working tree rather than whatever exports happened
 to be on disk.
