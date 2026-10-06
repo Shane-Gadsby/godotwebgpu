@@ -2913,8 +2913,21 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 	switch (p_format) {
 		case DATA_FORMAT_R8_UNORM:
 		case DATA_FORMAT_R8_SNORM:
+		// r8uint/r8sint/rg8uint/rg8sint are the same omission the R16_UINT pair
+		// below already documents: _promote_storage_format() has always handled
+		// all four (tier1-conditionally, to R32Uint/R32Sint/RG32Uint/RG32Sint),
+		// but they were missing here, so texture_create() rejected them before
+		// reaching that promotion. VoxelGI is what needs them -- voxel_gi_sdf.glsl
+		// declares `layout(r8ui) uimage3D sdf_tex` -- and the whole VoxelGI bake
+		// failed with "Format 'R8G8_Uint' does not support usage as storage image."
+		// Found by the Forward+ feature matrix (webgpu_tests/forward_plus), which
+		// is exactly the class of gap it exists to surface.
+		case DATA_FORMAT_R8_UINT:
+		case DATA_FORMAT_R8_SINT:
 		case DATA_FORMAT_R8G8_UNORM:
 		case DATA_FORMAT_R8G8_SNORM:
+		case DATA_FORMAT_R8G8_UINT:
+		case DATA_FORMAT_R8G8_SINT:
 		case DATA_FORMAT_R8G8B8A8_UNORM:
 		case DATA_FORMAT_R8G8B8A8_SNORM:
 		case DATA_FORMAT_R8G8B8A8_UINT:
