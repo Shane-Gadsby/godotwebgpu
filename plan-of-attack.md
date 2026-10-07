@@ -54,7 +54,7 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 
 ---
 
-## 5. Commit the export-time shader-baking work already done, then close its two known open tails
+## 5. Commit the export-time shader-baking work already done, then close its two known open tails `[DONE, 2026-09-25]`
 
 > **Update 2026-09-25**: the baking work landed, and Task 25 (plan item 11) removed the need for the
 > specialization-constant half of it entirely — one base module now serves every value combination, so
@@ -81,7 +81,15 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 
 ---
 
-## 6. Task 8.3 — remaining pre-existing (non-regression) Tint conversion failures
+## 6. Task 8.3 — remaining pre-existing (non-regression) Tint conversion failures `[DONE, 2026-10-07]`
+
+> **Closed 2026-10-07.** A forced full precompile sweep reports `274 compiled, 0 glsl
+> failures, 0 tint failures`: four of the six are fixed, and the two `tonemap_mobile`
+> subpass variants are deliberately excluded by `wgsl_precompile.py` because the engine
+> never compiles them on this platform — which is the reachability question this item
+> asked. Nothing to add to `expected_failures.json`. Per-shader table and the method
+> caveat (`wgsl_precompiled.gen.h` is keyed by SPIR-V hash, so grepping it by name proves
+> nothing) are in `webgpu_notes/TASKS.md` Task 8.3's closing note.
 
 **Effort: 1-2 days.** Six shaders were originally identified as failing Tint conversion independent of the 4.7.2 upstream sync. Status per shader, re-checked against `webgpu_notes/TASKS.md`:
 - `tonemap.glsl:bicubic{,_1d_lut}:frag` — already fixed as a side effect of Task 8.2's `inline_opaque_functions` pass. No action needed.
@@ -132,7 +140,18 @@ What actually landed:
 
 ---
 
-## 10. Task 14 — reduce post-download loading blocking, make the progress bar representative
+## 10. Task 14 — reduce post-download loading blocking, make the progress bar representative `[SUBSTANTIALLY DONE; one named next step]`
+
+> **Where this actually landed (2026-10-07).** Points 1-4 are done: the stall is fully
+> decomposed (`webgpu_tests/startup_phases/`, ~2.0 s → ~1.0 s on the user's real project),
+> point 2 needed no work (`requestAdapter` starts at 91 ms, already parallel with the WASM
+> fetches), point 3 shipped as the startup split into frame-sized steps plus per-phase
+> progress to JS, and the glyph-atlas coalescing took ~800 ms off the real project,
+> verified in-browser and natively. **The one named next step** is attributing the largest
+> remaining term — a Chrome-internal synchronization above a ~20-30 MB upload threshold,
+> not our pipeline compilation — which needs a Chrome trace (CDP `Tracing.start` with the
+> `gpu` and `disabled-by-default-gpu.debug` categories) rather than more black-box
+> bisection. See `webgpu_notes/TASKS.md` Task 14 subtask 2.
 
 **Effort: 1 day, needs a real GPU + browser session.** `platform/web/js/engine/preloader.js`'s `animateProgress()` computes progress purely from bytes downloaded, with no visibility into WASM compile/instantiate time, the async `GPUDevice` request cycle, precompiled-WGSL table setup, or (until item 5 above closes it) any runtime Tint shader-fallback conversions — any of which can produce a visible stall after the bar already reads 100%.
 
@@ -202,127 +221,75 @@ Task 11 (`webgpu_notes/TASKS.md`) has its root cause conclusively identified —
 
 ## Suggested order of attack
 
-Items 1-4 are quick, independent, and can be done in any order or in parallel — none blocks another. Item 5 (committing and finishing the already-substantial export-time shader-baking work) is next: it's mostly landing work already done rather than new design, and item 10 explicitly depends on it being far enough along. Items 6-9 (the remaining Tint failures, the Task 12 doc closure, and the two re-triage/audit sweeps) are all independent of each other and of item 5, and can be interleaved with it. Item 10 should wait until item 5 is reasonably settled — and item 11, which it depended on, is now done (Task 25), so its remaining work is a live verification run rather than new design.
+**Rewritten 2026-10-07.** The original ordering routed everything through item 5 (landing the
+export-time shader-baking work), because that work was uncommitted when this plan was written. It
+has since landed, which dissolved most of the dependency graph: items 5, 6, 7 and 11 are done, 1 and
+2 were done in September, and 10 is substantially done with one named next step. **Only items 3, 8
+and 9 remain from this plan, and none of them depends on another** — plus item 4's benchmark
+follow-on, and a set of newer items this plan never tracked (below).
 
----
+Read `webgpu_notes/HANDOFF.md` §8 alongside this. It carries the newer work in priority order and is
+kept current; this file is the September plan with its outcomes recorded.
 
-## Phase-Based Action Plan
+### What is left from this plan
 
-Same 11 items, regrouped into phases by **dependency, not by item number** — a phase can only start once every phase above it that it depends on is done. Within a phase, rows are unordered/parallelizable unless a sub-item note says otherwise. Effort is cumulative per phase in the summary row.
-
-### Phase 1 — Zero-dependency quick wins
-
-Nothing here depends on anything else in this plan; all four can run fully in parallel.
-
-| # | Item | Sub-items | Effort | Status |
-|---|------|-----------|--------|--------|
-| 1.1 | Write down Task 12's `dlink_enabled=yes threads=yes` decision (plan item 7) | Investigation already done — just record it in `webgpu_notes/TASKS.md` (already recorded) and feed the one-line summary into 1.2 | minutes | ✅ done (folded into 1.2) |
-| 1.2 | Fix stale `drivers/webgpu/README.md` limitations (plan item 1) | Remove "no subgroup operations" and "mobile renderer auto-selected" claims; add the `threads=yes` support-matrix line from 1.1 | minutes | ✅ done, committed `902f5c3059` |
-| 1.3 | CI: commit `screenshot-comparison` baselines (plan item 2) | Run once to generate; commit under `webgpu_tests/screenshot_comparison/`; drop `--update-baselines` from the workflow | hours | ✅ done, committed `902f5c3059` |
-| 1.4 | Port `run_benchmark.sh` to Linux (plan item 4) | Parameterize binary path + browser launch; swap BSD `sed -i ''` for portable equivalents; verify WebGL + WebGPU/Mobile legs; treat a Forward+ leg as a follow-on | 1-2 days | ✅ port done, both known-safe legs verified end-to-end, committed `300ae98cd5`; only the full 7-scene README-numbers pass (out of this item's original scope) remains |
-
-**Phase 1 total**: ~1-2 days. All four items done. The full 7-scene benchmark-numbers pass and README table update (always item 4's own follow-on, not part of the port) can be picked up separately whenever a full benchmark run is worth the time.
-
----
-
-### Phase 2 — Land the export-time shader-baking work (groundwork for Phases 4 and 6)
-
-Depends on: nothing (the code already exists uncommitted) — but everything in Phases 4 and 6 depends on this phase landing.
-
-| # | Item | Sub-items | Effort |
+| # | Item | Depends on | Effort |
 |---|------|-----------|--------|
-| 2.1 | Review and commit the uncommitted Task 13 diff (plan item 5, step 1) | Confirm the diff matches `TASKS.md`'s completion notes; commit as-is, no scope creep | hours |
-| 2.2 | Fix the broken clean `platform=web target=template_release` build (plan item 5, step 2) | **Must happen before 2.3-2.4 can be verified.** Rebuild one platform at a time (never concurrent `scons` runs); root-cause the `register_module_types.gen.cpp`/per-module `SCsub` mismatch | hours-1 day |
-| 2.3 | Chase the remaining Tint crash tail (plan item 5, steps 3-5) | Use `WEBGPU_BAKE_DEBUG_DUMP` + `cuda-gdb` on the 14 unidentified crashes + the new `atomics.cc:413` Phony case; fix via new `spirv_preprocess` passes or vendored Tint patches; re-run `shader_corpus`/`preprocessing_tests` after each fix; re-export and re-verify in-browser each round | open-ended, budget 1-2 days |
-| 2.4 | Update docs once the tail plateaus (plan item 5, step 6) | Flip Task 13's status in `TASKS.md`; update `CLAUDE.md`'s shader-pipeline diagram (now a three-tier lookup) and `drivers/webgpu/README.md` | hours |
+| 3 | CI: `wgsl_precompile.py` byte-reproducibility double-run diff | nothing (item 5's second `tint_convert_cli --batch` call site has landed, so this now covers more than it would have in September) | ~1 day |
+| 8 | Task 10.3 — re-triage stale TODOs 7.8, 7.15, 7.17, 7.18 | nothing. **7.17 is the one to look at first**: item 11 landed, and removing the legacy per-value-combination shader-module path may have made its leak moot | half a day |
+| 9 | Task 10.1 / 10.2 / 10.4 — post-compatibility sweep | nothing. **10.2 first** — static analysis, no GPU needed, and the 4.8 merge is exactly the event it exists to catch | ~2-3 days |
+| 4′ | Task 9.16's follow-on: the 7-scene benchmark pass + README numbers table | nothing; always a follow-on, never part of the Linux port | hours + run time |
 
-**Phase 2 total**: ~1-2 days. **Sequence within phase: 2.1 → 2.2 → (2.3 in parallel with re-verification) → 2.4.**
+### Newer items this plan never tracked
 
----
+These came out of work done after September and live in `webgpu_notes/TASKS.md` /
+`HANDOFF.md` §8 rather than here. Listed so this file does not read as the whole picture:
 
-### Phase 3 — CI determinism check (benefits from Phase 2, otherwise independent)
-
-Depends on: nothing strictly, but Phase 2 adds a second `tint_convert_cli --batch` call site (the export-time baker) with its own subprocess/threading concerns — checking determinism after that lands catches more than checking it before.
-
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 3.1 | Add a `wgsl_precompile.py` double-run diff to CI (plan item 3) | Run twice back-to-back, diff `wgsl_precompiled.gen.h`, fail on any difference | ~1 day |
-
-**Phase 3 total**: ~1 day. Can technically run before Phase 2, but re-run once more after Phase 2 lands to cover the new subprocess path.
-
----
-
-### Phase 4 — Remaining Tint conversion failures (needs Phase 2's stable baking/testing setup)
-
-Depends on: Phase 2 (verifying these against a known-clean build and baking pipeline, rather than the currently-broken one).
-
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 4.1 | Verify the already-fixed `screen_space_reflection_filter.glsl` | Rebuild, rerun `tint_convert_cli`/`wgsl_precompile.py`, confirm conversion now succeeds, close out | hours |
-| 4.2 | Confirm/dismiss the two `tonemap_mobile.glsl` subpass variants | Check reachability on WebGPU (no subpass support); if unreachable, add to `expected_failures.json` | hours |
-| 4.3 | Root-cause `volumetric_fog.glsl:default:comp` | Same crash signature as Task 8.2's `ConvertUserCall` bug, different trigger — needs the same instrumentation approach | half a day |
-| 4.4 | Fix `voxel_gi_debug.glsl:default:vert` | Split the `read_write` vertex-stage storage buffer into a read-only view | half a day |
-| 4.5 | Fix `sdfgi_debug_probes.glsl:default:vert` | Trace where the `position` builtin output is lost through the preprocessing passes | half a day |
-
-**Phase 4 total**: 1-2 days, sub-items independent of each other.
+- **Decide whether threading is worth having**, now that `threads=yes dlink_enabled=yes` boots
+  (Task 14 subtask 1.5.8.5, untouched). Two questions in order: does it stay up beyond startup,
+  and does it buy anything? Measurement already says threads *cannot* move shader/pipeline work
+  off the critical path.
+- **Attribute Task 14's remaining stall term** with a Chrome trace (item 10's next step).
+- **Profile a dlink export under network throttling** (Task 46 §4) — `index.side.wasm` is 51 MB
+  fetched non-streaming; 96 ms on localhost but ~20 s at 20 Mbit/s. Cheapest high-value
+  measurement left, never taken.
+- **A real-GPU profile of a Forward+ baked export** — the configuration this fork ships, and the
+  one no number in Task 46 covers (§7a was measured on swiftshader, which runs Forward Mobile).
+- **Audit the storage-format class** (HANDOFF §4.4) rather than finding the next instance by
+  running scenes.
+- **Delete or annotate the dead `_depth_alias` code** (HANDOFF §4.5), with the caveat recorded
+  there.
+- **Report `0002` upstream** (`misc/emsdk_patches/`) so the patch can retire itself.
+- **Task 5.2**: Android/iOS browser matrix still `wip`; desktop is done.
+- **Task 39**: texture compression as an export option — desktop settled, Safari/mobile unmeasured.
+- **Task 11** (extension-support abort) remains out of scope here — see the section above.
+- **Braced GDScript** (`webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md`) is a
+  293-line plan that is untracked in git, referenced nowhere in `TASKS.md`, has no implementation
+  in the tree, and targets the superseded 4.7.2 sync. It needs either a task entry or a note in
+  the file saying it is parked.
 
 ---
 
-### Phase 5 — Post-compatibility sweep (needs Phases 1, 2, and 3's outputs to trust its own results)
+## Phase-Based Action Plan — superseded
 
-Depends on: Phase 1.3 (screenshot baselines must be real before 5.1 can trust that tier), Phase 2 (a clean, current rebuild to sweep against).
+The phase tables that stood here grouped all 11 items by dependency, and every phase after the
+first depended on **Phase 2, "land the export-time shader-baking work"**. That work is committed
+(`drivers/webgpu/spirv_to_wgsl.{h,cpp}`, `wgsl_bake_subprocess.{h,cpp}`,
+`editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.{h,cpp}`), its crash tail was
+chased through Tasks 31-34 to `{baked: 360, translated: 0}` on real hardware, and Task 25 removed
+the specialization-constant half of it outright. With its root gone the graph described
+dependencies that no longer exist, and kept listing finished work as pending:
 
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 5.1 | Full local CI run — Task 10.1 | Rebuild native editor + full web template; confirm zero Tint failures; run full `local_ci.sh` (not `--quick`); triage genuine regressions vs. stale drift; file new bugs as their own tasks | hours (mostly build time) |
-| 5.2 | Base-class interface audit — Task 10.2 | Diff the three RDD/RCD/shader-container headers against the pre-Phase-8-sync commit; confirm every changed method has a real WebGPU override; re-check `API_TRAIT_*` (now includes Task 12's new trait) against base-class defaults; record audit outcome | 1 day |
-| 5.3 | Re-triage stale TODOs 7.8, 7.15, 7.17, 7.18 — Task 10.3 | Re-confirm each still applies post-sync; **7.17 specifically should be re-checked after Phase 6 (item 11) lands**, since fixing the spec-constant legacy path may make its leak moot; update each `Status` in `TASKS.md` | half a day |
-| 5.4 | Fresh live testing against the real project — Task 10.4 | Capture native-Vulkan + WebGPU baselines for scenes/features not yet covered by Task 9.5 or Phase 2's export testing; diff for drift (favor long captures); file confirmed issues as new tasks | 1-2 days |
+| Old phase | Then | Now |
+|---|---|---|
+| 1 — Quick wins | done | done (benchmark-numbers pass still outstanding, as item 4′) |
+| 2 — Land shader baking | the blocker for 3-6 | **done** (items 5, 11) |
+| 3 — CI determinism check | after Phase 2 | **still open** — this plan's item 3 |
+| 4 — Remaining Tint failures | needs Phase 2 | **done** (item 6, closed 2026-10-07 against a measured sweep) |
+| 5 — Post-compatibility sweep | needs 1, 2, 3 | **still open** — this plan's items 8 and 9, and it never really needed Phase 3 |
+| 6 — Loading / progress bar | needs Phase 2 | **substantially done** (item 10), one named next step |
+| 7 — Spec-constant fallback | independent | **done** (item 11, Task 25) |
 
-**Phase 5 total**: ~2-3 days. 5.1/5.2/5.4 can run in parallel; 5.3's item on Task 7.17 should be revisited once Phase 6 lands rather than closed early.
-
----
-
-### Phase 6 — Loading blocking / progress bar (needs Phase 2)
-
-Depends on: Phase 2 — an unclosed export-time-baking gap would otherwise be misattributed as a loading-time problem here.
-
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 6.1 | Instrument and quantify post-download phases | WASM instantiate, device request, first-frame timing, against small and real-project-scale exports | hours |
-| 6.2 | Reduce actual blocking time | Confirm `instantiateStreaming` is taken; confirm device pre-init runs in parallel with WASM fetch, not serialized after it | hours |
-| 6.3 | Make the progress bar representative | Reserve tail-percentage weight for post-download phases in `preloader.js`; wire real phase-completion signals via `Config.prototype.onProgress`; add a graceful stalled-but-not-frozen indicator | half a day |
-| 6.4 | Verify | Before/after timing on the real project; visual check under network throttle and cold cache | hours |
-
-**Phase 6 total**: ~1 day.
-
----
-
-### Phase 7 — Eliminate the spec-constant runtime Tint fallback (largest; independent, but touches 5.3's Task 7.17)
-
-Depends on: nothing structurally — can start any time — but is the natural last phase given its size, and its outcome should feed back into Phase 5.3's Task 7.17 re-triage.
-
-| # | Item | Sub-items | Effort |
-|---|------|-----------|--------|
-| 7.1 | Confirm why `freeze_spec_constant_ops` evaluates everything unconditionally | Check git history/original rationale; check Tint SPIR-V reader gaps for `OpSpecConstantOp` computed expressions | 1 day |
-| 7.2 | Prototype the minimal override-preserving version | Skip evaluation only for spec constants consumed as plain runtime values; hand-construct a test SPIR-V module and confirm via `tint_convert_cli` | 1-2 days |
-| 7.3 | Verify the existing `WGPUConstantEntry`/`use_override_path` plumbing | Feed it real overridable WGSL for the first time ever; confirm correct output at two specialization values with no second Tint conversion | 1 day |
-| 7.4 | Full regression + targeted spec-constant-heavy scene (SDFGI) | Re-run full suite; re-attempt the abandoned RW-storage-texture-split fix to see if it's now moot | 1 day |
-| 7.5 | Close out remaining legacy-path usage | Extend `wgsl_precompile.py`/the Phase 2 export-time baker's ahead-of-time coverage for whatever can't be made overridable; document exclusions explicitly | open-ended |
-| 7.6 | Final verification | `shader_corpus`/`preprocessing_tests` green (new fixture likely needed); `driver_unit_tests` green; native + full web rebuild; live browser re-test of a real spec-constant-heavy feature | 1 day |
-
-**Phase 7 total**: multiple days, open-ended at 7.5. Start with 7.1 before assuming the rest is safe.
-
----
-
-### Phase summary
-
-| Phase | Depends on | Cumulative effort |
-|-------|-----------|--------------------|
-| 1 — Quick wins | none | ~1-2 days |
-| 2 — Land shader baking | none | ~1-2 days |
-| 3 — CI determinism check | Phase 2 (best done after) | ~1 day |
-| 4 — Remaining Tint failures | Phase 2 | 1-2 days |
-| 5 — Post-compatibility sweep | Phases 1, 2, 3 | ~2-3 days |
-| 6 — Loading/progress bar | Phase 2 | ~1 day |
-| 7 — Spec-constant fallback elimination | none structurally; feeds back into 5.3 | multiple days, open-ended |
+Rather than maintain a second ordering that drifts from `TASKS.md` and `HANDOFF.md`, the remaining
+work is listed flat in "What is left from this plan" above. Nothing in it blocks anything else in
+it, so a phase graph buys nothing now. `HANDOFF.md` §8 is the priority-ordered list to work from.

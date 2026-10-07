@@ -2058,8 +2058,8 @@ Wired into both real call sites (`rendering_device_driver_webgpu.cpp`'s runtime 
 
 **Not attempted further**: option (a) (patching Tint's destroy-check to be transitively reachability-aware) — no longer needed now that (b) resolved the crash from our side without touching vendored code. Worth revisiting only if a future shader hits the same Tint bug class in a way inlining can't route around (e.g. a texture-parameter helper too large/recursive to inline), or if it's ever worth reporting/fixing upstream at `crbug.com/tint` regardless (option (c), still open, low priority since (b) unblocks us).
 
-### Task 8.3: 6 pre-existing Tint conversion failures — NOT sync regressions `[PARALLEL]`
-**Status**: `TODO`
+### Task 8.3: 6 pre-existing Tint conversion failures — NOT sync regressions `[DONE]`
+**Status**: `DONE` (2026-10-07) — all six resolved: four fixed, two deliberately excluded as unreachable. See the closing note at the end of this task.
 **Severity**: MEDIUM (already broken before the sync; not blocking, but not in `expected_failures.json` either)
 **Shaders**: `tonemap_mobile.glsl:subpass:frag`, `tonemap_mobile.glsl:subpass_1d_lut:frag`, `screen_space_reflection_filter.glsl:default:comp`, `volumetric_fog.glsl:default:comp`, `voxel_gi_debug.glsl:default:vert`, `sdfgi_debug_probes.glsl:default:vert`. (Two more, `tonemap.glsl:bicubic{,_1d_lut}:frag`, were fixed as a side effect of Task 8.2's `inline_opaque_functions` pass — removed from this list.)
 **Confirmed pre-existing**: these fail identically at `webgpu-4.6.2` (pre-sync) and at 4.7.2 — verified via the same worktree comparison as Task 8.2. Not caused by the version sync; just never triaged before.
@@ -2069,6 +2069,36 @@ Wired into both real call sites (`rendering_device_driver_webgpu.cpp`'s runtime 
 - `volumetric_fog.glsl`: `Tint crashed (likely TINT_UNIMPLEMENTED on unsupported SPIR-V feature)` — same crash *signature* as Task 8.2, but confirmed **not** the same trigger: `volumetric_fog.glsl` has zero references to `area_light_atlas`/`ltc_evaluate`/`fetch_ltc*`. Very plausibly the same underlying Tint `ConvertUserCall` bug class (see Task 8.2's root-cause writeup) hit via a different texture-parameter-taking helper function in this shader — worth checking with the same instrumentation approach before assuming otherwise.
 - `voxel_gi_debug.glsl`: `var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage` — a read_write storage buffer used in the vertex stage, which WGSL disallows (Vulkan/GLSL permits it). Needs the buffer split into a read-only vertex-stage view.
 - `sdfgi_debug_probes.glsl`: `position must be declared for vertex entry point output` — the vertex entry point's `position` builtin output isn't surviving the SPIR-V round-trip.
+
+
+**Closed 2026-10-07 — measured, not inferred.** Forced a full precompile sweep
+(`rm -f drivers/webgpu/wgsl_precompiled.gen.h` then a `webgpu=yes` web build, so
+`wgsl_precompile.py` re-ran from scratch instead of reusing a cached header):
+
+```
+[WGSL Precompile] Processing 81 shader files...
+[WGSL Precompile] Converting 274 SPIR-V modules to WGSL...
+[WGSL Precompile] Results: 274 compiled, 0 glsl failures, 0 tint failures
+```
+
+No per-shader failure lines either, only the summary. Resolution per shader:
+
+| Shader (as listed above) | Outcome |
+|---|---|
+| `screen_space_reflection_filter.glsl:default:comp` | **Fixed** — in the precompiler's list and converting. Matches the 2026-09-11 note above. |
+| `volumetric_fog.glsl:default:comp` | **Fixed** — the one genuine Tint *crash* in this list; now converts. |
+| `voxel_gi_debug.glsl:default:vert` | **Fixed** — `("default", "", [VERT, FRAG])` in the list, converting. |
+| `sdfgi_debug_probes.glsl:default:vert` | **Fixed** — now listed as the `probes`/`visibility` variants, both converting. |
+| `tonemap_mobile.glsl:subpass:frag`, `:subpass_1d_lut:frag` | **Deliberately excluded, and correctly so.** This task asked to "check whether these variants are actually reachable on the WebGPU path"; `wgsl_precompile.py`'s own comment above its `tonemap_mobile.glsl` entry answers it — the engine never compiles the subpass variants on this platform, and Tint cannot convert their `input_attachment` `textureLoad` because WGSL has no subpass-input concept. The entry lists only `normal` and `1d_lut`. Nothing to fix, and nothing to add to `expected_failures.json` either, since they are never attempted. |
+| `tonemap.glsl:bicubic{,_1d_lut}:frag` | Already removed from this list — fixed as a side effect of Task 8.2's `inline_opaque_functions`. |
+
+**Method note worth carrying**: `drivers/webgpu/wgsl_precompiled.gen.h` is keyed by
+**SPIR-V hash**, not by shader or class name, so grepping it for a shader name
+proves nothing — name-shaped hits are just identifiers inside the emitted WGSL.
+Two such greps produced confident wrong answers while closing this task (first by
+file name, then by `*ShaderRD` class name). The authorities are the precompiler's
+own summary line and `wgsl_precompile.py`'s explicit (file, variants) list — which
+is also where the "is this variant reachable?" question is actually answered.
 
 ### Task 8.4: `writeonly` storage buffers fail Tint conversion — found via real gameplay testing, FIXED `[SERIAL]`
 **Status**: `DONE`
@@ -5418,7 +5448,7 @@ It is read from the console rather than only logged because a web export has no 
 ---
 
 ### Task 31: the shader baker compiles with the **editor's** device capabilities, not the **target's** — cause of 21 of the 37 runtime translations `[FIXED]`
-**Status**: `ROOT-CAUSED` — cause proven by code reading on both sides; no fix attempted, because the reasonable fixes differ a lot in invasiveness and the choice is the user's.
+**Status**: `DONE` — option A (make the baker device-aware) was implemented; see "Task 31 — fix implemented (option A: make the baker device-aware)" and "Task 31 — confirmed on a real export, and one regression fixed" below. **This field read `ROOT-CAUSED — no fix attempted` until 2026-10-07**, long after the fix landed and was confirmed; the heading, the body and this line had drifted apart. If you are deciding between the fix options listed below, don't — that decision was made and taken.
 **Severity**: **HIGH for startup cost.** These 37 stages miss the baked cache entirely — not just the WGSL. A miss means the runtime does the *whole* pipeline on the main thread while the player waits: GLSL → glslang → SPIR-V → 12 preprocessing passes → Tint → WGSL. This is a prime suspect for the startup stall Task 14 has been chasing from the browser side.
 
 **The names** (`godotWebGPUShaderStats.translatedShaders`, 29 distinct, 37 stages — compute shaders are 1 stage, vertex+fragment are 2, and the arithmetic checks out: 21 compute × 1 + 8 clustered variants × 2 = 37):
@@ -5510,7 +5540,7 @@ There is a neat irony: one of the variants this forced back into the bake is `VR
 ---
 
 ### Task 32: the last 16 — right instinct (an enumeration gap), wrong mechanism; closed by Task 34 `[SUPERSEDED — fixes kept]`
-**Status**: `FIX IMPLEMENTED` — cause established from the user's own export artifacts, not inference; needs one export to confirm.
+**Status**: `DONE` — cause established from the user's own export artifacts, not inference. The "needs one export to confirm" this field asked for **has happened**: the user's project reports `{baked: 360, translated: 0}` on real hardware (`webgpu_notes/HANDOFF.md` §2), so every stage reaches the baked cache and nothing falls back to runtime translation. Status corrected 2026-10-07.
 **Severity**: MEDIUM. One material's worth of scene shaders (8 variants × 2 stages = 16) recompiled from GLSL on the main thread at load. Upstream-shaped: nothing about it is WebGPU-specific.
 
 **How it was pinned down.** Counting baked versions on disk settled what static reading could not. In the user's project:
@@ -5567,7 +5597,7 @@ Together these answer the question that neither side can answer alone: whether a
 ---
 
 ### Task 33: a stale `user://` shader cache permanently shadows the export's baked cache `[FIXED]`
-**Status**: `FIX IMPLEMENTED`. Explains the 16 that survived three unrelated fixes, and a much larger failure seen on a second export.
+**Status**: `DONE`. Explains the 16 that survived three unrelated fixes, and a much larger failure seen on a second export. Confirmed by the same real-hardware export as Task 32 — `{baked: 360, translated: 0}` (`webgpu_notes/HANDOFF.md` §2). Status corrected 2026-10-07.
 **Severity**: **HIGH.** In the worst case observed, **every** shader in the build lost its baked WGSL: `{ baked: 0, precompiled: 109, cached: 92, translated: 193 }`. Baking is fully defeated and the game pays main-thread Tint for everything, on every run, forever.
 
 **The evidence.** A verbose run shows, for each of the eight stuck variants:
