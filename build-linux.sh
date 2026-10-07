@@ -21,8 +21,10 @@
 # API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION. threads=yes
 # dlink_enabled=yes (GDExtension + threads together) used to be broken by an
 # Emscripten-internal dylink+pthread initialization race; it now works, but only
-# on a toolchain carrying this fork's patch for that race, which this script
+# on a toolchain carrying this fork's two Emscripten patches, which this script
 # applies for you (misc/emsdk_patches/, webgpu_notes/TASKS.md Task 12 bug #2).
+# Without them that configuration does not boot (0001) and floods the console
+# while silently dropping Module exports on worker threads (0002).
 # If a threaded web export misbehaves under the WebGPU driver, narrow it down
 # against a threads=no build first.
 #
@@ -368,11 +370,11 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 
 	# The threads=yes dlink_enabled=yes variants below do not boot without this
-	# fork's dylink+pthread patch, and `emsdk install` above overwrites the
-	# toolchain tree -- so it has to be (re-)applied here, after the install, on
-	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
-	# moved the text it pins. A failure only costs the two threads+dlink templates,
-	# so warn and keep going rather than abandoning the whole matrix.
+	# fork's Emscripten patches, and `emsdk install` above overwrites the toolchain
+	# tree -- so they have to be (re-)applied here, after the install, on every run.
+	# Idempotent; refuses rather than fuzzily applying if upstream has moved any of
+	# the text it pins. A failure only costs the two threads+dlink templates, so
+	# warn and keep going rather than abandoning the whole matrix.
 	step "Applying Emscripten toolchain patches (needed for threads+GDExtension)..."
 	if ./misc/emsdk_patches/apply.sh --apply; then
 		ok "Emscripten toolchain patched."

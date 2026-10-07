@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -77,6 +78,32 @@ def get_doc_path():
     return "doc_classes"
 
 
+def _emsdk_patched_files(em_root):
+    """Toolchain files named by misc/emsdk_patches/emsdk_patch.py's PATCHES table.
+
+    Imported by path so this keeps working from any working directory and does
+    not depend on the patch directory being importable as a package. Any failure
+    degrades to "track nothing extra" -- the explicit list in the caller still
+    covers both current patches, so a missing table cannot break a build.
+    """
+    # parents: [0] platform/web, [1] platform, [2] repo root.
+    table = Path(__file__).resolve().parents[2] / "misc" / "emsdk_patches" / "emsdk_patch.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_godot_emsdk_patch", table)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return [em_root / h["file"] for patch in module.PATCHES for h in patch["hunks"]]
+    except Exception as e:
+        # Loud, not silent: the whole point of reading the table is that a patched
+        # file missing from the hash reintroduces the stale-relink bug, whose only
+        # symptom is "the patch did nothing". A quiet fallback here would hide
+        # exactly what this is guarding.
+        print_warning(
+            f"Could not read {table} to hash the patched toolchain files ({e}). A toolchain patch may not trigger a relink."
+        )
+        return []
+
+
 def get_toolchain_js_fingerprint():
     """Content hash of the toolchain files that shape the generated JS glue.
 
@@ -101,9 +128,18 @@ def get_toolchain_js_fingerprint():
     tracked = [
         em_root / "emscripten-version.txt",
         em_root / "tools" / "emscripten.py",
+        em_root / "tools" / "acorn-optimizer.mjs",
+        em_root / "src" / "modules.mjs",
+        em_root / "src" / "runtime_common.js",
         em_root / "src" / "lib" / "libdylink.js",
         em_root / "src" / "lib" / "libpthread.js",
     ]
+    # Plus every file misc/emsdk_patches actually patches, read from its own
+    # table rather than duplicated here. Without this, adding a patch that
+    # touches a file the list above happens to miss would silently reintroduce
+    # the stale-relink bug this function exists to prevent -- which is not a
+    # mistake anyone would catch, because the symptom is "the patch did nothing".
+    tracked += _emsdk_patched_files(em_root)
     digest = hashlib.sha256()
     for f in tracked:
         try:
@@ -350,28 +386,41 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
-        if env["threads"]:
-            # GDExtension and threads together need a patched toolchain: without it
-            # the export does not boot at all (an ASM_CONSTS initialization race in
-            # Emscripten's own dylink+pthread glue -- see misc/emsdk_patches/ and
-            # webgpu_notes/TASKS.md Task 12 bug #2).
-            #
-            # This warns rather than fails because the toolchain is outside the repo
-            # and may legitimately be patched by other means. It is loud because
-            # `emsdk install` overwrites the toolchain tree and silently reverts the
-            # patch -- without this, the next person rediscovers a crash that was
-            # already diagnosed and fixed, which is the same silent-failure shape
-            # Task 36's version-hash mismatch had.
-            apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
-            try:
-                patched = subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
-            except OSError:
-                patched = False  # Can't run it (Windows without bash, not executable, ...).
-            if not patched:
+        # A dlink build needs this fork's Emscripten toolchain patches (both of
+        # them are about -sSIDE_MODULE/-sEXPORT_ALL code paths that only a dlink
+        # build takes) -- see misc/emsdk_patches/ and webgpu_notes/TASKS.md Task 12
+        # bug #2. How much it hurts depends on `threads`:
+        #   threads=yes -- the export does not boot at all (0001: an ASM_CONSTS
+        #                  initialization race in Emscripten's dylink+pthread glue),
+        #                  and logs ~11 errors per load from 0002's eager heap-view
+        #                  export, which silently drops later Module exports on
+        #                  worker threads.
+        #   threads=no  -- neither symptom can fire (both need a pthread worker),
+        #                  so this is cosmetic, but the patches are still correct.
+        #
+        # This warns rather than fails because the toolchain is outside the repo
+        # and may legitimately be patched by other means. It is loud because
+        # `emsdk install` overwrites the toolchain tree and silently reverts the
+        # patches -- without this, the next person rediscovers a crash that was
+        # already diagnosed and fixed, which is the same silent-failure shape
+        # Task 36's version-hash mismatch had.
+        apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
+        try:
+            patched = subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
+        except OSError:
+            patched = False  # Can't run it (Windows without bash, not executable, ...).
+        if not patched:
+            if env["threads"]:
                 print_warning(
                     "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
-                    "does not have this fork's dylink+pthread patch applied. The resulting export "
-                    f"will most likely fail to start. Run '{apply_sh}' --apply, then rebuild."
+                    "does not have this fork's patches applied. The resulting export will most "
+                    f"likely fail to start. Run '{apply_sh}' --apply, then rebuild."
+                )
+            else:
+                print_info(
+                    "The Emscripten toolchain does not have this fork's patches applied "
+                    f"('{apply_sh}' --apply). Harmless for threads=no, but required as soon as "
+                    "threads=yes is combined with dlink_enabled=yes."
                 )
 
     # Make the toolchain's JS glue a real build input, so applying or reverting an

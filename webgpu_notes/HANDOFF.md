@@ -648,9 +648,12 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
 
 ## 6. Build and environment state — read before rebuilding
 
-- **The toolchain at `~/emsdk` is currently PATCHED** (2026-10-07) with
-  `misc/emsdk_patches/0001-dylink-asm-consts-pthread-race.patch`. That is the state needed to build
-  `threads=yes dlink_enabled=yes`; every other configuration is unaffected by it. Check with
+- **The toolchain at `~/emsdk` is currently PATCHED** (2026-10-07) with **both** patches in
+  `misc/emsdk_patches/`: `0001-dylink-asm-consts-pthread-race` (without it a threads+GDExtension
+  export does not boot) and `0002-export-all-eager-heap-views` (without it the same export logs ~11
+  `growMemViews` TypeErrors per load and silently drops later `Module` exports on worker threads).
+  Both are in dlink-only code paths and both need a pthread worker to fire, so
+  `threads=no dlink_enabled=yes` is unaffected in practice. Check with
   `misc/emsdk_patches/apply.sh --status`, undo with `--revert`. **`emsdk install` silently reverts
   it**, so re-apply after any toolchain change; `build-linux.sh` now does that itself, right after
   its own `emsdk install`. scons **does** now relink when the toolchain moves

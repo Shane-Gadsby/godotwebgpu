@@ -4194,9 +4194,9 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
      (`webgpu_tests.yml:211`), which needs no patch. If a threaded job is added it must run
      `apply.sh --apply` after the emsdk setup step.
    - The ~16 `Cannot read properties of undefined (reading 'buffer')` (`growMemViews`) errors in
-     the first ~300 ms are **not** fixed and do not need to be: non-fatal, and present in a
-     booting build. The earlier guess that they might be a second blocking race was wrong. Their
-     exact source is now known, see 1.5.10 below.
+     the first ~300 ms are **now fixed** too, by a second toolchain patch — see 1.5.10, which also
+     corrects two things this gap list and 1.5.10 itself originally got wrong about them. (The
+     earlier guess that they were a second *blocking* race was also wrong: they never blocked.)
 
    **1.5.9 — The patch was right; the build was stale. (2026-10-07, after the above)**
 
@@ -4237,41 +4237,66 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    `Object.assign` half still crashes, and one with only the `??=` half silently discards EM_ASM
    bodies, which is worse.
 
-   **1.5.10 — The residual `growMemViews` errors, now root-caused (not fixed)**
+   **1.5.10 — The residual `growMemViews` errors: root-caused and FIXED. Two of my earlier
+   conclusions here were wrong; both corrections are the useful part.**
 
-   Still ~11 per load, still non-fatal, and now understood. They are not a race in the dylink
-   loader at all. Emscripten's `growableHeap` pass in `tools/acorn-optimizer.mjs` rewrites every
-   `HEAPxx` reference into `(growMemViews(), HEAPxx)` when `SHARED_MEMORY && ALLOW_MEMORY_GROWTH`.
-   `platform/web/detect.py:428` puts all ten `HEAP*` views in `EXPORTED_RUNTIME_METHODS` (upstream
-   Godot code, for GDExtension/JS consumers), so the generated module body contains:
+   Status: **fixed** by `misc/emsdk_patches/0002-export-all-eager-heap-views.patch`. The user's real
+   threads+GDExtension export now loads with **0 console errors**, down from 22.
 
-       Module["HEAP16"]=(growMemViews(),HEAP16); ... Module["HEAPU8"]=(growMemViews(),HEAPU8);
-       Module["PThread"]=PThread; Module["addRunDependency"]=addRunDependency; ...
+   *What they actually were.* Not a race in the dylink loader. Emscripten's `growableHeap` pass
+   (`tools/acorn-optimizer.mjs`) rewrites every `HEAPxx` reference into `(growMemViews(), HEAPxx)`
+   when `SHARED_MEMORY && ALLOW_MEMORY_GROWTH`, and `growMemViews()` is
+   `if (wasmMemory.buffer != HEAP8.buffer) updateMemoryViews()`. On the main thread `wasmMemory`
+   exists before the postamble runs; on a freshly spawned pthread worker it only arrives in the
+   `load` message, so the postamble ran with it `undefined` and threw — once per worker, hence ~11.
 
-   `growMemViews()` is `if (wasmMemory.buffer != HEAP8.buffer) updateMemoryViews()`
-   (`src/runtime_common.js:29`). On the main thread `wasmMemory` is created in JS before this block
-   runs. On a freshly spawned pthread worker it arrives later, in the `load` message, so the block
-   runs with `wasmMemory` still `undefined` and the **first** of those assignments throws — one
-   error per worker, which is where the ~11 comes from.
+   *Where the redundant exports came from.* `updateMemoryViews()` already assigns
+   `Module['HEAPxx']` for every view it creates (`maybeExportHeap`, `src/runtime_common.js`), and
+   `exportRuntimeSymbols()`'s `shouldExport()` skips `HEAP*` for exactly that reason — its comment
+   says "HEAP objects are exported separately in updateMemoryViews". But
+   `exportLibrarySymbols()`, three functions below it in `src/modules.mjs`, never got the same
+   exclusion, and that is the path `-sEXPORT_ALL=1` takes. `platform/web/SCsub` sets `EXPORT_ALL`
+   for the dlink main module, so the views got exported a *second* time, eagerly, in the postamble.
+   That is why the symptom was always dlink-specific. The fix applies the exclusion that the other
+   path already has, leaving `updateMemoryViews()` as the single owner of `Module['HEAPxx']`.
 
-   **Two consequences worth knowing, neither currently biting:** everything after `Module["HEAP16"]`
-   in that block (`PThread`, `terminateWorker`, `cleanupThread`, `addRunDependency`,
-   `removeRunDependency`, ...) is never assigned onto `Module` *on worker threads*, and the factory
-   promise rejects there; and `Module.HEAP*` are eager snapshots, so on any thread they go stale
-   after a memory growth. Nothing in this fork reads `Module.HEAP*` — `platform/web/js/libs/*.js`
-   use the module-internal `HEAP*` globals — which is why none of this has surfaced.
+   **Correction 1 — "non-fatal" undersold it.** The throw aborted the postamble's export block
+   partway through, so on worker threads every `Module[...]` assignment emitted after the first
+   heap view was silently never made: `PThread`, `terminateWorker`, `cleanupThread`,
+   `addRunDependency`, `removeRunDependency`, and the rest. Nothing in this fork reads those off
+   `Module` (`platform/web/js/libs/*.js` use the module-internal globals), which is the only reason
+   it never bit. "Non-fatal" was true; "harmless" would not have been.
 
-   **If it ever needs fixing**, the options, in order of preference:
-   1. Patch the generator to emit the `HEAP*` exports as `Object.defineProperty` getters. Fixes the
-      staleness too, and costs nothing on the hot path. Largest patch.
-   2. Guard `growMemViews` with `if (wasmMemory && ...)`. One line, correct (there are no views to
-      refresh before memory exists), but `growMemViews` is called on *every* JS heap access, so it
-      adds a truthiness check to a very hot path.
-   3. `-sGROWABLE_ARRAYBUFFERS=2`, which makes Emscripten skip `growMemViews` entirely — but that
-      needs in-place-growable `SharedArrayBuffer` support and is a much bigger behavioral change.
+   **Correction 2 — the fix I recommended here was wrong, and would have broken things.** This
+   section previously said the preferred fix was to emit the `HEAP*` exports as
+   `Object.defineProperty` getters, on the reasoning that `Module.HEAP*` were eager snapshots that
+   went stale after a memory growth. **Both halves of that were false.**
+   `updateMemoryViews()` *assigns* those properties and runs after every growth, so they were never
+   stale — measured on the live main thread, `Module.HEAPU8` was a non-detached `Uint8Array` of
+   length 208,404,480, i.e. already refreshed well past the initial allocation. And because that
+   assignment is a plain `Module['HEAP8'] = ...`, a getter-only accessor would have made it throw
+   under strict mode and silently no-op otherwise — turning log noise into `Module.HEAP*` being
+   permanently wrong for every GDExtension consumer. The accessor idea was a worse fix than the bug,
+   arrived at by reasoning about the generated output without first reading how Emscripten already
+   maintains those properties. `0002`'s header records this so nobody re-proposes it.
 
-   Both 1 and 2 mean a **second** toolchain patch, and `apply.sh` is currently built around one.
-   Do not start this without deciding that the log noise is worth that maintenance cost.
+   *Infrastructure this forced.* `apply.sh` was built around exactly one patch, with its hunks and
+   their inverses hand-written into heredoc'd Python. It is now a thin toolchain-locator that
+   delegates to `misc/emsdk_patches/emsdk_patch.py`, which holds all patches as a table of
+   content-pinned hunks. Adding a third patch is a table entry plus a `.patch` file, no logic.
+   `--revert` is a mechanical `new` → `old` replacement (no hand-written inverse), refuses if the
+   file was edited behind our back, and was verified to restore `tools/emscripten.py`
+   byte-identically across a full revert/re-apply cycle. `get_toolchain_js_fingerprint()` reads that
+   table, so **every file a future patch touches is hashed into the link automatically** — a patched
+   file missing from the hash would silently reintroduce the 1.5.9 stale-relink bug, whose only
+   symptom is "the patch did nothing".
+
+   *Verified.* `bin/godot.web.template_debug.wasm32.dlink.js`: eager
+   `Module["HEAPxx"]=(growMemViews(),HEAPxx)` block gone (0 occurrences), `updateMemoryViews()`
+   still carrying all ten assignments, `Module["PThread"]` now directly after `Module["GOT"]`.
+   Runtime on the user's project: 0 errors, all ten views present as live non-detached value
+   properties, `Module.PThread`/`addRunDependency` present, engine still reporting
+   `multi-threaded, GDExtension support.` and running its own scripts.
    - Verified headless with swiftshader on a trivial Forward+ scene. **Not** verified against the
      user's real project, on real hardware, or for runtime stability beyond startup — and 1.5.8.5
      ("ask whether threading actually buys anything measurable") is untouched. Making threads
