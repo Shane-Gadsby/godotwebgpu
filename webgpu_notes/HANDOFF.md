@@ -93,6 +93,14 @@ tripped this driver's `depth_buffer` reclassification *and* triggered a depth ba
 dispatched an `rgba16f`-declared compute variant at an `R32_SFLOAT` destination (§4). Everything else
 below is either landed and verified, or a correction to something previously written down wrongly.
 
+**2026-10-07 added two things that change what is possible rather than what is fast.** The web
+startup no longer runs as one unbroken `callMain()`, so the loading bar finally covers the engine's
+own startup instead of stopping at "download complete" (§4.11). And `threads=yes
+dlink_enabled=yes` — threads *and* GDExtension, which this fork has never been able to ship — now
+boots, via a two-line Emscripten toolchain patch carried in `misc/emsdk_patches/` (§4.12). **If you
+build that configuration you must run `misc/emsdk_patches/apply.sh --apply` first**, and re-run it
+after every `emsdk install`.
+
 ---
 
 ## 2. Verified state, and when it was measured
@@ -179,6 +187,8 @@ without deleting anything.
 | 43 | `create_local_rendering_device()` now reports why it failed | Was returning null silently |
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
 | 35 | Per-glyph `color_glyph` flag replaces atlas-format sniffing in both text servers | **All text was rendering white** on WebGPU (dark outlines too); theme font colors work again |
+| 14 | Startup split into frame-sized steps (`Main::setup`/`setup2`/`start`/first frame) + per-phase progress to JS | Loading bar covers the **whole** load, not just the download; cost ~48 ms (3 frames) |
+| 12 | Emscripten dylink+pthread `ASM_CONSTS` patch (`misc/emsdk_patches/`) | **`threads=yes dlink_enabled=yes` boots at all** — was a hard hang since the configuration existed |
 
 Reference numbers worth keeping: the user's project loads with a **~1.0 s** cold stall (was ~9.2 s at
 the start of this work), `{baked: 360, translated: 0}`, and BC1 texture compression is verified
@@ -469,6 +479,131 @@ should say so once, loudly, instead of reporting it as N item failures.
 
 ---
 
+## 4.11 The loading bar now covers the engine's startup, because the startup yields
+
+**The problem was structural, not cosmetic.** The whole startup ran inside one `callMain()` that
+never returned to JS, so the thread that would paint progress was the one blocked for the duration.
+That is why an earlier attempt at DOM-based progress reporting had *zero* visible effect — it is
+recorded in Task 14 and is worth not rediscovering.
+
+`platform/web/web_main.cpp` now calls `Main::setup(..., /* p_second_phase = */ false)` and runs the
+rest as a three-step state machine, one step per animation frame: `Main::setup2()` → `Main::start()`
+plus main-loop init → handover to `main_loop_callback()` and the first frame. **This is not new
+engine surgery**: the two-phase split is what Android (`java_godot_lib_jni.cpp:224,353`) and iOS
+(`main_ios.mm:62`) already use, down to the `setup2()` failure handling.
+
+`OS_Web::benchmark_begin/end_measure` then reports every phase `main.cpp` *already* brackets to the
+page, unconditionally, through a new `godot_js_os_startup_progress()` → `onStartupProgress` config
+callback. No parallel instrumentation was added; the phase names are the ones Task 14 subtask 1
+measured. `godotStartupMarks` stays `--benchmark`-gated, so `webgpu_tests/startup_phases/` is
+unaffected.
+
+**Three things to know before touching this:**
+
+1. **`engine.js`'s `start()` contract was repaired and is load-bearing.** `callMain()` now returns
+   long before the engine has started, so `start()` resolves on the terminal `Startup:First Frame`
+   phase instead, and rejects via the exit path. Anything consuming that promise depends on it —
+   `iframe.js`, `editor.html`, custom shells. The old `callMain()` also returned only after the
+   first frame, so the timing is equivalent to within a frame.
+2. **The bar has about four real paint points, not seventeen.** All of `setup2`'s internal phases
+   complete inside one blocked step, so their weights decide *where* the jump lands but cannot
+   paint individually. Finer granularity means making `Main::setup2()` resumable — real engine
+   surgery, deliberately not attempted.
+3. **Only leaf phases are weighted** in `misc/dist/html/full-size.html`. `main.cpp` also brackets
+   wrappers around them (`Startup:Servers`, `Startup:Main::Setup2`, `Startup:Main::Start`) and
+   counting those too would double-count their children. Unknown names are ignored, so a future
+   engine version cannot push the bar past 100%.
+
+Measured cost: **~48 ms**, three animation frames. The `setup`→`setup2` boundary gives a clean read
+(phase ends at 583 ms, next completes at 612 ms having itself taken 14 ms → a 15 ms wait); the other
+two boundaries have real engine work mixed in but add exactly one rAF each.
+
+**This does not make the load faster.** It makes it legible. A load that previously read 100% at
+630 ms and then showed nothing for 11.7 s now moves through the download and then the engine phases
+with a label naming each one.
+
+> **Measurement note that will mislead you**: `profile_phases.mjs` reports the stall as the longest
+> `requestAnimationFrame` gap. That number **drops sharply** now, purely because the work is spread
+> across frames. It is not a speedup. Total time to first frame is the only honest metric from here.
+
+---
+
+## 4.12 `threads=yes dlink_enabled=yes` boots now, and needs a patched toolchain
+
+Task 12 bug #2 — the configuration combining threads with GDExtension has never started — is
+**fixed**, by two lines in Emscripten itself (`misc/emsdk_patches/`):
+
+- `tools/emscripten.py` — the `var ASM_CONSTS = {...}` initializer **merges** (`Object.assign`)
+  instead of replacing.
+- `src/lib/libdylink.js` — `ASM_CONSTS ??= {}` before `addEmAsm`'s write.
+
+**Neither half is valid alone.** The guard on its own — the obvious one-line fix — is *worse than
+the crash*: `var` hoists the declaration but the initializer runs ~900 KB later and replaces the
+object, so a side module's registrations would be silently discarded. The analysis that predicted
+this before anyone tried it was correct and is preserved in the patch header.
+
+Verified: the export that raised `Cannot set properties of undefined (setting '<addr>')` from a
+worker and never booted now reports `Build configuration: Emscripten 6.0.9, multi-threaded,
+GDExtension support.` and completes startup, zero `ASM_CONSTS` errors. `threads=yes
+dlink_enabled=no` re-checked and still works; `threads=no dlink_enabled=yes`, the shipping config,
+is untouched.
+
+**Verified only to the level stated**: headless swiftshader, trivial Forward+ scene, boots and
+completes startup. *Not* real hardware, *not* a real project, *not* stability beyond startup. And
+whether threading is worth having is still unmeasured — see §8.
+
+**Four traps, each of which produced a wrong answer first. Do not rediscover these:**
+
+1. **`threads/emscripten_pool_size` must be `8`** (the engine's default). The link flag is
+   `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and **`-1 || 8` is `-1`**, which wedges
+   *every* threaded build, `dlink_enabled=no` included. A hand-written preset with `-1` produced a
+   confident "threads+dlink is still broken" that was pure artifact. **Always run
+   `threads=yes dlink_enabled=no` as a control** — it is documented as working, so if it fails too,
+   the harness is wrong, not the subject. That control is what caught this.
+2. **scons does not relink because the toolchain changed.** A "patched" build finished in 8.5 s
+   having done nothing, leaving the old binary in place. Delete the target `.js`/`.wasm`/`.zip`
+   after `--apply` or `--revert`, and verify the patch in the **linked output** — which is
+   minified, so grep `ASM_CONSTS??={}` with no spaces. A spaced grep gave a false negative on a
+   patch that was present.
+3. **Playwright's `page.on('console')` does not forward worker-target output**, and this failure is
+   raised on a worker. Use `page.on('pageerror')`, which does see it. A CDP `Target.setAutoAttach`
+   attempt returned nothing at all.
+4. **`page.screenshot()` stalls while the main thread is blocked**, so screenshots taken on a
+   wall-clock schedule during a web startup are **mislabelled** — they land wherever the renderer
+   next produced a frame. Trigger captures on DOM state (`waitForFunction`). A timed set appeared
+   to show the game running 8 s before its own first frame, which is how this was found.
+
+**Known gaps**: there is no standalone reproducer — the minimal `MAIN_MODULE` + side-module +
+`-pthread` case does not fire through two variants (`misc/emsdk_patches/repro/README.md` records
+what was tried and an untested hypothesis), so `apply.sh` pins by content and refuses on a change,
+but **cannot self-retire** when upstream fixes this. Not wired into CI, which builds only
+`threads=no dlink_enabled=yes`.
+
+---
+
+## 4.13 COOP/COEP: what threads require, and what we own that does not supply it
+
+Threaded builds need `SharedArrayBuffer`, which needs the page cross-origin isolated:
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+
+**Already correct, inherited from upstream — do not re-derive**: the editor's own HTTP server behind
+*Remote Deploy* / "Run in Browser" (`platform/web/export/editor_http_server.cpp:112-113`) sets both
+unconditionally, as do `platform/web/serve.py:24-25` and the PWA fallback
+`misc/dist/html/service-worker.js:40-52`. The `variant/thread_support` preset option already exists.
+
+**Ours, and missing them** — a `threads=yes` export simply will not boot under any of these:
+`webgpu_tests/startup_phases/features.mjs`, `resource_lifecycle/run_tests.mjs`,
+`spec_constant_overrides/run_tests.mjs`, and all five `sdfgi_race_repro/run_*.mjs`.
+`webgpu_tests/benchmark/run_benchmark.sh:220-221` has the pattern to copy. Worth factoring into one
+shared static-server helper, or the next test server added will miss them too.
+
+**Also missing**: nothing in the editor warns that enabling `variant/thread_support` makes the
+export undeployable on a host that cannot set those headers — it just produces an export that fails
+to start, looking like an engine bug rather than a hosting problem. Task 12 subtask 6 names a
+landing spot (`get_export_option_warning()`).
+
+---
+
 ## 5. Corrections — things recorded wrongly earlier
 
 **Task 35 was marked "verified in a browser" on evidence that could not have caught its own regression.**
@@ -513,6 +648,17 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
 
 ## 6. Build and environment state — read before rebuilding
 
+- **The toolchain at `~/emsdk` is currently PATCHED** (2026-10-07) with
+  `misc/emsdk_patches/0001-dylink-asm-consts-pthread-race.patch`. That is the state needed to build
+  `threads=yes dlink_enabled=yes`; every other configuration is unaffected by it. Check with
+  `misc/emsdk_patches/apply.sh --status`, undo with `--revert`. **`emsdk install` silently reverts
+  it**, so re-apply after any toolchain change — and remember scons will not relink just because the
+  toolchain moved, so delete the target `.js`/`.wasm`/`.zip` afterwards or the next build keeps the
+  old output.
+- **`bin/` now holds templates for four `threads` × `dlink` combinations**, built 2026-10-07 while
+  verifying the above, plus an OpenGL3 one. They do **not** all come from the same commit as the
+  editor, so a baked-shader mismatch warning is expected from anything but a freshly rebuilt pair —
+  see the version-hash note immediately below, which is the thing that actually matters.
 - **`bin/` is current**: both `godot.linuxbsd.editor.x86_64` and
   `godot.web.template_release.wasm32.nothreads.zip` were built together, from the Task 45 source but
   before it was committed, so they carry the version hash `2e3ccd321` rather than `HEAD`'s. The pair
@@ -612,6 +758,24 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
+0. **Decide whether threading is actually worth having, now that it is possible** (Task 14 subtask
+   1.5.8.5, untouched). §4.12 made `threads=yes dlink_enabled=yes` *boot*; that is not the same as
+   it being *useful*, and the honest next step is a real-project run on real hardware. Two things
+   to settle, in this order:
+   - **Does it stay up?** Everything verified so far is headless swiftshader, a trivial scene, and
+     startup only. Stability under load, audio, input and GDExtension all remain unexercised under
+     threads.
+   - **Does it buy anything?** Measurement already says where the one plausible win is, and it is
+     *not* where intuition puts it. Threads cannot move shader or pipeline work off the critical
+     path — WebGPU handles live in a per-thread JS table, so creation stays on the thread that
+     imported the device (Task 12 bug #1). Resource loading proper is only ~315 ms of a ~2000 ms
+     stall. The real target is **`Servers:Rendering`, ~510 ms and paid by every project including
+     an empty scene**, of which `createShaderModule` is 22 ms and pipeline creation 0 ms — so
+     ~490 ms is CPU pulling 344 baked shader containers out of the pck, which touches no WGPU
+     handles and is therefore legitimately parallelisable. **That is a hypothesis to measure, not a
+     promise.**
+   - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
+     served, and nine of our own test servers do not send them (§4.13).
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

@@ -293,11 +293,20 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages
-- `threads=yes` is supported, but only with `dlink_enabled=no`. Combining
-  threads with GDExtension support (`threads=yes dlink_enabled=yes`) is not
-  supported — it hits an initialization-order race inside Emscripten's own
-  dylink+pthread runtime glue, not this fork's code (see `drivers/webgpu/README.md`
-  and `webgpu_notes/TASKS.md` Task 12)
+- `threads=yes` works with and without `dlink_enabled=yes`. Combining threads
+  with GDExtension support (`threads=yes dlink_enabled=yes`) was unsupported
+  until 2026-10-07 — it hits an initialization-order race inside Emscripten's
+  own dylink+pthread runtime glue, not this fork's code — and now **requires a
+  patched toolchain**: `misc/emsdk_patches/apply.sh --apply`, re-applied after
+  every `emsdk install`. Without it that configuration does not boot (see
+  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` Task 12 bug #2).
+  Confirmed to boot headless on a trivial scene only; not yet exercised on real
+  hardware or a real project
+- Threaded builds require the page to be served cross-origin isolated
+  (`Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Embedder-Policy: require-corp`), because they need
+  `SharedArrayBuffer`. Godot's own editor HTTP server (Remote Deploy) and
+  `platform/web/serve.py` already send both
 
 ### Format Limitations
 - Float32 textures downgraded to float16 on Adreno (precision loss)

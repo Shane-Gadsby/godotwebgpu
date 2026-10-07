@@ -391,4 +391,14 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 
 **Smoke test timeout** — The engine has 2 minutes to start and report PASS. If it hangs, check Chrome console output with `VERBOSE=1 node smoke_test.mjs ./export/`.
 
+**A `threads=yes` export hangs forever under one of these harnesses** — the page is almost certainly not cross-origin isolated. Threaded builds need `SharedArrayBuffer`, which needs the server to send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Several harnesses here spin up their own `http.createServer` and **do not send them**: `startup_phases/features.mjs`, `resource_lifecycle/run_tests.mjs`, `spec_constant_overrides/run_tests.mjs` and all five `sdfgi_race_repro/run_*.mjs`. `benchmark/run_benchmark.sh:220-221` is the pattern to copy. Check from the page with `window.crossOriginIsolated`.
+
+**A threaded export wedges with repeated `net::ERR_ABORTED` on the worker script** — check the export preset's `threads/emscripten_pool_size`. It must be `8` (the engine default); the link flag is `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and `-1 || 8` evaluates to `-1`, which wedges every threaded build. See `webgpu_notes/HANDOFF.md` §4.12.
+
+**A threaded + GDExtension export never finishes loading** — `threads=yes dlink_enabled=yes` needs a patched Emscripten toolchain (`misc/emsdk_patches/apply.sh --apply`); without it a worker throws `Cannot set properties of undefined (setting '<addr>')` and the module never loads. The build warns, but `emsdk install` silently reverts the patch.
+
+**Worker errors are invisible in Playwright** — `page.on('console')` does not forward worker-target output, and threaded failures are raised on workers. Use `page.on('pageerror')`, which does see them.
+
+**Screenshots during a web startup land at the wrong time** — `page.screenshot()` stalls while the main thread is blocked, so a wall-clock capture schedule produces mislabelled images (one taken at "3 s" can show a frame from 11 s). Trigger captures on DOM state with `waitForFunction` instead.
+
 **Export fails with "No export template found"** — Template must be installed at the path matching the editor's version string. Check `bin/godot --version` and install to the corresponding `export_templates/<version>/` directory.

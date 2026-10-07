@@ -297,17 +297,32 @@ prevents redundant re-creation.
   feature. Graceful fallback to dummy results when unavailable.
 - **Synchronous readback** — Not available in WebGPU. Timestamp and buffer
   readbacks use async callbacks with shadow buffers.
-- **`threads=yes`** — supported with `dlink_enabled=no` (the common case;
-  fixed and live-verified — see `webgpu_notes/TASKS.md` Task 12). The
-  `dlink_enabled=yes threads=yes` combination (GDExtension support together
-  with threads) is a known-unsupported configuration: it hits a genuine
-  initialization-order race inside Emscripten's own dylink+pthread runtime
-  glue (`libdylink.js`), not this fork's code, and is not planned to be
-  patched around here — see Task 12 for the full root-cause trail. Reconfirmed
-  2026-09-19 against a real-project export: `threads=no`/`dlink_enabled=no`,
-  `threads=no`/`dlink_enabled=yes`, and `threads=yes`/`dlink_enabled=no` all
-  work; `threads=yes`/`dlink_enabled=yes` fails with the same signature Task
-  12 already root-caused — no regression, no new information.
+- **`threads=yes`** — all four `threads` × `dlink_enabled` combinations now
+  boot. `threads=yes dlink_enabled=no` was fixed in Task 12 bug #1 (the
+  `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` dispatch fix).
+  `threads=yes dlink_enabled=yes` — GDExtension and threads together — was
+  broken until 2026-10-07 by an initialization-order race inside Emscripten's
+  own dylink+pthread glue (`libdylink.js`), and **now requires a patched
+  toolchain**: run `misc/emsdk_patches/apply.sh --apply`. Without it the export
+  does not boot at all, and the build warns. `emsdk install` overwrites the
+  toolchain tree, so the patch must be re-applied after every toolchain change.
+  See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14 subtask 1.5.
+
+  Note that `threads=yes` is a *build* configuration, not a rendering change:
+  WebGPU object handles live in a per-thread JS table (emdawnwebgpu's
+  `WebGPU.Internals.jsObjects`), so shader-module and pipeline creation stay on
+  the thread that imported the device no matter how many threads exist. Threads
+  cannot move that work off the critical path.
+
+  Threaded builds also require the page to be served cross-origin isolated
+  (`Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp`), since they need
+  `SharedArrayBuffer`.
+
+  **Verified at the level stated and no further**: `threads=yes
+  dlink_enabled=yes` has been confirmed to *boot and complete startup*,
+  headless, on a trivial Forward+ scene. It has not been run on real hardware,
+  against a real project, or for stability beyond startup.
 
 ## Build Instructions
 
