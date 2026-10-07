@@ -27,8 +27,8 @@ a pthread worker to fire, so:
 `apply.sh` is all-or-nothing, so just apply it for any dlink build.
 
 **`emsdk install` overwrites the toolchain tree, so this must be re-applied after
-every toolchain change**, not just after an emsdk version bump. `build-linux.sh`
-does it itself, right after its own `emsdk install`. A `dlink_enabled=yes` build
+every toolchain change**, not just after an emsdk version bump. Every build helper
+and both web CI workflows do it themselves — see "CI and the build helpers" below. A `dlink_enabled=yes` build
 tells you if the patches are missing — loudly when `threads=yes`, as a note
 otherwise.
 
@@ -93,15 +93,52 @@ nothing (see the gotcha below).
   why it does not fire, and names the real-export procedure used instead. That is
   a known gap against Task 14 subtask 1.5.3.
 
-## CI
+## CI and the build helpers
 
-**Not wired into CI, deliberately.** CI builds only `threads=no dlink_enabled=yes`
-(`.github/workflows/webgpu_tests.yml:211`), where neither symptom can fire, so an
-`apply.sh --apply` step there would change nothing in the artifacts. Task 14
-subtask 1.5.6.1 assumed CI built the threaded configuration; it does not. **If a
-`threads=yes dlink_enabled=yes` job is ever added, it must run `apply.sh --apply`
-after the emsdk setup step** (`mymindstorm/setup-emsdk`, line 137) and before the
-build.
+**Wired into both web workflows** as of 2026-10-07 — `web_builds.yml` and
+`webgpu_tests.yml` each run `apply.sh --apply` followed by `--status` immediately
+after their emsdk setup step and before any compilation. `setup-emsdk` lays down a
+fresh toolchain tree on every run, so this has to happen per-run.
+
+Two deliberate choices there:
+
+- **It runs for every web job, not just the dlink ones.** Harmless for the others
+  (neither patched code path is taken without `-sSIDE_MODULE`/`-sEXPORT_ALL`), and
+  gating it on the matrix means a future dlink entry that forgets the gate
+  silently builds an unpatched template — the exact silent failure this directory
+  exists to prevent.
+- **A refusal fails the job.** `--apply` exits 3 when upstream has changed text a
+  patch pins, which in CI can only happen by bumping `EM_VERSION` in that same
+  workflow file — and that bump requires re-deriving the patches anyway. One loud,
+  named failure beats discovering it from a broken export later.
+
+CI still builds only `threads=no dlink_enabled=yes`, where neither symptom can
+fire, so this does not *change* today's artifacts — it means a threaded job can be
+added without anyone remembering this step. (Task 14 subtask 1.5.6.1 assumed CI
+already built the threaded configuration; it does not.)
+
+**Every build helper applies them too**, right after setting up or activating the
+Emscripten environment: `build.sh`, `build-linux.sh`, `build-macos.sh` and
+`build-windows.ps1`. Those warn and continue instead of failing, because all four
+build `threads=no` templates that work fine unpatched — except `build-linux.sh`,
+whose 8-variant matrix includes the two `threads=yes dlink_enabled=yes` builds that
+genuinely need them.
+
+`build-windows.ps1` calls `python -I misc/emsdk_patches/emsdk_patch.py apply`
+rather than `apply.sh`, since it is the one helper that cannot assume a shell. The
+module locates the toolchain itself, so that invocation is equivalent.
+
+### Exit codes
+
+Callers depend on these being distinct:
+
+| | |
+|---|---|
+| `0` | success; for `--check`, all patches applied |
+| `1` | **`--check` only**: not applied. Nothing else uses 1, so a caller asking "is it patched?" cannot confuse it with a missing toolchain |
+| `2` | cannot find or recognize the toolchain |
+| `3` | refused — upstream text no longer matches the pins |
+| `4` | revert did not fully take |
 
 ## Gotcha that wasted a day
 

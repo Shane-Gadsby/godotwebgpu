@@ -27,6 +27,8 @@ each change is and why -- read those first. This table is what executes.
 
 import argparse
 import hashlib
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -118,6 +120,50 @@ PINS = {
     "src/lib/libdylink.js": "b3c3add0fa4ca2a7440cec534c1ed9cbb6946c4826f00be99832d746e671f965",
     "src/modules.mjs": "bbd9b3b882d7abbb66e13c813961d1eb1e129d2da9a199290b03fac76e3f1131",
 }
+
+
+# Exit codes are a contract callers depend on, so keep them distinct:
+#   0  success, or (for `check`) all patches applied
+#   1  `check` only: not applied. Nothing else may use 1, or a caller testing
+#      "is it patched?" cannot tell that apart from "the toolchain is missing".
+#   2  cannot find / recognize the toolchain
+#   3  refused: upstream text no longer matches the pins
+#   4  revert did not fully take
+NO_TOOLCHAIN = 2
+
+
+def die(message):
+    print(message, file=sys.stderr)
+    sys.exit(NO_TOOLCHAIN)
+
+
+def find_em_root():
+    """Locate the Emscripten root (the directory holding emcc), or exit.
+
+    Resolved from the environment rather than hard-coded, so this works on a
+    machine whose emsdk is not at ~/emsdk. Lives here rather than in apply.sh so
+    that callers without bash -- build-windows.ps1, and any CI step that would
+    rather not depend on a shell -- can run this module directly:
+
+        python3 misc/emsdk_patches/emsdk_patch.py apply
+    """
+    env_root = os.environ.get("EMSCRIPTEN_ROOT")
+    if env_root:
+        return Path(env_root)
+    emcc = shutil.which("emcc")
+    if emcc:
+        return Path(os.path.realpath(emcc)).parent
+    emsdk = os.environ.get("EMSDK")
+    if emsdk and (Path(emsdk) / "upstream" / "emscripten").is_dir():
+        return Path(emsdk) / "upstream" / "emscripten"
+    die("error: cannot find Emscripten. Source emsdk_env.sh, or set EMSCRIPTEN_ROOT.")
+
+
+def read_em_version(root):
+    try:
+        return (root / "emscripten-version.txt").read_text().strip().strip('"')
+    except OSError:
+        return "unknown"
 
 
 def sha(text):
@@ -310,11 +356,15 @@ def cmd_revert(root, version, args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", required=True, help="Emscripten root (the directory holding emcc)")
-    ap.add_argument("--version", default="unknown", help="Emscripten version, for messages")
+    ap.add_argument("--root", help="Emscripten root (the directory holding emcc); auto-detected if omitted")
+    ap.add_argument("--version", help="Emscripten version, for messages; read from the toolchain if omitted")
     ap.add_argument("action", choices=["status", "check", "apply", "revert"])
     args = ap.parse_args()
-    root = Path(args.root)
+    root = Path(args.root) if args.root else find_em_root()
+    if not (root / "emscripten-version.txt").is_file():
+        die(f"error: {root} does not look like an Emscripten root (no emscripten-version.txt).")
+    if not args.version:
+        args.version = read_em_version(root)
     handler = {"status": cmd_status, "check": cmd_check, "apply": cmd_apply, "revert": cmd_revert}
     return handler[args.action](root, args.version, args)
 

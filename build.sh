@@ -183,6 +183,23 @@ build_templates() {
 		rm -f drivers/webgpu/wgsl_precompiled.gen.h
 	fi
 
+
+	# The web templates below are dlink_enabled=yes, which needs this fork's two
+	# Emscripten toolchain patches, and `emsdk install`/an emsdk update overwrites
+	# the toolchain tree -- so apply them here, after the environment is set up, on
+	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
+	# moved any of the text it pins. Only a threads=yes dlink build actually breaks
+	# without them, and these builds are threads=no, so warn and keep going rather
+	# than failing the whole run. See misc/emsdk_patches/README.md.
+	echo -e "${BOLD}Applying Emscripten toolchain patches...${NC}"
+	if ./misc/emsdk_patches/apply.sh --apply; then
+		echo -e "${BOLD}Emscripten toolchain patched.${NC}"
+	else
+		echo -e "${YELLOW}Warning: could not patch the Emscripten toolchain. These threads=no${NC}" >&2
+		echo -e "${YELLOW}templates are fine without it, but a threads=yes dlink build would not${NC}" >&2
+		echo -e "${YELLOW}boot. See misc/emsdk_patches/README.md.${NC}" >&2
+	fi
+
 	echo -e "${BOLD}Building web export template (debug)...${NC}"
 	scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
 

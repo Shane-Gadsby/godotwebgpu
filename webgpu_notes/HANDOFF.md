@@ -613,9 +613,11 @@ worth enabling".
 side-module + `-pthread` case does not fire through two variants
 (`misc/emsdk_patches/repro/README.md` records what was tried and an untested hypothesis), so the
 tooling pins by content and refuses on a change, but **cannot self-retire** when upstream fixes it.
-Each patch header carries its own "HOW TO TELL WHEN THIS CAN BE DELETED" test. Not wired into CI,
-which builds only `threads=no dlink_enabled=yes` (where neither symptom can fire). Neither patch has
-been reported upstream; `0002` is the better PR candidate — the asymmetry between
+Each patch header carries its own "HOW TO TELL WHEN THIS CAN BE DELETED" test. **Now wired into
+both web CI workflows** and every build helper (see `misc/emsdk_patches/README.md` § "CI and the
+build helpers"); CI still only builds `threads=no dlink_enabled=yes`, where neither symptom can
+fire, so that does not change today's artifacts — it means a threaded job can be added without
+anyone remembering the step. Neither patch has been reported upstream; `0002` is the better PR candidate — the asymmetry between
 `exportRuntimeSymbols()` and `exportLibrarySymbols()` reads as a plain oversight.
 
 **Adding a third patch**: `apply.sh` is a thin toolchain-locator; the patches and all the logic live
@@ -699,8 +701,9 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   Both are in dlink-only code paths and both need a pthread worker to fire, so
   `threads=no dlink_enabled=yes` is unaffected in practice. Check with
   `misc/emsdk_patches/apply.sh --status`, undo with `--revert`. **`emsdk install` silently reverts
-  it**, so re-apply after any toolchain change; `build-linux.sh` now does that itself, right after
-  its own `emsdk install`. scons **does** now relink when the toolchain moves
+  it**, so re-apply after any toolchain change — though every build helper (`build.sh`,
+  `build-linux.sh`, `build-macos.sh`, `build-windows.ps1`) and both web CI workflows now do that
+  themselves, right after setting up Emscripten. scons **does** now relink when the toolchain moves
   (`get_toolchain_js_fingerprint()` in `platform/web/detect.py`, consumed in `platform/web/SCsub`),
   so there is nothing to delete by hand. Before that existed, the patch was applied between the
   debug and release template links on 2026-10-07 and only the release one picked it up — the stale

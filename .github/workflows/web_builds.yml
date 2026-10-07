@@ -74,6 +74,26 @@ jobs:
         run: |
           emcc -v
 
+      # dlink_enabled=yes builds need this fork's two Emscripten toolchain patches,
+      # and setup-emsdk above lays down a fresh toolchain tree every run, so they
+      # have to be applied here. See misc/emsdk_patches/README.md.
+      #
+      # Run for every web job, not just the dlink ones: it is harmless for the
+      # others (neither patched code path is taken without -sSIDE_MODULE /
+      # -sEXPORT_ALL), and gating it on the matrix means a future dlink entry that
+      # forgets the gate silently builds an unpatched template -- the exact
+      # silent-failure shape this directory exists to prevent.
+      #
+      # Deliberately fatal on refusal. apply.sh exits 3 when upstream has changed
+      # the text a patch pins, which can only happen here by bumping EM_VERSION in
+      # this same file -- and that bump requires re-deriving the patches anyway.
+      # One loud, named failure now beats discovering it from a broken export later.
+      - name: Apply Emscripten toolchain patches
+        run: ./misc/emsdk_patches/apply.sh --apply
+
+      - name: Verify Emscripten toolchain patches are applied
+        run: ./misc/emsdk_patches/apply.sh --status
+
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:

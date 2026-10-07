@@ -100,7 +100,7 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 **This item asked for the limitation to be documented as permanent. It was instead fixed.** The plan here was to write down "known-unsupported pending an upstream Emscripten fix, not something this fork intends to patch". Task 14 subtask 1.5 then costed patching it properly, found it tractable, and the combination now boots clean on a patched toolchain — so the documentation says the opposite of what this item specified.
 
 What actually landed:
-1. Two toolchain patches in `misc/emsdk_patches/` with content-pinned apply/revert tooling: `0001` (the `libdylink.js` `ASM_CONSTS` race this item describes) and `0002` (`-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly, which threw on every pthread worker). `build-linux.sh` applies them; `platform/web/detect.py` hashes the toolchain into the link so a patch cannot silently fail to take effect.
+1. Two toolchain patches in `misc/emsdk_patches/` with content-pinned apply/revert tooling: `0001` (the `libdylink.js` `ASM_CONSTS` race this item describes) and `0002` (`-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly, which threw on every pthread worker). All four build helpers and both web CI workflows apply them; `platform/web/detect.py` hashes the toolchain into the link so a patch cannot silently fail to take effect.
 2. `README.md`, `CLAUDE.md`, `drivers/webgpu/README.md`, `webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md` and `webgpu_tests/README.md` all updated to describe the patched-toolchain requirement rather than an unsupported combination.
 3. Verified against a real GDExtension + thread-support project, headless over COOP/COEP: 0 console errors, running its own game scripts.
 

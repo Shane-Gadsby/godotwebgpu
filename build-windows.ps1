@@ -396,6 +396,28 @@ if (-not $SkipWeb) {
     Write-Step "Activating Emscripten environment..."
     . (Join-Path $EmsdkDir "emsdk_env.ps1")
 
+    # The web templates below are dlink_enabled=yes, which needs this fork's two
+    # Emscripten toolchain patches, and `emsdk install` above overwrites the
+    # toolchain tree -- so apply them here, after the environment is activated, on
+    # every run. Idempotent; refuses rather than fuzzily applying if upstream has
+    # moved any of the text it pins.
+    #
+    # Called as Python rather than through misc/emsdk_patches/apply.sh because that
+    # is bash and this is the one build helper that cannot assume a shell. The
+    # module locates the toolchain itself and is the same code apply.sh runs.
+    #
+    # Only a threads=yes dlink build actually breaks without the patches, and these
+    # builds are threads=no, so warn and keep going rather than failing the run.
+    Write-Step "Applying Emscripten toolchain patches..."
+    python -I (Join-Path $RepoRoot "misc\emsdk_patches\emsdk_patch.py") apply
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Emscripten toolchain patched."
+    } else {
+        Write-Warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
+        Write-Warn "without it, but a threads=yes dlink build would not boot. See"
+        Write-Warn "misc/emsdk_patches/README.md."
+    }
+
     Write-Step "Building web/WebGPU export template (debug)..."
     Invoke-Native scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j $Jobs
 

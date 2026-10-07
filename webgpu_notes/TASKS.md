@@ -4196,9 +4196,15 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
      point the initializer has run). The oracle is a real export instead, which means
      `apply.sh` **cannot** self-retire automatically — it pins by content and refuses, but it
      cannot say "upstream fixed this, delete me".
-   - **Not wired into CI** (1.5.6.1). CI builds only `threads=no dlink_enabled=yes`
-     (`webgpu_tests.yml:211`), which needs no patch. If a threaded job is added it must run
-     `apply.sh --apply` after the emsdk setup step.
+   - **Wired into CI** (1.5.6.1) as of 2026-10-07: both `web_builds.yml` and `webgpu_tests.yml`
+     run `apply.sh --apply` then `--status` right after their emsdk setup and before any
+     compilation, for *every* web job rather than only the dlink ones — gating it on the matrix
+     would let a future dlink entry silently build an unpatched template. A refusal fails the job
+     on purpose, since in CI it can only mean `EM_VERSION` was bumped without re-deriving the
+     patches. CI still builds only `threads=no dlink_enabled=yes`, where neither symptom can fire,
+     so this changes no artifact today; it means a threaded job can be added without anyone
+     remembering the step. All four build helpers do the same (warning rather than failing, since
+     only `build-linux.sh`'s matrix contains builds that actually need it).
    - The ~16 `Cannot read properties of undefined (reading 'buffer')` (`growMemViews`) errors in
      the first ~300 ms are **now fixed** too, by a second toolchain patch — see 1.5.10, which also
      corrects two things this gap list and 1.5.10 itself originally got wrong about them. (The
@@ -4224,9 +4230,10 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    `src/lib/libdylink.js` and `src/lib/libpthread.js`; `platform/web/SCsub` depends the JS link on
    that hash. Applying or reverting a toolchain patch — or an `emsdk install` silently reverting one
    — now relinks on its own. Confirmed by the fix relinking the stale debug template without
-   anything being deleted first. `build-linux.sh` also runs `apply.sh --apply` after its own
-   `emsdk install` now, so the two `threads=yes dlink_enabled=yes` variants in its 8-build matrix
-   cannot be built against an unpatched toolchain.
+   anything being deleted first. Every build helper and both web CI workflows now run
+   `apply.sh --apply` after setting up Emscripten, so no path to a dlink template can be built
+   against an unpatched toolchain — including `build-linux.sh`'s two `threads=yes
+   dlink_enabled=yes` variants, the ones that actually break without it.
 
    **Verified against the user's real project** (`~/Downloads/cameraSim_.../testing`, preset
    `variant/extensions_support=true` + `variant/thread_support=true`), exported debug and loaded

@@ -8,19 +8,25 @@
 #   ./apply.sh --apply    apply (idempotent -- re-running is a no-op)
 #   ./apply.sh --revert   restore the upstream text
 #
-# This script only locates the toolchain; every patch and all the logic lives in
-# emsdk_patch.py next to it, so adding a patch means adding a table entry there,
-# not editing shell. Read the .patch files in this directory for what each change
-# is and why.
+# This is a convenience wrapper. Every patch, all the logic, and the
+# toolchain-location logic live in emsdk_patch.py next to it, which can be run
+# directly and is what callers without bash should use:
+#
+#   python3 misc/emsdk_patches/emsdk_patch.py apply      # same thing, no shell
+#
+# (build-windows.ps1 does exactly that.) Adding a patch means adding a table
+# entry in emsdk_patch.py plus a .patch file, not editing shell. Read the .patch
+# files in this directory for what each change is and why.
 #
 # Needed for `platform=web dlink_enabled=yes` builds. `threads=no` is where it
 # matters least (0002's symptom is pthread-worker-only and 0001 cannot fire
 # without threads at all), but both patches are correct for every dlink build and
-# apply.sh is all-or-nothing, so just apply it.
+# this is all-or-nothing, so just apply it.
 #
 # `emsdk install` overwrites the toolchain tree, so this has to be re-applied
-# after EVERY toolchain change, not just after an emsdk version bump.
-# build-linux.sh does that itself, right after its own `emsdk install`.
+# after EVERY toolchain change, not just after an emsdk version bump. Every build
+# helper in this repo (build.sh, build-linux.sh, build-macos.sh,
+# build-windows.ps1) and both web CI workflows do that themselves.
 #
 # scons DOES now relink when the toolchain moves -- platform/web/detect.py hashes
 # the toolchain's JS glue into the link's dependencies -- so there is nothing to
@@ -30,23 +36,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- locate the toolchain -----------------------------------------------------
-# Resolved from the environment rather than hard-coded, so this works on a
-# machine whose emsdk is not at ~/emsdk.
-if [[ -n "${EMSCRIPTEN_ROOT:-}" ]]; then
-	EM_ROOT="$EMSCRIPTEN_ROOT"
-elif command -v emcc >/dev/null 2>&1; then
-	EM_ROOT="$(dirname "$(readlink -f "$(command -v emcc)")")"
-elif [[ -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]]; then
-	EM_ROOT="$EMSDK/upstream/emscripten"
-else
-	echo "error: cannot find Emscripten. Source emsdk_env.sh, or set EMSCRIPTEN_ROOT." >&2
-	exit 2
-fi
-
-VERSION_FILE="$EM_ROOT/emscripten-version.txt"
-EM_VERSION="$(tr -d '"' < "$VERSION_FILE" 2>/dev/null || echo unknown)"
-
 case "${1:---status}" in
 	--check)  ACTION=check ;;
 	--apply)  ACTION=apply ;;
@@ -55,7 +44,7 @@ case "${1:---status}" in
 	*) echo "usage: $0 [--status|--check|--apply|--revert]" >&2; exit 2 ;;
 esac
 
-# -I: don't put the script's directory on sys.path for imports beyond the module
-# itself, and ignore PYTHON* env vars -- this runs inside other people's build
-# scripts and should not pick anything up from the environment.
-exec python3 -I "$HERE/emsdk_patch.py" --root "$EM_ROOT" --version "$EM_VERSION" "$ACTION"
+# -I: ignore PYTHON* env vars and keep the script's directory off sys.path for
+# anything but the module itself -- this runs inside other people's build
+# scripts and should not pick things up from the environment.
+exec python3 -I "$HERE/emsdk_patch.py" "$ACTION"
