@@ -97,9 +97,9 @@ below is either landed and verified, or a correction to something previously wri
 startup no longer runs as one unbroken `callMain()`, so the loading bar finally covers the engine's
 own startup instead of stopping at "download complete" (§4.11). And `threads=yes
 dlink_enabled=yes` — threads *and* GDExtension, which this fork has never been able to ship — now
-boots, via a two-line Emscripten toolchain patch carried in `misc/emsdk_patches/` (§4.12). **If you
-build that configuration you must run `misc/emsdk_patches/apply.sh --apply` first**, and re-run it
-after every `emsdk install`.
+boots **clean** — zero console errors against a real project — via the two Emscripten toolchain
+patches carried in `misc/emsdk_patches/` (§4.12). **If you build that configuration you must run
+`misc/emsdk_patches/apply.sh --apply` first**, and re-run it after every `emsdk install`.
 
 ---
 
@@ -188,7 +188,8 @@ without deleting anything.
 | 42/44 | Smoketest: editor/template overrides, generated presets, forced WebGPU renderer, heightmap self-test | Demo tier runs at all, and runs *on WebGPU* |
 | 35 | Per-glyph `color_glyph` flag replaces atlas-format sniffing in both text servers | **All text was rendering white** on WebGPU (dark outlines too); theme font colors work again |
 | 14 | Startup split into frame-sized steps (`Main::setup`/`setup2`/`start`/first frame) + per-phase progress to JS | Loading bar covers the **whole** load, not just the download; cost ~48 ms (3 frames) |
-| 12 | Emscripten dylink+pthread `ASM_CONSTS` patch (`misc/emsdk_patches/`) | **`threads=yes dlink_enabled=yes` boots at all** — was a hard hang since the configuration existed |
+| 12 | Emscripten dylink+pthread `ASM_CONSTS` patch — `0001` (`misc/emsdk_patches/`) | **`threads=yes dlink_enabled=yes` boots at all** — was a hard hang since the configuration existed |
+| 12 | Emscripten eager `HEAP*` re-export patch — `0002` (`misc/emsdk_patches/`) | Same configuration now loads with **0 console errors** (was 22); stops `Module` exports after the first heap view being silently dropped on worker threads |
 
 Reference numbers worth keeping: the user's project loads with a **~1.0 s** cold stall (was ~9.2 s at
 the start of this work), `{baked: 360, translated: 0}`, and BC1 texture compression is verified
@@ -531,7 +532,9 @@ with a label naming each one.
 ## 4.12 `threads=yes dlink_enabled=yes` boots now, and needs a patched toolchain
 
 Task 12 bug #2 — the configuration combining threads with GDExtension has never started — is
-**fixed**, by two lines in Emscripten itself (`misc/emsdk_patches/`):
+**fixed**, by two patches to Emscripten itself (`misc/emsdk_patches/`).
+
+**`0001-dylink-asm-consts-pthread-race`** — why it did not boot. Two lines:
 
 - `tools/emscripten.py` — the `var ASM_CONSTS = {...}` initializer **merges** (`Object.assign`)
   instead of replacing.
@@ -542,15 +545,34 @@ the crash*: `var` hoists the declaration but the initializer runs ~900 KB later 
 object, so a side module's registrations would be silently discarded. The analysis that predicted
 this before anyone tried it was correct and is preserved in the patch header.
 
+**`0002-export-all-eager-heap-views`** — why it then logged ~11 errors a load. One line in
+`src/modules.mjs`. `updateMemoryViews()` already assigns `Module['HEAPxx']` for every view it
+creates, and `exportRuntimeSymbols()` skips `HEAP*` for exactly that reason; the `-sEXPORT_ALL=1`
+path (`exportLibrarySymbols()`) never got the same exclusion, so the views were exported a second
+time, eagerly, in the postamble — where `growMemViews()` dereferences a `wasmMemory` that a freshly
+spawned pthread worker has not received yet. The throw aborted the export block, so `PThread`,
+`addRunDependency` and everything after the first heap view were silently never assigned on workers.
+
+**Do not "fix" `0002` with accessors.** That was written up here as the preferred fix and it was
+wrong twice over: `Module.HEAP*` never went stale (`updateMemoryViews()` refreshes them on every
+growth — measured live at `Uint8Array len=208404480`, well past the initial allocation), and because
+that refresh is a plain assignment, a getter-only property would make it throw under strict mode and
+silently no-op otherwise — breaking `Module.HEAP*` for every GDExtension consumer. See TASKS.md
+1.5.10, which records both corrections.
+
 Verified: the export that raised `Cannot set properties of undefined (setting '<addr>')` from a
 worker and never booted now reports `Build configuration: Emscripten 6.0.9, multi-threaded,
 GDExtension support.` and completes startup, zero `ASM_CONSTS` errors. `threads=yes
 dlink_enabled=no` re-checked and still works; `threads=no dlink_enabled=yes`, the shipping config,
 is untouched.
 
-**Verified only to the level stated**: headless swiftshader, trivial Forward+ scene, boots and
-completes startup. *Not* real hardware, *not* a real project, *not* stability beyond startup. And
-whether threading is worth having is still unmeasured — see §8.
+**Verified only to the level stated**: headless over COOP/COEP against the user's real project
+(`variant/extensions_support` + `variant/thread_support`), boots, completes startup and runs its own
+game scripts, **0 console errors**, all ten memory views live and correct on `Module`. *Not* real
+hardware, *not* profiled, *not* stability beyond startup. And whether threading is worth having is
+still unmeasured — see §8. Note the independent finding that WebGPU handles are per-thread JS
+objects, so threads cannot move shader/pipeline work off the critical path: "it boots" is not "it is
+worth enabling".
 
 **Four traps, each of which produced a wrong answer first. Do not rediscover these:**
 
@@ -560,11 +582,25 @@ whether threading is worth having is still unmeasured — see §8.
    confident "threads+dlink is still broken" that was pure artifact. **Always run
    `threads=yes dlink_enabled=no` as a control** — it is documented as working, so if it fails too,
    the harness is wrong, not the subject. That control is what caught this.
-2. **scons does not relink because the toolchain changed.** A "patched" build finished in 8.5 s
-   having done nothing, leaving the old binary in place. Delete the target `.js`/`.wasm`/`.zip`
-   after `--apply` or `--revert`, and verify the patch in the **linked output** — which is
-   minified, so grep `ASM_CONSTS??={}` with no spaces. A spaced grep gave a false negative on a
-   patch that was present.
+2. **scons used not to relink because the toolchain changed — now fixed, but verify anyway.** A
+   "patched" build finished in 8.5 s having done nothing, leaving the old binary in place. This
+   trap then bit a *second* time, worse: the patch was applied between the release and debug
+   template links, only the release one relinked, and the stale debug template (which is what the
+   editor's "Run in Browser" uses) reproduced the already-fixed `ASM_CONSTS` crash for hours while
+   `apply.sh --status` correctly said `APPLIED`. Fixed structurally —
+   `get_toolchain_js_fingerprint()` in `platform/web/detect.py` hashes the toolchain's JS glue
+   (including every file named in the patch table) into the link's dependencies via
+   `platform/web/SCsub`, so there is nothing to delete by hand. **Still verify in the linked
+   output**, because `--status` describes the toolchain and says nothing about `bin/`. The output is
+   minified, so grep with no spaces — a spaced grep gave a false negative on a patch that was
+   present:
+
+   ```bash
+   J=bin/godot.web.template_debug.wasm32.dlink.js
+   grep -c 'ASM_CONSTS??={}'                          $J   # 0001 -> 1
+   grep -o 'ASM_CONSTS=Object.assign[^{]*'            $J   # 0001 -> matches
+   grep -c 'Module\["HEAP8"\]=(growMemViews(),HEAP8)' $J   # 0002 -> 0
+   ```
 3. **Playwright's `page.on('console')` does not forward worker-target output**, and this failure is
    raised on a worker. Use `page.on('pageerror')`, which does see it. A CDP `Target.setAutoAttach`
    attempt returned nothing at all.
@@ -573,11 +609,19 @@ whether threading is worth having is still unmeasured — see §8.
    next produced a frame. Trigger captures on DOM state (`waitForFunction`). A timed set appeared
    to show the game running 8 s before its own first frame, which is how this was found.
 
-**Known gaps**: there is no standalone reproducer — the minimal `MAIN_MODULE` + side-module +
-`-pthread` case does not fire through two variants (`misc/emsdk_patches/repro/README.md` records
-what was tried and an untested hypothesis), so `apply.sh` pins by content and refuses on a change,
-but **cannot self-retire** when upstream fixes this. Not wired into CI, which builds only
-`threads=no dlink_enabled=yes`.
+**Known gaps**: there is no standalone reproducer for `0001` — the minimal `MAIN_MODULE` +
+side-module + `-pthread` case does not fire through two variants
+(`misc/emsdk_patches/repro/README.md` records what was tried and an untested hypothesis), so the
+tooling pins by content and refuses on a change, but **cannot self-retire** when upstream fixes it.
+Each patch header carries its own "HOW TO TELL WHEN THIS CAN BE DELETED" test. Not wired into CI,
+which builds only `threads=no dlink_enabled=yes` (where neither symptom can fire). Neither patch has
+been reported upstream; `0002` is the better PR candidate — the asymmetry between
+`exportRuntimeSymbols()` and `exportLibrarySymbols()` reads as a plain oversight.
+
+**Adding a third patch**: `apply.sh` is a thin toolchain-locator; the patches and all the logic live
+in `misc/emsdk_patches/emsdk_patch.py` as a table of content-pinned hunks. A new patch is a table
+entry plus a `.patch` file — no logic changes, and `detect.py`'s fingerprint picks up the files it
+touches automatically. `misc/emsdk_patches/README.md` documents the invariants the table must hold.
 
 ---
 
@@ -663,10 +707,28 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   debug template then reproduced the original `ASM_CONSTS` crash for hours against a toolchain that
   was already fixed. `--status` describes the *toolchain*, not the linked output; grep the output
   when a result depends on it.
-- **`bin/` now holds templates for four `threads` × `dlink` combinations**, built 2026-10-07 while
-  verifying the above, plus an OpenGL3 one. They do **not** all come from the same commit as the
-  editor, so a baked-shader mismatch warning is expected from anything but a freshly rebuilt pair —
-  see the version-hash note immediately below, which is the thing that actually matters.
+- **`bin/` now holds templates for four `threads` × `dlink` combinations**, plus an OpenGL3 one.
+  **All four `dlink` zips were rebuilt late on 2026-10-07** (after `0002` landed) and copied into
+  `~/.local/share/godot/export_templates/4.8.dev/`, so every one of them carries both toolchain
+  patches. Audited at the time — each shows `ASM_CONSTS??={}` present and zero
+  `Module["HEAP8"]=(growMemViews(),HEAP8)`:
+
+  ```bash
+  for z in web_dlink_debug web_dlink_release web_dlink_nothreads_debug web_dlink_nothreads_release; do
+    printf '%-30s eager=%s asm_guard=%s\n' $z \
+      "$(unzip -p ~/.local/share/godot/export_templates/4.8.dev/$z.zip godot.js | grep -c 'Module\["HEAP8"\]=(growMemViews(),HEAP8)')" \
+      "$(unzip -p ~/.local/share/godot/export_templates/4.8.dev/$z.zip godot.js | grep -c 'ASM_CONSTS??={}')"
+  done
+  ```
+
+  Note `eager=0` is **vacuous for the `nothreads` pair** — without `SHARED_MEMORY` the acorn
+  `growableHeap` pass never runs, so that pattern cannot appear whether `0002` is applied or not.
+  `asm_guard` is the meaningful column there.
+
+  These templates do **not** come from the same commit as `bin/godot.linuxbsd.editor.x86_64` (built
+  earlier the same day, before the two patch commits), so a baked-shader mismatch warning is
+  expected from any export made with that pair — see the version-hash note immediately below, which
+  is the thing that actually matters.
 - **`bin/` is current**: both `godot.linuxbsd.editor.x86_64` and
   `godot.web.template_release.wasm32.nothreads.zip` were built together, from the Task 45 source but
   before it was committed, so they carry the version hash `2e3ccd321` rather than `HEAD`'s. The pair

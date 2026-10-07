@@ -3685,9 +3685,11 @@ Confirmed the destination's *base* format (`dest_format.format`, what `texture_g
 ---
 
 ### Task 12: Ensure that webgpu threads work as expected
-**Status**: `PARTIALLY DONE` — bug #1 (`threads=yes dlink_enabled=no`, the common case) root-caused and FIXED, live-verified. Bug #2 (`threads=yes dlink_enabled=yes`, GDExtension+threads together) root-caused precisely but NOT fixed — it's inside Emscripten's own dynamic-linking+pthread runtime glue, not Godot/driver code; see the 2026-09-18 round 2 update below for why this one is being left open rather than patched.
+**Status**: `DONE` (2026-10-07) — bug #1 (`threads=yes dlink_enabled=no`, the common case) root-caused and FIXED, live-verified. Bug #2 (`threads=yes dlink_enabled=yes`, GDExtension+threads together) is **also fixed now**, by two patches to Emscripten's own dynamic-linking/`EXPORT_ALL` glue carried in `misc/emsdk_patches/` — `0001` (the `ASM_CONSTS` initialization race that stopped it booting) and `0002` (the eager `HEAP*` re-export that threw on every pthread worker). Both patches are required; see Task 14 subtask 1.5 for the full account, and `misc/emsdk_patches/README.md` for the tooling. **The dated round notes below predate that and record the opposite decision** ("not patching Emscripten's own generated runtime glue in this fork"); they are kept because their root-cause analysis was correct and is the reason the fix was possible, but do not act on their conclusion.
 **Effort**: 1 day, needs a real GPU + browser session
 **Dependencies**: none
+
+**[REVERSED 2026-10-07 — bug #2 is FIXED; see Task 14 subtask 1.5 and `misc/emsdk_patches/`. The entry below is kept as the record of the decision that was reversed, and of the root-cause analysis, which was correct. Do not act on its "not patching Emscripten" conclusion.]**
 
 **2026-09-19 — bug #2 re-investigated, still not fixed, closing off further re-investigation of this angle**: user re-confirmed live against their real project that all three other configs (`threads=no dlink_enabled=no`, `threads=no dlink_enabled=yes`, `threads=yes dlink_enabled=no`) still work and `threads=yes dlink_enabled=yes` still fails identically — no regression. Traced the exact race directly in the locally-installed emsdk's generated glue (`~/emsdk/upstream/emscripten/src/lib/libdylink.js`'s `postInstantiation()`/`addEmAsm()`) and in a real build output (`bin/godot.web.template_release.wasm32.dlink.js`): the module declares `var ASM_CONSTS={...}` as a single top-level statement near the end of its init sequence; a dylink side module's `addEmAsm()` (`ASM_CONSTS[start]=eval(func)`) can run on a freshly-spawned pthread worker before that worker's own copy of the top-level module has reached that assignment, exactly as round 2 already found. Checked upstream for any fix landed since: Emscripten's own docs still state `MAIN_MODULE` + pthreads is "experimental"; found related-but-distinct dlopen+pthread crash reports (e.g. `emscripten-core/emscripten#17349`, fixed in emsdk 3.1.14 — long before this fork's pinned 6.0.9) but nothing matching this specific `ASM_CONSTS` ordering race, and no version bump would fix it. **Decision reconfirmed: not patching Emscripten's own generated runtime glue in this fork.** Continuing to treat `dlink_enabled=yes threads=yes` as documented-unsupported (see `drivers/webgpu/README.md` and `webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md`); no further re-investigation of this exact angle is expected to turn up anything new absent an actual upstream Emscripten fix landing.
 
@@ -3735,7 +3737,7 @@ Found and fixed **three separate `WorkerThreadPool` dispatch sites**, each indep
    ```
    `addEmAsm`/`postInstantiation`/`loadModule` is Emscripten's `SIDE_MODULE=2` dynamic-library loader path (this fork's `dlink_enabled=yes` mechanism, per `CLAUDE.md`'s architecture note); `growMemViews` is the wasm-memory-view-refresh helper that runs after `memory.grow()`. Both errors are consistent with the side module (containing this driver's own compiled code) being loaded into a newly-spawned pthread worker before that worker's own EM_ASM registration table / memory views are fully initialized — a load-order/initialization race specific to combining `SIDE_MODULE` dynamic linking with the pthread worker pool, distinct from bug #1's cross-thread WebGPU-handle-visibility issue. Ends in "still waiting on run dependencies: loading-workers" repeating forever — the module never finishes loading, not just one failed draw call.
 
-**Superseded by the 2026-09-18 round 2 update above**: bug #1 is fixed and verified; bug #2 is root-caused (an Emscripten-internal dylink+pthread initialization race, not this fork's code) and deliberately left unfixed. The decision this section originally asked for (subtask 2: full parity vs. a documented reduced mode) is now answered concretely: `threads=yes dlink_enabled=no` has full parity (fixed); `threads=yes dlink_enabled=yes` is recommended to be documented as an unsupported combination pending either an upstream Emscripten fix or a future patch attempt.
+**Superseded by the 2026-09-18 round 2 update above, and then by Task 14 subtask 1.5 (2026-10-07), which fixed bug #2**: bug #1 is fixed and verified; bug #2 was root-caused (an Emscripten-internal dylink+pthread initialization race, not this fork's code) and left unfixed at the time. The decision this section originally asked for (subtask 2: full parity vs. a documented reduced mode) is now answered concretely: `threads=yes dlink_enabled=no` has full parity (fixed); `threads=yes dlink_enabled=yes` is recommended to be documented as an unsupported combination pending either an upstream Emscripten fix or a future patch attempt.
 
 **Subtasks**:
 1. Characterize why `threads=yes` breaks WebGPU today
@@ -3955,7 +3957,7 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
 **Threading's real cost/benefit ledger, as it stands today** (Task 12, don't re-litigate):
 - `threads=no dlink_enabled=yes` — this fork's shipping config, fully supported.
 - `threads=yes dlink_enabled=no` — works since bug #1 was fixed and live-verified.
-- `threads=yes dlink_enabled=yes` — **broken**, and deliberately not fixed: an initialization-order race inside Emscripten's own `libdylink.js` glue, not this fork's code. Since the user's project needs GDExtension support, *"getting threading fully working"* currently means either giving up `dlink_enabled=yes` or fixing an Emscripten runtime bug upstream. That trade should be the first thing established, because it may make the whole threading branch of the question moot.
+- `threads=yes dlink_enabled=yes` — **works since 2026-10-07**, on a toolchain carrying the two patches in `misc/emsdk_patches/` (`0001` the `libdylink.js` `ASM_CONSTS` race, `0002` the eager `HEAP*` re-export under `-sEXPORT_ALL`). This line previously read "broken, and deliberately not fixed" and said the trade was "give up `dlink_enabled=yes` or fix an Emscripten bug upstream"; subtask 1.5 costed the third option — patch it on our side — and took it. **The ledger's conclusion does not change, though**: see subtask 1.5's own verdict and the `threads=no` analysis in Task 14, which establish independently that threads cannot move shader/pipeline work off the critical path (WebGPU handles are per-thread JS objects). Threading being *possible* is still not evidence it is *worth enabling*, and 1.5.8.5 ("ask whether threading actually buys anything measurable") is still untouched.
 - Threads also cost cross-origin isolation headers (COOP/COEP) on whatever serves the export — worth confirming the deployment target can supply them before investing.
 
 **Suggested order of work** (subtask 1 below is still the right first step and is unchanged): instrument and quantify *first*, against the user's real project at `~/Downloads/cameraSim_.../testing`, and specifically bracket WASM fetch→instantiate, device acquisition, resource loading, pipeline creation, and first-frame separately. The premise of this task — "there is a known-bad case" — should be re-confirmed with numbers before any fix is designed, because the last eight tasks repeatedly showed that the intuitive culprit was not the real one. Note also that `local_ci.sh`/Playwright can capture this without needing the user in the loop for every iteration.
@@ -4139,10 +4141,14 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
 1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[DONE 2026-10-07 — bug fixed, machinery built; threads=yes dlink_enabled=yes now boots]`
 
    **RESULT (2026-10-07): `threads=yes dlink_enabled=yes` works.** A two-line Emscripten patch
-   clears Task 12 bug #2. Live-verified: the same export that raised
+   (`0001`) clears Task 12 bug #2. Live-verified: the same export that raised
    `Uncaught TypeError: Cannot set properties of undefined (setting '<addr>')` from a worker and
    never booted now reports `Build configuration: Emscripten 6.0.9, multi-threaded, GDExtension
    support.` and completes startup, with **zero** `ASM_CONSTS` errors.
+
+   **Later the same day**, a one-line second patch (`0002`, see 1.5.10) cleared the ~11 residual
+   `growMemViews` errors as well, taking the same export to **0 console errors** against the user's
+   real project. Booting was `0001`; booting *clean* needed both.
 
    **The decision gate (1.5.1.2) resolved as "do it".** The minimal fix *does* span the emitter,
    which the gate said to stop and report on — but it is **one line there**, not the fork of
@@ -4305,7 +4311,7 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    **Original scoping below, kept for the reasoning it records.**
 
 
-   *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
+   *Why this is a precursor rather than part of subtask 2.* (Written before 1.5 was done; the premise below no longer holds — `threads=yes dlink_enabled=yes` works as of 2026-10-07 — but the reasoning is kept because it is why this subtask existed and it still reads as the correct call.) Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading was **not available to this project**: `threads=yes dlink_enabled=yes` was broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
 
    **Do subtask 1 first.** If measurement shows resource loading is a negligible share of the stall, this whole subtask is moot — do not start it on the assumption that threading is the answer. **Subtask 1.2 has now measured exactly that, and the answer is negligible: ~315 ms of a ~2000 ms stall (see 1.2's results above). Treat this subtask as closed** unless a project with much heavier assets moves that number; nothing below should be built on the strength of the current evidence. It is scoped here so that the decision is cheap when the time comes, not to pre-commit to it.
 
@@ -4954,7 +4960,7 @@ The mechanism: `eliminate_dead_resources()` runs SPIRV-Tools' `CreateAggressiveD
 - `webgpu_tests/preprocessing_tests`: 199/199 (+1 skip), unaffected.
 - Full `wgsl_precompile.py` real-engine-shader sweep: `[WGSL Precompile] Results: 196 compiled, 3 glsl failures, 0 tint failures` — identical to baseline.
 - Full clean-cache real-project export (`xvfb-run` + `--rendering-driver vulkan`, cleared `.godot/shader_cache`+`.godot/exported`): 18 baker warnings, **all** Class 3 (`Tint crashed`, Task 22's already-catalogued-benign image-atomics/FFX_HALF/ViewIndex class) — zero sampler-limit errors, zero of any other class.
-- **Live-verified**: user rebuilt via `build-linux.sh` (full clean web-template build across all 8 GDExtension×threads×debug/release variants) and tested real browser exports. All configurations work except GDExtension+threads combined together, which fails during WASM worker/dylib loading (`growMemViews`/"Cannot read properties of undefined (reading 'buffer')" in `loadDylibs`/`loadWasmModuleToWorker`) — the pre-existing, already-documented Emscripten dylink+pthread Worker initialization race (`build-linux.sh`'s own comment: "still broken... not this fork's code... isn't expected to work until fixed upstream"), unrelated to rendering entirely (fails before the engine reaches any render code). Every other config, including 3D rendering, now confirmed working in the actual linked web-template runtime, not just the export-time baker. Task closed.
+- **Live-verified**: user rebuilt via `build-linux.sh` (full clean web-template build across all 8 GDExtension×threads×debug/release variants) and tested real browser exports. All configurations work except GDExtension+threads combined together, which fails during WASM worker/dylib loading (`growMemViews`/"Cannot read properties of undefined (reading 'buffer')" in `loadDylibs`/`loadWasmModuleToWorker`) — the pre-existing, already-documented Emscripten dylink+pthread Worker initialization race (`build-linux.sh`'s own comment: "still broken... not this fork's code... isn't expected to work until fixed upstream"), unrelated to rendering entirely (fails before the engine reaches any render code). **[2026-10-07: that combination now works too — Task 14 subtask 1.5 patched both Emscripten bugs; `build-linux.sh` no longer says this and applies the patches itself.]** Every other config, including 3D rendering, now confirmed working in the actual linked web-template runtime, not just the export-time baker. Task closed.
 
 ---
 
@@ -6934,10 +6940,16 @@ and this is settled at code level rather than inferred. `threads=no` means `plat
 never passes `-sUSE_PTHREADS=1`, so `THREADS_ENABLED` is undefined, so `Thread::start()` is
 literally `{}` (`core/os/thread.h:198`) and `OS_Web::get_default_thread_pool_size()` returns 1.
 `WorkerThreadPool` has no worker threads at all and runs every task on the calling thread. There is
-no thread to move the parse to. `threads=yes dlink_enabled=yes` remains broken (Task 12 bug #2) and
-dlink is what GDExtension needs, so the only route to that ~490 ms is to **do less work**, not to
-relocate it. Subtask 1.5's "still don't patch Emscripten" conclusion stands and this is another
-reason for it.
+no thread to move the parse to. So for a `threads=no` build the only route to that ~490 ms is to
+**do less work**, not to relocate it.
+
+*Updated 2026-10-07:* this paragraph used to add "`threads=yes dlink_enabled=yes` remains broken
+(Task 12 bug #2) and dlink is what GDExtension needs" and cite subtask 1.5's "still don't patch
+Emscripten" conclusion. Both are now out of date — that combination works on a patched toolchain
+(`misc/emsdk_patches/`), and 1.5 did patch Emscripten. **The conclusion above is unaffected**: it
+rests on what `threads=no` compiles to, not on whether `threads=yes` is available, and the
+independent finding that WebGPU handles are per-thread JS objects means even a threaded build cannot
+relocate this work. Switching the project to `threads=yes` would not recover the ~490 ms.
 
 #### 2. What landed
 

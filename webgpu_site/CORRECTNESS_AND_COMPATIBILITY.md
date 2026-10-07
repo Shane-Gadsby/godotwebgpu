@@ -295,13 +295,16 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Shader startup: ~15s for first-time conversion of ~383 stages
 - `threads=yes` works with and without `dlink_enabled=yes`. Combining threads
   with GDExtension support (`threads=yes dlink_enabled=yes`) was unsupported
-  until 2026-10-07 — it hits an initialization-order race inside Emscripten's
-  own dylink+pthread runtime glue, not this fork's code — and now **requires a
-  patched toolchain**: `misc/emsdk_patches/apply.sh --apply`, re-applied after
-  every `emsdk install`. Without it that configuration does not boot (see
-  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` Task 12 bug #2).
-  Confirmed to boot headless on a trivial scene only; not yet exercised on real
-  hardware or a real project
+  until 2026-10-07 — two bugs in Emscripten's own dylink/`EXPORT_ALL` glue, not
+  this fork's code — and now **requires a patched toolchain**:
+  `misc/emsdk_patches/apply.sh --apply`, re-applied after every `emsdk install`
+  (`build-linux.sh` does it for you). Without the patches that configuration
+  does not boot at all, and logs ~11 errors per load that silently drop later
+  `Module` exports on worker threads. With them it boots clean — verified
+  headless over COOP/COEP against a real GDExtension + thread-support project,
+  0 console errors, running its own game scripts. Not yet exercised on real
+  hardware, nor profiled, nor checked for stability beyond startup. See
+  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` Task 12 bug #2
 - Threaded builds require the page to be served cross-origin isolated
   (`Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Embedder-Policy: require-corp`), because they need

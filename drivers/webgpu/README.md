@@ -301,12 +301,18 @@ prevents redundant re-creation.
   boot. `threads=yes dlink_enabled=no` was fixed in Task 12 bug #1 (the
   `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` dispatch fix).
   `threads=yes dlink_enabled=yes` — GDExtension and threads together — was
-  broken until 2026-10-07 by an initialization-order race inside Emscripten's
-  own dylink+pthread glue (`libdylink.js`), and **now requires a patched
-  toolchain**: run `misc/emsdk_patches/apply.sh --apply`. Without it the export
-  does not boot at all, and the build warns. `emsdk install` overwrites the
-  toolchain tree, so the patch must be re-applied after every toolchain change.
-  See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14 subtask 1.5.
+  broken until 2026-10-07 by two bugs in Emscripten's own glue, and **now
+  requires a patched toolchain**: run `misc/emsdk_patches/apply.sh --apply`
+  (`build-linux.sh` does it for you). The two are an initialization-order race
+  in `libdylink.js` that stopped the export booting at all (`0001`), and
+  `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble,
+  which threw on every pthread worker and silently dropped the `Module` exports
+  emitted after it (`0002`). Without them a `threads=yes` dlink build does not
+  boot, and the build warns. `emsdk install` overwrites the toolchain tree, so
+  they must be re-applied after every toolchain change — but scons does now
+  relink on its own when the toolchain moves, so there is nothing to delete by
+  hand. See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14
+  subtask 1.5.
 
   Note that `threads=yes` is a *build* configuration, not a rendering change:
   WebGPU object handles live in a per-thread JS table (emdawnwebgpu's
@@ -320,9 +326,12 @@ prevents redundant re-creation.
   `SharedArrayBuffer`.
 
   **Verified at the level stated and no further**: `threads=yes
-  dlink_enabled=yes` has been confirmed to *boot and complete startup*,
-  headless, on a trivial Forward+ scene. It has not been run on real hardware,
-  against a real project, or for stability beyond startup.
+  dlink_enabled=yes` has been confirmed to boot, complete startup and run its
+  own game scripts with **zero console errors**, headless over COOP/COEP,
+  against a real GDExtension + thread-support project (2026-10-07). It has not
+  been run on real hardware, nor profiled, nor checked for stability beyond
+  startup — and per the note above, threads cannot move shader/pipeline work off
+  the critical path anyway, so "it boots" is not "it is worth enabling".
 
 ## Build Instructions
 

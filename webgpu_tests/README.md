@@ -395,7 +395,7 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 
 **A threaded export wedges with repeated `net::ERR_ABORTED` on the worker script** — check the export preset's `threads/emscripten_pool_size`. It must be `8` (the engine default); the link flag is `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and `-1 || 8` evaluates to `-1`, which wedges every threaded build. See `webgpu_notes/HANDOFF.md` §4.12.
 
-**A threaded + GDExtension export never finishes loading** — `threads=yes dlink_enabled=yes` needs a patched Emscripten toolchain (`misc/emsdk_patches/apply.sh --apply`); without it a worker throws `Cannot set properties of undefined (setting '<addr>')` and the module never loads. The build warns, but `emsdk install` silently reverts the patch.
+**A threaded + GDExtension export never finishes loading** — `threads=yes dlink_enabled=yes` needs this fork's two Emscripten toolchain patches (`misc/emsdk_patches/apply.sh --apply`); without `0001` a worker throws `Cannot set properties of undefined (setting '<addr>')` and the module never loads. The build warns, but `emsdk install` silently reverts the patches. `--status` describes the *toolchain*, not what is in `bin/` — grep the linked output when it matters (`misc/emsdk_patches/README.md` has the commands). A booting threaded dlink export should now log **zero** errors; the ~11 `growMemViews` "Cannot read properties of undefined (reading 'buffer')" errors that used to be expected noise were `0002`, now fixed.
 
 **Worker errors are invisible in Playwright** — `page.on('console')` does not forward worker-target output, and threaded failures are raised on workers. Use `page.on('pageerror')`, which does see them.
 

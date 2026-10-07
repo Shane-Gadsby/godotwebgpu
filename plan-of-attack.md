@@ -2,7 +2,7 @@
 
 Based on a full re-read of `webgpu_notes/TASKS.md` (through Task 15), `drivers/webgpu/README.md`, `CLAUDE.md`, `.github/workflows/webgpu_tests.yml`, and the current working-tree diff. **Everything already verified `DONE` has been removed** — for the full history of completed work (round-by-round investigation trails, exact fixes, commit hashes), see `webgpu_notes/TASKS.md` and `git log`. This doc only tracks what's still open, ordered **easiest to hardest**.
 
-**Repo state**: on `webgpu-4.7.2`. The SDFGI brightness-runaway bug (the original public-build blocker) is fixed and live-verified. Task 12's `threads=yes` crash for the common case (`dlink_enabled=no`) is fixed and live-verified (commit `6893725f61`); the GDExtension+threads combination (`dlink_enabled=yes threads=yes`) is root-caused to an Emscripten-internal dylink/pthread initialization race and deliberately left unpatched (see item 8 below). Task 15's Tint ICE regression from the emsdk upgrade is fixed. There is no hard blocker on this project; everything below is incremental hardening.
+**Repo state**: on `webgpu-4.7.2`. The SDFGI brightness-runaway bug (the original public-build blocker) is fixed and live-verified. Task 12's `threads=yes` crash for the common case (`dlink_enabled=no`) is fixed and live-verified (commit `6893725f61`); the GDExtension+threads combination (`dlink_enabled=yes threads=yes`) was root-caused to Emscripten-internal dylink/pthread bugs and deliberately left unpatched at the time — **that decision was reversed on 2026-10-07 and the combination now works** on a toolchain carrying the two patches in `misc/emsdk_patches/` (see item 7 below). Task 15's Tint ICE regression from the emsdk upgrade is fixed. There is no hard blocker on this project; everything below is incremental hardening.
 
 **Uncommitted work in the tree right now**: a substantial, largely-working implementation of export-time shader baking (Task 13) — new `drivers/webgpu/spirv_to_wgsl.{h,cpp}`, `drivers/webgpu/wgsl_bake_subprocess.{h,cpp}`, `editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.{h,cpp}`, plus changes to `drivers/webgpu/rendering_shader_container_webgpu.*`, `drivers/webgpu/spirv_preprocess.*`, `drivers/webgpu/tint_cli/main.cpp`, `editor/editor_node.cpp`, three platforms' `detect.py`, and `drivers/SCsub`/`drivers/webgpu/SCsub`. It's been live-verified against the user's real `cameraSim` project (real crashes found and fixed along the way — see item 6) but is **not yet committed**, and its own notes record a currently-broken clean `platform=web target=template_release` build (see item 6). Item 6 below covers finishing and landing this.
 
@@ -95,11 +95,16 @@ The porting work (original scope) is done and live-verified; the Forward+ leg an
 
 ---
 
-## 7. Document Task 12's remaining `threads=yes dlink_enabled=yes` limitation
+## 7. Task 12's `threads=yes dlink_enabled=yes` limitation `[DONE, 2026-10-07 — but not as planned]`
 
-**Effort: minutes to an hour — documentation only, the investigation is already done.** Task 12's common-case `threads=yes` crash is fixed and live-verified (commit `6893725f61`). The GDExtension+threads combination (`dlink_enabled=yes threads=yes`) is root-caused precisely to an Emscripten-internal dylink+pthread initialization race in `libdylink.js`'s `postInstantiation()`/`addEmAsm()` — genuinely outside this fork's own code, and deliberately left unpatched rather than forking Emscripten's runtime glue. This decision just needs to be written down where it's discoverable:
-1. Update `CLAUDE.md`'s build-commands section and `drivers/webgpu/README.md`'s limitations list (see item 1) to state that `threads=yes dlink_enabled=no` is fully supported, while `threads=yes dlink_enabled=yes` is a known-unsupported combination pending an upstream Emscripten fix (not something this fork intends to patch).
-2. Consider filing the issue upstream against Emscripten (searchable prior art likely exists for `MAIN_MODULE`+`PTHREADS` dlopen-ordering races) — optional, not required to close this item.
+**This item asked for the limitation to be documented as permanent. It was instead fixed.** The plan here was to write down "known-unsupported pending an upstream Emscripten fix, not something this fork intends to patch". Task 14 subtask 1.5 then costed patching it properly, found it tractable, and the combination now boots clean on a patched toolchain — so the documentation says the opposite of what this item specified.
+
+What actually landed:
+1. Two toolchain patches in `misc/emsdk_patches/` with content-pinned apply/revert tooling: `0001` (the `libdylink.js` `ASM_CONSTS` race this item describes) and `0002` (`-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly, which threw on every pthread worker). `build-linux.sh` applies them; `platform/web/detect.py` hashes the toolchain into the link so a patch cannot silently fail to take effect.
+2. `README.md`, `CLAUDE.md`, `drivers/webgpu/README.md`, `webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md` and `webgpu_tests/README.md` all updated to describe the patched-toolchain requirement rather than an unsupported combination.
+3. Verified against a real GDExtension + thread-support project, headless over COOP/COEP: 0 console errors, running its own game scripts.
+
+**Still open from this item**: filing `0002` upstream (the asymmetry between `exportRuntimeSymbols()` and `exportLibrarySymbols()` looks like a plain oversight, so it is a good PR candidate). `0001` is the harder sell and is documented as needing both halves together. Neither patch can self-retire — `apply.sh` refuses when upstream moves, but cannot tell you upstream has fixed the bug; each patch header carries its own "HOW TO TELL WHEN THIS CAN BE DELETED" test.
 
 ---
 
