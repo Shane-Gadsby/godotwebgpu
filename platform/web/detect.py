@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -310,6 +311,31 @@ def configure(env: "SConsEnvironment"):
         env.Append(CCFLAGS=["-fvisibility=hidden"])
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
+
+        if env["threads"]:
+            # GDExtension and threads together need a patched toolchain: without it
+            # the export does not boot at all (an ASM_CONSTS initialization race in
+            # Emscripten's own dylink+pthread glue -- see misc/emsdk_patches/ and
+            # webgpu_notes/TASKS.md Task 12 bug #2).
+            #
+            # This warns rather than fails because the toolchain is outside the repo
+            # and may legitimately be patched by other means. It is loud because
+            # `emsdk install` overwrites the toolchain tree and silently reverts the
+            # patch -- without this, the next person rediscovers a crash that was
+            # already diagnosed and fixed, which is the same silent-failure shape
+            # Task 36's version-hash mismatch had.
+            apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
+            try:
+                patched = subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
+            except OSError:
+                patched = False  # Can't run it (Windows without bash, not executable, ...).
+            if not patched:
+                print_warning(
+                    "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
+                    "does not have this fork's dylink+pthread patch applied. The resulting export "
+                    f"will most likely fail to start. Run '{apply_sh}' --apply, then delete the target "
+                    ".js/.wasm so the next build actually relinks."
+                )
 
     # WASM_BIGINT is on by default for wasm output (only ever implicitly disabled by
     # -sWASM=0); setting it explicitly is deprecated as of Emscripten 4.x.

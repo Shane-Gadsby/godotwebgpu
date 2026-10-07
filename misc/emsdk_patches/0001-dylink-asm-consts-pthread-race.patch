@@ -1,0 +1,86 @@
+GODOT WEBGPU PATCH: fix the Emscripten dylink + pthread ASM_CONSTS race
+
+Derived against: emsdk / Emscripten 6.0.9
+Upstream status:  not reported upstream as of 2026-10-07; no known upstream fix
+Tracked in:       webgpu_notes/TASKS.md Task 12 bug #2, Task 14 subtask 1.5
+
+WHAT IS BROKEN
+  A `threads=yes dlink_enabled=yes` web build does not boot. A side module
+  (this fork's `-sSIDE_MODULE=2` engine binary) finishes instantiating on a
+  freshly spawned pthread worker and registers its EM_ASM bodies through
+  libdylink.js's addEmAsm(), which does `ASM_CONSTS[start] = eval(func)`. On
+  that worker the module's own `var ASM_CONSTS = {...}` initializer has not run
+  yet, so ASM_CONSTS is still `undefined` and the assignment throws:
+
+      Uncaught TypeError: Cannot set properties of undefined (setting '<addr>')
+
+  The module never finishes loading; the page hangs with the main thread
+  blocked. `threads=yes dlink_enabled=no` is unaffected and works.
+
+WHY THE OBVIOUS ONE-LINE FIX IS WORSE THAN THE CRASH
+  Guarding addEmAsm with `ASM_CONSTS ??= {}` ALONE is actively harmful, and
+  this is the single most important thing to carry forward. `var` hoists the
+  declaration (hence `undefined`, matching the error above), but the
+  initializer runs ~900KB later in the generated JS and REPLACES the object
+  wholesale. A guard on its own therefore lets the side module populate an
+  object the main module then silently discards -- turning a loud abort into
+  EM_ASM bodies that quietly do not exist. That is strictly worse.
+
+  So this patch has two halves and NEITHER IS VALID WITHOUT THE OTHER:
+    1. tools/emscripten.py  -- the initializer merges (Object.assign) into
+       whatever is already there instead of replacing it.
+    2. src/lib/libdylink.js -- addEmAsm creates the object if this thread has
+       not reached the initializer yet. Safe only because of (1).
+
+VERIFIED
+  2026-10-07, emsdk 6.0.9, Chrome headless. Before: a real threads+dlink export
+  raises the TypeError above from a worker and never boots. After: the same
+  export reports `Build configuration: Emscripten 6.0.9, multi-threaded,
+  GDExtension support.` and completes startup, with zero ASM_CONSTS errors.
+  `threads=yes dlink_enabled=no` re-checked and still works.
+
+  The ~16 `Cannot read properties of undefined (reading 'buffer')` errors
+  (growMemViews) that appear in the first ~300ms are NOT fixed by this patch
+  and do not need to be: they are non-fatal, the engine proceeds past them, and
+  they are present in a booting build.
+
+HOW TO TELL WHEN THIS CAN BE DELETED
+  There is no standalone reproducer -- see misc/emsdk_patches/repro/README.md
+  for what was tried and why it does not fire. The oracle is a real export:
+  build `platform=web target=template_release dlink_enabled=yes webgpu=yes
+  threads=yes`, export any project with thread support on, serve it with
+  COOP/COEP headers and load it. If it boots on an UNPATCHED toolchain,
+  upstream has fixed this and both this patch and apply.sh should be deleted.
+
+--- a/tools/emscripten.py	2026-10-07 12:13:04.917145977 +1000
++++ b/tools/emscripten.py	2026-10-07 12:13:04.918650425 +1000
+@@ -461,7 +461,13 @@
+ 
+   asm_const_pairs = ['%s: %s' % (key, value) for key, value in asm_consts]
+   if asm_const_pairs or settings.MAIN_MODULE:
+-    pre += 'var ASM_CONSTS = {\n  ' + ',  \n '.join(asm_const_pairs) + '\n};\n'
++    # GODOT WEBGPU PATCH (dylink+pthread ASM_CONSTS race): merge into whatever a
++    # side module already registered on this thread instead of replacing it. The
++    # `var` declaration hoists, but this initializer runs ~900KB later in the
++    # module's JS, so on a freshly spawned pthread worker a side module's
++    # addEmAsm() can populate ASM_CONSTS before this line -- and a plain `=` then
++    # silently discards those registrations.
++    pre += 'var ASM_CONSTS = Object.assign(typeof ASM_CONSTS != "undefined" && ASM_CONSTS || {}, {\n  ' + ',  \n '.join(asm_const_pairs) + '\n});\n'
+   if em_js_funcs:
+     pre += '\n'.join(em_js_funcs) + '\n'
+ 
+--- a/src/lib/libdylink.js	2026-10-07 12:13:04.917880611 +1000
++++ b/src/lib/libdylink.js	2026-10-07 12:13:04.919987914 +1000
+@@ -839,6 +839,12 @@
+ #if DYLINK_DEBUG
+           dbg('adding new EM_ASM constant at:', ptrToString(start));
+ #endif
++          // GODOT WEBGPU PATCH (dylink+pthread ASM_CONSTS race): on a freshly spawned
++          // pthread worker this can run before the module's own `var ASM_CONSTS = {...}`
++          // initializer. Safe only because that initializer now merges rather than
++          // replaces (tools/emscripten.py); on its own this guard would convert a loud
++          // abort into silently-discarded EM_ASM bodies.
++          ASM_CONSTS ??= {};
+           {{{ makeEval('ASM_CONSTS[start] = eval(func)') }}};
+         }
+ 

@@ -24,6 +24,8 @@ source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)
 ```
 
+**`threads=yes` combined with `dlink_enabled=yes` additionally requires a patched Emscripten toolchain** — without it the export does not boot at all (an `ASM_CONSTS` initialization race in Emscripten's own dylink+pthread glue; see `misc/emsdk_patches/` and `webgpu_notes/TASKS.md` Task 12 bug #2). Apply it with `./misc/emsdk_patches/apply.sh --apply`. **`emsdk install` overwrites the toolchain tree, so it must be re-applied after every toolchain change**, not just after an emsdk version bump; a `threads=yes dlink_enabled=yes` build warns loudly when it is missing. No other configuration needs it, including the `threads=no dlink_enabled=yes` default. Note that scons will not relink merely because the toolchain changed — delete the target `.js`/`.wasm`/`.zip` after applying or reverting, or the next build silently keeps the old output. Threaded builds also need the page served with COOP/COEP cross-origin-isolation headers.
+
 `webgpu=yes` is a SConstruct option (`SConstruct:201`) that only takes effect combined with `platform=web` — `drivers/webgpu/` isn't compiled into non-web builds at all, so a native build never touches WebGPU driver code.
 
 `bin/tint_convert_cli` — the standalone host tool that does build-time SPIR-V→WGSL precompilation — is a **separate native build**, independent of Emscripten and of the two builds above:

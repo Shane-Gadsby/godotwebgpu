@@ -4136,7 +4136,73 @@ Tasks 29–37 drove runtime shader translation from 37 → 0 and the user report
    and they are the concrete targets for the C++ marks noted above. Naming what happens in
    them is worth more than further external measurement: they are a larger and far more
    predictable term than resource loading.
-1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[SCOPED 2026-09-26, NOT STARTED]`
+1.5. **Emscripten patch-management machinery — gating precursor to any threading-based solution** `[DONE 2026-10-07 — bug fixed, machinery built; threads=yes dlink_enabled=yes now boots]`
+
+   **RESULT (2026-10-07): `threads=yes dlink_enabled=yes` works.** A two-line Emscripten patch
+   clears Task 12 bug #2. Live-verified: the same export that raised
+   `Uncaught TypeError: Cannot set properties of undefined (setting '<addr>')` from a worker and
+   never booted now reports `Build configuration: Emscripten 6.0.9, multi-threaded, GDExtension
+   support.` and completes startup, with **zero** `ASM_CONSTS` errors.
+
+   **The decision gate (1.5.1.2) resolved as "do it".** The minimal fix *does* span the emitter,
+   which the gate said to stop and report on — but it is **one line there**, not the fork of
+   Emscripten's link-time JS assembly the gate was written to guard against, because both sites
+   share the same hoisted `var` binding:
+   - `tools/emscripten.py:464` — the initializer merges (`Object.assign`) instead of replacing.
+   - `src/lib/libdylink.js:842` — `ASM_CONSTS ??= {}` before the write.
+
+   **Neither half is valid alone**, exactly as 1.5.0 warned: the guard on its own turns a loud
+   abort into silently-discarded `EM_ASM` bodies. That warning was correct and load-bearing.
+
+   **Delivered** (`misc/emsdk_patches/`): the patch with a full rationale header and a removal
+   criterion, `apply.sh` (`--status`/`--check`/`--apply`/`--revert`), content pinning, a
+   `detect.py` build-time warning scoped to `threads=yes dlink_enabled=yes` only, and
+   `CLAUDE.md` documentation.
+
+   **Four things worth carrying forward, each of which produced a wrong answer first:**
+
+   1. **`threads/emscripten_pool_size` must be 8** (the engine's default). The link flag is
+      `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and **`-1 || 8` is `-1`**, which
+      wedges *every* threaded build — including `dlink_enabled=no`. A hand-written preset with
+      `-1` produced a confident "threads+dlink is still broken" that was entirely an artifact.
+      **Always run `threads=yes dlink_enabled=no` as a control**: it is documented as working, so
+      if it fails too, the harness is wrong rather than the subject. That control is what caught
+      this.
+   2. **scons does not relink because the toolchain changed.** The first "patched" build finished
+      in 8.5 s having done nothing, leaving the previous binary in place. Verify the patch is in
+      the *linked output*, not just the toolchain — and remember the output is minified, so grep
+      for `ASM_CONSTS??={}` with no spaces. A spaced grep gave a false negative on a patch that
+      was in fact present.
+   3. **Substring matching is not pinning.** `apply.sh`'s first version used `grep -F`, so an
+      upstream line with anything *appended* still matched and it patched happily — the exact
+      fuzzy apply 1.5.4.2 exists to prevent. A deliberately-broken-pin test (1.5.8.4) caught it;
+      it now hashes whole lines. **That test earned its place.**
+   4. **A half-applied toolchain is a real state** (interrupted apply, partial restore), and the
+      first version could never recover from it: whole-or-nothing checks refuse forever once one
+      half's upstream text is gone. `apply.sh` is now per-file and `--status` reports it.
+
+   **Known gaps, stated plainly:**
+   - **No standalone reproducer** (1.5.3 unmet). The minimal `MAIN_MODULE` + side-module +
+     `-pthread` case does not fire, through two variants; `misc/emsdk_patches/repro/README.md`
+     records what was tried, the three conditions needed just to make the test *valid*, and an
+     untested hypothesis for why it stays clean (the real build's workers instantiate an
+     already-compiled module synchronously; the repro has to fetch it asynchronously, by which
+     point the initializer has run). The oracle is a real export instead, which means
+     `apply.sh` **cannot** self-retire automatically — it pins by content and refuses, but it
+     cannot say "upstream fixed this, delete me".
+   - **Not wired into CI** (1.5.6.1). CI builds only `threads=no dlink_enabled=yes`
+     (`webgpu_tests.yml:211`), which needs no patch. If a threaded job is added it must run
+     `apply.sh --apply` after the emsdk setup step.
+   - The ~16 `Cannot read properties of undefined (reading 'buffer')` (`growMemViews`) errors in
+     the first ~300 ms are **not** fixed and do not need to be: non-fatal, and present in a
+     booting build. The earlier guess that they might be a second blocking race was wrong.
+   - Verified headless with swiftshader on a trivial Forward+ scene. **Not** verified against the
+     user's real project, on real hardware, or for runtime stability beyond startup — and 1.5.8.5
+     ("ask whether threading actually buys anything measurable") is untouched. Making threads
+     *possible* is not the same as making them *worthwhile*.
+
+   **Original scoping below, kept for the reasoning it records.**
+
 
    *Why this is a precursor rather than part of subtask 2.* Once subtask 1 has numbers, one of the candidate answers to "what else is blocking the load" is "move resource loading off the main thread". But threading is **not currently available to this project**: `threads=yes dlink_enabled=yes` is broken (Task 12 bug #2), and the user's project needs `dlink_enabled=yes` for GDExtension. So before any threading-based solution can be costed, we have to know whether that Emscripten bug is *patchable on our side* — and if the answer is no, the entire threading branch of the investigation is closed and subtask 2 should not spend time on it. This subtask exists to answer that question **and** to leave behind reusable machinery, since Emscripten is an external toolchain this fork will keep needing to work around.
 
