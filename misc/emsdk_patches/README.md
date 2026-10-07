@@ -51,10 +51,28 @@ built the threaded configuration; it does not. **If a `threads=yes
 dlink_enabled=yes` job is ever added, it must run `apply.sh --apply` after the
 emsdk setup step** (`mymindstorm/setup-emsdk`, line 137) and before the build.
 
-## Gotcha that will waste your time
+## Gotcha that wasted a day
 
-**scons does not relink because the toolchain changed.** After `--apply` or
-`--revert`, delete the target `.js`/`.wasm`/`.zip` or the next build silently
-keeps the previous output — and then "the patch didn't work" is indistinguishable
-from "the patch wasn't in the binary". Verify by grepping the *linked* output,
-remembering it is minified (`ASM_CONSTS??={}`, no spaces).
+**scons used not to relink because the toolchain changed.** `--apply` or
+`--revert` left the previous `bin/godot*.js` in place, and then "the patch didn't
+work" was indistinguishable from "the patch wasn't in the binary". That is exactly
+what happened on 2026-10-07: the release threads+dlink template was linked after
+the patch and booted, the debug one had been linked before it and was never
+relinked, so the editor's "Run in Browser" (which uses the *debug* template) kept
+throwing the original `ASM_CONSTS` TypeError against an already-fixed toolchain.
+
+`platform/web/detect.py`'s `get_toolchain_js_fingerprint()` now hashes the
+toolchain files that shape the generated JS glue — including the two this patch
+touches — and `platform/web/SCsub` makes that hash a dependency of the link, so
+applying or reverting relinks on its own. Nothing to delete by hand.
+
+Still verify by grepping the *linked* output rather than trusting `--status`,
+remembering it is minified and that **both** halves must be present:
+
+```bash
+grep -c 'ASM_CONSTS??={}' bin/godot.web.template_debug.wasm32.dlink.js        # libdylink.js half
+grep -o 'ASM_CONSTS=Object.assign[^{]*' bin/godot.web.template_debug.wasm32.dlink.js  # emscripten.py half
+```
+
+A build carrying only the `Object.assign` half still crashes; only the
+`??=` half silently discards EM_ASM bodies. Check for both.

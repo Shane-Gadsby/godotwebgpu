@@ -652,9 +652,14 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
   `misc/emsdk_patches/0001-dylink-asm-consts-pthread-race.patch`. That is the state needed to build
   `threads=yes dlink_enabled=yes`; every other configuration is unaffected by it. Check with
   `misc/emsdk_patches/apply.sh --status`, undo with `--revert`. **`emsdk install` silently reverts
-  it**, so re-apply after any toolchain change — and remember scons will not relink just because the
-  toolchain moved, so delete the target `.js`/`.wasm`/`.zip` afterwards or the next build keeps the
-  old output.
+  it**, so re-apply after any toolchain change; `build-linux.sh` now does that itself, right after
+  its own `emsdk install`. scons **does** now relink when the toolchain moves
+  (`get_toolchain_js_fingerprint()` in `platform/web/detect.py`, consumed in `platform/web/SCsub`),
+  so there is nothing to delete by hand. Before that existed, the patch was applied between the
+  debug and release template links on 2026-10-07 and only the release one picked it up — the stale
+  debug template then reproduced the original `ASM_CONSTS` crash for hours against a toolchain that
+  was already fixed. `--status` describes the *toolchain*, not the linked output; grep the output
+  when a result depends on it.
 - **`bin/` now holds templates for four `threads` × `dlink` combinations**, built 2026-10-07 while
   verifying the above, plus an OpenGL3 one. They do **not** all come from the same commit as the
   editor, so a baked-shader mismatch warning is expected from anything but a freshly rebuilt pair —

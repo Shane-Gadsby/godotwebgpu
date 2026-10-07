@@ -116,6 +116,11 @@ sys_env.Depends(build[0], sys_env["JS_LIBS"])
 sys_env.Depends(build[0], sys_env["JS_PRE"])
 sys_env.Depends(build[0], sys_env["JS_POST"])
 sys_env.Depends(build[0], sys_env["JS_EXTERNS"])
+# The Emscripten tree is not otherwise a build input, so a toolchain patch applied
+# (or silently reverted by `emsdk install`) after a link would leave the stale
+# bin/godot*.js in place and the next build would be a no-op. See
+# get_toolchain_js_fingerprint() in detect.py.
+sys_env.Depends(build[0], sys_env.Value(sys_env["JS_TOOLCHAIN_FINGERPRINT"]))
 
 engine = [
     "js/engine/features.js",

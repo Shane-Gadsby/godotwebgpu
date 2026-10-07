@@ -1,3 +1,4 @@
+import hashlib
 import os
 import subprocess
 import sys
@@ -74,6 +75,43 @@ def get_doc_classes():
 
 def get_doc_path():
     return "doc_classes"
+
+
+def get_toolchain_js_fingerprint():
+    """Content hash of the toolchain files that shape the generated JS glue.
+
+    scons only relinks when its own inputs change, and the Emscripten tree is not
+    one of them, so patching the toolchain (or an `emsdk install` silently
+    reverting a patch) leaves a stale bin/godot*.js in place and the next build is
+    a no-op. That is how the dylink+pthread ASM_CONSTS race came back *after*
+    misc/emsdk_patches was applied: the release template relinked and picked the
+    fix up, the debug one did not, and the debug export kept crashing on a bug
+    that was already fixed on disk. Depending on this hash makes the toolchain an
+    actual build input, so no one has to remember to delete the target by hand.
+
+    Returns "" when the toolchain can't be located, which just restores the old
+    behavior rather than failing the build.
+    """
+    emcc = WhereIs("emcc")
+    if not emcc:
+        return ""
+    em_root = Path(os.path.realpath(emcc)).parent
+    # Only the files that end up in, or generate, the JS glue -- not the whole
+    # tree, which would hash tens of thousands of files on every build.
+    tracked = [
+        em_root / "emscripten-version.txt",
+        em_root / "tools" / "emscripten.py",
+        em_root / "src" / "lib" / "libdylink.js",
+        em_root / "src" / "lib" / "libpthread.js",
+    ]
+    digest = hashlib.sha256()
+    for f in tracked:
+        try:
+            digest.update(f.read_bytes())
+        except OSError:
+            digest.update(b"<missing>")  # Still a state change worth relinking on.
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def get_flags():
@@ -333,9 +371,12 @@ def configure(env: "SConsEnvironment"):
                 print_warning(
                     "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
                     "does not have this fork's dylink+pthread patch applied. The resulting export "
-                    f"will most likely fail to start. Run '{apply_sh}' --apply, then delete the target "
-                    ".js/.wasm so the next build actually relinks."
+                    f"will most likely fail to start. Run '{apply_sh}' --apply, then rebuild."
                 )
+
+    # Make the toolchain's JS glue a real build input, so applying or reverting an
+    # emsdk patch relinks instead of leaving a stale bin/godot*.js behind.
+    env["JS_TOOLCHAIN_FINGERPRINT"] = get_toolchain_js_fingerprint()
 
     # WASM_BIGINT is on by default for wasm output (only ever implicitly disabled by
     # -sWASM=0); setting it explicitly is deprecated as of Emscripten 4.x.
