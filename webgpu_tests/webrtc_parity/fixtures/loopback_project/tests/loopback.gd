@@ -2,25 +2,21 @@
 # directly, no signaling server. Runs identically on native and in a web
 # export, so the "RTC|" lines can be diffed between the two to produce the
 # parity table. See webgpu_notes/webrtc_web.md.
-extends Node
+extends "res://tests/rtc_test_base.gd"
 
 var pc1: WebRTCPeerConnection
 var pc2: WebRTCPeerConnection
 var ch1: WebRTCDataChannel
 var ch2: WebRTCDataChannel
 
-var phase := "connecting"
-var ticks := 0
 var f2_close_tick := -1
 
 const CH_CONFIG := { "ordered": true }
 const BIN_PAYLOAD := "binary-round-trip"
 const TXT_PAYLOAD := "text-round-trip"
 
-func out(s: String) -> void:
-	print("RTC| " + s)
-
 func _ready() -> void:
+	phase = "connecting"
 	pc1 = WebRTCPeerConnection.new()
 	pc2 = WebRTCPeerConnection.new()
 	out("impl=%s" % pc1.get_class())
@@ -140,12 +136,4 @@ func _process(_delta: float) -> void:
 			ch1.get_ready_state() if ch1 else -1, ch2.get_ready_state() if ch2 else -1])
 		phase = "done"
 	if phase == "done":
-		out("END")
-		_finish()
-
-func _finish() -> void:
-	# Leave the result where Playwright can read it without racing the console.
-	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.__rtc_done = true;", true)
-	else:
-		get_tree().quit()
+		finish()

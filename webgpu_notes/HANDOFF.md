@@ -857,9 +857,16 @@ Three things from it worth carrying even if the work stops here:
   from the browser event loop, so a `while` + `OS.delay_msec` loop starves it and connects never.
   Use `extends Node` + `_process()`. Same class of trap as §4.11's yielding startup.
 
-Untested and next in line: the `WebRTCMultiplayerPeer`/`MultiplayerAPI` layer (what real projects
-use), then `threads=yes`, whose `__proxy: 'sync'` marshalling has never been exercised here and
-overlaps the §4.12/§4.13 threading caveats.
+The `WebRTCMultiplayerPeer` layer is now tested too and is **at parity, inheriting only F5**:
+`webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
+object ids and tick counts, 32 output lines per side differ on nothing but F5's `lifetime`/`rtx`.
+That raises F5's severity — it shows on all three channels the multiplayer peer builds for every
+peer. Signals, transfer modes, `get_peers()` and disconnect detection all match exactly.
+
+Untested and next in line: `threads=yes`, whose `__proxy: 'sync'` marshalling has never been
+exercised here and overlaps the §4.12/§4.13 threading caveats; F1/F3's behavioural tests; F2 at the
+multiplayer layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);
+`MultiplayerAPI`/`@rpc` above the `MultiplayerPeer` contract; and the Firefox/Safari matrix.
 
 ## 8. Suggested order for the next session
 

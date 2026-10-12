@@ -1,8 +1,10 @@
 # WebRTC on the Web Target — Feasibility Evaluation and Hardening Plan
 
-**Status:** Evaluation complete. Phase 0 **done** (both halves), Phase 2 dependency
-built and verified. F2 and F5 empirically proven on both platforms with one shared
-fixture. Phases 1-4 not yet started.
+**Status:** Evaluation complete. Phase 0 **done** (both halves), the
+`WebRTCMultiplayerPeer` layer **done and at parity but for F5**, Phase 2
+dependency built and verified. F2 and F5 empirically proven on both platforms
+with shared fixtures. Remaining: fixes, F1/F3 behavioural tests, `threads=yes`,
+browser matrix.
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
@@ -178,6 +180,12 @@ Both values *are* script-exposed (`get_max_retransmits()`,
 `get_max_packet_life_time()`), so unlike F1 this is directly visible to user
 code: GDScript branching on these sees `0` on web and `-1` on desktop. Cheapest
 real fix in the list, and the most likely to be silently relied upon.
+
+**Severity raised after the multiplayer-layer test (§4):** F5 is the *only*
+divergence that reaches `WebRTCMultiplayerPeer`, and it shows on all three
+channels it auto-creates for every peer — so it is not a corner case of
+hand-rolled channels, it is present in every project that uses the multiplayer
+peer.
 
 ### F6 — webrtc-native aborts the editor on first project scan — CONFIRMED (new)
 
@@ -361,7 +369,12 @@ Assets created:
 |---|---|
 | `webgpu_tests/webrtc_parity/fixtures/loopback_project/rtc_loopback.gd` | the fixture — single source of truth, runs on both targets |
 | `webgpu_tests/webrtc_parity/fixtures/loopback_project/` | project wrapping it: `main.tscn`, `project.godot`, `export_presets.cfg`, `addons/webrtc_native/` |
+| `webgpu_tests/webrtc_parity/fixtures/loopback_project/main.gd` | dispatcher — picks the fixture from `-- <name>` (native) or `?test=<name>` (web) |
+| `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/rtc_test_base.gd` | shared base: `out()`, `finish()`, tick/phase state |
+| `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/loopback.gd` | the channel-level loopback |
+| `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/mesh.gd` | the `WebRTCMultiplayerPeer` mesh |
 | `webgpu_tests/webrtc_parity/run_loopback.mjs` | Playwright runner, scrapes `RTC\|` console lines |
+| `webgpu_tests/webrtc_parity/compare.sh` | runs one fixture both ways, normalizes, diffs — any surviving line is a divergence |
 | `webgpu_tests/webrtc_parity/exports/loopback/` | the web export (gitignored) |
 
 The project carries the native extension in `addons/` *and* exports to web
@@ -433,6 +446,50 @@ Everything not flagged matches. The three flagged rows are F2, F5 and F7.
 F1 and F3 are not in this table: F1 is not script-exposed (needs a behavioural
 or C++-side test) and F3 needs the deliberate-backpressure scenario from
 Phase 3.
+
+### `WebRTCMultiplayerPeer` layer: at parity, inheriting only F5
+
+The layer real projects actually use, tested with a two-peer mesh
+(`tests/mesh.gd`) — the same in-process technique, both `WebRTCMultiplayerPeer`
+instances and both peer connections in one process.
+
+`./compare.sh mesh` produces **32 output lines on each side, and after
+normalizing object ids, implementation class names, tick counts and SDP
+lengths the only surviving difference is F5**, on all six channels:
+
+```
+-RTC| mp1 ch0 ready=1 ordered=true id=1 lifetime=-1 rtx=-1 negotiated=true label=reliable
++RTC| mp1 ch0 ready=1 ordered=true id=1 lifetime=0  rtx=0  negotiated=true label=reliable
+```
+
+Identical across both platforms: `get_unique_id()`, `create_mesh()`,
+`add_peer()`, `peer_connected`/`peer_disconnected` (both sides, correct ids),
+`get_connection_status()`, `get_peers()` contents and its emptying after a
+disconnect, `connected=true` per peer, the three auto-created channels
+(labels `reliable`/`ordered`/`unreliable`, ids 1/2/3, `negotiated=true`,
+`ordered` flags matching per channel), **all three transfer modes delivering
+with the correct `get_packet_peer()`**, and disconnect detection within one
+tick of `close()`.
+
+**Conclusion: the multiplayer layer adds no divergences of its own.** That
+raises F5's practical severity though — it is not a channel-layer curiosity, it
+shows on the channels `WebRTCMultiplayerPeer` builds for every peer in every
+project.
+
+Two honest gaps in this result:
+
+- **F2 is not reproduced at the multiplayer layer and is therefore untested
+  there.** The mesh fixture polls every tick, so no backlog ever exists for a
+  close to destroy. Whether a real project loses final packets *through*
+  `WebRTCMultiplayerPeer` needs a deliberate no-poll-then-close variant.
+- `MultiplayerAPI`-level RPC (`SceneMultiplayer`, node paths, `@rpc`) is still
+  untested; this covers the `MultiplayerPeer` packet/signal contract beneath it.
+
+**Fixture trap worth keeping:** for a mesh, `get_connection_status()` returns
+`CONNECTION_CONNECTED` the moment `create_mesh()` succeeds — it says nothing
+about whether any remote peer's channels are open. Gating the first send on it
+raced the channels and failed with `ERROR: DataChannel not open` / `err=1`.
+Gate on `peer_connected` instead.
 
 ---
 

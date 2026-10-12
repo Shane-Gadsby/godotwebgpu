@@ -8115,16 +8115,42 @@ fires and `null` arrives in C++ as 0. Same mechanism explains F7 and why F4 is h
 fallback values in that file are largely unreachable and must not be read as documentation of
 behaviour** — only measurement settles them.
 
-### Task 18.5: remaining unknowns
+### Task 18.5: `WebRTCMultiplayerPeer` layer is at parity, inheriting only F5
+**Status**: `DONE` (2026-10-12)
+
+The layer real projects actually use, tested with a two-peer mesh (`tests/mesh.gd`, same in-process
+technique). `./compare.sh mesh` gives **32 output lines each side, and after normalizing object ids,
+class names, tick counts and SDP lengths the only surviving difference is F5**, on all six channels.
+
+Identical across both platforms: `get_unique_id()`, `create_mesh()`, `add_peer()`,
+`peer_connected`/`peer_disconnected` on both sides with correct ids, `get_connection_status()`,
+`get_peers()` contents and its emptying after disconnect, the three auto-created channels (labels
+`reliable`/`ordered`/`unreliable`, ids 1/2/3, `negotiated=true`, matching `ordered` flags), **all
+three transfer modes delivering with the correct `get_packet_peer()`**, and disconnect detection
+within one tick of `close()`.
+
+**The multiplayer layer adds no divergences of its own** — which *raises* F5's severity, since it
+shows on the channels every project's multiplayer peer builds, not just hand-rolled ones.
+
+Two honest gaps: **F2 is not reproduced here and so is untested at this layer** (the fixture polls
+every tick, so no backlog ever exists for a close to destroy — a deliberate no-poll-then-close
+variant is needed to know whether real projects lose final packets *through*
+`WebRTCMultiplayerPeer`), and `MultiplayerAPI`-level RPC (`SceneMultiplayer`, `@rpc`) remains
+untested above the `MultiplayerPeer` contract.
+
+**Fixture trap:** for a mesh, `get_connection_status()` is `CONNECTION_CONNECTED` from the moment
+`create_mesh()` succeeds and says nothing about remote channels being open. Gating the first send on
+it raced the channels and failed `ERROR: DataChannel not open`. Gate on `peer_connected`.
+
+### Task 18.6: remaining unknowns
 **Status**: `TODO`
 
-1. **`WebRTCMultiplayerPeer` / `MultiplayerAPI` layer** — entirely untested, and the layer real
-   projects actually use. Mesh/relay modes, peer-connected/disconnected signals, RPC round-trips.
-2. **`threads=yes`** — every function in `library_godot_webrtc.js` carries `__proxy: 'sync'` to
+1. **`threads=yes`** — every function in `library_godot_webrtc.js` carries `__proxy: 'sync'` to
    marshal to the main thread, and nothing has ever exercised that path in this fork. Given the
    `0001`/`0002` history in `misc/emsdk_patches/`, the most likely place for fork-specific trouble.
    Needs a threads template plus COOP/COEP headers.
-3. F1 and F3 need the behavioural and deliberate-backpressure tests (plan Phase 3); neither is
-   covered by the loopback fixture.
-4. Browser matrix — Firefox and Safari untested; Firefox's WebRTC stack diverges from Chrome's more
+2. F1 and F3 need the behavioural and deliberate-backpressure tests (plan Phase 3); neither is
+   covered by either fixture. F2 needs a no-poll-then-close variant at the multiplayer layer
+   (Task 18.5), and `MultiplayerAPI`/`@rpc` remains untested above the `MultiplayerPeer` contract.
+3. Browser matrix — Firefox and Safari untested; Firefox's WebRTC stack diverges from Chrome's more
    than its WebGPU one does.
