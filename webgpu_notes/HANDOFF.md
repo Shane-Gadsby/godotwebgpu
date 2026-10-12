@@ -836,7 +836,7 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, seven confirmed divergences, three fixed
+## 7.5 WebRTC on web: already shipping, eight findings, four fixed
 
 New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
@@ -878,6 +878,33 @@ Three things from it worth carrying even if the work stops here:
 - **A fixture that blocks the main loop can never work on web.** The JS bridge is callback-driven
   from the browser event loop, so a `while` + `OS.delay_msec` loop starves it and connects never.
   Use `extends Node` + `_process()`. Same class of trap as §4.11's yielding startup.
+
+**F8 is the one finding this tier could not have found, and the most useful thing in the phase.**
+`WebRTCMultiplayerPeer` wrote `cfg["maxPacketLifetime"]` — lowercase `t` — where every reader spells
+it `maxPacketLifeTime` (`RTCDataChannelInit` on web, `WebRTCLibPeerConnection.cpp:119-121` on
+native, `get_max_packet_life_time()` on both). The key was dropped in silence, so
+**`TRANSFER_MODE_UNRELIABLE_ORDERED` and `TRANSFER_MODE_UNRELIABLE` behaved as reliable on desktop,
+mobile and web alike** — upstream since 2022, still in `upstream/master`, not fork damage. Raised by
+a separate code review, not by `compare.sh`, **because both platforms were equally wrong, so the diff
+was clean**. `tests/chancfg.gd` now measures it directly (`verdict=TYPO_DROPPED` on both platforms
+before the one-character fix; `lifetime=1` on channels 2 and 3 on both after). Three things worth
+carrying:
+
+- **A cross-platform diff answers "do these differ?", never "is either correct?"** The
+  platform-agnostic files in `modules/webrtc/` are outside what the tier can check at all. Same
+  applies to any other harness built this way — including the WebGPU screenshot comparisons.
+- **The evidence was in our own output from day one**: the mesh table showed `lifetime` *unset* on
+  channels whose config asks for `maxPacketLifetime = 1`. It was filed as F5 (how *unset* prints) and
+  "why is it unset at all?" went unasked for three commits.
+- **It changes behavior on every platform**, which is the point: those channels now carry a 1 ms
+  lifetime and will lose packets under congestion, as their documented contract says they should. The
+  fix's *effect* is not verifiable on a lossless loopback (an unreliable channel is
+  indistinguishable from a reliable one there), only its configuration — §4.4's gap, now with a
+  concrete reason to close it.
+
+Also from `chancfg`: **F5 is worse than cosmetic.** A channel created with `maxRetransmits: 0` reads
+back `rtx=0` on web, the identical value web reports for *unset* — so a deliberate setting is
+indistinguishable from no setting, not merely printed differently.
 
 The `WebRTCMultiplayerPeer` layer is now tested too and is **at parity, inheriting only F5**:
 `webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
@@ -982,7 +1009,8 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    divergence that lost data or misreported a limit — are tested and fixed**, and the
    `get_buffered_amount()` suspicion is settled as a non-divergence. Five of the seven fixtures now
    compare identical; only `loopback` and `mesh` differ, on F5 and F7. What is left: one-line JS
-   fixes for F4/F5/F7, `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
+   fixes for F4/F5/F7 (F5 now known to make a set `maxRetransmits: 0` unreadable on web, so read
+   its severity up), `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
    Firefox/Safari matrix. A web template rebuild is 3 minutes incremental and the native side needs
    none, since everything involved is web-only. **Separately deferred, and the one gap worth coming
    back to on purpose: nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md`

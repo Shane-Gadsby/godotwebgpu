@@ -70,6 +70,7 @@ is visible.
 | `burst` | 500 x 1000 bytes in one tick with delayed draining: throughput, ordering, and F3 (backpressure loss) |
 | `grow` | F3 regression guard: three grow / partial-drain / regrow rounds, 2100 packets, checking loss, duplication and reordering — specifically growing a **wrapped** receive buffer |
 | `buffered` | `get_buffered_amount()` under a 10 MB one-tick burst, sampling sender and receiver together: asserts range and settling, records the per-platform curve |
+| `chancfg` | channel-config round-trips: baseline, the `maxPacketLifetime` typo, the correct `maxPacketLifeTime`, and `maxRetransmits: 0` — every accessor read back on both ends (F8) |
 | `sizes` | F1: payload sweep 1200 / 1201 / 4 KB / 16 KB / 16385 / 65530 / 65531 / 256 KB — `put_packet()` error, channel state after the send, delivery and integrity |
 | `mesh_close` | F2 at the multiplayer layer: packets queued and never drained, then the sender closes. Reads both through `WebRTCMultiplayerPeer` and through a channel `Ref` taken while connected |
 
@@ -98,10 +99,12 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 
 Native vs web, connected channel: **17 of 18 observables match** (15 before the
 F2 fix). The surviving divergences are F5 and F7. `mesh_close`, `grow`,
-`buffered`, `burst` and `sizes` all compare **identical**; only `loopback` and
-`mesh` differ, on F5's and F7's lines. `threads=yes` matches nothreads across
-all seven fixtures. `WebRTCMultiplayerPeer` adds no divergence of its own and
-inherits only F5.
+`buffered`, `burst` and `sizes` all compare **identical**; `loopback`, `mesh`
+and `chancfg` differ on F5's and F7's lines only. `threads=yes` matches
+nothreads. `WebRTCMultiplayerPeer` adds no divergence of its own and inherits
+only F5 — **which says nothing about whether it is correct**: F8 was a bug in
+that layer which both platforms shared, so this tier's diff stayed clean while
+it was live. See the note below.
 
 | id | divergence | severity | state |
 |----|------------|----------|-------|
@@ -112,6 +115,7 @@ inherits only F5.
 | F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 native vs 0 web | medium | open |
 | F6 | `webrtc-native` aborts the editor (exit 134) on first project scan | CI nuisance | open (upstream) |
 | F7 | pre-open `get_id()`: 65535 native vs 0 web | low | open |
+| F8 | `maxPacketLifetime` typo: both unreliable transfer modes were fully reliable **on every platform** | **high** | **FIXED** |
 
 **F1** was two things, and the behavioral half turned out to be a non-issue:
 `sizes` shows Chrome accepting and delivering every payload from 1200 bytes to

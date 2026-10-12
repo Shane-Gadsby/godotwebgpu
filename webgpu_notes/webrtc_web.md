@@ -2,8 +2,10 @@
 
 **Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
 layer **done and at parity but for F5**, **`threads=yes` done and at full
-parity**, Phase 2 dependency built and verified. **F1, F2 and F3 — the three
-findings that lost data or misreported limits — are tested and fixed**, and the
+parity**, Phase 2 dependency built and verified. **F1, F2, F3 and F8 are tested
+and fixed** — F8 being a cross-platform correctness bug (both unreliable
+transfer modes were reliable everywhere) that this tier structurally could not
+find, since both platforms were equally wrong — and the
 **`get_buffered_amount()` question is settled: not a divergence** (§4.3).
 `compare.sh` is identical on five of the seven fixtures — `sizes`, `burst`,
 `grow`, `mesh_close` and `buffered` — leaving only `loopback` and `mesh`, on F5
@@ -327,6 +329,13 @@ Both values *are* script-exposed (`get_max_retransmits()`,
 code: GDScript branching on these sees `0` on web and `-1` on desktop. Cheapest
 real fix in the list, and the most likely to be silently relied upon.
 
+**Severity raised again, by `tests/chancfg.gd` (see F8):** a channel created
+with `maxRetransmits: 0` reads back `rtx=0` on web — the identical value web
+reports for *unset*. So this is not only about how a default prints: on web a
+deliberately-set `maxRetransmits: 0` cannot be told apart from no setting at
+all, and any code that round-trips or inspects channel reliability is reading a
+value it cannot interpret.
+
 **Severity raised after the multiplayer-layer test (§4):** F5 is the *only*
 divergence that reaches `WebRTCMultiplayerPeer`, and it shows on all three
 channels it auto-creates for every peer — so it is not a corner case of
@@ -368,6 +377,74 @@ Measured (§4): before a channel opens, native reports `id=65535` and web report
 open. Low severity, but it invalidates the note in the §3 baseline table that
 claimed pre-open `id` agreed across platforms — that comparison was against the
 JS *default*, not the measured value.
+
+### F8 — `maxPacketLifetime` typo: both unreliable transfer modes were fully reliable, on every platform — CONFIRMED, FIXED
+
+**Not a parity divergence. A correctness bug that both platforms shared, which
+is exactly why this tier could not see it.** Found by a separate code review,
+not by `compare.sh`: the two sides agreed, so the diff was clean.
+
+`WebRTCMultiplayerPeer` configures its three per-peer channels with
+`cfg["maxPacketLifetime"]` — lowercase `t`
+(`webrtc_multiplayer_peer.cpp:223,226,314`). Everything that reads it spells it
+`maxPacketLifeTime`:
+
+- web: the config `Dictionary` is passed straight to `createDataChannel()` as
+  JSON, and `RTCDataChannelInit` defines `maxPacketLifeTime`; an unknown member
+  is ignored.
+- native: `WebRTCLibPeerConnection.cpp:119-121` checks
+  `p_dict.has("maxPacketLifeTime")`.
+- the getter both back ends expose is `get_max_packet_life_time()`.
+
+So the key was silently dropped and **`TRANSFER_MODE_UNRELIABLE_ORDERED` and
+`TRANSFER_MODE_UNRELIABLE` behaved as reliable-ordered and reliable-unordered**
+on desktop, mobile and web alike. Upstream since `ca7d572908` (2022-07-12,
+"[Net] Modularize multiplayer"), present in `upstream/master` today, and not
+fork damage.
+
+**The evidence was already in this document and went unread.** §4's mesh table
+shows all six channels reporting `lifetime` *unset* — `-1` native, `0` web — on
+channels labeled `ordered` and `unreliable` whose config asks for
+`maxPacketLifetime = 1`. That was recorded as F5 (how *unset* prints) without
+asking why the value was unset at all.
+
+**Measured directly** by `tests/chancfg.gd`, which creates four channels, one
+config each, and reads every accessor back on both ends. Identical verdict on
+both platforms:
+
+| channel config | native | web |
+|---|---|---|
+| `{ordered}` baseline | lifetime unset | lifetime unset |
+| `{ordered, maxPacketLifetime: 1}` (the typo) | **lifetime unset** | **lifetime unset** |
+| `{ordered, maxPacketLifeTime: 1}` (correct) | **lifetime = 1** | **lifetime = 1** |
+| `{!ordered, maxRetransmits: 0}` | rtx = 0 | rtx = 0 |
+
+`chancfg verdict=TYPO_DROPPED` on both. **Fix**: one character, three lines.
+After it, `mesh` reports `lifetime=1` on channels 2 and 3 on both platforms
+(was unset), all three transfer modes still deliver over loopback, and no other
+fixture changes.
+
+**What the fix changes for projects**, stated plainly because it is a behavior
+change on *every* platform, not just web: channels 2 and 3 now carry a 1 ms
+packet lifetime, so SCTP stops retransmitting them almost immediately — which
+is what "unreliable" is supposed to mean, and what `MultiplayerPeer`'s documented
+contract promises. A project that was unknowingly getting reliable delivery on
+an unreliable channel will start seeing loss under congestion. That is the
+intended semantics, and `1` is upstream's own chosen value
+(`add_peer()`'s `p_unreliable_lifetime` default).
+
+**Untestable here, and it matters**: on a lossless in-process loopback nothing
+needs retransmitting, so an unreliable channel is **indistinguishable** from a
+reliable one — the fix's actual effect cannot be observed by this tier at all,
+only its configuration. That is §4.4's gap, and F8 is now the most concrete
+reason to close it.
+
+**Side finding, from the same fixture: F5 is worse than cosmetic.** The `rtx0`
+channel sets `maxRetransmits: 0` deliberately, and web reports `rtx=0` — the
+same value it reports for *unset*. So on web a genuinely-set
+`maxRetransmits: 0` is **indistinguishable from no setting at all**, which is
+not a cosmetic difference in how a default prints. F5's severity should be read
+up accordingly.
 
 ---
 
@@ -855,7 +932,7 @@ cost:
 - Native not tracking a real backlog → an upstream **libdatachannel /
   webrtc-native** report, and `get_buffered_amount()` documented as unusable
   for flow control on desktop.
-- Web hitting a send-queue cap native does not have → a **new finding (F8)**,
+- Web hitting a send-queue cap native does not have → a **new finding (F9)**,
   and the first one where web's limit is the browser's rather than Godot's.
 - The receive buffer ballooning past anything reasonable → revisit F3's "grow
   without a ceiling" decision, which was taken on the strength of native doing
@@ -1018,7 +1095,8 @@ All of the below is one day's work, 2026-10-12, in five commits on
 | F2 fix | **DONE** — guard dropped, `close()` keeps the queue; `mesh_close` identical |
 | F3 fix | **DONE** — buffer grows instead of dropping; `burst` 500/500, `grow` identical |
 | F3 regression guard | **DONE** — `tests/grow.gd`, 2100 packets over 3 grow/regrow rounds |
-| Fixes for F4, F5, F7 | **OPEN** — one-line JS changes, same `null`-vs-`undefined` mechanism |
+| Fixes for F4, F5, F7 | **OPEN** — one-line JS changes, same `null`-vs-`undefined` mechanism; F5 now known to make a set `maxRetransmits: 0` unreadable on web |
+| F8 (`maxPacketLifetime` typo) | **DONE** — found by code review, not by the harness; measured by `tests/chancfg.gd` and fixed |
 | `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
 | `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
 | Firefox / Safari | **OPEN** |
@@ -1059,7 +1137,13 @@ not catch:
    The real finding underneath was different and smaller — the two ends'
    counters have no happens-before relation, so the value says nothing about
    what the peer holds (§4.3).
-6. **F3 was described as "can lose data if the application polls slowly".**
+6. **"The multiplayer layer adds no divergences of its own" was true and
+   misleading.** It does add a *bug* (F8), just not a divergence — both
+   platforms were equally wrong, so a parity statement was literally correct
+   while the layer was quietly ignoring half its own channel configuration. The
+   wording was too comfortable; "no divergences" should never have been written
+   without "which says nothing about whether it is correct".
+7. **F3 was described as "can lose data if the application polls slowly".**
    True but far too mild: a single tick's burst loses 435 of 500 packets on a
    reliable channel, as a tail-drop with no API-level signal. It was also
    described as a defensible trade-off ("web bounds memory, native honors the
@@ -1162,6 +1246,21 @@ not catch:
   structural loss separates cleanly from the web-only one that was the actual
   bug. **When a layer discards the object you are measuring, measure the object
   directly as well as through the layer.**
+- **A cross-platform diff cannot see a bug both platforms share.** F8 — the
+  `maxPacketLifetime` typo that made both unreliable transfer modes reliable
+  everywhere — was invisible to `compare.sh` by construction: native and web
+  agreed, so the line matched and the tier reported parity. It took a human
+  reading the shared code. **The harness answers "do these differ?", never "is
+  either correct?"**, and anything in `modules/webrtc/`'s platform-agnostic
+  files is outside what it can check. Worth re-reading the shared layer
+  deliberately rather than trusting a green diff.
+- **The evidence can be sitting in your own output, unread.** F8's fingerprint
+  was in the §4 mesh table from the first day: channels labeled `ordered` and
+  `unreliable` reported `lifetime` *unset*, which cannot happen if their config
+  took effect. It was filed under F5 (how *unset* prints) and the obvious
+  follow-up question — why is it unset at all? — went unasked for three
+  commits. Reading a table for the difference you went looking for is not the
+  same as reading it.
 - **Check who actually reads a setting before treating it as a constraint.**
   F3's 64 KB cap came from `network/limits/webrtc/max_channel_in_buffer_kb`,
   documented as a maximum, which made "web bounds memory on purpose" sound like

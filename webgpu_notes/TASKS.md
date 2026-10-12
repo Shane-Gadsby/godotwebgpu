@@ -8082,8 +8082,9 @@ must follow it.
 18 observables compared on a connected channel, **15 match exactly**.
 
 ### Task 18.4: seven confirmed divergences
-**Status**: `IN PROGRESS` — **F1 and F2 fixed** (Task 18.9), **F3 fixed** (Task 18.10), F4, F5 and
-F7 open. F1-F5 and F7 are
+**Status**: `IN PROGRESS` — **F1 and F2 fixed** (Task 18.9), **F3 fixed** (Task 18.10), **F8 fixed**
+(Task 18.13), F4, F5 and F7 open. F8 is not a web/native divergence at all — both platforms shared
+it — so it is the one finding here this tier could not have found. F1-F5 and F7 are
 upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/webrtc_web.md` §2.
 
 | id | divergence | severity |
@@ -8095,6 +8096,7 @@ upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/w
 | F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 (native) vs **0** (web) | medium — script-exposed |
 | F6 | webrtc-native aborts the editor (exit 134) on a project's **first** filesystem scan | harness/CI blocker |
 | F7 | pre-open `get_id()`: 65535 (native) vs 0 (web); post-open both 1 | low |
+| F8 | `maxPacketLifetime` typo in `webrtc_multiplayer_peer.cpp` — key never read, so both unreliable transfer modes were fully reliable **on every platform** — **FIXED** | **high, and not a divergence** |
 
 **F2 was proven on both platforms** by the shared fixture — one packet queued and deliberately not
 drained before the sender closes (this is the pre-fix measurement; see Task 18.9 for the fix):
@@ -8449,7 +8451,67 @@ rather than assuming it did.
 
 **What a finding here would change**: native not tracking a real backlog → an upstream
 libdatachannel/webrtc-native report plus a doc note that `get_buffered_amount()` is unusable for
-flow control on desktop; web hitting a send cap native lacks → a new F8, and the first finding where
+flow control on desktop; web hitting a send cap native lacks → a new F9, and the first finding where
 the limit is the browser's rather than Godot's; the receive buffer ballooning → revisit Task 18.10's
 "grow without a ceiling" decision, which was taken because native does the same and would deserve
 rethinking if a ceiling is what keeps a browser tab alive.
+
+### Task 18.13: F8 — the `maxPacketLifetime` typo, and the class of bug this tier cannot find
+**Status**: `DONE` (2026-10-12)
+**Severity**: high — both unreliable transfer modes were silently fully reliable, on desktop, mobile
+and web alike. **Not a parity divergence**: both platforms were equally wrong.
+**Lines**: `modules/webrtc/webrtc_multiplayer_peer.cpp:223,226,314` (one character, three lines),
+plus `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/chancfg.gd` (new fixture).
+Upstreamable, and it fixes desktop as much as web.
+
+**The bug.** `WebRTCMultiplayerPeer` wrote `cfg["maxPacketLifetime"]` — lowercase `t`. Every reader
+spells it `maxPacketLifeTime`: `RTCDataChannelInit` on web (the config dictionary is handed to
+`createDataChannel()` as JSON, and an unknown member is ignored), `WebRTCLibPeerConnection.cpp:119-121`
+on native, and the public getter `get_max_packet_life_time()` on both. The key was therefore dropped
+in silence, and **`TRANSFER_MODE_UNRELIABLE_ORDERED` and `TRANSFER_MODE_UNRELIABLE` behaved as
+reliable-ordered and reliable-unordered everywhere**. Upstream since `ca7d572908` (2022-07-12,
+Fabio Alessandrelli, "[Net] Modularize multiplayer"), still in `upstream/master`, not fork damage.
+
+**Raised by a separate code review, not by this tier — and that is the most useful thing about it.**
+`compare.sh` compares native against web; F8 was identical on both sides, so the line matched and the
+diff stayed clean. **The harness answers "do these differ?", never "is either correct?"**, and the
+platform-agnostic files in `modules/webrtc/` are outside what it can check at all.
+
+**The evidence was already in our own output and went unread.** The §4 mesh table, from day one,
+showed all six channels reporting `lifetime` *unset* (`-1` native, `0` web) — including the two whose
+config asks for `maxPacketLifetime = 1`. That was filed as F5 (how *unset* prints) and the obvious
+follow-up, *why is it unset at all*, went unasked for three commits.
+
+**Measured, before and after,** by the new `tests/chancfg.gd` — four channels, one config each,
+every accessor read back on both ends. It also covers the channel-config round-trips the Phase 1
+plan listed and no fixture had exercised (`loopback` only ever used `{"ordered": true}`).
+
+| channel config | native | web |
+|---|---|---|
+| `{ordered}` baseline | lifetime unset | lifetime unset |
+| `{ordered, maxPacketLifetime: 1}` (typo) | **unset** | **unset** |
+| `{ordered, maxPacketLifeTime: 1}` (correct) | **lifetime = 1** | **lifetime = 1** |
+| `{!ordered, maxRetransmits: 0}` | rtx = 0 | rtx = 0 |
+
+`chancfg verdict=TYPO_DROPPED` on both platforms. After the fix, `mesh` reports `lifetime=1` on
+channels 2 and 3 on both platforms (previously unset), all three transfer modes still deliver over
+loopback, and the full sweep is unchanged otherwise: `sizes`, `burst`, `grow`, `mesh_close`,
+`buffered` identical; `loopback`, `mesh` and `chancfg` differ on F5's lines alone.
+
+**Behavior change to be aware of, on every platform.** Channels 2 and 3 now carry a 1 ms packet
+lifetime, so SCTP gives up retransmitting them almost immediately — the documented meaning of those
+transfer modes. A project unknowingly relying on reliable delivery over an "unreliable" channel will
+start seeing loss under congestion. `1` is upstream's own value (`add_peer()`'s
+`p_unreliable_lifetime` default). Reverting is the same one character if it needs staging differently.
+
+**What this tier still cannot tell you about F8**: on a lossless in-process loopback nothing needs
+retransmitting, so an unreliable channel is **indistinguishable** from a reliable one. The fix's
+configuration is verified; its *effect* is not, and cannot be here. That is Task 18.12's gap, and F8
+is now the most concrete reason to close it.
+
+**Side finding, same fixture: F5 is worse than cosmetic.** The `rtx0` channel sets
+`maxRetransmits: 0` deliberately and web reports `rtx=0` — the identical value web reports for
+*unset*. On web a deliberately-set `maxRetransmits: 0` is indistinguishable from no setting at all,
+so F5 is not merely "a default prints differently"; it makes a real configuration unreadable. Read
+F5's severity up accordingly when fixing it (the fix is still one line of JS: fall back on `null` as
+well as `undefined`, and return `-1`).
