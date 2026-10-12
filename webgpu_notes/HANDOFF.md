@@ -827,6 +827,40 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
+## 7.5 WebRTC on web: already shipping, with seven confirmed divergences
+
+New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
+TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
+platform-agnostic and web already gets a complete `WebRTCPeerConnectionJS` over the browser's own
+`RTCPeerConnection`, overriding every pure virtual, already present in the `bin/` web templates.
+The desktop `webrtc-native` GDExtension adds no API surface, so the public API is at 100% parity.
+A *truly* native stack on web (libdatachannel in WASM) is infeasible — browsers expose no raw UDP,
+so ICE cannot work — and upstream agrees: `webrtc-native` HEAD adds `exclude_tags = ["web", ...]`
+precisely so 4.8 exports stop asking for a web library that will never exist.
+
+Phase 0 is green both ways: the reference peer builds and loads on 4.8 (the godot-cpp "no 4.8
+`extension_api.json`" worry was a false alarm — `compatibility_minimum = 4.3` and GDExtension is
+backward-compatible), and WebRTC works end-to-end in a real browser against a current `nothreads`
+export. 18 observables compared on a connected channel, 15 match.
+
+Three things from it worth carrying even if the work stops here:
+
+- **F2 is a real, proven, user-visible bug**: on web, packets already received but not yet polled
+  are destroyed the moment the remote closes, so the last messages before a disconnect are lost;
+  on desktop they drain fine. Both the `STATE_OPEN` guard in `get_packet()` and the buffer wipe in
+  `close()` fire, so a fix must address both.
+- **The JS fallback values in `library_godot_webrtc.js` are mostly dead code and must not be read
+  as documentation.** `get_prop` falls back only on `undefined`, but browsers report unset channel
+  properties as `null`, which arrives in C++ as **0**. This is how a prediction of `65535` in the
+  first draft of the WebRTC doc turned out to be `0` when measured (F5, F7).
+- **A fixture that blocks the main loop can never work on web.** The JS bridge is callback-driven
+  from the browser event loop, so a `while` + `OS.delay_msec` loop starves it and connects never.
+  Use `extends Node` + `_process()`. Same class of trap as §4.11's yielding startup.
+
+Untested and next in line: the `WebRTCMultiplayerPeer`/`MultiplayerAPI` layer (what real projects
+use), then `threads=yes`, whose `__proxy: 'sync'` marshalling has never been exercised here and
+overlaps the §4.12/§4.13 threading caveats.
+
 ## 8. Suggested order for the next session
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
@@ -849,6 +883,10 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      promise.**
    - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
      served, and nine of our own test servers do not send them (§4.13).
+0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~5-7 days). The harness and a
+   both-targets fixture already exist and work; what is left is the `WebRTCMultiplayerPeer` layer,
+   fixes for the seven confirmed divergences, the F1/F3 behavioural tests, and the browser matrix.
+   Cheap next step, since nothing needs an engine rebuild.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

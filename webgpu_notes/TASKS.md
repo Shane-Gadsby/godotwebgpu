@@ -8018,3 +8018,113 @@ origin/backup/pre-lineage-repair/main            f2036d700e
    the original strip's casualties (`5f4b63c136`, `5e16f308c7`, `d17857e497`, Task 16.1), and the
    rest cite other repositories and dead branches (`godot-webgpu`, `shiny_gen`,
    `async_shader_pipeline`) that never existed here.
+
+---
+
+## Phase 18: WebRTC web/native parity (October 2026)
+
+> **Goal**: bring web-export WebRTC to verified parity with the desktop/mobile implementation, and
+> document every place parity is not achievable. Full evaluation, findings and the phased plan live
+> in `webgpu_notes/webrtc_web.md`; this is the status summary.
+
+### Task 18.1: feasibility evaluation
+**Status**: `DONE` (2026-10-12)
+
+**There is no feature to add.** `modules/webrtc/` is platform-agnostic (`can_build()` returns `True`
+unconditionally), and on web `WebRTCPeerConnection::create()` returns `WebRTCPeerConnectionJS`
+(`modules/webrtc/webrtc_peer_connection.cpp:48-51`), a wrapper over the browser's own
+`RTCPeerConnection` via the 502-line `library_godot_webrtc.js`. It overrides **every** pure virtual
+on both base classes, and config dictionaries pass through as JSON with no lossy translation. The
+desktop `webrtc-native` GDExtension exposes no additional API surface, so the public API is already
+at 100% parity. Verified present in the 2026-10-07 `bin/` artifacts: `WebRTCPeerConnectionJS`,
+`WebRTCDataChannelJS` and `WebRTCMultiplayerPeer` in every `godot.side.web.template_*.wasm`,
+`godot_js_rtc_pc_create` in every `godot.web.template_*.js`.
+
+A **truly native** stack on web (libdatachannel in WASM) is infeasible, not merely expensive: ICE
+needs raw UDP, which browsers do not expose, and DTLS-SRTP/SCTP are locked behind the browser's own
+implementation. Media tracks (audio/video) exist on no Godot platform, so they are a new feature
+rather than parity. Remaining work is verification plus small fixes: **~5-7 days**.
+
+### Task 18.2: reference peer builds and loads on 4.8
+**Status**: `DONE` (2026-10-12)
+
+`webrtc-native` at `62135fc` lives in `webgpu_tests/webrtc_parity/webrtc-native/` (separate clone,
+gitignored, ~581 MB with submodules). Both `template_debug` and `template_release` linux x86_64
+build clean. **The 4.8 version risk was a false alarm**: godot-cpp bundles `extension_api` for
+4.3-4.7 with no 4.8 file, but `cfg.gdextension` declares `compatibility_minimum = 4.3` and
+GDExtension is backward-compatible. No custom `--dump-extension-api`, no building against 4.8
+godot-cpp, no `node-datachannel` fallback. Note `platform=linux` (godot-cpp naming, not `linuxbsd`)
+and always pass `build_profile=build_profile.json`.
+
+Upstream's own position on web is now confirmed: HEAD commit `d23b476` (Faless, 2026-07-20) adds
+`exclude_tags = ["web", "no-webrtc"]`, *"Prevents the export process from complaining about the
+missing gdextension library on web (4.8+)"*. There is no web build of the native extension and none
+is planned. Upstream CI builds android/ios/linux/macos/windows, no web.
+
+### Task 18.3: Phase 0 baseline, both halves green
+**Status**: `DONE` (2026-10-12)
+
+**WebRTC works end-to-end in this fork's web export** — connection, SDP, ICE, data-channel open and
+both binary and text round-trips pass in Chromium on a current `nothreads` template.
+
+Method: an **in-process loopback** (two peers in one process, SDP/ICE shuttled directly in GDScript,
+no signaling server) that runs identically on native and web, so its `RTC|` output diffs straight
+into a parity table. Assets in `webgpu_tests/webrtc_parity/`. One project serves both targets — it
+carries the extension in `addons/` *and* exports to web cleanly, corroborating `d23b476` in our own
+build.
+
+**Harness constraint, found the hard way**: a `SceneTree` script with a blocking `while` +
+`OS.delay_msec` works on native and can **never** work on web — the JS bridge is callback-driven
+from the browser event loop, so a blocking loop starves it and the test times out with no
+connection. The portable form is `extends Node` with the logic in `_process()`; every later fixture
+must follow it.
+
+18 observables compared on a connected channel, **15 match exactly**.
+
+### Task 18.4: seven confirmed divergences
+**Status**: `OPEN` (confirmed, not yet fixed). F1-F5 and F7 are upstream Godot bugs; F6 is upstream
+webrtc-native. All detail in `webgpu_notes/webrtc_web.md` §2.
+
+| id | divergence | severity |
+|----|------------|----------|
+| F1 | `get_max_packet_size()` 1200 (web) vs 16384 (native, cites RFC-8831 §6.6); web `put_packet()` enforces no limit at all | low-medium — not script-exposed, C++ consumers only |
+| F2 | buffered packets destroyed on remote close (web) | **high** |
+| F3 | backpressure: web drops silently at 64 KB, native uses an unbounded queue | medium |
+| F4 | `is_negotiated` wrong JS default (`65535` for a bool) | trivial, masked |
+| F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 (native) vs **0** (web) | medium — script-exposed |
+| F6 | webrtc-native aborts the editor (exit 134) on a project's **first** filesystem scan | harness/CI blocker |
+| F7 | pre-open `get_id()`: 65535 (native) vs 0 (web); post-open both 1 | low |
+
+**F2 is proven on both platforms** by the shared fixture — one packet queued and deliberately not
+drained before the sender closes:
+
+```
+native:  avail_after_close=1  ->  drain len=10 'f2-pending'   ->  DRAINED
+web:     avail_after_close=0  ->  ERROR: Condition "get_ready_state() != STATE_OPEN"
+                                  is true. Returning: ERR_UNCONFIGURED  ->  LOST
+```
+
+`avail_after_close=0` means **both** mechanisms fire — the `STATE_OPEN` guard
+(`webrtc_data_channel_js.cpp:109`) *and* the buffer wipe (`:63,86`) — so a fix must address both.
+
+**F5 corrects a wrong prediction worth remembering.** This doc first recorded web as returning
+`65535`, read off the JS defaults. It returns **0**. `get_prop` falls back only when a property is
+`undefined` (`library_godot_webrtc.js:87-90`), but browsers expose `maxRetransmits` and
+`maxPacketLifeTime` as **`null`** when unset; `null !== undefined`, so the `65535` default never
+fires and `null` arrives in C++ as 0. Same mechanism explains F7 and why F4 is harmless. **The JS
+fallback values in that file are largely unreachable and must not be read as documentation of
+behaviour** — only measurement settles them.
+
+### Task 18.5: remaining unknowns
+**Status**: `TODO`
+
+1. **`WebRTCMultiplayerPeer` / `MultiplayerAPI` layer** — entirely untested, and the layer real
+   projects actually use. Mesh/relay modes, peer-connected/disconnected signals, RPC round-trips.
+2. **`threads=yes`** — every function in `library_godot_webrtc.js` carries `__proxy: 'sync'` to
+   marshal to the main thread, and nothing has ever exercised that path in this fork. Given the
+   `0001`/`0002` history in `misc/emsdk_patches/`, the most likely place for fork-specific trouble.
+   Needs a threads template plus COOP/COEP headers.
+3. F1 and F3 need the behavioural and deliberate-backpressure tests (plan Phase 3); neither is
+   covered by the loopback fixture.
+4. Browser matrix — Firefox and Safari untested; Firefox's WebRTC stack diverges from Chrome's more
+   than its WebGPU one does.
