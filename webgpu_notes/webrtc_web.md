@@ -1,18 +1,19 @@
 # WebRTC on the Web Target — Feasibility Evaluation and Hardening Plan
 
-**Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
-layer **done and at parity but for F5**, **`threads=yes` done and at full
-parity**, Phase 2 dependency built and verified. **F1, F2, F3 and F8 are tested
-and fixed** — F8 being a cross-platform correctness bug (both unreliable
-transfer modes were reliable everywhere) that this tier structurally could not
-find, since both platforms were equally wrong — and the
-**`get_buffered_amount()` question is settled: not a divergence** (§4.3).
-`compare.sh` is identical on five of the seven fixtures — `sizes`, `burst`,
-`grow`, `mesh_close` and `buffered` — leaving only `loopback` and `mesh`, on F5
-and F7. Remaining: F4, F5 and F7 (one-line JS fixes), `MultiplayerAPI`/`@rpc`,
-`dlink_enabled=yes`, and the Firefox/Safari matrix. **Deliberately deferred:
+**Status: every confirmed divergence is fixed, and `compare.sh` is identical on
+all eight fixtures, on both web variants.** F1, F2, F3, F4, F5, F7 and F8 are
+fixed and measured; F6 is an upstream webrtc-native nuisance that affects only
+the harness. **18 of 18 channel observables now match**, where the first pass
+had 15. F8 is worth singling out: a cross-platform correctness bug (both
+unreliable transfer modes were reliable *everywhere*) that this tier
+structurally could not find, since both platforms were equally wrong. The
+`get_buffered_amount()` suspicion is settled as **not a divergence** (§4.3).
+
+Remaining: `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
+Firefox/Safari matrix — all coverage, no known defects. **Deliberately deferred:
 everything that needs real bandwidth pressure (§4.4) — this tier runs entirely
-over an unthrottled in-process loopback.**
+over an unthrottled in-process loopback, so an unreliable channel cannot be
+told from a reliable one here.**
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
@@ -284,7 +285,7 @@ Measured after the fix, both web variants, against unchanged native:
 but `get_buffered_amount()` (§4.3) and tick counts, and `grow` is **identical**.
 `threads=yes` matches `nothreads` on all six fixtures.
 
-### F4 — `is_negotiated` wrong default (web) — CONFIRMED COSMETIC
+### F4 — `is_negotiated` wrong default (web) — CONFIRMED COSMETIC, FIXED
 
 `library_godot_webrtc.js:170-174` passes `65535` as the fallback for a boolean
 getter (copy-pasted from `id_get` directly above), where the neighboring
@@ -294,7 +295,15 @@ getter (copy-pasted from `id_get` directly above), where the neighboring
 Every current browser exposes `negotiated` as a real boolean, so the fallback
 never fires. Latent, not live. One-line fix.
 
-### F5 — Unset reliability values: -1 (native) vs 0 (web) — CONFIRMED, value corrected
+**Fixed as a consequence of F5, and it had to be.** F5's fix makes `get_prop`
+fall back on `null` as well as `undefined`, which turns every default in that
+file from dead code into live code — including this one. Leaving `65535` there
+would have promoted a latent bug into a reachable one that reads an absent
+value as `negotiated = true`. It is now `false`. The same audit covered the
+remaining defaults: `ordered` → `true` (correct, WebRTC orders by default),
+`id` → `65535` (correct, and what fixes F7), `bufferedAmount` → `0` (correct).
+
+### F5 — Unset reliability values: -1 (native) vs 0 (web) — CONFIRMED, FIXED
 
 Found by reading, then **measured — and the measurement corrected the predicted
 value.** The original read of this doc said web returns `65535`. It does not; it
@@ -342,6 +351,52 @@ channels it auto-creates for every peer — so it is not a corner case of
 hand-rolled channels, it is present in every project that uses the multiplayer
 peer.
 
+#### The fix: `null` is absence, not zero
+
+One change at the root, in `get_prop`:
+
+```js
+get_prop: function (p_id, p_prop, p_def) {
+    const ref = IDHandler.get(p_id);
+    if (!ref || ref[p_prop] === undefined || ref[p_prop] === null) {
+        return p_def;
+    }
+    return ref[p_prop];
+},
+```
+
+plus the two reliability defaults corrected from the unreachable `65535` to
+**-1**, which is what the other implementations report for unset. The
+`maxPacketLifeTime` getter, which had its own hand-rolled `undefined` checks and
+a `65535` fallback, now goes through `get_prop` as well (keeping the legacy
+`maxRetransmitTime` fallback).
+
+**It fixes F7 and forces F4.** `id`'s `65535` default was dead for exactly the
+same reason — browsers report `id` as `null` before a channel opens — so making
+`null` absent revives it, and `65535` happens to be precisely what native
+reports pre-open. F7 closes with no further change. F4's `65535` default for a
+*boolean* also becomes reachable, so correcting it to `false` is part of this
+fix rather than an optional extra; see F4.
+
+Measured after the fix, `tests/chancfg.gd`, **identical on native and both web
+variants**:
+
+| channel config | lifetime | rtx |
+|---|---|---|
+| `{ordered}` baseline | **-1** | **-1** |
+| `{ordered, maxPacketLifeTime: 1}` | 1 | -1 |
+| `{!ordered, maxRetransmits: 0}` | -1 | **0** |
+
+The last row is the point: `maxRetransmits: 0` and "unset" are finally
+different values on web. And `loopback`'s pre-open line is now byte-identical
+across platforms, `id=65535 lifetime=-1 rtx=-1` on both.
+
+**Behavior change for projects, on web only**: `get_max_retransmits()` and
+`get_max_packet_life_time()` now return `-1` instead of `0` for an unconfigured
+channel, and `get_id()` returns `65535` instead of `0` before a channel opens.
+Script that compared against `0` will need `-1` — which is the point, since
+desktop always returned `-1` and such code was already platform-dependent.
+
 ### F6 — webrtc-native aborts the editor on first project scan — CONFIRMED (new)
 
 Not a parity issue; a harness/CI blocker found while setting up the reference
@@ -369,7 +424,7 @@ so this area is actively churning.
 **Harness workaround:** run the first scan as a throwaway step and ignore its
 exit code, then run the real command. Worth reporting upstream with this table.
 
-### F7 — Pre-open `get_id()`: 65535 (native) vs 0 (web) — CONFIRMED (new)
+### F7 — Pre-open `get_id()`: 65535 (native) vs 0 (web) — CONFIRMED, FIXED
 
 Measured (§4): before a channel opens, native reports `id=65535` and web reports
 `id=0`. Same `null`-vs-`undefined` mechanism as F5. **Post-open both report
@@ -377,6 +432,12 @@ Measured (§4): before a channel opens, native reports `id=65535` and web report
 open. Low severity, but it invalidates the note in the §3 baseline table that
 claimed pre-open `id` agreed across platforms — that comparison was against the
 JS *default*, not the measured value.
+
+**Fixed by F5's root-cause fix, with no change of its own.** The `65535`
+default in `id_get` was unreachable because browsers report `id` as `null`
+pre-open; once `get_prop` treats `null` as absence, the default fires — and it
+already matched native's sentinel. Measured: `pre_open ... id=65535` on native
+and web alike, with `get_id()` still returning the real `1` once open.
 
 ### F8 — `maxPacketLifetime` typo: both unreliable transfer modes were fully reliable, on every platform — CONFIRMED, FIXED
 
@@ -655,10 +716,10 @@ graduates into `local_ci.sh`.
 | `get_label()` | `loopback` | `loopback` | match |
 | `get_ready_state()` open | 1 | 1 | match |
 | `is_ordered()` | true | true | match |
-| `get_id()` pre-open | 65535 | **0** | **F7** |
+| `get_id()` pre-open | 65535 | 65535 (was 0) | match since the F7 fix |
 | `get_id()` post-open | 1 | 1 | match |
-| `get_max_packet_life_time()` unset | -1 | **0** | **F5** |
-| `get_max_retransmits()` unset | -1 | **0** | **F5** |
+| `get_max_packet_life_time()` unset | -1 | -1 (was 0) | match since the F5 fix |
+| `get_max_retransmits()` unset | -1 | -1 (was 0) | match since the F5 fix |
 | `get_protocol()` | `''` | `''` | match |
 | `is_negotiated()` | false | false | match |
 | `get_buffered_amount()` | 0 | 0 | match |
@@ -671,12 +732,13 @@ graduates into `local_ci.sh`.
 | 500 x 1000 B burst, drained late | 500 / 500 | 500 / 500 (was 65 / 500) | match since the F3 fix |
 | `get_buffered_amount()` right after a send | 0 to 3.4 MB, varies per run | the payload size | not a divergence — §4.3 |
 
-Everything not flagged matches: **17 of 18 of the original observables**, two
-flagged rows left (F5 and F7), where it was 15 of 18 before the F2 fix. The
-added rows come from `tests/sizes.gd`, `tests/burst.gd`, `tests/grow.gd` and
-`tests/buffered.gd`. The last row is **not** a divergence — both ends report
-their own queue accurately and native's figure is nondeterministic; §4.3 has the
-experiment that settled it.
+**All 18 of the original observables now match** — 15 did on the first pass, 17
+after F2, and 18 after F5 and F7. The added rows come from `tests/sizes.gd`,
+`tests/burst.gd`, `tests/grow.gd` and `tests/buffered.gd`; the
+`get_buffered_amount()` row is **not** a divergence — both ends report their own
+queue accurately and native's figure is nondeterministic (§4.3 has the
+experiment that settled it) — and `tests/chancfg.gd` adds the channel-config
+round-trips, also identical.
 
 ### `WebRTCMultiplayerPeer` layer: at parity, inheriting only F5
 
@@ -1095,7 +1157,7 @@ All of the below is one day's work, 2026-10-12, in five commits on
 | F2 fix | **DONE** — guard dropped, `close()` keeps the queue; `mesh_close` identical |
 | F3 fix | **DONE** — buffer grows instead of dropping; `burst` 500/500, `grow` identical |
 | F3 regression guard | **DONE** — `tests/grow.gd`, 2100 packets over 3 grow/regrow rounds |
-| Fixes for F4, F5, F7 | **OPEN** — one-line JS changes, same `null`-vs-`undefined` mechanism; F5 now known to make a set `maxRetransmits: 0` unreadable on web |
+| Fixes for F4, F5, F7 | **DONE** — one root-cause change in `get_prop` (`null` is absence) plus a default audit; `loopback`, `mesh` and `chancfg` became identical |
 | F8 (`maxPacketLifetime` typo) | **DONE** — found by code review, not by the harness; measured by `tests/chancfg.gd` and fixed |
 | `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
 | `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
@@ -1103,11 +1165,12 @@ All of the below is one day's work, 2026-10-12, in five commits on
 | `get_buffered_amount()` (§4.3) | **RESOLVED — not a divergence**; `tests/buffered.gd`, `compare.sh buffered` identical |
 | Behavior under real congestion (§4.4) | **DEFERRED — untested by choice**; needs `netem` or an off-box peer, not more code |
 
-Estimate for the remainder: **~1-2.5 days**. Every divergence that lost data or
-misreported a limit (F1, F2, F3) is closed, including F3's design decision, and
-the one unfiled suspicion (§4.3) is settled as a non-divergence. What is left is
-F4/F5/F7 as one-line JS changes behind the same `null`-vs-`undefined` mechanism,
-and coverage: `MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari.
+Estimate for the remainder: **~0.5-2 days, and no known defects left**. Every
+confirmed divergence is fixed (F1-F5, F7, F8), the one unfiled suspicion (§4.3)
+is settled as a non-divergence, and all eight fixtures compare identical on both
+web variants. What remains is coverage — `MultiplayerAPI`/`@rpc`, dlink,
+Firefox/Safari — plus the deferred congestion work (§4.4), which is the only
+place a new finding is still likely.
 
 ### Corrections made to this document as evidence arrived
 
@@ -1211,11 +1274,21 @@ not catch:
 
 - **Reading code predicts behavior badly at a language boundary.** F5 and F7
   were both mispredicted from the JS source, and for the same reason:
-  `get_prop` falls back only on `undefined`, but browsers report unset channel
-  properties as `null`, so documented-looking defaults (`65535`) are
-  unreachable and `null` crosses into C++ as `0`. **The fallback values in
-  `library_godot_webrtc.js` are largely dead code and must not be read as
-  documentation of behavior.**
+  `get_prop` fell back only on `undefined`, but browsers report unset channel
+  properties as `null`, so documented-looking defaults (`65535`) were
+  unreachable and `null` crossed into C++ as `0`. **Those fallback values were
+  dead code and could not be read as documentation of behavior.** The fix is
+  the interesting part: making `null` count as absence turned every default in
+  the file live at once, so a one-line fix for F5 meant auditing all five
+  defaults, fixed F7 for free, and *forced* F4 — a boolean defaulting to
+  `65535`, harmless only because it was unreachable. **Dead code one condition
+  away from running is not harmless, it is pre-loaded.**
+- **A sentinel inside the value's legal range hides configuration, not just
+  defaults.** F5 read as cosmetic for most of this work — `0` vs `-1` for an
+  unset field. What made it real was `chancfg.gd` setting `maxRetransmits: 0`
+  deliberately and finding web reporting `0` for that *and* for unset: a
+  legitimate configuration indistinguishable from no configuration. Worth
+  asking of any sentinel.
 - **Measure before assigning severity, in both directions.** F1 was downgraded
   (not script-exposed), F3 and F5 were upgraded — F3 because a burst is
   catastrophic rather than lossy, F5 because the multiplayer-layer test showed

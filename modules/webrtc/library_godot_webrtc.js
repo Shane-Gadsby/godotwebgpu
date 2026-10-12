@@ -84,9 +84,20 @@ const GodotRTCDataChannel = {
 			ref.close();
 		},
 
+		// A property the browser reports as `null` is as absent as one it does
+		// not report at all: browsers expose an unset channel option (`id`
+		// before the channel opens, `maxRetransmits` on a reliable channel) as
+		// `null`, and `null` crosses into C++ as 0, indistinguishable from a
+		// real 0. Treating both as absent is what makes the defaults below
+		// reachable at all -- they were dead code while this tested only
+		// `undefined`, so each one is a value that now actually reaches the
+		// caller.
 		get_prop: function (p_id, p_prop, p_def) {
 			const ref = IDHandler.get(p_id);
-			return (ref && ref[p_prop] !== undefined) ? ref[p_prop] : p_def;
+			if (!ref || ref[p_prop] === undefined || ref[p_prop] === null) {
+				return p_def;
+			}
+			return ref[p_prop];
 		},
 	},
 
@@ -156,29 +167,30 @@ const GodotRTCDataChannel = {
 	godot_js_rtc_datachannel_max_packet_lifetime_get__proxy: 'sync',
 	godot_js_rtc_datachannel_max_packet_lifetime_get__sig: 'ii',
 	godot_js_rtc_datachannel_max_packet_lifetime_get: function (p_id) {
-		const ref = IDHandler.get(p_id);
-		if (!ref) {
-			return 65535;
+		const lifetime = GodotRTCDataChannel.get_prop(p_id, 'maxPacketLifeTime', null);
+		if (lifetime !== null) {
+			return lifetime;
 		}
-		if (ref['maxPacketLifeTime'] !== undefined) {
-			return ref['maxPacketLifeTime'];
-		} else if (ref['maxRetransmitTime'] !== undefined) {
-			// Guess someone didn't appreciate the standardization process.
-			return ref['maxRetransmitTime'];
-		}
-		return 65535;
+		// Guess someone didn't appreciate the standardization process.
+		// -1 for unset, as the other implementations report it.
+		return GodotRTCDataChannel.get_prop(p_id, 'maxRetransmitTime', -1);
 	},
 
 	godot_js_rtc_datachannel_max_retransmits_get__proxy: 'sync',
 	godot_js_rtc_datachannel_max_retransmits_get__sig: 'ii',
 	godot_js_rtc_datachannel_max_retransmits_get: function (p_id) {
-		return GodotRTCDataChannel.get_prop(p_id, 'maxRetransmits', 65535);
+		// -1 for unset: 0 is a legitimate value ("never retransmit") and must
+		// not collide with "no retransmit limit configured".
+		return GodotRTCDataChannel.get_prop(p_id, 'maxRetransmits', -1);
 	},
 
 	godot_js_rtc_datachannel_is_negotiated__proxy: 'sync',
 	godot_js_rtc_datachannel_is_negotiated__sig: 'ii',
 	godot_js_rtc_datachannel_is_negotiated: function (p_id) {
-		return GodotRTCDataChannel.get_prop(p_id, 'negotiated', 65535);
+		// The spec makes this a plain boolean, so the default should be
+		// unreachable -- but it is reachable now, and 65535 would have made an
+		// absent value read as negotiated=true.
+		return GodotRTCDataChannel.get_prop(p_id, 'negotiated', false);
 	},
 
 	godot_js_rtc_datachannel_get_buffered_amount__proxy: 'sync',

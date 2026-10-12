@@ -8082,9 +8082,12 @@ must follow it.
 18 observables compared on a connected channel, **15 match exactly**.
 
 ### Task 18.4: seven confirmed divergences
-**Status**: `IN PROGRESS` — **F1 and F2 fixed** (Task 18.9), **F3 fixed** (Task 18.10), **F8 fixed**
-(Task 18.13), F4, F5 and F7 open. F8 is not a web/native divergence at all — both platforms shared
-it — so it is the one finding here this tier could not have found. F1-F5 and F7 are
+**Status**: `DONE` — **every confirmed divergence is fixed**: F1 and F2 (Task 18.9), F3
+(Task 18.10), F8 (Task 18.13), and F4, F5 and F7 together (Task 18.14). Only F6 remains, an upstream
+webrtc-native nuisance that affects the harness rather than the engine. All eight fixtures compare
+identical on both web variants, and 18 of 18 channel observables match where the first pass had 15.
+F8 is not a web/native divergence at all — both platforms shared it — so it is the one finding here
+this tier could not have found. F1-F5 and F7 are
 upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/webrtc_web.md` §2.
 
 | id | divergence | severity |
@@ -8092,10 +8095,10 @@ upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/w
 | F1 | `get_max_packet_size()` 1200 (web) vs 16384 (native, cites RFC-8831 §6.6); web `put_packet()` swallowed send failures — **FIXED** | low-medium — not script-exposed, C++ consumers only |
 | F2 | buffered packets destroyed on remote close (web) — **FIXED** | **high** |
 | F3 | backpressure: web dropped silently at 64 KB where native uses an unbounded queue — **FIXED** | **high** |
-| F4 | `is_negotiated` wrong JS default (`65535` for a bool) | trivial, masked |
-| F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 (native) vs **0** (web) | medium — script-exposed |
+| F4 | `is_negotiated` wrong JS default (`65535` for a bool) — **FIXED** (forced by F5's fix) | trivial, masked |
+| F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 (native) vs **0** (web); also made a set `maxRetransmits: 0` unreadable on web — **FIXED** | medium-high — script-exposed |
 | F6 | webrtc-native aborts the editor (exit 134) on a project's **first** filesystem scan | harness/CI blocker |
-| F7 | pre-open `get_id()`: 65535 (native) vs 0 (web); post-open both 1 | low |
+| F7 | pre-open `get_id()`: 65535 (native) vs 0 (web); post-open both 1 — **FIXED** (same root cause as F5) | low |
 | F8 | `maxPacketLifetime` typo in `webrtc_multiplayer_peer.cpp` — key never read, so both unreliable transfer modes were fully reliable **on every platform** — **FIXED** | **high, and not a divergence** |
 
 **F2 was proven on both platforms** by the shared fixture — one packet queued and deliberately not
@@ -8515,3 +8518,54 @@ is now the most concrete reason to close it.
 so F5 is not merely "a default prints differently"; it makes a real configuration unreadable. Read
 F5's severity up accordingly when fixing it (the fix is still one line of JS: fall back on `null` as
 well as `undefined`, and return `-1`).
+
+### Task 18.14: F5, F7 and F4 — `null` is absence, not zero
+**Status**: `DONE` (2026-10-12)
+**Severity**: F5 medium-high (script-exposed, and it made a real configuration unreadable), F7 low,
+F4 trivial but promoted to mandatory by this fix.
+**Lines**: `modules/webrtc/library_godot_webrtc.js` — `get_prop()` plus four defaults. Upstreamable,
+web-only, no native rebuild needed.
+
+**Root cause, one place.** `get_prop()` fell back to its default only when a property was
+`undefined`. Browsers report an *unset* channel option as **`null`** — `maxRetransmits` and
+`maxPacketLifeTime` on a channel that did not configure them, `id` before the channel opens — and
+`null !== undefined`, so the default never fired and `null` crossed the `'ii'` signature into C++ as
+**0**. Hence F5 (unset reliability read `0` on web, `-1` on native) and F7 (pre-open `id` read `0`
+instead of `65535`).
+
+**The fix** makes `get_prop()` treat `null` and `undefined` alike as absence, and corrects the
+defaults it now actually reaches:
+
+| getter | default before | default after | why |
+|---|---|---|---|
+| `maxPacketLifeTime` | 65535 (unreachable) | **-1** | what every other implementation reports for unset |
+| `maxRetransmits` | 65535 (unreachable) | **-1** | same, and `0` is a legal value that must not collide |
+| `id` | 65535 (unreachable) | 65535 | already correct — it is native's pre-open sentinel; **fixes F7 with no change of its own** |
+| `negotiated` | 65535 (unreachable) | **false** | a boolean. Reachable now, and `65535` would read as `negotiated=true`; **this is F4, and fixing it is part of the change rather than optional** |
+| `ordered` | true | true | correct, WebRTC orders by default |
+| `bufferedAmount` | 0 | 0 | correct |
+
+The `maxPacketLifeTime` getter also had its own hand-rolled `undefined` checks and a `65535`
+fallback; it now goes through `get_prop()` too, keeping the legacy `maxRetransmitTime` fallback.
+
+**Measured after the fix** — `tests/chancfg.gd`, identical on native, web nothreads and web threads:
+
+| channel config | lifetime | rtx |
+|---|---|---|
+| `{ordered}` baseline | **-1** | **-1** |
+| `{ordered, maxPacketLifeTime: 1}` | 1 | -1 |
+| `{!ordered, maxRetransmits: 0}` | -1 | **0** |
+
+That last row is the practical payoff: on web, `maxRetransmits: 0` and "unset" are finally different
+values. `loopback`'s pre-open line is now byte-identical across platforms
+(`id=65535 lifetime=-1 rtx=-1`), with `get_id()` still returning the real `1` once open.
+
+**Result: `compare.sh` is identical on all eight fixtures**, on both web variants — `loopback`,
+`mesh` and `chancfg` were the three still differing and all three closed with this one change. 18 of
+18 channel observables match.
+
+**Behavior change for projects, web only**: `get_max_retransmits()` and
+`get_max_packet_life_time()` return `-1` rather than `0` for an unconfigured channel, and `get_id()`
+returns `65535` rather than `0` before a channel opens. GDScript comparing against `0` needs `-1` —
+which is the point, since desktop always returned `-1` and any such code was already
+platform-dependent.

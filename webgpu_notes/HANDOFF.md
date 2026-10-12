@@ -836,7 +836,7 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, eight findings, four fixed
+## 7.5 WebRTC on web: already shipping, eight findings, seven fixed, all eight fixtures identical
 
 New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
@@ -871,10 +871,16 @@ Three things from it worth carrying even if the work stops here:
   real size ceiling on web was 65530 bytes and it belonged to F3** — the default 64 KB receive
   `RingBuffer`, whose `space_left()` caps at `size - 1` with 5 bytes of per-packet header. With F3
   fixed there is no ceiling: 256 KB single packets and 12 MB bursts both arrive intact.
-- **The JS fallback values in `library_godot_webrtc.js` are mostly dead code and must not be read
-  as documentation.** `get_prop` falls back only on `undefined`, but browsers report unset channel
+- **The JS fallback values in `library_godot_webrtc.js` were mostly dead code and could not be read
+  as documentation.** `get_prop` fell back only on `undefined`, but browsers report unset channel
   properties as `null`, which arrives in C++ as **0**. This is how a prediction of `65535` in the
-  first draft of the WebRTC doc turned out to be `0` when measured (F5, F7).
+  first draft of the WebRTC doc turned out to be `0` when measured (F5, F7). **Fixed, and the fix is
+  the lesson**: making `null` count as absence turned all five defaults in that file live at once,
+  so the one-line fix for F5 required auditing every one of them, fixed F7 for free and *forced* F4
+  (a boolean defaulting to `65535`, harmless only while unreachable). Dead code one condition away
+  from running is pre-loaded, not harmless. The reliability defaults are now `-1`, as every other
+  implementation reports, and on web `maxRetransmits: 0` is finally distinguishable from unset —
+  which is what made F5 more than cosmetic.
 - **A fixture that blocks the main loop can never work on web.** The JS bridge is callback-driven
   from the browser event loop, so a `while` + `OS.delay_msec` loop starves it and connects never.
   Use `extends Node` + `_process()`. Same class of trap as §4.11's yielding startup.
@@ -902,11 +908,18 @@ carrying:
   indistinguishable from a reliable one there), only its configuration — §4.4's gap, now with a
   concrete reason to close it.
 
-Also from `chancfg`: **F5 is worse than cosmetic.** A channel created with `maxRetransmits: 0` reads
-back `rtx=0` on web, the identical value web reports for *unset* — so a deliberate setting is
-indistinguishable from no setting, not merely printed differently.
+Also from `chancfg`: **F5 was worse than cosmetic** — a channel created with `maxRetransmits: 0` read
+back `rtx=0` on web, the identical value web reported for *unset*, so a deliberate setting was
+indistinguishable from no setting. That is what justified fixing it rather than documenting it, and
+it is now fixed along with F7 and F4 (one root-cause change; see above).
 
-The `WebRTCMultiplayerPeer` layer is now tested too and is **at parity, inheriting only F5**:
+**Where the tier stands: all eight fixtures compare identical on both web variants, and 18 of 18
+channel observables match** (15 on the first pass). Every confirmed divergence — F1-F5, F7, F8 — is
+fixed and measured. Only F6 is open, an upstream webrtc-native nuisance affecting the harness rather
+than the engine. What remains is coverage (`MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari) and the
+deferred congestion work, which is the one place a new finding is still likely.
+
+The `WebRTCMultiplayerPeer` layer is now tested too and was **at parity, inheriting only F5**:
 `webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
 object ids and tick counts, 32 output lines per side differ on nothing but F5's `lifetime`/`rtx`.
 That raises F5's severity — it shows on all three channels the multiplayer peer builds for every
@@ -1009,9 +1022,9 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    divergence that lost data or misreported a limit — are tested and fixed**, and the
    `get_buffered_amount()` suspicion is settled as a non-divergence. Five of the seven fixtures now
    compare identical; only `loopback` and `mesh` differ, on F5 and F7. What is left: one-line JS
-   fixes for F4/F5/F7 (F5 now known to make a set `maxRetransmits: 0` unreadable on web, so read
-   its severity up), `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
-   Firefox/Safari matrix. A web template rebuild is 3 minutes incremental and the native side needs
+   `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the Firefox/Safari matrix — all
+   coverage, with no known defects left: F1-F5, F7 and F8 are all fixed and all eight fixtures
+   compare identical. A web template rebuild is 3 minutes incremental and the native side needs
    none, since everything involved is web-only. **Separately deferred, and the one gap worth coming
    back to on purpose: nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md`
    §4.4, TASKS.md Task 18.12) — it needs `netem` or an off-box peer rather than more code, and web's

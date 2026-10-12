@@ -97,24 +97,24 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 
 ## Current result
 
-Native vs web, connected channel: **17 of 18 observables match** (15 before the
-F2 fix). The surviving divergences are F5 and F7. `mesh_close`, `grow`,
-`buffered`, `burst` and `sizes` all compare **identical**; `loopback`, `mesh`
-and `chancfg` differ on F5's and F7's lines only. `threads=yes` matches
-nothreads. `WebRTCMultiplayerPeer` adds no divergence of its own and inherits
-only F5 — **which says nothing about whether it is correct**: F8 was a bug in
-that layer which both platforms shared, so this tier's diff stayed clean while
-it was live. See the note below.
+**All eight fixtures compare identical, on both web variants, and 18 of 18
+channel observables match** (15 on the first pass). Every confirmed divergence
+is fixed: F1-F5, F7 and F8. Only F6 is left, and it is an upstream
+webrtc-native nuisance affecting this harness rather than the engine.
+
+A green sweep means the two implementations *agree*, which is not the same as
+either being right — **F8 was a bug both platforms shared, so the diff stayed
+clean for the whole first round of this work**. See the note above.
 
 | id | divergence | severity | state |
 |----|------------|----------|-------|
 | F1 | `get_max_packet_size()` 1200 web vs 16384 native; web `put_packet()` swallowed send failures | low-medium (not script-exposed) | **FIXED** |
 | F2 | buffered packets destroyed on remote close, web only | **high** | **FIXED** |
 | F3 | backpressure: web delivered 65/500 where native delivers 500/500 | **high** | **FIXED** |
-| F4 | `is_negotiated` wrong JS default | trivial, masked | open |
-| F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 native vs 0 web | medium | open |
+| F4 | `is_negotiated` wrong JS default | trivial, masked | **FIXED** (forced by F5's fix) |
+| F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 native vs 0 web — and a *set* `maxRetransmits: 0` was unreadable on web | medium-high | **FIXED** |
 | F6 | `webrtc-native` aborts the editor (exit 134) on first project scan | CI nuisance | open (upstream) |
-| F7 | pre-open `get_id()`: 65535 native vs 0 web | low | open |
+| F7 | pre-open `get_id()`: 65535 native vs 0 web | low | **FIXED** (same root cause as F5) |
 | F8 | `maxPacketLifetime` typo: both unreliable transfer modes were fully reliable **on every platform** | **high** | **FIXED** |
 
 **F1** was two things, and the behavioral half turned out to be a non-issue:
