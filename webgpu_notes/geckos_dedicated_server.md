@@ -414,7 +414,7 @@ thinner one.
 
 **L2 — Separate the control plane from the data plane on day one.**
 The server's git history is a round trip: WebSockets → `"This is a massive
-breaking change, switching from websockets to WebRTC, may not be permanant"` →
+breaking change, switching from websockets to WebRTC, may not be permanent"` →
 `"adding first draft for dual websockets + webrtc server"` → `"added websockets
 back"`. Room joins, matchmaking and lobby state are state-of-record: they want
 reliable, ordered delivery and they are not latency-critical. Player positions
@@ -525,7 +525,7 @@ Phase 6.**
 - **`time-sync`** (round-trip offset against the server clock) existed and was
   wired up before it was needed. Keep it; authoritative simulation needs a
   shared clock for input timestamping and interpolation delay.
-- **Honest commit messages.** `"may not be permanant"`, `"hoping for some
+- **Honest commit messages.** `"may not be permanent"`, `"hoping for some
   performance increases"`, the `TODO`s left in place. That history is why §4.2
   could be written at all. Keep doing it.
 

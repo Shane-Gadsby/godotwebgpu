@@ -8082,14 +8082,15 @@ must follow it.
 18 observables compared on a connected channel, **15 match exactly**.
 
 ### Task 18.4: seven confirmed divergences
-**Status**: `IN PROGRESS` — **F1 and F2 fixed** (Task 18.9), F3-F5 and F7 open. F1-F5 and F7 are
+**Status**: `IN PROGRESS` — **F1 and F2 fixed** (Task 18.9), **F3 fixed** (Task 18.10), F4, F5 and
+F7 open. F1-F5 and F7 are
 upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/webrtc_web.md` §2.
 
 | id | divergence | severity |
 |----|------------|----------|
 | F1 | `get_max_packet_size()` 1200 (web) vs 16384 (native, cites RFC-8831 §6.6); web `put_packet()` swallowed send failures — **FIXED** | low-medium — not script-exposed, C++ consumers only |
 | F2 | buffered packets destroyed on remote close (web) — **FIXED** | **high** |
-| F3 | backpressure: web drops silently at 64 KB, native uses an unbounded queue | medium |
+| F3 | backpressure: web dropped silently at 64 KB where native uses an unbounded queue — **FIXED** | **high** |
 | F4 | `is_negotiated` wrong JS default (`65535` for a bool) | trivial, masked |
 | F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 (native) vs **0** (web) | medium — script-exposed |
 | F6 | webrtc-native aborts the editor (exit 134) on a project's **first** filesystem scan | harness/CI blocker |
@@ -8163,7 +8164,8 @@ thread-safe and the fixtures drive everything from the main loop, so that is out
 than verified.
 
 **F3 is now quantified** by `tests/burst.gd` — 500 x 1000-byte packets sent in one tick on a
-reliable-ordered channel, receiver left to accumulate 120 ticks before draining:
+reliable-ordered channel, receiver left to accumulate 120 ticks before draining. (This is the
+pre-fix measurement; Task 18.10 has the fix, after which web delivers 500/500.)
 
 | | native | web (threads and nothreads alike) |
 |---|---|---|
@@ -8283,3 +8285,58 @@ down to every value (the lone textual difference across the three is one SDP len
 **Investigation note**: the fixes needed only the `template_release` web builds (3 min incremental
 each) and **no editor rebuild** — everything changed is inside `#ifdef WEB_ENABLED` or the JS
 bridge, so the native reference peer is untouched and remains a valid control.
+
+### Task 18.10: F3 — the receive buffer grows instead of dropping
+**Status**: `DONE` (2026-10-12)
+**Severity**: high — a reliable-ordered channel, contractually lossless, lost 435 of 500 packets
+from one tick's burst on web and none on desktop.
+**Lines**: `modules/webrtc/webrtc_data_channel_js.{h,cpp}` (`_grow_in_buffer()`,
+`_shrink_in_buffer()`, `_on_message()`, `_on_open()`, `get_packet()`),
+`doc/classes/ProjectSettings.xml` (the setting's meaning changed), plus
+`webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/grow.gd` and a `WARNING` filter in
+`run_loopback.mjs`. Upstreamable.
+
+**The design question, and what settled it.** Web bounded the receive `RingBuffer` at
+`network/limits/webrtc/max_channel_in_buffer_kb` (64 kiB) and dropped the tail; native keeps an
+unbounded `std::queue` and never drops. The earlier write-up called that a defensible trade-off.
+It is not: the bound is smaller than one ordinary tick of traffic, and **the base class that reads
+that setting is only used by the web implementation** — `WebRTCDataChannelExtension` keeps its own
+queue and ignores it — so the "memory bound" was a web-only accident, not a cross-platform policy.
+Parity therefore decides it: native never drops, so web must not either.
+
+**What changed.** `_on_message()` grows `in_buffer` instead of discarding the packet.
+`_grow_in_buffer()` picks the next power of two covering queued bytes + packet + the one byte
+`RingBuffer::space_left()` reserves, and `RingBuffer::resize()` preserves queued data when growing.
+The project setting becomes the **initial** size (documented). `_shrink_in_buffer()` returns the
+buffer to that size once the queue empties — only ever on an empty buffer, since `resize()` cannot
+preserve data while shrinking. Growth past **8 MiB** prints one warning per channel naming the queued
+count, the polling fix and the setting; the hard stop is 1 GiB. `packet_buffer` was a fixed
+`uint8_t[65531]` member and is now a `Vector<uint8_t>` sized on demand, which is what actually makes
+a single packet above 65530 bytes deliverable. A packet can now be dropped in exactly one place: an
+allocation failure or that 1 GiB stop, where the original `Buffer full!` error remains.
+
+| measurement | native | web before | web after |
+|---|---|---|---|
+| `burst` 500 x 1000 B in one tick | 500 / 500 | **65 / 500** | **500 / 500** |
+| `sizes` single 65531 B packet | delivered | **dropped** | **delivered** |
+| `sizes` single 262144 B packet | delivered | **dropped** | **delivered** |
+| `grow` 2100 packets, 3 grow/regrow rounds | lossless, ordered | — | lossless, ordered |
+| scratch 12 MB in one tick (1200 x 10 kB) | — | — | 1200 delivered in order, one 8 MiB warning |
+
+**`tests/grow.gd` is the regression guard, and it tests the hard case rather than the symptom.**
+`burst.gd` only ever grows a buffer that filled from empty; `RingBuffer::resize()` has a separate
+branch for growing **wrapped** data (`read_pos > write_pos`) where a mistake reorders or corrupts
+packets instead of losing them. `grow.gd` drains half a batch to leave the read position mid-buffer,
+sends a larger batch on top to force a wrapped grow, fully drains so the buffer shrinks back, and
+repeats with doubled sizes — three rounds, 2100 packets, global sequence numbers checked for loss,
+duplication and reordering. **`./compare.sh grow` is identical on both platforms**, as is
+`mesh_close`.
+
+**Parity now**: `grow` and `mesh_close` identical; `loopback` differs only on F5 and F7; `mesh` only
+on F5; **`burst` and `sizes` differ only on `get_buffered_amount()`**, which is §4.3's open question
+and now the cheapest remaining thing worth settling (`webrtc_web.md` §4.3 has the decisive
+experiment). `threads=yes` matches `nothreads` on all six fixtures — verified by diffing the two web
+runs directly, where the only textual difference across the set is a tick count and one SDP length.
+
+**Harness note**: `run_loopback.mjs` now surfaces `WARNING` console lines as well as errors, without
+which the 8 MiB growth warning would have been invisible to the tier.

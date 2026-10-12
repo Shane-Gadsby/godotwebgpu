@@ -53,7 +53,7 @@ page.on('console', (m) => {
 	if (t.includes('RTC|')) {
 		lines.push(t);
 		console.log(t.slice(t.indexOf('RTC|')));
-	} else if (/ERROR|SCRIPT ERROR|Uncaught|abort|RuntimeError/i.test(t)) {
+	} else if (/ERROR|SCRIPT ERROR|WARNING|Uncaught|abort|RuntimeError/i.test(t)) {
 		console.log('[browser-err] ' + t);
 	}
 });
@@ -70,7 +70,7 @@ try {
 
 try {
 	await page.waitForFunction(() => window.__rtc_done === true, { timeout: TIMEOUT_MS });
-	console.log('[runner] fixture signalled completion');
+	console.log('[runner] fixture signaled completion');
 } catch {
 	console.log(`[runner] TIMEOUT after ${TIMEOUT_MS}ms — ${lines.length} RTC lines seen`);
 }

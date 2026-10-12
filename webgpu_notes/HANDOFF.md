@@ -836,7 +836,7 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, seven confirmed divergences, two fixed
+## 7.5 WebRTC on web: already shipping, seven confirmed divergences, three fixed
 
 New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
@@ -868,8 +868,9 @@ Three things from it worth carrying even if the work stops here:
   against native's 16384, but a payload sweep (1200 → 256 KB) delivers everything on both
   platforms with `put_packet()` returning `OK`. It now reports 16384, and the JS `send()` is
   wrapped so an exception becomes `FAILED` instead of escaping into the engine's call stack. **The
-  real size ceiling on web is 65530 bytes and it belongs to F3** — the default 64 KB receive
-  `RingBuffer`, whose `space_left()` caps at `size - 1` with 5 bytes of per-packet header.
+  real size ceiling on web was 65530 bytes and it belonged to F3** — the default 64 KB receive
+  `RingBuffer`, whose `space_left()` caps at `size - 1` with 5 bytes of per-packet header. With F3
+  fixed there is no ceiling: 256 KB single packets and 12 MB bursts both arrive intact.
 - **The JS fallback values in `library_godot_webrtc.js` are mostly dead code and must not be read
   as documentation.** `get_prop` falls back only on `undefined`, but browsers report unset channel
   properties as `null`, which arrives in C++ as **0**. This is how a prediction of `65535` in the
@@ -897,12 +898,22 @@ Relevant to §4.13: `webgpu_tests/webrtc_parity/run_loopback.mjs` serves its own
 COOP/COEP, so this tier cannot be pointed at a non-isolating server by accident. Worth copying if
 the other nine servers get fixed.
 
-**F3 is now quantified, and it is worse than "can lose data" implied**: 500 reliable-ordered packets
-sent in one tick arrive 500/500 on native and **65/500 on web** (435 dropped, identically with and
-without threads — it is the fixed 64 KB `RingBuffer`, not threading). It is a clean tail-drop, so an
-app cannot spot it from sequence gaps: the stream simply stops. And no API-level signal exists on
-either side — every `put_packet()` returned `OK` — though the engine prints
-`ERROR: Buffer full! Dropping data.` once per dropped packet (435 times), which is its own problem.
+**F3 was worse than "can lose data" implied, and is now fixed**: 500 reliable-ordered packets sent
+in one tick arrived 500/500 on native and **65/500 on web** (435 dropped, identically with and
+without threads — the fixed 64 KB `RingBuffer`, not threading). A clean tail-drop, so an app could
+not spot it from sequence gaps: the stream simply stopped, with no API-level signal on either side.
+
+The fix grows the receive buffer instead of dropping, so `burst` is now 500/500 on web too. What
+makes that an easy call rather than a trade-off: **the base class that reads
+`network/limits/webrtc/max_channel_in_buffer_kb` is only used by the web implementation** — the
+desktop extension keeps its own unbounded queue and ignores the setting — so the "web bounds memory
+on purpose" reading was a web-only accident. The setting is now the buffer's *initial* size
+(`ProjectSettings.xml` updated), the buffer shrinks back when the queue empties, and growth past
+8 MiB warns once so a channel nobody polls stays visible. `packet_buffer` is a `Vector<uint8_t>`
+sized on demand, which is what lets a single packet above 65530 bytes through at all.
+`tests/grow.gd` guards it by forcing growth of a *wrapped* ring buffer — `RingBuffer::resize()`'s
+separate branch, where a mistake reorders packets rather than losing them — across three
+grow/partial-drain/regrow rounds and 2100 packets, and is identical on both platforms.
 
 `webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~2-4 days,
 and the five corrections above) and §8 the lessons learned — the methodology worth reusing
@@ -938,12 +949,14 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      promise.**
    - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
      served, and nine of our own test servers do not send them (§4.13).
-0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~2-4 days). The harness, five
-   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, and F1 and F2 are tested
-   and fixed. What is left: a decision on F3 (the fixed-size receive buffer — the only remaining
-   finding with design content), one-line JS fixes for F4/F5/F7, `MultiplayerAPI`/`@rpc` coverage,
-   `dlink_enabled=yes`, and the Firefox/Safari matrix. A web template rebuild is 3 minutes
-   incremental and the native side needs none, since everything involved is web-only.
+0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~1.5-3 days). The harness, six
+   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, and **F1, F2 and F3 — every
+   divergence that lost data or misreported a limit — are tested and fixed**. What is left:
+   one-line JS fixes for F4/F5/F7, the `get_buffered_amount()` experiment (§4.3 — now the only
+   divergence left in `burst` and `sizes`, and the design for the decisive test is written down),
+   `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the Firefox/Safari matrix. A web
+   template rebuild is 3 minutes incremental and the native side needs none, since everything
+   involved is web-only.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

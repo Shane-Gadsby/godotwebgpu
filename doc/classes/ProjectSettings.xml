@@ -2528,7 +2528,8 @@
 			Timeout (in seconds) for connection attempts using UNIX domain socket.
 		</member>
 		<member name="network/limits/webrtc/max_channel_in_buffer_kb" type="int" setter="" getter="" default="64">
-			Maximum size (in kiB) for the [WebRTCDataChannel] input buffer.
+			Initial size (in kiB) of the [WebRTCDataChannel] input buffer. The buffer grows as needed when packets arrive faster than they are polled, so this value does not cap how much can be queued; raising it only avoids the reallocations. A channel whose buffer grows past 8 MiB prints a warning once, since that means packets are not being polled.
+			[b]Note:[/b] this setting only affects the Web implementation. On other platforms [WebRTCDataChannel] is provided by an extension, which keeps its own queue.
 		</member>
 		<member name="network/tls/certificate_bundle_override" type="String" setter="" getter="" default="&quot;&quot;">
 			The CA certificates bundle to use for TLS connections. If this is set to a non-empty value, this will [i]override[/i] Godot's default [url=https://github.com/godotengine/godot/blob/master/thirdparty/certs/ca-bundle.crt]Mozilla certificate bundle[/url]. If left empty, the default certificate bundle will be used.

@@ -68,6 +68,7 @@ is visible.
 | `loopback` | one data channel: states, all nine channel accessors, binary + text round-trips, and F2 (drain after remote close) |
 | `mesh` | `WebRTCMultiplayerPeer`: two-peer mesh, `peer_connected`/`peer_disconnected`, all three transfer modes, the three auto-created channels, disconnect detection |
 | `burst` | 500 x 1000 bytes in one tick with delayed draining: throughput, ordering, and F3 (backpressure loss) |
+| `grow` | F3 regression guard: three grow / partial-drain / regrow rounds, 2100 packets, checking loss, duplication and reordering — specifically growing a **wrapped** receive buffer |
 | `sizes` | F1: payload sweep 1200 / 1201 / 4 KB / 16 KB / 16385 / 65530 / 65531 / 256 KB — `put_packet()` error, channel state after the send, delivery and integrity |
 | `mesh_close` | F2 at the multiplayer layer: packets queued and never drained, then the sender closes. Reads both through `WebRTCMultiplayerPeer` and through a channel `Ref` taken while connected |
 
@@ -93,17 +94,17 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 ## Current result
 
 Native vs web, connected channel: **17 of 18 observables match** (15 before the
-F2 fix). The surviving divergences are F5 and F7. `./compare.sh mesh_close` is
-**identical**, and `./compare.sh loopback` differs only on F5's and F7's lines.
-`threads=yes` is **byte-identical** to nothreads, now across all five
-fixtures. `WebRTCMultiplayerPeer` adds no divergence of its own and inherits
-only F5.
+F2 fix). The surviving divergences are F5 and F7. `./compare.sh mesh_close` and
+`./compare.sh grow` are **identical**; `loopback` differs only on F5's and F7's
+lines; `burst` and `sizes` differ only on `get_buffered_amount()`.
+`threads=yes` matches nothreads across all six fixtures.
+`WebRTCMultiplayerPeer` adds no divergence of its own and inherits only F5.
 
 | id | divergence | severity | state |
 |----|------------|----------|-------|
 | F1 | `get_max_packet_size()` 1200 web vs 16384 native; web `put_packet()` swallowed send failures | low-medium (not script-exposed) | **FIXED** |
 | F2 | buffered packets destroyed on remote close, web only | **high** | **FIXED** |
-| F3 | backpressure: web delivers 65/500, native 500/500 | **high** | open |
+| F3 | backpressure: web delivered 65/500 where native delivers 500/500 | **high** | **FIXED** |
 | F4 | `is_negotiated` wrong JS default | trivial, masked | open |
 | F5 | unset `maxRetransmits`/`maxPacketLifeTime`: -1 native vs 0 web | medium | open |
 | F6 | `webrtc-native` aborts the editor (exit 134) on first project scan | CI nuisance | open (upstream) |
@@ -121,17 +122,23 @@ and `close()` wiping the receive buffer. Web now drains undrained packets after
 a remote close, as native always did — `loopback` and `mesh_close` agree on
 both platforms.
 
-A size sweep divergence remains above **65530 bytes**, but it is F3, not F1:
-that is the exact ceiling of the default 64 KB receive `RingBuffer`
-(`space_left()` caps at `size - 1`, and each packet costs `p_size + 5`), and
-web drops a larger one with `ERROR: Buffer full! Dropping data.` where native
-delivers it.
+**F3** was the only finding with real design content, and parity settled it:
+native never drops, so `_on_message` now grows the receive `RingBuffer` instead
+of discarding the packet, `network/limits/webrtc/max_channel_in_buffer_kb`
+becomes the buffer's **initial** size rather than a ceiling (it only ever
+affected web — the extension keeps its own queue), the buffer shrinks back once
+the queue empties, and growing past 8 MiB warns once so a channel nobody polls
+is still visible. `packet_buffer` became a `Vector<uint8_t>` sized on demand,
+which is what lets a single 256 KB packet through. After the fix `burst`
+delivers 500/500, `sizes` delivers every payload up to 256 KB, and a scratch
+12 MB-in-one-tick run delivered all 1200 packets in order with one warning.
 
 `sizes` also shows `get_buffered_amount()` read immediately after a send:
 **web reports the payload, native reports 0**, now across eight payload sizes
 up to 256 KB. Still filed as unconfirmed (see `webrtc_web.md` §4.3) — in-process
 libdatachannel may genuinely have flushed — but the sweep is a stronger version
-of the same observation.
+of the same observation, and it is now **the only divergence left in `burst`
+and `sizes`**.
 
 Not yet covered: `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and
 Firefox/Safari.

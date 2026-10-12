@@ -2,9 +2,11 @@
 
 **Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
 layer **done and at parity but for F5**, **`threads=yes` done and at full
-parity**, F3 **quantified**, Phase 2 dependency built and verified. **F1 and F2
-are tested and fixed** — 17 of 18 channel observables now match and
-`compare.sh mesh_close` is identical. Remaining: fixes for F3-F5 and F7,
+parity**, Phase 2 dependency built and verified. **F1, F2 and F3 — the three
+findings that lost data or misreported limits — are tested and fixed**;
+`compare.sh mesh_close` and `compare.sh grow` are identical, and `burst` and
+`sizes` differ on nothing but `get_buffered_amount()`. Remaining: F4, F5 and F7
+(one-line JS fixes), the `get_buffered_amount()` question (§4.3),
 `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and the Firefox/Safari matrix.
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
@@ -189,7 +191,7 @@ documenting as its own limitation — a project that wants the final packets of 
 disconnecting peer cannot get them through `WebRTCMultiplayerPeer` on any
 platform — but it is upstream's shared design, not a web divergence.
 
-### F3 — Silent drop vs unbounded queue on backpressure — CONFIRMED
+### F3 — Silent drop vs unbounded queue on backpressure — CONFIRMED, FIXED
 
 - Web: fixed `RingBuffer` sized from
   `network/limits/webrtc/max_channel_in_buffer_kb` (default 64 KB), and
@@ -231,6 +233,51 @@ this doc:
   invisible, though: the engine prints `ERROR: Buffer full! Dropping data.`
   **once per dropped packet** — 435 console errors in this run, which is its own
   problem at volume.
+
+#### The fix: grow the buffer instead of dropping
+
+The choice was between the two trade-offs above, and parity decides it: native
+never drops, so web must not either. `_on_message` now enlarges `in_buffer`
+when a packet does not fit, rather than discarding the packet.
+
+- **`_grow_in_buffer()`** picks the next power of two that holds the queued
+  bytes plus the new packet plus the one byte `RingBuffer::space_left()`
+  reserves, and calls `RingBuffer::resize()`, which preserves queued data when
+  growing (including the wrapped `read_pos > write_pos` case — see
+  `tests/grow.gd`). The configured
+  `network/limits/webrtc/max_channel_in_buffer_kb` becomes the **initial** size
+  rather than a ceiling; `doc/classes/ProjectSettings.xml` now says so, and
+  notes that the setting only ever affected the web implementation anyway (the
+  extension keeps its own queue and ignores it).
+- **`_shrink_in_buffer()`** returns the buffer to that configured size once the
+  queue empties, so one burst does not hold its peak allocation for the
+  channel's lifetime. It only runs on an empty buffer, because
+  `RingBuffer::resize()` cannot preserve data while shrinking.
+- **A runaway queue is still visible**, which was the other half of the
+  complaint: growing past **8 MiB** prints one warning per channel naming the
+  packet count, the polling fix and the project setting. The hard stop is
+  1 GiB, which keeps the shift arithmetic sane and is unreachable in practice.
+- **The per-packet buffer is dynamic too.** `packet_buffer` was a fixed
+  `uint8_t[65531]` member, so even with a bigger queue a single packet above
+  65530 bytes could not have been handed back. It is a `Vector<uint8_t>` sized
+  on demand, which is what makes the 256 KB row of `sizes` deliverable.
+- **Packets can still be dropped in exactly one place**: an allocation failure
+  or the 1 GiB stop, where the original `Buffer full! Dropping data.` error
+  remains.
+
+Measured after the fix, both web variants, against unchanged native:
+
+| | native | web before | web after |
+|---|---|---|---|
+| `burst`: 500 x 1000 B in one tick | 500 / 500 | **65 / 500** | **500 / 500** |
+| `sizes`: 65531 B single packet | delivered | **dropped** | **delivered** |
+| `sizes`: 262144 B single packet | delivered | **dropped** | **delivered** |
+| `grow`: 2100 packets over 3 grow/partial-drain/regrow rounds | lossless, in order | — | lossless, in order |
+| 12 MB in one tick (1200 x 10 kB, scratch run) | — | — | all 1200 delivered in order, one 8 MiB warning |
+
+`./compare.sh burst` and `./compare.sh grow` now differ from native on nothing
+but `get_buffered_amount()` (§4.3) and tick counts, and `grow` is **identical**.
+`threads=yes` matches `nothreads` on all six fixtures.
 
 ### F4 — `is_negotiated` wrong default (web) — CONFIRMED COSMETIC
 
@@ -540,12 +587,15 @@ graduates into `local_ci.sh`.
 | text round-trip + `was_string_packet()` | ok, true | ok, true | match |
 | drain after remote close | **DRAINED** | **DRAINED** (was LOST) | match since the F2 fix |
 | payload 1200 .. 65530 bytes | delivered intact | delivered intact | match |
-| payload 65531 / 262144 bytes | delivered intact | **dropped** (64 KB receive buffer) | **F3** |
+| payload 65531 / 262144 bytes | delivered intact | delivered intact (was dropped) | match since the F3 fix |
+| 500 x 1000 B burst, drained late | 500 / 500 | 500 / 500 (was 65 / 500) | match since the F3 fix |
+| `get_buffered_amount()` right after a send | 0 | **the payload size** | §4.3, unfiled |
 
 Everything not flagged matches: **17 of 18 of the original observables**, two
 flagged rows left (F5 and F7), where it was 15 of 18 before the F2 fix. The
-last two rows are the F1 sweep's result (`tests/sizes.gd`) and belong to F3 —
-see §2 F1. F3's own backpressure scenario is §4.2.
+added rows come from `tests/sizes.gd`, `tests/burst.gd` and `tests/grow.gd`;
+the only one still divergent is `get_buffered_amount()`, which is §4.3's open
+question rather than a filed finding.
 
 ### `WebRTCMultiplayerPeer` layer: at parity, inheriting only F5
 
@@ -660,6 +710,16 @@ settle the question — in-process libdatachannel plausibly flushes synchronousl
 on `send()`. It stays open, and a test that keeps a known quantity in flight is
 still the thing that would close it.
 
+**With F1, F2 and F3 fixed this is the only divergence left in `burst` and
+`sizes`,** which makes it the cheapest remaining thing worth settling. The
+decisive experiment is small: send enough in one tick that no implementation
+could have flushed it (tens of MB), read `get_buffered_amount()` on the same
+tick and for a few ticks after, on both platforms. If native still reports `0`
+it is flushing synchronously and there is nothing to fix; if it reports a
+falling number, both are accurate and the divergence is only in *when* the
+value becomes observable; if it reports `0` while packets are provably still in
+flight, it is a native bug to report upstream.
+
 ---
 
 ## 5. Hardening plan
@@ -719,8 +779,9 @@ dependency.
 
 ### Phase 3 — Edge cases and the build matrix (2 days)
 
-- **Backpressure** (F3): push past `max_channel_in_buffer_kb` without polling;
-  assert whether data loss occurs and whether it is reported.
+- **Backpressure** (F3): **DONE and fixed** — `tests/burst.gd` quantified it
+  (65/500) and `tests/grow.gd` guards the fix through three
+  grow/partial-drain/regrow rounds; see §2 F3.
 - **Close semantics** (F2): **DONE and fixed** — `tests/loopback.gd` at the
   channel layer and `tests/mesh_close.gd` at the multiplayer layer; see §2 F2.
 - **Size limits** (F1): **DONE and fixed** — `tests/sizes.gd` sweeps 1200 /
@@ -737,10 +798,11 @@ dependency.
 
 ### Phase 4 — Fix, integrate, document (2-3 days)
 
-- Fix what Phases 2-3 confirm. **F1 and F2 are done** — four small edits across
-  `webrtc_data_channel_js.cpp` and `library_godot_webrtc.js`, exactly as
-  predicted; F3 is the one with real design content still open (the receive
-  `RingBuffer` is fixed-size and drops the tail silently).
+- Fix what Phases 2-3 confirm. **F1, F2 and F3 are done** — all inside
+  `webrtc_data_channel_js.{h,cpp}` and `library_godot_webrtc.js`, plus one
+  `ProjectSettings.xml` doc change for F3, which was the only one with real
+  design content. F4, F5 and F7 are one-line JS fixes behind the same
+  `null`-vs-`undefined` mechanism.
 - Keep upstreamable commits (anything in the shared or JS files) separate from
   fork-specific ones — F1-F5 and F7 are upstream Godot bugs, and F6 is an
   upstream webrtc-native bug worth reporting with the table in §2.
@@ -787,10 +849,10 @@ fixes, F1's behavioral test, F2 at the multiplayer layer,
 
 ## 7. Progress log
 
-All of the below is one day's work, 2026-10-12, in four commits on
+All of the below is one day's work, 2026-10-12, in five commits on
 `webgpu-4.8`: `1151998221` (evaluation + loopback harness), `58f98d01b0`
-(multiplayer layer), `e8e969fb95` (threads + F3), and the F1/F2 test-and-fix
-commit.
+(multiplayer layer), `e8e969fb95` (threads + F3 measurement), `4e7919e241`
+(F1 + F2 tested and fixed), and the F3 fix.
 
 ### Status at a glance
 
@@ -807,17 +869,19 @@ commit.
 | F1 fix | **DONE** — 16384 + `put_packet()` reports send failures |
 | F2 at the multiplayer layer | **DONE** — `tests/mesh_close.gd`; §2 F2 |
 | F2 fix | **DONE** — guard dropped, `close()` keeps the queue; `mesh_close` identical |
-| Fixes for F3, F4, F5, F7 | **OPEN** — none applied yet |
+| F3 fix | **DONE** — buffer grows instead of dropping; `burst` 500/500, `grow` identical |
+| F3 regression guard | **DONE** — `tests/grow.gd`, 2100 packets over 3 grow/regrow rounds |
+| Fixes for F4, F5, F7 | **OPEN** — one-line JS changes, same `null`-vs-`undefined` mechanism |
 | `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
 | `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
 | Firefox / Safari | **OPEN** |
 | `get_buffered_amount()` (§4.3) | **OPEN, unconfirmed** — needs a timing-controlled test |
 
-Estimate for the remainder: **~2-4 days**. The two high-value divergences that
-needed a test *and* a design decision (F1, F2) are both closed; F4, F5 and F7
-are one-line JS fixes behind the same `null`-vs-`undefined` mechanism, F3 needs
-a real decision about the receive buffer, and the rest is coverage
-(`MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari).
+Estimate for the remainder: **~1.5-3 days**. Every divergence that lost data or
+misreported a limit (F1, F2, F3) is closed, including F3's design decision.
+What is left is F4/F5/F7 as one-line JS changes behind the same
+`null`-vs-`undefined` mechanism, the `get_buffered_amount()` experiment (§4.3),
+and coverage: `MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari.
 
 ### Corrections made to this document as evidence arrived
 
@@ -841,7 +905,12 @@ not catch:
    looped forever. Isolating it took two runs and found clean exits throughout.
 5. **F3 was described as "can lose data if the application polls slowly".**
    True but far too mild: a single tick's burst loses 435 of 500 packets on a
-   reliable channel, as a tail-drop with no API-level signal.
+   reliable channel, as a tail-drop with no API-level signal. It was also
+   described as a defensible trade-off ("web bounds memory, native honors the
+   guarantee, neither is obviously wrong") — but the bound was 64 KB, which one
+   ordinary tick of traffic exceeds, and the project setting controlling it only
+   ever applied to web. Growing the buffer costs nothing a desktop build does
+   not already pay.
 
 ## 8. Lessons learned
 
@@ -921,6 +990,14 @@ not catch:
   useful than letting a green mesh run imply F2 is confined to hand-rolled
   channels. Writing the missing `mesh_close.gd` then took twenty minutes,
   because the gap had already been written down precisely.
+- **Test the data structure's hard case, not just the symptom.** The F3 fix is
+  "grow the ring buffer", and `burst.gd` proves the symptom is gone — but it
+  only ever grows a buffer that filled from empty. `RingBuffer::resize()` has a
+  separate branch for growing *wrapped* data, where a mistake reorders or
+  corrupts packets instead of losing them, and nothing in the existing fixtures
+  reached it. `grow.gd` exists to: partial drains leave the read position mid
+  buffer, then a larger batch forces a wrapped grow, three times, with global
+  sequence numbers checked for loss, duplication and reordering.
 - **Hold a reference to what the API under test is about to throw away.**
   `mesh_close.gd` keeps a `Ref` to the channel taken while connected, so when
   `WebRTCMultiplayerPeer::poll()` drops the peer it can still ask the channel
@@ -929,6 +1006,13 @@ not catch:
   structural loss separates cleanly from the web-only one that was the actual
   bug. **When a layer discards the object you are measuring, measure the object
   directly as well as through the layer.**
+- **Check who actually reads a setting before treating it as a constraint.**
+  F3's 64 KB cap came from `network/limits/webrtc/max_channel_in_buffer_kb`,
+  documented as a maximum, which made "web bounds memory on purpose" sound like
+  a design position worth preserving. But the base class that reads the setting
+  is only used by the web implementation — the extension keeps its own queue and
+  ignores it — so the "trade-off" was a web-only accident, not a cross-platform
+  policy. That turned a hard design question into an easy one.
 - **A limit that is only reported can look exactly like a limit that is
   enforced.** F1's 1200 was read as "web refuses larger packets"; the sweep
   showed web sends 256 KB happily and the real ceiling is 65530 bytes, in a
