@@ -928,6 +928,21 @@ finding up would have), and `get_buffered_amount()` tells a project nothing abou
 holds — the two ends' counters have no happens-before relation, and web's receiver can see ~61 KB
 before the sender's counter drops.
 
+**The one thing to know before trusting any of the above for flow control: this tier never applies
+bandwidth pressure.** Every WebRTC number in Phase 18 comes from an in-process loopback — two peers
+in one process or one page, over localhost, unthrottled, lossless, sub-millisecond RTT. It is why
+`compare.sh` can diff two platforms line for line, and it leaves one class of behavior unmeasured:
+native's `get_buffered_amount()` under sustained congestion (it *can* report a backlog; whether it
+*tracks* one usefully is untested, and it is the only flow-control signal the API has), **web's
+send-queue ceiling** (Chrome caps a channel's send buffer, historically 16 MiB, where native's
+`mSendQueue` does not — the likeliest place a new divergence is still hiding), what F3's
+ceiling-less receive buffer actually costs when a link is slow and a poller slower, and anything
+timing-shaped — retransmission, `maxPacketLifeTime`/`maxRetransmits` *behaving* rather than merely
+reporting, a link that dies instead of closing. **Deferred deliberately, not overlooked**: no
+fixture changes are needed, only a shaped link (`tc qdisc ... netem` on `lo`, native only, needs
+root) or a real off-box peer, which would need the signaling server this tier skipped. Plan, traps
+and what each outcome would change: `webrtc_web.md` §4.4 and TASKS.md Task 18.12 (`DEFERRED`).
+
 `webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~1-2.5 days,
 and the five corrections above) and §8 the lessons learned — the methodology worth reusing
 (in-process loopback, one fixture diffed across both targets, self-documenting configuration) and
@@ -969,7 +984,10 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    compare identical; only `loopback` and `mesh` differ, on F5 and F7. What is left: one-line JS
    fixes for F4/F5/F7, `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
    Firefox/Safari matrix. A web template rebuild is 3 minutes incremental and the native side needs
-   none, since everything involved is web-only.
+   none, since everything involved is web-only. **Separately deferred, and the one gap worth coming
+   back to on purpose: nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md`
+   §4.4, TASKS.md Task 18.12) — it needs `netem` or an off-box peer rather than more code, and web's
+   send-queue ceiling is the likeliest remaining divergence.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

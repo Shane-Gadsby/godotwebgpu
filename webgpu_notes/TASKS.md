@@ -8223,6 +8223,8 @@ The three worth repeating outside the WebRTC context:
    `misc/emsdk_patches/` toolchain patches.
 3. Browser matrix — Firefox and Safari untested; Firefox's WebRTC stack diverges from Chrome's more
    than its WebGPU one does.
+4. **Nothing is tested under real bandwidth pressure** — the whole tier runs over an unthrottled
+   in-process loopback. Deferred deliberately, with the plan written out; see Task 18.12.
 
 ### Task 18.9: F1 and F2 — tested and fixed
 **Status**: `DONE` (2026-10-12)
@@ -8392,3 +8394,62 @@ proven to exist (the 200 MB run hits it), but nothing here applies real bandwidt
 
 **Tier status**: 7 fixtures. `mesh_close`, `grow`, `buffered`, `burst` and `sizes` compare identical;
 only `loopback` and `mesh` differ, on F5 and F7 — the two cosmetic findings left.
+
+### Task 18.12: DEFERRED — nothing in this tier applies real bandwidth pressure
+**Status**: `DEFERRED` — untested by choice. Needs an environment (shaped link or off-box peer), not
+more code. Full plan and rationale: `webgpu_notes/webrtc_web.md` §4.4.
+**Severity**: unknown, which is the point. One of the four items below could be a real finding (F8);
+the rest are most likely confirmations.
+**Lines**: no code change pending. The fixtures that would measure it already exist —
+`tests/buffered.gd`, `tests/burst.gd`, `tests/grow.gd`.
+
+**Why this is recorded as its own task.** Every number in Phase 18 comes from two peers in one
+process (native) or one page (web), over localhost, unthrottled, lossless, sub-millisecond RTT. That
+choice is what made the parity question answerable in a day and is what lets `compare.sh` diff two
+platforms line for line — but it leaves an entire class of behavior unmeasured, and **Task 18.11's
+conclusion must not be read as covering it.**
+
+**The four unknowns:**
+
+1. **Native's `get_buffered_amount()` under sustained congestion.** Task 18.11 proved libdatachannel
+   *can* report a backlog (0 → 3.4 MB run to run at 10 MB; 1.06 MB at 200 MB) and found the code
+   path (`SctpTransport::send()` → `mSendQueue.push()` → `updateBufferedAmount()`,
+   `thirdparty/libdatachannel/src/impl/sctptransport.cpp:374-394`). Unknown: whether the value
+   *tracks* a real backlog usefully. It is the only flow-control signal in Godot's WebRTC API, so a
+   project throttling on it depends on precisely this untested property.
+2. **Web's send-queue ceiling.** Chrome caps a data channel's send buffer (historically 16 MiB) and
+   fails or closes the channel past it; native's `mSendQueue` has no equivalent. Only a congested
+   link reaches it. Since the F1 fix (Task 18.9) an oversized send returns `FAILED` rather than
+   vanishing, so the failure would at least be observable. **This is the item most likely to be a
+   genuine new divergence.**
+3. **The F3 fix at the receiving end under congestion.** The receive buffer now grows without a
+   ceiling (Task 18.10). On a fast loopback it peaks at the burst size and shrinks straight back.
+   Under congestion with a slow poller: how large does it get, does the 8 MiB warning fire at a
+   useful point, and does shrink-on-empty ever get to run?
+4. **Everything timing-shaped that a lossless link hides**: ICE restarts, SCTP retransmission,
+   `maxPacketLifeTime`/`maxRetransmits` actually taking effect — F5 compares their *values* but no
+   fixture distinguishes an unreliable channel from a reliable one on a lossless link — and
+   `peer_disconnected` on a link that dies rather than closes.
+
+**How to run it, cheapest first** (detail in `webrtc_web.md` §4.4):
+
+```bash
+# netem on loopback: native only, needs root, throttles ALL localhost traffic while applied.
+sudo tc qdisc add dev lo root netem rate 1mbit delay 50ms
+../../bin/godot.linuxbsd.editor.x86_64 --headless --path fixtures/loopback_project -- buffered
+sudo tc qdisc del dev lo root
+```
+
+Then two netns joined by a veth pair with `netem` on one side (shapes only the path under test).
+Covering **web** needs a genuine off-box peer, which needs the Phase 1 signaling server this tier
+deliberately skipped — budget for that, not for the fixture. Two traps: `buffered.gd`'s 1200-tick
+timeouts are sized for a fast link and will need raising, and a shaped `lo` may not touch the path
+at all for in-page web peers — verify from the delivery counts that the shaping actually applied
+rather than assuming it did.
+
+**What a finding here would change**: native not tracking a real backlog → an upstream
+libdatachannel/webrtc-native report plus a doc note that `get_buffered_amount()` is unusable for
+flow control on desktop; web hitting a send cap native lacks → a new F8, and the first finding where
+the limit is the browser's rather than Godot's; the receive buffer ballooning → revisit Task 18.10's
+"grow without a ceiling" decision, which was taken because native does the same and would deserve
+rethinking if a ceiling is what keeps a browser tab alive.

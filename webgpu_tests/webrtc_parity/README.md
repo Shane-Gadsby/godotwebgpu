@@ -152,3 +152,47 @@ holds**. `webrtc_web.md` §4.3 has the full experiment.
 
 Not yet covered: `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and
 Firefox/Safari.
+
+## Deferred: this tier never applies bandwidth pressure
+
+**Read this before concluding anything about flow control or unreliable
+delivery.** Every fixture here runs over an **in-process loopback** — two peers
+in one process (native) or one page (web), over localhost, unthrottled,
+lossless, sub-millisecond RTT. That is what makes `compare.sh` possible, and it
+leaves a class of behavior entirely unmeasured:
+
+- **Native's `get_buffered_amount()` under sustained congestion.** It *can*
+  report a backlog (0 → 3.4 MB run to run at 10 MB, 1.06 MB at 200 MB), but
+  whether it *tracks* one usefully is untested — and it is the only
+  flow-control signal the API has.
+- **Web's send-queue ceiling.** Chrome caps a channel's send buffer
+  (historically 16 MiB); native's `mSendQueue` does not. Only a congested link
+  reaches it. Most likely place a new divergence is still hiding.
+- **The F3 fix at the receiving end under congestion** — the receive buffer
+  grows without a ceiling, and a fast loopback never tests what "without a
+  ceiling" costs.
+- **Anything timing-shaped**: retransmission, `maxPacketLifeTime` /
+  `maxRetransmits` actually taking effect (their values are compared; their
+  behavior never is — an unreliable channel is indistinguishable from a
+  reliable one on a lossless link), ICE restarts, a link that dies rather than
+  closes.
+
+No fixture changes are needed — `buffered.gd`, `burst.gd` and `grow.gd` already
+sample the right things. Only the environment is missing:
+
+```bash
+# Cheapest: netem on loopback. Native only, needs root, and it throttles ALL
+# localhost traffic on the machine while applied — run nothing else.
+sudo tc qdisc add dev lo root netem rate 1mbit delay 50ms
+../../bin/godot.linuxbsd.editor.x86_64 --headless --path fixtures/loopback_project -- buffered
+sudo tc qdisc del dev lo root
+```
+
+Two traps: `buffered.gd`'s 1200-tick timeouts are sized for a fast link and
+will need raising, and a shaped `lo` may not touch the path at all for two web
+peers inside one page — **check the delivery counts to confirm the shaping
+applied** instead of assuming. Covering web properly needs a real off-box peer,
+which needs the signaling server this tier deliberately skipped.
+
+Rationale, the full four-item list and what each possible outcome would change:
+`webgpu_notes/webrtc_web.md` §4.4, `TASKS.md` Task 18.12 (`DEFERRED`).
