@@ -670,6 +670,15 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
    four real failures.
 3. **The R32Float is `RB_TEX_BACK_DEPTH`, not the MSAA-resolved depth.** `demo_3d_particles` sets no
    MSAA and fails identically. MSAA is not implicated at all.
+4. **Five WebRTC claims were wrong when first written** (2026-10-12, all fixed in
+   `webgpu_notes/webrtc_web.md` §7, which lists them): a predicted `65535` that measures `0`, an
+   overstated F1 severity, a wrong claim that pre-open `get_id()` agreed across platforms, a
+   reported "hang" in the native reference peer that was a script error before `quit()`, and F3
+   described as mild when a single burst loses 435 of 500 packets. The common cause for the first
+   three is worth carrying: **the JS fallback values in `library_godot_webrtc.js` are unreachable
+   dead code**, because `get_prop` falls back only on `undefined` while browsers report unset
+   channel properties as `null`, which crosses into C++ as `0`. Reading that file predicts
+   behaviour badly; measure.
 4. **Task 7.10's reason is out of date** (the `WGPUTextureFormat_R16Snorm` enums now exist in
    emdawnwebgpu 6.0.9) but **its conclusion still stands** — a native `R16_SNORM` attempt made things
    worse, because Dawn reports its sample type as `UnfilterableFloat` and the SDF uses a filtering
@@ -882,6 +891,13 @@ without threads — it is the fixed 64 KB `RingBuffer`, not threading). It is a 
 app cannot spot it from sequence gaps: the stream simply stops. And no API-level signal exists on
 either side — every `put_packet()` returned `OK` — though the engine prints
 `ERROR: Buffer full! Dropping data.` once per dropped packet (435 times), which is its own problem.
+
+`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~3-5 days,
+and the five corrections above) and §8 the lessons learned — the methodology worth reusing
+(in-process loopback, one fixture diffed across both targets, self-documenting configuration) and
+the traps, of which the two most expensive were a blocking main loop that can never work on web and
+`--headless -s` silently not loading a GDExtension because it does not generate
+`.godot/extension_list.cfg`.
 
 Untested and next in line: F1's behavioural test (it is not script-exposed); F2 at the multiplayer
 layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);

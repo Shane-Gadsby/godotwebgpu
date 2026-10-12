@@ -8190,7 +8190,29 @@ fixture.
 matters for flow control, but the comparison is not sound as measured — native may legitimately have
 flushed before the read. Needs a timing-controlled test.
 
-### Task 18.7: remaining unknowns
+### Task 18.7: progress log and lessons learned
+**Status**: `DONE` (2026-10-12)
+
+`webgpu_notes/webrtc_web.md` §7 carries the progress log — a status-at-a-glance table, the revised
+remainder (**~3-5 days**, down from 8-11, because measurement is largely finished and what is left
+is deciding the fixes), and the **five claims this work recorded wrongly before measuring them**.
+§8 carries the lessons learned.
+
+The three worth repeating outside the WebRTC context:
+
+1. **One fixture, both targets, mechanically diffed.** The same GDScript runs natively and in the
+   browser printing `RTC|` lines; `compare.sh` normalizes only what legitimately varies, so any
+   surviving line is a divergence and none can be missed by eye. This is the decision that made the
+   parity question answerable in a day.
+2. **Reading code predicts behaviour badly at a language boundary.** Two findings were mispredicted
+   from the JS source for one reason: `get_prop` falls back only on `undefined`, but browsers report
+   unset channel properties as `null`, so the documented-looking `65535` defaults in
+   `library_godot_webrtc.js` are unreachable and `null` arrives in C++ as `0`. **Those fallback
+   values are dead code and must not be read as documentation.**
+3. **Measure before assigning severity, in both directions.** Three of seven findings had the wrong
+   severity after a careful read — F1 down (not script-exposed), F3 and F5 up.
+
+### Task 18.8: remaining unknowns
 **Status**: `TODO`
 1. F1 still needs a behavioural test (it is not script-exposed). F2 needs a no-poll-then-close
    variant at the multiplayer layer (Task 18.5), and `MultiplayerAPI`/`@rpc` remains untested above

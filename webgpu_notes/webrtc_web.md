@@ -702,3 +702,140 @@ fixes, F1's behavioural test, F2 at the multiplayer layer,
   None of these are exposed in Godot's API on any platform anyway, so they do
   not affect parity — they only need recording in the parity table as
   "N/A both sides."
+
+---
+
+## 7. Progress log
+
+All of the below is one day's work, 2026-10-12, in three commits on
+`webgpu-4.8`: `1151998221` (evaluation + loopback harness), `58f98d01b0`
+(multiplayer layer), `e8e969fb95` (threads + F3).
+
+### Status at a glance
+
+| area | status |
+|---|---|
+| Feasibility evaluation | **DONE** — nothing to implement; see §1 |
+| Reference peer (`webrtc-native`) builds + loads on 4.8 | **DONE** — §3 |
+| Phase 0 web baseline | **DONE** — works end-to-end; §4 |
+| Channel-layer parity table (18 observables) | **DONE** — 15 match; §4 |
+| `WebRTCMultiplayerPeer` layer | **DONE** — parity but for F5; §4 |
+| `threads=yes` | **DONE** — byte-identical to nothreads; §4.2 |
+| F3 measurement | **DONE** — 65/500 web vs 500/500 native; §2 |
+| Fixes for F1-F7 | **OPEN** — none applied yet |
+| F1 behavioural test | **OPEN** — not script-exposed, needs C++ or behavioural probe |
+| F2 at the multiplayer layer | **OPEN** — mesh fixture polls every tick, never builds a backlog |
+| `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
+| `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
+| Firefox / Safari | **OPEN** |
+| `get_buffered_amount()` (§4.3) | **OPEN, unconfirmed** — needs a timing-controlled test |
+
+Estimate for the remainder: the original 8-11 days has come down to **~3-5**,
+because measurement is largely finished and what is left is deciding the fixes.
+
+### Corrections made to this document as evidence arrived
+
+Recorded because the first drafts were wrong in ways that reading alone could
+not catch:
+
+1. **F5's web value was predicted `65535`, measured `0`.** Read off the JS
+   defaults; the defaults are unreachable. See §2 F5.
+2. **F1's severity was overstated.** Real divergence (1200 vs 16384) but
+   `get_max_packet_size` is not bound to GDScript, so it reaches C++ consumers
+   only, and the harness cannot assert it from a script.
+3. **A claim that pre-open `id` agreed across platforms was wrong** — it
+   compared native against the JS *default* rather than the measured web value.
+   They differ (F7); it is post-open that agrees.
+4. **A reported "hang" in the native reference peer did not exist.** The test
+   script hit a `SCRIPT ERROR` before reaching `quit()`, so the `SceneTree`
+   looped forever. Isolating it took two runs and found clean exits throughout.
+5. **F3 was described as "can lose data if the application polls slowly".**
+   True but far too mild: a single tick's burst loses 435 of 500 packets on a
+   reliable channel, as a tail-drop with no API-level signal.
+
+## 8. Lessons learned
+
+### What worked, and is worth reusing
+
+- **In-process loopback beats a signaling server.** Two peers in one process
+  with SDP/ICE shuttled directly in GDScript needs no server and no second
+  page, yet exercises the whole path — JS bridge, DTLS, SCTP, data channels. It
+  is what made a day's progress possible instead of a week's.
+- **One fixture, both targets, diffed.** The single highest-value decision.
+  Because the same GDScript runs natively and in the browser and prints
+  `RTC|`-prefixed lines, parity becomes `diff`, not judgement. `compare.sh`
+  normalizes only what legitimately varies (object ids, class names, tick
+  counts, SDP lengths) so **any surviving line is a divergence** — no
+  interpretation required, and no divergence can be overlooked by a tired
+  reader scanning two logs side by side.
+- **Make each run self-documenting about its own configuration.** Printing
+  `OS.has_feature("threads")` and `crossOriginIsolated` turned "I believe these
+  are two different builds" into evidence. Cheap, and it pre-empts the entire
+  class of embarrassment where a matrix turns out to have tested one thing
+  twice.
+- **Let the harness own its server.** Folding a COOP/COEP server into the
+  runner removed a manual step *and* a silent failure mode, since a threaded
+  export simply does not work without cross-origin isolation.
+- **A dispatcher instead of one project per test.** `-- <name>` natively,
+  `?test=<name>` on web. Three fixtures now share one project, one export
+  pipeline and one set of presets.
+- **The reference implementation is the oracle.** Once `webrtc-native` was on
+  disk, three suspicions became confirmed facts in minutes by reading
+  `WebRTCLibDataChannel.cpp` — far faster than designing experiments for each.
+
+### Traps, each of which cost real time
+
+- **A blocking loop can never work on web.** `SceneTree` + `while` +
+  `OS.delay_msec` works natively and times out on web with no connection at
+  all, because the JS bridge is callback-driven from the browser event loop.
+  Drive fixtures from `_process()`. Same family as HANDOFF §4.11's yielding
+  startup.
+- **`--headless -s script.gd` does not generate `.godot/extension_list.cfg`.**
+  Without an `--import` pass first the GDExtension is silently *not loaded* and
+  `WebRTCPeerConnection.create()` quietly falls back to the base class with one
+  `WARN_PRINT_ONCE`. This produced a convincing false negative that looked like
+  "the extension does not work on 4.8".
+- **For a mesh, `get_connection_status()` is `CONNECTED` immediately.** It
+  reports on `create_mesh()` succeeding, not on any remote peer's channels
+  being open. Gating the first send on it raced the channels:
+  `ERROR: DataChannel not open`. Gate on `peer_connected`.
+- **`webrtc-native` aborts the editor (exit 134) on a project's first
+  filesystem scan** (F6). Harmless to results — `extension_list.cfg` is still
+  written, later runs exit 0 — but it fails any CI step that checks exit codes.
+- **godot-cpp's platform is `linux`, not `linuxbsd`,** and
+  `build_profile=build_profile.json` must be passed or the build compiles the
+  entire binding set for nothing.
+- **A script error before `quit()` looks exactly like a hang.** Worth ruling
+  out before investigating a crash in a C++ dependency.
+
+### Epistemic lessons, which are the ones that generalize
+
+- **Reading code predicts behaviour badly at a language boundary.** F5 and F7
+  were both mispredicted from the JS source, and for the same reason:
+  `get_prop` falls back only on `undefined`, but browsers report unset channel
+  properties as `null`, so documented-looking defaults (`65535`) are
+  unreachable and `null` crosses into C++ as `0`. **The fallback values in
+  `library_godot_webrtc.js` are largely dead code and must not be read as
+  documentation of behaviour.**
+- **Measure before assigning severity, in both directions.** F1 was downgraded
+  (not script-exposed), F3 and F5 were upgraded — F3 because a burst is
+  catastrophic rather than lossy, F5 because the multiplayer-layer test showed
+  it on channels *every* project creates. Three of seven findings had the wrong
+  severity after a careful read.
+- **A negative result is a result, and worth the same rigour.** "The
+  multiplayer layer adds no divergences" and "threads changes nothing" are both
+  load-bearing, and both only mean anything because the comparison was
+  mechanical and the configurations were proven distinct.
+- **State the gap when a test does not cover what it appears to.** The mesh
+  fixture polls every tick, so it cannot reproduce F2 — recording that is more
+  useful than letting a green mesh run imply F2 is confined to hand-rolled
+  channels.
+- **Do not promote an unsound comparison to a finding.** The
+  `get_buffered_amount()` difference (500000 vs 0) is probably real and would
+  matter, but it was read incidentally at an uncontrolled moment, so it is
+  logged as needing a proper test (§4.3) rather than filed as F8.
+- **Check whether the work is already done before planning it.** The whole
+  original question — "what would it take to add native WebRTC at parity?" —
+  had the answer "it is already there, and here are the seven ways it differs".
+  An hour of reading `modules/webrtc/` and the `bin/` artifacts was worth more
+  than any amount of implementation planning.
