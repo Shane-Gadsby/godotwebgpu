@@ -8081,11 +8081,15 @@ must follow it.
 
 18 observables compared on a connected channel, **15 match exactly**.
 
-### Task 18.4: seven confirmed divergences
-**Status**: `DONE` — **every confirmed divergence is fixed**: F1 and F2 (Task 18.9), F3
-(Task 18.10), F8 (Task 18.13), and F4, F5 and F7 together (Task 18.14). Only F6 remains, an upstream
-webrtc-native nuisance that affects the harness rather than the engine. All eight fixtures compare
-identical on both web variants, and 18 of 18 channel observables match where the first pass had 15.
+### Task 18.4: the confirmed divergences (F1-F10)
+**Status**: `DONE` for everything the loopback tier can reach — **every divergence it found is
+fixed**: F1 and F2 (Task 18.9), F3 (Task 18.10), F8 (Task 18.13), and F4, F5 and F7 together
+(Task 18.14). F6 remains, an upstream webrtc-native nuisance that affects the harness rather than
+the engine. **F9 and F10 came later and from a different tier** — the congestion work
+(Task 18.12), which applies real bandwidth pressure and so reaches a class of behavior no loopback
+can: F9 is documented and benign (Task 18.15), **F10 is open and high-severity** (Task 18.16).
+All nine fixtures compare identical across three export variants and two browsers, and 18 of 18
+channel observables match where the first pass had 15.
 F8 is not a web/native divergence at all — both platforms shared it — so it is the one finding here
 this tier could not have found. F1-F5 and F7 are
 upstream Godot bugs; F6 is upstream webrtc-native. All detail in `webgpu_notes/webrtc_web.md` §2.
@@ -8446,64 +8450,50 @@ proven to exist (the 200 MB run hits it), but nothing here applies real bandwidt
 **Tier status**: 7 fixtures. `mesh_close`, `grow`, `buffered`, `burst` and `sizes` compare identical;
 only `loopback` and `mesh` differ, on F5 and F7 — the two cosmetic findings left.
 
-### Task 18.12: DEFERRED — nothing in this tier applies real bandwidth pressure
-**Status**: `DEFERRED` — untested by choice. Needs an environment (shaped link or off-box peer), not
-more code. Full plan and rationale: `webgpu_notes/webrtc_web.md` §4.4.
-**Severity**: unknown, which is the point. One of the four items below could be a real finding (F8);
-the rest are most likely confirmations.
-**Lines**: no code change pending. The fixtures that would measure it already exist —
-`tests/buffered.gd`, `tests/burst.gd`, `tests/grow.gd`.
+### Task 18.12: bandwidth pressure — MEASURED, and it found F9 and F10
+**Status**: `DONE` (2026-10-13). Was `DEFERRED`. Results: `webgpu_notes/webrtc_web.md` §4.4a;
+procedure: `webgpu_tests/webrtc_congestion/README.md`.
+**Severity**: it was recorded as "unknown, which is the point" — correctly. Two of the four unknowns
+produced new findings: **F9** (low-medium, documented) and **F10** (high, open).
+**Lines**: new tier `webgpu_tests/webrtc_congestion/` — `shape.sh`, `signal_server.mjs`,
+`run_congestion.mjs`, `sweep.sh`, `export.sh`, and `fixtures/congestion_project/` with
+`tests/{cong_base,backpressure,send_ceiling,recv_growth,loss_modes}.gd`.
 
-**Why this is recorded as its own task.** Every number in Phase 18 comes from two peers in one
-process (native) or one page (web), over localhost, unthrottled, lossless, sub-millisecond RTT. That
-choice is what made the parity question answerable in a day and is what lets `compare.sh` diff two
-platforms line for line — but it leaves an entire class of behavior unmeasured, and **Task 18.11's
-conclusion must not be read as covering it.**
+**What it took, and the one thing the plan got wrong.** §4.4 said this needed "an environment, not
+more code". The environment turned out to be nearly free and the code was the work: two peers in
+*separate processes* cannot shuttle SDP in GDScript, so the tier needed the signaling server Phase 1
+had skipped. The plan's first-choice shaping — `sudo tc qdisc add dev lo root netem` — should not be
+used: it needs root and rate-limits **all** loopback traffic on the machine until removed, so an
+interrupted run leaves the host shaped. `shape.sh` runs under **`unshare -rnm`**, which maps the
+user to root inside a new user+network+mount namespace and grants `CAP_NET_ADMIN` *there only*, then
+builds two namespaces joined by a veth pair with `netem` on both ends: **no root, nothing outside the
+test touched, and exactly the path under test shaped.** The option §4.4 ranked third is the one to
+use.
 
-**The four unknowns:**
+**Two side effects worth having.** Separate processes with real signaling meant web and native
+WebRTC talked to *each other* for the first time in this project (every earlier result compared
+web-to-web against native-to-native), and a two-machine run over a real LAN is validated as a
+control that none of it is a veth artifact.
 
-1. **Native's `get_buffered_amount()` under sustained congestion.** Task 18.11 proved libdatachannel
-   *can* report a backlog (0 → 3.4 MB run to run at 10 MB; 1.06 MB at 200 MB) and found the code
-   path (`SctpTransport::send()` → `mSendQueue.push()` → `updateBufferedAmount()`,
-   `thirdparty/libdatachannel/src/impl/sctptransport.cpp:374-394`). Unknown: whether the value
-   *tracks* a real backlog usefully. It is the only flow-control signal in Godot's WebRTC API, so a
-   project throttling on it depends on precisely this untested property.
-2. **Web's send-queue ceiling.** Chrome caps a data channel's send buffer (historically 16 MiB) and
-   fails or closes the channel past it; native's `mSendQueue` has no equivalent. Only a congested
-   link reaches it. Since the F1 fix (Task 18.9) an oversized send returns `FAILED` rather than
-   vanishing, so the failure would at least be observable. **This is the item most likely to be a
-   genuine new divergence.**
-3. **The F3 fix at the receiving end under congestion.** The receive buffer now grows without a
-   ceiling (Task 18.10). On a fast loopback it peaks at the burst size and shrinks straight back.
-   Under congestion with a slow poller: how large does it get, does the 8 MiB warning fire at a
-   useful point, and does shrink-on-empty ever get to run?
-4. **Everything timing-shaped that a lossless link hides**: ICE restarts, SCTP retransmission,
-   `maxPacketLifeTime`/`maxRetransmits` actually taking effect — F5 compares their *values* but no
-   fixture distinguishes an unreliable channel from a reliable one on a lossless link — and
-   `peer_disconnected` on a link that dies rather than closes.
+**Results, in one table** (full numbers in §4.4a; `./sweep.sh` reproduces it in ~15 min):
 
-**How to run it, cheapest first** (detail in `webrtc_web.md` §4.4):
+| unknown | answer |
+|---|---|
+| 1. does native's `get_buffered_amount()` track a backlog? | **Yes.** Peak 602 KB on 2 Mbit/s, rises under load, returns to 0. Usable for flow control. |
+| 2. does web have a send-queue cap native lacks? | **Yes — F9.** Chrome refuses past 16,770,584 B; native accepted 24 MB. Graceful, visible (`FAILED`), recoverable. |
+| 3. is F3's ceiling-less receive growth sound? | **Yes.** 12 MB held, 3000/3000 intact, shrink-on-empty ran, 8 MiB warning fires usefully. (And it is not ceiling-less: 1 GiB hard refusal.) |
+| 4. do the transfer modes behave differently under loss? | **Yes — and F10.** F8's fix demonstrably works, but web's unreliable modes deliver 13-25% where native delivers ~95%. |
 
-```bash
-# netem on loopback: native only, needs root, throttles ALL localhost traffic while applied.
-sudo tc qdisc add dev lo root netem rate 1mbit delay 50ms
-../../bin/godot.linuxbsd.editor.x86_64 --headless --path fixtures/loopback_project -- buffered
-sudo tc qdisc del dev lo root
-```
+**Every fixture has a `NO_PRESSURE`-style verdict**, and the sweep includes unshaped and
+zero-loss controls. That is deliberate: without it a forgotten `shape.sh` is indistinguishable from
+a negative result, which is §4.4's own caveat ("verify with the delivery counts, not by assumption")
+made structural rather than remembered.
 
-Then two netns joined by a veth pair with `netem` on one side (shapes only the path under test).
-Covering **web** needs a genuine off-box peer, which needs the Phase 1 signaling server this tier
-deliberately skipped — budget for that, not for the fixture. Two traps: `buffered.gd`'s 1200-tick
-timeouts are sized for a fast link and will need raising, and a shaped `lo` may not touch the path
-at all for in-page web peers — verify from the delivery counts that the shaping actually applied
-rather than assuming it did.
-
-**What a finding here would change**: native not tracking a real backlog → an upstream
-libdatachannel/webrtc-native report plus a doc note that `get_buffered_amount()` is unusable for
-flow control on desktop; web hitting a send cap native lacks → a new F9, and the first finding where
-the limit is the browser's rather than Godot's; the receive buffer ballooning → revisit Task 18.10's
-"grow without a ceiling" decision, which was taken because native does the same and would deserve
-rethinking if a ceiling is what keeps a browser tab alive.
+**The four unknowns as originally framed**, the cheapest-first shaping options, and what each
+possible outcome would have changed are kept verbatim in `webgpu_notes/webrtc_web.md` §4.4, with the
+measured answers in §4.4a directly beneath them. They are left there rather than summarized here
+because the framing is what made the measurement straightforward a month later, and because one of
+its predictions (that this needed "an environment, not more code") was wrong in an instructive way.
 
 ### Task 18.13: F8 — the `maxPacketLifetime` typo, and the class of bug this tier cannot find
 **Status**: `DONE` (2026-10-12)
@@ -8615,3 +8605,67 @@ values. `loopback`'s pre-open line is now byte-identical across platforms
 returns `65535` rather than `0` before a channel opens. GDScript comparing against `0` needs `-1` —
 which is the point, since desktop always returned `-1` and any such code was already
 platform-dependent.
+
+### Task 18.15: F9 — web's data-channel send queue caps at ~16 MiB
+**Status**: `DONE` (2026-10-13) — confirmed, characterized, documented. **No code change.**
+**Severity**: low-medium.
+**Lines**: none. Measured by `webgpu_tests/webrtc_congestion/fixtures/congestion_project/tests/send_ceiling.gd`.
+
+Chrome refuses a send once the channel's buffered amount reaches **16,770,584 bytes** (~16 MiB);
+libdatachannel accepted 24,000,000 bytes with no cap. This is the divergence §4.4 named as most
+likely, and it is the first one where **web's limit belongs to the browser rather than to Godot**.
+
+It is benign on every axis that was tested: the channel stays `STATE_OPEN`, `put_packet()` returns
+`FAILED`, and a retry once the queue drains below 2 MB is accepted with all 1133 previously accepted
+packets intact. **The F1 fix is what makes it observable at all** — before it, the JS `send()`
+exception was swallowed and this would have been silent loss with no API signal. An application that
+treats `FAILED` as "retry later" behaves identically on both platforms.
+
+Note the native figure is "no cap **below the probe limit**", not "unbounded" — hence the verdict
+name `NO_CEILING_UP_TO_PROBE`.
+
+### Task 18.16: F10 — on web, the unreliable transfer modes lose most of their packets
+**Status**: `OPEN` — confirmed and quantified; needs an upstream question, not a fork patch.
+**Severity**: **high** for any project using the unreliable transfer modes on web.
+**Lines**: no change made. Behavior originates in `modules/webrtc/webrtc_multiplayer_peer.cpp:312-320`
+(`unreliable_lifetime`, default `1`, bound in `add_peer`). Measured by
+`webgpu_tests/webrtc_congestion/fixtures/congestion_project/tests/loss_modes.gd`.
+
+At 5% link loss and 25 ms one-way delay, 200 paced packets per channel:
+
+| channel | config | native | web (Chrome) |
+|---|---|---|---|
+| `reliable` | `{ordered:true}` | 100% | 100% |
+| `rtx0` | `+ maxRetransmits:0` | 94-97% | 91-95% |
+| `life50` | `+ maxPacketLifeTime:50` | 93-97% | 94-97% |
+| **`life1`** | `+ maxPacketLifeTime:1`, ordered | **90.5-95.5%** | **28.5-42.5%** |
+| **`life1u`** | `+ maxPacketLifeTime:1`, unordered | **92.5-99%** | **13-25.5%** |
+
+Ranges span 4 web and 3 native runs — resampled on purpose, because Task 18.11's lesson was that one
+sample of a nondeterministic quantity is how this phase got a finding wrong before.
+
+**The `life1*` rows are not hypothetical**: they are byte-for-byte `CH_ORDERED` and `CH_UNRELIABLE`
+as `WebRTCMultiplayerPeer::add_peer` builds them, with its default 1 ms lifetime. So
+`TRANSFER_MODE_UNRELIABLE` delivers ~13-25% on web against ~95% on desktop.
+
+Three measured facts keep it in proportion:
+
+1. **A 1 ms lifetime causes no loss by itself.** Same link, 0% loss: every channel delivers 100% on
+   both platforms. The lifetime governs *retransmission*, not first transmission.
+2. **It is therefore invisible on a loopback or a clean LAN** — every environment this project
+   tested in before, including the two-machine LAN control. A developer cannot reproduce it locally;
+   a player on wifi or mobile will hit it.
+3. **`life50` is the control and it agrees across platforms**, so the divergence is in the lifetime
+   *value*, not the mechanism — and the mitigation is proven by the same run: pass a larger
+   `unreliable_lifetime` to `add_peer()`.
+
+**It is a consequence of fixing F8, not a regression from it.** Before that one-character fix the
+lifetime was never applied, so both unreliable modes were silently *fully reliable* everywhere.
+Fixing F8 was still right; this measures what honest unreliability costs on each stack. F8's own
+note that its effect "is not verifiable on a lossless loopback" was hiding a far bigger number than
+anyone expected.
+
+**Why no code change.** The behavior follows the configuration, and `unreliable_lifetime = 1` is an
+upstream default shared with every other platform — changing it unilaterally in a rendering fork is
+the wrong place. Next step is an upstream question with these numbers attached. Unlike F9 there is
+**no API signal**: `put_packet()` returns `OK` for every packet that is then never delivered.

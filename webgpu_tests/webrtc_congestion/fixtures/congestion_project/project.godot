@@ -1,0 +1,21 @@
+config_version=5
+
+[application]
+
+config/name="rtc_congestion"
+run/main_scene="res://main.tscn"
+; Godot's GameMode integration talks to the D-Bus session bus, and D-Bus uses
+; ABSTRACT unix sockets, which the kernel scopes per NETWORK namespace. Inside
+; shape.sh's namespace the bus is unreachable, Godot gets a null connection and
+; aborts in dbus_connection_unref(NULL) (exit 134) a few frames after startup --
+; which looks exactly like "the signaling socket never opened". Nothing here
+; wants GameMode, so turning it off avoids the code path.
+; NB these comments must start with ';'. project.godot is a ConfigFile, and a
+; '#' comment silently makes the parser skip the keys after it -- which is how
+; this setting read back as `true` for a while with no error anywhere.
+run/use_game_mode=false
+config/features=PackedStringArray("4.8")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

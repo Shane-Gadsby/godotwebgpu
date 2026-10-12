@@ -60,6 +60,9 @@ cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 
+# WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
+cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
+
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite
 ./webgpu_tests/local_ci.sh --quick          # shader corpus + scene smoketest only, no rebuild

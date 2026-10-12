@@ -21,6 +21,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
+| [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
 
 ## How It Works
 
@@ -265,7 +266,24 @@ extension, a separate clone a fresh checkout does not have, which is why CI
 runs the web half. See [`webrtc_parity/README.md`](webrtc_parity/README.md),
 and `webgpu_notes/webrtc_web.md` for the eight findings it produced.
 
-### 7. Screenshot Comparison (standalone, needs Playwright)
+### 7. WebRTC Congestion (needs the editor, a web template, and unprivileged user namespaces)
+
+```bash
+cd webgpu_tests/webrtc_congestion
+./shape.sh --selftest --rate 2mbit --delay 25ms   # prove the shaping works first
+./export.sh                                        # needed for the browser-peer rows
+./sweep.sh                                         # the whole matrix, tabulated
+```
+
+Shapes the link with `netem` inside an `unshare -rnm` namespace, so it needs
+**no root** and touches nothing outside the test — do not use the
+`sudo tc qdisc ... dev lo` approach, which rate-limits all loopback traffic on
+the machine until removed. **Local only, not in CI**: it needs unprivileged
+user namespaces and ~15 minutes, and its verdicts are measurements rather than
+pass/fail gates. See [`webrtc_congestion/README.md`](webrtc_congestion/README.md)
+and `webgpu_notes/webrtc_web.md` §4.4a.
+
+### 8. Screenshot Comparison (standalone, needs Playwright)
 
 ```bash
 cd webgpu_tests/screenshot_comparison

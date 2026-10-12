@@ -1,0 +1,9 @@
+# Web exports, rebuilt by ./export.sh.
+exports/
+node_modules/
+fixtures/congestion_project/.godot/
+# The webrtc-native reference extension's built libraries. The .gdextension
+# manifest IS tracked; the .so files come from the separate clone the parity
+# tier documents (webgpu_notes/webrtc_web.md §3) and are covered by the root
+# .gitignore's *.so anyway.
+fixtures/congestion_project/addons/webrtc_native/lib/

@@ -509,6 +509,51 @@ up accordingly.
 
 ---
 
+### F9 — Web's data-channel send queue caps at ~16 MiB; native's does not — CONFIRMED (new, 2026-10-13)
+
+**Severity: low-medium.** Chrome refuses a send once a channel's buffered
+amount reaches **16,770,584 bytes**; libdatachannel accepted 24 MB with no cap.
+Predicted in §4.4 as the likeliest remaining divergence, and it was there.
+
+It is graceful on every axis that matters: the channel stays `STATE_OPEN`,
+`put_packet()` returns `FAILED` (only because the F1 fix stopped the JS
+exception being swallowed — before F1 this was silent loss with no API signal),
+and a retry after the queue drains below 2 MB is accepted, with everything
+previously accepted arriving intact. An application that treats `FAILED` as
+"retry later" is correct on both platforms.
+
+Measured by `webgpu_tests/webrtc_congestion/` `send_ceiling.gd`; numbers and
+method in §4.4a.2. **Documentation, not a code change.**
+
+### F10 — On web, the unreliable transfer modes lose most of their packets — CONFIRMED (new, 2026-10-13)
+
+**Severity: high for any project using `TRANSFER_MODE_UNRELIABLE` or
+`TRANSFER_MODE_UNRELIABLE_ORDERED` on web.** At 5% link loss and 25 ms one-way
+delay, the exact channel configuration `WebRTCMultiplayerPeer::add_peer` builds
+(`maxPacketLifeTime` = its default of **1** ms) delivers **13–25%** of its
+packets on web against **~95%** on native. A channel with
+`maxPacketLifeTime: 50` agrees across platforms at ~95%, so the divergence is in
+the lifetime *value*, not the mechanism.
+
+Three things keep this in proportion, all measured rather than argued:
+
+- A 1 ms lifetime causes **no** loss by itself — on the same link with 0% loss
+  both platforms deliver 100%. The lifetime governs retransmission only.
+- It is therefore **invisible on a loopback or a clean LAN**, which is every
+  environment this project tested in before. A developer cannot reproduce it
+  locally; a player on wifi or mobile will hit it.
+- It is a **consequence of fixing F8, not a regression from it**: before that
+  fix the lifetime was never applied, so both modes were silently fully
+  reliable everywhere.
+
+Unlike F9 there is **no API signal** — `put_packet()` returns `OK` for every
+packet that is then never delivered. Measured by
+`webgpu_tests/webrtc_congestion/` `loss_modes.gd`; numbers in §4.4a.4.
+**No code change made**: the behavior follows the configuration, and
+`unreliable_lifetime = 1` is an upstream default, so the upstream conversation
+comes first. Fork-local mitigation is to pass a larger `unreliable_lifetime`
+to `add_peer()` on web.
+
 ## 3. Build verification (2026-10-12)
 
 **Result: webrtc-native builds cleanly and loads successfully in this fork's
@@ -916,12 +961,14 @@ The code path that reports a backlog is proven to exist and the 200 MB run
 exercises it, but no test here applies real bandwidth pressure. That gap is
 deliberate and written up as §4.4 rather than left implicit.
 
-### §4.4 DEFERRED — nothing in this tier applies real bandwidth pressure
+### §4.4 Bandwidth pressure — was deferred, now MEASURED (2026-10-13)
 
-**Status: not tested, by choice. Needs an environment this tier does not have,
-not more code.** Recorded here so it is picked up deliberately rather than
-rediscovered, and so no later reader mistakes §4.3's conclusion for a stronger
-claim than it is.
+**Status: DONE. All four unknowns below are answered, and two of them produced
+new findings (F9 and F10).** Results are in §4.4a; the tier is
+`webgpu_tests/webrtc_congestion/`. The original deferral text is kept intact
+below because the four questions it framed are what got measured, and because
+the plan it sketched turned out to be wrong in one important way — see §4.4a's
+note on shaping without root.
 
 Every result in this document comes from an **in-process loopback**: two peers
 in one process (native) or one page (web), over localhost, with no bandwidth
@@ -1000,6 +1047,152 @@ cost:
   without a ceiling" decision, which was taken on the strength of native doing
   the same thing and would deserve rethinking if the ceiling is what keeps a
   browser tab alive.
+
+*(Two of these three predictions landed: the backlog does track, and the send
+cap is real and is F9. The third was fine. The finding nobody predicted is F10.
+See §4.4a.)*
+
+### §4.4a Results (2026-10-13) — F9 and F10
+
+Tier: `webgpu_tests/webrtc_congestion/` (procedure in its README). Four
+fixtures, run native-vs-native and web-vs-native across a `netem`-shaped link,
+each with an unshaped or lossless control. `./sweep.sh` reproduces the whole
+table in ~15 minutes.
+
+**The shaping plan in §4.4 was wrong in a way worth recording.** It proposed
+`sudo tc qdisc add dev lo root netem ...`, which needs root and rate-limits all
+loopback traffic on the machine until it is removed — so an interrupted run
+leaves the host shaped. `shape.sh` instead runs under **`unshare -rnm`**, which
+maps the user to root inside a new user + network + mount namespace and grants
+`CAP_NET_ADMIN` *there only*. It builds two namespaces joined by a veth pair
+with `netem` on both ends, needs **no root at all**, touches nothing outside the
+test, and shapes exactly the path under test. The "middling" netns option §4.4
+listed third is in fact the cheapest and the safest; the `lo` option should not
+be used.
+
+Because the peers are now two processes with real signaling, this is also the
+first time in the project that **web and native WebRTC have talked to each
+other** — every earlier result compared web-to-web against native-to-native.
+A two-machine run (Chrome here, libdatachannel on another box, real LAN) is
+validated too, as a control that none of this is a veth artifact.
+
+#### 1. Native's `get_buffered_amount()` does track a real backlog
+
+`backpressure.gd`, 3 MB offered at 500 KB/s over a 2 Mbit/s link with 25 ms
+one-way delay:
+
+| | peak buffered | goodput | delivered | verdict |
+|---|---|---|---|---|
+| native | 602,000 B | 220 kB/s | 3000/3000, 0 gaps | `TRACKED` |
+| web | 929,672 B | 153 kB/s | 3000/3000, 0 gaps | `TRACKED` |
+| **unshaped control** | **0** | 497 kB/s | 3000/3000 | `NO_PRESSURE` |
+
+The counter rises under offered load and returns to 0 as the link drains, on
+both platforms. **`get_buffered_amount()` is usable for flow control**, which
+§4.3 could not establish — there the link never was the bottleneck, which is
+exactly what the `NO_PRESSURE` control row reproduces on demand.
+
+#### 2. F9 — web's send queue caps at ~16 MiB; native's does not
+
+`send_ceiling.gd`, pushing with no pacing over an 8 Mbit/s link, probing to
+24 MB:
+
+| | outcome | peak queue |
+|---|---|---|
+| web (Chrome) | **refused at 16,770,584 B** after 17,104,000 B accepted | 16,439,556 B |
+| native | no cap reached at 24,000,000 B accepted | 22,784,000 B |
+
+So the cap §4.4 predicted is real and is almost exactly the documented 16 MiB.
+Three things make it benign rather than dangerous, and all three are measured:
+
+- **It is graceful.** The channel stayed `STATE_OPEN` (state=1); it does not
+  close or reset.
+- **It is visible.** `put_packet()` returns `FAILED` — only because of the F1
+  fix, which stopped the JS `send()` exception being swallowed. Before F1 this
+  would have been a silent data loss with no API signal at all.
+- **It is recoverable.** After backing off until the queue fell below 2 MB, a
+  retry was accepted, and all 1133 accepted packets arrived intact with 0 gaps.
+
+**Severity: low-medium, documentation rather than code.** An application that
+treats `FAILED` as "retry later" behaves correctly on both platforms; one that
+treats it as fatal will differ. Native's figure is "no cap *below the probe
+limit*", not "unbounded".
+
+#### 3. F3's receive-buffer growth is sound under real pressure
+
+`recv_growth.gd`, 12 MB pushed over an 8 Mbit/s link to a peer that polls the
+channel but drains nothing for 25 s:
+
+| | peak held | after draining | verdict |
+|---|---|---|---|
+| web | 3001 packets / 12,004,000 B | 3000 drained, 0 gaps, 0 left | `GREW_INTACT` |
+| native | 3001 packets / 12,004,000 B | 3000 drained, 0 gaps, 0 left | `GREW_INTACT` |
+
+The 8 MiB warning fires at exactly **8,388,608 bytes with 1047 packets queued**
+and names both mitigations (poll more often, or raise
+`network/limits/webrtc/max_channel_in_buffer_kb`) — so it fires at a useful
+point, well before anything is at risk. Nothing was lost or reordered across a
+growing, wrapping ring buffer, and shrink-on-empty ran: the post-drain count is
+0 and agrees with the drain loop. **F3's decision stands.**
+
+One correction to §4.4's own wording: the receive buffer does **not** grow
+"without a ceiling". `webrtc_data_channel_js.cpp` refuses past
+`IN_BUFFER_MAX_SHIFT` = **1 GiB** with an explicit "Dropping data" error. The
+ceiling is simply far above anything these runs approach.
+
+#### 4. F10 — on web, the unreliable transfer modes lose most of their packets
+
+`loss_modes.gd` sends 200 paced packets down five differently-configured
+channels at once, over a 4 Mbit/s link with 25 ms delay and **5% loss**. The
+stream is paced at 80 KB/s so the loss comes from `netem`, not from a queue the
+fixture overfilled, and the reliable channel is the control: if it loses
+anything the run is discarded.
+
+| channel | config | native | web (Chrome) |
+|---|---|---|---|
+| `reliable` | `{ordered:true}` | 100% | 100% |
+| `rtx0` | `+ maxRetransmits:0` | 94–97% | 91–95% |
+| `life50` | `+ maxPacketLifeTime:50` | 93–97% | 94–97% |
+| **`life1`** | `+ maxPacketLifeTime:1`, ordered | **90.5–95.5%** | **28.5–42.5%** |
+| **`life1u`** | `+ maxPacketLifeTime:1`, unordered | **92.5–99%** | **13–25.5%** |
+
+Ranges are across 4 web and 3 native runs — sampled repeatedly on purpose,
+since §4.3's lesson was that one sample of a nondeterministic quantity is how
+this document got a finding wrong before.
+
+**The two `life1*` rows are not hypothetical.** They are byte-for-byte what
+`WebRTCMultiplayerPeer::add_peer` builds for `CH_ORDERED` and `CH_UNRELIABLE`
+(`webrtc_multiplayer_peer.cpp:312-320`), whose `unreliable_lifetime` parameter
+**defaults to 1** millisecond. So a project using `TRANSFER_MODE_UNRELIABLE`
+over a lossy link gets ~13–25% delivery on web against ~95% on desktop.
+
+What makes this readable:
+
+- **A 1 ms lifetime does not cause loss by itself.** On the same link with
+  **0%** loss, every channel delivers 100% on both platforms
+  (`MODES_INDISTINGUISHABLE`) — the lifetime governs *retransmission*, not
+  first transmission. It bites only once the link drops something, which is why
+  no loopback and no clean LAN can see it. **A developer testing on either will
+  never reproduce this; a player on wifi or mobile will.**
+- **`life50` is the control and it agrees across platforms.** The divergence
+  belongs to the lifetime *value*, not to the mechanism — so the mitigation is
+  already proven by the same run: pass a larger `unreliable_lifetime` to
+  `add_peer()`.
+- **It is a consequence of fixing F8, not a regression from it.** Before that
+  one-character fix the lifetime was never applied at all, so both unreliable
+  modes were silently *fully reliable* on every platform. The fix made them
+  honest; this measures what honest costs on each stack. Fixing F8 was still
+  right — but F8's own note that its effect "is not verifiable on a lossless
+  loopback" turned out to be hiding a much bigger number than anyone expected.
+
+**Severity: high for any project that uses the unreliable modes on web.**
+Unlike F9 there is no API signal: the packets are simply not delivered, and
+`put_packet()` returns `OK` for every one of them. Next step is an upstream
+question about whether `unreliable_lifetime = 1` is a sensible default at all,
+with these numbers attached; the fork-local mitigation is to document it and
+recommend a larger value on web. **No code change has been made for F10** — the
+behavior is arguably correct per the configuration, and changing a default that
+upstream shares deserves the upstream conversation first.
 
 ---
 
@@ -1167,11 +1360,13 @@ browser matrix — and the tier became a CI stage.
 | Safari | **UNRUN** — driver written, macOS-only, never executed; §7a |
 | CI integration | **DONE** (2026-10-13) — `run_tests.mjs`, a `local_ci.sh` stage; §7a |
 | `get_buffered_amount()` (§4.3) | **RESOLVED — not a divergence**; `tests/buffered.gd`, `compare.sh buffered` identical |
-| Behavior under real congestion (§4.4) | **DEFERRED — untested by choice**; needs `netem` or an off-box peer, not more code |
+| Behavior under real congestion (§4.4) | **DONE** (2026-10-13) — `webgpu_tests/webrtc_congestion/`, all four unknowns measured; produced F9 and F10; §4.4a |
+| F9 (web's ~16 MiB send-queue cap) | **CONFIRMED, documented** — graceful and recoverable; no code change |
+| F10 (web's unreliable modes lose 75-87% under loss) | **CONFIRMED, OPEN** — needs an upstream question about `unreliable_lifetime = 1`; no code change yet |
 
-Estimate for the remainder: **nothing, except two things held deliberately** —
-the congestion work (§4.4), which needs an environment rather than more code,
-and a Safari run, which needs a Mac. Every confirmed divergence is fixed (F1-F5,
+Estimate for the remainder: **nothing, except a Safari run (needs a Mac) and
+the upstream conversation about F10's default.** The congestion work (§4.4) is
+done and found two new divergences, F9 and F10. Every confirmed divergence is fixed (F1-F5,
 F7, F8), the one unfiled suspicion (§4.3) is settled as a non-divergence, and
 **all nine fixtures compare identical to native across three export variants and
 two browsers — 9 x 3 x 2 = 54 clean diffs.**

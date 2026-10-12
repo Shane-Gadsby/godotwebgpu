@@ -953,7 +953,8 @@ on zero coverage.** Two harness bugs fell out of making it runnable from a clean
 creating its output directories. A tier that cannot run on a fresh checkout is not a CI stage, and
 neither bug was visible while the state it depended on happened to exist.
 
-What remains is the deferred congestion work alone — the one place a new finding is still likely.
+The congestion work that was deferred is **done too** (see below) and it found two more
+divergences, F9 and F10. What remains is **F10's upstream question** and a Safari run.
 
 The `WebRTCMultiplayerPeer` layer is now tested too and was **at parity, inheriting only F5**:
 `webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
@@ -1004,20 +1005,57 @@ finding up would have), and `get_buffered_amount()` tells a project nothing abou
 holds — the two ends' counters have no happens-before relation, and web's receiver can see ~61 KB
 before the sender's counter drops.
 
-**The one thing to know before trusting any of the above for flow control: this tier never applies
-bandwidth pressure.** Every WebRTC number in Phase 18 comes from an in-process loopback — two peers
-in one process or one page, over localhost, unthrottled, lossless, sub-millisecond RTT. It is why
-`compare.sh` can diff two platforms line for line, and it leaves one class of behavior unmeasured:
-native's `get_buffered_amount()` under sustained congestion (it *can* report a backlog; whether it
-*tracks* one usefully is untested, and it is the only flow-control signal the API has), **web's
-send-queue ceiling** (Chrome caps a channel's send buffer, historically 16 MiB, where native's
-`mSendQueue` does not — the likeliest place a new divergence is still hiding), what F3's
-ceiling-less receive buffer actually costs when a link is slow and a poller slower, and anything
-timing-shaped — retransmission, `maxPacketLifeTime`/`maxRetransmits` *behaving* rather than merely
-reporting, a link that dies instead of closing. **Deferred deliberately, not overlooked**: no
-fixture changes are needed, only a shaped link (`tc qdisc ... netem` on `lo`, native only, needs
-root) or a real off-box peer, which would need the signaling server this tier skipped. Plan, traps
-and what each outcome would change: `webrtc_web.md` §4.4 and TASKS.md Task 18.12 (`DEFERRED`).
+**Bandwidth pressure is no longer untested, and it found the two most interesting things in the
+phase.** Every result above comes from an unthrottled in-process loopback; a second tier,
+`webgpu_tests/webrtc_congestion/`, now runs two peers as **separate processes** either side of a
+`netem`-shaped link, with real WebSocket signaling. Four fixtures, each with an unshaped or
+zero-loss control, and `./sweep.sh` reproduces the whole table in ~15 minutes. Full numbers:
+`webrtc_web.md` §4.4a; procedure: the tier's README; status: TASKS.md Tasks 18.12, 18.15, 18.16.
+
+- **F10 is the serious one, and it is open.** At 5% link loss and 25 ms delay, the channel
+  configuration `WebRTCMultiplayerPeer::add_peer` actually builds — `maxPacketLifeTime` = its
+  default of **1** ms — delivers **13-25% on web against ~95% on native**. So
+  `TRANSFER_MODE_UNRELIABLE` loses most of its packets on web and there is **no API signal**:
+  `put_packet()` returns `OK` for every one. Three measured facts keep it readable: a 1 ms lifetime
+  causes *no* loss by itself (same link at 0% loss, both platforms deliver 100% — the lifetime
+  governs retransmission, not first transmission), so it is **invisible on a loopback or a clean
+  LAN**, which is every environment this project had tested in; and a `maxPacketLifeTime: 50`
+  control channel agrees across platforms, so the divergence is in the *value* and the mitigation is
+  already proven — pass a larger `unreliable_lifetime`. **It is a consequence of fixing F8, not a
+  regression from it**: before that fix the lifetime was never applied, so both unreliable modes
+  were silently fully reliable everywhere. No code change was made — the default is upstream's and
+  shared with every platform, so the upstream conversation comes first.
+- **F9 is real and benign.** Chrome refuses a send past **16,770,584 bytes** (~16 MiB) where native
+  accepted 24 MB — exactly the cap §4.4 predicted as the likeliest remaining divergence, and the
+  first finding where web's limit is the *browser's* rather than Godot's. The channel stays open,
+  `put_packet()` returns `FAILED`, and a retry after the queue drains is accepted with everything
+  previously accepted intact. **The F1 fix is what makes it observable** — before it the JS `send()`
+  exception was swallowed, so this was silent loss with no signal.
+- **The two questions that were only suspicions both came back clean.** Native's
+  `get_buffered_amount()` **does** track a real backlog (peak 602 KB on a 2 Mbit/s link, rises under
+  load, returns to 0), so it is usable for flow control — which §4.3 could not establish because
+  there the link was never the bottleneck. And F3's receive-buffer growth is sound under real
+  pressure: 12 MB held with nothing drained, 3000/3000 intact, no reordering across a wrapping
+  resize, shrink-on-empty ran, and the 8 MiB warning fires at exactly 8,388,608 bytes naming both
+  mitigations. (Correction: that buffer is **not** ceiling-less as §4.4 said — there is a 1 GiB hard
+  refusal, `IN_BUFFER_MAX_SHIFT`, far above anything reached.)
+
+**Two things from building it are worth more than the findings.** First, **shaping needs no root**:
+§4.4 proposed `sudo tc qdisc add dev lo root netem`, which rate-limits all loopback traffic on the
+machine until removed, so an interrupted run leaves the host shaped. `shape.sh` instead runs under
+`unshare -rnm`, which maps the user to root inside a new user+network+mount namespace and grants
+`CAP_NET_ADMIN` *there only*, then builds two namespaces joined by a veth pair with `netem` on both
+ends — nothing outside the test is touched and the shaped path is exactly the one under test. Use it
+in preference to anything involving `lo`. Second, **every fixture has a `NO_PRESSURE` verdict and
+the sweep ships unshaped controls**, because without them a forgotten `shape.sh` is
+indistinguishable from a negative result.
+
+Because the peers are separate processes with real signaling, this is also the first time in the
+project that **web and native WebRTC have talked to each other** — every earlier result compared
+web-to-web against native-to-native. A two-machine run (Chrome on one box, libdatachannel on
+another, real LAN) is validated as a control that none of it is a veth artifact; a clean LAN applies
+no pressure, which is why it returns `MODES_INDISTINGUISHABLE` and is itself the evidence that F10
+hides on a LAN.
 
 `webgpu_notes/webrtc_web.md` §7 is the progress log (status table, §7a on closing the coverage gaps,
 and the seven corrections above) and §8 the lessons learned — the methodology worth reusing
@@ -1033,7 +1071,14 @@ Everything on that list is now done except a Safari run, which needs a Mac, and 
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
-0. **Decide whether threading is actually worth having, now that it is possible** (Task 14 subtask
+0. **Take F10 upstream** (TASKS.md Task 18.16, `webrtc_web.md` §4.4a.4). It is the only open
+   high-severity finding in Phase 18 and the fix is not ours to make: `unreliable_lifetime`
+   defaults to `1` ms in `WebRTCMultiplayerPeer::add_peer`, which costs web 75-87% of its packets
+   on a lossy link and desktop ~5%. The numbers, the controls that isolate it to the lifetime
+   *value*, and the proven mitigation (a larger lifetime) are all in place — what is needed is the
+   upstream question about whether that default is sensible, not a fork patch. Cheap, and it is
+   the one thing here that affects shipping projects.
+0.1. **Decide whether threading is actually worth having, now that it is possible** (Task 14 subtask
    1.5.8.5, untouched). §4.12 made `threads=yes dlink_enabled=yes` *boot*; that is not the same as
    it being *useful*, and the honest next step is a real-project run on real hardware. Two things
    to settle, in this order:
@@ -1055,11 +1100,12 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    findings are fixed or accounted for, and the tier stands at **nine fixtures x three export
    variants x two browsers = 54 identical native-vs-web diffs**, wired into `local_ci.sh` as
    stage 4. Two things are left, both deliberate rather than overlooked:
-   - **Nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md` §4.4, TASKS.md
-     Task 18.12) — the gap worth coming back to on purpose. It needs `netem` or an off-box peer
-     rather than more code, and **web's send-queue ceiling is the likeliest remaining divergence**
-     anywhere in the phase. F8 sharpened the reason: two transfer modes now really are unreliable,
-     and a lossless loopback cannot tell an unreliable channel from a reliable one.
+   - ~~**Nothing is tested under real bandwidth pressure**~~ — **done** (2026-10-13,
+     `webgpu_tests/webrtc_congestion/`, TASKS.md Task 18.12, `webrtc_web.md` §4.4a). It found F9
+     (web's ~16 MiB send cap, benign and documented) and **F10, which is open and the
+     highest-severity finding in the phase**: on web the unreliable transfer modes deliver 13-25%
+     where native delivers ~95%, with no API signal. The send-queue ceiling really was the
+     likeliest divergence, as predicted — but F10 is the one nobody saw coming.
    - **Safari has never been run.** The driver exists (`RTC_BROWSER=safari`, AppleScript, as
      `scene_smoketest` does it) and `local_ci.sh` invokes it on `Darwin`, but no run has happened:
      this work was done on Linux, and Playwright's `webkit` is not Safari and has no WebGPU. One
