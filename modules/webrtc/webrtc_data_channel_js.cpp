@@ -84,9 +84,11 @@ void WebRTCDataChannelJS::_on_message(void *p_obj, const uint8_t *p_data, int p_
 }
 
 void WebRTCDataChannelJS::close() {
-	in_buffer.resize(0);
-	queue_count = 0;
-	_was_string = false;
+	// Deliberately keeps in_buffer and queue_count: packets that already
+	// arrived stay drainable after the channel closes, which is what the
+	// native implementation does (it only closes the channel, never touches
+	// its queue). Clearing them here lost the last packets before every
+	// disconnect. The buffer is released with the object.
 	godot_js_rtc_datachannel_close(_js_id);
 }
 
@@ -103,8 +105,8 @@ int WebRTCDataChannelJS::get_available_packet_count() const {
 }
 
 Error WebRTCDataChannelJS::get_packet(const uint8_t **r_buffer, int &r_buffer_size) {
-	ERR_FAIL_COND_V(get_ready_state() != STATE_OPEN, ERR_UNCONFIGURED);
-
+	// No state check: a closed channel can still have undrained packets, and
+	// the native implementation only fails on an empty queue.
 	if (queue_count == 0) {
 		return ERR_UNAVAILABLE;
 	}
@@ -136,12 +138,19 @@ Error WebRTCDataChannelJS::put_packet(const uint8_t *p_buffer, int p_buffer_size
 	ERR_FAIL_COND_V(get_ready_state() != STATE_OPEN, ERR_UNCONFIGURED);
 
 	int is_bin = _write_mode == WebRTCDataChannel::WRITE_MODE_BINARY ? 1 : 0;
-	godot_js_rtc_datachannel_send(_js_id, p_buffer, p_buffer_size, is_bin);
+	// RTCDataChannel.send() throws when the payload exceeds what the peer
+	// negotiated; the JS side catches it and reports it here, so an oversized
+	// send fails loudly instead of silently vanishing (the native
+	// implementation likewise returns FAILED on its own send exception).
+	ERR_FAIL_COND_V(godot_js_rtc_datachannel_send(_js_id, p_buffer, p_buffer_size, is_bin) != 0, FAILED);
 	return OK;
 }
 
 int WebRTCDataChannelJS::get_max_packet_size() const {
-	return 1200;
+	// See RFC-8831 section 6.6: https://datatracker.ietf.org/doc/rfc8831/
+	// Matches the native implementation. Browsers negotiate at least this much
+	// (Chrome and Firefox accept far more), so 1200 understated it.
+	return 16384;
 }
 
 void WebRTCDataChannelJS::set_write_mode(WriteMode p_mode) {

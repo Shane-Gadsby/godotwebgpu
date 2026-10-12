@@ -108,9 +108,11 @@ func _step() -> void:
 			if ch2.get_ready_state() == WebRTCDataChannel.STATE_CLOSED:
 				out("f2 ch2_closed_after=%d ticks avail_after_close=%d" % [
 					ticks - f2_close_tick, ch2.get_available_packet_count()])
-				var err_before = ch2.get_available_packet_count()
 				var got = ch2.get_packet()
-				out("f2 drain_after_close len=%d content='%s' (expect native=drains, web=fails)" % [
+				# Both platforms must drain here. Web lost this until the F2 fix
+				# (the STATE_OPEN guard in get_packet() plus close() wiping the
+				# receive buffer); see webgpu_notes/webrtc_web.md §2 F2.
+				out("f2 drain_after_close len=%d content='%s'" % [
 					got.size(), got.get_string_from_utf8()])
 				out("f2 verdict=%s" % ("DRAINED" if got.size() > 0 else "LOST"))
 				phase = "done"

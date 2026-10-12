@@ -124,11 +124,19 @@ const GodotRTCDataChannel = {
 			bytes_array[i] = GodotRuntime.getHeapValue(p_buffer + i, 'i8');
 		}
 
-		if (p_raw) {
-			ref.send(bytes_array.buffer);
-		} else {
-			const string = new TextDecoder('utf-8').decode(bytes_array);
-			ref.send(string);
+		// send() throws if the channel is not open or the payload is larger
+		// than the peer negotiated; report it instead of letting the exception
+		// escape into the engine's call stack where it cannot be handled.
+		try {
+			if (p_raw) {
+				ref.send(bytes_array.buffer);
+			} else {
+				const string = new TextDecoder('utf-8').decode(bytes_array);
+				ref.send(string);
+			}
+		} catch (e) {
+			GodotRuntime.error(`Failed to send ${p_length} bytes on data channel: ${e}`);
+			return 1;
 		}
 		return 0;
 	},

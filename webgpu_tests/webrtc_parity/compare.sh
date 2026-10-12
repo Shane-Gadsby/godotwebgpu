@@ -16,13 +16,16 @@ EDITOR="${EDITOR_BIN:-$ROOT/bin/godot.linuxbsd.editor.x86_64}"
 PROJ="$ROOT/webgpu_tests/webrtc_parity/fixtures/loopback_project"
 OUT="$(mktemp -d)"
 
-# Object ids, impl class names, tick counts and SDP lengths all legitimately
-# differ run to run or platform to platform; nothing else may.
+# Object ids, impl class names, tick counts, SDP lengths and the env banner
+# (which reports the target, not a divergence) all legitimately differ run to
+# run or platform to platform; nothing else may.
 norm() {
 	sed -E -e 's/#-?[0-9]+//g' \
 	       -e 's/<([A-Za-z]+)>/\1/g' \
 	       -e 's/WebRTC(Lib|)(PeerConnection|DataChannel)(JS|)/IMPL/g' \
+	       -e 's/^RTC\| env .*/RTC| env (target-specific)/' \
 	       -e 's/after [0-9]+ ticks/after N ticks/' \
+	       -e 's/after=[0-9]+ ticks/after=N ticks/' \
 	       -e 's/len=[0-9]+/len=N/' "$1"
 }
 

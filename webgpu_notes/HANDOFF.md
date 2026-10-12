@@ -678,7 +678,7 @@ These are fixed in TASKS.md but listed here because reasoning from the old versi
    three is worth carrying: **the JS fallback values in `library_godot_webrtc.js` are unreachable
    dead code**, because `get_prop` falls back only on `undefined` while browsers report unset
    channel properties as `null`, which crosses into C++ as `0`. Reading that file predicts
-   behaviour badly; measure.
+   behavior badly; measure.
 4. **Task 7.10's reason is out of date** (the `WGPUTextureFormat_R16Snorm` enums now exist in
    emdawnwebgpu 6.0.9) but **its conclusion still stands** — a native `R16_SNORM` attempt made things
    worse, because Dawn reports its sample type as `UnfilterableFloat` and the SDF uses a filtering
@@ -836,7 +836,7 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, with seven confirmed divergences
+## 7.5 WebRTC on web: already shipping, seven confirmed divergences, two fixed
 
 New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
@@ -850,14 +850,26 @@ precisely so 4.8 exports stop asking for a web library that will never exist.
 Phase 0 is green both ways: the reference peer builds and loads on 4.8 (the godot-cpp "no 4.8
 `extension_api.json`" worry was a false alarm — `compatibility_minimum = 4.3` and GDExtension is
 backward-compatible), and WebRTC works end-to-end in a real browser against a current `nothreads`
-export. 18 observables compared on a connected channel, 15 match.
+export. 18 observables compared on a connected channel, **17 match since the F1/F2 fixes** (15
+before them).
 
 Three things from it worth carrying even if the work stops here:
 
-- **F2 is a real, proven, user-visible bug**: on web, packets already received but not yet polled
-  are destroyed the moment the remote closes, so the last messages before a disconnect are lost;
-  on desktop they drain fine. Both the `STATE_OPEN` guard in `get_packet()` and the buffer wipe in
-  `close()` fire, so a fix must address both.
+- **F2 was a real, proven, user-visible bug, and is now fixed.** On web, packets already received
+  but not yet polled were destroyed the moment the remote closed, so the last messages before a
+  disconnect were lost; on desktop they drained fine. Both mechanisms fired — the `STATE_OPEN`
+  guard in `get_packet()` and the buffer wipe in `close()` — and both are gone, matching what
+  native always did. `compare.sh loopback` and the new `compare.sh mesh_close` now agree on both
+  platforms. **What is still lost on every platform** is a disconnecting peer's final packets read
+  *through* `WebRTCMultiplayerPeer`: its `poll()` drops the peer's channels as soon as one leaves
+  `STATE_OPEN`, so the packets are unreachable through that API on desktop too. Structural, not a
+  web divergence.
+- **F1 was a wrong number, not an enforced limit.** Web reported `get_max_packet_size() = 1200`
+  against native's 16384, but a payload sweep (1200 → 256 KB) delivers everything on both
+  platforms with `put_packet()` returning `OK`. It now reports 16384, and the JS `send()` is
+  wrapped so an exception becomes `FAILED` instead of escaping into the engine's call stack. **The
+  real size ceiling on web is 65530 bytes and it belongs to F3** — the default 64 KB receive
+  `RingBuffer`, whose `space_left()` caps at `size - 1` with 5 bytes of per-packet header.
 - **The JS fallback values in `library_godot_webrtc.js` are mostly dead code and must not be read
   as documentation.** `get_prop` falls back only on `undefined`, but browsers report unset channel
   properties as `null`, which arrives in C++ as **0**. This is how a prediction of `65535` in the
@@ -874,7 +886,7 @@ peer. Signals, transfer modes, `get_peers()` and disconnect detection all match 
 
 **`threads=yes` is at full parity too, and it is the one result here that is good news for §4.12.**
 All three fixtures are byte-identical between the threaded and nothreads exports (`loopback` 19
-lines, `mesh` 33, `burst` 9), so the `__proxy: 'sync'` marshalling that every function in
+lines, `mesh` 33, `burst` 9), so the `__proxy: 'sync'` marshaling that every function in
 `library_godot_webrtc.js` carries — never exercised in this fork before — works, including under a
 500-packet burst. It needed **no** `misc/emsdk_patches/` work, because those are for
 `threads=yes dlink_enabled=yes` and this is threads *without* dlink. Both variants are provably
@@ -892,14 +904,14 @@ app cannot spot it from sequence gaps: the stream simply stops. And no API-level
 either side — every `put_packet()` returned `OK` — though the engine prints
 `ERROR: Buffer full! Dropping data.` once per dropped packet (435 times), which is its own problem.
 
-`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~3-5 days,
+`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~2-4 days,
 and the five corrections above) and §8 the lessons learned — the methodology worth reusing
 (in-process loopback, one fixture diffed across both targets, self-documenting configuration) and
 the traps, of which the two most expensive were a blocking main loop that can never work on web and
 `--headless -s` silently not loading a GDExtension because it does not generate
 `.godot/extension_list.cfg`.
 
-Untested and next in line: F1's behavioural test (it is not script-exposed); F2 at the multiplayer
+Untested and next in line: F1's behavioral test (it is not script-exposed); F2 at the multiplayer
 layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);
 `MultiplayerAPI`/`@rpc` above the `MultiplayerPeer` contract; `dlink_enabled=yes`, which unlike
 threads does need the toolchain patches; and the Firefox/Safari matrix.
@@ -926,10 +938,12 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      promise.**
    - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
      served, and nine of our own test servers do not send them (§4.13).
-0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~5-7 days). The harness and a
-   both-targets fixture already exist and work; what is left is the `WebRTCMultiplayerPeer` layer,
-   fixes for the seven confirmed divergences, the F1/F3 behavioural tests, and the browser matrix.
-   Cheap next step, since nothing needs an engine rebuild.
+0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~2-4 days). The harness, five
+   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, and F1 and F2 are tested
+   and fixed. What is left: a decision on F3 (the fixed-size receive buffer — the only remaining
+   finding with design content), one-line JS fixes for F4/F5/F7, `MultiplayerAPI`/`@rpc` coverage,
+   `dlink_enabled=yes`, and the Firefox/Safari matrix. A web template rebuild is 3 minutes
+   incremental and the native side needs none, since everything involved is web-only.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

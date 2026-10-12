@@ -2,10 +2,10 @@
 
 **Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
 layer **done and at parity but for F5**, **`threads=yes` done and at full
-parity**, F3 **quantified**, Phase 2 dependency built and verified. F2, F3 and
-F5 empirically proven on both platforms. Remaining: the fixes themselves, F1's
-behavioural test, F2 at the multiplayer layer, `MultiplayerAPI`/`@rpc`, and the
-Firefox/Safari matrix.
+parity**, F3 **quantified**, Phase 2 dependency built and verified. **F1 and F2
+are tested and fixed** — 17 of 18 channel observables now match and
+`compare.sh mesh_close` is identical. Remaining: fixes for F3-F5 and F7,
+`MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and the Firefox/Safari matrix.
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
@@ -72,7 +72,7 @@ Web side: `modules/webrtc/webrtc_data_channel_js.cpp` and
 `modules/webrtc/library_godot_webrtc.js`.
 Native side: `src/WebRTCLibDataChannel.cpp` in webrtc-native.
 
-### F1 — `get_max_packet_size()`: 1200 (web) vs 16384 (native) — CONFIRMED
+### F1 — `get_max_packet_size()`: 1200 (web) vs 16384 (native) — CONFIRMED, FIXED
 
 - Web: `return 1200;` (hardcoded, `webrtc_data_channel_js.cpp:143`).
 - Native: `return 16384;` with an explicit citation of RFC-8831 §6.6
@@ -84,15 +84,44 @@ finding: `get_max_packet_size` is **not bound to GDScript** — it is a
 (`modules/webrtc/webrtc_data_channel.cpp:36-51`) does not expose it. So this
 only affects C++ consumers of `PacketPeer::get_max_packet_size()`, not user
 scripts, and the harness **cannot assert it from GDScript** — it needs either a
-C++-side check or a behavioural test (send 1201..16384 bytes and observe).
+C++-side check or a behavioral test (send 1201..16384 bytes and observe).
 
-Separately, the web `put_packet()` enforces no limit at all
+Separately, the web `put_packet()` enforced no limit at all
 (`webrtc_data_channel_js.cpp:135-141`), passing any size to `ref.send()`, so an
-oversized send fails inside JS with no `Error` returned. Native validates
+oversized send failed inside JS with no `Error` returned. Native validates
 (`!channel`, `channel->isClosed()`) and catches `std::exception` to return
 `FAILED` with the message printed.
 
-### F2 — Buffered packets destroyed on remote close (web only) — CONFIRMED
+**Behavioral test (`tests/sizes.gd`): the 1200 was a wrong number, not an
+enforced limit.** A sweep of 1200 / 1201 / 4096 / 16384 / 16385 / 65530 / 65531
+/ 262144 bytes, recording `put_packet()`'s error, the channel state right after
+the send, and whether the peer got the payload intact:
+
+| payload | native | web |
+|---|---|---|
+| 1200 .. 65530 | `put_err=0`, DELIVERED, intact | `put_err=0`, DELIVERED, intact |
+| 65531 | `put_err=0`, DELIVERED | `put_err=0`, **DROPPED** (`Buffer full!`) |
+| 262144 | `put_err=0`, DELIVERED | `put_err=0`, **DROPPED** (`Buffer full!`) |
+
+Chrome accepts and delivers 256 KB sends with no error and never kills the
+channel, so nothing on the send path ever enforced 1200 — it only reported it.
+**The two divergences left in that table are F3, not F1**: 65530 bytes is the
+exact ceiling of the default 64 KB receive `RingBuffer`
+(`space_left()` caps at `size - 1` and `_on_message` needs `p_size + 5`), so
+one byte more is a receive-side drop. Raising it belongs to F3.
+
+**Fix applied** (both halves, upstreamable):
+
+- `get_max_packet_size()` returns **16384**, native's value, with the RFC-8831
+  §6.6 citation. Note `WebRTCMultiplayerPeer::get_max_packet_size()` still
+  hardcodes `1200` — but that is the *shared* file, so it understates equally on
+  every platform and is not a parity divergence.
+- `godot_js_rtc_datachannel_send()` wraps `ref.send()` in try/catch, logs the
+  size and the exception through `GodotRuntime.error`, and returns 1;
+  `put_packet()` turns that into `FAILED`. Previously the exception escaped into
+  the engine's call stack, where nothing could handle it.
+
+### F2 — Buffered packets destroyed on remote close (web only) — CONFIRMED, FIXED
 
 - Web: `get_packet()` hard-fails unless state is `STATE_OPEN`
   (`ERR_FAIL_COND_V(get_ready_state() != STATE_OPEN, ERR_UNCONFIGURED)`, `:109`),
@@ -116,11 +145,49 @@ web:     f2 ch2_closed_after=1 ticks avail_after_close=0
 ```
 
 The highest-severity finding, now beyond doubt: on web the last packets before a
-disconnect are silently lost; on desktop they are delivered. Note
-`avail_after_close=0` on web — the count is zeroed too, so **both** mechanisms
-fire: the `STATE_OPEN` guard *and* the buffer wipe. A fix must relax the guard
-*and* stop `close()` from clearing the buffer, which has ordering implications
-for the `_on_close`/`_on_error` paths that both call `close()`.
+disconnect were silently lost; on desktop they are delivered. Note
+`avail_after_close=0` on web — the count was zeroed too, so **both** mechanisms
+fired: the `STATE_OPEN` guard *and* the buffer wipe.
+
+**Fix applied**, both mechanisms, in `webrtc_data_channel_js.cpp`:
+
+- `get_packet()` drops the `STATE_OPEN` guard entirely and fails only on an
+  empty queue, which is exactly what native's `_get_packet()` does.
+- `close()` no longer touches `in_buffer`, `queue_count` or `_was_string`; it
+  only closes the channel, as native's `_close()` does. The buffer is released
+  with the object. The feared `_on_close`/`_on_error` ordering problem did not
+  materialise: both still call `close()`, and since `close()` no longer
+  destroys state there is no ordering to get wrong. The cost is that a closed
+  channel holds its receive buffer (≤ 64 KB) until it is freed — the same
+  trade native makes with its queue.
+
+Measured after the fix, identical on both platforms:
+
+```
+native:  f2 ch2_closed_after=2 ticks avail_after_close=1
+         f2 drain_after_close len=10 content='f2-pending'   -> verdict=DRAINED
+web:     f2 ch2_closed_after=1 ticks avail_after_close=1
+         f2 drain_after_close len=10 content='f2-pending'   -> verdict=DRAINED
+```
+
+**Also now tested at the multiplayer layer** (`tests/mesh_close.gd`, the gap
+Task 18.5 left open): three packets queued on a two-peer mesh and deliberately
+never drained, then `mp1.close()`. The fixture reads twice, because the layer
+has two places a packet can die:
+
+| read | native | web (after the fix) |
+|---|---|---|
+| through `WebRTCMultiplayerPeer` | `avail=0` → **LOST** | `avail=0` → **LOST** |
+| through a channel `Ref` held since connect | `avail=3`, 13 bytes → **DRAINED** | `avail=3`, 13 bytes → **DRAINED** |
+
+So `./compare.sh mesh_close` is **identical** on both platforms. The first row
+is a **structural, platform-independent loss and not F2**:
+`WebRTCMultiplayerPeer::poll()` calls `remove_peer()` the moment a channel
+leaves `STATE_OPEN`, which drops the peer's channels outright, so the packets
+become unreachable through that API on desktop exactly as on web. Worth
+documenting as its own limitation — a project that wants the final packets of a
+disconnecting peer cannot get them through `WebRTCMultiplayerPeer` on any
+platform — but it is upstream's shared design, not a web divergence.
 
 ### F3 — Silent drop vs unbounded queue on backpressure — CONFIRMED
 
@@ -134,7 +201,7 @@ for the `_on_close`/`_on_error` paths that both call `close()`.
 So a reliable-ordered channel — contractually lossless — **can lose data on web
 but not on desktop** if the application polls slowly. The two implementations
 have made opposite trade-offs: web bounds memory and sacrifices the delivery
-guarantee; native honours the guarantee and lets memory grow. Neither is
+guarantee; native honors the guarantee and lets memory grow. Neither is
 obviously wrong, but they must not silently differ.
 
 **QUANTIFIED** by `tests/burst.gd` (§4.2) — 500 packets of 1000 bytes sent in a
@@ -168,7 +235,7 @@ this doc:
 ### F4 — `is_negotiated` wrong default (web) — CONFIRMED COSMETIC
 
 `library_godot_webrtc.js:170-174` passes `65535` as the fallback for a boolean
-getter (copy-pasted from `id_get` directly above), where the neighbouring
+getter (copy-pasted from `id_get` directly above), where the neighboring
 `is_ordered` correctly passes `true`. Native stores and returns a real bool
 (`WebRTCLibDataChannel.cpp:164-167`).
 
@@ -203,7 +270,7 @@ But browsers expose `maxRetransmits` and `maxPacketLifeTime` as **`null`**, not
 fires; `null` passes through the `'ii'` signature and arrives in C++ as **0**.
 The same mechanism explains why F4's wrong `65535` default is harmless, and is a
 reminder that the JS fallback values in this file are largely unreachable and
-cannot be trusted as documentation of behaviour.
+cannot be trusted as documentation of behavior.
 
 Both values *are* script-exposed (`get_max_retransmits()`,
 `get_max_packet_life_time()`), so unlike F1 this is directly visible to user
@@ -425,7 +492,7 @@ times out with no connection.
 
 The portable form, now used, is `extends Node` with the poll/step logic in
 `_process()`. **Every fixture in Phases 1-3 must follow it.** Completion is
-signalled to Playwright by setting `window.__rtc_done` through
+signaled to Playwright by setting `window.__rtc_done` through
 `JavaScriptBridge.eval()` on web, and `get_tree().quit()` on native.
 
 ### Reproduce
@@ -471,12 +538,14 @@ graduates into `local_ci.sh`.
 | `get_write_mode()` default | 1 (BINARY) | 1 (BINARY) | match |
 | binary round-trip + `was_string_packet()` | ok, false | ok, false | match |
 | text round-trip + `was_string_packet()` | ok, true | ok, true | match |
-| drain after remote close | **DRAINED** | **LOST** | **F2** |
+| drain after remote close | **DRAINED** | **DRAINED** (was LOST) | match since the F2 fix |
+| payload 1200 .. 65530 bytes | delivered intact | delivered intact | match |
+| payload 65531 / 262144 bytes | delivered intact | **dropped** (64 KB receive buffer) | **F3** |
 
-Everything not flagged matches. The three flagged rows are F2, F5 and F7.
-F1 and F3 are not in this table: F1 is not script-exposed (needs a behavioural
-or C++-side test) and F3 needs the deliberate-backpressure scenario from
-Phase 3.
+Everything not flagged matches: **17 of 18 of the original observables**, two
+flagged rows left (F5 and F7), where it was 15 of 18 before the F2 fix. The
+last two rows are the F1 sweep's result (`tests/sizes.gd`) and belong to F3 —
+see §2 F1. F3's own backpressure scenario is §4.2.
 
 ### `WebRTCMultiplayerPeer` layer: at parity, inheriting only F5
 
@@ -525,7 +594,7 @@ Gate on `peer_connected` instead.
 ### §4.2 `threads=yes`: full parity, and F3 quantified
 
 **Result: WebRTC under `threads=yes` is byte-identical to `nothreads`.** The
-`__proxy: 'sync'` marshalling that every function in `library_godot_webrtc.js`
+`__proxy: 'sync'` marshaling that every function in `library_godot_webrtc.js`
 carries — never exercised in this fork before now — works, including under a
 500-packet burst.
 
@@ -582,6 +651,15 @@ state. Settling it needs a timing-controlled test — read the value at a fixed
 point while a known quantity is deliberately in flight — rather than this
 incidental read.
 
+**The F1 sweep (§2 F1) is a stronger version of the same reading and says the
+same thing**: across all eight payload sizes, read immediately after each send,
+web reports exactly the payload (`buffered=1200`, `...=16384`, `...=262144`)
+and native reports `0` every time, including for 256 KB. That is now eight
+independent samples rather than one incidental read, but it still does not
+settle the question — in-process libdatachannel plausibly flushes synchronously
+on `send()`. It stays open, and a test that keeps a known quantity in flight is
+still the thing that would close it.
+
 ---
 
 ## 5. Hardening plan
@@ -617,8 +695,8 @@ export works end-to-end, with a measured parity table). No reordering needed.
   - `WebRTCMultiplayerPeer` 3-peer mesh plus a `MultiplayerAPI` RPC round-trip,
     since that is how real projects actually consume this.
 
-Deliverable: a green web-to-web tier. This alone characterises F1-F4 as
-*behaviours*, independently of whether desktop agrees.
+Deliverable: a green web-to-web tier. This alone characterizes F1-F4 as
+*behaviors*, independently of whether desktop agrees.
 
 ### Phase 2 — Desktop reference peer and the parity table (2-3 days)
 
@@ -643,10 +721,11 @@ dependency.
 
 - **Backpressure** (F3): push past `max_channel_in_buffer_kb` without polling;
   assert whether data loss occurs and whether it is reported.
-- **Close semantics** (F2): close mid-transfer with packets in flight; assert
-  drainability.
-- **Size limits** (F1): sweep payload sizes across 1200 / 16 KB / 64 KB /
-  256 KB; assert the error surfaced to GDScript.
+- **Close semantics** (F2): **DONE and fixed** — `tests/loopback.gd` at the
+  channel layer and `tests/mesh_close.gd` at the multiplayer layer; see §2 F2.
+- **Size limits** (F1): **DONE and fixed** — `tests/sizes.gd` sweeps 1200 /
+  1201 / 4 KB / 16 KB / 16385 / 65530 / 65531 / 256 KB and records
+  `put_packet()`'s error, the channel state and delivery; see §2 F1.
 - **Leak check**: 50 connect/disconnect cycles, watching `IDHandler` growth via
   `evaluate_script` and the wasm heap.
 - **Browser matrix**: Chrome, Firefox, Safari. Non-optional — Firefox has
@@ -658,9 +737,10 @@ dependency.
 
 ### Phase 4 — Fix, integrate, document (2-3 days)
 
-- Fix what Phases 2-3 confirm. Expect the fixes to be small and local to
-  `webrtc_data_channel_js.cpp` and `library_godot_webrtc.js`; F2 and F3 are the
-  ones with real design content.
+- Fix what Phases 2-3 confirm. **F1 and F2 are done** — four small edits across
+  `webrtc_data_channel_js.cpp` and `library_godot_webrtc.js`, exactly as
+  predicted; F3 is the one with real design content still open (the receive
+  `RingBuffer` is fixed-size and drops the tail silently).
 - Keep upstreamable commits (anything in the shared or JS files) separate from
   fork-specific ones — F1-F5 and F7 are upstream Godot bugs, and F6 is an
   upstream webrtc-native bug worth reporting with the table in §2.
@@ -682,7 +762,7 @@ rather than hunt for unknown ones.
 Both of the unknowns named here in the previous revision are now settled:
 `threads=yes` is at full parity (§4.2) and the `WebRTCMultiplayerPeer` layer
 adds no divergences of its own (§4). What is left is deciding and making the
-fixes, F1's behavioural test, F2 at the multiplayer layer,
+fixes, F1's behavioral test, F2 at the multiplayer layer,
 `MultiplayerAPI`/`@rpc`, the dlink variant, and the Firefox/Safari matrix.
 
 ---
@@ -692,7 +772,7 @@ fixes, F1's behavioural test, F2 at the multiplayer layer,
 - **`set_default_extension()` stays a no-op on web.**
   `webrtc_peer_connection.cpp:49-51` hardcodes the JS implementation under
   `WEB_ENABLED`, so the default-extension mechanism is dead code there. This is
-  *correct* behaviour — there is no web build of `webrtc-native` to load, and
+  *correct* behavior — there is no web build of `webrtc-native` to load, and
   the JS implementation is what you want regardless. It needs one documented
   line so nobody debugs it twice.
 - **Media tracks (audio/video).** See §1.
@@ -707,9 +787,10 @@ fixes, F1's behavioural test, F2 at the multiplayer layer,
 
 ## 7. Progress log
 
-All of the below is one day's work, 2026-10-12, in three commits on
+All of the below is one day's work, 2026-10-12, in four commits on
 `webgpu-4.8`: `1151998221` (evaluation + loopback harness), `58f98d01b0`
-(multiplayer layer), `e8e969fb95` (threads + F3).
+(multiplayer layer), `e8e969fb95` (threads + F3), and the F1/F2 test-and-fix
+commit.
 
 ### Status at a glance
 
@@ -722,16 +803,21 @@ All of the below is one day's work, 2026-10-12, in three commits on
 | `WebRTCMultiplayerPeer` layer | **DONE** — parity but for F5; §4 |
 | `threads=yes` | **DONE** — byte-identical to nothreads; §4.2 |
 | F3 measurement | **DONE** — 65/500 web vs 500/500 native; §2 |
-| Fixes for F1-F7 | **OPEN** — none applied yet |
-| F1 behavioural test | **OPEN** — not script-exposed, needs C++ or behavioural probe |
-| F2 at the multiplayer layer | **OPEN** — mesh fixture polls every tick, never builds a backlog |
+| F1 behavioral test | **DONE** — `tests/sizes.gd`, 8 payload sizes; §2 F1 |
+| F1 fix | **DONE** — 16384 + `put_packet()` reports send failures |
+| F2 at the multiplayer layer | **DONE** — `tests/mesh_close.gd`; §2 F2 |
+| F2 fix | **DONE** — guard dropped, `close()` keeps the queue; `mesh_close` identical |
+| Fixes for F3, F4, F5, F7 | **OPEN** — none applied yet |
 | `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
 | `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
 | Firefox / Safari | **OPEN** |
 | `get_buffered_amount()` (§4.3) | **OPEN, unconfirmed** — needs a timing-controlled test |
 
-Estimate for the remainder: the original 8-11 days has come down to **~3-5**,
-because measurement is largely finished and what is left is deciding the fixes.
+Estimate for the remainder: **~2-4 days**. The two high-value divergences that
+needed a test *and* a design decision (F1, F2) are both closed; F4, F5 and F7
+are one-line JS fixes behind the same `null`-vs-`undefined` mechanism, F3 needs
+a real decision about the receive buffer, and the rest is coverage
+(`MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari).
 
 ### Corrections made to this document as evidence arrived
 
@@ -740,9 +826,13 @@ not catch:
 
 1. **F5's web value was predicted `65535`, measured `0`.** Read off the JS
    defaults; the defaults are unreachable. See §2 F5.
-2. **F1's severity was overstated.** Real divergence (1200 vs 16384) but
-   `get_max_packet_size` is not bound to GDScript, so it reaches C++ consumers
-   only, and the harness cannot assert it from a script.
+2. **F1's severity was overstated, twice.** First read: a real divergence
+   (1200 vs 16384) but `get_max_packet_size` is not bound to GDScript, so it
+   reaches C++ consumers only. Then the behavioral sweep showed the send path
+   never enforced 1200 at all — Chrome delivers 256 KB payloads with
+   `put_packet()` returning `OK`, same as native — so F1 was a *wrong reported
+   number*, not a size limit. The size divergence that does exist is F3's
+   receive buffer, at 65530 bytes.
 3. **A claim that pre-open `id` agreed across platforms was wrong** — it
    compared native against the JS *default* rather than the measured web value.
    They differ (F7); it is post-open that agrees.
@@ -763,14 +853,14 @@ not catch:
   is what made a day's progress possible instead of a week's.
 - **One fixture, both targets, diffed.** The single highest-value decision.
   Because the same GDScript runs natively and in the browser and prints
-  `RTC|`-prefixed lines, parity becomes `diff`, not judgement. `compare.sh`
+  `RTC|`-prefixed lines, parity becomes `diff`, not judgment. `compare.sh`
   normalizes only what legitimately varies (object ids, class names, tick
   counts, SDP lengths) so **any surviving line is a divergence** — no
   interpretation required, and no divergence can be overlooked by a tired
   reader scanning two logs side by side.
 - **Make each run self-documenting about its own configuration.** Printing
   `OS.has_feature("threads")` and `crossOriginIsolated` turned "I believe these
-  are two different builds" into evidence. Cheap, and it pre-empts the entire
+  are two different builds" into evidence. Cheap, and it preempts the entire
   class of embarrassment where a matrix turns out to have tested one thing
   twice.
 - **Let the harness own its server.** Folding a COOP/COEP server into the
@@ -810,26 +900,41 @@ not catch:
 
 ### Epistemic lessons, which are the ones that generalize
 
-- **Reading code predicts behaviour badly at a language boundary.** F5 and F7
+- **Reading code predicts behavior badly at a language boundary.** F5 and F7
   were both mispredicted from the JS source, and for the same reason:
   `get_prop` falls back only on `undefined`, but browsers report unset channel
   properties as `null`, so documented-looking defaults (`65535`) are
   unreachable and `null` crosses into C++ as `0`. **The fallback values in
   `library_godot_webrtc.js` are largely dead code and must not be read as
-  documentation of behaviour.**
+  documentation of behavior.**
 - **Measure before assigning severity, in both directions.** F1 was downgraded
   (not script-exposed), F3 and F5 were upgraded — F3 because a burst is
   catastrophic rather than lossy, F5 because the multiplayer-layer test showed
   it on channels *every* project creates. Three of seven findings had the wrong
   severity after a careful read.
-- **A negative result is a result, and worth the same rigour.** "The
+- **A negative result is a result, and worth the same rigor.** "The
   multiplayer layer adds no divergences" and "threads changes nothing" are both
   load-bearing, and both only mean anything because the comparison was
   mechanical and the configurations were proven distinct.
 - **State the gap when a test does not cover what it appears to.** The mesh
   fixture polls every tick, so it cannot reproduce F2 — recording that is more
   useful than letting a green mesh run imply F2 is confined to hand-rolled
-  channels.
+  channels. Writing the missing `mesh_close.gd` then took twenty minutes,
+  because the gap had already been written down precisely.
+- **Hold a reference to what the API under test is about to throw away.**
+  `mesh_close.gd` keeps a `Ref` to the channel taken while connected, so when
+  `WebRTCMultiplayerPeer::poll()` drops the peer it can still ask the channel
+  whether the packets survived. Without that second read, both platforms show
+  "LOST" and the fix looks ineffective; with it, the platform-independent
+  structural loss separates cleanly from the web-only one that was the actual
+  bug. **When a layer discards the object you are measuring, measure the object
+  directly as well as through the layer.**
+- **A limit that is only reported can look exactly like a limit that is
+  enforced.** F1's 1200 was read as "web refuses larger packets"; the sweep
+  showed web sends 256 KB happily and the real ceiling is 65530 bytes, in a
+  different component, for a different reason (F3's receive buffer). The fix
+  for a wrong number is one line; the fix for the enforced limit it was
+  mistaken for would have been a design change.
 - **Do not promote an unsound comparison to a finding.** The
   `get_buffered_amount()` difference (500000 vs 0) is probably real and would
   matter, but it was read incidentally at an uncontrolled moment, so it is

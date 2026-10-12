@@ -1,7 +1,7 @@
 # Throughput / ordering / backpressure stress on one reliable-ordered channel.
 #
 # Serves two purposes:
-#  - stresses the threaded web build's `__proxy: 'sync'` marshalling far harder
+#  - stresses the threaded web build's `__proxy: 'sync'` marshaling far harder
 #    than a three-packet handshake does;
 #  - measures F3 directly. Every packet is sent without draining, then the
 #    receiver is left to accumulate before reading, so the web build's fixed
