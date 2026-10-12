@@ -525,10 +525,11 @@ previously accepted arriving intact. An application that treats `FAILED` as
 Measured by `webgpu_tests/webrtc_congestion/` `send_ceiling.gd`; numbers and
 method in §4.4a.2. **Documentation, not a code change.**
 
-### F10 — On web, the unreliable transfer modes lose most of their packets — CONFIRMED (new, 2026-10-13)
+### F10 — On web, the unreliable transfer modes lost most of their packets — CONFIRMED, FIXED (new, 2026-10-13)
 
-**Severity: high for any project using `TRANSFER_MODE_UNRELIABLE` or
-`TRANSFER_MODE_UNRELIABLE_ORDERED` on web.** At 5% link loss and 25 ms one-way
+**Severity: was high for any project using `TRANSFER_MODE_UNRELIABLE` or
+`TRANSFER_MODE_UNRELIABLE_ORDERED` on web.** Fixed by raising the default
+`unreliable_lifetime` from 1 ms to 50 ms; see "The fix" below. At 5% link loss and 25 ms one-way
 delay, the exact channel configuration `WebRTCMultiplayerPeer::add_peer` builds
 (`maxPacketLifeTime` = its default of **1** ms) delivers **13–25%** of its
 packets on web against **~95%** on native. A channel with
@@ -546,13 +547,24 @@ Three things keep this in proportion, all measured rather than argued:
   fix the lifetime was never applied, so both modes were silently fully
   reliable everywhere.
 
-Unlike F9 there is **no API signal** — `put_packet()` returns `OK` for every
-packet that is then never delivered. Measured by
+Unlike F9 there was **no API signal** — `put_packet()` returned `OK` for every
+packet that was then never delivered. Measured by
 `webgpu_tests/webrtc_congestion/` `loss_modes.gd`; numbers in §4.4a.4.
-**No code change made**: the behavior follows the configuration, and
-`unreliable_lifetime = 1` is an upstream default, so the upstream conversation
-comes first. Fork-local mitigation is to pass a larger `unreliable_lifetime`
-to `add_peer()` on web.
+
+**The fix**: `WebRTCMultiplayerPeer`'s default `unreliable_lifetime` is now
+**50 ms**, not 1 ms, as a named constant
+(`WebRTCMultiplayerPeer::DEFAULT_UNRELIABLE_LIFETIME_MS`) so that `add_peer()`'s
+default, its `DEFVAL`, and the `channels_config` path — which hardcoded the same
+`1` independently — cannot drift apart again. Verified through the shipped path
+by `mp_modes.gd`, which calls `add_peer()` with two arguments and lets the
+engine choose: **web 91-97.5%, native 93.5-97%, agreeing, where web was
+13-25%.** The class documentation now also explains that the value is a
+*retransmission* budget and says nothing happens on a lossless link — and its
+prose carried F8's `maxPacketLifetime` typo, which is corrected.
+
+This diverges from stock Godot by one default, deliberately. It is a value
+upstream never measured off a loopback; the upstream question is still worth
+asking, but shipping 1 ms on web was not defensible once the number was known.
 
 ## 3. Build verification (2026-10-12)
 
@@ -1185,14 +1197,28 @@ What makes this readable:
   right — but F8's own note that its effect "is not verifiable on a lossless
   loopback" turned out to be hiding a much bigger number than anyone expected.
 
-**Severity: high for any project that uses the unreliable modes on web.**
-Unlike F9 there is no API signal: the packets are simply not delivered, and
-`put_packet()` returns `OK` for every one of them. Next step is an upstream
-question about whether `unreliable_lifetime = 1` is a sensible default at all,
-with these numbers attached; the fork-local mitigation is to document it and
-recommend a larger value on web. **No code change has been made for F10** — the
-behavior is arguably correct per the configuration, and changing a default that
-upstream shares deserves the upstream conversation first.
+**Severity: was high for any project that uses the unreliable modes on web.**
+Unlike F9 there was no API signal: the packets were simply not delivered, and
+`put_packet()` returned `OK` for every one of them.
+
+**Fixed**: the default `unreliable_lifetime` is now **50 ms**
+(`WebRTCMultiplayerPeer::DEFAULT_UNRELIABLE_LIFETIME_MS`), shared by
+`add_peer()`'s default, its `DEFVAL` and the `channels_config` path, which had
+hardcoded the same `1` independently. `mp_modes.gd` verifies it **through the
+shipped path** — it calls `add_peer()` with two arguments so the engine picks
+the lifetime, which is the only way to test a default; `loss_modes.gd` cannot,
+because it names its configurations explicitly. Both fixtures are kept: one pins
+the mechanism, the other the default.
+
+| mode (shipped default) | native | web | web, old 1 ms |
+|---|---|---|---|
+| `RELIABLE` | 100% | 100% | 100% |
+| `UNRELIABLE_ORDERED` | 94.5-97% | 91-97.5% | 28.5-42.5% |
+| `UNRELIABLE` | 93.5-94% | 92.5-96.5% | 13-25.5% |
+
+This deliberately diverges from stock Godot by one default. 1 ms is a value
+upstream never measured off a loopback; the upstream question is still worth
+asking, but shipping it on web was not defensible once the number existed.
 
 ---
 
@@ -1362,11 +1388,11 @@ browser matrix — and the tier became a CI stage.
 | `get_buffered_amount()` (§4.3) | **RESOLVED — not a divergence**; `tests/buffered.gd`, `compare.sh buffered` identical |
 | Behavior under real congestion (§4.4) | **DONE** (2026-10-13) — `webgpu_tests/webrtc_congestion/`, all four unknowns measured; produced F9 and F10; §4.4a |
 | F9 (web's ~16 MiB send-queue cap) | **CONFIRMED, documented** — graceful and recoverable; no code change |
-| F10 (web's unreliable modes lose 75-87% under loss) | **CONFIRMED, OPEN** — needs an upstream question about `unreliable_lifetime = 1`; no code change yet |
+| F10 (web's unreliable modes lost 75-87% under loss) | **CONFIRMED, FIXED** — default `unreliable_lifetime` 1 ms → 50 ms; web and native now agree at 91-97% |
 
-Estimate for the remainder: **nothing, except a Safari run (needs a Mac) and
-the upstream conversation about F10's default.** The congestion work (§4.4) is
-done and found two new divergences, F9 and F10. Every confirmed divergence is fixed (F1-F5,
+Estimate for the remainder: **nothing, except a Safari run (needs a Mac).** The
+congestion work (§4.4) is done and found two new divergences: F9 (benign,
+documented) and F10 (high, **fixed**). Every confirmed divergence is fixed (F1-F5,
 F7, F8), the one unfiled suspicion (§4.3) is settled as a non-divergence, and
 **all nine fixtures compare identical to native across three export variants and
 two browsers — 9 x 3 x 2 = 54 clean diffs.**

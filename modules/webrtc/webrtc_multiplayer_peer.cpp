@@ -36,7 +36,7 @@ void WebRTCMultiplayerPeer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create_server", "channels_config"), &WebRTCMultiplayerPeer::create_server, DEFVAL(Array()));
 	ClassDB::bind_method(D_METHOD("create_client", "peer_id", "channels_config"), &WebRTCMultiplayerPeer::create_client, DEFVAL(Array()));
 	ClassDB::bind_method(D_METHOD("create_mesh", "peer_id", "channels_config"), &WebRTCMultiplayerPeer::create_mesh, DEFVAL(Array()));
-	ClassDB::bind_method(D_METHOD("add_peer", "peer", "peer_id", "unreliable_lifetime"), &WebRTCMultiplayerPeer::add_peer, DEFVAL(1));
+	ClassDB::bind_method(D_METHOD("add_peer", "peer", "peer_id", "unreliable_lifetime"), &WebRTCMultiplayerPeer::add_peer, DEFVAL(DEFAULT_UNRELIABLE_LIFETIME_MS));
 	ClassDB::bind_method(D_METHOD("remove_peer", "peer_id"), &WebRTCMultiplayerPeer::remove_peer);
 	ClassDB::bind_method(D_METHOD("has_peer", "peer_id"), &WebRTCMultiplayerPeer::has_peer);
 	ClassDB::bind_method(D_METHOD("get_peer", "peer_id"), &WebRTCMultiplayerPeer::get_peer);
@@ -220,10 +220,10 @@ Error WebRTCMultiplayerPeer::_initialize(int p_self_id, NetworkMode p_mode, cons
 
 		switch (mode) {
 			case TRANSFER_MODE_UNRELIABLE_ORDERED:
-				cfg["maxPacketLifeTime"] = 1;
+				cfg["maxPacketLifeTime"] = DEFAULT_UNRELIABLE_LIFETIME_MS;
 				break;
 			case TRANSFER_MODE_UNRELIABLE:
-				cfg["maxPacketLifeTime"] = 1;
+				cfg["maxPacketLifeTime"] = DEFAULT_UNRELIABLE_LIFETIME_MS;
 				cfg["ordered"] = false;
 				break;
 			case TRANSFER_MODE_RELIABLE:

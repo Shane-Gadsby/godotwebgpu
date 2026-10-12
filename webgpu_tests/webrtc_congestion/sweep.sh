@@ -27,6 +27,8 @@ MATRIX=(
 	"loss_modes|native|4mbit|25ms|5%|native, 5% loss"
 	"loss_modes|web_a|4mbit|25ms|5%|web offerer, 5% loss"
 	"loss_modes|web_a_clean|4mbit|25ms|0%|CONTROL: web, no loss"
+	"mp_modes|native|4mbit|25ms|5%|native, shipped default"
+	"mp_modes|web_a|4mbit|25ms|5%|web, shipped default"
 	"recv_growth|web_b|8mbit|10ms|0%|web RECEIVER holds 25s"
 	"recv_growth|native|8mbit|10ms|0%|native receiver holds 25s"
 )
@@ -61,7 +63,7 @@ run_one() {
 		send_ceiling)
 			grep -oE 'ceiling_at_buffered=[0-9]+|no ceiling up to [0-9]+ bytes|graceful=[a-z]+|recovered_after_drain=[a-z]+' "$log" \
 				| tr '\n' ' ' | sed 's/^/        /' ;;
-		loss_modes)
+		loss_modes|mp_modes)
 			grep -E '^RTC\|   ' "$log" | awk '{printf "%s=%s ", $2, $4}' | sed 's/^/        /' ;;
 		recv_growth)
 			grep -oE 'peer peak_held=[0-9]+ packets = [0-9]+ bytes|input buffer grew to [0-9]+ bytes' "$log" \
@@ -97,5 +99,6 @@ cat <<'EOF'
   send_ceiling web         CEILING_GRACEFUL     F9: Chrome caps at ~16 MiB, recovers
   loss_modes   native/web  MODES_DIFFER         F8's fix demonstrably does something
   loss_modes   web clean   MODES_INDISTINGUISHABLE  the control: no loss, no divergence
+  mp_modes     native/web  DEFAULT_SANE         F10 fixed: the shipped default now agrees
   recv_growth  native/web  GREW_INTACT          F3's growth is lossless and shrinks back
 EOF

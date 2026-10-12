@@ -8,9 +8,10 @@ fixture there runs over an unthrottled in-process loopback.
 Background and the four questions this answers: `webgpu_notes/webrtc_web.md`
 §4.4 (the deferral) and §4.4a (the results). Status: `TASKS.md` Task 18.12.
 
-**This tier found two new divergences, F9 and F10.** F10 is the more serious:
-on web, Godot's unreliable transfer modes lose **60–85%** of packets on a lossy
-link where desktop loses 5–8%. See "What this found" below.
+**This tier found two new divergences, F9 and F10.** F10 was the more serious —
+on web, Godot's unreliable transfer modes lost **75–87%** of packets on a lossy
+link where desktop lost 5–8% — and it is **fixed**: the default
+`unreliable_lifetime` is now 50 ms rather than 1 ms. See "What this found".
 
 ## How it differs from the parity tier
 
@@ -88,7 +89,8 @@ shaped result is not an artifact of the fixture.
 | `backpressure` | **1.** Does native's `get_buffered_amount()` *track* a real backlog — rise under load, fall as the link drains — or only flicker? It is the only flow-control signal in Godot's WebRTC API. |
 | `send_ceiling` | **2.** Does web hit a send-queue cap that native does not, and is hitting it graceful (`FAILED`, channel survives, retry works) or fatal? |
 | `recv_growth` | **3.** F3 made web's receive buffer grow instead of dropping. How large does it get with a peer that never drains, does the 8 MiB warning fire usefully, and does shrink-on-empty run? |
-| `loss_modes` | **4.** Do the transfer modes actually *behave* differently under loss? The parity tier compares their configuration but never their behavior — which is exactly how F8 survived a clean diff. |
+| `loss_modes` | **4.** Do the transfer modes actually *behave* differently under loss? The parity tier compares their configuration but never their behavior — which is exactly how F8 survived a clean diff. Builds its channels from explicit config dictionaries, so it pins the **mechanism**. |
+| `mp_modes` | The same question through `WebRTCMultiplayerPeer`'s own transfer modes, calling `add_peer()` with two arguments so the **engine picks the lifetime**. This is the only fixture that can verify a *default*, and so the only one that can catch someone lowering it again. |
 
 Add one as `fixtures/congestion_project/tests/<name>.gd` extending
 `tests/cong_base.gd`, which owns signaling, the offer/answer/ICE exchange and
@@ -147,7 +149,7 @@ Full detail and the per-run numbers: `webgpu_notes/webrtc_web.md` §4.4a.
 | 1 | native's `get_buffered_amount()` | **It tracks.** Peak 602 KB on a 2 Mbit/s link, rises under load, returns to 0. Usable for flow control. |
 | 2 | web's send-queue cap | **F9 — real divergence.** Chrome refuses past **16,770,584 bytes (~16 MiB)**; native accepted 24 MB with no cap. **Graceful**: `put_packet()` returns `FAILED`, the channel stays open, and a retry after drain succeeds. |
 | 3 | F3's receive-buffer growth | **Sound.** Held 12 MB with nothing drained, 3000/3000 intact, no reordering, shrink-on-empty ran. The 8 MiB warning fires at exactly 8,388,608 bytes and names the fix. (The "no ceiling" in §4.4 is not quite right: there is a hard refusal at 1 GiB, `IN_BUFFER_MAX_SHIFT`.) |
-| 4 | transfer modes under loss | **F10 — the serious one.** See below. |
+| 4 | transfer modes under loss | **F10 — the serious one, now fixed.** See below. |
 
 ### F10: web's unreliable transfer modes lose most of their packets
 
@@ -161,11 +163,25 @@ At 5% link loss and 25 ms one-way delay, delivery of 200 packets per channel:
 | **`life1`** | `+ maxPacketLifeTime:1`, ordered | **90.5–95.5%** | **28.5–42.5%** |
 | **`life1u`** | `+ maxPacketLifeTime:1`, unordered | **92.5–99%** | **13–25.5%** |
 
-The two `life1*` rows are not hypothetical: they are byte-for-byte what
-`WebRTCMultiplayerPeer::add_peer` builds for `CH_ORDERED` and `CH_UNRELIABLE`,
-whose `unreliable_lifetime` parameter **defaults to 1** (ms). So on web,
-`TRANSFER_MODE_UNRELIABLE` delivers ~13–25% of its packets where desktop
-delivers ~95%.
+The two `life1*` rows were not hypothetical: they are byte-for-byte what
+`WebRTCMultiplayerPeer::add_peer` used to build for `CH_ORDERED` and
+`CH_UNRELIABLE`, whose `unreliable_lifetime` parameter **defaulted to 1** (ms).
+So on web, `TRANSFER_MODE_UNRELIABLE` delivered ~13–25% of its packets where
+desktop delivered ~95%.
+
+**Fixed**: that default is now **50 ms**
+(`WebRTCMultiplayerPeer::DEFAULT_UNRELIABLE_LIFETIME_MS`, shared by `add_peer`'s
+default, its `DEFVAL`, and the `channels_config` path that hardcoded the same
+`1` independently). Measured through the shipped path by `mp_modes.gd`:
+
+| mode | native | web | web, old 1 ms |
+|---|---|---|---|
+| `RELIABLE` | 100% | 100% | 100% |
+| `UNRELIABLE_ORDERED` | 94.5–97% | 91–97.5% | 28.5–42.5% |
+| `UNRELIABLE` | 93.5–94% | 92.5–96.5% | 13–25.5% |
+
+`loss_modes.gd` is kept as-is and still shows the old behavior, because its
+configs are explicit: it pins the mechanism, `mp_modes.gd` pins the default.
 
 Three things make this readable rather than alarming:
 

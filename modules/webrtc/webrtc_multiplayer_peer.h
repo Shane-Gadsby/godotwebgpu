@@ -40,6 +40,27 @@ class WebRTCMultiplayerPeer : public MultiplayerPeer {
 protected:
 	static void _bind_methods();
 
+public:
+	// Lifetime, in milliseconds, applied as "maxPacketLifeTime" to the two
+	// unreliable channels. It bounds how long the transport may keep
+	// RETRANSMITTING a lost packet; it does not delay or drop first
+	// transmissions, so on a lossless link every value behaves identically.
+	//
+	// This was 1 ms, and 1 ms is shorter than any real link's round trip, so
+	// nothing lost could ever be retransmitted in time. Measured at 5% loss and
+	// 25 ms one-way delay, that cost the browser implementation 75-87% of its
+	// packets (13-25% delivered) while desktop still delivered ~95% -- a
+	// platform divergence of the kind that only appears off a loopback, which is
+	// why it went unnoticed until webgpu_tests/webrtc_congestion/ existed.
+	// At 50 ms both implementations deliver 94-97%, i.e. they agree and lose
+	// only what the link actually dropped. See webgpu_notes/webrtc_web.md
+	// §4.4a.4 (F10) for the measurements.
+	//
+	// The value is only ever a retransmission budget: raising it does not make
+	// an unreliable channel reliable, it makes "unreliable" mean the same thing
+	// on both platforms.
+	static const int DEFAULT_UNRELIABLE_LIFETIME_MS = 50;
+
 private:
 	enum {
 		CH_RELIABLE = 0,
@@ -93,7 +114,7 @@ public:
 	Error create_server(const Array &p_channels_config = Array());
 	Error create_client(int p_self_id, const Array &p_channels_config = Array());
 	Error create_mesh(int p_self_id, const Array &p_channels_config = Array());
-	Error add_peer(const Ref<WebRTCPeerConnection> &p_peer, int p_peer_id, int p_unreliable_lifetime = 1);
+	Error add_peer(const Ref<WebRTCPeerConnection> &p_peer, int p_peer_id, int p_unreliable_lifetime = DEFAULT_UNRELIABLE_LIFETIME_MS);
 	void remove_peer(int p_peer_id);
 	bool has_peer(int p_peer_id);
 	Dictionary get_peer(int p_peer_id);

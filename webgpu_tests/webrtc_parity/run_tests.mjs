@@ -58,8 +58,15 @@ const EXPECT = {
 			['reliable mode delivers', /recv mode=RELIABLE .*ok=true/],
 			['unreliable-ordered mode delivers', /recv mode=UNRELIABLE_ORDERED .*ok=true/],
 			['unreliable mode delivers', /recv mode=UNRELIABLE .*ok=true/],
-			['F8: the ordered channel really carries a packet lifetime', /ch1 .*lifetime=1 .*label=ordered/],
-			['F8: so does the unreliable channel', /ch2 .*lifetime=1 .*label=unreliable/],
+			// 50 is WebRTCMultiplayerPeer::DEFAULT_UNRELIABLE_LIFETIME_MS, which
+			// these channels get because `mesh` goes through add_peer(). It was
+			// 1 until F10 showed that 1 ms -- shorter than any real round trip
+			// -- cost web 75-87% of its packets under loss
+			// (webgpu_notes/webrtc_web.md §4.4a.4). What F8 is guarding here is
+			// that a lifetime is applied AT ALL; the value belongs to the
+			// engine, so if it changes again this is the assertion to update.
+			['F8: the ordered channel really carries a packet lifetime', /ch1 .*lifetime=50 .*label=ordered/],
+			['F8: so does the unreliable channel', /ch2 .*lifetime=50 .*label=unreliable/],
 		],
 		deny: [['no mode times out', /recv mode=\w+ TIMEOUT/]],
 	},

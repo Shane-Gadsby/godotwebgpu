@@ -8087,7 +8087,8 @@ fixed**: F1 and F2 (Task 18.9), F3 (Task 18.10), F8 (Task 18.13), and F4, F5 and
 (Task 18.14). F6 remains, an upstream webrtc-native nuisance that affects the harness rather than
 the engine. **F9 and F10 came later and from a different tier** — the congestion work
 (Task 18.12), which applies real bandwidth pressure and so reaches a class of behavior no loopback
-can: F9 is documented and benign (Task 18.15), **F10 is open and high-severity** (Task 18.16).
+can: F9 is documented and benign (Task 18.15), and **F10 was high-severity and is fixed** —
+`unreliable_lifetime` 1 ms → 50 ms (Task 18.16).
 All nine fixtures compare identical across three export variants and two browsers, and 18 of 18
 channel observables match where the first pass had 15.
 F8 is not a web/native divergence at all — both platforms shared it — so it is the one finding here
@@ -8482,7 +8483,7 @@ control that none of it is a veth artifact.
 | 1. does native's `get_buffered_amount()` track a backlog? | **Yes.** Peak 602 KB on 2 Mbit/s, rises under load, returns to 0. Usable for flow control. |
 | 2. does web have a send-queue cap native lacks? | **Yes — F9.** Chrome refuses past 16,770,584 B; native accepted 24 MB. Graceful, visible (`FAILED`), recoverable. |
 | 3. is F3's ceiling-less receive growth sound? | **Yes.** 12 MB held, 3000/3000 intact, shrink-on-empty ran, 8 MiB warning fires usefully. (And it is not ceiling-less: 1 GiB hard refusal.) |
-| 4. do the transfer modes behave differently under loss? | **Yes — and F10.** F8's fix demonstrably works, but web's unreliable modes deliver 13-25% where native delivers ~95%. |
+| 4. do the transfer modes behave differently under loss? | **Yes — and F10.** F8's fix demonstrably works, but web's unreliable modes delivered 13-25% where native delivered ~95%. Fixed by raising the default lifetime; both now 91-97%. |
 
 **Every fixture has a `NO_PRESSURE`-style verdict**, and the sweep includes unshaped and
 zero-loss controls. That is deliberate: without it a forgotten `shape.sh` is indistinguishable from
@@ -8532,7 +8533,7 @@ plan listed and no fixture had exercised (`loopback` only ever used `{"ordered":
 | `{ordered, maxPacketLifeTime: 1}` (correct) | **lifetime = 1** | **lifetime = 1** |
 | `{!ordered, maxRetransmits: 0}` | rtx = 0 | rtx = 0 |
 
-`chancfg verdict=TYPO_DROPPED` on both platforms. After the fix, `mesh` reports `lifetime=1` on
+`chancfg verdict=TYPO_DROPPED` on both platforms. After the fix, `mesh` reports a lifetime on
 channels 2 and 3 on both platforms (previously unset), all three transfer modes still deliver over
 loopback, and the full sweep is unchanged otherwise: `sizes`, `burst`, `grow`, `mesh_close`,
 `buffered` identical; `loopback`, `mesh` and `chancfg` differ on F5's lines alone.
@@ -8624,12 +8625,14 @@ treats `FAILED` as "retry later" behaves identically on both platforms.
 Note the native figure is "no cap **below the probe limit**", not "unbounded" — hence the verdict
 name `NO_CEILING_UP_TO_PROBE`.
 
-### Task 18.16: F10 — on web, the unreliable transfer modes lose most of their packets
-**Status**: `OPEN` — confirmed and quantified; needs an upstream question, not a fork patch.
+### Task 18.16: F10 — on web, the unreliable transfer modes lost most of their packets
+**Status**: `DONE` (2026-10-13) — confirmed, quantified, **fixed**.
 **Severity**: **high** for any project using the unreliable transfer modes on web.
-**Lines**: no change made. Behavior originates in `modules/webrtc/webrtc_multiplayer_peer.cpp:312-320`
-(`unreliable_lifetime`, default `1`, bound in `add_peer`). Measured by
-`webgpu_tests/webrtc_congestion/fixtures/congestion_project/tests/loss_modes.gd`.
+**Lines**: `modules/webrtc/webrtc_multiplayer_peer.h` (new
+`DEFAULT_UNRELIABLE_LIFETIME_MS = 50`, `add_peer`'s default),
+`modules/webrtc/webrtc_multiplayer_peer.cpp:39,223,226` (the `DEFVAL` and the `channels_config`
+path, which hardcoded `1` independently), `modules/webrtc/doc_classes/WebRTCMultiplayerPeer.xml`.
+Measured by `webgpu_tests/webrtc_congestion/fixtures/congestion_project/tests/{loss_modes,mp_modes}.gd`.
 
 At 5% link loss and 25 ms one-way delay, 200 paced packets per channel:
 
@@ -8665,7 +8668,29 @@ Fixing F8 was still right; this measures what honest unreliability costs on each
 note that its effect "is not verifiable on a lossless loopback" was hiding a far bigger number than
 anyone expected.
 
-**Why no code change.** The behavior follows the configuration, and `unreliable_lifetime = 1` is an
-upstream default shared with every other platform — changing it unilaterally in a rendering fork is
-the wrong place. Next step is an upstream question with these numbers attached. Unlike F9 there is
-**no API signal**: `put_packet()` returns `OK` for every packet that is then never delivered.
+**Unlike F9 there was no API signal**: `put_packet()` returned `OK` for every packet that was then
+never delivered. That is what tipped the decision — a benign, visible, recoverable cap (F9) is a
+documentation note; a silent 75-87% loss is not.
+
+**The fix**: the default `unreliable_lifetime` is now **50 ms**, as a named constant
+`WebRTCMultiplayerPeer::DEFAULT_UNRELIABLE_LIFETIME_MS`. The constant exists because the value was
+hardcoded in *two* independent places — `add_peer()`'s default (plus its `DEFVAL`) and the
+`channels_config` path at `webrtc_multiplayer_peer.cpp:223,226` — so changing one and not the other
+was an easy, silent mistake. The class documentation now explains that the value is a
+*retransmission* budget and that nothing changes on a lossless link; its prose also still carried
+F8's `maxPacketLifetime` typo, now corrected.
+
+**Verified through the shipped path.** `loss_modes.gd` *cannot* verify this: it builds channels from
+explicit configuration dictionaries, so it measures the mechanism and is blind to what the engine
+defaults to. `mp_modes.gd` calls `add_peer()` with two arguments and lets the engine choose, which
+is the only way to test a default. Both are kept — one pins the mechanism, the other the default:
+
+| mode (shipped default) | native | web | web, old 1 ms |
+|---|---|---|---|
+| `RELIABLE` | 100% | 100% | 100% |
+| `UNRELIABLE_ORDERED` | 94.5-97% | 91-97.5% | 28.5-42.5% |
+| `UNRELIABLE` | 93.5-94% | 92.5-96.5% | 13-25.5% |
+
+**This diverges from stock Godot by one default, deliberately.** 1 ms is a value upstream never
+measured off a loopback. The upstream question is still worth asking, but shipping 1 ms on web was
+not defensible once the number existed.

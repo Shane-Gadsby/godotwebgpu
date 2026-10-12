@@ -893,7 +893,8 @@ native, `get_max_packet_life_time()` on both). The key was dropped in silence, s
 mobile and web alike** — upstream since 2022, still in `upstream/master`, not fork damage. Raised by
 a separate code review, not by `compare.sh`, **because both platforms were equally wrong, so the diff
 was clean**. `tests/chancfg.gd` now measures it directly (`verdict=TYPO_DROPPED` on both platforms
-before the one-character fix; `lifetime=1` on channels 2 and 3 on both after). Three things worth
+before the one-character fix; a lifetime applied on channels 2 and 3 on both after — `lifetime=1`
+at the time, `lifetime=50` since F10 raised the default). Three things worth
 carrying:
 
 - **A cross-platform diff answers "do these differ?", never "is either correct?"** The
@@ -954,7 +955,7 @@ creating its output directories. A tier that cannot run on a fresh checkout is n
 neither bug was visible while the state it depended on happened to exist.
 
 The congestion work that was deferred is **done too** (see below) and it found two more
-divergences, F9 and F10. What remains is **F10's upstream question** and a Safari run.
+divergences: F9 (benign, documented) and F10 (high, **fixed**). What remains is a Safari run.
 
 The `WebRTCMultiplayerPeer` layer is now tested too and was **at parity, inheriting only F5**:
 `webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
@@ -1012,7 +1013,7 @@ phase.** Every result above comes from an unthrottled in-process loopback; a sec
 zero-loss control, and `./sweep.sh` reproduces the whole table in ~15 minutes. Full numbers:
 `webrtc_web.md` §4.4a; procedure: the tier's README; status: TASKS.md Tasks 18.12, 18.15, 18.16.
 
-- **F10 is the serious one, and it is open.** At 5% link loss and 25 ms delay, the channel
+- **F10 was the serious one, and it is fixed.** At 5% link loss and 25 ms delay, the channel
   configuration `WebRTCMultiplayerPeer::add_peer` actually builds — `maxPacketLifeTime` = its
   default of **1** ms — delivers **13-25% on web against ~95% on native**. So
   `TRANSFER_MODE_UNRELIABLE` loses most of its packets on web and there is **no API signal**:
@@ -1023,8 +1024,13 @@ zero-loss control, and `./sweep.sh` reproduces the whole table in ~15 minutes. F
   control channel agrees across platforms, so the divergence is in the *value* and the mitigation is
   already proven — pass a larger `unreliable_lifetime`. **It is a consequence of fixing F8, not a
   regression from it**: before that fix the lifetime was never applied, so both unreliable modes
-  were silently fully reliable everywhere. No code change was made — the default is upstream's and
-  shared with every platform, so the upstream conversation comes first.
+  were silently fully reliable everywhere. **Fixed** by raising the default `unreliable_lifetime`
+  from 1 ms to 50 ms as a named constant (`DEFAULT_UNRELIABLE_LIFETIME_MS`), since the value was
+  hardcoded in two independent places. Verified through the shipped path by a second fixture,
+  `mp_modes.gd`, which calls `add_peer()` with two arguments and lets the engine choose — the
+  original `loss_modes.gd` names its configs explicitly and so is blind to a default. Web now
+  delivers 91-97.5% against native's 93.5-97%. This diverges from stock Godot by one default, on
+  purpose: 1 ms is a value upstream never measured off a loopback.
 - **F9 is real and benign.** Chrome refuses a send past **16,770,584 bytes** (~16 MiB) where native
   accepted 24 MB — exactly the cap §4.4 predicted as the likeliest remaining divergence, and the
   first finding where web's limit is the *browser's* rather than Godot's. The channel stays open,
@@ -1071,13 +1077,12 @@ Everything on that list is now done except a Safari run, which needs a Mac, and 
 
 Nothing here is a known bug — every tier is green and nothing is skipped. In rough order of value:
 
-0. **Take F10 upstream** (TASKS.md Task 18.16, `webrtc_web.md` §4.4a.4). It is the only open
-   high-severity finding in Phase 18 and the fix is not ours to make: `unreliable_lifetime`
-   defaults to `1` ms in `WebRTCMultiplayerPeer::add_peer`, which costs web 75-87% of its packets
-   on a lossy link and desktop ~5%. The numbers, the controls that isolate it to the lifetime
-   *value*, and the proven mitigation (a larger lifetime) are all in place — what is needed is the
-   upstream question about whether that default is sensible, not a fork patch. Cheap, and it is
-   the one thing here that affects shipping projects.
+0. **Offer F10's default change upstream** (TASKS.md Task 18.16, `webrtc_web.md` §4.4a.4).
+   Already fixed here — `unreliable_lifetime` 1 ms → 50 ms — but the fork now differs from stock
+   Godot by one default, so the sooner upstream has the numbers the less likely that drift
+   matters. Everything needed is in place: the measurements, the controls isolating it to the
+   lifetime *value*, and two fixtures (one for the mechanism, one for the default). Cheap, and it
+   is the only item here that affects projects on other platforms too.
 0.1. **Decide whether threading is actually worth having, now that it is possible** (Task 14 subtask
    1.5.8.5, untouched). §4.12 made `threads=yes dlink_enabled=yes` *boot*; that is not the same as
    it being *useful*, and the honest next step is a real-project run on real hardware. Two things
@@ -1102,10 +1107,10 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
    stage 4. Two things are left, both deliberate rather than overlooked:
    - ~~**Nothing is tested under real bandwidth pressure**~~ — **done** (2026-10-13,
      `webgpu_tests/webrtc_congestion/`, TASKS.md Task 18.12, `webrtc_web.md` §4.4a). It found F9
-     (web's ~16 MiB send cap, benign and documented) and **F10, which is open and the
-     highest-severity finding in the phase**: on web the unreliable transfer modes deliver 13-25%
-     where native delivers ~95%, with no API signal. The send-queue ceiling really was the
-     likeliest divergence, as predicted — but F10 is the one nobody saw coming.
+     (web's ~16 MiB send cap, benign and documented) and **F10, the highest-severity finding in
+     the phase, now fixed**: on web the unreliable transfer modes delivered 13-25% where native
+     delivered ~95%, with no API signal. The send-queue ceiling really was the likeliest
+     divergence, as predicted — but F10 is the one nobody saw coming.
    - **Safari has never been run.** The driver exists (`RTC_BROWSER=safari`, AppleScript, as
      `scene_smoketest` does it) and `local_ci.sh` invokes it on `Darwin`, but no run has happened:
      this work was done on Linux, and Playwright's `webkit` is not Safari and has no WebGPU. One
