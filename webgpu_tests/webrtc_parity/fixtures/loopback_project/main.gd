@@ -12,6 +12,10 @@ func _ready() -> void:
 		var args := OS.get_cmdline_user_args()
 		if args.size() > 0 and args[0] != "":
 			which = args[0]
+	# Self-document the variant: "threads" is the tag web_main.cpp itself checks,
+	# so a threaded export is distinguishable from a nothreads one in the log.
+	print("RTC| env web=%s threads=%s" % [
+		str(OS.has_feature("web")), str(OS.has_feature("threads"))])
 	print("RTC| test=%s" % which)
 	var path := "res://tests/%s.gd" % which
 	if not ResourceLoader.exists(path):

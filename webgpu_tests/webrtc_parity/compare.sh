@@ -5,12 +5,12 @@
 #   ./compare.sh mesh
 #   ./compare.sh loopback
 #
-# Needs: a built native editor, an export already in exports/loopback/, and a
-# server on $PORT serving it. See webgpu_notes/webrtc_web.md §4.
+# Needs: a built native editor and an export. The runner serves it itself.
+# Override the export with RTC_DIR. See webgpu_notes/webrtc_web.md §4.
 set -uo pipefail
 
 TEST="${1:-loopback}"
-PORT="${PORT:-8099}"
+RTC_DIR="${RTC_DIR:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EDITOR="${EDITOR_BIN:-$ROOT/bin/godot.linuxbsd.editor.x86_64}"
 PROJ="$ROOT/webgpu_tests/webrtc_parity/fixtures/loopback_project"
@@ -27,7 +27,7 @@ norm() {
 }
 
 "$EDITOR" --headless --path "$PROJ" -- "$TEST" 2>&1 | grep -oE "RTC\|.*" > "$OUT/native.txt"
-RTC_URL="http://localhost:$PORT/index.html?test=$TEST" node "$(dirname "${BASH_SOURCE[0]}")/run_loopback.mjs" 2>&1 \
+RTC_DIR="${RTC_DIR:-$ROOT/webgpu_tests/webrtc_parity/exports/loopback}" RTC_TEST="$TEST" node "$(dirname "${BASH_SOURCE[0]}")/run_loopback.mjs" 2>&1 \
 	| grep -oE "RTC\|.*" > "$OUT/web.txt"
 
 norm "$OUT/native.txt" > "$OUT/n.txt"

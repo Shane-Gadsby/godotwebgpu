@@ -1,10 +1,11 @@
 # WebRTC on the Web Target — Feasibility Evaluation and Hardening Plan
 
-**Status:** Evaluation complete. Phase 0 **done** (both halves), the
-`WebRTCMultiplayerPeer` layer **done and at parity but for F5**, Phase 2
-dependency built and verified. F2 and F5 empirically proven on both platforms
-with shared fixtures. Remaining: fixes, F1/F3 behavioural tests, `threads=yes`,
-browser matrix.
+**Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
+layer **done and at parity but for F5**, **`threads=yes` done and at full
+parity**, F3 **quantified**, Phase 2 dependency built and verified. F2, F3 and
+F5 empirically proven on both platforms. Remaining: the fixes themselves, F1's
+behavioural test, F2 at the multiplayer layer, `MultiplayerAPI`/`@rpc`, and the
+Firefox/Safari matrix.
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
@@ -135,6 +136,34 @@ but not on desktop** if the application polls slowly. The two implementations
 have made opposite trade-offs: web bounds memory and sacrifices the delivery
 guarantee; native honours the guarantee and lets memory grow. Neither is
 obviously wrong, but they must not silently differ.
+
+**QUANTIFIED** by `tests/burst.gd` (§4.2) — 500 packets of 1000 bytes sent in a
+single tick on a reliable-ordered channel, receiver left to accumulate for 120
+ticks before draining:
+
+| | native | web (both threads and nothreads) |
+|---|---|---|
+| `put_packet` errors | 0 | 0 |
+| delivered | **500 / 500** | **65 / 500** |
+| dropped | 0 | **435** |
+| `out_of_order` / `first_gap` | 0 / none | 0 / none |
+| verdict | LOSSLESS | **LOSSY** |
+
+65 packets x 1005 bytes ≈ 65,325 bytes, i.e. exactly the 64 KB buffer, so the
+measurement matches the code precisely.
+
+Two details that matter for diagnosis, and that sharpen the earlier wording in
+this doc:
+
+- **It is a clean tail-drop, not scattered loss.** The receiver got sequence
+  0..64 contiguously and then nothing — `out_of_order=0` and no gap *within*
+  what arrived. An application therefore **cannot** detect it by looking for
+  sequence gaps in the delivered stream; the stream simply stops.
+- **There is no API-level signal on either side.** All 500 `put_packet()` calls
+  returned `OK`, and nothing reaches the receiving script. It is not completely
+  invisible, though: the engine prints `ERROR: Buffer full! Dropping data.`
+  **once per dropped packet** — 435 console errors in this run, which is its own
+  problem at volume.
 
 ### F4 — `is_negotiated` wrong default (web) — CONFIRMED COSMETIC
 
@@ -373,6 +402,8 @@ Assets created:
 | `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/rtc_test_base.gd` | shared base: `out()`, `finish()`, tick/phase state |
 | `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/loopback.gd` | the channel-level loopback |
 | `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/mesh.gd` | the `WebRTCMultiplayerPeer` mesh |
+| `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/burst.gd` | throughput/ordering/backpressure stress; measures F3 |
+| `webgpu_tests/webrtc_parity/exports/loopback_threads/` | the `threads=yes` export (gitignored) |
 | `webgpu_tests/webrtc_parity/run_loopback.mjs` | Playwright runner, scrapes `RTC\|` console lines |
 | `webgpu_tests/webrtc_parity/compare.sh` | runs one fixture both ways, normalizes, diffs — any surviving line is a divergence |
 | `webgpu_tests/webrtc_parity/exports/loopback/` | the web export (gitignored) |
@@ -491,6 +522,66 @@ about whether any remote peer's channels are open. Gating the first send on it
 raced the channels and failed with `ERROR: DataChannel not open` / `err=1`.
 Gate on `peer_connected` instead.
 
+### §4.2 `threads=yes`: full parity, and F3 quantified
+
+**Result: WebRTC under `threads=yes` is byte-identical to `nothreads`.** The
+`__proxy: 'sync'` marshalling that every function in `library_godot_webrtc.js`
+carries — never exercised in this fork before now — works, including under a
+500-packet burst.
+
+Setup: a second export preset `WebGPU-Threads` in the fixture project
+(`variant/thread_support=true`, pointing at `bin/godot.web.template_*.wasm32.zip`,
+the threaded non-dlink templates), exported to `exports/loopback_threads/`.
+**No Emscripten patches were needed** — `misc/emsdk_patches/` is required for
+`threads=yes dlink_enabled=yes`, and this is threads *without* dlink.
+
+Both variants are proven genuinely different builds rather than an accidental
+re-run of the same one: the runner reports `crossOriginIsolated=true`, and the
+dispatcher prints `OS.has_feature("threads")` (the tag `web_main.cpp:122` itself
+checks), which reads `true` on the threaded export and `false` on the other.
+
+All three fixtures, threads vs nothreads, after normalizing object ids, tick
+counts and the variant tag itself:
+
+| fixture | lines each side | result |
+|---|---|---|
+| `loopback` | 19 | **IDENTICAL** |
+| `mesh` | 33 | **IDENTICAL** |
+| `burst` | 9 | **IDENTICAL** |
+
+So `threads=yes` adds no divergence of its own, and **F3 reproduces identically
+under it** (65/500 delivered either way) — the backpressure loss is a property
+of the fixed `RingBuffer`, not of threading.
+
+What this does *not* cover: concurrent access to a channel or multiplayer peer
+from several Godot threads. Godot's `MultiplayerPeer` is not documented as
+thread-safe and the fixtures drive everything from the main loop, so that
+remains out of scope rather than verified.
+
+**Harness changes this phase.** `run_loopback.mjs` now serves the export itself
+with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`, which a threaded export requires
+for `SharedArrayBuffer`. This removes the external `python3 -m http.server`
+dependency and, for this tier, closes the gap HANDOFF §4.13 describes — the
+runner cannot be pointed at a non-isolating server by accident, and it prints
+`crossOriginIsolated` so a silent failure is visible. `RTC_DIR` selects the
+export, `RTC_TEST` the fixture.
+
+### §4.3 A `get_buffered_amount()` divergence worth a proper test (unconfirmed)
+
+The burst run also showed `buffered_after_send=500000` on web against **0** on
+native, read immediately after the 500 sends. If real, it matters: a project
+using `get_buffered_amount()` for flow control would see wildly different
+numbers per platform.
+
+**Not recorded as a finding, because the comparison is not sound as measured.**
+Native is libdatachannel over in-process loopback and may legitimately have
+flushed all 500 KB before the read, so `0` could be accurate rather than wrong.
+Web reports the browser's `bufferedAmount`, which is also accurate for its own
+state. Settling it needs a timing-controlled test — read the value at a fixed
+point while a known quantity is deliberately in flight — rather than this
+incidental read.
+
 ---
 
 ## 5. Hardening plan
@@ -561,12 +652,9 @@ dependency.
 - **Browser matrix**: Chrome, Firefox, Safari. Non-optional — Firefox has
   already produced two fork-specific blockers (`TASKS.md` Tasks 38, 41) and its
   WebRTC stack diverges from Chrome's more than its WebGPU one does.
-- **Build matrix**: `threads=no` (today's default) plus `threads=yes`, and
-  dlink. Every function in `library_godot_webrtc.js` carries a
-  `__proxy: 'sync'` annotation, marshalling the call to the main thread, and
-  **nothing has ever exercised that path in this fork.** Given the `0001`/`0002`
-  history in `misc/emsdk_patches/`, this is where fork-specific trouble is most
-  likely to appear.
+- **Build matrix**: `threads=no` and `threads=yes` are **DONE — identical, see
+  §4.2**; `dlink` remains untested (it needs the `misc/emsdk_patches/` toolchain
+  patches, unlike threads-without-dlink).
 
 ### Phase 4 — Fix, integrate, document (2-3 days)
 
@@ -591,10 +679,11 @@ end-to-end with reproducible output on both platforms. The harness now has to
 *verify and regression-guard known* divergences and extend coverage to F1/F3,
 rather than hunt for unknown ones.
 
-The dominant remaining unknown is `threads=yes`. The second is whether the
-`MultiplayerAPI`/`WebRTCMultiplayerPeer` layer adds divergences of its own on
-top of the channel layer — untested so far, and the layer real projects
-actually use.
+Both of the unknowns named here in the previous revision are now settled:
+`threads=yes` is at full parity (§4.2) and the `WebRTCMultiplayerPeer` layer
+adds no divergences of its own (§4). What is left is deciding and making the
+fixes, F1's behavioural test, F2 at the multiplayer layer,
+`MultiplayerAPI`/`@rpc`, the dlink variant, and the Firefox/Safari matrix.
 
 ---
 

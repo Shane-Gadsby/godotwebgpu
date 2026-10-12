@@ -8142,15 +8142,60 @@ untested above the `MultiplayerPeer` contract.
 `create_mesh()` succeeds and says nothing about remote channels being open. Gating the first send on
 it raced the channels and failed `ERROR: DataChannel not open`. Gate on `peer_connected`.
 
-### Task 18.6: remaining unknowns
-**Status**: `TODO`
+### Task 18.6: `threads=yes` is at full parity; F3 quantified
+**Status**: `DONE` (2026-10-12)
 
-1. **`threads=yes`** — every function in `library_godot_webrtc.js` carries `__proxy: 'sync'` to
-   marshal to the main thread, and nothing has ever exercised that path in this fork. Given the
-   `0001`/`0002` history in `misc/emsdk_patches/`, the most likely place for fork-specific trouble.
-   Needs a threads template plus COOP/COEP headers.
-2. F1 and F3 need the behavioural and deliberate-backpressure tests (plan Phase 3); neither is
-   covered by either fixture. F2 needs a no-poll-then-close variant at the multiplayer layer
-   (Task 18.5), and `MultiplayerAPI`/`@rpc` remains untested above the `MultiplayerPeer` contract.
+**WebRTC under `threads=yes` is byte-identical to `nothreads`.** The `__proxy: 'sync'` marshalling
+every function in `library_godot_webrtc.js` carries — never exercised in this fork before now —
+works, including under a 500-packet burst. All three fixtures, after normalizing object ids, tick
+counts and the variant tag: `loopback` 19 lines **IDENTICAL**, `mesh` 33 lines **IDENTICAL**,
+`burst` 9 lines **IDENTICAL**.
+
+Setup: a `WebGPU-Threads` preset (`variant/thread_support=true`, pointing at the threaded non-dlink
+`bin/godot.web.template_*.wasm32.zip`) exported to `exports/loopback_threads/`. **No Emscripten
+patches needed** — `misc/emsdk_patches/` is for `threads=yes dlink_enabled=yes`, and this is threads
+*without* dlink. Both variants are proven genuinely distinct builds: the runner reports
+`crossOriginIsolated=true` and the dispatcher prints `OS.has_feature("threads")` (the tag
+`web_main.cpp:122` itself checks), `true` on the threaded export and `false` on the other.
+
+Not covered: concurrent access from several Godot threads. `MultiplayerPeer` is not documented as
+thread-safe and the fixtures drive everything from the main loop, so that is out of scope rather
+than verified.
+
+**F3 is now quantified** by `tests/burst.gd` — 500 x 1000-byte packets sent in one tick on a
+reliable-ordered channel, receiver left to accumulate 120 ticks before draining:
+
+| | native | web (threads and nothreads alike) |
+|---|---|---|
+| `put_packet` errors | 0 | 0 |
+| delivered | **500 / 500** | **65 / 500** |
+| dropped | 0 | **435** |
+| verdict | LOSSLESS | **LOSSY** |
+
+65 x 1005 bytes ≈ 65,325, exactly the 64 KB buffer. Two details that sharpen the earlier wording:
+it is a **clean tail-drop** (sequence 0..64 contiguous, then nothing, `out_of_order=0`, no internal
+gap), so an app cannot detect it from gaps in the delivered stream — the stream just stops; and
+there is **no API-level signal** on either side (all 500 `put_packet()` returned `OK`, nothing
+reaches the receiving script), though the engine does print `ERROR: Buffer full! Dropping data.`
+once per dropped packet, 435 times here, which is its own problem at volume.
+
+**Harness**: `run_loopback.mjs` now serves the export itself with COOP/COEP, which a threaded
+export needs for `SharedArrayBuffer`. That drops the external `python3 -m http.server` and, for this
+tier, closes the HANDOFF §4.13 gap — it cannot be pointed at a non-isolating server by accident and
+prints `crossOriginIsolated` so silent failure is visible. `RTC_DIR` picks the export, `RTC_TEST` the
+fixture.
+
+**Unconfirmed, deliberately not filed as a finding**: the burst run showed
+`get_buffered_amount()` = 500000 on web against 0 on native, read right after the sends. If real it
+matters for flow control, but the comparison is not sound as measured — native may legitimately have
+flushed before the read. Needs a timing-controlled test.
+
+### Task 18.7: remaining unknowns
+**Status**: `TODO`
+1. F1 still needs a behavioural test (it is not script-exposed). F2 needs a no-poll-then-close
+   variant at the multiplayer layer (Task 18.5), and `MultiplayerAPI`/`@rpc` remains untested above
+   the `MultiplayerPeer` contract.
+2. `dlink_enabled=yes` is untested, and unlike threads-without-dlink it needs the
+   `misc/emsdk_patches/` toolchain patches.
 3. Browser matrix — Firefox and Safari untested; Firefox's WebRTC stack diverges from Chrome's more
    than its WebGPU one does.

@@ -863,10 +863,30 @@ object ids and tick counts, 32 output lines per side differ on nothing but F5's 
 That raises F5's severity — it shows on all three channels the multiplayer peer builds for every
 peer. Signals, transfer modes, `get_peers()` and disconnect detection all match exactly.
 
-Untested and next in line: `threads=yes`, whose `__proxy: 'sync'` marshalling has never been
-exercised here and overlaps the §4.12/§4.13 threading caveats; F1/F3's behavioural tests; F2 at the
-multiplayer layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);
-`MultiplayerAPI`/`@rpc` above the `MultiplayerPeer` contract; and the Firefox/Safari matrix.
+**`threads=yes` is at full parity too, and it is the one result here that is good news for §4.12.**
+All three fixtures are byte-identical between the threaded and nothreads exports (`loopback` 19
+lines, `mesh` 33, `burst` 9), so the `__proxy: 'sync'` marshalling that every function in
+`library_godot_webrtc.js` carries — never exercised in this fork before — works, including under a
+500-packet burst. It needed **no** `misc/emsdk_patches/` work, because those are for
+`threads=yes dlink_enabled=yes` and this is threads *without* dlink. Both variants are provably
+distinct builds: the runner prints `crossOriginIsolated` and the fixture prints
+`OS.has_feature("threads")`.
+
+Relevant to §4.13: `webgpu_tests/webrtc_parity/run_loopback.mjs` serves its own export with
+COOP/COEP, so this tier cannot be pointed at a non-isolating server by accident. Worth copying if
+the other nine servers get fixed.
+
+**F3 is now quantified, and it is worse than "can lose data" implied**: 500 reliable-ordered packets
+sent in one tick arrive 500/500 on native and **65/500 on web** (435 dropped, identically with and
+without threads — it is the fixed 64 KB `RingBuffer`, not threading). It is a clean tail-drop, so an
+app cannot spot it from sequence gaps: the stream simply stops. And no API-level signal exists on
+either side — every `put_packet()` returned `OK` — though the engine prints
+`ERROR: Buffer full! Dropping data.` once per dropped packet (435 times), which is its own problem.
+
+Untested and next in line: F1's behavioural test (it is not script-exposed); F2 at the multiplayer
+layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);
+`MultiplayerAPI`/`@rpc` above the `MultiplayerPeer` contract; `dlink_enabled=yes`, which unlike
+threads does need the toolchain patches; and the Firefox/Safari matrix.
 
 ## 8. Suggested order for the next session
 
