@@ -303,24 +303,21 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 │  │ comparison      │                                            │
 │  └─────────────────┘                                            │
 │                                                                 │
-│  ┌─────────────────┐  (parallel, no build needed)               │
-│  │ scene-smoketest │  18 scenes × Chrome + Firefox              │
-│  │                 │  (needs pre-exported scenes — see below;   │
-│  │                 │  currently a no-op in CI, see * below)     │
-│  └─────────────────┘                                            │
-│                                                                 │
 │  ┌─────────────────┐                                            │
 │  │ build-webgpu    │  Web template + Linux editor + export      │
-│  │ (~60 min)       │  + SPIR-V dump (309 shaders)               │
+│  │ (~60 min)       │  + SPIR-V dump (309 shaders), and exports  │
+│  │                 │  the scene-smoketest and WebRTC fixtures   │
 │  └────────┬────────┘                                            │
 │           │                                                     │
-│           ├──────────────┐                                      │
-│           ▼              ▼                                      │
-│  ┌────────────────┐  ┌──────────────┐                           │
-│  │ validate-spirv │  │ smoke-test   │                           │
-│  │ All SPIR-V     │  │ Headless     │                           │
-│  │ through Tint   │  │ Chrome run   │                           │
-│  └────────────────┘  └──────────────┘                           │
+│           ├──────────────┬───────────────┬──────────────┐       │
+│           ▼              ▼               ▼              ▼       │
+│  ┌────────────────┐ ┌────────────┐ ┌───────────┐ ┌────────────┐ │
+│  │ validate-spirv │ │ smoke-test │ │ scene-    │ │ webrtc-    │ │
+│  │ All SPIR-V     │ │ Headless   │ │ smoketest │ │ parity     │ │
+│  │ through Tint   │ │ Chrome run │ │ 21 scenes │ │ 9 fixtures │ │
+│  │                │ │            │ │ × Chrome  │ │ in Chrome  │ │
+│  │                │ │            │ │ + Firefox │ │            │ │
+│  └────────────────┘ └────────────┘ └───────────┘ └────────────┘ │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────┐        │
 │  │ test-summary   │  Aggregates results, gates merge   │        │
@@ -336,13 +333,15 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 | `build-webgpu` | — | 90 min | Yes |
 | `validate-spirv` | build-webgpu | 10 min | Yes |
 | `smoke-test` | build-webgpu | 15 min | Yes |
-| `scene-smoketest` | — | 20 min | Yes* |
+| `scene-smoketest` | build-webgpu | 20 min | Yes |
 | `resource-lifecycle` | — | 15 min | Yes |
 | `webrtc-parity` | build-webgpu | 25 min | Yes |
 | `screenshot-comparison` | — | 20 min | No (warning only) |
 | `test-summary` | all above | — | — |
 
-\* **Known gap**: `scene-smoketest` runs `run_scenes.mjs` with the default `--skip-export`, but no exported scenes are checked into the repo and nothing exports them first in CI. Every scene comes back `SKIP` and the job passes having tested nothing — it isn't a real gate today despite the table above. Making it real requires: exporting the 18 scenes from a Linux editor + WebGPU template in CI (`run_scenes.mjs --export`), and fixing each scene project's `export_presets.cfg` first — they currently hardcode another contributor's local absolute template path (`/Users/dwalter/...`) and have `variant/extensions_support=false`, which silently resolves to the *non*-WebGPU template (the exact trap documented in `webgpu_notes/TASKS.md`'s Round 23 notes). `shader-corpus`, `validate-spirv`, `smoke-test`, `resource-lifecycle`, and `screenshot-comparison` do not have this problem — they build/use their dependencies for real.
+**`scene-smoketest` used to be a fake gate, and no longer is.** It once ran with the default `--skip-export` against exports that were never produced, so all 21 scenes came back `SKIP` and the job passed having tested nothing. Three things fixed it, and all three are load-bearing — removing any one of them puts the fake gate back: `build-webgpu` exports the scenes itself (`run_scenes.mjs --export-only`) and uploads them as the `scene-exports` artifact; `scene-smoketest` `needs: build-webgpu`, downloads that artifact and restores the deduped side modules; and it runs with **`--require-exports`**, which turns "no export on disk" from a skip into a failure. The old `export_presets.cfg` trap is gone too — `run_scenes.mjs` now rewrites both the template path and `variant/extensions_support` per export (deriving the latter from whether the template filename says `.dlink.`), instead of trusting a checked-in absolute path that pointed at one contributor's machine and silently resolved to the *non*-WebGPU template.
+
+**The general lesson, worth applying to any tier added here**: a test tier that skips is indistinguishable from one that passes unless it is built not to be. Every browser-driven tier in this suite now either fails or reports a distinct exit status when its inputs are missing — `--require-exports` for the scene smoketest, exit 2 plus a `SKIP --` line for `webrtc-parity` and the tiers `local_ci.sh` drives.
 
 ### Trigger Paths
 
