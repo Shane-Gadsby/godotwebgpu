@@ -3,11 +3,12 @@
 **Status:** Evaluation complete. Phase 0 **done**, the `WebRTCMultiplayerPeer`
 layer **done and at parity but for F5**, **`threads=yes` done and at full
 parity**, Phase 2 dependency built and verified. **F1, F2 and F3 — the three
-findings that lost data or misreported limits — are tested and fixed**;
-`compare.sh mesh_close` and `compare.sh grow` are identical, and `burst` and
-`sizes` differ on nothing but `get_buffered_amount()`. Remaining: F4, F5 and F7
-(one-line JS fixes), the `get_buffered_amount()` question (§4.3),
-`MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and the Firefox/Safari matrix.
+findings that lost data or misreported limits — are tested and fixed**, and the
+**`get_buffered_amount()` question is settled: not a divergence** (§4.3).
+`compare.sh` is now identical on `mesh_close`, `grow` and `buffered`, and
+`burst` and `sizes` differ on nothing at all. Remaining: F4, F5 and F7 (one-line
+JS fixes), `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and the Firefox/Safari
+matrix.
 **Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
@@ -589,13 +590,14 @@ graduates into `local_ci.sh`.
 | payload 1200 .. 65530 bytes | delivered intact | delivered intact | match |
 | payload 65531 / 262144 bytes | delivered intact | delivered intact (was dropped) | match since the F3 fix |
 | 500 x 1000 B burst, drained late | 500 / 500 | 500 / 500 (was 65 / 500) | match since the F3 fix |
-| `get_buffered_amount()` right after a send | 0 | **the payload size** | §4.3, unfiled |
+| `get_buffered_amount()` right after a send | 0 to 3.4 MB, varies per run | the payload size | not a divergence — §4.3 |
 
 Everything not flagged matches: **17 of 18 of the original observables**, two
 flagged rows left (F5 and F7), where it was 15 of 18 before the F2 fix. The
-added rows come from `tests/sizes.gd`, `tests/burst.gd` and `tests/grow.gd`;
-the only one still divergent is `get_buffered_amount()`, which is §4.3's open
-question rather than a filed finding.
+added rows come from `tests/sizes.gd`, `tests/burst.gd`, `tests/grow.gd` and
+`tests/buffered.gd`. The last row is **not** a divergence — both ends report
+their own queue accurately and native's figure is nondeterministic; §4.3 has the
+experiment that settled it.
 
 ### `WebRTCMultiplayerPeer` layer: at parity, inheriting only F5
 
@@ -686,7 +688,7 @@ runner cannot be pointed at a non-isolating server by accident, and it prints
 `crossOriginIsolated` so a silent failure is visible. `RTC_DIR` selects the
 export, `RTC_TEST` the fixture.
 
-### §4.3 A `get_buffered_amount()` divergence worth a proper test (unconfirmed)
+### §4.3 The `get_buffered_amount()` divergence — RESOLVED: not a divergence
 
 The burst run also showed `buffered_after_send=500000` on web against **0** on
 native, read immediately after the 500 sends. If real, it matters: a project
@@ -710,15 +712,67 @@ settle the question — in-process libdatachannel plausibly flushes synchronousl
 on `send()`. It stays open, and a test that keeps a known quantity in flight is
 still the thing that would close it.
 
-**With F1, F2 and F3 fixed this is the only divergence left in `burst` and
-`sizes`,** which makes it the cheapest remaining thing worth settling. The
-decisive experiment is small: send enough in one tick that no implementation
-could have flushed it (tens of MB), read `get_buffered_amount()` on the same
-tick and for a few ticks after, on both platforms. If native still reports `0`
-it is flushing synchronously and there is nothing to fix; if it reports a
-falling number, both are accurate and the divergence is only in *when* the
-value becomes observable; if it reports `0` while packets are provably still in
-flight, it is a native bug to report upstream.
+#### Settled by `tests/buffered.gd`: both values are correct, and there is
+#### nothing to fix
+
+The experiment: queue 10 MB in one tick, then sample the sender's
+`get_buffered_amount()` **and** the receiver's packet count together every
+tick, draining nothing until the end — so the receiver's count measures only
+what has crossed the wire. Three things came out of it, and the first one
+dissolves the finding.
+
+**1. Native does not report `0`. It reports whatever is genuinely still
+queued, which is nondeterministic.** Four consecutive native runs of the same
+fixture, same payload, read on the send tick:
+
+```
+buffered=0        receiver_has=989 of 1000
+buffered=720000   receiver_has=907
+buffered=1580000  receiver_has=821
+buffered=3430000  receiver_has=636
+```
+
+A scratch native run at 20x the payload (200 MB) reported `buffered=1060000`
+with 19872 of 20000 already delivered. So the original "native says 0" was a
+**single sample of a quantity that varies from 0 to 3.4 MB between runs** — the
+one reading that started this whole question happened to catch the fast end.
+Reading it once and treating it as the platform's answer was the mistake, not
+the implementation.
+
+**2. The mechanism, confirmed in libdatachannel's source.**
+`SctpTransport::send()` (`src/impl/sctptransport.cpp:374-394`) flushes its queue
+and tries to write the message straight into usrsctp; it only pushes onto
+`mSendQueue` and calls `updateBufferedAmount()` **when that write would block**.
+An in-process peer drains as fast as the sender produces, so native's queue is
+usually near-empty and `bufferedAmount` is near-zero. The browser, by contrast,
+queues everything and drains it on the event loop — which the GDScript send
+loop is monopolising — so it necessarily reports the whole 10 MB. Both numbers
+are an accurate account of each end's own queue; what differs is how fast that
+queue drains, and the in-process loopback is exactly the configuration that
+flatters native. Confirmation from the other direction: the **threaded** web
+export drains the same 10 MB in **1 tick** instead of 17, because its
+networking is not gated behind the starved main-thread loop.
+
+**3. A real finding fell out of it: the two ends' counters are not
+comparable mid-flight.** The fixture first asserted "the sender never claims to
+owe more than the receiver is missing", which web violates by up to ~61 KB: in
+a one-page loopback the receiver can see messages before the sender's own
+`bufferedAmount` has been decremented. There is no happens-before relation
+between the two counters, so **`get_buffered_amount()` is only meaningful about
+the end you read it from** — a project cannot use it to infer what the peer has.
+That is now what the fixture records (`ends_disagree_by_at_most`) instead of
+asserting.
+
+**What the fixture guards**, identical on both platforms and both web variants:
+every sample is in range (`0 ≤ buffered ≤ queued`), everything sent arrives in
+order, and the sender settles at `0` exactly when delivery completes.
+`./compare.sh buffered` is **identical**; the per-platform numbers live on lines
+the fixture marks `curve`, which `norm()` collapses (the raw output keeps them)
+precisely because they are legitimately run- and platform-dependent.
+
+**Not covered**: native's `bufferedAmount` against a congested *remote* link.
+The code path that reports a backlog is proven to exist and the 200 MB run
+exercises it, but no test here applies real bandwidth pressure.
 
 ---
 
@@ -875,12 +929,12 @@ All of the below is one day's work, 2026-10-12, in five commits on
 | `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
 | `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
 | Firefox / Safari | **OPEN** |
-| `get_buffered_amount()` (§4.3) | **OPEN, unconfirmed** — needs a timing-controlled test |
+| `get_buffered_amount()` (§4.3) | **RESOLVED — not a divergence**; `tests/buffered.gd`, `compare.sh buffered` identical |
 
-Estimate for the remainder: **~1.5-3 days**. Every divergence that lost data or
-misreported a limit (F1, F2, F3) is closed, including F3's design decision.
-What is left is F4/F5/F7 as one-line JS changes behind the same
-`null`-vs-`undefined` mechanism, the `get_buffered_amount()` experiment (§4.3),
+Estimate for the remainder: **~1-2.5 days**. Every divergence that lost data or
+misreported a limit (F1, F2, F3) is closed, including F3's design decision, and
+the one unfiled suspicion (§4.3) is settled as a non-divergence. What is left is
+F4/F5/F7 as one-line JS changes behind the same `null`-vs-`undefined` mechanism,
 and coverage: `MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari.
 
 ### Corrections made to this document as evidence arrived
@@ -903,7 +957,15 @@ not catch:
 4. **A reported "hang" in the native reference peer did not exist.** The test
    script hit a `SCRIPT ERROR` before reaching `quit()`, so the `SceneTree`
    looped forever. Isolating it took two runs and found clean exits throughout.
-5. **F3 was described as "can lose data if the application polls slowly".**
+5. **`get_buffered_amount()` was recorded as "web 500000 vs native 0", with
+   native's 0 the suspicious half.** Four runs of the same fixture put native at
+   0, 720000, 1580000 and 3430000 on the same tick: the quantity is
+   nondeterministic and the original row was one sample of it. Both
+   implementations report their own queue correctly and nothing needed fixing.
+   The real finding underneath was different and smaller — the two ends'
+   counters have no happens-before relation, so the value says nothing about
+   what the peer holds (§4.3).
+6. **F3 was described as "can lose data if the application polls slowly".**
    True but far too mild: a single tick's burst loses 435 of 500 packets on a
    reliable channel, as a tail-drop with no API-level signal. It was also
    described as a defensible trade-off ("web bounds memory, native honors the
@@ -1020,9 +1082,23 @@ not catch:
   for a wrong number is one line; the fix for the enforced limit it was
   mistaken for would have been a design change.
 - **Do not promote an unsound comparison to a finding.** The
-  `get_buffered_amount()` difference (500000 vs 0) is probably real and would
-  matter, but it was read incidentally at an uncontrolled moment, so it is
-  logged as needing a proper test (§4.3) rather than filed as F8.
+  `get_buffered_amount()` difference (500000 vs 0) looked real and would have
+  mattered, but it was read incidentally at an uncontrolled moment, so it was
+  logged as needing a proper test (§4.3) rather than filed as F8. **That call
+  paid off**: the proper test showed native returning 0, 720000, 1580000 and
+  3430000 across four identical runs. Had it been filed as F8 it would have been
+  "fixed" — by changing code that was already correct.
+- **Sample a value more than once before believing it.** One reading of a
+  nondeterministic quantity is an anecdote. The cheapest possible check — run
+  the same fixture four times — was what dissolved §4.3, and it cost less than
+  writing the finding up would have.
+- **When an assertion fails, check whether it was ever an invariant.**
+  `buffered.gd` first asserted that a sender cannot owe more than the receiver
+  is missing. Web failed it by ~61 KB, which looked like a bug and was not: the
+  two counters are updated independently, so the relation never held in the
+  first place. The fix was to demote the check to recorded data — and that
+  demotion *is* the finding worth keeping, since it means
+  `get_buffered_amount()` tells a project nothing about its peer.
 - **Check whether the work is already done before planning it.** The whole
   original question — "what would it take to add native WebRTC at parity?" —
   had the answer "it is already there, and here are the seven ways it differs".

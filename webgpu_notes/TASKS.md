@@ -8190,7 +8190,8 @@ fixture.
 **Unconfirmed, deliberately not filed as a finding**: the burst run showed
 `get_buffered_amount()` = 500000 on web against 0 on native, read right after the sends. If real it
 matters for flow control, but the comparison is not sound as measured — native may legitimately have
-flushed before the read. Needs a timing-controlled test.
+flushed before the read. Needs a timing-controlled test. **Settled in Task 18.11: it is not a
+divergence, and not filing it was the right call.**
 
 ### Task 18.7: progress log and lessons learned
 **Status**: `DONE` (2026-10-12)
@@ -8333,10 +8334,61 @@ duplication and reordering. **`./compare.sh grow` is identical on both platforms
 `mesh_close`.
 
 **Parity now**: `grow` and `mesh_close` identical; `loopback` differs only on F5 and F7; `mesh` only
-on F5; **`burst` and `sizes` differ only on `get_buffered_amount()`**, which is §4.3's open question
-and now the cheapest remaining thing worth settling (`webrtc_web.md` §4.3 has the decisive
-experiment). `threads=yes` matches `nothreads` on all six fixtures — verified by diffing the two web
+on F5; **`burst` and `sizes` differ only on `get_buffered_amount()`**, settled as a non-divergence in
+Task 18.11. `threads=yes` matches `nothreads` on all six fixtures — verified by diffing the two web
 runs directly, where the only textual difference across the set is a tick count and one SDP length.
 
 **Harness note**: `run_loopback.mjs` now surfaces `WARNING` console lines as well as errors, without
 which the 8 MiB growth warning would have been invisible to the tier.
+
+### Task 18.11: `get_buffered_amount()` — settled, and it is not a divergence
+**Status**: `DONE` (2026-10-12)
+**Severity**: none, as it turns out. It was the last thing in the tier that looked like a
+divergence.
+**Lines**: `webgpu_tests/webrtc_parity/fixtures/loopback_project/tests/buffered.gd` (new),
+`compare.sh` (`curve` normalization). **No engine change** — nothing was wrong.
+
+**The claim under test** (Task 18.6, deliberately unfiled): read right after a one-tick burst,
+`get_buffered_amount()` returned the payload size on web and `0` on native, which would have made
+flow control behave differently per platform.
+
+**What the test did.** `buffered.gd` queues 10 MB in one tick, then samples the sender's
+`get_buffered_amount()` **and** the receiver's packet count together every tick, draining nothing
+until the end, so the receiver's count measures only what has crossed the wire.
+
+**1. Native does not return 0 — the quantity is nondeterministic.** Four consecutive runs of the
+identical fixture, read on the send tick: `buffered=0` (receiver had 989/1000), `720000` (907),
+`1580000` (821), `3430000` (636). A scratch native run at 200 MB reported `buffered=1060000` with
+19872/20000 delivered. **The original finding was a single sample of a value that ranges over three
+orders of magnitude between runs.**
+
+**2. Mechanism, confirmed in libdatachannel's source.** `SctpTransport::send()`
+(`thirdparty/libdatachannel/src/impl/sctptransport.cpp:374-394`) flushes its queue and writes the
+message straight into usrsctp, pushing onto `mSendQueue` and calling `updateBufferedAmount()` **only
+when that write would block** — which a peer in the same process never forces. The browser queues
+everything and drains on the event loop that the GDScript send loop is monopolising, so it reports
+the full 10 MB. Both are accurate accounts of their own end's queue. Corroboration from the other
+side: the **threaded** web export drains the same 10 MB in **1 tick** rather than 17.
+
+**3. One real finding did fall out, smaller than the original.** The fixture first asserted that a
+sender cannot owe more than the receiver is missing. Web violates it by up to ~61 KB, because in a
+one-page loopback the receiver can see messages before the sender's `bufferedAmount` is decremented.
+The two counters are updated independently with no happens-before relation, so
+**`get_buffered_amount()` is only meaningful about the end it is read from** — it tells a project
+nothing about what its peer holds. That is now recorded as data (`ends_disagree_by_at_most`) rather
+than asserted.
+
+**What the fixture guards**, identical on native, web nothreads and web threads: every sample in
+range (`0 <= buffered <= queued`), everything sent arrives in order, sender settles at `0` when
+delivery completes. `./compare.sh buffered` is **identical**.
+
+**Harness**: lines a fixture prefixes `curve` are collapsed by `compare.sh`'s `norm()`, for numbers
+that are legitimately platform- and run-dependent; the raw output keeps the values. This preserves
+the tier's "any surviving line is a divergence" property for a fixture that deliberately measures a
+volatile quantity.
+
+**Not covered**: native's `bufferedAmount` against a congested *remote* link. The reporting path is
+proven to exist (the 200 MB run hits it), but nothing here applies real bandwidth pressure.
+
+**Tier status**: 7 fixtures. `mesh_close`, `grow`, `buffered`, `burst` and `sizes` compare identical;
+only `loopback` and `mesh` differ, on F5 and F7 — the two cosmetic findings left.

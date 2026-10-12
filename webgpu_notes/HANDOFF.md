@@ -915,7 +915,20 @@ sized on demand, which is what lets a single packet above 65530 bytes through at
 separate branch, where a mistake reorders packets rather than losing them — across three
 grow/partial-drain/regrow rounds and 2100 packets, and is identical on both platforms.
 
-`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~2-4 days,
+**The `get_buffered_amount()` difference was the last suspicious reading, and it is not a
+divergence.** It had been logged, correctly, as "needs a timing-controlled test" rather than filed as
+a finding — and that call paid off. `tests/buffered.gd` queues 10 MB in one tick and samples both
+ends together: native reports 0, 720000, 1580000 and 3430000 bytes on the send tick across four
+identical runs, so the original "native says 0" was one sample of a value spanning three orders of
+magnitude. libdatachannel's `send()` writes straight into usrsctp and only queues when that would
+block, which an in-process peer never forces, while the browser queues everything and drains on the
+event loop the script is monopolising. Both are accurate about their own end. **Two things worth
+carrying**: sample a value more than once before believing it (four runs cost less than writing the
+finding up would have), and `get_buffered_amount()` tells a project nothing about what its *peer*
+holds — the two ends' counters have no happens-before relation, and web's receiver can see ~61 KB
+before the sender's counter drops.
+
+`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~1-2.5 days,
 and the five corrections above) and §8 the lessons learned — the methodology worth reusing
 (in-process loopback, one fixture diffed across both targets, self-documenting configuration) and
 the traps, of which the two most expensive were a blocking main loop that can never work on web and
@@ -949,14 +962,14 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      promise.**
    - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
      served, and nine of our own test servers do not send them (§4.13).
-0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~1.5-3 days). The harness, six
-   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, and **F1, F2 and F3 — every
-   divergence that lost data or misreported a limit — are tested and fixed**. What is left:
-   one-line JS fixes for F4/F5/F7, the `get_buffered_amount()` experiment (§4.3 — now the only
-   divergence left in `burst` and `sizes`, and the design for the decisive test is written down),
-   `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the Firefox/Safari matrix. A web
-   template rebuild is 3 minutes incremental and the native side needs none, since everything
-   involved is web-only.
+0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~1-2.5 days). The harness, seven
+   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, **F1, F2 and F3 — every
+   divergence that lost data or misreported a limit — are tested and fixed**, and the
+   `get_buffered_amount()` suspicion is settled as a non-divergence. Five of the seven fixtures now
+   compare identical; only `loopback` and `mesh` differ, on F5 and F7. What is left: one-line JS
+   fixes for F4/F5/F7, `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
+   Firefox/Safari matrix. A web template rebuild is 3 minutes incremental and the native side needs
+   none, since everything involved is web-only.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

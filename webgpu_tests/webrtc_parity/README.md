@@ -69,6 +69,7 @@ is visible.
 | `mesh` | `WebRTCMultiplayerPeer`: two-peer mesh, `peer_connected`/`peer_disconnected`, all three transfer modes, the three auto-created channels, disconnect detection |
 | `burst` | 500 x 1000 bytes in one tick with delayed draining: throughput, ordering, and F3 (backpressure loss) |
 | `grow` | F3 regression guard: three grow / partial-drain / regrow rounds, 2100 packets, checking loss, duplication and reordering — specifically growing a **wrapped** receive buffer |
+| `buffered` | `get_buffered_amount()` under a 10 MB one-tick burst, sampling sender and receiver together: asserts range and settling, records the per-platform curve |
 | `sizes` | F1: payload sweep 1200 / 1201 / 4 KB / 16 KB / 16385 / 65530 / 65531 / 256 KB — `put_packet()` error, channel state after the send, delivery and integrity |
 | `mesh_close` | F2 at the multiplayer layer: packets queued and never drained, then the sender closes. Reads both through `WebRTCMultiplayerPeer` and through a channel `Ref` taken while connected |
 
@@ -84,7 +85,9 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
    starves and nothing connects.
 2. **Print everything as `RTC| key=value`**, stable across runs, so the diff
    stays meaningful. Anything genuinely volatile needs a rule in
-   `compare.sh`'s `norm()`.
+   `compare.sh`'s `norm()` — or, for a number that is legitimately
+   platform- and run-dependent, prefix the line `curve`, which `norm()` already
+   collapses while the raw output keeps the value.
 3. **Call `finish()`** from the base script when done; it signals Playwright on
    web and quits on native.
 4. **Do not gate on `get_connection_status()` for a mesh** — it reads
@@ -94,11 +97,11 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 ## Current result
 
 Native vs web, connected channel: **17 of 18 observables match** (15 before the
-F2 fix). The surviving divergences are F5 and F7. `./compare.sh mesh_close` and
-`./compare.sh grow` are **identical**; `loopback` differs only on F5's and F7's
-lines; `burst` and `sizes` differ only on `get_buffered_amount()`.
-`threads=yes` matches nothreads across all six fixtures.
-`WebRTCMultiplayerPeer` adds no divergence of its own and inherits only F5.
+F2 fix). The surviving divergences are F5 and F7. `mesh_close`, `grow`,
+`buffered`, `burst` and `sizes` all compare **identical**; only `loopback` and
+`mesh` differ, on F5's and F7's lines. `threads=yes` matches nothreads across
+all seven fixtures. `WebRTCMultiplayerPeer` adds no divergence of its own and
+inherits only F5.
 
 | id | divergence | severity | state |
 |----|------------|----------|-------|
@@ -133,12 +136,19 @@ which is what lets a single 256 KB packet through. After the fix `burst`
 delivers 500/500, `sizes` delivers every payload up to 256 KB, and a scratch
 12 MB-in-one-tick run delivered all 1200 packets in order with one warning.
 
-`sizes` also shows `get_buffered_amount()` read immediately after a send:
-**web reports the payload, native reports 0**, now across eight payload sizes
-up to 256 KB. Still filed as unconfirmed (see `webrtc_web.md` §4.3) — in-process
-libdatachannel may genuinely have flushed — but the sweep is a stronger version
-of the same observation, and it is now **the only divergence left in `burst`
-and `sizes`**.
+**`get_buffered_amount()` was the last thing that looked like a divergence, and
+it is not one.** It was recorded as "web reports the payload, native reports 0".
+`buffered` settles it: four identical native runs report 0, 720000, 1580000 and
+3430000 bytes on the send tick, so native's figure is nondeterministic and the
+original row was one sample of it. libdatachannel's `send()` writes straight
+into usrsctp and only queues when that would block, which an in-process peer
+never forces; the browser queues everything and drains it on the event loop the
+script is monopolising. Both report their own end's queue accurately, both
+settle to 0 exactly when delivery completes, and nothing needed fixing. The
+genuine finding underneath is smaller: the two ends' counters have no
+happens-before relation (web's receiver can see ~61 KB before the sender's
+counter drops), so **`get_buffered_amount()` says nothing about what the peer
+holds**. `webrtc_web.md` §4.3 has the full experiment.
 
 Not yet covered: `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and
 Firefox/Safari.

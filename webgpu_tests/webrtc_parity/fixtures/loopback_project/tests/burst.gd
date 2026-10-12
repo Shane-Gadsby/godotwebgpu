@@ -73,8 +73,10 @@ func _step() -> void:
 						sent += 1
 					else:
 						send_errors += 1
-				out("sent=%d send_errors=%d buffered_after_send=%d" % [
-					sent, send_errors, ch1.get_buffered_amount()])
+				out("sent=%d send_errors=%d" % [sent, send_errors])
+				# "curve": see tests/buffered.gd — the amount still queued right
+				# after the send is platform- and run-dependent by nature.
+				out("curve buffered_after_send=%d" % ch1.get_buffered_amount())
 				settle_start = ticks
 				phase = "settle"
 
