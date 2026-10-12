@@ -10,7 +10,17 @@ var ticks := 0
 var phase := "start"
 
 func out(s: String) -> void:
-	print("RTC| " + s)
+	var line := "RTC| " + s
+	print(line)
+	if OS.has_feature("web"):
+		# Mirror every line onto window.__rtc_lines as well as the console.
+		# Safari is driven by AppleScript (`do JavaScript`), which cannot read
+		# the console at all, so the array is the only way to read a fixture's
+		# output there -- and it also means a browser that drops or truncates
+		# console messages shortens the diff visibly rather than silently.
+		# JSON.stringify keeps payloads containing quotes from breaking the eval.
+		JavaScriptBridge.eval(
+			"(window.__rtc_lines=window.__rtc_lines||[]).push(%s);" % JSON.stringify(line), true)
 
 func finish() -> void:
 	phase = "done"

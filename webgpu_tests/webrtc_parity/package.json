@@ -1,0 +1,13 @@
+{
+  "name": "webgpu-webrtc-parity",
+  "private": true,
+  "type": "module",
+  "description": "WebRTC web/native parity tier. run_tests.mjs is the CI entry point (web half); compare.sh diffs against the native reference peer.",
+  "scripts": {
+    "test": "node run_tests.mjs",
+    "export": "./export.sh"
+  },
+  "dependencies": {
+    "playwright": "^1.56.0"
+  }
+}

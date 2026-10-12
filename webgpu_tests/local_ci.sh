@@ -425,6 +425,11 @@ if [[ "$DO_EXPORT" == true ]]; then
     run_test "Re-export Forward+ fixture" \
         "$SCRIPT_DIR/forward_plus" \
         ./export.sh
+    # Same for the WebRTC fixture: one project driven through several fixtures,
+    # exported for both the nothreads and threads templates.
+    run_test "Re-export WebRTC fixture" \
+        "$SCRIPT_DIR/webrtc_parity" \
+        ./export.sh
     if [[ $FAILED -gt 0 ]]; then
         echo ""
         echo "Export failed — aborting rather than testing stale exports."
@@ -487,15 +492,59 @@ echo ""
 
 if [[ "$QUICK" == true ]]; then
     # Skip remaining stages in quick mode
-    echo "(--quick: skipping resource lifecycle and screenshot comparison)"
+    echo "(--quick: skipping WebRTC parity, resource lifecycle and screenshot comparison)"
     echo ""
 else
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. Resource Lifecycle
+# 4. WebRTC parity (web half)
 # ──────────────────────────────────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Stage 4: Resource Lifecycle Stress Test"
+echo "  Stage 4: WebRTC Parity (9 fixtures x exports x browsers)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+ensure_playwright "$SCRIPT_DIR/webrtc_parity"
+
+# Web half only: the native-vs-web diff (webrtc_parity/compare.sh) needs the
+# webrtc-native reference extension, a separate 581 MB clone whose built
+# libraries are gitignored, so it cannot run on a fresh checkout. Each fixture's
+# own verdict is asserted instead, which is what regresses if any of F1-F5, F7
+# or F8 breaks. See webgpu_notes/webrtc_web.md.
+# Chromium and Firefox both run every fixture; Firefox is where the browsers'
+# WebRTC stacks diverge most, and it is at parity (Task 18.8). run_tests.mjs
+# reports a browser it cannot launch -- or that has no WebGPU adapter to boot
+# the engine on, which is Firefox on a GPU-less runner -- as a SKIP rather than
+# nine failures.
+if [[ -n "${CI:-}" ]]; then
+    WEBRTC_BROWSERS=chromium
+else
+    WEBRTC_BROWSERS=chromium,firefox
+fi
+run_test "WebRTC parity (web, 9 fixtures)" \
+    "$SCRIPT_DIR/webrtc_parity" \
+    env RTC_BROWSERS="$WEBRTC_BROWSERS" node run_tests.mjs
+
+# Safari is AppleScript-driven and macOS-only, like the scene smoketest's Safari
+# tier. It has never been run, so a failure here is a new data point rather than
+# a regression; see webgpu_notes/TASKS.md Task 18.8.
+if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
+    run_test "WebRTC parity — Safari (9 fixtures)" \
+        "$SCRIPT_DIR/webrtc_parity" \
+        env RTC_BROWSERS=safari RTC_VARIANTS=nothreads node run_tests.mjs
+else
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "WebRTC parity — Safari (9 fixtures)"
+    SKIPPED=$((SKIPPED + 1))
+    RESULTS+=("SKIP  WebRTC parity — Safari (9 fixtures)")
+fi
+
+echo ""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Resource Lifecycle
+# ──────────────────────────────────────────────────────────────────────────────
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Stage 5: Resource Lifecycle Stress Test"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -508,10 +557,10 @@ run_test "Resource lifecycle stress tests" \
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Screenshot Comparison
+# 6. Screenshot Comparison
 # ──────────────────────────────────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Stage 5: Screenshot Comparison (Chrome + Firefox)"
+echo "  Stage 6: Screenshot Comparison (Chrome + Firefox)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 

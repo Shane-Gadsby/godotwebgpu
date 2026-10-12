@@ -20,6 +20,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
+| [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 
 ## How It Works
 
@@ -247,7 +248,24 @@ npm install playwright && npx playwright install chromium --with-deps
 node run_tests.mjs
 ```
 
-### 6. Screenshot Comparison (standalone, needs Playwright)
+### 6. WebRTC Parity (needs the editor + a web template)
+
+```bash
+cd webgpu_tests/webrtc_parity
+npm install && npx playwright install chromium firefox --with-deps
+./export.sh                                      # nothreads, threads and dlink
+node run_tests.mjs                               # web half — the CI entry point
+RTC_BROWSERS=chromium,firefox node run_tests.mjs
+```
+
+`run_tests.mjs` asserts what each fixture is supposed to *prove*. The real
+parity check is `./compare.sh <fixture>`, which diffs the same GDScript run
+natively against the browser — it needs the `webrtc-native` reference
+extension, a separate clone a fresh checkout does not have, which is why CI
+runs the web half. See [`webrtc_parity/README.md`](webrtc_parity/README.md),
+and `webgpu_notes/webrtc_web.md` for the eight findings it produced.
+
+### 7. Screenshot Comparison (standalone, needs Playwright)
 
 ```bash
 cd webgpu_tests/screenshot_comparison
@@ -320,6 +338,7 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 | `smoke-test` | build-webgpu | 15 min | Yes |
 | `scene-smoketest` | — | 20 min | Yes* |
 | `resource-lifecycle` | — | 15 min | Yes |
+| `webrtc-parity` | build-webgpu | 25 min | Yes |
 | `screenshot-comparison` | — | 20 min | No (warning only) |
 | `test-summary` | all above | — | — |
 

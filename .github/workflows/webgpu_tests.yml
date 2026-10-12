@@ -447,6 +447,27 @@ jobs:
           path: webgpu_tests/scene_smoketest/exports/
           retention-days: 7
 
+      # WebRTC parity tier. Exported here because this is where the editor and
+      # the template both exist. Only the dlink template is built in this job,
+      # so RTC_TEMPLATE_ZIP points at it and export.sh derives
+      # variant/extensions_support from the ".dlink." in the filename -- which
+      # also means this covers the dlink variant specifically (TASKS.md Task
+      # 18.8). The reference extension is not available here, so the job runs
+      # the web half (run_tests.mjs), not the native-vs-web diff.
+      - name: Export WebRTC parity fixture
+        working-directory: webgpu_tests/webrtc_parity
+        env:
+          EDITOR_BIN: ${{ github.workspace }}/bin/godot.linuxbsd.editor.x86_64
+          RTC_TEMPLATE_ZIP: ${{ github.workspace }}/bin/godot.web.template_release.wasm32.nothreads.dlink.zip
+        run: ./export.sh
+
+      - name: Upload WebRTC export
+        uses: actions/upload-artifact@v5
+        with:
+          name: webrtc-export
+          path: webgpu_tests/webrtc_parity/exports/
+          retention-days: 7
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
   # ═══════════════════════════════════════════════════════════════════════════════
@@ -631,6 +652,50 @@ jobs:
         run: node run_tests.mjs
 
   # ═══════════════════════════════════════════════════════════════════════════════
+  # WebRTC Parity: web-half assertions for every parity fixture
+  # ═══════════════════════════════════════════════════════════════════════════════
+  webrtc-parity:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    name: WebRTC Parity (Chrome)
+    needs: build-webgpu
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Download WebRTC export
+        uses: actions/download-artifact@v5
+        with:
+          name: webrtc-export
+          path: webgpu_tests/webrtc_parity/exports/
+
+      - name: Install Playwright
+        run: |
+          cd webgpu_tests/webrtc_parity
+          npm install
+          if sudo -n true 2>/dev/null; then
+            npx playwright install chromium --with-deps
+          else
+            npx playwright install chromium
+          fi
+
+      # Chromium only: Firefox has no software WebGPU on Linux, so on a GPU-less
+      # runner the engine has no adapter and never boots. Firefox is verified
+      # locally instead (TASKS.md Task 18.8). run_tests.mjs exits 2 if no export
+      # is present or no browser could run a fixture, which this job treats as a
+      # failure -- otherwise it could report success without having run anything.
+      - name: Run WebRTC parity tests (web half)
+        working-directory: webgpu_tests/webrtc_parity
+        env:
+          RTC_BROWSERS: chromium
+        run: node run_tests.mjs
+
+  # ═══════════════════════════════════════════════════════════════════════════════
   # Screenshot Comparison: Multi-browser visual regression
   # ═══════════════════════════════════════════════════════════════════════════════
   screenshot-comparison:
@@ -684,7 +749,7 @@ jobs:
   test-summary:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     name: Test Summary
-    needs: [shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, screenshot-comparison]
+    needs: [shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
     if: always()
     steps:
       - name: Check results
@@ -699,6 +764,7 @@ jobs:
           echo "  Smoke Test:           ${{ needs.smoke-test.result }}"
           echo "  Scene Smoketest:      ${{ needs.scene-smoketest.result }}"
           echo "  Resource Lifecycle:   ${{ needs.resource-lifecycle.result }}"
+          echo "  WebRTC Parity:        ${{ needs.webrtc-parity.result }}"
           echo "  Screenshot Compare:   ${{ needs.screenshot-comparison.result }}"
           echo ""
 
@@ -726,6 +792,10 @@ jobs:
           fi
           if [ "${{ needs.resource-lifecycle.result }}" = "failure" ]; then
             echo "::error::Resource lifecycle tests failed"
+            FAILED=1
+          fi
+          if [ "${{ needs.webrtc-parity.result }}" = "failure" ]; then
+            echo "::error::WebRTC parity tests failed — a fixture no longer proves what it asserts (see TASKS.md Phase 18)"
             FAILED=1
           fi
           # Screenshot comparison failures are warnings, not blockers

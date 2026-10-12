@@ -836,9 +836,9 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, eight findings, seven fixed, all eight fixtures identical
+## 7.5 WebRTC on web: already shipping, eight findings, seven fixed, 54 clean diffs
 
-New workstream as of 2026-10-12, full detail in `webgpu_notes/webrtc_web.md`, status summary in
+New workstream as of 2026-10-12, coverage closed 2026-10-13, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
 platform-agnostic and web already gets a complete `WebRTCPeerConnectionJS` over the browser's own
 `RTCPeerConnection`, overriding every pure virtual, already present in the `bin/` web templates.
@@ -913,11 +913,47 @@ back `rtx=0` on web, the identical value web reported for *unset*, so a delibera
 indistinguishable from no setting. That is what justified fixing it rather than documenting it, and
 it is now fixed along with F7 and F4 (one root-cause change; see above).
 
-**Where the tier stands: all eight fixtures compare identical on both web variants, and 18 of 18
-channel observables match** (15 on the first pass). Every confirmed divergence — F1-F5, F7, F8 — is
-fixed and measured. Only F6 is open, an upstream webrtc-native nuisance affecting the harness rather
-than the engine. What remains is coverage (`MultiplayerAPI`/`@rpc`, dlink, Firefox/Safari) and the
-deferred congestion work, which is the one place a new finding is still likely.
+**Where the tier stands: all nine fixtures compare identical to native across three export variants
+and two browsers — 9 x 3 x 2 = 54 clean diffs — and 18 of 18 channel observables match** (15 on
+the first pass).
+Every confirmed divergence — F1-F5, F7, F8 — is fixed and measured. Only F6 is open, an upstream
+webrtc-native nuisance affecting the harness rather than the engine.
+
+**The three coverage gaps closed on 2026-10-13, and none of them found a defect** (TASKS.md Task
+18.8, `webrtc_web.md` §7a). That is the result, not a hedge — each was a plausible hiding place:
+
+- **`MultiplayerAPI`/`@rpc` — identical.** `tests/rpc.gd` drives two `SceneMultiplayer` instances
+  over two `WebRTCMultiplayerPeer`s, attached to sibling subtrees with
+  `SceneTree.set_multiplayer(api, root_path)` so an RPC resolves by relative path. `@rpc` both
+  directions, `get_remote_sender_id()`, a target-less broadcast, all three transfer modes — which
+  only became meaningful *after* F8, since before it both unreliable modes were secretly reliable.
+- **`dlink_enabled=yes` — identical.** Now a permanent third export variant (`WebGPU-Dlink`,
+  `extensions_support=true` on the nothreads dlink template) rather than a one-off run, so it stays
+  covered. It also proves the project's own `webrtc-native` GDExtension, excluded on web by its
+  `exclude_tags`, does not disturb the export.
+- **Firefox — identical, and this was the genuinely uncertain one.** Its WebRTC stack diverges from
+  Chrome's considerably more than its WebGPU one does, and nothing in `modules/webrtc/` had ever run
+  on it. All nine fixtures read the same as native. Only SDP length and ticks to connect differ
+  between browsers (Chrome 457/456 and 3 ticks, Firefox 492/491 and 13), both already normalized.
+
+**Safari is the one browser never run, and that is the honest state.** `RTC_BROWSER=safari` drives
+it through AppleScript as `scene_smoketest` does, and `local_ci.sh` invokes it on `Darwin` — but
+this work was done on Linux, and **Playwright's `webkit` is not Safari and has no WebGPU**, so it
+is not a stand-in. Treat a first Safari failure as a new data point, not a regression.
+
+**The tier is now a CI stage** — `local_ci.sh` stage 4 and a `webrtc-parity` job in
+`.github/workflows/webgpu_tests.yml`, exporting from the dlink template `build-webgpu` already
+builds. `run_tests.mjs` is the web-half entry point:
+it asserts what each fixture is supposed to *prove*, in prose, rather than diffing, because the
+native half needs the 581 MB `webrtc-native` clone a fresh checkout does not have — 258 assertions
+over 9 fixtures x 3 variants in Chromium. A browser that cannot launch or has no WebGPU adapter is
+a SKIP, not nine failures; **a run where nothing executed exits 2, so the suite cannot report PASS
+on zero coverage.** Two harness bugs fell out of making it runnable from a clean state, both of the
+"only ever worked on one machine" kind: Playwright imported by absolute path, and `export.sh` never
+creating its output directories. A tier that cannot run on a fresh checkout is not a CI stage, and
+neither bug was visible while the state it depended on happened to exist.
+
+What remains is the deferred congestion work alone — the one place a new finding is still likely.
 
 The `WebRTCMultiplayerPeer` layer is now tested too and was **at parity, inheriting only F5**:
 `webgpu_tests/webrtc_parity/compare.sh mesh` runs a two-peer mesh both ways and, after normalizing
@@ -983,17 +1019,15 @@ fixture changes are needed, only a shaped link (`tc qdisc ... netem` on `lo`, na
 root) or a real off-box peer, which would need the signaling server this tier skipped. Plan, traps
 and what each outcome would change: `webrtc_web.md` §4.4 and TASKS.md Task 18.12 (`DEFERRED`).
 
-`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, remaining estimate ~1-2.5 days,
-and the five corrections above) and §8 the lessons learned — the methodology worth reusing
+`webgpu_notes/webrtc_web.md` §7 is the progress log (status table, §7a on closing the coverage gaps,
+and the seven corrections above) and §8 the lessons learned — the methodology worth reusing
 (in-process loopback, one fixture diffed across both targets, self-documenting configuration) and
 the traps, of which the two most expensive were a blocking main loop that can never work on web and
 `--headless -s` silently not loading a GDExtension because it does not generate
 `.godot/extension_list.cfg`.
 
-Untested and next in line: F1's behavioral test (it is not script-exposed); F2 at the multiplayer
-layer (the mesh fixture polls every tick, so it never builds the backlog F2 destroys);
-`MultiplayerAPI`/`@rpc` above the `MultiplayerPeer` contract; `dlink_enabled=yes`, which unlike
-threads does need the toolchain patches; and the Firefox/Safari matrix.
+Everything on that list is now done except a Safari run, which needs a Mac, and the congestion work
+(§4.4, Task 18.12), which needs a shaped link or an off-box peer rather than more code.
 
 ## 8. Suggested order for the next session
 
@@ -1017,18 +1051,19 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      promise.**
    - Also worth knowing before investing: threaded builds need COOP/COEP everywhere they are
      served, and nine of our own test servers do not send them (§4.13).
-0.5. **Finish the WebRTC parity tier** (§7.5, TASKS.md Phase 18, ~1-2.5 days). The harness, seven
-   both-targets fixtures and the `WebRTCMultiplayerPeer` layer are done, **F1, F2 and F3 — every
-   divergence that lost data or misreported a limit — are tested and fixed**, and the
-   `get_buffered_amount()` suspicion is settled as a non-divergence. Five of the seven fixtures now
-   compare identical; only `loopback` and `mesh` differ, on F5 and F7. What is left: one-line JS
-   `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the Firefox/Safari matrix — all
-   coverage, with no known defects left: F1-F5, F7 and F8 are all fixed and all eight fixtures
-   compare identical. A web template rebuild is 3 minutes incremental and the native side needs
-   none, since everything involved is web-only. **Separately deferred, and the one gap worth coming
-   back to on purpose: nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md`
-   §4.4, TASKS.md Task 18.12) — it needs `netem` or an off-box peer rather than more code, and web's
-   send-queue ceiling is the likeliest remaining divergence.
+0.5. ~~**Finish the WebRTC parity tier**~~ — **done** (§7.5, TASKS.md Phase 18). All eight
+   findings are fixed or accounted for, and the tier stands at **nine fixtures x three export
+   variants x two browsers = 54 identical native-vs-web diffs**, wired into `local_ci.sh` as
+   stage 4. Two things are left, both deliberate rather than overlooked:
+   - **Nothing is tested under real bandwidth pressure** (§7.5, `webrtc_web.md` §4.4, TASKS.md
+     Task 18.12) — the gap worth coming back to on purpose. It needs `netem` or an off-box peer
+     rather than more code, and **web's send-queue ceiling is the likeliest remaining divergence**
+     anywhere in the phase. F8 sharpened the reason: two transfer modes now really are unreliable,
+     and a lossless loopback cannot tell an unreliable channel from a reliable one.
+   - **Safari has never been run.** The driver exists (`RTC_BROWSER=safari`, AppleScript, as
+     `scene_smoketest` does it) and `local_ci.sh` invokes it on `Darwin`, but no run has happened:
+     this work was done on Linux, and Playwright's `webkit` is not Safari and has no WebGPU. One
+     `./webgpu_tests/local_ci.sh` on a Mac closes it; treat a first failure as a new data point.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

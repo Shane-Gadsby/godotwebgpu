@@ -25,41 +25,78 @@ process with SDP/ICE shuttled directly in GDScript. No signaling server, no
 second browser tab, and the whole path is still exercised — JS bridge, DTLS,
 SCTP, data channels.
 
+There are **two entry points**, because the diff cannot run everywhere:
+
+- **`compare.sh`** is the real parity check, and needs the `webrtc-native`
+  reference extension — a separate 581 MB clone whose built libraries are
+  gitignored. Use it whenever you have it.
+- **`run_tests.mjs`** is the CI entry point and the **web half only**. Instead
+  of diffing, it asserts what each fixture is supposed to *prove*, named in
+  prose, so a failure says which behavior regressed. Every F1-F5/F7/F8 fix has
+  a fixture line that changes if it breaks, so this catches a regression on a
+  fresh checkout where `compare.sh` cannot run at all.
+
+A green `run_tests.mjs` therefore means "no fix regressed"; a green
+`compare.sh` means "web and native agree".
+
 ## Running
 
+Build the native editor and the web templates first (see CLAUDE.md). Then:
+
 ```bash
-# 1. Build the native editor and the web templates (see CLAUDE.md).
-# 2. Build the reference peer (once; see webgpu_notes/webrtc_web.md §3):
+# Web half only — the CI entry point. Needs no reference extension.
+./export.sh            # all three variants, skipping any whose template is absent
+node run_tests.mjs     # every fixture x every export present, in Chromium
+
+RTC_BROWSERS=chromium,firefox node run_tests.mjs
+RTC_VARIANTS=dlink RTC_FILTER=rpc node run_tests.mjs
+```
+
+```bash
+# Native-vs-web parity. Needs the reference peer, built once
+# (see webgpu_notes/webrtc_web.md §3):
 cd webrtc-native
 scons platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j$(nproc)
 cp -r bin/extension/addons/webrtc_native ../fixtures/loopback_project/addons/
+cd ..
 
-# 3. First scan. Exits 134 with the extension present (F6) — expected, ignore it:
-P=fixtures/loopback_project
-../../bin/godot.linuxbsd.editor.x86_64 --headless --path $P --import || true
+./compare.sh rpc                                  # nothreads, Chromium
+RTC_DIR=exports/loopback_dlink ./compare.sh mesh   # another variant
+RTC_BROWSER=firefox ./compare.sh loopback          # another browser
 
-# 4. Export both web variants (fix the absolute template paths in
-#    fixtures/loopback_project/export_presets.cfg for your machine first):
-../../bin/godot.linuxbsd.editor.x86_64 --headless --path $P \
-    --export-release "WebGPU"         "$PWD/exports/loopback/index.html"
-../../bin/godot.linuxbsd.editor.x86_64 --headless --path $P \
-    --export-release "WebGPU-Threads" "$PWD/exports/loopback_threads/index.html"
-
-# 5. Compare native against web, per fixture:
-./compare.sh loopback
-./compare.sh mesh
-./compare.sh burst
-./compare.sh sizes
-./compare.sh mesh_close
-
-# A single run, without the native comparison:
+# One run, no comparison:
 RTC_DIR=exports/loopback_threads RTC_TEST=mesh node run_loopback.mjs
 ```
 
-`compare.sh` takes `RTC_DIR` (which export; default `exports/loopback`) and
-`EDITOR_BIN`. The runner serves the export itself with COOP/COEP, which
-threaded exports require, and prints `crossOriginIsolated` so a silent failure
-is visible.
+`compare.sh` takes `RTC_DIR` (which export; default `exports/loopback`),
+`RTC_BROWSER` and `EDITOR_BIN`. `export.sh` takes `EDITOR_BIN`, `RTC_THREADS=no`,
+`RTC_DLINK=no` and `RTC_TEMPLATE_ZIP` (a single template override, for CI, which
+builds only the dlink one). The runner serves the export itself with COOP/COEP,
+which threaded exports require, and prints `crossOriginIsolated` so a silent
+failure is visible.
+
+The first editor run against the project exits 134 with the reference extension
+present (F6, upstream) — `export.sh` does that scan separately and ignores it.
+
+### Variants and browsers
+
+| export | preset | notes |
+|---|---|---|
+| `exports/loopback` | `WebGPU` | nothreads, no GDExtension support — the default |
+| `exports/loopback_threads` | `WebGPU-Threads` | `thread_support=true`; needs COOP/COEP, which the runner sends |
+| `exports/loopback_dlink` | `WebGPU-Dlink` | `extensions_support=true` on the nothreads dlink template; needs the `misc/emsdk_patches/` toolchain patches |
+
+`RTC_BROWSER`/`RTC_BROWSERS` is `chromium` (default), `firefox`, or `safari`.
+Safari is macOS-only and driven by AppleScript rather than Playwright, exactly
+as `scene_smoketest/run_scenes.mjs` drives it, and needs Safari's
+Develop → "Allow JavaScript from Apple Events". **It has never actually been
+run** — see "Current result".
+
+A fixture's output is read from `window.__rtc_lines`, which
+`tests/rtc_test_base.gd` appends to alongside every `print()`. The console is
+used only for the error channel: polling the array works in every browser
+including Safari, where the console cannot be read at all, and it prints each
+line exactly once — which the diff depends on.
 
 ## Fixtures
 
@@ -73,6 +110,7 @@ is visible.
 | `chancfg` | channel-config round-trips: baseline, the `maxPacketLifetime` typo, the correct `maxPacketLifeTime`, and `maxRetransmits: 0` — every accessor read back on both ends (F8) |
 | `sizes` | F1: payload sweep 1200 / 1201 / 4 KB / 16 KB / 16385 / 65530 / 65531 / 256 KB — `put_packet()` error, channel state after the send, delivery and integrity |
 | `mesh_close` | F2 at the multiplayer layer: packets queued and never drained, then the sender closes. Reads both through `WebRTCMultiplayerPeer` and through a channel `Ref` taken while connected |
+| `rpc` | `MultiplayerAPI`/`@rpc` — the layer projects write against: two `SceneMultiplayer` instances over two `WebRTCMultiplayerPeer`s, `@rpc` both directions, `get_remote_sender_id()`, a target-less broadcast, all three transfer modes |
 
 Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 `tests/rtc_test_base.gd`; the dispatcher picks it up with no further wiring
@@ -97,10 +135,16 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 
 ## Current result
 
-**All eight fixtures compare identical, on both web variants, and 18 of 18
-channel observables match** (15 on the first pass). Every confirmed divergence
-is fixed: F1-F5, F7 and F8. Only F6 is left, and it is an upstream
-webrtc-native nuisance affecting this harness rather than the engine.
+**All nine fixtures compare identical to native across three export variants
+and two browsers — 9 x 3 x 2 = 54 clean diffs — and 18 of 18 channel observables match**
+(15 on the first pass). Every confirmed divergence is fixed: F1-F5, F7 and F8.
+Only F6 is left, and it is an upstream webrtc-native nuisance affecting this
+harness rather than the engine.
+
+**Safari is the one browser never run.** The driver exists and `local_ci.sh`
+invokes it on macOS, but this work was done on Linux, and Playwright's `webkit`
+is not Safari and has no WebGPU, so it is not a stand-in. Treat a first Safari
+failure as a new data point, not a regression.
 
 A green sweep means the two implementations *agree*, which is not the same as
 either being right — **F8 was a bug both platforms shared, so the diff stayed
@@ -154,8 +198,15 @@ happens-before relation (web's receiver can see ~61 KB before the sender's
 counter drops), so **`get_buffered_amount()` says nothing about what the peer
 holds**. `webrtc_web.md` §4.3 has the full experiment.
 
-Not yet covered: `MultiplayerAPI`/`@rpc`, `dlink_enabled=yes`, and
-Firefox/Safari.
+**Firefox was the uncertain one, and it is at parity.** Its WebRTC stack
+diverges from Chrome's considerably more than its WebGPU one does, and nothing
+in `modules/webrtc/` had ever run on it. All nine fixtures read identically to
+native. Only two observables differ between the browsers at all, and `norm()`
+already collapses both: SDP length (`loopback`: Chrome 457/456, Firefox 492/491,
+native 444/444) and ticks to connect (Chrome 3, Firefox 13 — Firefox is slower
+to gather candidates).
+
+The only thing left uncovered is deliberate, and it is the next section.
 
 ## Deferred: this tier never applies bandwidth pressure
 

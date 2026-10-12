@@ -1135,10 +1135,12 @@ just not doable in an in-process loopback.
 
 ## 7. Progress log
 
-All of the below is one day's work, 2026-10-12, in five commits on
-`webgpu-4.8`: `1151998221` (evaluation + loopback harness), `58f98d01b0`
-(multiplayer layer), `e8e969fb95` (threads + F3 measurement), `4e7919e241`
-(F1 + F2 tested and fixed), and the F3 fix.
+All of the below is 2026-10-12 and 2026-10-13. 2026-10-12, on `webgpu-4.8`:
+`1151998221` (evaluation + loopback harness), `58f98d01b0` (multiplayer layer),
+`e8e969fb95` (threads + F3 measurement), `4e7919e241` (F1 + F2 tested and
+fixed), `5398356e71` (F3), `15c7a1ccc3` (F8) and `5a00ef9df3` (F5/F7/F4).
+2026-10-13 closed the three remaining coverage gaps — `@rpc`, dlink and the
+browser matrix — and the tier became a CI stage.
 
 ### Status at a glance
 
@@ -1159,18 +1161,84 @@ All of the below is one day's work, 2026-10-12, in five commits on
 | F3 regression guard | **DONE** — `tests/grow.gd`, 2100 packets over 3 grow/regrow rounds |
 | Fixes for F4, F5, F7 | **DONE** — one root-cause change in `get_prop` (`null` is absence) plus a default audit; `loopback`, `mesh` and `chancfg` became identical |
 | F8 (`maxPacketLifetime` typo) | **DONE** — found by code review, not by the harness; measured by `tests/chancfg.gd` and fixed |
-| `MultiplayerAPI` / `@rpc` | **OPEN** — only the `MultiplayerPeer` contract beneath it is covered |
-| `dlink_enabled=yes` | **OPEN** — needs the `misc/emsdk_patches/` toolchain patches |
-| Firefox / Safari | **OPEN** |
+| `MultiplayerAPI` / `@rpc` | **DONE** (2026-10-13) — `tests/rpc.gd`, identical native/web; §7a |
+| `dlink_enabled=yes` | **DONE** (2026-10-13) — third export variant, identical; §7a |
+| Firefox | **DONE** (2026-10-13) — all 9 fixtures identical to native; §7a |
+| Safari | **UNRUN** — driver written, macOS-only, never executed; §7a |
+| CI integration | **DONE** (2026-10-13) — `run_tests.mjs`, a `local_ci.sh` stage; §7a |
 | `get_buffered_amount()` (§4.3) | **RESOLVED — not a divergence**; `tests/buffered.gd`, `compare.sh buffered` identical |
 | Behavior under real congestion (§4.4) | **DEFERRED — untested by choice**; needs `netem` or an off-box peer, not more code |
 
-Estimate for the remainder: **~0.5-2 days, and no known defects left**. Every
-confirmed divergence is fixed (F1-F5, F7, F8), the one unfiled suspicion (§4.3)
-is settled as a non-divergence, and all eight fixtures compare identical on both
-web variants. What remains is coverage — `MultiplayerAPI`/`@rpc`, dlink,
-Firefox/Safari — plus the deferred congestion work (§4.4), which is the only
-place a new finding is still likely.
+Estimate for the remainder: **nothing, except two things held deliberately** —
+the congestion work (§4.4), which needs an environment rather than more code,
+and a Safari run, which needs a Mac. Every confirmed divergence is fixed (F1-F5,
+F7, F8), the one unfiled suspicion (§4.3) is settled as a non-divergence, and
+**all nine fixtures compare identical to native across three export variants and
+two browsers — 9 x 3 x 2 = 54 clean diffs.**
+
+### §7a Closing the coverage gaps (2026-10-13)
+
+The three items Task 18.8 left open are closed, and **none of them found a
+defect**. That is the result, not a disclaimer: each was a plausible place for a
+divergence to hide, and the measurement says it does not.
+
+**`MultiplayerAPI` / `@rpc` — `tests/rpc.gd`, identical.** This is the layer
+projects actually write against, two levels above the `MultiplayerPeer` contract
+every other fixture covers. Two `SceneMultiplayer` instances in one process,
+each with its own `WebRTCMultiplayerPeer`, attached to two sibling subtrees via
+`SceneTree.set_multiplayer(api, root_path)`, each holding a `Pong` node at the
+same relative path — which is what lets an RPC resolve on the far side. It
+covers `@rpc` in both directions, `get_remote_sender_id()`, a target-less
+broadcast, and all three transfer modes. The modes matter more since F8: before
+that fix both unreliable modes were secretly fully reliable, so this is the
+first test to exercise channels 2 and 3 as configured. 26 lines, identical
+native vs web, on every variant and both browsers.
+
+**`dlink_enabled=yes` — a third export variant, identical.** Added as
+`[preset.3]` "WebGPU-Dlink" (`extensions_support=true`, the nothreads dlink
+template) exporting to `exports/loopback_dlink`, rather than as a one-off run,
+so it stays covered. The fixture project *has* a GDExtension — the
+`webrtc-native` reference peer — and it is excluded on web by its own
+`exclude_tags = ["web", "no-webrtc"]`, so this also checks that an excluded
+extension present in the project does not disturb the export. All nine fixtures
+identical.
+
+**Firefox — all nine fixtures identical to native.** The one result here that
+was genuinely uncertain: Firefox's WebRTC stack diverges from Chrome's
+considerably more than its WebGPU one does, and nothing in `modules/webrtc/`
+had ever been run on it. It is at full parity. Only two observables differ
+between the browsers at all, and both are normalized away as legitimately
+variable: SDP length (`loopback`: Chrome 457/456, Firefox 492/491, native
+444/444) and ticks to connect (Chrome 3, Firefox 13 — Firefox is slower to
+gather candidates).
+Every channel accessor, every transfer mode, F2's drain-after-close, F3's
+2100-packet grow sweep and F8's channel configuration all read the same.
+
+**Safari — the driver exists, the run does not.** `RTC_BROWSER=safari` drives
+Safari through AppleScript, the same way `scene_smoketest/run_scenes.mjs` does,
+and `local_ci.sh` runs it on `Darwin` unless `--no-safari`. It has **never been
+executed**: this work was done on Linux and Safari does not exist there, and
+Playwright's `webkit` is not Safari and has no WebGPU, so it is not a stand-in.
+Treat a first Safari failure as a new data point, not a regression. What made it
+possible to write at all was making the output readable without the console:
+`rtc_test_base.gd` now mirrors every `RTC|` line onto `window.__rtc_lines`, and
+the runner polls that array in every browser instead of scraping console
+messages. AppleScript's `do JavaScript` cannot read a console, and polling an
+array also prints each line exactly once — which the diff depends on.
+
+**The tier is now a CI stage.** `run_tests.mjs` is the entry point: it runs
+every fixture in every export present, in every browser requested, and asserts
+what each fixture is supposed to *prove* rather than diffing — because the
+native half needs the 581 MB `webrtc-native` clone, which a fresh checkout does
+not have. 258 assertions over 9 fixtures x 3 variants per browser, 516 across both. A browser that cannot launch, or has no WebGPU adapter to
+boot the engine on (Firefox on a GPU-less runner), is reported as a SKIP rather
+than nine failures; a run where *nothing* could execute exits 2, so a suite
+cannot report PASS on zero coverage.
+
+Two harness bugs fell out of making it runnable from a clean state, both of the
+"only ever worked on one machine" kind: `run_loopback.mjs` imported Playwright
+by absolute path, and `export.sh` never created its output directories, so a
+cleaned `exports/` failed the export with no useful message.
 
 ### Corrections made to this document as evidence arrived
 
