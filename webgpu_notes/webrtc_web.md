@@ -1,6 +1,7 @@
 # WebRTC on the Web Target — Feasibility Evaluation and Hardening Plan
 
-**Status: ten findings, nine resolved. Nothing known-broken is left.** F1-F5,
+**Status: CLOSED (2026-10-13). Ten findings, nine resolved. Nothing
+known-broken is left.** F1-F5,
 F7, F8 and F10 are fixed and measured; F9 is confirmed, characterized and
 benign (documented, no code change); F6 is an upstream webrtc-native nuisance
 that affects only the harness. **18 of 18 channel observables match**, where the
@@ -25,11 +26,17 @@ variants (nothreads, threads, dlink) and two browsers — 54 clean diffs — plu
 `get_buffered_amount()` is settled as **not a divergence** (§4.3) and, under
 real congestion, as **usable for flow control** (§4.4a.1).
 
-**The only things left are environmental**: Safari has a driver but has never
-been executed (needs a Mac — Playwright's `webkit` is not Safari and has no
-WebGPU), and F6 is upstream's to fix. F10's default change is also worth
-offering upstream, since the fork now differs from stock Godot by that one
-value.
+**Three items are carried forward, all environmental, and none of them
+verified**: Safari has a driver but has never been executed (needs a Mac —
+Playwright's `webkit` is not Safari and has no WebGPU, so it is not a
+stand-in); F6 is upstream's to fix; and F10's default change has not been
+offered upstream, so this fork now differs from stock Godot by one default.
+TASKS.md Phase 18's status block lists all three, and the last is item 0 in
+HANDOFF.md §8 so it survives the phase being closed.
+
+Closing this does not retire the tiers — `webgpu_tests/webrtc_parity/` and
+`webgpu_tests/webrtc_congestion/` are the regression guards for F1-F5, F7, F8
+and F10, and should stay green.
 
 **Date:** 2026-10-12 (F1-F8), 2026-10-13 (coverage closed, F9 and F10)
 **Branch at time of writing:** `webgpu-4.8` (`c0828b3488`; current as of `d0fe1460eb`)

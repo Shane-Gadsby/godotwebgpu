@@ -836,10 +836,11 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, ten findings, nine resolved, 54 clean diffs
+## 7.5 WebRTC on web — CLOSED: ten findings, nine resolved, 54 clean diffs
 
-New workstream as of 2026-10-12, coverage closed 2026-10-13, full detail in `webgpu_notes/webrtc_web.md`, status summary in
-TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is
+Workstream opened 2026-10-12 and **closed 2026-10-13**; full detail in `webgpu_notes/webrtc_web.md`,
+status summary and the three carried-forward items in TASKS.md Phase 18. The tiers stay as
+regression guards. The headline is that **there was nothing to build**: `modules/webrtc/` is
 platform-agnostic and web already gets a complete `WebRTCPeerConnectionJS` over the browser's own
 `RTCPeerConnection`, overriding every pure virtual, already present in the `bin/` web templates.
 The desktop `webrtc-native` GDExtension adds no API surface, so the public API is at 100% parity.
@@ -1111,10 +1112,12 @@ Nothing here is a known bug — every tier is green and nothing is skipped. In r
      the phase, now fixed**: on web the unreliable transfer modes delivered 13-25% where native
      delivered ~95%, with no API signal. The send-queue ceiling really was the likeliest
      divergence, as predicted — but F10 is the one nobody saw coming.
-   - **Safari has never been run.** The driver exists (`RTC_BROWSER=safari`, AppleScript, as
+   - **Safari has never been run**, and is the one carried-forward item with any chance of
+     surfacing a defect. The driver exists (`RTC_BROWSER=safari`, AppleScript, as
      `scene_smoketest` does it) and `local_ci.sh` invokes it on `Darwin`, but no run has happened:
      this work was done on Linux, and Playwright's `webkit` is not Safari and has no WebGPU. One
-     `./webgpu_tests/local_ci.sh` on a Mac closes it; treat a first failure as a new data point.
+     `./webgpu_tests/local_ci.sh` on a Mac closes it; treat a first failure as a new data point,
+     not a regression.
 1. **Delete or annotate the dead `_depth_alias` code** — small, and it has already misled a whole
    round (§4.5). While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float
    fallback its combined-sampler sibling has (Task 24), which is why §4.1 surfaced as a hard Dawn error

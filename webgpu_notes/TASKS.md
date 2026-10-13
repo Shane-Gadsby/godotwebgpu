@@ -8021,11 +8021,38 @@ origin/backup/pre-lineage-repair/main            f2036d700e
 
 ---
 
-## Phase 18: WebRTC web/native parity (October 2026)
+## Phase 18: WebRTC web/native parity (October 2026) — CLOSED
 
 > **Goal**: bring web-export WebRTC to verified parity with the desktop/mobile implementation, and
 > document every place parity is not achievable. Full evaluation, findings and the phased plan live
 > in `webgpu_notes/webrtc_web.md`; this is the status summary.
+
+**Phase status**: `CLOSED` (2026-10-13). All 16 tasks `DONE`. **Ten findings, nine resolved** —
+F1-F5, F7, F8 and F10 fixed and measured; F9 confirmed, characterized and documented as benign;
+F6 is upstream `webrtc-native`'s and affects only the harness. Coverage: nine fixtures identical to
+native across three export variants and two browsers (54 clean diffs), `MultiplayerAPI`/`@rpc`, a
+congestion tier under real bandwidth pressure, and a validated two-machine run. Both tiers run from
+`local_ci.sh`; the parity tier also gates GitHub CI.
+
+**Three items are carried forward rather than finished, and all three are environmental.** They are
+deliberately *not* marked done, because none of them has been verified:
+
+1. **Safari has never been executed.** `RTC_BROWSER=safari` exists and `local_ci.sh` invokes it on
+   `Darwin`, but this work was done on Linux and Playwright's `webkit` is **not** Safari and has no
+   WebGPU, so it is not a stand-in. One `./webgpu_tests/local_ci.sh` on a Mac closes it. **Treat a
+   first Safari failure as a new data point, not a regression.**
+2. **F6 is upstream's to fix** (`webrtc-native` aborts the editor on first project scan, exit 134).
+   Worked around in both tiers' `export.sh` by doing that scan separately and ignoring its exit
+   code.
+3. **F10's default change has not been offered upstream.** It is fixed here, so this fork now
+   differs from stock Godot by one default (`unreliable_lifetime`, 1 ms → 50 ms). The measurements,
+   the controls isolating it to the lifetime *value*, and two fixtures (one for the mechanism, one
+   for the default) are all in place; what is missing is the conversation. Tracked as item 0 in
+   `HANDOFF.md` §8 so it does not get lost with the phase closed.
+
+Closing this phase does not retire the tiers: `webgpu_tests/webrtc_parity/` and
+`webgpu_tests/webrtc_congestion/` are regression guards for F1-F5, F7, F8 and F10 and should stay
+green.
 
 ### Task 18.1: feasibility evaluation
 **Status**: `DONE` (2026-10-12)
