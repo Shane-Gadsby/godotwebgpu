@@ -138,8 +138,11 @@ Add one as `fixtures/loopback_project/tests/<name>.gd` extending
 **All nine fixtures compare identical to native across three export variants
 and two browsers — 9 x 3 x 2 = 54 clean diffs — and 18 of 18 channel observables match**
 (15 on the first pass). Every confirmed divergence is fixed: F1-F5, F7 and F8.
-Only F6 is left, and it is an upstream webrtc-native nuisance affecting this
-harness rather than the engine.
+F6 is an upstream webrtc-native nuisance affecting this harness rather than the
+engine. Two further findings, **F9 and F10, came from the sibling congestion
+tier** (`webgpu_tests/webrtc_congestion/`) and could not have been found here:
+both need a link that actually drops packets. F10 was the more serious — web's
+unreliable transfer modes losing 75-87% of their packets — and is fixed.
 
 **Safari is the one browser never run.** The driver exists and `local_ci.sh`
 invokes it on macOS, but this work was done on Linux, and Playwright's `webkit`

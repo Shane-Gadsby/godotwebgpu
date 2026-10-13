@@ -8226,7 +8226,8 @@ The three worth repeating outside the WebRTC context:
    severity after a careful read — F1 down (not script-exposed), F3 and F5 up.
 
 ### Task 18.8: remaining unknowns — closed, no defects found
-**Status**: `DONE` (2026-10-13), except Safari (never run) and congestion (Task 18.12, deferred).
+**Status**: `DONE` (2026-10-13). Item 4 (congestion) was deferred here and is now also done —
+Task 18.12. The only thing in this task left unrun is **Safari**, which needs a Mac.
 **Lines**: `webgpu_tests/webrtc_parity/{run_tests.mjs,run_loopback.mjs,export.sh,compare.sh}`,
 `fixtures/loopback_project/{main.gd,export_presets.cfg,tests/rpc.gd,tests/rpc_pong.gd,tests/rtc_test_base.gd}`,
 `webgpu_tests/local_ci.sh`

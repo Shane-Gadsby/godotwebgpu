@@ -836,7 +836,7 @@ adapter being unusual; it was a real bug in the engine (§4.9).
 
 ---
 
-## 7.5 WebRTC on web: already shipping, eight findings, seven fixed, 54 clean diffs
+## 7.5 WebRTC on web: already shipping, ten findings, nine resolved, 54 clean diffs
 
 New workstream as of 2026-10-12, coverage closed 2026-10-13, full detail in `webgpu_notes/webrtc_web.md`, status summary in
 TASKS.md Phase 18. The headline is that **there was nothing to build**: `modules/webrtc/` is

@@ -1,21 +1,38 @@
 # WebRTC on the Web Target — Feasibility Evaluation and Hardening Plan
 
-**Status: every confirmed divergence is fixed, and `compare.sh` is identical on
-all eight fixtures, on both web variants.** F1, F2, F3, F4, F5, F7 and F8 are
-fixed and measured; F6 is an upstream webrtc-native nuisance that affects only
-the harness. **18 of 18 channel observables now match**, where the first pass
-had 15. F8 is worth singling out: a cross-platform correctness bug (both
-unreliable transfer modes were reliable *everywhere*) that this tier
-structurally could not find, since both platforms were equally wrong. The
-`get_buffered_amount()` suspicion is settled as **not a divergence** (§4.3).
+**Status: ten findings, nine resolved. Nothing known-broken is left.** F1-F5,
+F7, F8 and F10 are fixed and measured; F9 is confirmed, characterized and
+benign (documented, no code change); F6 is an upstream webrtc-native nuisance
+that affects only the harness. **18 of 18 channel observables match**, where the
+first pass had 15.
 
-Remaining: `MultiplayerAPI`/`@rpc` coverage, `dlink_enabled=yes`, and the
-Firefox/Safari matrix — all coverage, no known defects. **Deliberately deferred:
-everything that needs real bandwidth pressure (§4.4) — this tier runs entirely
-over an unthrottled in-process loopback, so an unreliable channel cannot be
-told from a reliable one here.**
-**Date:** 2026-10-12 (findings confirmed against the reference implementation same day)
-**Branch at time of writing:** `webgpu-4.8` (`c0828b3488`)
+Two findings are worth singling out, because both were structurally invisible to
+the tier that was looking for them:
+
+- **F8** — a cross-platform correctness bug (both unreliable transfer modes were
+  fully reliable *everywhere*) that a web-vs-native diff could never find, since
+  both platforms were equally wrong. Found by code review.
+- **F10** — on web the unreliable modes then lost 75-87% of their packets, which
+  **no loopback and no clean LAN can show**, because a short packet lifetime
+  only costs anything once the link actually drops something. Found by the
+  congestion tier, and fixed by raising `unreliable_lifetime`'s default from
+  1 ms to 50 ms.
+
+**Coverage.** Nine fixtures compare identical to native across three export
+variants (nothreads, threads, dlink) and two browsers — 54 clean diffs — plus
+`MultiplayerAPI`/`@rpc`. Bandwidth pressure is covered by a second tier
+(§4.4a), which also validated a two-machine run over a real LAN.
+`get_buffered_amount()` is settled as **not a divergence** (§4.3) and, under
+real congestion, as **usable for flow control** (§4.4a.1).
+
+**The only things left are environmental**: Safari has a driver but has never
+been executed (needs a Mac — Playwright's `webkit` is not Safari and has no
+WebGPU), and F6 is upstream's to fix. F10's default change is also worth
+offering upstream, since the fork now differs from stock Godot by that one
+value.
+
+**Date:** 2026-10-12 (F1-F8), 2026-10-13 (coverage closed, F9 and F10)
+**Branch at time of writing:** `webgpu-4.8` (`c0828b3488`; current as of `d0fe1460eb`)
 **Scope:** Bring web-export WebRTC to verified parity with the desktop/mobile
 implementation, and document every place parity is not achievable.
 
