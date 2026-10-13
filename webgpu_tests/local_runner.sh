@@ -102,7 +102,7 @@ cmd_stop() {
 }
 
 cmd_start() {
-	[[ -d "$RUNNER_DIR" ]] || die "no runner at $RUNNER_DIR — see webgpu_notes/HANDOFF.md for setup."
+	[[ -d "$RUNNER_DIR" ]] || die "no runner at $RUNNER_DIR — see webgpu_notes/TASKS.md for setup."
 	[[ -x "$RUNNER_DIR/run.sh" ]] || die "$RUNNER_DIR/run.sh not found or not executable."
 	# .runner is written by config.sh; without it run.sh exits immediately and we
 	# would have set the variable for a runner that never starts.

@@ -246,7 +246,7 @@ def verify(root, patch, verbose=True):
             print("     'HOW TO TELL WHEN THIS CAN BE DELETED'). If it does not, delete the", file=sys.stderr)
             print("     patch file and its entry in emsdk_patch.py's PATCHES table.", file=sys.stderr)
             print("  2. If it does, re-derive the hunk and update its text and pin here.", file=sys.stderr)
-            print(f"See misc/emsdk_patches/{patch['id']}.patch and webgpu_notes/TASKS.md Task 12.", file=sys.stderr)
+            print(f"See misc/emsdk_patches/{patch['id']}.patch and webgpu_notes/TASKS.md §4.5.", file=sys.stderr)
         return False
     return True
 

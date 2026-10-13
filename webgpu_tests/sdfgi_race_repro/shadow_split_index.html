@@ -19,7 +19,7 @@
 </head>
 <body>
     <h1>SDFGI RW-storage shadow-split repro — Round 46</h1>
-    <p>Not Godot, but models real driver code exactly: without the 'readonly-and-readwrite-storage-textures' feature (confirmed absent on this session's real-GPU adapter), the WebGPU driver splits every read_write storage texture into a write-only storage side plus a separate "shadow" sampled texture kept in sync via an explicit copyTextureToTexture issued right before each bind. This repro tests whether that copy-based refresh breaks the same telescoping accumulator that works correctly through direct read_write storage access (race_repro.js/Round 40). See webgpu_notes/TASKS.md Task 9.5 Round 46 / plan-of-attack.md Tier 1 Phase 1.</p>
+    <p>Not Godot, but models real driver code exactly: without the 'readonly-and-readwrite-storage-textures' feature (confirmed absent on this session's real-GPU adapter), the WebGPU driver splits every read_write storage texture into a write-only storage side plus a separate "shadow" sampled texture kept in sync via an explicit copyTextureToTexture issued right before each bind. This repro tests whether that copy-based refresh breaks the same telescoping accumulator that works correctly through direct read_write storage access (race_repro.js/Round 40). See webgpu_notes/TASKS.md Task 9.5 Round 46 / webgpu_notes/TASKS.md §2</p>
     <div id="status">Ready.</div>
     <div id="results"></div>
 

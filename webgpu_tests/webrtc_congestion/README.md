@@ -5,8 +5,7 @@ Measures what WebRTC does when the **link cannot keep up with the application**
 (`webgpu_tests/webrtc_parity`) deliberately leaves untested, because every
 fixture there runs over an unthrottled in-process loopback.
 
-Background and the four questions this answers: `webgpu_notes/webrtc_web.md`
-§4.4 (the deferral) and §4.4a (the results). Status: `TASKS.md` Task 18.12.
+Background and the four questions this answers: `webgpu_notes/TASKS.md` §4.20 (the deferral) and §4.4a (the results). Status: `TASKS.md` Task 18.12.
 
 **This tier found two new divergences, F9 and F10.** F10 was the more serious —
 on web, Godot's unreliable transfer modes lost **75–87%** of packets on a lossy
@@ -142,7 +141,7 @@ machines, which `shape.sh` deliberately avoids.
 
 ## What this found
 
-Full detail and the per-run numbers: `webgpu_notes/webrtc_web.md` §4.4a.
+Full detail and the per-run numbers: `webgpu_notes/TASKS.md` §4.20
 
 | § | question | answer |
 |---|---|---|

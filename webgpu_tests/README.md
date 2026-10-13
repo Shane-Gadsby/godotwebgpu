@@ -264,7 +264,7 @@ parity check is `./compare.sh <fixture>`, which diffs the same GDScript run
 natively against the browser — it needs the `webrtc-native` reference
 extension, a separate clone a fresh checkout does not have, which is why CI
 runs the web half. See [`webrtc_parity/README.md`](webrtc_parity/README.md),
-and `webgpu_notes/webrtc_web.md` for the eight findings it produced.
+and `webgpu_notes/TASKS.md` §4.20 for the eight findings it produced.
 
 ### 7. WebRTC Congestion (needs the editor, a web template, and unprivileged user namespaces)
 
@@ -281,7 +281,7 @@ Shapes the link with `netem` inside an `unshare -rnm` namespace, so it needs
 the machine until removed. **Local only, not in CI**: it needs unprivileged
 user namespaces and ~15 minutes, and its verdicts are measurements rather than
 pass/fail gates. See [`webrtc_congestion/README.md`](webrtc_congestion/README.md)
-and `webgpu_notes/webrtc_web.md` §4.4a.
+and `webgpu_notes/TASKS.md` §4.20
 
 ### 8. Screenshot Comparison (standalone, needs Playwright)
 
@@ -429,7 +429,7 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 
 **A `threads=yes` export hangs forever under one of these harnesses** — the page is almost certainly not cross-origin isolated. Threaded builds need `SharedArrayBuffer`, which needs the server to send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Several harnesses here spin up their own `http.createServer` and **do not send them**: `startup_phases/features.mjs`, `resource_lifecycle/run_tests.mjs`, `spec_constant_overrides/run_tests.mjs` and all five `sdfgi_race_repro/run_*.mjs`. `benchmark/run_benchmark.sh:220-221` is the pattern to copy. Check from the page with `window.crossOriginIsolated`.
 
-**A threaded export wedges with repeated `net::ERR_ABORTED` on the worker script** — check the export preset's `threads/emscripten_pool_size`. It must be `8` (the engine default); the link flag is `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and `-1 || 8` evaluates to `-1`, which wedges every threaded build. See `webgpu_notes/HANDOFF.md` §4.12.
+**A threaded export wedges with repeated `net::ERR_ABORTED` on the worker script** — check the export preset's `threads/emscripten_pool_size`. It must be `8` (the engine default); the link flag is `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and `-1 || 8` evaluates to `-1`, which wedges every threaded build. See `webgpu_notes/TASKS.md`
 
 **A threaded + GDExtension export never finishes loading** — `threads=yes dlink_enabled=yes` needs this fork's two Emscripten toolchain patches (`misc/emsdk_patches/apply.sh --apply`); without `0001` a worker throws `Cannot set properties of undefined (setting '<addr>')` and the module never loads. The build warns, but `emsdk install` silently reverts the patches. `--status` describes the *toolchain*, not what is in `bin/` — grep the linked output when it matters (`misc/emsdk_patches/README.md` has the commands). A booting threaded dlink export should now log **zero** errors; the ~11 `growMemViews` "Cannot read properties of undefined (reading 'buffer')" errors that used to be expected noise were `0002`, now fixed.
 

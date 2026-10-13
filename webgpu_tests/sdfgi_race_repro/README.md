@@ -1,6 +1,6 @@
 # SDFGI same-texel race — minimal repro
 
-Step 1 of the investigation plan in `plan-of-attack.md`'s Tier 1 Phase 1
+Step 1 of the investigation plan in `webgpu_notes/TASKS.md` §2's Tier 1 Phase 1
 (SDFGI brightness runaway). A from-scratch WebGPU program — **not Godot** —
 that isolates the one pattern all 39 rounds of `webgpu_notes/TASKS.md` Task
 9.5 investigation converged on: two persistent `read_write` storage
@@ -24,7 +24,7 @@ npx playwright install chromium   # once, if not already done
 
 # The meaningful run — real Vulkan-backed GPU, matching webgpu_tests/
 # scene_smoketest's WEBGPU_REAL_GPU convention (swiftshader is a materially
-# different adapter, see webgpu_notes/TASKS.md Task 9.5):
+# different adapter, see `webgpu_notes/TASKS.md` Task 9.5):
 WEBGPU_REAL_GPU=1 node run_repro.mjs
 
 # Larger sample / different slack sweep:
@@ -81,7 +81,7 @@ this file is revisited later.
 
 ## Next steps if this reproduces
 
-Per `plan-of-attack.md`'s Phase 1 step 2: binary-search what actually
+Per `webgpu_notes/TASKS.md` §2's Phase 1 step 2: binary-search what actually
 eliminates it (forced `onSubmittedWorkDone()` sync between accumulate calls;
 single command buffer per read+write pair; a second Dawn backend). This repro
 is deliberately structured so those variants are small, additive changes to

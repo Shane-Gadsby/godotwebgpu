@@ -187,7 +187,7 @@ function exportScene(scene, editorBin, templateZip) {
     //   - A failed export used to leave the previous one in place, so the scene
     //     ran the *old* build and reported PASS. That is the misleading
     //     "benchmark_sprites exports fine after failing" note in
-    //     webgpu_notes/HANDOFF.md. Now a failed export leaves nothing, which
+    //     webgpu_notes/TASKS.md. Now a failed export leaves nothing, which
     //     shows up as a skip -- or a failure under --require-exports.
     rmSync(exportDir, { recursive: true, force: true });
     mkdirSync(exportDir, { recursive: true });
@@ -361,7 +361,7 @@ function exportScene(scene, editorBin, templateZip) {
             // singleton. It reads like an engine crash and is not one -- the cache
             // is regenerable, so drop it and try once more. Rebuilding the editor
             // is what makes this likely, which is exactly what local_ci.sh does
-            // before it exports. See webgpu_notes/HANDOFF.md section 6.
+            // before it exports. See webgpu_notes/TASKS.md section 6.
             const out = `${e.stderr?.toString() || ''}${e.stdout?.toString() || ''}`;
             const importCache = join(projectPath, '.godot');
             if (!/is_cmdline_mode|Parameter "singleton" is null/.test(out) || !existsSync(importCache)) {

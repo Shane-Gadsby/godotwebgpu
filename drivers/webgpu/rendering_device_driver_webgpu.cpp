@@ -326,7 +326,7 @@ void RenderingDeviceDriverWebGPU::_publish_frame_stats(uint32_t p_fps, uint32_t 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
 // this event to know a synchronous Tint compile just ran on the main thread, since
 // that's the actual source of the multi-second startup stall the progress bar
-// otherwise gives no indication of (see webgpu_notes/STARTUP_PROFILING.md). Fired
+// otherwise gives no indication of (see webgpu_notes/TASKS.md §4.21). Fired
 // unconditionally (not gated behind WEBGPU_VERBOSE like WEBGPU_DIAG above) because
 // the loading UI needs it in production builds, not just debug ones.
 static void _notify_js_shader_compile_activity() {
@@ -1177,7 +1177,7 @@ Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t 
 	// (platform/web/js/engine/engine.js, right after requestDevice() resolves)
 	// rather than here — this used to also register a second, redundant pair
 	// of listeners on the C++ side, double-logging every real error. See
-	// plan-of-attack.md Tier 1 #5. The WEBGPU_VERBOSE diagnostic block below
+	// webgpu_notes/TASKS.md §2#5. The WEBGPU_VERBOSE diagnostic block below
 	// still has its own uncapturederror listener, but it's opt-in and off by
 	// default, so it doesn't conflict with the always-on JS one in practice.
 
@@ -3725,7 +3725,7 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 			// Loading-screen signal: tells the JS shell a frame has actually been
 			// handed off for display, as opposed to callMain() merely having
 			// returned (which happens long before this on a cold WebGPU start —
-			// see webgpu_notes/STARTUP_PROFILING.md). Fired once per process.
+			// see webgpu_notes/TASKS.md §4.21). Fired once per process.
 			static bool first_frame_presented = false;
 			if (!first_frame_presented) {
 				first_frame_presented = true;
@@ -4777,8 +4777,8 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 // and _create_module_with_spec_constants() (the legacy per-specialization
 // re-conversion path) -- previously hand-duplicated between the two behind a
 // "must match shader_create_from_container" comment, which is exactly the
-// kind of thing that silently drifts; see webgpu_notes/TASKS.md's plan-of-attack
-// notes (Tier 2 "duplicated format remapping") for context.
+// kind of thing that silently drifts; see webgpu_notes/TASKS.md §4.4 (the
+// "duplicated format remapping" item) for context.
 void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *&r_wgsl_str, ShaderStage p_stage) const {
 	// p_stage is no longer used here (vertex-stage read_write demotion moved to
 	// the Tint IR level -- see the NOTE at the bottom of this function); kept in

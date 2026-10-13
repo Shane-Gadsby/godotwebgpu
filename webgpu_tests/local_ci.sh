@@ -27,7 +27,7 @@
 #
 #   The two builds have to happen in this order, and the web one has to come last:
 #   interleaving them in one tree goes stale in register_module_types.gen and ships
-#   a template that dies in callMain() (webgpu_notes/TASKS.md Task 40). The stale
+#   a template that dies in callMain() (webgpu_notes/TASKS.md §2.19). The stale
 #   objects are removed below rather than hoped about.
 #
 # Prerequisites:
@@ -510,7 +510,7 @@ ensure_playwright "$SCRIPT_DIR/webrtc_parity"
 # webrtc-native reference extension, a separate 581 MB clone whose built
 # libraries are gitignored, so it cannot run on a fresh checkout. Each fixture's
 # own verdict is asserted instead, which is what regresses if any of F1-F5, F7
-# or F8 breaks. See webgpu_notes/webrtc_web.md.
+# or F8 breaks. See webgpu_notes/TASKS.md §4.20.
 # Chromium and Firefox both run every fixture; Firefox is where the browsers'
 # WebRTC stacks diverge most, and it is at parity (Task 18.8). run_tests.mjs
 # reports a browser it cannot launch -- or that has no WebGPU adapter to boot
@@ -527,7 +527,7 @@ run_test "WebRTC parity (web, 9 fixtures)" \
 
 # Safari is AppleScript-driven and macOS-only, like the scene smoketest's Safari
 # tier. It has never been run, so a failure here is a new data point rather than
-# a regression; see webgpu_notes/TASKS.md Task 18.8.
+# a regression; see webgpu_notes/TASKS.md §4.20.
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
     run_test "WebRTC parity — Safari (9 fixtures)" \
         "$SCRIPT_DIR/webrtc_parity" \

@@ -74,7 +74,7 @@ This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/
 Building on that base, this fork has two main goals:
 
 - **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10.
-- **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` Phase 15 for the port, Phase 8 for the earlier 4.7.2 sync).
+- **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` §4.17 for the port, Phase 8 for the earlier 4.7.2 sync).
 - **Box3D as the default 3D physics engine.** A new `PhysicsServer3D` implementation on top of Erin Catto's [Box3D](https://github.com/erincatto/box3d) — see [3D Physics](#3d-physics-box3d) below. Independent of the renderer work; it happens to matter most on the web, where Godot's other 3D physics options are the heaviest part of the build.
 - **Editor quality-of-life.** Small in-editor additions on top of upstream: mouse events in the script editor, and a per-project default directory for newly created scripts.
 
@@ -112,7 +112,7 @@ box, height maps are triangle meshes, and damping uses Box3D's formula rather th
 damped bodies differ slightly. Web builds always run Box3D single-threaded (`workerCount = 1`) — its own
 thread creation cannot work from the web export's fixed pthread pool.
 
-See `webgpu_notes/TASKS.md` Phase 11 for the full status, and `CLAUDE.md` for the architectural notes
+See `webgpu_notes/TASKS.md` §4.6 for the full status, and `CLAUDE.md` for the architectural notes
 that are easy to trip over (Box3D shapes belong to one body with their transform baked in; Godot's
 one-directional layer/mask rules are enforced by a custom filter rather than Box3D's symmetric bits).
 
@@ -134,7 +134,7 @@ The smoketest is the only automated per-scene measurement, and it covers 21 scen
 
 ### Known Issues
 
-Outstanding problems as of **2026-10-06**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](webgpu_notes/TASKS.md); [`webgpu_notes/HANDOFF.md`](webgpu_notes/HANDOFF.md) carries the current state and what to pick up next.
+Outstanding problems as of **2026-10-06**. Everything here is reproduced and diagnosed; items marked *workaround* have a known way around them, items marked *open* do not. Task numbers index into [`webgpu_notes/TASKS.md`](`webgpu_notes/TASKS.md`); [`webgpu_notes/TASKS.md`](`webgpu_notes/TASKS.md`) carries the current state and what to pick up next.
 
 **Rendering**
 

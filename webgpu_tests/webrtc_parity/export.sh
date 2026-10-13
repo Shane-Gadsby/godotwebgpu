@@ -70,7 +70,7 @@ fi
 # project (F6, an upstream webrtc-native bug). It still writes
 # .godot/extension_list.cfg, and every later run exits cleanly — but as a
 # single step it would fail CI for a reason that has nothing to do with the
-# tests. See webgpu_notes/webrtc_web.md §2 F6.
+# tests. See webgpu_notes/TASKS.md §4.20 F6.
 "$EDITOR" --headless --path "$PROJ" --import >/dev/null 2>&1 || true
 
 # Godot does not create the export directory, and a missing one fails the

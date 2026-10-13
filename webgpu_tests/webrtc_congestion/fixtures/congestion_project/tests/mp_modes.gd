@@ -15,7 +15,7 @@
 #   ./shape.sh --rate 4mbit --delay 25ms --loss 5% -- \
 #       env RTC_TEST=mp_modes node run_congestion.mjs
 #
-# F10 and the default change: webgpu_notes/webrtc_web.md §4.4a.4.
+# F10 and the default change: webgpu_notes/TASKS.md §4.20
 #
 # Both peers build a two-peer mesh, as the parity tier's `mesh` fixture does,
 # but across two processes and a shaped link. The offerer sends a paced stream

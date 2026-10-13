@@ -5,7 +5,7 @@ before spending time on it again.
 
 ## What this was meant to be
 
-`webgpu_notes/TASKS.md` Task 14 subtask 1.5.3 asks for a standalone reproducer
+`webgpu_notes/TASKS.md` §2.5 (old Task 14 subtask 1.5.3) asks for a standalone reproducer
 that tests for **the bug**, not for the patch, so that `apply.sh` can say "upstream
 has fixed this, delete the patch" instead of silently outliving its cause. That is
 the right design and it is still the right design. It just does not exist yet.

@@ -1,5 +1,5 @@
 /**
- * Round 46b (Task 9.5 / plan-of-attack.md Tier 1 Phase 1) — confirms the
+ * Round 46b (Task 9.5 / webgpu_notes/TASKS.md §2) — confirms the
  * exact bug found by code reading this round: rendering_device_driver_webgpu.cpp's
  * RWShadowRegistration/refresh_rw_shadows() and the texture_update() shadow-sync
  * path both used p_orig_tex->depth (always 1 for a 2D(-array) texture) instead

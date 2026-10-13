@@ -6,7 +6,7 @@
 #   ./compare.sh loopback
 #
 # Needs: a built native editor and an export. The runner serves it itself.
-# Override the export with RTC_DIR. See webgpu_notes/webrtc_web.md §4.
+# Override the export with RTC_DIR. See webgpu_notes/TASKS.md §4.20
 set -uo pipefail
 
 TEST="${1:-loopback}"

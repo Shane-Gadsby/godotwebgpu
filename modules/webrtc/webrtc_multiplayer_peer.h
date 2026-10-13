@@ -53,7 +53,7 @@ public:
 	// platform divergence of the kind that only appears off a loopback, which is
 	// why it went unnoticed until webgpu_tests/webrtc_congestion/ existed.
 	// At 50 ms both implementations deliver 94-97%, i.e. they agree and lose
-	// only what the link actually dropped. See webgpu_notes/webrtc_web.md
+	// only what the link actually dropped. See webgpu_notes/TASKS.md §4.20
 	// §4.4a.4 (F10) for the measurements.
 	//
 	// The value is only ever a retransmission budget: raising it does not make

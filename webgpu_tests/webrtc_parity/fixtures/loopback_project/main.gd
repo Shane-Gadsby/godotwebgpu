@@ -36,7 +36,7 @@ func _ready() -> void:
 		return
 	# A script that fails to parse used to leave the SceneTree looping forever
 	# with nothing more printed, which is indistinguishable from a hang -- and
-	# has now cost two debugging sessions (webgpu_notes/webrtc_web.md §7
+	# has now cost two debugging sessions (webgpu_notes/TASKS.md §4.20
 	# correction 4). Fail loudly instead; the parse error itself is above this
 	# line in the output.
 	var script: Variant = load(path)

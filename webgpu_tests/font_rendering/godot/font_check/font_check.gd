@@ -6,7 +6,7 @@ extends Node2D
 ## is stable. test_font_visual.mjs screenshots the canvas and does the asserting;
 ## nothing is read back here, because RenderingDeviceDriverWebGPU's
 ## texture_get_data() is a one-shot cache and a single texture_2d_get() can never
-## return data on WebGPU (see webgpu_notes/HANDOFF.md 4.6).
+## return data on WebGPU (see webgpu_notes/TASKS.md 4.6).
 ##
 ## What it is guarding, concretely: both text servers used to decide whether a
 ## glyph carries its own color -- and so must not be tinted by the text color --

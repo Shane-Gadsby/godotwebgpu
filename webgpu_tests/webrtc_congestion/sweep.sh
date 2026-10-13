@@ -91,7 +91,7 @@ for r in "${RESULTS[@]}"; do
 	echo "  $r"
 done
 echo ""
-echo "Expected, as of 2026-10-13 (webgpu_notes/webrtc_web.md §4.4a):"
+echo "Expected, as of 2026-10-13 (webgpu_notes/TASKS.md §4.20):"
 cat <<'EOF'
   backpressure native/web  TRACKED              get_buffered_amount tracks a real backlog
   backpressure unshaped    NO_PRESSURE          the control: no shaping, nothing to measure

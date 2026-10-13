@@ -4,7 +4,7 @@ Checks that WebRTC behaves the same in a **web export** as it does on
 **desktop/mobile**, where it is provided by the `webrtc-native` GDExtension
 (libdatachannel) instead of the browser's own `RTCPeerConnection`.
 
-Full evaluation, findings and plan: `webgpu_notes/webrtc_web.md`.
+Full evaluation, findings and plan: `webgpu_notes/TASKS.md` §4.20.
 Status summary: `webgpu_notes/TASKS.md` Phase 18.
 
 **There is nothing to implement here.** Web already ships a complete
@@ -54,7 +54,7 @@ RTC_VARIANTS=dlink RTC_FILTER=rpc node run_tests.mjs
 
 ```bash
 # Native-vs-web parity. Needs the reference peer, built once
-# (see webgpu_notes/webrtc_web.md §3):
+# (see `webgpu_notes/TASKS.md` §4.20):
 cd webrtc-native
 scons platform=linux target=template_debug arch=x86_64 build_profile=build_profile.json -j$(nproc)
 cp -r bin/extension/addons/webrtc_native ../fixtures/loopback_project/addons/
@@ -253,4 +253,4 @@ applied** instead of assuming. Covering web properly needs a real off-box peer,
 which needs the signaling server this tier deliberately skipped.
 
 Rationale, the full four-item list and what each possible outcome would change:
-`webgpu_notes/webrtc_web.md` §4.4, `TASKS.md` Task 18.12 (`DEFERRED`).
+`webgpu_notes/TASKS.md` §4.20, `TASKS.md` Task 18.12 (`DEFERRED`).

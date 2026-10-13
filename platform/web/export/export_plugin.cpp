@@ -529,7 +529,7 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 		// by Tint on the *player's* machine, synchronously on the main thread, the
 		// first time each variant is drawn. This is the dominant cause of the
 		// multi-second startup stall/jank documented in
-		// webgpu_notes/STARTUP_PROFILING.md. Baking bakes ahead of time everything
+		// webgpu_notes/TASKS.md §4.21. Baking bakes ahead of time everything
 		// it can (see drivers/webgpu/README.md and webgpu_notes/TASKS.md's shader
 		// baking task), and since Task 25 it covers specialization-constant
 		// pipeline variants too: those no longer produce their own shader

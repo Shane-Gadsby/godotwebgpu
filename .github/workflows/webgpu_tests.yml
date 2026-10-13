@@ -392,7 +392,7 @@ jobs:
       # demos as a *sibling* of the repo root (../../../godot-demo-projects from
       # webgpu_tests/scene_smoketest) and checkout refuses any path outside
       # $GITHUB_WORKSPACE. The parent of the workspace is writable. Shallow, and on
-      # master, matching the local setup documented in webgpu_notes/HANDOFF.md.
+      # master, matching the local setup documented in webgpu_notes/TASKS.md.
       #
       # Sitting outside the workspace, this directory is *not* cleaned between
       # runs on a self-hosted runner, so a plain `git clone` fails with "already

@@ -17,7 +17,7 @@
  * Asserting is done on a screenshot of the canvas rather than inside GDScript
  * because RenderingDeviceDriverWebGPU::texture_get_data() is a one-shot cache:
  * a caller that calls texture_2d_get() once can never get data on WebGPU
- * (webgpu_notes/HANDOFF.md 4.6). The screenshot is also the more faithful test
+ * (webgpu_notes/TASKS.md 4.6). The screenshot is also the more faithful test
  * -- it checks what actually reached the screen.
  *
  * Usage:

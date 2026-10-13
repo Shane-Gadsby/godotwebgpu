@@ -37,7 +37,7 @@
 // rendering_device_driver_webgpu.cpp submits through (wgpuQueueSubmit(),
 // not device.queue.submit() from JS).
 //
-// See webgpu_notes/TASKS.md Task 9.5 Round 41 / plan-of-attack.md Tier 1
+// See webgpu_notes/TASKS.md Task 9.5 Round 41 / webgpu_notes/TASKS.md §2
 // Phase 1 for context. Not Godot code — a standalone diagnostic.
 
 #include <emscripten.h>

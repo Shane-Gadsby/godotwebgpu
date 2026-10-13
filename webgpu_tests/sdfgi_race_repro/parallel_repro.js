@@ -1,5 +1,5 @@
 /**
- * Round 45 (Task 9.5 / plan-of-attack.md Tier 1 Phase 1) — per-dispatch
+ * Round 45 (Task 9.5 / webgpu_notes/TASKS.md §2) — per-dispatch
  * parallelism repro. NOT Godot code.
  *
  * Every prior repro in this directory (race_repro.js, native_emdawnwebgpu_repro.cpp,
@@ -9,7 +9,7 @@
  * thousands of concurrent invocations per call, all touching the *same two*
  * persistent textures (at different, non-overlapping sub-addresses)
  * simultaneously. This repro matches that dispatch shape and addressing
- * scheme exactly (see plan-of-attack.md Round 45 spec for the derivation of
+ * scheme exactly (see webgpu_notes/TASKS.md §2 Round 45 spec for the derivation of
  * every number below) to test whether concurrency itself is the missing
  * ingredient no prior single-invocation repro could have exposed.
  *

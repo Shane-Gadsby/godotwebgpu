@@ -100,7 +100,7 @@ func _send_next() -> void:
 	out("size=%d put_err=%d ch1_state_after=%d" % [n, sent_err, ch1.get_ready_state()])
 	# "curve": how much is still queued right after the send is legitimately
 	# platform- and run-dependent, so compare.sh collapses it. See
-	# webgpu_notes/webrtc_web.md §4.3 and tests/buffered.gd.
+	# webgpu_notes/TASKS.md §4.20 and tests/buffered.gd.
 	out("curve size=%d buffered_after_send=%d" % [n, ch1.get_buffered_amount()])
 	sent_tick = ticks
 	phase = "recv"

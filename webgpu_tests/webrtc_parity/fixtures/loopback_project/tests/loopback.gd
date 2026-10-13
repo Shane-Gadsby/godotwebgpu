@@ -1,7 +1,7 @@
 # In-process WebRTC loopback: two peers in one process, SDP/ICE shuttled
 # directly, no signaling server. Runs identically on native and in a web
 # export, so the "RTC|" lines can be diffed between the two to produce the
-# parity table. See webgpu_notes/webrtc_web.md.
+# parity table. See webgpu_notes/TASKS.md §4.20.
 extends "res://tests/rtc_test_base.gd"
 
 var pc1: WebRTCPeerConnection
@@ -111,7 +111,7 @@ func _step() -> void:
 				var got = ch2.get_packet()
 				# Both platforms must drain here. Web lost this until the F2 fix
 				# (the STATE_OPEN guard in get_packet() plus close() wiping the
-				# receive buffer); see webgpu_notes/webrtc_web.md §2 F2.
+				# receive buffer); see webgpu_notes/TASKS.md §4.20 F2.
 				out("f2 drain_after_close len=%d content='%s'" % [
 					got.size(), got.get_string_from_utf8()])
 				out("f2 verdict=%s" % ("DRAINED" if got.size() > 0 else "LOST"))

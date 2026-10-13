@@ -15,14 +15,14 @@
 #
 # Note: this fork's documented/tested WebGPU configuration is threads=no
 # (see CLAUDE.md), though threads=yes dlink_enabled=no is now also fixed and
-# live-verified (webgpu_notes/TASKS.md Task 12) -- WorkerThreadPool-dispatched
+# live-verified (webgpu_notes/TASKS.md §4.5) -- WorkerThreadPool-dispatched
 # shader/pipeline compilation was landing on background pthreads, which
 # WebGPU's per-thread JS object model can't handle; fixed via
 # API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION. threads=yes
 # dlink_enabled=yes (GDExtension + threads together) used to be broken by an
 # Emscripten-internal dylink+pthread initialization race; it now works, but only
 # on a toolchain carrying this fork's two Emscripten patches, which this script
-# applies for you (misc/emsdk_patches/, webgpu_notes/TASKS.md Task 12 bug #2).
+# applies for you (misc/emsdk_patches/, webgpu_notes/TASKS.md §4.5).
 # Without them that configuration does not boot (0001) and floods the console
 # while silently dropping Module exports on worker threads (0002).
 # If a threaded web export misbehaves under the WebGPU driver, narrow it down
@@ -298,7 +298,7 @@ step "Building editor (platform=linuxbsd)..."
 # WEBGPU_SHADER_BAKER_ENABLED (gated on `env["webgpu"] and env.editor_build`
 # -- see that file), which is what makes the editor's export-time shader
 # baker (RenderingShaderContainerWebGPU::_set_code_from_spirv(), see
-# webgpu_notes/TASKS.md Task 4.1/16) actually bake WGSL at all. Omitting it
+# webgpu_notes/TASKS.md §4.10) actually bake WGSL at all. Omitting it
 # silently produces a working editor that exports fine but never bakes any
 # shader, regardless of dev_build.
 scons platform=linuxbsd target=editor accesskit="$ACCESSKIT_ENABLED" webgpu=yes -j"$JOBS"
@@ -388,7 +388,7 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# wgsl_precompile.py itself -- not on tint_convert_cli's binary, on
 	# spirv_preprocess.cpp/.h, on tint_wrapper.cpp, or on any vendored
 	# thirdparty/tint source. A change to any of those (e.g. a Tint patch,
-	# see webgpu_notes/TASKS.md Task 16) would silently NOT regenerate this
+	# see webgpu_notes/TASKS.md §4.16) would silently NOT regenerate this
 	# table on an incremental build, baking stale/buggy WGSL into every
 	# built-in engine shader class. Force it every time so a full run of
 	# this script always reflects the current pipeline, not a cached one.

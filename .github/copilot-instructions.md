@@ -20,9 +20,9 @@ All design decisions, API mappings, and tasks are documented in `webgpu_notes/`:
 | File | Read When |
 |------|-----------|
 | `webgpu_notes/TASKS.md` | Starting any session — gives current phase and next task |
-| `webgpu_notes/BUILD_BLOCKERS.md` | Phase 0: wiring the build system (Day 1) |
-| `webgpu_notes/DESIGN.md` | Implementing any RDD method — has exact WebGPU API calls |
-| `webgpu_notes/RESEARCH.md` | Background on architecture, prior art, WebGPU constraints |
+| `webgpu_notes/TASKS.md` §4.1 | Phase 0: wiring the build system (Day 1) |
+| `webgpu_notes/TASKS.md` §4.1 | Implementing any RDD method — has exact WebGPU API calls |
+| `webgpu_notes/TASKS.md` §4.1 | Background on architecture, prior art, WebGPU constraints |
 | `webgpu_notes/stubs/` | Starting point files to copy into `drivers/webgpu/` |
 
 **Do not re-research what is already in these files.** Read them first.
@@ -43,7 +43,7 @@ modules/glslang/          ← GLSL→SPIR-V (needs webgpu added to can_build())
 - **Memory:** use `memnew(T)` / `memdelete(ptr)` instead of `new`/`delete`. Vectors use `Vector<T>`, hashmaps use `HashMap<K,V>`.
 - **Error handling:** return `ERR_*` constants; use `ERR_FAIL_COND_V(cond, val)` / `ERR_FAIL_NULL_V(ptr, val)` macros.
 - **Printing:** `print_verbose(...)`, `WARN_PRINT(...)`, `ERR_PRINT(...)`. Never `printf` or `std::cout`.
-- **IDs:** RDD uses opaque integer IDs cast to/from pointers via the `ID` helper. See `webgpu_notes/DESIGN.md` Section 1 for the exact pattern.
+- **IDs:** RDD uses opaque integer IDs cast to/from pointers via the `ID` helper. See `webgpu_notes/TASKS.md` §4.1 Section 1 for the exact pattern.
 - **Includes:** use `"..."` for project headers, `<...>` for system/third-party. No `.h` extension for standard library headers.
 
 ## Key Architectural Decisions (already made)

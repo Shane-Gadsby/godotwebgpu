@@ -62,7 +62,7 @@ const EXPECT = {
 			// these channels get because `mesh` goes through add_peer(). It was
 			// 1 until F10 showed that 1 ms -- shorter than any real round trip
 			// -- cost web 75-87% of its packets under loss
-			// (webgpu_notes/webrtc_web.md §4.4a.4). What F8 is guarding here is
+			// (webgpu_notes/TASKS.md §4.20). What F8 is guarding here is
 			// that a lifetime is applied AT ALL; the value belongs to the
 			// engine, so if it changes again this is the assertion to update.
 			['F8: the ordered channel really carries a packet lifetime', /ch1 .*lifetime=50 .*label=ordered/],

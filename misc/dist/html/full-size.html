@@ -520,8 +520,8 @@ const engine = new Engine(GODOT_CONFIG);
 		// before the browser gets a chance to paint anything. On a cold shader
 		// cache this single call can block the main thread for many seconds
 		// (SPIR-V -> WGSL via Tint for every specialized pipeline variant the
-		// first frame needs; see webgpu_notes/STARTUP_PROFILING.md and Section 10
-		// of webgpu_notes/finish_async_shader_comp.md). No JS-side progress text
+		// first frame needs; see webgpu_notes/TASKS.md §4.21 and Section 10
+		// of webgpu_notes/TASKS.md §4.21). No JS-side progress text
 		// or event listener can update the screen during that window -- the JS
 		// thread that would run them is the same one that's blocked. Two
 		// consequences, both handled below:
