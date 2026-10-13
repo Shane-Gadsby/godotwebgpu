@@ -114,10 +114,14 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 ## 2. Outstanding work — most to least critical
 
+**Numbers are stable.** A closed item keeps its number, is marked `CLOSED` here and points into §4,
+so references from source comments and from this file stay valid. Re-order by moving rows, not by
+renumbering.
+
 | # | item | status | effort (Opus 5, medium) |
 |---|---|---|---|
 | 2.1 | Bind-group layout mismatch — rare residual | `OPEN` | 1-2 sessions, needs real GPU |
-| 2.2 | Confirm the non-dlink export abort is gone on 6.0.9 | `OPEN` | ~0.5 session |
+| 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | Profile a dlink export under network throttling | `OPEN` | ~1 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
@@ -172,20 +176,10 @@ feature up to the failing one, with or without screenshots, so it needs a timing
 compilation-order condition nobody has pinned. Likeliest remaining hole: a path where `p_shader`
 arrives null. Repro: `webgpu_tests/forward_plus/`, real GPU, Chrome.
 
-### 2.2 Confirm the non-dlink export abort is gone on Emscripten 6.0.9 `OPEN` *(old Task 11)*
+### 2.2 Confirm the non-dlink export abort is gone on Emscripten 6.0.9 `CLOSED 2026-10-14`
 
-Exporting with `variant/extensions_support` **unchecked** (the default, non-GDExtension export) used
-to abort on load with `Aborted(native code called abort())`. Root cause (§4.5): a 4-byte
-heap-buffer-overflow in Emscripten **4.0.11**'s vendored `emdawnwebgpu` port — `wgpuCreateInstance()`
-does `new WGPUInstanceImpl(desc)`, `operator new` sizes it at 32 bytes, the constructor's generated
-zero-init writes 36. ASan report confirms both frames inside the same vendored `webgpu.cpp`. Not this
-fork's code; `extensions_support` was never the real variable, only heap layout.
-
-**Why this is near the top anyway**: the fork now pins Emscripten **6.0.9**, and nobody has
-re-tested. Circumstantial evidence says it is fixed (the scene smoketest's non-dlink nothreads
-template is exactly this configuration and loads fine), but that has never been stated as a result.
-Export `webgpu_tests/test_project` with extensions off, load it in a real browser, and either close
-this or vendor a patch to the port file following `misc/emsdk_patches/`.
+**It is gone.** Verified on 6.0.9, both by loading the configuration and by reading the vendored
+port. The result and its evidence are recorded in §4.5; nothing is left to do.
 
 ### 2.3 Profile a dlink export under network throttling `OPEN` *(old Task 46 §4)*
 
@@ -621,7 +615,34 @@ Tint IR transform, made the format-remap text passes memcpy-safe and removed a d
   symptoms depending on binary layout, and `variant/extensions_support` was never the real variable.
   One real independent bug was found and kept along the way: the device was imported via
   `importJsDevice()` with no `parentPtr`, so its async events were tracked under the wrong instance.
-  **Re-verification on 6.0.9 is §2.2.**
+  **Closed 2026-10-14 on Emscripten 6.0.9 — the abort is gone**, on two kinds of evidence, because
+  a clean load alone would not have been enough (the overflow was heap-layout dependent, so "it
+  works today" could just mean the stray bytes landed harmlessly again):
+
+  1. **The mechanism no longer exists in the vendored port.** 6.0.9's `webgpu.cpp` has
+     `wgpuCreateInstance()` call a static factory — `WGPUInstanceImpl::Create(descriptor)` →
+     `AcquireRef(new WGPUInstanceImpl())` — whose constructor takes **no descriptor**, has an
+     explicit member-init list (`EventSource(GetNextInstanceId())`) and a real body; the
+     descriptor's state is *assigned* into the already-constructed object afterwards. The
+     descriptor-taking constructor whose compiler-generated whole-object zero-init wrote 36 bytes
+     into a 32-byte allocation is gone, and `grep "new WGPUInstanceImpl"` finds only that one site.
+  2. **Two differently laid out non-dlink binaries load clean**, which is the axis that used to
+     decide whether the stray write hurt: `webgpu_tests/test_project` exported with
+     `variant/extensions_support=false` as **release** *and* as **debug** (the debug template is
+     where a different stale-layout crash had reappeared before). Both print the banner,
+     `WebGPU 1.0 - Forward+`, `Emscripten 6.0.9, single-threaded, no GDExtension support`, build the
+     full shader-coverage scene and render. Zero aborts, zero `unreachable`, zero dlmalloc or
+     `EventManager` assertions, zero WebGPU errors — the only `ERROR:` in either log is the
+     fixture's own `look_at` misuse, which the dlink control shows too. The dlink control
+     (`extensions_support=true`, with its 47 MB `index.side.wasm`) is identical but for the
+     `GDExtension support` line, so the old "works with extensions, aborts without" correlation is
+     simply absent rather than inverted.
+
+  **Not repeated**: the ASan build that originally produced the diagnosis. An ASan web template
+  relink costs far more than this result is worth now that the upstream code shape is gone, and ASan
+  changes the very heap layout the bug depended on. The Round 6 `parentPtr` fix stays in the tree
+  (`rendering_context_driver_webgpu.cpp` passes `instance` to `importJsDevice()`), still correct and
+  still unrelated to this crash.
 - **Task 12 — threads**: `threads=yes dlink_enabled=no` (the common case) root-caused and fixed
   (`6893725f61`). `threads=yes dlink_enabled=yes` was then made to boot clean via the two Emscripten
   toolchain patches in `misc/emsdk_patches/` — `0001` an `ASM_CONSTS` initialization race in the
