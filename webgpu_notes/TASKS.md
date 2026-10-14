@@ -590,6 +590,13 @@ documented emulation copies, not a bug), and a *baked* heavy export for `transla
 
 **2026-10-15 — blocked on the host, and a finding.** (1) `nvidia-smi` fails with a driver/library mismatch (kernel module 610.57.04, userspace 615.71.09), so Chromium cannot reach the RTX 4080 SUPER: the heavy scene ran Forward Mobile at 1-2 fps. A reboot or module reload is needed before any real-GPU number is valid; the figures from that run are discarded. (2) `startup_phases/*.mjs` launched Chromium without `--use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist`; fixed to match `run_forward_plus.mjs`. (3) `BAKE=1 ./export_heavy.sh` now exists, but the heavy scene builds its meshes and materials in GDScript, so the exported pck is 11 KB and the baker has nothing to bake; a baked heavy export needs a scene saved as a `.tscn`/resources.
 
+**RE-RUN AFTER THE REBOOT (paused 2026-10-15).** Everything measured on 2026-10-15 ran while `nvidia-smi` reported a driver/library mismatch (kernel 610.57.04 vs userspace 615.71.09), so none of it counts. Before re-running, confirm `nvidia-smi` works and that an adapter probe with the flags below reports the RTX 4080 SUPER with `maxSampledTexturesPerShaderStage` >= 48 (otherwise it is Forward Mobile and the run is meaningless). Required Chromium flags (now in all `startup_phases/*.mjs`): `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist --no-sandbox`. Re-run:
+1. `forward_plus/export_heavy.sh` then `startup_phases/profile_phases.mjs --dir ../forward_plus/export_heavy --duration 40` (expect `SceneForwardClusteredShaderRD`, ~160 fps, `ringOverflows: 0`; the 1-2 fps Forward Mobile result of 2026-10-15 is invalid).
+2. The same with `BAKE=1 ./export_heavy.sh` -> `export_heavy_baked` (only meaningful once the heavy scene's meshes/materials are saved resources; today the pck is 11 KB and nothing bakes).
+3. Any other real-GPU tier touched this session: `run_forward_plus.mjs` (+ `--baked`), `local_ci.sh --bake`.
+4. The editor/web interleave test of §2.19 was build-only and does not depend on the GPU; it stands.
+Remaining plan after that: §2.29 WebRTC leg and re-baseline, §2.17, §2.14 sweep, §2.20/§2.21.
+
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
 This fork now differs from stock Godot by one default: `WebRTCMultiplayerPeer`'s
