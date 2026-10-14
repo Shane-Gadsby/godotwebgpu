@@ -203,8 +203,18 @@ async function testBrowser(browserName) {
       console.log(`  ${browserName}: FAIL -- no [FontCheck] READY within 60s`);
     } else {
       const canvas = await page.locator('canvas').first();
-      const png = decodePng(await canvas.screenshot());
-      const { failures, fill, outline } = assertBands(png);
+      // READY is emitted by the scene, not by the compositor: Firefox can still be
+      // showing an unpresented (black) canvas for several seconds afterwards, which
+      // reads as "glyph modulate is being dropped". Retry until it passes or the
+      // window closes, so a real failure still fails.
+      let png, failures, fill, outline;
+      const settleDeadline = Date.now() + 10000;
+      do {
+        png = decodePng(await canvas.screenshot());
+        ({ failures, fill, outline } = assertBands(png));
+        if (failures.length === 0) break;
+        await new Promise((r) => setTimeout(r, 500));
+      } while (Date.now() < settleDeadline);
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  ${browserName}: canvas ${png.width}x${png.height}  ` +
         `fill[red ${pct(fill.red)} white ${pct(fill.white)}]  outline[black ${pct(outline.black)}]`);

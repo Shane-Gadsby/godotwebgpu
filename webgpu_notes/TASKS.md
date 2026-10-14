@@ -759,6 +759,12 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
    validation errors. Fall back to `CI=1` (swiftshader) only for adapter-independent work — trap 1
    says why that is not a substitute.
 
+   **Corollary (2026-10-14):** `local_ci.sh` on this machine needs `WEBGPU_REAL_GPU=1`, or the Chrome font
+   test fails exactly as trap 1 says. And `test_font_visual.mjs` used to screenshot the instant the scene
+   printed READY, which Firefox had not presented yet (black canvas, same false message); it now retries for
+   10 s. `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode` plus the stages after the Firefox font test
+   (fog, matrix, WebRTC, lifecycle, screenshots) were all green on `4d407aacc4`.
+
 4. **An identical number across genuinely different builds indicts the measurement, not the fix.**
    `360/16` repeated *exactly* through three unrelated fixes because a stale client-side cache sat
    between artifact and observation. "Identical, not merely similar" is the tell.
