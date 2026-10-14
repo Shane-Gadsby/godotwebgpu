@@ -47,6 +47,9 @@ a rare non-visual error.
 
 Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9.2 s),
 `{baked: 360, translated: 0}`; BC1 compression is equivalent to uncompressed at RMSE 0.0006.
+Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches its first frame in
+**25.7 s**, of which 23.5 s is download — see §4.15 and §2.27 before optimizing anything CPU-side for
+load time.
 
 ### Build and environment state — read before rebuilding
 
@@ -58,9 +61,11 @@ Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9
 - **A scratch project needs `renderer/rendering_method.web="forward_plus"`**, or the export picks
   `opengl3` and no WebGPU code runs at all.
 - **The editor and the web template must be built from the same commit.** Baked shader caches are
-  keyed to `GODOT_VERSION_HASH`; rebuild one and the whole baked cache goes unreachable. The tell is
-  `{baked: 0, translated: N}` plus a ~5× slower load, which reads as a performance regression in
-  whatever was just changed. Rebuild both, or neither, then re-export. Build the **web one last**.
+  keyed to `GODOT_VERSION_HASH`; rebuild one and the whole baked cache goes unreachable. The engine
+  says so outright — "This export ships a baked shader cache, but none of it matches what this build
+  asks for" (`shader_rd.cpp:756`) — alongside `{baked: 0, translated: N}` and a ~3.5× slower load,
+  which otherwise reads as a performance regression in whatever was just changed. Cost of ignoring it,
+  measured: a 150.8 MB pck that buys nothing. Rebuild both, or neither, then re-export. Build the **web one last**.
   Incremental cost on this machine: editor ~30 s, template ~47 s.
 - **`~/emsdk` must carry both patches in `misc/emsdk_patches/`** for any `dlink_enabled=yes` build
   (`apply.sh --apply`, `--status`, `--revert`). `emsdk install` silently reverts them. Every build
@@ -123,7 +128,8 @@ renumbering.
 |---|---|---|---|
 | 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
-| 2.3 | Profile a dlink export under network throttling | `OPEN` | ~1 session |
+| 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
+| 2.27 | Baked shader containers are 79% of the download | `OPEN` | 1-2 sessions |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
 | 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` | ~1 session, needs real GPU |
@@ -160,22 +166,48 @@ address made the cache return a bind group built for a dead layout. The Forward+
 **It is gone.** Verified on 6.0.9, both by loading the configuration and by reading the vendored
 port. The result and its evidence are recorded in §4.5; nothing is left to do.
 
-### 2.3 Profile a dlink export under network throttling `OPEN` *(old Task 46 §4)*
+### 2.3 Profile a dlink export under network throttling `CLOSED 2026-10-14`
 
-The cheapest high-value measurement left, and it has never been taken. `index.side.wasm` is **51 MB**
-and Emscripten's dylink loader fetches it into a full ArrayBuffer and compiles it with non-streaming
-`WebAssembly.instantiate`, outside `config.js`'s `instantiateWasm` override (`libdylink.js:947` at
-6.0.9; `loadLibData()` makes at least one extra 51 MB copy). It was ranked low because it measured
-96 ms — **on localhost**. At 20 Mbit/s the same 51 MB is ~20 s that cannot overlap compilation, which
-would dwarf every other number in §2.4. Playwright can throttle directly via CDP
-`Network.emulateNetworkConditions`.
+**Measured, and the premise was wrong.** The non-streaming compile of the side module costs **~50 ms**,
+not seconds, so next to nothing is lost by it not streaming. dlink's real cost is bytes (+4% of a
+realistic payload) and engine CPU (+12%). The preload mitigation is **refuted** — the connection is
+never idle, so overlapping cannot speed up a bandwidth-bound load. The lever that does matter is
+transport compression, worth 3.5×. Figures, and the far larger thing they turned up (§2.27), are in
+§4.15.
 
-Two mitigations to cost against the measurement rather than guess at: a `<link rel="preload"
-as="fetch">` or early `fetch()` of `.side.wasm` from the shell so its download overlaps the main
-module's compile and the pck download; and a non-dlink export wherever GDExtension is not needed.
-`loadWebAssemblyModule()` does accept a `WebAssembly.Module`, so a streaming path exists in
-principle, but Emscripten exposes no public hook to inject one (`preloadedWasm` holds exports,
-`sharedModules` is pthreads-only).
+### 2.27 Baked shader containers are 79% of the download `OPEN` *(found closing §2.3)*
+
+A baked export of `godot-demo-projects/3d/platformer` ships an `index.pck` of **150.8 MB** (38.2 MB
+gzipped); the same project exported without the baker is **1.09 MB**. So ~149.7 MB of it is baked
+shader containers — and the run then consumes **9.0 MB** of WGSL out of them (`wgslBytes`, with
+`baked: 599, translated: 0`). Roughly 16× more is shipped than any one run reads.
+
+It is the single largest term in a real load, and it is big enough to invert the baker's own trade.
+Same project, same build, 20 Mbit/s with gzip, to first presented frame:
+
+| export | pck | payload | load | stall | first frame |
+|---|---|---|---|---|---|
+| **not** baked (`--headless`) | 1.09 MB | 11.9 MB | 6.2 s | 11.1 s | **17.5 s** |
+| baked | 150.8 MB | 49.8 MB | 23.5 s | 2.3 s | **25.7 s** |
+
+Baking does exactly what it claims to the CPU — the stall drops 11.1 s → 2.3 s, and
+`containerCreateMs` 6615 → 442 ms — and still loses by 8 s, because it buys that with 37 MB of extra
+download. Above ~100 Mbit it wins; on a typical link it does not. Note this cuts the other way for a
+project whose shader set is small relative to its assets: the user's own project bakes to a 57.1 MB
+pck (§4.15) and cold-loads in ~1.0 s, so the ratio, not the absolute size, is what decides.
+
+Two directions, in order of expected value:
+
+1. **Ship fewer variants.** Each container appears to carry WGSL for every variant of its shader
+   while a run reaches one or two. The export already knows a lot about what the project can reach
+   (SDFGI/VoxelGI/SSIL/volumetric fog on or off, MSAA, renderer), so pruning by project settings is
+   the obvious first cut. This is the same class as §4.15's landed fix — stop shipping what will not
+   be used — one level further in.
+2. **Compress the containers in the pck.** WGSL is text and gzips ~4× (150.8 → 38.2 MB), but that
+   only helps a host that is not already compressing the whole pck. Measure against 1 before doing it.
+
+First check before either: confirm where the 149.7 MB actually goes (per-shader, per-variant), since
+the only numbers in hand are the total and what one run consumed.
 
 ### 2.4 Startup's fixed floor: `Servers:Rendering` and the first frame `OPEN` *(old Task 14, subtask 2)*
 
@@ -328,6 +360,13 @@ Six named gaps, each roughly a session, in rough value order:
    reproducible across runs, which now matters twice over since `tint_convert_cli --batch` is also
    driven from the editor's export-time baker with its own fork/mutex concerns.
 6. **Safari CI automation** — needs a macOS runner; see §2.8.
+7. **No tier ever loads a baked export.** Every export helper in the suite passes `--headless`
+   (`scene_smoketest/run_scenes.mjs:350`, `forward_plus/export.sh`), and `--headless` skips the
+   export-time shader baker — confirmed 2026-10-14: the same project exports to a 1.09 MB pck headless
+   and a 150.8 MB one under `xvfb-run`. So every tier runs `translated: 355, baked: 0` while the
+   configuration that ships is `baked: 599, translated: 0`, which is a different code path through the
+   container reader, a different load profile, and where §2.27 lives. One export under `xvfb-run`
+   would cover it.
 
 ### 2.17 Forward+ benchmark leg and the README's numbers `OPEN` *(old Task 9.16)*
 
@@ -389,9 +428,13 @@ be diagnosed alongside another's:
 
 - **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`.** For a project with a known peak heap,
   raising it avoids the growth steps during load outright.
-- **The 51 MB side module's levers are module-level** (`module_*_enabled=no`) and transport
+- **The 45 MB side module's levers are module-level** (`module_*_enabled=no`) and transport
   compression — `-Os` + thin LTO is already production, and `EXPORT_ALL=1` applies to the 1.3 MB
-  *main* module, so neither is the cause.
+  *main* module, so neither is the cause. Compression is now measured: 45.3 MB → 11.9 MB gzip → 9.5 MB
+  brotli, and end to end it is worth 3.5× on the whole load (§4.15). **Nothing in this repo says to
+  serve compressed** — not the README, not `webgpu_site`, and none of the local servers did until
+  `profile_phases.mjs --compress`. That is the cheapest load-time win available to anyone deploying
+  this and it costs no engine work.
 - Recorded so they are not "found" again: `_check_device_lost()`'s per-frame `EM_ASM_INT` is ~1 µs
   (0.006% of a 60 fps budget); subpass post-processing is off under `WEB_ENABLED` and costs one extra
   render pass, unfixable without input attachments; `uniform_set_create()`'s nested linear scans sit
@@ -755,7 +798,57 @@ payload. A dead nested scan was removed from `command_bind_render_uniform_sets()
 is **instrumented, not fixed** (`godotWebGPUFrameStats`): everything else found in the per-draw path
 was already handled. Measured on swiftshader, which is how §4.17's Forward-Mobile-vs-Forward+ trap
 was found and corrected — an export warning written on that wrong conclusion was removed again.
-Open descendants: §2.3, §2.6, §2.20, §2.22.
+Open descendants: §2.6, §2.20, §2.22, §2.27.
+
+#### §2.3 — a dlink export under network throttling (closed 2026-10-14)
+
+Every number this project had ever taken was over loopback, where a 40 MB download costs ~130 ms.
+`profile_phases.mjs` now has `--throttle` (CDP `Network.emulateNetworkConditions`, named profiles)
+and `--compress` (`Content-Encoding: gzip`, which every real host does and none of this suite's
+servers did), so the question could finally be asked. All figures: `godot-demo-projects/3d/platformer`,
+real GPU, cold profile, Chrome, time from navigation to `before-callmain` (the load phase — fetch +
+instantiate + shell, excluding the engine's own CPU stall). This table is the **unbaked** export
+(pck 1.09 MB) on purpose: with the wasm as ~97% of the payload it isolates the dlink term. The
+representative baked configuration is the last bullet below, and §2.27.
+
+| link | non-dlink | dlink | penalty |
+|---|---|---|---|
+| loopback | 0.51 s | 0.50 s | none |
+| fibre, 100 Mbit | 4.05 s | 4.65 s | +0.60 s (+15%) |
+| cable, 20 Mbit | 17.9 s | 21.3 s | +3.4 s (+19%) |
+| dsl, 5 Mbit | 70.8 s | 83.8 s | +13.0 s (+18%) |
+| cable + gzip | 6.17 s | 6.71 s | +0.54 s (+9%) |
+| dsl + gzip | 21.8 s | 23.5 s | +1.6 s (+7%) |
+
+**The premise was wrong.** The fear was ~20 s of download that could not overlap compilation. The
+non-streaming `WebAssembly.instantiate` of the 45.3 MB side module measures **46-52 ms at every one of
+those bandwidths** — constant, because it is compile time, and Chrome's baseline compile of 45 MB is
+that fast. Nothing else is serialized: the penalty tracks bytes exactly. dlink's payload is 49.8 MB
+against non-dlink's 42.0 MB (+19%), because dlink moves the whole engine into the side module
+(`index.wasm` 40.7 MB → 1.3 MB, `index.side.wasm` 45.3 MB) and triples `index.js` (0.28 → 2.1 MB).
+Gzip shrinks the *relative* penalty too, since the extra JS compresses well.
+
+**The preload mitigation is refuted, not deferred.** A `<link rel=preload>` or early `fetch()` of
+`.side.wasm` can only recover time when the connection would otherwise be idle, and it never is: the
+side module's fetch begins within ~150 ms of the main module's finishing, and in a realistic export
+the pck is downloading across that whole window anyway. Overlapping two downloads on one
+bandwidth-limited link does not make them finish sooner. Do not implement it.
+
+**What the numbers do say:**
+
+- **Serve compressed.** 3.5× end to end (81.2 s → 23.5 s on the representative baked export at
+  20 Mbit); brotli is another ~17% over gzip (9.5 vs 11.9 MB for the side module). Nothing in this
+  repo mentioned it — see §2.22.
+- **dlink also costs ~12% engine CPU**, not just bytes: identical work through the side module's PLT
+  measures `containerCreateMs` 7419 ms vs 6615 ms non-dlink, same project, same build, both
+  translating the same 355 shaders. Two non-dlink runs agreed to within 1% (6615 / 6560 ms), so the
+  gap is well clear of the noise. Previously unmeasured, and the stronger reason to prefer a
+  non-dlink export where GDExtension is not needed.
+- On the **representative** configuration (baked, editor and template from the same commit, 20 Mbit)
+  dlink's share falls to **+3.3 s raw / +0.7 s gzipped (+3-4%)**, because §2.27's 150 MB pck dwarfs it.
+
+The whole exercise also produced §2.27, which is a much larger effect than the one it set out to
+measure.
 
 ### 4.16 The Tint / SPIR-V arc
 
