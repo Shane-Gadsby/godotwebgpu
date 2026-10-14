@@ -57,17 +57,17 @@ Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches i
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
 
-### What is built right now — snapshot 2026-10-14 (end of day), HEAD `af3d57ddd1` (+ this doc commit)
+### What is built right now — snapshot 2026-10-14 (end of day), HEAD `87ce223d87`
 
 Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
-no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode` was green on the
-source of `23246cb663` (see "Verified tiers" caveats: the WebRTC stage needed a manual rerun, §3 trap 3a).
+no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --bake` was green on the
+source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` include roots and the `features.js` WebGL probe flag) (see "Verified tiers" caveats: the WebRTC stage needed a manual rerun, §3 trap 3a).
 
 | artifact | state |
 |---|---|
-| `godot.linuxbsd.editor.x86_64` | built by that last CI run (18:55), i.e. from the current driver source. **Current.** |
-| `godot.web.template_release.wasm32.nothreads.zip` | same run (19:11). **Current.** Editor + this template were built together, so the version hash should match, but no *baked* export has been loaded against this exact pair since the last rebuild — check `godotWebGPUShaderStats.baked` is non-zero before trusting a baked number (§3 trap 3a) |
-| `godot.web.template_release.wasm32.nothreads.dlink.zip` | same run (19:10). **Current** (compile check only — nothing loads it) |
+| `godot.linuxbsd.editor.x86_64` | rebuilt late 2026-10-14 with `webgpu=yes dev_mode=yes` at `a15cc5ed17` (baker enabled). **Matches the template below, not HEAD** — the later commit changed the git version hash, so a baked export from this pair is unbaked-by-mismatch against a HEAD build; rebuild both before the next baked export |
+| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt at `a15cc5ed17` with `dev_mode=yes` (no debug symbols), after the `getMissingFeatures` change. A baked export of this pair reports `baked: 615, translated: 0` |
+| `godot.web.template_release.wasm32.nothreads.dlink.zip` | from the CI run before the late rebuilds (19:10). Compile check only — nothing loads it. **Stale** w.r.t. HEAD |
 | `godot.linuxbsd.editor.dev.x86_64` | **stale** — a throwaway `dev_build=yes` native build from the start of the day; used only for the native-Vulkan reference captures (`--fp-matrix`). Rebuild before reusing |
 | `godot.web.template_{debug,*threads*}` | **stale** (Oct 13 / early Oct 14). Rebuild before any threaded or debug-template work |
 | `godot.linuxbsd.editor.double.x86_64` | §2.23's `precision=double` check; keep or delete freely |
@@ -214,20 +214,13 @@ Nothing was pushed; every commit above is local on `webgpu-4.8`.
 **Where to pick up (written 2026-10-14, end of day).** Nothing is half-done in the tree. In order of
 value for effort:
 
-1. **§2.29 — remaining legs of the baked tier** (the Forward+ matrix leg landed, `local_ci.sh --bake`). Original text: `SMOKETEST_BAKE=1` already
-   exports baked under `xvfb-run`; what is left is wiring it into `forward_plus/export.sh` and
-   `local_ci.sh` (separate `export_baked/` dirs, assert `baked > 0`/`translated` ceiling, SKIP when
-   `xvfb-run` is missing). Today no tier ever loads a baked export, and every perf change this session
-   (§2.4, §2.27) was only validated by hand.
-2. **§2.4 — the next cheap cut.** The texture-dimension scans in the stage loop (~27 ms of the remaining
-   ~180) use the same unbounded-`strstr` pattern fixed today; `createShaderModule` (~70 ms) is the
-   browser's and out of reach. The unbaked path's ~6 s of Tint is a different problem.
-3. **§2.6 remainder.** `ringOverflows` is fixed (2 MB ring). `rwShadowRefreshes: 40` per frame remains. Still
-   missing for §2.6 proper: a **baked** heavy export (needs §2.29's plumbing) to confirm `translated: 0`.
-4. **§2.28 follow-ups**: remove the now-redundant per-bind texture bookkeeping in
-   `split_compute_pass_if_conflicting` and check `render_state.current_pipeline` is not shared
-   incorrectly between render and compute. Behavior-neutral cleanup; the matrix is the safety net.
-5. **§2.14's live-project sweep** (~1 session) and **§2.16** test-suite gaps.
+1. **§2.29 — remaining legs:** the WebRTC fixture export in `local_ci.sh --bake`, and re-baselining baked-vs-unbaked deltas.
+2. **§2.16 gaps 1-4:** regression corpus (needs a decision on which fixed bugs count), error-path tests, async-readback tests, perf-in-CI guards.
+3. **§2.6 remainder:** a *baked* heavy Forward+ export (`translated` check) and `rwShadowRefreshes: 40`/frame.
+4. **§2.14's live-project sweep** (~1 session).
+5. **§2.28 follow-up** (optional, behavior-neutral): per-bind texture bookkeeping; the backstop stays.
+
+§2.4 is effectively done (tail attributed, no dominant term) and is no longer on this list.
 
 Not worth doing yet: §2.27's variant pruning (unsafe without an opt-in design — see its section),
 WGSL compression in containers (the download is already 11 MB gzipped), §2.5 threading (needs a decision
@@ -243,9 +236,9 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
-| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | ~1-2 sessions |
+| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
-| 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — frame stats taken (Mobile, Forward+, heavy Forward+); baked heavy export missing, needs §2.29 | <0.5 session, needs real GPU |
+| 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — frame stats taken; `ringOverflows` fixed (2 MB ring, `af3d57ddd`); `rwShadowRefreshes: 40`/frame and a baked heavy export remain | <0.5 session, needs real GPU |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
@@ -254,10 +247,10 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
 | 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
-| 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64 | — |
-| 2.29 | Make the baked export a real test tier | `OPEN` | ~0.5-1 session |
+| 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64; optional per-bind bookkeeping cleanup not done (backstop still needed) | — |
+| 2.29 | Make the baked export a real test tier | `PARTLY DONE` 2026-10-14 — Forward+ matrix + scene-smoketest legs landed (`local_ci.sh --bake`); WebRTC leg and delta re-baseline open | ~0.5 session |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
-| 2.16 | Test-suite gaps (7 named) | `OPEN` | ~1 session each |
+| 2.16 | Test-suite gaps (7 named) | `OPEN` — gap 5 (WGSL determinism) closed `597d27e09`; gap 7 (baked tier) mostly done; 1-4, 6 open | ~1 session each |
 | 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
 | 2.19 | Interleaved-build stale object — real fix | `OPEN` | ~1 session |
