@@ -418,6 +418,13 @@ Mobile, even on the real GPU, so they are not Forward+ numbers; they are also un
 `containerCreateMs` ~3 s). A Forward+ under-load figure still needs a Forward+ project (e.g. the
 `forward_plus` matrix fixture) run through the profiler.
 
+**Forward+ run taken 2026-10-14** (`forward_plus/export` through `profile_phases.mjs`, 40 s, real GPU,
+confirmed `SceneForwardClusteredShaderRD`): 164 fps, 31 draws, 11 passes, 38 `setBindGroup`, 7 dynamic
+bind groups, 32 push-constant writes, `ringOverflows: 0`, `rwShadowRefreshes: 0`. Unbaked (`translated` 238,
+`containerCreateMs` 3.8 s). Caveat: that fixture is a light, mostly static scene sitting at the display
+rate, so it shows the counters are clean on the Forward+ path, not how it scales. A heavy Forward+ scene
+(many lights/shadows, SDFGI) is still needed for a real load figure, and a *baked* export for `translated`.
+
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
 This fork now differs from stock Godot by one default: `WebRTCMultiplayerPeer`'s
