@@ -180,6 +180,7 @@ first, and §2.4 is now known to be 10× smaller than §2.27 on a real link, so 
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
 | 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
 | 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64 | — |
+| 2.29 | Make the baked export a real test tier | `OPEN` | ~0.5-1 session |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
 | 2.16 | Test-suite gaps (7 named) | `OPEN` | ~1 session each |
 | 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
@@ -596,6 +597,30 @@ Original analysis — worth doing, but not blind: it changes the hottest compute
 FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix covers, so it wants a
 real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
 between render and compute still reads correctly once passes are explicitly bracketed.
+
+### 2.29 Make the baked export a real test tier `OPEN` *(from §2.16 gap 7 and §2.27)*
+
+Every export helper in the suite passes `--headless`, which skips the export-time shader baker, so every
+tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration that ships is
+`baked: 599, translated: 0` — a different container reader, load profile and failure surface. Baked exports
+have been run by hand twice (Forward+ matrix 64/64, §2.27; platformer load profile) and never by CI.
+
+`SMOKETEST_BAKE=1` on `run_scenes.mjs` (2026-10-14) already exports under `xvfb-run` without `--headless`.
+What is left:
+
+1. `forward_plus/export.sh` (and `export_heavy.sh`, the WebRTC fixture) get the same switch, and
+   `local_ci.sh` gains a `--bake` stage that exports baked variants into separate dirs
+   (`export_baked/`) so the unbaked tiers keep their fast path.
+2. Run, against the baked exports: the Forward+ matrix, the scene smoketest, and assert from
+   `godotWebGPUShaderStats` that `translated` stays 0 for scenes with no runtime-built materials (the
+   matrix fixture builds materials in GDScript, so it legitimately sees `translated ~33`: assert a
+   ceiling, not zero) and that there is no cache-mismatch warning.
+3. Say SKIP, not PASS, when `xvfb-run` is absent (macOS, CI runners without it), per the suite's rule.
+4. Re-baseline: deltas of the baked matrix against the unbaked one stay within 5% (it was 2.3% max).
+5. Watch export time: baking is minutes, not the 90 s the headless path allows.
+
+Done when a regression that exists only on the baked path (a dropped variant, a container-format change,
+a mismatched version hash) turns a tier red.
 
 ### 2.15 `generate_lods()` returns zero LODs on web `OPEN` *(old Task 17.1, bug 3)*
 
