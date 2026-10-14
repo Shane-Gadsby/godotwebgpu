@@ -6714,6 +6714,11 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			}
 		}
 
+		// Keep the resolved array: it, not bind_group_layouts, is what Dawn
+		// checks every bound bind group against at draw time (see
+		// WGShader::pipeline_group_layouts and _reconcile_bind_groups()).
+		shader->pipeline_group_layouts = all_layouts;
+
 		WGPUPipelineLayoutDescriptor pl_desc = {};
 		pl_desc.bindGroupLayoutCount = total_groups;
 		pl_desc.bindGroupLayouts = all_layouts.size() > 0 ? all_layouts.ptr() : nullptr;
@@ -6767,6 +6772,9 @@ uint32_t RenderingDeviceDriverWebGPU::shader_get_layout_hash(ShaderID p_shader) 
 void RenderingDeviceDriverWebGPU::shader_free(ShaderID p_shader) {
 	WGShader *shader = (WGShader *)(p_shader.id);
 	ERR_FAIL_NULL(shader);
+	// Before the bind group layouts go: no other uniform set may keep a cache
+	// entry keyed on one of them. See _purge_rebind_caches_for_shader().
+	_purge_rebind_caches_for_shader(shader);
 	for (int i = 0; i < 6; i++) {
 		if (shader->stage_modules[i]) {
 			wgpuShaderModuleRelease(shader->stage_modules[i]);
@@ -7496,21 +7504,29 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 	}
 
 	us->handle = bg;
+	us->handle_layout = layout;
 	// Cache entries and source shader for potential BGL rebinding.
 	us->cached_entries.resize(entries.size());
 	for (uint32_t i = 0; i < entries.size(); i++) {
 		us->cached_entries[i] = entries[i];
 	}
 	us->source_shader = shader;
+	live_uniform_sets.insert(us);
 	return UniformSetID(us);
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx) {
+WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx, WGPUBindGroupLayout *r_layout) {
 	// Fast path: same shader or no shader info.
 	if (!p_target_shader || p_us->source_shader == p_target_shader) {
+		if (r_layout) {
+			*r_layout = p_us->handle_layout;
+		}
 		return p_us->handle;
 	}
 	if (p_set_idx >= (uint32_t)p_target_shader->bind_group_layouts.size()) {
+		if (r_layout) {
+			*r_layout = p_us->handle_layout;
+		}
 		return p_us->handle;
 	}
 
@@ -7528,6 +7544,9 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 			source_layout = p_us->source_shader->merged_pc_group_layout;
 		}
 	}
+	if (r_layout) {
+		*r_layout = target_layout;
+	}
 	if (source_layout == target_layout) {
 		return p_us->handle;
 	}
@@ -7536,7 +7555,12 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 	// draw whose uniform set was built against a different shader than the
 	// pipeline currently bound.
 	if (const WGPUBindGroup *cached = p_us->rebind_cache.getptr(target_layout)) {
-		return *cached;
+		if (!*cached && r_layout) {
+			// A cached failure: p_us->handle comes back instead, carrying its
+			// own layout, not the target's.
+			*r_layout = p_us->handle_layout;
+		}
+		return *cached ? *cached : p_us->handle;
 	}
 
 	// Build adapted entries: copy cached entries and fix sampler type mismatches.
@@ -7781,7 +7805,67 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 				(int)filtered.size()));
 	}
 	p_us->rebind_cache[target_layout] = bg; // Cache even if null.
+	if (!bg && r_layout) {
+		*r_layout = p_us->handle_layout;
+	}
 	return bg ? bg : p_us->handle;
+}
+
+// A WGUniformSet's rebind_cache is keyed on the *target* shader's
+// WGPUBindGroupLayout pointer: it holds a bind group rebuilt against another
+// shader's layout, so the same uniform set can be bound under any ShaderRD
+// variant's pipeline (see _get_compatible_bind_group()). Those keys belong to
+// shaders the uniform set does not own and did not come from -- RenderingDevice
+// only makes a uniform set depend on the shader it was *created* from -- so
+// nothing stopped a key from outliving its layout.
+//
+// That is what made §2.1 rare and undiagnosable. shader_free() releases the
+// shader's bind group layouts; emdawnwebgpu's handles are heap objects, so the
+// next wgpuDeviceCreateBindGroupLayout() can land on the freed address. From
+// then on a long-lived uniform set (the scene's set 0 and set 1 live for the
+// whole frame and get adapted to dozens of variants) would hit the cache on
+// the *recycled* pointer and bind a group built for the dead layout. Pointer
+// equality said it matched -- which is exactly why the draw-time reconcile
+// below saw nothing wrong -- while Dawn compared the contents and rejected the
+// command buffer:
+//
+//   Bind group layout [bgl:…:18:set0] of pipeline layout [plyt:…:18] does not
+//   match layout [bgl:…:2:set0] of bind group … at group index 0
+//
+// naming the dead shader's variant as the bound group's layout. It needed
+// shader churn to show up at all, which is why it only ever appeared partway
+// through a long matrix run and never in a single-feature repro.
+//
+// So no cache entry may outlive its key. Purge them here, while the layouts
+// are still alive.
+void RenderingDeviceDriverWebGPU::_purge_rebind_caches_for_shader(WGShader *p_shader) {
+	if (p_shader->bind_group_layouts.is_empty() && p_shader->merged_pc_group_layout == nullptr) {
+		return;
+	}
+	for (WGUniformSet *us : live_uniform_sets) {
+		if (us->rebind_cache.is_empty()) {
+			continue;
+		}
+		for (WGPUBindGroupLayout layout : p_shader->bind_group_layouts) {
+			if (layout == nullptr) {
+				continue;
+			}
+			if (WGPUBindGroup *cached = us->rebind_cache.getptr(layout)) {
+				if (*cached) {
+					wgpuBindGroupRelease(*cached);
+				}
+				us->rebind_cache.erase(layout);
+			}
+		}
+		if (p_shader->merged_pc_group_layout) {
+			if (WGPUBindGroup *cached = us->rebind_cache.getptr(p_shader->merged_pc_group_layout)) {
+				if (*cached) {
+					wgpuBindGroupRelease(*cached);
+				}
+				us->rebind_cache.erase(p_shader->merged_pc_group_layout);
+			}
+		}
+	}
 }
 
 void RenderingDeviceDriverWebGPU::uniform_set_free(UniformSetID p_uniform_set) {
@@ -7827,6 +7911,7 @@ void RenderingDeviceDriverWebGPU::uniform_set_free(UniformSetID p_uniform_set) {
 	if (us->handle) {
 		wgpuBindGroupRelease(us->handle);
 	}
+	live_uniform_sets.erase(us);
 	memdelete(us);
 }
 
@@ -8920,6 +9005,7 @@ void RenderingDeviceDriverWebGPU::_flush_push_constants(WGCommandBuffer *p_cmd_b
 				if (pw->shader) {
 					for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 						wgpuComputePassEncoderSetBindGroup(p_cmd_buf->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+						p_cmd_buf->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 					}
 				}
 			}
@@ -9024,6 +9110,7 @@ void RenderingDeviceDriverWebGPU::_flush_push_constants(WGCommandBuffer *p_cmd_b
 					if (pw->shader) {
 						for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 							wgpuRenderPassEncoderSetBindGroup(p_cmd_buf->render_encoder, gap_idx, empty_bind_group, 0, nullptr);
+							p_cmd_buf->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 						}
 					}
 				}
@@ -9114,6 +9201,24 @@ void RenderingDeviceDriverWebGPU::_flush_push_constants(WGCommandBuffer *p_cmd_b
 		wgpuRenderPassEncoderSetBindGroup(p_cmd_buf->render_encoder, p_shader->push_constant_bind_group, pc_bind_group_to_use, num_dyn_offsets, dyn_offsets);
 	} else if (p_cmd_buf->compute_encoder) {
 		wgpuComputePassEncoderSetBindGroup(p_cmd_buf->compute_encoder, p_shader->push_constant_bind_group, pc_bind_group_to_use, num_dyn_offsets, dyn_offsets);
+	}
+
+	// Keep the slot's record in step with what is actually bound there now,
+	// including the offsets, so a mid-pass restart replays this bind faithfully
+	// and the draw-time reconcile does not see the PC group as stale. The
+	// PC-only group has no uniform set behind it; the merged one keeps whatever
+	// set command_bind_*_uniform_sets() recorded.
+	if (p_shader->push_constant_bind_group < WGCommandBuffer::MAX_BIND_GROUPS) {
+		auto &pc_bs = p_cmd_buf->last_bound_state[p_shader->push_constant_bind_group];
+		pc_bs.group = pc_bind_group_to_use;
+		pc_bs.layout = use_merged ? p_shader->merged_pc_group_layout : push_constant_bind_group_layout;
+		if (!use_merged) {
+			pc_bs.source_set = nullptr;
+		}
+		pc_bs.dynamic_offset_count = num_dyn_offsets;
+		for (uint32_t j = 0; j < num_dyn_offsets && j < WGCommandBuffer::MAX_BIND_GROUP_DYN_OFFSETS; j++) {
+			pc_bs.dynamic_offsets[j] = dyn_offsets[j];
+		}
 	}
 
 	p_cmd_buf->last_flushed_pc_offset = push_constant_ring_offset;
@@ -9298,6 +9403,7 @@ void RenderingDeviceDriverWebGPU::command_begin_render_pass(CommandBufferID p_cm
 
 	// Invalidate bind group state tracking (new encoder = clean state).
 	cmd->invalidate_bind_groups();
+	cmd->reset_bound_group_state();
 
 	// Store render state.
 	cmd->render_state.render_pass = rp;
@@ -9809,6 +9915,14 @@ void RenderingDeviceDriverWebGPU::command_next_render_subpass(CommandBufferID p_
 	cmd->active_encoder = WGCommandBuffer::RENDER;
 
 	// Reset pipeline state — new render pass requires re-binding everything.
+	// The bind group trackers have to go with it: nothing is bound on a
+	// brand-new encoder, so leaving the redundancy cache populated lets a
+	// "already bound" skip drop a bind the new pass genuinely needs, and
+	// leaving last_bound_state populated would let the draw-time reconcile
+	// believe a slot is already correct. (command_begin_render_pass does the
+	// same; this path was missing it.)
+	cmd->invalidate_bind_groups();
+	cmd->reset_bound_group_state();
 	cmd->render_state.current_pipeline = nullptr;
 	cmd->render_state.current_index_buffer = nullptr;
 	cmd->render_state.current_index_offset = 0;
@@ -9904,6 +10018,7 @@ void RenderingDeviceDriverWebGPU::command_bind_render_pipeline(CommandBufferID p
 	if (pw->shader) {
 		for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 			wgpuRenderPassEncoderSetBindGroup(cmd->render_encoder, gap_idx, empty_bind_group, 0, nullptr);
+			cmd->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 			perf.gap_bind_group_calls++;
 		}
 	}
@@ -9965,7 +10080,8 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 			uint32_t set_idx = p_first_set_index + i;
 
 			// Get a bind group compatible with the current pipeline's BGL.
-			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx);
+			WGPUBindGroupLayout bg_layout = nullptr;
+			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx, &bg_layout);
 
 			// Unpack dynamic offsets for this set's material dynamic buffers, in binding order.
 			uint32_t set_dyn_offsets[MAX_DYNAMIC_BUFFERS] = {};
@@ -10006,6 +10122,8 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 					auto &bs = cmd->last_bound_state[set_idx];
 					bs.group = bg_to_bind;
+					bs.layout = bg_layout;
+					bs.source_set = us;
 					bs.dynamic_offset_count = num_dyn;
 					for (uint32_t j = 0; j < num_dyn && j < WGCommandBuffer::MAX_BIND_GROUP_DYN_OFFSETS; j++) {
 						bs.dynamic_offsets[j] = set_dyn_offsets[j];
@@ -10026,6 +10144,8 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 					auto &bs = cmd->last_bound_state[set_idx];
 					bs.group = bg_to_bind;
+					bs.layout = bg_layout;
+					bs.source_set = us;
 					bs.dynamic_offset_count = num_dyn;
 					for (uint32_t j = 0; j < num_dyn && j < WGCommandBuffer::MAX_BIND_GROUP_DYN_OFFSETS; j++) {
 						bs.dynamic_offsets[j] = set_dyn_offsets[j];
@@ -10047,6 +10167,8 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 					auto &bs = cmd->last_bound_state[set_idx];
 					bs.group = bg_to_bind;
+					bs.layout = bg_layout;
+					bs.source_set = us;
 					bs.dynamic_offset_count = num_dyn;
 					for (uint32_t j = 0; j < num_dyn && j < WGCommandBuffer::MAX_BIND_GROUP_DYN_OFFSETS; j++) {
 						bs.dynamic_offsets[j] = set_dyn_offsets[j];
@@ -10065,6 +10187,8 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 				if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 					auto &bs = cmd->last_bound_state[set_idx];
 					bs.group = bg_to_bind;
+					bs.layout = bg_layout;
+					bs.source_set = us;
 					bs.dynamic_offset_count = 0;
 					cmd->bound_bind_groups[set_idx] = bg_to_bind;
 				}
@@ -10073,12 +10197,130 @@ void RenderingDeviceDriverWebGPU::command_bind_render_uniform_sets(CommandBuffer
 	}
 }
 
+// WebGPU validates, at every draw and dispatch, that each group in the bound
+// pipeline's layout holds a bind group built for *that* layout -- including
+// groups the shader never reads. RenderingDevice's rebinding is Vulkan-shaped
+// instead: it invalidates its bound-set bookkeeping on a shader change, but
+// only re-emits a bind for sets the new pipeline declares a non-zero format
+// for, because under Vulkan an untouched set that the pipeline does not access
+// is harmless. On WebGPU it is not: a bind group adapted for an earlier
+// ShaderRD variant can survive on the encoder into a draw of a different
+// variant, and Dawn rejects the whole command buffer with
+//
+//   Bind group layout [bgl:<shader>:18:set0] of pipeline layout
+//   [plyt:<shader>:18] does not match layout [bgl:<shader>:11:set0] of bind
+//   group ... set at group index 0.
+//
+// So check the invariant here, where it is finally decidable, and repair a
+// mismatching slot by re-adapting it from the uniform set it came from. The
+// common path is one pointer compare per group of the pipeline's layout.
+//
+// This runs before _flush_push_constants() on purpose: the PC group's final
+// bind (and the ring-overflow mid-pass restart, which replays
+// last_bound_state) then both see already-reconciled state. TASKS.md §2.1.
+void RenderingDeviceDriverWebGPU::_reconcile_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader, bool p_render) {
+	if (!p_shader) {
+		return;
+	}
+	const uint32_t group_count = MIN((uint32_t)p_shader->pipeline_group_layouts.size(), WGCommandBuffer::MAX_BIND_GROUPS);
+	for (uint32_t i = 0; i < group_count; i++) {
+		const WGPUBindGroupLayout expected = p_shader->pipeline_group_layouts[i];
+		WGCommandBuffer::BoundGroupState &bs = p_cmd_buf->last_bound_state[i];
+		if (expected == nullptr || bs.layout == expected) {
+			continue; // Hot path: one compare per group.
+		}
+		const bool is_pc_slot = (p_shader->push_constant_size > 0 && i == p_shader->push_constant_bind_group);
+		if (is_pc_slot && (p_shader->merged_pc_group_layout == nullptr || bs.source_set == nullptr)) {
+			// The PC-only group belongs to _flush_push_constants(), which binds
+			// it from the universal layout right after this function returns --
+			// including on the first draw of a pass, where nothing is recorded
+			// at this slot yet.
+			continue;
+		}
+		if (bs.group == nullptr) {
+			// Nothing is bound here at all: nothing stale to repair, and
+			// nothing to repair it from. If the slot is genuinely needed,
+			// Dawn's own "bind group not set" names it better than a guess
+			// from here would.
+			continue;
+		}
+
+		// Resolve a group that matches `expected`.
+		WGPUBindGroup fixed = nullptr;
+		WGPUBindGroupLayout fixed_layout = nullptr;
+		if (expected == empty_bind_group_layout) {
+			// The slot is a gap (or a set with no uniforms) for this shader.
+			fixed = empty_bind_group;
+			fixed_layout = empty_bind_group_layout;
+		} else if (bs.source_set != nullptr) {
+			fixed = _get_compatible_bind_group(bs.source_set, p_shader, i, &fixed_layout);
+		}
+
+		if (fixed == nullptr || fixed_layout != expected) {
+			// A stale group is bound and cannot be re-adapted -- either there
+			// is no uniform set behind it or the adaptation could not produce
+			// the target layout. Leave it rather than bind something else: the
+			// Dawn error that follows names the real problem, and this says
+			// which slot to look at.
+			if (bind_group_reconcile_reports < 8) {
+				bind_group_reconcile_reports++;
+				WARN_PRINT(vformat("WebGPU: [bg-reconcile] set %d of %s is stale and cannot be reconciled (%s); the draw will fail validation.",
+						(int)i, p_shader->name,
+						bs.source_set == nullptr ? String("no uniform set behind the bound group") : String("adaptation produced a different layout")));
+			}
+			continue;
+		}
+
+		if (p_render) {
+			if (!p_cmd_buf->render_encoder) {
+				return;
+			}
+			wgpuRenderPassEncoderSetBindGroup(p_cmd_buf->render_encoder, i, fixed, bs.dynamic_offset_count, bs.dynamic_offset_count ? bs.dynamic_offsets : nullptr);
+		} else {
+			if (!p_cmd_buf->compute_encoder) {
+				return;
+			}
+			wgpuComputePassEncoderSetBindGroup(p_cmd_buf->compute_encoder, i, fixed, bs.dynamic_offset_count, bs.dynamic_offset_count ? bs.dynamic_offsets : nullptr);
+		}
+		perf.set_bind_group_calls++;
+		perf.bind_group_reconciles++;
+
+		if (bind_group_reconcile_reports < 8) {
+			bind_group_reconcile_reports++;
+			WARN_PRINT(vformat("WebGPU: [bg-reconcile] set %d rebound for %s (was built for %s), %d dynamic offset(s).",
+					(int)i, p_shader->name,
+					bs.source_set && bs.source_set->source_shader ? bs.source_set->source_shader->name : String("<none>"),
+					(int)bs.dynamic_offset_count));
+		}
+
+		bs.group = fixed;
+		bs.layout = expected;
+		// The PC group is rebound per draw by _flush_push_constants(), which
+		// takes the group to use from here.
+		if (p_shader->push_constant_size > 0 && i == p_shader->push_constant_bind_group) {
+			p_cmd_buf->current_pc_bind_group = (p_shader->merged_pc_group_layout != nullptr && bs.source_set != nullptr) ? fixed : nullptr;
+		}
+		// Offsets may rotate per frame, so do not let the redundancy cache
+		// claim this slot is settled.
+		p_cmd_buf->bound_bind_groups[i] = bs.dynamic_offset_count > 0 ? nullptr : fixed;
+	}
+}
+
+void RenderingDeviceDriverWebGPU::_reconcile_render_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader) {
+	_reconcile_bind_groups(p_cmd_buf, p_shader, true);
+}
+
+void RenderingDeviceDriverWebGPU::_reconcile_compute_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader) {
+	_reconcile_bind_groups(p_cmd_buf, p_shader, false);
+}
+
 void RenderingDeviceDriverWebGPU::command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {
 	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
 	ERR_FAIL_NULL(cmd);
 	ERR_FAIL_COND(!cmd->render_encoder);
 
 	if (cmd->render_state.current_pipeline) {
+		_reconcile_render_bind_groups(cmd, cmd->render_state.current_pipeline->shader);
 		_flush_push_constants(cmd, cmd->render_state.current_pipeline->shader);
 	}
 
@@ -10096,6 +10338,7 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indexed(CommandBufferID p_
 
 	WGPipelineWrapper *pw = cmd->render_state.current_pipeline;
 	if (pw) {
+		_reconcile_render_bind_groups(cmd, pw->shader);
 		_flush_push_constants(cmd, pw->shader);
 		// For strip topologies, ensure the pipeline variant matches the bound index format.
 		// Always select the correct variant — the format may have changed since pipeline bind.
@@ -10123,6 +10366,7 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indexed_indirect(CommandBu
 
 	WGPipelineWrapper *pw = cmd->render_state.current_pipeline;
 	if (pw) {
+		_reconcile_render_bind_groups(cmd, pw->shader);
 		_flush_push_constants(cmd, pw->shader);
 		if (pw->is_strip && pw->render_handle_u16) {
 			WGPURenderPipeline needed = (cmd->render_state.current_index_format == WGPUIndexFormat_Uint16)
@@ -10168,6 +10412,7 @@ void RenderingDeviceDriverWebGPU::command_render_draw_indirect(CommandBufferID p
 	ERR_FAIL_COND(!cmd->render_encoder);
 
 	if (cmd->render_state.current_pipeline) {
+		_reconcile_render_bind_groups(cmd, cmd->render_state.current_pipeline->shader);
 		_flush_push_constants(cmd, cmd->render_state.current_pipeline->shader);
 	}
 
@@ -11086,6 +11331,10 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_pipeline(CommandBufferID 
 		// Fresh pass = fresh synchronization scope; see the field's comment
 		// in webgpu_objects.h for why this is tracked at all.
 		cmd->render_state.reset_current_compute_pass_textures();
+		// And a fresh encoder with nothing bound on it -- same reasoning as
+		// command_begin_render_pass().
+		cmd->invalidate_bind_groups();
+		cmd->reset_bound_group_state();
 	}
 
 	wgpuComputePassEncoderSetPipeline(cmd->compute_encoder, pw->compute_handle);
@@ -11095,6 +11344,7 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_pipeline(CommandBufferID 
 	if (pw->shader) {
 		for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 			wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+			cmd->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 		}
 	}
 }
@@ -11156,6 +11406,7 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 			if (pw->shader) {
 				for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 					wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+					cmd->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 				}
 			}
 		}
@@ -11209,6 +11460,7 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 				if (pw->shader) {
 					for (uint32_t gap_idx : pw->shader->gap_bind_group_indices) {
 						wgpuComputePassEncoderSetBindGroup(cmd->compute_encoder, gap_idx, empty_bind_group, 0, nullptr);
+						cmd->note_gap_group(gap_idx, empty_bind_group, empty_bind_group_layout);
 					}
 				}
 			}
@@ -11239,7 +11491,8 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 			split_compute_pass_if_conflicting(us);
 			refresh_rw_shadows(us);
 			uint32_t set_idx = p_first_set_index + i;
-			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx);
+			WGPUBindGroupLayout bg_layout = nullptr;
+			WGPUBindGroup bg_to_bind = _get_compatible_bind_group(us, pipeline_shader, set_idx, &bg_layout);
 
 			uint32_t set_dyn_offsets[MAX_DYNAMIC_BUFFERS] = {};
 			uint32_t num_dyn = us->dynamic_buffers.size();
@@ -11281,6 +11534,8 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBuffe
 			if (set_idx < WGCommandBuffer::MAX_BIND_GROUPS) {
 				auto &bs = cmd->last_bound_state[set_idx];
 				bs.group = bg_to_bind;
+				bs.layout = bg_layout;
+				bs.source_set = us;
 				bs.dynamic_offset_count = num_dyn;
 				for (uint32_t j = 0; j < num_dyn && j < WGCommandBuffer::MAX_BIND_GROUP_DYN_OFFSETS; j++) {
 					bs.dynamic_offsets[j] = set_dyn_offsets[j];
@@ -11296,6 +11551,7 @@ void RenderingDeviceDriverWebGPU::command_compute_dispatch(CommandBufferID p_cmd
 	ERR_FAIL_COND(!cmd->compute_encoder);
 
 	if (cmd->render_state.current_pipeline) {
+		_reconcile_compute_bind_groups(cmd, cmd->render_state.current_pipeline->shader);
 		_flush_push_constants(cmd, cmd->render_state.current_pipeline->shader);
 	}
 
@@ -11310,6 +11566,7 @@ void RenderingDeviceDriverWebGPU::command_compute_dispatch_indirect(CommandBuffe
 	ERR_FAIL_COND(!cmd->compute_encoder);
 
 	if (cmd->render_state.current_pipeline) {
+		_reconcile_compute_bind_groups(cmd, cmd->render_state.current_pipeline->shader);
 		_flush_push_constants(cmd, cmd->render_state.current_pipeline->shader);
 	}
 

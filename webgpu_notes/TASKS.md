@@ -37,7 +37,8 @@ a rare non-visual error.
 | `resource_lifecycle` | 6 / 0 | 4.8 |
 | `screenshot_comparison` | 8 / 0 | 4.7.2 |
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
-| Forward+ feature matrix | **63 / 64** on real GPU, Chrome | §2.1 is the one failure |
+| scene smoketest (real GPU) | 21 / 0 on Chrome **and** Firefox | 2026-10-14, after §2.1 |
+| Forward+ feature matrix | **64 / 64** on real GPU, Chrome; 0 errors over two reload-free passes | 2026-10-14, §2.1 closed |
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
 | WebRTC congestion | native/web agree at 91-97% on every transfer mode | 4.8, after the F10 fix |
 | real-hardware Forward+ (RTX 4080 SUPER) | Chrome 0 errors, Firefox 0 real errors, both report Forward+, output matches native Vulkan | 2026-10-05 (§4.15) |
@@ -120,7 +121,7 @@ renumbering.
 
 | # | item | status | effort (Opus 5, medium) |
 |---|---|---|---|
-| 2.1 | Bind-group layout mismatch — rare residual | `OPEN` | 1-2 sessions, needs real GPU |
+| 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | Profile a dlink export under network throttling | `OPEN` | ~1 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
@@ -147,34 +148,12 @@ renumbering.
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 | Side project: Braced GDScript (`.gdb`) | not started | ~1-2 weeks, **human-scoped** |
 
-### 2.1 Bind-group layout mismatch — rare residual `OPEN` *(old Task 17.1, bug 4)*
+### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
-The only genuine defect left. Dawn rejects a bind group built for one `ShaderRD` variant when bound
-under another's pipeline layout:
-
-```
-Bind group layout [bgl:SceneForwardClusteredShaderRD:18:set0] of pipeline layout
-[plyt:SceneForwardClusteredShaderRD:18] does not match layout [bgl:…:11:set0] of bind group at group 0.
-```
-
-Why variants differ at all: every variant gets its own `WGPUBindGroupLayout` because entries are
-resolved from that variant's WGSL and `eliminate_dead_resources()` strips bindings it never reaches —
-two variants' set 0 diverged in `visibility` (Fragment vs none, nine bindings) and `sampler.type`
-(Comparison vs Filtering).
-
-Already fixed (§4.19): `command_bind_render_uniform_sets()` / `command_bind_compute_uniform_sets()`
-were discarding the `ShaderID p_shader` parameter and deriving the adaptation target from
-`cmd->render_state.current_pipeline` instead — null before the draw's pipeline is bound, and the
-*old* shader right after a pipeline change. The compute one read the **render** pipeline's shader.
-They now trust `p_shader` and fall back to the pipeline only when it is null.
-
-**What is left**: 30 occurrences per run before the fix, 22 in another, **2** after — not gone, just
-rare, and still drifting between whichever feature's capture window the async error lands in
-(`proximity_fade`, `heightmap`, `alpha_hash`, `alpha_scissor`). Frames render correctly throughout;
-the Forward+ matrix fails it on error count alone. It does **not** reproduce in a trace of every
-feature up to the failing one, with or without screenshots, so it needs a timing or
-compilation-order condition nobody has pinned. Likeliest remaining hole: a path where `p_shader`
-arrives null. Repro: `webgpu_tests/forward_plus/`, real GPU, Chrome.
+**Fixed.** A cache keyed on a pointer it did not own: `WGUniformSet::rebind_cache` is keyed on the
+*target* shader's `WGPUBindGroupLayout`, and `shader_free()` releases those layouts, so a recycled
+address made the cache return a bind group built for a dead layout. The Forward+ matrix is now
+**64/64**. Details and evidence in §4.19.
 
 ### 2.2 Confirm the non-dlink export abort is gone on Emscripten 6.0.9 `CLOSED 2026-10-14`
 
@@ -838,8 +817,8 @@ calibrated amount with no driver errors. Thresholds are one third of the delta m
 Vulkan** through the same fixture (`-- --fp-matrix=DIR`) — never on WebGPU, which would bake in
 whatever the port currently does, bugs included. 10 further features are listed in `features.mjs`'s
 `UNCOVERED` with a reason each. Built because §4.17 shipped SSAO and SDFGI broken through a fully
-green suite. **63/64 on real GPU**: WebGPU and native Vulkan agree closely across the whole Forward+
-surface.
+green suite. **64/64 on real GPU** since 2026-10-14: WebGPU and native Vulkan agree closely across
+the whole Forward+ surface.
 
 Four bugs found on its first run: VoxelGI's `R8_UINT`/`R8_SINT`/`R8G8_UINT`/`R8G8_SINT` missing from
 `texture_get_usages_supported_by_format()` although `_promote_storage_format()` always handled them
@@ -847,7 +826,55 @@ Four bugs found on its first run: VoxelGI's `R8_UINT`/`R8_SINT`/`R8G8_UINT`/`R8G
 bugs where the subject was built at runtime inside the measurement window (`VoxelGI.bake()`, and
 `generate_lods()` which returns nothing on web — §2.15), now committed as baked assets; and the
 uniform-set/pipeline-layout mismatch whose fix also explained proximity fade being ~10× too weak
-(0.320 → 3.234 against Vulkan's 3.265 — one root cause, two symptoms). Its residual is §2.1.
+(0.320 → 3.234 against Vulkan's 3.265 — one root cause, two symptoms).
+
+#### The residual (old §2.1) — closed 2026-10-14, **64/64**
+
+The last 2 errors per run were a **cache keyed on a pointer it does not own.**
+`WGUniformSet::rebind_cache` maps a *target* shader's `WGPUBindGroupLayout` → a bind group rebuilt
+against that layout, so one uniform set can be bound under any variant's pipeline. Those keys belong
+to shaders the uniform set neither owns nor came from: RenderingDevice makes a uniform set depend
+only on the shader it was **created** from (`rendering_device.cpp:5281`), while the scene's set 0 and
+set 1 live for the whole frame and get adapted to dozens of variants. `shader_free()` releases the
+dying shader's layouts; emdawnwebgpu's handles are heap objects, so the next
+`wgpuDeviceCreateBindGroupLayout()` can land on the freed address — and from then on the cache hit on
+the *recycled* pointer and bound a group built for the dead layout. Pointer equality said it matched;
+Dawn compared contents and rejected the command buffer, naming the dead shader's variant
+(`bgl:…:2:set0` under `plyt:…:18`). Fix: `_purge_rebind_caches_for_shader()`, called from
+`shader_free()` before the layouts go, walks a new `live_uniform_sets` registry and erases (and
+releases) every entry keyed on them.
+
+That explains every property that made it undiagnosable: it needs shader churn, so it only appeared
+partway through a long matrix run and never in a single-feature repro; it drifted between features
+because which variant dies when is incidental; and the driver's own bookkeeping was *self-consistent*
+at the failing draw, so no amount of checking the bind path could see it.
+
+Found by elimination, with two instruments built along the way and kept:
+
+- **`_reconcile_bind_groups()`**, called from every draw and dispatch. WebGPU validates every group
+  in the pipeline layout, including ones the shader never reads, where Vulkan only cares about the
+  sets a pipeline accesses — and RenderingDevice's rebinding is Vulkan-shaped, re-emitting binds only
+  for sets the new pipeline declares a non-zero format for. This compares each slot against
+  `WGShader::pipeline_group_layouts` (the exact array given to `wgpuDeviceCreatePipelineLayout`) and
+  re-adapts a mismatching slot from the uniform set it came from, warning (budget 8) when it cannot.
+  One pointer compare per group on the hot path. It has **never fired** — including across two full
+  matrix passes with no reload — which is what proved the bind path was not the problem and sent the
+  search to the cache. Kept as a canary and because that validation-scope difference is structural.
+- **`WGCommandBuffer::BoundGroupState::{layout, source_set}`** — each slot now records the layout its
+  group was built for and the set it came from, which is what makes the above decidable.
+
+Two latent bugs fixed in passing: `command_next_render_subpass()` began a fresh encoder without
+calling `invalidate_bind_groups()`, so the redundancy cache could skip a bind the new pass needed;
+and neither it nor `command_begin_render_pass()` cleared `last_bound_state`, which the mid-pass
+restart replays. `reset_bound_group_state()` now runs wherever a fresh encoder makes the slots
+genuinely empty (render pass begin, next subpass, compute pass begin).
+
+Verification, all on the real GPU (RTX 4080 SUPER, Chrome): matrix **64/64 PASS**; two full
+back-to-back matrix passes with no page reload (256 configuration changes, the maximum shader churn
+available) **0 errors, 0 reconcile warnings**; scene smoketest 21/21 on Chrome *and* Firefox;
+resource lifecycle 6/6; screenshot comparison 8/8 (0.000% cross-browser); shader corpus 14/14;
+driver unit 370/370; preprocessing 238/238; and a `dev_mode=yes` (`warnings=extra werror=yes`) web
+build clean, since none of the above would catch a CI-fatal warning (§3).
 
 ### 4.20 Phase 18 — WebRTC web/native parity (October 2026) — CLOSED
 

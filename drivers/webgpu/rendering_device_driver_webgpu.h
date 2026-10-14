@@ -33,6 +33,7 @@
 #ifdef WEBGPU_ENABLED
 
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "drivers/webgpu/webgpu_objects.h"
 #include "servers/rendering/rendering_device_driver.h"
 
@@ -85,6 +86,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 		// happens on an adapter without readonly-and-readwrite-storage-textures.
 		// Each one also breaks and restarts the compute pass.
 		uint32_t rw_shadow_refreshes = 0;
+		// Bind group slots the draw/dispatch path had to re-adapt because the
+		// group left on the encoder did not match the pipeline layout about to
+		// consume it (see _reconcile_bind_groups()). Expected to be 0 or very
+		// near it; a non-trivial number means something upstream of the driver
+		// stopped re-binding sets it used to.
+		uint32_t bind_group_reconciles = 0;
 		double last_log_time = 0;
 		uint32_t frames_since_log = 0;
 		void reset() {
@@ -103,6 +110,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 			bind_group_redundant_skips = 0;
 			dynamic_bind_group_binds = 0;
 			rw_shadow_refreshes = 0;
+			bind_group_reconciles = 0;
 		}
 	} perf;
 
@@ -263,9 +271,35 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUSampler dummy_nonfiltering_sampler = nullptr;
 	HashSet<uint64_t> linear_filtering_samplers; // WGPUSampler handles created with a linear min/mag filter.
 
+	// Every live WGUniformSet, so shader_free() can purge the rebind caches
+	// that are keyed on the dying shader's bind group layouts. See
+	// _purge_rebind_caches_for_shader().
+	HashSet<WGUniformSet *> live_uniform_sets;
+	void _purge_rebind_caches_for_shader(WGShader *p_shader);
+
 	// --- BGL Rebinding Helper ---
-	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx);
+	// r_layout, when given, receives the layout the returned bind group was
+	// actually built against -- which is not always p_target_shader's, since
+	// several early-outs return p_us->handle unchanged. Callers that record
+	// what they bound (for the draw-time reconcile) need that distinction.
+	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx, WGPUBindGroupLayout *r_layout = nullptr);
 	bool _create_rw_shadow_bind_entry(WGUniformSet *p_us, WGTexture *p_orig_tex, uint32_t p_shadow_bnd, WGPUBindGroupEntry &r_entry);
+
+	// Last line of defense before a draw/dispatch: make the bind groups
+	// actually set on the encoder match the pipeline that is about to consume
+	// them. WebGPU validates every group in the pipeline layout, including
+	// ones the shader never reads; RenderingDevice's rebinding rules are
+	// Vulkan-shaped and only cover the sets a pipeline declares a format for,
+	// so a group left over from an earlier variant can survive into a draw
+	// that no bind call follows. Re-adapts such a slot from the uniform set it
+	// came from. TASKS.md §2.1.
+	void _reconcile_render_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
+	void _reconcile_compute_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
+	// Shared body for the two above; p_render picks the encoder.
+	void _reconcile_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader, bool p_render);
+	// Bounded diagnostic budget for the repairs above, so a pathological frame
+	// cannot turn into a log flood.
+	uint32_t bind_group_reconcile_reports = 0;
 
 	// --- Pixel Format Mapping ---
 	// TODO: Move to dedicated pixel_formats_webgpu.h/cpp when ready.
