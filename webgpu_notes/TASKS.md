@@ -159,7 +159,7 @@ and says so by having no dated note.
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
 | 2.22 | Small perf items (INITIAL_MEMORY, side-module size) | `OPEN` | ~0.5 session |
-| 2.23 | Box3D remainders | `OPEN` | ~0.5 session + open-ended gaps |
+| 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 | Side project: Braced GDScript (`.gdb`) | not started | ~1-2 weeks, **human-scoped** |
@@ -593,8 +593,16 @@ be diagnosed alongside another's:
 ### 2.23 Box3D remainders `OPEN`
 
 `modules/box3d_physics` is the default 3D engine and validated against Jolt and GodotPhysics3D
-(§4.6). Left over: a `precision=double` compile check (`BOX3D_DOUBLE_PRECISION` is wired in the
-module's `SCsub` but has never been built). The feature gaps are deliberate and reported at runtime
+(§4.6).
+
+**`precision=double` checked 2026-10-14 — it builds and it runs.** `scons platform=linuxbsd
+target=editor precision=double` links clean (`BOX3D_DOUBLE_PRECISION` reaching both the module and
+the vendored library through `SCsub:78`), all three Box3D objects compile, and the only warnings in
+the build are GCC ABI notes from Jolt, not Box3D. Behavior checked too, not just the compile: a
+headless scene dropping a sphere onto a static box settles at **y = −0.0001 under both `double` and
+single precision** (Jolt, same scene and build, settles at −0.0200), so double precision changes
+nothing observable. Fixture kept out of the repo — it is six lines of GDScript, and
+`LIVE_REPRO_METHODOLOGY.md` is the pattern for re-making it. The feature gaps are deliberate and reported at runtime
 through `Box3DDiagnostics::report_unsupported()` — soft bodies (`SoftBody3D` is inert), generic 6DOF
 joints (approximated when the locked axes allow), joint motors/springs beyond hinge motors — and
 closing any of them is open-ended work, not a task. Remember the approximations when comparing
