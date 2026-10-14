@@ -4944,21 +4944,24 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// layout's texture sample type (Float)") -- see webgpu_notes/TASKS.md Task 9.5.
 	HashMap<uint32_t, WGPUTextureSampleType> wgsl_tex_sample_type;
 
-	// Depth alias bindings: Tint splits mixed-usage depth textures into two globals
-	// (one Depth at binding B, one Float alias at binding B+1). Track (set,B+1) pairs
-	// so we can add extra BGL and bind group entries.
-	// Maps (set_index << 16 | alias_binding) → depth_binding (the adjacent depth texture).
-	HashMap<uint32_t, uint32_t> wgsl_depth_alias_bindings;
-
+	// Removed here: the whole "depth alias" mechanism. Tint splits a mixed-usage
+	// depth texture into two globals -- Depth at binding B and a Float alias at
+	// B+1, named "*_depth_alias" -- and this file used to scan the WGSL for that
+	// name and synthesize the extra BGL entry, merged-layout entry and bind
+	// group entry it implies. It can no longer happen: Tint only emits the alias
+	// for an *ambiguous* (depth = 2) OpTypeImage, and
+	// spirv_preprocess.cpp:2008 rewrites every depth = 2 image to depth = 1
+	// before Tint ever sees the module, so a single texture_depth_2d variable
+	// now serves both sampling modes. Confirmed as well as argued: zero
+	// occurrences of "_depth_alias" in wgsl_precompiled.gen.h and zero across
+	// all 216 baked shader containers of a real project's export. It had already
+	// cost one investigation round by looking live. TASKS.md §2.12.
+	//
 	// Maps a WGSL variable name (as Tint names it, e.g. "depth_tex" or "v_3") to its
-	// (set_index << 16 | binding) key. Tint does NOT always split a depth texture that's
-	// sampled both ways (textureSampleCompare *and* plain textureSample) into a separate
-	// alias variable the way wgsl_depth_alias_bindings above expects -- it can just as
-	// validly keep a single texture_depth_2d variable and call regular textureSample() on
-	// it directly with a different, non-comparison sampler variable. This map lets the
-	// call-site scan below (populating wgsl_sampler_needs_nonfiltering) resolve a texture
-	// or sampler *name* seen in a textureSample(...) call back to the binding key its BGL
-	// entry was built from. See webgpu_notes/TASKS.md Task 8.8.
+	// (set_index << 16 | binding) key. This lets the call-site scan below (populating
+	// wgsl_sampler_needs_nonfiltering) resolve a texture or sampler *name* seen in a
+	// textureSample(...) call back to the binding key its BGL entry was built from.
+	// See webgpu_notes/TASKS.md Task 8.8.
 	HashMap<String, uint32_t> wgsl_var_binding_key;
 
 	// Maps (set_index << 16 | binding) → true if this sampler binding is statically passed
@@ -5717,7 +5720,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 							}
 						}
 					}
-					// Check for depth alias variable: Tint names it "*_depth_alias".
 					// The variable name is between "var " and ":".
 					{
 						const char *var_kw = strstr(p, "var ");
@@ -5742,14 +5744,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 							if (name_len > 0) {
 								uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
 								wgsl_var_binding_key[String::utf8(name_start, name_len)] = key;
-							}
-							if (name_len > 12) { // "_depth_alias" is 12 chars
-								const char *suffix = name_start + name_len - 12;
-								if (strncmp(suffix, "_depth_alias", 12) == 0) {
-									uint32_t alias_key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-									uint32_t depth_bnd = bnd > 0 ? bnd - 1 : 0;
-									wgsl_depth_alias_bindings[alias_key] = depth_bnd;
-								}
 							}
 						}
 					}
@@ -6480,32 +6474,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				}
 			}
 
-			// Add BGL entries for depth alias variables.
-			// Tint splits mixed-usage depth textures: original→Depth at binding B,
-			// clone→Float at binding B+1 (named "*_depth_alias").
-			for (const KeyValue<uint32_t, uint32_t> &kv : wgsl_depth_alias_bindings) {
-				uint32_t alias_key = kv.key;
-				uint32_t alias_grp = alias_key >> 16;
-				uint32_t alias_bnd = alias_key & 0xFFFF;
-				if (alias_grp != set) {
-					continue;
-				}
-				WGPUBindGroupLayoutEntry alias_entry = {};
-				alias_entry.binding = alias_bnd;
-				// The alias is itself a real `@group(G) @binding(B)` declaration in
-				// whichever stage's WGSL actually took the non-comparison path (see
-				// the depth-alias comment above) -- resolve_stage_visibility finds
-				// it the same way it finds every other binding, rather than
-				// blanket-broadening it to every stage regardless of which one
-				// actually declares it. See webgpu_notes/TASKS.md's follow-up to
-				// Task 8.7 (same bug class, this one instance missed).
-				alias_entry.visibility = resolve_stage_visibility(alias_key, WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
-				alias_entry.texture.sampleType = WGPUTextureSampleType_Float;
-				alias_entry.texture.viewDimension = wgsl_tex_dims.has(alias_key) ? wgsl_tex_dims[alias_key] : WGPUTextureViewDimension_2D;
-				alias_entry.texture.multisampled = false;
-				entries.push_back(alias_entry);
-			}
-
 			// Add BGL entries for read_write storage texture shadow read bindings.
 			// Each shadow is a sampled texture at (write_binding + 1), NOT a ReadOnly
 			// storage texture, because ReadOnly access requires the
@@ -6561,7 +6529,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		}
 
 		// Store depth alias bindings on the shader for use during uniform_set_create.
-		shader->depth_alias_bindings = wgsl_depth_alias_bindings;
 
 		// Store read_write storage texture splits for bind group creation.
 		shader->rw_storage_splits = wgsl_rw_storage_splits;
@@ -6647,24 +6614,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						merged_entries.push_back(pc_entry);
 					}
 
-					// Add depth alias entries to the merged layout.
-					for (const KeyValue<uint32_t, uint32_t> &kv : wgsl_depth_alias_bindings) {
-						uint32_t alias_grp = kv.key >> 16;
-						uint32_t alias_bnd = kv.key & 0xFFFF;
-						if (alias_grp != i) {
-							continue;
-						}
-						WGPUBindGroupLayoutEntry ae = {};
-						ae.binding = alias_bnd;
-						// See the matching fix (and its full explanation) on the
-						// primary alias_entry construction above -- same reasoning
-						// applies to this merged-layout copy.
-						ae.visibility = resolve_stage_visibility(kv.key, WGPUShaderStage_Vertex | WGPUShaderStage_Fragment);
-						ae.texture.sampleType = WGPUTextureSampleType_Float;
-						ae.texture.viewDimension = wgsl_tex_dims.has(kv.key) ? wgsl_tex_dims[kv.key] : WGPUTextureViewDimension_2D;
-						ae.texture.multisampled = false;
-						merged_entries.push_back(ae);
-					}
 					// Add rw_storage split entries to the merged layout (sampled texture, not ReadOnly storage).
 					for (const KeyValue<uint32_t, uint32_t> &kv : wgsl_rw_storage_splits) {
 						uint32_t split_grp = kv.key >> 16;
@@ -7411,45 +7360,6 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 		}
 	}
 
-	// Add depth alias bind group entries: for each depth alias binding, provide
-	// the same texture view as the paired depth texture at (alias_binding - 1).
-	for (const KeyValue<uint32_t, uint32_t> &kv : shader->depth_alias_bindings) {
-		uint32_t alias_grp = kv.key >> 16;
-		uint32_t alias_bnd = kv.key & 0xFFFF;
-		uint32_t depth_bnd = kv.value;
-		if (alias_grp != p_set_index) {
-			continue;
-		}
-		// Find the texture view from the depth texture entry.
-		WGPUTextureView alias_view = nullptr;
-		for (const auto &e : entries) {
-			if (e.binding == depth_bnd && e.textureView != nullptr) {
-				alias_view = e.textureView;
-				break;
-			}
-		}
-		if (alias_view) {
-			WGPUBindGroupEntry alias_entry = {};
-			alias_entry.binding = alias_bnd;
-			// The alias is supposed to sample depth as Float, but alias_view may
-			// point at a Depth-format texture. Substitute the float fallback.
-			if (alias_view == fallback_float_texture_view) {
-				alias_entry.textureView = alias_view; // Already substituted.
-			} else {
-				// Check if the source texture view came from a depth-format texture.
-				// We can't query the view's format, so check if the alias BGL expects Float.
-				// For safety, always use fallback for depth alias entries since
-				// they always represent Float sampling of depth data.
-				if (fallback_float_texture_view != nullptr) {
-					alias_entry.textureView = fallback_float_texture_view;
-				} else {
-					alias_entry.textureView = alias_view;
-				}
-			}
-			entries.push_back(alias_entry);
-		}
-	}
-
 	// Add shadow read bindings for read_write storage texture splits.
 	// For each split, create a GPU copy of the original texture and bind it
 	// at the shadow read slot. See _create_rw_shadow_bind_entry()'s doc
@@ -7713,7 +7623,7 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 
 	// Collect valid binding indices from the target BGL.
 	// The target BGL includes entries from bind_group_infos (reflecting Godot uniforms)
-	// plus depth alias entries and potentially a push constant entry.
+	// and potentially a push constant entry.
 	HashSet<uint32_t> target_bindings;
 	if (p_set_idx < (uint32_t)p_target_shader->bind_group_infos.size()) {
 		for (const auto &bge : p_target_shader->bind_group_infos[p_set_idx].entries) {
@@ -7722,14 +7632,6 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 			if (bge.godot_type == RDD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE) {
 				target_bindings.insert(bge.layout_entry.binding - 1); // Sampler binding.
 			}
-		}
-	}
-	// Add depth alias bindings.
-	for (const KeyValue<uint32_t, uint32_t> &kv : p_target_shader->depth_alias_bindings) {
-		uint32_t alias_grp = kv.key >> 16;
-		uint32_t alias_bnd = kv.key & 0xFFFF;
-		if (alias_grp == p_set_idx) {
-			target_bindings.insert(alias_bnd);
 		}
 	}
 	// Add rw_storage shadow read bindings.

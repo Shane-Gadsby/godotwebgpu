@@ -147,7 +147,7 @@ and says so by having no dated note.
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
 | 2.10 | Audit the storage-format-by-variant class | `OPEN` | ~1 session |
 | 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
-| 2.12 | Delete dead `_depth_alias`; the missing reverse fallback | `OPEN` — deadness verified 2026-10-14 | <0.5 session |
+| 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | Stale Phase 7 TODOs: 7.8 only (7.15, 7.17 answered) | `OPEN` | <0.5 session |
 | 2.14 | Base-class interface audit + live project sweep | `OPEN` | ~1 session each |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
@@ -389,19 +389,10 @@ With its two fixture bugs fixed, VoxelGI measures **12.243** in the Forward+ mat
 Vulkan's **7.742** — plainly working (the matrix asserts a floor, so it passes) but unexplained. Note
 the thresholds are deliberately calibrated on native Vulkan, never on WebGPU. Needs a real GPU.
 
-### 2.12 Delete dead `_depth_alias` code; the missing reverse fallback `OPEN` *(old Task 24)*
+### 2.12 Delete dead `_depth_alias` code; the missing reverse fallback `CLOSED 2026-10-14`
 
-**Verified dead, 2026-10-14**, which was previously only asserted: `_depth_alias` occurs **0** times
-in `drivers/webgpu/wgsl_precompiled.gen.h` and **0** times across all 216 baked shader containers of
-a real project's export. Tint never emits the `*_depth_alias` variable the detection at
-`rendering_device_driver_webgpu.cpp:5745` looks for, so `wgsl_depth_alias_bindings` is always empty
-and everything downstream of it is dead: the extra BGL entries (lines ~6483 and ~6648),
-`WGShader::depth_alias_bindings`, and the alias branch of `_get_compatible_bind_group()`'s
-target-binding set. It has already misled a whole investigation round — delete it (safe: the evidence
-above is what makes it safe) or annotate it.
-While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
-combined-sampler sibling has. Adding it is robustness, not a fix — and it would have **hidden**
-§4.14's hard Dawn error behind quietly wrong pixels, so add it only with that understood.
+**Deleted**, and the reverse fallback deliberately **not** added. Both decisions and their evidence
+are in §4.12.
 
 ### 2.13 Stale Phase 7 TODOs: 7.8, 7.15, 7.17 `OPEN`
 
@@ -860,6 +851,27 @@ during export-time baking, a multisampled-depth reclassification gap, a regresse
 check, a missing Forward+ DOF-depth guard Forward Mobile already had, and a format-converting
 compute-shader resolve fallback for the one case WebGPU's native resolve structurally cannot handle.
 Commits `79ce22b0c1`, `0979f8238a`, `96e8ef446a` + a final round-5 fix.
+
+#### The `_depth_alias` mechanism — removed 2026-10-14 (old §2.12)
+
+Tint splits a mixed-usage depth texture into two globals — Depth at binding B and a Float alias at
+B+1, named `*_depth_alias` — and the driver used to scan the generated WGSL for that name and
+synthesize the extra BGL entry, merged-layout entry and bind group entry it implies, in five places.
+All of it was dead, for a structural reason: Tint only emits the alias for an *ambiguous* (`depth = 2`)
+`OpTypeImage`, and `spirv_preprocess.cpp:2008` rewrites every `depth = 2` image to `depth = 1` before
+Tint ever sees the module, so one `texture_depth_2d` variable now serves both sampling modes. Checked
+as well as argued: **0** occurrences of `_depth_alias` in `wgsl_precompiled.gen.h` and **0** across
+all 216 baked shader containers of a real project's export. It had already cost one investigation
+round by looking live, so a comment at the old declaration site records why it cannot come back.
+
+The second half of that item — adding the reverse depth/float fallback to the plain
+`UNIFORM_TYPE_TEXTURE` branch, which its combined-sampler sibling has — was **deliberately not done**.
+It is robustness rather than a fix, and §4.14 is the record of it having actively hidden a hard Dawn
+error behind quietly wrong pixels. Leaving the loud failure is the better default; if it is ever
+added it should be behind something that still reports.
+
+Regression check, after: smoketest 21/21 (swiftshader — the real GPU was unavailable, see §2.27),
+driver unit 370/370, shader corpus 14/14, preprocessing 238/238, and a `dev_mode=yes` web build clean.
 
 ### 4.13 Tasks 38, 41 — Firefox
 
