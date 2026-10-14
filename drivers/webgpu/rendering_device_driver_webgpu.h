@@ -158,7 +158,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// --- Push Constant Emulation ---
 	// Ring buffer for push constant data. Each slot is 256-byte aligned.
 	WGPUBuffer push_constant_ring_buffer = nullptr;
-	static constexpr uint32_t PUSH_CONSTANT_RING_SIZE = 512 * 1024; // 512KB = 2048 draw calls at 256B/slot
+	static constexpr uint32_t PUSH_CONSTANT_RING_SIZE = 2 * 1024 * 1024; // 2MB = 8192 draw calls at 256B/slot (512KB overflowed once a frame at ~3600 draws, TASKS.md 2.6)
 	static constexpr uint32_t PUSH_CONSTANT_SLOT_ALIGNMENT = 256;
 	// Binding slot used for the PC ring buffer inside group 3.
 	// Must match the binding used in spirv_preprocess::convert_push_constants_to_uniforms().

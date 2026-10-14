@@ -526,6 +526,13 @@ texture copies happen per frame; neither is an error but both are real per-frame
 still be display-rate-capped, so fps is a lower bound on headroom, not a measurement. Console: only the known
 §2.13 readback-returned-zeros warning. Still unbaked (`translated` ~475 Forward+ variants).
 
+**`ringOverflows: 1` fixed 2026-10-14.** It was plain arithmetic: 3608 push-constant writes × 256 B slot = 924 KB
+against a 512 KB ring, so exactly one mid-pass flush + submit + encoder rebuild per frame. `PUSH_CONSTANT_RING_SIZE`
+is now 2 MB (8192 draws; only the dirty range is uploaded, so the cost is address space, not bandwidth). Heavy
+scene afterwards: `ringOverflows: 0`, same 164 fps / 3549 draws; Forward+ matrix 64/64. Still open:
+`rwShadowRefreshes: 40` per frame (the real GPU lacks the read/write-storage-texture feature, so these are the
+documented emulation copies, not a bug), and a *baked* heavy export for `translated`.
+
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
 This fork now differs from stock Godot by one default: `WebRTCMultiplayerPeer`'s
