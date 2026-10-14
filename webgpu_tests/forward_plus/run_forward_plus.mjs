@@ -93,10 +93,12 @@ function startServer() {
 
 async function launchBrowser(name) {
   if (name === 'chrome') {
+    // System Chrome with the user's own launcher flags (see scene_smoketest/run_scenes.mjs):
+    // --use-angle=vulkan / --use-vulkan=native / --no-sandbox make it report "WebGL2 missing".
     return pw.chromium.launch({
-      headless: true,
-      args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan',
-        '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'],
+      headless: !!process.env.CI,
+      ...(process.env.CI ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
+      args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
     });
   }
   if (name === 'firefox') {

@@ -194,7 +194,7 @@ async function main() {
 	const SOFTWARE_ADAPTER = !!process.env.CI;
 	const args = SOFTWARE_ADAPTER
 		? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
-		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox', '--gpu-no-context-lost'];
+		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist', '--gpu-no-context-lost'];
 	if (!WARM) { args.push('--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'); }
 
 	const userDataDir = WARM
@@ -209,6 +209,7 @@ async function main() {
 		'gfx.webgpu.ignore-blocklist': true,
 	};
 	const context = await chromium.launchPersistentContext(userDataDir, {
+		...(BROWSER === 'firefox' || process.env.CI ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
 		// A software-adapter run has no display to be headed on.
 		headless: SOFTWARE_ADAPTER ? true : !HEADED,
 		args: BROWSER === 'firefox' ? [] : args,
