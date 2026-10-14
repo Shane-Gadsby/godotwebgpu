@@ -118,6 +118,11 @@ one-directional layer/mask rules are enforced by a custom filter rather than Box
 
 ---
 
+**Serve it compressed.** The dlink side module is 45 MB raw but 11.9 MB gzip / 9.5 MB brotli, and
+end to end compression is worth about 3.5x on the whole load. Enable gzip or brotli for `.wasm`, `.js`
+and `.pck` on whatever serves the export; it costs no engine work and is the cheapest load-time win
+available. Threaded builds also need COOP/COEP cross-origin-isolation headers.
+
 ## Browser Compatibility
 
 | Platform | Browser | Verified by | Result |
@@ -164,7 +169,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 |-------|--------|-------|
 | `threads=yes` with `dlink_enabled=yes` (threads *and* GDExtension support) needs a patched Emscripten toolchain | workaround (Task 12) | Two bugs in Emscripten's own dylink/`EXPORT_ALL` glue, not this fork's code: an `ASM_CONSTS` initialization-order race that stopped it booting at all, and an eager `HEAP*` re-export that threw on every pthread worker. Both are patched by `misc/emsdk_patches/apply.sh --apply`, which every build helper and both web CI workflows run for you and the combination then boots clean. The other three combinations never needed it |
 | Exports with `variant/extensions_support` off can abort on load with `Aborted(native code called abort())` | open, upstream (Task 11) | Root-caused to a 4-byte heap-buffer-overflow in the pinned emdawnwebgpu port's `WGPUInstanceImpl` constructor. Not fixable here without vendoring a port patch or a toolchain bump; enabling extension support is the workaround |
-| Interleaving editor and web builds in one tree ships a template that dies in `callMain()` | workaround (Task 40) | Stale `register_module_types.gen` object. Delete it plus `libmodules.a` and rebuild; verify with `grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` (want 0) |
+| Interleaving editor and web builds in one tree ships a template that dies in `callMain()` | workaround (Task 40); not reproduced on 4.8 (2026-10-15) | Stale `register_module_types.gen` object. Delete it plus `libmodules.a` and rebuild; verify with `grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` (want 0) |
 | The editor and the export template must be built from the same commit | by design (Task 36) | Baked shader caches are keyed to the engine version hash. A mismatch silently discards the whole cache (`{baked: 0, translated: N}` and a ~5× slower load); the engine now reports it |
 | An export made with `--headless` silently skips the shader baker | workaround | 15 MB `.pck` instead of ~135 MB. Use `xvfb-run` with a real rendering driver |
 | `tint_convert_cli` is compiled without `-DNDEBUG` | open (Task 13.1) | SPIRV-Tools/Tint asserts are live in the host tool; they surface as isolated "Tint crashed" bake entries |

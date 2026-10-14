@@ -190,7 +190,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
 | 2.17 | Forward+ benchmark leg / README numbers | OPEN | — |
 | 2.18 | texture compression export option | BLOCKED | — |
-| 2.19 | interleaved-build stale object | OPEN (diagnosed) | real fix |
+| 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
 | 2.21 | deferred emdawnwebgpu features | OPEN | — |
 | 2.22 | small perf items | OPEN | — |
@@ -805,7 +805,9 @@ Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at
 and mobile are exactly the platforms the option exists to serve, and both are unmeasured — blocked on
 §2.8 / §2.9.
 
-### 2.19 Interleaved-build stale object — the real fix `OPEN` *(old Task 40)*
+### 2.19 Interleaved-build stale object — the real fix `OPEN` — NOT REPRODUCED 2026-10-15 *(old Task 40)*
+
+**2026-10-15:** on `webgpu-4.8` an editor build followed by a non-dlink web release build, then a dlink one, all in one tree, gave clean templates both times (`initialize_betsy_module` count 0, `register_module_types.gen.*.o` regenerated after each header change; `modules/SCsub` ends with `env.Depends(lib, env.Value(env.module_list))`). The workaround stays documented until it recurs; if it does, capture `scons --debug=explain` for the stale object before touching anything.
 
 The workaround is in §1 and is reliable; the underlying SCons dependency gap is not fixed.
 `register_module_types.gen`'s object does not get rebuilt when the platform/target changes, so the
@@ -852,8 +854,7 @@ be diagnosed alongside another's:
 - **The 45 MB side module's levers are module-level** (`module_*_enabled=no`) and transport
   compression — `-Os` + thin LTO is already production, and `EXPORT_ALL=1` applies to the 1.3 MB
   *main* module, so neither is the cause. Compression is now measured: 45.3 MB → 11.9 MB gzip → 9.5 MB
-  brotli, and end to end it is worth 3.5× on the whole load (§4.15). **Nothing in this repo says to
-  serve compressed** — not the README, not `webgpu_site`, and none of the local servers did until
+  brotli, and end to end it is worth 3.5× on the whole load (§4.15). **README now says to serve compressed (2026-10-15); `webgpu_site` still does not, and none of the local servers did until
   `profile_phases.mjs --compress`. That is the cheapest load-time win available to anyone deploying
   this and it costs no engine work.
 - Recorded so they are not "found" again: `_check_device_lost()`'s per-frame `EM_ASM_INT` is ~1 µs
