@@ -186,7 +186,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.14 | base-class interface audit | OPEN (audit done) | live-project sweep, ~1 session |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
-| 2.15 | `generate_lods()` returns 0 on web | OPEN | — |
+| 2.15 | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (readback zeros, not LOD code) | — |
 | 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
 | 2.17 | Forward+ benchmark leg / README numbers | PARTLY DONE 2026-10-15 (matrix measured, display-capped) | uncapped run; WebGPU post-fx 96 vs 165 fps |
 | 2.18 | texture compression export option | BLOCKED | — |
@@ -771,13 +771,20 @@ a mismatched version hash) turns a tier red.
 
 **Delta re-baseline done 2026-10-15 (item 4).** Matrix 64/64 both ways on the real GPU. Of 64 deltas, 61 agree within 3% baked vs unbaked; `taa` (0.46-0.60) and `particle_attractor` (10.1-11.1) differ by more than 5% but vary just as much run to run within the *same* export (3 runs each), so that is noise, not bake. **One real oddity:** `ambient_light` is bimodal on the *unbaked* export (114.16 in 2 of 3 runs, 37.73 in the third) and steady at 37.73 on the baked one (3/3 plus the full run). Both clear `minDelta 12.6`. The `Environment` sky-radiance ambient baseline is plausibly still settling when the "off" frame is captured, so the slower unbaked start changes which state it lands on; not chased. If a matrix run ever fails `ambient_light`, look at the settle window first. §2.29 is otherwise complete.
 
-### 2.15 `generate_lods()` returns zero LODs on web `OPEN` *(old Task 17.1, bug 3)*
+### 2.15 `generate_lods()` returns zero LODs on web `CLOSED 2026-10-15` — not a LOD bug; it is §2.13's synchronous readback *(old Task 17.1, bug 3)*
 
-`ImporterMesh.generate_lods()` produces **0** LODs in a web template and 9 in a native one (confirmed
-by exporting the same fixture both ways). Runtime LOD generation therefore silently does nothing on
-web. It is an engine-level gap, not a renderer bug, and not on the path a shipped project takes
-(real projects get LODs from the importer, as `webgpu_tests/forward_plus`'s `lod_sphere.res` now
-does), so it has never been chased.
+Re-tested with a scratch project run natively and in a web export (system Chrome, real GPU). `ImporterMesh.generate_lods()`
+on **CPU-built arrays** gives **4 LODs on both** native and web — the function is fine, and meshoptimizer is linked
+into the web template. The old "0 on web, 9 native" came from feeding it `SphereMesh.get_mesh_arrays()`, which reads the
+vertex buffer back from the GPU: on WebGPU that synchronous readback returns **zeros** (the §2.13 warning "a buffer
+readback completed with no mapped data available yet, so it returned zeros"), so every vertex is (0,0,0), the merge
+step collapses them to one vertex (`LOD Generation: Triangles 4224, vertices 2210 (merged 1)` in a `--verbose` run) and
+no LOD is produced. Diagnosis trail: `dict_unique=1` for a Dictionary keyed by the readback vertices, `v1=(0,0,0)` vs
+native `(0,0.5,0)`. **Consequence worth knowing:** any C++/GDScript path that calls `mesh_surface_get_arrays`,
+`SurfaceTool.create_from(mesh)`, `MeshDataTool`, `Mesh.create_trimesh_shape()` etc. on a *GPU-resident* mesh silently gets
+zeros on web. Meshes made from CPU arrays (importer, `ImporterMesh`, `ArrayMesh.add_surface_from_arrays` followed by
+using the same arrays) are unaffected. Making `mesh_surface_get_arrays` work would need a CPU shadow of surface data
+(a design decision, not a one-liner); leaving it documented.
 
 ### 2.16 Test-suite gaps `OPEN` — gap 5 closed, gap 7 mostly done (§2.29)
 
