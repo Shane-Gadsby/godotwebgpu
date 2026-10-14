@@ -423,7 +423,16 @@ confirmed `SceneForwardClusteredShaderRD`): 164 fps, 31 draws, 11 passes, 38 `se
 bind groups, 32 push-constant writes, `ringOverflows: 0`, `rwShadowRefreshes: 0`. Unbaked (`translated` 238,
 `containerCreateMs` 3.8 s). Caveat: that fixture is a light, mostly static scene sitting at the display
 rate, so it shows the counters are clean on the Forward+ path, not how it scales. A heavy Forward+ scene
-(many lights/shadows, SDFGI) is still needed for a real load figure, and a *baked* export for `translated`.
+(many lights/shadows, SDFGI) was still needed for a real load figure, and a *baked* export for `translated`.
+
+**Heavy Forward+ scene taken 2026-10-14**: `webgpu_tests/benchmark/godot/scene_i_forward_plus_heavy` (600 meshes,
+12 shadowed omni + 6 spot + 4-split directional, SSAO/SSIL/SDFGI/glow/volumetric fog), exported with
+`forward_plus/export_heavy.sh`, screenshot-verified rendering. Per frame: 161 fps, **3549 draws, 31 passes,
+1110 setBindGroup, 3371 setVertexBuffer, 3608 push-constant writes, `ringOverflows: 1`, `rwShadowRefreshes: 40`**.
+So under load the push-constant ring overflows once a frame (the lighter scenes never did) and 40 RW-shadow
+texture copies happen per frame; neither is an error but both are real per-frame cost worth a look. 161 fps may
+still be display-rate-capped, so fps is a lower bound on headroom, not a measurement. Console: only the known
+§2.13 readback-returned-zeros warning. Still unbaked (`translated` ~475 Forward+ variants).
 
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
