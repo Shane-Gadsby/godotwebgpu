@@ -124,7 +124,12 @@ async function runPlaywright(name) {
 			firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
 		})
 		: await pw.chromium.launch({
-			args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=angle', '--use-angle=vulkan'],
+			// The user's own launcher (see scene_smoketest/run_scenes.mjs): system Chrome, headed.
+			// --use-angle=vulkan / --use-vulkan=native / --no-sandbox make it report "WebGL2 missing".
+			...(isCI ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
+			args: isCI
+				? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=angle', '--use-angle=vulkan']
+				: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
 		});
 	const page = await browser.newPage();
 	page.on('console', (m) => {
@@ -150,6 +155,13 @@ async function runPlaywright(name) {
 			return null; // navigation in flight
 		}
 	});
+	// The shader-bake counters, so run_tests.mjs can assert a baked export really ran baked.
+	try {
+		const st = await page.evaluate(() => window.godotWebGPUShaderStats || null);
+		if (st) {
+			console.log(`[runner] shaderStats baked=${st.baked} translated=${st.translated}`);
+		}
+	} catch { /* not exposed */ }
 	await browser.close();
 }
 

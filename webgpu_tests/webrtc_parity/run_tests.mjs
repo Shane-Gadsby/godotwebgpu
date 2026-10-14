@@ -132,6 +132,8 @@ const variants = [
 	['nothreads', join(HERE, 'exports/loopback')],
 	['threads', join(HERE, 'exports/loopback_threads')],
 	['dlink', join(HERE, 'exports/loopback_dlink')],
+	// BAKE=1 ./export.sh: the shipped configuration (baked shader containers), TASKS.md 2.29.
+	['baked', join(HERE, 'exports/loopback_baked')],
 ].filter(([name, dir]) => {
 	if (!existsSync(join(dir, 'index.html'))) {
 		return false;
@@ -193,6 +195,13 @@ for (const [variant, dir] of variants) {
 			continue;
 		}
 		const problems = [];
+		if (variant === 'baked') {
+			checks++;
+			const m = out.match(/shaderStats baked=(\d+) translated=(\d+)/);
+			if (!m || Number(m[1]) === 0) {
+				problems.push(`baked export did not load baked shaders [${m ? m[0] : 'no shaderStats line'}]`);
+			}
+		}
 		for (const [what, re] of [...UNIVERSAL_WANT, ...(spec.want || [])]) {
 			checks++;
 			if (!re.test(out)) {

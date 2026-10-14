@@ -65,6 +65,20 @@ else
 	need_template "godot.web.template_release.wasm32.nothreads.zip" || exit 1
 fi
 
+# BAKE=1: export only the nothreads fixture, with the shader baker, into exports/loopback_baked.
+# --headless skips the baker, so this runs under xvfb-run with a real rendering driver (TASKS.md 2.29).
+# Exit 2 = SKIP when xvfb-run is absent.
+if [[ "${BAKE:-0}" == 1 ]]; then
+	command -v xvfb-run >/dev/null || { echo "SKIP -- xvfb-run not installed; cannot bake"; exit 2; }
+	"$EDITOR" --headless --path "$PROJ" --import >/dev/null 2>&1 || true
+	mkdir -p "$TIER/exports/loopback_baked"
+	echo "exporting nothreads (baked) -> $TIER/exports/loopback_baked"
+	xvfb-run -a "$EDITOR" --rendering-driver vulkan --path "$PROJ" \
+		--export-release "WebGPU" "$TIER/exports/loopback_baked/index.html" >/dev/null 2>&1 || exit 1
+	[[ -f "$TIER/exports/loopback_baked/index.html" ]] || { echo "baked export produced no index.html" >&2; exit 1; }
+	exit 0
+fi
+
 # First scan, separately and ignoring the exit code: with the webrtc-native
 # extension present the editor aborts (exit 134) the first time it scans a
 # project (F6, an upstream webrtc-native bug). It still writes
