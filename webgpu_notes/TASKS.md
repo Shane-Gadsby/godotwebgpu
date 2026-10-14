@@ -149,7 +149,8 @@ and says so by having no dated note.
 | 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | Stale Phase 7 TODOs: 7.8 only (7.15, 7.17 answered) | `OPEN` | <0.5 session |
-| 2.14 | Base-class interface audit + live project sweep | `OPEN` | ~1 session each |
+| 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
+| 2.28 | Compute lists share one encoder: the graph's begin/end hooks are ignored | `OPEN` | ~0.5 session, needs real GPU |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
 | 2.16 | Test-suite gaps (7 named) | `OPEN` | ~1 session each |
 | 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
@@ -450,15 +451,54 @@ is a documentation question more than a bug:
 
 ### 2.14 Base-class interface audit, and a live sweep `OPEN`
 
-- **Interface audit** (old Task 10.2): walk `rendering_device_driver.h`, `rendering_context_driver.h`
-  and `rendering_shader_container.h` against `drivers/webgpu/` for missing overrides, and the
-  `API_TRAIT_*` block against both `api_trait_get()` implementations — every trait WebGPU relies on
-  needs a correct non-WebGPU default or the other drivers `ERR_FAIL_V(0)`. Task 15.3 did this for the
-  4.8 merge, so record the commit range checked so the next sweep knows the last clean baseline.
+- **Interface audit** (old Task 10.2) — **done 2026-10-14, baseline `9973b23ec7`.** 187 virtuals
+  across the three base headers; **every pure virtual is overridden** (0 gaps). 24 non-pure virtuals
+  fall through to a base default, which breaks down as:
+  - **12 `RenderingShaderContainer` extra-data hooks** — the WebGPU container overrides the five it
+    needs (header and footer extra data, `_from_bytes_begin`) and genuinely does not use the
+    per-shader / per-binding / per-specialization ones. Correct as is.
+  - **2 compute-pass hooks** — `command_begin_compute_pass()` / `command_end_compute_pass()`. The
+    render graph brackets *every* compute list with these (`rendering_device_graph.cpp:1180`), Metal
+    overrides both, and this driver overrides neither. **That is §2.28**, and it is not cosmetic.
+  - **8 `RenderingContextDriver` memory-reporting methods** (`get_device_total_memory`,
+    `get_driver_allocation_count`, `get_tracked_object_type_count`, …) — unimplemented, so the
+    editor's memory profiler reads zeros for a web export. A real gap, but a reporting-only one;
+    WebGPU exposes no allocation accounting to implement it from.
+  - **`get_driver_workarounds()`** — the default is right. Its one flag, `avoid_compute_after_draw`,
+    exists for an Adreno 6xx driver bug that Vulkan detects by driver version; a browser exposes
+    neither vendor nor driver version, and whether the browser works around it on such a device is a
+    §2.9 question.
+  - `API_TRAIT_*`: 27 values, 23 with both a base default and a WebGPU case — the same 23, so no trait
+    WebGPU relies on is missing its non-WebGPU default. The four without a base default
+    (`API_TRAIT_ACCELERATION_STRUCTURE_INSTANCE_SIZE`, `API_TRAIT_SHADER_GROUP_*`) are upstream's
+    raytracing traits, reachable only from raytracing paths this driver never enters. No stale cases
+    for removed traits.
 - **Live sweep** (old Task 10.4): every fixture tier only covers what it was written to cover. The
   deepest bugs in this project's history — SDFGI, FSR1/2, the `threads=yes` crashes, the baking
   crashes — all came from running a real project, not from fixtures. Use
   `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`.
+
+### 2.28 Compute lists share one encoder: the graph's begin/end hooks are ignored `OPEN` *(found by §2.14's audit)*
+
+`RenderingDeviceGraph::_run_render_commands()` brackets every compute list with
+`driver->command_begin_compute_pass()` and `command_end_compute_pass()` (`rendering_device_graph.cpp:1180`).
+The base implementations are empty, Metal overrides both, and this driver overrides **neither** — it
+instead creates a `WGPUComputePassEncoder` lazily inside `command_bind_compute_pipeline()` when none
+is active, and never ends one explicitly. The pass therefore survives until something else happens to
+end it (a render pass beginning, or the command buffer ending), so *consecutive* compute lists share
+one encoder — and with it one WebGPU synchronization scope.
+
+That is the condition `split_compute_pass_if_conflicting()` exists to detect and repair after the
+fact: it tracks every dual-capable texture bound in the current pass and, on a conflict, ends the
+pass, begins a new one, re-binds the pipeline, the gap groups and all four bind groups. The FSR1/FSR2
+EASU-write-then-RCAS-sample ping-pong is the case it was written for. Honoring the two hooks would
+make each Godot compute list its own pass, which is a fresh synchronization scope by construction —
+preventing that class rather than repairing it, and letting the per-bind texture bookkeeping go.
+
+Worth doing, but not blind: it changes the hottest compute path and the features it affects (FSR1,
+FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix covers, so it wants a
+real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
+between render and compute still reads correctly once passes are explicitly bracketed.
 
 ### 2.15 `generate_lods()` returns zero LODs on web `OPEN` *(old Task 17.1, bug 3)*
 
