@@ -30,19 +30,21 @@ a rare non-visual error.
 | tier | result | when / where |
 |---|---|---|
 | native editor + web template build | 0 errors, 0 warnings, incl. `warnings=extra werror=yes` | 2026-10-05, 4.8 port (§4.15) |
-| `wgsl_precompile.py` | 274 compiled, 0 glsl / 0 tint failures | 4.8, byte-identical to 4.7.2 |
+| `wgsl_precompile.py` | 274 compiled, 0 glsl / 0 tint failures; **deterministic** (two runs, different `PYTHONHASHSEED`, byte-identical 1,806,893 B header) | 2026-10-14, `597d27e09` (§2.16 gap 5) |
 | `shader_corpus` | 14 / 0 | 4.8 |
-| `driver_unit_tests` | 370 / 0 | 4.8 |
-| `preprocessing_tests` | 238 / 0 / 1 skip | 4.8 |
-| `resource_lifecycle` | 6 / 0 | 4.8 |
-| `screenshot_comparison` | 8 / 0 | 4.7.2 |
+| `driver_unit_tests` | 370 / 0 | 2026-10-14 |
+| `preprocessing_tests` | 238 / 0 / 1 skip | 2026-10-14 |
+| `resource_lifecycle` | 6 / 0 | 2026-10-14, real GPU |
+| `screenshot_comparison` | 8 / 0 | 2026-10-14, real GPU (was last recorded at 4.7.2) |
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
 | scene smoketest (real GPU) | 21 / 0 on Chrome **and** Firefox | 2026-10-14, after §2.1 |
 | scene smoketest (swiftshader) | 21 / 0 | 2026-10-14, after §2.12's deletion and §2.13's warning |
 | Forward+ feature matrix | **64 / 64** on real GPU, Chrome; VoxelGI now 7.743 vs Vulkan 7.742 | 2026-10-14, after §2.11's fix (`4d407aacc`); re-run in the final `local_ci.sh --dev-mode` at `23246cb66` |
 | full `local_ci.sh --dev-mode` with `WEBGPU_REAL_GPU=1` | all stages green incl. fog, fonts, smoketest Chrome+Firefox, lifecycle, screenshots 8/8; WebRTC 516 assertions (rerun by hand — the stage skipped on a Playwright mismatch, §3 trap 3a) | 2026-10-14, `23246cb66` |
 | full `local_ci.sh --dev-mode --bake` with `WEBGPU_REAL_GPU=1` | green through the baked matrix (`baked: 415, translated: 33`); the WebRTC stage SKIPped on trap 3a's Playwright mismatch, so WebRTC (258 assertions, web half), lifecycle and screenshots (8/8) were rerun by hand and passed | 2026-10-14, `af3d57ddd1` (2 MB push-constant ring) |
-| Forward+ matrix, **baked** export | **64 / 64**, deltas within 0.00% median of the unbaked run | 2026-10-14, §2.27 — first tier run ever to load a baked export |
+| Forward+ matrix, **baked** export | **64 / 64**, `baked: 415, translated: 33`; now a CI tier (`local_ci.sh --bake`, fails on `baked == 0`, `translated > 80` or a cache-mismatch warning — verified red on an unbaked export) | 2026-10-14, `64de4bda4`, §2.29 |
+| scene smoketest, **baked** export (real GPU, Chrome) | **21 / 21**; `--baked` asserts the shader cache was used (gl_compatibility projects exempt); export takes ~6.6 min | 2026-10-14, `231e6ca1e`, §2.29 |
+| heavy Forward+ scene (3549 draws/frame) | 164 fps, `ringOverflows: 0` (was 1), `rwShadowRefreshes: 40` | 2026-10-14, `af3d57ddd`, §2.6 |
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
 | WebRTC congestion | native/web agree at 91-97% on every transfer mode | 4.8, after the F10 fix |
 | real-hardware Forward+ (RTX 4080 SUPER) | Chrome 0 errors, Firefox 0 real errors, both report Forward+, output matches native Vulkan | 2026-10-05 (§4.15) |
@@ -162,6 +164,39 @@ renumbering.
 **Status reconciled 2026-10-14**, end of a long session. Every row below was checked against the tree
 on that date; anything with no dated note is untouched since it was first written.
 
+**Every item at a glance (2026-10-14, after `597d27e09`).**
+
+| § | item | status | what is left |
+|---|---|---|---|
+| 2.1 | bind-group layout mismatch | CLOSED | — |
+| 2.2 | non-dlink export abort | CLOSED | — |
+| 2.3 | dlink under throttling | CLOSED | — |
+| 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
+| 2.4 | startup fixed floor | OPEN (stage loop 391 → ~180 ms) | texture-dim scans (~27 ms), unbaked Tint (~6 s), `createShaderModule` is the browser's |
+| 2.5 | threading decision | OPEN | needs a decision and a real GPU |
+| 2.6 | real-GPU profile | OPEN (frame stats done, `ringOverflows` fixed) | `rwShadowRefreshes: 40`/frame, a baked heavy export |
+| 2.7 | upstream F10 default | OPEN, human | — |
+| 2.8 | Safari | BLOCKED | needs a Mac |
+| 2.9 | Android / iOS | BLOCKED | needs devices |
+| 2.10 | storage-format-by-variant audit | OPEN (tables clean) | coverage |
+| 2.11 | VoxelGI 1.6× Vulkan | CLOSED (7.743 vs 7.742) | — |
+| 2.12 | dead `_depth_alias` | CLOSED | — |
+| 2.13 | stale Phase 7 TODOs | CLOSED | — |
+| 2.14 | base-class interface audit | OPEN (audit done) | live-project sweep, ~1 session |
+| 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
+| 2.29 | baked export as a test tier | PARTLY DONE (matrix + smoketest legs) | WebRTC leg, delta re-baseline |
+| 2.15 | `generate_lods()` returns 0 on web | OPEN | — |
+| 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
+| 2.17 | Forward+ benchmark leg / README numbers | OPEN | — |
+| 2.18 | texture compression export option | BLOCKED | — |
+| 2.19 | interleaved-build stale object | OPEN (diagnosed) | real fix |
+| 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
+| 2.21 | deferred emdawnwebgpu features | OPEN | — |
+| 2.22 | small perf items | OPEN | — |
+| 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
+| 2.24 | upstream the driver | OPEN, human | — |
+| 2.25 / 2.26 | side projects (Node server, `.gdb`) | not started | — |
+
 | what happened | items | commits |
 |---|---|---|
 | **Closed** | §2.1 bind-group layout mismatch (fixed), §2.2 non-dlink abort (gone), §2.3 dlink under throttling (measured, premise refuted), §2.12 dead `_depth_alias` (deleted), §2.13 stale Phase 7 TODOs (all three answered) | `8cdfb073e`, `b62681b3e`, `67d3b53bf`, `9622f9c12`, `fa954729c` |
@@ -170,6 +205,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | **Closed later the same day** | §2.11 VoxelGI (a real 3D-upload bug), §2.28 (compute pass end), §2.6 frame-stats half | `4d407aacc`, `dff4c1281`, `37a7b4359` |
 | **Advanced, still open** | §2.4 (stage loop 391 → ~180 ms), §2.27 (baking now wins; pruning deferred) | `23246cb66`, `a31e2bcff` |
 | **Audited, narrowed on evidence** | §2.6 (half measured), §2.10 (tables clean; reframed as coverage), §2.14 (interface audit done, baseline `9973b23ec7`), §2.23 (`precision=double` builds and runs) | `9973b23ec`, `d5206c11c`, `0f0b1025b` |
+| **Landed after the snapshot** | §2.29 baked tier — Forward+ matrix leg and scene-smoketest leg (WebRTC leg still open); §2.6 push-constant ring 512 KB → 2 MB (`ringOverflows` 1 → 0); §2.16 gap 5 WGSL determinism closed, plus a cwd-dependent include bug in `wgsl_precompile.py` | `64de4bda4`, `231e6ca1e`, `af3d57ddd`, `597d27e09` |
 | **Description updated with new numbers** | §2.4, §2.16 (a seventh gap), §2.22 | `325b8d297`, `67d3b53bf` |
 
 Nothing was pushed; every commit above is local on `webgpu-4.8`.
@@ -482,7 +518,7 @@ silently takes the unbaked path (`baked: 0, translated: 355`) — see the trap a
 
 Needs COOP/COEP wherever it is served (§1).
 
-### 2.6 Real-GPU profile of a baked Forward+ export `OPEN` *(old Task 46 §6)*
+### 2.6 Real-GPU profile of a baked Forward+ export `OPEN` — frame stats and ring overflow done; baked heavy export open *(old Task 46 §6)*
 
 The configuration this fork actually ships, and the one no number covers. §4.15 measured the
 shader-container change (`index.pck` 101.5 MB → 57.1 MB, −43.7%, every behavioral counter
@@ -673,7 +709,7 @@ FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix cov
 real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
 between render and compute still reads correctly once passes are explicitly bracketed.
 
-### 2.29 Make the baked export a real test tier `PARTLY DONE 2026-10-14` — Forward+ matrix leg landed; smoketest/WebRTC legs open *(from §2.16 gap 7 and §2.27)*
+### 2.29 Make the baked export a real test tier `PARTLY DONE 2026-10-14` — Forward+ matrix and scene-smoketest legs landed; WebRTC leg and delta re-baseline open *(from §2.16 gap 7 and §2.27)*
 
 Every export helper in the suite passes `--headless`, which skips the export-time shader baker, so every
 tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration that ships is
@@ -707,7 +743,7 @@ web. It is an engine-level gap, not a renderer bug, and not on the path a shippe
 (real projects get LODs from the importer, as `webgpu_tests/forward_plus`'s `lod_sphere.res` now
 does), so it has never been chased.
 
-### 2.16 Test-suite gaps `OPEN`
+### 2.16 Test-suite gaps `OPEN` — gap 5 closed, gap 7 mostly done (§2.29)
 
 Six named gaps, each roughly a session, in rough value order:
 

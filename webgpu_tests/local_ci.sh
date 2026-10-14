@@ -355,11 +355,11 @@ echo "  Stage 2: Unit Tests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-run_test "Driver unit tests (332)" \
+run_test "Driver unit tests (370)" \
     "$SCRIPT_DIR/driver_unit_tests" \
     node run_tests.mjs
 
-run_test "SPIR-V preprocessing tests (205)" \
+run_test "SPIR-V preprocessing tests (238)" \
     "$SCRIPT_DIR/preprocessing_tests" \
     node run_tests.mjs
 
