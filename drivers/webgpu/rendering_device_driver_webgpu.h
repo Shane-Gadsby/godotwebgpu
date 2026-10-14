@@ -731,6 +731,7 @@ public:
 	virtual void command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) override final;
 	/// Bind uniform sets (bind groups) for a compute pipeline.
 	virtual void command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) override final;
+	virtual void command_end_compute_pass(CommandBufferID p_cmd_buffer) override final;
 	/// Dispatch compute workgroups.
 	virtual void command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) override final;
 	/// Dispatch compute workgroups with parameters from a GPU buffer.

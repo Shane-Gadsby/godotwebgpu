@@ -179,7 +179,7 @@ first, and §2.4 is now known to be 10× smaller than §2.27 on a real link, so 
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
 | 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
-| 2.28 | Compute lists share one encoder: the graph's begin/end hooks are ignored | `OPEN` | ~0.5 session, needs real GPU |
+| 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64 | — |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
 | 2.16 | Test-suite gaps (7 named) | `OPEN` | ~1 session each |
 | 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
@@ -511,7 +511,7 @@ inherent property of asynchronous readback in single-threaded wasm, now stated i
   crashes — all came from running a real project, not from fixtures. Use
   `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`.
 
-### 2.28 Compute lists share one encoder: the graph's begin/end hooks are ignored `OPEN` *(found by §2.14's audit)*
+### 2.28 Compute lists share one encoder: the graph's begin/end hooks are ignored `FIXED 2026-10-14` (end hook; matrix 64/64 on real GPU) *(found by §2.14's audit)*
 
 `RenderingDeviceGraph::_run_render_commands()` brackets every compute list with
 `driver->command_begin_compute_pass()` and `command_end_compute_pass()` (`rendering_device_graph.cpp:1180`).
@@ -528,7 +528,9 @@ EASU-write-then-RCAS-sample ping-pong is the case it was written for. Honoring t
 make each Godot compute list its own pass, which is a fresh synchronization scope by construction —
 preventing that class rather than repairing it, and letting the per-bind texture bookkeeping go.
 
-Worth doing, but not blind: it changes the hottest compute path and the features it affects (FSR1,
+**Fixed:** the driver now overrides `command_end_compute_pass()` (ends the active compute encoder); the begin stays lazy in `command_bind_compute_pipeline()`. `split_compute_pass_if_conflicting` is kept as a backstop for dispatches within one list. Forward+ matrix 64/64 on a real GPU afterwards. Not yet done: removing the per-bind texture bookkeeping, and checking `current_pipeline` sharing.
+
+Original analysis — worth doing, but not blind: it changes the hottest compute path and the features it affects (FSR1,
 FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix covers, so it wants a
 real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
 between render and compute still reads correctly once passes are explicitly bracketed.

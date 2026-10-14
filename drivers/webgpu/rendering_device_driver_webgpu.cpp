@@ -11264,6 +11264,18 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_pipeline(CommandBufferID 
 	}
 }
 
+void RenderingDeviceDriverWebGPU::command_end_compute_pass(CommandBufferID p_cmd_buffer) {
+	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
+	ERR_FAIL_NULL(cmd);
+
+	// Every Godot compute list gets its own WGPUComputePassEncoder, and with it
+	// its own synchronization scope. The pass itself is still begun lazily by
+	// command_bind_compute_pipeline(), so there is no begin override.
+	if (cmd->active_encoder == WGCommandBuffer::COMPUTE) {
+		cmd->end_active_encoder();
+	}
+}
+
 void RenderingDeviceDriverWebGPU::command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) {
 	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
 	ERR_FAIL_NULL(cmd);
