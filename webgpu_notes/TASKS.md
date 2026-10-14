@@ -253,12 +253,20 @@ back empty, and `_set_code_from_spirv()`'s `spirv_needed` rule distinguishes the
 conversion that was tried and failed still ships its SPIR-V (the runtime can try Tint itself), while
 a stage `_wgsl_unsupported_reason()` screened out does not, because nothing downstream can convert it.
 
+| `index.pck`, same project and build | | |
+|---|---|---|
+| `WEBGPU_BAKE_KEEP_SPIRV=1` — nothing dropped | 157.76 MB | the A/B baseline §2.6 asks for |
+| the old rule — drop only where every stage baked | 150.76 MB | −7.0 MB |
+| **the new rule** — also drop what nothing can convert | **62.36 MB** | **−95.4 MB (−60.5%)** |
+
 | | before | after |
 |---|---|---|
-| `index.pck` | 150.76 MB | **62.36 MB** (−58.6%) |
 | `.godot/shader_cache` | 149.67 MB | 61.27 MB |
 | containers carrying SPIR-V | 74 (90.3 MB) | **0** |
 | containers carrying WGSL | 147 | 147 |
+
+The escape hatch still works, which matters because it is the only way back without a rebuild:
+`WEBGPU_BAKE_KEEP_SPIRV=1` restores all 157.76 MB.
 
 Verified not to have dropped anything in use, which for an export-time change is the whole question:
 a real-GPU Forward+ run of the new export reports `baked: 599, precompiled: 1, translated: 0` with
@@ -348,8 +356,10 @@ user's project) reports `translated: 0`, so anything else is a real baking gap w
 reports `baked: 599, precompiled: 1, translated: 0`, `containerCreateMs` 442 ms, `wgslBytes` 9.0 MB,
 `spirvBytes` 112 KB — so baking does reach the shipping configuration on real hardware, and
 `translated: 0` now holds on a second project. First frame 3.26 s on loopback, of which 2.5 s is the
-engine CPU stall. Still missing: the `WEBGPU_BAKE_KEEP_SPIRV=1` comparison and
-`godotWebGPUFrameStats` under load. Do not re-derive the pck-size half — §2.27 has it.
+engine CPU stall. The `WEBGPU_BAKE_KEEP_SPIRV=1` comparison is also taken — 157.76 / 150.76 / 62.36 MB
+for nothing-dropped / old rule / new rule, tabulated in §2.27. Still missing: `godotWebGPUFrameStats`
+under sustained load, which needs a real GPU that is free. Do not re-derive the pck-size half —
+§2.27 has it.
 
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
