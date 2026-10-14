@@ -145,7 +145,7 @@ and says so by having no dated note.
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
-| 2.10 | Audit the storage-format-by-variant class | `OPEN` | ~1 session |
+| 2.10 | Storage-format class: tables audited clean; binding half open | `OPEN` — audited 2026-10-14 | coverage, not a session |
 | 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | Stale Phase 7 TODOs: 7.8 only (7.15, 7.17 answered) | `OPEN` | <0.5 session |
@@ -384,14 +384,38 @@ Desktop is confirmed across Chrome, Firefox, Edge, Vivaldi and Safari on macOS/W
 needs Vulkan+WebGPU flags and a native package, not Flatpak/Snap). Chrome/Android and Safari/iOS 18+
 have never been tried. This is also what §2.18 exists to serve.
 
-### 2.10 Audit the storage-format-by-variant class `OPEN`
+### 2.10 Audit the storage-format-by-variant class `OPEN` — audited 2026-10-14
 
 Three instances of the same bug have been found one at a time by running scenes: a shader declares
-`layout(<fmt>, set = …) uniform image*` while its C++ caller binds a different format. `copy.glsl` is
-not the only one. A pass over every such declaration against what its callers actually bind would
-close the class instead of waiting for the next instance. Known instances for shape:
-`ssao_interleave.glsl`'s `RB_FINAL` (§4.17), TAA's 2-channel velocity buffer (§4.12), the depth
-back-copy's `rgba16f`-vs-`R32_SFLOAT` dispatch (§4.14).
+`layout(<fmt>, set = …) uniform image*` while its C++ caller binds a different format. Known instances
+for shape: `ssao_interleave.glsl`'s `RB_FINAL` (§4.17), TAA's 2-channel velocity buffer (§4.12), the
+depth back-copy's `rgba16f`-vs-`R32_SFLOAT` dispatch (§4.14).
+
+**Audited 2026-10-14 — every statically decidable part is clean.** Three cross-checks, all mechanical:
+
+1. **Every storage-image declaration in the engine's shaders has a path.** 147 declarations across
+   139 `.glsl` files, 21 distinct format qualifiers, all either WebGPU core storage-texel formats or
+   handled by `_promote_storage_format()`. The only non-literal qualifier is `OCTMAP_FORMAT`, which is
+   `#define`d per variant in `copy_effects.cpp:182` to `rgb10_a2` or `rgba16f` — both covered, and a
+   neat illustration of why this class is named "by variant" and why grepping for literals misses it.
+2. **The capability switch and the promotion agree.** All 37 `DataFormat`s that
+   `texture_get_usages_supported_by_format()` reports as `TEXTURE_USAGE_STORAGE_BIT`-capable are either
+   core storage formats or have a `_promote_storage_format()` case. None is capable-but-unpromotable,
+   which is the §4.17 omission (`R8G8_Uint`) and the earlier `R16_UINT` one.
+3. **The texture-side promotion and the WGSL-side remap agree**, format by format, across all four
+   `texture-formats-tier1` × `tier2` combinations — including the two-step cases where
+   `_remap_unsupported_wgsl_storage_formats()` takes `r16snorm` → `r16float` → `r32float` while
+   `_data_format_to_wgpu()` + `_promote_storage_format()` take `R16_SNORM` → `R16Float` → `R32Float`.
+   The 16-bit remap block is unconditional, matching "16-bit formats: always promote" on the texture
+   side; the 8-bit and 10/11-bit blocks are tier-gated on exactly the same tiers as their promotions.
+
+**What is left is coverage, not analysis.** The remaining question — does the texture a caller
+actually binds match the format its shader declares, for every variant — is not statically decidable
+without tracing RD texture creation to uniform-set binding across the whole renderer, and the payoff
+of doing that by hand is low: all three instances were found by *running* a scene, and Dawn rejects
+the mismatch loudly when it happens, so this is a detectability problem only in the sense that no run
+had covered the variant. Close it with coverage instead — the Forward+ matrix (64 features) and
+§2.16's regression corpus and live sweep — rather than by a manual trace.
 
 ### 2.11 VoxelGI measures 1.6× native Vulkan `OPEN` *(old Task 17.1, bug 2)*
 
