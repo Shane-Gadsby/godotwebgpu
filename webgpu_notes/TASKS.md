@@ -148,7 +148,7 @@ and says so by having no dated note.
 | 2.10 | Storage-format class: tables audited clean; binding half open | `OPEN` — audited 2026-10-14 | coverage, not a session |
 | 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
-| 2.13 | Stale Phase 7 TODOs: 7.8 only (7.15, 7.17 answered) | `OPEN` | <0.5 session |
+| 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
 | 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
 | 2.28 | Compute lists share one encoder: the graph's begin/end hooks are ignored | `OPEN` | ~0.5 session, needs real GPU |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
@@ -429,25 +429,11 @@ the thresholds are deliberately calibrated on native Vulkan, never on WebGPU. Ne
 **Deleted**, and the reverse fallback deliberately **not** added. Both decisions and their evidence
 are in §4.12.
 
-### 2.13 Stale Phase 7 TODOs: 7.8, 7.15, 7.17 `OPEN`
+### 2.13 Stale Phase 7 TODOs: 7.8, 7.15, 7.17 `CLOSED 2026-10-14`
 
-Three survivors of the April 2026 audit, predating the 4.7.2 sync, all of Phase 9 and Task 9.15. Each
-needs a status, not necessarily a fix (7.18 is already resolved — Task 9.15 made the format-remap
-passes memcpy-safe). **Two of the three are now answered** (below); only 7.8 still needs work, and it
-is a documentation question more than a bug:
-
-- **7.8** — `buffer_map()` returns the shadow copy immediately while `wgpuBufferMapAsync()` runs, so
-  a caller can see last frame's data. Probably inherent to single-threaded WASM and already the
-  documented contract (`API_TRAIT_*`, `CLAUDE.md`); confirm no engine path depends on current-frame
-  data and write the semantics down, or find a real repro.
-- **7.15 — answered 2026-10-14, no leak.** `uniform_set_free()` releases every `temp_views` entry
-  (and the `rw_shadow_*` views and textures, every cached rebind group, and `handle`). Growth is
-  bounded per set, not per frame: the only place that appends during rendering is
-  `_get_compatible_bind_group()`, which is reached once per (uniform set, target layout) pair because
-  `rebind_cache` short-circuits every later call. Nothing to fix; close it when 7.8 and 7.17 are
-  settled.
-- **7.17 — answered 2026-10-14, no leak.** There is one `pipeline_free()` for both kinds, and it
-  releases `specialized_modules[0..5]` after the pipeline handles. Nothing to fix.
+All three answered; none needed a fix beyond one warning. 7.15 and 7.17 are no-leaks, 7.8 is an
+inherent property of asynchronous readback in single-threaded wasm, now stated in the code and in
+§4.2.
 
 ### 2.14 Base-class interface audit, and a live sweep `OPEN`
 
@@ -755,6 +741,33 @@ depth-fallback substitution (user-visible via Bokeh DOF), the `textureGather` ho
 reclassification heuristic, sync-scope splitting, push-constant ring overflow, debug labels. MSAA
 resolve, indirect-draw count buffers, swap-chain `LoadOp`, `command_render_clear_attachments` were
 each investigated and closed as inactive/intentional/dead. Three entries survive as §2.13.
+
+#### The last three TODOs — closed 2026-10-14 (old §2.13)
+
+- **7.15, `WGUniformSet::temp_views`** — no leak. `uniform_set_free()` releases every entry, along
+  with the `rw_shadow_*` views and textures, every cached rebind group and `handle`. Growth is bounded
+  per set rather than per frame: the only place that appends during rendering is
+  `_get_compatible_bind_group()`, reached once per (uniform set, target layout) pair because
+  `rebind_cache` short-circuits every later call.
+- **7.17, `WGPipelineWrapper::specialized_modules`** — no leak. There is one `pipeline_free()` for
+  both pipeline kinds and it releases `specialized_modules[0..5]` after the handles.
+- **7.8, `buffer_map()` returning a shadow copy** — inherent, and now documented where it bites.
+  The *upload* direction is correct by design and already described on
+  `API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY`. The *readback* direction has two mechanisms, and
+  neither can block: `buffer_get_data_direct()` keeps a persistent staging buffer per buffer, hands
+  back the previous frame's bytes and returns **false** on a first call (so it never passes off zeros
+  as data); `buffer_map()`'s readback branch pumps `wgpuInstanceProcessEvents()`, then checks
+  `wgpuBufferGetMapState()` directly and copies `getConstMappedRange()` if the JS side mapped even
+  though the C callback had not fired. Only when both fail does it return the zero-filled shadow —
+  which cannot be avoided, since completing a `wgpuBufferMapAsync()` needs a turn of the JS event loop
+  that a synchronous `RenderingDevice` call in a single-threaded build cannot yield. **The contract is
+  therefore: a readback is at best one frame old, and a first readback can come back empty.** That
+  branch now says so once (`WARN_PRINT_ONCE`) instead of letting a caller chase the zeros.
+  No per-frame render path depends on it: the engine's readback callers are all script- or
+  editor-facing — `mesh_storage.cpp`'s surface and multimesh reads, `gi.cpp`'s VoxelGI octree save,
+  `particles_storage.cpp`'s AABB. Those *are* observable to a game that calls
+  `ArrayMesh.surface_get_arrays()` or `MultiMesh.get_buffer()` on the first frame, which is the
+  honest limitation to document rather than fix.
 
 ### 4.3 Phase 8 — Godot 4.7.2 upstream sync (September 2026)
 

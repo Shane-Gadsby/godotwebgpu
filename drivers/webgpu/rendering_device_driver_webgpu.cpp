@@ -1659,6 +1659,16 @@ uint8_t *RenderingDeviceDriverWebGPU::buffer_map(BufferID p_buffer) {
 			return buf->shadow_map;
 		}
 
+		// Neither the callback nor the JS-level map has completed, so the only
+		// thing left to hand back is the zero-filled shadow -- which is not this
+		// buffer's contents. Nothing can be done about it here: completing a
+		// wgpuBufferMapAsync() needs a turn of the JS event loop, and a
+		// single-threaded wasm build cannot yield one from inside a synchronous
+		// RenderingDevice call. Say so once rather than let a caller chase the
+		// zeros; the contract (a readback is at best one frame old, and a first
+		// readback can come back empty) is written up in TASKS.md §2.13 / 7.8.
+		WARN_PRINT_ONCE("WebGPU: a buffer readback completed with no mapped data available yet, so it returned zeros. "
+						"Readbacks on this backend are asynchronous: read again next frame. See webgpu_notes/TASKS.md §2.13.");
 		return buf->shadow_map;
 	}
 
