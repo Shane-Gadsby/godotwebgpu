@@ -409,6 +409,15 @@ for nothing-dropped / old rule / new rule, tabulated in §2.27. Still missing: `
 under sustained load, which needs a real GPU that is free. Do not re-derive the pck-size half —
 §2.27 has it.
 
+**Frame stats taken 2026-10-14** (real GPU, unbaked `benchmark_*` exports, 30 s each, `profile_phases.mjs`):
+`benchmark_pbr` 165 fps, 37 draws, 6 passes; `benchmark_shadows` 164 fps, 173 draws, 115 push-constant
+writes; `benchmark_postfx` 105 fps, 256 draws, 79 passes, 30 dynamic bind groups. In all three
+`ringOverflows: 0` and `rwShadowRefreshes: 0`, and `setBindGroup` ≈ draws (bind-group skips are low but
+nothing is redundant at scale). **Caveat:** these exports ran `SceneForwardMobileShaderRD`, i.e. Forward
+Mobile, even on the real GPU, so they are not Forward+ numbers; they are also unbaked (`translated` 173-186,
+`containerCreateMs` ~3 s). A Forward+ under-load figure still needs a Forward+ project (e.g. the
+`forward_plus` matrix fixture) run through the profiler.
+
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
 This fork now differs from stock Godot by one default: `WebRTCMultiplayerPeer`'s
