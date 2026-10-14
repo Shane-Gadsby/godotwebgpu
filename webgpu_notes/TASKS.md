@@ -588,6 +588,8 @@ scene afterwards: `ringOverflows: 0`, same 164 fps / 3549 draws; Forward+ matrix
 `rwShadowRefreshes: 40` per frame (the real GPU lacks the read/write-storage-texture feature, so these are the
 documented emulation copies, not a bug), and a *baked* heavy export for `translated`.
 
+**2026-10-15 — blocked on the host, and a finding.** (1) `nvidia-smi` fails with a driver/library mismatch (kernel module 610.57.04, userspace 615.71.09), so Chromium cannot reach the RTX 4080 SUPER: the heavy scene ran Forward Mobile at 1-2 fps. A reboot or module reload is needed before any real-GPU number is valid; the figures from that run are discarded. (2) `startup_phases/*.mjs` launched Chromium without `--use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist`; fixed to match `run_forward_plus.mjs`. (3) `BAKE=1 ./export_heavy.sh` now exists, but the heavy scene builds its meshes and materials in GDScript, so the exported pck is 11 KB and the baker has nothing to bake; a baked heavy export needs a scene saved as a `.tscn`/resources.
+
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
 This fork now differs from stock Godot by one default: `WebRTCMultiplayerPeer`'s

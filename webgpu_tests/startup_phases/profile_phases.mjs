@@ -194,7 +194,7 @@ async function main() {
 	const SOFTWARE_ADAPTER = !!process.env.CI;
 	const args = SOFTWARE_ADAPTER
 		? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
-		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'];
+		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox', '--gpu-no-context-lost'];
 	if (!WARM) { args.push('--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'); }
 
 	const userDataDir = WARM

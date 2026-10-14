@@ -32,7 +32,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const { chromium } = await import(join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
 const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'trace-')), {
 	headless: false,
-	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost', '--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'],
+	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox', '--gpu-no-context-lost', '--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'],
 	viewport: { width: 1280, height: 720 },
 });
 const page = await ctx.newPage();

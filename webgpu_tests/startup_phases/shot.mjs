@@ -21,7 +21,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const pw = await import(join(__dirname, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
 const ctx = await pw[browserName].launchPersistentContext(mkdtempSync(join(tmpdir(), 'shot-')), {
 	headless: false,
-	args: browserName === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'] : [],
+	args: browserName === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox', '--gpu-no-context-lost'] : [],
 	firefoxUserPrefs: browserName === 'firefox' ? { 'dom.webgpu.enabled': true, 'gfx.webrender.all': true, 'gfx.webgpu.ignore-blocklist': true } : undefined,
 	viewport: { width: 1280, height: 720 },
 });

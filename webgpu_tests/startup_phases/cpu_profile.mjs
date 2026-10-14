@@ -24,7 +24,7 @@ const server = createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const { chromium } = await import(join(fileURLToPath(new URL('.', import.meta.url)), '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
-const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'cp-')), { headless: false, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost', '--disable-gpu-shader-disk-cache'], viewport: { width: 1280, height: 720 } });
+const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'cp-')), { headless: false, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox', '--gpu-no-context-lost', '--disable-gpu-shader-disk-cache'], viewport: { width: 1280, height: 720 } });
 const page = await ctx.newPage(); const cdp = await ctx.newCDPSession(page);
 await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 250 }); await cdp.send('Profiler.start');
 await page.addInitScript(() => { window.__ff = false; window.addEventListener('godot-webgpu-first-frame', () => { window.__ff = true; }); });

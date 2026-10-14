@@ -14,7 +14,7 @@ const url = `http://127.0.0.1:${server.address().port}/`;
 for (const name of ['chromium', 'firefox']) {
 	const ctx = await pw[name].launchPersistentContext(mkdtempSync(join(tmpdir(), `feat-${name}-`)), {
 		headless: false,
-		args: name === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan'] : [],
+		args: name === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'] : [],
 		firefoxUserPrefs: name === 'firefox' ? { 'dom.webgpu.enabled': true, 'gfx.webrender.all': true, 'gfx.webgpu.ignore-blocklist': true } : undefined,
 	});
 	const page = await ctx.newPage();
