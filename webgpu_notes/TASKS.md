@@ -175,7 +175,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
 | 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
 | 2.5 | threading decision | OPEN | needs a decision and a real GPU |
-| 2.6 | real-GPU profile | OPEN (frame stats done, `ringOverflows` fixed) | `rwShadowRefreshes: 40`/frame, a baked heavy export |
+| 2.6 | real-GPU profile | DONE 2026-10-15 (baked heavy: translated 0, stall 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
 | 2.7 | upstream F10 default | OPEN, human | — |
 | 2.8 | Safari | BLOCKED | needs a Mac |
 | 2.9 | Android / iOS | BLOCKED | needs devices |
@@ -598,6 +598,8 @@ documented emulation copies, not a bug), and a *baked* heavy export for `transla
 Remaining plan after that: §2.29 WebRTC leg and re-baseline, §2.17, §2.14 sweep, §2.20/§2.21.
 
 **Re-run done 2026-10-15 after the reboot** (system Chrome, flags above, adapter probe: nvidia / lovelace). Heavy Forward+ scene (`SceneForwardClusteredShaderRD`, 475 variants): 131-134 fps headed, 3549 draws, 31 passes, 1110 setBindGroup, 3608 push-constant writes, `ringOverflows: 0`, `rwShadowRefreshes: 40`; first frame after a ~19 s engine CPU stall (unbaked: `baked 0, translated 391`). The `BAKE=1` export is byte-identical in behaviour (`baked 0`) because the scene is built in GDScript and the pck is 11 KB, so nothing can bake; converting it to saved resources is still needed for a baked heavy number. Forward+ matrix, unbaked and `--baked` (with `WEBGPU_REAL_GPU=1`): 64/64 both. `run_forward_plus.mjs` now launches system Chrome the same way. Other scripts under `webgpu_tests/` still launch bundled Chromium with `--use-angle=vulkan --use-vulkan=native --no-sandbox` (e.g. `screenshot_comparison`, `scene_smoketest/test_*_visual.mjs`, `resource_lifecycle`); audit them before their next real-GPU run.
+
+**Baked heavy Forward+ export measured 2026-10-15** (real GPU, system Chrome; `scene_i_forward_plus_heavy` converted to a saved `main.tscn` by `generate_scene.gd`, `main_runtime.tscn` keeps the script-built original). `BAKE=1 export_heavy.sh`: pck 34.6 MB vs 0.19 MB unbaked. Unbaked: `baked 0, translated 391`, `containerCreateMs` 12.8 s, engine stall 18.5 s. Baked: **`baked 759, translated 0, precompiled 1`**, `containerCreateMs` 333 ms, `wgslBytes` 18.2 MB, `spirvBytes` 112 KB, stall **7.7 s**, 139 fps, 3549 draws, `ringOverflows 0`, `rwShadowRefreshes 40` unchanged. So baking works on the heavy Forward+ path with nothing falling back to runtime Tint; §2.6's remaining work is `rwShadowRefreshes` only (documented emulation copies). **Trap (cost an hour):** an editor built without `webgpu=yes` has no shader baker, so every `BAKE=1` export silently comes out unbaked (0.19 MB pck, no message); and after any commit the editor and template must be rebuilt together or the baked cache is discarded (`baked 0` with a 34 MB pck). Build both with `webgpu=yes`; check `baked > 0` in `godotWebGPUShaderStats`.
 
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
