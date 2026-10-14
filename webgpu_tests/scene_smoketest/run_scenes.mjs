@@ -346,9 +346,15 @@ function exportScene(scene, editorBin, templateZip) {
 
     const exportPath = join(exportDir, 'index.html');
 
+    // --headless skips the export-time shader baker, so every export this suite makes
+    // is an unbaked one (TASKS.md 2.16 gap 7). SMOKETEST_BAKE=1 exports under xvfb-run
+    // instead, which bakes -- the configuration that actually ships.
+    const bake = !!process.env.SMOKETEST_BAKE;
     const runExport = () => execSync(
-        `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
-        { timeout: 90000, stdio: 'pipe' }
+        bake
+            ? `xvfb-run -a "${editorBin}" --path "${projectPath}" --export-release "${preset}" "${exportPath}"`
+            : `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
+        { timeout: bake ? 900000 : 90000, stdio: 'pipe' }
     );
 
     try {

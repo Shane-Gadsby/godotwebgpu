@@ -167,7 +167,7 @@ first, and §2.4 is now known to be 10× smaller than §2.27 on a real link, so 
 | 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
-| 2.27 | Baked containers: multiview SPIR-V dropped (−59%); rest open | `OPEN` — first cut landed 2026-10-14 | ~1 session |
+| 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
 | 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — half measured 2026-10-14 | <0.5 session, needs real GPU |
@@ -214,7 +214,7 @@ never idle, so overlapping cannot speed up a bandwidth-bound load. The lever tha
 transport compression, worth 3.5×. Figures, and the far larger thing they turned up (§2.27), are in
 §4.15.
 
-### 2.27 Baked shader containers are 79% of the download `OPEN` *(found closing §2.3)*
+### 2.27 Baked shader containers are 79% of the download `OPEN` — baking now wins; pruning is optional *(found closing §2.3)*
 
 *(First cut landed 2026-10-14 — the numbers below are the original measurement; the pck is now
 62.36 MB. See "Landed" at the end.)*
@@ -327,6 +327,29 @@ and §2.13's warning changed nothing on a real GPU either (the unbaked run at HE
 `translated: 33` is not a baking gap: this fixture builds its materials procedurally in GDScript, so
 those shaders do not exist at export time and cannot be baked. Worth remembering when reading
 `translated` on any fixture that generates materials at runtime.
+
+**Re-measured 2026-10-14 — the trade has flipped.** Same project (`3d/platformer`), real GPU, 20 Mbit/s
+(`--throttle cable`) with gzip, cold, current build, to first presented frame:
+
+| export | pck | pck gzipped | load | stall | first frame |
+|---|---|---|---|---|---|
+| not baked (`--headless`) | 1.09 MB | 0.91 MB | 6.7 s | 10.9 s | 17.7 s |
+| **baked** (`SMOKETEST_BAKE=1`, new rule) | 65.4 MB | **11.2 MB** (was 38.2) | 10.8 s | 2.1 s | **12.9 s** |
+
+Baking used to lose by 8 s here (25.7 vs 17.5); it now **wins by 4.8 s**, and the gzipped download is
+3.4× smaller. The SPIR-V drop alone moved this; the pruning below is now an optimization of a winning
+configuration, not a rescue of a losing one. (`run_scenes.mjs` gained `SMOKETEST_BAKE=1`, which exports
+under `xvfb-run` without `--headless` so the baker runs — the first step of §2.16 gap 7.)
+
+**Why variant pruning is *not* a safe quick win, found while scoping it.** Runtime only creates the
+shader groups it has enabled (`SHADER_GROUP_BASE`, `_ADVANCED`, `_MULTIVIEW`, `_ADVANCED_MULTIVIEW`);
+`enable_advanced_shader_group()` flips on when something needs separate specular, lightmaps, motion
+vectors (TAA/FSR2), VoxelGI depth, etc. — possibly from a script at runtime, which an export cannot
+see. A pruned variant that gets requested has **no WGSL and, after the SPIR-V drop above, no SPIR-V
+either**, so it is a hard "cannot create shader" failure, not a slow path. Pruning therefore needs an
+explicit per-project opt-out/opt-in (e.g. an export option listing groups to keep) or a SPIR-V
+fallback for pruned groups, which gives back much of the saving. Not done; decide with a real
+measurement of what ADVANCED costs per project first.
 
 **Still open, and what to do next:**
 
