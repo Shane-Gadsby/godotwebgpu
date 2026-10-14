@@ -8512,7 +8512,8 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 		WGPUTexelCopyTextureInfo dst_copy = {};
 		dst_copy.texture = dst->gpu_handle();
 		dst_copy.mipLevel = region.texture_subresource.mipmap;
-		dst_copy.origin = { (uint32_t)region.texture_offset.x, (uint32_t)region.texture_offset.y, region.texture_subresource.layer };
+		// Z origin is the array layer for 2D arrays but texture_offset.z for 3D textures.
+		dst_copy.origin = { (uint32_t)region.texture_offset.x, (uint32_t)region.texture_offset.y, region.texture_subresource.layer + (uint32_t)region.texture_offset.z };
 		dst_copy.aspect = WGPUTextureAspect_All;
 
 		WGPUExtent3D extent = { copy_w, copy_h, (uint32_t)region.texture_region_size.z };
@@ -8528,7 +8529,7 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 			layout.rowsPerImage = rows_per_image;
 
 			const uint8_t *data_ptr = src->shadow_map + region.buffer_offset;
-			uint64_t data_size = (uint64_t)aligned_bpr * rows_per_image;
+			uint64_t data_size = (uint64_t)aligned_bpr * rows_per_image * MAX(extent.depthOrArrayLayers, 1u);
 
 			wgpuQueueWriteTexture(queue, &dst_copy, data_ptr, data_size, &layout, &extent);
 		} else {

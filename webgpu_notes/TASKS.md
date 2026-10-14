@@ -175,7 +175,7 @@ first, and §2.4 is now known to be 10× smaller than §2.27 on a real link, so 
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
 | 2.10 | Storage-format class: tables audited clean; binding half open | `OPEN` — audited 2026-10-14 | coverage, not a session |
-| 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
+| 2.11 | ~~VoxelGI measures 1.6× native Vulkan~~ — real 3D-upload bug, fixed | **`CLOSED` 2026-10-14** | — |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
 | 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
@@ -490,11 +490,25 @@ the mismatch loudly when it happens, so this is a detectability problem only in 
 had covered the variant. Close it with coverage instead — the Forward+ matrix (64 features) and
 §2.16's regression corpus and live sweep — rather than by a manual trace.
 
-### 2.11 VoxelGI measures 1.6× native Vulkan `OPEN` *(old Task 17.1, bug 2)*
+### 2.11 VoxelGI measures 1.6× native Vulkan `CLOSED 2026-10-14` *(old Task 17.1, bug 2)*
 
 With its two fixture bugs fixed, VoxelGI measures **12.243** in the Forward+ matrix against native
 Vulkan's **7.742** — plainly working (the matrix asserts a floor, so it passes) but unexplained. Note
 the thresholds are deliberately calibrated on native Vulkan, never on WebGPU. Needs a real GPU.
+
+**Closed 2026-10-14 — it was a real bug, not a calibration quirk.** The "1.6×" was WebGPU being *wrong in a way
+that happened to produce a bigger delta*: with VoxelGI on, WebGPU's frame was 11 luminance units darker than
+the off frame, Vulkan's 1.3 (ON frames differed by 9.8 mean-abs; OFF frames by 0.02). Bisected with
+`Viewport.debug_draw`: `DEBUG_DRAW_VOXEL_GI_ALBEDO` matched Vulkan to 0.0006 (baked data upload and octree
+traversal fine) but `..._LIGHTING` was 63 vs 119 mean luminance — the directional light was missing from the
+voxel lighting. The fix is in `command_copy_buffer_to_texture`: the destination Z origin used only
+`texture_subresource.layer` and ignored `texture_offset.z` (the 3D-texture slice origin), and the
+`wgpuQueueWriteTexture` data size ignored depth (`aligned_bpr * rows_per_image`, not `* depth`). After it, the
+lighting view matches Vulkan to 0.0006, the feature delta is **7.743 vs Vulkan 7.742**, ON frames differ by 0.002,
+and the matrix is still 64/64. I did not separate which of the two edits carried the fix (they went in together);
+both are correct by the WebGPU copy rules. Lesson: a matrix delta that is *larger* than the reference is still a
+discrepancy — compare the frames, not just the number. `run_forward_plus.mjs --save-dir DIR` now keeps every
+captured frame for exactly that comparison against `--fp-matrix` output.
 
 ### 2.12 Delete dead `_depth_alias` code; the missing reverse fallback `CLOSED 2026-10-14`
 

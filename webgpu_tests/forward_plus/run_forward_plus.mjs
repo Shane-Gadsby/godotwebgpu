@@ -21,12 +21,12 @@
  *
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_forward_plus.mjs [--browser chrome|firefox]
- *                                               [--feature <id>] [--list]
+ *                                               [--feature <id>] [--save-dir DIR] [--list]
  *                                               [--json <path>]
  */
 
 import { createServer } from 'http';
-import { readFileSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import pw from 'playwright';
@@ -118,6 +118,7 @@ async function main() {
   const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
   const browserName = arg('--browser', 'chrome');
   const only = arg('--feature', null);
+  const saveDir = arg('--save-dir', null); // keep every captured frame, for comparing against the native reference
   const jsonOut = arg('--json', null);
 
   if (args.includes('--list')) {
@@ -227,7 +228,9 @@ async function main() {
       if (unknown) return { unknown: true };
       if (!ready) return { timeout: true };
       const canvas = await page.locator('canvas').first();
-      return { png: decodePng(await canvas.screenshot()) };
+      const buf = await canvas.screenshot();
+      if (saveDir) { mkdirSync(saveDir, { recursive: true }); writeFileSync(`${saveDir}/${id}_${on ? 1 : 0}.png`, buf); }
+      return { png: decodePng(buf) };
     };
 
     let lastCat = null;
