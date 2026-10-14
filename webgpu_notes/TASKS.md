@@ -188,7 +188,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 | `generate_lods()` returns 0 on web | OPEN | — |
 | 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
-| 2.17 | Forward+ benchmark leg / README numbers | OPEN | — |
+| 2.17 | Forward+ benchmark leg / README numbers | PARTLY DONE 2026-10-15 (matrix measured, display-capped) | uncapped run; WebGPU post-fx 96 vs 165 fps |
 | 2.18 | texture compression export option | BLOCKED | — |
 | 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
@@ -806,15 +806,36 @@ Six named gaps, each roughly a session, in rough value order:
    `xvfb-run` is available and say so when it is not, which also needs the matrix re-baselined under
    it (it was, by that run).
 
-### 2.17 Forward+ benchmark leg and the README's numbers `OPEN` *(old Task 9.16)*
+### 2.17 Forward+ benchmark leg and the README's numbers `PARTLY DONE 2026-10-15` — measured, display-capped; uncapped run and WebGPU post-fx gap open *(old Task 9.16)*
 
-`webgpu_tests/benchmark/run_benchmark.sh` runs on Linux and macOS, and the WebGL and WebGPU/Forward
-Mobile legs are live-verified. **No Forward+ leg exists anywhere**, and the README's `Key Stats` and
-`Performance Benchmarks` tables are still inherited from upstream `dwalter/godotwebgpu`, covering
-only WebGL vs WebGPU/Forward Mobile — which is not what this fork is for. Add the third leg
-(`rendering_method="forward_plus"` per scene), run 7 scenes × 3 renderers on real hardware, and
-replace the inherited tables. Legs 1-2 are mechanical; leg 3 is unproven and could surface a real
-Forward+ bug, which is why this was left scoped-but-unstarted.
+**Done 2026-10-15.** `benchmark/run_matrix.sh` runs the 7 README scenes on four legs — native Vulkan Forward+,
+WebGL (official 4.7.1 editor + 4.7.2 template; a 4.8 pck will not load in a 4.7 template), WebGPU/Forward Mobile and
+WebGPU/Forward+ (`BENCH_RENDERER`, confirmed from the console banner) — and writes `benchmark/results/matrix.tsv`
+plus per-run logs. `run_benchmark.sh` gained `BENCH_RENDERER`, `BENCH_AUTOQUIT`, `GODOT_WEBGL_BASELINE_EDITOR`, and
+launches system Chrome with the standard flags. 28 runs, 22 m 43 s, real GPU (RTX 4080 SUPER, 165 Hz display).
+
+| scene | native Vulkan | WebGL | WebGPU Mobile | WebGPU Forward+ |
+|---|---:|---:|---:|---:|
+| a sprites | 165 | 164 | 165 | 165 |
+| b pbr | 165 | 161 | 165 | 165 |
+| c instances | 2520 | 160 | 165 | 165 |
+| d particles | 165 | 165 | 165 | 165 |
+| e animated | 2809 | 154 | 165 | 165 |
+| f postfx | 164 | 165 | **96** | **91** |
+| g shadows | 2701 | 165 | 165 | 165 |
+
+**What it says.** Every web leg is capped by the display (rAF), so on this hardware the web numbers do *not* separate
+the renderers, and the inherited README "4-5x faster than WebGL" claims (Mac Studio, 2025) are not reproduced here —
+the scenes are too light for a 4080. Native Vulkan is uncapped on c/e/g (vsync off in those projects), which is why it
+shows 2500+. **The one real signal is `scene_f_postfx`: WebGPU is ~45% slower than WebGL and native (96 / 91 vs 165)**,
+with `draw_calls` 100 (Mobile) / 263 (Forward+) against 262 for WebGL. That is a genuine WebGPU post-processing cost
+(SSAO + bloom + SubViewport), consistent with the 105 fps `benchmark_postfx` of §2.6, and is the next place to look
+for a perf win. `cpu_avg` reads 0 on web (render-time measurement is disabled there).
+
+**Still open:** (1) an *uncapped* web run (Chrome `--disable-frame-rate-limit --disable-gpu-vsync`, or scene sizes
+raised until nothing is capped) to compare the renderers properly; that adds launch flags beyond the user's standard
+three, so it should be an explicit opt-in, not the default. (2) Profile `scene_f_postfx` on WebGPU. (3) The README's
+tables are replaced only with a short measured table plus this caveat; the inherited Mac numbers stay, labelled as such.
 
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 

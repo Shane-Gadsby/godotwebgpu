@@ -6,6 +6,14 @@
 #   ./run_benchmark.sh webgl  [scene_path]
 #   ./run_benchmark.sh webgpu [scene_path]
 #
+# Environment:
+#   BENCH_RENDERER=forward_plus|mobile   scene renderer for the webgpu leg (default forward_plus; the
+#                                        scene's own project.godot value is patched for the export and restored).
+#                                        Under swiftshader/CI the engine falls back to Mobile on its own.
+#   GODOT_WEBGL_BASELINE_ZIP             official non-fork web_nothreads_release.zip for the webgl leg
+#   GODOT_WEBGL_BASELINE_EDITOR          the matching official editor binary (a 4.8 pck will not load in a 4.7 template)
+#   BENCH_AUTOQUIT=1                     native leg exits by itself after the results print (for scripted runs)
+#
 # Default scene: the benchmark project itself (webgpu_tests/benchmark/).
 # Pass a path to any Godot project directory to benchmark that instead.
 # Injects benchmark_profiler.gd as an autoload to collect CPU/GPU frame times.
@@ -121,6 +129,13 @@ restore_project() {
     fi
 }
 
+# Set the web renderer of a project (the .bak taken by inject_profiler restores it afterwards).
+set_web_renderer() {
+    sed_inplace "s|^renderer/rendering_method.web=.*|renderer/rendering_method.web=\"$2\"|" "$1/project.godot"
+    grep -q '^renderer/rendering_method.web=' "$1/project.godot" || \
+        sed_inplace "s|^\[rendering\]|[rendering]\nrenderer/rendering_method.web=\"$2\"|" "$1/project.godot"
+}
+
 # Resolve scene path to absolute
 SCENE_PATH="$(cd "$SCENE_PATH" && pwd)"
 
@@ -130,19 +145,26 @@ if [ "$MODE" = "native" ]; then
     echo "Scene: $SCENE_PATH"
     inject_profiler "$SCENE_PATH"
     trap "restore_project '$SCENE_PATH'" EXIT
-    "$EDITOR_BIN" --path "$SCENE_PATH"
+    if [ "${BENCH_AUTOQUIT:-0}" = "1" ]; then
+        # 180 warmup + 300 collect frames, plus headroom for startup and a vsync-capped display.
+        "$EDITOR_BIN" --rendering-driver vulkan --path "$SCENE_PATH" --quit-after 1500
+    else
+        "$EDITOR_BIN" --path "$SCENE_PATH"
+    fi
     exit 0
 fi
 
 # --- Web (WebGL or WebGPU) ---
 if [ "$MODE" = "webgl" ]; then
     TEMPLATE_ZIP="$WEBGL_ZIP"
-    PRESET="Web"
+    PRESET="WebGPU"   # the projects carry one preset; the template and renderer are what differ
+    WEB_RENDERER="gl_compatibility"
     echo "=== WebGL on Chrome ==="
 elif [ "$MODE" = "webgpu" ]; then
     TEMPLATE_ZIP="$WEBGPU_ZIP"
     PRESET="WebGPU"
-    echo "=== WebGPU on Chrome ==="
+    WEB_RENDERER="${BENCH_RENDERER:-forward_plus}"
+    echo "=== WebGPU (${WEB_RENDERER}) on Chrome ==="
 else
     echo "ERROR: Unknown mode '$MODE'. Use native, webgl, or webgpu."
     exit 1
@@ -164,7 +186,11 @@ if [ ! -f "$TEMPLATE_ZIP" ]; then
 fi
 
 SCENE_NAME="$(basename "$SCENE_PATH")"
-SCENE_EXPORT_DIR="$EXPORT_DIR/${SCENE_NAME}_${MODE}"
+if [ "$MODE" = "webgpu" ]; then
+    SCENE_EXPORT_DIR="$EXPORT_DIR/${SCENE_NAME}_${MODE}_${WEB_RENDERER}"
+else
+    SCENE_EXPORT_DIR="$EXPORT_DIR/${SCENE_NAME}_${MODE}"
+fi
 EXPORT_HTML="$SCENE_EXPORT_DIR/index.html"
 
 echo "Scene: $SCENE_PATH"
@@ -181,6 +207,7 @@ fi
 # Inject profiler and back up project files
 inject_profiler "$SCENE_PATH"
 cp "$PRESETS_CFG" "$PRESETS_CFG.bak"
+set_web_renderer "$SCENE_PATH" "$WEB_RENDERER"
 sed_inplace "s|custom_template/release=\"[^\"]*\"|custom_template/release=\"$TEMPLATE_ZIP\"|g" "$PRESETS_CFG"
 
 # Ensure cleanup on exit
@@ -189,7 +216,11 @@ trap "restore_project '$SCENE_PATH'; [ -f '$PRESETS_CFG.bak' ] && mv '$PRESETS_C
 # Export
 mkdir -p "$SCENE_EXPORT_DIR"
 echo "Exporting..."
-"$EDITOR_BIN" --headless --path "$SCENE_PATH" --export-release "$PRESET" "$EXPORT_HTML" 2>&1 | tail -5
+# The WebGL leg needs an official (non-fork) editor too: a pck made by this fork's 4.8 editor is "newer"
+# than the official 4.7.x template and refuses to load. Set GODOT_WEBGL_BASELINE_EDITOR to that editor.
+EXPORT_EDITOR="$EDITOR_BIN"
+[ "$MODE" = "webgl" ] && [ -n "${GODOT_WEBGL_BASELINE_EDITOR:-}" ] && EXPORT_EDITOR="$GODOT_WEBGL_BASELINE_EDITOR"
+"$EXPORT_EDITOR" --headless --path "$SCENE_PATH" --export-release "$PRESET" "$EXPORT_HTML" 2>&1 | tail -5
 
 if [ ! -f "$EXPORT_HTML" ]; then
     echo "ERROR: Export failed — $EXPORT_HTML not created"
@@ -224,9 +255,12 @@ const server = http.createServer((req, res) => {
 
 server.listen($PORT, async () => {
     console.log('Server ready on port $PORT');
+    // System Chrome with the project's standard launcher flags (scene_smoketest/run_scenes.mjs).
     const browser = await pw.chromium.launch({
         headless: false,
-        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
+        ...(process.platform === 'linux' ? { executablePath: '/usr/bin/google-chrome-stable' } : {}),
+        ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
     });
     const page = await browser.newPage();
 

@@ -340,6 +340,20 @@ Try each demo in your browser at **[godotwebgpu.com](https://godotwebgpu.com)**.
 
 Stress tests comparing WebGPU (Forward Mobile) vs WebGL (Compatibility) at high object counts. FPS measured on Mac Studio M3 Ultra, Chrome 134.
 
+**Measured 2026-10-15 on this fork** (RTX 4080 SUPER, 165 Hz display, Chrome, `webgpu_tests/benchmark/run_matrix.sh`; fps, 300 frames after warm-up). Web runs are display-capped, so the renderers only separate where a scene is heavy enough:
+
+| Scene | Native Vulkan | WebGL | WebGPU Mobile | WebGPU Forward+ |
+|---|---:|---:|---:|---:|
+| Sprites | 165 | 164 | 165 | 165 |
+| PBR Sphere | 165 | 161 | 165 | 165 |
+| Cubes + Lights | 2520 | 160 | 165 | 165 |
+| GPU Particles | 165 | 165 | 165 | 165 |
+| Skeletal Animation | 2809 | 154 | 165 | 165 |
+| Other Effects (SSAO + Bloom) | 164 | 165 | 96 | 91 |
+| Shadows | 2701 | 165 | 165 | 165 |
+
+On this hardware WebGPU matches WebGL (both display-capped) except post-processing, where it is currently slower (tracked in `webgpu_notes/TASKS.md` §2.17). The table below is inherited from the upstream project (Mac Studio M3 Ultra, lighter GPU headroom) and has not been reproduced here.
+
 Try all benchmarks live at **[godotwebgpu.com/#benchmarks](https://godotwebgpu.com/#benchmarks)**.
 
 | | Benchmark | Description | WebGPU vs WebGL |
