@@ -34,7 +34,12 @@ import { decodePng } from '../screenshot_comparison/png.mjs';
 import { FEATURES, UNCOVERED, CATEGORIES, byId } from './features.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCENE_DIR = join(__dirname, 'export');
+// --baked runs against export_baked/ (made by `BAKE=1 ./export.sh`) and additionally asserts the
+// shader cache was actually used. The default export is unbaked (--headless skips the baker).
+const BAKED = process.argv.includes('--baked');
+const SCENE_DIR = join(__dirname, BAKED ? 'export_baked' : 'export');
+// The fixture builds materials in GDScript, so a few shaders legitimately translate at runtime.
+const TRANSLATED_CEILING = 80;
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm',
@@ -135,7 +140,7 @@ async function main() {
   console.log(`Forward+ Feature Matrix (WebGPU) -- ${FEATURES.length} features\n`);
 
   if (!existsSync(SCENE_DIR)) {
-    console.log(`  SKIP -- no export at ${SCENE_DIR} (run ./export.sh)`);
+    console.log(`  SKIP -- no export at ${SCENE_DIR} (run ${BAKED ? 'BAKE=1 ' : ''}./export.sh)`);
     process.exit(2);
   }
   const unsupported = unsupportedReason(browserName);
@@ -165,12 +170,14 @@ async function main() {
   let ready = null;
   let unknown = null;
   let errors = [];
+  let cacheMismatch = false;
   page.on('console', (m) => {
     const t = m.text();
     if (!banner && /WebGPU .* - Forward/.test(t)) banner = t;
     if (t.startsWith('[FP] FEATURES ')) declaredFeatures = t.slice('[FP] FEATURES '.length).trim().split(',');
     if (t.startsWith('[FP] READY ')) ready = t.slice('[FP] READY '.length).trim();
     if (t.startsWith('[FP] UNKNOWN ')) unknown = t.slice('[FP] UNKNOWN '.length).trim();
+    if (/none of it matches what this build asks for/.test(t)) cacheMismatch = true;
     if (m.type() === 'error' && !BENIGN_ERROR.test(t)) errors.push(t);
   });
   page.on('pageerror', (e) => { if (!BENIGN_ERROR.test(e.message)) errors.push(e.message); });
@@ -192,6 +199,17 @@ async function main() {
       await browser.close();
       server.close();
       process.exit(2);
+    }
+    if (BAKED) {
+      // A baked export that loads fine but bakes nothing (dropped variants, changed container
+      // format, mismatched version hash) would otherwise pass with the slow path hiding it.
+      await new Promise((r) => setTimeout(r, 1500));
+      const st = await page.evaluate(() => window.godotWebGPUShaderStats || null);
+      console.log(`  shader stats: ${JSON.stringify(st)}\n`);
+      if (!st || !(st.baked > 0) || st.translated > TRANSLATED_CEILING || cacheMismatch) {
+        console.log(`  FAIL  baked export did not use its shader cache (want baked > 0, translated <= ${TRANSLATED_CEILING}, no mismatch warning; mismatch=${cacheMismatch})`);
+        exitCode = 1;
+      }
     }
     while (!declaredFeatures && Date.now() < bootDeadline) await new Promise((r) => setTimeout(r, 200));
 

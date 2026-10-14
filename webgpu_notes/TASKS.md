@@ -666,7 +666,7 @@ FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix cov
 real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
 between render and compute still reads correctly once passes are explicitly bracketed.
 
-### 2.29 Make the baked export a real test tier `OPEN` *(from §2.16 gap 7 and §2.27)*
+### 2.29 Make the baked export a real test tier `PARTLY DONE 2026-10-14` — Forward+ matrix leg landed; smoketest/WebRTC legs open *(from §2.16 gap 7 and §2.27)*
 
 Every export helper in the suite passes `--headless`, which skips the export-time shader baker, so every
 tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration that ships is
@@ -674,7 +674,9 @@ tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration
 have been run by hand twice (Forward+ matrix 64/64, §2.27; platformer load profile) and never by CI.
 
 `SMOKETEST_BAKE=1` on `run_scenes.mjs` (2026-10-14) already exports under `xvfb-run` without `--headless`.
-What is left:
+**Landed:** `BAKE=1 ./export.sh` (forward_plus) → `export_baked/` via `xvfb-run` (29 s here; SKIP/exit 2 without xvfb-run); `run_forward_plus.mjs --baked` asserts `baked > 0`, `translated <= 80` and no cache-mismatch warning (verified red against an unbaked export: `baked: 0, translated: 200`), 64/64 on real GPU with `baked: 415, translated: 33`; `local_ci.sh --bake` runs both (opt-in). Still open: the scene smoketest and WebRTC fixture legs, and re-baselining deltas (item 4).
+
+Original plan:
 
 1. `forward_plus/export.sh` (and `export_heavy.sh`, the WebRTC fixture) get the same switch, and
    `local_ci.sh` gains a `--bake` stage that exports baked variants into separate dirs

@@ -11,6 +11,7 @@
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
 #   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
+#   ./webgpu_tests/local_ci.sh --bake       # Also export + test the BAKED Forward+ fixture (needs xvfb-run; minutes)
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
 #
@@ -53,6 +54,7 @@ JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 # Parse args
 NO_SAFARI=false
+DO_BAKE=false
 QUICK=false
 DO_DLINK=true
 DEV_MODE=false
@@ -66,6 +68,7 @@ for arg in "$@"; do
     [[ "$arg" == "--export" ]] && EXPORT_EXPLICIT="yes"
     [[ "$arg" == "--no-export" ]] && EXPORT_EXPLICIT="no"
     [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
+    [[ "$arg" == "--bake" ]] && DO_BAKE=true
     [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
 done
 
@@ -477,6 +480,19 @@ ensure_playwright "$SCRIPT_DIR/forward_plus"
 run_test "Forward+ feature matrix — Chrome" \
     "$SCRIPT_DIR/forward_plus" \
     node run_forward_plus.mjs --browser chrome
+
+# Baked tier (TASKS.md 2.29): --headless exports skip the shader baker, so nothing above ever
+# loads the configuration that ships. Opt-in because baking takes minutes.
+if [[ "$DO_BAKE" == true ]]; then
+    if [[ "$DO_EXPORT" == true ]]; then
+        run_test "Re-export Forward+ fixture (baked)" \
+            "$SCRIPT_DIR/forward_plus" \
+            env BAKE=1 ./export.sh
+    fi
+    run_test "Forward+ feature matrix — Chrome (baked)" \
+        "$SCRIPT_DIR/forward_plus" \
+        node run_forward_plus.mjs --browser chrome --baked
+fi
 
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
     run_test "Scene smoketest — Safari (21 scenes)" \
