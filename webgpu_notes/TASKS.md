@@ -41,6 +41,7 @@ a rare non-visual error.
 | scene smoketest (swiftshader) | 21 / 0 | 2026-10-14, after §2.12's deletion and §2.13's warning |
 | Forward+ feature matrix | **64 / 64** on real GPU, Chrome; VoxelGI now 7.743 vs Vulkan 7.742 | 2026-10-14, after §2.11's fix (`4d407aacc`); re-run in the final `local_ci.sh --dev-mode` at `23246cb66` |
 | full `local_ci.sh --dev-mode` with `WEBGPU_REAL_GPU=1` | all stages green incl. fog, fonts, smoketest Chrome+Firefox, lifecycle, screenshots 8/8; WebRTC 516 assertions (rerun by hand — the stage skipped on a Playwright mismatch, §3 trap 3a) | 2026-10-14, `23246cb66` |
+| full `local_ci.sh --dev-mode --bake` with `WEBGPU_REAL_GPU=1` | green through the baked matrix (`baked: 415, translated: 33`); the WebRTC stage SKIPped on trap 3a's Playwright mismatch, so WebRTC (258 assertions, web half), lifecycle and screenshots (8/8) were rerun by hand and passed | 2026-10-14, `af3d57ddd1` (2 MB push-constant ring) |
 | Forward+ matrix, **baked** export | **64 / 64**, deltas within 0.00% median of the unbaked run | 2026-10-14, §2.27 — first tier run ever to load a baked export |
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
 | WebRTC congestion | native/web agree at 91-97% on every transfer mode | 4.8, after the F10 fix |
@@ -54,7 +55,7 @@ Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches i
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
 
-### What is built right now — snapshot 2026-10-14 (end of day), HEAD `23246cb663`
+### What is built right now — snapshot 2026-10-14 (end of day), HEAD `af3d57ddd1` (+ this doc commit)
 
 Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
 no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode` was green on the
@@ -176,7 +177,7 @@ Nothing was pushed; every commit above is local on `webgpu-4.8`.
 **Where to pick up (written 2026-10-14, end of day).** Nothing is half-done in the tree. In order of
 value for effort:
 
-1. **§2.29 — make the baked export a real tier.** Cheapest high-value item: `SMOKETEST_BAKE=1` already
+1. **§2.29 — remaining legs of the baked tier** (the Forward+ matrix leg landed, `local_ci.sh --bake`). Original text: `SMOKETEST_BAKE=1` already
    exports baked under `xvfb-run`; what is left is wiring it into `forward_plus/export.sh` and
    `local_ci.sh` (separate `export_baked/` dirs, assert `baked > 0`/`translated` ceiling, SKIP when
    `xvfb-run` is missing). Today no tier ever loads a baked export, and every perf change this session
@@ -184,8 +185,7 @@ value for effort:
 2. **§2.4 — the next cheap cut.** The texture-dimension scans in the stage loop (~27 ms of the remaining
    ~180) use the same unbounded-`strstr` pattern fixed today; `createShaderModule` (~70 ms) is the
    browser's and out of reach. The unbaked path's ~6 s of Tint is a different problem.
-3. **§2.6 remainder / new finding.** The heavy Forward+ scene shows `ringOverflows: 1` and
-   `rwShadowRefreshes: 40` *per frame* — not errors, but real per-frame cost nobody has looked at. Still
+3. **§2.6 remainder.** `ringOverflows` is fixed (2 MB ring). `rwShadowRefreshes: 40` per frame remains. Still
    missing for §2.6 proper: a **baked** heavy export (needs §2.29's plumbing) to confirm `translated: 0`.
 4. **§2.28 follow-ups**: remove the now-redundant per-bind texture bookkeeping in
    `split_compute_pass_if_conflicting` and check `render_state.current_pipeline` is not shared
