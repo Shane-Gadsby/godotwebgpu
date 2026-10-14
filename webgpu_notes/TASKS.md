@@ -172,7 +172,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.2 | non-dlink export abort | CLOSED | — |
 | 2.3 | dlink under throttling | CLOSED | — |
 | 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
-| 2.4 | startup fixed floor | OPEN (stage loop 391 → ~180 ms) | texture-dim scans (~27 ms), unbaked Tint (~6 s), `createShaderModule` is the browser's |
+| 2.4 | startup fixed floor | OPEN (stage loop 391 → ~180 ms) | attribute the ~1.1 s after `Main::start()` (needs a `--profiling-funcs` template); unbaked Tint (~6 s); `createShaderModule` is the browser's |
 | 2.5 | threading decision | OPEN | needs a decision and a real GPU |
 | 2.6 | real-GPU profile | OPEN (frame stats done, `ringOverflows` fixed) | `rwShadowRefreshes: 40`/frame, a baked heavy export |
 | 2.7 | upstream F10 default | OPEN, human | — |
@@ -242,7 +242,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
-| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` — stage loop 391 → ~180 ms landed 2026-10-14; texture-dim scans next | ~1-2 sessions |
+| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` — stage loop 391 → ~180 ms landed; texture-dim scans are ~1% of the stall (dropped); real remainder is ~1.1 s after `Main::start()`, needs a `--profiling-funcs` template to attribute | ~1-2 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
 | 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — frame stats taken (Mobile, Forward+, heavy Forward+); baked heavy export missing, needs §2.29 | <0.5 session, needs real GPU |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
@@ -502,6 +502,26 @@ the next cheap target). The unbaked path (`to_convert` ~6.3 s of Tint) is untouc
 timers were temporary (`_SLMARK(n)` accumulators printed to the console, removed again); and a rebuilt
 template needs a rebuilt *editor* before a baked re-export, or the version hash mismatches and the run
 silently takes the unbaked path (`baked: 0, translated: 355`) — see the trap added in §3.
+
+**Re-measured 2026-10-14 (late), baked `3d/platformer`, real GPU, loopback, current build** — do not redo the
+"texture-dim scans" idea, it is not worth a session:
+
+| term | ms | note |
+|---|---|---|
+| total stall (before-callmain → first frame) | 2092 | `WebGPU API total` is 40 ms of it (1.9%) |
+| `Servers:Rendering` | 387 | `containerCreateMs` 202 of it, `containerStageLoopMs` 174 (confirms the ~180 above) |
+| `Startup:Scene` / `Main::Start` (`Load Game`) | 113 / 218 | |
+| **after `Main::start()` returns → first frame** | **~1090** | the biggest term; engine CPU, not WebGPU calls |
+
+The stage loop is down to the 70 ms of `createShaderModule` (the browser's) plus ~100 ms spread over several linear
+scans; the texture-dimension scan is ~27 ms, i.e. ~1% of the stall, so cutting it is noise. **The real remainder is
+the ~1.1 s after `Main::start()`**, and nothing in the tree can attribute it: a Chrome main-thread CPU profile
+(CDP `Profiler`) of this export was tried and is **unusable** — the release wasm resolves only a few function names
+(`wasm-function[N]` otherwise), and with the profiler attached `_wgpuQueueWriteBuffer` showed 2577 ms self time
+against 14 ms for 488 queue writes in the un-profiled `profile_phases.mjs` run, so the profiler perturbs exactly
+the calls in question. Next step, if wanted: a template built with `-g`/`--profiling-funcs` (name section kept) and
+`--benchmark`-style marks around main-loop init / first `Main::iteration()` / first `RenderingServer::draw`, not a
+sampling profiler. Effort: one session plus a ~3 min template build.
 
 ### 2.5 Decide whether threading is worth having `OPEN` *(old Task 14 subtask 1.5.8.5, Task 12)*
 
