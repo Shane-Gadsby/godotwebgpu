@@ -38,6 +38,7 @@ a rare non-visual error.
 | `screenshot_comparison` | 8 / 0 | 4.7.2 |
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
 | scene smoketest (real GPU) | 21 / 0 on Chrome **and** Firefox | 2026-10-14, after §2.1 |
+| scene smoketest (swiftshader) | 21 / 0 | 2026-10-14, after §2.12's deletion and §2.13's warning |
 | Forward+ feature matrix | **64 / 64** on real GPU, Chrome; 0 errors over two reload-free passes | 2026-10-14, §2.1 closed |
 | Forward+ matrix, **baked** export | **64 / 64**, deltas within 0.00% median of the unbaked run | 2026-10-14, §2.27 — first tier run ever to load a baked export |
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
@@ -51,6 +52,23 @@ Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9
 Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches its first frame in
 **25.7 s**, of which 23.5 s is download — see §4.15 and §2.27 before optimizing anything CPU-side for
 load time.
+
+### What is built right now — snapshot 2026-10-14, HEAD `b0be6b7529`
+
+Working tree clean. `bin/` is **not** uniformly current, which matters because of the version-hash
+trap below:
+
+| artifact | built from | state |
+|---|---|---|
+| `godot.linuxbsd.editor.x86_64` | `0f0b1025b` | current (HEAD is one docs-only commit ahead) |
+| `godot.web.template_release.wasm32.nothreads.zip` | `0f0b1025b` | current, and **matched to the editor** — proven behaviorally: a baked export loads with `baked: 423` and no cache-mismatch warning |
+| `godot.web.template_release.wasm32.nothreads.dlink.zip` | `8cdfb073e` (12:53) | **stale** — missing §2.12's deletion, §2.13's warning and §2.27's container change. Rebuild before any dlink work |
+| `godot.web.template_{debug,*threads*}` | `33ec3afb4` (Oct 13) | **stale**, all of them |
+| `godot.linuxbsd.editor.double.x86_64` | `fa954729c` | §2.23's `precision=double` check; keep or delete freely |
+
+So: the editor + non-dlink release template are a matched, current pair, and that is the pair every
+tier and every measurement in this document used today. Anything else needs a rebuild first, web
+last.
 
 ### Build and environment state — read before rebuilding
 
@@ -125,14 +143,24 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 so references from source comments and from this file stay valid. Re-order by moving rows, not by
 renumbering.
 
-**Status reconciled 2026-10-14.** Every row below was checked against the tree on that date. Closed
-since the list was written: §2.1 (the bind-group layout mismatch — fixed, matrix now 64/64), §2.2
-(the non-dlink abort — gone on 6.0.9), §2.3 (dlink under throttling — measured, premise refuted).
-Opened: §2.27, which the §2.3 measurement turned up and which is now the largest known load-time
-cost. Items whose *description* changed on evidence rather than being worked: §2.4 and §2.6 (new
-real-GPU numbers), §2.12 and §2.13 (claims verified by reading the code and a real export), §2.16
-(a seventh gap), §2.22 (compression measured). Everything else is untouched since it was written,
-and says so by having no dated note.
+**Status reconciled 2026-10-14**, end of a long session. Every row below was checked against the tree
+on that date; anything with no dated note is untouched since it was first written.
+
+| what happened | items | commits |
+|---|---|---|
+| **Closed** | §2.1 bind-group layout mismatch (fixed), §2.2 non-dlink abort (gone), §2.3 dlink under throttling (measured, premise refuted), §2.12 dead `_depth_alias` (deleted), §2.13 stale Phase 7 TODOs (all three answered) | `8cdfb073e`, `b62681b3e`, `67d3b53bf`, `9622f9c12`, `fa954729c` |
+| **Landed, still open** | §2.27 — multiview SPIR-V no longer baked: pck 150.76 → 62.36 MB (−59%) | `9aabb1e73`, `6c5d83a57`, `b0be6b752` |
+| **Opened** | §2.27 (from §2.3's measurement), §2.28 (from §2.14's audit) | `325b8d297`, `d5206c11c` |
+| **Audited, narrowed on evidence** | §2.6 (half measured), §2.10 (tables clean; reframed as coverage), §2.14 (interface audit done, baseline `9973b23ec7`), §2.23 (`precision=double` builds and runs) | `9973b23ec`, `d5206c11c`, `0f0b1025b` |
+| **Description updated with new numbers** | §2.4, §2.16 (a seventh gap), §2.22 | `325b8d297`, `67d3b53bf` |
+
+Nothing was pushed; every commit above is local on `webgpu-4.8`.
+
+**Where to pick up.** The GPU is free again (see the VRAM note in §3), so the items that were blocked
+on it are the ones to take: §2.28 (~0.5 session, a structural fix with a measurable before/after),
+§2.6's remainder (frameStats under load, <0.5 session), §2.11 (VoxelGI's unexplained 12.24 vs 7.74).
+§2.27's next step (prune unreachable variants) is the largest remaining win but needs analysis
+first, and §2.4 is now known to be 10× smaller than §2.27 on a real link, so it should wait.
 
 | # | item | status | effort (Opus 5, medium) |
 |---|---|---|---|
@@ -666,6 +694,10 @@ gitignored, so unlike every other retired doc it is not recoverable from history
 
 Each of these cost real time at least once. They are the reason this file exists.
 
+Numbers here are **not** stable the way §2's are — these are grouped by theme, so a new trap gets
+inserted into its group and the rest shift. If you insert one, re-check the references: `git grep -n
+"trap [0-9]"` across this file and `CLAUDE.md`.
+
 **Measurement and environment**
 
 1. **A software adapter is not this fork's renderer.** Under headless swiftshader every pixel-based
@@ -676,34 +708,44 @@ Each of these cost real time at least once. They are the reason this file exists
 2. **CI builds with `dev_mode=yes` (`warnings=extra werror=yes`); no local command above does.** A
    warning that is fatal in CI is invisible locally — one unused variable kept CI red for two days
    while every local tier was green. `./webgpu_tests/local_ci.sh --dev-mode` before assuming agreement.
-3. **An identical number across genuinely different builds indicts the measurement, not the fix.**
+3. **Another process can be holding the VRAM, and the failure looks exactly like a regression.**
+   The real-GPU tiers need a few GB for SDFGI/VoxelGI 3D textures. On 2026-10-14 LM Studio held
+   **13.1 GB of this machine's 16 GB**, and the Forward+ matrix failed *every* feature with hundreds
+   of errors cascading from one `GPUOutOfMemoryError: vkAllocateMemory failed with
+   VK_ERROR_OUT_OF_DEVICE_MEMORY` on a 768×768×64 texture. It reads as a driver regression in
+   whatever was last changed; it is not. Run
+   `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` before believing a sudden wall of
+   validation errors. Fall back to `CI=1` (swiftshader) only for adapter-independent work — trap 1
+   says why that is not a substitute.
+
+4. **An identical number across genuinely different builds indicts the measurement, not the fix.**
    `360/16` repeated *exactly* through three unrelated fixes because a stale client-side cache sat
    between artifact and observation. "Identical, not merely similar" is the tell.
-4. **Build, then commit, then rebuild.** A binary built before its commit carries the *previous*
+5. **Build, then commit, then rebuild.** A binary built before its commit carries the *previous*
    `GODOT_VERSION_HASH`, which is how an editor/template mismatch arises — invisible until the
    version banners are compared side by side.
-5. **One sample of a nondeterministic quantity is how a finding gets written down wrong.** The WebRTC
+6. **One sample of a nondeterministic quantity is how a finding gets written down wrong.** The WebRTC
    phase did this once; every congestion number afterwards was resampled across 3-4 runs on purpose.
-6. **Before believing a recorded "this never works", re-run it.** `demo_compute_heightmap`'s
+7. **Before believing a recorded "this never works", re-run it.** `demo_compute_heightmap`'s
    "readback never completes" was false; the committed export under `capture_errors.mjs --all` showed
    a different line entirely. Thirty seconds, no rebuild.
 
 **Shaders and the conversion pipeline**
 
-7. **Trace against the *preprocessed* SPIR-V, not glslang's output.** They are different modules;
+8. **Trace against the *preprocessed* SPIR-V, not glslang's output.** They are different modules;
    designing against the wrong one cost a full implementation. `TINT_DEBUG_DUMP_PREPROCESSED`.
-8. **WGSL captured from the engine is not Tint's output** — it has already been through the driver's
+9. **WGSL captured from the engine is not Tint's output** — it has already been through the driver's
    own text passes. `tint_convert_cli` on the same SPIR-V is. Diffing the two is a two-minute check
    and it is what finally attributed the depth-promotion bug correctly.
-9. **`tint_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
+10. **`tint_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
    the child's output to `/dev/null` so one Tint ICE cannot kill the batch. Run it single-file,
    un-forked, to see the real abort.
-10. **When a new shader fails Tint conversion**, the fix is almost always a new/extended SPIR-V
+11. **When a new shader fails Tint conversion**, the fix is almost always a new/extended SPIR-V
     preprocessing pass or a vendored Tint patch — not a WGSL-writer change.
 
 **Merges and upstream**
 
-11. **On a large merge, a clean conflict list proves nothing.** Five breaks in fork-touched shared
+12. **On a large merge, a clean conflict list proves nothing.** Five breaks in fork-touched shared
     code produced *no conflict at all*, because the fork's lines and 4.8's change sat in different
     places in the same file: a removed helper (`get_compressed_image_format_pixel_rshift`), a moved
     header, a deleted static member, a dropped function parameter, a duplicated local declaration.
@@ -712,28 +754,28 @@ Each of these cost real time at least once. They are the reason this file exists
 
 **Reading code vs measuring it**
 
-12. **`library_godot_webrtc.js`'s JS fallback values are unreachable dead code**, because `get_prop`
+13. **`library_godot_webrtc.js`'s JS fallback values are unreachable dead code**, because `get_prop`
     falls back only on `undefined` while browsers report unset channel properties as `null`, which
     crosses into C++ as `0`. Reading that file predicts behavior badly; measure instead. Three WebRTC
     findings were written down wrong from exactly this.
-13. **A partial fingerprint is worse than none.** A summary of *some* fields matched byte-for-byte on
+14. **A partial fingerprint is worse than none.** A summary of *some* fields matched byte-for-byte on
     both sides while the hashes differed, which reads as proof of sameness. When identity is the
     question, decompose every field the hash covers, or print the thing itself.
-14. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes
+15. **When the producer of a thing cannot be enumerated reliably, enumerate the things.** Five fixes
     targeted *where materials come from*; four changed nothing. Baking every version the engine had
     already built closed it immediately.
 
 **Verification that looks sufficient and is not**
 
-15. **"Text appears" cannot catch a colour bug** — white text is indistinguishable from text whose
+16. **"Text appears" cannot catch a colour bug** — white text is indistinguishable from text whose
     modulate was dropped. Use a non-white fill or a contrasting outline. A change shipped on exactly
     this evidence and made all text white.
-16. **A log line that misdescribes a deliberate, unconditional conversion as a hardware shortfall
+17. **A log line that misdescribes a deliberate, unconditional conversion as a hardware shortfall
     will cost someone an investigation** — it did twice, for `LumAlpha8` and then `RGB8`, from the
     same function. If the driver always does something, the message must say why.
-17. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change
+18. **Compile-check the disabled configuration.** `text_server_fb` is off by default here, so a change
     to it ships uncompiled without `module_text_server_fb_enabled=yes`.
-18. **Emscripten-only driver files can be compile-checked in ~2 s** by naming the object file as the
+19. **Emscripten-only driver files can be compile-checked in ~2 s** by naming the object file as the
     scons target — the name must carry the full variant suffix (e.g.
     `….wasm32.nothreads.o`). No full web build needed.
 
@@ -1210,7 +1252,7 @@ run from `local_ci.sh`; the parity tier also gates GitHub CI. There was no featu
 | F1 | `get_max_packet_size()` 1200 (web) vs 16384 (native) — fixed; `put_packet()` now reports send failures |
 | F2 | Buffered packets destroyed on remote close (web only) — fixed, `close()` keeps the queue |
 | F3 | Silent drop vs unbounded queue on backpressure — fixed (buffer grows); a single burst had lost 435 of 500 packets |
-| F4, F5, F7 | `is_negotiated` default; unset reliability values (-1 vs 0); pre-open `get_id()` (65535 vs 0) — all fixed; all three trace to trap 12 in §3 |
+| F4, F5, F7 | `is_negotiated` default; unset reliability values (-1 vs 0); pre-open `get_id()` (65535 vs 0) — all fixed; all three trace to trap 13 in §3 |
 | F6 | Upstream `webrtc-native` aborts the editor on first project scan (exit 134) — **upstream's**; worked around in both tiers' `export.sh` |
 | F8 | A `maxPacketLifetime` typo meant both unreliable transfer modes were **fully reliable on every platform**; found by code review, not by the harness |
 | F9 | Web's data-channel send queue caps at ~16 MiB; native's does not — confirmed, benign, documented, no code change |
