@@ -165,7 +165,10 @@ static String _find_tint_convert_cli() {
 	return path;
 }
 
-String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
+String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible) {
+	if (r_wgsl_impossible != nullptr) {
+		*r_wgsl_impossible = false;
+	}
 	if (p_spv_size < 20 || (p_spv_size % 4) != 0) {
 		return String();
 	}
@@ -181,6 +184,9 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size) {
 	// though something had gone wrong.
 	if (String unsupported = _wgsl_unsupported_reason(p_spv_ptr, p_spv_size); !unsupported.is_empty()) {
 		print_verbose(vformat("WebGPU shader baker: not baking one shader stage -- it %s. The WebGPU renderer does not use this variant.", unsupported));
+		if (r_wgsl_impossible != nullptr) {
+			*r_wgsl_impossible = true;
+		}
 		return String();
 	}
 

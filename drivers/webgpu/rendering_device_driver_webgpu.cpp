@@ -5096,11 +5096,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			_publish_shader_stats();
 		} else if (spv_bytes.is_empty()) {
 			// A container that dropped its SPIR-V but has no WGSL for this stage
-			// has nothing left to make a module from. The bake cannot produce
-			// that combination (FLAG_SPIRV_OMITTED is only set once every stage
-			// has baked WGSL), so reaching this means a truncated or corrupt
-			// container -- reported rather than passed to Tint as a null pointer.
-			error_text = vformat("WebGPU: shader container for '%s' has neither baked WGSL nor SPIR-V for stage %d.", shader->name, (int)s.shader_stage);
+			// has nothing left to make a module from. Two ways to get here, and
+			// the message names both because they want opposite responses: the
+			// export deliberately dropped a stage WGSL cannot express at all
+			// (multiview above all -- see TASKS.md §2.27), in which case the real
+			// question is why the renderer asked for that variant on a backend
+			// with no multiview; or the container is truncated. Reported either
+			// way, rather than passed to Tint as a null pointer.
+			error_text = vformat("WebGPU: shader container for '%s' has neither baked WGSL nor SPIR-V for stage %d. Either this variant is one WGSL cannot express (multiview, 16-bit integers, image atomics) and the export dropped it, or the container is truncated.", shader->name, (int)s.shader_stage);
 			break;
 		} else {
 			wgsl_str = _spv_to_wgsl_cached(spv_bytes.ptr(), (int)spv_bytes.size(), false, shader->name);

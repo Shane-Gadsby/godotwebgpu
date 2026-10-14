@@ -138,7 +138,7 @@ and says so by having no dated note.
 | 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
-| 2.27 | Baked shader containers are 79% of the download | `OPEN` | 1-2 sessions |
+| 2.27 | Baked containers: multiview SPIR-V dropped (−59%); rest open | `OPEN` — first cut landed 2026-10-14 | ~1 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
 | 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — half measured 2026-10-14 | <0.5 session, needs real GPU |
@@ -186,7 +186,10 @@ transport compression, worth 3.5×. Figures, and the far larger thing they turne
 
 ### 2.27 Baked shader containers are 79% of the download `OPEN` *(found closing §2.3)*
 
-A baked export of `godot-demo-projects/3d/platformer` ships an `index.pck` of **150.8 MB** (38.2 MB
+*(First cut landed 2026-10-14 — the numbers below are the original measurement; the pck is now
+62.36 MB. See "Landed" at the end.)*
+
+A baked export of `godot-demo-projects/3d/platformer` shipped an `index.pck` of **150.8 MB** (38.2 MB
 gzipped); the same project exported without the baker is **1.09 MB**. So ~149.7 MB of it is baked
 shader containers — and the run then consumes **9.0 MB** of WGSL out of them (`wgslBytes`, with
 `baked: 599, translated: 0`). Roughly 16× more is shipped than any one run reads.
@@ -245,10 +248,40 @@ cannot tell that case apart from "nothing could ever convert this". Teaching it 
 shader, multiplied by material count), and removes a loaded gun: the only path that would ever read
 that SPIR-V is a runtime Tint call which aborts the wasm process.
 
-Remaining after that, in order: ship fewer *reachable* variants (prune by project settings), and
-compress the WGSL inside the container (`code_compression_flags` is hardcoded to 0 —
-`rendering_shader_container_webgpu.cpp:149` — while the base class already has
-`compress_code()` / `code_decompressed_size` plumbed; WGSL is text, and the whole pck gzips 3.9×).
+**Landed 2026-10-14 — the SPIR-V half.** `bake_wgsl_via_subprocess()` now reports *why* its WGSL came
+back empty, and `_set_code_from_spirv()`'s `spirv_needed` rule distinguishes the two cases: a
+conversion that was tried and failed still ships its SPIR-V (the runtime can try Tint itself), while
+a stage `_wgsl_unsupported_reason()` screened out does not, because nothing downstream can convert it.
+
+| | before | after |
+|---|---|---|
+| `index.pck` | 150.76 MB | **62.36 MB** (−58.6%) |
+| `.godot/shader_cache` | 149.67 MB | 61.27 MB |
+| containers carrying SPIR-V | 74 (90.3 MB) | **0** |
+| containers carrying WGSL | 147 | 147 |
+
+Verified not to have dropped anything in use, which for an export-time change is the whole question:
+a real-GPU Forward+ run of the new export reports `baked: 599, precompiled: 1, translated: 0` with
+`wgslBytes` 8996919 and `spirvBytes` 111816 — **byte-identical** to the same run before the change,
+so the engine consumed exactly the same shader bytes. Comparing the two pcks container by container,
+every WGSL blob in the new one existed in the old one and none was altered or added; the only
+difference is 88.4 MB of absent SPIR-V. The runtime path for the combination that is now reachable
+(no WGSL, no SPIR-V) already reported a clean error rather than calling Tint with a null pointer; its
+message now names the multiview case first, since that is what reaching it will usually mean.
+
+**Still open, and what to do next:**
+
+1. **Re-run the Forward+ matrix against a *baked* export on the real GPU.** Not done:
+   `vkAllocateMemory` returned `VK_ERROR_OUT_OF_DEVICE_MEMORY` on this machine throughout, with
+   13.1 GB of the 16 GB held by an unrelated process. The shader-side evidence above is from a
+   real-GPU run and is what this change can affect, but the render-side re-baseline is still owed —
+   and it needs §2.16 gap 7 anyway (no tier exports baked).
+2. **Ship fewer *reachable* variants** — prune by project settings. 33 variants per material is the
+   remaining structural cost: 4 materials in a demo project is 132 containers.
+3. **Compress the WGSL inside the container.** `code_compression_flags` is hardcoded to 0
+   (`rendering_shader_container_webgpu.cpp:149`) while the base class already has `compress_code()` /
+   `code_decompressed_size` plumbed. WGSL is text; the remaining 61 MB is 56 MB of it. Worth ~4× on
+   its own, but only where the host is not already compressing the pck — measure against 2 first.
 
 ### 2.4 Startup's fixed floor: `Servers:Rendering` and the first frame `OPEN` *(old Task 14, subtask 2)*
 

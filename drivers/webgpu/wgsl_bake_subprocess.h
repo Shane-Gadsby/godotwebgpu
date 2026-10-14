@@ -60,6 +60,14 @@ namespace webgpu {
 // internal-compiler-error abort), or conversion otherwise fails. Safe to
 // call concurrently from multiple WorkerThreadPool threads (shader baking
 // runs in parallel; see ShaderBakerExportPlugin::_customize_shader_version()).
-String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size);
+//
+// r_wgsl_impossible, when given, distinguishes the two reasons the result can
+// be empty, which the caller has to tell apart: `false` means the conversion
+// was attempted and did not work (so the SPIR-V is still worth shipping -- the
+// runtime can try Tint itself), while `true` means the stage uses a construct
+// WGSL does not have at all, so nothing could ever convert it and the bytes are
+// dead weight. See _wgsl_unsupported_reason() for the exact set, and
+// webgpu_notes/TASKS.md §2.27 for what shipping them was costing.
+String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible = nullptr);
 
 } // namespace webgpu

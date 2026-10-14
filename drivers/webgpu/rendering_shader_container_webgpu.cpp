@@ -141,6 +141,14 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 	// lives in wgsl_code. wgsl_view is only populated by the footer parse.
 	wgsl_view.clear();
 
+#ifdef WEBGPU_SHADER_BAKER_ENABLED
+	// Per stage: did the WGSL come back empty because nothing could ever convert
+	// it (as opposed to a conversion that was tried and failed)? See the
+	// spirv_needed rule below.
+	LocalVector<bool> stage_wgsl_impossible;
+	stage_wgsl_impossible.resize_initialized(stage_count);
+#endif
+
 	for (uint32_t i = 0; i < stage_count; i++) {
 		const ReflectShaderStage &stage = p_shader.shader_stages[i];
 		// Store raw SPIR-V bytes directly (runtime fallback if WGSL bake fails).
@@ -154,8 +162,10 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 		// Precompile to WGSL via a tint_convert_cli subprocess. On failure,
 		// leave wgsl_code[i] empty — the runtime driver falls back to
 		// translating from SPIR-V itself.
-		String wgsl = webgpu::bake_wgsl_via_subprocess(spirv_bytes.ptr(), (int)spirv_bytes.size());
+		bool wgsl_impossible = false;
+		String wgsl = webgpu::bake_wgsl_via_subprocess(spirv_bytes.ptr(), (int)spirv_bytes.size(), &wgsl_impossible);
 		wgsl_code.write[i] = wgsl.is_empty() ? CharString() : wgsl.utf8();
+		stage_wgsl_impossible[i] = wgsl_impossible;
 
 		// Everything the runtime driver reads this stage's raw SPIR-V for, read
 		// here instead so it does not have to. Both are pure functions of the
@@ -191,8 +201,31 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 	bool spirv_needed = false;
 	for (uint32_t i = 0; i < stage_count; i++) {
 		if (wgsl_code[i].is_empty()) {
-			spirv_needed = true; // No WGSL: the runtime must run Tint on the bytes.
-			break;
+			// Empty WGSL has two very different causes, and shipping the SPIR-V
+			// is right for only one of them.
+			//
+			// A conversion that was attempted and failed leaves the bytes as the
+			// runtime's one remaining option: it can run Tint itself, possibly
+			// succeeding where a subprocess with a different build or a transient
+			// failure did not.
+			//
+			// A stage that _wgsl_unsupported_reason() screened out is the other
+			// case, and there the bytes are not a fallback at all. WGSL has no
+			// multiview, no sub-32-bit integer and no image atomics, so nothing
+			// downstream can convert that stage -- the runtime's Tint call would
+			// hit the same wall, by aborting, which in wasm takes the process
+			// with it. The only consumer of those bytes is therefore a crash,
+			// and they are not small: the multiview variants of the clustered
+			// scene shader were 90.3 MB of one demo project's 150 MB pck
+			// (TASKS.md §2.27). Drop them. If such a variant is somehow
+			// requested, shader_create_from_container() reports a clean error
+			// instead -- which it already did, since the combination used to be
+			// reachable only through a corrupt container.
+			if (!stage_wgsl_impossible[i]) {
+				spirv_needed = true; // No WGSL: the runtime must run Tint on the bytes.
+				break;
+			}
+			continue;
 		}
 		if (stage_has_spec_constants_flags[i] && !_wgsl_declares_override(wgsl_code[i])) {
 			spirv_needed = true; // Legacy specialization path.
