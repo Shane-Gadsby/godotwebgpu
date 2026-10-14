@@ -185,7 +185,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.13 | stale Phase 7 TODOs | CLOSED | — |
 | 2.14 | base-class interface audit | OPEN (audit done) | live-project sweep, ~1 session |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
-| 2.29 | baked export as a test tier | PARTLY DONE (matrix + smoketest legs) | WebRTC leg, delta re-baseline |
+| 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 | `generate_lods()` returns 0 on web | OPEN | — |
 | 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
 | 2.17 | Forward+ benchmark leg / README numbers | OPEN | — |
@@ -741,7 +741,7 @@ FSR2, SDFGI, SSAO/SSIL, volumetric fog) are exactly what the Forward+ matrix cov
 real GPU for the before/after. Check while there whether `render_state.current_pipeline` being shared
 between render and compute still reads correctly once passes are explicitly bracketed.
 
-### 2.29 Make the baked export a real test tier `MOSTLY DONE 2026-10-15` — Forward+ matrix, scene-smoketest and WebRTC legs landed; delta re-baseline open *(from §2.16 gap 7 and §2.27)*
+### 2.29 Make the baked export a real test tier `DONE 2026-10-15` — Forward+ matrix, scene-smoketest and WebRTC legs landed; deltas re-baselined *(from §2.16 gap 7 and §2.27)*
 
 Every export helper in the suite passes `--headless`, which skips the export-time shader baker, so every
 tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration that ships is
@@ -768,6 +768,8 @@ Done when a regression that exists only on the baked path (a dropped variant, a 
 a mismatched version hash) turns a tier red.
 
 **WebRTC leg landed 2026-10-15.** `BAKE=1 webrtc_parity/export.sh` -> `exports/loopback_baked` (xvfb-run, exit 2 = SKIP without it); `run_tests.mjs` treats it as a fourth variant and asserts `shaderStats baked > 0` (printed by `run_loopback.mjs`); `local_ci.sh --bake` re-exports it. Real GPU, system Chrome: 353/353 assertions across nothreads, threads, dlink and baked. **Finding while doing it:** the WebRTC fixture project never set `rendering/renderer/rendering_method.web`, so every one of its exports was tagged `renderingDriver: opengl3` and the whole WebRTC parity tier had **never run on WebGPU** (the engine never even requested a device). Fixed in `fixtures/loopback_project/project.godot`; the suite passes on the WebGPU path. Two things seen there, not chased: one `device was lost` during `mesh_close` on the baked export in 1 of ~11 runs (0 of 10 reproductions, GPU otherwise idle), and this fixture logs "Platform supports less than 48 textures per stage... fallback to Mobile" where the heavy scene gets Forward+ (its page does not use the engine shell's max-limit request the same way). `run_loopback.mjs` also launched bundled Chromium with `--use-angle=vulkan`; now system Chrome with the three flags. Still open: item 4, the delta re-baseline.
+
+**Delta re-baseline done 2026-10-15 (item 4).** Matrix 64/64 both ways on the real GPU. Of 64 deltas, 61 agree within 3% baked vs unbaked; `taa` (0.46-0.60) and `particle_attractor` (10.1-11.1) differ by more than 5% but vary just as much run to run within the *same* export (3 runs each), so that is noise, not bake. **One real oddity:** `ambient_light` is bimodal on the *unbaked* export (114.16 in 2 of 3 runs, 37.73 in the third) and steady at 37.73 on the baked one (3/3 plus the full run). Both clear `minDelta 12.6`. The `Environment` sky-radiance ambient baseline is plausibly still settling when the "off" frame is captured, so the slower unbaked start changes which state it lands on; not chased. If a matrix run ever fails `ambient_light`, look at the settle window first. §2.29 is otherwise complete.
 
 ### 2.15 `generate_lods()` returns zero LODs on web `OPEN` *(old Task 17.1, bug 3)*
 
