@@ -134,6 +134,7 @@ async function runPlaywright(name) {
 	const page = await browser.newPage();
 	page.on('console', (m) => {
 		const t = m.text();
+		if (process.env.RTC_VERBOSE && !t.includes('RTC|')) { console.log('[console] ' + t.slice(0, 200)); }
 		if (!t.includes('RTC|') && /ERROR|SCRIPT ERROR|WARNING|Uncaught|abort|RuntimeError/i.test(t)) {
 			console.log('[browser-err] ' + t);
 		}
@@ -161,7 +162,8 @@ async function runPlaywright(name) {
 		if (st) {
 			console.log(`[runner] shaderStats baked=${st.baked} translated=${st.translated}`);
 		}
-	} catch { /* not exposed */ }
+		else { console.log('[runner] shaderStats not exposed; window keys: ' + (await page.evaluate(() => Object.keys(window).filter((k) => /godot|Godot|webgpu/i.test(k)).join(','))).slice(0, 300)); }
+	} catch (e) { console.log('[runner] shaderStats read failed: ' + e.message.slice(0, 120)); }
 	await browser.close();
 }
 

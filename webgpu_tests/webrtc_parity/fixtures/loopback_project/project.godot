@@ -9,3 +9,4 @@ config/features=PackedStringArray("4.8")
 [rendering]
 
 renderer/rendering_method="forward_plus"
+renderer/rendering_method.web="forward_plus"

@@ -493,6 +493,12 @@ if [[ "$DO_BAKE" == true ]]; then
             "$SCRIPT_DIR/forward_plus" \
             env BAKE=1 ./export.sh
     fi
+    if [[ "$DO_EXPORT" == true ]]; then
+        # Stage 4 (WebRTC parity) picks exports/loopback_baked up automatically and asserts baked > 0.
+        run_test "Re-export WebRTC fixture (baked)" \
+            "$SCRIPT_DIR/webrtc_parity" \
+            env BAKE=1 ./export.sh
+    fi
     run_test "Forward+ feature matrix — Chrome (baked)" \
         "$SCRIPT_DIR/forward_plus" \
         node run_forward_plus.mjs --browser chrome --baked
