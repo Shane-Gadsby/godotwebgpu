@@ -94,6 +94,12 @@ def compute_spv_hash(spv_bytes):
 # ---------------------------------------------------------------------------
 
 
+# Root that "thirdparty/..." includes resolve against. precompile_wgsl() sets it to the repo
+# root; it used to be the process's cwd, so running the script from anywhere else silently
+# dropped the FSR shaders (and still exited 0).
+_INCLUDE_ROOT = None
+
+
 def parse_glsl_file(filepath):
     """Parse a .glsl file into per-stage source lists, resolving #include.
 
@@ -144,7 +150,7 @@ def _parse_glsl_recursive(filepath, stages, included_files, current_stage):
         if "#include " in stripped:
             include_name = stripped.replace("#include ", "").strip().strip('"')
             if include_name.startswith("thirdparty/"):
-                include_path = os.path.relpath(include_name)
+                include_path = os.path.join(_INCLUDE_ROOT, include_name) if _INCLUDE_ROOT else os.path.relpath(include_name)
             else:
                 include_path = os.path.normpath(os.path.join(os.path.dirname(filepath), include_name))
             stage_key = current_stage + ":" + include_path
@@ -983,6 +989,9 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     Returns:
         Number of successfully precompiled entries.
     """
+    global _INCLUDE_ROOT
+    _INCLUDE_ROOT = os.path.abspath(repo_root)
+
     # Find the tint_convert_cli binary (built by build.sh → bin/tint_convert_cli).
     tint_cli = os.path.join(repo_root, "bin", "tint_convert_cli" + (".exe" if os.name == "nt" else ""))
     if not os.path.isfile(tint_cli):

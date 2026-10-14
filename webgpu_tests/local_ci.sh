@@ -375,6 +375,10 @@ run_test "WGSL precompile JS tests" \
     "$SCRIPT_DIR/wgsl_cache" \
     node test_wgsl_cache.mjs
 
+run_test "WGSL precompile determinism" \
+    "$SCRIPT_DIR/wgsl_cache" \
+    ./test_determinism.sh
+
 run_test "Font visual assertion self-test" \
     "$SCRIPT_DIR/scene_smoketest" \
     node self_test_font_visual.mjs
