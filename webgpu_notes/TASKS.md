@@ -39,6 +39,7 @@ a rare non-visual error.
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
 | scene smoketest (real GPU) | 21 / 0 on Chrome **and** Firefox | 2026-10-14, after §2.1 |
 | Forward+ feature matrix | **64 / 64** on real GPU, Chrome; 0 errors over two reload-free passes | 2026-10-14, §2.1 closed |
+| Forward+ matrix, **baked** export | **64 / 64**, deltas within 0.00% median of the unbaked run | 2026-10-14, §2.27 — first tier run ever to load a baked export |
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
 | WebRTC congestion | native/web agree at 91-97% on every transfer mode | 4.8, after the F10 fix |
 | real-hardware Forward+ (RTX 4080 SUPER) | Chrome 0 errors, Firefox 0 real errors, both report Forward+, output matches native Vulkan | 2026-10-05 (§4.15) |
@@ -278,19 +279,37 @@ difference is 88.4 MB of absent SPIR-V. The runtime path for the combination tha
 (no WGSL, no SPIR-V) already reported a clean error rather than calling Tint with a null pointer; its
 message now names the multiview case first, since that is what reaching it will usually mean.
 
+**Render-side re-baseline — taken 2026-10-14, and it is clean.** The Forward+ matrix run against a
+**baked** export (the first time any tier has ever loaded one — §2.16 gap 7) is **64/64 PASS** on the
+real GPU, with the editor and template rebuilt from the same commit so the cache actually matched
+(`baked: 423, precompiled: 1, translated: 33`). Comparing its 64 per-feature deltas against the
+unbaked run's, three ways over the same 64 features:
+
+| comparison | median | max | over 5% |
+|---|---|---|---|
+| unbaked before → unbaked after (the driver changes alone) | 0.00% | 2.1% | 0 |
+| unbaked after → baked after (baking alone) | 0.00% | 2.0% | 0 |
+| unbaked before → baked after (both together) | 0.00% | 2.3% | 0 |
+
+The only features that move at all — `fsr2`, `taa`, `gpu_particles`, `particle_attractor` — are
+exactly the temporally accumulating ones the fixture gives extra settle frames and which vary run to
+run regardless. Baked WGSL and runtime-translated WGSL render the same thing, and §2.12's deletion
+and §2.13's warning changed nothing on a real GPU either (the unbaked run at HEAD is also 64/64).
+
+`translated: 33` is not a baking gap: this fixture builds its materials procedurally in GDScript, so
+those shaders do not exist at export time and cannot be baked. Worth remembering when reading
+`translated` on any fixture that generates materials at runtime.
+
 **Still open, and what to do next:**
 
-1. **Re-run the Forward+ matrix against a *baked* export on the real GPU.** Not done:
-   `vkAllocateMemory` returned `VK_ERROR_OUT_OF_DEVICE_MEMORY` on this machine throughout, with
-   13.1 GB of the 16 GB held by an unrelated process. The shader-side evidence above is from a
-   real-GPU run and is what this change can affect, but the render-side re-baseline is still owed —
-   and it needs §2.16 gap 7 anyway (no tier exports baked).
-2. **Ship fewer *reachable* variants** — prune by project settings. 33 variants per material is the
+1. **Ship fewer *reachable* variants** — prune by project settings. 33 variants per material is the
    remaining structural cost: 4 materials in a demo project is 132 containers.
-3. **Compress the WGSL inside the container.** `code_compression_flags` is hardcoded to 0
+2. **Compress the WGSL inside the container.** `code_compression_flags` is hardcoded to 0
    (`rendering_shader_container_webgpu.cpp:149`) while the base class already has `compress_code()` /
    `code_decompressed_size` plumbed. WGSL is text; the remaining 61 MB is 56 MB of it. Worth ~4× on
-   its own, but only where the host is not already compressing the pck — measure against 2 first.
+   its own, but only where the host is not already compressing the pck — and it would cost the
+   zero-copy footer read (`wgsl_view` is a window into the container's own bytes, deliberately), so
+   it trades load CPU for bytes. Measure against 1 first.
 
 ### 2.4 Startup's fixed floor: `Servers:Rendering` and the first frame `OPEN` *(old Task 14, subtask 2)*
 
@@ -515,8 +534,11 @@ Six named gaps, each roughly a session, in rough value order:
    export-time shader baker — confirmed 2026-10-14: the same project exports to a 1.09 MB pck headless
    and a 150.8 MB one under `xvfb-run`. So every tier runs `translated: 355, baked: 0` while the
    configuration that ships is `baked: 599, translated: 0`, which is a different code path through the
-   container reader, a different load profile, and where §2.27 lives. One export under `xvfb-run`
-   would cover it.
+   container reader, a different load profile, and where §2.27 lives. **Done once by hand 2026-10-14**
+   — a baked export of the Forward+ fixture passes 64/64 with deltas matching the unbaked run (§2.27)
+   — so what is left is making it a tier rather than a manual run: `export.sh` should bake when
+   `xvfb-run` is available and say so when it is not, which also needs the matrix re-baselined under
+   it (it was, by that run).
 
 ### 2.17 Forward+ benchmark leg and the README's numbers `OPEN` *(old Task 9.16)*
 
