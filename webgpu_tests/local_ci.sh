@@ -492,6 +492,16 @@ if [[ "$DO_BAKE" == true ]]; then
     run_test "Forward+ feature matrix — Chrome (baked)" \
         "$SCRIPT_DIR/forward_plus" \
         node run_forward_plus.mjs --browser chrome --baked
+    if command -v xvfb-run >/dev/null; then
+        if [[ "$DO_EXPORT" == true ]]; then
+            run_test "Re-export scenes (baked)" \
+                "$SCRIPT_DIR/scene_smoketest" \
+                env SMOKETEST_BAKE=1 SMOKETEST_EXPORTS_DIR="$SCRIPT_DIR/scene_smoketest/exports_baked" node run_scenes.mjs --export-only
+        fi
+        run_test "Scene smoketest — Chrome (baked)" \
+            "$SCRIPT_DIR/scene_smoketest" \
+            env SMOKETEST_EXPORTS_DIR="$SCRIPT_DIR/scene_smoketest/exports_baked" node run_scenes.mjs --browser chrome --timeout 30000 --baked
+    fi
 fi
 
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then

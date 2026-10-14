@@ -681,7 +681,7 @@ tier runs the unbaked path (`baked: 0, translated: 355`) while the configuration
 have been run by hand twice (Forward+ matrix 64/64, §2.27; platformer load profile) and never by CI.
 
 `SMOKETEST_BAKE=1` on `run_scenes.mjs` (2026-10-14) already exports under `xvfb-run` without `--headless`.
-**Landed:** `BAKE=1 ./export.sh` (forward_plus) → `export_baked/` via `xvfb-run` (29 s here; SKIP/exit 2 without xvfb-run); `run_forward_plus.mjs --baked` asserts `baked > 0`, `translated <= 80` and no cache-mismatch warning (verified red against an unbaked export: `baked: 0, translated: 200`), 64/64 on real GPU with `baked: 415, translated: 33`; `local_ci.sh --bake` runs both (opt-in). Still open: the scene smoketest and WebRTC fixture legs, and re-baselining deltas (item 4).
+**Landed:** `BAKE=1 ./export.sh` (forward_plus) → `export_baked/` via `xvfb-run` (29 s here; SKIP/exit 2 without xvfb-run); `run_forward_plus.mjs --baked` asserts `baked > 0`, `translated <= 80` and no cache-mismatch warning (verified red against an unbaked export: `baked: 0, translated: 200`), 64/64 on real GPU with `baked: 415, translated: 33`; `local_ci.sh --bake` runs both (opt-in). **Smoketest leg landed too:** `SMOKETEST_EXPORTS_DIR` + `run_scenes.mjs --baked` (asserts `baked > 0` and no mismatch warning per scene; gl_compatibility projects are exempt — the baker only bakes the project's own renderer, so the four 2D/GUI demos export with nothing baked). `local_ci.sh --bake` re-exports to `exports_baked/` (6.6 min here) and runs it: 21/21 on the real GPU. Still open: the WebRTC fixture leg, and re-baselining deltas (item 4).
 
 Original plan:
 

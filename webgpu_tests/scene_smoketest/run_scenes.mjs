@@ -56,7 +56,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const SCENES_CONFIG = join(__dirname, 'scenes.json');
-const EXPORTS_DIR = join(__dirname, 'exports');
+// SMOKETEST_EXPORTS_DIR keeps a baked set (local_ci.sh --bake) apart from the fast unbaked one.
+// --baked additionally requires each scene to have loaded its shaders from the baked cache.
+const EXPORTS_DIR = process.env.SMOKETEST_EXPORTS_DIR || join(__dirname, 'exports');
+const REQUIRE_BAKED = process.argv.includes('--baked');
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_FRAMES = 60;
 
@@ -457,11 +460,15 @@ async function runScenePlaywright(scene, browser, timeout) {
     const passPatterns = scene.pass_patterns || [];
     const matchedPatterns = new Set();
 
+    let cacheMismatch = false;
     page.on('console', (msg) => {
         if (!capturing) {
             return;
         }
         const text = msg.text();
+        if (text.includes('none of it matches what this build asks for')) {
+            cacheMismatch = true;
+        }
 
         if (text.includes('UNCAPTURED-GPU-ERROR') || text.includes('GPUValidationError')) {
             gpuErrors.push(text.substring(0, 200));
@@ -522,8 +529,20 @@ async function runScenePlaywright(scene, browser, timeout) {
                 allErrors: d.allErrors || [],
                 canvasW: document.getElementById('canvas')?.width || 0,
                 canvasH: document.getElementById('canvas')?.height || 0,
+                shaderStats: window.godotWebGPUShaderStats || null,
             };
         });
+        // The baker only bakes the project's own rendering method, so a gl_compatibility project
+        // legitimately exports with nothing baked (the four 2D/GUI demos).
+        const projectFile = join(__dirname, scene.path || '', 'project.godot');
+        const compat = existsSync(projectFile) &&
+            /rendering_method="gl_compatibility"/.test(readFileSync(projectFile, 'utf8'));
+        if (REQUIRE_BAKED && !compat) {
+            const st = debugData.shaderStats;
+            if (!st || !(st.baked > 0) || cacheMismatch) {
+                shaderErrors.push(`baked export did not use its shader cache: ${JSON.stringify(st && { baked: st.baked, translated: st.translated })} mismatchWarning=${cacheMismatch}`);
+            }
+        }
 
         // Merge any errors captured by the injected script
         for (const e of debugData.gpuErrors) {
