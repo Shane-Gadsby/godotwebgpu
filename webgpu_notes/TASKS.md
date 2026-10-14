@@ -124,6 +124,15 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 so references from source comments and from this file stay valid. Re-order by moving rows, not by
 renumbering.
 
+**Status reconciled 2026-10-14.** Every row below was checked against the tree on that date. Closed
+since the list was written: §2.1 (the bind-group layout mismatch — fixed, matrix now 64/64), §2.2
+(the non-dlink abort — gone on 6.0.9), §2.3 (dlink under throttling — measured, premise refuted).
+Opened: §2.27, which the §2.3 measurement turned up and which is now the largest known load-time
+cost. Items whose *description* changed on evidence rather than being worked: §2.4 and §2.6 (new
+real-GPU numbers), §2.12 and §2.13 (claims verified by reading the code and a real export), §2.16
+(a seventh gap), §2.22 (compression measured). Everything else is untouched since it was written,
+and says so by having no dated note.
+
 | # | item | status | effort (Opus 5, medium) |
 |---|---|---|---|
 | 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
@@ -132,17 +141,17 @@ renumbering.
 | 2.27 | Baked shader containers are 79% of the download | `OPEN` | 1-2 sessions |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `OPEN` | 2-3 sessions |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
-| 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` | ~1 session, needs real GPU |
+| 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — half measured 2026-10-14 | <0.5 session, needs real GPU |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
 | 2.10 | Audit the storage-format-by-variant class | `OPEN` | ~1 session |
 | 2.11 | VoxelGI measures 1.6× native Vulkan | `OPEN` | ~1 session, needs real GPU |
-| 2.12 | Delete dead `_depth_alias`; the missing reverse fallback | `OPEN` | <0.5 session |
-| 2.13 | Stale Phase 7 TODOs: 7.8, 7.15, 7.17 | `OPEN` | ~0.5 session |
+| 2.12 | Delete dead `_depth_alias`; the missing reverse fallback | `OPEN` — deadness verified 2026-10-14 | <0.5 session |
+| 2.13 | Stale Phase 7 TODOs: 7.8 only (7.15, 7.17 answered) | `OPEN` | <0.5 session |
 | 2.14 | Base-class interface audit + live project sweep | `OPEN` | ~1 session each |
 | 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
-| 2.16 | Test-suite gaps (6 named) | `OPEN` | ~1 session each |
+| 2.16 | Test-suite gaps (7 named) | `OPEN` | ~1 session each |
 | 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
 | 2.19 | Interleaved-build stale object — real fix | `OPEN` | ~1 session |
@@ -206,8 +215,40 @@ Two directions, in order of expected value:
 2. **Compress the containers in the pck.** WGSL is text and gzips ~4× (150.8 → 38.2 MB), but that
    only helps a host that is not already compressing the whole pck. Measure against 1 before doing it.
 
-First check before either: confirm where the 149.7 MB actually goes (per-shader, per-variant), since
-the only numbers in hand are the total and what one run consumed.
+**Where it goes — measured 2026-10-14**, by reading the pck's directory (`GDPC` v4; the layout is in
+`core/io/file_access_pack.cpp:290`) and scanning every container:
+
+| | |
+|---|---|
+| `.godot/shader_cache/` | **149.67 MB** of the 150.7 MB of entries, in 216 containers |
+| of which `SceneForwardClusteredShaderRD` | **145.77 MB** — 4 version hashes (one per material using it) × 33 variants, 1.1 MB each, worst 4.5 MB |
+| containers still carrying SPIR-V | 74, holding **90.3 MB**; only 5 of those also carry WGSL |
+| printable bytes (≈ WGSL text) | 76.3 MB |
+
+So the biggest single component is **SPIR-V for variants whose WGSL was never baked** — and why they
+were not baked is now known exactly. A verbose export logs 846 skipped stages:
+
+| reason `_wgsl_unsupported_reason()` gave | count |
+|---|---|
+| `gl_ViewIndex` (multiview), which WGSL does not have | **836** |
+| 16-bit integers | 6 |
+| image atomics (`OpImageTexelPointer`) | 4 |
+
+**They are multiview variants, and WebGPU has no multiview at all** (by design — `features.mjs`
+`UNCOVERED`, CLAUDE.md). The runtime never requests them, and if it ever did the SPIR-V would be no
+use either: Tint aborts on exactly these constructs, which is why
+`wgsl_bake_subprocess.cpp:_wgsl_unsupported_reason()` screens them out before forking a child rather
+than letting Tint abort inside it. `_set_code_from_spirv()` keeps the bytes anyway, because its
+`spirv_needed` rule reads an empty `wgsl_code[i]` as "the runtime must run Tint on these bytes" and
+cannot tell that case apart from "nothing could ever convert this". Teaching it the difference drops
+~90 MB of the 150 MB for this project, generalizes to every project (it is the engine's own clustered
+shader, multiplied by material count), and removes a loaded gun: the only path that would ever read
+that SPIR-V is a runtime Tint call which aborts the wasm process.
+
+Remaining after that, in order: ship fewer *reachable* variants (prune by project settings), and
+compress the WGSL inside the container (`code_compression_flags` is hardcoded to 0 —
+`rendering_shader_container_webgpu.cpp:149` — while the base class already has
+`compress_code()` / `code_decompressed_size` plumbed; WGSL is text, and the whole pck gzips 3.9×).
 
 ### 2.4 Startup's fixed floor: `Servers:Rendering` and the first frame `OPEN` *(old Task 14, subtask 2)*
 
@@ -238,6 +279,13 @@ Do **not** re-derive these: shaders are no longer the cause (module + pipeline c
 ~2000 ms), `verbose_stdout` costs ~1.5 s if left on, and the loading bar already covers the whole
 startup (§4.11), so this is about wall-clock, not perceived progress.
 
+**Scale check, added 2026-10-14 (§4.15):** on a 20 Mbit/s link with gzip, a baked export of
+`3d/platformer` spends **23.5 s downloading and 2.3 s in this stall**. Everything in this item is
+worth having, but §2.27 is 10× bigger on a real link — do that first. Two further data points from
+the same runs: an *unbaked* export of the same project stalls **11.1 s** rather than 2.3 s
+(`containerCreateMs` 6615 ms, `translated: 355`), which is what this stall costs without the baker;
+and a dlink export's stall runs ~12% longer than a non-dlink one for identical work.
+
 ### 2.5 Decide whether threading is worth having `OPEN` *(old Task 14 subtask 1.5.8.5, Task 12)*
 
 `threads=yes dlink_enabled=yes` — threads *and* GDExtension, which this fork never shipped — now
@@ -262,6 +310,13 @@ Run `profile_phases.mjs` against a baked export twice — normally and with `WEB
 — reading `godotWebGPUShaderStats` (`spirvBytes`, `wgslBytes`, `footerParseMs`) and
 `godotWebGPUFrameStats`. Expect `translated` near 0; the one real-hardware data point on record (the
 user's project) reports `translated: 0`, so anything else is a real baking gap worth chasing.
+
+**Half-done 2026-10-14** (while closing §2.3): a baked export of `3d/platformer` on the real GPU
+reports `baked: 599, precompiled: 1, translated: 0`, `containerCreateMs` 442 ms, `wgslBytes` 9.0 MB,
+`spirvBytes` 112 KB — so baking does reach the shipping configuration on real hardware, and
+`translated: 0` now holds on a second project. First frame 3.26 s on loopback, of which 2.5 s is the
+engine CPU stall. Still missing: the `WEBGPU_BAKE_KEEP_SPIRV=1` comparison and
+`godotWebGPUFrameStats` under load. Do not re-derive the pck-size half — §2.27 has it.
 
 ### 2.7 Offer F10's default change upstream `OPEN` — human *(old Task 18.16)*
 
@@ -303,7 +358,14 @@ the thresholds are deliberately calibrated on native Vulkan, never on WebGPU. Ne
 
 ### 2.12 Delete dead `_depth_alias` code; the missing reverse fallback `OPEN` *(old Task 24)*
 
-`_depth_alias` is dead and has already misled a whole investigation round — delete or annotate it.
+**Verified dead, 2026-10-14**, which was previously only asserted: `_depth_alias` occurs **0** times
+in `drivers/webgpu/wgsl_precompiled.gen.h` and **0** times across all 216 baked shader containers of
+a real project's export. Tint never emits the `*_depth_alias` variable the detection at
+`rendering_device_driver_webgpu.cpp:5745` looks for, so `wgsl_depth_alias_bindings` is always empty
+and everything downstream of it is dead: the extra BGL entries (lines ~6483 and ~6648),
+`WGShader::depth_alias_bindings`, and the alias branch of `_get_compatible_bind_group()`'s
+target-binding set. It has already misled a whole investigation round — delete it (safe: the evidence
+above is what makes it safe) or annotate it.
 While there: the plain `UNIFORM_TYPE_TEXTURE` branch lacks the reverse depth/float fallback its
 combined-sampler sibling has. Adding it is robustness, not a fix — and it would have **hidden**
 §4.14's hard Dawn error behind quietly wrong pixels, so add it only with that understood.
@@ -312,17 +374,21 @@ combined-sampler sibling has. Adding it is robustness, not a fix — and it woul
 
 Three survivors of the April 2026 audit, predating the 4.7.2 sync, all of Phase 9 and Task 9.15. Each
 needs a status, not necessarily a fix (7.18 is already resolved — Task 9.15 made the format-remap
-passes memcpy-safe):
+passes memcpy-safe). **Two of the three are now answered** (below); only 7.8 still needs work, and it
+is a documentation question more than a bug:
 
 - **7.8** — `buffer_map()` returns the shadow copy immediately while `wgpuBufferMapAsync()` runs, so
   a caller can see last frame's data. Probably inherent to single-threaded WASM and already the
   documented contract (`API_TRAIT_*`, `CLAUDE.md`); confirm no engine path depends on current-frame
   data and write the semantics down, or find a real repro.
-- **7.15** — `WGUniformSet::temp_views` (`webgpu_objects.h:194-195`): check `uniform_set_free()`
-  actually releases them, and whether any leak is unbounded across frames or bounded per set.
-- **7.17** — do `render_pipeline_free()` / `compute_pipeline_free()` release
-  `WGPipelineWrapper::specialized_modules`? Check first whether Phase 14 (spec constants as `@id(N)
-  override`s) left any specialized module to leak at all.
+- **7.15 — answered 2026-10-14, no leak.** `uniform_set_free()` releases every `temp_views` entry
+  (and the `rw_shadow_*` views and textures, every cached rebind group, and `handle`). Growth is
+  bounded per set, not per frame: the only place that appends during rendering is
+  `_get_compatible_bind_group()`, which is reached once per (uniform set, target layout) pair because
+  `rebind_cache` short-circuits every later call. Nothing to fix; close it when 7.8 and 7.17 are
+  settled.
+- **7.17 — answered 2026-10-14, no leak.** There is one `pipeline_free()` for both kinds, and it
+  releases `specialized_modules[0..5]` after the pipeline handles. Nothing to fix.
 
 ### 2.14 Base-class interface audit, and a live sweep `OPEN`
 
