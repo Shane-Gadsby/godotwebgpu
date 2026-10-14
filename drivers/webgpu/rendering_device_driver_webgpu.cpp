@@ -88,6 +88,20 @@ static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStri
 // Parse "@group(G[u]) @binding(B[u])" from a WGSL string.
 // Handles the optional 'u'/'i' suffix that Tint emits for integer literals.
 // Returns true and sets r_grp/r_bnd on success.
+// strstr() limited to [p_hay, p_end). The WGSL scans below only ever care about a
+// match inside the current declaration (before its ';'), but an unbounded strstr()
+// walks to the end of the whole text whenever the needle is absent -- once per
+// @group declaration, per stage (webgpu_notes/TASKS.md §2.4).
+static const char *_strstr_before(const char *p_hay, const char *p_end, const char *p_needle) {
+	const size_t n = strlen(p_needle);
+	for (; p_hay + n <= p_end; p_hay++) {
+		if (*p_hay == *p_needle && memcmp(p_hay, p_needle, n) == 0) {
+			return p_hay;
+		}
+	}
+	return nullptr;
+}
+
 static bool parse_group_binding(const char *p, unsigned int &r_grp, unsigned int &r_bnd) {
 	if (strncmp(p, "@group(", 7) != 0) {
 		return false;
@@ -4795,6 +4809,16 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 	// the signature since removing it would require touching both call sites for
 	// no benefit, and a future format remap may again need to be stage-specific.
 	(void)p_stage;
+
+	// Every format name rewritten below appears only inside a
+	// `texture_storage_*<format, access>` declaration, so a stage that declares no
+	// storage texture has nothing to rewrite. One scan for that, instead of the ~16
+	// whole-text scans (plus String round trips) the checks below cost per stage --
+	// most of a baked export's stage loop (webgpu_notes/TASKS.md §2.4).
+	if (!strstr(r_wgsl_str, "texture_storage_")) {
+		return;
+	}
+
 	// Remap unsupported 8-bit storage texture format names in WGSL.
 	// r8* and rg8* are not valid base WebGPU storage texel formats — remap to
 	// 32-bit equivalents. With texture-formats-tier1 these formats are valid
@@ -4862,7 +4886,14 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 	// (in case the tier1 remap above didn't already turn them into rgba16float).
 	// Format names only appear in texture_storage_*<format, access> declarations in WGSL.
 	// Uses String::replace() (not fixed-length memcpy) -- see Task 7.18.
-	{
+	//
+	// Guarded: every replacement below needs one of these four substrings ("rg16"
+	// and "r16" are distinct -- neither contains the other -- and the rgba16 pair
+	// is not covered by either). Without the guard this decoded the whole WGSL to
+	// a String, ran 14 full-text replace() scans, re-encoded and re-malloc'd it for
+	// EVERY stage of every shader, most of which name no such format: 256 ms of a
+	// 391 ms stage loop on a baked platformer export (webgpu_notes/TASKS.md §2.4).
+	if (strstr(r_wgsl_str, "r16") || strstr(r_wgsl_str, "rg16") || strstr(r_wgsl_str, "rgba16snorm") || strstr(r_wgsl_str, "rgba16unorm")) {
 		String ws(r_wgsl_str);
 		// RGBA16 snorm/unorm → rgba16float (rgba16float IS a valid storage format)
 		ws = ws.replace("rgba16snorm", "rgba16float");
@@ -5177,18 +5208,18 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						p++;
 						continue;
 					}
-					const char *rw = strstr(p, "read_write>");
+					const char *rw = _strstr_before(p, semi, "read_write>");
 					if (!rw || rw >= semi) {
 						p = semi;
 						continue;
 					}
-					const char *ts = strstr(p, "texture_storage_");
+					const char *ts = _strstr_before(p, semi, "texture_storage_");
 					if (!ts || ts >= semi) {
 						p = semi;
 						continue;
 					}
 					// Variable name: "var NAME:"
-					const char *vp = strstr(p, "var ");
+					const char *vp = _strstr_before(p, semi, "var ");
 					if (!vp || vp > ts) {
 						p = semi;
 						continue;
@@ -5387,9 +5418,9 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						continue;
 					}
 					// Look for ", read>" or ",read>" but NOT "read_write>"
-					const char *rd = strstr(p, ",read>");
+					const char *rd = _strstr_before(p, semi, ",read>");
 					if (!rd || rd >= semi) {
-						rd = strstr(p, ", read>");
+						rd = _strstr_before(p, semi, ", read>");
 					}
 					if (!rd || rd >= semi) {
 						p = semi;
@@ -5401,19 +5432,19 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						continue;
 					} // part of "read_write"
 					// Check for "read_write>" pattern — skip if found.
-					const char *rw_check = strstr(p, "read_write>");
+					const char *rw_check = _strstr_before(p, semi, "read_write>");
 					if (rw_check && rw_check < semi && rw_check < rd) {
 						p = semi;
 						continue;
 					}
 
-					const char *ts = strstr(p, "texture_storage_");
+					const char *ts = _strstr_before(p, semi, "texture_storage_");
 					if (!ts || ts >= semi) {
 						p = semi;
 						continue;
 					}
 					// Variable name: "var NAME:"
-					const char *vp = strstr(p, "var ");
+					const char *vp = _strstr_before(p, semi, "var ");
 					if (!vp || vp > ts) {
 						p = semi;
 						continue;

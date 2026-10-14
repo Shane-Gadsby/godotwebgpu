@@ -399,6 +399,36 @@ the same runs: an *unbaked* export of the same project stalls **11.1 s** rather 
 (`containerCreateMs` 6615 ms, `translated: 355`), which is what this stall costs without the baker;
 and a dlink export's stall runs ~12% longer than a non-dlink one for identical work.
 
+**Landed 2026-10-14 — term 2 was text scanning, not "pulling containers through the driver".** Section
+timers inside `shader_create_from_container()`'s stage loop on a *baked* `3d/platformer` export (599
+stages, 9.0 MB WGSL, real GPU) gave a 391 ms loop of which **256 ms (65%) was
+`_remap_unsupported_wgsl_storage_formats()` plus the read/write-split blocks**; the rest was convert 23,
+`createShaderModule` 67, texture-dim scans 27, reclassify 13, storage scans 10. Two causes, both pure
+CPU waste on every stage of every shader:
+
+1. `_remap_unsupported_wgsl_storage_formats()` ended in an *unconditional* block that decoded the whole
+   WGSL into a `String`, ran 14 full-text `replace()` scans, re-encoded and re-`malloc`'d it — for stages
+   that name no 16-bit format at all. The format names only occur inside `texture_storage_*<fmt, access>`
+   declarations, so the function now returns after one `strstr` when a stage declares no storage texture
+   (and the 16-bit block has its own substring guard).
+2. The two read/write-split loops called `strstr(p, X)` from each `@group(` declaration, then compared
+   the result to the declaration's `;` — but an unbounded `strstr` walks to the end of the text whenever
+   `X` is absent, so each declaration scanned the whole remainder. They now use `_strstr_before(p, semi, X)`.
+   Behavior is identical: a match at or after `semi` already took the `continue` branch.
+
+| | before | after |
+|---|---|---|
+| stage loop, baked platformer | 391 ms | **~180 ms** (176 / 186 over two runs) |
+| of which remap + rw-split section | 256 ms | **24 ms** |
+| `containerCreateMs` | 476 ms | ~400 ms (container-level overhead outside the loop is ~80 ms) |
+
+Full `local_ci.sh --dev-mode` (real GPU) green afterwards. What is left in the loop is `createShaderModule`
+(~70 ms, the browser's), convert (~23) and the texture-dim scans (~27, same unbounded-`strstr` pattern —
+the next cheap target). The unbaked path (`to_convert` ~6.3 s of Tint) is untouched. **Method note:** the
+timers were temporary (`_SLMARK(n)` accumulators printed to the console, removed again); and a rebuilt
+template needs a rebuilt *editor* before a baked re-export, or the version hash mismatches and the run
+silently takes the unbaked path (`baked: 0, translated: 355`) — see the trap added in §3.
+
 ### 2.5 Decide whether threading is worth having `OPEN` *(old Task 14 subtask 1.5.8.5, Task 12)*
 
 `threads=yes dlink_enabled=yes` — threads *and* GDExtension, which this fork never shipped — now
@@ -812,6 +842,14 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
    printed READY, which Firefox had not presented yet (black canvas, same false message); it now retries for
    10 s. `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode` plus the stages after the Firefox font test
    (fog, matrix, WebRTC, lifecycle, screenshots) were all green on `4d407aacc4`.
+
+3a. **A baked re-export needs the editor rebuilt along with the template.** The version hash is
+   per build: change the driver, rebuild only the web template, export, and the run reports
+   `baked: 0, translated: 355` with no error — correct output, completely different code path. Check
+   `godotWebGPUShaderStats.baked` before reading any baked timing. Likewise `local_ci.sh`'s
+   `ensure_playwright` will `npm install` the *latest* Playwright into a directory lacking `node_modules`
+   (it did so in `webrtc_parity`, 1.64 vs the 1.63 browsers installed), which makes every browser in that
+   tier SKIP; delete the new gitignored `node_modules` rather than trusting the SKIP.
 
 4. **An identical number across genuinely different builds indicts the measurement, not the fix.**
    `360/16` repeated *exactly* through three unrelated fixes because a stale client-side cache sat
