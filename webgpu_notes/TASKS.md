@@ -717,6 +717,16 @@ inherent property of asynchronous readback in single-threaded wasm, now stated i
   crashes — all came from running a real project, not from fixtures. Use
   `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`.
 
+**Live sweep, first project, 2026-10-15.** The user's real `cameraSim` project (Forward+ on web, DOF, 3-point lighting rig,
+a scanned character, a UI) in a scratch copy (`LIVE_REPRO_METHODOLOGY.md` step 1; `builds/`, zips, `.godot` left out),
+exported with the shader baker (`xvfb-run`, system template, `variant/extensions_support=false` since the dlink template
+was not current) and run in system Chrome on the real GPU: **163 fps, `baked 427 / translated 0`, 2.0 s startup stall,
+`SceneForwardClusteredShaderRD`, and the only console message is the known §2.13 readback warning.** The screenshot shows
+the full scene rendering correctly (depth of field, spotlight cone, shadows, UI). Not yet swept: other real projects, the
+dlink export of this one, and a native-Vulkan side-by-side. Note the exporter's "baked cache ... none of it matches"
+warning appeared in the *editor's* export log although the export did bake 427 variants; likely about the editor's own
+process, not worth chasing unless it recurs with `baked 0`.
+
 ### 2.28 Compute lists share one encoder: the graph's begin/end hooks are ignored `FIXED 2026-10-14` (end hook; matrix 64/64 on real GPU) *(found by §2.14's audit)*
 
 `RenderingDeviceGraph::_run_render_commands()` brackets every compute list with
