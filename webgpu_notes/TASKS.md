@@ -188,7 +188,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (readback zeros, not LOD code) | — |
 | 2.16 | test-suite gaps | OPEN (gaps 4 partly, 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + uncapped matrices; post-fx 91 -> 165 capped) | Forward+ slower than Mobile on post-fx (373 vs 591 uncapped); uncapped WebGL needs another harness |
+| 2.17 | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled: shadows gap closed, post-fx 414 vs 583 is compute-pass structure) | uncapped WebGL needs another harness |
 | 2.18 | texture compression export option | BLOCKED | — |
 | 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
@@ -251,7 +251,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.29 | ~~Make the baked export a real test tier~~ — matrix, scene-smoketest and WebRTC legs; deltas re-baselined | **`DONE` 2026-10-15** (`local_ci.sh --bake`) | — |
 | 2.15 | ~~`generate_lods()` returns zero LODs on web~~ — not a LOD bug; sync readback returns zeros (§2.13) | **`CLOSED` 2026-10-15** | — |
 | 2.16 | Test-suite gaps (7 named) | `OPEN` — gaps 5 and 7 closed, gap 4 partly (`perf_guard`); 1-3, 6 open | ~1 session each |
-| 2.17 | ~~Forward+ benchmark leg + README numbers~~ — capped and uncapped matrices; post-fx gap fixed (found a 2 MB/frame canvas upload and 80 encoders/frame too) | **`DONE` 2026-10-15** | Forward+ vs Mobile post-fx profile is a small follow-up |
+| 2.17 | ~~Forward+ benchmark leg + README numbers~~ — capped and uncapped matrices; post-fx gap fixed (found a 2 MB/frame canvas upload and 80 encoders/frame too) | **`DONE` 2026-10-15** | uncapped WebGL needs another harness |
 | 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
 | 2.19 | Interleaved-build stale object — real fix | `OPEN` — **not reproduced** 2026-10-15 | only on recurrence |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
@@ -865,31 +865,50 @@ changes) used by `_fill_instance_data` / `_render_shadow_process` in Forward+ an
 busy% to decide CPU- vs GPU-bound, then a prototype-wrapping timer over the `GPU*` classes (per-call counts and ms/frame);
 keep it, it found both in minutes. A third whole-slice flush turned up through the new perf guard: the canvas instance buffer (2 MB slice, flushed whole every frame in *every* scene, 3D ones included, because of the FPS label/UI). `_canvas_render_items`' end-of-frame flush now passes the used range: per-frame upload 2.1 MB -> 64-350 KB. **Trap:** `run_scenes.mjs --export-only` silently exports nothing unless `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` are set (its default is the macOS editor); a later run then measures stale exports. The perf guard's numbers are only valid after a fresh export.
 
-**Uncapped run 2026-10-15** (`BENCH_UNCAPPED=1 ./run_matrix.sh` -> `results_uncapped/matrix.tsv`; opt-in, adds Chrome
+**Uncapped run 2026-10-15, corrected** (`BENCH_UNCAPPED=1 ./run_matrix.sh` -> `results_uncapped/matrix.tsv`; opt-in, adds Chrome
 `--disable-frame-rate-limit --disable-gpu-vsync` and native `--disable-vsync`, beyond the standard launch flags, so off by
-default; same build as the capped run, 22 m):
+default). **The first two uncapped tables were wrong**: the profiler's fixed 180-frame warm-up ends within a second once
+frames are uncapped, so it measured the page's startup phase and the numbers swung 2x between runs (PBR Forward+ read 668,
+then 301, then 961 for the same export). `benchmark_profiler.gd` now warms up for >= 180 frames *and* >= 6 s and collects
+>= 300 frames *and* >= 4 s; native quits itself when done. Valid table (23 m run):
 
 | scene | native Vulkan | WebGL* | WebGPU Mobile | WebGPU Forward+ |
 |---|---:|---:|---:|---:|
-| a sprites | 1829 | 163 | 387 | 714 |
-| b pbr | 2995 | 163 | 378 | 668 |
-| c instances | 2611 | 165 | 677 | 630 |
-| d particles | 3525 | 165 | 368 | 314 |
-| e animated | 2749 | 165 | 359 | 654 |
-| f postfx | 878 | 165 | 591 | 373 |
-| g shadows | 2545 | 164 | 903 | 699 |
+| a sprites | 1962 | 165 | 1043 | 1031 |
+| b pbr | 3350 | 165 | 996 | 901 |
+| c instances | 2873 | 160 | 849 | 825 |
+| d particles | 3664 | 160 | 1008 | 981 |
+| e animated | 2704 | 165 | 946 | 869 |
+| f postfx | 866 | 161 | 583 | 414 |
+| g shadows | 3086 | 160 | 883 | 851 |
 
-\* **WebGL stays at ~165 even with the flags** (Chrome's GL present path is not lifted by them), so the WebGL column is
-*not* an uncapped measurement and the WebGPU-vs-WebGL ratio cannot be read from this table; the README's inherited
-"4-5x" claim is still neither confirmed nor refuted. WebGPU vs native Vulkan is a fair comparison: WebGPU runs at
-roughly 10-70% of native (about 700 vs 1800-3500 fps), which is the real cost of the browser, wasm and the emulation
-layers. Things worth a look from the table: **Forward+ is slower than Mobile on `f_postfx` (373 vs 591), `d_particles`
-(314 vs 368), `c_instances` and `g_shadows`**, and faster on sprites/pbr/animated (the 2D-ish and light scenes); the post-fx
-gap is the most obvious next profile (the perf-guard tooling finds the API-call side in minutes). Native is also the
-slowest on `f_postfx` (878), so that scene is heavy everywhere.
+\* WebGL stays at ~165 even with the flags (Chrome's GL present path is not lifted), so that column is *not* uncapped and
+no WebGPU-vs-WebGL ratio can be read from it; the README's inherited "4-5x" claim stays unconfirmed.
+WebGPU runs at roughly 25-50% of native Vulkan on these scenes. **Forward+ is within 3-10% of Mobile on six scenes; the
+earlier "Forward+ slower on particles/instances/shadows" was noise.** The one real gap is post-fx (414 vs 583).
 
-**Open (small):** a genuinely uncapped WebGL leg would need a different harness (e.g. headless with a virtual time
-budget, or measuring CPU time per frame instead of fps); the Forward+-vs-Mobile post-fx difference deserves a profile.
+**Profile of the Forward+ vs Mobile gaps (2026-10-15)** — tools: `perf_guard/api_profile.mjs` (main-thread busy %, calls/frame
+and ms/frame inside every GPU* method, `--writes` detail) and `perf_guard/cpu_steady.mjs` (steady-state wasm CPU profile by
+function; needs a `debug_symbols=yes` template, 184 MB zip, 4 min build). Both scenes are CPU-bound on the main thread
+(99-100% busy). Method note: a call that looks expensive (a 44 KB `writeBuffer` at 300 us) is usually the main thread
+*waiting* on a busy GPU process, not copying; judge by the engine-side wasm self time.
+ - **Post-fx** (Mobile 1.8 ms -> Forward+ 3.0 ms/frame at the time): 79 render passes in both, but Forward+ adds 154 compute passes
+   (910 compute `setBindGroup`; SSAO, glow, tonemap/copy and cluster build are compute in Forward+, raster in Mobile), 413
+   draws vs 255, 546 push-constant writes vs 123. The biggest *avoidable* part was **`command_copy_buffer`: +0.55 ms/frame
+   (20%)**, one `writeBuffer` into a staging block plus one `copyBufferToBuffer` per small update (165 `writeBuffer` calls vs 87).
+   Fixed: staging-block uploads are deferred and merged into one `writeBuffer` per block, issued by `_queue_submit()` before
+   every submit. +6% Forward+, +9% Mobile. What remains is inherent Forward+ structure (the extra compute passes); 414 vs 583
+   is what is left, and native Vulkan runs this scene at 866, so it is heavy everywhere.
+ - **Shadows** (Mobile 1.13 -> Forward+ 1.34 ms/frame): Forward+ made 516 draws, 12 passes and **517 push-constant writes** for 518
+   draws, where Mobile (169 draws, 96 writes) already used the `firstInstance` path (`API_TRAIT_FIRST_INSTANCE_INDEX`). The
+   Forward+ shader already adds `gl_InstanceIndex` to `draw_call.instance_index`, so the same optimization ports directly:
+   `RenderForwardClustered::_render_list_template` now sends a single non-multimesh instance's index as `firstInstance` and
+   re-sends the push constant only when something else changes. **Heavy scene: push-constant writes 3608 -> 106 per frame**
+   (same 3549 draws), 155 fps; shadows +11%, post-fx +12%. Correctness: the heavy scene renders correctly (per-object colours
+   and shadows), the Forward+ matrix is 64/64 with 60 of 64 deltas within 3% of before (the rest are the known noisy ones),
+   smoketest 21/21, perf guard green. The gap is now 851 vs 883 (4%), i.e. closed.
+ - Two non-gaps found on the way: a 1.8 ms/frame floor of `submit` + `createView` (browser side) in every scene, and
+   `getCurrentTexture` ~0.4 ms; neither is ours to fix.
 
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 
@@ -1110,6 +1129,18 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `….wasm32.nothreads.o`). No full web build needed.
 
 ---
+
+### Measurement traps (found 2026-10-15)
+
+- **A fixed frame-count warm-up is a startup measurement once frames are uncapped.** 180 frames at 900 fps is 0.2 s; the
+  same export read 289, 668 and 961 fps in three runs. Warm up by wall-clock too (`benchmark_profiler.gd` now does).
+- **A slow-looking WebGPU call is usually the main thread waiting on the GPU process**, not copying: a 44 KB `writeBuffer`
+  took 300 us, a 133 KB one 29 us. Attribute with engine-side wasm self time (`perf_guard/cpu_steady.mjs`), not call time alone.
+- **Judge CPU- vs GPU-bound first**: main-thread busy % over a few seconds (`api_profile.mjs`). ~100% = CPU-bound, and then
+  per-frame call counts (`perf_guard`) are what to cut.
+- **Stale exports**: `scene_smoketest/run_scenes.mjs --export-only` needs `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` or it exports
+  nothing (default is the macOS editor); an editor without `webgpu=yes` bakes nothing; a commit after the build mismatches the
+  baked cache. Check `baked > 0` and the template/editor version before trusting a number.
 
 ## 4. Archive — completed work
 
