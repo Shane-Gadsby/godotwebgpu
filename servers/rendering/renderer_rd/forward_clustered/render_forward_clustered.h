@@ -493,7 +493,7 @@ private:
 	void _render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2());
 
-	void _fill_instance_data(RenderListType p_render_list, int *p_render_info = nullptr, uint32_t p_offset = 0, int32_t p_max_elements = -1, bool p_update_buffer = true);
+	void _fill_instance_data(RenderListType p_render_list, int *p_render_info = nullptr, uint32_t p_offset = 0, int32_t p_max_elements = -1, bool p_update_buffer = true, bool p_shadow = false);
 	void _fill_render_list(RenderListType p_render_list, const RenderDataRD *p_render_data, PassMode p_pass_mode, bool p_using_sdfgi = false, bool p_using_opaque_gi = false, bool p_using_motion_pass = false, bool p_append = false);
 
 	HashMap<Size2i, RID> sdfgi_framebuffer_size_cache;
@@ -730,6 +730,39 @@ private:
 
 		void sort_by_key_range(uint32_t p_from, uint32_t p_size) {
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByKey> sorter;
+			sorter.sort(elements.ptr() + p_from, p_size);
+		}
+
+		// Shadow passes draw the *shadow* variant of each surface, which is shared by every material that does not
+		// change the shadow shader, so group by that variant (and the mesh surface/LOD) instead of by the full material
+		// key; consecutive same-variant elements then become one instanced draw (see _fill_instance_data's p_shadow).
+		_FORCE_INLINE_ static bool shadow_variant_equal(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) {
+			return A->shader_shadow == B->shader_shadow && A->material_uniform_set_shadow == B->material_uniform_set_shadow &&
+					A->surface_shadow == B->surface_shadow && (A->sort.sort_key1 & 0xFF) == (B->sort.sort_key1 & 0xFF) &&
+					(A->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS) == (B->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS);
+		}
+
+		struct SortByShadowVariant {
+			_FORCE_INLINE_ bool operator()(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const {
+				if (A->shader_shadow != B->shader_shadow) {
+					return A->shader_shadow < B->shader_shadow;
+				}
+				if (A->material_uniform_set_shadow != B->material_uniform_set_shadow) {
+					return A->material_uniform_set_shadow < B->material_uniform_set_shadow;
+				}
+				if (A->surface_shadow != B->surface_shadow) {
+					return A->surface_shadow < B->surface_shadow;
+				}
+				const uint64_t la = A->sort.sort_key1 & 0xFF, lb = B->sort.sort_key1 & 0xFF;
+				if (la != lb) {
+					return la < lb;
+				}
+				return (A->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS) < (B->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS);
+			}
+		};
+
+		void sort_by_shadow_variant_range(uint32_t p_from, uint32_t p_size) {
+			SortArray<GeometryInstanceSurfaceDataCache *, SortByShadowVariant> sorter;
 			sorter.sort(elements.ptr() + p_from, p_size);
 		}
 

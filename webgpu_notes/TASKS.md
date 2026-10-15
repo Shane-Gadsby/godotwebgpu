@@ -917,6 +917,28 @@ function; needs a `debug_symbols=yes` template, 184 MB zip, 4 min build). Both s
  - Two non-gaps found on the way: a 1.8 ms/frame floor of `submit` + `createView` (browser side) in every scene, and
    `getCurrentTexture` ~0.4 ms; neither is ours to fix.
 
+**Unbottlenecking the CPU, options 1 and 2 on the heavy scene (2026-10-15).** Baseline (heavy Forward+ scene, uncapped, symbols
+build): 176 fps, 5.69 ms/frame, 100% main-thread busy, 2.2 ms inside WebGPU calls, of which the per-draw calls are
+`setVertexBuffer` x3371 (0.57 ms), `drawIndexed` x3547 (0.47), `setIndexBuffer` x2018 (0.35), `setBindGroup` x1161 (0.23); engine wasm self time
+is small (culling 0.29, graph 0.15, `draw_list_draw` 0.13, instance fill 0.09). `submit` self time 1.4 ms is mostly waiting on the GPU process.
+ - **Option 1 (fewer draws) — landed: 3549 -> 1109 draws/frame, 176 -> ~207 fps (+18%), frame 5.69 -> 4.8 ms.** The shadow lists were
+   sorted by the *main* material key (priority, shader, material, then mesh), so two meshes with the same shadow variant but
+   different materials never sat next to each other and could not merge. Forward+ now sorts shadow lists by the **shadow variant**
+   (shadow shader, shadow material set, mesh surface, LOD, double-sided flag; `SortByShadowVariant`) and uses the same key for the
+   instancing "repeat" test (`_fill_instance_data(..., p_shadow = true)`), so consecutive same-variant elements become one
+   instanced draw. Verified pixel-identical on the heavy scene (max difference 1/255 over 921,600 px), Forward+ matrix 64/64 (61 of
+   64 deltas within 3%), smoketest 21/21, perf guard, screenshot comparison 8/8, `dev_mode=yes` template and editor clean.
+   Other scenes are unchanged (they have few shadow draws): shadows 851 -> 862 fps (reported draws 337 -> 169), instances 825 -> 816 (noise).
+   **Not done:** the depth pre-pass also draws the shadow variant but shares the main list (sorted by material), so it still draws
+   per element (~600 here); batching it needs a separate depth ordering. The colour pass is per material by nature. Remaining
+   per-draw cost is `setVertexBuffer` x2098: draws alternate between two vertex arrays in material order, so the redundancy
+   filter cannot skip them.
+ - **Option 2 (`-O2` for the engine) — no gain, rejected.** `optimize=speed` (global `-O2`) on the same scene: 206-209 fps vs
+ 209-210 with the default `-Os`, and the wasm grows 42.7 -> 53.8 MB (+26%). The time is in the JS/browser call path, not engine
+ wasm, so do not spend download size on it.
+ - Still the largest lever for draw-heavy scenes: cutting the remaining per-draw calls (depth pre-pass batching, a mesh-first depth
+ order), then the marshalling path (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`, ~0.5 ms/frame here), then threading (§2.5).
+
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 
 Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at RMSE 0.0006. Safari
