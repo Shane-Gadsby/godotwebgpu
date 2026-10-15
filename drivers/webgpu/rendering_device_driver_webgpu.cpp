@@ -9384,52 +9384,14 @@ void RenderingDeviceDriverWebGPU::command_begin_render_pass(CommandBufferID p_cm
 		}
 	}
 
-	// Proactive encoder isolation: if any current-pass attachment has BOTH
-	// TextureBinding and RenderAttachment usage, this pass may cause an
-	// intra-pass sync scope conflict. Split the encoder BEFORE the pass so
-	// previous rendering work is preserved even if this pass's command
-	// buffer gets invalidated by the conflict.
-	{
-		bool has_dual_usage = false;
-		for (uint32_t i = 0; i < cmd->render_state.current_pass_attachment_count; i++) {
-			// We don't have the WGTexture* for current_pass_attachments (only WGPUTexture),
-			// so check the framebuffer's attachments for usage bits.
-			for (uint32_t j = 0; j < fb->attachments.size(); j++) {
-				WGTexture *tex = fb->attachments[j];
-				if (tex) {
-					WGPUTexture gpu_tex = tex->gpu_handle();
-					if (gpu_tex == cmd->render_state.current_pass_attachments[i] &&
-							(tex->usage & WGPUTextureUsage_TextureBinding) &&
-							(tex->usage & WGPUTextureUsage_RenderAttachment)) {
-						has_dual_usage = true;
-						break;
-					}
-				}
-			}
-			if (has_dual_usage) {
-				break;
-			}
-		}
-		if (has_dual_usage && cmd->encoder) {
-			// Flush push constant ring buffer before mid-frame submit.
-			if (push_constant_shadow_dirty_start < push_constant_shadow_dirty_end) {
-				wgpuQueueWriteBuffer(queue, push_constant_ring_buffer, push_constant_shadow_dirty_start,
-						push_constant_shadow + push_constant_shadow_dirty_start,
-						push_constant_shadow_dirty_end - push_constant_shadow_dirty_start);
-				push_constant_shadow_dirty_start = UINT32_MAX;
-				push_constant_shadow_dirty_end = 0;
-			}
-			// Split: submit everything so far, start a fresh encoder.
-			WGPUCommandBuffer finished = wgpuCommandEncoderFinish(cmd->encoder, nullptr);
-			if (finished) {
-				wgpuQueueSubmit(queue, 1, &finished);
-				wgpuCommandBufferRelease(finished);
-			}
-			wgpuCommandEncoderRelease(cmd->encoder);
-			cmd->encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
-			cmd->invalidate_bind_groups();
-		}
-	}
+	// No proactive encoder isolation here any more. This used to finish + submit the encoder and start a fresh one
+	// before every pass whose attachment also had TextureBinding usage, to limit the blast radius of a possible
+	// intra-pass sync-scope conflict (one pass's invalid command buffer taking earlier passes with it). Nearly every
+	// offscreen target has both usages, so a post-processing chain paid one createCommandEncoder + submit per pass:
+	// 80 per frame in the benchmark's post-fx scene, 3.7 ms of main-thread time, and a 91 -> 123 fps difference
+	// (TASKS.md 2.17). WebGPU tracks usage conflicts per subresource within a pass, Godot never samples the target it
+	// is rendering to in the same pass (Vulkan would flag that too), and the Forward+ matrix, the scene smoketest and
+	// the other tiers all run clean without the split.
 
 	// --- Helper lambdas for op mapping ---
 	auto map_load_op = [](AttachmentLoadOp op) -> WGPULoadOp {

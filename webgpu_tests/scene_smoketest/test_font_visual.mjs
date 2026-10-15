@@ -148,9 +148,9 @@ async function launchBrowser(browserName) {
   if (browserName === 'chrome') {
     if (process.env.WEBGPU_REAL_GPU) {
       return pw.chromium.launch({
-        headless: true,
-        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan',
-          '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'],
+        headless: false,
+        executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
       });
     }
     return pw.chromium.launch({

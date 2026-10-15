@@ -59,8 +59,9 @@ const { server, port } = await startServer(DIR);
 // behavior. Always sanity-check the adapter is real (e.g. the engine's own
 // startup log line naming the GPU) before trusting a capture.
 const browser = await chromium.launch({
-    headless: true,
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'],
+    headless: false,
+    executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: VIEWPORT_W, height: VIEWPORT_H } });
 

@@ -131,16 +131,9 @@ async function runOnGpu(wgsl) {
             args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu'],
         }
         : {
-            headless: true,
-            args: [
-                '--enable-unsafe-webgpu',
-                '--enable-features=Vulkan',
-                '--use-vulkan',
-                '--use-angle=vulkan',
-                '--use-vulkan=native',
-                '--ignore-gpu-blocklist',
-                '--no-sandbox',
-            ],
+            headless: false,
+            executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+            args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
         };
     // WEBGPU_TEST_BROWSER points at a Chromium/Chrome executable to use instead
     // of Playwright's bundled one — needed wherever the installed playwright

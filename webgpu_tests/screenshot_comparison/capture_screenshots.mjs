@@ -59,8 +59,9 @@ const { server, port } = await startServer(DIR);
 // See capture_console.mjs for why these specific flags matter -- forces real
 // Vulkan-backed WebGPU (Dawn) instead of a silent SwiftShader/software fallback.
 const browser = await chromium.launch({
-    headless: true,
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'],
+    headless: false,
+    executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: VIEWPORT_W, height: VIEWPORT_H } });
 
