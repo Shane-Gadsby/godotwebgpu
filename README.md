@@ -352,7 +352,19 @@ Stress tests comparing WebGPU (Forward Mobile) vs WebGL (Compatibility) at high 
 | Other Effects (SSAO + Bloom) | 164 | 165 | 165 | 165 |
 | Shadows | 2701 | 165 | 165 | 165 |
 
-Uncapped (`BENCH_UNCAPPED=1`, Chrome frame-rate limit and vsync lifted; fps): WebGPU Mobile 359-903, WebGPU Forward+ 314-714, native Vulkan 878-3525. The WebGL leg stays at ~165 even then, so it is not an uncapped number; see `webgpu_notes/TASKS.md` §2.17 for the full table.
+**Uncapped** (`BENCH_UNCAPPED=1`: Chrome's frame-rate limit and vsync lifted, native `--disable-vsync`; fps):
+
+| Scene | Native Vulkan | WebGL* | WebGPU Mobile | WebGPU Forward+ |
+|---|---:|---:|---:|---:|
+| Sprites | 1829 | 163 | 387 | 714 |
+| PBR Sphere | 2995 | 163 | 378 | 668 |
+| Cubes + Lights | 2611 | 165 | 677 | 630 |
+| GPU Particles | 3525 | 165 | 368 | 314 |
+| Skeletal Animation | 2749 | 165 | 359 | 654 |
+| Other Effects (SSAO + Bloom) | 878 | 165 | 591 | 373 |
+| Shadows | 2545 | 164 | 903 | 699 |
+
+\* **WebGL stays at ~165 fps even with the uncapping flags** (the browser's GL present path is not lifted by them), so the WebGL column is *not* an uncapped measurement and no WebGPU-vs-WebGL ratio can be read from this table. WebGPU runs at roughly 10-70% of native Vulkan. Forward+ is slower than Mobile on post-processing, particles, instances and shadows; see `webgpu_notes/TASKS.md` §2.17.
 
 On this hardware WebGPU matches WebGL (all display-capped). Post-processing was 96 / 91 fps (Mobile / Forward+) until two driver fixes the same day (one encoder + submit per render pass, and whole-slice uploads of the instance buffer) brought it to the cap; see `webgpu_notes/TASKS.md` §2.17. The table below is inherited from the upstream project (Mac Studio M3 Ultra, lighter GPU headroom) and has not been reproduced here.
 
