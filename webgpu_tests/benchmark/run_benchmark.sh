@@ -149,8 +149,8 @@ if [ "$MODE" = "native" ]; then
     inject_profiler "$SCENE_PATH"
     trap "restore_project '$SCENE_PATH'" EXIT
     if [ "${BENCH_AUTOQUIT:-0}" = "1" ]; then
-        # 180 warmup + 300 collect frames, plus headroom for startup and a vsync-capped display.
-        "$EDITOR_BIN" --rendering-driver vulkan ${BENCH_UNCAPPED:+--disable-vsync} --path "$SCENE_PATH" --quit-after 1500
+        # The profiler quits the game itself once it has printed (it reads BENCH_AUTOQUIT); this timeout is only a backstop.
+        BENCH_AUTOQUIT=1 timeout 120 "$EDITOR_BIN" --rendering-driver vulkan ${BENCH_UNCAPPED:+--disable-vsync} --path "$SCENE_PATH"
     else
         "$EDITOR_BIN" --path "$SCENE_PATH"
     fi

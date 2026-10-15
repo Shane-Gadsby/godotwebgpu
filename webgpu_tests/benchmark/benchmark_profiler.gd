@@ -10,8 +10,12 @@ extends Node
 ##   - WebGPU: requires chrome://flags/#enable-webgpu-developer-features
 ##   - WebGL: returns 0 (no timer queries)
 
-const WARMUP_FRAMES := 180   # 3 seconds at 60fps
-const COLLECT_FRAMES := 300  # 5 seconds of data
+# Both a frame count AND a wall-clock minimum: uncapped, 180 frames pass in well under a second, which is still the
+# page's startup phase (pipeline warm-up, GPU clocks ramping) and made uncapped numbers swing by 2x (TASKS.md 2.17).
+const WARMUP_FRAMES := 180
+const WARMUP_SECONDS := 6.0
+const COLLECT_FRAMES := 300  # at least this many frames...
+const COLLECT_SECONDS := 4.0 # ...and at least this long
 
 var _frame := 0
 var _vp_rid: RID
@@ -21,6 +25,9 @@ var _render_gpu: PackedFloat64Array
 var _draw_calls: PackedFloat64Array
 var _primitives: PackedFloat64Array
 
+var _t_start := 0.0
+var _t_collect := 0.0
+
 func _ready() -> void:
 	_vp_rid = get_viewport().get_viewport_rid()
 	# NOTE: On WebGPU, GPU timestamp queries cause "buffer used in submit while
@@ -28,35 +35,35 @@ func _ready() -> void:
 	# Only enable on non-web platforms where buffer mapping is synchronous.
 	if OS.get_name() != "Web":
 		RenderingServer.viewport_set_measure_render_time(_vp_rid, true)
-	_deltas.resize(COLLECT_FRAMES)
-	_render_cpu.resize(COLLECT_FRAMES)
-	_render_gpu.resize(COLLECT_FRAMES)
-	_draw_calls.resize(COLLECT_FRAMES)
-	_primitives.resize(COLLECT_FRAMES)
+	_t_start = Time.get_ticks_msec() / 1000.0
 	process_priority = -100
 
 func _process(delta: float) -> void:
 	_frame += 1
+	var now := Time.get_ticks_msec() / 1000.0
 
-	if _frame <= WARMUP_FRAMES:
+	if _frame <= WARMUP_FRAMES or now - _t_start < WARMUP_SECONDS:
 		if _frame == 1:
-			print("[BENCHMARK] warming up (%d frames)..." % WARMUP_FRAMES)
+			print("[BENCHMARK] warming up (%d frames, %.0f s)..." % [WARMUP_FRAMES, WARMUP_SECONDS])
 		return
 
-	var idx := _frame - WARMUP_FRAMES - 1
-	if idx < COLLECT_FRAMES:
-		_deltas[idx] = delta
-		_render_cpu[idx] = RenderingServer.viewport_get_measured_render_time_cpu(_vp_rid)
-		_render_gpu[idx] = RenderingServer.viewport_get_measured_render_time_gpu(_vp_rid)
-		_draw_calls[idx] = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
-		_primitives[idx] = Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
-		if idx == 0:
-			print("[BENCHMARK] collecting %d frames..." % COLLECT_FRAMES)
-	elif idx == COLLECT_FRAMES:
+	if _deltas.is_empty():
+		_t_collect = now
+		print("[BENCHMARK] collecting (>= %d frames and >= %.0f s)..." % [COLLECT_FRAMES, COLLECT_SECONDS])
+	_deltas.push_back(delta)
+	_render_cpu.push_back(RenderingServer.viewport_get_measured_render_time_cpu(_vp_rid))
+	_render_gpu.push_back(RenderingServer.viewport_get_measured_render_time_gpu(_vp_rid))
+	_draw_calls.push_back(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	_primitives.push_back(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	if _deltas.size() >= COLLECT_FRAMES and now - _t_collect >= COLLECT_SECONDS:
 		_print_results()
+		set_process(false)
+		# Scripted native runs (run_benchmark.sh with BENCH_AUTOQUIT=1) exit by themselves once the results are out.
+		if OS.get_environment("BENCH_AUTOQUIT") == "1" and OS.get_name() != "Web":
+			get_tree().quit()
 
 func _print_results() -> void:
-	var n := COLLECT_FRAMES
+	var n := _deltas.size()
 
 	var sorted_delta := _deltas.duplicate()
 	sorted_delta.sort()
