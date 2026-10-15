@@ -457,6 +457,12 @@ run_test "Scene smoketest — Firefox (21 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser firefox --timeout 30000
 
+# Per-frame WebGPU API budgets (encoders, submits, writeBuffer calls and bytes) on the scenes just exported.
+# Adapter-independent, so it also runs on the software adapter; TASKS.md 2.16 gap 4.
+run_test "Perf guard — WebGPU calls per frame" \
+    "$SCRIPT_DIR/perf_guard" \
+    node run_perf_guard.mjs
+
 run_test "Font rendering colors — Chrome" \
     "$SCRIPT_DIR/scene_smoketest" \
     node test_font_visual.mjs --browser chrome

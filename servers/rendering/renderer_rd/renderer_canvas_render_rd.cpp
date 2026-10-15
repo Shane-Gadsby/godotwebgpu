@@ -925,7 +925,7 @@ void RendererCanvasRenderRD::canvas_render_items(RID p_to_render_target, Item *p
 	if (state.instance_data_index > 0) {
 		// If there was any remaining instance data, it must be flushed.
 		RID buf = state.instance_buffers._get(0);
-		RD::get_singleton()->buffer_flush(buf);
+		RD::get_singleton()->buffer_flush_range(buf, 0, uint64_t(state.instance_data_index) * sizeof(InstanceData));
 		state.instance_data_index = 0;
 	}
 }

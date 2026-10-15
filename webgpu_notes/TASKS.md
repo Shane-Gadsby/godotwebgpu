@@ -806,8 +806,10 @@ Six named gaps, each roughly a session, in rough value order:
 2. **Error-path tests** — nothing covers device-lost and recovery, OOM, invalid API use, context loss.
 3. **Async readback tests** — nothing covers viewport capture correctness, GPU→CPU readback callbacks,
    or fence correctness under rapid submit cycles.
-4. **Performance benchmarks in CI** — nothing guards frame time, shader-compile throughput or buffer
-   upload against regression (warning-only is fine).
+4. **Performance benchmarks in CI** — `PARTLY CLOSED 2026-10-15`: `perf_guard/run_perf_guard.mjs` asserts per-frame
+   ceilings on WebGPU command encoders, submits, `writeBuffer` calls and bytes for four scenes (found measuring §2.17; the
+   numbers are adapter-independent so it runs under swiftshader too, `PERF_GUARD_SCALE=0.1` proves it can go red, wired
+   into `local_ci.sh`). Frame time itself, shader-compile throughput and texture upload are still unguarded.
 5. **WGSL determinism check** — `CLOSED 2026-10-14`: `wgsl_cache/test_determinism.sh` (in `local_ci.sh`) runs the precompiler twice with different `PYTHONHASHSEED`s and compares the headers byte for byte (1,806,893 B, identical, and identical to the build's own header) and requires 0 glsl/tint failures. Found on the way: `thirdparty/...` includes resolved against the **cwd**, so running `wgsl_precompile.py` from another directory silently dropped the FSR shaders (header 1.53 MB) and still exited 0; includes now resolve against the repo root. Original text: nothing proves `wgsl_precompile.py`'s output is byte-for-byte
    reproducible across runs, which now matters twice over since `tint_convert_cli --batch` is also
    driven from the editor's export-time baker with its own fork/mutex concerns.
