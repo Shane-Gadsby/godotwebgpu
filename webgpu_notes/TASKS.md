@@ -49,7 +49,7 @@ a rare non-visual error.
 | user's `cameraSim` project, baked export | 163 fps, `baked 427 / translated 0`, 2.0 s stall, renders correctly (§2.14) | 2026-10-15 |
 | heavy Forward+ scene, baked | `baked 759 / translated 0`, stall 18.5 -> 7.7 s, 155 fps uncapped, push-constant writes 3608 -> 106 per frame | 2026-10-15, §2.6 / §2.17 |
 | benchmark matrix (7 scenes x native / WebGL / WebGPU Mobile / WebGPU Forward+) | capped: everything at the 165 Hz cap, post-fx fixed 91 -> 165; uncapped (corrected): WebGPU 25-50% of native, Forward+ within 3-10% of Mobile except post-fx (414 vs 583) | 2026-10-15, §2.17 |
-| heavy Forward+ scene, uncapped, after all CPU work | ~220 fps (was 176), 1109 draws (was 3549), `setVertexBuffer` 82 (was 3371), push-constant writes 148 (was 3608); pixel-identical (max diff 1/255) | 2026-10-15, `333ae47d48`, §2.17 / §2.30 |
+| heavy Forward+ scene, uncapped, after all CPU work | ~220 fps (was 176), 1109 draws (was 3549), `setVertexBuffer` 82 (was 3371), push-constant writes 148 (was 3608); pixel-identical (max diff 1/255) | 2026-10-15, `bc9f4d3768`, §2.17 / §2.30 |
 | Forward+ matrix, **baked** export | **64 / 64**, `baked: 415, translated: 33`; now a CI tier (`local_ci.sh --bake`, fails on `baked == 0`, `translated > 80` or a cache-mismatch warning — verified red on an unbaked export) | 2026-10-14, `64de4bda4`, §2.29 |
 | scene smoketest, **baked** export (real GPU, Chrome) | **21 / 21**; `--baked` asserts the shader cache was used (gl_compatibility projects exempt); export takes ~6.6 min | 2026-10-14, `231e6ca1e`, §2.29 |
 | heavy Forward+ scene (3549 draws/frame) | 164 fps, `ringOverflows: 0` (was 1), `rwShadowRefreshes: 40` | 2026-10-14, `af3d57ddd`, §2.6 |
@@ -65,7 +65,7 @@ Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches i
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
 
-### What is built right now — snapshot 2026-10-15 (end of the real-GPU session), HEAD after `b08b6b2fce`
+### What is built right now — snapshot 2026-10-15 (end of the real-GPU session), HEAD after `50a8ad76be`
 
 **Read the 2026-10-15 additions first:** §2.6, §2.14-2.17, §2.19, §2.22, §2.29 changed state today; the driver changed (encoder split removed, `buffer_flush_range`, deferred staging uploads, Forward+ `firstInstance`) and the full `local_ci.sh` was *not* re-run on the final tree — the individual tiers in "Verified tiers" were, each against fresh exports. Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
 no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --bake` was green on the
@@ -73,8 +73,8 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
-| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `1f1c4620a4` plus the uncommitted mesh-first sort that became `333ae47d48` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
-| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at the same tree with `dev_mode=yes` (no debug symbols; `-Werror` clean). **Neither matches HEAD (`333ae47d48` and later), so baked exports will be unbaked-by-mismatch until both are rebuilt.** Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
+| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `d1683048b4` plus the uncommitted mesh-first sort that became `bc9f4d3768` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
+| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at the same tree with `dev_mode=yes` (no debug symbols; `-Werror` clean). **Neither matches HEAD (`bc9f4d3768` and later), so baked exports will be unbaked-by-mismatch until both are rebuilt.** Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
 | `godot.web.template_release.wasm32.nothreads.dlink.zip` | from the CI run before the late rebuilds (19:10). Compile check only — nothing loads it. **Stale** w.r.t. HEAD |
 | `godot.linuxbsd.editor.dev.x86_64` | **stale** — a throwaway `dev_build=yes` native build from the start of the day; used only for the native-Vulkan reference captures (`--fp-matrix`). Rebuild before reusing |
 | `godot.web.template_{debug,*threads*}` | **stale** (Oct 13 / early Oct 14). Rebuild before any threaded or debug-template work |
@@ -183,7 +183,7 @@ renumbering.
 **Status reconciled 2026-10-15** (2.6, 2.14-2.17, 2.19, 2.22, 2.29 updated after the real-GPU session; the rest as of 2026-10-14). Every row below was checked against the tree
 on that date; anything with no dated note is untouched since it was first written.
 
-**Every item at a glance (2026-10-15, end of the real-GPU / CPU-profiling session, after `333ae47d48`).** Rows marked ✔ were touched on 2026-10-15; the rest are as of 2026-10-14.
+**Every item at a glance (2026-10-15, end of the real-GPU / CPU-profiling session, after `bc9f4d3768`).** Rows marked ✔ were touched on 2026-10-15; the rest are as of 2026-10-14.
 
 | § | item | status | what is left |
 |---|---|---|---|
@@ -229,7 +229,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | **Description updated with new numbers** | §2.4, §2.16 (a seventh gap), §2.22 | `325b8d297`, `67d3b53bf` |
 
 | **2026-10-15 — closed** | §2.6 (baked heavy), §2.15 (readback zeros), §2.17 (benchmarks + post-fx fix), §2.22 (INITIAL_MEMORY), §2.29 (baked tier complete) | `065997c38`, `cfb2063c0`, `740e45e42`, `ea640a65d`, `1f3280103` |
-| **2026-10-15 — advanced, still open** | §2.14 (first live project), §2.16 (`perf_guard`), §2.19 (not reproduced), §2.5 (data), new §2.30 | `5224fdb1e`, `620638b19`, `ab67f470e`, `272a28566`, `1f1c4620a`, `333ae47d4` |
+| **2026-10-15 — advanced, still open** | §2.14 (first live project), §2.16 (`perf_guard`), §2.19 (not reproduced), §2.5 (data), new §2.30 | `5224fdb1e`, `620638b19`, `ab67f470e`, `272a28566`, `d1683048b`, `bc9f4d376` |
 | **2026-10-15 — driver/renderer changes** | per-pass encoder split removed; `buffer_flush_range` (instance + canvas buffers); staging uploads coalesced; Forward+ `firstInstance`; shadow lists batched by shadow variant; opaque list mesh-first on WebGPU | see §2.17 and `drivers/webgpu/README.md` |
 | **2026-10-15 — new tests/tools** | `perf_guard/run_perf_guard.mjs` (+`api_profile.mjs`, `cpu_steady.mjs`), WebRTC baked variant, `BAKE=1 export_heavy.sh`, `run_matrix.sh`, `BENCH_UNCAPPED`, `scene_j_forward_plus_depth`, startup_phases/tests launch system Chrome with the standard flags | — |
 
@@ -1000,7 +1000,7 @@ WebGPU calls); the heavy scene (3549 draws originally) is engine-bound (~65% was
 opaque list ordered mesh-before-material on WebGPU (`setVertexBuffer` 2098 -> 82/frame). Heavy scene 176 -> ~220 fps; post-fx 91 -> 165 (capped).
 **Measured and rejected:** `-O2` for the engine (0% gain, +26% wasm size); depth pre-pass batching via a separate sorted list (+3%, reverted).
 
-**2026-10-16 — the heavy scene is GPU-bound, not CPU-bound; one shader was 12x native.** Fresh non-`dev_mode` build at `9a92bd5334`.
+**2026-10-16 — the heavy scene is GPU-bound, not CPU-bound; one shader was 12x native.** Fresh non-`dev_mode` build at `17d5ee6a84`.
  - **The CPU numbers above were partly waiting.** Uncapped, the main thread spends ~1.7 ms/frame inside `getCurrentTexture`
    (0.62), `submit` (0.52-0.72) and `createView` (0.30-0.40); capped at 165 Hz those three vanish and the main thread is **47%
    busy = ~2.85 ms CPU/frame** (0.87 ms of it inside WebGPU calls). GPU timestamps (`perf_guard/gpu_time.mjs`, new) put the
@@ -1025,8 +1025,10 @@ opaque list ordered mesh-before-material on WebGPU (`setVertexBuffer` 2098 -> 82
    `wgsl_precompile` 274/0/0. SSAO had the identical pattern but was already fast (the loop shape let the compiler fold it).
  - **Found on the way:** the precompiled header did not depend on the passes, so the fix first reached only runtime-converted
    shaders (§3 trap 20, fixed in `SCsub`).
- - **Also found:** `forward_plus/export_heavy*/` (a 42 MB wasm each) had been committed in `8952025769`, `1f1c4620a4` and `333ae47d48`;
-   now gitignored and untracked. The blobs are still in those (local, unpushed) commits' history.
+ - **Also found:** `forward_plus/export_heavy*/` (a 42 MB wasm each) had been committed since `37a7b4359b`; now gitignored and
+   untracked. The unpushed range (`acd6ec9ae4`..`f44c233f2b`) was rewritten on 2026-10-16 so it adds no new versions of them
+   (hashes in this file updated; the old ones are gone). The versions in the pushed commits `37a7b4359b`, `af3d57ddd1` and
+   `37d974ecab` (tag `Pre-optimisations`) remain; removing those would need a rewrite of pushed history and a force-push.
 
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
 0. **SDFGI on WebGPU** (~0.6 ms/frame over native): `WEBGPU_DECLARE_TEXTURE3D_ARRAY8` emulates the cascade texture arrays with an
