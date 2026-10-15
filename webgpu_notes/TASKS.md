@@ -49,6 +49,7 @@ a rare non-visual error.
 | user's `cameraSim` project, baked export | 163 fps, `baked 427 / translated 0`, 2.0 s stall, renders correctly (§2.14) | 2026-10-15 |
 | heavy Forward+ scene, baked | `baked 759 / translated 0`, stall 18.5 -> 7.7 s, 155 fps uncapped, push-constant writes 3608 -> 106 per frame | 2026-10-15, §2.6 / §2.17 |
 | benchmark matrix (7 scenes x native / WebGL / WebGPU Mobile / WebGPU Forward+) | capped: everything at the 165 Hz cap, post-fx fixed 91 -> 165; uncapped (corrected): WebGPU 25-50% of native, Forward+ within 3-10% of Mobile except post-fx (414 vs 583) | 2026-10-15, §2.17 |
+| heavy Forward+ scene, uncapped, after all CPU work | ~220 fps (was 176), 1109 draws (was 3549), `setVertexBuffer` 82 (was 3371), push-constant writes 148 (was 3608); pixel-identical (max diff 1/255) | 2026-10-15, `333ae47d48`, §2.17 / §2.30 |
 | Forward+ matrix, **baked** export | **64 / 64**, `baked: 415, translated: 33`; now a CI tier (`local_ci.sh --bake`, fails on `baked == 0`, `translated > 80` or a cache-mismatch warning — verified red on an unbaked export) | 2026-10-14, `64de4bda4`, §2.29 |
 | scene smoketest, **baked** export (real GPU, Chrome) | **21 / 21**; `--baked` asserts the shader cache was used (gl_compatibility projects exempt); export takes ~6.6 min | 2026-10-14, `231e6ca1e`, §2.29 |
 | heavy Forward+ scene (3549 draws/frame) | 164 fps, `ringOverflows: 0` (was 1), `rwShadowRefreshes: 40` | 2026-10-14, `af3d57ddd`, §2.6 |
@@ -72,8 +73,8 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
-| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `b08b6b2fce` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
-| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at `b08b6b2fce` with `dev_mode=yes` (no debug symbols; `-Werror` clean). Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
+| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `1f1c4620a4` plus the uncommitted mesh-first sort that became `333ae47d48` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
+| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at the same tree with `dev_mode=yes` (no debug symbols; `-Werror` clean). **Neither matches HEAD (`333ae47d48` and later), so baked exports will be unbaked-by-mismatch until both are rebuilt.** Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
 | `godot.web.template_release.wasm32.nothreads.dlink.zip` | from the CI run before the late rebuilds (19:10). Compile check only — nothing loads it. **Stale** w.r.t. HEAD |
 | `godot.linuxbsd.editor.dev.x86_64` | **stale** — a throwaway `dev_build=yes` native build from the start of the day; used only for the native-Vulkan reference captures (`--fp-matrix`). Rebuild before reusing |
 | `godot.web.template_{debug,*threads*}` | **stale** (Oct 13 / early Oct 14). Rebuild before any threaded or debug-template work |
@@ -165,6 +166,16 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 ## 2. Outstanding work — most to least critical
 
+**Pick up here (written 2026-10-15, end of a long session).** Nothing is broken. In rough value order, all non-human:
+1. **§2.30 unbottleneck the CPU** — marshalling path, per-draw call tails, frame-time guards; then decide **§2.5** threading with the numbers.
+2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
+3. **§2.20 / §2.21** (half-float, emdawnwebgpu features) — each needs a verification pass and a real GPU; risky, do one at a time.
+4. **§2.10 / §2.14** more coverage: more real projects through the live sweep, the dlink export of `cameraSim`, a native-Vulkan side-by-side.
+5. **§2.27** variant pruning needs an opt-in design first.
+Blocked/human: §2.7, §2.8 (Mac), §2.9 (devices), §2.18, §2.24, §2.25, §2.26.
+**Before measuring anything:** `bin/` holds `dev_mode=yes` builds that do not match HEAD — rebuild editor and template together with `webgpu=yes` (no `dev_mode` for benchmarks),
+check `nvidia-smi` and the adapter (nvidia/lovelace, >= 48 textures/stage), launch Chrome only the way the scripts now do (system Chrome, `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --ignore-gpu-blocklist`), and re-export (§3 "Measurement traps").
+
 **Numbers are stable.** A closed item keeps its number, is marked `CLOSED` here and points into §4,
 so references from source comments and from this file stay valid. Re-order by moving rows, not by
 renumbering.
@@ -172,7 +183,7 @@ renumbering.
 **Status reconciled 2026-10-15** (2.6, 2.14-2.17, 2.19, 2.22, 2.29 updated after the real-GPU session; the rest as of 2026-10-14). Every row below was checked against the tree
 on that date; anything with no dated note is untouched since it was first written.
 
-**Every item at a glance (2026-10-14, after `597d27e09`).**
+**Every item at a glance (2026-10-15, end of the real-GPU / CPU-profiling session, after `333ae47d48`).** Rows marked ✔ were touched on 2026-10-15; the rest are as of 2026-10-14.
 
 | § | item | status | what is left |
 |---|---|---|---|
@@ -181,8 +192,8 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.3 | dlink under throttling | CLOSED | — |
 | 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
 | 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
-| 2.5 | threading decision | OPEN | needs a decision and a real GPU |
-| 2.6 | real-GPU profile | DONE 2026-10-15 (baked heavy: translated 0, stall 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
+| 2.5 ✔ | threading decision | OPEN — now has data: every export is 99-100% main-thread busy; engine wasm is not the bottleneck (-O2 gave 0%), the JS/browser call path and per-draw calls are | decide after §2.30's cheaper items; needs `threads=yes` + COOP/COEP, a worker-owned device and an OffscreenCanvas |
+| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
 | 2.7 | upstream F10 default | OPEN, human | — |
 | 2.8 | Safari | BLOCKED | needs a Mac |
 | 2.9 | Android / iOS | BLOCKED | needs devices |
@@ -190,17 +201,18 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.11 | VoxelGI 1.6× Vulkan | CLOSED (7.743 vs 7.742) | — |
 | 2.12 | dead `_depth_alias` | CLOSED | — |
 | 2.13 | stale Phase 7 TODOs | CLOSED | — |
-| 2.14 | base-class interface audit | OPEN (audit done; first live project swept 2026-10-15: clean) | more real projects, dlink export, native side-by-side |
+| 2.14 ✔ | base-class interface audit | OPEN (audit done; cameraSim swept clean 2026-10-15) | more real projects, dlink export, native side-by-side |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
-| 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
-| 2.15 | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (readback zeros, not LOD code) | — |
-| 2.16 | test-suite gaps | OPEN (gaps 4 partly, 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled: shadows gap closed, post-fx 414 vs 583 is compute-pass structure) | uncapped WebGL needs another harness |
+| 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
+| 2.30 ✔ | unbottleneck the CPU (new) | OPEN — encoders/uploads/shadow batching/`firstInstance`/mesh-first order landed; `-O2` and depth-pre-pass batching measured and rejected | marshalling path (~0.5 ms/frame), remaining per-draw calls, threading (§2.5) |
+| 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
+| 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
 | 2.18 | texture compression export option | BLOCKED | — |
-| 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
+| 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
 | 2.21 | deferred emdawnwebgpu features | OPEN | — |
-| 2.22 | small perf items | DONE 2026-10-15 (INITIAL_MEMORY measured: not a lever; serve-compressed in README) | side-module size is module-level only |
+| 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
 | 2.24 | upstream the driver | OPEN, human | — |
 | 2.25 / 2.26 | side projects (Node server, `.gdb`) | not started | — |
@@ -215,6 +227,11 @@ on that date; anything with no dated note is untouched since it was first writte
 | **Audited, narrowed on evidence** | §2.6 (half measured), §2.10 (tables clean; reframed as coverage), §2.14 (interface audit done, baseline `9973b23ec7`), §2.23 (`precision=double` builds and runs) | `9973b23ec`, `d5206c11c`, `0f0b1025b` |
 | **Landed after the snapshot** | §2.29 baked tier — Forward+ matrix leg and scene-smoketest leg (WebRTC leg still open); §2.6 push-constant ring 512 KB → 2 MB (`ringOverflows` 1 → 0); §2.16 gap 5 WGSL determinism closed, plus a cwd-dependent include bug in `wgsl_precompile.py` | `64de4bda4`, `231e6ca1e`, `af3d57ddd`, `597d27e09` |
 | **Description updated with new numbers** | §2.4, §2.16 (a seventh gap), §2.22 | `325b8d297`, `67d3b53bf` |
+
+| **2026-10-15 — closed** | §2.6 (baked heavy), §2.15 (readback zeros), §2.17 (benchmarks + post-fx fix), §2.22 (INITIAL_MEMORY), §2.29 (baked tier complete) | `065997c38`, `cfb2063c0`, `740e45e42`, `ea640a65d`, `1f3280103` |
+| **2026-10-15 — advanced, still open** | §2.14 (first live project), §2.16 (`perf_guard`), §2.19 (not reproduced), §2.5 (data), new §2.30 | `5224fdb1e`, `620638b19`, `ab67f470e`, `272a28566`, `1f1c4620a`, `333ae47d4` |
+| **2026-10-15 — driver/renderer changes** | per-pass encoder split removed; `buffer_flush_range` (instance + canvas buffers); staging uploads coalesced; Forward+ `firstInstance`; shadow lists batched by shadow variant; opaque list mesh-first on WebGPU | see §2.17 and `drivers/webgpu/README.md` |
+| **2026-10-15 — new tests/tools** | `perf_guard/run_perf_guard.mjs` (+`api_profile.mjs`, `cpu_steady.mjs`), WebRTC baked variant, `BAKE=1 export_heavy.sh`, `run_matrix.sh`, `BENCH_UNCAPPED`, `scene_j_forward_plus_depth`, startup_phases/tests launch system Chrome with the standard flags | — |
 
 Nothing was pushed; every commit above is local on `webgpu-4.8`.
 
@@ -245,7 +262,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
-| 2.6 | ~~Real-GPU profile of a baked Forward+ export~~ — baked heavy scene: `translated 0`, stall 18.5 -> 7.7 s | **`DONE` 2026-10-15** (`rwShadowRefreshes: 40`/frame is the documented emulation) | — |
+| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
@@ -253,17 +270,17 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.11 | ~~VoxelGI measures 1.6× native Vulkan~~ — real 3D-upload bug, fixed | **`CLOSED` 2026-10-14** | — |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
-| 2.14 | ~~Interface audit~~ done; first live project (cameraSim) swept clean 2026-10-15; more projects still open | `OPEN` — audited 2026-10-14, swept 2026-10-15 | ~0.5 session per project |
+| 2.14 ✔ | base-class interface audit | OPEN (audit done; cameraSim swept clean 2026-10-15) | more real projects, dlink export, native side-by-side |
 | 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64; optional per-bind bookkeeping cleanup not done (backstop still needed) | — |
-| 2.29 | ~~Make the baked export a real test tier~~ — matrix, scene-smoketest and WebRTC legs; deltas re-baselined | **`DONE` 2026-10-15** (`local_ci.sh --bake`) | — |
-| 2.15 | ~~`generate_lods()` returns zero LODs on web~~ — not a LOD bug; sync readback returns zeros (§2.13) | **`CLOSED` 2026-10-15** | — |
-| 2.16 | Test-suite gaps (7 named) | `OPEN` — gaps 5 and 7 closed, gap 4 partly (`perf_guard`); 1-3, 6 open | ~1 session each |
-| 2.17 | ~~Forward+ benchmark leg + README numbers~~ — capped and uncapped matrices; post-fx gap fixed (found a 2 MB/frame canvas upload and 80 encoders/frame too) | **`DONE` 2026-10-15** | uncapped WebGL needs another harness |
+| 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
+| 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
+| 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
 | 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
-| 2.19 | Interleaved-build stale object — real fix | `OPEN` — **not reproduced** 2026-10-15 | only on recurrence |
+| 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
-| 2.22 | ~~Small perf items~~ — INITIAL_MEMORY measured (0.1 ms of grows, not a lever); serve-compressed documented | **`DONE` 2026-10-15** | — |
+| 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
@@ -544,6 +561,13 @@ version hash is the git HEAD at build time, so any commit between building the e
 
 Needs COOP/COEP wherever it is served (§1).
 
+**2026-10-15 — data for the decision.** Profiling (§2.17, §2.30) shows every WebGPU export is 99-100% main-thread busy, so a
+second thread is the only way to overlap work; but what is hot is *not* engine wasm (`-O2` changed nothing) — it is the
+JS/browser call path: ~0.5 ms/frame of marshalling (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`), ~1.4 ms/frame in
+`submit` (largely waiting on the GPU process) on the heavy scene, and per-draw calls. A worker-owned renderer would overlap game
+logic with that, but it needs `threads=yes` + COOP/COEP on the host, the device and its handle table on the render thread (§4.5),
+and the canvas transferred as an `OffscreenCanvas`. Do §2.30's cheaper items first and re-measure how CPU-bound the heavy scene is.
+
 ### 2.6 Real-GPU profile of a baked Forward+ export `DONE 2026-10-15` — frame stats, ring overflow and baked heavy export all done *(old Task 46 §6)*
 
 The configuration this fork actually ships, and the one no number covers. §4.15 measured the
@@ -595,9 +619,9 @@ scene afterwards: `ringOverflows: 0`, same 164 fps / 3549 draws; Forward+ matrix
 `rwShadowRefreshes: 40` per frame (the real GPU lacks the read/write-storage-texture feature, so these are the
 documented emulation copies, not a bug), and a *baked* heavy export for `translated`.
 
-**2026-10-15 — blocked on the host, and a finding.** (1) `nvidia-smi` fails with a driver/library mismatch (kernel module 610.57.04, userspace 615.71.09), so Chromium cannot reach the RTX 4080 SUPER: the heavy scene ran Forward Mobile at 1-2 fps. A reboot or module reload is needed before any real-GPU number is valid; the figures from that run are discarded. (2) `startup_phases/*.mjs` launched Chromium without `--use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist`; fixed to match `run_forward_plus.mjs`. (3) `BAKE=1 ./export_heavy.sh` now exists, but the heavy scene builds its meshes and materials in GDScript, so the exported pck is 11 KB and the baker has nothing to bake; a baked heavy export needs a scene saved as a `.tscn`/resources.
+**(Historical, superseded below by the re-run.) 2026-10-15 — blocked on the host, and a finding.** (1) `nvidia-smi` fails with a driver/library mismatch (kernel module 610.57.04, userspace 615.71.09), so Chromium cannot reach the RTX 4080 SUPER: the heavy scene ran Forward Mobile at 1-2 fps. A reboot or module reload is needed before any real-GPU number is valid; the figures from that run are discarded. (2) `startup_phases/*.mjs` launched Chromium without `--use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist`; fixed to match `run_forward_plus.mjs`. (3) `BAKE=1 ./export_heavy.sh` now exists, but the heavy scene builds its meshes and materials in GDScript, so the exported pck is 11 KB and the baker has nothing to bake; a baked heavy export needs a scene saved as a `.tscn`/resources.
 
-**RE-RUN AFTER THE REBOOT (paused 2026-10-15).** Everything measured on 2026-10-15 ran while `nvidia-smi` reported a driver/library mismatch (kernel 610.57.04 vs userspace 615.71.09), so none of it counts. Before re-running, confirm `nvidia-smi` works and that an adapter probe with the flags below reports the RTX 4080 SUPER with `maxSampledTexturesPerShaderStage` >= 48 (otherwise it is Forward Mobile and the run is meaningless). Required launch (now in all `startup_phases/*.mjs`): system Chrome `/usr/bin/google-chrome-stable`, headed, `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --ignore-gpu-blocklist`, Playwright's `--enable-unsafe-swiftshader` default dropped. Do NOT add `--use-angle=vulkan`, `--use-vulkan=native` or `--no-sandbox` to system Chrome: the page dies with "WebGL2 - Check web browser configuration" (found 2026-10-15). Re-run:
+**(Historical — done, see "Re-run done" below.) RE-RUN AFTER THE REBOOT (paused 2026-10-15).** Everything measured on 2026-10-15 ran while `nvidia-smi` reported a driver/library mismatch (kernel 610.57.04 vs userspace 615.71.09), so none of it counts. Before re-running, confirm `nvidia-smi` works and that an adapter probe with the flags below reports the RTX 4080 SUPER with `maxSampledTexturesPerShaderStage` >= 48 (otherwise it is Forward Mobile and the run is meaningless). Required launch (now in all `startup_phases/*.mjs`): system Chrome `/usr/bin/google-chrome-stable`, headed, `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --ignore-gpu-blocklist`, Playwright's `--enable-unsafe-swiftshader` default dropped. Do NOT add `--use-angle=vulkan`, `--use-vulkan=native` or `--no-sandbox` to system Chrome: the page dies with "WebGL2 - Check web browser configuration" (found 2026-10-15). Re-run:
 1. `forward_plus/export_heavy.sh` then `startup_phases/profile_phases.mjs --dir ../forward_plus/export_heavy --duration 40` (expect `SceneForwardClusteredShaderRD`, ~160 fps, `ringOverflows: 0`; the 1-2 fps Forward Mobile result of 2026-10-15 is invalid).
 2. The same with `BAKE=1 ./export_heavy.sh` -> `export_heavy_baked` (only meaningful once the heavy scene's meshes/materials are saved resources; today the pck is 11 KB and nothing bakes).
 3. Any other real-GPU tier touched this session: `run_forward_plus.mjs` (+ `--baked`), `local_ci.sh --bake`.
@@ -962,6 +986,29 @@ is small (culling 0.29, graph 0.15, `draw_list_draw` 0.13, instance fill 0.09). 
  - Where the heavy scene stands (176 -> ~220 fps across the three changes today: shadow-variant batching, geometry-first order, plus
    the earlier firstInstance): remaining per-draw cost is `drawIndexed` x~550 plus `setBindGroup` x~1100 (one material set per draw, by
    construction in a scene with unique materials) and the ~0.5 ms marshalling path; the next structural step is threading (§2.5).
+
+### 2.30 Unbottleneck the CPU `OPEN` — started 2026-10-15 *(from §2.17's profiling; feeds §2.5)*
+
+**Why:** every WebGPU export is CPU-bound on the main thread (99-100% busy). Light scenes are API-bound (60-70% of the frame inside
+WebGPU calls); the heavy scene (3549 draws originally) is engine-bound (~65% wasm). Tools: `perf_guard/api_profile.mjs`
+(busy %, calls/ms per GPU method), `perf_guard/cpu_steady.mjs` (wasm CPU by function, needs `debug_symbols=yes`), `perf_guard/run_perf_guard.mjs`
+(budgets). Read §3 "Measurement traps" first (time-based warm-up, waiting-vs-copying, stale exports).
+
+**Done 2026-10-15** (all detail in §2.17 and `drivers/webgpu/README.md`): per-pass encoder split removed (80 -> 2 encoders and submits/frame);
+`buffer_flush_range` for persistent instance/canvas buffers (2.1 MB -> 64-350 KB/frame); staging-block uploads coalesced; Forward+
+`firstInstance` (push-constant writes 3608 -> 106/frame on the heavy scene); shadow lists batched by shadow variant (3549 -> 1109 draws);
+opaque list ordered mesh-before-material on WebGPU (`setVertexBuffer` 2098 -> 82/frame). Heavy scene 176 -> ~220 fps; post-fx 91 -> 165 (capped).
+**Measured and rejected:** `-O2` for the engine (0% gain, +26% wasm size); depth pre-pass batching via a separate sorted list (+3%, reverted).
+
+**Open, in suggested order:**
+1. **Marshalling path** (~0.5 ms/frame on the heavy scene: `bigintToI53Checked`, `getJsObject`, `wasm-to-js`, `jsObjectInsert`): 64-bit arguments and handle lookups per call in
+   emdawnwebgpu. Options: fewer calls (below), or a toolchain patch with fast paths for `setBindGroup`/`setVertexBuffer`/`drawIndexed` (same upkeep burden as `misc/emsdk_patches/`).
+2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a
+   material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
+3. **Normal/roughness depth pre-pass** (used with SSAO/SSIL/SSR/SDFGI) still draws per element with each material's own shader; not batchable by variant (see §2.17).
+4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165).
+5. **Threading** — §2.5, after 1-2 are re-measured.
+**Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
 
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 
