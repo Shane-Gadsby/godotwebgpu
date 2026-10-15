@@ -918,8 +918,10 @@ be diagnosed alongside another's:
 
 ### 2.22 Small perf items `OPEN`
 
-- **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`.** For a project with a known peak heap,
-  raising it avoids the growth steps during load outright.
+- **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`. Measured 2026-10-15: not worth changing.** Wrapping
+  `WebAssembly.Memory.prototype.grow` over a 25 s load shows 9 grows for the cameraSim project (final 169 MB) and 11 for
+  the heavy Forward+ scene (final 238 MB), costing **0.1 ms in total** — Chrome grows linear memory without copying. The
+  `initial_memory=` SCons option already exists if a deployment still wants it; the default stays.
 - **The 45 MB side module's levers are module-level** (`module_*_enabled=no`) and transport
   compression — `-Os` + thin LTO is already production, and `EXPORT_ALL=1` applies to the 1.3 MB
   *main* module, so neither is the cause. Compression is now measured: 45.3 MB → 11.9 MB gzip → 9.5 MB
