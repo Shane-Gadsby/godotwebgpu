@@ -688,7 +688,7 @@ All three answered; none needed a fix beyond one warning. 7.15 and 7.17 are no-l
 inherent property of asynchronous readback in single-threaded wasm, now stated in the code and in
 §4.2.
 
-### 2.14 Base-class interface audit, and a live sweep `OPEN`
+### 2.14 Base-class interface audit, and a live sweep `OPEN` — audit done; first project swept clean 2026-10-15
 
 - **Interface audit** (old Task 10.2) — **done 2026-10-14, baseline `9973b23ec7`.** 187 virtuals
   across the three base headers; **every pure virtual is overridden** (0 gaps). 24 non-pure virtuals
@@ -796,7 +796,7 @@ zeros on web. Meshes made from CPU arrays (importer, `ImporterMesh`, `ArrayMesh.
 using the same arrays) are unaffected. Making `mesh_surface_get_arrays` work would need a CPU shadow of surface data
 (a design decision, not a one-liner); leaving it documented.
 
-### 2.16 Test-suite gaps `OPEN` — gap 5 closed, gap 7 mostly done (§2.29)
+### 2.16 Test-suite gaps `OPEN` — gaps 5 and 7 closed, gap 4 partly (perf_guard)
 
 Six named gaps, each roughly a session, in rough value order:
 
@@ -939,7 +939,7 @@ be diagnosed alongside another's:
    built-in shaders; only the user-facing capability query still reports 0. Reporting real values is
    a deliberate later follow-up.
 
-### 2.22 Small perf items `OPEN`
+### 2.22 Small perf items `DONE 2026-10-15`
 
 - **`INITIAL_MEMORY` is 32 MB with `ALLOW_MEMORY_GROWTH=1`. Measured 2026-10-15: not worth changing.** Wrapping
   `WebAssembly.Memory.prototype.grow` over a 25 s load shows 9 grows for the cameraSim project (final 169 MB) and 11 for
