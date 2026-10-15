@@ -12,6 +12,9 @@
 #                                        Under swiftshader/CI the engine falls back to Mobile on its own.
 #   GODOT_WEBGL_BASELINE_ZIP             official non-fork web_nothreads_release.zip for the webgl leg
 #   GODOT_WEBGL_BASELINE_EDITOR          the matching official editor binary (a 4.8 pck will not load in a 4.7 template)
+#   BENCH_UNCAPPED=1                     opt-in: lift the display/vsync cap so the renderers can be compared (Chrome gets
+#                                        --disable-frame-rate-limit --disable-gpu-vsync, native gets --disable-vsync).
+#                                        Beyond the project's standard launch flags, hence off by default.
 #   BENCH_AUTOQUIT=1                     native leg exits by itself after the results print (for scripted runs)
 #
 # Default scene: the benchmark project itself (webgpu_tests/benchmark/).
@@ -147,7 +150,7 @@ if [ "$MODE" = "native" ]; then
     trap "restore_project '$SCENE_PATH'" EXIT
     if [ "${BENCH_AUTOQUIT:-0}" = "1" ]; then
         # 180 warmup + 300 collect frames, plus headroom for startup and a vsync-capped display.
-        "$EDITOR_BIN" --rendering-driver vulkan --path "$SCENE_PATH" --quit-after 1500
+        "$EDITOR_BIN" --rendering-driver vulkan ${BENCH_UNCAPPED:+--disable-vsync} --path "$SCENE_PATH" --quit-after 1500
     else
         "$EDITOR_BIN" --path "$SCENE_PATH"
     fi
@@ -260,7 +263,8 @@ server.listen($PORT, async () => {
         headless: false,
         ...(process.platform === 'linux' ? { executablePath: '/usr/bin/google-chrome-stable' } : {}),
         ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
-        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
+        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist',
+               ...(process.env.BENCH_UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])],
     });
     const page = await browser.newPage();
 

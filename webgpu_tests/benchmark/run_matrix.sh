@@ -9,7 +9,8 @@ SCENES=("$@")
 [[ ${#SCENES[@]} -eq 0 ]] && SCENES=(scene_a_sprites scene_b_pbr scene_c_instances scene_d_particles scene_e_animated scene_f_postfx scene_g_shadows)
 export GODOT_WEBGL_BASELINE_ZIP="${GODOT_WEBGL_BASELINE_ZIP:-$HOME/.local/share/godot/export_templates/4.7.2.stable.official/web_nothreads_release.zip}"
 export GODOT_WEBGL_BASELINE_EDITOR="${GODOT_WEBGL_BASELINE_EDITOR:-/mnt/109313D2109313D2/godot-editors/editors/Godot_v4.7.1-stable_linux.x86_64}"
-OUT="$HERE/results"; mkdir -p "$OUT/logs"
+# BENCH_UNCAPPED=1 lifts the display cap (see run_benchmark.sh); results go to results_uncapped/ so the capped run is kept.
+OUT="$HERE/results${BENCH_UNCAPPED:+_uncapped}"; mkdir -p "$OUT/logs"
 TSV="$OUT/matrix.tsv"
 printf 'scene\tleg\tfps_avg\tframe_p95_ms\tcpu_avg_ms\tdraw_calls\n' > "$TSV"
 field() { grep -o "\[BENCHMARK\] $1=[0-9.]*" "$2" | tail -1 | sed 's/.*=//'; }

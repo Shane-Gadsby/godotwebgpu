@@ -162,7 +162,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 so references from source comments and from this file stay valid. Re-order by moving rows, not by
 renumbering.
 
-**Status reconciled 2026-10-14**, end of a long session. Every row below was checked against the tree
+**Status reconciled 2026-10-15** (2.6, 2.14-2.17, 2.19, 2.22, 2.29 updated after the real-GPU session; the rest as of 2026-10-14). Every row below was checked against the tree
 on that date; anything with no dated note is untouched since it was first written.
 
 **Every item at a glance (2026-10-14, after `597d27e09`).**
@@ -183,17 +183,17 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.11 | VoxelGI 1.6× Vulkan | CLOSED (7.743 vs 7.742) | — |
 | 2.12 | dead `_depth_alias` | CLOSED | — |
 | 2.13 | stale Phase 7 TODOs | CLOSED | — |
-| 2.14 | base-class interface audit | OPEN (audit done) | live-project sweep, ~1 session |
+| 2.14 | base-class interface audit | OPEN (audit done; first live project swept 2026-10-15: clean) | more real projects, dlink export, native side-by-side |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (readback zeros, not LOD code) | — |
-| 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
-| 2.17 | Forward+ benchmark leg / README numbers | PARTLY DONE 2026-10-15 (matrix measured, display-capped; post-fx gap fixed 91 -> 165) | uncapped web run |
+| 2.16 | test-suite gaps | OPEN (gaps 4 partly, 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
+| 2.17 | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + uncapped matrices; post-fx 91 -> 165 capped) | Forward+ slower than Mobile on post-fx (373 vs 591 uncapped); uncapped WebGL needs another harness |
 | 2.18 | texture compression export option | BLOCKED | — |
 | 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
 | 2.21 | deferred emdawnwebgpu features | OPEN | — |
-| 2.22 | small perf items | OPEN | — |
+| 2.22 | small perf items | DONE 2026-10-15 (INITIAL_MEMORY measured: not a lever; serve-compressed in README) | side-module size is module-level only |
 | 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
 | 2.24 | upstream the driver | OPEN, human | — |
 | 2.25 / 2.26 | side projects (Node server, `.gdb`) | not started | — |
@@ -238,7 +238,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
-| 2.6 | Real-GPU profile of a baked Forward+ export | `OPEN` — frame stats taken; `ringOverflows` fixed (2 MB ring, `af3d57ddd`); `rwShadowRefreshes: 40`/frame and a baked heavy export remain | <0.5 session, needs real GPU |
+| 2.6 | ~~Real-GPU profile of a baked Forward+ export~~ — baked heavy scene: `translated 0`, stall 18.5 -> 7.7 s | **`DONE` 2026-10-15** (`rwShadowRefreshes: 40`/frame is the documented emulation) | — |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
@@ -246,17 +246,17 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.11 | ~~VoxelGI measures 1.6× native Vulkan~~ — real 3D-upload bug, fixed | **`CLOSED` 2026-10-14** | — |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
 | 2.13 | ~~Stale Phase 7 TODOs: 7.8, 7.15, 7.17~~ | **`CLOSED` 2026-10-14 → §4.2** | — |
-| 2.14 | ~~Interface audit~~ done; live project sweep still open | `OPEN` — audited 2026-10-14 | ~1 session (sweep) |
+| 2.14 | ~~Interface audit~~ done; first live project (cameraSim) swept clean 2026-10-15; more projects still open | `OPEN` — audited 2026-10-14, swept 2026-10-15 | ~0.5 session per project |
 | 2.28 | Compute lists share one encoder: now `command_end_compute_pass` ends the pass | `FIXED` 2026-10-14, Forward+ matrix 64/64; optional per-bind bookkeeping cleanup not done (backstop still needed) | — |
-| 2.29 | Make the baked export a real test tier | `PARTLY DONE` 2026-10-14 — Forward+ matrix + scene-smoketest legs landed (`local_ci.sh --bake`); WebRTC leg and delta re-baseline open | ~0.5 session |
-| 2.15 | `generate_lods()` returns zero LODs on web | `OPEN` | ~1 session |
-| 2.16 | Test-suite gaps (7 named) | `OPEN` — gap 5 (WGSL determinism) closed `597d27e09`; gap 7 (baked tier) mostly done; 1-4, 6 open | ~1 session each |
-| 2.17 | Forward+ benchmark leg + README numbers | `OPEN` | 1-2 sessions, needs real GPU |
+| 2.29 | ~~Make the baked export a real test tier~~ — matrix, scene-smoketest and WebRTC legs; deltas re-baselined | **`DONE` 2026-10-15** (`local_ci.sh --bake`) | — |
+| 2.15 | ~~`generate_lods()` returns zero LODs on web~~ — not a LOD bug; sync readback returns zeros (§2.13) | **`CLOSED` 2026-10-15** | — |
+| 2.16 | Test-suite gaps (7 named) | `OPEN` — gaps 5 and 7 closed, gap 4 partly (`perf_guard`); 1-3, 6 open | ~1 session each |
+| 2.17 | ~~Forward+ benchmark leg + README numbers~~ — capped and uncapped matrices; post-fx gap fixed (found a 2 MB/frame canvas upload and 80 encoders/frame too) | **`DONE` 2026-10-15** | Forward+ vs Mobile post-fx profile is a small follow-up |
 | 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
-| 2.19 | Interleaved-build stale object — real fix | `OPEN` | ~1 session |
+| 2.19 | Interleaved-build stale object — real fix | `OPEN` — **not reproduced** 2026-10-15 | only on recurrence |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
-| 2.22 | Small perf items (INITIAL_MEMORY, side-module size) | `OPEN` | ~0.5 session |
+| 2.22 | ~~Small perf items~~ — INITIAL_MEMORY measured (0.1 ms of grows, not a lever); serve-compressed documented | **`DONE` 2026-10-15** | — |
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
@@ -537,7 +537,7 @@ version hash is the git HEAD at build time, so any commit between building the e
 
 Needs COOP/COEP wherever it is served (§1).
 
-### 2.6 Real-GPU profile of a baked Forward+ export `OPEN` — frame stats and ring overflow done; baked heavy export open *(old Task 46 §6)*
+### 2.6 Real-GPU profile of a baked Forward+ export `DONE 2026-10-15` — frame stats, ring overflow and baked heavy export all done *(old Task 46 §6)*
 
 The configuration this fork actually ships, and the one no number covers. §4.15 measured the
 shader-container change (`index.pck` 101.5 MB → 57.1 MB, −43.7%, every behavioral counter
@@ -825,7 +825,7 @@ Six named gaps, each roughly a session, in rough value order:
    `xvfb-run` is available and say so when it is not, which also needs the matrix re-baselined under
    it (it was, by that run).
 
-### 2.17 Forward+ benchmark leg and the README's numbers `PARTLY DONE 2026-10-15` — measured, display-capped; uncapped run and WebGPU post-fx gap open *(old Task 9.16)*
+### 2.17 Forward+ benchmark leg and the README's numbers `DONE 2026-10-15` — measured capped and uncapped; post-fx gap fixed *(old Task 9.16)*
 
 **Done 2026-10-15.** `benchmark/run_matrix.sh` runs the 7 README scenes on four legs — native Vulkan Forward+,
 WebGL (official 4.7.1 editor + 4.7.2 template; a 4.8 pck will not load in a 4.7 template), WebGPU/Forward Mobile and
@@ -865,10 +865,31 @@ changes) used by `_fill_instance_data` / `_render_shadow_process` in Forward+ an
 busy% to decide CPU- vs GPU-bound, then a prototype-wrapping timer over the `GPU*` classes (per-call counts and ms/frame);
 keep it, it found both in minutes. A third whole-slice flush turned up through the new perf guard: the canvas instance buffer (2 MB slice, flushed whole every frame in *every* scene, 3D ones included, because of the FPS label/UI). `_canvas_render_items`' end-of-frame flush now passes the used range: per-frame upload 2.1 MB -> 64-350 KB. **Trap:** `run_scenes.mjs --export-only` silently exports nothing unless `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` are set (its default is the macOS editor); a later run then measures stale exports. The perf guard's numbers are only valid after a fresh export.
 
-**Still open:** (1) an *uncapped* web run (Chrome `--disable-frame-rate-limit --disable-gpu-vsync`, or scene sizes
-raised until nothing is capped) to compare the renderers properly; that adds launch flags beyond the user's standard
-three, so it should be an explicit opt-in, not the default. (2) Profile `scene_f_postfx` on WebGPU. (3) The README's
-tables are replaced only with a short measured table plus this caveat; the inherited Mac numbers stay, labelled as such.
+**Uncapped run 2026-10-15** (`BENCH_UNCAPPED=1 ./run_matrix.sh` -> `results_uncapped/matrix.tsv`; opt-in, adds Chrome
+`--disable-frame-rate-limit --disable-gpu-vsync` and native `--disable-vsync`, beyond the standard launch flags, so off by
+default; same build as the capped run, 22 m):
+
+| scene | native Vulkan | WebGL* | WebGPU Mobile | WebGPU Forward+ |
+|---|---:|---:|---:|---:|
+| a sprites | 1829 | 163 | 387 | 714 |
+| b pbr | 2995 | 163 | 378 | 668 |
+| c instances | 2611 | 165 | 677 | 630 |
+| d particles | 3525 | 165 | 368 | 314 |
+| e animated | 2749 | 165 | 359 | 654 |
+| f postfx | 878 | 165 | 591 | 373 |
+| g shadows | 2545 | 164 | 903 | 699 |
+
+\* **WebGL stays at ~165 even with the flags** (Chrome's GL present path is not lifted by them), so the WebGL column is
+*not* an uncapped measurement and the WebGPU-vs-WebGL ratio cannot be read from this table; the README's inherited
+"4-5x" claim is still neither confirmed nor refuted. WebGPU vs native Vulkan is a fair comparison: WebGPU runs at
+roughly 10-70% of native (about 700 vs 1800-3500 fps), which is the real cost of the browser, wasm and the emulation
+layers. Things worth a look from the table: **Forward+ is slower than Mobile on `f_postfx` (373 vs 591), `d_particles`
+(314 vs 368), `c_instances` and `g_shadows`**, and faster on sprites/pbr/animated (the 2D-ish and light scenes); the post-fx
+gap is the most obvious next profile (the perf-guard tooling finds the API-call side in minutes). Native is also the
+slowest on `f_postfx` (878), so that scene is heavy everywhere.
+
+**Open (small):** a genuinely uncapped WebGL leg would need a different harness (e.g. headless with a virtual time
+budget, or measuring CPU time per frame instead of fps); the Forward+-vs-Mobile post-fx difference deserves a profile.
 
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 
