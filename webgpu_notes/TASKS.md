@@ -939,6 +939,30 @@ is small (culling 0.29, graph 0.15, `draw_list_draw` 0.13, instance fill 0.09). 
  - Still the largest lever for draw-heavy scenes: cutting the remaining per-draw calls (depth pre-pass batching, a mesh-first depth
  order), then the marshalling path (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`, ~0.5 ms/frame here), then threading (§2.5).
 
+**Depth pre-pass batching and the `setVertexBuffer` idea (2026-10-15).**
+ - **Depth pre-pass batching — tried, measured, reverted (not worth it).** Premise: the plain depth pre-pass draws each element's *shadow
+   variant*, so the shadow-variant sort/repeat that batched the shadow lists (above) should batch it too. Two catches. (1) Only the
+   *plain* `PASS_MODE_DEPTH` uses the shadow variant; any scene with SSAO, SSIL, SSR, SDFGI, VoxelGI or a normal-buffer user (the heavy
+   scene has SSAO + SSIL + SDFGI) runs `DEPTH_NORMAL_ROUGHNESS`, which draws each material's own shader and cannot be merged by
+   variant. (2) The instance index is the element's position in its list, so a reordered depth list needs its own instance data
+   (a new `RENDER_LIST_DEPTH` with a copied, sorted element list and a second fill). Prototype on `scene_j_forward_plus_depth` (the
+   heavy scene without SSAO/SSIL/SDFGI): draws 1055 -> 546, fps 603 -> 622 (+3%, three runs each, +-1.5% noise). The saved calls are
+   largely paid back by the extra copy, sort and instance fill, so the change was **reverted**; the J scene stays as a benchmark.
+ - **`setVertexBuffer` — the driver already skips per-slot redundant binds** (and redundant index-buffer binds), so the 2098
+   calls/frame were real changes: draws alternate between two meshes because the opaque list is ordered priority -> shader ->
+   material -> mesh, and every mesh has its own material. **Fix: order by mesh before material on WebGPU**
+   (`RenderList::SortByKeyGeometryFirst`: priority, shader, geometry, surface, material, then the low bits; chosen when
+   `API_TRAIT_BATCH_INSTANCE_DRAWS`, i.e. WebGPU only; instancing "repeat" still needs the full key so it is unaffected). A mesh change
+   costs three calls on WebGPU (two vertex buffers + an index buffer) against one for a material change, so this binds each mesh once
+   per shader. Heavy scene: **`setVertexBuffer` 2098 -> 82 per frame, ~207 -> ~220 fps (+6%)**; J scene 603 -> 667 (+10%); instances
+   +4%; shadows and PBR flat. Pixel-identical on the heavy scene (max diff 1/255), matrix 64/64 (60 of 64 deltas within 3%, same
+   noisy four), smoketest 21/21, perf guard, screenshot comparison 8/8, `dev_mode=yes` template and editor clean. Caveat: opaque draw
+   order changes (priority and shader grouping are kept), so coplanar equal-depth surfaces could resolve differently than before;
+   none showed up in any tier.
+ - Where the heavy scene stands (176 -> ~220 fps across the three changes today: shadow-variant batching, geometry-first order, plus
+   the earlier firstInstance): remaining per-draw cost is `drawIndexed` x~550 plus `setBindGroup` x~1100 (one material set per draw, by
+   construction in a scene with unique materials) and the ~0.5 ms marshalling path; the next structural step is threading (§2.5).
+
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
 
 Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at RMSE 0.0006. Safari

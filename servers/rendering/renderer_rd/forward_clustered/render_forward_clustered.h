@@ -728,6 +728,38 @@ private:
 			sorter.sort(elements.ptr(), elements.size());
 		}
 
+		// Same fields as SortByKey, but a mesh change is ordered before a material change: priority, shader, geometry,
+		// surface, material, then the remaining low bits. Where a geometry change costs more API calls than a material
+		// change (WebGPU: two vertex buffers + an index buffer vs one bind group), this binds each mesh once per shader.
+		struct SortByKeyGeometryFirst {
+			_FORCE_INLINE_ bool operator()(const GeometryInstanceSurfaceDataCache *A, const GeometryInstanceSurfaceDataCache *B) const {
+				if (A->sort.priority != B->sort.priority) {
+					return A->sort.priority < B->sort.priority;
+				}
+				if (A->sort.shader_id != B->sort.shader_id) {
+					return A->sort.shader_id < B->sort.shader_id;
+				}
+				if (A->sort.geometry_id != B->sort.geometry_id) {
+					return A->sort.geometry_id < B->sort.geometry_id;
+				}
+				if (A->sort.surface_index != B->sort.surface_index) {
+					return A->sort.surface_index < B->sort.surface_index;
+				}
+				if (A->sort.material_id_hi != B->sort.material_id_hi) {
+					return A->sort.material_id_hi < B->sort.material_id_hi;
+				}
+				if (A->sort.material_id_lo != B->sort.material_id_lo) {
+					return A->sort.material_id_lo < B->sort.material_id_lo;
+				}
+				return (A->sort.sort_key1 & 0xFFFF) < (B->sort.sort_key1 & 0xFFFF);
+			}
+		};
+
+		void sort_by_key_geometry_first() {
+			SortArray<GeometryInstanceSurfaceDataCache *, SortByKeyGeometryFirst> sorter;
+			sorter.sort(elements.ptr(), elements.size());
+		}
+
 		void sort_by_key_range(uint32_t p_from, uint32_t p_size) {
 			SortArray<GeometryInstanceSurfaceDataCache *, SortByKey> sorter;
 			sorter.sort(elements.ptr() + p_from, p_size);
@@ -911,6 +943,8 @@ public:
 
 	// Cached API_TRAIT_FIRST_INSTANCE_INDEX (see _render_list_template).
 	bool use_first_instance = false;
+	// Order the opaque list by mesh before material (see RenderList::SortByKeyGeometryFirst); tied to API_TRAIT_BATCH_INSTANCE_DRAWS for now.
+	bool geometry_first_sort = false;
 
 	RenderForwardClustered();
 	~RenderForwardClustered();

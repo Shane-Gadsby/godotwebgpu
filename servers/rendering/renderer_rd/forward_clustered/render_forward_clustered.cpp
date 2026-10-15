@@ -2070,8 +2070,13 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	_update_render_base_uniform_set();
 
 	_fill_render_list(RENDER_LIST_OPAQUE, p_render_data, PASS_MODE_COLOR, using_sdfgi, using_sdfgi || using_voxelgi, using_motion_pass);
-	render_list[RENDER_LIST_OPAQUE].sort_by_key();
-	render_list[RENDER_LIST_MOTION].sort_by_key();
+	if (geometry_first_sort) {
+		render_list[RENDER_LIST_OPAQUE].sort_by_key_geometry_first();
+		render_list[RENDER_LIST_MOTION].sort_by_key_geometry_first();
+	} else {
+		render_list[RENDER_LIST_OPAQUE].sort_by_key();
+		render_list[RENDER_LIST_MOTION].sort_by_key();
+	}
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
 
 	int *render_info = p_render_data->render_info ? p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : (int *)nullptr;
@@ -5361,6 +5366,7 @@ void RenderForwardClustered::_update_shader_quality_settings() {
 
 RenderForwardClustered::RenderForwardClustered() {
 	use_first_instance = RD::get_singleton()->supports_first_instance_index();
+	geometry_first_sort = RD::get_singleton()->supports_batch_instance_draws();
 	singleton = this;
 
 	/* SCENE SHADER */
