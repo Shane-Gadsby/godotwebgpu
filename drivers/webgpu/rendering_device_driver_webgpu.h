@@ -173,6 +173,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	uint32_t push_constant_shadow_dirty_start = UINT32_MAX;
 	uint32_t push_constant_shadow_dirty_end = 0;
 
+	// Staging buffers with deferred shadow->GPU writes (see WGBuffer::pending_lo). Every wgpuQueueSubmit goes through
+	// _queue_submit(), which uploads them first.
+	LocalVector<WGBuffer *> pending_staging;
+	void _flush_pending_staging();
+	void _queue_submit(uint32_t p_count, const WGPUCommandBuffer *p_buffers);
+
 	// Universal push constant bind group layout: group N, binding PUSH_CONSTANT_RING_BINDING,
 	// ReadOnlyStorage buffer with hasDynamicOffset=true. Created once at initialize().
 	// All shaders use var<storage, read> for the PC ring buffer — var<uniform> would require

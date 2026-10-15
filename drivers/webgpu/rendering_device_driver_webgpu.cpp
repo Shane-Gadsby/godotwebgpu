@@ -1544,9 +1544,32 @@ bool RenderingDeviceDriverWebGPU::buffer_set_texel_format(BufferID p_buffer, Dat
 	return true;
 }
 
+void RenderingDeviceDriverWebGPU::_flush_pending_staging() {
+	for (WGBuffer *buf : pending_staging) {
+		if (buf->shadow_map && buf->pending_hi > buf->pending_lo) {
+			wgpuQueueWriteBuffer(queue, buf->handle, buf->pending_lo, buf->shadow_map + buf->pending_lo, buf->pending_hi - buf->pending_lo);
+		}
+		buf->pending_lo = UINT64_MAX;
+		buf->pending_hi = 0;
+		buf->pending_listed = false;
+	}
+	pending_staging.clear();
+}
+
+void RenderingDeviceDriverWebGPU::_queue_submit(uint32_t p_count, const WGPUCommandBuffer *p_buffers) {
+	// The staging data the submitted copies read must be on the queue first (writeBuffer is ordered before submit).
+	_flush_pending_staging();
+	wgpuQueueSubmit(queue, p_count, p_buffers);
+}
+
 void RenderingDeviceDriverWebGPU::buffer_free(BufferID p_buffer) {
 	WGBuffer *buf = (WGBuffer *)(p_buffer.id);
 	ERR_FAIL_NULL(buf);
+
+	if (buf->pending_listed) {
+		// Upload what was deferred before the shadow goes away (a queued copy may still read it).
+		_flush_pending_staging();
+	}
 
 	// Drop any readback-cache entry for this buffer.
 	uint64_t key = (uint64_t)(uintptr_t)buf;
@@ -2087,7 +2110,7 @@ bool RenderingDeviceDriverWebGPU::buffer_get_data_direct(BufferID p_buffer, uint
 		WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &enc_desc);
 		wgpuCommandEncoderCopyBufferToBuffer(encoder, buf->handle, 0, entry->staging, 0, entry->size);
 		WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
-		wgpuQueueSubmit(queue, 1, &cmd);
+		_queue_submit(1, &cmd);
 		wgpuCommandBufferRelease(cmd);
 		wgpuCommandEncoderRelease(encoder);
 
@@ -2132,7 +2155,7 @@ bool RenderingDeviceDriverWebGPU::buffer_get_data_direct(BufferID p_buffer, uint
 		WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &enc_desc);
 		wgpuCommandEncoderCopyBufferToBuffer(encoder, buf->handle, 0, entry->staging, 0, entry->size);
 		WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
-		wgpuQueueSubmit(queue, 1, &cmd);
+		_queue_submit(1, &cmd);
 		wgpuCommandBufferRelease(cmd);
 		wgpuCommandEncoderRelease(encoder);
 
@@ -2787,7 +2810,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGPU::texture_get_data(TextureID p_textur
 	WGPUExtent3D extent = { mip_w, mip_h, 1 };
 	wgpuCommandEncoderCopyTextureToBuffer(encoder, &src_info, &dst_info, &extent);
 	WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
-	wgpuQueueSubmit(queue, 1, &cmd);
+	_queue_submit(1, &cmd);
 	wgpuCommandBufferRelease(cmd);
 	wgpuCommandEncoderRelease(encoder);
 
@@ -3742,7 +3765,7 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 			push_constant_shadow_dirty_end = 0;
 		}
 
-		wgpuQueueSubmit(queue, wgpu_cmd_buffers.size(), wgpu_cmd_buffers.ptr());
+		_queue_submit(wgpu_cmd_buffers.size(), wgpu_cmd_buffers.ptr());
 		// Diagnostic: log submit count for the first few frames.
 #ifdef WEBGPU_VERBOSE
 		static int _submit_log = 0;
@@ -7950,7 +7973,14 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer(CommandBufferID p_cmd_buff
 		for (uint32_t i = 0; i < p_regions.size(); i++) {
 			const BufferCopyRegion &region = p_regions[i];
 			uint64_t size = (region.size + 3) & ~3ULL;
-			wgpuQueueWriteBuffer(queue, src->handle, region.src_offset, src->shadow_map + region.src_offset, size);
+			// Deferred and merged: one writeBuffer per staging block, issued by _queue_submit() (the copy below only
+			// reads the block when the command buffer executes, after that write).
+			src->pending_lo = MIN(src->pending_lo, region.src_offset);
+			src->pending_hi = MAX(src->pending_hi, region.src_offset + size);
+		}
+		if (!src->pending_listed) {
+			src->pending_listed = true;
+			pending_staging.push_back(src);
 		}
 		// The specific regions have been flushed above. Clear map_dirty so the
 		// subsequent buffer_unmap() doesn't redundantly flush the entire buffer.
@@ -8952,7 +8982,7 @@ void RenderingDeviceDriverWebGPU::_flush_push_constants(WGCommandBuffer *p_cmd_b
 		if (p_cmd_buf->encoder) {
 			WGPUCommandBuffer finished = wgpuCommandEncoderFinish(p_cmd_buf->encoder, nullptr);
 			if (finished) {
-				wgpuQueueSubmit(queue, 1, &finished);
+				_queue_submit(1, &finished);
 				wgpuCommandBufferRelease(finished);
 			}
 			wgpuCommandEncoderRelease(p_cmd_buf->encoder);

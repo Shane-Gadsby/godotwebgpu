@@ -876,6 +876,9 @@ public:
 
 	virtual void update() override;
 
+	// Cached API_TRAIT_FIRST_INSTANCE_INDEX (see _render_list_template).
+	bool use_first_instance = false;
+
 	RenderForwardClustered();
 	~RenderForwardClustered();
 };

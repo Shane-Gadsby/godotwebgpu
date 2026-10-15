@@ -61,6 +61,13 @@ struct WGBuffer {
 	uint64_t dirty_offset = 0;
 	uint64_t dirty_end = 0; // Exclusive end. 0 means "no explicit range set."
 
+	// Staging-block writes deferred by command_copy_buffer(): the union of the regions copied out of this buffer this
+	// frame, uploaded once by _flush_pending_staging() just before the next queue submit (one writeBuffer per block
+	// instead of one per region).
+	uint64_t pending_lo = UINT64_MAX;
+	uint64_t pending_hi = 0;
+	bool pending_listed = false;
+
 	// Dynamic persistent rotation (Task 7.5).
 	// `frame_idx` is UINT32_MAX for non-dynamic buffers. For BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT
 	// buffers, buffer_create sets frame_idx=0 and per_frame_size to the aligned single-frame
