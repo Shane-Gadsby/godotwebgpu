@@ -1774,6 +1774,32 @@ void RenderingDeviceDriverWebGPU::buffer_flush(BufferID p_buffer) {
 	}
 }
 
+void RenderingDeviceDriverWebGPU::buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {
+	WGBuffer *buf = (WGBuffer *)(p_buffer.id);
+	if (!buf || !buf->shadow_map) {
+		return;
+	}
+	// The caller wrote [p_offset, p_offset + p_size) of the slice buffer_persistent_map_advance() just selected, which is
+	// the only part that changed. Uploading the whole slice instead cost ~0.33 ms per call for a 704 KB slice, and the
+	// post-fx benchmark does 14 of these a frame (TASKS.md 2.17).
+	// The slice is derived from frame_idx rather than from the dirty range: the dirty range is cleared by the first flush,
+	// and a buffer can be flushed again later in the frame (the scene instance buffer is, once per list fill and again
+	// when the shadow passes are processed).
+	uint64_t slice_offset = 0;
+	uint64_t slice_end = buf->size;
+	if (buf->is_dynamic() && buf->per_frame_size > 0 && frame_count > 1) {
+		slice_offset = (uint64_t)buf->frame_idx * buf->per_frame_size;
+		slice_end = slice_offset + buf->per_frame_size;
+	}
+	uint64_t flush_offset = slice_offset + (p_offset & ~3ULL);
+	uint64_t flush_end = MIN(slice_offset + ((p_offset + p_size + 3) & ~3ULL), slice_end);
+	if (flush_end > flush_offset) {
+		wgpuQueueWriteBuffer(queue, buf->handle, flush_offset, buf->shadow_map + flush_offset, flush_end - flush_offset);
+	}
+	buf->dirty_offset = 0;
+	buf->dirty_end = 0;
+}
+
 void RenderingDeviceDriverWebGPU::buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) {
 	WGBuffer *buf = (WGBuffer *)(p_buffer.id);
 	ERR_FAIL_NULL(buf);

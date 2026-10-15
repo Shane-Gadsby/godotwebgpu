@@ -928,8 +928,9 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 		}
 	}
 
+	scene_state.curr_gpu_used_bytes[p_render_list] = uint64_t(p_offset + element_total) * sizeof(SceneState::InstanceData);
 	if (p_update_buffer && element_total > 0u) {
-		RenderingDevice::get_singleton()->buffer_flush(scene_state.instance_buffer[p_render_list]._get(0u));
+		RenderingDevice::get_singleton()->buffer_flush_range(scene_state.instance_buffer[p_render_list]._get(0u), 0, scene_state.curr_gpu_used_bytes[p_render_list]);
 	}
 }
 
@@ -3011,7 +3012,7 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 void RenderForwardClustered::_render_shadow_process() {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (scene_state.instance_buffer[RENDER_LIST_SECONDARY].get_size(0u) > 0u) {
-		rd->buffer_flush(scene_state.instance_buffer[RENDER_LIST_SECONDARY]._get(0u));
+		rd->buffer_flush_range(scene_state.instance_buffer[RENDER_LIST_SECONDARY]._get(0u), 0, scene_state.curr_gpu_used_bytes[RENDER_LIST_SECONDARY]);
 	}
 
 	//render shadows one after the other, so this can be done un-barriered and the driver can optimize (as well as allow us to run compute at the same time)

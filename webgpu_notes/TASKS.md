@@ -188,7 +188,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.29 | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (readback zeros, not LOD code) | — |
 | 2.16 | test-suite gaps | OPEN (gap 5 closed, 7 mostly done) | regression corpus, error-path, async readback, perf-in-CI, Safari |
-| 2.17 | Forward+ benchmark leg / README numbers | PARTLY DONE 2026-10-15 (matrix measured, display-capped) | uncapped run; WebGPU post-fx 96 vs 165 fps |
+| 2.17 | Forward+ benchmark leg / README numbers | PARTLY DONE 2026-10-15 (matrix measured, display-capped; post-fx gap fixed 91 -> 165) | uncapped web run |
 | 2.18 | texture compression export option | BLOCKED | — |
 | 2.19 | interleaved-build stale object | OPEN (not reproduced 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
@@ -834,10 +834,24 @@ launches system Chrome with the standard flags. 28 runs, 22 m 43 s, real GPU (RT
 **What it says.** Every web leg is capped by the display (rAF), so on this hardware the web numbers do *not* separate
 the renderers, and the inherited README "4-5x faster than WebGL" claims (Mac Studio, 2025) are not reproduced here —
 the scenes are too light for a 4080. Native Vulkan is uncapped on c/e/g (vsync off in those projects), which is why it
-shows 2500+. **The one real signal is `scene_f_postfx`: WebGPU is ~45% slower than WebGL and native (96 / 91 vs 165)**,
+shows 2500+. **The one real signal was `scene_f_postfx` (fixed later the same day, see below): WebGPU was ~45% slower than WebGL and native (96 / 91 vs 165)**,
 with `draw_calls` 100 (Mobile) / 263 (Forward+) against 262 for WebGL. That is a genuine WebGPU post-processing cost
 (SSAO + bloom + SubViewport), consistent with the 105 fps `benchmark_postfx` of §2.6, and is the next place to look
 for a perf win. `cpu_avg` reads 0 on web (render-time measurement is disabled there).
+
+**Post-fx gap closed 2026-10-15: `scene_f_postfx` WebGPU 91 -> 165 fps (display cap).** The main thread was 99% busy under
+WebGPU (WebGL 42%), so it was CPU-bound; wrapping every WebGPU call showed 8.2 of ~10 ms/frame inside the API:
+(1) **`createCommandEncoder` x80 + `submit` x80 per frame, 3.7 ms** — `command_begin_render_pass` finished, submitted and
+re-created the encoder before every pass whose attachment also had TextureBinding usage ("proactive encoder isolation"),
+i.e. nearly every offscreen pass. Removed (91 -> 123 fps; the Forward+ matrix, scene smoketest, resource lifecycle,
+screenshot comparison, font/fog visual, spec-constant and WebRTC tiers all stay green). (2) **`writeBuffer` x14 of 704 KB
+per frame, 4.6 ms** — the scene instance buffer is a dynamic-persistent buffer filled through `map_raw_for_upload` and then
+flushed whole, so the full per-frame slice went to the queue though only a few KB of instances were written. New
+`RDD::buffer_flush_range()` / `RenderingDevice::buffer_flush_range()` (default = the old full flush, so no other driver
+changes) used by `_fill_instance_data` / `_render_shadow_process` in Forward+ and Mobile with the bytes actually filled
+(123 -> 165 fps). `dev_mode=yes` (werror) build of template and editor clean. Method, reusable: a `Performance.getMetrics`
+busy% to decide CPU- vs GPU-bound, then a prototype-wrapping timer over the `GPU*` classes (per-call counts and ms/frame);
+keep it, it found both in minutes. Not chased: one 2 MB `writeBuffer` per frame (0.45 ms) still goes out whole.
 
 **Still open:** (1) an *uncapped* web run (Chrome `--disable-frame-rate-limit --disable-gpu-vsync`, or scene sizes
 raised until nothing is capped) to compare the renderers properly; that adds launch flags beyond the user's standard

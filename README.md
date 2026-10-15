@@ -349,10 +349,10 @@ Stress tests comparing WebGPU (Forward Mobile) vs WebGL (Compatibility) at high 
 | Cubes + Lights | 2520 | 160 | 165 | 165 |
 | GPU Particles | 165 | 165 | 165 | 165 |
 | Skeletal Animation | 2809 | 154 | 165 | 165 |
-| Other Effects (SSAO + Bloom) | 164 | 165 | 96 | 91 |
+| Other Effects (SSAO + Bloom) | 164 | 165 | 165 | 165 |
 | Shadows | 2701 | 165 | 165 | 165 |
 
-On this hardware WebGPU matches WebGL (both display-capped) except post-processing, where it is currently slower (tracked in `webgpu_notes/TASKS.md` §2.17). The table below is inherited from the upstream project (Mac Studio M3 Ultra, lighter GPU headroom) and has not been reproduced here.
+On this hardware WebGPU matches WebGL (all display-capped). Post-processing was 96 / 91 fps (Mobile / Forward+) until two driver fixes the same day (one encoder + submit per render pass, and whole-slice uploads of the instance buffer) brought it to the cap; see `webgpu_notes/TASKS.md` §2.17. The table below is inherited from the upstream project (Mac Studio M3 Ultra, lighter GPU headroom) and has not been reproduced here.
 
 Try all benchmarks live at **[godotwebgpu.com/#benchmarks](https://godotwebgpu.com/#benchmarks)**.
 

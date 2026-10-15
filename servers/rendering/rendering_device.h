@@ -283,6 +283,8 @@ public:
 	uint64_t buffer_get_device_address(RID p_buffer);
 	uint8_t *buffer_persistent_map_advance(RID p_buffer);
 	void buffer_flush(RID p_buffer);
+	// Flush only the first p_size bytes written at p_offset of the persistent slice (see RDD::buffer_flush_range).
+	void buffer_flush_range(RID p_buffer, uint64_t p_offset, uint64_t p_size);
 
 private:
 	/******************/
