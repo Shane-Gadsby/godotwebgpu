@@ -63,6 +63,11 @@ cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
 cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 
+# Per-frame WebGPU call/byte budgets on the scene smoketest exports (needs a fresh export first, see TASKS.md §3):
+cd webgpu_tests/perf_guard && node run_perf_guard.mjs
+# Where a CPU-bound export spends its frame (api_profile.mjs: calls/ms per GPU method; cpu_steady.mjs: wasm CPU by function):
+node api_profile.mjs --dir <export> --uncapped
+
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite
 ./webgpu_tests/local_ci.sh --quick          # shader corpus + scene smoketest only, no rebuild

@@ -42,6 +42,13 @@ a rare non-visual error.
 | Forward+ feature matrix | **64 / 64** on real GPU, Chrome; VoxelGI now 7.743 vs Vulkan 7.742 | 2026-10-14, after §2.11's fix (`4d407aacc`); re-run in the final `local_ci.sh --dev-mode` at `23246cb66` |
 | full `local_ci.sh --dev-mode` with `WEBGPU_REAL_GPU=1` | all stages green incl. fog, fonts, smoketest Chrome+Firefox, lifecycle, screenshots 8/8; WebRTC 516 assertions (rerun by hand — the stage skipped on a Playwright mismatch, §3 trap 3a) | 2026-10-14, `23246cb66` |
 | full `local_ci.sh --dev-mode --bake` with `WEBGPU_REAL_GPU=1` | green through the baked matrix (`baked: 415, translated: 33`); the WebRTC stage SKIPped on trap 3a's Playwright mismatch, so WebRTC (258 assertions, web half), lifecycle and screenshots (8/8) were rerun by hand and passed | 2026-10-14, `af3d57ddd1` (2 MB push-constant ring) |
+| Forward+ matrix, unbaked **and** `--baked` | 64 / 64 both; 60 of 64 deltas within 3% of the pre-optimisation run (`ambient_light` bimodal on unbaked, particles noisy) | 2026-10-15, real GPU, after the encoder-split removal, range flushes, staging coalescing and `firstInstance` for Forward+ (§2.17) |
+| scene smoketest (real GPU, Chrome) | 21 / 21 on fresh exports (needs `GODOT_EDITOR_BIN`/`GODOT_TEMPLATE_ZIP` set, §3 measurement traps) | 2026-10-15 |
+| `perf_guard` (new, §2.16 gap 4) | green on real GPU and on swiftshader; 2 encoders + 2 submits per frame, 64-350 KB `writeBuffer` per frame; `PERF_GUARD_SCALE=0.1` goes red | 2026-10-15 |
+| WebRTC parity (real WebGPU path) | **353 / 353** across nothreads, threads, dlink and baked; the fixture had never run on WebGPU before today (§2.29) | 2026-10-15, real GPU |
+| user's `cameraSim` project, baked export | 163 fps, `baked 427 / translated 0`, 2.0 s stall, renders correctly (§2.14) | 2026-10-15 |
+| heavy Forward+ scene, baked | `baked 759 / translated 0`, stall 18.5 -> 7.7 s, 155 fps uncapped, push-constant writes 3608 -> 106 per frame | 2026-10-15, §2.6 / §2.17 |
+| benchmark matrix (7 scenes x native / WebGL / WebGPU Mobile / WebGPU Forward+) | capped: everything at the 165 Hz cap, post-fx fixed 91 -> 165; uncapped (corrected): WebGPU 25-50% of native, Forward+ within 3-10% of Mobile except post-fx (414 vs 583) | 2026-10-15, §2.17 |
 | Forward+ matrix, **baked** export | **64 / 64**, `baked: 415, translated: 33`; now a CI tier (`local_ci.sh --bake`, fails on `baked == 0`, `translated > 80` or a cache-mismatch warning — verified red on an unbaked export) | 2026-10-14, `64de4bda4`, §2.29 |
 | scene smoketest, **baked** export (real GPU, Chrome) | **21 / 21**; `--baked` asserts the shader cache was used (gl_compatibility projects exempt); export takes ~6.6 min | 2026-10-14, `231e6ca1e`, §2.29 |
 | heavy Forward+ scene (3549 draws/frame) | 164 fps, `ringOverflows: 0` (was 1), `rwShadowRefreshes: 40` | 2026-10-14, `af3d57ddd`, §2.6 |
@@ -57,16 +64,16 @@ Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches i
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
 
-### What is built right now — snapshot 2026-10-14 (end of day), HEAD `87ce223d87`
+### What is built right now — snapshot 2026-10-15 (end of the real-GPU session), HEAD after `b08b6b2fce`
 
-Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
+**Read the 2026-10-15 additions first:** §2.6, §2.14-2.17, §2.19, §2.22, §2.29 changed state today; the driver changed (encoder split removed, `buffer_flush_range`, deferred staging uploads, Forward+ `firstInstance`) and the full `local_ci.sh` was *not* re-run on the final tree — the individual tiers in "Verified tiers" were, each against fresh exports. Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
 no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --bake` was green on the
 source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` include roots and the `features.js` WebGL probe flag) (see "Verified tiers" caveats: the WebRTC stage needed a manual rerun, §3 trap 3a).
 
 | artifact | state |
 |---|---|
-| `godot.linuxbsd.editor.x86_64` | rebuilt late 2026-10-14 with `webgpu=yes dev_mode=yes` at `a15cc5ed17` (baker enabled). **Matches the template below, not HEAD** — the later commit changed the git version hash, so a baked export from this pair is unbaked-by-mismatch against a HEAD build; rebuild both before the next baked export |
-| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt at `a15cc5ed17` with `dev_mode=yes` (no debug symbols), after the `getMissingFeatures` change. A baked export of this pair reports `baked: 615, translated: 0` |
+| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `b08b6b2fce` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
+| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at `b08b6b2fce` with `dev_mode=yes` (no debug symbols; `-Werror` clean). Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
 | `godot.web.template_release.wasm32.nothreads.dlink.zip` | from the CI run before the late rebuilds (19:10). Compile check only — nothing loads it. **Stale** w.r.t. HEAD |
 | `godot.linuxbsd.editor.dev.x86_64` | **stale** — a throwaway `dev_build=yes` native build from the start of the day; used only for the native-Vulkan reference captures (`--fp-matrix`). Rebuild before reusing |
 | `godot.web.template_{debug,*threads*}` | **stale** (Oct 13 / early Oct 14). Rebuild before any threaded or debug-template work |

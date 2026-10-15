@@ -379,3 +379,21 @@ used instead.
 
 The HTML export shell automatically detects WebGPU availability and shows a
 clear error message if the browser doesn't support it.
+
+## Per-frame cost policy (2026-10-15, TASKS.md §2.17)
+
+The web build is CPU-bound on the main thread, so what matters is the number of WebGPU calls and bytes per frame, not shader
+work. The rules the driver now follows, each found by measurement and guarded by `webgpu_tests/perf_guard`:
+
+- **One command encoder and one submit per frame** (plus rare forced splits). `command_begin_render_pass` no longer finishes
+  and re-submits the encoder before passes whose attachment also has TextureBinding usage; that cost 80 encoders and submits
+  a frame in a post-processing scene.
+- **Uploads send only what was written.** `buffer_flush_range()` (base-class default = full flush) is used by dynamic persistent
+  buffers: the scene instance buffer and the canvas instance buffer pass the bytes actually filled instead of the whole slice.
+- **Staging-block writes are deferred and merged.** `command_copy_buffer()` records the union of the regions copied out of a
+  staging block; `_queue_submit()` uploads each block once with one `wgpuQueueWriteBuffer` before every `wgpuQueueSubmit`. Never
+  call `wgpuQueueSubmit` directly; go through `_queue_submit()`, or the copies read stale staging data.
+- **Instance index via `firstInstance`** (`API_TRAIT_FIRST_INSTANCE_INDEX`): Forward Mobile and Forward+ send a single
+  non-multimesh instance's index as drawIndexed's firstInstance and re-send the push constant only when another field changes.
+- Profiling tools: `webgpu_tests/perf_guard/api_profile.mjs` (busy %, calls/ms per frame per GPU method) and `cpu_steady.mjs`
+  (wasm CPU by function, needs `debug_symbols=yes`).
