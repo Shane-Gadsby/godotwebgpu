@@ -863,7 +863,7 @@ flushed whole, so the full per-frame slice went to the queue though only a few K
 changes) used by `_fill_instance_data` / `_render_shadow_process` in Forward+ and Mobile with the bytes actually filled
 (123 -> 165 fps). `dev_mode=yes` (werror) build of template and editor clean. Method, reusable: a `Performance.getMetrics`
 busy% to decide CPU- vs GPU-bound, then a prototype-wrapping timer over the `GPU*` classes (per-call counts and ms/frame);
-keep it, it found both in minutes. Not chased: one 2 MB `writeBuffer` per frame (0.45 ms) still goes out whole.
+keep it, it found both in minutes. A third whole-slice flush turned up through the new perf guard: the canvas instance buffer (2 MB slice, flushed whole every frame in *every* scene, 3D ones included, because of the FPS label/UI). `_canvas_render_items`' end-of-frame flush now passes the used range: per-frame upload 2.1 MB -> 64-350 KB. **Trap:** `run_scenes.mjs --export-only` silently exports nothing unless `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` are set (its default is the macOS editor); a later run then measures stale exports. The perf guard's numbers are only valid after a fresh export.
 
 **Still open:** (1) an *uncapped* web run (Chrome `--disable-frame-rate-limit --disable-gpu-vsync`, or scene sizes
 raised until nothing is capped) to compare the renderers properly; that adds launch flags beyond the user's standard
