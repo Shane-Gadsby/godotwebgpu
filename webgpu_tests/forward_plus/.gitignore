@@ -2,3 +2,5 @@ node_modules/
 export/
 package-lock.json
 export_baked/
+export_heavy/
+export_heavy_baked/

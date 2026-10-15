@@ -1,0 +1,42 @@
+#version 450
+// hoist_constant_local_arrays (TASKS.md 2.30): a `const` array indexed with a
+// runtime index makes glslang store the whole constant into a Function-scope
+// "indexable" variable at every access. Run per call (here, per tap in a loop),
+// that re-initialization was 90% of SSIL's GPU time on WebGPU. Cases:
+//   pattern   -- const vec4[8] read in a helper called in a loop: must hoist.
+//   counts    -- const int[5] read twice in main: must hoist (two identical stores).
+//   scratch   -- a local array that is written per element: must NOT hoist.
+//   modified  -- initialized from a const, then one element overwritten: must NOT hoist.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(std430, set = 0, binding = 0) buffer Data {
+	vec4 values[];
+};
+layout(push_constant, std430) uniform Params {
+	int taps;
+	int quality;
+} params;
+
+const vec4 pattern[8] = vec4[](
+		vec4(0.1, 0.2, 0.3, 0.4), vec4(0.5, 0.6, 0.7, 0.8), vec4(-0.1, -0.2, -0.3, -0.4), vec4(1.0, 2.0, 3.0, 4.0),
+		vec4(0.9, 0.8, 0.7, 0.6), vec4(0.0, 0.25, 0.5, 0.75), vec4(-1.0, 1.0, -1.0, 1.0), vec4(3.0, 1.0, 4.0, 1.5));
+
+vec4 tap(int i) {
+	return pattern[i] * 2.0;
+}
+
+void main() {
+	const int counts[5] = int[](3, 5, 12, 0, 0);
+	uint idx = gl_GlobalInvocationID.x;
+	vec4 sum = vec4(0.0);
+	int n = counts[params.quality];
+	for (int i = 0; i < n + counts[params.quality + 1]; i++) {
+		sum += tap(i & 7);
+	}
+	vec4 scratch[4];
+	for (int i = 0; i < 4; i++) {
+		scratch[i] = vec4(float(i) * values[idx].x);
+	}
+	vec4 modified[2] = vec4[](vec4(1.0), vec4(2.0));
+	modified[params.taps & 1] = sum;
+	values[idx] = sum + scratch[params.taps & 3] + modified[params.quality & 1];
+}

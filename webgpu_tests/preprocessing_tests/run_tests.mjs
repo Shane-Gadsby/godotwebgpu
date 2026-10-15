@@ -1565,6 +1565,49 @@ function testImageDeclReflection() {
 testImageDeclReflection();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 23: hoist_constant_local_arrays
+// ─────────────────────────────────────────────────────────────────────────────
+// A `const` array indexed at runtime becomes a Function-scope variable that
+// glslang re-stores the whole constant into before every access; re-initialized
+// per call it was 90% of SSIL's GPU time on WebGPU (TASKS.md 2.30). Only arrays
+// that never hold anything but that one constant may move to module scope: a
+// per-element store or an overwrite after a constant initializer must keep the
+// array local (otherwise every invocation would share... nothing, but every
+// *call* would see the previous call's writes).
+function testHoistConstantLocalArrays() {
+  console.log("\n=== Test 23: hoist_constant_local_arrays ===\n");
+
+  const src = join(__dirname, "fixtures_src", "constant_local_arrays.comp");
+  const spvOut = join(tmpdir(), `constant_local_arrays_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["-V", src, "-o", spvOut], { encoding: "utf-8" });
+  } catch (e) {
+    skip(`glslangValidator unavailable: ${e.message}`);
+    return;
+  }
+  let wgsl;
+  try {
+    wgsl = execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 });
+  } catch (e) {
+    assert(false, `conversion failed: ${e.stderr || e.message}`);
+    return;
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+
+  const privates = [...wgsl.matchAll(/^var<private> (\w+) : (.+?) = /gm)].map((m) => m[2]);
+  assert(privates.includes("array<vec4<f32>, 8u>"), "the const vec4[8] read in a helper is a module-scope private");
+  assertEq(privates.filter((t) => t === "array<i32, 5u>").length, 1, "the const int[5] read twice in main is one private, not two");
+  assertEq(privates.length, 2, "nothing else was hoisted");
+  assert(/^\s+var scratch : array<vec4<f32>, 4u>;/m.test(wgsl), "an array written per element stays local");
+  assert(/^\s+var modified : array<vec4<f32>, 2u>;/m.test(wgsl), "an array overwritten after a constant initializer stays local");
+  // No whole-array constant stores remain inside functions.
+  assert(!/^\s+\w+ = array<vec4<f32>, 8u>\(/m.test(wgsl), "no per-call re-initialization of the vec4[8] remains");
+}
+
+testHoistConstantLocalArrays();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"=".repeat(50)}`);

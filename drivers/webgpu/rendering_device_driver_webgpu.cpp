@@ -11606,6 +11606,12 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 		desc.compute.constants = compute_constants.ptr();
 	}
 
+	// Same labeling as render_pipeline_create(): Dawn's errors and GPU-side
+	// profilers (perf_guard/gpu_time.mjs --passes) can then name the pass.
+	static int _cpcreate_id = 0;
+	const CharString pipeline_label = ("cpipe#" + itos(_cpcreate_id++) + ":" + shader->name).utf8();
+	desc.label = { pipeline_label.get_data(), WGPU_STRLEN };
+
 	WGPUComputePipeline pipeline = wgpuDeviceCreateComputePipeline(device, &desc);
 	if (!pipeline) {
 		if (specialized_compute) {

@@ -82,6 +82,7 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	spv = spirv_preprocess::strip_memory_barrier(spv);
 	spv = spirv_preprocess::strip_image_write_operands(spv);
 	spv = spirv_preprocess::strip_image_fetch_read_flag_only_operands(spv);
+	spv = spirv_preprocess::hoist_constant_local_arrays(spv);
 	spv = spirv_preprocess::split_initialized_local_arrays(spv);
 	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
 	spv = spirv_preprocess::fold_ballot_bit_count(spv);

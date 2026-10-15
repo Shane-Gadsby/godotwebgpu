@@ -27,7 +27,8 @@ const browser = await chromium.launch({
 	headless: false, executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
 	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist', ...(UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])],
 });
-const page = await browser.newPage();
+const SIZE = arg('size', ''); // e.g. 640x360: a GPU-bound frame speeds up when the canvas shrinks, a CPU-bound one does not
+const page = await browser.newPage(SIZE ? { viewport: { width: +SIZE.split('x')[0], height: +SIZE.split('x')[1] } } : {});
 await page.addInitScript(() => {
 	window.__t = {}; window.__on = false; window.__frames = 0; window.__wb = {};
 	const wrap = (cls) => {

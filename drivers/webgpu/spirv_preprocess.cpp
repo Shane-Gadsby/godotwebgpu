@@ -2968,6 +2968,340 @@ Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes) {
 	return out;
 }
 
+// ---- hoist_constant_local_arrays ----
+
+Vector<uint8_t> hoist_constant_local_arrays(const Vector<uint8_t> &p_bytes) {
+	const int64_t len = p_bytes.size();
+	const uint32_t total_words = (uint32_t)(len / 4);
+
+	if (total_words < 5) {
+		return p_bytes;
+	}
+
+	const uint8_t *data = p_bytes.ptr();
+	static constexpr uint16_t OP_CONSTANT_NULL = 46;
+	static constexpr uint32_t SC_PRIVATE = 6;
+	static constexpr uint32_t SC_FUNCTION = 7;
+
+	struct LocalArray {
+		uint32_t pointee = 0; // The array type.
+		uint32_t value = 0; // The one constant ever written to it (initializer or OpStore); 0 = none seen yet.
+		bool ok = true;
+	};
+
+	// ---- Pass 1: types, constants, Function-scope array variables, and the
+	// access chains rooted at them. Definitions precede uses textually in
+	// SPIR-V (OpPhi aside, and a pointer cannot reach an OpPhi without the
+	// VariablePointers capability), so a forward scan resolves chain roots.
+	HashMap<uint32_t, uint32_t> ptr_pointee; // ptr_type_id -> pointee_type_id
+	HashMap<uint64_t, uint32_t> ptr_by_sc_pointee; // (sc<<32|pointee) -> ptr_type_id
+	HashSet<uint32_t> array_types;
+	HashSet<uint32_t> constants; // Non-spec constants only: a spec constant must stay specializable per pipeline.
+	HashMap<uint32_t, LocalArray> locals; // var_id -> info
+	HashMap<uint32_t, uint32_t> chain_root; // access-chain result id -> root var_id
+	uint32_t first_function_pos = 0;
+	uint32_t entry_point_count = 0;
+	bool in_function = false;
+
+	uint32_t pos = 5;
+	while (pos < total_words) {
+		const uint32_t w0 = read_word(data, len, pos);
+		const uint32_t wc = w0 >> 16;
+		const uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (wc == 0 || pos + wc > total_words) {
+			return p_bytes; // Malformed: leave it to Tint to report.
+		}
+		switch (op) {
+			case OP_ENTRY_POINT:
+				entry_point_count++;
+				break;
+			case OP_TYPE_ARRAY:
+				array_types.insert(read_word(data, len, pos + 1));
+				break;
+			case OP_TYPE_POINTER: {
+				const uint32_t id = read_word(data, len, pos + 1);
+				const uint32_t sc = read_word(data, len, pos + 2);
+				const uint32_t pointee = read_word(data, len, pos + 3);
+				ptr_pointee[id] = pointee;
+				const uint64_t key = ((uint64_t)sc << 32) | pointee;
+				if (!ptr_by_sc_pointee.has(key)) {
+					ptr_by_sc_pointee[key] = id;
+				}
+			} break;
+			case OP_CONSTANT_TRUE:
+			case OP_CONSTANT_FALSE:
+			case OP_CONSTANT:
+			case OP_CONSTANT_COMPOSITE:
+			case OP_CONSTANT_NULL:
+				constants.insert(read_word(data, len, pos + 2));
+				break;
+			case OP_FUNCTION:
+				if (first_function_pos == 0) {
+					first_function_pos = pos;
+				}
+				in_function = true;
+				break;
+			case OP_FUNCTION_END:
+				in_function = false;
+				break;
+			case OP_VARIABLE:
+				if (in_function && read_word(data, len, pos + 3) == SC_FUNCTION) {
+					const uint32_t *pointee = ptr_pointee.getptr(read_word(data, len, pos + 1));
+					if (pointee && array_types.has(*pointee)) {
+						LocalArray la;
+						la.pointee = *pointee;
+						if (wc >= 5) {
+							la.value = read_word(data, len, pos + 4);
+							la.ok = constants.has(la.value);
+						}
+						locals[read_word(data, len, pos + 2)] = la;
+					}
+				}
+				break;
+			case OP_ACCESS_CHAIN:
+			case OP_IN_BOUNDS_ACCESS_CHAIN:
+				if (in_function && wc >= 4) {
+					const uint32_t base = read_word(data, len, pos + 3);
+					const uint32_t *root = chain_root.getptr(base);
+					if (root || locals.has(base)) {
+						chain_root[read_word(data, len, pos + 2)] = root ? *root : base;
+					}
+				}
+				break;
+			default:
+				break;
+		}
+		pos += wc;
+	}
+
+	if (locals.is_empty() || first_function_pos == 0) {
+		return p_bytes;
+	}
+
+	// ---- Pass 2: every use of a candidate (or of a chain rooted at one) must
+	// be a read. The only writes allowed are whole-variable OpStores of one and
+	// the same constant -- glslang's `indexable` pattern stores the constant
+	// right before every dynamic index into a `const` array.
+	auto root_of = [&](uint32_t p_id) -> LocalArray * {
+		const uint32_t *root = chain_root.getptr(p_id);
+		return locals.getptr(root ? *root : p_id);
+	};
+	in_function = false;
+	pos = 5;
+	while (pos < total_words) {
+		const uint32_t w0 = read_word(data, len, pos);
+		const uint32_t wc = w0 >> 16;
+		const uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if (op == OP_FUNCTION) {
+			in_function = true;
+		} else if (op == OP_FUNCTION_END) {
+			in_function = false;
+		} else if (in_function) {
+			switch (op) {
+				case OP_VARIABLE:
+					break; // The definition itself (its initializer was checked in pass 1).
+				case OP_LOAD:
+					break; // Reads through the pointer at word 3 are always fine.
+				case OP_ACCESS_CHAIN:
+				case OP_IN_BOUNDS_ACCESS_CHAIN:
+					break; // Rooted chains were recorded in pass 1; their own uses are checked here.
+				case OP_STORE: {
+					const uint32_t ptr = read_word(data, len, pos + 1);
+					const uint32_t obj = read_word(data, len, pos + 2);
+					if (LocalArray *la = locals.getptr(ptr)) {
+						if (!constants.has(obj) || (la->value != 0 && la->value != obj)) {
+							la->ok = false;
+						} else {
+							la->value = obj;
+						}
+					} else if (LocalArray *rooted = root_of(ptr)) {
+						rooted->ok = false; // A per-element write: genuinely mutable.
+					}
+				} break;
+				default:
+					// Anything else that mentions a candidate (a call argument,
+					// OpCopyMemory, an atomic, ...) disqualifies it. A literal
+					// operand that happens to equal an id only costs a missed
+					// hoist, never a wrong one.
+					for (uint32_t i = 1; i < wc; i++) {
+						if (LocalArray *la = root_of(read_word(data, len, pos + i))) {
+							la->ok = false;
+						}
+					}
+					break;
+			}
+		}
+		pos += wc;
+	}
+
+	// Survivors become module-scope Private variables initialized with their
+	// constant. Identical (type, constant) pairs share one variable.
+	HashMap<uint32_t, uint32_t> canonical; // var_id -> surviving var_id
+	HashMap<uint64_t, uint32_t> by_value; // (pointee<<32|value) -> surviving var_id
+	Vector<uint32_t> hoisted; // Surviving var ids, in first-seen order.
+	for (const KeyValue<uint32_t, LocalArray> &E : locals) {
+		if (!E.value.ok || E.value.value == 0) {
+			continue;
+		}
+		const uint64_t key = ((uint64_t)E.value.pointee << 32) | E.value.value;
+		const uint32_t *existing = by_value.getptr(key);
+		if (existing) {
+			canonical[E.key] = *existing;
+		} else {
+			by_value[key] = E.key;
+			canonical[E.key] = E.key;
+			hoisted.push_back(E.key);
+		}
+	}
+	if (hoisted.is_empty()) {
+		return p_bytes;
+	}
+
+	// SPIR-V 1.4+ lists every global an entry point uses in its interface.
+	// With several entry points the call graph would be needed to know which;
+	// Godot's shaders have one, so just do not hoist in the other case.
+	const uint32_t version = read_word(data, len, 1);
+	const bool list_in_interface = version >= 0x00010400;
+	if (list_in_interface && entry_point_count != 1) {
+		return p_bytes;
+	}
+
+	// Private pointer types: one per hoisted array type and one per element
+	// type a rooted access chain produces. Reuse existing ones, mint the rest.
+	uint32_t bound = read_word(data, len, 3);
+	HashMap<uint32_t, uint32_t> private_ptr; // pointee -> Private ptr type id
+	Vector<uint32_t> new_ptr_pointees;
+	auto private_ptr_for = [&](uint32_t p_pointee) -> uint32_t {
+		if (const uint32_t *p = private_ptr.getptr(p_pointee)) {
+			return *p;
+		}
+		const uint32_t *existing = ptr_by_sc_pointee.getptr(((uint64_t)SC_PRIVATE << 32) | p_pointee);
+		uint32_t id = existing ? *existing : 0;
+		if (!id) {
+			id = bound++;
+			new_ptr_pointees.push_back(p_pointee);
+		}
+		private_ptr[p_pointee] = id;
+		return id;
+	};
+	for (uint32_t var_id : hoisted) {
+		private_ptr_for(locals[var_id].pointee);
+	}
+	pos = first_function_pos;
+	while (pos < total_words) {
+		const uint32_t w0 = read_word(data, len, pos);
+		const uint32_t wc = w0 >> 16;
+		const uint16_t op = (uint16_t)(w0 & 0xFFFF);
+		if ((op == OP_ACCESS_CHAIN || op == OP_IN_BOUNDS_ACCESS_CHAIN) && wc >= 4) {
+			const uint32_t *root = chain_root.getptr(read_word(data, len, pos + 2));
+			if (root && canonical.has(*root)) {
+				const uint32_t *pointee = ptr_pointee.getptr(read_word(data, len, pos + 1));
+				if (!pointee) {
+					return p_bytes; // A chain whose result type is not a declared pointer: malformed.
+				}
+				private_ptr_for(*pointee);
+			}
+		}
+		pos += wc;
+	}
+
+	// ---- Emit.
+	Vector<uint8_t> out;
+	append_bytes(out, data, 0, 5 * 4);
+	memcpy(out.ptrw() + 3 * 4, &bound, 4);
+
+	pos = 5;
+	while (pos < total_words) {
+		const uint32_t w0 = read_word(data, len, pos);
+		const uint32_t wc = w0 >> 16;
+		const uint16_t op = (uint16_t)(w0 & 0xFFFF);
+
+		if (pos == first_function_pos) {
+			for (uint32_t pointee : new_ptr_pointees) {
+				push_word(out, (4u << 16) | (uint32_t)OP_TYPE_POINTER);
+				push_word(out, private_ptr[pointee]);
+				push_word(out, SC_PRIVATE);
+				push_word(out, pointee);
+			}
+			for (uint32_t var_id : hoisted) {
+				const LocalArray &la = locals[var_id];
+				push_word(out, (5u << 16) | (uint32_t)OP_VARIABLE);
+				push_word(out, private_ptr[la.pointee]);
+				push_word(out, var_id);
+				push_word(out, SC_PRIVATE);
+				push_word(out, la.value);
+			}
+		}
+
+		switch (op) {
+			case OP_ENTRY_POINT:
+				if (list_in_interface) {
+					push_word(out, ((wc + (uint32_t)hoisted.size()) << 16) | (uint32_t)OP_ENTRY_POINT);
+					append_bytes(out, data, (pos + 1) * 4, (wc - 1) * 4);
+					for (uint32_t var_id : hoisted) {
+						push_word(out, var_id);
+					}
+					pos += wc;
+					continue;
+				}
+				break;
+			case OP_NAME:
+			case OP_DECORATE: {
+				// Debug names and decorations of the merged-away duplicates.
+				const uint32_t *c = canonical.getptr(read_word(data, len, pos + 1));
+				if (c && *c != read_word(data, len, pos + 1)) {
+					pos += wc;
+					continue;
+				}
+			} break;
+			case OP_VARIABLE:
+				if (canonical.has(read_word(data, len, pos + 2))) {
+					pos += wc;
+					continue; // Now declared at module scope.
+				}
+				break;
+			case OP_STORE:
+				if (canonical.has(read_word(data, len, pos + 1))) {
+					pos += wc;
+					continue; // The initializer holds this value from the start.
+				}
+				break;
+			case OP_LOAD: {
+				const uint32_t *c = canonical.getptr(read_word(data, len, pos + 3));
+				if (c) {
+					append_bytes(out, data, pos * 4, 3 * 4);
+					push_word(out, *c);
+					append_bytes(out, data, (pos + 4) * 4, (wc - 4) * 4);
+					pos += wc;
+					continue;
+				}
+			} break;
+			case OP_ACCESS_CHAIN:
+			case OP_IN_BOUNDS_ACCESS_CHAIN: {
+				const uint32_t *root = wc >= 4 ? chain_root.getptr(read_word(data, len, pos + 2)) : nullptr;
+				if (root && canonical.has(*root)) {
+					const uint32_t base = read_word(data, len, pos + 3);
+					const uint32_t *c = canonical.getptr(base);
+					push_word(out, w0);
+					push_word(out, private_ptr[ptr_pointee[read_word(data, len, pos + 1)]]);
+					push_word(out, read_word(data, len, pos + 2));
+					push_word(out, c ? *c : base);
+					append_bytes(out, data, (pos + 4) * 4, (wc - 4) * 4);
+					pos += wc;
+					continue;
+				}
+			} break;
+			default:
+				break;
+		}
+
+		append_bytes(out, data, pos * 4, wc * 4);
+		pos += wc;
+	}
+
+	return out;
+}
+
 // ---- strip_helper_invocation_builtin ----
 
 Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes) {

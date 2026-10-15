@@ -167,7 +167,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 ## 2. Outstanding work — most to least critical
 
 **Pick up here (written 2026-10-15, end of a long session).** Nothing is broken. In rough value order, all non-human:
-1. **§2.30 unbottleneck the CPU** — marshalling path, per-draw call tails, frame-time guards; then decide **§2.5** threading with the numbers.
+1. **§2.30 unbottleneck the frame** — **read its 2026-10-16 entry first: the heavy scene turned out GPU-bound (3.3 ms GPU vs 1.04 native), not CPU-bound.** SSIL fixed (`hoist_constant_local_arrays`, GPU -20%); next is SDFGI's cascade-select chain and a per-pass sweep of other scenes with `gpu_time.mjs --passes`; then the CPU items (marshaling, per-draw calls) and **§2.5** threading.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
 3. **§2.20 / §2.21** (half-float, emdawnwebgpu features) — each needs a verification pass and a real GPU; risky, do one at a time.
 4. **§2.10 / §2.14** more coverage: more real projects through the live sweep, the dlink export of `cameraSim`, a native-Vulkan side-by-side.
@@ -204,7 +204,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.14 ✔ | base-class interface audit | OPEN (audit done; cameraSim swept clean 2026-10-15) | more real projects, dlink export, native side-by-side |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
-| 2.30 ✔ | unbottleneck the CPU (new) | OPEN — encoders/uploads/shadow batching/`firstInstance`/mesh-first order landed; `-O2` and depth-pre-pass batching measured and rejected | marshalling path (~0.5 ms/frame), remaining per-draw calls, threading (§2.5) |
+| 2.30 ✔ | unbottleneck the CPU (new) | OPEN — encoders/uploads/shadow batching/`firstInstance`/mesh-first order landed; `-O2` and depth-pre-pass batching measured and rejected | marshaling path (~0.5 ms/frame), remaining per-draw calls, threading (§2.5) |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -563,7 +563,7 @@ Needs COOP/COEP wherever it is served (§1).
 
 **2026-10-15 — data for the decision.** Profiling (§2.17, §2.30) shows every WebGPU export is 99-100% main-thread busy, so a
 second thread is the only way to overlap work; but what is hot is *not* engine wasm (`-O2` changed nothing) — it is the
-JS/browser call path: ~0.5 ms/frame of marshalling (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`), ~1.4 ms/frame in
+JS/browser call path: ~0.5 ms/frame of marshaling (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`), ~1.4 ms/frame in
 `submit` (largely waiting on the GPU process) on the heavy scene, and per-draw calls. A worker-owned renderer would overlap game
 logic with that, but it needs `threads=yes` + COOP/COEP on the host, the device and its handle table on the render thread (§4.5),
 and the canvas transferred as an `OffscreenCanvas`. Do §2.30's cheaper items first and re-measure how CPU-bound the heavy scene is.
@@ -628,7 +628,7 @@ documented emulation copies, not a bug), and a *baked* heavy export for `transla
 4. The editor/web interleave test of §2.19 was build-only and does not depend on the GPU; it stands.
 Remaining plan after that: §2.29 WebRTC leg and re-baseline, §2.17, §2.14 sweep, §2.20/§2.21.
 
-**Re-run done 2026-10-15 after the reboot** (system Chrome, flags above, adapter probe: nvidia / lovelace). Heavy Forward+ scene (`SceneForwardClusteredShaderRD`, 475 variants): 131-134 fps headed, 3549 draws, 31 passes, 1110 setBindGroup, 3608 push-constant writes, `ringOverflows: 0`, `rwShadowRefreshes: 40`; first frame after a ~19 s engine CPU stall (unbaked: `baked 0, translated 391`). The `BAKE=1` export is byte-identical in behaviour (`baked 0`) because the scene is built in GDScript and the pck is 11 KB, so nothing can bake; converting it to saved resources is still needed for a baked heavy number. Forward+ matrix, unbaked and `--baked` (with `WEBGPU_REAL_GPU=1`): 64/64 both. `run_forward_plus.mjs` now launches system Chrome the same way. Other scripts under `webgpu_tests/` still launch bundled Chromium with `--use-angle=vulkan --use-vulkan=native --no-sandbox` (e.g. `screenshot_comparison`, `scene_smoketest/test_*_visual.mjs`, `resource_lifecycle`); audit them before their next real-GPU run.
+**Re-run done 2026-10-15 after the reboot** (system Chrome, flags above, adapter probe: nvidia / lovelace). Heavy Forward+ scene (`SceneForwardClusteredShaderRD`, 475 variants): 131-134 fps headed, 3549 draws, 31 passes, 1110 setBindGroup, 3608 push-constant writes, `ringOverflows: 0`, `rwShadowRefreshes: 40`; first frame after a ~19 s engine CPU stall (unbaked: `baked 0, translated 391`). The `BAKE=1` export is byte-identical in behavior (`baked 0`) because the scene is built in GDScript and the pck is 11 KB, so nothing can bake; converting it to saved resources is still needed for a baked heavy number. Forward+ matrix, unbaked and `--baked` (with `WEBGPU_REAL_GPU=1`): 64/64 both. `run_forward_plus.mjs` now launches system Chrome the same way. Other scripts under `webgpu_tests/` still launch bundled Chromium with `--use-angle=vulkan --use-vulkan=native --no-sandbox` (e.g. `screenshot_comparison`, `scene_smoketest/test_*_visual.mjs`, `resource_lifecycle`); audit them before their next real-GPU run.
 
 **Baked heavy Forward+ export measured 2026-10-15** (real GPU, system Chrome; `scene_i_forward_plus_heavy` converted to a saved `main.tscn` by `generate_scene.gd`, `main_runtime.tscn` keeps the script-built original). `BAKE=1 export_heavy.sh`: pck 34.6 MB vs 0.19 MB unbaked. Unbaked: `baked 0, translated 391`, `containerCreateMs` 12.8 s, engine stall 18.5 s. Baked: **`baked 759, translated 0, precompiled 1`**, `containerCreateMs` 333 ms, `wgslBytes` 18.2 MB, `spirvBytes` 112 KB, stall **7.7 s**, 139 fps, 3549 draws, `ringOverflows 0`, `rwShadowRefreshes 40` unchanged. So baking works on the heavy Forward+ path with nothing falling back to runtime Tint; §2.6's remaining work is `rwShadowRefreshes` only (documented emulation copies). **Trap (cost an hour):** an editor built without `webgpu=yes` has no shader baker, so every `BAKE=1` export silently comes out unbaked (0.19 MB pck, no message); and after any commit the editor and template must be rebuilt together or the baked cache is discarded (`baked 0` with a 34 MB pck). Build both with `webgpu=yes`; check `baked > 0` in `godotWebGPUShaderStats`.
 
@@ -935,7 +935,7 @@ function; needs a `debug_symbols=yes` template, 184 MB zip, 4 min build). Both s
    Forward+ shader already adds `gl_InstanceIndex` to `draw_call.instance_index`, so the same optimization ports directly:
    `RenderForwardClustered::_render_list_template` now sends a single non-multimesh instance's index as `firstInstance` and
    re-sends the push constant only when something else changes. **Heavy scene: push-constant writes 3608 -> 106 per frame**
-   (same 3549 draws), 155 fps; shadows +11%, post-fx +12%. Correctness: the heavy scene renders correctly (per-object colours
+   (same 3549 draws), 155 fps; shadows +11%, post-fx +12%. Correctness: the heavy scene renders correctly (per-object colors
    and shadows), the Forward+ matrix is 64/64 with 60 of 64 deltas within 3% of before (the rest are the known noisy ones),
    smoketest 21/21, perf guard green. The gap is now 851 vs 883 (4%), i.e. closed.
  - Two non-gaps found on the way: a 1.8 ms/frame floor of `submit` + `createView` (browser side) in every scene, and
@@ -961,7 +961,7 @@ is small (culling 0.29, graph 0.15, `draw_list_draw` 0.13, instance fill 0.09). 
  209-210 with the default `-Os`, and the wasm grows 42.7 -> 53.8 MB (+26%). The time is in the JS/browser call path, not engine
  wasm, so do not spend download size on it.
  - Still the largest lever for draw-heavy scenes: cutting the remaining per-draw calls (depth pre-pass batching, a mesh-first depth
- order), then the marshalling path (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`, ~0.5 ms/frame here), then threading (§2.5).
+ order), then the marshaling path (`bigintToI53Checked`, `getJsObject`, `wasm-to-js`, ~0.5 ms/frame here), then threading (§2.5).
 
 **Depth pre-pass batching and the `setVertexBuffer` idea (2026-10-15).**
  - **Depth pre-pass batching — tried, measured, reverted (not worth it).** Premise: the plain depth pre-pass draws each element's *shadow
@@ -985,7 +985,7 @@ is small (culling 0.29, graph 0.15, `draw_list_draw` 0.13, instance fill 0.09). 
    none showed up in any tier.
  - Where the heavy scene stands (176 -> ~220 fps across the three changes today: shadow-variant batching, geometry-first order, plus
    the earlier firstInstance): remaining per-draw cost is `drawIndexed` x~550 plus `setBindGroup` x~1100 (one material set per draw, by
-   construction in a scene with unique materials) and the ~0.5 ms marshalling path; the next structural step is threading (§2.5).
+   construction in a scene with unique materials) and the ~0.5 ms marshaling path; the next structural step is threading (§2.5).
 
 ### 2.30 Unbottleneck the CPU `OPEN` — started 2026-10-15 *(from §2.17's profiling; feeds §2.5)*
 
@@ -1000,8 +1000,42 @@ WebGPU calls); the heavy scene (3549 draws originally) is engine-bound (~65% was
 opaque list ordered mesh-before-material on WebGPU (`setVertexBuffer` 2098 -> 82/frame). Heavy scene 176 -> ~220 fps; post-fx 91 -> 165 (capped).
 **Measured and rejected:** `-O2` for the engine (0% gain, +26% wasm size); depth pre-pass batching via a separate sorted list (+3%, reverted).
 
-**Open, in suggested order:**
-1. **Marshalling path** (~0.5 ms/frame on the heavy scene: `bigintToI53Checked`, `getJsObject`, `wasm-to-js`, `jsObjectInsert`): 64-bit arguments and handle lookups per call in
+**2026-10-16 — the heavy scene is GPU-bound, not CPU-bound; one shader was 12x native.** Fresh non-`dev_mode` build at `9a92bd5334`.
+ - **The CPU numbers above were partly waiting.** Uncapped, the main thread spends ~1.7 ms/frame inside `getCurrentTexture`
+   (0.62), `submit` (0.52-0.72) and `createView` (0.30-0.40); capped at 165 Hz those three vanish and the main thread is **47%
+   busy = ~2.85 ms CPU/frame** (0.87 ms of it inside WebGPU calls). GPU timestamps (`perf_guard/gpu_time.mjs`, new) put the
+   GPU at **3.2-3.3 ms/frame, 77-80% of the GPU timeline**, against **1.04 ms GPU / 0.33 ms CPU on native Vulkan**
+   (`run_benchmark.sh native`, `BENCH_UNCAPPED=1`). The GPU process's command thread is only ~26% busy and the GPU's own
+   resolution scaling is flat (shadows/SDFGI/fog dominate), so the gap is GPU work Dawn runs, i.e. what our translation produces.
+ - **Per pass** (`gpu_time.mjs --passes`, compute pipelines now carry `cpipe#N:<shader>` labels) against native
+   `--gpu-profile`: **SSIL 0.60-0.75 ms vs 0.063 native**, SDFGI integrate 0.40 + 0.08 and SDFGI direct light 0.16 (native
+   SDFGI sections ~0.12 + part of the 0.19 "GI + depth pre-pass"), the colour pass 0.21 vs 0.23, shadows 0.18 + 0.08 vs ~0.17.
+   Everything except SSIL and SDFGI is at native parity.
+ - **SSIL — fixed.** Bisected by substituting hand-edited WGSL (`gpu_time.mjs --replace-wgsl`): not the `last_frame` sample, not
+   the views (mips are right); the cost was the per-tap helper re-initializing a function-local `array<vec4<f32>, 32>` sample
+   pattern on every call. glslang emits an `indexable` Function variable plus a whole-constant `OpStore` before every runtime
+   index into a GLSL `const` array; native drivers fold it, after the round trip through Tint and Dawn NVIDIA does not. The
+   same constants as a module-scope `const` or `var<private>` take the pass off the top-8. New SPIR-V pass
+   **`hoist_constant_local_arrays`** (before `split_initialized_local_arrays`) moves every Function-scope array that only ever
+   holds one non-spec constant to a `Private` variable with that initializer, dedupes identical ones, and leaves anything
+   written per element alone. 27 arrays hoisted across the precompiled engine shaders; **0** whole-array re-initializations
+   remain there. Heavy scene: **GPU 3.3 -> 2.63 ms/frame (-20%)**, SSIL below 0.05 ms, ~225 -> ~235 fps uncapped (now only
+   67% of the GPU timeline is busy, so the frame is mixed-bound). Forward+ matrix **64/64** (ssil 1.74, ssao 1.66 vs native), scene smoketest **21/21** (real GPU, Chrome, fresh exports),
+   preprocessing tests 244/0 (new test 23 + fixture `constant_local_arrays.comp`), corpus 14/0, driver unit 370/0,
+   `wgsl_precompile` 274/0/0. SSAO had the identical pattern but was already fast (the loop shape let the compiler fold it).
+ - **Found on the way:** the precompiled header did not depend on the passes, so the fix first reached only runtime-converted
+   shaders (§3 trap 20, fixed in `SCsub`).
+ - **Also found:** `forward_plus/export_heavy*/` (a 42 MB wasm each) had been committed in `8952025769`, `1f1c4620a4` and `333ae47d48`;
+   now gitignored and untracked. The blobs are still in those (local, unpushed) commits' history.
+
+**Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
+0. **SDFGI on WebGPU** (~0.6 ms/frame over native): `WEBGPU_DECLARE_TEXTURE3D_ARRAY8` emulates the cascade texture arrays with an
+   8-way `if` chain per sample (`sdf_cascades_sample(j, ...)` inside the ray march), so divergent rays pay several samples. Options:
+   a binary-search select (3 compares, same samples), or packing the cascades into one atlas texture (engine change). Then the
+   39 `copyTextureToTexture`/frame of read-write shadow refreshes and the inter-pass gaps (GPU timeline 67% busy).
+   Also worth a sweep: other user-visible shaders with the same "fine natively, slow after Tint" shape — `gpu_time.mjs --passes`
+   against `--gpu-profile` finds them in one run per scene.
+1. **Marshaling path** (~0.5 ms/frame on the heavy scene: `bigintToI53Checked`, `getJsObject`, `wasm-to-js`, `jsObjectInsert`): 64-bit arguments and handle lookups per call in
    emdawnwebgpu. Options: fewer calls (below), or a toolchain patch with fast paths for `setBindGroup`/`setVertexBuffer`/`drawIndexed` (same upkeep burden as `misc/emsdk_patches/`).
 2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a
    material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
@@ -1227,6 +1261,12 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
 19. **Emscripten-only driver files can be compile-checked in ~2 s** by naming the object file as the
     scons target — the name must carry the full variant suffix (e.g.
     `….wasm32.nothreads.o`). No full web build needed.
+20. **`wgsl_precompiled.gen.h` used to depend only on `wgsl_precompile.py`** (fixed 2026-10-16). A change to a
+    preprocessing pass or an engine `.glsl` rebuilt `tint_convert_cli` and the runtime path, but the precompiled engine
+    shaders kept the old WGSL — the header was a day old after a pass change, with nothing saying so. `drivers/webgpu/SCsub`
+    now lists the pass sources and `servers/rendering/renderer_rd/shaders/**/*.glsl`. Vendored Tint is still not listed:
+    after a Tint patch, delete the header by hand. Check with `ls -la drivers/webgpu/wgsl_precompiled.gen.h` and the
+    `[WGSL Precompile] Results:` line in the build log.
 
 ---
 
@@ -1236,8 +1276,15 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
   same export read 289, 668 and 961 fps in three runs. Warm up by wall-clock too (`benchmark_profiler.gd` now does).
 - **A slow-looking WebGPU call is usually the main thread waiting on the GPU process**, not copying: a 44 KB `writeBuffer`
   took 300 us, a 133 KB one 29 us. Attribute with engine-side wasm self time (`perf_guard/cpu_steady.mjs`), not call time alone.
-- **Judge CPU- vs GPU-bound first**: main-thread busy % over a few seconds (`api_profile.mjs`). ~100% = CPU-bound, and then
-  per-frame call counts (`perf_guard`) are what to cut.
+- **Judge CPU- vs GPU-bound first — and uncapped "100% busy" does not mean CPU-bound** (corrected 2026-10-16). Uncapped, the
+  main thread blocks inside `getCurrentTexture()`, `createView()` and `submit()` when the GPU is behind, and that wait counts as
+  busy: the heavy scene read 100% busy with 1.7 ms/frame in those three calls while its real CPU cost was 2.85 ms of a 4.4 ms frame.
+  Two checks that do separate them: **capped** busy % (`api_profile.mjs` without `--uncapped`: 47% x 6.06 ms = CPU ms/frame, and
+  the three calls drop out of the list) and **GPU time** (`perf_guard/gpu_time.mjs`: timestamp queries per command buffer, or
+  per pass with `--passes`). Shrinking the canvas (`api_profile.mjs --size 480x270`) is *not* a check here: shadows, SDFGI and
+  fog do not scale with it. Native per-section GPU time for comparison: run the project with `--gpu-profile`.
+- **`api_profile.mjs` inflates the frame** (it wraps every GPU method with two `performance.now()` calls); read its fps as a
+  lower bound and take fps from `gpu_time.mjs` or the engine's `godotWebGPUFrameStats` instead.
 - **Stale exports**: `scene_smoketest/run_scenes.mjs --export-only` needs `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` or it exports
   nothing (default is the macOS editor); an editor without `webgpu=yes` bakes nothing; a commit after the build mismatches the
   baked cache. Check `baked > 0` and the template/editor version before trusting a number.

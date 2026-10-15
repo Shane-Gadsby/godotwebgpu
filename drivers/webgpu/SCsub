@@ -3,6 +3,8 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
+import os
+
 import wgsl_precompile
 
 env_webgpu = env.Clone()
@@ -753,11 +755,34 @@ if env["platform"] == "web":
 
     # Generate precompiled SPIR-V → WGSL lookup table at build time.
     # The generated header is #included by rendering_device_driver_webgpu.cpp.
-    env.CommandNoCache(
+    precompiled = env.CommandNoCache(
         "#drivers/webgpu/wgsl_precompiled.gen.h",
         "#drivers/webgpu/wgsl_precompile.py",
         env.Run(wgsl_precompile.build_wgsl_precompiled),
     )
+    # The table is the output of the whole SPIR-V -> WGSL pipeline run over the engine's
+    # shaders, so it is stale whenever a preprocessing pass or a shader changes, not only
+    # when the script does. Without these a pass fix reached runtime-converted shaders but
+    # silently not the precompiled engine ones (TASKS.md 2.30). Vendored Tint itself is
+    # not listed (thousands of files); after a Tint patch, delete the header.
+    pipeline_sources = [
+        "#drivers/webgpu/" + f
+        for f in (
+            "spirv_preprocess.cpp",
+            "spirv_preprocess.h",
+            "spirv_to_wgsl.cpp",
+            "tint_wrapper.cpp",
+            "tint_ir_transforms.cpp",
+            "tint_cli/main.cpp",
+        )
+    ]
+    shader_sources = [
+        os.path.join(root, f)
+        for root, _, files in os.walk(env.Dir("#servers/rendering/renderer_rd/shaders").abspath)
+        for f in files
+        if f.endswith(".glsl")
+    ]
+    env.Depends(precompiled, pipeline_sources + shader_sources)
 else:
     # Native editor "shader baker" subset only (WEBGPU_SHADER_BAKER_ENABLED,
     # set by this platform's detect.py configure() when webgpu=yes tools=yes).

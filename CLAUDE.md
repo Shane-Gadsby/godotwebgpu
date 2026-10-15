@@ -67,6 +67,8 @@ cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 cd webgpu_tests/perf_guard && node run_perf_guard.mjs
 # Where a CPU-bound export spends its frame (api_profile.mjs: calls/ms per GPU method; cpu_steady.mjs: wasm CPU by function):
 node api_profile.mjs --dir <export> --uncapped
+# Whether it is GPU-bound instead, and which pass costs what on the GPU (uncapped "100% busy" includes waiting on the GPU):
+node gpu_time.mjs --dir <export> --uncapped [--passes]
 
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite

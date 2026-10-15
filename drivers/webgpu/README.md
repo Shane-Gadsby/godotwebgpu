@@ -395,5 +395,10 @@ work. The rules the driver now follows, each found by measurement and guarded by
   call `wgpuQueueSubmit` directly; go through `_queue_submit()`, or the copies read stale staging data.
 - **Instance index via `firstInstance`** (`API_TRAIT_FIRST_INSTANCE_INDEX`): Forward Mobile and Forward+ send a single
   non-multimesh instance's index as drawIndexed's firstInstance and re-send the push constant only when another field changes.
-- Profiling tools: `webgpu_tests/perf_guard/api_profile.mjs` (busy %, calls/ms per frame per GPU method) and `cpu_steady.mjs`
-  (wasm CPU by function, needs `debug_symbols=yes`).
+- **Shader code can cost more on the GPU than the same GLSL does natively.** After the SPIR-V -> WGSL -> SPIR-V round trip,
+  patterns a native driver folds may survive into Dawn's output: SSIL ran 12x native because a `const` sample-pattern array was
+  re-initialized per tap (now hoisted by `spirv_preprocess::hoist_constant_local_arrays`). Compare per pass before assuming
+  CPU cost: `gpu_time.mjs --passes` against the native project's `--gpu-profile`.
+- Profiling tools: `webgpu_tests/perf_guard/api_profile.mjs` (busy %, calls/ms per frame per GPU method), `cpu_steady.mjs`
+  (wasm CPU by function, needs `debug_symbols=yes`) and `gpu_time.mjs` (GPU ms per frame from timestamp queries; `--passes`
+  ranks every render/compute pass, `--replace-wgsl` swaps in a hand-edited shader module to bisect one).
