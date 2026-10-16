@@ -1117,6 +1117,27 @@ Native's whole CPU render time for this scene is 0.33 ms, so engine wasm runs ~3
    3D attenuation as the camera moves). Smoketest platformer / stress / 2d platformer pass on the real GPU. No tier checks audio
    *output*; the change only skips writes of an unchanged value. Upstream-able as is.
 
+**Engine wasm CPU vs native, 2026-10-16.** Two levers measured with the capped CPU metric (`cpu_steady.mjs` busy ms/frame,
+two runs each, ~5% run-to-run noise), heavy_i / 3d platformer:
+
+| template | heavy_i | platformer | wasm |
+|---|---:|---:|---:|
+| `-Os`, no LTO (what every build here and in CI produces) | 2.08 / 2.20 | 1.01 / 1.10 | 41 MB |
+| `-Os` + `lto=thin` (official `production=yes` templates get LTO) | 2.27 / 2.11 | 1.05 / 1.14 | 42 MB |
+| `optimize=speed` (`-O2`) + `lto=thin` | 2.05 / 2.12 | 0.99 / 1.07 | 60 MB |
+
+**Neither moves CPU time**; -O2 costs +46% download. (This re-test matters: the earlier "-O2 gave 0%" was read off uncapped fps
+while the scene was GPU-bound, so it could not have shown a CPU gain. Now it is confirmed on CPU time.)
+**The "3.6x native" was wrong:** the native 0.33 ms is `viewport_get_measured_render_time_cpu()`, which covers only the measured
+render section. Whole main-thread CPU natively (editor binary, `/proc/<pid>/task/<pid>/stat` utime+stime over 10 s) is
+**0.66 ms/frame** (whole process 0.92) at 909 fps, against web engine wasm ~1.25 ms of a ~2.1 ms main thread. So engine wasm is
+~1.9x native's *entire* main thread (which also includes NVIDIA's user-mode driver) — an ordinary wasm-vs-native ratio, not a
+pathology. On web the same profiler metric reads 0.00 (it needs driver timestamps), so there is no like-for-like there.
+A per-function native comparison needs `perf`, which `kernel.perf_event_paranoid=4` blocks for a normal user
+(`sudo sysctl kernel.perf_event_paranoid=1` to allow it). What would still pay on the CPU: algorithmic work in the engine's hot
+paths (scene/light culling 0.30, Forward+ list building 0.21, RenderingDevice + graph 0.29 ms/frame on heavy_i — it would help
+native too), or overlapping it with game logic via threading (§2.5).
+
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
 0. **SDFGI: mostly done 2026-10-16 (below).** What is left: SDFGI integrate 0.47 ms in 4 small dispatches (111 workgroups each)
    that WebGPU must fence against each other (all four bind the shared, writable `ambient_texture`; natively they sit in one
