@@ -41,6 +41,150 @@
 			Additional HTML tags to include inside the [code]&lt;head&gt;[/code], such as [code]&lt;meta&gt;[/code] tags.
 			[b]Note:[/b] You do not need to add a [code]&lt;title&gt;[/code] tag, as it is automatically included based on the project's name.
 		</member>
+		<member name="loading_screen/initializing_webgpu/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the shell requests the WebGPU adapter and device, before the download starts (WebGPU exports only). Default: [code]false[/code].
+		</member>
+		<member name="loading_screen/initializing_webgpu/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/initializing_webgpu/text] while the shell requests the WebGPU adapter and device, before the download starts (WebGPU exports only).
+		</member>
+		<member name="loading_screen/initializing_webgpu/text" type="String" setter="" getter="">
+			The text the loading screen shows while the shell requests the WebGPU adapter and device, before the download starts (WebGPU exports only). Defaults to [code]Initializing WebGPU...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/downloading/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the engine and project files download; the percentage is appended when the download's total size is known. Default: [code]false[/code].
+		</member>
+		<member name="loading_screen/downloading/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/downloading/text] while the engine and project files download; the percentage is appended when the download's total size is known.
+		</member>
+		<member name="loading_screen/downloading/text" type="String" setter="" getter="">
+			The text the loading screen shows while the engine and project files download; the percentage is appended when the download's total size is known. Defaults to [code]Downloading...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/starting_engine/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner when the engine's main function starts, and between the audio server and the window setup (the shader cache is compiled here, which can block for seconds). Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/starting_engine/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/starting_engine/text] when the engine's main function starts, and between the audio server and the window setup (the shader cache is compiled here, which can block for seconds).
+		</member>
+		<member name="loading_screen/starting_engine/text" type="String" setter="" getter="">
+			The text the loading screen shows when the engine's main function starts, and between the audio server and the window setup (the shader cache is compiled here, which can block for seconds). Defaults to [code]Starting engine...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/initializing_engine/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the engine sets itself up and reads the early project settings. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/initializing_engine/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/initializing_engine/text] while the engine sets itself up and reads the early project settings.
+		</member>
+		<member name="loading_screen/initializing_engine/text" type="String" setter="" getter="">
+			The text the loading screen shows while the engine sets itself up and reads the early project settings. Defaults to [code]Initializing engine...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/loading_extensions/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while modules and GDExtensions initialize. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/loading_extensions/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/loading_extensions/text] while modules and GDExtensions initialize.
+		</member>
+		<member name="loading_screen/loading_extensions/text" type="String" setter="" getter="">
+			The text the loading screen shows while modules and GDExtensions initialize. Defaults to [code]Loading extensions...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/starting_display/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the display server starts. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/starting_display/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/starting_display/text] while the display server starts.
+		</member>
+		<member name="loading_screen/starting_display/text" type="String" setter="" getter="">
+			The text the loading screen shows while the display server starts. Defaults to [code]Starting display...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/starting_renderer/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the rendering server starts. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/starting_renderer/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/starting_renderer/text] while the rendering server starts.
+		</member>
+		<member name="loading_screen/starting_renderer/text" type="String" setter="" getter="">
+			The text the loading screen shows while the rendering server starts. Defaults to [code]Starting renderer...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/starting_audio/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the audio server starts. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/starting_audio/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/starting_audio/text] while the audio server starts.
+		</member>
+		<member name="loading_screen/starting_audio/text" type="String" setter="" getter="">
+			The text the loading screen shows while the audio server starts. Defaults to [code]Starting audio...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/loading_translations/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while translations and resource remaps load. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/loading_translations/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/loading_translations/text] while translations and resource remaps load.
+		</member>
+		<member name="loading_screen/loading_translations/text" type="String" setter="" getter="">
+			The text the loading screen shows while translations and resource remaps load. Defaults to [code]Loading translations...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/loading_fonts/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the text server and its fonts initialize. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/loading_fonts/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/loading_fonts/text] while the text server and its fonts initialize.
+		</member>
+		<member name="loading_screen/loading_fonts/text" type="String" setter="" getter="">
+			The text the loading screen shows while the text server and its fonts initialize. Defaults to [code]Loading fonts...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/registering_types/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the scene types register. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/registering_types/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/registering_types/text] while the scene types register.
+		</member>
+		<member name="loading_screen/registering_types/text" type="String" setter="" getter="">
+			The text the loading screen shows while the scene types register. Defaults to [code]Registering types...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/finalizing_setup/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the engine finalizes its setup. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/finalizing_setup/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/finalizing_setup/text] while the engine finalizes its setup.
+		</member>
+		<member name="loading_screen/finalizing_setup/text" type="String" setter="" getter="">
+			The text the loading screen shows while the engine finalizes its setup. Defaults to [code]Finalizing setup...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/loading_autoloads/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the project's autoloads load. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/loading_autoloads/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/loading_autoloads/text] while the project's autoloads load.
+		</member>
+		<member name="loading_screen/loading_autoloads/text" type="String" setter="" getter="">
+			The text the loading screen shows while the project's autoloads load. Defaults to [code]Loading autoloads...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/loading_main_scene/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the main scene loads. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/loading_main_scene/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/loading_main_scene/text] while the main scene loads.
+		</member>
+		<member name="loading_screen/loading_main_scene/text" type="String" setter="" getter="">
+			The text the loading screen shows while the main scene loads. Defaults to [code]Loading main scene...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/rendering_first_frame/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner while the first frame renders. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/rendering_first_frame/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/rendering_first_frame/text] while the first frame renders.
+		</member>
+		<member name="loading_screen/rendering_first_frame/text" type="String" setter="" getter="">
+			The text the loading screen shows while the first frame renders. Defaults to [code]Rendering first frame...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/compiling_shaders/show_spinner" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows the spinner whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Default: [code]true[/code].
+		</member>
+		<member name="loading_screen/compiling_shaders/show_text" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows [member loading_screen/compiling_shaders/text] whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended.
+		</member>
+		<member name="loading_screen/compiling_shaders/text" type="String" setter="" getter="">
+			The text the loading screen shows whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Defaults to [code]Compiling shaders...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
 		<member name="progressive_web_app/background_color" type="Color" setter="" getter="">
 			The background color used behind the web application.
 		</member>

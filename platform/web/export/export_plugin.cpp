@@ -135,6 +135,43 @@ void EditorExportPlatformWeb::_replace_strings(const HashMap<String, String> &p_
 	}
 }
 
+// The loading screen's stages, in the order a player sees them. Each stage is
+// three export options -- `loading_screen/<key>/text`, `.../show_text` and
+// `.../show_spinner` -- and the shell (misc/dist/html/full-size.html) receives
+// them as the `$GODOT_LOADING_SCREEN` JSON object, keyed by `key`. The defaults
+// are the strings the shell used to hard-code; a stage's `text` is shown as-is,
+// except that "downloading" gets the percentage and "compiling_shaders" the
+// shader count appended when the shell knows them. The keys are part of the
+// shell contract: a custom shell looks stages up by these names.
+struct WebLoadingScreenStage {
+	const char *key;
+	const char *default_text;
+	bool show_text;
+	bool show_spinner;
+};
+
+// The spinner defaults match the previous behavior: it only appears once the
+// engine is running (from "Starting engine..." on), where the main thread can
+// block for seconds and a CSS animation is the only thing that keeps moving.
+static const WebLoadingScreenStage web_loading_screen_stages[] = {
+	{ "initializing_webgpu", "Initializing WebGPU...", true, false },
+	{ "downloading", "Downloading...", true, false },
+	{ "starting_engine", "Starting engine...", true, true },
+	{ "initializing_engine", "Initializing engine...", true, true },
+	{ "loading_extensions", "Loading extensions...", true, true },
+	{ "starting_display", "Starting display...", true, true },
+	{ "starting_renderer", "Starting renderer...", true, true },
+	{ "starting_audio", "Starting audio...", true, true },
+	{ "loading_translations", "Loading translations...", true, true },
+	{ "loading_fonts", "Loading fonts...", true, true },
+	{ "registering_types", "Registering types...", true, true },
+	{ "finalizing_setup", "Finalizing setup...", true, true },
+	{ "loading_autoloads", "Loading autoloads...", true, true },
+	{ "loading_main_scene", "Loading main scene...", true, true },
+	{ "rendering_first_frame", "Rendering first frame...", true, true },
+	{ "compiling_shaders", "Compiling shaders...", true, true },
+};
+
 void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes) {
 	// Engine.js config
 	Dictionary config;
@@ -188,14 +225,28 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		config["serviceWorker"] = p_name + ".service.worker.js";
 	}
 
+	// Loading screen stages (see web_loading_screen_stages above). Every stage is
+	// always present so the shell never has to fall back to its own defaults.
+	Dictionary loading_screen;
+	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
+		const String prefix = String("loading_screen/") + stage.key + "/";
+		Dictionary stage_config;
+		stage_config["text"] = p_preset->get(prefix + "text");
+		stage_config["showText"] = p_preset->get(prefix + "show_text");
+		stage_config["showSpinner"] = p_preset->get(prefix + "show_spinner");
+		loading_screen[stage.key] = stage_config;
+	}
+
 	// Replaces HTML string
 	const String str_config = Variant(config).to_json_string();
+	const String str_loading_screen = Variant(loading_screen).to_json_string();
 	const String custom_head_include = p_preset->get("html/head_include");
 	HashMap<String, String> replaces;
 	replaces["$GODOT_URL"] = p_name + ".js";
 	replaces["$GODOT_PROJECT_NAME"] = get_project_setting(p_preset, "application/config/name");
 	replaces["$GODOT_HEAD_INCLUDE"] = head_include + custom_head_include;
 	replaces["$GODOT_CONFIG"] = str_config;
+	replaces["$GODOT_LOADING_SCREEN"] = str_loading_screen;
 	replaces["$GODOT_SPLASH_COLOR"] = "#" + Color(get_project_setting(p_preset, "application/boot_splash/bg_color")).to_html(false);
 
 	Vector<String> godot_splash_classes;
@@ -414,6 +465,16 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/canvas_resize_policy", PROPERTY_HINT_ENUM, "None,Project,Adaptive"), 2));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/focus_canvas_on_start"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
+
+	// One text field and two tickboxes per loading-screen stage; the inspector
+	// shows them as a "Loading Screen" section with a subsection per stage.
+	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
+		const String prefix = String("loading_screen/") + stage.key + "/";
+		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, prefix + "text"), String(stage.default_text)));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, prefix + "show_text"), stage.show_text));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, prefix + "show_spinner"), stage.show_spinner));
+	}
+
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "progressive_web_app/enabled"), false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "progressive_web_app/ensure_cross_origin_isolation_headers"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "progressive_web_app/offline_page", PROPERTY_HINT_FILE, "*.html"), ""));

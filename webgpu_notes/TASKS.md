@@ -2337,6 +2337,38 @@ ccache experiments, so the tree matches the script's default (no `--ccache`).
 
 ---
 
+### 4.24 Loading screen: per-stage text and visibility from the export preset, flex layout (October 2026)
+
+Asked as "I want the loading screen text to be editable from the export screen, each stage with a text field
+prefilled with the current value and tickboxes for the spinner and the text, and the chrome spaced evenly under
+the logo like a flexbox". Built 2026-10-17.
+
+**Export side** (`platform/web/export/export_plugin.cpp`): `web_loading_screen_stages[]` lists the 16 stages a
+player can see — `initializing_webgpu`, `downloading`, `starting_engine`, the 12 engine startup phases
+(`initializing_engine` … `rendering_first_frame`) and `compiling_shaders` — each with its old hard-coded string as
+the default. `get_export_options()` emits `loading_screen/<stage>/text`, `/show_text` and `/show_spinner` per stage
+(the inspector renders the nested path as a "Loading Screen" section with a subsection per stage), and `_fix_html()`
+serializes them as the new `$GODOT_LOADING_SCREEN` placeholder, a JSON object keyed by stage. Documented in
+`platform/web/doc_classes/EditorExportPlatformWeb.xml`.
+
+**Shell side** (`misc/dist/html/full-size.html`): `showStage(key, suffix)` replaces the scattered
+`setStatusLabel()`/`setBusyLabel()` calls and sets text and spinner explicitly on every transition; the download
+percentage and the shader-compile count are the only suffixes. The `STARTUP_PHASES` table's third column is now a
+stage key. A download progress callback that lands after `godot-before-callmain` (the preloader's final report)
+no longer pulls the text back to the download stage. Layout: `#status` is a flex column (`gap: 1rem`, centered) holding splash, spinner, label, bar, notice
+in that DOM order — the chrome used to be absolutely positioned at `bottom: 10%` and the DOM order had the bar
+first. A hidden label/spinner keeps its box (`visibility`), so the bar never jumps between stages; one that no
+stage ever shows gets `.unused` (`display: none`) so the column closes up. The full-size splash is `width: 100%;
+height: auto` plus flex shrink, not `height: 100%` — with `height: 100%` the image box filled the viewport and
+the letterboxed picture left the chrome floating far below the logo. What remains under the logo with the default
+splash is that image's own margins (`main/splash.png` is 800×600 with the logo in the middle).
+
+**Verified** against a stub `Engine` (scratch copy of the shell with the placeholders substituted) in Chrome:
+stage order, custom text, hidden text reserving its line, unused spinner removed, no console errors; and
+end-to-end on the user's project through `html/custom_html_shell`. A custom shell written before this change keeps
+working as long as it does not reference `$GODOT_LOADING_SCREEN`; the stock template needs a rebuild (the shell
+is packed into the template zip by `platform/web/emscripten_helpers.py`).
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
