@@ -63,7 +63,7 @@ a rare non-visual error.
 | before/after matrix, 7 scenes × {before, nothreads, Safe, Separate, dlink+Separate} | main thread −8% (fixes) / −82% (with the render thread) averaged; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps uncapped; table in §2.5 and `README.md` | 2026-10-16 |
 | user's `cameraSim` project, Separate mode | 164 fps capped, main thread 0.51 → 0.09 ms/frame, GPU 0.64 → 0.58 ms | 2026-10-16 |
 | Safari | **never run** | §2.8 — macOS only |
-| Android / iOS | **never run** | §2.9 |
+| Android (Chrome 154, Motorola Razr 60 / Mali-G615) | **first run 2026-10-17**: cameraSim Forward+ 1080p 20.5 fps, GPU-bound (48.7 ms GPU/frame: lighting pass 28, bokeh DOF 14.5); `scaling_3d/scale=0.5` → 59.6 fps | §2.9 |
 
 Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9.2 s),
 `{baked: 360, translated: 0}`; BC1 compression is equivalent to uncompressed at RMSE 0.0006.
@@ -234,7 +234,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | upstream F10 default | OPEN, human | — |
 | 2.8 | Safari | BLOCKED | needs a Mac |
-| 2.9 | Android / iOS | BLOCKED | needs devices |
+| 2.9 | Android / iOS | Android measured 2026-10-17; iOS BLOCKED | §2.9 findings; iOS needs a device |
 | 2.10 | storage-format-by-variant audit | OPEN (tables clean) | coverage |
 | 2.11 | VoxelGI 1.6× Vulkan | CLOSED (7.743 vs 7.742) | — |
 | 2.12 | dead `_depth_alias` | CLOSED | — |
@@ -304,7 +304,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
-| 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
+| 2.9 | Android / iOS browsers | `OPEN` — Android profiled 2026-10-17 (GPU-bound at 1080p), iOS never run | engine-side follow-ups listed in §2.9 |
 | 2.10 | Storage-format class: tables audited clean; binding half open | `OPEN` — audited 2026-10-14 | coverage, not a session |
 | 2.11 | ~~VoxelGI measures 1.6× native Vulkan~~ — real 3D-upload bug, fixed | **`CLOSED` 2026-10-14** | — |
 | 2.12 | ~~Delete dead `_depth_alias`~~; reverse fallback deliberately not added | **`CLOSED` 2026-10-14 → §4.12** | — |
@@ -790,11 +790,89 @@ Applies to the scene smoketest, WebRTC parity and congestion tiers. The drivers 
 WebGPU. One `./webgpu_tests/local_ci.sh` on a Mac closes it. **Treat a first failure as a new data
 point, not a regression.**
 
-### 2.9 Android / iOS browsers `BLOCKED` — needs devices *(old Task 5.2)*
+### 2.9 Android / iOS browsers `OPEN` — Android profiled 2026-10-17, iOS never run *(old Task 5.2)*
 
 Desktop is confirmed across Chrome, Firefox, Edge, Vivaldi and Safari on macOS/Windows/Linux (Linux
-needs Vulkan+WebGPU flags and a native package, not Flatpak/Snap). Chrome/Android and Safari/iOS 18+
-have never been tried. This is also what §2.18 exists to serve.
+needs Vulkan+WebGPU flags and a native package, not Flatpak/Snap). Safari/iOS 18+ has never been tried.
+This is also what §2.18 exists to serve.
+
+**Chrome/Android, first run 2026-10-17** — Motorola Razr 60 (MediaTek MT6878, Mali-G615 MC2 "valhall",
+Android 16, Chrome 154) over USB, tooling in `webgpu_tests/perf_guard/android/` (adb reverse so the phone
+loads `http://localhost:8099/` as a secure context, raw CDP through `adb forward` to
+`localabstract:chrome_devtools_remote`). The adapter reports `maxSampledTexturesPerShaderStage` = exactly 48
+(engine.js asks for the adapter max), so a `forward_plus` project runs **Forward+** on this phone. Everything
+boots and renders correctly; the only console lines are the known §2.13 readback warning and the
+`float32-blendable` notice.
+
+The user's `cameraSim` (Forward+, DOF near+far, directional + 3 shadowed spots, 7 opaque draws, 1920x1080
+backbuffer, 2.6 dpr) does **20.5 fps**, and it is **GPU-bound**: main thread 29% busy, `gpu_time`-style
+timestamps on the page put **48.7 ms/frame on the GPU (90% of the timeline)** — the opaque lighting pass
+`SceneForwardClusteredShaderRD:18` (the specialized color pass, *not* the ubershader; 7 draws, depth prepass
+for the same draws is 0.67 ms) **28.0 ms**, the four `BokehDofShaderRD` compute passes **14.5 ms**, tonemap
+1.2, the 4096² shadow maps ~1.7, everything else under 1. Against the desktop profile of the same scene
+(§2.14: opaque 0.29 ms, DOF 0.145) both big passes are ~100x, i.e. the hardware gap, not one pathological
+shader. Variant matrix (release, main-thread rendering, one tab, cold boot, 10 s windows):
+
+| variant | fps | p50 / p90 ms | main busy |
+|---|---|---|---|
+| release as-is / debug as-is / no dlink / nothreads / ASTC character texture | 20.5 / 20.3 / 19.2 / 20.8 / 20.5 | 41.5 / 83 | 19-32% |
+| your project + the `.web_android` overrides below | **55.6** | 16.6 / 16.6 | 54% |
+| shadows 2048 + soft filter quality 1 | 22.6 | 41.5 / 41.5 | 31% |
+| bokeh quality Very Low + Box shape | 21.4 | 41.5 / 83 | 31% |
+| `scaling_3d/scale` 0.75 | 30.1 | 33.2 / 33.2 | 42% |
+| `scaling_3d/scale` 0.66 + cheap DOF + cheap shadows | 50.1 | 16.6 / 33.2 | 53% |
+| same + `scaling_3d/mode` FSR 1.0 | 30.1 | 33.2 / 33.2 | 45% |
+| `scaling_3d/scale` 0.5 (alone, or with the cheap DOF/shadows) | 59.6 / 56.9 | 16.6 / 16.6 | 53-56% |
+| Forward Mobile (diagnostic only — the user's projects stay on Forward+) | 12.1 in the matrix (translation-contaminated); **21.6** settled | 124 / 124 | 20% |
+
+So the template kind (debug/release, dlink, threads, the separate render thread) and texture compression
+are irrelevant on this phone; the frame is per-pixel Forward+ work and scales with the 3D resolution almost
+exactly (0.56x pixels → 1.47x fps, 0.25x → 2.9x). The DOF cost is fixed full-res bandwidth (sample count
+barely matters). `.web_android`-suffixed project settings target this device without touching desktop
+(`mobile` is not a web feature tag — the project's `*.mobile` overrides never applied here).
+
+**Lighting-pass bisection, 2026-10-17** (`android/gpu_time.mjs --dump-wgsl` / `--replace-pair`: the three lit
+materials' `mod:SceneForwardClusteredShaderRD:18:stg1` modules dumped from the phone, edited by function
+*signature* — Tint mangles names but keeps parameter names — and substituted by exact code match; `full` control
+reproduces 26.9 ms):
+
+| cut in the fragment WGSL | `:18` ms | reading |
+|---|---|---|
+| none (control) | 26.9 | |
+| fragment body returns at once | 1.85 | raster + RGBA16F write floor; ~25 ms is shading |
+| `light_compute` (BRDF) returns at once | 8.4 | |
+| every `textureSampleCompare` → 1.0 | 16.4 | shadow filtering ≈ 10 (8-tap PCF × 4 lights) |
+| `light_process_omni/spot` return at once | 15.6 | the 3 spots ≈ 11.3 |
+| spot shadow samplers → 1.0 | 18.6 | their shadows ≈ 8.3 |
+| directional shadow samplers → 1.0 | 23.0 | ≈ 3.9 |
+| `light_process_area` + `reflection_process` return at once | 27.2 | unused feature code is free |
+
+The cuts are super-additive (BRDF 18.5 + shadows 10.5 > 25), i.e. part of the cost is register pressure /
+occupancy of the whole program, not arithmetic alone. Everything that could have been *ours* was then checked and
+cleared: (a) `:18` is the specialized colour pass (depth variants are 0-17, colour-pass flags start at 18), not the
+ubershader; (b) the pipeline overrides reach Dawn — `--log-pipelines` shows `pso_sc_packed_0 = 0x308308B0`
+(soft/penumbra samples 8/12, directional 8/12, soft-shadow flags off), so the PCF loops are compile-time;
+(c) **f16 is a null result on this GPU**: Clustered's lighting locals are float where Mobile's were ported to half
+(the shared `scene_forward_lights_inc.glsl` takes `half`/`hvec3`), so a boundary bridge was written (casts at the
+six lighting calls, `F0`, `blur_shadow`, `reflection_process`, the clearcoat helpers; compiles with
+`EXPLICIT_FP16` for every optional material path; Tint emits `enable f16;`) and substituted with the device
+requesting `shader-f16`: **47.9 ms GPU vs a 48.7 ms f32 control** (`:18` unchanged within noise). The bridge is
+not kept in the tree (no payoff here); the patch is kept as
+`webgpu_tests/perf_guard/android/forward_clustered_explicit_fp16_bridge.patch`, worth re-trying on `web_ios` (Apple GPUs gain much more from f16). (d) `OpImageGather` is translated
+natively (no gather emulation in the preprocessor), so FSR 1.0's 7.3 ms (two `FsrUpscaleShaderRD:1` passes at 1080p
+output, plus a 1.2 ms `CopyToFbShaderRD`) is simply EASU+RCAS on this GPU — use bilinear. (e) **Forward Mobile
+correction**: the 12.1 fps matrix row was contaminated by runtime shader translation during the window (unbaked
+export); settled it is 21.6 fps, opaque pass 34.1 ms for 4 draws (no depth prepass → shaded overdraw), raster DOF
+7.8 ms. So Forward+ is the better of the two here and the per-pixel lighting cost is inherent to these shaders on
+a 2-core Mali, not a translation artifact. The user's project now carries `.web_android` (and milder, untested
+`.web_ios`) overrides — `scaling_3d/scale` 0.6, bilinear, 2048 shadow maps, soft filter quality 1, bokeh Very
+Low/Box — measured at **55.6 fps**.
+
+Still open: a native-Vulkan number on the same phone (needs an Android SDK for an APK export — Java is present, the
+SDK is not; a 4.7.2 official Android template with the 4.8 editor would also be a version mismatch); and the
+separate-render-thread case, where the pthread worker never answers `Runtime.evaluate` (idle pool workers sit in
+`Atomics.wait`, the render thread never idles) — `android/worker_gpu.mjs` is the unfinished self-driving in-worker
+variant; measure such exports with `separate_render_thread=false`, which makes no fps difference on this phone.
 
 ### 2.10 Audit the storage-format-by-variant class `OPEN` — audited 2026-10-14
 
@@ -1445,6 +1523,14 @@ gitignored, so unlike every other retired doc it is not recoverable from history
 ---
 
 ## 3. Traps and lessons — read before debugging
+
+- **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
+  context without HTTPS; `adb forward` to `localabstract:chrome_devtools_remote` dies with every
+  `am force-stop` and must be re-bound; Chrome restores old tabs on relaunch, so close every other page
+  target first or two engine instances share the GPU (this produced a bogus first number); a foldable's
+  `screencap -p` emits a text warning instead of a PNG unless `-d <display id>` is given; and an export
+  rendering on the separate render thread shows **zero** WebGPU calls on the page with ~12% main-thread
+  busy — that is not "idle", it is the worker. See §2.9 and `webgpu_tests/perf_guard/android/README.md`.
 
 Each of these cost real time at least once. They are the reason this file exists.
 
