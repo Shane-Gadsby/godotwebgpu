@@ -1138,6 +1138,34 @@ A per-function native comparison needs `perf`, which `kernel.perf_event_paranoid
 paths (scene/light culling 0.30, Forward+ list building 0.21, RenderingDevice + graph 0.29 ms/frame on heavy_i — it would help
 native too), or overlapping it with game logic via threading (§2.5).
 
+**Function-by-function vs native, and the algorithmic fixes it found, 2026-10-16.** Native: `template_release debug_symbols=yes
+disable_path_overrides=no` (release templates refuse `--path` otherwise) run on the project dir at `--max-fps 165`, `perf record -F
+4999 -t <main tid>` (`kernel.perf_event_paranoid=1`; the stripped editor binary resolves no symbols). Web: `cpu_steady.mjs` on a
+`debug_symbols=yes` template. Matched by function name, ms/frame (scratch `compare.py`).
+ - **The outlier was a real engine bug, not wasm codegen.** `RendererSceneCull::_render_scene` self time: web 0.234, native 0.001.
+   A temporary counter showed web re-culling and re-rendering **9 of the heavy scene's 18 positional shadows every frame** (native: 0).
+   `LightStorage::shadow_atlas_update_light()` returns `should_redraw` without storing the light's version when a light is due for a
+   reallocation (wants another quadrant, 500 ms tolerance passed) but no slot is free. If the version changed while the light was in
+   that state, it never converges and the light redraws forever. A light is still dirty from creation for the first frames, so any
+   long early frame triggers it — every web export has one (shader compilation). **Reproduced natively** with one 1.5 s
+   `OS.delay_msec()` on frame 2 or 3 (2700 redraws / 300 frames; frames 1 or 5: none). Present in `upstream/master`. Fix: store the
+   version on that path too (`a87c84d4a5`; upstream-ready branch `shadow-atlas/store-version-when-realloc-fails`, applies cleanly to
+   upstream). Heavy scene: **CPU 2.08-2.20 -> 1.34 ms/frame (-37%)**, engine wasm 1.29 -> 0.75, render passes 31 -> 13, GPU 1.70 -> 1.52,
+   pixel-identical (max diff 1/255); platformer 1.01-1.10 -> 0.90. Forward+ matrix 64/64, smoketest 21/21.
+ - **After it:** web engine wasm 0.90 ms vs native's whole main thread 0.77 (Vulkan driver included); engine functions mostly 1-3x.
+   The web-only rest was this driver's bind-group path (~0.14 ms) and RenderingDevice's per-set `prepare_for_use` records:
+   - New trait `API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE` (base default 1; WebGPU 0). RD recorded a graph instruction plus a virtual no-op
+     driver call for every bound set of every draw/dispatch because WebGPU must report `HONORS_PIPELINE_BARRIERS` 0 (D3D12 without
+     enhanced barriers really needs it). RD now caches the combined condition at init (`uniform_sets_need_prepare_for_use`), which
+     also drops a virtual `api_trait_get` per set per draw. `_run_draw_list_command` 0.043 -> 0.030.
+   - `WGUniformSet` keeps a 4-entry linear-search front for `rebind_cache` (cleared with it in `_purge_rebind_caches_for_shader()`):
+     the hash lookup was 0.045 ms/frame. A one-entry most-recent slot never hit, because a material set is bound once per pass and
+     each pass binds it against a different variant's layout. Now 0.000.
+   Together ~0.04 ms/frame (the targeted functions 0.234 -> 0.198); the whole-frame number is inside this machine's current noise.
+ - What is left is flat: `draw_list_draw` 0.089 (~80 ns/draw), `_scene_cull` 0.061 (2.4x native), `_fill_instance_data` 0.061
+   (2.2x), browser `setBindGroup` 0.10 and `writeBuffer` 0.09, V8 0.15. No single item is worth a change of the size above;
+   the next real CPU lever is overlapping this with game logic (§2.5 threading).
+
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
 0. **SDFGI: mostly done 2026-10-16 (below).** What is left: SDFGI integrate 0.47 ms in 4 small dispatches (111 workgroups each)
    that WebGPU must fence against each other (all four bind the shared, writable `ambient_texture`; natively they sit in one
