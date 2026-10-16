@@ -1405,6 +1405,12 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	} else {
 		print_verbose("WebGPU: readonly-and-readwrite-storage-textures NOT available — will split read_write storage textures.");
 	}
+	has_wgsl_read_write_storage = (bool)EM_ASM_INT({
+		return (navigator.gpu && navigator.gpu.wgslLanguageFeatures && navigator.gpu.wgslLanguageFeatures.has('readonly_and_readwrite_storage_textures')) ? 1 : 0;
+	});
+	print_verbose(vformat("WebGPU: WGSL readonly_and_readwrite_storage_textures %s; read_write storage textures of %s formats bind directly, the rest are split.",
+			has_wgsl_read_write_storage ? "available" : "NOT available",
+			!has_wgsl_read_write_storage ? "no" : (has_texture_formats_tier2 ? "r32 and tier2" : "r32")));
 
 	// Optional texture-compression families. The JS shell opts in to these when
 	// the adapter supports them; we must match that here so Godot only advertises
@@ -1542,6 +1548,30 @@ RDD::BufferID RenderingDeviceDriverWebGPU::buffer_create_with_data(uint64_t p_si
 bool RenderingDeviceDriverWebGPU::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
 	// WebGPU has no texel buffer views. Stub: store format, emulate later if needed.
 	return true;
+}
+
+bool RenderingDeviceDriverWebGPU::_wgsl_format_supports_read_write(const String &p_fmt) const {
+	if (!has_wgsl_read_write_storage) {
+		return false;
+	}
+	if (p_fmt == "r32float" || p_fmt == "r32uint" || p_fmt == "r32sint") {
+		return true;
+	}
+	if (!has_texture_formats_tier2) {
+		return false;
+	}
+	// Probed on Chrome / RTX 4080 with a read-write storage BGL per format: exactly this set.
+	static const char *tier2_read_write[] = {
+		"r8unorm", "r8uint", "r8sint", "rgba8unorm", "rgba8uint", "rgba8sint",
+		"r16uint", "r16sint", "r16float", "rgba16uint", "rgba16sint", "rgba16float",
+		"rgba32uint", "rgba32sint", "rgba32float"
+	};
+	for (const char *f : tier2_read_write) {
+		if (p_fmt == f) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void RenderingDeviceDriverWebGPU::_flush_pending_staging() {
@@ -5336,6 +5366,13 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						memcpy(buf, lt + 1, fmt_len);
 						buf[fmt_len] = '\0';
 						info.fmt = String(buf).strip_edges();
+					}
+					if (_wgsl_format_supports_read_write(info.fmt)) {
+						// Valid as read_write on this device: bind it directly. No shadow, so no
+						// full-texture copy before every dispatch (SDFGI's probe history alone was
+						// 8 x 19 MB per frame).
+						p = semi;
+						continue;
 					}
 					rw_infos.push_back(info);
 					p = semi;

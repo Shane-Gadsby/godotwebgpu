@@ -1,6 +1,6 @@
 // How long does a WebGPU export's work take *on the GPU*? (TASKS.md 2.30)
 //
-//   node gpu_time.mjs --dir <export dir> [--uncapped] [--passes [--top 30]] [--settle 12000] [--size 1280x720]
+//   node gpu_time.mjs --dir <export dir> [--uncapped] [--passes [--top 30] [--dims]] [--rounds N] [--settle 12000] [--size 1280x720]
 //
 // api_profile.mjs says where the main thread's time goes, but uncapped, a main thread that is "100% busy" can be
 // blocked in getCurrentTexture()/submit() waiting for the GPU or the compositor, which reads exactly like CPU cost.
@@ -120,42 +120,70 @@ await page.addInitScript((PASSES) => {
 		};
 		hook('GPURenderPassEncoder', 'beginRenderPass');
 		hook('GPUComputePassEncoder', 'beginComputePass');
-		const ct = GPUCommandEncoder.prototype.copyTextureToTexture;
-		GPUCommandEncoder.prototype.copyTextureToTexture = function (...a) { if (G.on && !full()) G.copies++; return ct.apply(this, a); };
+		// Copies run between passes, so bracket each with two empty timestamped compute passes to time it like one.
+		const texName = (t) => t.label || `${t.width}x${t.height}x${t.depthOrArrayLayers} ${t.format}`;
+		const timeCopy = (name, describe) => {
+			const f = GPUCommandEncoder.prototype[name];
+			GPUCommandEncoder.prototype[name] = function (...a) {
+				if (!G.on || full()) return f.apply(this, a);
+				if (name === 'copyTextureToTexture') G.copies++;
+				const k = G.used++;
+				G.meta[k] = { frame: G.frames, type: 'copy', att: describe(a), pipes: [name], n: 1, dims: [] };
+				this.beginComputePass({ timestampWrites: { querySet: G.qs, beginningOfPassWriteIndex: 2 * k } }).end();
+				const r = f.apply(this, a);
+				this.beginComputePass({ timestampWrites: { querySet: G.qs, endOfPassWriteIndex: 2 * k + 1 } }).end();
+				if (full()) stop();
+				return r;
+			};
+		};
+		const sz = (s) => (Array.isArray(s) ? s.join('x') : `${s.width}x${s.height ?? 1}x${s.depthOrArrayLayers ?? 1}`);
+		timeCopy('copyTextureToTexture', (a) => `${texName(a[0].texture)} region ${sz(a[2])}`);
+		timeCopy('copyBufferToTexture', (a) => `${texName(a[1].texture)} region ${sz(a[2])}`);
+		timeCopy('copyBufferToBuffer', (a) => `${a[4] ?? '?'} B`);
 	}
 	const raf = window.requestAnimationFrame.bind(window);
 	window.requestAnimationFrame = (cb) => raf((t) => { if (G.on && !full()) G.frames++; cb(t); });
 }, PASSES);
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await new Promise((r) => setTimeout(r, SETTLE));
-await page.evaluate(() => { const G = window.__gt; G.on = true; G.t0 = performance.now(); });
-await page.waitForFunction(() => window.__gt.t1 > 0, null, { timeout: 60000, polling: 100 });
-const r = await page.evaluate(async () => {
-	const G = window.__gt; G.on = false;
-	await new Promise((res) => setTimeout(res, 300)); // let the last measured submits land
-	const n = G.used * 2;
-	const resolve = G.device.createBuffer({ size: n * 8, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
-	const rb = G.device.createBuffer({ size: n * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-	const e = G.device.createCommandEncoder();
-	e.resolveQuerySet(G.qs, 0, n, resolve, 0);
-	e.copyBufferToBuffer(resolve, 0, rb, 0, n * 8);
-	G.device.queue.submit([e.finish()]);
-	await rb.mapAsync(GPUMapMode.READ);
-	const ts = new BigInt64Array(rb.getMappedRange().slice(0));
-	const spans = [];
-	for (let k = 0; k < G.used; k++) spans.push([Number(ts[2 * k]), Number(ts[2 * k + 1])]);
-	return { spans, meta: G.meta, copies: G.copies, frames: G.frames, wall: G.t1 - G.t0, stats: window.godotWebGPUFrameStats || null };
-});
-// Whole frames only: drop the partial frame the measurement stopped in.
-const lastFrame = r.meta.length ? r.meta[r.meta.length - 1].frame : 0;
-const rows = r.spans.map((s, k) => ({ s, m: r.meta[k] })).filter(({ s: [a, b], m }) => a > 0 && b >= a && (!PASSES || m.frame < lastFrame));
-const f = PASSES ? Math.max(lastFrame - r.meta[0].frame, 1) : Math.max(r.frames, 1);
+// --rounds N: repeat the measurement window N times and pool the results (one window of --passes is ~18 frames, and
+// passes whose work varies by frame -- SDFGI, probe updates -- need more than that to compare two builds).
+const ROUNDS = +arg('rounds', 1);
+const rows = [];
+let f = 0, frames = 0, wall = 0, copies = 0, timeline = 0, r = null;
+for (let round = 0; round < ROUNDS; round++) {
+	await page.evaluate(() => { const G = window.__gt; Object.assign(G, { used: 0, meta: [], frames: 0, copies: 0, t1: 0, on: true, t0: performance.now() }); });
+	await page.waitForFunction(() => window.__gt.t1 > 0, null, { timeout: 60000, polling: 100 });
+	r = await page.evaluate(async () => {
+		const G = window.__gt; G.on = false;
+		await new Promise((res) => setTimeout(res, 300)); // let the last measured submits land
+		const n = G.used * 2;
+		const resolve = G.device.createBuffer({ size: n * 8, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+		const rb = G.device.createBuffer({ size: n * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+		const e = G.device.createCommandEncoder();
+		e.resolveQuerySet(G.qs, 0, n, resolve, 0);
+		e.copyBufferToBuffer(resolve, 0, rb, 0, n * 8);
+		G.device.queue.submit([e.finish()]);
+		await rb.mapAsync(GPUMapMode.READ);
+		const ts = new BigInt64Array(rb.getMappedRange().slice(0));
+		rb.destroy(); resolve.destroy();
+		const spans = [];
+		for (let k = 0; k < G.used; k++) spans.push([Number(ts[2 * k]), Number(ts[2 * k + 1])]);
+		return { spans, meta: G.meta, copies: G.copies, frames: G.frames, wall: G.t1 - G.t0, stats: window.godotWebGPUFrameStats || null };
+	});
+	// Whole frames only: drop the partial frame the measurement stopped in.
+	const lastFrame = r.meta.length ? r.meta[r.meta.length - 1].frame : 0;
+	const rr = r.spans.map((s, k) => ({ s, m: r.meta[k] })).filter(({ s: [a, b], m }) => a > 0 && b >= a && (!PASSES || m.frame < lastFrame));
+	rows.push(...rr);
+	f += PASSES ? Math.max(lastFrame - r.meta[0].frame, 1) : Math.max(r.frames, 1);
+	frames += r.frames; wall += r.wall; copies += r.copies;
+	timeline += (Math.max(...rr.map((x) => x.s[1])) - Math.min(...rr.map((x) => x.s[0]))) / 1e6;
+}
 const busy = rows.reduce((t, { s: [a, b] }) => t + (b - a), 0) / 1e6;
-const first = Math.min(...rows.map((x) => x.s[0])), last = Math.max(...rows.map((x) => x.s[1]));
-console.log(`frames ${f} over ${r.wall.toFixed(0)} ms -> ${(1000 * r.frames / r.wall).toFixed(0)} fps, ${(r.wall / r.frames).toFixed(2)} ms/frame`);
-console.log(`GPU busy ${(busy / f).toFixed(2)} ms/frame (${(100 * busy / ((last - first) / 1e6)).toFixed(0)}% of the GPU timeline), ${rows.length} of ${r.spans.length} ${PASSES ? 'passes' : 'command buffers'} timed`);
+console.log(`frames ${f} over ${wall.toFixed(0)} ms (${ROUNDS} round(s)) -> ${(1000 * frames / wall).toFixed(0)} fps, ${(wall / frames).toFixed(2)} ms/frame`);
+console.log(`GPU busy ${(busy / f).toFixed(2)} ms/frame (${(100 * busy / timeline).toFixed(0)}% of the GPU timeline), ${rows.length} ${PASSES ? 'passes' : 'command buffers'} timed`);
 if (PASSES) {
-	console.log(`copyTextureToTexture ${(r.copies / r.frames).toFixed(1)}/frame (not timed; shows up as the gap between busy and timeline)`);
+	console.log(`copyTextureToTexture ${(copies / frames).toFixed(1)}/frame (copies are timed as 'copy' rows)`);
 	const agg = {};
 	for (const { s: [a, b], m } of rows) {
 		const key = `${m.type.padEnd(7)} ${m.pipes.slice(0, 2).join(',').slice(0, 60).padEnd(60)} -> ${String(m.att).slice(0, 40)}${DIMS && m.dims.length ? ' groups ' + m.dims.slice(0, 3).join(',') : ''}`;

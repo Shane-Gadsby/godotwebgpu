@@ -167,7 +167,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 ## 2. Outstanding work — most to least critical
 
 **Pick up here (written 2026-10-15, end of a long session).** Nothing is broken. In rough value order, all non-human:
-1. **§2.30 unbottleneck the frame** — **read its 2026-10-16 entry first: the heavy scene turned out GPU-bound (3.3 ms GPU vs 1.04 native), not CPU-bound.** SSIL fixed (`hoist_constant_local_arrays`, GPU -20%); next is SDFGI's cascade-select chain and a per-pass sweep of other scenes with `gpu_time.mjs --passes`; then the CPU items (marshaling, per-draw calls) and **§2.5** threading.
+1. **§2.30 unbottleneck the frame** — **read its 2026-10-16 entry first: the heavy scene turned out GPU-bound (3.3 ms GPU vs 1.04 native), not CPU-bound.** SSIL fixed (`hoist_constant_local_arrays`, GPU -20%), then read-write storage textures stopped being shadow-copied (a feature-detection bug; GPU 2.63 -> ~1.6 ms, heavy scene ~265 fps and CPU-bound again). Next: a `gpu_time.mjs --passes` sweep of other scenes, the CPU items (marshaling, per-draw calls) and **§2.5** threading; SDFGI's dispatch merge is optional.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
 3. **§2.20 / §2.21** (half-float, emdawnwebgpu features) — each needs a verification pass and a real GPU; risky, do one at a time.
 4. **§2.10 / §2.14** more coverage: more real projects through the live sweep, the dlink export of `cameraSim`, a native-Vulkan side-by-side.
@@ -193,7 +193,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
 | 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
 | 2.5 ✔ | threading decision | OPEN — now has data: every export is 99-100% main-thread busy; engine wasm is not the bottleneck (-O2 gave 0%), the JS/browser call path and per-draw calls are | decide after §2.30's cheaper items; needs `threads=yes` + COOP/COEP, a worker-owned device and an OffscreenCanvas |
-| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
+| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | upstream F10 default | OPEN, human | — |
 | 2.8 | Safari | BLOCKED | needs a Mac |
 | 2.9 | Android / iOS | BLOCKED | needs devices |
@@ -262,7 +262,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
 | 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
-| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes: 40`/frame is the documented emulation |
+| 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |
 | 2.9 | Android / iOS browsers | `BLOCKED` | **human, needs devices** |
@@ -616,7 +616,7 @@ still be display-rate-capped, so fps is a lower bound on headroom, not a measure
 against a 512 KB ring, so exactly one mid-pass flush + submit + encoder rebuild per frame. `PUSH_CONSTANT_RING_SIZE`
 is now 2 MB (8192 draws; only the dirty range is uploaded, so the cost is address space, not bandwidth). Heavy
 scene afterwards: `ringOverflows: 0`, same 164 fps / 3549 draws; Forward+ matrix 64/64. Still open:
-`rwShadowRefreshes: 40` per frame (the real GPU lacks the read/write-storage-texture feature, so these are the
+`rwShadowRefreshes: 40` per frame (**corrected 2026-10-16, §2.30:** the GPU does not lack the feature; the driver queried a WGSL language feature as a device feature, so these were *not* the
 documented emulation copies, not a bug), and a *baked* heavy export for `translated`.
 
 **(Historical, superseded below by the re-run.) 2026-10-15 — blocked on the host, and a finding.** (1) `nvidia-smi` fails with a driver/library mismatch (kernel module 610.57.04, userspace 615.71.09), so Chromium cannot reach the RTX 4080 SUPER: the heavy scene ran Forward Mobile at 1-2 fps. A reboot or module reload is needed before any real-GPU number is valid; the figures from that run are discarded. (2) `startup_phases/*.mjs` launched Chromium without `--use-vulkan --use-angle=vulkan --use-vulkan=native --ignore-gpu-blocklist`; fixed to match `run_forward_plus.mjs`. (3) `BAKE=1 ./export_heavy.sh` now exists, but the heavy scene builds its meshes and materials in GDScript, so the exported pck is 11 KB and the baker has nothing to bake; a baked heavy export needs a scene saved as a `.tscn`/resources.
@@ -1030,13 +1030,33 @@ opaque list ordered mesh-before-material on WebGPU (`setVertexBuffer` 2098 -> 82
    (hashes in this file updated; the old ones are gone). The versions in the pushed commits `37a7b4359b`, `af3d57ddd1` and
    `37d974ecab` (tag `Pre-optimisations`) remain; removing those would need a rewrite of pushed history and a force-push.
 
+**2026-10-16 (later) — read-write storage textures were always split: the biggest GPU cost after SSIL.** `gpu_time.mjs --passes`
+now times copies too (each bracketed by two empty timestamped passes; `--rounds N` pools N windows, since SDFGI's per-frame work
+varies and one ~18-frame window was too noisy to compare). The heavy scene ran **40 `copyTextureToTexture` per frame = ~1.3 ms
+GPU**: full-texture refreshes of read-write shadows before every dispatch — SDFGI's 289x272x30 `rgba16sint` probe history 8x
+(0.46 ms), a 2312x136x8 `rgba16float` 8x (0.35), the 128^3 light/aniso cascades (0.21 + 0.15 + 0.13). Cause:
+`has_rw_storage_textures` asked the *device* for `readonly-and-readwrite-storage-textures`, which is a **WGSL language feature**
+(`navigator.gpu.wgslLanguageFeatures`), never a device feature, so it was false in every browser and every `read_write` storage
+texture was split into write + shadow read. Probed on this Chrome/RTX 4080 with a read-write BGL per format: core allows
+r32float/uint/sint, and with `texture-formats-tier2` (already requested) exactly r8unorm/uint/sint, rgba8unorm/uint/sint,
+r16uint/sint/float, rgba16uint/sint/float, rgba32uint/sint/float. Fix: `_wgsl_format_supports_read_write()` decides the split
+**per format**; capable formats bind as real `read_write` (native semantics: reads see the dispatch's own writes, where the shadow
+showed pre-dispatch values). The old flag is left false on purpose — the read-only -> sampled conversion it gates has always run
+and is relied on (comment in the header). Only `rg8unorm` (SDFGI aniso1) still needs a shadow.
+Heavy scene: **copies 40 -> 3.7/frame, `rwShadowRefreshes` 40 -> 4, GPU 2.63 -> ~1.5-1.7 ms/frame (native 1.04)**, ~235 -> 264-276
+fps uncapped (engine stats 246-260); the GPU is now ~43% of the timeline, so the scene is **CPU-bound again**. Forward+ matrix
+64/64 (sdfgi 36.65 vs 36.58 before, voxel_gi 7.743, particles within their usual noise), scene smoketest 21/21 Chrome **and**
+21/21 Firefox (real GPU), perf_guard green, `dev_mode` `-Werror` clean. Firefox: same per-format rule, through its own
+`wgslLanguageFeatures` and tier2 support.
+
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
-0. **SDFGI on WebGPU** (~0.6 ms/frame over native): `WEBGPU_DECLARE_TEXTURE3D_ARRAY8` emulates the cascade texture arrays with an
-   8-way `if` chain per sample (`sdf_cascades_sample(j, ...)` inside the ray march), so divergent rays pay several samples. Options:
-   a binary-search select (3 compares, same samples), or packing the cascades into one atlas texture (engine change). Then the
-   39 `copyTextureToTexture`/frame of read-write shadow refreshes and the inter-pass gaps (GPU timeline 67% busy).
-   Also worth a sweep: other user-visible shaders with the same "fine natively, slow after Tint" shape — `gpu_time.mjs --passes`
-   against `--gpu-profile` finds them in one run per scene.
+0. **SDFGI: mostly done 2026-10-16 (below).** What is left: SDFGI integrate 0.47 ms in 4 small dispatches (111 workgroups each)
+   that WebGPU must fence against each other (all four bind the shared, writable `ambient_texture`; natively they sit in one
+   compute list without barriers and overlap). Merging them into one dispatch means binding the per-cascade history/average
+   textures together (an array texture or atlas) -- an engine change in `gi.cpp` + `sdfgi_integrate.glsl`, worth ~0.3 ms GPU on a
+   frame that is now CPU-bound. Also §2.21 item 1 (shareable formats: the light cascades are `rgba16float`, 2x native's packed
+   format). The `WEBGPU_DECLARE_TEXTURE3D_ARRAY8` if-chain is **not** a web-only cost: native compiles the same GLSL.
+   Then a `gpu_time.mjs --passes` sweep of other scenes for more "fine natively, slow after Tint" shaders.
 1. **Marshaling path** (~0.5 ms/frame on the heavy scene: `bigintToI53Checked`, `getJsObject`, `wasm-to-js`, `jsObjectInsert`): 64-bit arguments and handle lookups per call in
    emdawnwebgpu. Options: fewer calls (below), or a toolchain patch with fast paths for `setBindGroup`/`setVertexBuffer`/`drawIndexed` (same upkeep burden as `misc/emsdk_patches/`).
 2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a

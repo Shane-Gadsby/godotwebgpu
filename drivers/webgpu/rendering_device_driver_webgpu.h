@@ -131,7 +131,21 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// does not require it -- so without it those three have to be promoted, both in
 	// the texture and in the WGSL that binds it. See webgpu_notes/TASKS.md Task 41.
 	bool has_texture_formats_tier2 = false;
-	bool has_rw_storage_textures = false; // readonly-and-readwrite-storage-textures
+	// Queries *device* features for "readonly-and-readwrite-storage-textures",
+	// which is a WGSL language feature and never a device feature, so this is
+	// false in every browser. The read-only storage -> sampled conversion and the
+	// CopySrc/TextureBinding usage it gates have always run because of that and are
+	// relied on; whether a read_write texture is split is decided per format by
+	// _wgsl_format_supports_read_write() instead.
+	bool has_rw_storage_textures = false;
+	// navigator.gpu.wgslLanguageFeatures has readonly_and_readwrite_storage_textures.
+	bool has_wgsl_read_write_storage = false;
+	// True when a texture_storage_*<p_fmt, read_write> binding is valid on this
+	// device as-is, so it needs no write + shadow-read split (and no full-texture
+	// shadow copy before every dispatch that binds it). Core WebGPU allows
+	// read_write for r32float/r32uint/r32sint; texture-formats-tier2 adds the
+	// 8/16/32-bit r and rgba formats. TASKS.md 2.30.
+	bool _wgsl_format_supports_read_write(const String &p_fmt) const;
 
 	// Source WGPUTexture → shadow WGPUTexture handles for read_write storage splits.
 	// When a source texture is updated (command_copy_buffer_to_texture), the new

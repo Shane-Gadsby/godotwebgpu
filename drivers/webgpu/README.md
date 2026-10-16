@@ -399,6 +399,9 @@ work. The rules the driver now follows, each found by measurement and guarded by
   patterns a native driver folds may survive into Dawn's output: SSIL ran 12x native because a `const` sample-pattern array was
   re-initialized per tap (now hoisted by `spirv_preprocess::hoist_constant_local_arrays`). Compare per pass before assuming
   CPU cost: `gpu_time.mjs --passes` against the native project's `--gpu-profile`.
+- **Read-write storage textures bind as `read_write` when the format allows it** (`_wgsl_format_supports_read_write()`: WGSL
+  `readonly_and_readwrite_storage_textures` plus r32, or the tier2 set). Only other formats are split into write + shadow read,
+  and every split costs a full-texture copy before each dispatch that binds it (`rwShadowRefreshes` in the frame stats).
 - Profiling tools: `webgpu_tests/perf_guard/api_profile.mjs` (busy %, calls/ms per frame per GPU method), `cpu_steady.mjs`
   (wasm CPU by function, needs `debug_symbols=yes`) and `gpu_time.mjs` (GPU ms per frame from timestamp queries; `--passes`
   ranks every render/compute pass, `--replace-wgsl` swaps in a hand-edited shader module to bisect one).
