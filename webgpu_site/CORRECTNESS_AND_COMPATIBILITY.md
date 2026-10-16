@@ -184,6 +184,20 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 
 **Fallback of last resort**: If float32 textures can't be downgraded (e.g., StorageBinding required), they're substituted with a 4x4 RGBA8 fallback at bind time. Rendering continues without GPU errors, though visual quality degrades.
 
+### 3.3b Mali GPUs (Chrome/Android) — measured 2026-10-17
+
+First real phone run of this fork: a Motorola Razr 60 (MediaTek MT6878, Mali-G615 MC2 "valhall", Android 16, Chrome 154), driven over USB from the Linux desktop (`webgpu_tests/perf_guard/android/`). No flags, no workarounds needed:
+
+| Observation | Detail |
+|---|---|
+| Boots and renders correctly | A real Forward+ project (DOF, three-point shadowed light rig, UI); console shows only the known asynchronous-readback notice and the `float32-blendable` capability note |
+| Adapter | `maxSampledTexturesPerShaderStage` = 48 (the engine asks for the adapter maximum), so `RendererCompositorRD` keeps **Forward+**; features include `shader-f16`, `timestamp-query`, ASTC/ETC2, texture-formats tier 1 and 2, subgroups |
+| Specialization | Pipeline `override` constants reach Dawn with the engine's values (`pso_sc_packed_0 = 0x308308B0`: 8/12 PCF and penumbra samples for soft filter quality 3) — verified on device with `--log-pipelines` |
+| Performance | GPU-bound, not CPU-bound: 20.5 fps at 1920x1080 with 48.7 ms of GPU time per frame; see *Performance & Optimization*, "The First Phone" |
+| Not an issue here | Debug vs release template, dlink, threads, the separate render thread, texture compression, `textureGather` (translated natively), f16 (a Forward+ f16 build changed nothing), dead feature code in the clustered shader |
+
+Untested on phones: Adreno (the §3.3 fallbacks), Safari/iOS.
+
 ### 3.4 All Browsers (Spec Compliance)
 
 | Issue | Workaround |

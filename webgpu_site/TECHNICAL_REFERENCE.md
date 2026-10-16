@@ -462,6 +462,12 @@ Release templates no longer accidentally enable assertions (was adding ~2MB and 
 
 ---
 
+### 9.6 Profiling on an Android Phone
+
+`webgpu_tests/perf_guard/android/` drives Chrome on a USB-connected phone from the desktop: `adb reverse` so the phone loads `http://localhost:8099/` as a secure context (WebGPU without HTTPS), `adb forward` to `localabstract:chrome_devtools_remote` for raw CDP, instrumentation installed with `Page.addScriptToEvaluateOnNewDocument` before the engine's page runs. `probe.mjs` reports adapter/limits/renderer/fps; `fps_matrix.mjs` measures export variants cold; `gpu_time.mjs` reuses the desktop `gpu_time.mjs` timestamp-query instrumentation per command buffer or per pass, and can dump a shader module's WGSL (`--dump-wgsl`), substitute an edited one by exact code match (`--replace-pair`, since one label covers every material version of a scene shader), log the override constants each pipeline is created with (`--log-pipelines`) and request `shader-f16` (`--f16`). Exports must render on the main thread (`variant/separate_render_thread=false`): the separate render thread's pthread worker never returns to its event loop long enough to answer `Runtime.evaluate`. First results: `webgpu_notes/TASKS.md` §2.9.
+
+---
+
 ## 10. Cross-Browser Compatibility
 
 ### Firefox/wgpu

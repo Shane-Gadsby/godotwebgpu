@@ -20,6 +20,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
 | [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
+| [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 | [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
@@ -298,6 +299,25 @@ this suite's own fixtures? See
 [`screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`](screenshot_comparison/LIVE_REPRO_METHODOLOGY.md)
 for the scratch-copy + native-Vulkan-vs-WebGPU comparison workflow and its
 reusable capture scripts.
+
+### 9. Android On-Device Profiling (needs a phone over USB)
+
+```bash
+adb reverse tcp:8099 tcp:8099          # the phone loads http://localhost:8099/ = a secure context, no HTTPS needed
+cd webgpu_tests/perf_guard/android
+node probe.mjs      --dir <export>                              # adapter, limits, renderer banner, fps, console
+node fps_matrix.mjs --root <dir of exports> --variants a,b,c    # cold-boot fps / p50 p90 p99 / main busy % per export
+node gpu_time.mjs   --dir <export> --passes --top 40            # GPU ms per pass from timestamp queries, ranked
+node gpu_time.mjs   --dir <export> --dump-wgsl 'mod:SceneForwardClusteredShaderRD:18' --dump-dir D --dump-only
+node gpu_time.mjs   --dir <export> --passes --replace-pair D/<orig>.wgsl=<edited>.wgsl   # bisect a shader
+```
+
+Each script serves the export with COOP/COEP on 127.0.0.1:8099, force-stops Chrome on the phone, opens a blank
+tab, closes every other tab, installs its instrumentation with `Page.addScriptToEvaluateOnNewDocument` and then
+navigates — raw CDP through `adb forward tcp:9222 localabstract:chrome_devtools_remote`, no Playwright. Export
+with `variant/separate_render_thread=false`: with the separate render thread the engine's WebGPU calls happen in a
+pthread worker that never answers `Runtime.evaluate`, so the page-side tools see nothing. First results and the
+traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has the full recipe.
 
 ## CI Pipeline
 

@@ -374,9 +374,48 @@ Averaged over the seven scenes the fixes alone are main thread −8%, GPU −8%,
 
 ---
 
+## 2026-10-17: The First Phone (Mali-G615, Chrome/Android)
+
+Everything above was measured on desktop GPUs, where this backend's problem was always the CPU side of the browser. The first phone run (Motorola Razr 60: MediaTek MT6878, 2-core Mali-G615 MC2, Android 16, Chrome 154; the user's cameraSim project — Forward+, bokeh DOF near and far, a directional light and three shadow-casting spots, seven opaque draws, 1920x1080 backbuffer) inverted that picture completely.
+
+**It is GPU-bound.** 20.5 fps; main thread 29% busy; **48.7 ms of GPU time per frame, 90% of the GPU timeline** (timestamp queries per pass, the same instrumentation as `gpu_time.mjs`, driven over USB by the tools in `webgpu_tests/perf_guard/android/`):
+
+| GPU ms/frame | Pass |
+|---:|---|
+| 28.0 | opaque lighting pass (`SceneForwardClusteredShaderRD:18`, 7 draws → 1920x1080 RGBA16F); the depth prepass of the same 7 draws is 0.67 |
+| 14.5 | bokeh DOF, four compute passes at full resolution |
+| 1.2 | tonemap |
+| ~1.7 | the 4096² shadow maps |
+| < 1 each | cluster build, blit, 113 UI draws, copies |
+
+Against the desktop profile of the same scene (opaque 0.29 ms, DOF 0.145) both big passes are ~100x — the hardware ratio, not one pathological shader.
+
+**What does not matter on this phone** (all 19–21 fps): the debug vs release template, `dlink`, threads, the separate render thread (the user's own observation), ASTC-compressing the character texture. Cheaper shadows (2048 maps, soft filter quality 1) buy 10%; a cheaper bokeh (Very Low, Box) 4% — the DOF cost is fixed full-resolution bandwidth, not sample count.
+
+**What matters is 3D pixel count**, almost exactly: `rendering/scaling_3d/scale` 0.75 → 30.1 fps, 0.66 with the cheap DOF/shadows → 50.1, 0.5 → 59.6 (the display cadence). FSR 1.0 upscaling undoes it (50.1 → 30.1: EASU+RCAS are 7.3 ms at 1080p output plus a 1.2 ms copy). The project now carries `.web_android` overrides (scale 0.6, bilinear, 2048 maps, filter quality 1, cheap bokeh) and runs at **55.6 fps**; `.web_ios` carries milder, untested ones. The web platform exposes `web_android` / `web_ios` feature tags, never `mobile`, so a project's `*.mobile` overrides do not apply in phones' browsers.
+
+**Bisecting the lighting pass** — the three lit materials' fragment modules were dumped from the device, edited by function signature (Tint mangles names but keeps parameter names), and substituted by exact code match; the unedited control reproduces 26.9 ms:
+
+| Cut in the fragment WGSL | `:18` ms |
+|---|---:|
+| none (control) | 26.9 |
+| fragment body returns at once (raster + RGBA16F write floor) | 1.85 |
+| `light_compute` (the BRDF) returns at once | 8.4 |
+| every `textureSampleCompare` → 1.0 | 16.4 |
+| omni/spot processing returns at once (the three spots) | 15.6 |
+| spot shadow samplers → 1.0 | 18.6 |
+| directional shadow samplers → 1.0 | 23.0 |
+| area-light and reflection-probe code returns at once | 27.2 |
+
+So the pass is BRDF + 8-tap PCF for four lights per pixel, and the cuts are super-additive (BRDF 18.5 + shadows 10.5 > 25): part of the cost is register pressure/occupancy of the whole clustered program, which the texture-latency-bound shadow taps need. Every candidate for a cost of *ours* was then checked and cleared: `:18` is the specialized colour pass (not the ubershader fallback); the override constants reach Dawn; unused feature paths are free; `OpImageGather` is translated natively; and **f16 is a null result on this GPU** — the Forward+ shader was bridged to `EXPLICIT_FP16` (Mobile's lighting include already takes `half`; Clustered's locals are float, so the bridge casts at the six lighting calls, `F0`, `blur_shadow`, `reflection_process` and the clearcoat helpers; it compiles for every optional material path and Tint emits `enable f16;`), and substituted with the device requesting `shader-f16`: 47.9 ms GPU vs a 48.7 ms f32 control. The bridge is kept as `webgpu_tests/perf_guard/android/forward_clustered_explicit_fp16_bridge.patch` for Apple GPUs, where f16 matters much more. Forward Mobile, for the record, settles at 21.6 fps here (opaque pass 34.1 ms for 4 draws — it has no depth prepass, so it shades overdraw).
+
+Still open: a native-Vulkan number on the same phone (needs an Android SDK for an APK export) and profiling exports that use the separate render thread (its pthread worker never answers CDP evaluates; `android/worker_gpu.mjs` is the unfinished self-driving variant).
+
+---
+
 ## Remaining Optimization Opportunities
 
-1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile.
+1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile. *Measured 2026-10-17:* on a Mali-G615 phone the main thread sits at 29% while the GPU is at 90%, so trampoline savings would not change the frame rate there; a weaker CPU with a stronger GPU (or a lighter scene) would be the case for it.
 
 2. **Skeleton atlas compaction**: Add free-list or generational compaction for dynamic skeleton scenes.
 

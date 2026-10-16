@@ -132,7 +132,7 @@ available. Threaded builds also need COOP/COEP cross-origin-isolation headers.
 | Linux | Vivaldi | Manual, 2026-09-16 | Loads and renders. Same flag and native-package requirements |
 | Windows | Chrome, Firefox, Edge | Manual, 2026-09-16 | Loads and renders, out of the box, no flags |
 | macOS | Chrome 113+, Firefox, Safari 18+ | Manual, upstream | Loads and renders. Never run against the scene smoketest (it needs AppleScript to drive Safari, and no macOS machine is in this fork's loop) |
-| Android | Chrome | Not measured in this fork | Reported working upstream. The Adreno float32-filterable fallbacks exist because of real Adreno behavior, but no scene run is recorded here — `TASKS.md` Task 5.2 still lists Android as outstanding |
+| Android | Chrome 154 | Measured, 2026-10-17 (Motorola Razr 60, MediaTek MT6878 / Mali-G615 MC2) | Loads and renders correctly out of the box; the adapter reports 48 sampled textures per stage, so a `forward_plus` project runs **Forward+**. GPU-bound at 1920x1080 (20 fps on a real project; 56-60 fps with 3D resolution scaling) — see [Performance Benchmarks](#performance-benchmarks) and `webgpu_notes/TASKS.md` §2.9. Tooling: `webgpu_tests/perf_guard/android/` |
 | iOS | Safari 26.0+ | Not measured in this fork | Reported working upstream; Task 5.2 lists iOS as outstanding |
 
 The smoketest is the only automated per-scene measurement, and it covers 21 scenes (8 benchmarks, 10 demos, 1 stress test, and 2 that exist to be asserted on — font rendering and volumetric fog) drawn from `godot-demo-projects` and this repo's own fixtures — see [`webgpu_tests/scene_smoketest`](webgpu_tests/scene_smoketest). Where a row says *manual*, it means a human loaded exports and looked at them; treat it as "no known problems" rather than a coverage figure. Every scene passes, and nothing is skipped.
@@ -381,6 +381,22 @@ On this hardware WebGPU matches WebGL (all display-capped). Post-processing was 
 | Shadows | 0.44 → 0.40 ms (−9%) | 0.06 + 0.36 ms (−86%) | 846 → 867 (+2%) | 0.34 → 0.34 (0%) |
 
 Totals, averaged over the seven scenes: the driver/engine fixes alone cut main-thread time **−8%** and GPU time **−8%** and raised uncapped fps **+4%** — all of it on the scenes that had something to fix (the heavy scene: main −40%, GPU −57%, +28% fps; cameraSim: GPU −9%), the rest were already at their floor and moved within noise. With the separate render thread on top, the main thread's per-frame cost falls **−82% on average** (−57% on the platformer, whose remaining 0.36 ms is its own physics, scripts and audio; −97% on the heavy scene), the render thread picking up the same work in parallel. Uncapped fps is not measurable in Separate mode (Chrome's uncapped mode drives the rAF of a page whose canvas is worker-owned at ~60 Hz); with vsync every configuration runs at the display rate, and the threads+GDExtension (dlink) build measures the same as threads. The Safe thread model measures the same as nothreads, which is also why there is no "before, threaded" column: until today the thread model did not change where rendering ran.
+
+**First phone, 2026-10-17** — a Motorola Razr 60 (MediaTek MT6878, 2-core Mali-G615 MC2, Android 16, Chrome 154), over USB with the tools in `webgpu_tests/perf_guard/android/`. The cameraSim project (Forward+, depth of field, a directional light and three shadow-casting spots, seven opaque draws) at its 1920x1080 backbuffer runs at **20.5 fps and is entirely GPU-bound**: 48.7 ms of GPU time per frame (90% of the GPU timeline) with the main thread 29% busy — 28 ms in the opaque lighting pass and 14.5 ms in full-resolution bokeh DOF. Nothing on the CPU side matters there, and the frame scales with 3D pixel count; a bisection of the lighting shader (edited WGSL substituted on the device) found BRDF + 8-tap PCF for four lights per pixel, with an f16 build of the Forward+ shader a null result on this GPU. Forward Mobile is no faster (21.6 fps). Release-template exports, main-thread rendering, one tab, 10 s windows after a cold boot, all quantised to the 120 Hz panel:
+
+| Variant (Forward+ unless noted) | fps | p50 / p90 frame ms |
+|---|---:|---:|
+| as exported (also: debug template, no dlink, nothreads, ASTC texture) | 20.5 (19.2–20.8) | 41.5 / 83 |
+| 2048 shadow maps + soft filter quality 1 | 22.6 | 41.5 / 41.5 |
+| bokeh Very Low + Box | 21.4 | 41.5 / 83 |
+| `scaling_3d/scale` 0.75 | 30.1 | 33.2 / 33.2 |
+| `scaling_3d/scale` 0.66 + cheap DOF + cheap shadows | 50.1 | 16.6 / 33.2 |
+| the same with FSR 1.0 upscaling | 30.1 | 33.2 / 33.2 |
+| `scaling_3d/scale` 0.5 | 59.6 | 16.6 / 16.6 |
+| the project's `.web_android` overrides (scale 0.6, bilinear, cheap shadows, cheap DOF) | **55.6** | 16.6 / 16.6 |
+| Forward Mobile (diagnostic) | 21.6 | — |
+
+What to set for phones, without touching desktop: suffix the settings with `.web_android` (and `.web_ios`) — the web platform exposes those feature tags, never `mobile` — e.g. `rendering/scaling_3d/scale.web_android=0.6`, `scaling_3d/mode.web_android=0` (bilinear; FSR 1.0 costs ~7 ms at 1080p output on this GPU), `lights_and_shadows/directional_shadow/size.web_android=2048`, `positional_shadow/atlas_size.web_android=2048`, both `soft_shadow_filter_quality.web_android=1`.
 
 Try all benchmarks live at **[godotwebgpu.com/#benchmarks](https://godotwebgpu.com/#benchmarks)**.
 

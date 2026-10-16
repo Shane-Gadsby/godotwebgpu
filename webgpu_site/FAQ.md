@@ -182,12 +182,11 @@ If you use very advanced GLSL features or rely on specific Vulkan behaviors, tes
 
 ### 20. Does it work on mobile browsers?
 
-Emerging support:
-- **Chrome Android** (with WebGPU flag): Works, but Adreno GPUs may trigger float32→float16 texture downgrades
-- **Safari iOS 18+**: WebGPU support is early; works with the binding_array and format workarounds
-- **Firefox Android**: Not yet shipping WebGPU
+- **Chrome Android**: yes, measured on 2026-10-17 on a Motorola Razr 60 (Mali-G615 MC2, Chrome 154, no flags needed). Everything loads and renders correctly, and the adapter reports 48 sampled textures per shader stage, so a `forward_plus` project runs **Forward+** there, not Forward Mobile. Adreno GPUs may additionally trigger the float32→float16 texture downgrades (untested in this fork).
+- **Safari iOS 18+**: untested in this fork; reported working upstream with the binding_array and format workarounds.
+- **Firefox Android**: not yet shipping WebGPU.
 
-Mobile WebGPU is the next frontier. The performance optimizations (especially IPC reduction) are even more impactful on mobile where the trampoline cost is 3-5x higher.
+What a phone is actually limited by is the GPU, not the browser overhead this backend spent most of its effort on: on that Razr a real Forward+ project at its 1920x1080 backbuffer is 20 fps with the main thread 29% busy and 48.7 ms of GPU time per frame (lighting pass 28 ms, bokeh DOF 14.5 ms). Template kind, dlink, threads, the separate render thread and texture compression make no difference; 3D resolution does — `rendering/scaling_3d/scale` 0.5 gives 60 fps. Use `.web_android` / `.web_ios` setting suffixes to lower the 3D scale, shadow map sizes and soft-shadow quality on phones only (the web platform never exposes the `mobile` feature tag), and keep bilinear upscaling (FSR 1.0 costs ~7 ms at 1080p output on that GPU). The full investigation, including the lighting-shader bisection and why an f16 build of the Forward+ shader did not help, is in `webgpu_notes/TASKS.md` §2.9; the on-device tooling is `webgpu_tests/perf_guard/android/`.
 
 ### 21. What about SharedArrayBuffer / COOP/COEP headers?
 
