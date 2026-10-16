@@ -88,7 +88,8 @@ private:
 	static void _render_thread_on_draw_done();
 	static void _render_thread_yield();
 	static void _render_thread_main_resume(void *p_userdata);
-	static void _render_thread_shutdown(void *p_rendering_device, void *p_rendering_context);
+	static void _render_thread_shutdown(void *p_userdata);
+	static void _render_thread_exit(void *p_userdata);
 	void _render_thread_set_window_size(int p_width, int p_height);
 
 public:

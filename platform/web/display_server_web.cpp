@@ -60,6 +60,7 @@
 #include "servers/rendering/rendering_server_default.h"
 
 #include <emscripten/atomic.h>
+#include <emscripten/proxying.h>
 #include <emscripten/threading.h>
 #include <pthread.h>
 #endif
@@ -1416,6 +1417,9 @@ void *DisplayServerWeb::_render_thread_main(void *p_userdata) {
 			}
 			const device = await adapter.requestDevice({ requiredFeatures : features, requiredLimits : limits });
 			device.lost.then((info) => {
+				if (info.reason === 'destroyed') {
+					return; // Our own device.destroy() at shutdown (_render_thread_shutdown).
+				}
 				console.error(`[Godot] WebGPU device lost on the render thread (reason: ${info.reason}): ${info.message}`);
 				globalThis['GODOT_WEBGPU_DEVICE_LOST'] = true;
 			});
@@ -1504,16 +1508,18 @@ void DisplayServerWeb::_render_thread_wake(void *p_userdata) {
 	}
 }
 
-void DisplayServerWeb::_render_thread_shutdown(void *p_rendering_device, void *p_rendering_context) {
-	// Render thread, from ~DisplayServerWeb(): frees what this thread created, then ends the thread.
-	RenderingDevice *rd = (RenderingDevice *)p_rendering_device;
-	if (rd != nullptr) {
-		rd->screen_free(DisplayServerEnums::MAIN_WINDOW_ID);
-		memdelete(rd);
+void DisplayServerWeb::_render_thread_shutdown(void *p_userdata) {
+	// Render thread, synchronously from ~DisplayServerWeb(): frees what this thread created while the
+	// main thread waits, since it goes on to tear down ObjectDB and the allocator right after.
+	DisplayServerWeb *ds = (DisplayServerWeb *)p_userdata;
+	if (ds->rendering_device != nullptr) {
+		ds->rendering_device->screen_free(DisplayServerEnums::MAIN_WINDOW_ID);
+		memdelete(ds->rendering_device);
+		ds->rendering_device = nullptr;
 	}
-	RenderingContextDriver *context = (RenderingContextDriver *)p_rendering_context;
-	if (context != nullptr) {
-		memdelete(context);
+	if (ds->rendering_context != nullptr) {
+		memdelete(ds->rendering_context);
+		ds->rendering_context = nullptr;
 	}
 	EM_ASM({
 		const device = Module['preinitializedWebGPUDevice'];
@@ -1522,6 +1528,9 @@ void DisplayServerWeb::_render_thread_shutdown(void *p_rendering_device, void *p
 			Module['preinitializedWebGPUDevice'] = null;
 		}
 	});
+}
+
+void DisplayServerWeb::_render_thread_exit(void *p_userdata) {
 	pthread_exit(nullptr);
 }
 
@@ -1550,9 +1559,11 @@ DisplayServerWeb::~DisplayServerWeb() {
 		// Created on the render thread, so freed there: RenderingServer::finish() has already drained
 		// the queue and stopped that thread's pump, which leaves it idle on its event loop.
 		render_thread_server = nullptr;
-		emscripten_dispatch_to_thread_async(render_thread, EM_FUNC_SIG_VII, (void *)&DisplayServerWeb::_render_thread_shutdown, nullptr, rendering_device, rendering_context);
+		emscripten_proxy_sync(emscripten_proxy_get_system_queue(), render_thread, &DisplayServerWeb::_render_thread_shutdown, this);
 		rendering_device = nullptr;
 		rendering_context = nullptr;
+		// Then let the worker go back to the pool; nothing waits for that.
+		emscripten_dispatch_to_thread_async(render_thread, EM_FUNC_SIG_VI, (void *)&DisplayServerWeb::_render_thread_exit, nullptr, nullptr);
 	}
 #endif
 	if (rendering_device) {

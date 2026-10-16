@@ -623,8 +623,9 @@ Forward+ matrix and WebRTC parity exports are nothreads).
    waits on with `Atomics.waitAsync`); it yields to its event loop after every frame drawn (so it presents) through a
    `MessageChannel` message, never a timer. `RendererCompositorRD::can_create_resources_async()` is false on this driver
    (`API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION`), so shaders/textures are created on the render thread, whose handle
-   table owns them. Resize goes through `call_on_render_thread`. Shutdown: `~DisplayServerWeb()` dispatches the RD/context
-   deletion to the render thread (`emscripten_dispatch_to_thread_async`), which destroys its device and exits.
+   table owns them. Resize goes through `call_on_render_thread`. Shutdown: `~DisplayServerWeb()` runs the RD/context deletion *on* the
+   render thread synchronously (`emscripten_proxy_sync`; an async dispatch ran after ObjectDB was gone and crashed the
+   worker), destroys that thread's device, then lets the thread exit. `requestQuit()` is clean in Separate mode.
  - **The main thread never blocks on the render thread in steady state.** The browser main thread cannot block; Emscripten
    spins (`futex_wait_main_browser_thread`, `_emscripten_get_now` was 1.8 ms/frame = 47% busy in the first attempt). So
    `Main::iteration` calls the new `RenderingServer::sync_previous_draw()` (= `sync()` everywhere else) which on this path only
@@ -639,8 +640,8 @@ Forward+ matrix and WebRTC parity exports are nothreads).
    `--uncapped` (`--disable-gpu-vsync`) Chrome drives rAF of a page whose canvas is worker-owned at ~60 Hz, so an uncapped
    Separate export reports ~58 fps at 5% busy — a tool artifact, not throughput; compare modes capped. (3) The render thread
    takes one worker from the pthread pool (`emscriptenPoolSize`, default 8). (4) Device loss on the render thread latches the
-   same `GODOT_WEBGPU_DEVICE_LOST` flag (on the worker's globalThis) the driver already polls. (5) `requestQuit()` logs a
-   pre-existing `null.currentTime` audio error in every mode, Separate included. (6) Unbaked exports translate ~355 shader
+   same `GODOT_WEBGPU_DEVICE_LOST` flag (on the worker's globalThis) the driver already polls. (5) `requestQuit()` warns about 7 leaked
+   Texture RIDs in every mode (pre-existing); the `null.currentTime` audio error it used to log is gone with PR #123996. (6) Unbaked exports translate ~355 shader
    stages at startup on the render thread (same work as Safe does on the main thread); the main thread stays responsive now
    that it waits asynchronously.
 
@@ -1191,7 +1192,12 @@ Native's whole CPU render time for this scene is 0.33 ms, so engine wasm runs ~3
    playback rate (`SampleNode._syncPlaybackRate`, reset when `_restart()` creates a new source so the old timing is kept), and
    `setVolumes` passes `subarray` views instead of copies. Platformer: **0.148 -> 0.029 ms/frame** (what is left are real changes,
    3D attenuation as the camera moves). Smoketest platformer / stress / 2d platformer pass on the real GPU. No tier checks audio
-   *output*; the change only skips writes of an unchanged value. Upstream-able as is.
+   *output*; the change only skips writes of an unchanged value. Upstream-able as is. **Later 2026-10-16:** upstream PR
+   godotengine/godot#123996 ("web: Various fixes to the Sample audio driver", unmerged, rewrites `library_godot_audio.js` as a
+   closure with native `loop`/`loopStart`/`loopEnd` and a pitch-aware position worklet) is cherry-picked as `16a69c7728`; it
+   still wrote every gain and pitch (plus a worklet `setValueAtTime`) each frame, so the skip-unchanged cache is re-applied on
+   its structure (`createVolumeMixer`'s `setGain`, `syncedPitchScale`). The `web-audio/skip-unchanged-audioparam-writes`
+   branch is superseded by that PR for upstream purposes.
 
 **Engine wasm CPU vs native, 2026-10-16.** Two levers measured with the capped CPU metric (`cpu_steady.mjs` busy ms/frame,
 two runs each, ~5% run-to-run noise), heavy_i / 3d platformer:
