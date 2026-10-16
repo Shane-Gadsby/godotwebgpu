@@ -75,9 +75,11 @@ gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load t
 
 **Read the 2026-10-16 additions first:** §2.5 (the separate web render thread is implemented and measured — design, traps,
 before/after table), §2.30 (SSIL hoist pass, read-write storage textures, the upstream shadow-atlas bug, prepare-for-use trait,
-Web Audio writes, PR #123996 cherry-picked), §3 trap 21. `bin/` is entirely from the `db437ca832` tree: editor (`webgpu=yes`),
-nothreads, threads and threads+dlink release templates. The last full verification on that tree: Forward+ 64/64, scene
-smoketest 21/21 Chrome + Firefox, unit tests, `-Werror` objects (§1 tiers). Scratch exports/measurement scripts for the
+Web Audio writes, PR #123996 cherry-picked), §3 traps 21 and 22. `bin/` editor (`webgpu=yes`) is from the `b4de0b0b4b` tree;
+all eight web templates (release/debug × nothreads/threads × dlink or not) were relinked after it with the
+`SharedArrayBuffer` guard in `library_godot_audio.js` (trap 22 — the cherry-picked PR #123996 broke every `threads=no` export
+served without COOP/COEP). The last full verification: Forward+ 64/64, scene smoketest 21/21 Chrome + Firefox, unit tests,
+`-Werror` objects (§1 tiers) on `db437ca832`; the export option and the guard were verified by export + browser run. Scratch exports/measurement scripts for the
 before/after table live in this session's scratchpad only (`exports_matrix.sh`, `measure_matrix.sh`, `thrprof.mjs`).
 
 **Read the 2026-10-15 additions next:** §2.6, §2.14-2.17, §2.19, §2.22, §2.29 changed state today; the driver changed (encoder split removed, `buffer_flush_range`, deferred staging uploads, Forward+ `firstInstance`) and the full `local_ci.sh` was *not* re-run on the final tree — the individual tiers in "Verified tiers" were, each against fresh exports. Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
@@ -1558,6 +1560,14 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     thread's wake latency rose to 4 ms per frame; a `MessageChannel` message yields without the clamp. Diagnose a "hang" with
     `Debugger.pause` over raw CDP on every target (page + workers): a page stuck for seconds was the main thread spinning
     in `sync()` while the render thread translated shaders, not a deadlock — the debugger stack showed it.
+22. **Every test server in this repo sends COOP/COEP, so a non-isolated page is never tested** (2026-10-16). The scene
+    smoketest, the perf tools and the scratch profilers all serve with `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy`
+    set, so `SharedArrayBuffer` always exists. A plain `python3 -m http.server` does not send them, which is how a `threads=no`
+    export is usually hosted, and there `SharedArrayBuffer` is **undefined**, not just unavailable. PR #123996 (cherry-picked
+    `16a69c7728`) did `HEAPF32.buffer instanceof SharedArrayBuffer` in `godot_audio_sample_register_stream`, which throws a
+    `ReferenceError` on the first sample stream, the engine never leaves "Rendering first frame..." and the main thread sits
+    idle — 21/21 smoketest scenes passed around it. Guarded with `typeof SharedArrayBuffer !== 'undefined'`; when testing a
+    `threads=no` export, serve it at least once without the headers.
 
 ---
 

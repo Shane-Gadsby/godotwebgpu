@@ -881,7 +881,10 @@ const _GodotAudioSampleDriver = {
 		const sampleRate = GodotAudio.ctx.sampleRate;
 
 		// AudioBuffer Cant's copy from a SharedArrayBuffer-backed view.
-		const sliceOrSub = HEAPF32.buffer instanceof SharedArrayBuffer ? GodotRuntime.heapSlice : GodotRuntime.heapSub;
+		// SharedArrayBuffer is not defined at all when the page is not cross-origin isolated (the common case for
+		// single-threaded exports), so guard the instanceof or the first sample registration throws a ReferenceError.
+		const isShared = typeof SharedArrayBuffer !== 'undefined' && HEAPF32.buffer instanceof SharedArrayBuffer;
+		const sliceOrSub = isShared ? GodotRuntime.heapSlice : GodotRuntime.heapSub;
 		const subLeft = sliceOrSub(HEAPF32, p_frames, p_frames_count);
 		const subRight = sliceOrSub(HEAPF32, p_frames + p_frames_count * BYTES_PER_FLOAT32, p_frames_count);
 		const audioBuffer = GodotAudio.ctx.createBuffer(numberOfChannels, p_frames_count, sampleRate);
