@@ -613,6 +613,29 @@ Forward+ matrix and WebRTC parity exports are nothreads).
    0.88-0.93 ms (14-15%), threads+Safe 0.81-0.84 ms (13-14%), threads+Separate **0.42-0.43 ms (7%)** — the ~45% cut predicted
    above, at the same 164 fps. The render thread draws the
    frame in ~0.6 ms and wakes within ~0.05 ms of the `_draw` push.
+ - **Before/after table (2026-10-16 evening; before = `17d5ee6a85`, the end of 2026-10-15, built as `tmpl_before.zip`; after =
+   `db437ca832`; 1280x720, 165 Hz display, same real GPU; capped = main-thread ms per frame from `Performance.getMetrics`,
+   render = the render-thread worker's CPU ms per frame from a CDP profile, uncapped = `--disable-frame-rate-limit
+   --disable-gpu-vsync` engine fps, GPU = `gpu_time.mjs` busy ms/frame; unbaked exports; scratch `thrprof.mjs`/`thrperf.mjs`):
+
+   | scene | before nothreads: capped / uncapped / GPU | after nothreads | after threads Safe | after threads Separate: main + render | after threads+dlink Separate |
+   |---|---|---|---|---|---|
+   | cameraSim | 0.51 ms / 837 fps / 0.64 | 0.49 / 832 / 0.58 | 0.56 / 865 | **0.09** + 0.44 | 0.09 + 0.43 |
+   | heavy Forward+ (scene_i) | 1.93 / 229 / 3.40 | 1.15 / 292 / 1.46 | 1.16 / 282 | **0.06** + 1.18 | 0.07 + 1.22 |
+   | 3D platformer | 0.84 / 833 / 0.40 | 0.79 / 821 / 0.42 | 0.80 / 809 | **0.36** + 0.50 | 0.39 + 0.50 |
+   | scene_b PBR | 0.28 / 1012 / 0.28 | 0.27 / 1022 / 0.28 | — | 0.05 + 0.22 | — |
+   | scene_d particles | 0.26 / 982 / 0.13 | 0.27 / 974 / 0.14 | — | 0.05 + 0.19 | — |
+   | scene_f post-fx | 0.96 / 633 / 0.50 | 0.99 / 619 / 0.49 | — | 0.09 + 0.99 | — |
+   | scene_g shadows | 0.44 / 846 / 0.34 | 0.40 / 867 / 0.34 | — | 0.06 + 0.36 | — |
+
+   Reading it: today's GPU/CPU fixes show on the heavy scene (GPU 3.40 -> 1.46 ms, main 1.93 -> 1.15 ms, 229 -> 292 fps
+   uncapped) and cameraSim's GPU (0.64 -> 0.58); the small scenes were already at their floor. The Separate model moves all
+   rendering off the main thread (cameraSim 0.51 -> 0.09 ms, heavy 1.93 -> 0.06) and leaves game logic there (platformer's
+   0.36 is physics/scripts/audio); the render thread's ms are the same work the main thread used to do. The Safe model is
+   the nothreads number within noise, which is also why "before, threaded" is not a column: before today the thread model
+   did not change where rendering ran. Uncapped fps is not measurable for Separate: Chrome's uncapped mode drives the rAF
+   of a page whose canvas is worker-owned at ~60 Hz (same with every flag combination tried). cameraSim nothreads vs
+   Separate screenshots differ only in the FPS counter text.
  - **How it works** (`platform/web/display_server_web.cpp`, "Separate render thread"): `web_main.cpp` calls
    `DisplayServerWeb::render_thread_prestart()` right after `Main::setup()` — a pthread with the canvas transferred as an
    OffscreenCanvas requests its own adapter/device (the main thread's features/limits), then startup waits a frame at a time
