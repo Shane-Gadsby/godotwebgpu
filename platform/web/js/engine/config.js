@@ -53,6 +53,15 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		mainPack: null,
 		/**
+		 * A pack of baked shaders exported next to the main pack (``<name>.shaders.pck``), preloaded
+		 * with it. The engine mounts it by itself; this only has to be fetched before start.
+		 *
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?string}
+		 */
+		shaderPack: null,
+		/**
 		 * Specify a language code to select the proper localization for the game.
 		 *
 		 * The browser locale will be used if none is specified. See complete list of
@@ -353,6 +362,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.canvas = parse('canvas', this.canvas);
 		this.executable = parse('executable', this.executable);
 		this.mainPack = parse('mainPack', this.mainPack);
+		this.shaderPack = parse('shaderPack', this.shaderPack);
 		this.locale = parse('locale', this.locale);
 		this.canvasResizePolicy = parse('canvasResizePolicy', this.canvasResizePolicy);
 		this.persistentPaths = parse('persistentPaths', this.persistentPaths);

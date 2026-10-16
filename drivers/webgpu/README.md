@@ -93,7 +93,13 @@ Three tiers, checked in order:
 2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
    ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
    Keyed by SPIR-V hash, so it only hits when the engine's glslang output
-   matches what the table was generated from.
+   matches what the table was generated from. `SCsub` re-bakes it when a
+   preprocessing-pass source, an engine `.glsl`, anything under vendored
+   Tint/SPIRV-Tools/`tint_cli`, `bin/tint_convert_cli` itself or glslang's
+   version changes (a fingerprint `Value`, ~30 ms per scons read);
+   `./build-linux.sh --force-shader-rebake` deletes the header to force one.
+   The bake runs glslangValidator and `tint_convert_cli --batch` across all
+   cores (~3 s for the 274 engine modules); `WGSL_PRECOMPILE_JOBS=N` caps it.
 3. **Runtime Tint** — anything that missed, translated in the browser on
    demand. This is what an export with baking turned off uses for everything,
    and it is the only route for a shader that does not exist at export time

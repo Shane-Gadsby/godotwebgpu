@@ -287,10 +287,14 @@ const Engine = (function () {
 				}
 
 				return webgpuReady.then(function () {
-					return Promise.all([
-						me.init(exe),
-						me.preloadFile(pack, pack),
-					]).then(function () {
+					// The baked shader pack, when the export produced one, is fetched
+					// alongside the main pack: the engine looks for
+					// `<main pack>.shaders.pck` next to it at startup and mounts it.
+					const pending = [me.init(exe), me.preloadFile(pack, pack)];
+					if (me.config.shaderPack) {
+						pending.push(me.preloadFile(me.config.shaderPack, me.config.shaderPack));
+					}
+					return Promise.all(pending).then(function () {
 						return me.start.apply(me);
 					});
 				});

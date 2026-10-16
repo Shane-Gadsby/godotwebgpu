@@ -22,6 +22,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 # ---------------------------------------------------------------------------
 # MurmurHash3 (x86_32) — matches Godot's hash_murmur3_buffer()
@@ -150,7 +151,9 @@ def _parse_glsl_recursive(filepath, stages, included_files, current_stage):
         if "#include " in stripped:
             include_name = stripped.replace("#include ", "").strip().strip('"')
             if include_name.startswith("thirdparty/"):
-                include_path = os.path.join(_INCLUDE_ROOT, include_name) if _INCLUDE_ROOT else os.path.relpath(include_name)
+                include_path = (
+                    os.path.join(_INCLUDE_ROOT, include_name) if _INCLUDE_ROOT else os.path.relpath(include_name)
+                )
             else:
                 include_path = os.path.normpath(os.path.join(os.path.dirname(filepath), include_name))
             stage_key = current_stage + ":" + include_path
@@ -893,6 +896,44 @@ def compile_glsl_to_spirv(glsl_source, stage, glslang_path="glslangValidator"):
             pass
 
 
+def job_count():
+    """How many conversions/compilations to run at once.
+
+    Both halves of this script are subprocess fan-outs (glslangValidator per
+    shader variant, tint_convert_cli per SPIR-V module), so they scale with
+    core count rather than with the GIL. Overridable with WGSL_PRECOMPILE_JOBS
+    because this runs as a SCons builder action, which can mean sharing the
+    machine with the rest of a parallel `scons -jN` engine build.
+    """
+    override = os.environ.get("WGSL_PRECOMPILE_JOBS")
+    if override and override.isdigit() and int(override) > 0:
+        return int(override)
+    return os.cpu_count() or 4
+
+
+def _convert_spirv_chunk(paths, tint_cli_path):
+    """Run one `tint_convert_cli --batch` over `paths`; returns its JSON dict."""
+    try:
+        result = subprocess.run(
+            [tint_cli_path, "--batch"] + paths,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except FileNotFoundError:
+        print(f"[WGSL Precompile] ERROR: Tint CLI not found at: {tint_cli_path}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print(f"Tint batch conversion timed out after 120s ({len(paths)} modules)", file=sys.stderr)
+        return {}
+
+    if result.returncode != 0:
+        print(f"Tint batch conversion failed: {result.stderr}", file=sys.stderr)
+        return {}
+
+    return json.loads(result.stdout)
+
+
 def convert_spirv_batch(spv_files, tint_cli_path):
     """Convert multiple SPIR-V files to WGSL using the Tint CLI tool.
 
@@ -907,22 +948,24 @@ def convert_spirv_batch(spv_files, tint_cli_path):
         return {}
 
     paths = [p for _, p in spv_files]
-    try:
-        result = subprocess.run(
-            [tint_cli_path, "--batch"] + paths,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except FileNotFoundError:
-        print(f"[WGSL Precompile] ERROR: Tint CLI not found at: {tint_cli_path}", file=sys.stderr)
-        sys.exit(1)
 
-    if result.returncode != 0:
-        print(f"Tint batch conversion failed: {result.stderr}", file=sys.stderr)
-        return {}
+    # `--batch` forks one child per module and waits for it before starting the
+    # next (process isolation so a Tint internal-compiler-error abort can't take
+    # the batch down -- see tint_cli/main.cpp's convert_isolated()), so a single
+    # invocation is strictly serial no matter how many cores are free. Split the
+    # module list across several invocations instead; round-robin so a chunk
+    # full of expensive shaders can't become the long pole. Result merging is
+    # keyed by path, so chunking can't change the generated table.
+    jobs = job_count()
+    chunks = [paths[i::jobs] for i in range(min(jobs, len(paths)))]
+    results = {}
+    if len(chunks) <= 1:
+        results = _convert_spirv_chunk(paths, tint_cli_path)
+    else:
+        with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+            for chunk_result in pool.map(lambda c: _convert_spirv_chunk(c, tint_cli_path), chunks):
+                results.update(chunk_result)
 
-    results = json.loads(result.stdout)
     output = {}
     for key, path in spv_files:
         val = results.get(path)
@@ -1028,6 +1071,11 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
 
     print(f"[WGSL Precompile] Processing {len(SHADER_REGISTRY)} shader files...")
 
+    # Phase 1 (serial, cheap): read/parse each .glsl once and assemble the GLSL
+    # source of every variant/stage. Only the glslangValidator calls below are
+    # worth spreading over cores; this part is plain string work.
+    pending = []  # (key, glsl_rel, variant_name, stage_type, glsl_source, embed)
+
     for entry in SHADER_REGISTRY:
         # A 4th element, when present, is `embed`: False means "compile and
         # convert this, so a Tint regression in it still fails the build, but
@@ -1059,23 +1107,40 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
                 # Assemble complete GLSL.
                 glsl_source = assemble_glsl(stage_lines, general_defines, variant_defines)
 
-                # Compile to SPIR-V.
-                spv_bytes, error = compile_glsl_to_spirv(glsl_source, stage_type, glslang_path)
-                if spv_bytes is None:
-                    shader_name = os.path.basename(glsl_rel)
-                    print(f"  FAIL: {shader_name}:{variant_name}:{stage_type} — {error[:120] if error else 'unknown'}")
-                    failed_compile += 1
-                    continue
-
-                # Save SPIR-V for batch Tint conversion.
                 key = f"{glsl_rel}:{variant_name}:{stage_type}"
-                spv_path = os.path.join(tempfile.gettempdir(), f"wgsl_pre_{hash(key) & 0xFFFFFFFF:08x}.spv")
-                with open(spv_path, "wb") as f:
-                    f.write(spv_bytes)
-                spv_batch.append((key, spv_path))
-                spv_data[key] = spv_bytes
-                if not embed:
-                    validate_only_keys.add(key)
+                pending.append((key, glsl_rel, variant_name, stage_type, glsl_source, embed))
+
+    # Phase 2 (parallel): one glslangValidator subprocess per variant/stage.
+    # Each call writes its own temp files (NamedTemporaryFile), so this is a
+    # straight fan-out. Results are consumed in submission order, so the
+    # generated table -- and the FAIL lines on the way to it -- stay identical
+    # to what the serial version produced.
+    def _compile_one(job):
+        return compile_glsl_to_spirv(job[4], job[3], glslang_path)
+
+    if len(pending) > 1:
+        with ThreadPoolExecutor(max_workers=min(job_count(), len(pending))) as pool:
+            compile_results = list(pool.map(_compile_one, pending))
+    else:
+        compile_results = [_compile_one(job) for job in pending]
+
+    for (key, glsl_rel, variant_name, stage_type, _glsl_source, embed), (spv_bytes, error) in zip(
+        pending, compile_results
+    ):
+        if spv_bytes is None:
+            shader_name = os.path.basename(glsl_rel)
+            print(f"  FAIL: {shader_name}:{variant_name}:{stage_type} — {error[:120] if error else 'unknown'}")
+            failed_compile += 1
+            continue
+
+        # Save SPIR-V for batch Tint conversion.
+        spv_path = os.path.join(tempfile.gettempdir(), f"wgsl_pre_{hash(key) & 0xFFFFFFFF:08x}.spv")
+        with open(spv_path, "wb") as f:
+            f.write(spv_bytes)
+        spv_batch.append((key, spv_path))
+        spv_data[key] = spv_bytes
+        if not embed:
+            validate_only_keys.add(key)
 
     # Batch convert all SPIR-V to WGSL.
     if spv_batch:

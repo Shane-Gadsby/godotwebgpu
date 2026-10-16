@@ -1257,6 +1257,32 @@ void ShaderRD::_initialize_cache() {
 
 		print_verbose("Shader '" + name + "' (group " + itos(E.key) + ") SHA256: " + group_sha256[E.key]);
 	}
+
+	// Every group directory under this shader's name that this build will never
+	// ask for. The group hash folds in GODOT_VERSION_HASH (base_sha256, see
+	// setup()), so each engine build writes into directories of its own and
+	// the previous build's become unreachable the moment it is replaced: an
+	// editor used across a month of local builds had 1,021 group directories
+	// (84 MB) under one project, 81 of them for the clustered scene shader
+	// alone, and an exported web game grows its IndexedDB-backed user:// the
+	// same way across deploys. This shader owns everything under its name, so
+	// it is the one place that knows which of them are live.
+	if (!shader_cache_user_dir.is_empty()) {
+		const String shader_dir = shader_cache_user_dir.path_join(name);
+		for (const String &group_dir_name : DirAccess::get_directories_at(shader_dir)) {
+			if (group_sha256.has(group_dir_name)) {
+				continue;
+			}
+			const String group_dir = shader_dir.path_join(group_dir_name);
+			Ref<DirAccess> da = DirAccess::open(group_dir);
+			if (da.is_null()) {
+				continue;
+			}
+			if (da->erase_contents_recursive() == OK && DirAccess::remove_absolute(group_dir) == OK) {
+				print_verbose(vformat("Shader '%s': removed stale cache group %s (written by a different engine build).", name, group_dir_name));
+			}
+		}
+	}
 }
 
 // Same as above, but allows specifying shader compilation groups.

@@ -1298,6 +1298,46 @@ Error EditorExportPlatform::_export_project_files(const Ref<EditorExportPreset> 
 	return export_project_files(p_preset, p_debug, _script_save_file, nullptr, &data, _script_add_shared_object);
 }
 
+// Removes the sibling directories of p_current_base_path under .godot/exported/.
+//
+// Each one is named for the hash of the export plugins' configuration, which
+// folds in the engine's git hash (see ShaderBakerExportPlugin::
+// _begin_customize_resources), so every editor commit starts a new directory
+// holding its own converted scenes and baked shader files, and the old ones
+// are never read again -- they are a cache that the next export fully
+// regenerates. Left alone they accumulate for as long as the project lives:
+// a project exported from a locally built editor for a month had 42 of them,
+// 2.3 GB, against the ~50 MB the current one needs.
+//
+// Directories touched within the last week are kept, so switching between two
+// editor builds for a few days does not cost a full re-customization each time.
+// The timestamp is the directory's own or its file_cache's, whichever is newer,
+// since the latter is rewritten on every export that uses the directory.
+void EditorExportPlatform::_prune_stale_export_caches(const String &p_current_base_path) {
+	const String exported_dir = p_current_base_path.get_base_dir();
+	const String current_name = p_current_base_path.get_file();
+	const uint64_t now = (uint64_t)OS::get_singleton()->get_unix_time();
+	constexpr uint64_t KEEP_SECONDS = 7ull * 24 * 60 * 60;
+
+	for (const String &dir_name : DirAccess::get_directories_at(exported_dir)) {
+		if (dir_name == current_name) {
+			continue;
+		}
+		const String dir_path = exported_dir.path_join(dir_name);
+		const uint64_t touched = MAX(FileAccess::get_modified_time(dir_path), FileAccess::get_modified_time(dir_path.path_join("file_cache")));
+		if (touched != 0 && now > touched && now - touched < KEEP_SECONDS) {
+			continue;
+		}
+		Ref<DirAccess> da = DirAccess::open(dir_path);
+		if (da.is_null()) {
+			continue;
+		}
+		if (da->erase_contents_recursive() == OK && DirAccess::remove_absolute(dir_path) == OK) {
+			print_verbose(vformat("Export: removed stale export cache '%s' (written by a different engine build).", dir_path));
+		}
+	}
+}
+
 Error EditorExportPlatform::export_project_files(const Ref<EditorExportPreset> &p_preset, bool p_debug, SaveFileFunction p_save_func, RemoveFileFunction p_remove_func, void *p_udata, SaveSharedObjectFunction p_so_func) {
 	//figure out paths of files that will be exported
 	HashSet<String> paths;
@@ -1435,6 +1475,7 @@ Error EditorExportPlatform::export_project_files(const Ref<EditorExportPreset> &
 
 	HashMap<String, FileExportCache> export_cache;
 	String export_base_path = ProjectSettings::get_singleton()->get_project_data_path().path_join("exported/") + itos(custom_resources_hash);
+	_prune_stale_export_caches(export_base_path);
 
 	bool convert_text_to_binary = get_project_setting(p_preset, "editor/export/convert_text_resources_to_binary");
 

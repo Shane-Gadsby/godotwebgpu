@@ -31,6 +31,7 @@
 #include "shader_baker_export_plugin_platform_webgpu.h"
 
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
+#include "drivers/webgpu/wgsl_bake_subprocess.h"
 #include "servers/rendering/rendering_device.h"
 
 // Unlike the Vulkan/Metal/D3D12 platforms, this container format also bakes
@@ -72,4 +73,36 @@ void ShaderBakerExportPluginPlatformWebGPU::get_target_feature_overrides(HashMap
 	for (int i = 0; i < RenderingDevice::SUPPORTS_MAX; i++) {
 		r_overrides[i] = false;
 	}
+}
+
+// The WGSL bake, batched: every stage of every variant goes through a few
+// concurrent tint_convert_cli runs before any container is built, and the
+// containers then find their WGSL ready (webgpu::bake_wgsl_via_subprocess()
+// reads the batch's results first). See WgslBakeBatch for why.
+class ShaderBakerStageBatchWebGPU : public ShaderBakerStageBatch {
+	webgpu::WgslBakeBatch batch;
+
+public:
+	virtual void add_stage(const Vector<uint8_t> &p_spirv) override { batch.add_stage(p_spirv); }
+	virtual void start() override { batch.start(); }
+	virtual bool is_done() const override { return batch.is_done(); }
+	virtual uint32_t get_done_count() const override { return batch.get_done_count(); }
+	virtual uint32_t get_total_count() const override { return batch.get_total_count(); }
+	virtual void cancel() override { batch.cancel(); }
+	virtual void finish() override { batch.finish(); }
+};
+
+ShaderBakerStageBatch *ShaderBakerExportPluginPlatformWebGPU::create_stage_batch() {
+	return memnew(ShaderBakerStageBatchWebGPU);
+}
+
+// The web exporter writes the baked cache to <name>.shaders.pck when the
+// preset asks for it (EditorExportPlatformWeb::_save_shader_pack()). Not with
+// an encrypted main pack: the side pack is written unencrypted, and silently
+// moving files out of an encrypted pack is not a choice to make for the user.
+bool ShaderBakerExportPluginPlatformWebGPU::uses_separate_pack(const Ref<EditorExportPreset> &p_preset) const {
+	if (p_preset.is_null() || p_preset->get_enc_pck()) {
+		return false;
+	}
+	return bool(p_preset->get("shader_baker/separate_pack"));
 }

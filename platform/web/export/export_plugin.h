@@ -106,6 +106,11 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 	Error _add_manifest_icon(const Ref<EditorExportPreset> &p_preset, const String &p_path, const String &p_icon, int p_size, Array &r_arr);
 	Error _build_pwa(const Ref<EditorExportPreset> &p_preset, const String p_path, const Vector<SharedObject> &p_shared_objects);
 	Error _write_or_error(const uint8_t *p_content, int p_len, String p_path);
+	// Writes the baked shader cache the shader baker set aside for this export
+	// (shader_baker/separate_pack) to p_path. r_written says whether a pack was
+	// produced; none is when the preset keeps shaders in the main pack or the
+	// bake produced nothing.
+	Error _save_shader_pack(const Ref<EditorExportPreset> &p_preset, const String &p_path, bool &r_written);
 
 	Error _export_project(const Ref<EditorExportPreset> &p_preset, int p_debug_flags);
 	Error _launch_browser(const String &p_bind_host, uint16_t p_bind_port, bool p_use_tls);

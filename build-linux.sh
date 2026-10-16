@@ -37,18 +37,53 @@
 # WebGPU template matrix, because drivers/webgpu/wgsl_precompile.py (which
 # SCons runs as part of every `webgpu=yes` web build) shells out to it to
 # precompile every built-in engine shader's WGSL ahead of time. SCons has no
-# visibility into that dependency -- its own Depends() for the generated
-# drivers/webgpu/wgsl_precompiled.gen.h only names wgsl_precompile.py itself,
-# not tint_convert_cli's binary or any of the C++/vendored-Tint sources that
-# actually determine its output -- so this script also force-deletes that
-# generated header before the web build loop, guaranteeing every full run
-# regenerates it from the tint_convert_cli just built, not a stale cached one.
+# visibility into that dependency on its own, so drivers/webgpu/SCsub
+# fingerprints it (every vendored Tint/SPIRV-Tools and tint_cli source's
+# size+mtime, bin/tint_convert_cli's hash, glslangValidator's version) and
+# re-bakes the table whenever any of it moves. That keeps the editor's baker and
+# every template's baked WGSL in step without this script having to delete the
+# generated header on every run, which is what it used to do (--force-shader-rebake
+# still does, for when you want the belt and braces).
 #
-# Usage: ./build-linux.sh [--skip-install] [--skip-web] [--skip-tint-cli] [--jobs N]
+# Build speed. The full run is 11 SCons invocations and, by design, shares
+# nothing between them: every variant has its own OBJSUFFIX, so a full matrix is
+# ~33,000 compiles, and nothing short of building fewer variants (or several at
+# once in separate trees) changes that number. What this script does trim:
+#   - the WGSL bake is skipped when the shader pipeline hasn't changed (it used
+#     to be forced every run), and runs glslangValidator and tint_convert_cli
+#     across all cores when it does (~33s -> ~3s for 274 modules).
+#   - apt/pip/AccessKit/emsdk are checked before being re-run, so a warm machine
+#     spends seconds in setup rather than minutes. Note that this means `emsdk
+#     install` no longer re-extracts (and so no longer un-patches) the toolchain
+#     on every run.
+#   - only the editor binary this run built is copied to builds/ and editors/,
+#     not every godot.linuxbsd.editor* in bin/ (a dev_build editor is 1.1 GB).
+#   - mold (else lld) for the three native links. Small here -- with the default
+#     debug_symbols=no the editor links in ~6s with ld.bfd and ~2s with mold --
+#     but free, and it is what makes a dev_build=yes editor (1.1 GB of DWARF)
+#     link in seconds rather than a minute.
+#   - --ccache compiles through ccache (symlink masquerade so it also covers
+#     em++; see setup_ccache). OPT-IN, because SCons records the resolved
+#     compiler path as an implicit dependency of every object: the first run
+#     with ccache recompiles all 11 variants once (~4 min each on 24 cores), and
+#     so does the first run without it afterwards. Worth it if you switch
+#     branches, revert experiments or re-run after a failed link; not if you
+#     only ever build forwards.
+#   - --skip-native-templates and --web-targets/--web-threads/--web-dlink narrow
+#     what gets built while iterating. The full matrix is still the default; a
+#     narrowed run leaves builds/ a mix of this run's templates and an older
+#     run's, which is exactly what the shader-bake fingerprint above cannot
+#     protect you from.
+# Each step's duration is printed at the end of the run.
+#
+# Usage: ./build-linux.sh [options]   (--help lists them)
 #
 # Env overrides:
 #   EMSDK_DIR=path       Emscripten SDK location (default: ~/emsdk)
 #   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.9)
+#   CCACHE_MAXSIZE=size  ccache budget for the 11 variants (default: 50G)
+#   LINKER=name          Native linker (default: auto -> mold, lld, or system)
+#   USE_CCACHE=yes       Same as --ccache
 
 set -euo pipefail
 
@@ -69,9 +104,48 @@ NC='\033[0m'
 SKIP_INSTALL=0
 SKIP_WEB=0
 SKIP_TINT_CLI=0
+SKIP_NATIVE_TEMPLATES=0
+FORCE_SHADER_REBAKE=0
+USE_CCACHE="${USE_CCACHE:-no}"
+LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
 EMSDK_VERSION="${EMSDK_VERSION:-6.0.9}"
+SCONS_VERSION="4.10.1"
+
+# Web template matrix filters. Defaults are the full 8-build matrix; narrowing
+# any of them is an iteration shortcut, not a release build (see the warning
+# emitted below for why).
+WEB_TARGETS="debug,release"
+WEB_THREADS="yes,no"
+WEB_DLINK="yes,no"
+
+usage() {
+	cat << 'EOF'
+Usage: ./build-linux.sh [options]
+
+  --skip-install            Don't touch apt/pip/AccessKit/emsdk (they are also
+                            skipped automatically when already up to date).
+  --skip-web                Editor + native templates only.
+  --skip-native-templates   Skip the Linux export templates (editor + web only).
+  --skip-tint-cli           Don't rebuild bin/tint_convert_cli.
+  --force-shader-rebake     Delete drivers/webgpu/wgsl_precompiled.gen.h first,
+                            forcing the WGSL table to be re-baked even if the
+                            shader pipeline is unchanged.
+  --ccache                  Compile through ccache (see the header comment:
+                            the first run with it recompiles every variant
+                            once, and so does switching it off again).
+  --linker NAME             default|bfd|gold|lld|mold for the native builds
+                            (default: auto -- mold, else lld, else the system
+                            default).
+  --web-targets LIST        Comma list of debug,release   (default: both)
+  --web-threads LIST        Comma list of yes,no          (default: both)
+  --web-dlink LIST          Comma list of yes,no          (default: both)
+  --jobs N                  Parallel jobs (default: nproc).
+
+Env overrides: EMSDK_DIR, EMSDK_VERSION, CCACHE_MAXSIZE, LINKER, USE_CCACHE.
+EOF
+}
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -83,27 +157,104 @@ while [[ $# -gt 0 ]]; do
 			SKIP_WEB=1
 			shift
 			;;
+		--skip-native-templates)
+			SKIP_NATIVE_TEMPLATES=1
+			shift
+			;;
 		--skip-tint-cli)
 			SKIP_TINT_CLI=1
 			shift
+			;;
+		--force-shader-rebake)
+			FORCE_SHADER_REBAKE=1
+			shift
+			;;
+		--ccache)
+			USE_CCACHE="yes"
+			shift
+			;;
+		--linker)
+			LINKER="$2"
+			shift 2
+			;;
+		--web-targets)
+			WEB_TARGETS="$2"
+			shift 2
+			;;
+		--web-threads)
+			WEB_THREADS="$2"
+			shift 2
+			;;
+		--web-dlink)
+			WEB_DLINK="$2"
+			shift 2
 			;;
 		--jobs)
 			JOBS="$2"
 			shift 2
 			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
 		*)
 			echo "Unknown argument: $1" >&2
+			usage >&2
 			exit 1
 			;;
 	esac
 done
 
-step() { echo -e "\n${BOLD}==> $1${NC}"; }
+# step() doubles as the run's stopwatch: each call closes the previous step and
+# records how long it took, so the summary at the end says where a long run
+# actually went instead of leaving it to guesswork.
+STEP_NAMES=()
+STEP_SECS=()
+STEP_CURRENT=""
+STEP_T0=0
+
+_close_step() {
+	if [[ -n "$STEP_CURRENT" ]]; then
+		STEP_NAMES+=("$STEP_CURRENT")
+		STEP_SECS+=("$((SECONDS - STEP_T0))")
+		STEP_CURRENT=""
+	fi
+}
+
+step() {
+	_close_step
+	STEP_CURRENT="$1"
+	STEP_T0="$SECONDS"
+	echo -e "\n${BOLD}==> $1${NC}"
+}
 ok() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 die() {
 	echo -e "${RED}$1${NC}" >&2
 	exit 1
+}
+
+fmt_duration() {
+	local total="$1"
+	printf '%d:%02d:%02d' "$((total / 3600))" "$(((total % 3600) / 60))" "$((total % 60))"
+}
+
+print_timings() {
+	_close_step
+	echo -e "\n${BOLD}==> Time per step (>=2s)${NC}"
+	local i
+	for i in "${!STEP_NAMES[@]}"; do
+		[[ "${STEP_SECS[$i]}" -ge 2 ]] || continue
+		printf '  %8s  %s\n' "$(fmt_duration "${STEP_SECS[$i]}")" "${STEP_NAMES[$i]}"
+	done
+	printf '  %8s  %s\n' "$(fmt_duration "$SECONDS")" "TOTAL"
+}
+
+# Comma-list membership, for the web matrix filters.
+list_has() {
+	local needle="$1"
+	local haystack=",$2,"
+	[[ "$haystack" == *",$needle,"* ]]
 }
 
 # --- Prerequisites ---------------------------------------------------------
@@ -124,6 +275,10 @@ APT_PACKAGES=(
 	curl
 	ca-certificates
 	zip
+	# Build accelerators, not build requirements: ccache (opt-in, --ccache) and
+	# mold (used when present). If the package names drift, nothing breaks.
+	ccache
+	mold
 	python3
 	python3-pip
 	python3-venv
@@ -152,11 +307,29 @@ APT_PACKAGES=(
 	mesa-vulkan-drivers
 )
 
+# Everything in install_prereqs() is a no-op on a machine that has already run
+# this script once, but the no-op itself used to cost a couple of minutes per
+# run (apt-get update over the network, a pip resolve, an emsdk git pull and
+# re-activate). Each step below now checks first and only reaches for the
+# network when something is actually missing. --skip-install still skips the
+# lot; these fast paths just mean you rarely need it.
+apt_packages_missing() {
+	local pkg
+	for pkg in "${APT_PACKAGES[@]}"; do
+		if ! dpkg-query -W -f='${Status}' "$pkg" 2> /dev/null | grep -q "ok installed"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 install_prereqs() {
 	step "Installing apt build dependencies..."
 	if ! command -v apt-get > /dev/null 2>&1; then
 		warn "apt-get not found (not a Debian/Ubuntu system) -- skipping automatic package install."
 		warn "Install the equivalent of: ${APT_PACKAGES[*]}"
+	elif ! apt_packages_missing; then
+		ok "All apt packages already installed -- skipping apt-get."
 	else
 		local sudo_cmd=()
 		if [[ "$(id -u)" -ne 0 ]]; then
@@ -177,12 +350,16 @@ install_prereqs() {
 	ok "Python OK: $(python3 --version)"
 
 	step "Installing SCons..."
-	python3 -m pip install --upgrade pip --quiet --break-system-packages 2> /dev/null \
-		|| python3 -m pip install --upgrade pip --quiet
-	python3 -m pip install "scons==4.10.1" --quiet --break-system-packages 2> /dev/null \
-		|| python3 -m pip install "scons==4.10.1" --quiet
-	command -v scons > /dev/null 2>&1 || die "scons installed via pip but isn't on PATH. Add Python's user-site bin directory to PATH and re-run."
-	scons --version
+	if command -v scons > /dev/null 2>&1 && scons --version 2> /dev/null | grep -q "v$SCONS_VERSION"; then
+		ok "SCons $SCONS_VERSION already installed."
+	else
+		python3 -m pip install --upgrade pip --quiet --break-system-packages 2> /dev/null \
+			|| python3 -m pip install --upgrade pip --quiet
+		python3 -m pip install "scons==$SCONS_VERSION" --quiet --break-system-packages 2> /dev/null \
+			|| python3 -m pip install "scons==$SCONS_VERSION" --quiet
+		command -v scons > /dev/null 2>&1 || die "scons installed via pip but isn't on PATH. Add Python's user-site bin directory to PATH and re-run."
+		scons --version
+	fi
 
 	if [[ -d "$REPO_ROOT/.git" ]]; then
 		step "Updating git submodules..."
@@ -199,6 +376,22 @@ install_prereqs() {
 
 install_emsdk() {
 	step "Setting up Emscripten SDK ($EMSDK_VERSION) at $EMSDK_DIR..."
+	# `emsdk install` re-extracts the toolchain tree (and so throws away this
+	# fork's Emscripten patches), and `git pull` + `activate` cost a minute even
+	# when they change nothing. If the activated emcc already reports the version
+	# this fork pins, there is nothing to do.
+	if [[ -f "$EMSDK_DIR/emsdk_env.sh" ]]; then
+		local active_version
+		active_version="$(
+			# shellcheck source=/dev/null
+			source "$EMSDK_DIR/emsdk_env.sh" > /dev/null 2>&1
+			emcc --version 2> /dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+		)" || active_version=""
+		if [[ "$active_version" == "$EMSDK_VERSION" ]]; then
+			ok "Emscripten $EMSDK_VERSION already installed and activated."
+			return
+		fi
+	fi
 	if [[ ! -d "$EMSDK_DIR" ]]; then
 		git clone https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR"
 	else
@@ -288,6 +481,109 @@ package_tpz() {
 	fi
 }
 
+# --- Build accelerators + matrix validation ---------------------------------
+
+# Validate the matrix filters before anything expensive runs, so a typo'd
+# --web-threads doesn't surface as "built 0 templates" an hour later.
+for tok in ${WEB_TARGETS//,/ }; do
+	[[ "$tok" == "debug" || "$tok" == "release" ]] || die "--web-targets: expected debug and/or release, got '$tok'."
+done
+for tok in ${WEB_THREADS//,/ }; do
+	[[ "$tok" == "yes" || "$tok" == "no" ]] || die "--web-threads: expected yes and/or no, got '$tok'."
+done
+for tok in ${WEB_DLINK//,/ }; do
+	[[ "$tok" == "yes" || "$tok" == "no" ]] || die "--web-dlink: expected yes and/or no, got '$tok'."
+done
+
+# ccache. The 11 SCons invocations below each compile their own ~3,000 objects
+# (every variant has its own OBJSUFFIX, so nothing is shared between them by
+# design), which is why re-running this script costs nearly as much as the first
+# run. ccache makes the second compile of any given translation unit -- after a
+# branch switch, a reverted experiment, or just re-running the script because
+# one template failed to link -- a cache hit.
+#
+# Wired in by *masquerade* (a directory of symlinks named after the compilers,
+# put at the front of PATH) rather than by SCons' own
+# c_compiler_launcher/cpp_compiler_launcher options, so the compile command line
+# stays plain `g++`/`em++` and scons' own emscripten detection keeps working.
+# Either way, enabling it invalidates every object once: SCons records the
+# resolved compiler executable (here the symlink) as an implicit dependency of
+# each object, so the first --ccache run recompiles all 11 variants, and the
+# first run without --ccache afterwards does it again. Hence opt-in.
+#
+# `emcc` is deliberately NOT symlinked, even though it would cover the ~520 C
+# objects per variant: platform/web/detect.py locates the Emscripten root with
+# WhereIs("emcc") + realpath() (for the sysroot include path and the JS libs),
+# and a ccache symlink there resolves it to /usr/bin, breaking the web build.
+# C++ (~2,400 objects/variant) and linking both go through em++, which is safe
+# to shadow -- ccache passes a link command (no -c) straight through.
+CCACHE_ACTIVE=0
+CCACHE_MASQ_DIR=""
+setup_ccache() {
+	local ccache_bin
+	ccache_bin="$(command -v ccache)" || return 1
+	CCACHE_MASQ_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/godotwebgpu-ccache-bin"
+	mkdir -p "$CCACHE_MASQ_DIR" || return 1
+	local name
+	for name in cc c++ gcc g++ clang clang++ em++; do
+		ln -sf "$ccache_bin" "$CCACHE_MASQ_DIR/$name" || return 1
+	done
+	# Exported rather than written into the user's ccache.conf: 11 variants of a
+	# ~3,000-object build is roughly 2.5 GiB of objects per generation, and the
+	# 5 GiB default evicts most of one run before the next one starts.
+	export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-50G}"
+	CCACHE_ACTIVE=1
+	return 0
+}
+
+# Has to be re-applied after sourcing emsdk_env.sh, which puts the Emscripten
+# toolchain dir at the front of PATH and would otherwise win for em++.
+use_ccache_path() {
+	[[ "$CCACHE_ACTIVE" -eq 1 ]] || return 0
+	export PATH="$CCACHE_MASQ_DIR:$PATH"
+}
+
+if [[ "$USE_CCACHE" != "yes" ]]; then
+	if command -v ccache > /dev/null 2>&1; then
+		echo "ccache is installed but off; pass --ccache to use it (one-time full recompile, see header)."
+	fi
+elif ! command -v ccache > /dev/null 2>&1; then
+	warn "--ccache given but ccache is not installed (apt install ccache, or run without --skip-install) -- building without it."
+elif setup_ccache; then
+	use_ccache_path
+	ok "ccache: $(ccache --version | head -1) (max ${CCACHE_MAXSIZE}, via $CCACHE_MASQ_DIR)"
+else
+	warn "Could not set up the ccache symlink directory -- building without it."
+fi
+
+# Linker for the three native builds. Nothing here changes what is produced;
+# mold/lld just link the editor's ~3,400 objects in a fraction of ld.bfd's time
+# (measured: ~6s -> ~2s with debug_symbols=no; the gap is a minute or more for a
+# dev_build editor). Web builds are unaffected (wasm-ld).
+NATIVE_LINKER_ARGS=()
+if [[ "$LINKER" == "auto" ]]; then
+	if command -v mold > /dev/null 2>&1; then
+		LINKER="mold"
+	elif command -v ld.lld > /dev/null 2>&1; then
+		LINKER="lld"
+	else
+		LINKER="default"
+	fi
+fi
+if [[ "$LINKER" != "default" ]]; then
+	NATIVE_LINKER_ARGS=("linker=$LINKER")
+	ok "Native linker: $LINKER"
+else
+	warn "No mold/lld found -- native links use the system default linker."
+fi
+
+if [[ "$WEB_TARGETS,$WEB_THREADS,$WEB_DLINK" != "debug,release,yes,no,yes,no" ]]; then
+	warn "Web matrix narrowed (targets=$WEB_TARGETS threads=$WEB_THREADS dlink=$WEB_DLINK)."
+	warn "Fine for iteration, but the templates under builds/ are then a mix of"
+	warn "this run's output and whatever an earlier run left there -- only a full"
+	warn "run guarantees every template's baked WGSL matches this editor's baker."
+fi
+
 step "Godot WebGPU Linux build -- version $VERSION, -j$JOBS (accesskit=$ACCESSKIT_ENABLED)"
 
 # --- Build -------------------------------------------------------------------
@@ -301,47 +597,68 @@ step "Building editor (platform=linuxbsd)..."
 # webgpu_notes/TASKS.md §4.10) actually bake WGSL at all. Omitting it
 # silently produces a working editor that exports fine but never bakes any
 # shader, regardless of dev_build.
-scons platform=linuxbsd target=editor accesskit="$ACCESSKIT_ENABLED" webgpu=yes -j"$JOBS"
+scons platform=linuxbsd target=editor accesskit="$ACCESSKIT_ENABLED" webgpu=yes \
+	"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
+
+# The binary this invocation produces, by Godot's own naming
+# (godot.<platform>.<target>.<arch>). Copying `bin/godot.linuxbsd.editor*`
+# instead -- as this used to -- also picks up unrelated binaries left in bin/ by
+# other builds (a dev_build editor is ~1.1 GB, a double-precision one ~166 MB),
+# so every run shipped them to builds/ and editors/ and spent minutes copying
+# binaries it had not built.
+case "$(uname -m)" in
+	x86_64 | amd64) EDITOR_ARCH="x86_64" ;;
+	aarch64 | arm64) EDITOR_ARCH="arm64" ;;
+	armv7l) EDITOR_ARCH="arm32" ;;
+	i*86) EDITOR_ARCH="x86_32" ;;
+	*) EDITOR_ARCH="$(uname -m)" ;;
+esac
+EDITOR_BIN="bin/godot.linuxbsd.editor.$EDITOR_ARCH"
+if [[ ! -f "$EDITOR_BIN" ]]; then
+	# Fall back to the newest plain editor binary (no .dev/.double/.llvm
+	# suffix) rather than guessing wrong about the arch name.
+	EDITOR_BIN="$(find bin -maxdepth 1 -name 'godot.linuxbsd.editor.*' \
+		! -name '*.dev.*' ! -name '*.double.*' ! -name '*.llvm.*' -type f \
+		-printf '%T@ %p\n' 2> /dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+fi
+[[ -n "$EDITOR_BIN" && -f "$EDITOR_BIN" ]] || die "Editor build succeeded but no output binary was found in bin/."
 
 dest="$OUT_DIR/editor"
 mkdir -p "$dest"
-found=0
-for f in bin/godot.linuxbsd.editor*; do
-	[[ -f "$f" ]] || continue
-	cp "$f" "$dest/"
-	found=1
-done
-[[ "$found" -eq 1 ]] || die "Editor build succeeded but no output binary was found in bin/."
-ok "Editor -> $dest"
+cp --reflink=auto "$EDITOR_BIN" "$dest/"
+ok "Editor -> $dest/$(basename "$EDITOR_BIN")"
 
 EDITORS_DIR="/mnt/109313D2109313D2/godot-editors/editors"
 if [[ -d "$EDITORS_DIR" ]]; then
-	for f in bin/godot.linuxbsd.editor*; do
-		[[ -f "$f" ]] || continue
-		cp "$f" "$EDITORS_DIR/"
-	done
+	cp --reflink=auto "$EDITOR_BIN" "$EDITORS_DIR/"
 	ok "Editor -> $EDITORS_DIR"
 else
 	warn "$EDITORS_DIR not found -- skipping editor copy there."
 fi
 
-step "Building Linux export template (debug)..."
-scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" -j"$JOBS"
+if [[ "$SKIP_NATIVE_TEMPLATES" -eq 0 ]]; then
+	step "Building Linux export template (debug)..."
+	scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" \
+		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
 
-step "Building Linux export template (release)..."
-scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" -j"$JOBS"
+	step "Building Linux export template (release)..."
+	scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" \
+		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
 
-dest="$OUT_DIR/templates_linux"
-mkdir -p "$dest"
-dbg="bin/godot.linuxbsd.template_debug.x86_64"
-rel="bin/godot.linuxbsd.template_release.x86_64"
-[[ -f "$dbg" && -f "$rel" ]] || die "Linux template build succeeded but a binary wasn't found in bin/."
-# Renamed to match EditorExportPlatformLinuxBSD::get_template_file_name()
-# ("linux_" + target + "." + arch) so these drop straight into
-# ~/.local/share/godot/export_templates/$VERSION/.
-cp "$dbg" "$dest/linux_debug.x86_64"
-cp "$rel" "$dest/linux_release.x86_64"
-ok "Linux templates -> $dest"
+	dest="$OUT_DIR/templates_linux"
+	mkdir -p "$dest"
+	dbg="bin/godot.linuxbsd.template_debug.$EDITOR_ARCH"
+	rel="bin/godot.linuxbsd.template_release.$EDITOR_ARCH"
+	[[ -f "$dbg" && -f "$rel" ]] || die "Linux template build succeeded but a binary wasn't found in bin/."
+	# Renamed to match EditorExportPlatformLinuxBSD::get_template_file_name()
+	# ("linux_" + target + "." + arch) so these drop straight into
+	# ~/.local/share/godot/export_templates/$VERSION/.
+	cp --reflink=auto "$dbg" "$dest/linux_debug.$EDITOR_ARCH"
+	cp --reflink=auto "$rel" "$dest/linux_release.$EDITOR_ARCH"
+	ok "Linux templates -> $dest"
+else
+	warn "Skipping the Linux export templates (--skip-native-templates)."
+fi
 
 if [[ "$SKIP_TINT_CLI" -eq 0 ]]; then
 	step "Building tint_convert_cli (native SPIR-V -> WGSL precompile tool)..."
@@ -368,6 +685,7 @@ fi
 if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# shellcheck source=/dev/null
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
+	use_ccache_path # emsdk_env.sh just put its own em++ ahead of ccache's.
 
 	# The threads=yes dlink_enabled=yes variants below do not boot without this
 	# fork's Emscripten patches, and `emsdk install` above overwrites the toolchain
@@ -383,17 +701,20 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 		warn "templates will build but will not boot. See misc/emsdk_patches/README.md."
 	fi
 
-	# wgsl_precompiled.gen.h (drivers/webgpu/SCsub) is generated by shelling
-	# out to bin/tint_convert_cli, but SCons only declares it as depending on
-	# wgsl_precompile.py itself -- not on tint_convert_cli's binary, on
-	# spirv_preprocess.cpp/.h, on tint_wrapper.cpp, or on any vendored
-	# thirdparty/tint source. A change to any of those (e.g. a Tint patch,
-	# see webgpu_notes/TASKS.md §4.16) would silently NOT regenerate this
-	# table on an incremental build, baking stale/buggy WGSL into every
-	# built-in engine shader class. Force it every time so a full run of
-	# this script always reflects the current pipeline, not a cached one.
-	if [[ -f "drivers/webgpu/wgsl_precompiled.gen.h" ]]; then
-		step "Removing drivers/webgpu/wgsl_precompiled.gen.h to force a fresh precompile..."
+	# wgsl_precompiled.gen.h (drivers/webgpu/SCsub) is generated by shelling out
+	# to bin/tint_convert_cli, and SCons cannot see most of what decides its
+	# contents: the binary itself (built inside the action, not by SCons) and the
+	# vendored thirdparty/tint + spirv-tools sources behind it. A change to any
+	# of those (e.g. a Tint patch, see webgpu_notes/TASKS.md §4.16) silently NOT
+	# regenerating the table would bake stale WGSL into every built-in engine
+	# shader class. This script used to force that by deleting the header on
+	# every run; drivers/webgpu/SCsub now fingerprints all of it (size+mtime of
+	# every vendored/CLI source, the binary's hash, glslangValidator's version)
+	# and re-bakes on its own when any of it moves -- so the guarantee holds for
+	# a plain `scons` build too, instead of only through this script, and a run
+	# that changed nothing in the shader pipeline no longer re-bakes 275 modules.
+	if [[ "$FORCE_SHADER_REBAKE" -eq 1 ]]; then
+		step "Removing drivers/webgpu/wgsl_precompiled.gen.h (--force-shader-rebake)..."
 		rm -f drivers/webgpu/wgsl_precompiled.gen.h
 	fi
 
@@ -410,13 +731,17 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	#   - export_plugin.h's _get_template_name(): "web" + ["_dlink"] +
 	#     ["_nothreads"] + "_debug.zip"/"_release.zip"
 	for dlink in yes no; do
+		list_has "$dlink" "$WEB_DLINK" || continue
 		for threads in yes no; do
+			list_has "$threads" "$WEB_THREADS" || continue
 			for target in template_debug template_release; do
 				debug_label="debug"
 				[[ "$target" == "template_release" ]] && debug_label="release"
+				list_has "$debug_label" "$WEB_TARGETS" || continue
 
 				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
-				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no threads="$threads" -j"$JOBS"
+				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
+					threads="$threads" -j"$JOBS"
 
 				scons_zip="bin/godot.web.${target}.wasm32"
 				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"
@@ -439,6 +764,18 @@ else
 fi
 
 package_tpz
+
+print_timings
+
+# How much of this run came out of the cache -- the number to look at before
+# wondering why a re-run still took an hour.
+if [[ "$CCACHE_ACTIVE" -eq 1 ]]; then
+	ccache_stats="$(ccache --show-stats 2> /dev/null | grep -iE 'hit|miss|size' | head -4 | sed 's/^/  /')"
+	if [[ -n "$ccache_stats" ]]; then
+		echo -e "\n${BOLD}==> ccache${NC}"
+		echo "$ccache_stats"
+	fi
+fi
 
 echo
 ok "Done. Output in builds/$VERSION/"
