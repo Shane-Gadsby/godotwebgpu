@@ -641,8 +641,10 @@ and the canvas transferred as an `OffscreenCanvas`. Do §2.30's cheaper items fi
    5. Canvas resize: route `window_set_size` to the render thread; the OffscreenCanvas size can only be set there.
    6. Driver/context `EM_ASM` that assumes `window`/`document`/`Module.preinitializedWebGPUDevice` must work in a worker.
 
-**2026-10-16 — implemented; worth it.** A `threads=yes` template with `rendering/driver/threads/thread_model=2` (Separate)
-renders from its own pthread on Chrome and Firefox (both 165 fps capped, pixel-identical to Safe mode on the platformer); the
+**2026-10-16 — implemented; worth it; default for threaded exports.** A `threads=yes` template with
+`rendering/driver/threads/thread_model=2` (Separate) — which the new web export option `variant/separate_render_thread`
+(default on, shown only with `variant/thread_support`) selects by passing `--render-thread separate` — renders from its own
+pthread on Chrome and Firefox (both 165 fps capped, pixel-identical to Safe mode on the platformer); the
 page must be served with COOP/COEP. `threads=no`, and `threads=yes` with the Safe model, run exactly the code they ran before
 (everything below is behind `WEB_ENABLED && THREADS_ENABLED && WEBGPU_ENABLED` and the model check; the scene smoketest,
 Forward+ matrix and WebRTC parity exports are nothreads).

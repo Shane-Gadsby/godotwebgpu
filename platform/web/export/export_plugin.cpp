@@ -150,6 +150,12 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	config["focusCanvas"] = p_preset->get("html/focus_canvas_on_start");
 	config["gdextensionLibs"] = libs;
 	config["executable"] = p_name;
+	if (p_preset->get("variant/thread_support") && p_preset->get("variant/separate_render_thread")) {
+		// Rendering on its own thread (DisplayServerWeb's render thread, webgpu_notes/TASKS.md 2.5). The
+		// engine falls back to the Safe model where the browser cannot use WebGPU from a worker.
+		args.push_back("--render-thread");
+		args.push_back("separate");
+	}
 	config["args"] = args;
 	config["fileSizes"] = p_file_sizes;
 	config["ensureCrossOriginIsolationHeaders"] = (bool)p_preset->get("progressive_web_app/ensure_cross_origin_isolation_headers");
@@ -388,6 +394,7 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/extensions_support"), false)); // GDExtension support.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/thread_support"), false, true)); // Thread support (i.e. run with or without COEP/COOP headers).
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/separate_render_thread"), true)); // Render on the web render thread (threads only).
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_desktop"), true)); // S3TC
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_mobile"), false)); // ETC or ETC2, depending on renderer
 
@@ -443,7 +450,7 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 		return advanced_options_enabled;
 	}
 
-	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size") {
+	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size" || p_option == "variant/separate_render_thread") {
 		return p_preset->get("variant/thread_support").operator bool();
 	}
 

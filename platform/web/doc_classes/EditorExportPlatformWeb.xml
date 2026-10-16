@@ -97,6 +97,10 @@
 		<member name="variant/extensions_support" type="bool" setter="" getter="">
 			If [code]true[/code] enables [GDExtension] support for this web build.
 		</member>
+		<member name="variant/separate_render_thread" type="bool" setter="" getter="">
+			If [code]true[/code] (the default), a thread-enabled export renders on its own thread: the WebGPU device and the canvas belong to a worker, and the main thread only runs the game. Equivalent to running with [code]--render-thread separate[/code], so it takes precedence over [member ProjectSettings.rendering/driver/threads/thread_model]. Browsers that cannot use WebGPU from a worker fall back to the Safe model on their own. Has no effect unless [member variant/thread_support] is enabled, or with the WebGL renderer.
+			If [code]false[/code], the project setting decides, as on other platforms.
+		</member>
 		<member name="variant/thread_support" type="bool" setter="" getter="">
 			If [code]true[/code], the exported game will support threads. It requires [url=https://web.dev/articles/coop-coep]a "cross-origin isolated" website[/url], which may be difficult to set up and is limited for security reasons (such as not being able to communicate with third-party websites).
 			If [code]false[/code], the exported game will not support threads. As a result, it is more prone to performance and audio issues, but will only require to be run on an HTTPS website.

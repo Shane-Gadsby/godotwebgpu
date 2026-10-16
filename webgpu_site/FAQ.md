@@ -93,7 +93,7 @@ This is a known limitation. Future work: pre-compile WGSL at export time, shippi
 - **Omni light shadows**: Forced to dual-paraboloid mode (slightly lower quality than cubemap, but 43% faster)
 - **Shader startup**: ~15s first-time compilation (native has no equivalent cost)
 - **Texture readback**: 1-frame async delay (native is synchronous)
-- **No multi-threaded command recording**: single queue. Rendering can run on a separate thread in `threads=yes` builds with `rendering/driver/threads/thread_model=2` (main thread −57% to −97% per frame on the measured scenes, see `PERFORMANCE_AND_OPTIMIZATION.md`), but it is one thread recording.
+- **No multi-threaded command recording**: single queue. Rendering runs on a separate thread in thread-enabled exports by default (export option `variant/separate_render_thread`; main thread −57% to −97% per frame on the measured scenes, see `PERFORMANCE_AND_OPTIMIZATION.md`), but it is one thread recording.
 - **No GPU-driven rendering**: Indirect draw count always uses max (wastes some GPU cycles)
 
 ---
@@ -194,7 +194,7 @@ Mobile WebGPU is the next frontier. The performance optimizations (especially IP
 WebGPU does **not** require SharedArrayBuffer or cross-origin isolation headers. This means:
 - Non-threaded WebGPU builds work on any hosting provider (GitHub Pages, Netlify, etc.)
 - No special server configuration needed
-- Only threaded builds need COOP/COEP — and they are what unlocks the separate render thread (`rendering/driver/threads/thread_model=2`), which moves rendering off the main thread
+- Only threaded builds need COOP/COEP — and they are what unlocks the separate render thread (on by default for such exports, `variant/separate_render_thread`), which moves rendering off the main thread
 
 This is a significant deployment advantage over threaded web builds.
 

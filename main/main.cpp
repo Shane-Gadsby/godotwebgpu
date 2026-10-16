@@ -3554,9 +3554,15 @@ Error Main::setup2(bool p_show_boot_logo) {
 	}
 
 	if (OS::get_singleton()->_separate_thread_render) {
+#ifdef WEB_ENABLED
+		// The web's render thread is this fork's own (DisplayServerWeb, webgpu_notes/TASKS.md 2.5), on by
+		// default for thread-enabled exports (the "variant/separate_render_thread" export option).
+		print_verbose("Rendering on a separate thread.");
+#else
 		WARN_PRINT("The separate rendering thread feature is experimental. Feel free to try it since it will eventually become a stable feature.\n"
 				   "However, bear in mind that at the moment it can lead to project crashes or instability.\n"
 				   "So, unless you want to test the engine, set the \"rendering/driver/threads/thread_model\" project setting to 'Safe'.");
+#endif
 	}
 
 	/* Initialize Pen Tablet Driver */
