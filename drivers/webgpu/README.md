@@ -90,6 +90,22 @@ Three tiers, checked in order:
    - **`res://` is searched before `user://`** when loading the shader cache. The
      baked cache carries WGSL; one written by the running game does not, so a
      single earlier run could otherwise shadow the bake permanently.
+
+   How it runs (TASKS.md §4.23): every variant is compiled to SPIR-V on the
+   worker pool, then `webgpu::WgslBakeBatch` (`wgsl_bake_subprocess.cpp`)
+   converts all stages at once — deduplicated by SHA-256, screened for the
+   constructs WGSL cannot express, split into ~4 chunks per core of
+   `tint_convert_cli --batch` started with `posix_spawn()` — and only then are
+   the containers built. Converted WGSL is cached under
+   `<OS cache>/godot/webgpu_wgsl_bake/v1-<sha256 of tint_convert_cli>/`, keyed
+   by the SPIR-V's SHA-256, so it survives engine rebuilds and a Tint rebuild
+   invalidates it; `WEBGPU_BAKE_CACHE=0` turns it off. On web the containers
+   ship as `<name>.shaders.pck` next to the main pack (preset
+   `shader_baker/separate_pack`): the shell preloads it (`config.shaderPack`)
+   and `ProjectSettings::_setup` mounts it. The shell/mount halves live in the
+   template, so a template older than that change loads a game with no shader
+   cache at all (`baked: 0`, no mismatch warning); the exporter warns when the
+   template's `index.js` has no `shaderPack`.
 2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
    ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
    Keyed by SPIR-V hash, so it only hits when the engine's glslang output
@@ -193,6 +209,7 @@ project setting (a web export has no command line), and these line up:
 | Log line | Side | Says |
 |---|---|---|
 | `Shader baker: baking '<name>/<group>/<sha1>' from <origin>` | editor | which versions were baked, and what led the baker to each |
+| `WebGPU shader baker: N stages -> U unique to convert (D duplicates, X unconvertible, C from the WGSL cache); ...` | editor | the batch's one-line summary: how much Tint actually had to do, and how many stages it rejected or the tool failed on |
 | `Shader cache miss for <name>/<group>/<sha1>` | runtime | exactly which key the game wanted |
 | `^ version is: uni=… frag=… defines(n)=[…]` | both | every field the version SHA1 covers, hashed separately, so the *differing* field names itself |
 | `^ code[FRAGMENT]: …` | runtime | the generated shader body itself, when hashes are not enough |
