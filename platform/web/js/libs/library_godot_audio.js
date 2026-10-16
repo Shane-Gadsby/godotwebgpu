@@ -209,6 +209,8 @@ class SampleNodeBus {
 		this._c = GodotAudio.ctx.createGain();
 		/** @type {GainNode} */
 		this._lfe = GodotAudio.ctx.createGain();
+		/** @type {Array<number>} Last gains written by `setVolume()` (NaN: never written). */
+		this._gainValues = [NaN, NaN, NaN, NaN, NaN, NaN];
 		/** @type {ChannelMergerNode} */
 		this._channelMerger = GodotAudio.ctx.createChannelMerger(NUMBER_OF_WEB_CHANNELS);
 
@@ -285,12 +287,28 @@ class SampleNodeBus {
 				`Volume length isn't "${GodotAudio.MAX_VOLUME_CHANNELS}", is ${volume.length} instead`
 			);
 		}
-		this._l.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_L] ?? 0;
-		this._r.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_R] ?? 0;
-		this._sl.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_SL] ?? 0;
-		this._sr.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_SR] ?? 0;
-		this._c.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_C] ?? 0;
-		this._lfe.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_LFE] ?? 0;
+		this._setGain(0, this._l, volume[GodotAudio.GodotChannel.CHANNEL_L] ?? 0);
+		this._setGain(1, this._r, volume[GodotAudio.GodotChannel.CHANNEL_R] ?? 0);
+		this._setGain(2, this._sl, volume[GodotAudio.GodotChannel.CHANNEL_SL] ?? 0);
+		this._setGain(3, this._sr, volume[GodotAudio.GodotChannel.CHANNEL_SR] ?? 0);
+		this._setGain(4, this._c, volume[GodotAudio.GodotChannel.CHANNEL_C] ?? 0);
+		this._setGain(5, this._lfe, volume[GodotAudio.GodotChannel.CHANNEL_LFE] ?? 0);
+	}
+
+	/**
+	 * Sets a channel's gain only when it changed. The engine resends every playing
+	 * sample's volumes each frame, and assigning `AudioParam.value` is not free:
+	 * in the 3D platformer demo these writes were ~8% of the main thread's frame.
+	 * @param {number} slot Index into the cache of last-written gains.
+	 * @param {GainNode} node Channel gain node.
+	 * @param {number} value Gain to apply.
+	 * @returns {void}
+	 */
+	_setGain(slot, node, value) {
+		if (this._gainValues[slot] !== value) {
+			this._gainValues[slot] = value;
+			node.gain.value = value;
+		}
 	}
 
 	/**
@@ -436,6 +454,8 @@ class SampleNode {
 		this.pauseTime = 0;
 		/** @type {number} */
 		this._playbackRate = 44100;
+		/** @type {number | null} Rate last written to `_source.playbackRate` (null: not yet, or a new source). */
+		this._syncedPlaybackRate = null;
 		/** @type {LoopMode} */
 		this.loopMode = options.loopMode ?? this.getSample().loopMode ?? 'disabled';
 		/** @type {number} */
@@ -590,7 +610,7 @@ class SampleNode {
 		for (let busIdx = 0; busIdx < buses.length; busIdx++) {
 			const sampleNodeBus = this.getSampleNodeBus(buses[busIdx]);
 			sampleNodeBus.setVolume(
-				volumes.slice(
+				volumes.subarray(
 					busIdx * GodotAudio.MAX_VOLUME_CHANNELS,
 					(busIdx * GodotAudio.MAX_VOLUME_CHANNELS) + GodotAudio.MAX_VOLUME_CHANNELS
 				)
@@ -708,7 +728,12 @@ class SampleNode {
 	 * @returns {void}
 	 */
 	_syncPlaybackRate() {
-		this._source.playbackRate.value = this.getPlaybackRate() * this.getPitchScale();
+		// Called every frame through setPitchScale(); skip the AudioParam write when nothing changed.
+		const rate = this.getPlaybackRate() * this.getPitchScale();
+		if (this._syncedPlaybackRate !== rate) {
+			this._syncedPlaybackRate = rate;
+			this._source.playbackRate.value = rate;
+		}
 	}
 
 	/**
@@ -721,6 +746,8 @@ class SampleNode {
 			this._source.disconnect();
 		}
 		this._source = GodotAudio.ctx.createBufferSource();
+		// A new source starts at its default rate: let the next sync write it, as before the cache existed.
+		this._syncedPlaybackRate = null;
 		this._source.buffer = this.getSample().getAudioBuffer();
 
 		// Make sure that we connect the new source to the sample node bus.

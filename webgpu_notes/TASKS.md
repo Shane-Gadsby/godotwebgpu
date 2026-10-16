@@ -1089,6 +1089,34 @@ benchmark_pbr 7% (~0.42 ms, 0.11) — so 70-77% of the main thread's work is out
 `cpu_steady.mjs` (needs a `debug_symbols=yes` template) before choosing a CPU fix. The light scenes' uncapped ~1 ms/frame floor
 is the browser's rAF/present cadence, not our work (benchmark_pbr needs 0.42 ms).
 
+**CPU attribution (option 1) and the JS-glue question (option 3), 2026-10-16.** `debug_symbols=yes` template (184 MB zip, 4 min),
+`cpu_steady.mjs` **capped at 165 Hz** (uncapped profiles count blocking waits as work), self time bucketed by kind:
+
+| | heavy_i | 3d platformer |
+|---|---:|---:|
+| main thread busy | 1.99 ms/frame | 1.31 ms/frame |
+| engine wasm (C++) | 1.20 (60%) | 0.70 (54%) |
+| browser WebGPU methods | 0.42 (21%) — `writeBuffer` 0.17, `setBindGroup` 0.11 | 0.16 (12%) |
+| Emscripten JS glue | 0.19 (10%) — `getJsObject` 0.07, `wasm-to-js` 0.03, `bigintToI53Checked` 0.015 | 0.10 (8%) |
+| V8 `(program)` | 0.14 (7%) | 0.15 (11%) |
+| other JS | - | **0.15 (11%): Web Audio `setVolume` + `_syncPlaybackRate`** |
+
+Engine wasm on heavy_i by subsystem: `RendererSceneCull` 0.30 (`_render_scene` self 0.23, i.e. inlined light/shadow culling for 18
+shadowed lights), `RenderForwardClustered` 0.21, `RenderingDevice` 0.15, `RenderingDeviceGraph` 0.14, our driver 0.10, sorting 0.06.
+Native's whole CPU render time for this scene is 0.33 ms, so engine wasm runs ~3.6x native here. The platformer has no hotspot
+(Jolt, animation, GDScript, rendering each 0.02-0.07).
+ - **Option 3 (faster glue) — measured, not worth a toolchain patch.** The glue is already one object-table lookup plus the call
+   per WebGPU method. Tried in an exported `index.js`: making `WebGPU.Internals.jsObjects` a `Map` instead of the sparse array cut
+   `getJsObject` 0.072 -> 0.056 but made `jsObjectInsert` 0.015 -> **0.372** ms/frame (~100 pass/command encoders are created and
+   freed per frame), busy 2.05 -> 2.41 ms. Realistic ceiling of any glue patch: 0.02-0.05 ms/frame (1-2%). The only larger form
+   is batching a pass's commands into one JS call (ceiling ~0.15 ms, 7%, on heavy_i) — a driver redesign, not done.
+ - **Web Audio — fixed.** The engine resends every playing sample's 6 channel gains and its pitch every frame; each assignment
+   to an `AudioParam.value` costs. `library_godot_audio.js` now caches the last-written gains (`SampleNodeBus._setGain`) and
+   playback rate (`SampleNode._syncPlaybackRate`, reset when `_restart()` creates a new source so the old timing is kept), and
+   `setVolumes` passes `subarray` views instead of copies. Platformer: **0.148 -> 0.029 ms/frame** (what is left are real changes,
+   3D attenuation as the camera moves). Smoketest platformer / stress / 2d platformer pass on the real GPU. No tier checks audio
+   *output*; the change only skips writes of an unchanged value. Upstream-able as is.
+
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
 0. **SDFGI: mostly done 2026-10-16 (below).** What is left: SDFGI integrate 0.47 ms in 4 small dispatches (111 workgroups each)
    that WebGPU must fence against each other (all four bind the shared, writable `ambient_texture`; natively they sit in one
@@ -1097,7 +1125,7 @@ is the browser's rAF/present cadence, not our work (benchmark_pbr needs 0.42 ms)
    frame that is now CPU-bound. Also §2.21 item 1 (shareable formats: the light cascades are `rgba16float`, 2x native's packed
    format). The `WEBGPU_DECLARE_TEXTURE3D_ARRAY8` if-chain is **not** a web-only cost: native compiles the same GLSL.
    Then a `gpu_time.mjs --passes` sweep of other scenes for more "fine natively, slow after Tint" shaders.
-1. **Marshaling path** (~0.5 ms/frame on the heavy scene: `bigintToI53Checked`, `getJsObject`, `wasm-to-js`, `jsObjectInsert`): 64-bit arguments and handle lookups per call in
+1. ~~**Marshaling path**~~ measured 2026-10-16 (above): the glue is ~10% of CPU and a faster object table is a net loss; not worth a toolchain patch.
    emdawnwebgpu. Options: fewer calls (below), or a toolchain patch with fast paths for `setBindGroup`/`setVertexBuffer`/`drawIndexed` (same upkeep burden as `misc/emsdk_patches/`).
 2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a
    material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
