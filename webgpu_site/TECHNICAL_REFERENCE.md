@@ -448,10 +448,9 @@ Additional safety:
 
 ### 9.3 Threading
 
-- WebGPU operates entirely on the main thread (single queue)
-- Works with both threaded and non-threaded WASM builds
-- Tint conversion runs in-process on the main thread (compiled into WASM)
-- No SharedArrayBuffer requirement for WebGPU itself (broader hosting compatibility)
+- Single WebGPU queue. In nothreads builds, and in threaded builds with the default (Safe) thread model, every WebGPU call is made on the main thread.
+- `threads=yes` builds with `rendering/driver/threads/thread_model=2` (Separate) render on their **own pthread**: the thread owns the canvas as an `OffscreenCanvas`, requests its own adapter/device (every emdawnwebgpu handle lives in the JS table of the thread that created it), creates the `RenderingDevice` there, and pumps the command queue through `Atomics.waitAsync`, yielding to its event loop after each frame so it presents. The main thread never blocks on it: `RenderingServer::sync_previous_draw()` compares frame counters and the web main loop waits for the previous frame asynchronously. Shader translation (Tint) then runs on the render thread. `engine.js` probes WebGPU-in-a-worker at startup and the engine falls back to Safe where it is unavailable. See `webgpu_notes/TASKS.md` §2.5 and `PERFORMANCE_AND_OPTIMIZATION.md`.
+- No SharedArrayBuffer requirement for WebGPU itself; only threaded builds need cross-origin isolation.
 
 ### 9.4 WorkerThreadPool Nothreads Fix
 

@@ -32,8 +32,8 @@ a rare non-visual error.
 | native editor + web template build | 0 errors, 0 warnings, incl. `warnings=extra werror=yes` | 2026-10-05, 4.8 port (§4.15) |
 | `wgsl_precompile.py` | 274 compiled, 0 glsl / 0 tint failures; **deterministic** (two runs, different `PYTHONHASHSEED`, byte-identical 1,806,893 B header) | 2026-10-14, `597d27e09` (§2.16 gap 5) |
 | `shader_corpus` | 14 / 0 | 4.8 |
-| `driver_unit_tests` | 370 / 0 | 2026-10-14 |
-| `preprocessing_tests` | 238 / 0 / 1 skip | 2026-10-14 |
+| `driver_unit_tests` | 370 / 0 | 2026-10-16 |
+| `preprocessing_tests` | 244 / 0 / 1 skip | 2026-10-16 |
 | `resource_lifecycle` | 6 / 0 | 2026-10-14, real GPU |
 | `screenshot_comparison` | 8 / 0 | 2026-10-14, real GPU (was last recorded at 4.7.2) |
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
@@ -56,6 +56,12 @@ a rare non-visual error.
 | WebRTC parity | 9 fixtures × 3 export variants × 2 browsers = 54 identical native-vs-web diffs | 4.8 |
 | WebRTC congestion | native/web agree at 91-97% on every transfer mode | 4.8, after the F10 fix |
 | real-hardware Forward+ (RTX 4080 SUPER) | Chrome 0 errors, Firefox 0 real errors, both report Forward+, output matches native Vulkan | 2026-10-05 (§4.15) |
+| editor (`webgpu=yes`) + nothreads + threads + threads/dlink templates, one tree | all four build; changed files `-Werror` clean as `dev_mode=yes` objects in editor, nothreads and threads configs | 2026-10-16, `db437ca832` (§2.5) |
+| scene smoketest (real GPU) after the render thread, and again after PR #123996 | **21 / 21 Chrome and Firefox**, then 21 / 21 Chrome on the audio rebuild | 2026-10-16 |
+| Forward+ feature matrix | **64 / 64** | 2026-10-16, `db437ca832` tree |
+| Separate render thread (`threads=yes`, `thread_model=2`) | platformer, cameraSim, heavy and four benchmark scenes at the 165 Hz cap on Chrome **and Firefox 155**, dlink too; cameraSim pixel-identical to nothreads (FPS counter text aside); `requestQuit()` clean | 2026-10-16, §2.5 |
+| before/after matrix, 7 scenes × {before, nothreads, Safe, Separate, dlink+Separate} | main thread −8% (fixes) / −82% (with the render thread) averaged; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps uncapped; table in §2.5 and `README.md` | 2026-10-16 |
+| user's `cameraSim` project, Separate mode | 164 fps capped, main thread 0.51 → 0.09 ms/frame, GPU 0.64 → 0.58 ms | 2026-10-16 |
 | Safari | **never run** | §2.8 — macOS only |
 | Android / iOS | **never run** | §2.9 |
 
@@ -65,9 +71,16 @@ Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches i
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
 
-### What is built right now — snapshot 2026-10-15 (end of the real-GPU session), HEAD after `50a8ad76be`
+### What is built right now — snapshot 2026-10-16 (end of the render-thread day), HEAD after `2c3544102e`
 
-**Read the 2026-10-15 additions first:** §2.6, §2.14-2.17, §2.19, §2.22, §2.29 changed state today; the driver changed (encoder split removed, `buffer_flush_range`, deferred staging uploads, Forward+ `firstInstance`) and the full `local_ci.sh` was *not* re-run on the final tree — the individual tiers in "Verified tiers" were, each against fresh exports. Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
+**Read the 2026-10-16 additions first:** §2.5 (the separate web render thread is implemented and measured — design, traps,
+before/after table), §2.30 (SSIL hoist pass, read-write storage textures, the upstream shadow-atlas bug, prepare-for-use trait,
+Web Audio writes, PR #123996 cherry-picked), §3 trap 21. `bin/` is entirely from the `db437ca832` tree: editor (`webgpu=yes`),
+nothreads, threads and threads+dlink release templates. The last full verification on that tree: Forward+ 64/64, scene
+smoketest 21/21 Chrome + Firefox, unit tests, `-Werror` objects (§1 tiers). Scratch exports/measurement scripts for the
+before/after table live in this session's scratchpad only (`exports_matrix.sh`, `measure_matrix.sh`, `thrprof.mjs`).
+
+**Read the 2026-10-15 additions next:** §2.6, §2.14-2.17, §2.19, §2.22, §2.29 changed state today; the driver changed (encoder split removed, `buffer_flush_range`, deferred staging uploads, Forward+ `firstInstance`) and the full `local_ci.sh` was *not* re-run on the final tree — the individual tiers in "Verified tiers" were, each against fresh exports. Working tree clean; **nothing pushed** (every commit below is local on `webgpu-4.8`, per the standing
 no-push rule). The last full `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --bake` was green on the
 source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` include roots and the `features.js` WebGL probe flag) (see "Verified tiers" caveats: the WebRTC stage needed a manual rerun, §3 trap 3a).
 
@@ -84,7 +97,25 @@ Scratch state worth knowing about (all outside git): `/tmp/plat_baked`, `/tmp/pl
 exports used for the §2.27 re-measurement), `/tmp/fpref*` (native-Vulkan reference frames). `webgpu_tests/
 scene_smoketest/exports/*` and `forward_plus/export{,_heavy}` are regenerated by CI and gitignored.
 
-#### What landed today, in order (all on `webgpu-4.8`, all local)
+#### What landed 2026-10-16, in order (all on `webgpu-4.8`, all local)
+
+| commit | item | what it did |
+|---|---|---|
+| `f44c233f2b` | §2.30 | SPIR-V pass `hoist_constant_local_arrays`: SSIL's GPU pass 0.6 → <0.05 ms; `perf_guard/gpu_time.mjs` |
+| `31d796b8dc` | docs | History rewrite note: the unpushed range no longer carries `export_heavy` blobs |
+| `a79c6f242f` | §2.30 | Read-write storage textures bound as `read_write` per format: heavy scene GPU 2.63 → ~1.6 ms |
+| `3c1bdbeeb9` | docs | cameraSim retest (GPU 0.65 → 0.58, pixel-identical) and the 16-scene per-pass sweep |
+| `eb1a92ce84` | §2.30 | Web Audio: skip unchanged `AudioParam` writes (platformer audio 0.148 → 0.029 ms/frame) |
+| `ef5eb79b64` | docs | `-O2`/thin LTO measured on CPU time: no gain; native main thread 0.66 vs web wasm ~1.25 ms |
+| `a87c84d4a5` | §2.30 | **Upstream Godot bug**: shadow atlas never stored the light version when a reallocation found no slot → every positional shadow redrawn every frame; heavy CPU −37% |
+| `efcbbd4a7c` | §2.30 | `API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE` (no-op prepares skipped on WebGPU); 4-entry rebind-cache front |
+| `e03ea2e182`, `574594617c` | §2.5 | Function-by-function web vs native comparison; threading investigation, `threading_proto/`, design |
+| `55e1e5c450` | §2.5 | **Separate render thread** for `threads=yes` + `thread_model=2`: own pthread, own device, OffscreenCanvas, `Atomics.waitAsync` both ways, `MessageChannel` yield, `RenderingServer::sync_previous_draw()`, worker-WebGPU probe + Safe fallback |
+| `16a69c7728` | §2.30 | PR godotengine/godot#123996 (sample audio driver rewrite) cherry-picked; the skip-unchanged cache re-applied on it |
+| `db437ca832` | §2.5 | Render-thread shutdown made synchronous (`emscripten_proxy_sync`); `requestQuit()` clean |
+| `135a0f542e`, `2c3544102e` | docs | Before/after table (7 scenes × 5 variants) in §2.5 and `README.md` with percentage changes |
+
+#### What landed 2026-10-15, in order
 
 | commit | item | what it did |
 |---|---|---|
@@ -127,8 +158,13 @@ scene_smoketest/exports/*` and `forward_plus/export{,_heavy}` are regenerated by
   `rm -rf <project>/.godot`.
 - `godot-demo-projects` is cloned at `/mnt/109313D2109313D2/godot-editors/godot-demo-projects`; the
   smoketest expects exactly that path, and 11 scenes skip without it.
-- Threaded builds need COOP/COEP cross-origin-isolation headers; nine of our own test servers do not
-  send them.
+- Threaded builds need COOP/COEP cross-origin-isolation headers; the `perf_guard` tools and the scratch
+  servers send them now, the scene smoketest server does not (it exports nothreads).
+- A `threads=yes` export renders on the main thread (Safe model) unless the project sets
+  `rendering/driver/threads/thread_model=2`; then `DisplayServerWeb` runs the render thread (§2.5). Chrome's
+  `--disable-frame-rate-limit --disable-gpu-vsync` drive such a page's rAF at ~60 Hz, so uncapped fps is
+  not a usable metric in that mode — measure per-thread ms at the cap.
+- Never run two `scons` invocations in one tree at once (shared `.sconsign.dblite`).
 - The user's real test project is `~/Downloads/cameraSim_*/testing`, not `webgpu_tests/test_project`.
 
 ### Tools
@@ -166,8 +202,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 ## 2. Outstanding work — most to least critical
 
-**Pick up here (written 2026-10-15, end of a long session).** Nothing is broken. In rough value order, all non-human:
-1. **§2.30 unbottleneck the frame** — **read its 2026-10-16 entry first: the heavy scene turned out GPU-bound (3.3 ms GPU vs 1.04 native), not CPU-bound.** SSIL fixed (`hoist_constant_local_arrays`, GPU -20%), then read-write storage textures stopped being shadow-copied (a feature-detection bug; GPU 2.63 -> ~1.6 ms, heavy scene ~265 fps and CPU-bound again). Next: a `gpu_time.mjs --passes` sweep of other scenes, the CPU items (marshaling, per-draw calls) and **§2.5** threading; SDFGI's dispatch merge is optional.
+**Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
+1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
 3. **§2.20 / §2.21** (half-float, emdawnwebgpu features) — each needs a verification pass and a real GPU; risky, do one at a time.
 4. **§2.10 / §2.14** more coverage: more real projects through the live sweep, the dlink export of `cameraSim`, a native-Vulkan side-by-side.
@@ -192,7 +228,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.3 | dlink under throttling | CLOSED | — |
 | 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
 | 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
-| 2.5 ✔ | threading decision | OPEN — now has data: every export is 99-100% main-thread busy; engine wasm is not the bottleneck (-O2 gave 0%), the JS/browser call path and per-draw calls are | decide after §2.30's cheaper items; needs `threads=yes` + COOP/COEP, a worker-owned device and an OffscreenCanvas |
+| 2.5 ✔ | threading decision | **IMPLEMENTED 2026-10-16**, open for tooling — separate render thread for `threads=yes` + `thread_model=2` (Chrome + Firefox, dlink too); main thread −57% (platformer) to −97% (heavy) per frame; `requestQuit()` clean | `perf_guard` tools see only the main thread under Separate; uncapped fps unmeasurable there (Chrome rAF ~60 Hz with a worker-owned canvas); Safari/mobile never run |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | upstream F10 default | OPEN, human | — |
 | 2.8 | Safari | BLOCKED | needs a Mac |
@@ -204,7 +240,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.14 ✔ | base-class interface audit | OPEN (audit done; cameraSim swept clean 2026-10-15) | more real projects, dlink export, native side-by-side |
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
-| 2.30 ✔ | unbottleneck the CPU (new) | OPEN — encoders/uploads/shadow batching/`firstInstance`/mesh-first order landed; `-O2` and depth-pre-pass batching measured and rejected | marshaling path (~0.5 ms/frame), remaining per-draw calls, threading (§2.5) |
+| 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -229,6 +265,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | **Description updated with new numbers** | §2.4, §2.16 (a seventh gap), §2.22 | `325b8d297`, `67d3b53bf` |
 
 | **2026-10-15 — closed** | §2.6 (baked heavy), §2.15 (readback zeros), §2.17 (benchmarks + post-fx fix), §2.22 (INITIAL_MEMORY), §2.29 (baked tier complete) | `065997c38`, `cfb2063c0`, `740e45e42`, `ea640a65d`, `1f3280103` |
+| **2026-10-16 — §2.5 implemented, §2.30 mostly done** | §2.5 (separate web render thread, before/after table), §2.30 (SSIL, rw storage textures, shadow-atlas bug, audio, PR #123996), §3 trap 21 | `f44c233f2b` … `2c3544102e` (see §1 "What landed 2026-10-16") |
 | **2026-10-15 — advanced, still open** | §2.14 (first live project), §2.16 (`perf_guard`), §2.19 (not reproduced), §2.5 (data), new §2.30 | `5224fdb1e`, `620638b19`, `ab67f470e`, `272a28566`, `d1683048b`, `bc9f4d376` |
 | **2026-10-15 — driver/renderer changes** | per-pass encoder split removed; `buffer_flush_range` (instance + canvas buffers); staging uploads coalesced; Forward+ `firstInstance`; shadow lists batched by shadow variant; opaque list mesh-first on WebGPU | see §2.17 and `drivers/webgpu/README.md` |
 | **2026-10-15 — new tests/tools** | `perf_guard/run_perf_guard.mjs` (+`api_profile.mjs`, `cpu_steady.mjs`), WebRTC baked variant, `BAKE=1 export_heavy.sh`, `run_matrix.sh`, `BENCH_UNCAPPED`, `scene_j_forward_plus_depth`, startup_phases/tests launch system Chrome with the standard flags | — |
@@ -261,7 +298,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
-| 2.5 | Decide whether threading is worth having | `OPEN` | 2-3 sessions, needs real GPU |
+| 2.5 | Decide whether threading is worth having | `IMPLEMENTED 2026-10-16` (open: perf tooling for the render thread, Safari/mobile) | done; tooling ~1 session |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
 | 2.8 | Safari has never been run | `BLOCKED` | **human, needs a Mac** |

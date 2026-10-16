@@ -98,6 +98,8 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 1. `engine.js` calls `navigator.gpu.requestAdapter()` + `requestDevice()`
 2. Device is ready before `Godot(moduleConfig)` is called
 3. C++ imports the device via `WebGPU.importJsDevice(Module.preinitializedWebGPUDevice)`
+
+With the Separate rendering thread model (`threads=yes`, `rendering/driver/threads/thread_model=2`) the render thread is a worker and repeats the same dance for itself: it requests its own adapter/device asynchronously on its event loop right after `Main::setup()` (the main thread waits a frame at a time — Chrome only resolves a worker's device request while the page's main thread is free), stores it in that worker's `Module.preinitializedWebGPUDevice`, and creates the context and `RenderingDevice` on its first command-queue wake. `engine.js` first probes that WebGPU works in a worker at all (`Engine.probeWebGPUWorker`); without it the engine stays on the Safe model. See `webgpu_notes/TASKS.md` §2.5.
 4. From that point, all C++ code has synchronous access to the GPU device
 
 ### 2.2 Runtime SPIR-V to WGSL Conversion

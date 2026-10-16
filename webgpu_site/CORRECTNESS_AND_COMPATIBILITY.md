@@ -302,9 +302,12 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
   does not boot at all, and logs ~11 errors per load that silently drop later
   `Module` exports on worker threads. With them it boots clean — verified
   headless over COOP/COEP against a real GDExtension + thread-support project,
-  0 console errors, running its own game scripts. Not yet exercised on real
-  hardware, nor profiled, nor checked for stability beyond startup. See
-  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` Task 12 bug #2
+  0 console errors, running its own game scripts. Since 2026-10-16 threaded
+  builds (with and without dlink) are exercised on real hardware with the
+  Separate rendering thread model (`rendering/driver/threads/thread_model=2`):
+  cameraSim, the heavy Forward+ scene, the platformer and four benchmark scenes
+  at the display cap on Chrome and Firefox, quit clean. See
+  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` §2.5
 - Threaded builds require the page to be served cross-origin isolated
   (`Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Embedder-Policy: require-corp`), because they need

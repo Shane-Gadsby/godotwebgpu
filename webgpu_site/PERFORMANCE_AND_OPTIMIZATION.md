@@ -347,6 +347,33 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 
 ---
 
+## 2026-10-16: GPU Fixes and the Separate Render Thread
+
+One day of work on a real GPU (RTX 4080 SUPER, 165 Hz, Chrome), measured before and after on the user's cameraSim project, the heavy Forward+ stress scene, the 3D platformer demo and four benchmark scenes. *Main* is the main thread's CPU ms per frame at the 165 fps cap, *render* the render thread's; *uncapped* is engine fps with Chrome's frame-rate limit and vsync lifted; *GPU* is GPU busy ms per frame. Noise is about ±5%.
+
+What changed:
+
+- **SSIL constant local arrays hoisted** by a new SPIR-V pass (`hoist_constant_local_arrays`): Tint was materialising the kernel's constant arrays per invocation; the pass took SSIL's GPU time from 0.6 ms to under 0.05.
+- **Read-write storage textures bound as `read_write` per format** (the old check queried a WGSL language feature as a device feature and always failed): the heavy scene's GPU time 2.63 → ~1.5 ms.
+- **An upstream Godot shadow-atlas bug** (`light_storage.cpp`): when a reallocation found no slot, the light's version was never stored, so every positional shadow was redrawn every frame after any long early frame — which on the web is every frame. Heavy scene CPU −37%. Fix branch: `shadow-atlas/store-version-when-realloc-fails`.
+- **No-op uniform-set prepares skipped** on WebGPU (new `API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE`) and a 4-entry front on the bind-group rebind cache.
+- **Web Audio writes skipped when unchanged** (the engine resends every playing sample's gains and pitch each frame): platformer audio 0.148 → 0.029 ms/frame. Upstream's sample-driver rewrite (godotengine/godot#123996) is cherry-picked with the cache re-applied.
+- **A separate render thread** for `threads=yes` exports with `rendering/driver/threads/thread_model=2`: rendering runs on its own pthread with its own WebGPU device, the canvas transferred as an `OffscreenCanvas`; the main thread never blocks on it (a blocking wait on the browser main thread is a busy-spin), waiting instead with `Atomics.waitAsync`; the render thread yields to its event loop through a `MessageChannel` message (never a timer: Chrome clamps nested `setTimeout(0)` to 4 ms). Browsers without WebGPU in workers fall back to the Safe model automatically. Design, traps and mechanics: `webgpu_notes/TASKS.md` §2.5.
+
+| Scene | Main, before → after (nothreads) | → after, Separate (main + render) | Uncapped fps, before → after | GPU ms, before → after |
+|---|---:|---:|---:|---:|
+| cameraSim (real project) | 0.51 → 0.49 ms (−4%) | **0.09** + 0.44 ms (**−82%**) | 837 → 832 (−1%) | 0.64 → 0.58 (−9%) |
+| Heavy Forward+ (scene_i) | 1.93 → 1.15 ms (**−40%**) | **0.06** + 1.18 ms (**−97%**) | 229 → 292 (**+28%**) | 3.40 → 1.46 (**−57%**) |
+| 3D platformer demo | 0.84 → 0.79 ms (−6%) | **0.36** + 0.50 ms (**−57%**) | 833 → 821 (−1%) | 0.40 → 0.42 (+5%) |
+| PBR Sphere | 0.28 → 0.27 ms (−4%) | 0.05 + 0.22 ms (−82%) | 1012 → 1022 (+1%) | 0.28 → 0.28 (0%) |
+| GPU Particles | 0.26 → 0.27 ms (+4%) | 0.05 + 0.19 ms (−81%) | 982 → 974 (−1%) | 0.13 → 0.14 (+8%) |
+| Other Effects (SSAO + Bloom) | 0.96 → 0.99 ms (+3%) | 0.09 + 0.99 ms (−91%) | 633 → 619 (−2%) | 0.50 → 0.49 (−2%) |
+| Shadows | 0.44 → 0.40 ms (−9%) | 0.06 + 0.36 ms (−86%) | 846 → 867 (+2%) | 0.34 → 0.34 (0%) |
+
+Averaged over the seven scenes the fixes alone are main thread −8%, GPU −8%, uncapped fps +4% — concentrated on the scenes that had something to fix, the rest already at their floor. With the render thread the main thread's per-frame cost falls −82% on average; what remains is the game's own logic (the platformer's 0.36 ms is physics, scripts and audio). Uncapped fps cannot be measured in Separate mode — Chrome's uncapped flags drive the rAF of a page whose canvas is worker-owned at ~60 Hz — and with vsync every configuration runs at the display rate. The Safe thread model measures the same as nothreads, and threads+GDExtension (dlink) the same as threads.
+
+---
+
 ## Remaining Optimization Opportunities
 
 1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile.
@@ -357,7 +384,7 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 
 4. **Batch size cap**: Add configurable maximum (e.g., 4096 instances) for mobile GPU scheduling.
 
-5. **Shader pre-compilation**: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
+5. **Shader pre-compilation** — *done*: the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
 
 6. **Push constant ring sizing**: Monitor peak usage and right-size the 256KB ring buffer. Add runtime warning when approaching the 1024-slot limit.
 
@@ -370,6 +397,9 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 | File | Role |
 |------|------|
 | `drivers/webgpu/rendering_device_driver_webgpu.cpp` | All WebGPU-specific fast paths |
+| `platform/web/display_server_web.cpp` | The separate render thread (`render_thread_prestart`, `_render_thread_wake`, `render_thread_wait_for_draw`) |
+| `servers/rendering/rendering_server_default.cpp` | `external_render_thread_*` hooks, `sync_previous_draw()` |
+| `drivers/webgpu/spirv_preprocess.cpp` | The SPIR-V passes, incl. `hoist_constant_local_arrays` |
 | `drivers/webgpu/webgpu_objects.h` | WGBuffer dirty tracking, RenderState |
 | `servers/rendering/rendering_device.cpp` | Staging cap, direct write, firstInstance plumbing |
 | `servers/rendering/rendering_device_driver.h` | API trait definitions |
