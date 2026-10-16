@@ -169,7 +169,8 @@ for (let round = 0; round < ROUNDS; round++) {
 		rb.destroy(); resolve.destroy();
 		const spans = [];
 		for (let k = 0; k < G.used; k++) spans.push([Number(ts[2 * k]), Number(ts[2 * k + 1])]);
-		return { spans, meta: G.meta, copies: G.copies, frames: G.frames, wall: G.t1 - G.t0, stats: window.godotWebGPUFrameStats || null };
+		const sh = window.godotWebGPUShaderStats;
+		return { spans, meta: G.meta, copies: G.copies, frames: G.frames, wall: G.t1 - G.t0, stats: window.godotWebGPUFrameStats || null, shaders: sh ? { baked: sh.baked, precompiled: sh.precompiled, translated: sh.translated } : null };
 	});
 	// Whole frames only: drop the partial frame the measurement stopped in.
 	const lastFrame = r.meta.length ? r.meta[r.meta.length - 1].frame : 0;
@@ -197,4 +198,5 @@ if (PASSES) {
 	console.log(`per command buffer: median ${per[per.length >> 1].toFixed(3)} ms, p95 ${per[Math.floor(per.length * 0.95)].toFixed(3)} ms, max ${per[per.length - 1].toFixed(3)} ms`);
 }
 if (r.stats) console.log('engine frame stats: ' + JSON.stringify(r.stats));
+if (r.shaders) console.log('shader sources: ' + JSON.stringify(r.shaders));
 await browser.close(); server.close();

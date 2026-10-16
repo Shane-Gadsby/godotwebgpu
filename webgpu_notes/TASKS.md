@@ -758,6 +758,14 @@ dlink export of this one, and a native-Vulkan side-by-side. Note the exporter's 
 warning appeared in the *editor's* export log although the export did bake 427 variants; likely about the editor's own
 process, not worth chasing unless it recurs with `baked 0`.
 
+**cameraSim re-test, 2026-10-16** (after §2.30's SSIL and read-write-storage fixes, `a79c6f242f`; editor and template rebuilt at
+that commit; scratch copy as before). A/B with unbaked exports from a template with this session's driver changes reverse-applied
+vs HEAD, plus a baked HEAD export. Uncapped: **~800 fps in all three** (1.21-1.36 ms/frame; CPU-bound, GPU ~50% of the timeline);
+GPU time **0.65-0.68 -> 0.58 ms/frame** (-12%, `rwShadowRefreshes` 2 -> 0); baked `427 / translated 0`. Capped at 165 Hz the main
+thread is **15% busy (~0.9 ms CPU/frame)**. Screenshots before/after are **byte-identical** (DOF, light rig, character, UI). Per pass
+it is at native parity: opaque 0.29 ms vs 0.31 native (`--gpu-profile --resolution 1920x1080`), bokeh DOF 0.145 vs 0.128. Nothing
+on this project is worth chasing GPU-side; it has ~6x CPU headroom at the display rate on this machine.
+
 ### 2.28 Compute lists share one encoder: the graph's begin/end hooks are ignored `FIXED 2026-10-14` (end hook; matrix 64/64 on real GPU) *(found by §2.14's audit)*
 
 `RenderingDeviceGraph::_run_render_commands()` brackets every compute list with
@@ -1048,6 +1056,38 @@ fps uncapped (engine stats 246-260); the GPU is now ~43% of the timeline, so the
 64/64 (sdfgi 36.65 vs 36.58 before, voxel_gi 7.743, particles within their usual noise), scene smoketest 21/21 Chrome **and**
 21/21 Firefox (real GPU), perf_guard green, `dev_mode` `-Werror` clean. Firefox: same per-format rule, through its own
 `wgslLanguageFeatures` and tier2 support.
+
+**Per-pass sweep of the other scenes, 2026-10-16** (HEAD `a79c6f242f`; web = `gpu_time.mjs --uncapped`, GPU ms per frame from
+timestamps; native = editor `--gpu-profile --resolution 1280x720`, same renderer; native's sections exclude the final blit/present):
+
+| scene | web fps | web GPU ms | native GPU ms | web GPU % of timeline |
+|---|---:|---:|---:|---:|
+| benchmark_sprites (Mobile) | 984 | 0.08 | - | 8% |
+| benchmark_pbr | 962 | 0.24 | 0.08 | 23% |
+| benchmark_instances | 900 | 0.24 | 0.02 | 21% |
+| benchmark_particles | 1000 | 0.23 | 0.04 | 23% |
+| benchmark_animated | 928 | 0.29 | 0.02 | 27% |
+| benchmark_postfx | 610 | 0.47 | 0.80 | 29% |
+| benchmark_shadows | 868 | 0.26 | 0.11 | 23% |
+| benchmark_batching (60k nodes) | 92 | 0.31 | 0.51 | 3% |
+| heavy_i (Forward+) | 241 | 1.68 | 1.06 | 41% |
+| depth_j (Forward+) | 647 | 0.55 | 0.45 | 36% |
+| demo 3d lights_and_shadows | 870 | 0.28 | 0.32 | 25% |
+| demo 3d particles | 873 | 0.22 | 0.14 | 19% |
+| demo 3d platformer | 812 | 0.29 | 0.22 | 24% |
+| demo compute texture | 903 | 0.21 | 0.05 | 19% |
+| demo 2d particles | 844 | 0.26 | 0.10 | 23% |
+| volumetric_fog | 942 | 0.21 | 0.09 | 20% |
+
+**No new GPU outlier.** Every scene except heavy_i is CPU-bound with the GPU at 3-36% of the timeline. The small scenes' extra
+~0.15 ms is fixed per-frame work, not shader cost (`benchmark_instances --passes`: blit 0.019, an empty pass clearing the 4096^2
+shadow atlas 0.032, opaque 0.055 vs 0.024 native). heavy_i's remaining gap is SDFGI (item 0 below). `benchmark_batching` (60,000
+MeshInstance3D, ~15 instanced draws) is engine-CPU-bound by design: ~0.8 ms of its ~11 ms frame is in WebGPU calls, and the
+native *editor* build runs it at 74 fps (web release template 92). compute_heightmap renders on demand, so it has no frame rate
+to measure. **Capped CPU (165 Hz):** heavy_i 47% busy (~2.85 ms, 0.89 in WebGPU calls), 3d platformer 21% (~1.27 ms, 0.29),
+benchmark_pbr 7% (~0.42 ms, 0.11) — so 70-77% of the main thread's work is outside WebGPU calls; attribute it with
+`cpu_steady.mjs` (needs a `debug_symbols=yes` template) before choosing a CPU fix. The light scenes' uncapped ~1 ms/frame floor
+is the browser's rAF/present cadence, not our work (benchmark_pbr needs 0.42 ms).
 
 **Open, in suggested order (re-ordered 2026-10-16: GPU-side first, it is where the heavy scene's time is):**
 0. **SDFGI: mostly done 2026-10-16 (below).** What is left: SDFGI integrate 0.47 ms in 4 small dispatches (111 workgroups each)
