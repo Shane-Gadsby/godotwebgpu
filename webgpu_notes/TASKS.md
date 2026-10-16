@@ -568,6 +568,42 @@ JS/browser call path: ~0.5 ms/frame of marshaling (`bigintToI53Checked`, `getJsO
 logic with that, but it needs `threads=yes` + COOP/COEP on the host, the device and its handle table on the render thread (§4.5),
 and the canvas transferred as an `OffscreenCanvas`. Do §2.30's cheaper items first and re-measure how CPU-bound the heavy scene is.
 
+**2026-10-16 — investigation: worth it for logic-heavy games, feasible, design below.**
+ - **Prize.** Capped profiles split each frame into game logic (`Main::iteration` minus `RenderingServerDefault::_draw`) and
+   rendering. 3D platformer: logic 0.54 ms (physics 0.26, `_process` 0.35 incl. animation 0.10 and GDScript 0.07, audio 0.12),
+   render 0.60, browser 0.17 of 1.31 busy -> a render thread cuts the main thread's critical path ~45%. Heavy Forward+ scene:
+   logic 0.02 ms -> nothing to overlap. Real games sit nearer the platformer.
+ - **Baseline.** `threads=yes` (non-dlink) builds and runs Forward+ on the real GPU; with rendering still on the main thread it is
+   no faster (platformer 1.00/1.35 vs 0.97/1.23 ms busy, noise). With `rendering/driver/threads/thread_model=2` (Separate) the
+   render pump runs on a WorkerThreadPool worker and dies on its first WebGPU call (`Cannot read properties of undefined (reading
+   'createTexture')`): RenderingDevice and every WGPU object were created on the main thread, whose JS handle table the worker
+   does not have.
+ - **Browser mechanics proven** (`webgpu_tests/threading_proto/`: `./build.sh && node run.mjs "logic=8&render=8"`): a pthread
+   created with `emscripten_pthread_attr_settransferredcanvases(&attr, "#canvas")` (needs `-sOFFSCREENCANVAS_SUPPORT=1` and
+   `Module.canvas`) owns the canvas; it requests its own adapter/device asynchronously, imports it with
+   `WebGPU.importJsDevice`, creates the surface from `"#canvas"`, renders one frame per wake-up, and returns to its event loop
+   (`emscripten_exit_with_live_runtime()`), so frames present and WebGPU callbacks run. The main thread wakes it through
+   `emscripten_atomic_wait_async` on a counter (if the counter already moved, waitAsync returns "not-equal" and never calls
+   back — handle it). 8 ms logic + 8 ms render -> main thread 8.04 ms/tick instead of 16; the render thread presents at
+   165 Hz while its work fits one vsync (FIFO quantises 8 ms to 12.12).
+ - **Why Godot's render thread cannot be used as is on the web:** it is a WorkerThreadPool task that blocks forever in
+   `_thread_loop` (`flush_all` + `yield`). A web worker that never returns to its event loop never presents its canvas (WebGPU
+   presents at the end of the task), never resolves `requestAdapter`/`requestDevice`, and never runs `onSubmittedWorkDone`/
+   `mapAsync` callbacks. And the device must be *created* on that thread.
+ - **Design (all under `WEB_ENABLED && THREADS_ENABLED`, active only with thread_model=Separate; `threads=no` and Safe mode are
+   untouched):**
+   1. `RenderingServerDefault::init()`: on web, start the render thread through a platform hook (a dedicated pthread with the
+      canvas transferred) instead of a WorkerThreadPool pump task.
+   2. That thread creates its adapter/device asynchronously (same features/limits as `engine.js`), then — on its own thread —
+      the parts `DisplayServerWeb` does on the main thread today: `RenderingContextDriverWebGPU` init, surface on the
+      OffscreenCanvas, `RenderingDevice::initialize` + `screen_create`. Main-thread code must not touch RD before that.
+   3. Pump: `flush_all()`, then wait asynchronously for the next push (a counter + notify hook in `CommandQueueMT`, set only by
+      the web render thread), yielding to the event loop between flushes so each `_draw` presents.
+   4. Main-thread waits (`push_and_sync`, `RS::sync`) stay blocking; on the browser main thread Emscripten busy-waits and keeps
+      servicing proxied calls, so they do not deadlock.
+   5. Canvas resize: route `window_set_size` to the render thread; the OffscreenCanvas size can only be set there.
+   6. Driver/context `EM_ASM` that assumes `window`/`document`/`Module.preinitializedWebGPUDevice` must work in a worker.
+
 ### 2.6 Real-GPU profile of a baked Forward+ export `DONE 2026-10-15` — frame stats, ring overflow and baked heavy export all done *(old Task 46 §6)*
 
 The configuration this fork actually ships, and the one no number covers. §4.15 measured the

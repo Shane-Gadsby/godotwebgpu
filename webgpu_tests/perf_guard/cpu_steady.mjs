@@ -12,10 +12,11 @@ const DIR = resolve(arg('dir')), SETTLE = +arg('settle', 15000), MEASURE = +arg(
 const INCL = arg('incl', '').split(',').filter(Boolean);
 const UNCAPPED = process.argv.includes('--uncapped');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.pck': 'application/octet-stream', '.png': 'image/png' };
+// COOP/COEP on every response: threaded exports need cross-origin isolation, and same-origin exports are unaffected.
 const server = createServer((q, r) => {
 	const p = decodeURIComponent(q.url.split('?')[0]); const f = join(DIR, p === '/' ? 'index.html' : p);
 	if (!existsSync(f) || !statSync(f).isFile()) { r.writeHead(404); r.end(); return; }
-	r.writeHead(200, { 'Content-Type': MIME[extname(f)] || 'application/octet-stream', 'Content-Length': statSync(f).size }); r.end(readFileSync(f));
+	r.writeHead(200, { 'Content-Type': MIME[extname(f)] || 'application/octet-stream', 'Content-Length': statSync(f).size, 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' }); r.end(readFileSync(f));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const { chromium } = await import(join(HERE, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
