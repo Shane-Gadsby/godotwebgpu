@@ -329,6 +329,31 @@ struct WGUniformSet {
 	// has to be able to record which layout it actually bound.
 	WGPUBindGroupLayout handle_layout = nullptr;
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> rebind_cache;
+	// Small front for rebind_cache, searched linearly before the hash lookup that
+	// was the driver's largest per-bind cost (TASKS.md 2.30). Four entries, not
+	// one: a material's set is bound once per pass and each pass (shadow, depth
+	// pre-pass, colour) binds it against a different variant's layout, so a single
+	// most-recent slot never hit. Entries mirror rebind_cache (a null group is a
+	// cached failure) and are cleared with it in _purge_rebind_caches_for_shader(),
+	// so none can outlive its key.
+	static constexpr uint32_t REBIND_RECENT_COUNT = 4;
+	WGPUBindGroupLayout rebind_recent_layout[REBIND_RECENT_COUNT] = {};
+	WGPUBindGroup rebind_recent_group[REBIND_RECENT_COUNT] = {};
+	uint32_t rebind_recent_next = 0;
+
+	void rebind_recent_store(WGPUBindGroupLayout p_layout, WGPUBindGroup p_group) {
+		rebind_recent_layout[rebind_recent_next] = p_layout;
+		rebind_recent_group[rebind_recent_next] = p_group;
+		rebind_recent_next = (rebind_recent_next + 1) % REBIND_RECENT_COUNT;
+	}
+	void rebind_recent_forget(WGPUBindGroupLayout p_layout) {
+		for (uint32_t i = 0; i < REBIND_RECENT_COUNT; i++) {
+			if (rebind_recent_layout[i] == p_layout) {
+				rebind_recent_layout[i] = nullptr;
+				rebind_recent_group[i] = nullptr;
+			}
+		}
+	}
 
 	// Maps binding index → WGTexture* for texture entries, used during rebind
 	// to create compatible views when the target BGL has a different dimension.

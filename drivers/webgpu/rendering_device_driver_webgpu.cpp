@@ -7594,7 +7594,19 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 	// Check rebind cache. One lookup, not two: this is the common path for every
 	// draw whose uniform set was built against a different shader than the
 	// pipeline currently bound.
+	if (target_layout != nullptr) {
+		for (uint32_t i = 0; i < WGUniformSet::REBIND_RECENT_COUNT; i++) {
+			if (p_us->rebind_recent_layout[i] == target_layout) {
+				const WGPUBindGroup group = p_us->rebind_recent_group[i];
+				if (!group && r_layout) {
+					*r_layout = p_us->handle_layout;
+				}
+				return group ? group : p_us->handle;
+			}
+		}
+	}
 	if (const WGPUBindGroup *cached = p_us->rebind_cache.getptr(target_layout)) {
+		p_us->rebind_recent_store(target_layout, *cached);
 		if (!*cached && r_layout) {
 			// A cached failure: p_us->handle comes back instead, carrying its
 			// own layout, not the target's.
@@ -7837,6 +7849,7 @@ WGPUBindGroup RenderingDeviceDriverWebGPU::_get_compatible_bind_group(WGUniformS
 				(int)filtered.size()));
 	}
 	p_us->rebind_cache[target_layout] = bg; // Cache even if null.
+	p_us->rebind_recent_store(target_layout, bg);
 	if (!bg && r_layout) {
 		*r_layout = p_us->handle_layout;
 	}
@@ -7887,6 +7900,7 @@ void RenderingDeviceDriverWebGPU::_purge_rebind_caches_for_shader(WGShader *p_sh
 					wgpuBindGroupRelease(*cached);
 				}
 				us->rebind_cache.erase(layout);
+				us->rebind_recent_forget(layout);
 			}
 		}
 		if (p_shader->merged_pc_group_layout) {
@@ -7895,6 +7909,7 @@ void RenderingDeviceDriverWebGPU::_purge_rebind_caches_for_shader(WGShader *p_sh
 					wgpuBindGroupRelease(*cached);
 				}
 				us->rebind_cache.erase(p_shader->merged_pc_group_layout);
+				us->rebind_recent_forget(p_shader->merged_pc_group_layout);
 			}
 		}
 	}
@@ -12212,6 +12227,9 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// one. See the trait's doc comment in rendering_device_driver.h.
 		case API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD:
 			return 1;
+		// command_uniform_set_prepare_for_use() is a no-op here; see the trait's doc comment.
+		case API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE:
+			return 0;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}

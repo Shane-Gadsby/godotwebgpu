@@ -1125,6 +1125,16 @@ public:
 		// held for the whole session, in an address space with no swap and a hard
 		// ceiling, for bytes nothing will read again.
 		API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD,
+		// Non-zero (the default): when API_TRAIT_HONORS_PIPELINE_BARRIERS is 0,
+		// RenderingDevice records command_uniform_set_prepare_for_use() for every
+		// bound set of every draw, dispatch and trace, because the driver turns it
+		// into resource transitions (D3D12 without enhanced barriers). Zero: the
+		// driver's command_uniform_set_prepare_for_use() does nothing, so do not
+		// record it. WebGPU tracks hazards itself and has no barriers at all, yet
+		// must report HONORS_PIPELINE_BARRIERS as 0, so without this it paid for a
+		// render-graph instruction plus a virtual no-op per set per draw (~3,000 a
+		// frame on a 1,100-draw scene).
+		API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE,
 	};
 
 	enum ShaderChangeInvalidation {

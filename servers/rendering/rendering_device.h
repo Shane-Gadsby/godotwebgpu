@@ -201,6 +201,10 @@ private:
 	void update_perf_report();
 	// Flag for batching descriptor sets.
 	bool descriptor_set_batching = true;
+	// Whether bound uniform sets must be passed through command_uniform_set_prepare_for_use():
+	// !API_TRAIT_HONORS_PIPELINE_BARRIERS && API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE, read once at
+	// initialization instead of a virtual call per set per draw.
+	bool uniform_sets_need_prepare_for_use = false;
 	// When true, the final draw call that copies our offscreen result into the Swapchain is put into its
 	// own cmd buffer, so that the whole rendering can start early instead of having to wait for the
 	// swapchain semaphore to be signaled (which causes bubbles).
