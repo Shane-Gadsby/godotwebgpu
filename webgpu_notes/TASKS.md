@@ -1568,6 +1568,18 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `ReferenceError` on the first sample stream, the engine never leaves "Rendering first frame..." and the main thread sits
     idle — 21/21 smoketest scenes passed around it. Guarded with `typeof SharedArrayBuffer !== 'undefined'`; when testing a
     `threads=no` export, serve it at least once without the headers.
+23. **A WebGPU-only workaround written unconditionally into shared RD code breaks every other driver** (2026-10-16).
+    `blit.glsl` ended in a bare `color.a = 1.0;`, added by `f1f47af795` because Chrome composites a canvas with alpha < 1 as
+    transparent even under `CompositeAlphaMode_Opaque`. That shader has four pipeline variants and only
+    `BLIT_MODE_NORMAL_ALPHA` blends, so forcing alpha to 1 destroyed the blend *weight*: `main/splash.png` is 800x600 with a
+    *transparent black* surround (452129 of 480000 px at `rgba(0,0,0,0)`), which then composited as an opaque black rectangle
+    over the gray clear colour on the **native editor** boot splash — for seven months, in a path no WebGPU test covers.
+    Fixed by gating the line on a `USE_ALPHA_BLEND` define given to that one variant, and keeping the swapchain opaque with
+    `src_alpha = ZERO, dst_alpha = ONE` on the splash pipeline instead. `drivers/webgpu/` is compiled out of native builds,
+    but `servers/rendering/` and its `*.glsl` are not: a driver quirk handled there needs a define, a variant or an
+    `api_trait_get()`, never a bare statement. To check a boot splash, note the window is unpainted in an
+    `import -window root` capture — grab it by id (`xdotool search --name '^Godot$'`) and sample pixels inside vs. outside
+    the centered 800x600 rect; `application/boot_splash/minimum_display_time` holds it up long enough.
 
 ---
 
