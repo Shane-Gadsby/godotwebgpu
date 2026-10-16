@@ -368,6 +368,20 @@ Stress tests comparing WebGPU (Forward Mobile) vs WebGL (Compatibility) at high 
 
 On this hardware WebGPU matches WebGL (all display-capped). Post-processing was 96 / 91 fps (Mobile / Forward+) until two driver fixes the same day (one encoder + submit per render pass, and whole-slice uploads of the instance buffer) brought it to the cap; see `webgpu_notes/TASKS.md` §2.17. The table below is inherited from the upstream project (Mac Studio M3 Ultra, lighter GPU headroom) and has not been reproduced here.
 
+**One day of optimization, 2026-10-16** (same RTX 4080 SUPER / 165 Hz / Chrome; before = the tree at the end of 2026-10-15, after = `db437ca832`). What landed: a SPIR-V pass that hoists SSIL's constant local arrays (its GPU pass 0.6 → <0.05 ms), read-write storage textures bound as such (heavy scene GPU 2.6 → 1.5 ms), an upstream Godot shadow-atlas bug that redrew every positional shadow every frame (heavy scene CPU −37%), no-op uniform-set prepares skipped on WebGPU, Web Audio writes skipped when unchanged (platformer audio 0.148 → 0.029 ms/frame), and a **separate render thread** for `threads=yes` exports with `rendering/driver/threads/thread_model=2` (rendering runs on its own pthread with its own WebGPU device and the canvas as an OffscreenCanvas; `webgpu_notes/TASKS.md` §2.5). *Main* is the main thread's ms per frame at the 165 fps cap (`Performance.getMetrics`), *render* the render thread's; *uncapped* is engine fps with Chrome's frame-rate limit and vsync lifted; *GPU* is GPU busy ms/frame. Run-to-run noise is about ±5%.
+
+| Scene | Main, before → after (nothreads) | → after, Separate (main + render) | Uncapped fps, before → after | GPU ms, before → after |
+|---|---:|---:|---:|---:|
+| cameraSim (real project) | 0.51 → 0.49 ms (−4%) | **0.09** + 0.44 ms (**−82%**) | 837 → 832 (−1%) | 0.64 → 0.58 (−9%) |
+| Heavy Forward+ (scene_i) | 1.93 → 1.15 ms (**−40%**) | **0.06** + 1.18 ms (**−97%**) | 229 → 292 (**+28%**) | 3.40 → 1.46 (**−57%**) |
+| 3D platformer demo | 0.84 → 0.79 ms (−6%) | **0.36** + 0.50 ms (**−57%**) | 833 → 821 (−1%) | 0.40 → 0.42 (+5%) |
+| PBR Sphere | 0.28 → 0.27 ms (−4%) | 0.05 + 0.22 ms (−82%) | 1012 → 1022 (+1%) | 0.28 → 0.28 (0%) |
+| GPU Particles | 0.26 → 0.27 ms (+4%) | 0.05 + 0.19 ms (−81%) | 982 → 974 (−1%) | 0.13 → 0.14 (+8%) |
+| Other Effects (SSAO + Bloom) | 0.96 → 0.99 ms (+3%) | 0.09 + 0.99 ms (−91%) | 633 → 619 (−2%) | 0.50 → 0.49 (−2%) |
+| Shadows | 0.44 → 0.40 ms (−9%) | 0.06 + 0.36 ms (−86%) | 846 → 867 (+2%) | 0.34 → 0.34 (0%) |
+
+Totals, averaged over the seven scenes: the driver/engine fixes alone cut main-thread time **−8%** and GPU time **−8%** and raised uncapped fps **+4%** — all of it on the scenes that had something to fix (the heavy scene: main −40%, GPU −57%, +28% fps; cameraSim: GPU −9%), the rest were already at their floor and moved within noise. With the separate render thread on top, the main thread's per-frame cost falls **−82% on average** (−57% on the platformer, whose remaining 0.36 ms is its own physics, scripts and audio; −97% on the heavy scene), the render thread picking up the same work in parallel. Uncapped fps is not measurable in Separate mode (Chrome's uncapped mode drives the rAF of a page whose canvas is worker-owned at ~60 Hz); with vsync every configuration runs at the display rate, and the threads+GDExtension (dlink) build measures the same as threads. The Safe thread model measures the same as nothreads, which is also why there is no "before, threaded" column: until today the thread model did not change where rendering ran.
+
 Try all benchmarks live at **[godotwebgpu.com/#benchmarks](https://godotwebgpu.com/#benchmarks)**.
 
 | | Benchmark | Description | WebGPU vs WebGL |
