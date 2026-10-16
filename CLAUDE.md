@@ -69,6 +69,9 @@ cd webgpu_tests/perf_guard && node run_perf_guard.mjs
 node api_profile.mjs --dir <export> --uncapped
 # Whether it is GPU-bound instead, and which pass costs what on the GPU (uncapped "100% busy" includes waiting on the GPU):
 node gpu_time.mjs --dir <export> --uncapped [--passes]
+# JS-glue cost per function (ms/frame) on a tab YOU already have open in a Chrome started with --remote-debugging-port=9222
+# (no hosting or launching; written for the Web Audio AudioParam writes, --fn takes any names; usage in its header):
+node tests/web_audio_profiling.mjs --tab <url-or-title-substring> --fn setVolume,_syncPlaybackRate
 
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite

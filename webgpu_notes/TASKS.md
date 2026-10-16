@@ -585,7 +585,13 @@ target=editor` — i.e. **without `webgpu=yes`** — silently has no shader bake
 `baked: 0, translated: 355` with no warning (it cost three rebuilds here; `local_ci.sh` passes `webgpu=yes`). And the
 version hash is the git HEAD at build time, so any commit between building the editor and the template unbaked the export.
 
-### 2.5 Decide whether threading is worth having `OPEN` *(old Task 14 subtask 1.5.8.5, Task 12)*
+### 2.5 Decide whether threading is worth having `DONE 2026-10-16` — yes: the separate render thread is the default for thread-enabled exports *(old Task 14 subtask 1.5.8.5, Task 12)*
+
+**Closed 2026-10-16.** Implemented, measured (table below: main thread −82% on average across seven scenes) and made the
+default through `variant/separate_render_thread` (`b4de0b0b4b`). What stays open underneath it, tracked here rather than as
+new items: the perf tools (`api_profile.mjs`, `cpu_steady.mjs`, `perf_guard`) only see the main thread under Separate; no
+uncapped fps in Separate (Chrome drives rAF of a worker-owned canvas at ~60 Hz whatever the flags); Safari and mobile are
+unmeasured (§2.8, §2.9). The original question and the investigation that answered it are kept below for reference.
 
 `threads=yes dlink_enabled=yes` — threads *and* GDExtension, which this fork never shipped — now
 **boots clean** (§4.5), but booting is not being useful. Settle two things in order:
@@ -1340,6 +1346,15 @@ Native's whole CPU render time for this scene is 0.33 ms, so engine wasm runs ~3
    still wrote every gain and pitch (plus a worklet `setValueAtTime`) each frame, so the skip-unchanged cache is re-applied on
    its structure (`createVolumeMixer`'s `setGain`, `syncedPitchScale`). The `web-audio/skip-unchanged-audioparam-writes`
    branch is superseded by that PR for upstream purposes.
+   **2026-10-17:** the PR author asked how the glue was profiled; the method is now a standalone tool,
+   **`tests/web_audio_profiling.mjs`** (zero dependencies, Node 22+): it attaches to an already open Chrome tab over the
+   remote debugging port, injects a rAF frame counter, takes a `Profiler` sample at 200 µs and prints self/inclusive
+   ms/frame per function (`--fn`, default `setVolume,_syncPlaybackRate`; the PR's driver names them `setGain`,
+   `setPitchScale`). Usage in its header. Re-measured with it on the pre-PR platformer export: `setVolume` 0.115,
+   `_syncPlaybackRate` 0.045 ms/frame self (13% of main-thread busy); with the cache on the PR's driver `setGain` 0.023 +
+   `setPitchScale` 0.010. Testing it outside the repo's servers found that **PR #123996 breaks every non-isolated
+   `threads=no` export** (`SharedArrayBuffer` referenced unguarded, §3 trap 22) — fixed here in `8bd750b327`, to be
+   reported upstream; all eight templates relinked with the guard.
 
 **Engine wasm CPU vs native, 2026-10-16.** Two levers measured with the capped CPU metric (`cpu_steady.mjs` busy ms/frame,
 two runs each, ~5% run-to-run noise), heavy_i / 3d platformer:
@@ -1404,7 +1419,7 @@ disable_path_overrides=no` (release templates refuse `--path` otherwise) run on 
    material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
 3. **Normal/roughness depth pre-pass** (used with SSAO/SSIL/SSR/SDFGI) still draws per element with each material's own shader; not batchable by variant (see §2.17).
 4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165).
-5. **Threading** — §2.5, after 1-2 are re-measured.
+5. ~~**Threading** — §2.5, after 1-2 are re-measured.~~ Done 2026-10-16: §2.5 closed, separate render thread is the default.
 **Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
 
 ### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
