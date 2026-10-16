@@ -44,6 +44,8 @@
 #include "servers/rendering/rendering_server_types.h"
 #include "servers/server_wrap_mt_common.h"
 
+#include <atomic>
+
 class RenderingServerDefault : public RenderingServer {
 	GDSOFTCLASS(RenderingServerDefault, RenderingServer);
 
@@ -1217,6 +1219,7 @@ public:
 
 	virtual void draw(bool p_present, double frame_step) override;
 	virtual void sync() override;
+	virtual void sync_previous_draw() override;
 	virtual bool has_changed() const override;
 	virtual void init() override;
 	virtual void finish() override;
@@ -1257,6 +1260,24 @@ public:
 	virtual void set_print_gpu_profile(bool p_enable) override;
 
 	virtual Size2i get_maximum_viewport_size() const override;
+
+	// A platform whose render thread cannot be a blocking WorkerThreadPool pump task sets this
+	// before RenderingServer::init(): the web, where the render thread must own the canvas, create
+	// its own WebGPU device, and return to its event loop between frames (TASKS.md 2.5). init()
+	// then calls it instead of starting the pump task; the platform's thread calls
+	// external_render_thread_pump() whenever commands may be pending, and stops once it returns false.
+	typedef void (*ExternalRenderThreadStart)(RenderingServerDefault *p_server);
+	static inline ExternalRenderThreadStart external_render_thread_start = nullptr;
+	bool external_render_thread_pump();
+	void external_render_thread_set_push_notify(void (*p_notify)(void *), void *p_userdata) { command_queue.set_push_notify(p_notify, p_userdata); }
+	// Frames queued by draw() and frames the render thread has finished, so the main thread can wait
+	// for the previous frame without a round trip through the command queue (which it could only wait
+	// for by spinning: the web's main thread cannot block). The platform's draw_done callback runs on
+	// the render thread after each frame, to wake a main thread waiting on external_draws_done.
+	std::atomic<uint32_t> external_draws_pushed{ 0 };
+	std::atomic<uint32_t> external_draws_done{ 0 };
+	static inline void (*external_render_thread_draw_done)() = nullptr;
+	bool external_render_thread_draw_pending() const { return external_draws_done.load() != external_draws_pushed.load(); }
 
 	RenderingServerDefault(bool p_create_thread = false);
 	~RenderingServerDefault();

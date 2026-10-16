@@ -147,6 +147,12 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		preinitializedWebGPUDevice: null,
 		/**
+		 * Set by the engine at start (Engine.probeWebGPUWorker): a worker can render with WebGPU.
+		 * @ignore
+		 * @type {boolean}
+		 */
+		webgpuWorkerCapable: false,
+		/**
 		 * @ignore
 		 * @type {Object<string, number>}
 		 */
@@ -356,6 +362,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
 		this.renderingDriver = parse('renderingDriver', this.renderingDriver);
 		this.preinitializedWebGPUDevice = parse('preinitializedWebGPUDevice', this.preinitializedWebGPUDevice);
+		this.webgpuWorkerCapable = parse('webgpuWorkerCapable', this.webgpuWorkerCapable);
 		this.fileSizes = parse('fileSizes', this.fileSizes);
 		this.emscriptenPoolSize = parse('emscriptenPoolSize', this.emscriptenPoolSize);
 		this.godotPoolSize = parse('godotPoolSize', this.godotPoolSize);
@@ -385,6 +392,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'emscriptenPoolSize': this.emscriptenPoolSize,
 			// WebGPU: pass pre-initialized device if provided (for emscripten_webgpu_get_device()).
 			...(this.preinitializedWebGPUDevice ? { 'preinitializedWebGPUDevice': this.preinitializedWebGPUDevice } : {}),
+			'webgpuWorkerCapable': this.webgpuWorkerCapable,
 			'instantiateWasm': function (imports, onSuccess) {
 				function done(result) {
 					onSuccess(result['instance'], result['module']);

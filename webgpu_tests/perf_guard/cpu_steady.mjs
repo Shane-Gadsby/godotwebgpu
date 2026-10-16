@@ -1,4 +1,4 @@
-// Steady-state main-thread CPU profile of a WebGPU export (needs a template built with debug_symbols=yes so wasm
+// Steady-state main-thread CPU profile of a WebGPU export (main thread only: see api_profile.mjs about thread_model=Separate) (needs a template built with debug_symbols=yes so wasm
 // functions are named). Same launch as api_profile.mjs. Prints self time by function, and inclusive time for the
 // functions that match --incl (substring list), as % of the sampled window.
 //   node cpu_steady.mjs --dir <export> [--uncapped] [--measure 5000] [--top 40] [--incl a,b,c] [--json out.json]

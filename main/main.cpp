@@ -2785,6 +2785,15 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #if !defined(THREADS_ENABLED)
 	separate_thread_render = 0;
 #endif
+#ifdef WEB_ENABLED
+	if (separate_thread_render && (rendering_driver != "webgpu" || !OS::get_singleton()->has_feature("webgpu_render_thread"))) {
+		// On the web only the WebGPU driver can render from another thread, and only in a browser
+		// that lets a worker use WebGPU: the thread owns the canvas and its own device
+		// (DisplayServerWeb::render_thread_prestart()). A WebGL context cannot follow it there.
+		print_verbose("Separate rendering thread not available on this browser or driver; using the Safe thread model.");
+		separate_thread_render = 0;
+	}
+#endif
 	OS::get_singleton()->_separate_thread_render = separate_thread_render;
 
 	/* Determine audio and video drivers */
@@ -5105,7 +5114,7 @@ bool Main::iteration() {
 #endif // NAVIGATION_3D_DISABLED
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::sync");
-	RenderingServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	RenderingServer::get_singleton()->sync_previous_draw(); //sync if still drawing from previous frames.
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::draw");
 #ifdef RD_ENABLED

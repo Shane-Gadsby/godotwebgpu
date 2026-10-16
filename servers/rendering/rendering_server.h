@@ -980,6 +980,9 @@ public:
 
 	virtual void draw(bool p_swap_buffers = true, double frame_step = 0.0) = 0;
 	virtual void sync() = 0;
+	// The main loop's per-frame sync before draw(): waits until the previous draw() has been rendered.
+	// The same as sync() unless the server can tell without a round trip that it already has.
+	virtual void sync_previous_draw() { sync(); }
 	virtual bool has_changed() const = 0;
 	virtual void init();
 	virtual void finish() = 0;

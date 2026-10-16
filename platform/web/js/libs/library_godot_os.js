@@ -343,6 +343,11 @@ const GodotOS = {
 		if (ftr === 'web_linuxbsd') {
 			return ((ua.indexOf('CrOS') !== -1) || (ua.indexOf('BSD') !== -1) || (ua.indexOf('Linux') !== -1) || (ua.indexOf('X11') !== -1)) ? 1 : 0;
 		}
+		if (ftr === 'webgpu_render_thread') {
+			// engine.js found WebGPU usable from a worker (Engine.probeWebGPUWorker), so the
+			// "Separate" rendering thread model can render from one (DisplayServerWeb).
+			return Module['webgpuWorkerCapable'] ? 1 : 0;
+		}
 		return 0;
 	},
 

@@ -313,6 +313,7 @@ void RendererCompositorRD::set_boot_image_with_stretch(const Ref<Image> &p_image
 RendererCompositorRD *RendererCompositorRD::singleton = nullptr;
 
 RendererCompositorRD::RendererCompositorRD() {
+	resources_async = !RD::get_singleton()->requires_synchronous_pipeline_compilation();
 	uniform_set_cache = memnew(UniformSetCacheRD);
 	framebuffer_cache = memnew(FramebufferCacheRD);
 

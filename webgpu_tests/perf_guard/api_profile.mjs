@@ -1,4 +1,6 @@
 // Where does a WebGPU export's main-thread frame time go? (TASKS.md 2.17)
+// Main thread only: a threads export with rendering/driver/threads/thread_model=Separate (TASKS.md 2.5) makes its
+// WebGPU calls on the render-thread worker, which this does not see; and --uncapped drives such a page's rAF at ~60 Hz.
 //
 //   node api_profile.mjs --dir <export dir> [--uncapped] [--top 14] [--settle 12000] [--measure 6000]
 //

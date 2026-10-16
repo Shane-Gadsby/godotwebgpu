@@ -79,6 +79,11 @@ void cleanup_after_sync() {
 }
 
 void main_loop_callback() {
+#if defined(WEBGPU_ENABLED) && defined(THREADS_ENABLED)
+	if (DisplayServerWeb::render_thread_wait_for_draw(&main_loop_callback)) {
+		return; // The render thread is still on the previous frame; runs again when it is done.
+	}
+#endif
 #ifndef PROXY_TO_PTHREAD_ENABLED
 	uint64_t current_ticks = os->get_ticks_usec();
 #endif
@@ -145,12 +150,13 @@ void print_web_header() {
 // is ~500 ms on its own and cannot be broken up from here -- so the bar advances in a
 // handful of real increments, not smoothly. See webgpu_notes/TASKS.md Task 14.
 enum StartupStep {
+	STARTUP_STEP_RENDER_THREAD,
 	STARTUP_STEP_SETUP2,
 	STARTUP_STEP_START,
 	STARTUP_STEP_FIRST_FRAME,
 };
 
-static StartupStep startup_step = STARTUP_STEP_SETUP2;
+static StartupStep startup_step = STARTUP_STEP_RENDER_THREAD;
 
 // Shuts down cleanly from inside a startup step, where simply returning an exit code
 // from `godot_web_main()` is no longer possible (it has already returned).
@@ -162,6 +168,19 @@ static void startup_failed() {
 
 void startup_step_callback() {
 	switch (startup_step) {
+		case STARTUP_STEP_RENDER_THREAD: {
+			// With rendering on its own thread, that thread creates its WebGPU device before setup2
+			// blocks the main thread in RenderingServer::init(): Chrome only resolves a worker's
+			// device request while the page's main thread is free (TASKS.md 2.5). Wait a frame at a
+			// time; render_thread_prestart() was called from godot_web_main().
+#if defined(WEBGPU_ENABLED) && defined(THREADS_ENABLED)
+			if (OS::get_singleton()->is_separate_thread_rendering_enabled() && DisplayServerWeb::render_thread_prestart_status() == 0) {
+				return;
+			}
+#endif
+			startup_step = STARTUP_STEP_SETUP2;
+			[[fallthrough]];
+		}
 		case STARTUP_STEP_SETUP2: {
 			if (Main::setup2() != OK) {
 				// Matches what Android does with the same failure (`java_godot_lib_jni.cpp`):
@@ -238,6 +257,12 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 		}
 		return EXIT_FAILURE;
 	}
+
+#if defined(WEBGPU_ENABLED) && defined(THREADS_ENABLED)
+	if (OS::get_singleton()->is_separate_thread_rendering_enabled()) {
+		DisplayServerWeb::render_thread_prestart();
+	}
+#endif
 
 	// The rest of the startup runs one step per frame from here on; see above.
 	emscripten_set_main_loop(startup_step_callback, -1, false);

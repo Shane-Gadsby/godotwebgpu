@@ -278,6 +278,13 @@ const Engine = (function () {
 						}
 					});
 				}
+				// A threaded build may render from a worker (the "Separate" rendering thread
+				// model), which needs WebGPU in workers; find out in parallel with the device.
+				if (me.config.renderingDriver === 'webgpu' && window['crossOriginIsolated']) {
+					webgpuReady = Promise.all([webgpuReady, Engine.probeWebGPUWorker().then(function (capable) {
+						me.config.webgpuWorkerCapable = capable;
+					})]);
+				}
 
 				return webgpuReady.then(function () {
 					return Promise.all([
@@ -507,6 +514,59 @@ const Engine = (function () {
 				});
 				return device;
 			});
+		});
+	};
+
+	/**
+	 * Whether a worker in this browser can render with WebGPU on an OffscreenCanvas, which the
+	 * engine's "Separate" rendering thread model needs (it is reported to the engine as the
+	 * ``webgpu_render_thread`` feature; the engine falls back to the "Safe" model without it).
+	 *
+	 * @ignore
+	 * @return {Promise<boolean>} Resolves to ``false`` wherever the question cannot be answered.
+	 */
+	Engine.probeWebGPUWorker = function () {
+		if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || !navigator.gpu) {
+			return Promise.resolve(false);
+		}
+		return new Promise(function (resolve) {
+			const source = 'self.onmessage = async function () {'
+				+ ' let capable = false;'
+				+ ' try {'
+				+ '  capable = !!(self.navigator.gpu && await self.navigator.gpu.requestAdapter())'
+				+ '   && !!new OffscreenCanvas(1, 1).getContext("webgpu");'
+				+ ' } catch (e) { capable = false; }'
+				+ ' self.postMessage(capable);'
+				+ '};';
+			let url = null;
+			let worker = null;
+			const done = function (capable) {
+				if (worker) {
+					worker.terminate();
+					worker = null;
+				}
+				if (url) {
+					URL.revokeObjectURL(url);
+					url = null;
+				}
+				resolve(capable);
+			};
+			try {
+				url = URL.createObjectURL(new Blob([source], { 'type': 'text/javascript' }));
+				worker = new Worker(url);
+				worker.onmessage = function (event) {
+					done(!!event.data);
+				};
+				worker.onerror = function () {
+					done(false);
+				};
+				worker.postMessage(0);
+				setTimeout(function () {
+					done(false);
+				}, 3000);
+			} catch (e) {
+				done(false);
+			}
 		});
 	};
 

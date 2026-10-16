@@ -73,11 +73,11 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
-| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-15 with `webgpu=yes dev_mode=yes` at `d1683048b4` plus the uncommitted mesh-first sort that became `bc9f4d3768` (baker enabled; `-Werror` clean). **Matches the template below, not the HEAD that contains this note** — any later commit changes the git version hash, so a baked export from this pair is unbaked-by-mismatch against a newer build; rebuild both (without `dev_mode` for benchmarking) before the next baked export |
-| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-15 at the same tree with `dev_mode=yes` (no debug symbols; `-Werror` clean). **Neither matches HEAD (`bc9f4d3768` and later), so baked exports will be unbaked-by-mismatch until both are rebuilt.** Benchmarks should use a normal (non-`dev_mode`) build; a `debug_symbols=yes` build (184 MB zip) is only for `perf_guard/cpu_steady.mjs` |
+| `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-16 with `webgpu=yes` at the tree of the §2.5 render-thread commit (baker enabled). Matches the three web templates below |
+| `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-16 at the same tree (normal build, no `dev_mode`; the changed files were `-Werror`-checked as objects). Scene smoketest 21/21 Chrome + Firefox, Forward+ 64/64 on it |
 | `godot.web.template_release.wasm32.nothreads.dlink.zip` | from the CI run before the late rebuilds (19:10). Compile check only — nothing loads it. **Stale** w.r.t. HEAD |
-| `godot.linuxbsd.editor.dev.x86_64` | **stale** — a throwaway `dev_build=yes` native build from the start of the day; used only for the native-Vulkan reference captures (`--fp-matrix`). Rebuild before reusing |
-| `godot.web.template_{debug,*threads*}` | **stale** (Oct 13 / early Oct 14). Rebuild before any threaded or debug-template work |
+| `godot.linuxbsd.editor.dev.x86_64` | `dev_build=yes` native build from 2026-10-16 (compile check of the §2.5 server changes); not for exports |
+| `godot.web.template_release.wasm32.zip` (threads) | rebuilt 2026-10-16 at the same tree; runs the Separate render thread with `thread_model=2` (§2.5). `template_debug` zips are **stale** (Oct 14-16, various trees) |
 | `godot.linuxbsd.editor.double.x86_64` | §2.23's `precision=double` check; keep or delete freely |
 
 Scratch state worth knowing about (all outside git): `/tmp/plat_baked`, `/tmp/plat_unbaked` (platformer
@@ -603,6 +603,46 @@ and the canvas transferred as an `OffscreenCanvas`. Do §2.30's cheaper items fi
       servicing proxied calls, so they do not deadlock.
    5. Canvas resize: route `window_set_size` to the render thread; the OffscreenCanvas size can only be set there.
    6. Driver/context `EM_ASM` that assumes `window`/`document`/`Module.preinitializedWebGPUDevice` must work in a worker.
+
+**2026-10-16 — implemented; worth it.** A `threads=yes` template with `rendering/driver/threads/thread_model=2` (Separate)
+renders from its own pthread on Chrome and Firefox (both 165 fps capped, pixel-identical to Safe mode on the platformer); the
+page must be served with COOP/COEP. `threads=no`, and `threads=yes` with the Safe model, run exactly the code they ran before
+(everything below is behind `WEB_ENABLED && THREADS_ENABLED && WEBGPU_ENABLED` and the model check; the scene smoketest,
+Forward+ matrix and WebRTC parity exports are nothreads).
+ - **Measured (platformer, 165 Hz cap, main-thread busy per rAF tick from `Performance.getMetrics`, 2 runs each):** nothreads
+   0.88-0.93 ms (14-15%), threads+Safe 0.81-0.84 ms (13-14%), threads+Separate **0.42-0.43 ms (7%)** — the ~45% cut predicted
+   above, at the same 164 fps. The render thread draws the
+   frame in ~0.6 ms and wakes within ~0.05 ms of the `_draw` push.
+ - **How it works** (`platform/web/display_server_web.cpp`, "Separate render thread"): `web_main.cpp` calls
+   `DisplayServerWeb::render_thread_prestart()` right after `Main::setup()` — a pthread with the canvas transferred as an
+   OffscreenCanvas requests its own adapter/device (the main thread's features/limits), then startup waits a frame at a time
+   until it has one (Chrome only resolves a worker's device request while the page's main thread is free, so it cannot be
+   requested from inside `RenderingServer::init()`'s `push_and_sync`). `RenderingServerDefault::init()` starts the thread
+   through `external_render_thread_start` instead of a WorkerThreadPool pump task; the thread creates the context and
+   RenderingDevice on its first wake and from then on pumps `CommandQueueMT` (a `push_notify` hook bumps a counter the thread
+   waits on with `Atomics.waitAsync`); it yields to its event loop after every frame drawn (so it presents) through a
+   `MessageChannel` message, never a timer. `RendererCompositorRD::can_create_resources_async()` is false on this driver
+   (`API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION`), so shaders/textures are created on the render thread, whose handle
+   table owns them. Resize goes through `call_on_render_thread`. Shutdown: `~DisplayServerWeb()` dispatches the RD/context
+   deletion to the render thread (`emscripten_dispatch_to_thread_async`), which destroys its device and exits.
+ - **The main thread never blocks on the render thread in steady state.** The browser main thread cannot block; Emscripten
+   spins (`futex_wait_main_browser_thread`, `_emscripten_get_now` was 1.8 ms/frame = 47% busy in the first attempt). So
+   `Main::iteration` calls the new `RenderingServer::sync_previous_draw()` (= `sync()` everywhere else) which on this path only
+   compares `external_draws_pushed`/`external_draws_done`, and `web_main.cpp`'s `main_loop_callback` first asks
+   `DisplayServerWeb::render_thread_wait_for_draw()`: if the previous frame is still rendering it skips the tick and resumes from
+   an `Atomics.waitAsync` callback on `external_draws_done`. Per-call `push_and_sync` RS getters still spin (rare, correct).
+ - **Browser capability fallback:** `engine.js` probes WebGPU-in-a-worker (`Engine.probeWebGPUWorker`, a blob worker, in
+   parallel with the device request) and reports it as the `webgpu_render_thread` OS feature; `Main::setup` drops to the Safe
+   model without it, or with any driver but WebGPU. Firefox 155 (Playwright) passes the probe and runs the Separate model.
+ - **Known limits / open:** (1) `perf_guard` tools profile the page's main thread only, so under Separate they no longer see the
+   WebGPU calls (`api_profile.mjs`, `cpu_steady.mjs`); `gpu_time.mjs` timestamps are on the render thread's device. (2) With
+   `--uncapped` (`--disable-gpu-vsync`) Chrome drives rAF of a page whose canvas is worker-owned at ~60 Hz, so an uncapped
+   Separate export reports ~58 fps at 5% busy — a tool artifact, not throughput; compare modes capped. (3) The render thread
+   takes one worker from the pthread pool (`emscriptenPoolSize`, default 8). (4) Device loss on the render thread latches the
+   same `GODOT_WEBGPU_DEVICE_LOST` flag (on the worker's globalThis) the driver already polls. (5) `requestQuit()` logs a
+   pre-existing `null.currentTime` audio error in every mode, Separate included. (6) Unbaked exports translate ~355 shader
+   stages at startup on the render thread (same work as Safe does on the main thread); the main thread stays responsive now
+   that it waits asynchronously.
 
 ### 2.6 Real-GPU profile of a baked Forward+ export `DONE 2026-10-15` — frame stats, ring overflow and baked heavy export all done *(old Task 46 §6)*
 
@@ -1442,6 +1482,14 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     now lists the pass sources and `servers/rendering/renderer_rd/shaders/**/*.glsl`. Vendored Tint is still not listed:
     after a Tint patch, delete the header by hand. Check with `ls -la drivers/webgpu/wgsl_precompiled.gen.h` and the
     `[WGSL Precompile] Results:` line in the build log.
+21. **The browser main thread cannot wait, and a worker must not re-schedule itself with a timer** (§2.5, 2026-10-16). A
+    blocking wait on the web main thread (`CommandQueueMT::sync()`, any `push_and_sync`) is an Emscripten busy-spin that
+    counts as main-thread time — the first render-thread build was *slower* (47% busy, 1.8 ms/frame in
+    `_emscripten_get_now`). Wait with `Atomics.waitAsync` and return to the event loop instead. And on the worker,
+    `emscripten_async_call(f, 0)` is `setTimeout(0)`, which Chrome clamps to 4 ms once timers nest five deep — the render
+    thread's wake latency rose to 4 ms per frame; a `MessageChannel` message yields without the clamp. Diagnose a "hang" with
+    `Debugger.pause` over raw CDP on every target (page + workers): a page stuck for seconds was the main thread spinning
+    in `sync()` while the render thread translated shaders, not a deadlock — the debugger stack showed it.
 
 ---
 

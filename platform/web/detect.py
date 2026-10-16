@@ -356,6 +356,10 @@ def configure(env: "SConsEnvironment"):
     if env["threads"]:
         # Thread support (via SharedArrayBuffer).
         env.Append(CPPDEFINES=["PTHREAD_NO_RENAME"])
+        if env["webgpu"]:
+            # The separate render thread (thread_model=Separate) owns the canvas as an OffscreenCanvas
+            # transferred to its pthread (webgpu_notes/TASKS.md 2.5).
+            env.Append(LINKFLAGS=["-sOFFSCREENCANVAS_SUPPORT=1"])
         env.Append(CCFLAGS=["-pthread"])
         env.Append(LINKFLAGS=["-pthread"])
         env.Append(LINKFLAGS=[f"-sDEFAULT_PTHREAD_STACK_SIZE={env['default_pthread_stack_size']}KB"])

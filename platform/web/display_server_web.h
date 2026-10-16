@@ -70,6 +70,42 @@ private:
 #ifdef WEBGPU_ENABLED
 	RenderingContextDriver *rendering_context = nullptr;
 	RenderingDevice *rendering_device = nullptr;
+	Error _create_webgpu_rendering_device(const Size2i &p_size, DisplayServerEnums::VSyncMode p_vsync_mode);
+#ifdef THREADS_ENABLED
+	// Separate render thread on the web (TASKS.md 2.5): every WebGPU handle lives in the JS table
+	// of the thread that created it, so the render thread owns the canvas (as an OffscreenCanvas),
+	// requests its own device, and creates the context and RenderingDevice itself. It returns to
+	// its event loop between flushes so frames present and WebGPU callbacks run.
+	bool render_thread_owns_device = false;
+	Size2i render_thread_initial_size;
+	DisplayServerEnums::VSyncMode render_thread_initial_vsync = DisplayServerEnums::VSYNC_ENABLED;
+	static void _render_thread_start(class RenderingServerDefault *p_server);
+	static void *_render_thread_main(void *p_userdata);
+	static void _render_thread_device_ready();
+	static bool _render_thread_wait();
+	static void _render_thread_wake(void *p_userdata);
+	static void _render_thread_on_push(void *p_userdata);
+	static void _render_thread_on_draw_done();
+	static void _render_thread_yield();
+	static void _render_thread_main_resume(void *p_userdata);
+	static void _render_thread_shutdown(void *p_rendering_device, void *p_rendering_context);
+	void _render_thread_set_window_size(int p_width, int p_height);
+
+public:
+	// Starts the render thread and its device request before DisplayServer exists (web_main.cpp,
+	// right after Main::setup()): Chrome resolves a worker's requestAdapter()/requestDevice() only
+	// while the page's main thread is free, so it must not happen while the main thread is blocked
+	// in RenderingServer::init(). Startup then waits a frame at a time until it is ready.
+	static void render_thread_prestart();
+	// 0 = still starting, 1 = device ready, -1 = failed (continue: errors will name the cause).
+	static int render_thread_prestart_status();
+	// The main loop calls this before each iteration. False: the previous frame has been rendered, go
+	// ahead. True: it has not, skip this iteration; p_resume runs (once) when the frame is done, from
+	// an Atomics.waitAsync callback, so the main thread waits on its event loop instead of spinning.
+	static bool render_thread_wait_for_draw(void (*p_resume)());
+
+private:
+#endif
 #endif
 
 	HashMap<int64_t, CharString> utterance_ids;

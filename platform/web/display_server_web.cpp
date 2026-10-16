@@ -55,6 +55,14 @@
 #ifdef WEBGPU_ENABLED
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
+#ifdef THREADS_ENABLED
+#include "core/object/callable_mp.h"
+#include "servers/rendering/rendering_server_default.h"
+
+#include <emscripten/atomic.h>
+#include <emscripten/threading.h>
+#include <pthread.h>
+#endif
 #endif
 
 #include <emscripten.h>
@@ -80,7 +88,14 @@ bool DisplayServerWeb::check_size_force_redraw() {
 		emscripten_set_canvas_element_size(canvas_id, window_size.x, window_size.y);
 #ifdef WEBGPU_ENABLED
 		// Also update the rendering context surface so the swap chain resizes correctly.
-		if (rendering_context != nullptr) {
+#ifdef THREADS_ENABLED
+		if (render_thread_owns_device) {
+			// The context lives on the render thread; emscripten_set_canvas_element_size() above has
+			// already been proxied to it for the OffscreenCanvas itself.
+			RenderingServer::get_singleton()->call_on_render_thread(callable_mp(this, &DisplayServerWeb::_render_thread_set_window_size).bind(window_size.x, window_size.y));
+		} else
+#endif
+				if (rendering_context != nullptr) {
 			rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, window_size.x, window_size.y);
 		}
 #endif
@@ -1154,49 +1169,25 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 
 #ifdef WEBGPU_ENABLED
 	if (p_rendering_driver == "webgpu") {
-		// The WebGPU device is pre-initialized by the JS shell (navigator.gpu.requestDevice)
-		// and imported via Module["preinitializedWebGPUDevice"]. We initialize the
-		// context driver, create the canvas surface, initialize RenderingDevice, and
-		// register the RD compositor so rendering_server->init() finds it.
-		rendering_context = memnew(RenderingContextDriverWebGPU);
-		if (rendering_context->initialize() != OK) {
-			memdelete(rendering_context);
-			rendering_context = nullptr;
-			r_error = ERR_CANT_CREATE;
-			ERR_FAIL_MSG("WebGPU: Failed to initialize rendering context. Ensure navigator.gpu is available and the device was pre-initialized in the HTML shell.");
+#ifdef THREADS_ENABLED
+		if (OS::get_singleton()->is_separate_thread_rendering_enabled()) {
+			// The render thread (started by render_thread_prestart()) creates the context and
+			// RenderingDevice on its first wake-up, from its own device. Keep what it needs.
+			render_thread_owns_device = true;
+			render_thread_initial_size = p_resolution;
+			render_thread_initial_vsync = p_vsync_mode;
+			RenderingServerDefault::external_render_thread_start = &DisplayServerWeb::_render_thread_start;
+			RendererCompositorRD::make_current();
+		} else
+#endif
+		{
+			Error err = _create_webgpu_rendering_device(p_resolution, p_vsync_mode);
+			if (err != OK) {
+				r_error = err;
+				return;
+			}
+			RendererCompositorRD::make_current();
 		}
-		// Target the same JS-shell-configured canvas element GLES3 uses (canvas_id,
-		// already formatted as a "#id" CSS selector — see godot_js_config_canvas_id_get)
-		// instead of leaving the driver to assume the default "#canvas".
-		RenderingContextDriverWebGPU::WindowPlatformData wpd;
-		wpd.canvas_selector = canvas_id;
-		Error err = rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
-		if (err != OK) {
-			memdelete(rendering_context);
-			rendering_context = nullptr;
-			r_error = err;
-			ERR_FAIL_MSG("WebGPU: Failed to create canvas surface.");
-		}
-		rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, p_resolution.x, p_resolution.y);
-		rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
-
-		rendering_device = memnew(RenderingDevice);
-		err = rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID);
-		if (err != OK) {
-			memdelete(rendering_device);
-			rendering_device = nullptr;
-			memdelete(rendering_context);
-			rendering_context = nullptr;
-			r_error = err;
-			ERR_FAIL_MSG("WebGPU: Failed to initialize rendering device.");
-		}
-		err = rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
-		if (err != OK) {
-			// Non-fatal: the swapchain may be resized on first frame.
-			WARN_PRINT("WebGPU: screen_create() failed — swapchain will be set up on first frame.");
-		}
-
-		RendererCompositorRD::make_current();
 	} else
 #endif // WEBGPU_ENABLED
 	{
@@ -1255,6 +1246,293 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 	Input::get_singleton()->set_event_dispatch_function(_dispatch_input_event);
 }
 
+#ifdef WEBGPU_ENABLED
+// Imports the device (Module['preinitializedWebGPUDevice'] of the calling thread), creates the
+// canvas surface and initializes RenderingDevice. Runs on the main thread, or on the web render
+// thread when rendering runs on its own thread.
+Error DisplayServerWeb::_create_webgpu_rendering_device(const Size2i &p_size, DisplayServerEnums::VSyncMode p_vsync_mode) {
+	rendering_context = memnew(RenderingContextDriverWebGPU);
+	if (rendering_context->initialize() != OK) {
+		memdelete(rendering_context);
+		rendering_context = nullptr;
+		ERR_FAIL_V_MSG(ERR_CANT_CREATE, "WebGPU: Failed to initialize rendering context. Ensure navigator.gpu is available and the device was pre-initialized in the HTML shell.");
+	}
+	// Target the same JS-shell-configured canvas element GLES3 uses (canvas_id,
+	// already formatted as a "#id" CSS selector — see godot_js_config_canvas_id_get)
+	// instead of leaving the driver to assume the default "#canvas".
+	RenderingContextDriverWebGPU::WindowPlatformData wpd;
+	wpd.canvas_selector = canvas_id;
+	Error err = rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
+	if (err != OK) {
+		memdelete(rendering_context);
+		rendering_context = nullptr;
+		ERR_FAIL_V_MSG(err, "WebGPU: Failed to create canvas surface.");
+	}
+	rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, p_size.x, p_size.y);
+	rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
+
+	rendering_device = memnew(RenderingDevice);
+	err = rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID);
+	if (err != OK) {
+		memdelete(rendering_device);
+		rendering_device = nullptr;
+		memdelete(rendering_context);
+		rendering_context = nullptr;
+		ERR_FAIL_V_MSG(err, "WebGPU: Failed to initialize rendering device.");
+	}
+	err = rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
+	if (err != OK) {
+		// Non-fatal: the swapchain may be resized on first frame.
+		WARN_PRINT("WebGPU: screen_create() failed — swapchain will be set up on first frame.");
+	}
+
+	return OK;
+}
+
+#ifdef THREADS_ENABLED
+// The web render thread (TASKS.md 2.5). RenderingServerDefault::init() calls
+// _render_thread_start() instead of starting its WorkerThreadPool pump, because that pump blocks
+// forever and a web worker that never returns to its event loop never presents its canvas, never
+// resolves requestAdapter()/requestDevice(), and never runs WebGPU's async callbacks.
+//
+// The thread is a plain pthread that owns the canvas (transferred as an OffscreenCanvas). It
+// requests its own adapter and device (a GPUDevice cannot move between threads, and every
+// emdawnwebgpu handle lives in the JS table of the thread that made it), creates the context and
+// RenderingDevice, then pumps the command queue: flush everything pending, return to the event
+// loop (the frame presents), and wait asynchronously -- Atomics.waitAsync -- for the next push.
+namespace {
+RenderingServerDefault *render_thread_server = nullptr;
+// Bumped by the command queue on every push; the render thread waits on it.
+volatile uint32_t render_thread_pushes = 0;
+uint32_t render_thread_seen = 0;
+volatile int32_t render_thread_status = 0; // See render_thread_prestart_status().
+bool render_thread_has_device = false; // RenderingDevice created (render thread only).
+pthread_t render_thread = 0;
+// Main thread: a wait for the previous frame is registered (render_thread_wait_for_draw()).
+bool render_thread_main_waiting = false;
+void (*render_thread_main_resume)() = nullptr;
+char render_thread_canvas[256];
+} // namespace
+
+void DisplayServerWeb::render_thread_prestart() {
+	// The features and limits engine.js chose for the main thread's device, so the render thread's
+	// matches it.
+	char *desc = (char *)EM_ASM_PTR({
+		const d = Module['preinitializedWebGPUDevice'];
+		const limits = {};
+		if (d) {
+			for (const k in d.limits) {
+				limits[k] = d.limits[k];
+			}
+		}
+		const json = JSON.stringify({ features : d ? Array.from(d.features) : [], limits : limits });
+		return stringToNewUTF8(json);
+	});
+	// Emscripten resolves "#canvas" through Module['canvas'], which Godot's module never sets;
+	// point it at the canvas the JS shell configured so either selector form finds it.
+	EM_ASM({ Module['canvas'] = GodotConfig.canvas; });
+	godot_js_config_canvas_id_get(render_thread_canvas, sizeof(render_thread_canvas));
+
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	emscripten_pthread_attr_settransferredcanvases(&attr, render_thread_canvas);
+	pthread_t thread;
+	const int rc = pthread_create(&thread, &attr, &DisplayServerWeb::_render_thread_main, desc);
+	pthread_attr_destroy(&attr);
+	render_thread = thread;
+	if (rc != 0) {
+		free(desc);
+		render_thread_status = -1;
+		ERR_FAIL_MSG(vformat("WebGPU: could not start the render thread (pthread_create returned %d).", rc));
+	}
+	pthread_detach(thread);
+}
+
+int DisplayServerWeb::render_thread_prestart_status() {
+	return __atomic_load_n(&render_thread_status, __ATOMIC_SEQ_CST);
+}
+
+void DisplayServerWeb::_render_thread_on_push(void *p_userdata) {
+	__atomic_add_fetch(&render_thread_pushes, 1, __ATOMIC_SEQ_CST);
+	emscripten_atomic_notify((void *)&render_thread_pushes, 1);
+}
+
+void DisplayServerWeb::_render_thread_on_draw_done() {
+	// Render thread, after each frame; external_draws_done was just incremented.
+	emscripten_atomic_notify((void *)&render_thread_server->external_draws_done, 1);
+}
+
+bool DisplayServerWeb::render_thread_wait_for_draw(void (*p_resume)()) {
+	if (render_thread_server == nullptr || !render_thread_server->external_render_thread_draw_pending()) {
+		return false;
+	}
+	if (render_thread_main_waiting) {
+		return true; // Already registered; p_resume will run when the frame is done.
+	}
+	// Read the counter first, then re-check: a frame finishing in between makes the wait below answer
+	// "not-equal" at once instead of being missed.
+	const uint32_t done = render_thread_server->external_draws_done.load();
+	if (!render_thread_server->external_render_thread_draw_pending()) {
+		return false;
+	}
+	render_thread_main_waiting = true;
+	render_thread_main_resume = p_resume;
+	const ATOMICS_WAIT_TOKEN_T token = emscripten_atomic_wait_async((void *)&render_thread_server->external_draws_done, done,
+			[](int32_t *p_address, uint32_t p_value, ATOMICS_WAIT_RESULT_T p_result, void *p_userdata) { _render_thread_main_resume(p_userdata); },
+			nullptr, EMSCRIPTEN_WAIT_ASYNC_INFINITY);
+	if (!EMSCRIPTEN_IS_VALID_WAIT_TOKEN(token)) {
+		emscripten_async_call(&DisplayServerWeb::_render_thread_main_resume, nullptr, 0); // Finished in between.
+	}
+	return true;
+}
+
+void DisplayServerWeb::_render_thread_main_resume(void *p_userdata) {
+	render_thread_main_waiting = false;
+	render_thread_main_resume();
+}
+
+void DisplayServerWeb::_render_thread_start(RenderingServerDefault *p_server) {
+	// Called by RenderingServerDefault::init() on the main thread. The thread is already running
+	// (render_thread_prestart()) and waiting on render_thread_pushes; from here every push wakes it.
+	render_thread_server = p_server;
+	RenderingServerDefault::external_render_thread_draw_done = &DisplayServerWeb::_render_thread_on_draw_done;
+	p_server->external_render_thread_set_push_notify(&DisplayServerWeb::_render_thread_on_push, nullptr);
+}
+
+void *DisplayServerWeb::_render_thread_main(void *p_userdata) {
+	// Ask for a device with the features and limits of the one engine.js created on the main thread,
+	// then continue in _render_thread_device_ready() on this thread once it exists.
+	EM_ASM({
+		const desc = JSON.parse(UTF8ToString($0));
+		const ready = wasmTable.get($1);
+		(async () => {
+			const adapter = await navigator.gpu.requestAdapter({ powerPreference : 'high-performance' });
+			const features = desc.features.filter((f) => adapter.features.has(f));
+			const limits = {};
+			for (const k in desc.limits) {
+				if (adapter.limits[k] !== undefined) {
+					limits[k] = desc.limits[k];
+				}
+			}
+			const device = await adapter.requestDevice({ requiredFeatures : features, requiredLimits : limits });
+			device.lost.then((info) => {
+				console.error(`[Godot] WebGPU device lost on the render thread (reason: ${info.reason}): ${info.message}`);
+				globalThis['GODOT_WEBGPU_DEVICE_LOST'] = true;
+			});
+			device.addEventListener('uncapturederror', (event) => {
+				const err = event.error;
+				const kind = (err && err.constructor && err.constructor.name) || 'UnknownError';
+				console.error(`[Godot] WebGPU uncaptured error: ${kind}: ${err && err.message ? err.message : String(err)}`);
+			});
+			// This worker's own Module: RenderingContextDriverWebGPU::initialize() imports it from here.
+			Module['preinitializedWebGPUDevice'] = device;
+			ready(1);
+		})().catch((e) => {
+			console.error('[Godot] WebGPU: the render thread could not create its device: ' + e);
+			ready(0);
+		}); }, p_userdata, &DisplayServerWeb::_render_thread_device_ready);
+	free(p_userdata);
+	// Keep this worker alive on its event loop; the rest happens in callbacks on this thread.
+	emscripten_exit_with_live_runtime();
+	return nullptr;
+}
+
+void DisplayServerWeb::_render_thread_device_ready() {
+	// (Called with 1 on success, 0 on failure; the JS passes it, the signature need not.)
+	const int ok = EM_ASM_INT({ return Module['preinitializedWebGPUDevice'] ? 1 : 0; });
+	__atomic_store_n(&render_thread_status, ok ? 1 : -1, __ATOMIC_SEQ_CST);
+	_render_thread_wake(nullptr);
+}
+
+bool DisplayServerWeb::_render_thread_wait() {
+	// Waits for the next push; _render_thread_wake() runs from the callback, on this thread's event
+	// loop. False ("not-equal"): something was pushed since render_thread_seen was read, pump again.
+	const ATOMICS_WAIT_TOKEN_T token = emscripten_atomic_wait_async((void *)&render_thread_pushes, render_thread_seen,
+			[](int32_t *p_address, uint32_t p_value, ATOMICS_WAIT_RESULT_T p_result, void *p_userdata) { _render_thread_wake(p_userdata); },
+			nullptr, EMSCRIPTEN_WAIT_ASYNC_INFINITY);
+	return EMSCRIPTEN_IS_VALID_WAIT_TOKEN(token);
+}
+
+void DisplayServerWeb::_render_thread_yield() {
+	// Returns to the event loop and comes back through _render_thread_wake() as a new task: the frame
+	// just drawn presents and WebGPU's callbacks run in between. A MessageChannel message, not a
+	// timer: Chrome clamps nested setTimeout(0) to 4 ms, which emscripten_async_call() would hit.
+	EM_ASM({
+		let port = globalThis['godotRenderThreadYield'];
+		if (!port) {
+			const channel = new MessageChannel();
+			const wake = wasmTable.get($0);
+			channel.port1.onmessage = () => wake(0);
+			port = globalThis['godotRenderThreadYield'] = channel.port2;
+		}
+		port.postMessage(0); }, &DisplayServerWeb::_render_thread_wake);
+}
+
+void DisplayServerWeb::_render_thread_wake(void *p_userdata) {
+	while (render_thread_server == nullptr) {
+		render_thread_seen = __atomic_load_n(&render_thread_pushes, __ATOMIC_SEQ_CST); // Not started by RenderingServer yet.
+		if (_render_thread_wait()) {
+			return;
+		}
+	}
+	if (!render_thread_has_device) {
+		// First wake after RenderingServer::init(): DisplayServerWeb exists now, so create the context
+		// and RenderingDevice here, on the thread that owns the device and the canvas. Without them
+		// RenderingServer::_init() cannot succeed, but the main thread is waiting for it, so pump
+		// anyway and let the errors name the cause.
+		render_thread_has_device = true;
+		DisplayServerWeb *ds = get_singleton();
+		if (ds->_create_webgpu_rendering_device(ds->render_thread_initial_size, ds->render_thread_initial_vsync) != OK) {
+			ERR_PRINT("WebGPU: the render thread could not create its RenderingDevice.");
+		}
+	}
+	// Pump until nothing is pending, but yield once per frame drawn so it presents.
+	while (true) {
+		const uint32_t pushes = __atomic_load_n(&render_thread_pushes, __ATOMIC_SEQ_CST);
+		const uint32_t draws_before = render_thread_server->external_draws_done.load();
+		if (!render_thread_server->external_render_thread_pump()) {
+			return; // RenderingServer finished; let the worker go idle.
+		}
+		render_thread_seen = pushes;
+		if (render_thread_server->external_draws_done.load() != draws_before) {
+			_render_thread_yield();
+			return;
+		}
+		if (__atomic_load_n(&render_thread_pushes, __ATOMIC_SEQ_CST) == render_thread_seen && _render_thread_wait()) {
+			return;
+		}
+	}
+}
+
+void DisplayServerWeb::_render_thread_shutdown(void *p_rendering_device, void *p_rendering_context) {
+	// Render thread, from ~DisplayServerWeb(): frees what this thread created, then ends the thread.
+	RenderingDevice *rd = (RenderingDevice *)p_rendering_device;
+	if (rd != nullptr) {
+		rd->screen_free(DisplayServerEnums::MAIN_WINDOW_ID);
+		memdelete(rd);
+	}
+	RenderingContextDriver *context = (RenderingContextDriver *)p_rendering_context;
+	if (context != nullptr) {
+		memdelete(context);
+	}
+	EM_ASM({
+		const device = Module['preinitializedWebGPUDevice'];
+		if (device) {
+			device.destroy();
+			Module['preinitializedWebGPUDevice'] = null;
+		}
+	});
+	pthread_exit(nullptr);
+}
+
+void DisplayServerWeb::_render_thread_set_window_size(int p_width, int p_height) {
+	if (rendering_context != nullptr) {
+		rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, p_width, p_height);
+	}
+}
+#endif // THREADS_ENABLED
+#endif // WEBGPU_ENABLED
+
 DisplayServerWeb::~DisplayServerWeb() {
 	if (native_menu) {
 		memdelete(native_menu);
@@ -1267,6 +1545,16 @@ DisplayServerWeb::~DisplayServerWeb() {
 	}
 #endif
 #ifdef WEBGPU_ENABLED
+#ifdef THREADS_ENABLED
+	if (render_thread_owns_device) {
+		// Created on the render thread, so freed there: RenderingServer::finish() has already drained
+		// the queue and stopped that thread's pump, which leaves it idle on its event loop.
+		render_thread_server = nullptr;
+		emscripten_dispatch_to_thread_async(render_thread, EM_FUNC_SIG_VII, (void *)&DisplayServerWeb::_render_thread_shutdown, nullptr, rendering_device, rendering_context);
+		rendering_device = nullptr;
+		rendering_context = nullptr;
+	}
+#endif
 	if (rendering_device) {
 		rendering_device->screen_free(DisplayServerEnums::MAIN_WINDOW_ID);
 		memdelete(rendering_device);
