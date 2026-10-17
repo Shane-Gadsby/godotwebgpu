@@ -50,6 +50,8 @@ while data == null or data.size() == 0:
 
 This 1+ frame latency applies to any GPU→CPU data transfer. If your project never reads back from the GPU (the common case for most games), no changes are needed.
 
+The empty first result is the designed behavior, not an error, so the engine only notes it at `--verbose` level (add `--verbose` to `GODOT_CONFIG['args']` in the exported HTML to see it). If you are looking at a console from a build before 2026-10-17, it appeared as a `WARNING` -- which on web was logged with `console.error()` -- and it meant nothing more than that a readback had been started.
+
 The only other user-visible difference is setting `rendering/renderer/rendering_method.web` to `mobile` or `forward_plus` (which maps to `mobile` on web) in project settings.
 
 ### 6. Why WebGPU instead of WebGL 2?
