@@ -39,6 +39,7 @@
 
 #include "core/debugger/engine_debugger.h"
 #include "core/io/file_access.h"
+#include "core/object/script_backtrace.h"
 #include "core/os/main_loop.h"
 #include "core/os/os.h"
 #include "core/profiling/profiling.h"
@@ -48,6 +49,39 @@
 
 #include <dlfcn.h>
 #include <emscripten.h>
+
+// Web has no severity-aware output stream. `OS` writes warnings and errors alike to
+// stderr, Emscripten routes stderr through `Module.printErr`, and every shell logs that
+// with `console.error()` -- so a plain `WARN_PRINT` reached the player's console as a
+// red error, which made an export that was merely chatty look like it had failed. This
+// logger sends warnings, and only warnings, to a channel of their own (`console.warn()`
+// unless the page overrides `onPrintWarning`); every error type stays on stderr exactly
+// as before, backtraces included.
+class WebLogger : public StdLogger {
+public:
+	virtual void log_error(const char *p_function, const char *p_file, int p_line, const char *p_code, const char *p_rationale, bool p_editor_notify = false, ErrorType p_type = ERR_ERROR, const Vector<Ref<ScriptBacktrace>> &p_script_backtraces = {}) override {
+		if (p_type != ERR_WARNING) {
+			StdLogger::log_error(p_function, p_file, p_line, p_code, p_rationale, p_editor_notify, p_type, p_script_backtraces);
+			return;
+		}
+		if (!should_log(true)) {
+			return;
+		}
+
+		const char *err_details = (p_rationale && *p_rationale) ? p_rationale : p_code;
+		// Same two lines `Logger::log_error()` would have written, as one console entry.
+		String text = String(error_type_string(p_type)) + ": " + String::utf8(err_details) + "\n";
+		text += "   at: " + String::utf8(p_function) + " (" + String::utf8(p_file) + ":" + itos(p_line) + ")";
+		for (const Ref<ScriptBacktrace> &backtrace : p_script_backtraces) {
+			if (!backtrace->is_empty()) {
+				text += "\n" + backtrace->format(3);
+			}
+		}
+		godot_js_os_print_warning(text.utf8().get_data());
+	}
+
+	virtual ~WebLogger() {}
+};
 
 void OS_Web::alert(const String &p_alert, const String &p_title) {
 	godot_js_display_alert(p_alert.utf8().get_data());
@@ -391,7 +425,7 @@ OS_Web::OS_Web() {
 	idb_available = godot_js_os_fs_is_persistent();
 
 	Vector<Logger *> loggers;
-	loggers.push_back(memnew(StdLogger));
+	loggers.push_back(memnew(WebLogger));
 	_set_logger(memnew(CompositeLogger(loggers)));
 
 	FileAccessUnix::close_notification_func = file_access_close_callback;

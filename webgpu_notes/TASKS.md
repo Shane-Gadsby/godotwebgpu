@@ -2562,6 +2562,25 @@ override `print_error` at all, so warnings and errors both go to stderr and the 
 channel would mean a severity-aware print path plus a new shell callback, affecting every warning and every custom
 shell; that is its own task, not a tweak to one message.
 
+**Web now has a real warning channel.** The deferred half of the readback item above: `OS` wrote warnings and
+errors alike to stderr, Emscripten routes stderr through `Module.printErr`, and every shell logs that with
+`console.error()`, so a `WARN_PRINT` was indistinguishable from a failure in the player's console. `WebLogger`
+(`platform/web/os_web.cpp`, replacing the plain `StdLogger` in `OS_Web::initialize()`) overrides `log_error()` and
+sends `ERR_WARNING` -- and only that -- through a new binding `godot_js_os_print_warning()`, which calls the page's
+`onPrintWarning` config callback or `console.warn()`. It formats the same two lines `Logger::log_error()` would
+have, backtraces included, as one console entry. Every other `ErrorType` still goes to stderr unchanged, so
+`ERROR`, `SCRIPT ERROR` and `SHADER ERROR` stay errors. The binding is deliberately **not** `__proxy: 'sync'`: a
+warning can be raised on the render thread while the main thread is blocked inside `callMain()`, and `console.warn`
+is available on a worker anyway.
+
+**The `ws://127.0.0.1:6007` failure is Chrome's, and cannot be demoted.** It is the browser's own network-stack log
+for a failed WebSocket handshake, emitted from `new WebSocket()` inside `_godot_js_websocket_create`; it is not an
+exception, does not pass through any engine print path, and no JS can suppress or re-level it. It also only happens
+in a run whose debugger host is unreachable: one-click deploy bakes `--remote-debug ws://<host>:<port>` into the
+exported HTML's `args` (`export_plugin.cpp:183`), so a `tmp_js_export` tab reloaded after the editor's debug session
+ended retries forever. A plain export carries no debug host at all -- verified by grepping one for the port. Untick
+*Deploy with Remote Debug*, or stop reloading a stale one-click tab, and the line is gone.
+
 **Pointer lock no longer logs an unhandled rejection.** The same console carried
 `WrongDocumentError: Failed to execute 'requestPointerLock'`. Mouse capture itself works, confirmed by the user, so
 this was only an unhandled promise rejection: `GodotDisplayCursor.lockPointer()` called `canvas.requestPointerLock()`

@@ -66,6 +66,7 @@ const GodotConfig = {
 		on_terminate_pid: null,
 		on_exit: null,
 		on_startup_progress: null,
+		on_print_warning: null,
 		pid: 0,
 
 		init_config: function (p_opts) {
@@ -80,6 +81,7 @@ const GodotConfig = {
 			GodotConfig.on_terminate_pid = p_opts['onTerminatePID'];
 			GodotConfig.on_exit = p_opts['onExit'];
 			GodotConfig.on_startup_progress = p_opts['onStartupProgress'];
+			GodotConfig.on_print_warning = p_opts['onPrintWarning'];
 			if (p_opts['focusCanvas']) {
 				GodotConfig.canvas.focus();
 			}
@@ -98,6 +100,7 @@ const GodotConfig = {
 			GodotConfig.on_execute = null;
 			GodotConfig.on_exit = null;
 			GodotConfig.on_startup_progress = null;
+			GodotConfig.on_print_warning = null;
 		},
 	},
 
@@ -299,6 +302,21 @@ const GodotOS = {
 			return;
 		}
 		GodotConfig.on_startup_progress(GodotRuntime.parseString(p_name), p_duration_ms);
+	},
+
+	// Warnings are the one thing the engine writes that is not a fault, so they go to
+	// their own channel instead of stderr -- Emscripten routes stderr through `printErr`,
+	// which every shell logs with `console.error()`. Not proxied to the main thread: a
+	// warning can be raised from the render thread while the main thread is blocked
+	// inside `callMain()`, and `console.warn()` is available on a worker anyway.
+	godot_js_os_print_warning__sig: 'vp',
+	godot_js_os_print_warning: function (p_text) {
+		const text = GodotRuntime.parseString(p_text);
+		if (GodotConfig.on_print_warning) {
+			GodotConfig.on_print_warning(text);
+		} else {
+			console.warn(text); // eslint-disable-line no-console
+		}
 	},
 
 	godot_js_os_request_quit_cb__proxy: 'sync',

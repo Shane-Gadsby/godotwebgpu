@@ -307,6 +307,21 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			console.error.apply(console, Array.from(arguments)); // eslint-disable-line no-console
 		},
 		/**
+		 * A callback function for handling engine warnings (``WARN_PRINT`` and friends).
+		 *
+		 * Warnings do not go through the standard error stream on this platform, because
+		 * everything written there is logged as an error by the browser. By default,
+		 * ``console.warn()`` is used.
+		 *
+		 * @callback EngineConfig.onPrintWarning
+		 * @param {string} warning The warning text, already formatted as the engine prints it.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(string)}
+		 */
+		onPrintWarning: null,
+		/**
 		 * A callback function for being notified when the WebGPU device is lost (e.g. a GPU crash/reset,
 		 * or the browser reclaiming the device). Only relevant when ``renderingDriver`` is ``"webgpu"``.
 		 *
@@ -354,6 +369,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		// Module config
 		this.unloadAfterInit = parse('unloadAfterInit', this.unloadAfterInit);
 		this.onPrintError = parse('onPrintError', this.onPrintError);
+		this.onPrintWarning = parse('onPrintWarning', this.onPrintWarning);
 		this.onPrint = parse('onPrint', this.onPrint);
 		this.onProgress = parse('onProgress', this.onProgress);
 		this.onStartupProgress = parse('onStartupProgress', this.onStartupProgress);
@@ -487,6 +503,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 				}
 			},
 			'onStartupProgress': this.onStartupProgress,
+			'onPrintWarning': this.onPrintWarning,
 		};
 	};
 	return new Config(initConfig);
