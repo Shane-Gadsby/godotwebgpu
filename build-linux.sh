@@ -62,13 +62,18 @@
 #     debug_symbols=no the editor links in ~6s with ld.bfd and ~2s with mold --
 #     but free, and it is what makes a dev_build=yes editor (1.1 GB of DWARF)
 #     link in seconds rather than a minute.
-#   - --ccache compiles through ccache (symlink masquerade so it also covers
-#     em++; see setup_ccache). OPT-IN, because SCons records the resolved
-#     compiler path as an implicit dependency of every object: the first run
-#     with ccache recompiles all 11 variants once (~4 min each on 24 cores), and
-#     so does the first run without it afterwards. Worth it if you switch
-#     branches, revert experiments or re-run after a failed link; not if you
-#     only ever build forwards.
+#   - ccache is ON by default (symlink masquerade so it also covers em++; see
+#     setup_ccache), making the second compile of any translation unit a hit
+#     after a branch switch, a reverted experiment, or a re-run because one
+#     template failed to link. --no-ccache opts out.
+#     SCons records the resolved compiler path as an implicit dependency of
+#     every object, so *changing which binary compiles* costs a full recompile
+#     of all 11 variants (~4 min each on 24 cores). That is why --no-ccache does
+#     NOT remove the masquerade from PATH: it sets CCACHE_DISABLE=1 instead, so
+#     ccache hands straight off to the real compiler and the recorded path is
+#     unchanged. Opting out, and back in, is therefore free. Only the first run
+#     after ccache became the default pays the one-time recompile.
+#     To throw the cache away rather than bypass it, run `ccache -C`.
 #   - --skip-native-templates and --web-targets/--web-threads/--web-dlink narrow
 #     what gets built while iterating. The full matrix is still the default; a
 #     narrowed run leaves builds/ a mix of this run's templates and an older
@@ -83,7 +88,7 @@
 #   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.9)
 #   CCACHE_MAXSIZE=size  ccache budget for the 11 variants (default: 50G)
 #   LINKER=name          Native linker (default: auto -> mold, lld, or system)
-#   USE_CCACHE=yes       Same as --ccache
+#   USE_CCACHE=no        Same as --no-ccache (default: yes)
 
 set -euo pipefail
 
@@ -106,7 +111,7 @@ SKIP_WEB=0
 SKIP_TINT_CLI=0
 SKIP_NATIVE_TEMPLATES=0
 FORCE_SHADER_REBAKE=0
-USE_CCACHE="${USE_CCACHE:-no}"
+USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
@@ -132,9 +137,11 @@ Usage: ./build-linux.sh [options]
   --force-shader-rebake     Delete drivers/webgpu/wgsl_precompiled.gen.h first,
                             forcing the WGSL table to be re-baked even if the
                             shader pipeline is unchanged.
-  --ccache                  Compile through ccache (see the header comment:
-                            the first run with it recompiles every variant
-                            once, and so does switching it off again).
+  --no-ccache               Bypass ccache for this run (it is on by default).
+                            Costs no rebuild: the compiler path stays the same
+                            and ccache is disabled via CCACHE_DISABLE, so you
+                            can opt out and back in freely. To discard the
+                            cache itself instead, run `ccache -C`.
   --linker NAME             default|bfd|gold|lld|mold for the native builds
                             (default: auto -- mold, else lld, else the system
                             default).
@@ -171,6 +178,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--ccache)
 			USE_CCACHE="yes"
+			shift
+			;;
+		--no-ccache)
+			USE_CCACHE="no"
 			shift
 			;;
 		--linker)
@@ -506,10 +517,12 @@ done
 # put at the front of PATH) rather than by SCons' own
 # c_compiler_launcher/cpp_compiler_launcher options, so the compile command line
 # stays plain `g++`/`em++` and scons' own emscripten detection keeps working.
-# Either way, enabling it invalidates every object once: SCons records the
-# resolved compiler executable (here the symlink) as an implicit dependency of
-# each object, so the first --ccache run recompiles all 11 variants, and the
-# first run without --ccache afterwards does it again. Hence opt-in.
+# Enabling it invalidates every object once: SCons records the resolved compiler
+# executable (here the symlink) as an implicit dependency of each object, so the
+# first run after ccache became the default recompiles all 11 variants. That is
+# a one-time cost, which is why --no-ccache keeps the masquerade on PATH and
+# only sets CCACHE_DISABLE=1 -- bypassing the cache without changing the path
+# SCons signed the objects with, so toggling it never costs a recompile again.
 #
 # `emcc` is deliberately NOT symlinked, even though it would cover the ~520 C
 # objects per variant: platform/web/detect.py locates the Emscripten root with
@@ -543,15 +556,20 @@ use_ccache_path() {
 	export PATH="$CCACHE_MASQ_DIR:$PATH"
 }
 
-if [[ "$USE_CCACHE" != "yes" ]]; then
-	if command -v ccache > /dev/null 2>&1; then
-		echo "ccache is installed but off; pass --ccache to use it (one-time full recompile, see header)."
+if ! command -v ccache > /dev/null 2>&1; then
+	if [[ "$USE_CCACHE" == "yes" ]]; then
+		warn "ccache is not installed (apt install ccache, or run without --skip-install) -- building without it."
 	fi
-elif ! command -v ccache > /dev/null 2>&1; then
-	warn "--ccache given but ccache is not installed (apt install ccache, or run without --skip-install) -- building without it."
 elif setup_ccache; then
+	# The masquerade goes on PATH whether or not the cache is in use, so the
+	# compiler path SCons signs every object with does not depend on this flag.
 	use_ccache_path
-	ok "ccache: $(ccache --version | head -1) (max ${CCACHE_MAXSIZE}, via $CCACHE_MASQ_DIR)"
+	if [[ "$USE_CCACHE" == "yes" ]]; then
+		ok "ccache: $(ccache --version | head -1) (max ${CCACHE_MAXSIZE}, via $CCACHE_MASQ_DIR)"
+	else
+		export CCACHE_DISABLE=1
+		ok "ccache: bypassed for this run (--no-ccache); compiler path unchanged, so no recompile. Use 'ccache -C' to clear the cache."
+	fi
 else
 	warn "Could not set up the ccache symlink directory -- building without it."
 fi

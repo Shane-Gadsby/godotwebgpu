@@ -1717,8 +1717,9 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
 25. **The compiler's path is an implicit dependency of every object, so a build-speed knob can cost a full rebuild**
     (2026-10-17). SCons records the resolved executable (`/usr/bin/g++` vs a ccache masquerade directory's `g++`) in
     each object's signature, and `c_compiler_launcher` changes the command string, which is signed too. Turning ccache
-    on recompiles all 11 `build-linux.sh` variants once, and turning it off again does too — which is why `--ccache` is
-    opt-in. **Measured 2026-10-17**: 2791 of 3146 objects in one web variant, which reads as "something corrupted the
+    on recompiles all 11 `build-linux.sh` variants once, and turning it off again does too. Since §4.26 ccache is on by
+    default and `--no-ccache` keeps the masquerade on `PATH` (setting `CCACHE_DISABLE=1` instead of removing it), so
+    the signed path no longer depends on the flag and toggling is free; only the first default-on run pays. **Measured 2026-10-17**: 2791 of 3146 objects in one web variant, which reads as "something corrupted the
     tree" and sends you hunting generated headers (it is not them — alternating platforms costs 30 objects before
     §4.25 and 0 after). `ccache -s` showing a full variant's worth of calls at a 0% hit rate is the tell. Masquerading `emcc` breaks `platform/web/detect.py` (`WhereIs("emcc")` + realpath locate the sysroot and
     JS libraries), so only `em++` and the native compilers are shadowed. Related measurement trap: a 4–8 minute editor
@@ -2496,6 +2497,33 @@ not silently.
 
 **One-time cost:** adding a `CPPPATH` entry changes every compile command, so every variant recompiles once (§3 trap
 25 is the same mechanism). Worth folding into the same sitting as any ccache decision, to pay it once.
+
+### 4.26 ccache on by default, with a free opt-out (October 2026)
+
+Follow-on from §3 trap 25, which had just cost a day's worth of confusion: a near-total rebuild that reads as tree
+corruption is almost always the ccache flag being toggled, because SCons signs every object with the resolved
+compiler path and `--ccache` swapped `em++` for a masquerade symlink.
+
+`build-linux.sh` now defaults `USE_CCACHE=yes` and takes `--no-ccache` instead of `--ccache` (the old flag still
+works). The part that matters: **`--no-ccache` does not remove the masquerade directory from `PATH`.** It exports
+`CCACHE_DISABLE=1`, so ccache hands straight off to the real compiler while the path SCons signed the objects with
+stays identical. Opting out, and back in, therefore costs nothing — which is what made the flag a trap before.
+`ccache -C` is the way to actually discard the cache.
+
+**Verified end to end through the script**: a `--no-ccache` run recompiled the editor in full (3046 objects — the
+one-time cost of the masquerade entering `PATH`), and the very next run *with* ccache on recompiled **0**. That pair
+is the property that matters: the flag no longer decides what gets recompiled. On
+`web.template_release.wasm32.nothreads`, dry runs with `CCACHE_DISABLE=1`, without it, and with the masquerade
+removed from `PATH` all report 0 stale.
+
+One loose end, recorded rather than guessed at: the first web build after the masquerade appeared recompiled 2221
+objects, but a later dry run with the masquerade *removed* reports 0 stale — so for web objects the masquerade is
+evidently not what the signature turns on (`platform/web/detect.py` makes every source depend on
+`get_compiler_version()`, a parsed version dict, and `env["CXX"]` stays the bare name `em++`). The 2221 was not
+attributed. It is one-time either way, and it coincides with the recompile §4.25 forces.
+
+Only the first run after this landed pays the one-time recompile of all 11 variants, and it coincides with the one
+§4.25 forces anyway, so a single `./build-linux.sh` settles both.
 
 ## 5. References — retired docs
 
