@@ -43,11 +43,12 @@
 #include <atomic>
 
 #ifdef UNIX_ENABLED
-#include <cerrno>
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <cerrno>
 extern char **environ;
 #endif
 
@@ -479,7 +480,13 @@ static bool _run_tool(const String &p_tool, const Vector<String> &p_args, const 
 // Per-stage entry point (what the container calls)
 // =========================================================================
 
-String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible) {
+// " [ShaderName (Fragment stage)]", or nothing when the caller gave no context,
+// so these messages read exactly as before where one is not available.
+static String _context_suffix(const String &p_context) {
+	return p_context.is_empty() ? String() : vformat(" [%s]", p_context);
+}
+
+String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible, const String &p_context) {
 	if (r_wgsl_impossible != nullptr) {
 		*r_wgsl_impossible = false;
 	}
@@ -497,7 +504,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	// purely to have it crash, and then reporting a WGSL limitation at WARN as
 	// though something had gone wrong.
 	if (String unsupported = _wgsl_unsupported_reason(p_spv_ptr, p_spv_size); !unsupported.is_empty()) {
-		print_verbose(vformat("WebGPU shader baker: not baking one shader stage -- it %s. The WebGPU renderer does not use this variant.", unsupported));
+		print_verbose(vformat("WebGPU shader baker: not baking one shader stage%s -- it %s. The WebGPU renderer does not use this variant.", _context_suffix(p_context), unsupported));
 		if (r_wgsl_impossible != nullptr) {
 			*r_wgsl_impossible = true;
 		}
@@ -516,7 +523,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 			if (!prebaked->wgsl.is_empty()) {
 				return prebaked->wgsl;
 			}
-			WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked (tint_convert_cli: %s).", prebaked->error));
+			WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (tint_convert_cli: %s).", _context_suffix(p_context), prebaked->error));
 			return String();
 		}
 	}
@@ -535,7 +542,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	{
 		Ref<FileAccess> f = FileAccess::open(temp_path, FileAccess::WRITE);
 		if (f.is_null()) {
-			WARN_PRINT(vformat("WebGPU shader baker: couldn't write temp file '%s'; leaving this shader unbaked.", temp_path));
+			WARN_PRINT(vformat("WebGPU shader baker: couldn't write temp file '%s'; leaving this shader unbaked%s.", temp_path, _context_suffix(p_context)));
 			return String();
 		}
 		f->store_buffer(p_spv_ptr, p_spv_size);
@@ -583,11 +590,11 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	DirAccess::remove_absolute(temp_path);
 
 	if (this_failed) {
-		WARN_PRINT(vformat("WebGPU shader baker: tint_convert_cli itself failed to run (exit %d); leaving this shader unbaked.", exit_code));
+		WARN_PRINT(vformat("WebGPU shader baker: tint_convert_cli itself failed to run (exit %d); leaving this shader unbaked%s.", exit_code, _context_suffix(p_context)));
 		return String();
 	}
 	if (result.is_empty()) {
-		WARN_PRINT("WebGPU shader baker: couldn't parse tint_convert_cli's JSON output; leaving this shader unbaked.");
+		WARN_PRINT(vformat("WebGPU shader baker: couldn't parse tint_convert_cli's JSON output; leaving this shader unbaked%s.", _context_suffix(p_context)));
 		return String();
 	}
 	if (entry.get_type() == Variant::STRING) {
@@ -600,7 +607,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	// (including an internal-compiler-error abort in the isolated child);
 	// not an error in the export itself, just a shader left to the runtime
 	// fallback.
-	WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked (tint_convert_cli: %s).", _error_text(entry)));
+	WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (tint_convert_cli: %s).", _context_suffix(p_context), _error_text(entry)));
 	return String();
 }
 

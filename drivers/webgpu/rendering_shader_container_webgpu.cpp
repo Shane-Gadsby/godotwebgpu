@@ -163,7 +163,11 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 		// leave wgsl_code[i] empty — the runtime driver falls back to
 		// translating from SPIR-V itself.
 		bool wgsl_impossible = false;
-		String wgsl = webgpu::bake_wgsl_via_subprocess(spirv_bytes.ptr(), (int)spirv_bytes.size(), &wgsl_impossible);
+		// Name the shader and stage so a bake failure says which one it was.
+		const String bake_context = vformat("%s (%s stage)",
+				String::utf8(shader_name.get_data(), shader_name.length()),
+				RDC::SHADER_STAGE_NAMES[stage.shader_stage]);
+		String wgsl = webgpu::bake_wgsl_via_subprocess(spirv_bytes.ptr(), (int)spirv_bytes.size(), &wgsl_impossible, bake_context);
 		wgsl_code.write[i] = wgsl.is_empty() ? CharString() : wgsl.utf8();
 		stage_wgsl_impossible[i] = wgsl_impossible;
 

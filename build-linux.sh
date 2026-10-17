@@ -641,14 +641,28 @@ if [[ ! -f "$EDITOR_BIN" ]]; then
 fi
 [[ -n "$EDITOR_BIN" && -f "$EDITOR_BIN" ]] || die "Editor build succeeded but no output binary was found in bin/."
 
+# Replacing a binary that is currently being executed fails with ETXTBSY, and a
+# headless editor left running from another session is enough to abort the whole
+# run right after the editor build -- before any template is built. Write beside
+# the destination and rename into place instead: rename() swaps the directory
+# entry atomically, and a process already running the old binary keeps its own
+# inode and is unaffected.
+install_binary() {
+	local src="$1" dir="$2" tmp
+	tmp="$(mktemp "$dir/.install.XXXXXX")" || return 1
+	cp --reflink=auto "$src" "$tmp" || { rm -f "$tmp"; return 1; }
+	chmod --reference="$src" "$tmp" 2> /dev/null || chmod 755 "$tmp"
+	mv -f "$tmp" "$dir/$(basename "$src")"
+}
+
 dest="$OUT_DIR/editor"
 mkdir -p "$dest"
-cp --reflink=auto "$EDITOR_BIN" "$dest/"
+install_binary "$EDITOR_BIN" "$dest" || die "Could not install the editor into $dest."
 ok "Editor -> $dest/$(basename "$EDITOR_BIN")"
 
 EDITORS_DIR="/mnt/109313D2109313D2/godot-editors/editors"
 if [[ -d "$EDITORS_DIR" ]]; then
-	cp --reflink=auto "$EDITOR_BIN" "$EDITORS_DIR/"
+	install_binary "$EDITOR_BIN" "$EDITORS_DIR" || die "Could not install the editor into $EDITORS_DIR."
 	ok "Editor -> $EDITORS_DIR"
 else
 	warn "$EDITORS_DIR not found -- skipping editor copy there."

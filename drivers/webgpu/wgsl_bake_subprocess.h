@@ -83,7 +83,11 @@ namespace webgpu {
 // WGSL does not have at all, so nothing could ever convert it and the bytes are
 // dead weight. See _wgsl_unsupported_reason() for the exact set, and
 // webgpu_notes/TASKS.md §2.27 for what shipping them was costing.
-String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible = nullptr);
+// `p_context` names the shader and stage this SPIR-V came from, purely so a
+// failure can say which shader it was. Without it the baker can only report
+// "one shader stage" over and over, which is what made a run of 28 failures
+// impossible to act on.
+String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *r_wgsl_impossible = nullptr, const String &p_context = String());
 
 // Converts many SPIR-V stages at once, ahead of the per-container calls above.
 //

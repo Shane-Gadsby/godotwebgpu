@@ -2525,6 +2525,43 @@ attributed. It is one-time either way, and it coincides with the recompile §4.2
 Only the first run after this landed pays the one-time recompile of all 11 variants, and it coincides with the one
 §4.25 forces anyway, so a single `./build-linux.sh` settles both.
 
+### 4.27 Shader-bake reporting, and a stale installed editor (October 2026)
+
+Reported as 28 export-time warnings — "leaving one shader stage unbaked (tint_convert_cli: Tint crashed (likely
+TINT_UNIMPLEMENTED))" — on the user's `sewer-shift` project, plus a readback message that reads as an error.
+
+**The 28 were already fixed; the editor running them was stale.** Re-exporting that project with a current editor
+gives **0 rejected by Tint, 0 tool failures**: 2317 stages, 558 duplicates, 913 from the WGSL cache, and 846 caught
+up front by `_wgsl_unsupported_reason()` and reported at `print_verbose`, not WARN. The pre-check was extended in
+`d862f8f0ed`, so an editor older than that still forked Tint and let it abort. The reason the installed editor was
+older is its own bug: `build-linux.sh` installed it with `cp`, which fails with `ETXTBSY` against a binary that is
+currently executing, and a headless editor left running from another session is enough. `set -euo pipefail` then
+aborted the run *before any template was built*, and the previously installed editor stayed in place. It now
+installs via a temp file plus `rename()`, which swaps the directory entry atomically and leaves a running process
+on its own inode.
+
+What the 846 actually are, now that the messages name them:
+
+| Reason | Stages | Shaders |
+|--------|--------|---------|
+| `gl_ViewIndex` (multiview), which WGSL has no equivalent for | 836 | `SceneForwardClusteredShaderRD` vertex + fragment, 418 each |
+| 16-bit integers | 6 | FSR2 / volumetric fog compute |
+| image atomics (`OpImageTexelPointer`) | 4 | FSR2 compute |
+
+All three are genuine WGSL limitations on variants the WebGPU renderer never requests, which is the case
+`_wgsl_unsupported_reason()` exists for.
+
+**Both messages now name the shader.** `bake_wgsl_via_subprocess()` takes an optional context string, filled at the
+call site from the container's `shader_name` and `RDC::SHADER_STAGE_NAMES[stage]`, and all six per-stage reporting
+sites use it. "one shader stage" 28 times was unactionable; `[SceneForwardClusteredShaderRD (Fragment stage)]` is not.
+
+**The readback message is now `print_verbose`, not `WARN_PRINT_ONCE`.** Handing back the zero-filled shadow is the
+documented contract of an asynchronous readback (§2.13), not a fault. It mattered because the web platform does not
+override `print_error` at all, so warnings and errors both go to stderr and the shell routes all of it to
+`console.error` — a normal first readback made every export look like it had errored. Giving web a real warning
+channel would mean a severity-aware print path plus a new shell callback, affecting every warning and every custom
+shell; that is its own task, not a tweak to one message.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

@@ -1741,8 +1741,18 @@ uint8_t *RenderingDeviceDriverWebGPU::buffer_map(BufferID p_buffer) {
 		// RenderingDevice call. Say so once rather than let a caller chase the
 		// zeros; the contract (a readback is at best one frame old, and a first
 		// readback can come back empty) is written up in TASKS.md §2.13 / 7.8.
-		WARN_PRINT_ONCE("WebGPU: a buffer readback completed with no mapped data available yet, so it returned zeros. "
-						"Readbacks on this backend are asynchronous: read again next frame. See webgpu_notes/TASKS.md §2.13.");
+		// Verbose rather than a warning: handing back the zero-filled shadow is
+		// the documented contract of an asynchronous readback, not a fault. This
+		// was WARN_PRINT_ONCE, which the web shell routes to console.error (the
+		// platform does not separate warnings from errors on stderr), so a
+		// perfectly normal first readback made every export look like it had
+		// errored. Run with --verbose to see it.
+		static bool readback_empty_reported = false;
+		if (!readback_empty_reported) {
+			readback_empty_reported = true;
+			print_verbose("WebGPU: a buffer readback completed with no mapped data available yet, so it returned zeros. "
+						  "Readbacks on this backend are asynchronous: read again next frame. See webgpu_notes/TASKS.md §2.13.");
+		}
 		return buf->shadow_map;
 	}
 
