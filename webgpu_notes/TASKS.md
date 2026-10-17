@@ -2562,6 +2562,14 @@ override `print_error` at all, so warnings and errors both go to stderr and the 
 channel would mean a severity-aware print path plus a new shell callback, affecting every warning and every custom
 shell; that is its own task, not a tweak to one message.
 
+**Pointer lock no longer logs an unhandled rejection.** The same console carried
+`WrongDocumentError: Failed to execute 'requestPointerLock'`. Mouse capture itself works, confirmed by the user, so
+this was only an unhandled promise rejection: `GodotDisplayCursor.lockPointer()` called `canvas.requestPointerLock()`
+and ignored the promise Chrome 113+ returns. A rejection there is routine — no user gesture, a request inside the
+browser's own unlock cooldown, or a canvas momentarily out of the document — so it is now swallowed with the same
+`if (promise) { promise.catch(...) }` idiom `requestFullscreen` in that file already used, and `releasePointer()` is
+wrapped to match. Nothing about capture behavior changes.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

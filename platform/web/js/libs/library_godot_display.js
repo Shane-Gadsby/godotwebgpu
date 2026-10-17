@@ -213,13 +213,33 @@ const GodotDisplayCursor = {
 		},
 		lockPointer: function () {
 			const canvas = GodotConfig.canvas;
-			if (canvas.requestPointerLock) {
-				canvas.requestPointerLock();
+			if (!canvas.requestPointerLock) {
+				return;
+			}
+			try {
+				const promise = canvas.requestPointerLock();
+				// Chrome 113+ returns a promise, older browsers and Safari return undefined.
+				// A rejection is routine (no user gesture, a lock request during the
+				// browser's own unlock cooldown, or the canvas no longer being in the
+				// document), so swallow it instead of letting it surface as an
+				// unhandled rejection.
+				if (promise) {
+					promise.catch(function () {
+						// nothing to do.
+					});
+				}
+			} catch (e) {
+				// nothing to do.
 			}
 		},
 		releasePointer: function () {
-			if (document.exitPointerLock) {
+			if (!document.exitPointerLock) {
+				return;
+			}
+			try {
 				document.exitPointerLock();
+			} catch (e) {
+				// nothing to do.
 			}
 		},
 		isPointerLocked: function () {
