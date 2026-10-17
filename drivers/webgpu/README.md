@@ -35,7 +35,9 @@ Forward+ and Mobile renderers to run in the browser.
 | `rendering_context_driver_webgpu.cpp/h` | ~290 | Device bootstrap, surface/swap chain management |
 | `rendering_shader_container_webgpu.cpp/h` | ~480 | Shader container format (SPIR-V storage, baked WGSL, baked reflection) |
 | `webgpu_objects.h` | ~320 | GPU object wrappers (WGBuffer, WGTexture, WGShader, etc.) |
-| `spirv_preprocess.cpp/h` | ~1700 | SPIR-V preprocessing passes before Tint conversion |
+| `spirv_preprocess.cpp/h` | ~5100 | SPIR-V preprocessing passes before Tint conversion, and `run_pipeline()`, the one definition of their order |
+| `spirv_opt_passes.cpp/h` | ~900 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of what Tint aborts on |
+| `spirv_binding_layout.h` | ~80 | Where expanded array elements and the SamplerLodBias block bind; shared by the passes and the driver |
 | `spirv_lite_reflect.cpp/h` | ~220 | Raw SPIR-V reflection with no SPIRV-Tools dependency, so the editor-side baker can run it too |
 | `tint_wrapper.cpp/h` | ~55 | C++20 isolation wrapper for Tint API |
 | `pixel_formats_webgpu.h` | ~710 | Godot DataFormat → WGPUTextureFormat mapping table |
@@ -61,6 +63,32 @@ rewritten to storage buffer references at binding 120, and various other
 fixups (depth image flags, position Y negation, point size stripping) are
 applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
 (`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
+
+`spirv_preprocess::run_pipeline()` is the only place the passes' order is
+written down; the runtime driver, `tint_convert_cli` (and so the export-time
+baker and the build-time precompile) and the fuzzers all call it. Three of the
+passes live in `spirv_opt_passes.cpp`, because they restructure control flow:
+
+- **Texture arrays** (`expand_binding_arrays()`): WGSL has no array of
+  textures Chrome accepts, so `uniform texture3D t[8]` becomes eight bindings
+  (`spirv_binding_layout.h` says where), and every dynamically indexed read a
+  switch over the index. Expansion is budgeted against the per-stage texture
+  limit -- 16, or 48 for a module already past 16, which only runs where
+  Forward+ runs -- and an array that does not fit is collapsed to element 0
+  as before, with a warning when its uniform set actually holds more.
+- **Sampler LOD bias** (`apply_sampler_lod_bias()`): WebGPU samplers have no
+  mip bias, so the scene shaders' render-pass samplers' bias (the viewport's
+  `texture_mipmap_bias`, TAA/FSR's sharpening) is passed as data
+  (`SamplerLodBias`, set 1 binding 40) and added to implicit-LOD samples.
+- **What Tint aborts on** (`lower_tint_unsupported_ops()`): `isnan`/`isinf`,
+  `textureQueryLod`, `POINT_COORD` and `early_fragment_tests` used to crash the
+  whole page from a material; they are rewritten into what Tint accepts.
+  (`gl_PointCoord` becomes `vec2(0.5)`, which only the non-emulated branch
+  reads: WebGPU has no point size, so `SUPPORTS_POINT_SIZE` is false and the
+  scene shaders draw each point as a quad with an interpolated coordinate. A
+  material that reads `POINT_COORD` without writing `POINT_SIZE` used to skip
+  that quad expansion and draw nothing, on D3D12 as well; the scene shader
+  includes now define `POINT_SIZE_USED` for it.)
 
 ### Shader Precompilation
 Three tiers, checked in order:
@@ -279,6 +307,33 @@ creates **adapted bind groups** on-the-fly using the shader's layout. A cache
 prevents redundant re-creation.
 
 ## Known Limitations
+
+### Differences from native Vulkan that remain (2026-10-17 parity sweep, TASKS.md §4.29)
+
+Measured with `webgpu_tests/forward_plus/run_forward_plus.mjs --parity`. Every
+item is a WebGPU spec limit or has a stated reason.
+
+- **No image atomics in WGSL.** SDFGI voxelization ORs facing bits with a plain
+  read-modify-write (concurrent fragments can drop bits; 0.03/255 in the
+  matrix). FSR2 and volumetric fog keep their atomics on storage buffers.
+- **FSR2 runs fp32** (no `shader-f16` path here) with half-float lookup tables
+  (16-bit normalized formats are unfilterable on WebGPU): edges differ from
+  native's fp16 path by ~0.55/255 mean.
+- **MSAA is 1x or 4x** -- WebGPU's only counts. 2x becomes 4x, 8x becomes 4x.
+- **No polygon mode**: `render_mode wireframe` and the wireframe debug draw
+  render solid. **No VRS, no multiview** (XR).
+- **No sampler border colour**: clamp-to-border reads the edge texel. The one
+  Forward+ user (screen-space contact shadows) handles its border in the
+  shader.
+- **Sampler LOD bias** is applied to implicit-LOD samples through the scene
+  shaders' render-pass samplers (all of Godot's biased ones); other samplers
+  never carry a bias in Godot.
+- **`alpha_to_one`** is ignored (alpha-to-coverage works); stencil compare and
+  write masks are one per pipeline, not per face.
+- **Texture arrays** beyond a stage's texture budget stay collapsed to element
+  0 (a project with several LightmapGI or VoxelGI nodes and texture-heavy
+  materials); the driver warns when that loses data.
+- **HDR output** is not implemented (`SUPPORTS_HDR_OUTPUT` false).
 
 - **Max 4 bind groups** (WebGPU spec) — Godot uses sets 0–3, with set 3 shared
   between material uniforms and push constant ring buffer.

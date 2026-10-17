@@ -1,0 +1,219 @@
+diff --git a/thirdparty/amd-fsr2/shaders/ffx_fsr2_callbacks_glsl.h b/thirdparty/amd-fsr2/shaders/ffx_fsr2_callbacks_glsl.h
+index 346b3ec750..47a66e57ef 100644
+--- a/thirdparty/amd-fsr2/shaders/ffx_fsr2_callbacks_glsl.h
++++ b/thirdparty/amd-fsr2/shaders/ffx_fsr2_callbacks_glsl.h
+@@ -182,8 +182,14 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
+ 	layout (set = 1, binding = FSR2_BIND_SRV_TRANSPARENCY_AND_COMPOSITION_MASK)       uniform texture2D  r_transparency_and_composition_mask;
+ #endif
+ #if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
++#ifdef NO_IMAGE_ATOMICS
++	// Without texture atomics (WebGPU) this resource is a storage buffer, one
++	// uint per render-resolution pixel: see StoreReconstructedDepth().
++	layout (set = 1, binding = FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH, std430) readonly buffer ReconstructedPrevNearestDepthSrv { uint data[]; } r_reconstructed_previous_nearest_depth;
++#else
+ 	layout (set = 1, binding = FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)        uniform utexture2D r_reconstructed_previous_nearest_depth;
+ #endif
++#endif
+ #if defined(FSR2_BIND_SRV_DILATED_MOTION_VECTORS)
+ 	layout (set = 1, binding = FSR2_BIND_SRV_DILATED_MOTION_VECTORS)                  uniform texture2D  r_dilated_motion_vectors;
+ #endif
+@@ -235,8 +241,12 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
+ 
+ // UAV
+ #if defined FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH
++#ifdef NO_IMAGE_ATOMICS
++	layout (set = 1, binding = FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH, std430) coherent buffer ReconstructedPrevNearestDepthUav { uint data[]; } rw_reconstructed_previous_nearest_depth;
++#else
+ 	layout (set = 1, binding = FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH, r32ui) uniform uimage2D   rw_reconstructed_previous_nearest_depth;
+ #endif
++#endif
+ #if defined FSR2_BIND_UAV_DILATED_MOTION_VECTORS
+ 	layout (set = 1, binding = FSR2_BIND_UAV_DILATED_MOTION_VECTORS, rg16f)           writeonly uniform image2D  rw_dilated_motion_vectors;
+ #endif
+@@ -262,7 +272,20 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
+ 	layout (set = 1, binding = FSR2_BIND_UAV_LUMA_HISTORY, rgba8)                     uniform image2D  rw_luma_history;
+ #endif
+ #if defined FSR2_BIND_UAV_UPSCALED_OUTPUT
+-	layout (set = 1, binding = FSR2_BIND_UAV_UPSCALED_OUTPUT /* app controlled format */) writeonly uniform image2D  rw_upscaled_output;
++	// AMD's SDK leaves this genuinely formatless ("app controlled format") since
++	// a generic game could bind any HDR swapchain/backbuffer format here. In this
++	// engine it is always RB_SCOPE_BUFFERS/RB_TEX_COLOR_UPSCALED
++	// (RenderSceneBuffersRD::ensure_upscaled(), allocated at get_base_data_format())
++	// -- and RendererSceneRenderRD::_render_buffers_get_preferred_color_format()
++	// unconditionally returns RGBA16_SFLOAT (never overridden by
++	// RenderForwardClustered, the only renderer that ever instantiates FSR2), so
++	// this is a fixed, single format in practice, not a real formatless case.
++	// WGSL's texture_storage_2d<F, ...> requires a concrete compile-time format
++	// with no formatless/runtime-chosen equivalent (unlike GLSL/SPIR-V's
++	// StorageImageWriteWithoutFormat capability), so hardcode it the same way
++	// screen_space_reflection_filter.glsl's `dest` already does for the same
++	// underlying reason -- see webgpu_notes/TASKS.md Task 8.3.
++	layout (set = 1, binding = FSR2_BIND_UAV_UPSCALED_OUTPUT, rgba16f) writeonly uniform image2D  rw_upscaled_output;
+ #endif
+ #if defined FSR2_BIND_UAV_EXPOSURE_MIP_LUMA_CHANGE
+ 	layout (set = 1, binding = FSR2_BIND_UAV_EXPOSURE_MIP_LUMA_CHANGE, r16f)              coherent uniform image2D  rw_img_mip_shading_change;
+@@ -279,9 +302,23 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
+ #if defined FSR2_BIND_UAV_AUTO_EXPOSURE
+ 	layout(set = 1, binding = FSR2_BIND_UAV_AUTO_EXPOSURE, rg32f)                         uniform image2D    rw_auto_exposure;
+ #endif
+-#if defined FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC 
++#if defined FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC
++// WebGPU/WGSL has no texture-atomic concept at all, so on backends without
++// SUPPORTS_IMAGE_ATOMIC_32_BIT this single-texel counter is rerouted to a real
++// storage buffer instead (see fsr2.cpp's create_resource_rd()/execute_gpu_job_compute_rd(),
++// and the same NO_IMAGE_ATOMICS pattern already used by fog.cpp/volumetric_fog.glsl).
++#ifdef NO_IMAGE_ATOMICS
++	// An array member (even length-1), not a bare scalar member, to match the
++	// proven-working buffer-atomic-fallback pattern already used elsewhere in this
++	// engine (fog.cpp/volumetric_fog.glsl's NO_IMAGE_ATOMICS buffers) -- a bare
++	// scalar member here was found to unconditionally ICE Tint's SPIR-V
++	// atomics-lowering pass on any atomic access at all, array or not; see
++	// webgpu_notes/TASKS.md Task 9.5 Round 14.
++	layout (set = 1, binding = FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC, std430) volatile buffer SpdGlobalAtomicBuffer { uint rw_spd_global_atomic_value[]; };
++#else
+ 	layout (set = 1, binding = FSR2_BIND_UAV_SPD_GLOBAL_ATOMIC, r32ui)       coherent uniform uimage2D   rw_spd_global_atomic;
+ #endif
++#endif
+ 
+ #if defined FSR2_BIND_UAV_AUTOREACTIVE
+ 	layout(set = 1, binding = FSR2_BIND_UAV_AUTOREACTIVE, r32f)                       uniform image2D   	    rw_output_autoreactive;
+@@ -503,10 +540,27 @@ FfxFloat32 LoadSceneDepth(FfxInt32x2 iPxInput)
+ }
+ #endif
+ 
++#if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH) || defined(FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
++// Index of a render-resolution pixel in the buffer form of the reconstructed
++// depth (NO_IMAGE_ATOMICS); every pass that touches it uses the same stride.
++FfxUInt32 ReconstructedDepthIndex(FfxInt32x2 iPxPos)
++{
++	return FfxUInt32(iPxPos.y) * FfxUInt32(RenderSize().x) + FfxUInt32(iPxPos.x);
++}
++#endif
++
+ #if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
+ FfxFloat32 LoadReconstructedPrevDepth(FfxInt32x2 iPxPos)
+ {
++#ifdef NO_IMAGE_ATOMICS
++	// Out of range reads 0, as texelFetch does with robust buffer access.
++	if (any(lessThan(iPxPos, FfxInt32x2(0))) || any(greaterThanEqual(iPxPos, RenderSize()))) {
++		return 0.0f;
++	}
++	return uintBitsToFloat(r_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxPos)]);
++#else
+ 	return uintBitsToFloat(texelFetch(r_reconstructed_previous_nearest_depth, iPxPos, 0).r);
++#endif
+ }
+ #endif
+ 
+@@ -515,7 +569,21 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
+ {
+ 	FfxUInt32 uDepth = floatBitsToUint(fDepth);
+ 
++	// NO_IMAGE_ATOMICS (WebGPU): WGSL has atomics on storage buffers only
++	// (OpImageTexelPointer has no WGSL translation and hard-aborts Tint's
++	// SPIR-V reader), so the resource is a buffer there and the same min/max
++	// reduction runs on it. Several invocations scatter into one pixel
++	// (bilinear-neighbor reprojection in ReconstructPrevDepth); a plain store
++	// made the result whichever wrote last, which changed the reprojection
++	// confidence -- and so ghosting and disocclusion -- frame to frame. The
++	// depths are non-negative floats, whose bit patterns order like the floats.
++	#ifdef NO_IMAGE_ATOMICS
+ 	#if FFX_FSR2_OPTION_INVERTED_DEPTH
++		atomicMax(rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)], uDepth);
++	#else
++		atomicMin(rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)], uDepth);
++	#endif
++	#elif FFX_FSR2_OPTION_INVERTED_DEPTH
+ 		imageAtomicMax(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth);
+ 	#else
+ 		imageAtomicMin(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth); // min for standard, max for inverted depth
+@@ -526,7 +594,11 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
+ #if defined(FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
+ void SetReconstructedDepth(FfxInt32x2 iPxSample, FfxUInt32 uValue)
+ {
++#ifdef NO_IMAGE_ATOMICS
++	rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)] = uValue;
++#else
+ 	imageStore(rw_reconstructed_previous_nearest_depth, iPxSample, uvec4(uValue, 0, 0, 0));
++#endif
+ }
+ #endif
+ 
+diff --git a/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid.h b/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid.h
+index c63f1820e0..42779353e3 100644
+--- a/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid.h
++++ b/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid.h
+@@ -86,7 +86,15 @@ FfxUInt32 SpdGetAtomicCounter()
+ 
+ void SpdResetAtomicCounter(FfxUInt32 slice)
+ {
++#ifdef NO_IMAGE_ATOMICS
++    // Inlined directly here (rather than going through SPD_ResetAtomicCounter, an
++    // extra function-call hop) since spdCounter is natively in scope at this point --
++    // see webgpu_notes/TASKS.md Task 9.5 Round 14 for the full story of why this
++    // buffer-based atomic counter needs special handling at all on WebGPU.
++    spdCounter = atomicExchange(rw_spd_global_atomic_value[0], 0u);
++#else
+     SPD_ResetAtomicCounter();
++#endif
+ }
+ 
+ FfxFloat32x4 SpdLoadIntermediate(FfxUInt32 x, FfxUInt32 y)
+diff --git a/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid_pass.glsl b/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid_pass.glsl
+index 40232155c3..c932cb10e0 100644
+--- a/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid_pass.glsl
++++ b/thirdparty/amd-fsr2/shaders/ffx_fsr2_compute_luminance_pyramid_pass.glsl
+@@ -104,12 +104,21 @@ void SPD_SetMipmap(ivec2 iPxPos, uint slice, float value)
+ 
+ void SPD_IncreaseAtomicCounter(inout uint spdCounter)
+ {
++#ifdef NO_IMAGE_ATOMICS
++	spdCounter = atomicAdd(rw_spd_global_atomic_value[0], 1);
++#else
+ 	spdCounter = imageAtomicAdd(rw_spd_global_atomic, ivec2(0,0), 1);
++#endif
+ }
+ 
++// NO_IMAGE_ATOMICS's reset is handled directly in SpdResetAtomicCounter
++// (ffx_fsr2_compute_luminance_pyramid.h) instead of here -- see the comment there.
++// This function is only reachable on the image (non-NO_IMAGE_ATOMICS) path.
+ void SPD_ResetAtomicCounter()
+ {
++#ifndef NO_IMAGE_ATOMICS
+ 	imageStore(rw_spd_global_atomic, ivec2(0,0), uvec4(0));
++#endif
+ }
+ 
+ #include "ffx_fsr2_compute_luminance_pyramid.h"
+diff --git a/thirdparty/amd-fsr2/shaders/ffx_spd.h b/thirdparty/amd-fsr2/shaders/ffx_spd.h
+index 5ce24ec87c..62686aa2a4 100644
+--- a/thirdparty/amd-fsr2/shaders/ffx_spd.h
++++ b/thirdparty/amd-fsr2/shaders/ffx_spd.h
+@@ -114,8 +114,26 @@ bool SpdExitWorkgroup(FfxUInt32 numWorkGroups, FfxUInt32 localInvocationIndex, F
+         SpdIncreaseAtomicCounter(slice);
+     }
+ 
++#if defined(FFX_GLSL)
++    // Tint's SPIR-V->WGSL uniformity analysis only recognizes a workgroup-shared
++    // read as safe (rewriting it to the `workgroupUniformLoad` builtin the analysis
++    // trusts) when it sees a literal "barrier; load; barrier" instruction sequence
++    // inside a single function -- it does not look through ordinary function calls.
++    // Going through SpdWorkgroupShuffleBarrier()/SpdGetAtomicCounter() (both trivial
++    // wrappers, fine on Vulkan/Metal/D3D12) hides the load behind two un-inlined
++    // OpFunctionCalls, so Tint conservatively rejects the barrier below as
++    // "possibly non-uniform control flow" once this shader is translated for
++    // WebGPU. Reading `spdCounter` directly and adding a second (functionally
++    // redundant) barrier immediately after reproduces the exact shape Tint
++    // recognizes. See webgpu_notes/TASKS.md's FSR2 task for the full investigation.
++    barrier();
++    FfxUInt32 counterValue = spdCounter;
++    barrier();
++#else
+     SpdWorkgroupShuffleBarrier();
+-    return (SpdGetAtomicCounter() != (numWorkGroups - 1));
++    FfxUInt32 counterValue = SpdGetAtomicCounter();
++#endif
++    return (counterValue != (numWorkGroups - 1));
+ }
+ 
+ // User defined: FfxFloat32x4 SpdReduce4(FfxFloat32x4 v0, FfxFloat32x4 v1, FfxFloat32x4 v2, FfxFloat32x4 v3);

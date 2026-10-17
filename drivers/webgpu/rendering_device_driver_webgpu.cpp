@@ -38,6 +38,7 @@
 #include "drivers/webgpu/pixel_formats_webgpu.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/rendering_shader_container_webgpu.h"
+#include "drivers/webgpu/spirv_binding_layout.h"
 #include "drivers/webgpu/spirv_lite_reflect.h"
 #include "drivers/webgpu/spirv_preprocess.h"
 #include "drivers/webgpu/spirv_spec_constants.h"
@@ -943,6 +944,11 @@ RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
 	}
 
 	// Release aliasing stub buffer.
+	if (clear_zero_buffer) {
+		wgpuBufferRelease(clear_zero_buffer);
+		clear_zero_buffer = nullptr;
+		clear_zero_buffer_size = 0;
+	}
 	if (aliasing_stub_buffer) {
 		wgpuBufferRelease(aliasing_stub_buffer);
 		aliasing_stub_buffer = nullptr;
@@ -1362,6 +1368,7 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 	// hardcoded ordinal can silently drift from the real value as the spec evolves.
 	// Use the named enum now that it exists so this can't happen again.
 	float32_filterable_supported = wgpuDeviceHasFeature(device, WGPUFeatureName_Float32Filterable);
+	depth_clip_control_supported = wgpuDeviceHasFeature(device, WGPUFeatureName_DepthClipControl);
 	if (float32_filterable_supported) {
 		print_verbose("WebGPU: float32-filterable feature is available.");
 	} else {
@@ -2892,6 +2899,11 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 	// Report unsupported here instead, so callers use their own already-written
 	// fallback (e.g. texture_storage.cpp's Image::FORMAT_R16/RG16/RGBA16 handling
 	// reconverts to R32_SFLOAT/RG32_SFLOAT/RGBA32_SFLOAT when this returns false).
+	//
+	// texture-formats-tier1 does add the real *16Unorm/*16Snorm formats, but
+	// only as unfilterable-float textures, while Godot treats every sampleable
+	// format as linearly filterable: a 16-bit normalized texture read through
+	// any linear sampler fails validation. So they stay unsupported here.
 	switch (p_format) {
 		case DATA_FORMAT_R16_UNORM:
 		case DATA_FORMAT_R16_SNORM:
@@ -4475,6 +4487,13 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 	// single error printed. See webgpu_notes/TASKS.md Task 24 round 3.
 	static const char *const TEX_TYPE_MS = "texture_multisampled_2d<f32>";
 	static const int TEX_TYPE_MS_LEN = 28;
+	// Depth cubemaps sampled for their value: cube_to_dp.glsl's
+	// `source_depth_cube`, which copies an omni light's cube shadow into the
+	// shadow atlas. Left as texture_cube<f32>, the real depth cubemap could not
+	// be bound and the blank fallback cube was sampled instead, so every omni
+	// light in Cube shadow mode -- the default -- cast no shadow at all.
+	static const char *const TEX_TYPE_CUBE = "texture_cube<f32>";
+	static const int TEX_TYPE_CUBE_LEN = 17;
 	// textureSampleBias/textureSampleGrad are NOT defined for texture_depth_2d
 	// in WGSL at all (depth textures don't support mip bias/gradient
 	// sampling) -- deliberately excluded here so any texture used via either
@@ -4489,18 +4508,23 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 	const char *wgsl = p_wgsl_str;
 	const int64_t len = (int64_t)strlen(wgsl);
 
+	enum CandidateKind {
+		CANDIDATE_2D,
+		CANDIDATE_MULTISAMPLED,
+		CANDIDATE_CUBE,
+	};
 	struct Candidate {
 		String name;
 		int64_t name_start = 0;
 		int64_t type_start = 0;
 		int type_len = 0;
-		bool is_ms = false;
+		CandidateKind kind = CANDIDATE_2D;
 	};
 	Vector<Candidate> candidates;
-	for (int pass = 0; pass < 2; pass++) {
-		const char *tex_type = pass == 0 ? TEX_TYPE : TEX_TYPE_MS;
-		int tex_type_len = pass == 0 ? TEX_TYPE_LEN : TEX_TYPE_MS_LEN;
-		bool is_ms = pass == 1;
+	for (int pass = 0; pass < 3; pass++) {
+		const char *tex_type = pass == 0 ? TEX_TYPE : (pass == 1 ? TEX_TYPE_MS : TEX_TYPE_CUBE);
+		int tex_type_len = pass == 0 ? TEX_TYPE_LEN : (pass == 1 ? TEX_TYPE_MS_LEN : TEX_TYPE_CUBE_LEN);
+		CandidateKind kind = (CandidateKind)pass;
 		const char *scan = wgsl;
 		while (true) {
 			const char *found = strstr(scan, tex_type);
@@ -4528,7 +4552,7 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 					c.name_start = name_start;
 					c.type_start = type_pos;
 					c.type_len = tex_type_len;
-					c.is_ms = is_ms;
+					c.kind = kind;
 					candidates.push_back(c);
 				}
 			}
@@ -4785,6 +4809,22 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 				break; // Function-prefix matched but a disqualifying usage shape.
 			}
 			if (!matched_call) {
+				// textureDimensions(name, ...) means the same on a depth texture,
+				// so it neither disqualifies nor needs rewriting. Shaders that
+				// filter a depth texture by hand (gather plus weights) read its
+				// size this way -- volumetric_fog_process.glsl's
+				// texture_linear_depth().
+				static const char *const DIMS_FN = "textureDimensions(";
+				static const int64_t DIMS_FN_LEN = 18;
+				int64_t probe = pos;
+				while (probe > 0 && (wgsl[probe - 1] == ' ' || wgsl[probe - 1] == '\t')) {
+					probe--;
+				}
+				if (probe >= DIMS_FN_LEN && strncmp(wgsl + probe - DIMS_FN_LEN, DIMS_FN, DIMS_FN_LEN) == 0) {
+					matched_call = true;
+				}
+			}
+			if (!matched_call) {
 				// texture_depth_2d's textureGather overload drops the leading
 				// component argument entirely (textureGather(tex, samp, coords)),
 				// unlike texture_2d<f32>'s (textureGather(component, tex, samp,
@@ -4848,7 +4888,7 @@ static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const
 		Edit decl_edit;
 		decl_edit.start = c.type_start;
 		decl_edit.end = c.type_start + c.type_len;
-		decl_edit.replacement = c.is_ms ? "texture_depth_multisampled_2d" : "texture_depth_2d";
+		decl_edit.replacement = c.kind == CANDIDATE_MULTISAMPLED ? "texture_depth_multisampled_2d" : (c.kind == CANDIDATE_CUBE ? "texture_depth_cube" : "texture_depth_2d");
 		edits.push_back(decl_edit);
 		for (const Edit &ce : call_edits) {
 			edits.push_back(ce);
@@ -6618,6 +6658,60 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 				}
 			}
 
+			// Elements 1.. of texture, sampler and storage-image arrays
+			// (spirv_opt_passes::expand_binding_arrays(), spirv_binding_layout.h).
+			// Element 0 is the uniform's own entry above. Each further element
+			// gets an entry only when this shader's WGSL declares its binding:
+			// an array the pass had no per-stage budget to expand stays collapsed
+			// to element 0, and a dead element is eliminated like any binding.
+			// Appended after every per-uniform entry, which the merged
+			// push-constant layout below indexes by uniform position.
+			for (int u_idx = 0; u_idx < set_uniforms.size(); u_idx++) {
+				const RenderingDeviceCommons::ShaderUniform &u = set_uniforms[u_idx];
+				const bool array_type = u.type == RDD::UNIFORM_TYPE_TEXTURE || u.type == RDD::UNIFORM_TYPE_IMAGE || u.type == RDD::UNIFORM_TYPE_SAMPLER;
+				if (!array_type || !spirv_binding_layout::array_can_expand(u.binding, u.length)) {
+					continue;
+				}
+				const WGPUBindGroupLayoutEntry element0 = bgi.entries[u_idx].layout_entry;
+				for (uint32_t k = 1; k < (uint32_t)u.length; k++) {
+					const uint32_t element_binding = spirv_binding_layout::array_element_binding(u.binding, k);
+					const uint32_t ek = ((uint32_t)set << 16) | element_binding;
+					if (!wgsl_binding_stages.has(ek)) {
+						continue;
+					}
+					WGPUBindGroupLayoutEntry e = element0;
+					e.binding = element_binding;
+					e.visibility = resolve_stage_visibility(ek, _stages_to_wgpu_visibility((uint32_t)u.stages));
+					// Element 0 may be dead in this shader while later elements are
+					// live, so the type comes from the element's own declaration.
+					if (u.type == RDD::UNIFORM_TYPE_SAMPLER) {
+						e.sampler.type = resolve_sampler_type(ek);
+					} else if (u.type == RDD::UNIFORM_TYPE_TEXTURE) {
+						bool is_ms = wgsl_is_multisampled_texture.has(ek) && wgsl_is_multisampled_texture[ek];
+						bool is_depth = wgsl_is_depth_texture.has(ek) && wgsl_is_depth_texture[ek];
+						WGPUTextureSampleType base_sample_type = wgsl_tex_sample_type.has(ek) ? wgsl_tex_sample_type[ek] : WGPUTextureSampleType_Float;
+						e.texture.sampleType = is_depth
+								? WGPUTextureSampleType_Depth
+								: (is_ms && base_sample_type == WGPUTextureSampleType_Float) ? WGPUTextureSampleType_UnfilterableFloat
+																							 : base_sample_type;
+						e.texture.viewDimension = wgsl_tex_dims.has(ek) ? wgsl_tex_dims[ek] : WGPUTextureViewDimension_2D;
+						e.texture.multisampled = is_ms;
+					} else if (!wgsl_read_storage_to_sampled.has(ek) && wgsl_storage_tex_format.has(ek)) {
+						e.storageTexture.format = wgsl_storage_tex_format[ek];
+						if (wgsl_storage_tex_access.has(ek)) {
+							e.storageTexture.access = wgsl_storage_tex_access[ek];
+						}
+						e.storageTexture.viewDimension = wgsl_tex_dims.has(ek) ? wgsl_tex_dims[ek] : WGPUTextureViewDimension_2D;
+					}
+					entries.push_back(e);
+					WGShader::BindGroupEntry element_bge;
+					element_bge.layout_entry = e;
+					element_bge.godot_type = u.type;
+					element_bge.array_length = 1;
+					bgi.entries.push_back(element_bge);
+				}
+			}
+
 			// Add BGL entries for read_write storage texture shadow read bindings.
 			// Each shadow is a sampled texture at (write_binding + 1), NOT a ReadOnly
 			// storage texture, because ReadOnly access requires the
@@ -6738,6 +6832,10 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 							// For all other types, just copy the existing bge.layout_entry.
 							merged_entries.push_back(shader->bind_group_infos[i].entries[u_idx2].layout_entry);
 						}
+					}
+					// Expanded array elements, appended after the per-uniform entries.
+					for (uint32_t e_idx2 = pc_uniforms.size(); e_idx2 < shader->bind_group_infos[i].entries.size(); e_idx2++) {
+						merged_entries.push_back(shader->bind_group_infos[i].entries[e_idx2].layout_entry);
 					}
 					// Add the PC ring-buffer entry: PUSH_CONSTANT_RING_BINDING, uniform, hasDynamicOffset=true.
 					// Safety: skip if any existing entry is already at PUSH_CONSTANT_RING_BINDING.
@@ -6974,6 +7072,144 @@ bool RenderingDeviceDriverWebGPU::_create_rw_shadow_bind_entry(WGUniformSet *p_u
 	return true;
 }
 
+// The view a sampled-texture binding gets for p_tex, given what its layout
+// entry expects. Godot binds whatever texture it has to a slot, so the
+// texture's own default view can disagree with the WGSL declaration in sample
+// type, dimension or aspect; each case below substitutes something WebGPU will
+// accept. Views created here are owned by p_us.
+WGPUTextureView RenderingDeviceDriverWebGPU::_sampled_texture_view(WGUniformSet *p_us, WGTexture *p_tex, WGPUTextureViewDimension p_expected_dim, WGPUTextureSampleType p_expected_sample, const WGShader *p_shader, uint32_t p_set, uint32_t p_glsl_binding) {
+	WGPUTextureView view = nullptr;
+	// Fix depth/float mismatch: if layout expects Float but
+	// texture has a depth format (common with Godot's depth
+	// fallback textures), substitute a float fallback texture.
+	if (p_expected_sample == WGPUTextureSampleType_Float &&
+			_is_depth_format(p_tex->format) &&
+			fallback_float_texture_view != nullptr) {
+		// Whatever the shader reads here is now a constant. That is right for
+		// Godot's own placeholder depth textures, but a real depth buffer or
+		// shadow atlas landing here means the shader's WGSL declares it as a
+		// float texture -- volumetric fog's shadow atlases and the omni cube
+		// shadow copy both rendered without shadows that way, silently.
+		print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see _reclassify_single_component_depth_textures()).", p_shader->name, p_set, p_glsl_binding, p_tex->width, p_tex->height));
+		// Also check if we need cube dimension for the depth fallback.
+		if (p_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
+			view = fallback_cube_texture_view;
+		} else {
+			view = fallback_float_texture_view;
+		}
+	} else if (p_expected_sample == WGPUTextureSampleType_Depth &&
+			!_is_depth_format(p_tex->format) &&
+			fallback_depth_texture_view != nullptr) {
+		// Reverse mismatch: layout expects Depth (this binding's WGSL type
+		// was reclassified to texture_depth_2d, Task 7.13) but the real
+		// texture is a plain float format -- e.g. Forward+'s R32Float MSAA
+		// depth-resolve target (same GLSL/WGSL used whether MSAA is on or
+		// off, so the shader can't distinguish them at compile time). See
+		// the identical case and full explanation in the
+		// UNIFORM_TYPE_SAMPLER_WITH_TEXTURE branch below, and
+		// webgpu_notes/TASKS.md Task 24.
+		view = fallback_depth_texture_view;
+	} else if (p_expected_sample == WGPUTextureSampleType_Float &&
+			!float32_filterable_supported &&
+			_is_float32_format(p_tex->format) &&
+			fallback_float_texture_view != nullptr) {
+		// R32Float/RG32Float/RGBA32Float textures are unfilterable
+		// without the float32-filterable feature (e.g., Android Chrome
+		// on Adreno). Substitute a filterable RGBA8 fallback to avoid
+		// validation errors. The texture data is lost but rendering
+		// continues without GPU errors.
+		if (p_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
+			view = fallback_cube_texture_view;
+		} else {
+			view = fallback_float_texture_view;
+		}
+	} else if (p_expected_dim != WGPUTextureViewDimension_Undefined &&
+			p_expected_dim != p_tex->view_dimension) {
+		// Fix dimension mismatch: if the layout expects a different dimension
+		// than the texture's default view (e.g., 2D vs Cube), create a
+		// compatible view or use a fallback texture.
+		//
+		// A view's dimension must also be structurally compatible with the
+		// GPU texture's own underlying dimension -- WebGPU only allows a 3D
+		// view of a 3D-dimension texture (never 2D/Cube/etc.), and only a
+		// 2D/2DArray/Cube/CubeArray view of a 2D-dimension texture (never
+		// 3D). No amount of view-descriptor trickery can bridge this; found
+		// via a real Chrome run where a 4x4x1 texture3D (voxel_gi.glsl's
+		// texture_sdf/color_texture, or an sdfgi cascade texture -- a real
+		// Godot texture, not a driver-internal fallback) got bound to a
+		// generic slot the shader declares as texture_2d<f32>, and the old
+		// code below tried creating a 2D view of it regardless, which Dawn
+		// rejects outright ("dimension ... not compatible with the
+		// dimension ... of [Texture]") rather than erroring more softly.
+		// Substitute a fallback instead, same as the Cube/insufficient-
+		// layers case just below. See webgpu_notes/TASKS.md Task 9.5 Round 6.
+		bool dim_class_incompatible =
+				(p_tex->dimension == WGPUTextureDimension_3D && p_expected_dim != WGPUTextureViewDimension_3D) ||
+				(p_tex->dimension != WGPUTextureDimension_3D && p_expected_dim == WGPUTextureViewDimension_3D);
+		if (p_expected_dim == WGPUTextureViewDimension_Cube && p_tex->layers < 6 &&
+				fallback_cube_texture_view != nullptr) {
+			// Can't create a cube view from a texture with < 6 layers.
+			view = fallback_cube_texture_view;
+		} else if (dim_class_incompatible && fallback_float_texture_view != nullptr) {
+			view = (p_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr)
+					? fallback_cube_texture_view
+					: fallback_float_texture_view;
+		} else if (p_tex->view_source != nullptr) {
+			// Use slice base offsets so slice views don't
+			// silently remap to mip 0 / layer 0 of the parent.
+			WGPUTextureViewDescriptor vd = {};
+			vd.format = p_tex->format;
+			vd.dimension = p_expected_dim;
+			vd.baseMipLevel = p_tex->base_mipmap;
+			vd.mipLevelCount = p_tex->mipmaps;
+			vd.baseArrayLayer = p_tex->base_layer;
+			vd.arrayLayerCount = (p_expected_dim == WGPUTextureViewDimension_2D) ? 1 : p_tex->layers;
+			vd.aspect = WGPUTextureAspect_All;
+			WGPUTextureView fixed_view = wgpuTextureCreateView(p_tex->view_source, &vd);
+			if (fixed_view) {
+				view = fixed_view;
+				p_us->temp_views.push_back(fixed_view);
+			} else {
+				view = p_tex->default_view;
+			}
+		} else {
+			view = p_tex->default_view;
+		}
+	} else if (p_expected_sample == WGPUTextureSampleType_Depth &&
+			(p_tex->format == WGPUTextureFormat_Depth24PlusStencil8 ||
+					p_tex->format == WGPUTextureFormat_Depth32FloatStencil8)) {
+		// Same fix as the UNIFORM_TYPE_SAMPLER_WITH_TEXTURE case below:
+		// a combined depth+stencil format's default view selects both
+		// aspects, but a texture_depth_2d binding (Task 7.13) requires
+		// a view with ONLY the Depth aspect selected -- WebGPU rejects
+		// "Multiple aspects (Depth|Stencil) selected" otherwise. This
+		// standalone-texture case (no paired sampler, e.g. a compute
+		// shader doing textureLoad on a depth texture directly, as in
+		// ClusterDebugShaderRD) had no equivalent fix until now. See
+		// webgpu_notes/TASKS.md Task 9.5 Round 5.
+		WGPUTextureViewDescriptor vd = {};
+		vd.format = (p_tex->format == WGPUTextureFormat_Depth24PlusStencil8)
+				? WGPUTextureFormat_Depth24Plus
+				: WGPUTextureFormat_Depth32Float;
+		vd.dimension = WGPUTextureViewDimension_2D;
+		vd.baseMipLevel = p_tex->base_mipmap;
+		vd.mipLevelCount = p_tex->mipmaps;
+		vd.baseArrayLayer = p_tex->base_layer;
+		vd.arrayLayerCount = 1;
+		vd.aspect = WGPUTextureAspect_DepthOnly;
+		WGPUTextureView depth_only_view = wgpuTextureCreateView(p_tex->gpu_handle(), &vd);
+		if (depth_only_view) {
+			view = depth_only_view;
+			p_us->temp_views.push_back(depth_only_view);
+		} else {
+			view = p_tex->default_view;
+		}
+	} else {
+		view = p_tex->default_view;
+	}
+	return view;
+}
+
 RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	WGShader *shader = (WGShader *)(p_shader.id);
 	ERR_FAIL_NULL_V(shader, UniformSetID());
@@ -7047,8 +7283,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 			case UNIFORM_TYPE_TEXTURE:
 			case UNIFORM_TYPE_INPUT_ATTACHMENT: {
-				// Tint flattens binding arrays to single resources.
-				// Only provide the first texture for array bindings.
+				// Element 0 of an array; the rest are added after this loop.
 				WGPUTextureViewDimension expected_dim = WGPUTextureViewDimension_Undefined;
 				WGPUTextureSampleType expected_sample = WGPUTextureSampleType_Undefined;
 				if (p_set_index < (uint32_t)shader->bind_group_infos.size()) {
@@ -7065,129 +7300,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 					if (tex != nullptr) {
 						WGPUBindGroupEntry entry = {};
 						entry.binding = uniform.binding * 2;
-
-						// Fix depth/float mismatch: if layout expects Float but
-						// texture has a depth format (common with Godot's depth
-						// fallback textures), substitute a float fallback texture.
-						if (expected_sample == WGPUTextureSampleType_Float &&
-								_is_depth_format(tex->format) &&
-								fallback_float_texture_view != nullptr) {
-							// Also check if we need cube dimension for the depth fallback.
-							if (expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
-								entry.textureView = fallback_cube_texture_view;
-							} else {
-								entry.textureView = fallback_float_texture_view;
-							}
-						} else if (expected_sample == WGPUTextureSampleType_Depth &&
-								!_is_depth_format(tex->format) &&
-								fallback_depth_texture_view != nullptr) {
-							// Reverse mismatch: layout expects Depth (this binding's WGSL type
-							// was reclassified to texture_depth_2d, Task 7.13) but the real
-							// texture is a plain float format -- e.g. Forward+'s R32Float MSAA
-							// depth-resolve target (same GLSL/WGSL used whether MSAA is on or
-							// off, so the shader can't distinguish them at compile time). See
-							// the identical case and full explanation in the
-							// UNIFORM_TYPE_SAMPLER_WITH_TEXTURE branch below, and
-							// webgpu_notes/TASKS.md Task 24.
-							entry.textureView = fallback_depth_texture_view;
-						} else if (expected_sample == WGPUTextureSampleType_Float &&
-								!float32_filterable_supported &&
-								_is_float32_format(tex->format) &&
-								fallback_float_texture_view != nullptr) {
-							// R32Float/RG32Float/RGBA32Float textures are unfilterable
-							// without the float32-filterable feature (e.g., Android Chrome
-							// on Adreno). Substitute a filterable RGBA8 fallback to avoid
-							// validation errors. The texture data is lost but rendering
-							// continues without GPU errors.
-							if (expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
-								entry.textureView = fallback_cube_texture_view;
-							} else {
-								entry.textureView = fallback_float_texture_view;
-							}
-						} else if (expected_dim != WGPUTextureViewDimension_Undefined &&
-								expected_dim != tex->view_dimension) {
-							// Fix dimension mismatch: if the layout expects a different dimension
-							// than the texture's default view (e.g., 2D vs Cube), create a
-							// compatible view or use a fallback texture.
-							//
-							// A view's dimension must also be structurally compatible with the
-							// GPU texture's own underlying dimension -- WebGPU only allows a 3D
-							// view of a 3D-dimension texture (never 2D/Cube/etc.), and only a
-							// 2D/2DArray/Cube/CubeArray view of a 2D-dimension texture (never
-							// 3D). No amount of view-descriptor trickery can bridge this; found
-							// via a real Chrome run where a 4x4x1 texture3D (voxel_gi.glsl's
-							// texture_sdf/color_texture, or an sdfgi cascade texture -- a real
-							// Godot texture, not a driver-internal fallback) got bound to a
-							// generic slot the shader declares as texture_2d<f32>, and the old
-							// code below tried creating a 2D view of it regardless, which Dawn
-							// rejects outright ("dimension ... not compatible with the
-							// dimension ... of [Texture]") rather than erroring more softly.
-							// Substitute a fallback instead, same as the Cube/insufficient-
-							// layers case just below. See webgpu_notes/TASKS.md Task 9.5 Round 6.
-							bool dim_class_incompatible =
-									(tex->dimension == WGPUTextureDimension_3D && expected_dim != WGPUTextureViewDimension_3D) ||
-									(tex->dimension != WGPUTextureDimension_3D && expected_dim == WGPUTextureViewDimension_3D);
-							if (expected_dim == WGPUTextureViewDimension_Cube && tex->layers < 6 &&
-									fallback_cube_texture_view != nullptr) {
-								// Can't create a cube view from a texture with < 6 layers.
-								entry.textureView = fallback_cube_texture_view;
-							} else if (dim_class_incompatible && fallback_float_texture_view != nullptr) {
-								entry.textureView = (expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr)
-										? fallback_cube_texture_view
-										: fallback_float_texture_view;
-							} else if (tex->view_source != nullptr) {
-								// Use slice base offsets so slice views don't
-								// silently remap to mip 0 / layer 0 of the parent.
-								WGPUTextureViewDescriptor vd = {};
-								vd.format = tex->format;
-								vd.dimension = expected_dim;
-								vd.baseMipLevel = tex->base_mipmap;
-								vd.mipLevelCount = tex->mipmaps;
-								vd.baseArrayLayer = tex->base_layer;
-								vd.arrayLayerCount = (expected_dim == WGPUTextureViewDimension_2D) ? 1 : tex->layers;
-								vd.aspect = WGPUTextureAspect_All;
-								WGPUTextureView fixed_view = wgpuTextureCreateView(tex->view_source, &vd);
-								if (fixed_view) {
-									entry.textureView = fixed_view;
-									us->temp_views.push_back(fixed_view);
-								} else {
-									entry.textureView = tex->default_view;
-								}
-							} else {
-								entry.textureView = tex->default_view;
-							}
-						} else if (expected_sample == WGPUTextureSampleType_Depth &&
-								(tex->format == WGPUTextureFormat_Depth24PlusStencil8 ||
-										tex->format == WGPUTextureFormat_Depth32FloatStencil8)) {
-							// Same fix as the UNIFORM_TYPE_SAMPLER_WITH_TEXTURE case below:
-							// a combined depth+stencil format's default view selects both
-							// aspects, but a texture_depth_2d binding (Task 7.13) requires
-							// a view with ONLY the Depth aspect selected -- WebGPU rejects
-							// "Multiple aspects (Depth|Stencil) selected" otherwise. This
-							// standalone-texture case (no paired sampler, e.g. a compute
-							// shader doing textureLoad on a depth texture directly, as in
-							// ClusterDebugShaderRD) had no equivalent fix until now. See
-							// webgpu_notes/TASKS.md Task 9.5 Round 5.
-							WGPUTextureViewDescriptor vd = {};
-							vd.format = (tex->format == WGPUTextureFormat_Depth24PlusStencil8)
-									? WGPUTextureFormat_Depth24Plus
-									: WGPUTextureFormat_Depth32Float;
-							vd.dimension = WGPUTextureViewDimension_2D;
-							vd.baseMipLevel = tex->base_mipmap;
-							vd.mipLevelCount = tex->mipmaps;
-							vd.baseArrayLayer = tex->base_layer;
-							vd.arrayLayerCount = 1;
-							vd.aspect = WGPUTextureAspect_DepthOnly;
-							WGPUTextureView depth_only_view = wgpuTextureCreateView(tex->gpu_handle(), &vd);
-							if (depth_only_view) {
-								entry.textureView = depth_only_view;
-								us->temp_views.push_back(depth_only_view);
-							} else {
-								entry.textureView = tex->default_view;
-							}
-						} else {
-							entry.textureView = tex->default_view;
-						}
+						entry.textureView = _sampled_texture_view(us, tex, expected_dim, expected_sample, shader, p_set_index, uniform.binding);
 						us->bound_textures[entry.binding] = tex;
 						entries.push_back(entry);
 					}
@@ -7285,6 +7398,11 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 							te.textureView = fallback_ms_texture_view;
 						} else if (_is_depth_format(tex->format) && swt_expected_sample_type != WGPUTextureSampleType_Depth &&
 								fallback_float_texture_view != nullptr) {
+							// See the same message in _sampled_texture_view(): a real
+							// depth buffer here means the WGSL declares it as a float
+							// texture (copy.glsl's depth copy did, which left
+							// DEPTH_TEXTURE reading zeros everywhere).
+							print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see _reclassify_single_component_depth_textures()).", shader->name, p_set_index, uniform.binding, tex->width, tex->height));
 							// Fix depth/float mismatch: this combined binding's WGSL type is
 							// Float (texture_2d<f32>) but the real texture is depth-format.
 							// Substitute a float fallback rather than let Dawn reject binding a
@@ -7402,8 +7520,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 			} break;
 
 			case UNIFORM_TYPE_IMAGE: {
-				// Tint flattens binding arrays to single resources.
-				// Only provide the first image for array bindings.
+				// Element 0 of an array; the rest are added after this loop.
 				if (uniform.ids.size() > 0) {
 					WGTexture *tex = (WGTexture *)(uniform.ids[0].id);
 					if (tex != nullptr) {
@@ -7504,6 +7621,89 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 		}
 	}
 
+	// Elements 1.. of texture, sampler and storage-image arrays, at the bindings
+	// spirv_binding_layout.h assigns them. Every element is cached for
+	// _get_compatible_bind_group(), since another variant of this shader may
+	// have expanded an array this one had to keep collapsed (the expansion is
+	// budgeted per stage); only the elements this shader's own layout has go
+	// into its bind group.
+	LocalVector<WGPUBindGroupEntry> element_entries;
+	if (p_set_index < (uint32_t)shader->bind_group_infos.size()) {
+		const WGShader::BindGroupInfo &bgi = shader->bind_group_infos[p_set_index];
+		auto layout_entry_for = [&bgi](uint32_t p_binding) -> const WGPUBindGroupLayoutEntry * {
+			for (const WGShader::BindGroupEntry &bge : bgi.entries) {
+				if (bge.layout_entry.binding == p_binding) {
+					return &bge.layout_entry;
+				}
+			}
+			return nullptr;
+		};
+		for (uint32_t i = 0; i < p_uniforms.size(); i++) {
+			const BoundUniform &uniform = p_uniforms[i];
+			const uint32_t count = uniform.ids.size();
+			const bool array_type = uniform.type == UNIFORM_TYPE_TEXTURE || uniform.type == UNIFORM_TYPE_IMAGE || uniform.type == UNIFORM_TYPE_SAMPLER;
+			if (!array_type || !spirv_binding_layout::array_can_expand(uniform.binding, count)) {
+				continue;
+			}
+			bool collapsed = false;
+			for (uint32_t k = 1; k < count; k++) {
+				WGPUBindGroupEntry e = {};
+				e.binding = spirv_binding_layout::array_element_binding(uniform.binding, k);
+				const WGPUBindGroupLayoutEntry *le = layout_entry_for(e.binding);
+				if (uniform.type == UNIFORM_TYPE_SAMPLER) {
+					e.sampler = (WGPUSampler)(uniform.ids[k].id);
+					if (le && le->sampler.type == WGPUSamplerBindingType_NonFiltering && dummy_nonfiltering_sampler) {
+						e.sampler = dummy_nonfiltering_sampler;
+					}
+				} else {
+					WGTexture *tex = (WGTexture *)(uniform.ids[k].id);
+					if (tex == nullptr) {
+						continue;
+					}
+					e.textureView = uniform.type == UNIFORM_TYPE_TEXTURE
+							? _sampled_texture_view(us, tex, le ? le->texture.viewDimension : WGPUTextureViewDimension_Undefined, le ? le->texture.sampleType : WGPUTextureSampleType_Undefined, shader, p_set_index, uniform.binding)
+							: tex->default_view;
+					us->bound_textures[e.binding] = tex;
+				}
+				element_entries.push_back(e);
+				if (le) {
+					entries.push_back(e);
+				} else {
+					collapsed = true;
+				}
+			}
+
+			// A shader that reads the array but kept it collapsed reads element 0
+			// wherever it asks for element k. That only renders differently when
+			// the array holds more than element 0 and the filler Godot puts in
+			// every unused slot -- a second LightmapGI or VoxelGI, or a
+			// lightmap's shadowmask -- so say so then, once per shader binding.
+			const WGPUBindGroupLayoutEntry *element0 = layout_entry_for(uniform.binding * 2);
+			if (!collapsed || !element0 || element0->visibility == WGPUShaderStage_None) {
+				continue;
+			}
+			HashMap<uint64_t, uint32_t> occurrences;
+			uint64_t filler = uniform.ids[1].id;
+			uint32_t filler_count = 0;
+			for (uint32_t k = 1; k < count; k++) {
+				const uint32_t n = ++occurrences[uniform.ids[k].id];
+				if (n > filler_count) {
+					filler = uniform.ids[k].id;
+					filler_count = n;
+				}
+			}
+			bool holds_more = false;
+			for (uint32_t k = 1; k < count; k++) {
+				holds_more = holds_more || uniform.ids[k].id != filler;
+			}
+			const String key = vformat("%s:%d:%d", shader->name, (int)p_set_index, (int)uniform.binding);
+			if (holds_more && !collapsed_array_warnings.has(key)) {
+				collapsed_array_warnings.insert(key);
+				WARN_PRINT(vformat("WebGPU: shader '%s' reads the %d-element texture array at set %d, binding %d as if it had one element, because giving every element its own binding would exceed this device's per-stage texture limit. Every lookup returns element 0, so a second LightmapGI or VoxelGI, or a lightmap's shadowmask, renders with the first one's data.", shader->name, (int)count, (int)p_set_index, (int)uniform.binding));
+			}
+		}
+	}
+
 	// Add shadow read bindings for read_write storage texture splits.
 	// For each split, create a GPU copy of the original texture and bind it
 	// at the shadow read slot. See _create_rw_shadow_bind_entry()'s doc
@@ -7562,10 +7762,20 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 	us->handle = bg;
 	us->handle_layout = layout;
-	// Cache entries and source shader for potential BGL rebinding.
+	// Cache entries and source shader for potential BGL rebinding, plus every
+	// array element this shader's layout did not take.
 	us->cached_entries.resize(entries.size());
 	for (uint32_t i = 0; i < entries.size(); i++) {
 		us->cached_entries[i] = entries[i];
+	}
+	for (const WGPUBindGroupEntry &e : element_entries) {
+		bool present = false;
+		for (const WGPUBindGroupEntry &c : entries) {
+			present = present || c.binding == e.binding;
+		}
+		if (!present) {
+			us->cached_entries.push_back(e);
+		}
 	}
 	us->source_shader = shader;
 	live_uniform_sets.insert(us);
@@ -8093,16 +8303,19 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		const TextureCopyRegion &region = p_regions[i];
 
+		// The third coordinate is the z offset for a 3D texture and the array
+		// layer otherwise; whichever does not apply is zero, as in Vulkan's
+		// VkImageCopy (offset.z with baseArrayLayer).
 		WGPUTexelCopyTextureInfo src_copy = {};
 		src_copy.texture = src->gpu_handle();
 		src_copy.mipLevel = region.src_subresources.mipmap;
-		src_copy.origin = { (uint32_t)region.src_offset.x, (uint32_t)region.src_offset.y, region.src_subresources.base_layer };
+		src_copy.origin = { (uint32_t)region.src_offset.x, (uint32_t)region.src_offset.y, region.src_subresources.base_layer + (uint32_t)region.src_offset.z };
 		src_copy.aspect = WGPUTextureAspect_All;
 
 		WGPUTexelCopyTextureInfo dst_copy = {};
 		dst_copy.texture = dst->gpu_handle();
 		dst_copy.mipLevel = region.dst_subresources.mipmap;
-		dst_copy.origin = { (uint32_t)region.dst_offset.x, (uint32_t)region.dst_offset.y, region.dst_subresources.base_layer };
+		dst_copy.origin = { (uint32_t)region.dst_offset.x, (uint32_t)region.dst_offset.y, region.dst_subresources.base_layer + (uint32_t)region.dst_offset.z };
 		dst_copy.aspect = WGPUTextureAspect_All;
 
 		uint32_t copy_w = (uint32_t)region.size.x;
@@ -8112,7 +8325,9 @@ void RenderingDeviceDriverWebGPU::command_copy_texture(CommandBufferID p_cmd_buf
 			copy_h = ((copy_h + block_h - 1) / block_h) * block_h;
 		}
 
-		WGPUExtent3D extent = { copy_w, copy_h, (uint32_t)region.size.z };
+		// Depth of a 3D copy, or the layer count of an array copy (where size.z is 1).
+		const uint32_t copy_depth = src->dimension == WGPUTextureDimension_3D ? (uint32_t)region.size.z : MAX(region.src_subresources.layer_count, 1u);
+		WGPUExtent3D extent = { copy_w, copy_h, copy_depth };
 
 		wgpuCommandEncoderCopyTextureToTexture(cmd->encoder, &src_copy, &dst_copy, &extent);
 	}
@@ -8485,16 +8700,24 @@ void RenderingDeviceDriverWebGPU::command_clear_color_texture(CommandBufferID p_
 
 	cmd->end_active_encoder();
 
+	// A 3D texture has one array layer but `depth` z-slices per mip; every slice
+	// of every requested mip must be cleared (vkCmdClearColorImage covers the
+	// whole subresource, and SDFGI re-clears its 3D voxel/light textures every
+	// time a cascade scrolls -- clearing only z=0 left the rest of the volume
+	// holding the previous region's voxels).
+	const bool is_3d = tex->dimension == WGPUTextureDimension_3D;
+
 	if (tex->usage & WGPUTextureUsage_RenderAttachment) {
 		// Fast path: clear via a zero-draw render pass (requires RenderAttachment usage).
 		for (uint32_t mip = p_subresources.base_mipmap; mip < p_subresources.base_mipmap + p_subresources.mipmap_count; mip++) {
-			for (uint32_t layer = p_subresources.base_layer; layer < p_subresources.base_layer + p_subresources.layer_count; layer++) {
+			const uint32_t slice_count = is_3d ? MAX(1u, tex->depth >> mip) : p_subresources.layer_count;
+			for (uint32_t s = 0; s < slice_count; s++) {
 				WGPUTextureViewDescriptor view_desc = {};
 				view_desc.format = tex->format;
-				view_desc.dimension = WGPUTextureViewDimension_2D;
+				view_desc.dimension = is_3d ? WGPUTextureViewDimension_3D : WGPUTextureViewDimension_2D;
 				view_desc.baseMipLevel = mip;
 				view_desc.mipLevelCount = 1;
-				view_desc.baseArrayLayer = layer;
+				view_desc.baseArrayLayer = is_3d ? 0 : p_subresources.base_layer + s;
 				view_desc.arrayLayerCount = 1;
 				view_desc.aspect = WGPUTextureAspect_All;
 
@@ -8502,7 +8725,7 @@ void RenderingDeviceDriverWebGPU::command_clear_color_texture(CommandBufferID p_
 
 				WGPURenderPassColorAttachment color_att = {};
 				color_att.view = view;
-				color_att.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+				color_att.depthSlice = is_3d ? s : WGPU_DEPTH_SLICE_UNDEFINED;
 				color_att.loadOp = WGPULoadOp_Clear;
 				color_att.storeOp = WGPUStoreOp_Store;
 				color_att.clearValue = { p_color.r, p_color.g, p_color.b, p_color.a };
@@ -8519,13 +8742,18 @@ void RenderingDeviceDriverWebGPU::command_clear_color_texture(CommandBufferID p_
 		}
 	} else {
 		// Fallback for textures without RenderAttachment usage (e.g. storage-only
-		// compute textures). Uses wgpuQueueWriteTexture to fill with the clear color.
+		// compute textures): copy a buffer holding the clear pattern into each
+		// slice. The copy is recorded on the command encoder, so it lands exactly
+		// where the clear was recorded. wgpuQueueWriteTexture (used here before)
+		// runs on the queue timeline ahead of the whole command buffer, so a clear
+		// recorded after a dispatch that reads the texture wiped it before that
+		// dispatch ran.
 		ERR_FAIL_COND_MSG(!(tex->usage & WGPUTextureUsage_CopyDst),
 				"Cannot clear texture: texture has neither RenderAttachment nor CopyDst usage.");
 
 		uint32_t bpp = _wgpu_format_byte_size(tex->format);
 		ERR_FAIL_COND_MSG(bpp == 0,
-				"Cannot clear texture via writeTexture: unsupported format.");
+				"Cannot clear texture via a buffer copy: unsupported format.");
 
 		bool is_zero = (p_color.r == 0.0f && p_color.g == 0.0f && p_color.b == 0.0f && p_color.a == 0.0f);
 
@@ -8535,43 +8763,67 @@ void RenderingDeviceDriverWebGPU::command_clear_color_texture(CommandBufferID p_
 			_encode_clear_texel(tex->format, p_color, texel);
 		}
 
-		for (uint32_t mip = p_subresources.base_mipmap; mip < p_subresources.base_mipmap + p_subresources.mipmap_count; mip++) {
-			for (uint32_t layer = p_subresources.base_layer; layer < p_subresources.base_layer + p_subresources.layer_count; layer++) {
-				uint32_t w = MAX(1u, tex->width >> mip);
-				uint32_t h = MAX(1u, tex->height >> mip);
-				uint32_t row_bytes = w * bpp;
+		// One slice of the largest requested mip; smaller mips reuse its start.
+		const uint32_t w0 = MAX(1u, tex->width >> p_subresources.base_mipmap);
+		const uint32_t h0 = MAX(1u, tex->height >> p_subresources.base_mipmap);
+		const uint32_t row_pitch0 = ((w0 * bpp + 255u) / 256u) * 256u; // copyBufferToTexture requires 256-byte rows.
+		const uint64_t slice_size = (uint64_t)row_pitch0 * h0;
 
-				// Fill a CPU buffer with the clear texel pattern.
-				Vector<uint8_t> data;
-				data.resize(row_bytes * h);
-				uint8_t *ptr = data.ptrw();
-
-				if (is_zero) {
-					memset(ptr, 0, data.size());
-				} else {
-					for (uint32_t y = 0; y < h; y++) {
-						for (uint32_t x = 0; x < w; x++) {
-							memcpy(ptr + y * row_bytes + x * bpp, texel, bpp);
-						}
-					}
+		WGPUBuffer src = nullptr;
+		if (is_zero) {
+			// WebGPU zero-initializes buffers, and nothing ever writes this one.
+			if (clear_zero_buffer_size < slice_size) {
+				if (clear_zero_buffer) {
+					wgpuBufferRelease(clear_zero_buffer);
 				}
+				WGPUBufferDescriptor desc = {};
+				desc.size = slice_size;
+				desc.usage = WGPUBufferUsage_CopySrc;
+				clear_zero_buffer = wgpuDeviceCreateBuffer(device, &desc);
+				clear_zero_buffer_size = slice_size;
+			}
+			src = clear_zero_buffer;
+			wgpuBufferAddRef(src);
+		} else {
+			WGPUBufferDescriptor desc = {};
+			desc.size = slice_size;
+			desc.usage = WGPUBufferUsage_CopySrc;
+			desc.mappedAtCreation = true;
+			src = wgpuDeviceCreateBuffer(device, &desc);
+			uint8_t *ptr = (uint8_t *)wgpuBufferGetMappedRange(src, 0, slice_size);
+			ERR_FAIL_NULL_MSG(ptr, "Cannot clear texture: failed to map the clear pattern buffer.");
+			for (uint32_t y = 0; y < h0; y++) {
+				for (uint32_t x = 0; x < w0; x++) {
+					memcpy(ptr + (uint64_t)y * row_pitch0 + x * bpp, texel, bpp);
+				}
+			}
+			wgpuBufferUnmap(src);
+		}
+
+		for (uint32_t mip = p_subresources.base_mipmap; mip < p_subresources.base_mipmap + p_subresources.mipmap_count; mip++) {
+			const uint32_t w = MAX(1u, tex->width >> mip);
+			const uint32_t h = MAX(1u, tex->height >> mip);
+			const uint32_t slice_count = is_3d ? MAX(1u, tex->depth >> mip) : p_subresources.layer_count;
+			for (uint32_t s = 0; s < slice_count; s++) {
+				WGPUTexelCopyBufferInfo src_info = {};
+				src_info.buffer = src;
+				src_info.layout.offset = 0;
+				src_info.layout.bytesPerRow = row_pitch0;
+				src_info.layout.rowsPerImage = h0;
 
 				WGPUTexelCopyTextureInfo dst = {};
 				dst.texture = tex->gpu_handle();
 				dst.mipLevel = mip;
-				dst.origin = { 0, 0, layer };
+				dst.origin = { 0, 0, is_3d ? s : p_subresources.base_layer + s };
 				dst.aspect = WGPUTextureAspect_All;
 
-				WGPUTexelCopyBufferLayout layout = {};
-				layout.offset = 0;
-				layout.bytesPerRow = row_bytes;
-				layout.rowsPerImage = h;
-
 				WGPUExtent3D extent = { w, h, 1 };
-
-				wgpuQueueWriteTexture(queue, &dst, ptr, data.size(), &layout, &extent);
+				wgpuCommandEncoderCopyBufferToTexture(cmd->encoder, &src_info, &dst, &extent);
 			}
 		}
+
+		// The encoder holds its own reference until the copies have executed.
+		wgpuBufferRelease(src);
 	}
 }
 
@@ -8649,11 +8901,10 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 		get_compressed_image_format_block_dimensions(dst->rd_format, block_w, block_h);
 	}
 
-	// When the source buffer has a CPU shadow_map (WebGPU staging buffers),
-	// use wgpuQueueWriteTexture to upload data directly from CPU memory
-	// to the GPU texture. This bypasses the GPU staging buffer entirely,
-	// avoiding the need to flush shadow_map → GPU buffer first.
-	const bool use_write_texture = (src->shadow_map != nullptr);
+	// When the source buffer has a CPU shadow_map (WebGPU staging buffers), the
+	// GPU-side staging buffer only holds what has been flushed into it, so each
+	// region is queued for _queue_submit()'s flush before it is copied.
+	const bool flush_from_shadow = (src->shadow_map != nullptr);
 
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		const BufferTextureCopyRegion &region = p_regions[i];
@@ -8677,18 +8928,25 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 		uint32_t aligned_bpr = ((region.row_pitch + 255) / 256) * 256; // 256-byte aligned.
 		uint32_t rows_per_image = (block_h > 1) ? (copy_h / block_h) : copy_h;
 
-		if (use_write_texture) {
-			// Direct CPU→GPU upload via queue.writeTexture — no GPU staging buffer needed.
-			WGPUTexelCopyBufferLayout layout = {};
-			layout.offset = 0; // Data pointer already points to the right offset.
-			layout.bytesPerRow = aligned_bpr;
-			layout.rowsPerImage = rows_per_image;
-
-			const uint8_t *data_ptr = src->shadow_map + region.buffer_offset;
+		if (flush_from_shadow) {
+			// Have _queue_submit() flush this region of the CPU shadow into the
+			// staging buffer (merged with the block's other pending regions, as
+			// command_copy_buffer() does), then copy it into the texture on the
+			// command encoder below. Writing the texture itself with
+			// queue.writeTexture ran on the queue timeline ahead of the whole
+			// command buffer, so every draw recorded before this upload -- in the
+			// same submission -- already saw the new contents. The staging region
+			// is private to this upload, so flushing it early is safe; only the
+			// texture write has to be ordered.
 			uint64_t data_size = (uint64_t)aligned_bpr * rows_per_image * MAX(extent.depthOrArrayLayers, 1u);
-
-			wgpuQueueWriteTexture(queue, &dst_copy, data_ptr, data_size, &layout, &extent);
-		} else {
+			src->pending_lo = MIN(src->pending_lo, region.buffer_offset);
+			src->pending_hi = MAX(src->pending_hi, region.buffer_offset + data_size);
+			if (!src->pending_listed) {
+				src->pending_listed = true;
+				pending_staging.push_back(src);
+			}
+		}
+		{
 			// Standard path: copy from GPU buffer to texture.
 			WGPUTexelCopyBufferInfo src_info = {};
 			src_info.buffer = src->handle;
@@ -8700,59 +8958,20 @@ void RenderingDeviceDriverWebGPU::command_copy_buffer_to_texture(CommandBufferID
 		}
 	}
 
-	// When we used the writeTexture path, data went directly from the shadow_map
-	// to the GPU texture — the staging buffer's GPU-side copy was never involved.
-	// Clear map_dirty so the subsequent buffer_unmap() is a no-op instead of
-	// redundantly flushing the entire staging buffer (often 32MB) to the GPU.
-	if (use_write_texture) {
+	// The regions copied above are flushed by _queue_submit(), so clear
+	// map_dirty and the subsequent buffer_unmap() is a no-op instead of
+	// redundantly flushing the entire staging block (often 32MB) to the GPU.
+	if (flush_from_shadow) {
 		src->map_dirty = false;
 	}
 
-	// If the destination texture has read_write storage shadow copies,
-	// replay the same writeTexture data to each shadow. This is more
-	// reliable than texture-to-texture copy on Firefox/wgpu, which can
-	// race with the preceding writeTexture on some implementations.
+	// If the destination texture has read_write storage shadow copies, refresh
+	// them on the same command encoder so they follow the upload above. (They
+	// used to be written with queue.writeTexture to dodge a race against the
+	// texture's own queue.writeTexture upload; that upload is an encoder copy
+	// now, so the race is gone and the copies are ordered like everything else.)
 	WGPUTexture dst_handle = dst->gpu_handle();
-	if (use_write_texture && rw_shadow_copy_map.has(dst_handle)) {
-		const LocalVector<WGPUTexture> &shadows = rw_shadow_copy_map[dst_handle];
-		static int _shadow_write_log = 0;
-		if (_shadow_write_log < 10) {
-			WEBGPU_DIAG({ console.log('[SHADOW-WRITE] shadow_count=' + $0 + ' regions=' + $1); }, (int)shadows.size(), (int)p_regions.size());
-			_shadow_write_log++;
-		}
-		for (WGPUTexture shadow : shadows) {
-			for (uint32_t i = 0; i < p_regions.size(); i++) {
-				const BufferTextureCopyRegion &region = p_regions[i];
-
-				uint32_t s_copy_w = (uint32_t)region.texture_region_size.x;
-				uint32_t s_copy_h = (uint32_t)region.texture_region_size.y;
-				if (block_w > 1 || block_h > 1) {
-					s_copy_w = ((s_copy_w + block_w - 1) / block_w) * block_w;
-					s_copy_h = ((s_copy_h + block_h - 1) / block_h) * block_h;
-				}
-
-				WGPUTexelCopyTextureInfo shd_copy = {};
-				shd_copy.texture = shadow;
-				shd_copy.mipLevel = region.texture_subresource.mipmap;
-				shd_copy.origin = { (uint32_t)region.texture_offset.x, (uint32_t)region.texture_offset.y, region.texture_subresource.layer };
-				shd_copy.aspect = WGPUTextureAspect_All;
-
-				uint32_t s_aligned_bpr = ((region.row_pitch + 255) / 256) * 256;
-				uint32_t s_rows = (block_h > 1) ? (s_copy_h / block_h) : s_copy_h;
-
-				WGPUTexelCopyBufferLayout shd_layout = {};
-				shd_layout.offset = 0;
-				shd_layout.bytesPerRow = s_aligned_bpr;
-				shd_layout.rowsPerImage = s_rows;
-
-				const uint8_t *data_ptr = src->shadow_map + region.buffer_offset;
-				uint64_t data_size = (uint64_t)s_aligned_bpr * s_rows;
-
-				WGPUExtent3D shd_extent = { s_copy_w, s_copy_h, (uint32_t)region.texture_region_size.z };
-				wgpuQueueWriteTexture(queue, &shd_copy, data_ptr, data_size, &shd_layout, &shd_extent);
-			}
-		}
-	} else if (!use_write_texture && rw_shadow_copy_map.has(dst_handle)) {
+	if (rw_shadow_copy_map.has(dst_handle)) {
 		// GPU buffer path: record shadow copies on the same command encoder so
 		// they execute after the preceding buffer-to-texture copy.
 		const LocalVector<WGPUTexture> &shadows = rw_shadow_copy_map[dst_handle];
@@ -8943,7 +9162,8 @@ void RenderingDeviceDriverWebGPU::command_copy_texture_to_buffer(CommandBufferID
 		WGPUTexelCopyTextureInfo src_copy = {};
 		src_copy.texture = src->gpu_handle();
 		src_copy.mipLevel = region.texture_subresource.mipmap;
-		src_copy.origin = { (uint32_t)region.texture_offset.x, (uint32_t)region.texture_offset.y, region.texture_subresource.layer };
+		// Z origin is the array layer for 2D arrays but texture_offset.z for 3D textures.
+		src_copy.origin = { (uint32_t)region.texture_offset.x, (uint32_t)region.texture_offset.y, region.texture_subresource.layer + (uint32_t)region.texture_offset.z };
 		src_copy.aspect = WGPUTextureAspect_All;
 
 		// WGPUTexelCopyBufferInfo combines the buffer handle + layout (Dawn API)
@@ -9810,6 +10030,8 @@ void RenderingDeviceDriverWebGPU::command_begin_render_pass(CommandBufferID p_cm
 
 	// Reset cached state — new render pass requires binding everything fresh.
 	cmd->render_state.current_pipeline = nullptr;
+	cmd->render_state.blend_constants_set = false;
+	cmd->render_state.blend_constants_as_alpha = false;
 	cmd->render_state.current_index_buffer = nullptr;
 	cmd->render_state.current_index_offset = 0;
 	memset(cmd->render_state.current_vertex_buffers, 0, sizeof(cmd->render_state.current_vertex_buffers));
@@ -9958,6 +10180,8 @@ void RenderingDeviceDriverWebGPU::command_next_render_subpass(CommandBufferID p_
 	cmd->invalidate_bind_groups();
 	cmd->reset_bound_group_state();
 	cmd->render_state.current_pipeline = nullptr;
+	cmd->render_state.blend_constants_set = false;
+	cmd->render_state.blend_constants_as_alpha = false;
 	cmd->render_state.current_index_buffer = nullptr;
 	cmd->render_state.current_index_offset = 0;
 	memset(cmd->render_state.current_vertex_buffers, 0, sizeof(cmd->render_state.current_vertex_buffers));
@@ -10031,6 +10255,16 @@ void RenderingDeviceDriverWebGPU::command_render_clear_attachments(CommandBuffer
 	WARN_PRINT_ONCE("WebGPU: command_render_clear_attachments not yet implemented.");
 }
 
+// Sets the pass's blend constant from the last constants Godot set, as the
+// bound pipeline reads it: (a, a, a, a) for a constant-alpha pipeline.
+static void _apply_blend_constants(WGCommandBuffer *p_cmd) {
+	const WGPUColor &c = p_cmd->render_state.blend_constants;
+	const bool as_alpha = p_cmd->render_state.current_pipeline && p_cmd->render_state.current_pipeline->blend_constant_alpha;
+	const WGPUColor value = as_alpha ? WGPUColor{ c.a, c.a, c.a, c.a } : c;
+	wgpuRenderPassEncoderSetBlendConstant(p_cmd->render_encoder, &value);
+	p_cmd->render_state.blend_constants_as_alpha = as_alpha;
+}
+
 void RenderingDeviceDriverWebGPU::command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
 	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
 	WGPipelineWrapper *pw = (WGPipelineWrapper *)(p_pipeline.id);
@@ -10046,6 +10280,9 @@ void RenderingDeviceDriverWebGPU::command_bind_render_pipeline(CommandBufferID p
 	wgpuRenderPassEncoderSetStencilReference(cmd->render_encoder, pw->stencil_reference);
 	cmd->render_state.current_pipeline = pw;
 	perf.set_pipeline_calls++;
+	if (cmd->render_state.blend_constants_set && cmd->render_state.blend_constants_as_alpha != pw->blend_constant_alpha) {
+		_apply_blend_constants(cmd);
+	}
 
 	// Pre-bind empty bind groups at pipeline layout gap slots.
 	// Firefox/wgpu requires all bind group indices to be set before draw calls.
@@ -10529,8 +10766,9 @@ void RenderingDeviceDriverWebGPU::command_render_set_blend_constants(CommandBuff
 	ERR_FAIL_NULL(cmd);
 	ERR_FAIL_COND(!cmd->render_encoder);
 
-	WGPUColor color = { p_constants.r, p_constants.g, p_constants.b, p_constants.a };
-	wgpuRenderPassEncoderSetBlendConstant(cmd->render_encoder, &color);
+	cmd->render_state.blend_constants = { p_constants.r, p_constants.g, p_constants.b, p_constants.a };
+	cmd->render_state.blend_constants_set = true;
+	_apply_blend_constants(cmd);
 }
 
 void RenderingDeviceDriverWebGPU::command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) {
@@ -11012,11 +11250,15 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 	primitive.frontFace = (p_rasterization_state.front_face == POLYGON_FRONT_FACE_CLOCKWISE)
 			? WGPUFrontFace_CW
 			: WGPUFrontFace_CCW;
+	// Clamp depth instead of clipping it (the cluster builder's light volumes,
+	// which may cross the near or far plane), where the device can.
+	primitive.unclippedDepth = depth_clip_control_supported && p_rasterization_state.enable_depth_clamp;
 
 	// --- Multisample state ---
 	WGPUMultisampleState multisample = {};
 	multisample.count = _clamp_sample_count(p_multisample_state.sample_count);
-	multisample.mask = 0xFFFFFFFFu;
+	// WebGPU has one 32-bit mask, which covers every sample count it supports.
+	multisample.mask = p_multisample_state.sample_mask.is_empty() ? 0xFFFFFFFFu : p_multisample_state.sample_mask[0];
 	multisample.alphaToCoverageEnabled = p_multisample_state.enable_alpha_to_coverage;
 
 	// --- Depth/stencil helpers ---
@@ -11330,6 +11572,27 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 	pw->specialized_modules[SHADER_STAGE_VERTEX] = specialized_vertex;
 	pw->specialized_modules[SHADER_STAGE_FRAGMENT] = specialized_fragment;
 	pw->stencil_reference = p_depth_stencil_state.front_op.reference;
+	{
+		// Constant-alpha factors can be emulated only when nothing in the
+		// pipeline also reads the constant color.
+		bool alpha = false;
+		bool color = false;
+		for (int i = 0; i < p_blend_state.attachments.size(); i++) {
+			const PipelineColorBlendState::Attachment &ba = p_blend_state.attachments[i];
+			if (!ba.enable_blend) {
+				continue;
+			}
+			const BlendFactor factors[4] = { ba.src_color_blend_factor, ba.dst_color_blend_factor, ba.src_alpha_blend_factor, ba.dst_alpha_blend_factor };
+			for (BlendFactor f : factors) {
+				alpha = alpha || f == BLEND_FACTOR_CONSTANT_ALPHA || f == BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+				color = color || f == BLEND_FACTOR_CONSTANT_COLOR || f == BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+			}
+		}
+		if (alpha && color) {
+			WARN_PRINT_ONCE("WebGPU: a pipeline blends with both the constant color and the constant alpha; WebGPU has a single blend constant, so the constant-alpha factors read the color.");
+		}
+		pw->blend_constant_alpha = alpha && !color;
+	}
 	pw->is_strip = is_strip;
 	if (is_strip) {
 		// Create a Uint16 variant — WebGPU bakes stripIndexFormat into the pipeline,
@@ -12128,6 +12391,26 @@ uint64_t RenderingDeviceDriverWebGPU::limit_get(Limit p_limit) {
 			return device_limits.maxComputeWorkgroupSizeZ;
 		case LIMIT_MAX_SHADER_VARYINGS:
 			return device_limits.maxInterStageShaderVariables;
+		case LIMIT_MAX_DRAW_INDEXED_INDEX:
+			return 0xFFFFFFFFu; // 32-bit indices, the full range.
+		case LIMIT_MAX_FRAMEBUFFER_WIDTH:
+		case LIMIT_MAX_FRAMEBUFFER_HEIGHT:
+		case LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
+		case LIMIT_MAX_VIEWPORT_DIMENSIONS_Y:
+			// Render targets and viewports are bounded by the 2D texture size.
+			return device_limits.maxTextureDimension2D;
+		case LIMIT_MAX_SAMPLERS_PER_SHADER_STAGE:
+			return device_limits.maxSamplersPerShaderStage;
+		case LIMIT_MAX_STORAGE_BUFFERS_PER_SHADER_STAGE:
+			return device_limits.maxStorageBuffersPerShaderStage;
+		case LIMIT_MAX_STORAGE_IMAGES_PER_SHADER_STAGE:
+			return device_limits.maxStorageTexturesPerShaderStage;
+		case LIMIT_MAX_UNIFORM_BUFFERS_PER_SHADER_STAGE:
+			return device_limits.maxUniformBuffersPerShaderStage;
+		case LIMIT_MAX_VERTEX_INPUT_BINDING_STRIDE:
+			return device_limits.maxVertexBufferArrayStride;
+		case LIMIT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+			return device_limits.minUniformBufferOffsetAlignment;
 		case LIMIT_SUBGROUP_SIZE:
 			return 0; // Subgroups not available in WebGPU.
 		case LIMIT_SUBGROUP_MIN_SIZE:
@@ -12204,12 +12487,15 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 			return 16;
 		case API_TRAIT_SKELETON_BUFFER_DIRECT_WRITE:
 			return 1;
-		// Force dual-paraboloid shadows for omni lights. Cubemap shadows
-		// require 6 render pass encoder cycles + 2 copy-to-atlas ops per
-		// light; dual-paraboloid uses 2 passes directly into the atlas,
-		// saving ~80% of shadow encoder overhead for typical scenes.
+		// Omni lights keep the shadow mode the project chose. Forcing
+		// dual-paraboloid saved ~80% of shadow encoder overhead (a cube shadow is
+		// 6 render passes + 2 copy-to-atlas ops per light, dual-paraboloid 2
+		// passes straight into the atlas), but it silently overrode
+		// OmniLight3D.omni_shadow_mode, which defaults to Cube: every omni shadow
+		// on the web had dual-paraboloid's seams and distortion. A project that
+		// wants the cheaper mode can still pick it per light, as on native.
 		case API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID:
-			return 1;
+			return 0;
 		// Batch consecutive same-mesh shadow draws into instanced draws.
 		// Reduces per-draw IPC from 2 crossings/draw to 2 crossings/batch.
 		case API_TRAIT_BATCH_INSTANCE_DRAWS:

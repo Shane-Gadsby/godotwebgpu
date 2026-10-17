@@ -27,7 +27,10 @@ void main() {
 
 layout(location = 0) in vec2 uv_interp;
 
-layout(set = 0, binding = 0) uniform samplerCube source_cube;
+// Named for what it holds, a depth cubemap: the WebGPU driver only binds a real
+// depth texture where the WGSL declares one, and recognizes depth-value reads
+// partly by "depth" in the name (_reclassify_single_component_depth_textures()).
+layout(set = 0, binding = 0) uniform samplerCube source_depth_cube;
 
 layout(push_constant, std430) uniform Params {
 	float z_far;
@@ -51,7 +54,7 @@ void main() {
 		normal.z = -normal.z;
 	}
 
-	float depth = texture(source_cube, normal).r;
+	float depth = texture(source_depth_cube, normal).r;
 
 	// absolute values for direction cosines, bigger value equals closer to basis axis
 	vec3 unorm = abs(normal);

@@ -18,7 +18,8 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 70 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
@@ -139,8 +140,15 @@ fully green suite in the 4.8 port for exactly that reason.
 cd webgpu_tests/forward_plus
 ./export.sh                                     # after an engine build
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity   # ... every frame against native Vulkan
 node run_forward_plus.mjs --list                # covered and uncovered features
 ```
+
+The delta test only proves a feature *does something*; `--parity` proves it does
+what native Vulkan does, within a per-feature tolerance. It was what found
+`DEPTH_TEXTURE` reading zeros, volumetric fog without shadows and SDFGI corrupted
+by camera movement — all of which passed the delta test (`webgpu_notes/TASKS.md`
+§4.29).
 
 **Any feature added to the renderer — including code merged from upstream Godot
 — must get an entry in this matrix, or an entry in `features.mjs`'s `UNCOVERED`

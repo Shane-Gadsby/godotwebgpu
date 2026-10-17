@@ -142,7 +142,9 @@ while IFS= read -r obj; do
     TINT_OBJS+=("$obj")
 done < <(find "$BUILD_DIR/tint" -name '*.o' 2>/dev/null)
 
-PREPROCESS_OBJ="$BUILD_DIR/cli/spirv_preprocess.o"
+# spirv_preprocess.o calls into spirv_lite_reflect.o and spirv_opt_passes.o,
+# and all three into SPIRV-Tools.
+PREPROCESS_OBJS=("$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/spirv_opt_passes.o" "${SPIRV_TOOLS_OBJS[@]}")
 TINT_WRAPPER_OBJ="$BUILD_DIR/cli/tint_wrapper.o"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +175,7 @@ $CXX -c "$SCRIPT_DIR/fuzz_preprocess_passes.cpp" \
 
 $CXX -o "$REPO_ROOT/bin/fuzz_preprocess_passes" \
     "$BUILD_DIR/fuzz/fuzz_preprocess_passes.o" \
-    "$PREPROCESS_OBJ" \
+    "${PREPROCESS_OBJS[@]}" \
     $DRIVER_OBJ \
     $FUZZ_FLAGS -O1
 
@@ -185,7 +187,7 @@ $CXX -c "$SCRIPT_DIR/fuzz_split_samplers.cpp" \
 
 $CXX -o "$REPO_ROOT/bin/fuzz_split_samplers" \
     "$BUILD_DIR/fuzz/fuzz_split_samplers.o" \
-    "$PREPROCESS_OBJ" \
+    "${PREPROCESS_OBJS[@]}" \
     $DRIVER_OBJ \
     $FUZZ_FLAGS -O1
 
@@ -200,9 +202,8 @@ $CXX -c "$SCRIPT_DIR/fuzz_spirv_to_wgsl.cpp" \
 
 $CXX -o "$REPO_ROOT/bin/fuzz_spirv_to_wgsl" \
     "$BUILD_DIR/fuzz/fuzz_spirv_to_wgsl.o" \
-    "$PREPROCESS_OBJ" \
+    "${PREPROCESS_OBJS[@]}" \
     "$TINT_WRAPPER_OBJ" \
-    "${SPIRV_TOOLS_OBJS[@]}" \
     "${TINT_OBJS[@]}" \
     $DRIVER_OBJ \
     $FUZZ_FLAGS -O1

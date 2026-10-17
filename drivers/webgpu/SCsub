@@ -751,9 +751,28 @@ if env["platform"] == "web":
     webgpu_sources = [
         f
         for f in webgpu_sources
-        if "tint_wrapper" not in str(f) and "tint_ir_transforms" not in str(f) and "wgsl_bake_subprocess" not in str(f)
+        if "tint_wrapper" not in str(f)
+        and "tint_ir_transforms" not in str(f)
+        and "wgsl_bake_subprocess" not in str(f)
+        and "spirv_opt_passes" not in str(f)
     ]
     env_webgpu.add_source_files(env.drivers_sources, webgpu_sources)
+
+    # spirv_opt_passes.cpp is written against SPIRV-Tools' optimizer IR, whose
+    # headers need SPIRV-Tools' internal include paths. It includes no Godot
+    # headers, so those paths stay out of the rest of the driver (where bare
+    # names like "table.h" could otherwise resolve into SPIRV-Tools), while it
+    # keeps the driver's own warning flags.
+    env_spirv_opt = env_webgpu.Clone()
+    env_spirv_opt.Prepend(
+        CPPPATH=[
+            spirv_tools_dir,
+            spirv_tools_dir + "source/",
+            spirv_tools_dir + "generated/",
+            spirv_headers_dir + "include/spirv/unified1/",
+        ]
+    )
+    env_spirv_opt.add_source_files(env.drivers_sources, ["#drivers/webgpu/spirv_opt_passes.cpp"])
 
     # Generate precompiled SPIR-V → WGSL lookup table at build time.
     # The generated header is #included by rendering_device_driver_webgpu.cpp.
@@ -772,6 +791,9 @@ if env["platform"] == "web":
         for f in (
             "spirv_preprocess.cpp",
             "spirv_preprocess.h",
+            "spirv_opt_passes.cpp",
+            "spirv_opt_passes.h",
+            "spirv_binding_layout.h",
             "spirv_to_wgsl.cpp",
             "tint_wrapper.cpp",
             "tint_ir_transforms.cpp",

@@ -153,6 +153,8 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// the latest contents through the read-only shadow binding.
 	HashMap<WGPUTexture, LocalVector<WGPUTexture>> rw_shadow_copy_map;
 	bool float32_filterable_supported = false;
+	// depth-clip-control: lets a pipeline clamp depth (PrimitiveState.unclippedDepth).
+	bool depth_clip_control_supported = false;
 	bool float32_blendable_supported = false;
 	// Optional texture-compression features (BC, ETC2, ASTC). Requested by the JS
 	// shell at device creation; the driver must only report the corresponding
@@ -275,6 +277,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUBuffer aliasing_stub_buffer = nullptr;
 	static constexpr uint64_t ALIASING_STUB_BUFFER_SIZE = 65536; // 64KB — large enough for any sub-emitter emission buffer
 
+	// Source for command_clear_color_texture()'s zero clears of textures that
+	// cannot be render attachments: one slice, never written, so it stays zero.
+	// Grown on demand to the largest slice cleared so far.
+	WGPUBuffer clear_zero_buffer = nullptr;
+	uint64_t clear_zero_buffer_size = 0;
+
 	// --- Dummy Samplers for BGL Rebinding ---
 	// When a bind group must be re-created with a different BGL (e.g., because
 	// the original BGL has a Comparison sampler but the target has Filtering),
@@ -304,6 +312,9 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// what they bound (for the draw-time reconcile) need that distinction.
 	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx, WGPUBindGroupLayout *r_layout = nullptr);
 	bool _create_rw_shadow_bind_entry(WGUniformSet *p_us, WGTexture *p_orig_tex, uint32_t p_shadow_bnd, WGPUBindGroupEntry &r_entry);
+	WGPUTextureView _sampled_texture_view(WGUniformSet *p_us, WGTexture *p_tex, WGPUTextureViewDimension p_expected_dim, WGPUTextureSampleType p_expected_sample, const WGShader *p_shader, uint32_t p_set, uint32_t p_glsl_binding);
+	// (shader name, set, binding) of collapsed texture arrays already warned about.
+	HashSet<String> collapsed_array_warnings;
 
 	// Last line of defense before a draw/dispatch: make the bind groups
 	// actually set on the encoder match the pipeline that is about to consume

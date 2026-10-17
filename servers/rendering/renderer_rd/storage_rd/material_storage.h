@@ -125,6 +125,10 @@ public:
 	struct Samplers {
 		RID rids[RSE::CANVAS_ITEM_TEXTURE_FILTER_MAX][RSE::CANVAS_ITEM_TEXTURE_REPEAT_MAX];
 		float mipmap_bias = 0.0f;
+		// mipmap_bias as data, for the scene shaders' SamplerLodBias block:
+		// samplers apply the bias themselves wherever samplers can carry one, but
+		// WebGPU's cannot, and its shader translation reads it from here instead.
+		RID lod_bias_buffer;
 		bool use_nearest_mipmap_filter = false;
 		int anisotropic_filtering_level = 2;
 
@@ -134,6 +138,8 @@ public:
 
 		template <typename Collection>
 		void append_uniforms(Collection &p_uniforms, int p_first_index) const;
+		// The scene shaders' SamplerLodBias uniform buffer, at the binding they declare it.
+		RD::Uniform get_lod_bias_uniform() const;
 		bool is_valid() const;
 		bool is_null() const;
 	};

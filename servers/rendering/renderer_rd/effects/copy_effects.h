@@ -133,6 +133,9 @@ private:
 		// 2-component destination (e.g. TAA's RG16F velocity buffers) -- see
 		// copy.glsl's DST_IMAGE_RG16F and copy_to_rect()'s p_rg16f_dst.
 		COPY_MODE_SIMPLY_COPY_RG16F,
+		// COPY_MODE_SIMPLY_COPY_DEPTH from a source in a real depth format, which
+		// WebGPU must declare as a depth texture (copy_depth_to_rect()).
+		COPY_MODE_SIMPLY_COPY_DEPTH_FORMAT,
 		COPY_MODE_MAX,
 
 	};

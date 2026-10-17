@@ -240,6 +240,22 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 		return FFX_OK;
 	}
 
+	// The reconstructed previous depth is scattered into with atomic min/max
+	// (StoreReconstructedDepth()), which WGSL only has on buffers: there it is
+	// one uint per pixel of the maximum render size, which is what the
+	// NO_IMAGE_ATOMICS shader variants declare. Starts zeroed like a texture;
+	// the lock pass resets it every frame.
+	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH && !rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+		RID buffer = rd->storage_buffer_create(sizeof(uint32_t) * MAX(res_desc.width, 1u) * MAX(res_desc.height, 1u));
+		ERR_FAIL_COND_V(buffer.is_null(), FFX_ERROR_BACKEND_API_ERROR);
+
+		rd->set_resource_name(buffer, String(p_create_resource_description->name));
+
+		p_out_resource->internalIndex = scratch.resources.add(buffer, false, p_create_resource_description->id, res_desc);
+
+		return FFX_OK;
+	}
+
 	// FSR2's base implementation never requests buffer creation otherwise.
 	ERR_FAIL_COND_V(res_desc.type != FFX_RESOURCE_TYPE_TEXTURE1D && res_desc.type != FFX_RESOURCE_TYPE_TEXTURE2D && res_desc.type != FFX_RESOURCE_TYPE_TEXTURE3D, FFX_ERROR_INVALID_ARGUMENT);
 
@@ -250,10 +266,12 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 
 	RD::DataFormat texture_data_format = ffx_surface_format_to_rd_format(res_desc.format);
 
-	// WebGPU has no R16_Snorm texture format (texture_get_usages_supported_by_format()
-	// deliberately reports it as supporting no usages at all -- see Task 7.10's comment
+	// WebGPU has no filterable R16_Snorm texture format (texture_get_usages_supported_by_format()
+	// reports it as supporting no usages at all -- see Task 7.10's comment
 	// there: reinterpreting a stored 16-bit normalized integer's raw bits as a 16-bit
-	// float, the only same-size substitute, would produce garbage). FSR2's two SNORM16
+	// float, the only same-size substitute, would produce garbage). Every other
+	// device keeps the real format, so the tables hold exactly the values
+	// upstream's do. FSR2's two SNORM16
 	// lookup tables (FFX_FSR2_RESOURCE_IDENTIFIER_LANCZOS_LUT and
 	// FFX_FSR2_RESOURCE_IDENTITIER_UPSAMPLE_MAXIMUM_BIAS_LUT) are read-only,
 	// plain-sampled (`texture2D` + `textureLod`, never a storage image, so no shader-side
@@ -261,7 +279,8 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 	// fixed init data -- safe to store as real (R16_SFLOAT) floats instead, converting
 	// the int16 SNORM values to half-float bit patterns up front. See
 	// webgpu_notes/TASKS.md's FSR2 task for the full investigation.
-	bool convert_snorm16_to_sfloat16 = (texture_data_format == RD::DATA_FORMAT_R16_SNORM);
+	bool convert_snorm16_to_sfloat16 = texture_data_format == RD::DATA_FORMAT_R16_SNORM &&
+			!rd->texture_is_format_supported_for_usage(RD::DATA_FORMAT_R16_SNORM, RD::TEXTURE_USAGE_SAMPLING_BIT);
 	if (convert_snorm16_to_sfloat16) {
 		texture_data_format = RD::DATA_FORMAT_R16_SFLOAT;
 	}
@@ -454,8 +473,21 @@ static FfxErrorCode execute_gpu_job_compute_rd(FSR2Context::Scratch &p_scratch, 
 	thread_local LocalVector<RD::Uniform> compute_uniforms;
 	compute_uniforms.clear();
 
+	// Resources create_resource_rd() made buffers of on a device without
+	// image atomics; they are bound as buffers whether read or written.
+	const bool image_atomics = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+	auto is_buffer_resource = [&](uint32_t p_internal_index) {
+		const uint32_t id = p_scratch.resources.ids[p_internal_index];
+		return !image_atomics && (id == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT || id == FFX_FSR2_RESOURCE_IDENTIFIER_RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH);
+	};
+
 	for (uint32_t i = 0; i < p_job.pipeline.srvCount; i++) {
 		RID texture_rid = p_scratch.resources.rids[p_job.srvs[i].internalIndex];
+		if (is_buffer_resource(p_job.srvs[i].internalIndex)) {
+			RD::Uniform buffer_uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, p_job.pipeline.srvResourceBindings[i].slotIndex, texture_rid);
+			compute_uniforms.push_back(buffer_uniform);
+			continue;
+		}
 		RD::Uniform texture_uniform(RD::UNIFORM_TYPE_TEXTURE, p_job.pipeline.srvResourceBindings[i].slotIndex, texture_rid);
 		compute_uniforms.push_back(texture_uniform);
 	}
@@ -464,11 +496,11 @@ static FfxErrorCode execute_gpu_job_compute_rd(FSR2Context::Scratch &p_scratch, 
 		uint32_t internal_index = p_job.uavs[i].internalIndex;
 		RID image_rid = p_scratch.resources.rids[internal_index];
 
-		// The SPD atomic counter was rerouted to a real storage buffer in
-		// create_resource_rd() when SUPPORTS_IMAGE_ATOMIC_32_BIT is unavailable
-		// (see the comment there); bind it as a buffer here to match, instead of
-		// treating its RID as a texture.
-		if (p_scratch.resources.ids[internal_index] == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT && !RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+		// The SPD atomic counter and the reconstructed previous depth were made
+		// storage buffers in create_resource_rd() when
+		// SUPPORTS_IMAGE_ATOMIC_32_BIT is unavailable (see the comments there);
+		// bind them as buffers here to match, instead of as textures.
+		if (is_buffer_resource(internal_index)) {
 			RD::Uniform buffer_uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, p_job.pipeline.uavResourceBindings[i].slotIndex, image_rid);
 			compute_uniforms.push_back(buffer_uniform);
 			continue;
@@ -621,6 +653,17 @@ FSR2Effect::FSR2Effect() {
 		modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
 	}
 
+	// The reconstructed previous depth is scattered with image atomics. Without
+	// them (WebGPU) it lives in a storage buffer instead (create_resource_rd()),
+	// and every pass touching it -- reconstruct, depth clip and lock -- needs the
+	// NO_IMAGE_ATOMICS declarations of it (ffx_fsr2_callbacks_glsl.h).
+	const bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+	const String atomics_define = use_image_atomics ? "" : "\n#define NO_IMAGE_ATOMICS 1\n";
+	Vector<String> modes_with_fp16_atomics;
+	for (const String &mode : modes_with_fp16) {
+		modes_with_fp16_atomics.push_back(atomics_define + mode);
+	}
+
 	// Since Godot currently lacks a shader reflection mechanism to persist the name of the bindings in the shader cache and
 	// there's also no mechanism to compile the shaders offline, the bindings are created manually by looking at the GLSL
 	// files included in FSR2 and mapping the macro bindings (#define FSR2_BIND_*) to their respective implementation names.
@@ -632,7 +675,7 @@ FSR2Effect::FSR2Effect() {
 	{
 		Pass &pass = device.passes[FFX_FSR2_PASS_DEPTH_CLIP];
 		pass.shader = &shaders.depth_clip;
-		pass.shader->initialize(modes_with_fp16, general_defines);
+		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
 		pass.shader_version = pass.shader->version_create();
 		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
 
@@ -664,25 +707,11 @@ FSR2Effect::FSR2Effect() {
 		Pass &pass = device.passes[FFX_FSR2_PASS_RECONSTRUCT_PREVIOUS_DEPTH];
 		pass.shader = &shaders.reconstruct_previous_depth;
 
-		// This pass's StoreReconstructedDepth (ffx_fsr2_callbacks_glsl.h) uses
-		// imageAtomicMin/Max to resolve multiple threads scattering into the
-		// same destination texel when reprojecting depth -- WebGPU has no
-		// texture-atomics support at all, so on backends without
-		// SUPPORTS_IMAGE_ATOMIC_32_BIT this shader needs its own
-		// NO_IMAGE_ATOMICS variant, mirroring the luminance-pyramid pass
-		// below (modes_atomic_fallback) but with a plain-store fallback
-		// instead of a buffer-backed counter -- see that fallback's comment
-		// in ffx_fsr2_callbacks_glsl.h for why a plain store is an accepted
-		// approximation here. Combined with the FFX_HALF gate below since
-		// both axes are independent (currently both false on WebGPU).
-		bool use_image_atomics_reconstruct = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
-		String atomics_define = use_image_atomics_reconstruct ? "" : "\n#define NO_IMAGE_ATOMICS 1\n";
-		Vector<String> modes_reconstruct_depth;
-		modes_reconstruct_depth.push_back(atomics_define);
-		if (capabilities.fp16Supported) {
-			modes_reconstruct_depth.push_back(atomics_define + "\n#define FFX_HALF 1\n");
-		}
-		pass.shader->initialize(modes_reconstruct_depth, general_defines);
+		// This pass's StoreReconstructedDepth (ffx_fsr2_callbacks_glsl.h)
+		// resolves threads scattering into the same texel with an atomic
+		// min/max: on an image normally, on the buffer form of the resource
+		// under NO_IMAGE_ATOMICS (see modes_with_fp16_atomics above).
+		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
 		pass.shader_version = pass.shader->version_create();
 		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
 
@@ -712,7 +741,7 @@ FSR2Effect::FSR2Effect() {
 	{
 		Pass &pass = device.passes[FFX_FSR2_PASS_LOCK];
 		pass.shader = &shaders.lock;
-		pass.shader->initialize(modes_with_fp16, general_defines);
+		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
 		pass.shader_version = pass.shader->version_create();
 		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
 
@@ -825,12 +854,18 @@ FSR2Effect::FSR2Effect() {
 		// on it (TINT_UNIMPLEMENTED, a WASM `unreachable` trap that kills the whole
 		// engine instance) -- so only ever declare the image-atomics variant on
 		// backends that can actually compile it.
-		bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+		//
+		// The same fallback variant also builds SPD (the single-pass downsampler
+		// this pass is) without wave operations. Its quad shuffles survive
+		// translation only where the device has WebGPU's optional `subgroups`
+		// feature, so without this the pass could not be created at all on
+		// Firefox or on any adapter that lacks it; the shared-memory path SPD
+		// provides instead averages the same quads.
 		Vector<String> modes_atomic_fallback;
 		if (use_image_atomics) {
 			modes_atomic_fallback.push_back("");
 		}
-		modes_atomic_fallback.push_back("\n#define NO_IMAGE_ATOMICS 1\n");
+		modes_atomic_fallback.push_back("\n#define NO_IMAGE_ATOMICS 1\n#define SPD_NO_WAVE_OPERATIONS 1\n");
 		pass.shader->initialize(modes_atomic_fallback, general_defines);
 		pass.shader_version = pass.shader->version_create();
 		pass.shader_variant = use_image_atomics ? 0 : (modes_atomic_fallback.size() - 1);

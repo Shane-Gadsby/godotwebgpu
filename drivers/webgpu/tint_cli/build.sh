@@ -294,6 +294,13 @@ compile_one "drivers/webgpu/spirv_preprocess.cpp" \
     -I"$SHIM_DIR" \
     "${SPIRV_TOOLS_INCLUDES[@]}" &
 
+# spirv_opt_passes.cpp — the passes written against SPIRV-Tools' optimizer IR;
+# needs SPIRV-Tools' internal headers, but not the shim (no Godot types).
+compile_one "drivers/webgpu/spirv_opt_passes.cpp" \
+    "$BUILD_DIR/cli/spirv_opt_passes.o" \
+    "c++17" \
+    "${SPIRV_TOOLS_INCLUDES[@]}" &
+
 # spirv_lite_reflect.cpp — the SPIRV-Tools-free half of the reflection, which
 # spirv_preprocess.cpp delegates has_spec_constants() to. Same shim include
 # path, no SPIRV-Tools includes needed.
@@ -333,7 +340,7 @@ wait
 echo "[4/4] Linking tint_convert_cli..."
 
 # Filter to only .o files that were successfully compiled.
-LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
+LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_opt_passes.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
 for obj in "${SPIRV_TOOLS_OBJS[@]}" "${TINT_OBJS[@]}"; do
     [[ -f "$obj" ]] && LINK_OBJS+=("$obj")
 done

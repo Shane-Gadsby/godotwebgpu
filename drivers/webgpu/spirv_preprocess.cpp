@@ -31,6 +31,7 @@
 #include "spirv_preprocess.h"
 
 #include "spirv_lite_reflect.h"
+#include "spirv_opt_passes.h"
 
 #include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
@@ -5069,6 +5070,64 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 	out.resize((int64_t)(result.size() * 4));
 	memcpy(out.ptrw(), result.data(), result.size() * 4);
 	return out;
+}
+
+// Runs one of spirv_opt_passes' std::vector-based passes on a byte Vector.
+static Vector<uint8_t> run_opt_pass(const Vector<uint8_t> &p_bytes, bool (*p_pass)(std::vector<uint32_t> &)) {
+	if (p_bytes.size() < 20 || (p_bytes.size() % 4) != 0) {
+		return p_bytes;
+	}
+	std::vector<uint32_t> words(p_bytes.size() / 4);
+	memcpy(words.data(), p_bytes.ptr(), p_bytes.size());
+	if (!p_pass(words)) {
+		return p_bytes;
+	}
+	Vector<uint8_t> out;
+	out.resize((int64_t)words.size() * 4);
+	memcpy(out.ptrw(), words.data(), words.size() * 4);
+	return out;
+}
+
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes) {
+	Vector<uint8_t> spv = inline_opaque_functions(p_bytes);
+	// Specialization constants are left in place when every one of them can
+	// become a WGSL `@id(N) override`, so a pipeline can specialize them through
+	// WebGPU's own pipeline constants; everything else is frozen to its default
+	// and specialized (if at all) by re-patching the SPIR-V at pipeline creation.
+	if (!spec_constants_overridable(spv)) {
+		spv = freeze_spec_constant_ops(spv);
+	}
+	spv = rewrite_copy_logical(spv);
+	spv = rewrite_terminate_invocation(spv);
+	spv = convert_push_constants_to_uniforms(spv);
+	spv = split_combined_samplers(spv);
+	spv = fix_depth2_images(spv).bytes;
+	spv = negate_position_y(spv);
+	spv = strip_unsupported_decorations(spv);
+	spv = strip_memory_barrier(spv);
+	spv = strip_image_write_operands(spv);
+	spv = strip_image_fetch_read_flag_only_operands(spv);
+	spv = hoist_constant_local_arrays(spv);
+	spv = split_initialized_local_arrays(spv);
+	spv = strip_helper_invocation_builtin(spv);
+	spv = fold_ballot_bit_count(spv);
+	// Must follow fold_ballot_bit_count(), which is what makes the ballots dead.
+	spv = lower_subgroup_ops(spv);
+	spv = fix_nonfinite_literals(spv);
+	// After split_combined_samplers(), so the sampled images it rewrites are
+	// already built from separate texture and sampler loads.
+	spv = run_opt_pass(spv, spirv_opt_passes::lower_tint_unsupported_ops);
+	// Also needs split_combined_samplers(): it follows each sample's sampler
+	// back to its variable through a separate OpSampledImage.
+	spv = run_opt_pass(spv, spirv_opt_passes::apply_sampler_lod_bias);
+	// Before flatten_binding_arrays(), which collapses whatever this leaves.
+	spv = run_opt_pass(spv, spirv_opt_passes::expand_binding_arrays);
+	spv = flatten_binding_arrays(spv);
+	spv = infer_readonly_storage(spv);
+	spv = strip_writeonly_storage_decoration(spv);
+	spv = eliminate_dead_resources(spv);
+	spv = eliminate_local_single_block_vars(spv);
+	return spv;
 }
 
 } // namespace spirv_preprocess

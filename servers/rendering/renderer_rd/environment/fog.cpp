@@ -1006,6 +1006,16 @@ void Fog::volumetric_fog_update(const VolumetricFogSettings &p_settings, const P
 			copy_uniforms.push_back(u);
 		}
 
+		{
+			// Point sampler for the shader's shadow-atlas gathers (depth_sampler).
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_SAMPLER;
+			u.binding = 22;
+			u.append_id(material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED));
+			uniforms.push_back(u);
+			copy_uniforms.push_back(u);
+		}
+
 		if (fog->copy_uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(fog->copy_uniform_set)) {
 			RD::get_singleton()->free_rid(fog->copy_uniform_set);
 		}

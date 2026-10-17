@@ -67,6 +67,10 @@ cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
 cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 
+# Forward+ feature matrix (needs a real GPU and a fresh ./export.sh); --parity also compares every
+# frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly:
+cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity
+
 # Per-frame WebGPU call/byte budgets on the scene smoketest exports (needs a fresh export first, see TASKS.md §3):
 cd webgpu_tests/perf_guard && node run_perf_guard.mjs
 # Where a CPU-bound export spends its frame (api_profile.mjs: calls/ms per GPU method; cpu_steady.mjs: wasm CPU by function):

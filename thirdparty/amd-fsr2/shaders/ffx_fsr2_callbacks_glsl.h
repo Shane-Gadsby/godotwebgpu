@@ -182,7 +182,13 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
 	layout (set = 1, binding = FSR2_BIND_SRV_TRANSPARENCY_AND_COMPOSITION_MASK)       uniform texture2D  r_transparency_and_composition_mask;
 #endif
 #if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
+#ifdef NO_IMAGE_ATOMICS
+	// Without texture atomics (WebGPU) this resource is a storage buffer, one
+	// uint per render-resolution pixel: see StoreReconstructedDepth().
+	layout (set = 1, binding = FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH, std430) readonly buffer ReconstructedPrevNearestDepthSrv { uint data[]; } r_reconstructed_previous_nearest_depth;
+#else
 	layout (set = 1, binding = FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)        uniform utexture2D r_reconstructed_previous_nearest_depth;
+#endif
 #endif
 #if defined(FSR2_BIND_SRV_DILATED_MOTION_VECTORS)
 	layout (set = 1, binding = FSR2_BIND_SRV_DILATED_MOTION_VECTORS)                  uniform texture2D  r_dilated_motion_vectors;
@@ -235,7 +241,11 @@ layout (set = 0, binding = 1) uniform sampler s_LinearClamp;
 
 // UAV
 #if defined FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH
+#ifdef NO_IMAGE_ATOMICS
+	layout (set = 1, binding = FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH, std430) coherent buffer ReconstructedPrevNearestDepthUav { uint data[]; } rw_reconstructed_previous_nearest_depth;
+#else
 	layout (set = 1, binding = FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH, r32ui) uniform uimage2D   rw_reconstructed_previous_nearest_depth;
+#endif
 #endif
 #if defined FSR2_BIND_UAV_DILATED_MOTION_VECTORS
 	layout (set = 1, binding = FSR2_BIND_UAV_DILATED_MOTION_VECTORS, rg16f)           writeonly uniform image2D  rw_dilated_motion_vectors;
@@ -530,10 +540,27 @@ FfxFloat32 LoadSceneDepth(FfxInt32x2 iPxInput)
 }
 #endif
 
+#if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH) || defined(FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
+// Index of a render-resolution pixel in the buffer form of the reconstructed
+// depth (NO_IMAGE_ATOMICS); every pass that touches it uses the same stride.
+FfxUInt32 ReconstructedDepthIndex(FfxInt32x2 iPxPos)
+{
+	return FfxUInt32(iPxPos.y) * FfxUInt32(RenderSize().x) + FfxUInt32(iPxPos.x);
+}
+#endif
+
 #if defined(FSR2_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
 FfxFloat32 LoadReconstructedPrevDepth(FfxInt32x2 iPxPos)
 {
+#ifdef NO_IMAGE_ATOMICS
+	// Out of range reads 0, as texelFetch does with robust buffer access.
+	if (any(lessThan(iPxPos, FfxInt32x2(0))) || any(greaterThanEqual(iPxPos, RenderSize()))) {
+		return 0.0f;
+	}
+	return uintBitsToFloat(r_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxPos)]);
+#else
 	return uintBitsToFloat(texelFetch(r_reconstructed_previous_nearest_depth, iPxPos, 0).r);
+#endif
 }
 #endif
 
@@ -542,18 +569,20 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
 {
 	FfxUInt32 uDepth = floatBitsToUint(fDepth);
 
-	// NO_IMAGE_ATOMICS (WebGPU): no texture-atomics support at all (only
-	// buffer atomics -- OpImageTexelPointer has no WGSL translation and
-	// hard-aborts Tint's SPIR-V reader), so fall back to a plain store.
-	// Multiple invocations can scatter into the same texel here (bilinear-
-	// neighbor reprojection in ReconstructPrevDepth), so without the atomic
-	// min/max reduction this becomes last-write-wins instead of
-	// deterministically nearest -- an accepted approximation since this only
-	// feeds a heuristic reprojection-confidence input, not a correctness-
-	// critical output. See fsr2.cpp's FFX_FSR2_PASS_RECONSTRUCT_PREVIOUS_DEPTH
-	// setup and webgpu_notes/TASKS.md's FSR2 task.
+	// NO_IMAGE_ATOMICS (WebGPU): WGSL has atomics on storage buffers only
+	// (OpImageTexelPointer has no WGSL translation and hard-aborts Tint's
+	// SPIR-V reader), so the resource is a buffer there and the same min/max
+	// reduction runs on it. Several invocations scatter into one pixel
+	// (bilinear-neighbor reprojection in ReconstructPrevDepth); a plain store
+	// made the result whichever wrote last, which changed the reprojection
+	// confidence -- and so ghosting and disocclusion -- frame to frame. The
+	// depths are non-negative floats, whose bit patterns order like the floats.
 	#ifdef NO_IMAGE_ATOMICS
-		imageStore(rw_reconstructed_previous_nearest_depth, iPxSample, uvec4(uDepth, 0, 0, 0));
+	#if FFX_FSR2_OPTION_INVERTED_DEPTH
+		atomicMax(rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)], uDepth);
+	#else
+		atomicMin(rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)], uDepth);
+	#endif
 	#elif FFX_FSR2_OPTION_INVERTED_DEPTH
 		imageAtomicMax(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth);
 	#else
@@ -565,7 +594,11 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
 #if defined(FSR2_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
 void SetReconstructedDepth(FfxInt32x2 iPxSample, FfxUInt32 uValue)
 {
+#ifdef NO_IMAGE_ATOMICS
+	rw_reconstructed_previous_nearest_depth.data[ReconstructedDepthIndex(iPxSample)] = uValue;
+#else
 	imageStore(rw_reconstructed_previous_nearest_depth, iPxSample, uvec4(uValue, 0, 0, 0));
+#endif
 }
 #endif
 

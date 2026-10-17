@@ -728,6 +728,7 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 	}
 
 	p_samplers.append_uniforms(uniforms, 13);
+	uniforms.push_back(p_samplers.get_lod_bias_uniform());
 
 #ifdef MODULE_TEXTURE_STREAMING_ENABLED
 	{

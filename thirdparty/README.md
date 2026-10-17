@@ -45,6 +45,11 @@ Patches:
 
 - `0001-build-fixes.patch` ([GH-81197](https://github.com/godotengine/godot/pull/81197))
 - `0002-godot-fsr2-options.patch` ([GH-81197](https://github.com/godotengine/godot/pull/81197))
+- `0003-storage-format-fix.patch`
+- `0004-webgpu-no-image-atomics.patch` (Godot WebGPU fork only: `NO_IMAGE_ATOMICS`
+  storage-buffer forms of the SPD global atomic and the reconstructed previous
+  depth, `SPD_NO_WAVE_OPERATIONS`, and a fixed `rgba16f` upscaled output, since
+  WGSL has neither texture atomics nor formatless storage textures)
 
 
 ## angle

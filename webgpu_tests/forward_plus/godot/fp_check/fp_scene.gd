@@ -10,10 +10,15 @@ extends Node3D
 ## like from the outside: no error, no crash, just a missing effect.
 ##
 ## Protocol (run_forward_plus.mjs drives it):
-##   location.hash = "#fp=<feature_id>:<0|1>"
+##   location.hash = "#fp=<feature_id>:<0|1>[:<settle frames>]"
 ## The script polls the hash, applies the config, waits the feature's settle
-## frames, then prints:
+## frames (or the given count, which the parity mode uses), then prints:
 ##   [FP] READY <feature_id> <0|1>
+## and freezes that frame -- particles stop and the render loop pauses after
+## drawing it -- so the harness's asynchronous screenshot captures exactly the
+## frame READY announced, not one some frames later. Without that, everything
+## animated or temporal (particles, TAA and FSR2 jitter) differed from the
+## native reference by however late the capture landed.
 ## and on an unknown id:
 ##   [FP] UNKNOWN <feature_id>
 ## so a feature added to features.mjs without a matching arm here fails loudly
@@ -34,14 +39,15 @@ extends Node3D
 const FEATURES := [
 	"ambient_light", "reflected_light", "sky", "tonemap", "tonemap_exposure",
 	"adjustments", "color_correction", "fog", "fog_height", "fog_aerial_perspective",
-	"volumetric_fog", "glow", "glow_map", "ssr", "ssao", "ssil", "sdfgi",
+	"volumetric_fog", "glow", "glow_map", "ssr", "ssao", "ssil", "sdfgi", "sdfgi_camera_move",
 	"directional_light", "directional_shadow", "directional_shadow_splits",
-	"omni_light", "omni_shadow", "spot_light", "spot_shadow", "light_projector",
+	"omni_light", "omni_shadow", "omni_shadow_cube", "spot_light", "spot_shadow", "light_projector",
 	"soft_shadows", "shadow_blur", "contact_shadows", "light_negative", "light_specular",
 	"reflection_probe", "voxel_gi", "decal",
 	"normal_map", "emission", "rim", "clearcoat", "anisotropy",
 	"subsurface_scattering", "backlight", "refraction", "heightmap", "triplanar",
 	"transparency", "alpha_scissor", "alpha_hash", "proximity_fade", "distance_fade",
+	"depth_texture", "mipmap_bias", "texture_array", "shader_builtins", "point_coord",
 	# skeletal_animation and particle_trails have _apply() arms below but are
 	# deliberately NOT listed: the fixture cannot drive either to a measurable
 	# result yet, so they live in features.mjs's UNCOVERED list instead. Put
@@ -69,6 +75,9 @@ const SETTLE_OVERRIDE := {
 	"reflection_probe": 12,
 	"voxel_gi": 20,
 	"fsr2": 16,
+	# The camera flies 60 m away (scrolling every SDFGI cascade) and back over
+	# 240 frames, then SDFGI settles where it started.
+	"sdfgi_camera_move": 330,
 }
 
 var env: Environment
@@ -98,9 +107,28 @@ var mat_glass: StandardMaterial3D
 var mat_emissive: StandardMaterial3D
 
 var tex_checker: ImageTexture
+var tex_checker_mips: ImageTexture
 var tex_normal: ImageTexture
 var tex_gradient: ImageTexture
 var tex_lut: ImageTexture
+
+var probe_mi: MeshInstance3D           # wears mat_probe unless a test swaps in a ShaderMaterial
+var mat_depth: ShaderMaterial
+var mat_array: ShaderMaterial
+var mat_builtins: ShaderMaterial
+var mat_points: ShaderMaterial
+
+# Every stored property of the fixture's resources as built, restored by
+# _reset() so no test can leak a setting into the next one.
+var _resource_defaults := {}
+
+# sdfgi_camera_move's flight: frame counter (-1 when not flying) and start.
+var _move_frame := -1
+var _cam_base: Transform3D
+
+# Settle frames to use instead of each feature's own (--fp-settle=N natively,
+# the hash's third field on the web), or -1.
+var _settle_override := -1
 
 var _last_hash := ""
 var _settle := -1
@@ -115,9 +143,14 @@ func _ready() -> void:
 	_build_lights()
 	_build_gi()
 	_build_extras()
+	_build_shader_materials()
+	_snapshot_resources()
 	# Native runs (no browser) take the feature from the command line so the
 	# same fixture can be driven against Vulkan for a cross-backend reference.
 	print("[FP] FEATURES %s" % ",".join(FEATURES))
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--fp-settle="):
+			_settle_override = int(a.substr(12))
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fp-matrix="):
 			_run_native_matrix(a.substr(12))
@@ -140,17 +173,32 @@ func _ready() -> void:
 ## reason, not from whatever WebGPU happened to produce.
 ##
 ##   godot --path . --rendering-driver vulkan -- --fp-matrix=/tmp/fpref
+##
+## The parity mode adds a fixed timestep and one long settle for every feature,
+## so both sides have simulated exactly the same time and every accumulating
+## effect has converged:
+##   godot --path . --rendering-driver vulkan --resolution 640x360 --fixed-fps 60 \
+##         -- --fp-matrix=/tmp/fpref --fp-settle=240
+##
+## --fp-only=a,b limits the sweep to those features, for triage.
 func _run_native_matrix(dir: String) -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
+	var only := PackedStringArray()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--fp-only="):
+			only = a.substr(10).split(",", false)
 	for id in FEATURES:
+		if not only.is_empty() and not only.has(id):
+			continue
 		for on in [false, true]:
 			_reset()
 			if not _apply(id, on):
 				print("[FP] UNKNOWN %s" % id)
 				continue
-			var settle := int(SETTLE_OVERRIDE.get(id, SETTLE_DEFAULT))
-			for i in settle:
+			for i in _settle_for(id):
 				await get_tree().process_frame
+			# Freeze at the same point the web side does (see _process()).
+			particles.speed_scale = 0.0
 			await RenderingServer.frame_post_draw
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%d.png" % [dir, id, 1 if on else 0])
@@ -185,6 +233,11 @@ func _build_textures() -> void:
 			var c := Color(0.9, 0.9, 0.9) if ((x / 4) + (y / 4)) % 2 == 0 else Color(0.12, 0.12, 0.14)
 			img.set_pixel(x, y, c)
 	tex_checker = ImageTexture.create_from_image(img)
+	# The same checker with mipmaps, for mipmap_bias: a texture without them has
+	# nothing for a LOD bias to select.
+	var mip_img := img.duplicate()
+	mip_img.generate_mipmaps()
+	tex_checker_mips = ImageTexture.create_from_image(mip_img)
 
 	# Bumpy normal map (tangent space).
 	var nimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
@@ -269,7 +322,7 @@ func _build_geometry() -> void:
 	var sph := SphereMesh.new()
 	sph.radius = 1.1
 	sph.height = 2.2
-	_mesh_instance(sph, mat_probe, Transform3D(Basis(), Vector3(0, 1.2, 0)))
+	probe_mi = _mesh_instance(sph, mat_probe, Transform3D(Basis(), Vector3(0, 1.2, 0)))
 
 	# Tight concave corners: this is what SSAO/SSIL/contact shadows act on.
 	var box := BoxMesh.new()
@@ -529,11 +582,126 @@ func _build_blendshape() -> void:
 	add_child(blendshape_inst)
 
 
+func _shader_material(code: String) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = code
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
+
+
+func _solid_texture(c: Color) -> ImageTexture:
+	var img := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+	img.fill(c)
+	return ImageTexture.create_from_image(img)
+
+
+func _build_shader_materials() -> void:
+	# Reads DEPTH_TEXTURE behind the probe and shows view-space depth as 2 m
+	# bands. Transparent, so it draws after the depth copy it reads.
+	mat_depth = _shader_material("""shader_type spatial;
+render_mode unshaded, depth_draw_never;
+uniform sampler2D depth_texture : hint_depth_texture, filter_nearest;
+void fragment() {
+	float d = textureLod(depth_texture, SCREEN_UV, 0.0).r;
+	vec4 v = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, d, 1.0);
+	ALBEDO = vec3(fract(-v.z / v.w * 0.5));
+	ALPHA = 0.999;
+}
+""")
+
+	# An array of four textures read at a runtime index. off shows element 0,
+	# on element 2: if the array collapsed to its first element, both frames
+	# would be the same colour.
+	mat_array = _shader_material("""shader_type spatial;
+render_mode unshaded;
+uniform sampler2D layers[4] : filter_nearest;
+uniform int layer = 0;
+void fragment() {
+	ALBEDO = texture(layers[layer], UV).rgb;
+}
+""")
+	mat_array.set_shader_parameter("layers", [
+		_solid_texture(Color(0.9, 0.1, 0.1)), _solid_texture(Color(0.1, 0.9, 0.1)),
+		_solid_texture(Color(0.1, 0.2, 0.9)), _solid_texture(Color(0.9, 0.8, 0.1))])
+
+	# Built-ins Tint's SPIR-V reader used to abort on -- isnan(), isinf() and
+	# textureQueryLod() -- which in a browser took the whole page down the
+	# moment the material compiled. POINT_COORD, the fourth, has its own arm:
+	# using it turns the mesh into points. Both states use this shader,
+	# so a crash fails both; on tints the probe and folds in what the built-ins
+	# return (compared against native in the parity mode). The isnan()/isinf()
+	# inputs are finite: what a NaN or infinity tests as is up to the GPU
+	# driver's float model (NVIDIA's Vulkan driver says false for both), and
+	# this test is about the port, not the driver.
+	mat_builtins = _shader_material("""shader_type spatial;
+uniform sampler2D tex : filter_linear_mipmap;
+uniform bool use_builtins = false;
+uniform float finite = 1.0;
+void fragment() {
+	vec3 c = texture(tex, UV).rgb;
+	if (use_builtins) {
+		vec2 lod = textureQueryLod(tex, UV * 64.0);
+		c += vec3(0.3, 0.15, 0.0) + vec3(isnan(finite) ? 0.3 : 0.0, isinf(finite) ? 0.2 : 0.0, clamp(lod.x, 0.0, 6.0) * 0.05);
+	}
+	ALBEDO = c;
+}
+""")
+	mat_builtins.set_shader_parameter("tex", tex_checker_mips)
+
+	# Reading POINT_COORD (without writing POINT_SIZE) draws the mesh as
+	# points. Where point size is emulated (WebGPU, D3D12) that drew nothing
+	# at all: the quad expansion only existed under POINT_SIZE_USED. Both
+	# states draw points, so a material that renders nothing has no delta.
+	mat_points = _shader_material("""shader_type spatial;
+render_mode unshaded;
+uniform bool use_coord = false;
+void fragment() {
+	ALBEDO = use_coord ? vec3(POINT_COORD, 0.0) : vec3(1.0);
+}
+""")
+
+
+## Record every stored property of the fixture's resources, so _reset() can put
+## all of them back. Listing knobs by hand there missed some -- alpha_scissor's
+## albedo texture stayed on the probe for every test after it, and fog_height
+## inherited fog's colour -- so results depended on matrix order.
+func _snapshot_resources() -> void:
+	var particle_material: ParticleProcessMaterial = particles.process_material
+	for r: Resource in [env, cam_attrs, mat_probe, mat_glass, particle_material]:
+		var values := {}
+		for prop in r.get_property_list():
+			if (prop.usage & PROPERTY_USAGE_STORAGE) and prop.name != "script" and not prop.name.begins_with("resource_"):
+				values[prop.name] = r.get(prop.name)
+		_resource_defaults[r] = values
+
+
+func _restore_resources() -> void:
+	for r: Resource in _resource_defaults:
+		var values: Dictionary = _resource_defaults[r]
+		for name: String in values:
+			if r.get(name) != values[name]:
+				r.set(name, values[name])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Driver
 # ──────────────────────────────────────────────────────────────────────────────
 
 func _process(_delta: float) -> void:
+	if _move_frame >= 0:
+		# Out over 90 frames, hold 60, back over 90.
+		_move_frame += 1
+		var t := 0.0
+		if _move_frame < 90:
+			t = _move_frame / 90.0
+		elif _move_frame < 150:
+			t = 1.0
+		elif _move_frame < 240:
+			t = 1.0 - (_move_frame - 150) / 90.0
+		else:
+			_move_frame = -1
+		cam.transform = _cam_base.translated(Vector3(60.0 * t, 0, 0))
 	if OS.has_feature("web"):
 		var h: String = str(JavaScriptBridge.eval("location.hash", true))
 		if h != _last_hash:
@@ -544,13 +712,24 @@ func _process(_delta: float) -> void:
 	if _settle > 0:
 		_settle -= 1
 		if _settle == 0:
+			# Freeze this frame for the harness (see the protocol note above).
+			particles.speed_scale = 0.0
+			RenderingServer.frame_post_draw.connect(func(): RenderingServer.render_loop_enabled = false, CONNECT_ONE_SHOT)
 			print("[FP] READY %s %d" % [_pending_id, 1 if _pending_on else 0])
 			_settle = -1
 
 
+func _settle_for(id: String) -> int:
+	# An override lengthens a feature's settle but never shortens it below what
+	# the feature itself needs (sdfgi_camera_move's flight alone is 240 frames).
+	return maxi(_settle_override, int(SETTLE_OVERRIDE.get(id, SETTLE_DEFAULT)))
+
+
 func _request(spec: String) -> void:
+	RenderingServer.render_loop_enabled = true
 	var parts := spec.split(":")
 	var id := parts[0].strip_edges()
+	_settle_override = int(parts[2]) if parts.size() > 2 else -1
 	if id == "all":
 		_exercise_all()
 		return
@@ -561,12 +740,20 @@ func _request(spec: String) -> void:
 		return
 	_pending_id = id
 	_pending_on = on
-	_settle = int(SETTLE_OVERRIDE.get(id, SETTLE_DEFAULT))
+	_settle = _settle_for(id)
 
 
 ## Return every mutable knob to the baseline, so each measurement is independent
 ## of whatever ran before it. Without this the matrix order would change results.
 func _reset() -> void:
+	_restore_resources()
+	_move_frame = -1
+	cam.transform = Transform3D(Basis(), Vector3(0, 2.6, 7.5)).looking_at(Vector3(0, 1.0, 0), Vector3.UP)
+	probe_mi.material_override = mat_probe
+	mat_array.set_shader_parameter("layer", 0)
+	mat_builtins.set_shader_parameter("use_builtins", false)
+	mat_points.set_shader_parameter("use_coord", false)
+
 	env.background_mode = Environment.BG_SKY
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
@@ -596,12 +783,19 @@ func _reset() -> void:
 	dir_light.shadow_contact_shadows_allow = false
 	dir_light.light_negative = false
 	dir_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	dir_light.directional_shadow_max_distance = 100.0
+	dir_light.shadow_contact_shadows_opacity = 0.0
+	dir_light.shadow_contact_shadows_blur = 0.0
+	dir_light.light_specular = 0.5
 	omni_light.visible = false
 	omni_light.shadow_enabled = false
 	omni_light.light_projector = null
+	omni_light.light_negative = false
+	omni_light.omni_shadow_mode = OmniLight3D.SHADOW_CUBE
 	spot_light.visible = false
 	spot_light.shadow_enabled = false
 	spot_light.light_projector = null
+	spot_light.light_volumetric_fog_energy = 1.0
 
 	probe.visible = false
 	voxel_gi.visible = false
@@ -612,6 +806,8 @@ func _reset() -> void:
 	particles.visible = false
 	particles.emitting = false
 	particles.trail_enabled = false
+	particles.trail_lifetime = 0.3
+	particles.speed_scale = 1.0
 	particle_collider.visible = false
 	particle_attractor.visible = false
 	get_node("Glass").visible = false
@@ -654,6 +850,7 @@ func _reset() -> void:
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = 1.0
 	vp.mesh_lod_threshold = 1.0
+	vp.texture_mipmap_bias = 0.0
 
 
 ## Apply one feature. Returns false for an unrecognized id so the harness can
@@ -732,6 +929,18 @@ func _apply(id: String, on: bool) -> bool:
 			env.sdfgi_enabled = on
 			env.sdfgi_energy = 4.0
 			env.sdfgi_cascades = 2
+		"sdfgi_camera_move":
+			# Parity only: SDFGI must look the same after the camera has flown
+			# away and back as if it had never moved. Moving scrolls every
+			# cascade, which re-voxelizes and re-clears 3D textures; on WebGPU
+			# those clears used to cover only z-slice 0 and run out of order,
+			# leaving stale voxels behind (25/255 off the native frame).
+			env.sdfgi_enabled = true
+			env.sdfgi_energy = 4.0
+			env.sdfgi_cascades = 2
+			if on:
+				_cam_base = cam.transform
+				_move_frame = 0
 
 		# ---- lights and shadows ----
 		"directional_light":
@@ -750,6 +959,15 @@ func _apply(id: String, on: bool) -> bool:
 		"omni_shadow":
 			omni_light.visible = true
 			omni_light.shadow_enabled = on
+			omni_light.omni_shadow_mode = OmniLight3D.SHADOW_DUAL_PARABOLOID
+		"omni_shadow_cube":
+			# The default omni shadow mode. WebGPU used to force dual-paraboloid
+			# whatever the light asked for, and cube shadows rendered nothing
+			# there once that stopped (the cube-to-atlas copy read a blank
+			# fallback instead of the depth cubemap).
+			omni_light.visible = true
+			omni_light.shadow_enabled = on
+			omni_light.omni_shadow_mode = OmniLight3D.SHADOW_CUBE
 		"spot_light":
 			spot_light.visible = on
 		"spot_shadow":
@@ -850,6 +1068,24 @@ func _apply(id: String, on: bool) -> bool:
 				else BaseMaterial3D.DISTANCE_FADE_DISABLED)
 			mat_probe.distance_fade_min_distance = 12.0
 			mat_probe.distance_fade_max_distance = 4.0
+		"depth_texture":
+			# DEPTH_TEXTURE read zeros on WebGPU: the depth copy's source was
+			# declared as a float texture, so the depth buffer was never bound.
+			probe_mi.material_override = mat_depth if on else mat_probe
+		"mipmap_bias":
+			# The samplers' LOD bias (texture_mipmap_bias, TAA, FSR), which WebGPU
+			# samplers cannot carry and the shader translation now applies.
+			mat_probe.albedo_texture = tex_checker_mips
+			vp.texture_mipmap_bias = 2.0 if on else 0.0
+		"texture_array":
+			probe_mi.material_override = mat_array
+			mat_array.set_shader_parameter("layer", 2 if on else 0)
+		"shader_builtins":
+			probe_mi.material_override = mat_builtins
+			mat_builtins.set_shader_parameter("use_builtins", on)
+		"point_coord":
+			probe_mi.material_override = mat_points
+			mat_points.set_shader_parameter("use_coord", on)
 
 		# ---- mesh pipeline ----
 		"multimesh":

@@ -3798,6 +3798,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 	}
 
 	p_samplers.append_uniforms(uniforms, 12);
+	uniforms.push_back(p_samplers.get_lod_bias_uniform());
 
 	{
 		RD::Uniform u;
@@ -4162,6 +4163,7 @@ RID RenderForwardClustered::_setup_sdfgi_render_pass_uniform_set(RID p_albedo_te
 	}
 
 	p_samplers.append_uniforms(uniforms, 12);
+	uniforms.push_back(p_samplers.get_lod_bias_uniform());
 
 	// actual sdfgi stuff
 

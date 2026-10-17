@@ -355,11 +355,11 @@ echo "  Stage 2: Unit Tests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-run_test "Driver unit tests (370)" \
+run_test "Driver unit tests (379)" \
     "$SCRIPT_DIR/driver_unit_tests" \
     node run_tests.mjs
 
-run_test "SPIR-V preprocessing tests (238)" \
+run_test "SPIR-V preprocessing tests (291)" \
     "$SCRIPT_DIR/preprocessing_tests" \
     node run_tests.mjs
 
@@ -490,6 +490,16 @@ ensure_playwright "$SCRIPT_DIR/forward_plus"
 run_test "Forward+ feature matrix — Chrome" \
     "$SCRIPT_DIR/forward_plus" \
     node run_forward_plus.mjs --browser chrome
+
+# The same matrix compared frame by frame against a native Vulkan render of the
+# fixture (GODOT_EDITOR_BIN, exported above): catches a feature that renders,
+# but not the way native does -- DEPTH_TEXTURE reading zeros, fog without
+# shadows, SDFGI corrupted by camera movement all passed the delta test above.
+# SKIPs without a real GPU adapter, or without a native Vulkan device and a
+# display for the reference. ~15 minutes.
+run_test "Forward+ parity vs native Vulkan — Chrome" \
+    "$SCRIPT_DIR/forward_plus" \
+    node run_forward_plus.mjs --browser chrome --parity
 
 # Baked tier (TASKS.md 2.29): --headless exports skip the shader baker, so nothing above ever
 # loads the configuration that ships. Opt-in because baking takes minutes.

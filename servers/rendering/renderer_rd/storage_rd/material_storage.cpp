@@ -2696,9 +2696,26 @@ void MaterialStorage::material_update_dependency(RID p_material, DependencyTrack
 	}
 }
 
+RD::Uniform MaterialStorage::Samplers::get_lod_bias_uniform() const {
+	// Binding 40 of the render-pass set (SamplerLodBias in scene_forward_clustered_inc.glsl
+	// and scene_forward_mobile_inc.glsl).
+	RD::Uniform u;
+	u.binding = 40;
+	u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+	u.append_id(lod_bias_buffer);
+	return u;
+}
+
 MaterialStorage::Samplers MaterialStorage::samplers_rd_allocate(float p_mipmap_bias, RSE::ViewportAnisotropicFiltering anisotropic_filtering_level) const {
 	Samplers samplers;
 	samplers.mipmap_bias = p_mipmap_bias;
+	{
+		const float bias[4] = { p_mipmap_bias, 0.0f, 0.0f, 0.0f }; // One std140 vec4 slot.
+		Vector<uint8_t> data;
+		data.resize(sizeof(bias));
+		memcpy(data.ptrw(), bias, sizeof(bias));
+		samplers.lod_bias_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(bias), data);
+	}
 	samplers.anisotropic_filtering_level = (int)anisotropic_filtering_level;
 	samplers.use_nearest_mipmap_filter = GLOBAL_GET_CACHED(bool, "rendering/textures/default_filters/use_nearest_mipmap_filter");
 
@@ -2781,6 +2798,10 @@ MaterialStorage::Samplers MaterialStorage::samplers_rd_allocate(float p_mipmap_b
 }
 
 void MaterialStorage::samplers_rd_free(Samplers &p_samplers) const {
+	if (p_samplers.lod_bias_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(p_samplers.lod_bias_buffer);
+		p_samplers.lod_bias_buffer = RID();
+	}
 	for (int i = 1; i < RSE::CANVAS_ITEM_TEXTURE_FILTER_MAX; i++) {
 		for (int j = 1; j < RSE::CANVAS_ITEM_TEXTURE_REPEAT_MAX; j++) {
 			if (p_samplers.rids[i][j].is_valid()) {

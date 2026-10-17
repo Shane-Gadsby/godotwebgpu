@@ -22,8 +22,11 @@
 syncs are ordinary merges. `backup/pre-lineage-repair/*` and `backup/pre-claude-author-strip*` on
 `origin` **must not be deleted**.
 
-There is **no known-broken shipped feature**. Everything in §2 is hardening, measurement, coverage or
-a rare non-visual error.
+**Forward+ is at parity with native Vulkan feature by feature** as of §4.29 (2026-10-17), measured by
+`run_forward_plus.mjs --parity` rather than the delta-only matrix. The earlier claim here, "no known-broken
+shipped feature", was wrong: the delta matrix could not see SDFGI, volumetric fog shadows, omni cube shadows,
+`DEPTH_TEXTURE` or mipmap bias diverging from native (§3 trap 28). What remains is spec-limited and listed in
+§2.31; everything else in §2 is hardening, measurement, coverage or a rare non-visual error.
 
 ### Verified tiers
 
@@ -32,8 +35,9 @@ a rare non-visual error.
 | native editor + web template build | 0 errors, 0 warnings, incl. `warnings=extra werror=yes` | 2026-10-05, 4.8 port (§4.15) |
 | `wgsl_precompile.py` | 274 compiled, 0 glsl / 0 tint failures; **deterministic** (two runs, different `PYTHONHASHSEED`, byte-identical 1,806,893 B header) | 2026-10-14, `597d27e09` (§2.16 gap 5) |
 | `shader_corpus` | 14 / 0 | 4.8 |
-| `driver_unit_tests` | 370 / 0 | 2026-10-16 |
-| `preprocessing_tests` | 244 / 0 / 1 skip | 2026-10-16 |
+| `driver_unit_tests` | 379 / 0 | 2026-10-17, §4.29 |
+| `preprocessing_tests` | 291 / 0 / 1 skip | 2026-10-17, §4.29 (tests 24-27, `spirv-val` on each output) |
+| full `local_ci.sh --dev-mode --no-safari` with `WEBGPU_REAL_GPU=1`, after §4.29 | **29 passed / 0 failed / 2 skipped (Safari)**: werror editor + both nothreads templates, every unit tier, scene smoketest 21/21 Chrome + Firefox, perf guard, Forward+ matrix **71/71**, **parity vs native Vulkan 71/71**, WebRTC 9 fixtures, lifecycle, screenshots | 2026-10-17, uncommitted §4.29 tree |
 | `resource_lifecycle` | 6 / 0 | 2026-10-14, real GPU |
 | `screenshot_comparison` | 8 / 0 | 2026-10-14, real GPU (was last recorded at 4.7.2) |
 | scene smoketest (Chrome, container) | 20 pass / 0 fail / 0 skip | 4.8, swiftshader → **Forward Mobile** |
@@ -1571,6 +1575,25 @@ the upstream diff small. Plus a formatter for both file types. 21 requirements a
 in `webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md`, which is **still on disk** — it is
 gitignored, so unlike every other retired doc it is not recoverable from history. Nothing built.
 
+### 2.31 Forward+ gaps WebGPU itself cannot close `OPEN` — spec-limited; documented, each warns or degrades *(found by §4.29's sweep)*
+
+What is left after §4.29's sweep, every one checked against the driver and the spec rather than the old notes. None is a
+driver bug; each needs a WebGPU feature that does not exist yet or a renderer-side redesign. Listed with what happens today:
+
+| gap | today on WebGPU | what would close it |
+|---|---|---|
+| SDFGI voxelization's image atomics (`imageAtomicOr` on the shared facing grid) | plain read-modify-write; occasional lost facing bits, measured 0.028 mean diff static, 0.025 moving | WGSL texture atomics (proposal only), or a buffer-backed grid in `sdfgi_preprocess.glsl` |
+| MSAA 2x / 8x | WebGPU allows sample counts 1 and 4 only; `_clamp_sample_count()` makes every MSAA mode 4x | spec |
+| Wireframe / `polygon_mode` line and point | no polygon mode in WebGPU; draws filled | a line-list index rewrite for debug draw, if anyone wants it |
+| Variable rate shading, multiview (XR) | not exposed | spec |
+| Sampler border colour | clamp-to-edge; the two engine readers that relied on a 0 border (contact shadows, §4.29) emulate it in GLSL | spec; user shaders with `repeat_disable` + border get edge clamp |
+| `alpha_to_one` | ignored | spec |
+| Separate front/back stencil compare/write masks | front-face masks used for both, `WARN_PRINT_ONCE` (ops and compare are per face) | spec |
+| HDR output (`hdr_2d`, HDR swapchain) | 8-bit sRGB canvas | `GPUCanvasToneMapping` `extended` + `rgba16float` canvas, not wired |
+| More than 48 sampled textures (or 8 storage textures) in one stage | arrays beyond the per-stage budget stay collapsed to element 0, with a one-time `WARN_PRINT` naming shader, set and binding | adapter limits; only a pathological custom shader hits it |
+| 16-bit unorm/snorm sampling (`R16`, `RG16`, `RGBA16` unorm/snorm) | `texture-formats-tier1` makes them unfilterable on Dawn, so they stay unsupported and the engine's fallbacks are used | a filterable tier |
+| FSR2 | runs through the `NO_IMAGE_ATOMICS` buffer path; edge-only diff 0.55 vs Vulkan (fp16 vs fp32 resolve) | `SUPPORTS_HALF_FLOAT` work, §2.20 |
+
 ---
 
 ## 3. Traps and lessons — read before debugging
@@ -1763,6 +1786,35 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     capture failure, and `WebSocket connection to 'ws://127.0.0.1:6007/' failed`, which is **Chrome's own**
     network-stack log for an unreachable one-click debug host -- not suppressible, not re-levelable, and absent from
     a plain export. To see an export's verbose output, add `--verbose` to `GODOT_CONFIG['args']` in the exported HTML.
+28. **A "feature works" delta says nothing about parity; four broken features passed the matrix for weeks** (2026-10-17).
+    The Forward+ matrix asked only "does the frame change when the feature is toggled". SDFGI (25× off native while
+    the camera moved), volumetric fog's shadows, omni cube shadows (forced to dual-paraboloid by a trait) and every
+    `DEPTH_TEXTURE` read all changed the frame, so all passed. Compare against native: `run_forward_plus.mjs --parity`
+    (§4.29). And a native reference is only a reference if both sides render the same frame — native with a 4-frame
+    settle had not converged its radiance, web captures landed a frame or two late, one arm's resource changes leaked
+    into the next, and `Texture2D.get_image()` returns an empty image at runtime on web. The fixture now runs both
+    sides at a fixed 60 fps, settles 240 frames, freezes the captured frame (particles paused, render loop stopped
+    after `frame_post_draw`), snapshots and restores every scene resource between arms, and builds its mip textures
+    at load. When the fixture changes, re-derive every `minDelta` from the native deltas: the old ones carried the
+    leaks (`glow_map` was calibrated at 20.8; its real delta, native and web alike, is 2.12).
+29. **A depth texture in a float-sampled slot reads 0, silently** (2026-10-17). WGSL splits what GLSL calls
+    `texture2D` into `texture_2d<f32>` and `texture_depth_2d`; a depth-format view bound to the former is a
+    validation error, so the driver binds a blank fallback instead. Whether a GLSL texture becomes a depth texture
+    is decided by `_reclassify_single_component_depth_textures()`, a **name and usage heuristic**, so any reader the
+    heuristic misses sees an empty texture with no error. That was `DEPTH_TEXTURE`, refraction and proximity fade
+    (`copy.glsl`'s depth copy), volumetric fog's shadow atlases, and `cube_to_dp`'s source. A depth binding now has a
+    depth-ish name in the shader (`*_depth*`) and the driver `print_verbose`s every depth view it has to replace;
+    run with `--verbose` when anything reads as "too bright/too dark only on web".
+30. **Chrome's per-stage limits are exactly what Forward+ needs, so texture arrays cannot all expand** (2026-10-17).
+    On the RTX 4080, Chrome reports `maxSampledTexturesPerShaderStage` 48 and storage textures 8, and 48 is the
+    Forward+ threshold itself (CLAUDE.md). `expand_binding_arrays()` therefore gives each stage a budget (16 sampled
+    by default, the whole 48 only for a module that already declares more than 16; storage 4/8) and leaves the
+    remainder collapsed, with a one-time warning naming the binding. Do not "fix" a collapsed array by raising the
+    budget without counting the stage's other textures: going past the adapter limit fails pipeline creation outright.
+31. **`texture-formats-tier1` makes 16-bit unorm/snorm sampleable but not filterable** (2026-10-17). Enabling
+    `R16_UNORM`/`RG16_UNORM`/... looks free and lets FSR2 drop its snorm→half conversion, then every linear sampler on
+    them is a validation error (`unfilterable-float` vs a filtering sampler). Reverted; the formats stay unsupported
+    and the engine's fallbacks apply. FSR2's conversion now runs only when the device lacks `R16_SNORM`.
 
 ---
 
@@ -2638,6 +2690,49 @@ one-click deploy bakes `--remote-debug ws://<host>:<port>` into the exported HTM
 retries it forever. A plain export carries no debug host at all -- verified by grepping one for the
 port, where the only hit is a GL enum. Untick *Deploy with Remote Debug*, or stop reloading a stale
 one-click tab, and the line is gone.
+
+### 4.29 Forward+ parity sweep: analysed against native Vulkan, not against the notes (October 2026)
+
+Asked for "a final sweep … 100% feature complete and parity with native Forward+", done by reading the driver,
+the shaders and the spec and then measuring every feature against native Vulkan, not by trusting §1's "no
+known-broken shipped feature" — which turned out to be wrong (§3 trap 28). Everything here is uncommitted on
+`webgpu-4.8` at the time of writing; what is left is §2.31.
+
+**The parity tier.** `run_forward_plus.mjs --parity` renders every arm natively first (`--fp-matrix`, the same
+`fp_scene.gd` on Vulkan) and fails an arm whose WebGPU frame differs from native by more than
+`PARITY_TOLERANCE` (0.05 mean per channel, with per-feature `parityTol` for SDFGI's atomics and FSR2's fp16). Both
+sides run at a fixed 60 fps with a 240-frame settle and a frozen capture frame; see trap 28 for why each of those
+was needed. Arms that only make sense as parity checks (`sdfgi_camera_move`) are `parityOnly`. New arms:
+`omni_shadow_cube`, `sdfgi_camera_move`, `depth_texture`, `mipmap_bias`, `texture_array`, `shader_builtins`,
+`point_coord` (71 arms). `local_ci.sh` runs it as a stage; `--console` echoes the page's console for triage.
+
+**What was wrong, and the fix (WebGPU vs Vulkan mean diff, before → after):**
+
+| feature | cause | fix |
+|---|---|---|
+| SDFGI while the camera moves (25.1 → 0.025), static (1.77 → 0.028) | `command_clear_color_texture` cleared only slice 0 of a 3D texture; buffer→texture and clear uploads went through `wgpuQueueWriteTexture`, which runs before the encoder's earlier copies | clear every z-slice; uploads recorded as encoder copies (`clear_zero_buffer`, `flush_from_shadow`); 3D z offsets in texture↔texture and texture→buffer copies |
+| volumetric fog (2.05 → 0.001) | shadow atlases are depth textures in a float slot (trap 29), read as 0 | renamed to `*_depth_atlas`, own nearest `depth_sampler` (binding 22), `texture_linear_depth()` gather helper |
+| omni cube shadows (missing → 0.015) | `API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID` forced every omni light to dual-paraboloid | trait 0; `cube_to_dp`'s source renamed to `source_depth_cube` so the reclassifier sees it |
+| `DEPTH_TEXTURE`, refraction, proximity fade (→ 0.002) | `copy_depth_to_rect` sampled the depth buffer in a float slot | `COPY_MODE_SIMPLY_COPY_DEPTH_FORMAT` (`SOURCE_IS_DEPTH_FORMAT` in `copy.glsl`) |
+| contact shadows (→ 0.003) | relied on a border colour of 0 | `read_depth()` emulates the border |
+| soft / transmittance shadow reads | the fork had replaced 7 linear depth reads with NEAREST | `textureLod_linear_depth()` (gather + bilinear weights): soft shadows now exact |
+| mipmap bias (TAA/FSR's -0.5, FSR's scale bias) | WebGPU samplers have no LOD bias; silently dropped | `apply_sampler_lod_bias` pass + `SamplerLodBias` UBO (set 1, binding 40) from `MaterialStorage`; 0.003 |
+| texture arrays (VoxelGI > 1 probe, lightmaps > 1, SDFGI's read-only `src_occlusion`, particle colliders) | `flatten_binding_arrays` collapsed every array to element 0 | `expand_binding_arrays` pass, layout in `spirv_binding_layout.h`, per-stage budget (trap 30) |
+| `isnan`/`isinf`, `textureQueryLod`, `POINT_COORD`, `early_fragment_tests` in user shaders | Tint ICE — the wasm instance aborts | `lower_tint_unsupported_ops` pass |
+| FSR2 | `OpImageTexelPointer` on the reconstructed depth (Tint ICE, so the pass was skipped), wave ops in SPD | `NO_IMAGE_ATOMICS` storage-buffer form, `SPD_NO_WAVE_OPERATIONS` (`thirdparty/amd-fsr2/patches/0004-…`); 0.55 residual, §2.31 |
+| a material reading `POINT_COORD` without writing `POINT_SIZE` (drew nothing; upstream bug, D3D12 too) | `POINT_COORD` sets `uses_point_size`, so where point size is emulated the mesh is drawn as six vertices per point, but the quad expansion was behind `POINT_SIZE_USED` alone: six coincident vertices, degenerate triangles. Natively it drew 1-px points with `POINT_COORD` pinned to 0.5 | both scene `_inc.glsl` files define `POINT_SIZE_USED` when `POINT_COORD_USED` is set; new `point_coord` arm. Found by the parity run itself: no error anywhere, only an empty frame |
+| constant-alpha blending (`BLEND_FACTOR_CONSTANT_ALPHA`) | WebGPU has one RGBA blend constant and no constant-alpha factor; the alpha factors read the colour's alpha | emulated: the pipeline remembers it, `_apply_blend_constants()` broadcasts alpha into the constant |
+| depth clamp (cluster light volumes crossing near/far) | ignored | `depth-clip-control` requested, `primitive.unclippedDepth` |
+| `sample_mask`, `limit_get()` gaps (index, framebuffer/viewport dims, per-stage, stride, UBO alignment), texture/attachment limits left at defaults | — | filled from the device; `engine.js` raises 1D/2D/3D dimension, array layers and `maxColorAttachmentBytesPerSample` to the adapter's |
+
+Also recalibrated: `glow_map` (10.4 → 0.7) and `proximity_fade` (1.09 → 0.19), whose floors had been set on the leaky fixture (trap 28) — native and web agree on both to 0.003. Also: a spurious "This export ships a baked shader cache…" warning on native `--path` runs of an unexported
+project (the editor's own `.godot/shader_cache` from another build looked like a shipped cache) is now limited to
+export templates.
+
+**Tests added:** preprocessing tests 24-27 (`tint_crash_inputs.frag`, `binding_arrays*.{frag,comp}`, each output
+validated with `spirv-val`); `driver_unit_tests/test_binding_layout.mjs` (binding-layout invariants against the header,
+every engine texture array fits, binding 40 agrees across both scene shaders and `MaterialStorage`); the six matrix
+arms and the parity tier above; `self_test_forward_plus.mjs` covers the parity judge.
 
 ## 5. References — retired docs
 

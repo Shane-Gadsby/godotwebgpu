@@ -292,10 +292,17 @@ GENERAL_DEFINES_TEX_BLIT = "\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n#define MA
 #     f16 but no integer narrower than 32 bits), so Tint aborts on them --
 #     see webgpu_notes/TASKS.md Task 26.
 #   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS variant is the
-#     one declared, for the two passes that have the axis at all. WGSL has no
-#     texture atomics, so the image-atomics variant cannot be translated either.
+#     one declared, for the four passes that have the axis at all: the
+#     luminance pyramid (SPD's counter) and the three that touch the
+#     reconstructed previous depth (reconstruct, depth clip, lock), which keep
+#     those resources in storage buffers instead. WGSL has no texture atomics,
+#     so the image-atomics variant cannot be translated either.
 # Only the variants the WebGPU renderer actually declares are listed below.
 FSR2_NO_IMAGE_ATOMICS = "\n#define NO_IMAGE_ATOMICS 1\n"
+# The luminance pyramid's fallback variant also builds SPD without wave
+# operations (fsr2.cpp explains why); it must match that mode string exactly
+# for the precompiled entry to be found.
+FSR2_LUMINANCE_PYRAMID_FALLBACK = "\n#define NO_IMAGE_ATOMICS 1\n#define SPD_NO_WAVE_OPERATIONS 1\n"
 
 # Optional 4th element of a registry entry. False means "compile and convert
 # this shader on every build, so a Tint regression in it still fails the build,
@@ -466,6 +473,8 @@ SHADER_REGISTRY = [
         ("linearize_depth", "\n#define MODE_LINEARIZE_DEPTH_COPY\n", [COMP]),
         ("octmap_panorama", "\n#define MODE_OCTMAP_TO_PANORAMA\n", [COMP]),
         ("octmap_array_panorama", "\n#define MODE_OCTMAP_ARRAY_TO_PANORAMA\n", [COMP]),
+        ("simple_copy_rg16f", "\n#define MODE_SIMPLE_COPY\n#define DST_IMAGE_RG16F\n", [COMP]),
+        ("simple_copy_depth_format", "\n#define MODE_SIMPLE_COPY_DEPTH\n#define SOURCE_IS_DEPTH_FORMAT\n", [COMP]),
     ]),
 
     ("servers/rendering/renderer_rd/shaders/effects/copy_to_fb.glsl",
@@ -800,11 +809,11 @@ SHADER_REGISTRY = [
     # declares -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
     # axes and why the others cannot be translated at all.
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_depth_clip_pass.glsl",
-     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_reconstruct_previous_depth_pass.glsl",
      GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_lock_pass.glsl",
-     GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
+     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
     # The only FSR2 pass with a second non-capability mode: accumulate declares
     # a sharpening variant alongside the plain one.
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_accumulate_pass.glsl",
@@ -815,7 +824,7 @@ SHADER_REGISTRY = [
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_rcas_pass.glsl",
      GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl",
-     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
+     GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_LUMINANCE_PYRAMID_FALLBACK, [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_autogen_reactive_pass.glsl",
      GENERAL_DEFINES_FSR2, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_tcr_autogen_pass.glsl",

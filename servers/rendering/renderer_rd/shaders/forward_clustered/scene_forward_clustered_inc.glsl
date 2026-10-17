@@ -5,6 +5,15 @@
 #define MAX_VOXEL_GI_INSTANCES 8
 #define MAX_VIEWS 2
 
+// Reading POINT_COORD makes the material draw points as much as writing
+// POINT_SIZE does (both set uses_point_size), so the point size logic has to
+// exist for it too. Without this, a device that emulates point size (WebGPU,
+// D3D12) draws each point as six coincident vertices -- the quad expansion is
+// behind POINT_SIZE_USED -- and the material renders nothing at all.
+#if defined(POINT_COORD_USED) && !defined(POINT_SIZE_USED)
+#define POINT_SIZE_USED
+#endif
+
 #extension GL_KHR_shader_subgroup_ballot : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
 
@@ -422,6 +431,16 @@ layout(set = 1, binding = 12 + 8) uniform sampler SAMPLER_NEAREST_WITH_MIPMAPS_R
 layout(set = 1, binding = 12 + 9) uniform sampler SAMPLER_LINEAR_WITH_MIPMAPS_REPEAT;
 layout(set = 1, binding = 12 + 10) uniform sampler SAMPLER_NEAREST_WITH_MIPMAPS_ANISOTROPIC_REPEAT;
 layout(set = 1, binding = 12 + 11) uniform sampler SAMPLER_LINEAR_WITH_MIPMAPS_ANISOTROPIC_REPEAT;
+
+// The mipmap bias the samplers above apply (the viewport's texture_mipmap_bias,
+// and the sharpening TAA and FSR add to it). Never read here: samplers apply it
+// themselves wherever samplers can carry a bias. WebGPU's cannot, so its
+// shader translation adds this value to every implicit-LOD sample through them
+// (drivers/webgpu/spirv_opt_passes.h, apply_sampler_lod_bias()).
+layout(set = 1, binding = 40, std140) uniform SamplerLodBias {
+	float value;
+}
+sampler_lod_bias;
 
 #ifdef MODE_RENDER_SDF
 

@@ -19,19 +19,33 @@
  * Mobile, where a third of this matrix does not exist. The run SKIPs with that
  * reason rather than reporting a wall of false failures.
  *
+ * --parity adds the stronger check: every captured frame is compared against a
+ * native Vulkan render of the same configuration, and a feature fails when the
+ * two differ by more than its tolerance. The delta test proves a feature does
+ * something; parity proves it does the same thing as native. Both sides run a
+ * fixed timestep (--fixed-fps 60) and one long settle so every accumulating
+ * effect has converged, and the fixture freezes the frame it reports READY on,
+ * so the screenshot is that frame. The reference is rendered by running the
+ * native editor on the fixture (--godot, or GODOT_EDITOR_BIN, or the repo's
+ * bin/godot.linuxbsd.editor.x86_64) unless --reference names an existing one.
+ * It needs a native Vulkan device and a display, as the web side needs a GPU.
+ *
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_forward_plus.mjs [--browser chrome|firefox]
  *                                               [--feature <id>] [--save-dir DIR] [--list]
  *                                               [--json <path>]
+ *                                               [--parity [--reference DIR] [--godot BIN] [--settle N]]
  */
 
 import { createServer } from 'http';
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
-import { FEATURES, UNCOVERED, CATEGORIES, byId } from './features.mjs';
+import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE, byId } from './features.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // --baked runs against export_baked/ (made by `BAKE=1 ./export.sh`) and additionally asserts the
@@ -76,7 +90,28 @@ export function judge(feature, delta, errors) {
   return { ok: true, why: `delta ${delta.toFixed(3)}` };
 }
 
-function startServer() {
+/**
+ * Parity verdict: both captured frames must match the native reference within
+ * the feature's tolerance. Diffs are mean absolute differences (0-255); null
+ * means a missing reference or a size mismatch, which fails.
+ */
+export function judgeParity(feature, offDiff, onDiff) {
+  const tol = feature.parityTol ?? PARITY_TOLERANCE;
+  if (offDiff === null || onDiff === null) return { ok: false, why: 'no comparable native reference frame' };
+  const worst = Math.max(offDiff, onDiff);
+  if (worst > tol) {
+    return { ok: false, why: `differs from native by ${worst.toFixed(3)} (off ${offDiff.toFixed(3)}, on ${onDiff.toFixed(3)}) > ${tol}` };
+  }
+  return { ok: true, why: `native diff off ${offDiff.toFixed(3)} on ${onDiff.toFixed(3)}` };
+}
+
+// The engine arguments of the export's index.html, with the fixed timestep the
+// parity mode needs added, so the web side simulates exactly the native side's time.
+export function withFixedFps(html) {
+  return html.replace(/"args":\[(\s*\])?/, (m, empty) => (empty ? '"args":["--fixed-fps","60"]' : '"args":["--fixed-fps","60",'));
+}
+
+function startServer(parity) {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const p = join(SCENE_DIR, req.url === '/' ? 'index.html' : req.url.split('?')[0].split('#')[0]);
@@ -84,6 +119,9 @@ function startServer() {
       res.setHeader('Content-Type', MIME[extname(p)] || 'application/octet-stream');
       res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
       res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+      if (parity && p.endsWith('index.html')) {
+        return res.end(withFixedFps(readFileSync(p, 'utf8')));
+      }
       res.end(readFileSync(p));
     });
     server.on('error', reject);
@@ -127,6 +165,9 @@ async function main() {
   const only = arg('--feature', null);
   const saveDir = arg('--save-dir', null); // keep every captured frame, for comparing against the native reference
   const jsonOut = arg('--json', null);
+  const parity = args.includes('--parity');
+  const settle = parseInt(arg('--settle', '240'), 10);
+  const echoConsole = args.includes('--console'); // print the page's whole console, for triage
 
   if (args.includes('--list')) {
     for (const c of Object.keys(CATEGORIES)) {
@@ -139,7 +180,7 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`Forward+ Feature Matrix (WebGPU) -- ${FEATURES.length} features\n`);
+  console.log(`Forward+ Feature Matrix (WebGPU) -- ${FEATURES.length} features${parity ? ', parity against native Vulkan' : ''}\n`);
 
   if (!existsSync(SCENE_DIR)) {
     console.log(`  SKIP -- no export at ${SCENE_DIR} (run ${BAKED ? 'BAKE=1 ' : ''}./export.sh)`);
@@ -151,7 +192,29 @@ async function main() {
     process.exit(2);
   }
 
-  const { server, url } = await startServer();
+  let referenceDir = arg('--reference', null);
+  if (parity && !referenceDir) {
+    // Render the native reference from the fixture's own source, with the same
+    // fixed timestep and settle the web side is about to use.
+    const godot = arg('--godot', process.env.GODOT_EDITOR_BIN || join(__dirname, '..', '..', 'bin', 'godot.linuxbsd.editor.x86_64'));
+    if (!existsSync(godot)) {
+      console.log(`  SKIP -- parity needs a native editor to render the reference (no ${godot}; pass --godot or --reference)`);
+      process.exit(2);
+    }
+    referenceDir = mkdtempSync(join(tmpdir(), 'fp_reference_'));
+    const sweep = ['--path', join(__dirname, 'godot', 'fp_check'), '--rendering-driver', 'vulkan', '--resolution', `${VIEW_W}x${VIEW_H}`,
+      '--fixed-fps', '60', '--', `--fp-matrix=${referenceDir}`, `--fp-settle=${settle}`];
+    if (only) sweep.push(`--fp-only=${only}`);
+    console.log(`  rendering the native reference into ${referenceDir} ...`);
+    const r = spawnSync(godot, sweep, { encoding: 'utf8', timeout: 30 * 60 * 1000 });
+    if (r.status !== 0 || !/\[FP\] NATIVE-DONE/.test(r.stdout || '')) {
+      console.log(`  SKIP -- the native reference run did not complete (exit ${r.status}); it needs a Vulkan device and a display`);
+      console.log((r.stdout || '').split('\n').slice(-8).join('\n'));
+      process.exit(2);
+    }
+  }
+
+  const { server, url } = await startServer(parity);
   let browser;
   try {
     browser = await launchBrowser(browserName);
@@ -175,6 +238,7 @@ async function main() {
   let cacheMismatch = false;
   page.on('console', (m) => {
     const t = m.text();
+    if (echoConsole) console.log(`    [${m.type()}] ${t}`);
     if (!banner && /WebGPU .* - Forward/.test(t)) banner = t;
     if (t.startsWith('[FP] FEATURES ')) declaredFeatures = t.slice('[FP] FEATURES '.length).trim().split(',');
     if (t.startsWith('[FP] READY ')) ready = t.slice('[FP] READY '.length).trim();
@@ -233,7 +297,9 @@ async function main() {
       console.log('  WARN  fixture never published its feature list; drift check skipped\n');
     }
 
-    const wanted = only ? FEATURES.filter((f) => f.id === only) : FEATURES;
+    // A parity-only arm's correct "on" frame equals its "off" frame, so the
+    // delta test has nothing to measure on it.
+    const wanted = (only ? FEATURES.filter((f) => f.id === only) : FEATURES).filter((f) => parity || !f.parityOnly);
     if (only && wanted.length === 0) {
       console.log(`  FAIL -- unknown feature "${only}" (use --list)`);
       process.exitCode = 1;
@@ -242,8 +308,9 @@ async function main() {
 
     const shoot = async (id, on) => {
       ready = null; unknown = null;
-      await page.evaluate(([i, o]) => { window.location.hash = `fp=${i}:${o}`; }, [id, on ? 1 : 0]);
-      const deadline = Date.now() + 45000;
+      await page.evaluate(([i, o, n]) => { window.location.hash = n ? `fp=${i}:${o}:${n}` : `fp=${i}:${o}`; }, [id, on ? 1 : 0, parity ? settle : 0]);
+      // A parity settle (and sdfgi_camera_move's flight) runs well past 45 s on a slow device.
+      const deadline = Date.now() + (parity ? 120000 : 45000);
       while (!ready && !unknown && Date.now() < deadline) await new Promise((r) => setTimeout(r, 60));
       if (unknown) return { unknown: true };
       if (!ready) return { timeout: true };
@@ -265,7 +332,17 @@ async function main() {
       } else if (off.timeout || on.timeout) {
         verdict = { ok: false, why: 'fixture never signaled READY within 45s' };
       } else {
-        verdict = judge(f, meanAbsDiff(off.png, on.png), errors);
+        verdict = f.parityOnly ? { ok: !errors.length, why: errors.length ? `${errors.length} error(s): ${errors[0].slice(0, 120)}` : 'parity only' }
+          : judge(f, meanAbsDiff(off.png, on.png), errors);
+        if (parity && verdict.ok) {
+          const ref = (o) => {
+            const p = join(referenceDir, `${f.id}_${o}.png`);
+            return existsSync(p) ? decodePng(readFileSync(p)) : null;
+          };
+          const rOff = ref(0), rOn = ref(1);
+          const pv = judgeParity(f, rOff ? meanAbsDiff(off.png, rOff) : null, rOn ? meanAbsDiff(on.png, rOn) : null);
+          verdict = { ok: pv.ok, why: `${verdict.why}; ${pv.why}` };
+        }
       }
       results.push({ id: f.id, cat: f.cat, label: f.label, ok: verdict.ok, why: verdict.why });
       console.log(`    ${verdict.ok ? 'PASS' : 'FAIL'}  ${f.id.padEnd(28)} ${verdict.why}`);

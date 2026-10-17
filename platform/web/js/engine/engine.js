@@ -450,6 +450,11 @@ const Engine = (function () {
 				// batches -- see command_render_draw_indirect()/
 				// command_render_draw_indexed_indirect() in the WebGPU driver.
 				'multi-draw-indirect',
+				// Lets a pipeline clamp depth instead of clipping
+				// (PipelineRasterizationState::enable_depth_clamp), which the
+				// Forward+ cluster builder relies on for geometry crossing the
+				// near or far plane.
+				'depth-clip-control',
 			];
 			for (let i = 0; i < optionalFeatures.length; i++) {
 				if (adapter.features.has(optionalFeatures[i])) {
@@ -488,6 +493,15 @@ const Engine = (function () {
 				// report a much higher maximum; request it.
 				'maxInterStageShaderVariables',
 				'maxInterStageShaderComponents',
+				// Defaults of 8192 (2D) and 256 layers are below what Godot's own
+				// settings can ask for: a 16384 shadow atlas, a large viewport, a
+				// texture array with more layers.
+				'maxTextureDimension1D',
+				'maxTextureDimension2D',
+				'maxTextureDimension3D',
+				'maxTextureArrayLayers',
+				// Forward+'s color pass writes several attachments at once.
+				'maxColorAttachmentBytesPerSample',
 			];
 			for (let li = 0; li < limitsToMax.length; li++) {
 				const key = limitsToMax[li];

@@ -283,6 +283,10 @@ struct WGPipelineWrapper {
 	// Uint32 variants and select the correct one at draw time.
 	WGPURenderPipeline render_handle_u16 = nullptr;
 	bool is_strip = false;
+	// Blends with BLEND_FACTOR_(ONE_MINUS_)CONSTANT_ALPHA. WebGPU's only blend
+	// constant factor uses the whole constant color, so while this pipeline is
+	// bound the driver sets the constant to (a, a, a, a) instead.
+	bool blend_constant_alpha = false;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };
@@ -443,6 +447,11 @@ struct WGCommandBuffer {
 		uint32_t current_subpass = 0;
 		WGPipelineWrapper *current_pipeline = nullptr;
 		WGPUIndexFormat current_index_format = WGPUIndexFormat_Uint32;
+		// The blend constants Godot last set in this pass, and whether they were
+		// applied as (a, a, a, a) for a constant-alpha pipeline.
+		WGPUColor blend_constants = {};
+		bool blend_constants_set = false;
+		bool blend_constants_as_alpha = false;
 		// Far edge (x + width, y + height) of the render area in attachment coordinates.
 		uint32_t render_area_width = 0;
 		uint32_t render_area_height = 0;

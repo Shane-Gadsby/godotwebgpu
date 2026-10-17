@@ -129,38 +129,7 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv.resize((int64_t)p_spv_bytes.size());
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
-	// 21 preprocessing passes (same order as spirv_to_wgsl.cpp).
-	spv = spirv_preprocess::inline_opaque_functions(spv);
-	// Specialization constants are left in place when every one of them can
-	// become a WGSL `@id(N) override`, so a pipeline can specialize them through
-	// WebGPU's own pipeline constants; everything else is frozen to its default
-	// and specialized (if at all) by re-patching the SPIR-V at pipeline creation.
-	if (!spirv_preprocess::spec_constants_overridable(spv)) {
-		spv = spirv_preprocess::freeze_spec_constant_ops(spv);
-	}
-	spv = spirv_preprocess::rewrite_copy_logical(spv);
-	spv = spirv_preprocess::rewrite_terminate_invocation(spv);
-	spv = spirv_preprocess::convert_push_constants_to_uniforms(spv);
-	spv = spirv_preprocess::split_combined_samplers(spv);
-	auto depth_result = spirv_preprocess::fix_depth2_images(spv);
-	spv = depth_result.bytes;
-	spv = spirv_preprocess::negate_position_y(spv);
-	spv = spirv_preprocess::strip_unsupported_decorations(spv);
-	spv = spirv_preprocess::strip_memory_barrier(spv);
-	spv = spirv_preprocess::strip_image_write_operands(spv);
-	spv = spirv_preprocess::strip_image_fetch_read_flag_only_operands(spv);
-	spv = spirv_preprocess::hoist_constant_local_arrays(spv);
-	spv = spirv_preprocess::split_initialized_local_arrays(spv);
-	spv = spirv_preprocess::strip_helper_invocation_builtin(spv);
-	spv = spirv_preprocess::fold_ballot_bit_count(spv);
-	// Must follow fold_ballot_bit_count(), which is what makes the ballots dead.
-	spv = spirv_preprocess::lower_subgroup_ops(spv);
-	spv = spirv_preprocess::fix_nonfinite_literals(spv);
-	spv = spirv_preprocess::flatten_binding_arrays(spv);
-	spv = spirv_preprocess::infer_readonly_storage(spv);
-	spv = spirv_preprocess::strip_writeonly_storage_decoration(spv);
-	spv = spirv_preprocess::eliminate_dead_resources(spv);
-	spv = spirv_preprocess::eliminate_local_single_block_vars(spv);
+	spv = spirv_preprocess::run_pipeline(spv);
 
 	// Debug: dump post-preprocessing SPIR-V when requested.
 	if (const char *dump_path = getenv("TINT_DEBUG_DUMP_PREPROCESSED")) {

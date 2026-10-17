@@ -262,6 +262,12 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 // Tint will actually receive.
 Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes);
 
+// The whole preprocessing pipeline, in order: what every SPIR-V module goes
+// through before Tint sees it. The single definition of that order -- the
+// runtime driver, the export-time baker (via tint_convert_cli) and the
+// build-time precompile all call this, so they cannot disagree.
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes);
+
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage
 // texture mode is valid and Tint handles it fine).

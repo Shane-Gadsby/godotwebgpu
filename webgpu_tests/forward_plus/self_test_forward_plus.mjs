@@ -14,8 +14,8 @@
  * Usage: node self_test_forward_plus.mjs
  */
 
-import { meanAbsDiff, judge } from './run_forward_plus.mjs';
-import { FEATURES, UNCOVERED, CATEGORIES } from './features.mjs';
+import { meanAbsDiff, judge, judgeParity, withFixedFps } from './run_forward_plus.mjs';
+import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE } from './features.mjs';
 
 let failed = 0;
 function check(name, cond, detail = '') {
@@ -50,6 +50,19 @@ check('errors fail even with a large delta', !judge(feat, 99, ['GPUValidationErr
 check('the error message reaches the report',
   judge(feat, 99, ['GPUValidationError: boom']).why.includes('boom'));
 
+// --- judgeParity ---
+const pf = { id: 'p' };
+check('frames matching native pass', judgeParity(pf, 0.002, 0.004).ok);
+check('an "on" frame off by more than the tolerance fails', !judgeParity(pf, 0.002, PARITY_TOLERANCE * 2).ok,
+  'a feature that renders, but differently from native, is what parity exists to catch');
+check('an "off" frame off by more than the tolerance fails too', !judgeParity(pf, PARITY_TOLERANCE * 2, 0.002).ok);
+check('a missing reference fails rather than passing', !judgeParity(pf, null, 0).ok);
+check('a feature tolerance replaces the default', judgeParity({ id: 'q', parityTol: 1.0 }, 0.5, 0.5).ok);
+
+// --- withFixedFps ---
+check('an empty argument list gets the fixed timestep', withFixedFps('{"args":[],"x":1}') === '{"args":["--fixed-fps","60"],"x":1}');
+check('existing arguments are kept', withFixedFps('"args":["--verbose"]') === '"args":["--fixed-fps","60","--verbose"]');
+
 // --- the feature table itself ---
 const ids = FEATURES.map((f) => f.id);
 check('no duplicate feature ids', new Set(ids).size === ids.length);
@@ -64,8 +77,14 @@ check('every feature has a known category',
   FEATURES.filter((f) => !Object.hasOwn(CATEGORIES, f.cat)).map((f) => f.id).join(', '));
 // A zero or negative floor would make that feature impossible to fail, which is
 // the exact failure this whole tier exists to prevent.
-const slack = FEATURES.filter((f) => !(f.minDelta > 0));
+// Parity-only arms are exempt: the delta test never runs on them, and their
+// correct result is "no change".
+const slack = FEATURES.filter((f) => !f.parityOnly && !(f.minDelta > 0));
 check('no feature has a zero threshold', slack.length === 0, slack.map((f) => f.id).join(', '));
+// A parity tolerance at or above a feature's own effect would let the effect
+// vanish entirely and still pass.
+const loose = FEATURES.filter((f) => f.parityTol !== undefined && !f.parityOnly && f.parityTol >= f.minDelta * 3);
+check('no parity tolerance swallows its feature', loose.length === 0, loose.map((f) => f.id).join(', '));
 check('every feature has a label', FEATURES.every((f) => f.label && f.label.length > 2));
 
 console.log(`\n  ${FEATURES.length} features covered, ${UNCOVERED.length} documented as uncovered`);
