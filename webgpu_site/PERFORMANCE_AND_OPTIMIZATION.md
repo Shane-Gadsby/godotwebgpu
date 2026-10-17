@@ -40,6 +40,8 @@ All optimizations are gated behind `ApiTrait` enums queried at initialization, m
 | +firstInstance dedup | Skip push constant IPC | ~46 ms | ~1.12x |
 | +Color pass batching | Merge color draws | ~36 ms | **Parity** |
 
+These numbers were measured while dual-paraboloid omni shadows were forced. That override was removed on 2026-10-17 for parity with native (see Layer 1); a scene with 32 shadowed omni lights left on the default cube mode now pays for 6 passes per light, and has not been re-measured.
+
 ### IPC Crossings Per Frame (3D Platformer)
 
 | Stage | Crossings/Frame | Cost at 0.3us each |
@@ -111,6 +113,8 @@ Each OmniLight3D with cubemap shadows generates 6 render pass encoder cycles + 2
 `API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID` overrides `light_omni_get_shadow_mode()` to always return `SHADOW_DUAL_PARABOLOID`. 2 passes per light instead of 6+2.
 
 **Quality trade-off**: Dual-paraboloid shadows have a seam at the hemisphere equator and slightly different sampling distribution. Acceptable for web where performance is the bottleneck.
+
+> **Reverted 2026-10-17 (`webgpu_notes/TASKS.md` §4.29).** The trait now returns 0, so each OmniLight3D uses its own `omni_shadow_mode` -- cube by default, exactly as on native. Forcing dual-paraboloid made every project's omni shadows differ from native and ignored a setting the user had chosen; the Forward+ parity sweep counted it as a parity bug. The cost comes back for scenes with many shadowed omni lights (6 passes per light instead of 2; Part 2's pass merging still applies). The 133 → 76 ms figure below was measured with both parts together and has **not** been re-measured with cube shadows; the scene smoketest and `perf_guard` stayed green. To get the cheaper shadows on web, set `omni_shadow_mode = OmniLight3D.SHADOW_DUAL_PARABOLOID` on the lights that need it -- it is a per-light choice, as on every other platform.
 
 ### Solution Part 2: Merge Same-Framebuffer Shadow Passes
 
@@ -319,7 +323,7 @@ Layer 3: firstInstance + PC dedup         — reduces per-draw overhead for non-
 | `BUFFER_CREATE_MAPPED_AT_CREATION` | 1 | Zero-copy initial buffer data |
 | `TEXTURE_INITIALIZE_DIRECT_WRITE` | 1 | Bypass transfer worker for textures |
 | `SKELETON_BUFFER_DIRECT_WRITE` | 1 | Direct queue write for bone atlas |
-| `FORCE_OMNI_DUAL_PARABOLOID` | 1 | Reduce shadow pass count |
+| `FORCE_OMNI_DUAL_PARABOLOID` | 0 | Was 1 (reduce shadow pass count) until 2026-10-17; see Layer 1 |
 | `BATCH_INSTANCE_DRAWS` | 1 | Merge same-state draws |
 | `FIRST_INSTANCE_INDEX` | 1 | Encode base_index via firstInstance |
 

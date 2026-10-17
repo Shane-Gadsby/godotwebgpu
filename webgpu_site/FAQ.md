@@ -92,7 +92,7 @@ This is a known limitation. Future work: pre-compile WGSL at export time, shippi
 
 ### 11. Are there any performance regressions vs native I should know about?
 
-- **Omni light shadows**: Forced to dual-paraboloid mode (slightly lower quality than cubemap, but 43% faster)
+- **Omni light shadows**: each light now uses its own `omni_shadow_mode` (cube by default), as on native. Until 2026-10-17 dual-paraboloid was forced, which was cheaper (2 passes per light instead of 6) but did not match native. Scenes with many shadowed omni lights can get that speed back by setting `omni_shadow_mode = SHADOW_DUAL_PARABOLOID` on those lights
 - **Shader startup**: ~15s first-time compilation (native has no equivalent cost)
 - **Texture readback**: 1-frame async delay (native is synchronous)
 - **No multi-threaded command recording**: single queue. Rendering runs on a separate thread in thread-enabled exports by default (export option `variant/separate_render_thread`; main thread −57% to −97% per frame on the measured scenes, see `PERFORMANCE_AND_OPTIMIZATION.md`), but it is one thread recording.
@@ -124,7 +124,7 @@ This design means push constant updates cost zero additional IPC — they're bat
 Godot compiles GLSL → SPIR-V at engine build time (via glslang). At runtime in the browser:
 
 1. SPIR-V bytecode is loaded from the shader container
-2. Twelve binary-level preprocessing passes in C++ (`spirv_preprocess.cpp`) transform the SPIR-V for WebGPU compatibility (spec constant folding, push constant rewrite, combined sampler split, Y-negation, readonly inference, and more)
+2. `spirv_preprocess::run_pipeline()` runs a fixed chain of C++ passes (`spirv_preprocess.cpp`, plus three on SPIRV-Tools' IR in `spirv_opt_passes.cpp`) that transform the SPIR-V for WebGPU compatibility: push constant rewrite, combined sampler split, Y-negation, texture-array expansion, the sampler mipmap bias, lowering of `isnan`/`isinf`/`textureQueryLod` that Tint cannot read, readonly inference, and more. The full order is in `TECHNICAL_REFERENCE.md` §4.1
 3. Tint (Google's Dawn/Chrome SPIR-V→WGSL compiler, compiled directly into the engine WASM) parses the preprocessed SPIR-V and generates WGSL
 4. Post-processing fixes browser-specific issues (f32::MAX literals, f16 stripping, derivative uniformity)
 5. C++ applies format remapping
@@ -165,9 +165,9 @@ This matches the Vulkan driver's structure — `rendering_device_driver_vulkan.c
 
 ### 18. What rendering features work on WebGPU vs native?
 
-**Fully working**: 3D Forward Mobile rendering, 2D Canvas, sky rendering, shadow mapping (dual-paraboloid), skeleton animation, tone mapping, SMAA, debanding, instance batching, texture compression (BC/ETC2/ASTC if GPU supports it).
+**Fully working**: Forward+ (Clustered) on adapters with 48+ sampled textures per stage, which includes the RTX 4080 desktop this was measured on and the Mali phone in Q20, and Forward Mobile otherwise. Forward+ is measured feature by feature against native Vulkan (`webgpu_tests/forward_plus --parity`, 71 features, all within tolerance): lights and shadows including omni cube shadows, SDFGI, VoxelGI, reflection probes, SSR/SSAO/SSIL, volumetric fog, glow, DOF, TAA/FXAA/MSAA/FSR2, `DEPTH_TEXTURE`, refraction, decals, particles, runtime-indexed texture arrays (lightmap and VoxelGI arrays use the same expansion but have no dedicated test). Plus 2D Canvas, skeleton animation, instance batching and texture compression (BC/ETC2/ASTC if the GPU supports it).
 
-**Limited/degraded**: Omni shadows (DP only, no cubemap), texture readback (async 1-frame delay), storage textures (format promoted), FSR (unavailable — storage bit removed from render targets).
+**Limited/degraded**: texture readback (async 1-frame delay), storage textures (format promoted), MSAA 2x/8x (run as 4x), SDFGI (no image atomics: a plain read-modify-write, 0.025 mean diff from native), FSR2 (fp16 resolve: edge-only differences), no sampler border colour, no wireframe. The full list is `webgpu_notes/TASKS.md` §2.31.
 
 **Not available**: Subpass-based post-processing, multiview/VR, VRS, tessellation, geometry shaders, subgroups, half-float math, texture component swizzle (emulated on CPU for L8/LA8; monochrome font atlases are rasterized straight to RGBA8 instead, so they need no conversion), 3-component texture formats (RGB8/RGBH/RGBF gain an alpha channel at load).
 
@@ -175,7 +175,9 @@ This matches the Vulkan driver's structure — `rendering_device_driver_vulkan.c
 
 Yes, with caveats:
 - Standard Godot shader language features work
-- `modf`, `isinf`, `isnan` are automatically replaced with WGSL-compatible equivalents
+- `modf`, `isinf`, `isnan` are automatically replaced with WGSL-compatible equivalents, and so is `textureQueryLod`
+- Texture arrays (`uniform sampler2D tex[4]`) work, indexed at runtime, up to the stage's texture budget
+- `POINT_COORD` draws the mesh as points (as on every platform); WebGPU has no point size, so each point is drawn as a quad
 - Array varyings are decomposed into individual variables
 - Switch statements are converted to if/else chains
 - Canvas shaders: binding 0 in set 3 is reserved for push constant emulation (bindings shifted to 1-4)
@@ -185,7 +187,7 @@ If you use very advanced GLSL features or rely on specific Vulkan behaviors, tes
 ### 20. Does it work on mobile browsers?
 
 - **Chrome Android**: yes, measured on 2026-10-17 on a Motorola Razr 60 (Mali-G615 MC2, Chrome 154, no flags needed). Everything loads and renders correctly, and the adapter reports 48 sampled textures per shader stage, so a `forward_plus` project runs **Forward+** there, not Forward Mobile. Adreno GPUs may additionally trigger the float32→float16 texture downgrades (untested in this fork).
-- **Safari iOS 18+**: untested in this fork; reported working upstream with the binding_array and format workarounds.
+- **Safari iOS 18+**: untested in this fork; reported working upstream with the texture-array and format workarounds.
 - **Firefox Android**: not yet shipping WebGPU.
 
 What a phone is actually limited by is the GPU, not the browser overhead this backend spent most of its effort on: on that Razr a real Forward+ project at its 1920x1080 backbuffer is 20 fps with the main thread 29% busy and 48.7 ms of GPU time per frame (lighting pass 28 ms, bokeh DOF 14.5 ms). Template kind, dlink, threads, the separate render thread and texture compression make no difference; 3D resolution does — `rendering/scaling_3d/scale` 0.5 gives 60 fps. Use `.web_android` / `.web_ios` setting suffixes to lower the 3D scale, shadow map sizes and soft-shadow quality on phones only (the web platform never exposes the `mobile` feature tag), and keep bilinear upscaling (FSR 1.0 costs ~7 ms at 1080p output on that GPU). The full investigation, including the lighting-shader bisection and why an f16 build of the Forward+ shader did not help, is in `webgpu_notes/TASKS.md` §2.9; the on-device tooling is `webgpu_tests/perf_guard/android/`.

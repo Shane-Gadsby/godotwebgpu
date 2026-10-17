@@ -36,7 +36,7 @@ Forward+ and Mobile renderers to run in the browser.
 | `rendering_shader_container_webgpu.cpp/h` | ~480 | Shader container format (SPIR-V storage, baked WGSL, baked reflection) |
 | `webgpu_objects.h` | ~320 | GPU object wrappers (WGBuffer, WGTexture, WGShader, etc.) |
 | `spirv_preprocess.cpp/h` | ~5100 | SPIR-V preprocessing passes before Tint conversion, and `run_pipeline()`, the one definition of their order |
-| `spirv_opt_passes.cpp/h` | ~900 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of what Tint aborts on |
+| `spirv_opt_passes.cpp/h` | ~1060 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of what Tint aborts on |
 | `spirv_binding_layout.h` | ~80 | Where expanded array elements and the SamplerLodBias block bind; shared by the passes and the driver |
 | `spirv_lite_reflect.cpp/h` | ~220 | Raw SPIR-V reflection with no SPIRV-Tools dependency, so the editor-side baker can run it too |
 | `tint_wrapper.cpp/h` | ~55 | C++20 isolation wrapper for Tint API |

@@ -7,6 +7,8 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | Test | What it validates | Runtime | Needs engine build? |
 |------|------------------|---------|---------------------|
 | [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
+| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs Tint CLI) |
+| [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
@@ -18,7 +20,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 70 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
@@ -32,19 +34,18 @@ The WebGPU shader pipeline is:
 
 ```
 GLSL → SPIR-V (glslang, at editor build time)
-     → 7 binary rewriting passes (C++ spirv_preprocess, at runtime)
+     → spirv_preprocess::run_pipeline() (C++, at build time, export time or runtime)
      → WGSL (Tint C++ library, linked into engine, at runtime)
      → GPU (browser's WebGPU implementation)
 ```
 
-The SPIR-V preprocessing passes (C++):
-1. **freeze_spec_constant_ops** — Evaluates `OpSpecConstantOp` into plain constants
-2. **rewrite_copy_logical** — `OpCopyLogical` → `OpCopyObject` (SPIR-V 1.4+ struct copy)
-3. **rewrite_terminate_invocation** — `OpTerminateInvocation` → `OpKill` (modern discard)
-4. **infer_readonly_storage** — Adds `NonWritable` to read-only SSBOs
-5. **convert_push_constants_to_uniforms** — PushConstant → StorageBuffer at group(3)/binding(120)
-6. **split_combined_samplers** — Combined image samplers → separate texture + sampler
-7. **fix_depth2_images** — depth=2 (unknown) → depth=1 for comparison sampling
+`run_pipeline()` is the one ordering of the SPIR-V passes every converter uses; the full list, with what
+each pass is for, is in [`webgpu_site/TECHNICAL_REFERENCE.md`](../webgpu_site/TECHNICAL_REFERENCE.md) §4.1.
+`preprocessing_tests/` covers the passes one at a time (291 assertions; tests 24-27 cover the three passes on
+SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
+`spirv-val` on each output, from `fixtures_src/tint_crash_inputs.frag` and `binding_arrays*.{frag,comp}`).
+`driver_unit_tests/test_binding_layout.mjs` checks the expanded-array binding layout against
+`drivers/webgpu/spirv_binding_layout.h` itself, and that every engine texture array fits it.
 
 ## Running Locally
 

@@ -1047,6 +1047,9 @@ public:
 		// per light) on backends where per-pass IPC overhead dominates, such
 		// as WebGPU. Dual-paraboloid renders 2 passes directly into the shadow
 		// atlas, which can then be merged into a single render pass.
+		// No driver sets it any more: WebGPU did until 2026-10-17, which made
+		// every web omni shadow differ from native and ignored the light's own
+		// omni_shadow_mode (webgpu_notes/TASKS.md §4.29).
 		API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID,
 		// If non-zero, the renderer batches consecutive shadow draws of the
 		// same mesh/pipeline into single instanced draw calls. This drastically

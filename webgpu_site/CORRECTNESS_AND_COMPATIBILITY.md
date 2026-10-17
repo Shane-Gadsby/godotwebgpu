@@ -5,7 +5,7 @@
 | Area | Score | Verdict |
 |------|-------|---------|
 | Resource lifecycle | 9/10 | All failure paths covered; async lifetime robust |
-| Rendering correctness | 8/10 | Core features working; mid-pass clear TODO |
+| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 71 matrix features (2026-10-17, §2.9); remaining gaps are WebGPU spec limits |
 | Cross-browser compatibility | 9/10 | Well-scoped workarounds for Chrome/Firefox/Safari |
 | Error handling | 8/10 | Robust async patterns; deadlock prevention |
 | Code quality | 8/10 | Well-documented; defensive; some TODOs remain |
@@ -111,7 +111,9 @@ Multi-frame physical buffers with per-frame rotation:
 
 `command_clear_color_texture` has two paths:
 1. Fast path (RenderAttachment usage): zero-draw render pass per mip/layer
-2. Fallback (CopyDst only): `wgpuQueueWriteTexture` fill with clear color, handles zero-clear optimization
+2. Fallback (CopyDst only): an encoder `copyBufferToTexture` from a cached zero buffer (or a per-clear pattern buffer for a non-zero colour), so the clear is ordered with the rest of the command buffer
+
+Both paths clear every z-slice of a 3D texture. Until 2026-10-17 the fallback was `wgpuQueueWriteTexture`, which runs at submit ahead of everything the encoder recorded earlier, and only slice 0 of a 3D texture was cleared; together they corrupted SDFGI's cascades whenever the camera moved.
 
 ### 2.5b MSAA Resolve
 
@@ -147,6 +149,24 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 |----------|--------|--------|
 | `command_render_clear_attachments` | WARN_PRINT, no-op | Mid-pass clears silently ignored |
 | `draw_indexed_indirect_count` | Uses max_count | Wastes GPU cycles, no correctness issue |
+
+### 2.9 Forward+ Parity with Native Vulkan
+
+**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29)
+
+`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.8 for its fp16 resolve). All 71 arms pass. Most land at 0.002-0.006; SDFGI 0.025, volumetric fog 0.046, omni cube shadows 0.015, FSR2 0.57 (edge-only).
+
+The sweep that introduced this check found five features that rendered wrongly while passing the older "does the frame change" test -- the reason the parity mode exists:
+
+| Feature | Was | Cause |
+|---|---|---|
+| SDFGI with a moving camera | 25.1 off native | 3D clears hit slice 0 only; queue-level uploads overtook earlier encoder commands |
+| Volumetric fog | 2.05, shadows missing | shadow atlases are depth textures declared as float -> blank fallback |
+| Omni lights | always dual-paraboloid | a performance trait forced it, ignoring the light's mode |
+| `DEPTH_TEXTURE`, refraction, proximity fade | reading 0 | the depth copy sampled a depth texture in a float slot |
+| Mipmap bias (TAA, FSR) | dropped | WebGPU samplers have no LOD bias |
+
+and, beyond those, texture arrays collapsed to element 0, four shader built-ins that crashed the page, FSR2 skipping its depth reconstruction, constant-alpha blending, depth clamp, contact shadows' border colour, and a material using `POINT_COORD` drawing nothing (an upstream bug that also affects D3D12).
 
 ---
 
@@ -298,8 +318,12 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 ### Rendering Limitations
 - `command_render_clear_attachments` not implemented (rarely used in Forward Mobile)
 - `draw_indexed_indirect_count` always uses max count (no GPU-driven rendering)
-- `binding_array` flattened to single element (no multi-lightmap on web)
-- Omni shadows forced to dual-paraboloid (quality trade-off)
+- Texture arrays past a shader stage's texture budget stay collapsed to element 0 (one-time warning); every engine array fits in practice
+- No image atomics: SDFGI voxelization does a plain read-modify-write (0.025 mean diff from native)
+- MSAA 2x and 8x run as 4x (WebGPU allows 1 and 4)
+- No wireframe / polygon mode, no sampler border colour (engine readers emulate it), no `alpha_to_one`, one stencil mask pair for both faces
+- No HDR canvas output
+- Full list with what would close each: `webgpu_notes/TASKS.md` §2.31
 - Subpass-based post-processing disabled (WebGPU has no input attachments)
 - No hardware multiview / VRS / subgroups
 
@@ -368,7 +392,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | Firefox validation: unbound bind groups | Pre-bind empty bind group at gaps |
 | Firefox: >8 SSBOs per stage | Per-stage visibility metadata |
 | Chrome: alpha compositing on canvas | Strip alpha writes from swap chain pipelines |
-| Chrome: binding_array unsupported | WGSL text-level flattening |
+| Chrome: binding_array unsupported | Expanded to one binding per element (`expand_binding_arrays`), collapsed only past the stage budget |
 | Adreno: float32 not filterable | Downgrade to float16 with bidirectional conversion |
 
 ### 7.4 WebGPU Spec Compliance (All Fixed)
@@ -378,9 +402,12 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | read_write storage in vertex shader | Demote to read-only |
 | Stencil reference not set dynamically | Apply at pipeline bind time |
 | Strip topology format unknown at pipeline creation | Create Uint16/Uint32 variants |
-| Texture clear without RenderAttachment usage | Fallback via wgpuQueueWriteTexture |
+| Texture clear without RenderAttachment usage | Encoder copy from a zero/pattern buffer (was `wgpuQueueWriteTexture`, which reordered it; see 2.5) |
 | Dynamic buffer offsets not applied | Multi-frame rotation with alignment |
 | Encoder sync scope violation | Proactive encoder splitting |
+| Constant-alpha blend factors don't exist | Single blend constant set to the alpha broadcast |
+| No sampler LOD bias | Bias added in the shader from a uniform (`apply_sampler_lod_bias`) |
+| Depth clamp | `depth-clip-control` + `unclippedDepth` |
 | 256-byte row alignment | Applied in all copy operations |
 
 ---
@@ -400,11 +427,13 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 | Suite | Count | Coverage |
 |-------|-------|----------|
-| SPIR-V preprocessing unit tests | 191 | All 12 binary-level passes, edge cases, spec constant ops |
-| Driver unit tests | 305 | Bind group layouts, format handling, pipeline state |
-| Shader corpus (GLSL → SPIR-V → WGSL) | 13 fixtures | End-to-end conversion + validation |
+| SPIR-V preprocessing unit tests | 291 | Every pass in `run_pipeline()`, edge cases, spec constant ops; the IR passes' outputs checked with `spirv-val` |
+| Driver unit tests | 379 | Bind group layouts, format handling, pipeline state, expanded-array binding layout |
+| Shader corpus (GLSL → SPIR-V → WGSL) | 14 fixtures | End-to-end conversion + validation |
+| Forward+ feature matrix | 71 features | Each feature off/on must change the frame (real GPU) |
+| Forward+ parity | 71 features | Each frame must match a native Vulkan render of the same scene |
 | Engine shader corpus | ~400+ shaders | Regression baseline with `expected_failures.json` |
-| Scene smoketests | 19 scenes × 3 browsers | Chrome, Firefox, Safari — zero GPU errors required |
+| Scene smoketests | 21 scenes × 3 browsers | Chrome, Firefox, Safari (never run: no Mac) — zero GPU errors required |
 | Resource lifecycle stress tests | - | Rapid create/destroy cycles |
 | Screenshot comparison | Chrome + Firefox | Pixel-level regression detection |
 | C++ fuzz targets | 3 targets | `fuzz_preprocess_passes`, `fuzz_split_samplers`, `fuzz_spirv_to_wgsl` |
@@ -439,4 +468,4 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 The godot-webgpu backend is **production-ready** for its target use case: running Godot 4.6 games in the browser with the Forward Mobile renderer. All critical rendering paths work correctly, resource lifecycle is properly managed, and cross-browser compatibility is handled through well-scoped, spec-compliant workarounds.
 
-The known limitations (mid-pass clear, indirect count, binding array flattening, shader startup time) are acceptable for an initial public release and clearly documented. No critical bugs were found during this comprehensive review.
+The known limitations (mid-pass clear, indirect count, the WebGPU spec gaps in §6, shader startup time) are acceptable for an initial public release and clearly documented. No critical bugs were found during this comprehensive review.

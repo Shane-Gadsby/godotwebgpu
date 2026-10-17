@@ -73,7 +73,7 @@ This repository is a fork of **[dwalter/godotwebgpu](https://github.com/dwalter/
 
 Building on that base, this fork has two main goals:
 
-- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10.
+- **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10. Since 2026-10-17 every Forward+ feature is also checked one at a time against native Vulkan (`webgpu_tests/forward_plus --parity`, 71 features, all within 0.05 / 255 mean except SDFGI's and FSR2's documented differences); what WebGPU itself cannot do is listed in `webgpu_notes/TASKS.md` §2.31.
 - **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` §4.17 for the port, Phase 8 for the earlier 4.7.2 sync).
 - **Box3D as the default 3D physics engine.** A new `PhysicsServer3D` implementation on top of Erin Catto's [Box3D](https://github.com/erincatto/box3d) — see [3D Physics](#3d-physics-box3d) below. Independent of the renderer work; it happens to matter most on the web, where Godot's other 3D physics options are the heaviest part of the build.
 - **Editor quality-of-life.** Small in-editor additions on top of upstream: mouse events in the script editor, and a per-project default directory for newly created scripts.
@@ -149,7 +149,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 | `draw_indexed_indirect_count` / `draw_indirect_count` ignore the count buffer | won't fix | WebGPU has no multi-draw-indirect-count. No current renderer uses count-buffer indirect draws |
 | Explicit `command_resolve_texture()` is a stub | won't fix for now | MSAA goes through render-pass `resolveTarget`, which is implemented. Only out-of-pass resolves are missing |
 | No image/texture atomics (`SUPPORTS_IMAGE_ATOMIC_32_BIT` is false) | by design | WGSL has no image-atomics concept. Engine code that wants them must select its `NO_IMAGE_ATOMICS` shader variant *and* leave `TEXTURE_USAGE_STORAGE_ATOMIC_BIT` off the texture, or `texture_create()` hard-fails — see `fog.cpp` and `gi.cpp` for the gating idiom |
-| No hardware multiview, VRS, or subgroups; subpass post-processing disabled; `binding_array` flattened to one element (no multi-lightmap); omni shadows forced to dual-paraboloid | by design | WebGPU feature gaps — see [Correctness & Compatibility](webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md) |
+| No hardware multiview, VRS, or subgroups; subpass post-processing disabled; MSAA 2x/8x run as 4x; no wireframe, sampler border colour or HDR canvas | by design | WebGPU feature gaps — see [Correctness & Compatibility](webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md) and `webgpu_notes/TASKS.md` §2.31. Texture arrays are expanded per element (multi-lightmap works) and collapse only past a stage's texture budget; omni lights use their own shadow mode (dual-paraboloid was forced until 2026-10-17) |
 
 **Readback and formats**
 
@@ -157,7 +157,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 |-------|--------|-------|
 | `buffer_map()` returns a CPU shadow copy, so readback is a frame behind | open (Task 7.8) | Synchronous GPU readback is impossible on single-threaded WASM. Some paths load from disk instead |
 | `RenderingDevice.texture_get_data()` returns nothing on the first call | open (Task 45) | Consequence of the above: the first call starts the copy-and-map and the data lands a frame later, and `rd.sync()` cannot wait for it. Web GDScript that needs a readback must retry or use `texture_get_data_async()`. `GradientTexture1D/2D.get_image()` no longer round-trips through the GPU and works normally |
-| 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | emdawnwebgpu has no `R16Unorm`/`Snorm` family at all. Costs memory; correctness is fine. Vertex attributes are unaffected |
+| 16-bit unorm/snorm texture formats are reported unsupported and converted to 32-bit float | workaround (Task 7.10) | Dawn's `texture-formats-tier1` exposes them but only as unfilterable, which breaks every linear sampler on them (tried and reverted 2026-10-17, TASKS.md §3 trap 31). Costs memory; correctness is fine. Vertex attributes are unaffected |
 | Canvas SDF uses `R16_SFLOAT` instead of `R16_SNORM` | workaround (Task 44) | Dawn reports `R16Snorm`'s sample type as `UnfilterableFloat` while the SDF samples it with a filtering sampler |
 | A storage image's `layout(<format>, ...)` in GLSL must match the bound texture's `DataFormat` exactly | by design | Vulkan/Metal/D3D12 tolerate a mismatch; WebGPU rejects it at bind time, and one invalid bind group invalidates the whole command buffer — so `Queue.Submit` silently drops the entire frame. A shared-engine-code change that moves one side must move the other; this is what blacked out 3D after the 4.8 merge (Task 15.5) |
 | Storage textures need format promotion (`R8`→`R32Float`, `rgb10a2unorm`→`rgba16float` on Firefox); no 3-component formats; no component swizzle; sRGB `viewFormats` excluded for storage textures | by design | CPU-side expansion happens once per texture at load. Promotion is applied to the texture and the WGSL declaration together, so the rule above still holds |
@@ -188,7 +188,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 **Verification gaps**
 
 - **A green test suite does not mean Forward+ renders.** In a container the suite runs on a software adapter, which reports fewer than 48 textures per shader stage — and `RendererCompositorRD::initialize()` silently falls back to **Forward Mobile** when it sees that. SSAO and SSIL are Forward+-only, and SDFGI's voxelization lives in the clustered shader, so none of them execute there. The 4.8 port had every tier green while 3D rendered entirely black on real hardware (Task 15.5). Treat a container run as "the engine boots and loads every scene", and use a real-GPU run against a real project for anything renderer-dependent — `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` is the procedure.
-- **Pixel assertions are unreliable headless.** Under headless swiftshader nothing presents to a capturable canvas, so every pixel-based check fails identically whatever the engine drew. Headless Firefox additionally cannot initialize a compositor here at all (`RenderCompositorSWGL failed mapping default framebuffer`) and screenshots come back fully black *including the 2D UI*, while the same build headed renders correctly. This is why `local_ci.sh` currently reports one failure — "Font rendering colors — Firefox", claiming "glyph modulate is being dropped" — which is specific, plausible and wrong. Chrome's equivalent passes.
+- **Pixel assertions are unreliable headless.** Under headless swiftshader nothing presents to a capturable canvas, so every pixel-based check fails identically whatever the engine drew. Headless Firefox additionally cannot initialize a compositor here at all (`RenderCompositorSWGL failed mapping default framebuffer`) and screenshots come back fully black *including the 2D UI*, while the same build headed renders correctly. This is why a headless `local_ci.sh` reports one failure — "Font rendering colors — Firefox", claiming "glyph modulate is being dropped" — which is specific, plausible and wrong. Chrome's equivalent passes, and so does Firefox on a real GPU.
 - Safari has never been run against the scene smoketest (macOS only); the 100% figures above come from manual testing.
 - Texture compression is settled on desktop (BC, both browsers); Safari and mobile formats are unmeasured (Task 39).
 - Box3D is validated natively against Jolt and GodotPhysics3D, but not in a browser; no scene in the smoketest exercises 3D physics under Box3D on the web.
@@ -197,32 +197,33 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 
 ## Test Suite
 
-Last full run **2026-10-06**, on Godot 4.8. Everything is green except one known-false-positive tier
-(see below) and Safari (macOS only, and no macOS machine is in this fork's loop). See
+Last full run **2026-10-17**, on Godot 4.8, real GPU (RTX 4080 SUPER, Chrome + Firefox), with
+`dev_mode=yes` (werror) as CI builds: **29 passed, 0 failed, 2 skipped** -- the two skips are Safari
+(macOS only, and no macOS machine is in this fork's loop). See
 [`webgpu_tests/README.md`](webgpu_tests/README.md) for what each tier covers and how to run it.
 
 | Tier | Result | Needs |
 |------|--------|-------|
 | `shader_corpus` | **14 / 14** | `tint_convert_cli` only — no engine build |
-| `driver_unit_tests` | **370 pass, 0 fail** | Node |
-| `preprocessing_tests` | **238 pass, 0 fail, 1 skipped** | Node |
+| `driver_unit_tests` | **379 pass, 0 fail** | Node |
+| `preprocessing_tests` | **291 pass, 0 fail, 1 skipped** | Node |
 | `resource_lifecycle` | all pass | Playwright |
 | `screenshot_comparison` | all pass | Playwright |
 | Scene smoketest — Chrome | **21 pass, 0 fail, 0 skip** | Editor + web template build |
 | Scene smoketest — Firefox | **21 pass, 0 fail, 0 skip** | Editor + web template build |
 | Font rendering colors — Chrome | pass | Editor + web template build |
-| Font rendering colors — Firefox | **fail — known false positive**, see Verification gaps | Editor + web template build |
+| Font rendering colors — Firefox | pass on a real GPU (a known false positive headless, see Verification gaps) | Editor + web template build |
 | Fog smoothness — Chrome / Firefox | pass on a real GPU; **skips** under a software adapter, which renders no fog | Editor + web template build, real GPU |
 | Fog assertion self-test | pass | Node |
-| Forward+ feature matrix (64 features) | **63 / 64**; 1 rare residual error, 10 features documented as uncovered | Own export, **real GPU** |
+| Forward+ feature matrix (71 features) | **71 / 71**; 10 features documented as uncovered | Own export, **real GPU** |
+| Forward+ parity vs native Vulkan (71 features) | **71 / 71** within tolerance | Own export + native editor with Vulkan, **real GPU** |
 | Forward+ matrix self-test | pass | Node |
 | Scene smoketest — Safari | not run | macOS + AppleScript |
-| `./webgpu_tests/local_ci.sh --no-safari` (all of the above plus `spec_constant_overrides` and `wgsl_cache`) | **17 passed, 1 failed, 1 skipped** | Full rebuild + re-export |
+| `./webgpu_tests/local_ci.sh --dev-mode --no-safari` (all of the above plus `spec_constant_overrides`, `wgsl_cache`, `perf_guard` and WebRTC parity) | **29 passed, 0 failed, 2 skipped** | Full rebuild + re-export |
 
-The one failure is the headless-Firefox pixel assertion described under
+Run headless on a software adapter, "Font rendering colors — Firefox" still fails as described under
 [Verification gaps](#known-issues): headless Firefox cannot composite in this environment, so the
-canvas reads back black and the test blames glyph modulate. Chrome's equivalent passes, and the same
-build renders correctly in headed Firefox.
+canvas reads back black and the test blames glyph modulate. On a real GPU it passes.
 
 The 21 scenes are 8 benchmarks, 10 demos, 1 stress test and 2 assertion fixtures (font rendering and
 volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures. `local_ci.sh` rebuilds the editor, the dlink
@@ -231,7 +232,7 @@ them before testing — so a green run reflects the working tree rather than wha
 to be on disk.
 
 **Every Forward+ feature has a regression test, and new ones must get one.**
-[`webgpu_tests/forward_plus`](webgpu_tests/forward_plus) renders each of 64
+[`webgpu_tests/forward_plus`](webgpu_tests/forward_plus) renders each of 71
 Forward+ features with it off and on and asserts the frame changed — the failure
 this port keeps producing is a feature silently doing nothing, which logs
 nothing and looks correct in isolation. Any feature added to the renderer,
@@ -240,6 +241,14 @@ reason in its `UNCOVERED` list; the suite fails and names the offender if the
 fixture and the feature table disagree. It needs a real GPU and skips rather
 than passing without one, and its thresholds are calibrated against native
 Vulkan rather than against WebGPU.
+
+**"The frame changed" is not "the frame is right"**, so `--parity` also renders
+the same fixture natively on Vulkan and fails any feature whose WebGPU frame
+differs from native by more than 0.05 mean per channel. That check found five
+features that had passed the delta test for weeks while rendering wrongly --
+SDFGI with a moving camera, volumetric fog's shadows, omni cube shadows,
+`DEPTH_TEXTURE` and the mipmap bias -- all fixed on 2026-10-17
+(`webgpu_notes/TASKS.md` §4.29). It is a `local_ci.sh` stage.
 
 One trap worth knowing up front: **CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`,
 and none of the individual tiers do.** A warning that is fatal in CI is invisible locally; run
