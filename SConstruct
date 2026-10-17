@@ -126,6 +126,7 @@ env.scons_version = env._get_major_minor_revision(scons_raw_version)
 env.__class__.add_module_version_string = methods.add_module_version_string
 
 env.__class__.add_source_files = methods.add_source_files
+env.__class__.gen_path = methods.gen_path
 env.__class__.use_windows_spawn_fix = methods.use_windows_spawn_fix
 
 env.__class__.add_shared_library = methods.add_shared_library
@@ -1181,6 +1182,21 @@ if env.editor_build:
 
 env["PROGSUFFIX_WRAP"] = suffix + env.module_version_string + ".console" + env["PROGSUFFIX"]
 env["PROGSUFFIX"] = suffix + env.module_version_string + env["PROGSUFFIX"]
+# Generated sources whose content depends on the build options (the enabled
+# module list, the registered platform APIs, the disabled-class list) used to be
+# written to one shared path each, such as `modules/modules_enabled.gen.h`. Two
+# builds of different variants in the same tree then overwrote each other's
+# copy, and an object compiled during the overlap was recorded as up to date
+# against content that belonged to the other build, so it stayed "up to date"
+# with the wrong content indefinitely. That is not theoretical: it once shipped
+# a release template that dynamic-linked against a debug-only symbol (see the
+# note at the end of modules/SCsub). Each variant now writes its own copy under
+# `gen/<variant>/`, prepended to the include path so the existing
+# `#include "modules/modules_enabled.gen.h"` spelling keeps resolving without
+# touching any of the files that use it.
+env["GEN_DIR"] = "gen/" + suffix.lstrip(".")
+env.Prepend(CPPPATH=["#" + env["GEN_DIR"]])
+
 env["OBJSUFFIX"] = suffix + env["OBJSUFFIX"]
 # (SH)LIBSUFFIX will be used for our own built libraries
 # LIBSUFFIXES contains LIBSUFFIX and SHLIBSUFFIX by default,

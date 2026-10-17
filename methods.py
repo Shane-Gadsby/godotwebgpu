@@ -1544,6 +1544,18 @@ def generate_copyright_header(filename: str) -> str:
     return TEMPLATE % filename
 
 
+def gen_path(env, path):
+    """
+    Build path for a generated source whose content depends on the build options.
+
+    Each variant writes its own copy under `gen/<variant>/` (see GEN_DIR in
+    SConstruct) instead of one shared path, so two builds in the same tree
+    cannot overwrite each other's copy. `path` is the spelling the generated
+    file is included by, e.g. "modules/modules_enabled.gen.h".
+    """
+    return f"#{env['GEN_DIR']}/{path}"
+
+
 @contextlib.contextmanager
 def generated_wrapper(
     path: str,

@@ -18,7 +18,7 @@ for platform in env.platform_exporters:
 
 # Register platform-exclusive APIs
 register_platform_apis = env.CommandNoCache(
-    "register_platform_apis.gen.cpp",
+    env.gen_path("platform/register_platform_apis.gen.cpp"),
     env.Value(env.platform_apis),
     env.Run(platform_builders.register_platform_apis_builder),
 )
