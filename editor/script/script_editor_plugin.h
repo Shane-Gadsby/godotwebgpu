@@ -353,6 +353,7 @@ class DocumentEditorContainer : public MarginContainer {
 	void _mark_built_in_scripts_as_saved(const String &p_parent_path);
 
 	bool trim_trailing_whitespace_on_save;
+	bool reformat_code_on_save = false; // GDB
 	bool trim_final_newlines_on_save;
 	bool convert_indent_on_save;
 	bool external_editor_active;

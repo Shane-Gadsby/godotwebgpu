@@ -9,7 +9,11 @@
 # Support" / "Thread Support" checkboxes has a matching template. This is
 # the full set needed to both develop with this fork and export the WebGPU
 # target it exists for, including GDExtensions (e.g. TressFX) that need
-# thread support. Mirrors this repo's own CI (.github/workflows/linux_builds.yml,
+# thread support. Braced GDScript (.gdb) is built into the editor and every
+# template (--no-gdscript-braces builds the standard GDScript instead), and the
+# editor plugins for it -- the Rider plugin and the VS Code .vsix, from the
+# sibling repos ../godot-gdb-rider and ../godot-gdb-vscode -- are built at the
+# end and copied to builds/<version>/editor_plugins/. Mirrors this repo's own CI (.github/workflows/linux_builds.yml,
 # web_builds.yml) and the install-then-build shape of build-macos.sh /
 # build-windows.ps1, but builds more template variants than CI does.
 #
@@ -89,6 +93,8 @@
 #   CCACHE_MAXSIZE=size  ccache budget for the 11 variants (default: 50G)
 #   LINKER=name          Native linker (default: auto -> mold, lld, or system)
 #   USE_CCACHE=no        Same as --no-ccache (default: yes)
+#   GDB_RIDER_DIR=path   Rider plugin repo (default: ../godot-gdb-rider)
+#   GDB_VSCODE_DIR=path  VS Code extension repo (default: ../godot-gdb-vscode)
 
 set -euo pipefail
 
@@ -111,12 +117,19 @@ SKIP_WEB=0
 SKIP_TINT_CLI=0
 SKIP_NATIVE_TEMPLATES=0
 FORCE_SHADER_REBAKE=0
+SKIP_EDITOR_PLUGINS=0
+PLUGINS_ONLY=0
+GDSCRIPT_BRACES="yes"
 USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
 EMSDK_VERSION="${EMSDK_VERSION:-6.0.9}"
 SCONS_VERSION="4.10.1"
+GDB_RIDER_DIR="${GDB_RIDER_DIR:-$REPO_ROOT/../godot-gdb-rider}"
+GDB_VSCODE_DIR="${GDB_VSCODE_DIR:-$REPO_ROOT/../godot-gdb-vscode}"
+# Pinned so a run doesn't ask the npm registry for the newest vsce every time.
+VSCE_VERSION="3.9.2"
 
 # Web template matrix filters. Defaults are the full 8-build matrix; narrowing
 # any of them is an iteration shortcut, not a release build (see the warning
@@ -134,6 +147,14 @@ Usage: ./build-linux.sh [options]
   --skip-web                Editor + native templates only.
   --skip-native-templates   Skip the Linux export templates (editor + web only).
   --skip-tint-cli           Don't rebuild bin/tint_convert_cli.
+  --no-gdscript-braces      Build the standard editor and templates, without
+                            braced GDScript (.gdb) support (gdscript_braces=no;
+                            it is on by default). Also skips the editor plugins,
+                            which need a braced editor.
+  --skip-editor-plugins     Don't build the Rider plugin or the VS Code .vsix.
+  --plugins-only            Build ONLY the Rider plugin and the VS Code .vsix
+                            (no prerequisites, no SCons, no templates); safe
+                            while another build runs in this tree.
   --force-shader-rebake     Delete drivers/webgpu/wgsl_precompiled.gen.h first,
                             forcing the WGSL table to be re-baked even if the
                             shader pipeline is unchanged.
@@ -150,7 +171,8 @@ Usage: ./build-linux.sh [options]
   --web-dlink LIST          Comma list of yes,no          (default: both)
   --jobs N                  Parallel jobs (default: nproc).
 
-Env overrides: EMSDK_DIR, EMSDK_VERSION, CCACHE_MAXSIZE, LINKER, USE_CCACHE.
+Env overrides: EMSDK_DIR, EMSDK_VERSION, CCACHE_MAXSIZE, LINKER, USE_CCACHE,
+GDB_RIDER_DIR, GDB_VSCODE_DIR.
 EOF
 }
 
@@ -174,6 +196,18 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--force-shader-rebake)
 			FORCE_SHADER_REBAKE=1
+			shift
+			;;
+		--no-gdscript-braces)
+			GDSCRIPT_BRACES="no"
+			shift
+			;;
+		--skip-editor-plugins)
+			SKIP_EDITOR_PLUGINS=1
+			shift
+			;;
+		--plugins-only)
+			PLUGINS_ONLY=1
 			shift
 			;;
 		--ccache)
@@ -215,6 +249,11 @@ while [[ $# -gt 0 ]]; do
 			;;
 	esac
 done
+
+if [[ "$PLUGINS_ONLY" -eq 1 && ( "$SKIP_EDITOR_PLUGINS" -eq 1 || "$GDSCRIPT_BRACES" == "no" ) ]]; then
+	echo "--plugins-only builds nothing together with --skip-editor-plugins or --no-gdscript-braces." >&2
+	exit 1
+fi
 
 # step() doubles as the run's stopwatch: each call closes the previous step and
 # records how long it took, so the summary at the end says where a long run
@@ -414,7 +453,9 @@ install_emsdk() {
 
 ACCESSKIT_ENABLED="yes"
 
-if [[ "$SKIP_INSTALL" -eq 0 ]]; then
+if [[ "$PLUGINS_ONLY" -eq 1 ]]; then
+	: # The plugins need none of the engine's prerequisites.
+elif [[ "$SKIP_INSTALL" -eq 0 ]]; then
 	install_prereqs
 else
 	warn "Skipping dependency installation (--skip-install). Assuming apt packages/SCons/AccessKit/Emscripten are already set up."
@@ -491,6 +532,124 @@ package_tpz() {
 		warn "$templates_out_dir not found -- skipping .tpz copy there."
 	fi
 }
+
+# --- Editor plugins for braced GDScript ---------------------------------------
+#
+# The Rider plugin and the VS Code extension live in their own repos next to
+# this one. They don't link against the engine -- they run the editor built
+# below (--gdscript-format-server) to format -- so they need not match this
+# build exactly, but building them here keeps everything a .gdb user installs in
+# one place. They are built at the end of a run, or alone with --plugins-only.
+# Both are cheap when nothing changed (Gradle is incremental; vsce just zips the
+# extension), and neither failing is worth failing the run over: by then the
+# editor and templates are already built.
+
+# The major version of the JDK whose home is $1 (8 for "1.8.0_432"), or nothing.
+jdk_major() {
+	local version
+	[[ -x "$1/bin/java" ]] || return 1
+	version="$("$1/bin/java" -version 2>&1 | head -1 | grep -oE '"[0-9][^"]*"' | tr -d '"')"
+	[[ -n "$version" ]] || return 1
+	[[ "$version" == 1.* ]] && version="${version#1.}"
+	echo "${version%%[^0-9]*}"
+}
+
+# Gradle needs JDK 17 or later to run, and the plugin compiles for 21
+# (jvmToolchain(21)). JAVA_HOME is often pinned to an older JDK for other tools
+# (a shell profile exporting JDK 8, say), and Gradle runs on whatever it names, so
+# don't trust it: take the first JDK 21 among JAVA_HOME, the java on PATH, the
+# JDKs under /usr/lib/jvm and the one Rider ships (riderPath/jbr), else the first
+# JDK 17 or later among them. Prints its home, or fails.
+find_gradle_jdk() {
+	local candidates=() home major rider_path fallback=""
+	[[ -n "${JAVA_HOME:-}" ]] && candidates+=("$JAVA_HOME")
+	if command -v java > /dev/null 2>&1; then
+		candidates+=("$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")")
+	fi
+	for home in /usr/lib/jvm/*; do
+		[[ -L "$home" ]] || candidates+=("$home")
+	done
+	rider_path="$(sed -n 's/^[[:space:]]*riderPath[[:space:]]*=[[:space:]]*//p' "$GDB_RIDER_DIR/gradle.properties" 2> /dev/null | head -1)"
+	[[ -n "$rider_path" ]] && candidates+=("$rider_path/jbr")
+	for home in "${candidates[@]}"; do
+		major="$(jdk_major "$home")" || continue
+		if [[ "$major" -eq 21 ]]; then
+			echo "$home"
+			return 0
+		fi
+		[[ -z "$fallback" && "$major" -ge 17 ]] && fallback="$home"
+	done
+	[[ -n "$fallback" ]] || return 1
+	echo "$fallback"
+}
+
+build_rider_plugin() {
+	step "Building the Rider plugin for braced GDScript ($GDB_RIDER_DIR)..."
+	if [[ ! -x "$GDB_RIDER_DIR/gradlew" ]]; then
+		warn "No Rider plugin repo at $GDB_RIDER_DIR (set GDB_RIDER_DIR) -- skipping it."
+		return
+	fi
+	local gradle_jdk
+	if ! gradle_jdk="$(find_gradle_jdk)"; then
+		warn "No JDK 17 or later found (the Rider plugin needs JDK 21: apt install openjdk-21-jdk) -- skipping it."
+		return
+	fi
+	ok "Gradle runs on $gradle_jdk (JDK $(jdk_major "$gradle_jdk"))."
+	# Builds against the local Rider install named by riderPath in the plugin's
+	# gradle.properties; a missing Rider fails here, with Gradle saying so.
+	# JAVA_HOME is set for Gradle only, not for the rest of this script.
+	if ! (cd "$GDB_RIDER_DIR" && JAVA_HOME="$gradle_jdk" PATH="$gradle_jdk/bin:$PATH" ./gradlew buildPlugin --quiet); then
+		warn "The Rider plugin build failed -- see the Gradle output above. Engine builds are unaffected."
+		return
+	fi
+	local zip
+	zip="$(ls -t "$GDB_RIDER_DIR"/build/distributions/godot-gdb-rider-*.zip 2> /dev/null | head -1)"
+	[[ -n "$zip" ]] || { warn "The Rider plugin built, but no zip was found in $GDB_RIDER_DIR/build/distributions."; return; }
+	cp "$zip" "$PLUGINS_OUT_DIR/"
+	ok "Rider plugin -> $PLUGINS_OUT_DIR/$(basename "$zip") (Settings > Plugins > Install Plugin from Disk)"
+}
+
+build_vscode_extension() {
+	step "Packaging the VS Code extension for braced GDScript ($GDB_VSCODE_DIR)..."
+	if [[ ! -f "$GDB_VSCODE_DIR/package.json" ]]; then
+		warn "No VS Code extension repo at $GDB_VSCODE_DIR (set GDB_VSCODE_DIR) -- skipping it."
+		return
+	fi
+	if ! command -v npx > /dev/null 2>&1; then
+		warn "npx not found (the .vsix is packaged with Node's npx) -- skipping it."
+		return
+	fi
+	local version vsix
+	version="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$GDB_VSCODE_DIR/package.json")"
+	vsix="godot-gdb-$version.vsix"
+	# --no-dependencies: the extension has no runtime dependencies, and its
+	# devDependencies (the test harness) must not end up in the package.
+	if ! (cd "$GDB_VSCODE_DIR" && npx --yes "@vscode/vsce@$VSCE_VERSION" package \
+		--no-dependencies --allow-missing-repository --out "$vsix"); then
+		warn "Packaging the VS Code extension failed -- see the output above. Engine builds are unaffected."
+		return
+	fi
+	cp "$GDB_VSCODE_DIR/$vsix" "$PLUGINS_OUT_DIR/"
+	ok "VS Code extension -> $PLUGINS_OUT_DIR/$vsix (Extensions > ... > Install from VSIX)"
+}
+
+PLUGINS_OUT_DIR="$OUT_DIR/editor_plugins"
+build_editor_plugins() {
+	mkdir -p "$PLUGINS_OUT_DIR"
+	build_rider_plugin
+	build_vscode_extension
+}
+
+# --plugins-only: nothing else to do. No prerequisites were installed (the
+# plugins bring their own toolchains: Gradle and npx), and no SCons run starts,
+# so this is safe while another build is running in this tree.
+if [[ "$PLUGINS_ONLY" -eq 1 ]]; then
+	build_editor_plugins
+	print_timings
+	echo
+	ok "Done. Plugins in builds/$VERSION/editor_plugins/"
+	exit 0
+fi
 
 # --- Build accelerators + matrix validation ---------------------------------
 
@@ -602,7 +761,7 @@ if [[ "$WEB_TARGETS,$WEB_THREADS,$WEB_DLINK" != "debug,release,yes,no,yes,no" ]]
 	warn "run guarantees every template's baked WGSL matches this editor's baker."
 fi
 
-step "Godot WebGPU Linux build -- version $VERSION, -j$JOBS (accesskit=$ACCESSKIT_ENABLED)"
+step "Godot WebGPU Linux build -- version $VERSION, -j$JOBS (accesskit=$ACCESSKIT_ENABLED, gdscript_braces=$GDSCRIPT_BRACES)"
 
 # --- Build -------------------------------------------------------------------
 
@@ -615,7 +774,12 @@ step "Building editor (platform=linuxbsd)..."
 # webgpu_notes/TASKS.md §4.10) actually bake WGSL at all. Omitting it
 # silently produces a working editor that exports fine but never bakes any
 # shader, regardless of dev_build.
-scons platform=linuxbsd target=editor accesskit="$ACCESSKIT_ENABLED" webgpu=yes \
+#
+# gdscript_braces is passed to every build below, templates included, even
+# though it is the engine's default: the editor and the templates it exports
+# with have to agree, because an export from a braced editor ships .gdb scripts
+# (as .gdbc) that a template built without it cannot load.
+scons platform=linuxbsd target=editor accesskit="$ACCESSKIT_ENABLED" webgpu=yes gdscript_braces="$GDSCRIPT_BRACES" \
 	"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
 
 # The binary this invocation produces, by Godot's own naming
@@ -670,11 +834,11 @@ fi
 
 if [[ "$SKIP_NATIVE_TEMPLATES" -eq 0 ]]; then
 	step "Building Linux export template (debug)..."
-	scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" \
+	scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" gdscript_braces="$GDSCRIPT_BRACES" \
 		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
 
 	step "Building Linux export template (release)..."
-	scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" \
+	scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" gdscript_braces="$GDSCRIPT_BRACES" \
 		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
 
 	dest="$OUT_DIR/templates_linux"
@@ -773,7 +937,7 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 
 				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
 				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
-					threads="$threads" -j"$JOBS"
+					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" -j"$JOBS"
 
 				scons_zip="bin/godot.web.${target}.wasm32"
 				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"
@@ -793,6 +957,14 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	done
 else
 	warn "Skipping web/WebGPU template build (--skip-web)."
+fi
+
+if [[ "$GDSCRIPT_BRACES" == "no" ]]; then
+	warn "Skipping the braced GDScript editor plugins (--no-gdscript-braces): they format through a braced editor."
+elif [[ "$SKIP_EDITOR_PLUGINS" -eq 1 ]]; then
+	warn "Skipping the braced GDScript editor plugins (--skip-editor-plugins)."
+else
+	build_editor_plugins
 fi
 
 package_tpz

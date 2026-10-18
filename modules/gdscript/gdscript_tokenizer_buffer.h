@@ -68,7 +68,8 @@ public:
 
 public:
 	Error set_code_buffer(const Vector<uint8_t> &p_buffer);
-	static Vector<uint8_t> parse_code_string(const String &p_code, CompressMode p_compress_mode);
+	// GDB: `p_braced` encodes a braced GDScript (`.gdb`) source; the result decodes like any other.
+	static Vector<uint8_t> parse_code_string(const String &p_code, CompressMode p_compress_mode, bool p_braced = false);
 
 	virtual int get_cursor_line() const override;
 	virtual int get_cursor_column() const override;

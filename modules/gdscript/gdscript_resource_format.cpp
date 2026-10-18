@@ -61,6 +61,10 @@ Ref<Resource> ResourceFormatLoaderGDScript::load(const String &p_path, const Str
 void ResourceFormatLoaderGDScript::get_recognized_extensions(List<String> *p_extensions) const {
 	p_extensions->push_back("gd");
 	p_extensions->push_back("gdc");
+#ifdef GDSCRIPT_BRACES_ENABLED
+	p_extensions->push_back("gdb"); // GDB
+	p_extensions->push_back("gdbc");
+#endif // GDSCRIPT_BRACES_ENABLED
 }
 
 bool ResourceFormatLoaderGDScript::handles_type(const String &p_type) const {
@@ -72,6 +76,11 @@ String ResourceFormatLoaderGDScript::get_resource_type(const String &p_path) con
 	if (el == "gd" || el == "gdc") {
 		return "GDScript";
 	}
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (el == "gdb" || el == "gdbc") {
+		return "GDScript"; // GDB
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
 	return "";
 }
 
@@ -104,6 +113,9 @@ void ResourceFormatLoaderGDScript::get_classes_used(const String &p_path, HashSe
 	const String source = scr->get_source_code();
 	GDScriptTokenizerText tokenizer;
 	tokenizer.set_source_code(source);
+#ifdef GDSCRIPT_BRACES_ENABLED
+	tokenizer.set_brace_mode(GDScriptTokenizer::is_braced_path(p_path)); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 	GDScriptTokenizer::Token current = tokenizer.scan();
 	while (current.type != GDScriptTokenizer::Token::TK_EOF) {
 		if (!current.is_identifier()) {
@@ -180,6 +192,9 @@ Error ResourceFormatSaverGDScript::save(const Ref<Resource> &p_resource, const S
 void ResourceFormatSaverGDScript::get_recognized_extensions(const Ref<Resource> &p_resource, List<String> *p_extensions) const {
 	if (Object::cast_to<GDScript>(*p_resource)) {
 		p_extensions->push_back("gd");
+#ifdef GDSCRIPT_BRACES_ENABLED
+		p_extensions->push_back("gdb"); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 	}
 }
 

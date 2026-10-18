@@ -496,7 +496,7 @@ Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_c
 				}
 			} else if (ProjectSettings::get_singleton()->has_autoload(name) && ProjectSettings::get_singleton()->get_autoload(name).is_singleton) {
 				const ProjectSettings::AutoloadInfo &info = ProjectSettings::get_singleton()->get_autoload(name);
-				if (!info.path.has_extension(GDScriptLanguage::get_singleton()->get_extension())) {
+				if (!GDScriptLanguage::is_gdscript_path(info.path)) { // GDB
 					push_error(vformat(R"(Singleton %s is not a GDScript.)", info.name), id);
 					return ERR_PARSE_ERROR;
 				}
@@ -806,8 +806,7 @@ GDScriptParser::DataType GDScriptAnalyzer::resolve_datatype(GDScriptParser::Type
 				result = parser->head->self_type;
 			} else {
 				String path = ScriptServer::get_global_class_path(first);
-				String ext = path.get_extension();
-				if (ext == GDScriptLanguage::get_singleton()->get_extension()) {
+				if (GDScriptLanguage::is_gdscript_path(path)) { // GDB
 					Ref<GDScriptParserRef> ref = parser->get_depended_parser_for(path);
 					if (ref.is_null() || ref->raise_status(GDScriptParserRef::INHERITANCE_SOLVED) != OK) {
 						push_error(vformat(R"(Could not parse global class "%s" from "%s".)", first, ScriptServer::get_global_class_path(first)), p_type);
@@ -2579,11 +2578,20 @@ void GDScriptAnalyzer::resolve_return(GDScriptParser::ReturnNode *p_return) {
 	} else {
 		const bool is_void_function = has_expected_type && expected_type.is_hard_type() && expected_type.kind == GDScriptParser::DataType::BUILTIN && expected_type.builtin_type == Variant::NIL;
 		const bool is_call = p_return->return_value->type == GDScriptParser::Node::CALL;
-		if (is_void_function && is_call) {
+		// GDB: In braced GDScript a lambda may return a `void` call, as an arrow function does (`() => print(1)`):
+		// the call runs and the lambda returns `null`.
+		const bool lambda_call = is_call && parser->is_braced_syntax() && parser->current_function != nullptr && parser->current_function->source_lambda != nullptr;
+		if ((is_void_function || lambda_call) && is_call) {
 			// Pretend the call is a root expression to allow those that are `void`.
 			reduce_call(static_cast<GDScriptParser::CallNode *>(p_return->return_value), false, true);
 		} else {
 			reduce_expression(p_return->return_value);
+		}
+		if (lambda_call && !is_void_function) {
+			const GDScriptParser::DataType &call_type = p_return->return_value->type_constraint;
+			if (call_type.is_hard_type() && call_type.kind == GDScriptParser::DataType::BUILTIN && call_type.builtin_type == Variant::NIL) {
+				p_return->void_return = true;
+			}
 		}
 		if (is_void_function) {
 			p_return->void_return = true;
@@ -3950,8 +3958,7 @@ GDScriptParser::DataType GDScriptAnalyzer::make_global_class_meta_type(const Str
 	GDScriptParser::DataType type;
 
 	String path = ScriptServer::get_global_class_path(p_class_name);
-	String ext = path.get_extension();
-	if (ext == GDScriptLanguage::get_singleton()->get_extension()) {
+	if (GDScriptLanguage::is_gdscript_path(path)) { // GDB
 		Ref<GDScriptParserRef> ref = parser->get_depended_parser_for(path);
 		if (ref.is_null()) {
 			push_error(vformat(R"(Could not find script for class "%s".)", p_class_name), p_source);

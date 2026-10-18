@@ -38,6 +38,7 @@
 #include "gdscript_utility_functions.h"
 
 #ifdef TOOLS_ENABLED
+#include "editor/gdscript_braced_conversion.h"
 #include "editor/gdscript_editor_language.h"
 #include "editor/gdscript_highlighter.h"
 #include "editor/gdscript_translation_parser_plugin.h"
@@ -53,6 +54,7 @@
 #include "tests/test_gdscript.h"
 #endif
 
+#include "core/config/project_settings.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
@@ -98,7 +100,7 @@ protected:
 	}
 
 	virtual void _export_file(const String &p_path, const String &p_type, const HashSet<String> &p_features) override {
-		if (p_path.get_extension() != "gd" || script_mode == EditorExportPreset::MODE_SCRIPT_TEXT) {
+		if (!GDScriptLanguage::is_gdscript_path(p_path) || script_mode == EditorExportPreset::MODE_SCRIPT_TEXT) { // GDB
 			return;
 		}
 
@@ -109,12 +111,14 @@ protected:
 
 		String source = String::utf8(reinterpret_cast<const char *>(file.ptr()), file.size());
 		GDScriptTokenizerBuffer::CompressMode compress_mode = script_mode == EditorExportPreset::MODE_SCRIPT_BINARY_TOKENS_COMPRESSED ? GDScriptTokenizerBuffer::COMPRESS_ZSTD : GDScriptTokenizerBuffer::COMPRESS_NONE;
-		file = GDScriptTokenizerBuffer::parse_code_string(source, compress_mode);
+		// GDB: A `.gdb` file compiles to `.gdbc`, so `foo.gd` and `foo.gdb` in one folder do not collide (plan D9).
+		const bool braced = GDScriptTokenizer::is_braced_path(p_path);
+		file = GDScriptTokenizerBuffer::parse_code_string(source, compress_mode, braced);
 		if (file.is_empty()) {
 			return;
 		}
 
-		add_file(p_path.get_basename() + ".gdc", file, true);
+		add_file(p_path.get_basename() + (braced ? ".gdbc" : ".gdc"), file, true);
 	}
 
 public:
@@ -162,6 +166,11 @@ void initialize_gdscript_module(ModuleInitializationLevel p_level) {
 		EditorTranslationParser::get_singleton()->add_parser(gdscript_translation_parser_plugin, EditorTranslationParser::STANDARD);
 	} else if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		memnew(GDScriptEditorLanguage);
+#ifdef GDSCRIPT_BRACES_ENABLED
+		// GDB: Braced GDScript in the editor.
+		GLOBAL_DEF(PropertyInfo(Variant::BOOL, "editor/script/braced_gdscript_by_default"), false);
+		EditorPlugins::add_by_type<GDScriptBracedEditorPlugin>();
+#endif // GDSCRIPT_BRACES_ENABLED
 
 		GDREGISTER_CLASS(GDScriptSyntaxHighlighter);
 #ifndef GDSCRIPT_NO_LSP

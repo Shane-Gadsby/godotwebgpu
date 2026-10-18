@@ -38,6 +38,9 @@
 
 void GDScriptEditorTranslationParserPlugin::get_recognized_extensions(List<String> *r_extensions) const {
 	r_extensions->push_back(GDScriptLanguage::get_singleton()->get_extension());
+#ifdef GDSCRIPT_BRACES_ENABLED
+	r_extensions->push_back("gdb"); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 }
 
 Error GDScriptEditorTranslationParserPlugin::parse_file(const String &p_path, Vector<Vector<String>> *r_translations) {

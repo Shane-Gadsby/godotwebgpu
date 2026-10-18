@@ -1,0 +1,159 @@
+/**************************************************************************/
+/*  gdscript_formatter.h                                                  */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+#pragma once
+
+#include "core/math/vector2i.h"
+#include "core/string/ustring.h"
+#include "core/templates/list.h"
+
+// GDB: Formatter for GDScript (`.gd`) and braced GDScript (`.gdb`).
+//
+// It works on the token stream, with comments and whitespace recovered from the source text between tokens, so it
+// never rebuilds code from the AST and cannot drop anything. Every result is checked before it is returned: the
+// output must tokenize to the same tokens as the input and must still parse, otherwise the formatter reports an error
+// and changes nothing.
+//
+// `.gdb` files are re-indented from their bracket structure. `.gd` files keep their block structure (indentation is
+// syntax there); their indentation is only converted between tabs and spaces.
+class GDScriptFormatter {
+public:
+	// The version of the braced syntax: the block-or-dictionary table (D3) and the JavaScript-style spellings. Bump it
+	// whenever either changes, together with `GRAMMAR_VERSION` in the Rider plugin's `GdbPsiLexer`, which mirrors them;
+	// `--gdscript-braces-version` prints it so the plugin can tell when it no longer matches the engine.
+	static constexpr int BRACES_GRAMMAR_VERSION = 1;
+	// BRACES_GRAMMAR_VERSION, or 0 in a build without braced GDScript (`gdscript_braces=no`).
+	static int get_braces_grammar_version();
+
+	enum OperatorStyle {
+		OPERATOR_STYLE_KEEP,
+		OPERATOR_STYLE_WORDS, // `and`, `or`, `not`
+		OPERATOR_STYLE_SYMBOLS, // `&&`, `||`, `!`
+	};
+
+	enum ElifStyle {
+		ELIF_STYLE_KEEP,
+		ELIF_STYLE_ELIF,
+		ELIF_STYLE_ELSE_IF, // `.gdb` only.
+	};
+
+	enum CommentStyle {
+		COMMENT_STYLE_KEEP,
+		COMMENT_STYLE_HASH, // `#`, `##`
+		COMMENT_STYLE_SLASHES, // `//`, `///` (`.gdb` only)
+	};
+
+	// A comma after the last item of a bracket whose closing bracket is on its own line.
+	enum TrailingCommas {
+		TRAILING_COMMAS_KEEP, // As written.
+		TRAILING_COMMAS_LITERALS, // Arrays, dictionaries and enums (the GDScript style guide).
+		TRAILING_COMMAS_ALL, // Also calls, parameter lists and annotation arguments.
+	};
+
+	struct Options {
+		bool use_spaces = false;
+		int indent_size = 4; // Spaces per level when `use_spaces`, and the width of a tab when reading `.gd` indentation.
+		int paren_continuation = 2; // Levels added inside `( )`.
+		int bracket_continuation = 1; // Levels added inside `[ ]`, dictionaries and enums.
+		bool spaces_in_braces = false; // `{ "a": 1 }` instead of `{"a": 1}`.
+		OperatorStyle operator_style = OPERATOR_STYLE_KEEP;
+		CommentStyle comment_style = COMMENT_STYLE_KEEP;
+		ElifStyle elif_style = ELIF_STYLE_KEEP;
+		int blank_lines_around_members = 2; // Around functions and classes.
+		int max_blank_lines = 1; // Anywhere else.
+		bool insert_final_newline = true;
+		bool use_crlf = false;
+		int max_line_length = 100; // Longer lines are wrapped inside their brackets; 0: never.
+		TrailingCommas trailing_commas = TRAILING_COMMAS_KEEP;
+		// Alignment (Tier 3), off in both presets: the GDScript style guide does not align.
+		bool align_assignments = false; // The `=` of consecutive `var` and `const` lines.
+		bool align_comments = false; // Trailing comments of consecutive lines.
+		bool align_dictionary_values = false; // The values of a dictionary written one entry per line.
+		bool align_match_branches = false; // The bodies of one-line `match` branches.
+	};
+
+	// `"godot"`: the official GDScript style guide. `"js"`: K&R braces, spaces, symbols, `//` comments.
+	static Options get_preset(const String &p_name);
+	static String get_default_preset(bool p_braced);
+
+	// Reads `.editorconfig` files from the file's directory upwards, as the EditorConfig specification describes.
+	// Keys: `indent_style`, `indent_size`, `tab_width`, `insert_final_newline`, `end_of_line`, `max_line_length`, and the
+	// `gdscript_*` keys documented in `get_editorconfig_keys()`.
+	static Options get_options_for_path(const String &p_path, const String &p_preset_override = String());
+	static String get_editorconfig_keys();
+
+	struct Result {
+		Error error = OK;
+		String output;
+		String message;
+		int line = 0;
+		// Set when the file was formatted without trailing commas, alignment and wrapping because those failed the
+		// safety check (an internal formatter error, reported here instead of as an error).
+		String note;
+	};
+
+	// `p_path` only decides brace mode (by extension) and the parser's script path.
+	static Result format(const String &p_source, const String &p_path, const Options &p_options);
+
+	// Formats only the lines in `p_line_ranges` (1-based, inclusive): the changes formatting the whole file makes to
+	// those lines, and none elsewhere. Fails if the result would not parse, as mixing changed and unchanged indentation
+	// in `.gd` can do.
+	static Result format_ranges(const String &p_source, const String &p_path, const Options &p_options, const Vector<Vector2i> &p_line_ranges);
+
+	// A unified diff (`---`/`+++`/`@@`) between two texts, with three lines of context, or an empty string.
+	static String unified_diff(const String &p_before, const String &p_after, const String &p_path);
+
+	// Converts a script between `.gd` and braced `.gdb`; the extension of `p_path` says which one `p_source` is. The
+	// result is formatted with `p_options`. `p_keep_lines` keeps every statement on its line instead, which only a
+	// `.gd` to `.gdb` conversion can always do. The conversion is checked: both versions must parse to the same tree.
+	static Result convert(const String &p_source, const String &p_path, bool p_keep_lines, const Options &p_options);
+
+	// `godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] <paths>` converts each file next to
+	// itself; `--replace` also removes the original and moves its `.uid` file. With `--stdin [--stdin-path <path>]` it
+	// converts standard input to standard output instead, `<path>` naming the source file. Returns the process exit code.
+	static int run_convert_cli(const List<String> &p_args);
+
+	// `godot --headless --gdscript-format [--check [--diff]] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]
+	// [--stdin --stdin-path <path> [--range <first>:<last>]...] <paths>`. The indent flags override `.editorconfig`, so an
+	// editor can pass its own effective settings; `--range` formats only those lines. Returns the process exit code.
+	static int run_cli(const List<String> &p_args);
+
+	// `godot --headless --gdscript-format-server`: stays running and answers requests on standard input, so an editor
+	// formats on save without starting the engine each time. Each request and response is a line holding the byte
+	// length of a JSON object, then the object. Request: `{"id", "path", "text", "mode": "format" | "to-gd" | "to-gdb" |
+	// "version", "preset", "indent_style", "indent_size", "ranges": [[first, last], ...], "keep_lines"}`. Response:
+	// `{"id", "ok": true, "text", "note"}` or `{"id", "ok": false, "line", "message"}`. Returns at end of input.
+	static int run_server();
+
+private:
+	// `p_to_indented`: `p_source` is braced, and the result is the equivalent indented `.gd` code. `r_wrapped` is set when
+	// a line was wrapped, which can change the layout a second pass sees (`format()` repeats until nothing changes).
+	static Result _format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented, bool *r_wrapped = nullptr);
+};

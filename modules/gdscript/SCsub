@@ -6,6 +6,12 @@ Import("env_modules")
 
 env_gdscript = env_modules.Clone()
 
+# GDB: Braced GDScript (.gdb). Every hook in the module is guarded by this define and tagged "GDB:".
+# The define is module-local, so it must never change the layout of a class: module headers are also included from
+# outside the module (`gdscript.h` by objectdb_profiler, the parser and tokenizer by `tests/test_main.cpp`).
+if env["gdscript_braces"]:
+    env_gdscript.Append(CPPDEFINES=["GDSCRIPT_BRACES_ENABLED"])
+
 env_gdscript.add_source_files(env.modules_sources, "*.cpp")
 
 if env.editor_build:

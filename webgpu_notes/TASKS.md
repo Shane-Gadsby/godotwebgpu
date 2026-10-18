@@ -320,7 +320,8 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
 | 2.24 | upstream the driver | OPEN, human | — |
-| 2.25 / 2.26 | side projects (Node server, `.gdb`) | not started | — |
+| 2.25 | side project (Node server) | not started | — |
+| 2.26 ✔ | braced GDScript (`.gdb`) | DONE 2026-10-18, 1.0 (tag `gdb-1.0`, §4.33) | hand tests in Rider and the editor |
 
 | what happened | items | commits |
 |---|---|---|
@@ -390,7 +391,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
-| 2.26 | Side project: Braced GDScript (`.gdb`) + Rider plugin | not started (plan revised 2026-10-18) | ~17-21 weeks, **human-scoped** |
+| 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 
@@ -1601,28 +1602,7 @@ web and native. Nothing was built or run; every claim in the retired docs was la
 the measured answer to "how much would a Node-side simulation buy me" are in git history (§5), and
 the whole thing depends on §4.20's F3 finding. Human-scoped: weeks, and a product decision first.
 
-### 2.26 Side project: Braced GDScript (`.gdb`) — not started
-
-Plan written 2026-09-29 against 4.7.2, revised 2026-10-18 against `webgpu-4.8`. GDScript with `{ }` blocks
-and a small JavaScript-style layer (`//` comments, `else if`, optionally `? :`, `=>` lambdas, `/** */`) in
-`.gdb` files, compiled by the same module so `.gd` and `.gdb` mix freely. The extension is the opt-in,
-and a lossless converter moves files either way. The core trick is translating braces into the
-`COLON`/`NEWLINE`/`INDENT`/`DEDENT` tokens the parser already consumes, leaving parser, analyzer,
-compiler, VM, debugger and completion untouched. Plus one engine formatter (Ctrl+Alt+L, Godot and JS-like
-presets, `.editorconfig`) that the editor, the CLI, the language server and every IDE delegate to. Plus a
-Rider plugin (Phase 11), built as a dialect of JetBrains' bundled GdScript plugin, whose JFlex lexer already
-uses the same INDENT/DEDENT model.
-
-The revision checked the plan against the 4.8 tree. Three findings matter beyond the side project.
-`GDScriptTokenizerBuffer` rebuilds indentation from per-line token columns (`gdscript_tokenizer_buffer.cpp:452`),
-so binary-token export needs the plan's D8 virtual-column encoder. `foo.gd` and `foo.gdb` would both export as
-`foo.gdc` (D9). The language server has no `textDocument/formatting` at all.
-
-Decided 2026-10-18: extension stays `.gdb`, all three Tier B sugars ship in v1, new `.gdb` files default to the
-JS-like preset, the Rider plugin is a dialect of the bundled GdScript plugin in its own local repository, and
-nothing from this project is proposed upstream. 30 requirements and 15 phases are in `webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md`, which is
-**still on disk**. It is gitignored, so unlike every other retired doc it is not recoverable from history.
-Nothing built.
+### 2.26 Braced GDScript (`.gdb`) — DONE, see §4.33
 
 ### 2.31 Forward+ gaps WebGPU itself cannot close `OPEN` — spec-limited; documented, each warns or degrades *(found by §4.29's sweep)*
 
@@ -1927,6 +1907,17 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     and most WAV/MP3 setters emitted nothing, so turning `loop` off at runtime left the cached sample looping forever
     and `finished` never fired. Natively nothing caches, so nothing showed it. The setters now emit `changed` and the
     driver re-renders on the next start (§4.30's follow-up).
+35. **A module's test headers do not see the module's defines** (2026-10-18). `tests/test_main.cpp` includes
+    `modules/*/tests/test_*.h` without the `CPPDEFINES` the module's own `SCsub` adds, so `#ifdef
+    GDSCRIPT_BRACES_ENABLED` in a GDScript test header is always false there: a whole test case compiled to nothing and
+    reported 0 test cases, looking like a filter typo. Check at run time instead
+    (`GDScriptFormatter::get_braces_grammar_version()`), and declare members a test touches unconditionally.
+36. **The GDScript tokenizer reports positions past the end for a token that ends the file without a line break**
+    (2026-10-18). The last token's end column is past the text, and the synthetic `NEWLINE` after it starts on a line
+    that does not exist. Code that turned (line, column) into offsets clamped the line and got offset 0 back, which
+    sent the ternary rewriter into an endless loop (a crash) and made the formatter reject such files. Any new
+    position-to-offset helper must map a line past the last to the end of the text; the fuzzer
+    (`test_gdscript_braces_fuzz.h`) found both.
 
 ---
 
@@ -2925,6 +2916,34 @@ under Xvfb: 32/32 (headless cannot work: its editor viewport is 2x2). Not covere
 workflows) deleted and re-downloaded the AccessKit archive on every run. The `version` file it writes as the last step
 of an install now marks a complete one: when it names the pinned version (`ac_version`, 0.23.1) the script exits
 without a download, another version is replaced, and `--force` reinstalls. Bumping `ac_version` is all an upgrade takes.
+
+### 4.33 Braced GDScript (`.gdb`) 1.0 (October 2026)
+
+GDScript written with `{ }` blocks in `.gdb` files, with `//`/`/* */`/`///`/`/** */` comments, `else if`,
+`c ? a : b` and arrow lambdas, loaded by the same `GDScriptLanguage` (so `.gd` and `.gdb` mix freely), plus one
+engine formatter and editor support. Built on 2026-10-18 on branch `gdb/m0` in a worktree, merged into
+`webgpu-4.8` with the tag `gdb-1.0`. Every phase of the plan is done; nothing has been tried by hand in Rider or
+the Godot editor yet, which is what is left. The plan, `webgpu_notes/Braced GDScript (.gdb) — Implementation
+Plan.md`, is gitignored and only on disk; `docs/braced_gdscript/` is the maintained description.
+
+| area | what landed | evidence |
+|---|---|---|
+| Engine | tokenizer brace mode (D2/D3), Tier A and B syntax, `.gdbc` binary-token export (D8/D9), analyzer/LSP/class cache for `.gdb`, `gdscript_braces=no` | 9 `.gd`/`.gdb` twin tests share their `.out`; every upstream test converted to `.gdb` prints what it printed, in text and binary-token mode |
+| Formatter | presets `godot`/`js`, `.editorconfig`, line wrapping, trailing commas, alignment (off by default), `--check --diff`, `--range`, `--stdin`, `--gdscript-format-server` (~0.3 ms per request) | idempotent over 703 scripts in both presets and at 40 columns with every rule on; 300,000 fuzzed inputs clean |
+| Converter | `.gd` ⇄ `.gdb`, CLI and the FileSystem dock (paths in other files updated) | round trip of every upstream test prints what it printed |
+| Godot editor | per-path comments and Auto Indent, `}` unindents, Reformat Code (selection or file, Ctrl+Alt+L), reformat on save, New Script and templates | unit tests of the hooks |
+| Rider plugin 1.0.0 (`../godot-gdb-rider`) | `.gdb` as a dialect of Rider's GdScript language (completion, navigation, rename, inspections offline), generated code braced, inspections, intentions, postfix, docs, breadcrumbs | 43 tests; PSI identical to the `.gd` twin's for 459 of 500 corpus files, the rest explained; Plugin Verifier compatible |
+| VS Code 1.0.0 (`../godot-gdb-vscode`), tree-sitter (`../godot-gdb-tree-sitter`) | formatter through the server, Format Selection; a grammar with highlight/fold queries | grammar parses all 515 `.gdb` files |
+| Tests and CI | `tests/braced_gdscript/run.sh`, fuzzing, a `.gdb` project in the web scene smoketest (passes in Chrome and Firefox as `.gdbc`), CI quick tier and a `gdscript_braces=no` build | |
+
+Web templates built before this merge cannot load `.gdb` scripts: rebuild them (and the editor) from this tree.
+`build-linux.sh` passes `gdscript_braces` to every build of a run (`--no-gdscript-braces` for a standard editor and
+templates), so a braced editor never exports `.gdb` scripts for templates that cannot load them, and ends by building
+the Rider plugin and the VS Code `.vsix` into `builds/<version>/editor_plugins/` (`--skip-editor-plugins`, or `--plugins-only` for just
+those; a failure there only warns). The syntax version (`--gdscript-braces-version`, 1) is mirrored by the Rider lexer and the
+tree-sitter grammar; `docs/braced_gdscript/internals.md` says when to bump it. The ES6 `.gdj` alternative was
+assessed and rejected (`webgpu_notes/ES6 language (.gdj) — Assessment.md`; its conclusion is also in
+`docs/braced_gdscript/faq.md`).
 
 ## 5. References — retired docs
 

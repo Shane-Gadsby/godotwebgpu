@@ -43,7 +43,7 @@ The **export-time** bake (`ShaderBakerExportPlugin` with the WebGPU platform, `w
 
 `misc/scripts/install_accesskit.py` (run by every build helper unless `--skip-install`) downloads AccessKit only when `bin/build_deps/accesskit/version` does not name the version it pins; `--force` reinstalls (§4.32).
 
-`./build-linux.sh` is the full local build: editor, Linux templates and the 8-variant web matrix, one SCons run after another in this tree, so every template's baked WGSL matches the editor's baker. `--help` lists the flags: `--skip-install`, `--skip-web`, `--skip-native-templates`, `--skip-tint-cli`, `--force-shader-rebake`, `--linker`, `--jobs`, `--web-targets`/`--web-threads`/`--web-dlink` to narrow the matrix while iterating (a narrowed run cannot guarantee the editor/template match), and `--no-ccache`. **ccache is on by default** (§4.26): SCons signs every object with the resolved compiler path, so only the first run after that default changed recompiles every variant. `--no-ccache` leaves the ccache symlink directory on `PATH` and sets `CCACHE_DISABLE=1` rather than removing it, so the signed path never changes and opting out — or back in — is free. Use `ccache -C` to discard the cache itself. It prints a per-step timing table at the end. **Never start a `scons` run — not even a no-op read or a timing probe — while another is running in this tree** (`pgrep -ax scons` first): the runs share `.sconsign5.dblite`, so an overlap can lose a run's recorded signatures. The worse half of this is fixed — each variant now writes its own copy of the option-dependent generated sources (`modules/modules_enabled.gen.h` and five others) under `gen/<variant>/`, prepended to `CPPPATH`, so no build can compile against another's copy and look up to date forever (`webgpu_notes/TASKS.md` §4.25, §3 trap 24). A generated source must therefore spell its own includes from the project root, not relative to where it used to live.
+`./build-linux.sh` is the full local build: editor, Linux templates and the 8-variant web matrix, one SCons run after another in this tree, so every template's baked WGSL matches the editor's baker. `--help` lists the flags: `--skip-install`, `--skip-web`, `--skip-native-templates`, `--skip-tint-cli`, `--force-shader-rebake`, `--linker`, `--jobs`, `--web-targets`/`--web-threads`/`--web-dlink` to narrow the matrix while iterating (a narrowed run cannot guarantee the editor/template match), `--no-ccache`, `--no-gdscript-braces` (a standard editor and templates, `gdscript_braces=no`; every build in the run gets the same value, so an editor never exports `.gdb` scripts for templates that cannot load them) `--skip-editor-plugins`, and `--plugins-only` (just the plugins: no prerequisites and no SCons, so it is safe while another build runs). Unless skipped, it ends by building the braced GDScript Rider plugin and VS Code `.vsix` from `../godot-gdb-rider` and `../godot-gdb-vscode` into `builds/<version>/editor_plugins/` (a failure there only warns; Gradle gets a JDK 21 found by the script, not whatever `JAVA_HOME` says). **ccache is on by default** (§4.26): SCons signs every object with the resolved compiler path, so only the first run after that default changed recompiles every variant. `--no-ccache` leaves the ccache symlink directory on `PATH` and sets `CCACHE_DISABLE=1` rather than removing it, so the signed path never changes and opting out — or back in — is free. Use `ccache -C` to discard the cache itself. It prints a per-step timing table at the end. **Never start a `scons` run — not even a no-op read or a timing probe — while another is running in this tree** (`pgrep -ax scons` first): the runs share `.sconsign5.dblite`, so an overlap can lose a run's recorded signatures. The worse half of this is fixed — each variant now writes its own copy of the option-dependent generated sources (`modules/modules_enabled.gen.h` and five others) under `gen/<variant>/`, prepended to `CPPPATH`, so no build can compile against another's copy and look up to date forever (`webgpu_notes/TASKS.md` §4.25, §3 trap 24). A generated source must therefore spell its own includes from the project root, not relative to where it used to live.
 
 ## Testing
 
@@ -207,6 +207,25 @@ Key differences from a "normal" backend that are easy to trip over:
 - Web builds always run Box3D single threaded (`workerCount = 1`); its own thread creation cannot work from the web export's fixed pthread pool.
 
 Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
+
+### Braced GDScript (`.gdb`)
+
+`.gdb` files are GDScript written with `{ }` blocks (plus `//` comments, `else if`, `c ? a : b`, arrow lambdas),
+loaded by the same `GDScriptLanguage`. The tokenizer translates braces into the `COLON`/`NEWLINE`/`INDENT`/`DEDENT`
+tokens the parser already reads (`gdscript_tokenizer_braces.cpp`); everything after it is shared. User and developer
+docs: `docs/braced_gdscript/` (start with `internals.md`). One formatter (`gdscript_formatter.cpp`) serves the editor's
+Reformat Code, `--gdscript-format`, `--gdscript-convert`, `--gdscript-format-server` and the language server. Every
+upstream change to these files is tagged `// GDB`. Rules that cost time:
+
+- Any `get_extension() == "gd"` in `modules/gdscript` must be `GDScriptLanguage::is_gdscript_path()`, or `.gdb` scripts
+  silently miss that code path.
+- Test headers are compiled from `tests/test_main.cpp` without the module's defines, so a braced test checks for brace
+  mode at run time (`GDScriptFormatter::get_braces_grammar_version()`), not with `#ifdef GDSCRIPT_BRACES_ENABLED`.
+- A change to the block-or-dictionary rule or the braced spellings bumps `GDScriptFormatter::BRACES_GRAMMAR_VERSION` and
+  the Rider plugin's `GdbPsiLexer.GRAMMAR_VERSION` (and the tree-sitter grammar), which mirror it.
+- Test with `tests/braced_gdscript/run.sh` (`--quick` for two minutes); web templates must be built from this tree for
+  the `braced_gdscript` smoketest scene. Editor plugins live in `../godot-gdb-rider`, `../godot-gdb-vscode` and
+  `../godot-gdb-tree-sitter`.
 
 ### Where to look first
 

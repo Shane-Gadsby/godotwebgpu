@@ -1,0 +1,4 @@
+GDTEST_RUNTIME_ERROR
+a
+before
+>> SCRIPT ERROR at braces/runtime/error_line_numbers.gdb:4 on test(): Invalid access to property or key 'missing' on a base object of type 'Dictionary'.

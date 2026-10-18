@@ -2895,6 +2895,45 @@ TEST_CASE("[SceneTree][CodeEdit] indent") {
 	memdelete(code_edit);
 }
 
+// GDB: Closing brackets typed at the start of a line take the indentation of their opener's line.
+TEST_CASE("[SceneTree][CodeEdit] auto unindent closing brackets") {
+	CodeEdit *code_edit = memnew(CodeEdit);
+	SceneTree::get_singleton()->get_root()->add_child(code_edit);
+	code_edit->grab_focus();
+	code_edit->set_auto_brace_completion_enabled(false);
+	code_edit->add_string_delimiter("\"", "\"");
+	code_edit->add_comment_delimiter("#", "");
+	code_edit->set_text("f [\n\tif x [\n\t\ta(\"]\") # ]\n\t\t");
+	code_edit->set_caret_line(3);
+	code_edit->set_caret_column(2);
+
+	SUBCASE("Off by default") {
+		CHECK_FALSE(code_edit->is_auto_unindent_closing_brackets());
+		SEND_GUI_KEY_EVENT(Key::BRACKETRIGHT);
+		CHECK(code_edit->get_line(3) == "\t\t]");
+	}
+
+	SUBCASE("Lines up with the opener, skipping strings and comments") {
+		code_edit->set_auto_unindent_closing_brackets(true);
+		SEND_GUI_KEY_EVENT(Key::BRACKETRIGHT);
+		CHECK(code_edit->get_line(3) == "\t]");
+		CHECK(code_edit->get_caret_column() == 2);
+
+		code_edit->insert_text_at_caret("\n\t\t\t");
+		SEND_GUI_KEY_EVENT(Key::BRACKETRIGHT);
+		CHECK(code_edit->get_line(4) == "]");
+	}
+
+	SUBCASE("Not after other text on the line") {
+		code_edit->set_auto_unindent_closing_brackets(true);
+		code_edit->insert_text_at_caret("b");
+		SEND_GUI_KEY_EVENT(Key::BRACKETRIGHT);
+		CHECK(code_edit->get_line(3) == "\t\tb]");
+	}
+
+	memdelete(code_edit);
+}
+
 TEST_CASE("[SceneTree][CodeEdit] folding") {
 	CodeEdit *code_edit = memnew(CodeEdit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);

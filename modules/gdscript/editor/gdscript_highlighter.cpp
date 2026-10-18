@@ -32,6 +32,7 @@
 
 #include "../gdscript.h"
 #include "../gdscript_tokenizer.h"
+#include "gdscript_editor_language.h"
 
 #include "core/config/project_settings.h"
 #include "core/core_constants.h"
@@ -843,9 +844,17 @@ void GDScriptSyntaxHighlighter::_update_cache() {
 		global_functions.insert(E);
 	}
 
+	// GDB: Braced GDScript (`.gdb`) also has `//`, `///` and `/* */` comments.
+	String edited_path;
+	const Ref<Resource> edited = _get_edited_resource();
+	if (edited.is_valid()) {
+		edited_path = edited->get_path();
+	}
+	const bool braced = GDScriptTokenizer::is_braced_path(edited_path);
+
 	/* Comments. */
 	const Color comment_color = EDITOR_GET("text_editor/theme/highlighting/comment_color");
-	for (const String &comment : gdscript->get_comment_delimiters()) {
+	for (const String &comment : braced ? GDScriptEditorLanguage::get_braced_comment_delimiters() : gdscript->get_comment_delimiters()) {
 		String beg = comment.get_slicec(' ', 0);
 		String end = comment.get_slice_count(" ") > 1 ? comment.get_slicec(' ', 1) : String();
 		add_color_region(ColorRegion::TYPE_COMMENT, beg, end, comment_color, end.is_empty());
@@ -853,7 +862,7 @@ void GDScriptSyntaxHighlighter::_update_cache() {
 
 	/* Doc comments */
 	const Color doc_comment_color = EDITOR_GET("text_editor/theme/highlighting/doc_comment_color");
-	for (const String &doc_comment : gdscript->get_doc_comment_delimiters()) {
+	for (const String &doc_comment : braced ? GDScriptEditorLanguage::get_braced_doc_comment_delimiters() : gdscript->get_doc_comment_delimiters()) {
 		String beg = doc_comment.get_slicec(' ', 0);
 		String end = doc_comment.get_slice_count(" ") > 1 ? doc_comment.get_slicec(' ', 1) : String();
 		add_color_region(ColorRegion::TYPE_COMMENT, beg, end, doc_comment_color, end.is_empty());

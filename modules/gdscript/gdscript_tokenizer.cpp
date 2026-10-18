@@ -650,6 +650,12 @@ GDScriptTokenizer::Token GDScriptTokenizerText::potential_identifier() {
 #undef KEYWORDS
 
 void GDScriptTokenizerText::newline(bool p_make_token) {
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (brace_mode && brace_line_start) {
+		// GDB: The line already ended with a brace's synthetic tokens, so this line break adds nothing.
+		p_make_token = false;
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
 	// Don't overwrite previous newline, nor create if we want a line continuation.
 	if (p_make_token && !pending_newline && !line_continuation) {
 		Token newline(Token::NEWLINE);
@@ -1143,6 +1149,14 @@ GDScriptTokenizer::Token GDScriptTokenizerText::string() {
 void GDScriptTokenizerText::check_indent() {
 	ERR_FAIL_COND_MSG(column != 1, "Checking tokenizer indentation in the middle of a line.");
 
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (brace_mode) {
+		// GDB: Indentation has no meaning in brace mode.
+		_brace_skip_line_start();
+		return;
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
+
 	if (_is_at_end()) {
 		// Send dedents for every indent level.
 		pending_indents -= indent_level();
@@ -1341,6 +1355,14 @@ void GDScriptTokenizerText::_skip_whitespace() {
 				newline(!is_bol); // Don't create new line token if line is empty.
 				check_indent();
 				break;
+#ifdef GDSCRIPT_BRACES_ENABLED
+			case '/':
+				// GDB: `//`, `///` and `/* */` comments in brace mode.
+				if (!brace_mode || !_brace_skip_comment(is_bol)) {
+					return;
+				}
+				break;
+#endif // GDSCRIPT_BRACES_ENABLED
 			case '#': {
 				// Comment.
 #ifdef TOOLS_ENABLED
@@ -1368,6 +1390,12 @@ void GDScriptTokenizerText::_skip_whitespace() {
 }
 
 GDScriptTokenizer::Token GDScriptTokenizerText::scan() {
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (brace_mode && !brace_in_scan) {
+		return _brace_scan(); // GDB: Brace mode wraps this scanner.
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
+
 	if (has_error()) {
 		return pop_error();
 	}
@@ -1473,24 +1501,57 @@ GDScriptTokenizer::Token GDScriptTokenizerText::scan() {
 		// Parens.
 		case '(':
 			push_paren('(');
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode && _brace_arrow_after_paren()) {
+				// GDB: `(a, b) => ...` is a lambda: `func` goes first.
+				brace_queue.push_back(make_token(Token::PARENTHESIS_OPEN));
+				return _brace_make_synthetic(Token::FUNC, start_line, start_column);
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			return make_token(Token::PARENTHESIS_OPEN);
 		case '[':
 			push_paren('[');
 			return make_token(Token::BRACKET_OPEN);
 		case '{':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode) {
+				return _brace_open(); // GDB: Block, dictionary or enum.
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			push_paren('{');
 			return make_token(Token::BRACE_OPEN);
 		case ')':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode) {
+				const Token error = _brace_check_paren_close(c); // GDB
+				if (error.type == Token::ERROR) {
+					return error;
+				}
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (!pop_paren('(')) {
 				return make_paren_error(c);
 			}
 			return make_token(Token::PARENTHESIS_CLOSE);
 		case ']':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode) {
+				const Token error = _brace_check_paren_close(c); // GDB
+				if (error.type == Token::ERROR) {
+					return error;
+				}
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (!pop_paren('[')) {
 				return make_paren_error(c);
 			}
 			return make_token(Token::BRACKET_CLOSE);
 		case '}':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode) {
+				return _brace_close(); // GDB
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (!pop_paren('{')) {
 				return make_paren_error(c);
 			}
@@ -1606,6 +1667,11 @@ GDScriptTokenizer::Token GDScriptTokenizerText::scan() {
 
 		// Potential VCS conflict markers.
 		case '=':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode && _peek() == '>') {
+				return _brace_arrow(); // GDB
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (_peek() == '=') {
 				return check_vcs_marker('=', Token::EQUAL_EQUAL);
 			} else {

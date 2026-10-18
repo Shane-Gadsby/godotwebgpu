@@ -1432,6 +1432,44 @@ private:
 
 	GDScriptTokenizer *tokenizer = nullptr;
 	GDScriptTokenizer::Token previous;
+
+public:
+	// GDB: Where each block starts (its `:`, one-based) and where its last token ends (exclusive column), in the order
+	// blocks finish: an inner block before the block holding it. Used by the `.gd` to `.gdb` converter.
+	struct BlockRecord {
+		int colon_line = 0;
+		int colon_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+	};
+	// GDB: Where each `c ? a : b` is (one-based; `?` and `:` columns, end exclusive), for the `.gdb` to `.gd` converter.
+	struct QuestionMarkRecord {
+		int start_line = 0;
+		int start_column = 0;
+		int question_line = 0;
+		int question_column = 0;
+		int colon_line = 0;
+		int colon_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+	};
+	// GDB: The `return` an arrow lambda's expression body becomes: where its `=>` is and where the expression ends.
+	struct ArrowReturnRecord {
+		int arrow_line = 0;
+		int arrow_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+		const ReturnNode *node = nullptr;
+	};
+
+private:
+	Vector<BlockRecord> *block_log = nullptr;
+	Vector<QuestionMarkRecord> *question_mark_log = nullptr;
+	Vector<ArrowReturnRecord> *arrow_return_log = nullptr;
+	bool braced_syntax = false; // GDB: The script is braced GDScript, which allows `c ? a : b`.
+	int last_significant_end_line = 0;
+	int last_significant_end_column = 0;
+	void _log_block(int p_colon_line, int p_colon_column);
 	GDScriptTokenizer::Token current;
 
 	ClassNode *current_class = nullptr;
@@ -1669,6 +1707,7 @@ private:
 	ExpressionNode *parse_type_test(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_yield(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_invalid_token(ExpressionNode *p_previous_operand, bool p_can_assign);
+	ExpressionNode *parse_question_mark(ExpressionNode *p_previous_operand, bool p_can_assign); // GDB
 	TypeNode *parse_type(bool p_allow_void = false);
 	// TODO: Remove in 5.x.
 	bool parse_standalone_string();
@@ -1683,6 +1722,12 @@ private:
 
 public:
 	Error parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body = true);
+
+	// GDB: See `BlockRecord`.
+	void set_block_log(Vector<BlockRecord> *p_log) { block_log = p_log; }
+	void set_question_mark_log(Vector<QuestionMarkRecord> *p_log) { question_mark_log = p_log; }
+	bool is_braced_syntax() const { return braced_syntax; } // GDB
+	void set_arrow_return_log(Vector<ArrowReturnRecord> *p_log) { arrow_return_log = p_log; }
 	Error parse_binary(const Vector<uint8_t> &p_binary, const String &p_script_path);
 	ClassNode *get_tree() const { return head; }
 	bool is_tool() const { return _is_tool; }
@@ -1770,6 +1815,9 @@ public:
 
 	public:
 		void print_tree(const GDScriptParser &p_parser);
+		// GDB: The tree as text, without printing it. It holds no source positions, so two scripts with the same
+		// structure and different layout print the same.
+		String get_tree_text(const GDScriptParser &p_parser);
 	};
 #endif // DEBUG_ENABLED
 	static void cleanup();

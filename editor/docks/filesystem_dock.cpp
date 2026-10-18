@@ -1968,6 +1968,33 @@ void FileSystemDock::_rename_operation_confirm(bool p_from_tree) {
 	_rescan();
 }
 
+Error FileSystemDock::rename_file(const String &p_from, const String &p_to) {
+	// GDB: The rename pipeline without its UI: moves the file with its `.import` and `.uid` files, and updates open
+	// resources, the scenes and resources that use it, project settings and favorites.
+	ERR_FAIL_COND_V(!FileAccess::exists(p_from), ERR_FILE_NOT_FOUND);
+	ERR_FAIL_COND_V(FileAccess::exists(p_to), ERR_ALREADY_EXISTS);
+
+	const Vector<FileOrFolder> previous_to_move = to_move;
+	to_move.clear();
+	to_move.push_back(FileOrFolder(p_from, true));
+	HashSet<String> file_owners;
+	_before_move(file_owners);
+	to_move = previous_to_move;
+
+	HashMap<String, String> file_renames;
+	HashMap<String, String> folder_renames;
+	_try_move_item(FileOrFolder(p_from, true), p_to, file_renames, folder_renames);
+	if (!file_renames.has(p_from)) {
+		return FAILED;
+	}
+	_update_resource_paths_after_move(file_renames);
+	_update_dependencies_after_move(file_renames, file_owners);
+	_update_project_settings_after_move(file_renames, folder_renames);
+	_update_favorites_after_move(file_renames, folder_renames);
+	_rescan();
+	return OK;
+}
+
 void FileSystemDock::_duplicate_operation_confirm(const String &p_path) {
 	const String base_dir = p_path.trim_suffix("/").get_base_dir();
 	if (!DirAccess::dir_exists_absolute(base_dir)) {

@@ -1,0 +1,2 @@
+GDTEST_PARSER_ERROR
+A "{" that opens a block must be on the same line as the statement it belongs to, as in "if x {". Move it to the end of the previous line.

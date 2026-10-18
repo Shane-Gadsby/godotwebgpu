@@ -37,6 +37,7 @@
 #include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/object/editor_language.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/file_system/editor_file_system.h"
@@ -193,6 +194,15 @@ String ScriptCreateDialog::_adjust_file_path(const String &p_base_path) const {
 	String file_name = p_base_path.get_file().get_basename();
 	file_name = EditorNode::adjust_script_name_casing(file_name, language->preferred_file_name_casing());
 	String extension = language->get_extension();
+	// GDB: A language with several source formats keeps the one in the path, else proposes its default.
+	const EditorLanguage *editor_language = language->get_editor_language();
+	if (editor_language != nullptr) {
+		if (editor_language->get_source_extensions().has(p_base_path.get_extension())) {
+			extension = p_base_path.get_extension();
+		} else if (!editor_language->get_new_script_extension().is_empty()) {
+			extension = editor_language->get_new_script_extension();
+		}
+	}
 	return base_dir.path_join(file_name + "." + extension);
 }
 
@@ -298,7 +308,9 @@ String ScriptCreateDialog::_validate_path(const String &p_path, bool p_file_must
 	bool found = false;
 	bool match = false;
 	for (int l = 0; l < language_menu->get_item_count(); l++) {
-		if (p.has_extension(ScriptServer::get_language(l)->get_extension())) {
+		ScriptLanguage *candidate = ScriptServer::get_language(l);
+		const EditorLanguage *editor_language = candidate->get_editor_language();
+		if (p.has_extension(candidate->get_extension()) || (editor_language != nullptr && editor_language->get_source_extensions().has(p.get_extension()))) { // GDB
 			found = true;
 			match = l == language_menu->get_selected();
 			break;
@@ -402,6 +414,10 @@ void ScriptCreateDialog::_create_new() {
 		scr->reload();
 	} else {
 		String lpath = ProjectSettings::get_singleton()->localize_path(file_path->get_text());
+		const EditorLanguage *editor_language = scr->get_language()->get_editor_language();
+		if (editor_language != nullptr) {
+			scr->set_source_code(editor_language->adapt_template_for_path(scr->get_source_code(), lpath)); // GDB
+		}
 		scr->set_path(lpath);
 		Error err = ResourceSaver::save(scr, lpath, ResourceSaver::FLAG_CHANGE_PATH);
 		if (err != OK) {
@@ -484,6 +500,13 @@ void ScriptCreateDialog::_browse_path(bool browse_parent, bool p_save) {
 
 	file_browse->clear_filters();
 	file_browse->add_filter("*." + ScriptServer::get_language(language_menu->get_selected())->get_extension());
+	if (const EditorLanguage *editor_language = ScriptServer::get_language(language_menu->get_selected())->get_editor_language()) {
+		for (const String &extension : editor_language->get_source_extensions()) {
+			if (extension != ScriptServer::get_language(language_menu->get_selected())->get_extension()) {
+				file_browse->add_filter("*." + extension); // GDB
+			}
+		}
+	}
 
 	file_browse->set_current_path(file_path->get_text());
 	file_browse->popup_file_dialog();
@@ -752,6 +775,12 @@ ScriptLanguage::ScriptTemplate ScriptCreateDialog::_get_current_template() const
 Vector<ScriptLanguage::ScriptTemplate> ScriptCreateDialog::_get_user_templates(const ScriptLanguage *p_language, const StringName &p_object, const String &p_dir, const ScriptLanguage::TemplateLocation &p_origin) const {
 	Vector<ScriptLanguage::ScriptTemplate> user_templates;
 	String extension = p_language->get_extension();
+	// GDB: Templates may be written in any of the language's source formats.
+	Vector<String> extensions = { extension };
+	ScriptLanguage *language_for_extension = ScriptServer::get_language_for_extension(extension);
+	if (language_for_extension != nullptr && language_for_extension->get_editor_language() != nullptr) {
+		extensions.append_array(language_for_extension->get_editor_language()->get_source_extensions());
+	}
 
 	String dir_path = p_dir.path_join(p_object);
 
@@ -760,7 +789,7 @@ Vector<ScriptLanguage::ScriptTemplate> ScriptCreateDialog::_get_user_templates(c
 		d->list_dir_begin();
 		String file = d->get_next();
 		while (file != String()) {
-			if (file.get_extension() == extension) {
+			if (extensions.has(file.get_extension())) {
 				user_templates.append(_parse_template(p_language, dir_path, file, p_origin, p_object));
 			}
 			file = d->get_next();

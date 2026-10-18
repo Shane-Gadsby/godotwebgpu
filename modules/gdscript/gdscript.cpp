@@ -1192,7 +1192,7 @@ const Vector<uint8_t> &GDScript::get_binary_tokens_source() const {
 
 Vector<uint8_t> GDScript::get_as_binary_tokens() const {
 	GDScriptTokenizerBuffer tokenizer;
-	return tokenizer.parse_code_string(source, GDScriptTokenizerBuffer::COMPRESS_NONE);
+	return tokenizer.parse_code_string(source, GDScriptTokenizerBuffer::COMPRESS_NONE, GDScriptTokenizer::is_braced_path(get_path())); // GDB
 }
 
 const HashMap<StringName, GDScriptFunction *> &GDScript::debug_get_member_functions() const {
@@ -1402,6 +1402,11 @@ String GDScript::canonicalize_path(const String &p_path) {
 	if (p_path.get_extension() == "gdc") {
 		return p_path.get_basename() + ".gd";
 	}
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (p_path.get_extension() == "gdbc") {
+		return p_path.get_basename() + ".gdb"; // GDB
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
 	return p_path;
 }
 
@@ -2228,6 +2233,19 @@ String GDScriptLanguage::get_type() const {
 
 String GDScriptLanguage::get_extension() const {
 	return "gd";
+}
+
+bool GDScriptLanguage::is_gdscript_path(const String &p_path) {
+	return p_path.has_extension("gd") || GDScriptTokenizer::is_braced_path(p_path);
+}
+
+bool GDScriptLanguage::is_gdscript_binary_path(const String &p_path) {
+#ifdef GDSCRIPT_BRACES_ENABLED
+	if (p_path.has_extension("gdbc")) {
+		return true;
+	}
+#endif // GDSCRIPT_BRACES_ENABLED
+	return p_path.has_extension("gdc");
 }
 
 void GDScriptLanguage::finish() {

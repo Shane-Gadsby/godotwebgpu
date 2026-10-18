@@ -67,6 +67,7 @@ public:
 	Variant prepareRename(const Dictionary &p_params);
 	Array references(const Dictionary &p_params);
 	Array documentLink(const Dictionary &p_params);
+	Array formatting(const Dictionary &p_params); // GDB
 	Variant hover(const Dictionary &p_params);
 	Array definition(const Dictionary &p_params);
 	Variant declaration(const Dictionary &p_params);

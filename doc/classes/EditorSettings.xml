@@ -1530,6 +1530,9 @@
 		<member name="text_editor/behavior/files/open_dominant_script_on_scene_change" type="bool" setter="" getter="">
 			If [code]true[/code], opening a scene automatically opens the script attached to the root node, or the topmost node if the root has no script.
 		</member>
+		<member name="text_editor/behavior/files/reformat_code_on_save" type="bool" setter="" getter="">
+			If [code]true[/code], saving a script formats it first, as [b]Edit &gt; Reformat Code[/b] does, for languages with a formatter (GDScript and braced GDScript). A script that does not parse is saved unchanged. The style comes from [code].editorconfig[/code] files.
+		</member>
 		<member name="text_editor/behavior/files/restore_scripts_on_load" type="bool" setter="" getter="">
 			If [code]true[/code], reopens scripts that were opened in the last session when the editor is reopened on a given project.
 		</member>
