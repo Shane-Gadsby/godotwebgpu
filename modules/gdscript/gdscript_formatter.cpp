@@ -1245,6 +1245,8 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	bool use_stdin = false;
 	String stdin_path;
 	String preset;
+	String indent_style; // Overrides `.editorconfig`; editors pass their own effective setting.
+	int indent_size = 0;
 	Vector<String> paths;
 
 	bool ours = false;
@@ -1264,10 +1266,27 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 		} else if (arg == "--preset" && E->next()) {
 			E = E->next();
 			preset = E->get();
+		} else if (arg == "--indent-style" && E->next()) {
+			E = E->next();
+			indent_style = E->get();
+		} else if (arg == "--indent-size" && E->next()) {
+			E = E->next();
+			indent_size = E->get().to_int();
 		} else if (!arg.begins_with("-")) {
 			paths.push_back(arg);
 		}
 	}
+
+	auto options_for = [&](const String &p_path) {
+		Options options = get_options_for_path(p_path, preset);
+		if (indent_style == "tab" || indent_style == "space") {
+			options.use_spaces = indent_style == "space";
+		}
+		if (indent_size > 0) {
+			options.indent_size = indent_size;
+		}
+		return options;
+	};
 
 	if (use_stdin) {
 		Vector<uint8_t> bytes;
@@ -1280,7 +1299,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 		}
 		const String source = String::utf8(reinterpret_cast<const char *>(bytes.ptr()), bytes.size());
 		const String path = stdin_path.is_empty() ? String("stdin.gd") : _absolute(stdin_path);
-		const Result result = format(source, path, get_options_for_path(path, preset));
+		const Result result = format(source, path, options_for(path));
 		if (result.error != OK) {
 			OS::get_singleton()->printerr("%s:%d: %s\n", path.utf8().get_data(), result.line, result.message.utf8().get_data());
 			return 1;
@@ -1290,7 +1309,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	}
 
 	if (paths.is_empty()) {
-		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-format [--check] [--preset godot|js] [--stdin [--stdin-path <path>]] <files or directories>\n");
+		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-format [--check] [--preset godot|js] [--indent-style tab|space] [--indent-size <n>] [--stdin [--stdin-path <path>]] <files or directories>\n");
 		return 1;
 	}
 
@@ -1309,7 +1328,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 			errors++;
 			continue;
 		}
-		const Result result = format(source, file, get_options_for_path(file, preset));
+		const Result result = format(source, file, options_for(file));
 		if (result.error != OK) {
 			OS::get_singleton()->printerr("%s:%d: %s\n", file.utf8().get_data(), result.line, result.message.utf8().get_data());
 			errors++;

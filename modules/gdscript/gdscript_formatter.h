@@ -91,7 +91,8 @@ public:
 	// `p_path` only decides brace mode (by extension) and the parser's script path.
 	static Result format(const String &p_source, const String &p_path, const Options &p_options);
 
-	// `godot --headless --gdscript-format [--check] [--preset <name>] [--stdin --stdin-path <path>] <paths>`.
-	// Returns the process exit code.
+	// `godot --headless --gdscript-format [--check] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]
+	// [--stdin --stdin-path <path>] <paths>`. The indent flags override `.editorconfig`, so an editor can pass its own
+	// effective settings. Returns the process exit code.
 	static int run_cli(const List<String> &p_args);
 };
