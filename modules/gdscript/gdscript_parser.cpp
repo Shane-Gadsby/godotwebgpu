@@ -481,6 +481,9 @@ Error GDScriptParser::parse(const String &p_source_code, const String &p_script_
 
 	GDScriptTokenizerText *text_tokenizer = memnew(GDScriptTokenizerText);
 	text_tokenizer->set_source_code(source);
+#ifdef GDSCRIPT_BRACES_ENABLED
+	text_tokenizer->set_brace_mode(GDScriptTokenizer::is_braced_path(p_script_path)); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 
 	tokenizer = text_tokenizer;
 	tokenizer->set_cursor_position(cursor_line, cursor_column);

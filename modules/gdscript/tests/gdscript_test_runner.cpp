@@ -283,7 +283,14 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 			} else if (binary_tokens && next.ends_with(".textonly.gd")) {
 				next = dir->get_next();
 				continue;
-			} else if (next.has_extension("gd")) {
+#ifdef GDSCRIPT_BRACES_ENABLED
+			} else if (binary_tokens && GDScriptTokenizer::is_braced_path(next)) {
+				// GDB: Binary tokens don't carry brace mode yet (plan decision D8), so `.gdb` tests are text-only.
+				next = dir->get_next();
+				continue;
+#endif // GDSCRIPT_BRACES_ENABLED
+			} else if (next.has_extension("gd") || GDScriptTokenizer::is_braced_path(next)) {
+				// GDB: A `.gdb` test shares its `.out` file with a `.gd` twin of the same name, if there is one.
 #ifndef DEBUG_ENABLED
 				// On release builds, skip tests marked as debug only.
 				Error open_err = OK;
@@ -363,7 +370,7 @@ static bool generate_class_index_recursive(const String &p_dir) {
 				return false;
 			}
 		} else {
-			if (!next.ends_with(".gd")) {
+			if (!next.ends_with(".gd") && !GDScriptTokenizer::is_braced_path(next)) { // GDB
 				next = dir->get_next();
 				continue;
 			}
