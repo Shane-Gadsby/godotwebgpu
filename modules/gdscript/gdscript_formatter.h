@@ -50,6 +50,12 @@ public:
 		OPERATOR_STYLE_SYMBOLS, // `&&`, `||`, `!`
 	};
 
+	enum ElifStyle {
+		ELIF_STYLE_KEEP,
+		ELIF_STYLE_ELIF,
+		ELIF_STYLE_ELSE_IF, // `.gdb` only.
+	};
+
 	enum CommentStyle {
 		COMMENT_STYLE_KEEP,
 		COMMENT_STYLE_HASH, // `#`, `##`
@@ -64,6 +70,7 @@ public:
 		bool spaces_in_braces = false; // `{ "a": 1 }` instead of `{"a": 1}`.
 		OperatorStyle operator_style = OPERATOR_STYLE_KEEP;
 		CommentStyle comment_style = COMMENT_STYLE_KEEP;
+		ElifStyle elif_style = ELIF_STYLE_KEEP;
 		int blank_lines_around_members = 2; // Around functions and classes.
 		int max_blank_lines = 1; // Anywhere else.
 		bool insert_final_newline = true;

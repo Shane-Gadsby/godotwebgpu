@@ -13,6 +13,9 @@ key a
 key b
 multi-line condition
 nested on one line
+else if
+else if on one line
+2
 1
 { "k": 1 }
 compared with an empty dictionary

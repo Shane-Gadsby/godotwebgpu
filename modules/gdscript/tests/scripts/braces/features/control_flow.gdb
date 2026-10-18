@@ -44,6 +44,17 @@ func test() {
 
 	if x == 3 { if x > 0 { if x < 9 { print("nested on one line") } } }
 
+	if x == 1 {
+		print("one")
+	} else if x == 3 {
+		print("else if")
+	} else {
+		print("other")
+	}
+	if x == 2 { print("no") } else   if x == 3 { print("else if on one line") }
+	var else_if_value = 1 if x == 0 else 2 if x == 3 else 4
+	print(else_if_value)
+
 	var y = 1 if x > 2 else 2
 	print(y)
 	var z = {"k": 1} if x > 2 else {}

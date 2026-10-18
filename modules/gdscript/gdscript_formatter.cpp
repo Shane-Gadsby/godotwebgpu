@@ -422,6 +422,7 @@ GDScriptFormatter::Options GDScriptFormatter::get_preset(const String &p_name) {
 		options.spaces_in_braces = true;
 		options.operator_style = OPERATOR_STYLE_SYMBOLS;
 		options.comment_style = COMMENT_STYLE_SLASHES;
+		options.elif_style = ELIF_STYLE_ELSE_IF;
 		options.blank_lines_around_members = 1;
 		options.max_blank_lines = 1;
 	} else {
@@ -433,6 +434,7 @@ GDScriptFormatter::Options GDScriptFormatter::get_preset(const String &p_name) {
 		options.spaces_in_braces = false;
 		options.operator_style = OPERATOR_STYLE_WORDS;
 		options.comment_style = COMMENT_STYLE_KEEP;
+		options.elif_style = ELIF_STYLE_ELIF;
 		options.blank_lines_around_members = 2;
 		options.max_blank_lines = 1;
 	}
@@ -588,6 +590,15 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 			} else {
 				in_node_path = piece.type == Token::DOLLAR || (piece.type == Token::PERCENT && piece.unary);
 				piece.node_path = in_node_path;
+			}
+
+			if (braced && piece.type == Token::ELIF) {
+				// `.gdb` accepts `elif` and `else if` alike.
+				if (p_options.elif_style == ELIF_STYLE_ELIF) {
+					piece.text = "elif";
+				} else if (p_options.elif_style == ELIF_STYLE_ELSE_IF || piece.text.begins_with("else")) {
+					piece.text = "else if";
+				}
 			}
 
 			const bool after_is = previous_token != nullptr && previous_token->type == Token::IS; // `is not`
@@ -1094,6 +1105,7 @@ String GDScriptFormatter::get_editorconfig_keys() {
 	return "gdscript_preset = godot | js\n"
 		   "gdscript_operator_style = keep | words | symbols\n"
 		   "gdscript_comment_style = keep | hash | slashes\n"
+		   "gdscript_elif_style = keep | elif | else_if\n"
 		   "gdscript_spaces_in_braces = true | false\n"
 		   "gdscript_paren_continuation = <levels>\n"
 		   "gdscript_bracket_continuation = <levels>\n"
@@ -1193,6 +1205,10 @@ GDScriptFormatter::Options GDScriptFormatter::get_options_for_path(const String 
 	if (values.has("gdscript_comment_style")) {
 		const String &style = values["gdscript_comment_style"];
 		options.comment_style = style == "hash" ? COMMENT_STYLE_HASH : (style == "slashes" ? COMMENT_STYLE_SLASHES : COMMENT_STYLE_KEEP);
+	}
+	if (values.has("gdscript_elif_style")) {
+		const String &style = values["gdscript_elif_style"];
+		options.elif_style = style == "elif" ? ELIF_STYLE_ELIF : (style == "else_if" ? ELIF_STYLE_ELSE_IF : ELIF_STYLE_KEEP);
 	}
 	get_bool("gdscript_spaces_in_braces", options.spaces_in_braces);
 	get_int("gdscript_paren_continuation", options.paren_continuation);

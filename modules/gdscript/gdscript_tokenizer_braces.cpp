@@ -51,9 +51,12 @@
 // makes the rule unambiguous. A "{" on the line after a block header (Allman style) is an error, reported before the
 // parser can trip over the missing block.
 //
-// Brace mode also accepts `//` line comments, `///` documentation comments and `/* */` block comments, next to `#`.
+// Brace mode also accepts `//` line comments, `///` documentation comments and `/* */` block comments, next to `#`,
+// and `else if` as a spelling of `elif`.
 
 #include "gdscript_tokenizer.h"
+
+#include "core/string/char_utils.h"
 
 #ifdef GDSCRIPT_BRACES_ENABLED
 
@@ -102,6 +105,25 @@ GDScriptTokenizer::Token GDScriptTokenizerText::_brace_scan() {
 		brace_in_scan = true;
 		token = scan();
 		brace_in_scan = false;
+
+		if (token.type == Token::ELSE && brace_line_start) {
+			// `else if` after a block is `elif`. Only a statement-level `else` merges; the `else` of `a if c else b`
+			// never starts a line.
+			int offset = 0;
+			while (_peek(offset) == ' ' || _peek(offset) == '\t') {
+				offset++;
+			}
+			if (_peek(offset) == 'i' && _peek(offset + 1) == 'f' && !is_unicode_identifier_continue(_peek(offset + 2))) {
+				String merged = token.source;
+				for (int i = 0; i < offset + 2; i++) {
+					merged += _advance();
+				}
+				token.type = Token::ELIF;
+				token.source = merged;
+				token.end_line = line;
+				token.end_column = column;
+			}
+		}
 
 		if (token.type == Token::NEWLINE && _brace_is_block_head(brace_line_head) && _peek() == '{') {
 			// Allman style: the block's "{" is on the next line. The scanner already skipped to it, so report the error
