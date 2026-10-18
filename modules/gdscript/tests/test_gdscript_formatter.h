@@ -238,6 +238,9 @@ static String _format_with(const String &p_source, const String &p_path, const G
 }
 
 TEST_CASE("[Modules][GDScript] Formatter: line wrapping, trailing commas and alignment") {
+	if (GDScriptFormatter::get_braces_grammar_version() == 0) {
+		return; // Uses braced GDScript, which this build does not have.
+	}
 	SUBCASE("A long line is wrapped at its last outermost list, with a trailing comma (JS-like preset)") {
 		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
 		options.max_line_length = 40;
@@ -317,6 +320,9 @@ TEST_CASE("[Modules][GDScript] Formatter: line wrapping, trailing commas and ali
 }
 
 TEST_CASE("[Modules][GDScript] Formatter: line ranges and diffs") {
+	if (GDScriptFormatter::get_braces_grammar_version() == 0) {
+		return; // Uses braced GDScript, which this build does not have.
+	}
 	const String source = "func a() {\nvar x=1\nvar y=2\n}\n\nfunc b() {\nvar z=3\n}\n";
 	const GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
 
@@ -344,6 +350,9 @@ TEST_CASE("[Modules][GDScript] Formatter: line ranges and diffs") {
 }
 
 TEST_CASE("[Modules][GDScript] Formatter: cases found by fuzzing") {
+	if (GDScriptFormatter::get_braces_grammar_version() == 0) {
+		return; // Uses braced GDScript, which this build does not have.
+	}
 	SUBCASE("A file without a final line break") {
 		CHECK(_format_or_fail("var a = b", "res://a.gd", "godot") == "var a = b\n");
 		CHECK(_format_or_fail("func f() {\n}\nvar d = { \"a\": 1 }", "res://a.gdb", "js") == "func f() {\n}\n\nvar d = { \"a\": 1 }\n");

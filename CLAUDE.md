@@ -208,6 +208,25 @@ Key differences from a "normal" backend that are easy to trip over:
 
 Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
 
+### Braced GDScript (`.gdb`)
+
+`.gdb` files are GDScript written with `{ }` blocks (plus `//` comments, `else if`, `c ? a : b`, arrow lambdas),
+loaded by the same `GDScriptLanguage`. The tokenizer translates braces into the `COLON`/`NEWLINE`/`INDENT`/`DEDENT`
+tokens the parser already reads (`gdscript_tokenizer_braces.cpp`); everything after it is shared. User and developer
+docs: `docs/braced_gdscript/` (start with `internals.md`). One formatter (`gdscript_formatter.cpp`) serves the editor's
+Reformat Code, `--gdscript-format`, `--gdscript-convert`, `--gdscript-format-server` and the language server. Every
+upstream change to these files is tagged `// GDB`. Rules that cost time:
+
+- Any `get_extension() == "gd"` in `modules/gdscript` must be `GDScriptLanguage::is_gdscript_path()`, or `.gdb` scripts
+  silently miss that code path.
+- Test headers are compiled from `tests/test_main.cpp` without the module's defines, so a braced test checks for brace
+  mode at run time (`GDScriptFormatter::get_braces_grammar_version()`), not with `#ifdef GDSCRIPT_BRACES_ENABLED`.
+- A change to the block-or-dictionary rule or the braced spellings bumps `GDScriptFormatter::BRACES_GRAMMAR_VERSION` and
+  the Rider plugin's `GdbPsiLexer.GRAMMAR_VERSION` (and the tree-sitter grammar), which mirror it.
+- Test with `tests/braced_gdscript/run.sh` (`--quick` for two minutes); web templates must be built from this tree for
+  the `braced_gdscript` smoketest scene. Editor plugins live in `../godot-gdb-rider`, `../godot-gdb-vscode` and
+  `../godot-gdb-tree-sitter`.
+
 ### Where to look first
 
 - `webgpu_notes/TASKS.md` — **the** task/status doc, and the only one: §1 current state and build traps, §2 outstanding work ordered by criticality with effort estimates, §3 the traps and lessons that have cost time, §4 the archive of completed phases, §5 what the retired notes docs were and how to read them out of git history. Read §1-§3 when picking the work up cold. Keep it updated: move an item out of §2 into §4 when it closes, and add a §3 entry for anything that cost an hour and would again.
