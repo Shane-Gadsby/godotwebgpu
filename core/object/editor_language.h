@@ -257,6 +257,22 @@ public:
 	 *
 	 * @return `OK` with the result in `r_code`, or an error with a one-based `r_error_line` (0 if unknown) and a message.
 	 */
+	/**
+	 * The extensions of this language's source files, when there is more than `ScriptLanguage::get_extension()`.
+	 * Empty means that one only.
+	 */
+	virtual Vector<String> get_source_extensions() const { return Vector<String>(); }
+
+	/**
+	 * The extension the New Script dialog proposes. Empty means `ScriptLanguage::get_extension()`.
+	 */
+	virtual String get_new_script_extension() const { return String(); }
+
+	/**
+	 * Adapts a template's code to the file it is created as (GDScript: an indented template for a braced file).
+	 */
+	virtual String adapt_template_for_path(const String &p_code, const String &p_path) const { return p_code; }
+
 	virtual bool can_reformat_code(const String &p_path) const { return false; }
 	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const { return ERR_UNAVAILABLE; }
 

@@ -54,6 +54,9 @@ public:
 	virtual Vector<String> get_doc_comment_delimiters_for_path(const String &p_path) const override;
 	virtual bool uses_brace_blocks(const String &p_path) const override;
 	virtual void format_code_for_path(String &r_code, uint32_t p_from_line, uint32_t p_to_line, const String &p_path) const override;
+	virtual Vector<String> get_source_extensions() const override;
+	virtual String get_new_script_extension() const override;
+	virtual String adapt_template_for_path(const String &p_code, const String &p_path) const override;
 	virtual bool can_reformat_code(const String &p_path) const override;
 	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const override;
 

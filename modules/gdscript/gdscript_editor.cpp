@@ -4064,6 +4064,32 @@ void GDScriptEditorLanguage::format_code_for_path(String &r_code, uint32_t p_fro
 	r_code = String("\n").join(lines);
 }
 
+Vector<String> GDScriptEditorLanguage::get_source_extensions() const {
+	if (!GDScriptTokenizer::is_braced_path("x.gdb")) {
+		return Vector<String>();
+	}
+	return { "gd", "gdb" };
+}
+
+String GDScriptEditorLanguage::get_new_script_extension() const {
+	const bool braced = GDScriptTokenizer::is_braced_path("x.gdb") && bool(GLOBAL_GET("editor/script/braced_gdscript_by_default"));
+	return braced ? String("gdb") : String();
+}
+
+String GDScriptEditorLanguage::adapt_template_for_path(const String &p_code, const String &p_path) const {
+	// Templates are usually indented `.gd` code. Convert in whichever direction the file needs; code that only parses
+	// in its own form is left as it is.
+	const bool braced = GDScriptTokenizer::is_braced_path(p_path);
+	GDScriptParser parser;
+	const bool is_indented = parser.parse(p_code, "res://template.gd", false) == OK;
+	if (braced != is_indented) {
+		return p_code;
+	}
+	const String target = ProjectSettings::get_singleton()->globalize_path(p_path);
+	const GDScriptFormatter::Result result = GDScriptFormatter::convert(p_code, braced ? "res://template.gd" : "res://template.gdb", false, GDScriptFormatter::get_options_for_path(target));
+	return result.error == OK ? result.output : p_code;
+}
+
 bool GDScriptEditorLanguage::can_reformat_code(const String &p_path) const {
 	return GDScriptLanguage::is_gdscript_path(p_path);
 }

@@ -38,6 +38,7 @@
 #include "gdscript_utility_functions.h"
 
 #ifdef TOOLS_ENABLED
+#include "editor/gdscript_braced_conversion.h"
 #include "editor/gdscript_editor_language.h"
 #include "editor/gdscript_highlighter.h"
 #include "editor/gdscript_translation_parser_plugin.h"
@@ -53,6 +54,7 @@
 #include "tests/test_gdscript.h"
 #endif
 
+#include "core/config/project_settings.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
@@ -164,6 +166,11 @@ void initialize_gdscript_module(ModuleInitializationLevel p_level) {
 		EditorTranslationParser::get_singleton()->add_parser(gdscript_translation_parser_plugin, EditorTranslationParser::STANDARD);
 	} else if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		memnew(GDScriptEditorLanguage);
+#ifdef GDSCRIPT_BRACES_ENABLED
+		// GDB: Braced GDScript in the editor.
+		GLOBAL_DEF(PropertyInfo(Variant::BOOL, "editor/script/braced_gdscript_by_default"), false);
+		EditorPlugins::add_by_type<GDScriptBracedEditorPlugin>();
+#endif // GDSCRIPT_BRACES_ENABLED
 
 		GDREGISTER_CLASS(GDScriptSyntaxHighlighter);
 #ifndef GDSCRIPT_NO_LSP

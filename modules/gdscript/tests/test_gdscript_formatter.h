@@ -39,6 +39,7 @@
 #include "modules/gdscript/gdscript_tokenizer.h"
 
 #ifdef TOOLS_ENABLED
+#include "modules/gdscript/editor/gdscript_braced_conversion.h"
 #include "modules/gdscript/editor/gdscript_editor_language.h"
 #endif // TOOLS_ENABLED
 
@@ -345,6 +346,30 @@ TEST_CASE("[Modules][GDScript] Script editor hooks for braced GDScript") {
 				"\t/* { */ b(\n"
 				"\t\tc)\n"
 				"}\n");
+	}
+
+	SUBCASE("Path strings follow a conversion") {
+		HashMap<String, String> renames;
+		renames["res://scripts/a.gd"] = "res://scripts/a.gdb";
+		String code =
+				"const A = preload(\"res://scripts/a.gd\")\n"
+				"const B = preload(\"a.gd\")\n"
+				"const C = preload('../scripts/a.gd')\n"
+				"var other = \"res://scripts/b.gd\" # \"res://scripts/a.gd\" in a comment stays\n";
+		CHECK(GDScriptBracedConversion::update_path_strings(code, "res://scripts/user.gd", renames) == 3);
+		CHECK(code ==
+				"const A = preload(\"res://scripts/a.gdb\")\n"
+				"const B = preload(\"a.gdb\")\n"
+				"const C = preload('../scripts/a.gdb')\n" // Kept as written; only the extension changes.
+				"var other = \"res://scripts/b.gd\" # \"res://scripts/a.gd\" in a comment stays\n");
+	}
+
+	SUBCASE("Templates follow the file they create") {
+		const String indented = "extends Node\n\n\nfunc _ready() -> void:\n\tpass\n";
+		const String braced = language->adapt_template_for_path(indented, "res://new.gdb");
+		CHECK(braced.contains("func _ready() -> void {"));
+		CHECK(language->adapt_template_for_path(indented, "res://new.gd") == indented);
+		CHECK(language->adapt_template_for_path(braced, "res://new.gd").contains("func _ready() -> void:"));
 	}
 
 	SUBCASE("Reformat Code") {
