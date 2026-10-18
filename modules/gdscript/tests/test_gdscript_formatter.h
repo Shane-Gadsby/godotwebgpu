@@ -228,6 +228,94 @@ TEST_CASE("[Modules][GDScript] Formatter: braced GDScript (JS-like preset)") {
 	}
 }
 
+static String _format_with(const String &p_source, const String &p_path, const GDScriptFormatter::Options &p_options) {
+	const GDScriptFormatter::Result result = GDScriptFormatter::format(p_source, p_path, p_options);
+	CHECK_MESSAGE(result.error == OK, vformat("Formatting failed at line %d: %s", result.line, result.message));
+	CHECK_MESSAGE(result.note.is_empty(), result.note);
+	const GDScriptFormatter::Result again = GDScriptFormatter::format(result.output, p_path, p_options);
+	CHECK_MESSAGE(again.output == result.output, "Formatting the formatted code changed it again.");
+	return result.output;
+}
+
+TEST_CASE("[Modules][GDScript] Formatter: line wrapping, trailing commas and alignment") {
+	SUBCASE("A long line is wrapped at its last outermost list, with a trailing comma (JS-like preset)") {
+		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
+		options.max_line_length = 40;
+		CHECK(_format_with("var stats = {\"health\": 100, \"mana\": 50, \"speed\": 3}\n", "res://a.gd", options) ==
+				"var stats = {\n"
+				"    \"health\": 100,\n"
+				"    \"mana\": 50,\n"
+				"    \"speed\": 3,\n"
+				"}\n");
+		CHECK(_format_with("func f() {\n    spawn(enemy_kind, spawn_position, 100)\n}\n", "res://a.gdb", options) ==
+				"func f() {\n"
+				"    spawn(\n"
+				"        enemy_kind,\n"
+				"        spawn_position,\n"
+				"        100,\n"
+				"    )\n"
+				"}\n");
+	}
+
+	SUBCASE("The Godot preset wraps with its own continuation and only gives literals trailing commas") {
+		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("godot");
+		options.max_line_length = 30;
+		CHECK(_format_with("func f():\n\tspawn(enemy_kind, spawn_position)\n", "res://a.gd", options) ==
+				"func f():\n"
+				"\tspawn(\n"
+				"\t\t\tenemy_kind,\n"
+				"\t\t\tspawn_position\n"
+				"\t)\n");
+	}
+
+	SUBCASE("A block written on one line that a wrap opens up gets its own lines") {
+		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
+		options.max_line_length = 30;
+		CHECK(_format_with("func f() {\n    if ready { start(first_arg, second_arg) }\n}\n", "res://a.gdb", options) ==
+				"func f() {\n"
+				"    if ready {\n"
+				"        start(\n"
+				"            first_arg,\n"
+				"            second_arg,\n"
+				"        )\n"
+				"    }\n"
+				"}\n");
+	}
+
+	SUBCASE("Subscripts, grouping parentheses and lists holding a .gd lambda are not wrapped") {
+		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("godot");
+		options.max_line_length = 10;
+		CHECK(_format_with("var x = values[index_of_the_value]\n", "res://a.gd", options) == "var x = values[index_of_the_value]\n");
+		CHECK(_format_with("var y = (first_value + second_value)\n", "res://a.gd", options) == "var y = (first_value + second_value)\n");
+		CHECK(_format_with("var f = call_it(func(): return 1, 2)\n", "res://a.gd", options) == "var f = call_it(func(): return 1, 2)\n");
+	}
+
+	SUBCASE("Existing multi-line lists get trailing commas, but not after a rest pattern") {
+		CHECK(_format_or_fail("var a = [\n\t1,\n\t2\n]\n", "res://a.gd", "godot") == "var a = [\n\t1,\n\t2,\n]\n");
+		CHECK(_format_or_fail("func f():\n\tg(\n\t\t\t1\n\t)\n", "res://a.gd", "godot") == "func f():\n\tg(\n\t\t\t1\n\t)\n");
+		CHECK(_format_or_fail("func f() {\n    g(\n        1\n    )\n}\n", "res://a.gdb", "js") == "func f() {\n    g(\n        1,\n    )\n}\n");
+		CHECK(_format_or_fail("func f(v):\n\tmatch v:\n\t\t[\n\t\t\t1,\n\t\t\t..\n\t\t]:\n\t\t\tpass\n", "res://a.gd", "godot").contains("\t\t\t..\n"));
+	}
+
+	SUBCASE("Alignment, rule by rule") {
+		GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
+		options.align_assignments = true;
+		options.align_comments = true;
+		CHECK(_format_with("var a = 1 // one\nvar long_name := 2 // two\nconst C = 3\n", "res://a.gdb", options) ==
+				"var a         = 1  // one\n"
+				"var long_name := 2 // two\n"
+				"const C       = 3\n");
+		options = GDScriptFormatter::get_preset("js");
+		options.align_dictionary_values = true;
+		CHECK(_format_with("var d = {\n    \"hp\": 1,\n    \"mana_points\": 2,\n}\n", "res://a.gdb", options) ==
+				"var d = {\n    \"hp\":          1,\n    \"mana_points\": 2,\n}\n");
+		options = GDScriptFormatter::get_preset("js");
+		options.align_match_branches = true;
+		CHECK(_format_with("func f(v) {\n    match v {\n        0 { return 0 }\n        100, 200 { return 1 }\n    }\n}\n", "res://a.gdb", options) ==
+				"func f(v) {\n    match v {\n        0        { return 0 }\n        100, 200 { return 1 }\n    }\n}\n");
+	}
+}
+
 TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
 	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
 		return; // Braced GDScript is compiled out.

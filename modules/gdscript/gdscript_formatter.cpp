@@ -78,6 +78,10 @@ struct Piece {
 	bool lambda_block = false; // A `.gdb` block brace of a lambda's body.
 	bool synthetic = false; // Zero-width: a token the `.gdb` tokenizer adds for an arrow lambda.
 	bool holds_block = false; // A `.gdb` block brace whose block holds another (non-lambda) block.
+	int partner = -1; // A bracket's other half.
+	int enclosing = -1; // The opening bracket of the innermost bracket around the piece.
+	bool list_group = false; // An opening bracket of a list: arguments, parameters, array, dictionary or enum entries.
+	bool literal_group = false; // An opening bracket of an array, dictionary or enum.
 };
 
 struct StackEntry {
@@ -160,8 +164,23 @@ Token::Type _canonical_type(Token::Type p_type) {
 	}
 }
 
+// The tokens without commas right before a closing bracket, which the formatter adds and removes (trailing commas).
+Vector<Token> _without_trailing_commas(const Vector<Token> &p_tokens) {
+	Vector<Token> result;
+	for (int i = 0; i < p_tokens.size(); i++) {
+		if (p_tokens[i].type == Token::COMMA && i + 1 < p_tokens.size()) {
+			const Token::Type next = p_tokens[i + 1].type;
+			if (next == Token::PARENTHESIS_CLOSE || next == Token::BRACKET_CLOSE || next == Token::BRACE_CLOSE) {
+				continue;
+			}
+		}
+		result.push_back(p_tokens[i]);
+	}
+	return result;
+}
+
 // Index into `p_a` of the first token that differs, or -1 when the streams are equivalent. Line breaks before the first
-// token are ignored, as the parser ignores them.
+// token are ignored, as the parser ignores them; so are trailing commas. `p_a` and `p_b` must already be without them.
 int _first_difference(const Vector<Token> &p_a, const Vector<Token> &p_b) {
 	int skip_a = 0;
 	while (skip_a < p_a.size() && p_a[skip_a].type == Token::NEWLINE) {
@@ -429,6 +448,315 @@ struct LineInfo {
 	int gd_depth = 0; // Block depth of a `.gd` line.
 };
 
+// An output line, and where each piece's text starts in it (x: column, y: piece index).
+using OutPieces = Vector<Vector2i>;
+
+String _lead(const String &p_line) {
+	int length = 0;
+	while (length < p_line.length() && (p_line[length] == ' ' || p_line[length] == '\t')) {
+		length++;
+	}
+	return p_line.substr(0, length);
+}
+
+int _visual_width(const String &p_line, int p_tab_width) {
+	int width = 0;
+	for (int i = 0; i < p_line.length(); i++) {
+		width += p_line[i] == '\t' ? p_tab_width : 1;
+	}
+	return width;
+}
+
+// Inserts `p_count` spaces before entry `p_entry` of a line.
+void _pad(String &r_line, OutPieces &r_pieces, int p_entry, int p_count) {
+	if (p_count <= 0) {
+		return;
+	}
+	r_line = r_line.insert(r_pieces[p_entry].x, String(" ").repeat(p_count));
+	for (int i = p_entry; i < r_pieces.size(); i++) {
+		r_pieces.write[i].x += p_count;
+	}
+}
+
+// Lines up one column in each run of consecutive lines with the same indentation: `p_anchors` gives, per line, the entry
+// to line up or -1. Only spaces before the anchors change.
+void _align_runs(Vector<String> &r_out, Vector<OutPieces> &r_pieces, const Vector<int> &p_anchors) {
+	int run_start = 0;
+	for (int i = 0; i <= r_out.size(); i++) {
+		const bool continues = i < r_out.size() && p_anchors[i] >= 0 && i > run_start && p_anchors[run_start] >= 0 && _lead(r_out[i]) == _lead(r_out[run_start]);
+		if (continues) {
+			continue;
+		}
+		if (i - run_start >= 2 && p_anchors[run_start] >= 0) {
+			int column = 0;
+			for (int j = run_start; j < i; j++) {
+				column = MAX(column, r_pieces[j][p_anchors[j]].x);
+			}
+			for (int j = run_start; j < i; j++) {
+				_pad(r_out.write[j], r_pieces.write[j], p_anchors[j], column - r_pieces[j][p_anchors[j]].x);
+			}
+		}
+		run_start = i;
+	}
+}
+
+// Tier 3 alignment. Each rule finds the entry to line up on each output line.
+void _align(Vector<String> &r_out, Vector<OutPieces> &r_pieces, const Vector<Piece> &p_pieces, const GDScriptFormatter::Options &p_options, const String &p_unit, bool p_braced) {
+	const int count = r_out.size();
+	// Bracket depth inside the line before each entry.
+	auto depths = [&](const OutPieces &p_line) {
+		Vector<int> result;
+		int depth = 0;
+		for (const Vector2i &entry : p_line) {
+			const Piece &piece = p_pieces[entry.y];
+			if (piece.kind == PIECE_TOKEN && piece.closes != BRACKET_NONE) {
+				depth = MAX(0, depth - 1);
+			}
+			result.push_back(depth);
+			if (piece.kind == PIECE_TOKEN && piece.opens != BRACKET_NONE) {
+				depth++;
+			}
+		}
+		return result;
+	};
+	auto first_token = [&](const OutPieces &p_line) {
+		for (int e = 0; e < p_line.size(); e++) {
+			if (p_pieces[p_line[e].y].kind == PIECE_TOKEN && !p_pieces[p_line[e].y].text.is_empty()) {
+				return e;
+			}
+		}
+		return -1;
+	};
+
+	if (p_options.align_assignments) {
+		Vector<int> anchors;
+		anchors.resize(count);
+		anchors.fill(-1);
+		for (int i = 0; i < count; i++) {
+			const OutPieces &line = r_pieces[i];
+			int head = first_token(line);
+			while (head >= 0 && head < line.size() && (p_pieces[line[head].y].type == Token::ANNOTATION || p_pieces[line[head].y].type == Token::STATIC)) {
+				head++; // `@export var`, `static var`.
+			}
+			if (head < 0 || head >= line.size() || (p_pieces[line[head].y].type != Token::VAR && p_pieces[line[head].y].type != Token::TK_CONST)) {
+				continue;
+			}
+			const Vector<int> depth = depths(line);
+			for (int e = head; e < line.size(); e++) {
+				const Piece &piece = p_pieces[line[e].y];
+				if (depth[e] != 0) {
+					continue;
+				}
+				if (piece.opens == BRACKET_BLOCK) {
+					break; // A property's accessors.
+				}
+				if (piece.walrus || (piece.type == Token::EQUAL && !(e > 0 && p_pieces[line[e - 1].y].walrus))) {
+					anchors.write[i] = e;
+					break;
+				}
+			}
+		}
+		_align_runs(r_out, r_pieces, anchors);
+	}
+
+	if (p_options.align_dictionary_values) {
+		Vector<int> anchors;
+		anchors.resize(count);
+		anchors.fill(-1);
+		for (int i = 0; i < count; i++) {
+			const OutPieces &line = r_pieces[i];
+			const int head = first_token(line);
+			if (head < 0) {
+				continue;
+			}
+			const int opener = p_pieces[line[head].y].enclosing;
+			if (opener < 0 || p_pieces[opener].opens != BRACKET_CURLY || p_pieces[opener].partner < 0 || p_pieces[opener].line == p_pieces[p_pieces[opener].partner].line) {
+				continue;
+			}
+			for (int e = head; e + 1 < line.size(); e++) {
+				const Piece &piece = p_pieces[line[e].y];
+				if (piece.enclosing != opener) {
+					continue;
+				}
+				if (piece.type == Token::COLON && !piece.walrus && !piece.ternary_colon) {
+					anchors.write[i] = e + 1; // The value.
+					break;
+				}
+				if (piece.type == Token::EQUAL) {
+					anchors.write[i] = e; // An enum value.
+					break;
+				}
+			}
+		}
+		_align_runs(r_out, r_pieces, anchors);
+	}
+
+	if (p_options.align_match_branches) {
+		// One-line branches: `.gdb` `pattern { body }`, `.gd` `pattern: body`. Branch lines are one level inside a line that
+		// starts with `match`.
+		Vector<int> anchors;
+		anchors.resize(count);
+		anchors.fill(-1);
+		List<String> branch_leads;
+		for (int i = 0; i < count; i++) {
+			const OutPieces &line = r_pieces[i];
+			const int head = first_token(line);
+			if (head < 0) {
+				continue;
+			}
+			const String lead = _lead(r_out[i]);
+			while (!branch_leads.is_empty() && lead.length() < branch_leads.back()->get().length()) {
+				branch_leads.pop_back();
+			}
+			if (!branch_leads.is_empty() && lead == branch_leads.back()->get()) {
+				const Vector<int> depth = depths(line);
+				for (int e = head; e + 1 < line.size(); e++) {
+					const Piece &piece = p_pieces[line[e].y];
+					if (depth[e] != 0) {
+						continue;
+					}
+					if (p_braced && piece.opens == BRACKET_BLOCK && piece.partner >= 0 && p_pieces[piece.partner].line == piece.line) {
+						anchors.write[i] = e;
+						break;
+					}
+					if (!p_braced && piece.type == Token::COLON && !piece.walrus && !piece.ternary_colon && p_pieces[line[e + 1].y].kind == PIECE_TOKEN) {
+						anchors.write[i] = e + 1;
+						break;
+					}
+				}
+			}
+			if (p_pieces[line[head].y].type == Token::MATCH) {
+				branch_leads.push_back(lead + p_unit);
+			}
+		}
+		_align_runs(r_out, r_pieces, anchors);
+	}
+
+	// Last: the other rules move comments.
+	if (p_options.align_comments) {
+		Vector<int> anchors;
+		anchors.resize(count);
+		anchors.fill(-1);
+		for (int i = 0; i < count; i++) {
+			const OutPieces &line = r_pieces[i];
+			const int head = first_token(line);
+			if (head >= 0 && line.size() >= 2 && p_pieces[line[line.size() - 1].y].kind == PIECE_LINE_COMMENT) {
+				anchors.write[i] = line.size() - 1;
+			}
+		}
+		_align_runs(r_out, r_pieces, anchors);
+	}
+}
+
+// Line wrapping: a line longer than the limit has its last outermost list that opens and closes on the line put one item
+// per line. Returns whether any line changed; a line can need more passes (its items may still be too long), which
+// `format()` runs.
+bool _wrap(Vector<String> &r_out, Vector<OutPieces> &r_pieces, const Vector<Piece> &p_pieces, const GDScriptFormatter::Options &p_options, const String &p_unit, bool p_braced) {
+	bool changed = false;
+	Vector<String> out;
+	Vector<OutPieces> out_pieces;
+	for (int i = 0; i < r_out.size(); i++) {
+		const String &text = r_out[i];
+		const OutPieces &line = r_pieces[i];
+		int group = -1; // Entry of the opening bracket to break.
+		int group_close = -1;
+		if (_visual_width(text, MAX(1, p_options.indent_size)) > p_options.max_line_length) {
+			HashMap<int, int> entry_of; // Piece index -> entry.
+			bool skip = false;
+			for (int e = 0; e < line.size(); e++) {
+				entry_of[line[e].y] = e;
+				const PieceKind kind = p_pieces[line[e].y].kind;
+				skip = skip || kind == PIECE_CONTINUATION || kind == PIECE_BLOCK_COMMENT;
+			}
+			int depth = 0;
+			int best_depth = INT_MAX;
+			for (int e = 0; e < line.size() && !skip; e++) {
+				const Piece &piece = p_pieces[line[e].y];
+				if (piece.kind != PIECE_TOKEN) {
+					continue;
+				}
+				if (piece.closes != BRACKET_NONE) {
+					depth = MAX(0, depth - 1);
+				}
+				if (piece.opens != BRACKET_NONE) {
+					// In `.gd` a lambda's body is indentation-sensitive, so a list holding one keeps its layout.
+					bool holds_gd_lambda = false;
+					for (int inner = line[e].y + 1; !p_braced && inner < piece.partner; inner++) {
+						holds_gd_lambda = holds_gd_lambda || p_pieces[inner].type == Token::FUNC;
+					}
+					if (piece.list_group && !holds_gd_lambda && piece.partner >= 0 && entry_of.has(piece.partner) && entry_of[piece.partner] > e + 1 && depth <= best_depth) {
+						best_depth = depth;
+						group = e;
+						group_close = entry_of[piece.partner];
+					}
+					depth++;
+				}
+			}
+		}
+		if (group < 0) {
+			out.push_back(text);
+			out_pieces.push_back(line);
+			continue;
+		}
+
+		// The items: the entries between the brackets, split at the list's own commas.
+		const int opener = line[group].y;
+		Vector<String> items;
+		bool comment_inside = false;
+		int item_start = group + 1;
+		for (int e = group + 1; e <= group_close; e++) {
+			const Piece &piece = p_pieces[line[e].y];
+			comment_inside = comment_inside || piece.kind != PIECE_TOKEN;
+			const bool separator = e == group_close || (piece.type == Token::COMMA && piece.enclosing == opener && piece.text == ",");
+			const bool item_end_comma = piece.enclosing == opener && piece.text.ends_with(",") && piece.type != Token::COMMA;
+			if (!separator && !item_end_comma) {
+				continue;
+			}
+			const int last = separator ? e - 1 : e;
+			if (last >= item_start) {
+				const int from = line[item_start].x;
+				const int to = line[last].x + p_pieces[line[last].y].text.length();
+				String item = text.substr(from, to - from);
+				if (item_end_comma) {
+					item = item.substr(0, item.length() - 1); // A trailing comma the formatter added.
+				}
+				items.push_back(item.strip_edges());
+			}
+			item_start = e + 1;
+		}
+		while (!items.is_empty() && items[items.size() - 1].is_empty()) {
+			items.remove_at(items.size() - 1);
+		}
+		if (comment_inside || items.is_empty()) {
+			out.push_back(text);
+			out_pieces.push_back(line);
+			continue;
+		}
+
+		const Piece &open_piece = p_pieces[opener];
+		const String lead = _lead(text);
+		const int step = open_piece.opens == BRACKET_PAREN ? p_options.paren_continuation : p_options.bracket_continuation;
+		const String item_lead = lead + p_unit.repeat(MAX(1, step));
+		const bool comma = p_options.trailing_commas == GDScriptFormatter::TRAILING_COMMAS_ALL ||
+				(p_options.trailing_commas == GDScriptFormatter::TRAILING_COMMAS_LITERALS && open_piece.literal_group);
+		const String &last_item = items[items.size() - 1];
+		const bool rest = last_item.begins_with("..");
+		out.push_back(text.substr(0, line[group].x + open_piece.text.length()));
+		out_pieces.push_back(OutPieces());
+		for (int k = 0; k < items.size(); k++) {
+			const bool final = k == items.size() - 1;
+			out.push_back(item_lead + items[k] + ((!final || (comma && !rest)) ? String(",") : String()));
+			out_pieces.push_back(OutPieces());
+		}
+		out.push_back(lead + text.substr(line[group_close].x));
+		out_pieces.push_back(OutPieces());
+		changed = true;
+	}
+	r_out = out;
+	r_pieces = out_pieces;
+	return changed;
+}
+
 } // namespace
 
 GDScriptFormatter::Options GDScriptFormatter::get_preset(const String &p_name) {
@@ -444,6 +772,7 @@ GDScriptFormatter::Options GDScriptFormatter::get_preset(const String &p_name) {
 		options.elif_style = ELIF_STYLE_ELSE_IF;
 		options.blank_lines_around_members = 1;
 		options.max_blank_lines = 1;
+		options.trailing_commas = TRAILING_COMMAS_ALL;
 	} else {
 		// The official GDScript style guide.
 		options.use_spaces = false;
@@ -456,6 +785,7 @@ GDScriptFormatter::Options GDScriptFormatter::get_preset(const String &p_name) {
 		options.elif_style = ELIF_STYLE_ELIF;
 		options.blank_lines_around_members = 2;
 		options.max_blank_lines = 1;
+		options.trailing_commas = TRAILING_COMMAS_LITERALS;
 	}
 	return options;
 }
@@ -465,10 +795,36 @@ String GDScriptFormatter::get_default_preset(bool p_braced) {
 }
 
 GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, const String &p_path, const Options &p_options) {
-	return _format(p_source, p_path, p_options, false);
+	bool wrapped = false;
+	Result result = _format(p_source, p_path, p_options, false, &wrapped);
+	if (result.error != OK && result.message.begins_with("Internal formatter error")) {
+		// Trailing commas, alignment and wrapping are the newest rules: rather than give up on the file, format it without
+		// them, and report the error only if that fails too.
+		Options basic = p_options;
+		basic.trailing_commas = TRAILING_COMMAS_KEEP;
+		basic.max_line_length = 0;
+		basic.align_assignments = basic.align_comments = basic.align_dictionary_values = basic.align_match_branches = false;
+		Result fallback = _format(p_source, p_path, basic, false);
+		if (fallback.error != OK) {
+			return result;
+		}
+		fallback.note = vformat("Formatted without trailing commas, alignment and wrapping (line %d: %s)", result.line, result.message);
+		return fallback;
+	}
+	// A wrapped line changes the layout the next pass sees (a block that now spans lines gets its own lines, an item may
+	// still be too long), so repeat until the text is stable, which also keeps formatting idempotent.
+	for (int pass = 0; wrapped && pass < 100 && result.error == OK; pass++) {
+		wrapped = false;
+		const Result next = _format(result.output, p_path, p_options, false, &wrapped);
+		if (next.error != OK || next.output == result.output) {
+			break;
+		}
+		result = next;
+	}
+	return result;
 }
 
-GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented) {
+GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented, bool *r_wrapped) {
 	Result result;
 	const bool braced = GDScriptTokenizer::is_braced_path(p_path);
 	const bool crlf = p_options.use_crlf || p_source.contains("\r\n");
@@ -767,6 +1123,75 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 		}
 	}
 
+	// Bracket pairs: each half's partner, the bracket around each piece, and which brackets hold lists of items.
+	{
+		List<int> open;
+		int previous_token = -1;
+		int before_previous = -1;
+		for (int i = 0; i < pieces.size(); i++) {
+			Piece &piece = pieces.write[i];
+			piece.enclosing = open.is_empty() ? -1 : open.back()->get();
+			if (piece.kind != PIECE_TOKEN) {
+				continue;
+			}
+			if (piece.closes != BRACKET_NONE && !open.is_empty()) {
+				const int opener = open.back()->get();
+				open.pop_back();
+				pieces.write[opener].partner = i;
+				piece.partner = opener;
+				piece.enclosing = open.is_empty() ? -1 : open.back()->get();
+			}
+			if (piece.opens != BRACKET_NONE) {
+				const Piece *before = previous_token >= 0 ? &pieces[previous_token] : nullptr;
+				if (piece.synthetic) {
+					// An arrow lambda's added parentheses: not written in `.gdb`.
+				} else if (piece.opens == BRACKET_PAREN) {
+					// A call, a parameter list (`func f(`, `signal s(`) or annotation arguments; not `(a + b)`.
+					piece.list_group = before != nullptr && _calls_with_paren(*before, before_previous >= 0 ? &pieces[before_previous] : nullptr);
+				} else if (piece.opens == BRACKET_SQUARE) {
+					// An array, not a subscript (`a[0]`) or a type argument (`Array[int]`).
+					piece.list_group = before == nullptr || before->closes == BRACKET_BLOCK || !Token(before->type).can_precede_bin_op();
+					piece.literal_group = piece.list_group;
+				} else if (piece.opens == BRACKET_CURLY) {
+					piece.list_group = true;
+					piece.literal_group = true;
+				}
+				open.push_back(i);
+			}
+			before_previous = previous_token;
+			previous_token = i;
+		}
+	}
+
+	// Trailing commas: a list whose closing bracket starts its own line gets a comma after its last item.
+	if (!p_to_indented && p_options.trailing_commas != TRAILING_COMMAS_KEEP) {
+		for (int i = 0; i < pieces.size(); i++) {
+			const Piece &closer = pieces[i];
+			if (closer.kind != PIECE_TOKEN || closer.partner < 0 || closer.closes == BRACKET_NONE || closer.closes == BRACKET_BLOCK) {
+				continue;
+			}
+			const Piece &opener = pieces[closer.partner];
+			if (!opener.list_group || (!opener.literal_group && p_options.trailing_commas != TRAILING_COMMAS_ALL)) {
+				continue;
+			}
+			int last = i - 1;
+			bool rest = false; // `..` (a pattern's rest) and `...args` must stay last, without a comma.
+			while (last > closer.partner && pieces[last].kind != PIECE_TOKEN) {
+				last--;
+			}
+			for (int j = closer.partner + 1; j < i; j++) {
+				if (pieces[j].enclosing == closer.partner && (pieces[j].type == Token::PERIOD_PERIOD || pieces[j].type == Token::PERIOD_PERIOD_PERIOD)) {
+					rest = true;
+				}
+			}
+			Piece &item_end = pieces.write[last];
+			if (rest || last == closer.partner || item_end.type == Token::COMMA || item_end.text.is_empty() || item_end.end_line >= closer.line) {
+				continue;
+			}
+			item_end.text += ",";
+		}
+	}
+
 	// Line structure: which pieces start each line, the member layout, and `.gd` block depth.
 	Vector<LineInfo> lines;
 	lines.resize(line_count);
@@ -1011,6 +1436,7 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 
 	// Output.
 	Vector<String> out;
+	Vector<OutPieces> out_pieces; // Per output line, for alignment and wrapping.
 	List<StackEntry> stack;
 	int pending_blank = 0;
 	int previous_code_line = -1;
@@ -1112,14 +1538,18 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 		// K&R: `} else {` and `} elif x {` on one line.
 		const bool joins_previous = braced && !p_to_indented && previous_is_lone_close && first.kind == PIECE_TOKEN && (first.type == Token::ELSE || first.type == Token::ELIF);
 		String text;
+		OutPieces record;
 		int level = 0;
 		if (joins_previous) {
 			text = out[out.size() - 1] + " ";
+			record = out_pieces[out_pieces.size() - 1];
 			out.remove_at(out.size() - 1);
+			out_pieces.remove_at(out_pieces.size() - 1);
 			level = level_for(first);
 		} else {
 			for (int i = 0; i < blank; i++) {
 				out.push_back(String());
+				out_pieces.push_back(OutPieces());
 			}
 			if (braced) {
 				level = level_for(first);
@@ -1144,7 +1574,9 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			const String done = trimmed(text);
 			if (!(p_to_indented && done.strip_edges().is_empty())) {
 				out.push_back(done); // Converting to `.gd` drops lines that only held a `}`.
+				out_pieces.push_back(record);
 			}
+			record.clear();
 		};
 		int i = info.first_piece;
 		for (; i < pieces.size() && pieces[i].line <= last_line; i++) {
@@ -1164,6 +1596,7 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 				if (emitted != nullptr) {
 					text += _spacing(*emitted, piece, before_emitted, source, p_options, p_to_indented);
 				}
+				record.push_back(Vector2i(text.length(), i));
 				text += piece.text;
 				before_emitted = emitted;
 				emitted = &pieces[i];
@@ -1215,6 +1648,18 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 		line = last_line;
 	}
 
+	if (!p_to_indented) {
+		if (p_options.align_assignments || p_options.align_comments || p_options.align_dictionary_values || p_options.align_match_branches) {
+			_align(out, out_pieces, pieces, p_options, unit, braced);
+		}
+		if (p_options.max_line_length > 0) {
+			const bool wrapped = _wrap(out, out_pieces, pieces, p_options, unit, braced);
+			if (r_wrapped != nullptr) {
+				*r_wrapped = wrapped;
+			}
+		}
+	}
+
 	String output = String("\n").join(out);
 	if (!output.is_empty() && p_options.insert_final_newline) {
 		output += "\n";
@@ -1231,9 +1676,10 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 	if (!_scan(output, braced, output_tokens, scan_error, scan_error_line)) {
 		return fail(vformat("Internal formatter error: the formatted code does not tokenize (%s). Nothing was changed.", scan_error), scan_error_line);
 	}
-	const int difference = _first_difference(tokens, output_tokens);
+	const Vector<Token> compared = _without_trailing_commas(tokens);
+	const int difference = _first_difference(compared, _without_trailing_commas(output_tokens));
 	if (difference >= 0) {
-		const int report_line = difference < tokens.size() ? tokens[difference].start_line : line_count;
+		const int report_line = difference < compared.size() ? compared[difference].start_line : line_count;
 		return fail("Internal formatter error: the formatted code would not mean the same thing. Nothing was changed.", report_line);
 	}
 	{
@@ -1471,7 +1917,7 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 		converted += source.substr(copied);
 		output = converted;
 		if (!p_keep_lines) {
-			const Result formatted = _format(output, gdb_path, p_options, false);
+			const Result formatted = format(output, gdb_path, p_options);
 			if (formatted.error != OK) {
 				return fail("Internal converter error: the converted code cannot be formatted: " + formatted.message, formatted.line);
 			}
@@ -1541,7 +1987,12 @@ String GDScriptFormatter::get_editorconfig_keys() {
 		   "gdscript_paren_continuation = <levels>\n"
 		   "gdscript_bracket_continuation = <levels>\n"
 		   "gdscript_blank_lines_around_members = <count>\n"
-		   "gdscript_max_blank_lines = <count>\n";
+		   "gdscript_max_blank_lines = <count>\n"
+		   "gdscript_trailing_commas = keep | literals | all\n"
+		   "gdscript_align_assignments = true | false\n"
+		   "gdscript_align_comments = true | false\n"
+		   "gdscript_align_dictionary_values = true | false\n"
+		   "gdscript_align_match_branches = true | false\n";
 }
 
 GDScriptFormatter::Options GDScriptFormatter::get_options_for_path(const String &p_path, const String &p_preset_override) {
@@ -1625,6 +2076,9 @@ GDScriptFormatter::Options GDScriptFormatter::get_options_for_path(const String 
 	get_int("tab_width", options.indent_size);
 	get_int("indent_size", options.indent_size);
 	get_int("max_line_length", options.max_line_length);
+	if (values.has("max_line_length") && values["max_line_length"] == "off") {
+		options.max_line_length = 0;
+	}
 	get_bool("insert_final_newline", options.insert_final_newline);
 	if (values.has("end_of_line")) {
 		options.use_crlf = values["end_of_line"] == "crlf";
@@ -1646,6 +2100,14 @@ GDScriptFormatter::Options GDScriptFormatter::get_options_for_path(const String 
 	get_int("gdscript_bracket_continuation", options.bracket_continuation);
 	get_int("gdscript_blank_lines_around_members", options.blank_lines_around_members);
 	get_int("gdscript_max_blank_lines", options.max_blank_lines);
+	if (values.has("gdscript_trailing_commas")) {
+		const String &style = values["gdscript_trailing_commas"];
+		options.trailing_commas = style == "all" ? TRAILING_COMMAS_ALL : (style == "literals" ? TRAILING_COMMAS_LITERALS : TRAILING_COMMAS_KEEP);
+	}
+	get_bool("gdscript_align_assignments", options.align_assignments);
+	get_bool("gdscript_align_comments", options.align_comments);
+	get_bool("gdscript_align_dictionary_values", options.align_dictionary_values);
+	get_bool("gdscript_align_match_branches", options.align_match_branches);
 	return options;
 }
 
@@ -1763,6 +2225,9 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 			OS::get_singleton()->printerr("%s:%d: %s\n", path.utf8().get_data(), result.line, result.message.utf8().get_data());
 			return 1;
 		}
+		if (!result.note.is_empty()) {
+			OS::get_singleton()->printerr("%s: %s\n", path.utf8().get_data(), result.note.utf8().get_data());
+		}
 		OS::get_singleton()->print("%s", result.output.utf8().get_data());
 		return 0;
 	}
@@ -1792,6 +2257,9 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 			OS::get_singleton()->printerr("%s:%d: %s\n", file.utf8().get_data(), result.line, result.message.utf8().get_data());
 			errors++;
 			continue;
+		}
+		if (!result.note.is_empty()) {
+			OS::get_singleton()->printerr("%s: %s\n", file.utf8().get_data(), result.note.utf8().get_data());
 		}
 		if (result.output == source) {
 			continue;

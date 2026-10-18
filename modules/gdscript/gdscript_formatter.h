@@ -69,6 +69,13 @@ public:
 		COMMENT_STYLE_SLASHES, // `//`, `///` (`.gdb` only)
 	};
 
+	// A comma after the last item of a bracket whose closing bracket is on its own line.
+	enum TrailingCommas {
+		TRAILING_COMMAS_KEEP, // As written.
+		TRAILING_COMMAS_LITERALS, // Arrays, dictionaries and enums (the GDScript style guide).
+		TRAILING_COMMAS_ALL, // Also calls, parameter lists and annotation arguments.
+	};
+
 	struct Options {
 		bool use_spaces = false;
 		int indent_size = 4; // Spaces per level when `use_spaces`, and the width of a tab when reading `.gd` indentation.
@@ -82,7 +89,13 @@ public:
 		int max_blank_lines = 1; // Anywhere else.
 		bool insert_final_newline = true;
 		bool use_crlf = false;
-		int max_line_length = 100; // Not enforced yet.
+		int max_line_length = 100; // Longer lines are wrapped inside their brackets; 0: never.
+		TrailingCommas trailing_commas = TRAILING_COMMAS_KEEP;
+		// Alignment (Tier 3), off in both presets: the GDScript style guide does not align.
+		bool align_assignments = false; // The `=` of consecutive `var` and `const` lines.
+		bool align_comments = false; // Trailing comments of consecutive lines.
+		bool align_dictionary_values = false; // The values of a dictionary written one entry per line.
+		bool align_match_branches = false; // The bodies of one-line `match` branches.
 	};
 
 	// `"godot"`: the official GDScript style guide. `"js"`: K&R braces, spaces, symbols, `//` comments.
@@ -100,6 +113,9 @@ public:
 		String output;
 		String message;
 		int line = 0;
+		// Set when the file was formatted without trailing commas, alignment and wrapping because those failed the
+		// safety check (an internal formatter error, reported here instead of as an error).
+		String note;
 	};
 
 	// `p_path` only decides brace mode (by extension) and the parser's script path.
@@ -121,6 +137,7 @@ public:
 	static int run_cli(const List<String> &p_args);
 
 private:
-	// `p_to_indented`: `p_source` is braced, and the result is the equivalent indented `.gd` code.
-	static Result _format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented);
+	// `p_to_indented`: `p_source` is braced, and the result is the equivalent indented `.gd` code. `r_wrapped` is set when
+	// a line was wrapped, which can change the layout a second pass sees (`format()` repeats until nothing changes).
+	static Result _format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented, bool *r_wrapped = nullptr);
 };
