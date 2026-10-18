@@ -126,6 +126,11 @@ for src in "$BRACES"/features/*.gdb; do
 done
 check "$cfail" "0" "--gdscript-convert --stdin both ways"
 
+echo "a project in braced GDScript (the web smoketest's fixture, run natively)"
+rm -rf "$WORK/fixture" && cp -r "$ROOT/webgpu_tests/braced_gdscript/fixture_project" "$WORK/fixture"
+"$G" --headless --path "$WORK/fixture" --import > /dev/null 2>&1
+check "$(timeout 120 "$G" --headless --path "$WORK/fixture" -- --quit-on-check 2>&1 | grep -o '\[GDB-CHECK\] [A-Z]*.*' | head -1)" "[GDB-CHECK] PASS" "autoload, class_name and extends across .gd/.gdb, Tier B syntax"
+
 echo "formatter on every GDScript test"
 for preset in godot js; do
 	rm -rf "$WORK/fmt" && cp -r "$SCRIPTS" "$WORK/fmt"

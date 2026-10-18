@@ -178,6 +178,16 @@
       ],
       "click_to_start": true,
       "timeout_ms": 90000
+    },
+    {
+      "id": "braced_gdscript",
+      "path": "../braced_gdscript/fixture_project",
+      "preset": "Web",
+      "max_errors": 0,
+      "description": "Braced GDScript (.gdb) in an export: binary tokens (.gdbc), class_name and extends across .gd/.gdb, autoload, arrows, ternary, match (self-checking, webgpu_tests/braced_gdscript)",
+      "pass_patterns": [
+        "[GDB-CHECK] PASS"
+      ]
     }
   ]
 }

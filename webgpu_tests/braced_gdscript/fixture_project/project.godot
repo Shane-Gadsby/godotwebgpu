@@ -1,0 +1,16 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Braced GDScript Web Check"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.8")
+
+[autoload]
+
+Registry="*res://registry.gdb"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
