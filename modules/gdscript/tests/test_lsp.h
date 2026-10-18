@@ -36,6 +36,7 @@
 
 #include "../gdscript_analyzer.h"
 #include "../gdscript_linter.h"
+#include "../gdscript_tokenizer.h"
 #include "../language_server/gdscript_extend_parser.h"
 #include "../language_server/gdscript_language_protocol.h"
 #include "../language_server/gdscript_workspace.h"
@@ -450,6 +451,41 @@ TEST_SUITE("[Modules][GDScript][LSP][Editor]") {
 			REQUIRE(cls.documentation.contains("t1"));
 			REQUIRE(cls.documentation.contains("t2"));
 			REQUIRE(cls.documentation.contains("t3"));
+		}
+
+		memdelete(efs);
+		finish_language();
+	}
+
+	// GDB: Braced GDScript (`.gdb`) through the language server.
+	TEST_CASE("[workspace][braced]") {
+		if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
+			return; // Braced GDScript is compiled out.
+		}
+		EditorFileSystem *efs = memnew(EditorFileSystem);
+		GDScriptLanguageProtocol *proto = initialize(root);
+		REQUIRE(proto);
+		const String path = "res://lsp/braced.gdb";
+		assert_no_errors_in(path);
+
+		SUBCASE("Symbols") {
+			ExtendGDScriptParser *parser = GDScriptLanguageProtocol::get_singleton()->get_parse_result(path);
+			REQUIRE(parser);
+			bool found = false;
+			for (const LSP::DocumentSymbol &symbol : parser->get_symbols().children) {
+				found = found || symbol.name == "add";
+			}
+			CHECK(found);
+		}
+
+		SUBCASE("Formatting") {
+			Dictionary params;
+			params["textDocument"] = Dictionary({ { "uri", proto->get_workspace()->get_file_uri(path) } });
+			params["options"] = Dictionary({ { "tabSize", 4 }, { "insertSpaces", true } });
+			const Array edits = proto->get_text_document()->formatting(params);
+			REQUIRE(edits.size() == 1);
+			const String formatted = Dictionary(edits[0])["newText"];
+			CHECK(formatted.contains("func add(amount: int) -> int {\n    count += amount\n    return count\n}"));
 		}
 
 		memdelete(efs);

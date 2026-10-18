@@ -211,6 +211,7 @@ Variant GDScriptLanguageProtocol::initialize(const Dictionary &p_params) {
 	LSP_CLIENT_V(Variant());
 
 	LSP::InitializeResult ret;
+	ret.capabilities.documentFormattingProvider = true; // GDB: See `GDScriptTextDocument::formatting()`.
 
 	{
 		// Warn if the workspace root does not match with the project that is currently open in Godot,
