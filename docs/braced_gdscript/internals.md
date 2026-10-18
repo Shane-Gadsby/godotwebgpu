@@ -79,6 +79,8 @@ the tests below and this folder. `gdscript_braces=no` (`modules/gdscript/config.
 | Language server | `lsp/braced.gdb`, `test_lsp.h` `[braced]` | `--test --test-case="*[braced]*"` |
 | Formatter, converter, docs, editor hooks | `tests/test_gdscript_formatter.h` | `--test --test-case="*Formatter*,*Converter*,*Braced docs*,*Script editor hooks*"` |
 | `CodeEdit` unindent | `tests/scene/test_code_edit.cpp` | `--test --test-case="*CodeEdit*"` |
+| Fuzzing (tokenizer, parser, formatter, converter on mangled files) | `tests/test_gdscript_braces_fuzz.h` | `--test --test-case="*mangled input*"`, `GDB_FUZZ_ITERATIONS`/`GDB_FUZZ_SEED` |
+| A braced project, natively and in a web export (`.gdbc`) | `webgpu_tests/braced_gdscript/` | `run.sh`, and the web scene smoketest |
 | Whole-tree checks | `tests/braced_gdscript/` | `tests/braced_gdscript/run.sh` ([README](../../tests/braced_gdscript/README.md)) |
 
 The test runner treats `.gdb` like `.gd` (`gdscript_test_runner.cpp`), and `--test gdscript-generate-tests` writes

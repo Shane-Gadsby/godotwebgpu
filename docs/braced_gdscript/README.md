@@ -37,6 +37,9 @@ It needs this fork's engine, built with `gdscript_braces=yes` (the default). Sto
 | [Migration and FAQ](faq.md) | Converting a project, mixing `.gd` and `.gdb`, tool caveats, what was left out and why |
 | [Internals](internals.md) | How it works, where the code is, how to test and port it |
 
+Editor support lives in three repositories next to this one: `godot-gdb-rider` (JetBrains Rider), `godot-gdb-vscode`
+(VS Code) and `godot-gdb-tree-sitter` (a tree-sitter grammar for Neovim, Helix, Zed and other tree-sitter tools).
+
 ## Getting started
 
 1. **Create a file.** In the editor's Create Script dialog, choose GDScript and change the extension to `.gdb`, or turn

@@ -29,7 +29,8 @@ as `.gdc`.
 ### What about tools that read GDScript?
 
 Tools that read `.gd` files themselves (gdtoolkit's gdlint and gdformat, GitHub's syntax highlighting, the official
-VS Code extension's grammar, documentation generators that parse source) do not know `.gdb`. Tools that go through
+VS Code extension's grammar, documentation generators that parse source) do not know `.gdb`; editors built on
+tree-sitter can use the `godot-gdb-tree-sitter` grammar. Tools that go through
 the engine (the language server, `--doctool`, the editor's help) work. On GitHub, a `.gitattributes` line
 `*.gdb linguist-language=GDScript` gets most of the highlighting right.
 

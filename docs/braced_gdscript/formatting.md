@@ -49,15 +49,25 @@ func _ready() -> void {
 - **Braces**: `{` stays on the header line; `} else {` joins. Short blocks written on one line (`if i == 1 { continue }`,
   `func f() -> int { return 1 }`) stay on one line; anything else gets one statement per line.
 - **Blank lines**: a configurable number around functions and classes, runs elsewhere reduced to a maximum.
+- **Long lines** (over `max_line_length`, 100 by default) are wrapped inside their brackets: the last outermost list
+  on the line (arguments, parameters, an array, a dictionary) gets one item per line, with the continuation indent,
+  until every line fits or nothing more can be wrapped. Subscripts and grouping parentheses are left alone, and in
+  `.gd` files so is a list that holds a lambda, whose body is indentation-sensitive.
+- **Trailing commas** after the last item of a list whose closing bracket is on its own line: arrays, dictionaries
+  and enums with the `godot` preset (as the style guide asks), every list with `js`.
+- **Alignment**, off unless you ask: the `=` of consecutive `var`/`const` lines, trailing comments, dictionary values,
+  and the bodies of one-line `match` branches.
 - **Spellings**, when the style asks: `and`/`&&`, `or`/`||`, `not`/`!`, `#`/`//` comments and `elif`/`else if`.
 - **Line ends**: trailing whitespace removed, a final newline added, line endings as `.editorconfig` says.
 
 It never rebuilds code from the parse tree, so it cannot drop or reorder anything. Every result is checked before it
 is used: the output must contain the same tokens as the input (with the spellings above counted as equal) and must
 still parse. If either check fails the file is left unchanged and an "internal formatter error" is reported. Please
-report those, with the file.
+report those, with the file; `GDSCRIPT_FORMAT_DEBUG=1` prints the rejected result and where it went wrong. If only
+the trailing-comma, alignment or wrapping rules caused it, the file is formatted without them instead, with a note.
 
-It does not wrap long lines (`max_line_length` is read but not enforced yet) and does not reorder members.
+It does not reorder members, and a line that cannot be wrapped inside brackets (a long string, a long chain of
+operators) stays long.
 
 ## Presets
 
@@ -72,6 +82,8 @@ It does not wrap long lines (`max_line_length` is read but not enforced yet) and
 | `elif` | `else if` | `elif` |
 | Blank lines around functions and classes | 1 | 2 |
 | Blank lines elsewhere, at most | 1 | 1 |
+| Trailing commas | every list | arrays, dictionaries, enums |
+| Line length | 100 | 100 |
 
 `godot` follows the official [GDScript style guide](https://docs.godotengine.org/en/stable/tutorials/scripting/gdscript/gdscript_styleguide.html).
 Use it for `.gdb` files too if your team reads both kinds of file.
@@ -100,6 +112,12 @@ gdscript_paren_continuation = 1         # extra levels inside ( )
 gdscript_bracket_continuation = 1       # extra levels inside [ ] and { } literals
 gdscript_blank_lines_around_members = 1
 gdscript_max_blank_lines = 1
+gdscript_trailing_commas = all          # keep | literals | all
+gdscript_align_assignments = false      # line up the = of consecutive var/const lines
+gdscript_align_comments = false         # line up trailing comments
+gdscript_align_dictionary_values = false
+gdscript_align_match_branches = false   # line up one-line match branch bodies
+max_line_length = 100                   # off: never wrap
 ```
 
 Standard keys: `indent_style`, `indent_size`, `tab_width`, `end_of_line`, `insert_final_newline`, `max_line_length`.
@@ -110,23 +128,34 @@ written.
 
 | Where | How |
 | --- | --- |
-| Godot script editor | Edit → Reformat Code, **Ctrl+Alt+L** (Cmd+Alt+L on macOS). Rebind it in Editor Settings → Shortcuts → Script Text Editor → Reformat Code. One undo step. Edit → Indentation → Auto Indent re-indents a `.gdb` selection from its braces without the rest. |
-| Rider | Reformat Code (Ctrl+Alt+L), Reformat File, and Settings → Tools → Actions on Save → Reformat code |
-| VS Code | Format Document (Shift+Alt+F), and `"editor.formatOnSave": true` |
+| Godot script editor | Edit → Reformat Code, **Ctrl+Alt+L** (Cmd+Alt+L on macOS): the selected lines when there is a selection, else the file. Rebind it in Editor Settings → Shortcuts → Script Text Editor → Reformat Code. One undo step. Editor Settings → Text Editor → Behavior → Files → Reformat Code On Save formats on save. Edit → Indentation → Auto Indent re-indents a `.gdb` selection from its braces without the rest. |
+| Rider | Reformat Code (Ctrl+Alt+L) on the file or a selection, Reformat File, and Settings → Tools → Actions on Save → Reformat code (including "changed lines only") |
+| VS Code | Format Document (Shift+Alt+F), Format Selection, and `"editor.formatOnSave": true` |
 | Any editor speaking LSP | `textDocument/formatting` on Godot's language server |
 | Terminal | `godot --headless --gdscript-format <files or folders>` |
+| An editor plugin | `godot --headless --gdscript-format-server`, which stays running (below) |
 
 ```sh
 godot --headless --gdscript-format scripts/                 # format in place
 godot --headless --gdscript-format --check scripts/         # report only; exit status 1 if anything would change
 godot --headless --gdscript-format --preset godot a.gdb     # ignore the preset in .editorconfig
 godot --headless --gdscript-format --indent-style space --indent-size 2 a.gdb
+godot --headless --gdscript-format --check --diff scripts/  # and show what would change, as a unified diff
 godot --headless --gdscript-format --stdin --stdin-path player.gdb < player.gdb > formatted.gdb
+godot --headless --gdscript-format --stdin --stdin-path player.gdb --range 10:24 < player.gdb   # only lines 10-24
 ```
 
 `--stdin-path` names the file the text belongs to: its extension picks `.gd` or `.gdb` rules and its folder picks the
 `.editorconfig`. `--indent-style` and `--indent-size` override `.editorconfig`, which is how editors pass their own
-indentation setting. The exit status is 1 when a file has an error, or with `--check` when one would change.
+indentation setting. `--range <first>:<last>` (repeatable) formats only those lines, as editors do for a selection;
+it refuses when that would leave a `.gd` file's indentation inconsistent. The exit status is 1 when a file has an
+error, or with `--check` when one would change.
+
+Each run starts the engine, about 0.3 s. Editor plugins instead keep `godot --headless --gdscript-format-server`
+running and send it requests on standard input: each request and each response is a line holding the byte length of
+a JSON object, then the object. A request is `{"id", "path", "text", "mode", "ranges", "indent_style", "indent_size"}`
+with `mode` one of `format`, `to-gd`, `to-gdb` and `version`; the answer is `{"id", "ok": true, "text"}` or
+`{"id", "ok": false, "line", "message"}`, in well under a millisecond. The server exits when its input closes.
 
 ## In CI
 

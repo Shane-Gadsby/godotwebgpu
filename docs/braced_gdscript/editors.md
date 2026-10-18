@@ -7,7 +7,8 @@ go to definition, documentation, warnings, breakpoints and the debugger. What ch
 
 - **Typing.** Enter after `{` indents the new line; typing `}` on a line of its own lines it up with its opener.
   Toggle Comment (Ctrl+K) uses `//`.
-- **Reformat Code** (Edit menu, Ctrl+Alt+L) formats the whole file; see [Formatting](formatting.md).
+- **Reformat Code** (Edit menu, Ctrl+Alt+L) formats the selected lines, or the whole file; Editor Settings → Text
+  Editor → Behavior → Files → Reformat Code On Save does it on every save. See [Formatting](formatting.md).
   **Auto Indent** (Edit → Indentation) re-indents the selection from its braces.
 - **New scripts.** The Create Script dialog accepts `.gdb` (pick the extension in the path field or the file
   dialog's filter). Project Settings → Editor → Script → Braced GDScript By Default makes `.gdb` the default for new
@@ -38,8 +39,14 @@ with Rider's bundled Godot support enabled (it is by default).
 | Highlighting, brace matching, folding, commenting, smart Enter and `}`, live templates (`func`, `if`, `ife`, `for`, `while`, `match`, `lambda`, `prop`, `class`) | the plugin | nothing |
 | Completion, go to declaration, Find Usages, rename, structure view, parameter info, inlay hints, Rider's GdScript inspections | Rider's own GdScript support, which the plugin feeds `.gdb` files to | nothing (works offline) |
 | `.gd` and `.gdb` files seeing each other (`class_name`, `extends`, `preload`) | the same | nothing |
-| Reformat Code, Reformat File, format on save | the engine's formatter | the Godot executable (step 3) |
-| Engine diagnostics and engine-side completion | Godot's language server | a running Godot editor with the project open (Editor Settings → Network → Language Server, port 6005 by default) |
+| Code Rider generates comes out braced: override completion (`func _ready() -> void:`), Create method, Add match branches, pasted `.gd` code | the plugin converts each indented header an edit inserts | nothing |
+| Inspections and quick-fixes: `{` on the line after its header, a `:` block header, unbalanced brackets | the plugin | nothing |
+| Intentions: `elif` ⇄ `else if`, `c ? a : b` ⇄ `a if c else b`, `func` ⇄ `=>` lambdas, Convert file to `.gd`/`.gdb` (paths in other files and the `.uid` file follow) | the plugin; converting uses the engine | the Godot executable, for converting |
+| Postfix templates (`.if`, `.for`, `.while`, `.match`, `.not`, `.var`, `.return`, `.await`, `.print`, `.par`), Surround With `if`/`for`/`while` | the plugin | nothing |
+| Quick Documentation from `///`, `##` and `/** */`, breadcrumbs and sticky lines, TODO items in `//` comments | the plugin, on top of Rider's | nothing |
+| Reformat Code on the file or a selection, Reformat File, format on save (including changed lines only) | the engine's formatter, kept running as a format server | the Godot executable (step 3) |
+| Engine diagnostics and hover | Godot's language server (its completion, navigation and the like are turned off for `.gdb`, since Rider's are there) | a running Godot editor with the project open (Editor Settings → Network → Language Server, port 6005 by default) |
+| A banner when the Godot executable speaks another version of the braced syntax than the plugin | the plugin | the Godot executable |
 
 Indentation settings live in Settings → Editor → Code Style → GDScript (braced) and are passed to the engine
 formatter; everything else comes from `.editorconfig`.
@@ -50,14 +57,12 @@ formatter; everything else comes from `.editorconfig`.
   and completion inside a ternary work; a type Rider infers for the whole ternary may be the condition's.
 - An arrow lambda whose body is a call to a function that returns nothing (`() => print("x")`) is read as a
   `return` of that call, so Rider may hint about returning a void value. The engine accepts it.
-- `/** */` and `///` documentation is shown by the engine (hover through the language server), not by Rider's own
-  Quick Documentation, which reads `##` comments.
-- With the language server connected, completion can list an item from both sources.
 
 ## VS Code
 
 The extension is in its own repository, `godot-gdb-vscode`. It provides highlighting, comments, bracket matching,
-indentation on `{` and `}`, Format Document and format-on-save through the engine, and syntax errors as you type.
+indentation on `{` and `}`, Format Document, Format Selection and format-on-save through the engine (kept running as a
+format server), and syntax errors as you type.
 
 1. Package it: `npx @vscode/vsce package --no-dependencies --allow-missing-repository`.
 2. Extensions → ⋯ → Install from VSIX…
