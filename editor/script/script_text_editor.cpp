@@ -1762,8 +1762,9 @@ void ScriptTextEditor::_gutter_clicked(int p_line, int p_gutter) {
 	}
 }
 
-// GDB: Reformats the whole file with the language's formatter, as one undoable edit. `p_report_errors` says why it cannot
-// (Reformat Code); it is off when formatting on save.
+// GDB: Reformats the file with the language's formatter, as one undoable edit: the selected lines when there is a
+// selection (Reformat Code), else the whole file. `p_report_errors` says why it cannot; it is off when formatting on save,
+// which always formats the whole file.
 void ScriptTextEditor::reformat_code(bool p_report_errors) {
 	CodeEdit *tx = code_editor->get_text_editor();
 	Ref<Script> scr = edited_res;
@@ -1775,10 +1776,24 @@ void ScriptTextEditor::reformat_code(bool p_report_errors) {
 		return;
 	}
 	const String text = tx->get_text();
+	Vector<Vector2i> ranges;
+	if (p_report_errors && tx->has_selection()) {
+		for (int caret = 0; caret < tx->get_caret_count(); caret++) {
+			if (!tx->has_selection(caret)) {
+				continue;
+			}
+			const int from = tx->get_selection_from_line(caret);
+			int to = tx->get_selection_to_line(caret);
+			if (to > from && tx->get_selection_to_column(caret) == 0) {
+				to--; // A selection that ends at the start of a line does not include it.
+			}
+			ranges.push_back(Vector2i(from + 1, to + 1));
+		}
+	}
 	String formatted;
 	int error_line = 0;
 	String error_message;
-	if (editor_language->reformat_code(text, scr->get_path(), formatted, error_line, error_message) != OK) {
+	if (editor_language->reformat_code(text, scr->get_path(), formatted, error_line, error_message, ranges) != OK) {
 		if (!p_report_errors) {
 			return; // Saving code that does not parse: it is saved as it is.
 		}

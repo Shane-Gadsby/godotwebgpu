@@ -4094,10 +4094,11 @@ bool GDScriptEditorLanguage::can_reformat_code(const String &p_path) const {
 	return GDScriptLanguage::is_gdscript_path(p_path);
 }
 
-Error GDScriptEditorLanguage::reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const {
+Error GDScriptEditorLanguage::reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message, const Vector<Vector2i> &p_line_ranges) const {
 	// `.editorconfig` lookup needs a file system path.
 	const String path = ProjectSettings::get_singleton()->globalize_path(p_path);
-	const GDScriptFormatter::Result result = GDScriptFormatter::format(p_code, path, GDScriptFormatter::get_options_for_path(path));
+	const GDScriptFormatter::Options options = GDScriptFormatter::get_options_for_path(path);
+	const GDScriptFormatter::Result result = p_line_ranges.is_empty() ? GDScriptFormatter::format(p_code, path, options) : GDScriptFormatter::format_ranges(p_code, path, options, p_line_ranges);
 	if (result.error != OK) {
 		r_error_line = result.line;
 		r_error_message = result.message;

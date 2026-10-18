@@ -33,6 +33,7 @@
 // TODO: This file resides in `core/` while migrating `ScriptLanguage` features to prevent `editor/` includes in core. It should be moved to `editor/` when those includes are not needed anymore.
 #ifdef TOOLS_ENABLED
 
+#include "core/math/vector2i.h"
 #include "core/object/script_language.h"
 
 /**
@@ -274,7 +275,8 @@ public:
 	virtual String adapt_template_for_path(const String &p_code, const String &p_path) const { return p_code; }
 
 	virtual bool can_reformat_code(const String &p_path) const { return false; }
-	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const { return ERR_UNAVAILABLE; }
+	// `p_line_ranges`: only these lines (1-based, inclusive), or the whole file when empty.
+	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message, const Vector<Vector2i> &p_line_ranges = Vector<Vector2i>()) const { return ERR_UNAVAILABLE; }
 
 	virtual ~EditorLanguage() = default;
 };

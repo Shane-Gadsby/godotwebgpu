@@ -58,7 +58,7 @@ public:
 	virtual String get_new_script_extension() const override;
 	virtual String adapt_template_for_path(const String &p_code, const String &p_path) const override;
 	virtual bool can_reformat_code(const String &p_path) const override;
-	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const override;
+	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message, const Vector<Vector2i> &p_line_ranges = Vector<Vector2i>()) const override;
 
 	virtual bool validate(const String &p_code, const String &p_path, List<ScriptError> *r_errors, List<Warning> *r_warnings, List<String> *r_functions, HashSet<int> *r_safe_lines) const override;
 

@@ -534,6 +534,17 @@ TEST_CASE("[Modules][GDScript] Script editor hooks for braced GDScript") {
 		CHECK(language->reformat_code("func f(){\n", "res://a.gdb", formatted, error_line, error) != OK);
 		CHECK(error_line == 1);
 	}
+
+	SUBCASE("Reformat Code on selected lines") {
+		String formatted;
+		int error_line = 0;
+		String error;
+		CHECK(language->reformat_code("func f() {\nvar x=1\nvar y=2\n}\n", "res://a.gdb", formatted, error_line, error, { Vector2i(3, 3) }) == OK);
+		const Vector<String> lines = formatted.split("\n");
+		REQUIRE(lines.size() == 5);
+		CHECK(lines[1] == "var x=1"); // Not selected.
+		CHECK(lines[2].strip_edges() == "var y = 2");
+	}
 }
 #endif // TOOLS_ENABLED
 
