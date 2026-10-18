@@ -1,0 +1,7 @@
+GDTEST_OK
+big medium small
+4
+{ "key": "three", "nested": "both" }
+[1, { "y": 2 }]
+yes no
+mixed: a c

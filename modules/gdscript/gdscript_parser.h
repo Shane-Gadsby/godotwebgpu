@@ -1442,9 +1442,22 @@ public:
 		int end_line = 0;
 		int end_column = 0;
 	};
+	// GDB: Where each `c ? a : b` is (one-based; `?` and `:` columns, end exclusive), for the `.gdb` to `.gd` converter.
+	struct QuestionMarkRecord {
+		int start_line = 0;
+		int start_column = 0;
+		int question_line = 0;
+		int question_column = 0;
+		int colon_line = 0;
+		int colon_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+	};
 
 private:
 	Vector<BlockRecord> *block_log = nullptr;
+	Vector<QuestionMarkRecord> *question_mark_log = nullptr;
+	bool braced_syntax = false; // GDB: The script is braced GDScript, which allows `c ? a : b`.
 	int last_significant_end_line = 0;
 	int last_significant_end_column = 0;
 	void _log_block(int p_colon_line, int p_colon_column);
@@ -1685,6 +1698,7 @@ private:
 	ExpressionNode *parse_type_test(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_yield(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_invalid_token(ExpressionNode *p_previous_operand, bool p_can_assign);
+	ExpressionNode *parse_question_mark(ExpressionNode *p_previous_operand, bool p_can_assign); // GDB
 	TypeNode *parse_type(bool p_allow_void = false);
 	// TODO: Remove in 5.x.
 	bool parse_standalone_string();
@@ -1702,6 +1716,7 @@ public:
 
 	// GDB: See `BlockRecord`.
 	void set_block_log(Vector<BlockRecord> *p_log) { block_log = p_log; }
+	void set_question_mark_log(Vector<QuestionMarkRecord> *p_log) { question_mark_log = p_log; }
 	Error parse_binary(const Vector<uint8_t> &p_binary, const String &p_script_path);
 	ClassNode *get_tree() const { return head; }
 	bool is_tool() const { return _is_tool; }

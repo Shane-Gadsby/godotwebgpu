@@ -447,8 +447,10 @@ void GDScriptParser::set_last_completion_call_arg(int p_argument) {
 
 Error GDScriptParser::parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body) {
 	Vector<BlockRecord> *log = block_log; // GDB: `clear()` resets every member.
+	Vector<QuestionMarkRecord> *question_log = question_mark_log;
 	clear();
 	block_log = log;
+	question_mark_log = question_log;
 
 	String source = p_source_code;
 	int cursor_line = -1;
@@ -491,6 +493,7 @@ Error GDScriptParser::parse(const String &p_source_code, const String &p_script_
 	tokenizer->set_cursor_position(cursor_line, cursor_column);
 
 	script_path = p_script_path.simplify_path();
+	braced_syntax = GDScriptTokenizer::is_braced_path(script_path); // GDB
 
 #ifdef DEBUG_ENABLED
 	evaluate_warning_directory_rules_for_script_path();
@@ -554,6 +557,7 @@ Error GDScriptParser::parse_binary(const Vector<uint8_t> &p_binary, const String
 	tokenizer = buffer_tokenizer;
 
 	script_path = p_script_path.simplify_path();
+	braced_syntax = GDScriptTokenizer::is_braced_path(script_path); // GDB
 
 #ifdef DEBUG_ENABLED
 	evaluate_warning_directory_rules_for_script_path();
@@ -3166,6 +3170,49 @@ GDScriptParser::ExpressionNode *GDScriptParser::parse_ternary_operator(Expressio
 	return operation;
 }
 
+GDScriptParser::ExpressionNode *GDScriptParser::parse_question_mark(ExpressionNode *p_previous_operand, bool p_can_assign) {
+	if (!braced_syntax) {
+		return parse_invalid_token(p_previous_operand, p_can_assign);
+	}
+
+	// GDB: `condition ? true_expr : false_expr` in braced GDScript: the same node as `true_expr if condition else
+	// false_expr`, and right-associative like it.
+	QuestionMarkRecord record;
+	if (p_previous_operand != nullptr) {
+		record.start_line = p_previous_operand->start_line;
+		record.start_column = p_previous_operand->start_column;
+	}
+	record.question_line = previous.start_line;
+	record.question_column = previous.start_column;
+
+	TernaryOpNode *operation = alloc_node<TernaryOpNode>();
+	reset_extents(operation, p_previous_operand);
+	update_extents(operation);
+
+	operation->condition = p_previous_operand;
+	operation->true_expr = parse_precedence(PREC_TERNARY, false);
+	if (operation->true_expr == nullptr) {
+		push_error(R"(Expected expression after "?".)");
+	}
+
+	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after the first value of "? :".)");
+	record.colon_line = previous.start_line;
+	record.colon_column = previous.start_column;
+
+	operation->false_expr = parse_precedence(PREC_TERNARY, false);
+	if (operation->false_expr == nullptr) {
+		push_error(R"(Expected expression after ":" in "? :".)");
+	}
+
+	complete_extents(operation);
+	if (question_mark_log != nullptr) {
+		record.end_line = last_significant_end_line;
+		record.end_column = last_significant_end_column;
+		question_mark_log->push_back(record);
+	}
+	return operation;
+}
+
 GDScriptParser::ExpressionNode *GDScriptParser::parse_assignment(ExpressionNode *p_previous_operand, bool p_can_assign) {
 	if (!p_can_assign) {
 		push_error("Assignment is not allowed inside an expression.");
@@ -4391,7 +4438,7 @@ GDScriptParser::ParseRule *GDScriptParser::get_rule(GDScriptTokenizer::Token::Ty
 		// Error message improvement
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // VCS_CONFLICT_MARKER,
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // BACKTICK,
-		{ nullptr,                                          &GDScriptParser::parse_invalid_token,        	PREC_CAST }, // QUESTION_MARK,
+		{ nullptr,                                          &GDScriptParser::parse_question_mark,        	PREC_TERNARY }, // QUESTION_MARK, // GDB: `c ? a : b` in braced GDScript.
 		// Special
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // ERROR,
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // TK_EOF,

@@ -72,6 +72,7 @@ struct Piece {
 	bool unary = false;
 	bool node_path = false; // Inside a `$Node/Path` or `%Unique` run, where spacing is kept as written.
 	bool walrus = false; // The `:` of `:=`.
+	bool ternary_colon = false; // The `:` of `c ? a : b`.
 	bool multiline_block = false; // A `.gdb` block brace whose partner is on another line.
 	bool lambda_block = false; // A `.gdb` block brace of a lambda's body.
 	bool holds_block = false; // A `.gdb` block brace whose block holds another (non-lambda) block.
@@ -278,6 +279,7 @@ bool _is_binary_operator(Token::Type p_type) {
 		case Token::AS:
 		case Token::WHEN:
 		case Token::FORWARD_ARROW:
+		case Token::QUESTION_MARK: // `.gdb`: `c ? a : b`
 			return true;
 		default:
 			return false;
@@ -360,7 +362,7 @@ String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, con
 		return String();
 	}
 	if (b == Token::COLON) {
-		return p_b.walrus ? String(" ") : String();
+		return (p_b.walrus || p_b.ternary_colon) ? String(" ") : String();
 	}
 	if (a == Token::COLON) {
 		return b == Token::EQUAL ? String() : String(" "); // `:=`
@@ -668,6 +670,7 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 	// `:=`, which block braces span lines, which belong to lambdas, and what they become in `.gd`.
 	{
 		List<int> openers;
+		List<int> question_depths; // Bracket depth of each `?` still waiting for its `:`.
 		List<int> lambda_depths; // Bracket depth of each `func` that starts a lambda, until its body opens.
 		int depth = 0;
 		int previous_token = -1;
@@ -678,6 +681,12 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			}
 			if (piece.type == Token::COLON && i + 1 < pieces.size() && pieces[i + 1].kind == PIECE_TOKEN && pieces[i + 1].type == Token::EQUAL) {
 				piece.walrus = true;
+			}
+			if (piece.type == Token::QUESTION_MARK) {
+				question_depths.push_back(depth);
+			} else if (piece.type == Token::COLON && piece.opens == BRACKET_NONE && !question_depths.is_empty() && question_depths.back()->get() == depth) {
+				piece.ternary_colon = true;
+				question_depths.pop_back();
 			}
 			if (piece.type == Token::FUNC && previous_token >= 0) {
 				// A `func` after `=`, `(`, `,`, `return` and the like is a lambda; one starting a statement is a method.
@@ -983,6 +992,9 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			return 0;
 		}
 		const StackEntry &top = stack.back()->get();
+		if (p_to_indented && p_first.kind == PIECE_TOKEN && p_first.closes == BRACKET_BLOCK && p_first.text == "pass") {
+			return top.level + 1; // The `pass` of an empty block goes inside it.
+		}
 		if (p_to_indented && top.lambda_block && p_first.kind == PIECE_TOKEN && p_first.closes == BRACKET_BLOCK) {
 			// What follows a lambda's body in `.gd` (`, 6))`) must dedent to the statement's level, which the
 			// indentation stack knows, not to the line that opened the lambda inside brackets.
@@ -1201,6 +1213,97 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 
 // Conversion between `.gd` and `.gdb`.
 
+namespace {
+
+#ifdef DEBUG_ENABLED
+// `c ? a : b` has one `.gd` spelling: `a if c else b`. Rewrites every one, nested ones from the inside, with
+// parentheses only where a moved part holds another ternary.
+String _rewrite_question_marks(const String &p_source, const Vector<GDScriptParser::QuestionMarkRecord> &p_records) {
+	Vector<int> line_starts;
+	line_starts.push_back(0);
+	for (int i = 0; i < p_source.length(); i++) {
+		if (p_source[i] == '\n') {
+			line_starts.push_back(i + 1);
+		}
+	}
+	auto offset_of = [&](int p_line, int p_column) {
+		return line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1;
+	};
+	struct Ternary {
+		int start = 0;
+		int question = 0;
+		int colon = 0;
+		int end = 0;
+	};
+	Vector<Ternary> ternaries;
+	for (const GDScriptParser::QuestionMarkRecord &record : p_records) {
+		ternaries.push_back({ offset_of(record.start_line, record.start_column), offset_of(record.question_line, record.question_column), offset_of(record.colon_line, record.colon_column), offset_of(record.end_line, record.end_column) });
+	}
+
+	struct Rewriter {
+		const String &source;
+		const Vector<Ternary> &all;
+
+		static bool parenthesized(const String &p_text) {
+			if (!p_text.begins_with("(") || !p_text.ends_with(")")) {
+				return false;
+			}
+			int depth = 0;
+			for (int i = 0; i < p_text.length(); i++) {
+				depth += p_text[i] == '(' ? 1 : (p_text[i] == ')' ? -1 : 0);
+				if (depth == 0 && i < p_text.length() - 1) {
+					return false; // `(a) + (b)`
+				}
+			}
+			return true;
+		}
+
+		bool holds_ternary(int p_from, int p_to) const {
+			for (const Ternary &ternary : all) {
+				if (ternary.start >= p_from && ternary.end <= p_to) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		String emit(int p_from, int p_to) const {
+			String out;
+			int i = p_from;
+			while (i < p_to) {
+				int outer = -1;
+				for (int k = 0; k < all.size(); k++) {
+					if (all[k].start == i && all[k].end <= p_to && (outer < 0 || all[k].end > all[outer].end)) {
+						outer = k;
+					}
+				}
+				if (outer < 0) {
+					out += source[i];
+					i++;
+					continue;
+				}
+				const Ternary &ternary = all[outer];
+				String condition = emit(ternary.start, ternary.question).strip_edges();
+				String when_true = emit(ternary.question + 1, ternary.colon).strip_edges();
+				const String when_false = emit(ternary.colon + 1, ternary.end).strip_edges();
+				if (holds_ternary(ternary.start, ternary.question) && !parenthesized(condition)) {
+					condition = "(" + condition + ")";
+				}
+				if (holds_ternary(ternary.question + 1, ternary.colon) && !parenthesized(when_true)) {
+					when_true = "(" + when_true + ")";
+				}
+				out += when_true + " if " + condition + " else " + when_false;
+				i = ternary.end;
+			}
+			return out;
+		}
+	};
+	return Rewriter{ p_source, ternaries }.emit(0, p_source.length());
+}
+#endif // DEBUG_ENABLED
+
+} // namespace
+
 GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, const String &p_path, bool p_keep_lines, const Options &p_options) {
 	Result result;
 	auto fail = [&](const String &p_message, int p_line) {
@@ -1225,7 +1328,10 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 	// The source's tree, and for a `.gd` source where its blocks start and end.
 	GDScriptParser source_parser;
 	Vector<GDScriptParser::BlockRecord> blocks;
-	if (!from_braced) {
+	Vector<GDScriptParser::QuestionMarkRecord> question_marks;
+	if (from_braced) {
+		source_parser.set_question_mark_log(&question_marks);
+	} else {
 		source_parser.set_block_log(&blocks);
 	}
 	if (source_parser.parse(source, from_braced ? gdb_path : gd_path, false) != OK) {
@@ -1236,7 +1342,8 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 
 	String output;
 	if (from_braced) {
-		const Result indented = _format(source, gdb_path, p_options, true);
+		const String rewritten = question_marks.is_empty() ? source : _rewrite_question_marks(source, question_marks);
+		const Result indented = _format(rewritten, gdb_path, p_options, true);
 		if (indented.error != OK) {
 			return indented;
 		}
