@@ -106,14 +106,17 @@ jobs:
             legacy-scons: true
             free-space: true
 
-          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld)
+          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld, gdscript_braces=no)
             cache-name: linux-editor-thread-sanitizer
             target: editor
+            # gdscript_braces=no: keeps a build without braced GDScript compiling and passing its tests. This build
+            # ships nothing, so nothing loses .gdb support.
             scons-flags: >-
               dev_build=yes
               use_tsan=yes
               use_llvm=yes
               linker=lld
+              gdscript_braces=no
             bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
             free-space: true
 

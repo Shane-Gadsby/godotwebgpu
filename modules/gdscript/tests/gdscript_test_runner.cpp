@@ -272,6 +272,13 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 				next = dir->get_next();
 				continue;
 			}
+#ifndef GDSCRIPT_BRACES_ENABLED
+			// GDB: Braced GDScript is compiled out. Its tests, and their `.gd` twins that use `.gdb` helpers, can't run.
+			if (next == "braces") {
+				next = dir->get_next();
+				continue;
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (!make_tests_for_dir(current_dir.path_join(next))) {
 				return false;
 			}
