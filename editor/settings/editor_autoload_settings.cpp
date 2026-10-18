@@ -41,6 +41,7 @@
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/gui/editor_validation_panel.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/scene/scene_create_dialog.h"
 #include "editor/settings/project_settings_editor.h"
 #include "editor/themes/editor_scale.h"
@@ -648,18 +649,25 @@ Variant EditorAutoloadSettings::get_drag_data_fw(const Point2 &p_point, Control 
 	return drop_data;
 }
 
+static bool _is_autoload_files_drop(const Variant &p_data) {
+	// Scripts and scenes dragged from the FileSystem dock become autoloads, like the ones picked in the file dialog.
+	return p_data.get_type() == Variant::DICTIONARY && Dictionary(p_data).get("type", "") == "files" &&
+			EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "Script,PackedScene"), nullptr);
+}
+
 bool EditorAutoloadSettings::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_control) const {
 	if (updating_autoload) {
 		return false;
 	}
 
-	Dictionary drop_data = p_data;
-
-	if (!drop_data.has("type")) {
-		return false;
+	if (_is_autoload_files_drop(p_data)) {
+		return true;
 	}
 
-	if (drop_data.has("type")) {
+	Dictionary drop_data = p_data;
+
+	// Reordering: only this list's own drags (it used to accept any drag here, and then add nothing).
+	if (drop_data.get("type", "") == "autoload") {
 		TreeItem *ti = (p_point == Vector2(Math::INF, Math::INF)) ? tree->get_selected() : tree->get_item_at_position(p_point);
 
 		if (!ti) {
@@ -675,6 +683,29 @@ bool EditorAutoloadSettings::can_drop_data_fw(const Point2 &p_point, const Varia
 }
 
 void EditorAutoloadSettings::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_control) {
+	if (_is_autoload_files_drop(p_data)) {
+		const PackedStringArray files = Dictionary(p_data)["files"];
+		if (files.size() == 1) {
+			_autoload_file_selected(files[0]); // Asks for a name if the file's is not usable, as the file dialog does.
+			return;
+		}
+		for (const String &file : files) {
+			// Several at once: number a name that is taken ("Player2") instead of asking for each.
+			const String base_name = file.get_file().get_basename().to_pascal_case();
+			String name = base_name;
+			for (int suffix = 2; !_autoload_name_is_valid(name) && suffix < 100; suffix++) {
+				name = base_name + itos(suffix);
+			}
+			if (_autoload_name_is_valid(name)) {
+				_add_autoload(name, file);
+			}
+		}
+		return;
+	}
+	if (Dictionary(p_data).get("type", "") != "autoload") {
+		return;
+	}
+
 	TreeItem *ti = (p_point == Vector2(Math::INF, Math::INF)) ? tree->get_selected() : tree->get_item_at_position(p_point);
 
 	if (!ti) {

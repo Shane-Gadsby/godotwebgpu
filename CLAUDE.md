@@ -65,6 +65,10 @@ cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
 # then native vs web end to end (needs the editor + web templates):
 cd webgpu_tests/web_audio && node run_tests.mjs && ./export.sh && node run_e2e.mjs
 
+# Editor drag-and-drop onto every list (arrays, dictionaries, property arrays, Project Settings lists, bus effects):
+# real drags in a windowed editor under Xvfb (headless gives the editor a 2x2 viewport), see tests/editor_drop/README.md:
+tests/editor_drop/run.sh
+
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 

@@ -42,6 +42,7 @@
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/gui/editor_file_dialog.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/animation/animation_mixer.h"
@@ -473,6 +474,46 @@ void AnimationLibraryEditor::_load_files(const PackedStringArray &p_paths) {
 	if (show_error_diag) {
 		error_dialog->popup_centered();
 	}
+}
+
+StringName AnimationLibraryEditor::_get_drop_library(const Point2 &p_point) const {
+	TreeItem *item = tree->get_item_at_position(p_point);
+	if (item && item->get_parent() && item->get_parent() != tree->get_root()) {
+		item = item->get_parent(); // An animation: its library.
+	}
+	if (!item) {
+		return StringName();
+	}
+	// A foreign (imported) library has its Load button disabled; it takes no drops either.
+	const int load_button = item->get_button_by_id(0, LIB_BUTTON_LOAD);
+	if (load_button < 0 || item->is_button_disabled(0, load_button)) {
+		return StringName();
+	}
+	return item->get_metadata(0);
+}
+
+bool AnimationLibraryEditor::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	if (!mixer || p_data.get_type() != Variant::DICTIONARY || Dictionary(p_data).get("type", "") != "files") {
+		return false;
+	}
+	if (EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "AnimationLibrary"), nullptr)) {
+		return true;
+	}
+	return EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "Animation"), nullptr) && !_get_drop_library(p_point).is_empty();
+}
+
+void AnimationLibraryEditor::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
+	if (!can_drop_data_fw(p_point, p_data, p_from)) {
+		return;
+	}
+	const PackedStringArray files = Dictionary(p_data)["files"];
+	if (EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "AnimationLibrary"), nullptr)) {
+		file_dialog_action = FILE_DIALOG_ACTION_OPEN_LIBRARY;
+	} else {
+		file_dialog_action = FILE_DIALOG_ACTION_OPEN_ANIMATION;
+		adding_animation_to_library = _get_drop_library(p_point);
+	}
+	_load_files(files);
 }
 
 void AnimationLibraryEditor::_item_renamed() {
@@ -1016,6 +1057,7 @@ AnimationLibraryEditor::AnimationLibraryEditor() {
 	tree->connect("item_edited", callable_mp(this, &AnimationLibraryEditor::_item_renamed));
 	tree->connect("button_clicked", callable_mp(this, &AnimationLibraryEditor::_button_pressed));
 	tree->connect("item_collapsed", callable_mp(this, &AnimationLibraryEditor::_save_mixer_lib_folding));
+	SET_DRAG_FORWARDING_CD(tree, AnimationLibraryEditor);
 
 	file_popup = memnew(PopupMenu);
 	add_child(file_popup);

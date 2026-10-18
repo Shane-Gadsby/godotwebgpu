@@ -102,6 +102,12 @@ class AnimationLibraryEditor : public AcceptDialog {
 	void _load_file(const String &p_path);
 	void _load_files(const PackedStringArray &p_paths);
 
+	// Files from the FileSystem dock, loaded as the Load buttons load them: AnimationLibrary files anywhere on the list
+	// add libraries; Animation files dropped on a library (or on one of its animations) are added to that library.
+	StringName _get_drop_library(const Point2 &p_point) const;
+	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
+	void drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
+
 	void _save_mixer_lib_folding(TreeItem *p_item);
 	Vector<String> _load_mixer_libs_folding();
 	String _get_mixer_signature() const;

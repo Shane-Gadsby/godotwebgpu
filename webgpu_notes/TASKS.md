@@ -2855,6 +2855,32 @@ Writing it found:
 | **upstream**: `AudioServer::finish()` never freed the playback list, so a sound playing or fading out at quit leaked its playback and stream ("ObjectDB instances were leaked at exit") | `finish()` frees the list and the bus-details graveyards once the drivers stopped |
 | bus effects and long samples silently did nothing / hitched | warnings at export and at runtime (§2.32) |
 
+### 4.31 Editor: one drag-and-drop behavior for every list (October 2026)
+
+Asked for: dropping several files from the FileSystem dock onto list-like UIs (e.g. AudioStreamRandomizer's streams)
+did nothing, while `Array` properties took them — make every array/dictionary-like UI behave the same, as flexibly as
+possible. An inventory of the editor (every `ADD_ARRAY` user and every custom list panel) found multi-file drops only in
+`EditorPropertyArray` (resource and node arrays only), SpriteFrames, ResourcePreloader and the TileSet source lists.
+
+**One resolver**, `editor/inspector/editor_collection_drop.{h,cpp}`: dragged files/folders, a resource or nodes become
+values for a slot of a given type — resources (class and script class checked, *any* of a hint's classes; the old array
+code required all of them), nodes, relative NodePaths, or paths (a `uid://` for `@export_file`, `res://` otherwise,
+absolute for the global hints, folders for the dir hints, extension filters honored); untyped slots take resources and
+NodePaths. Then:
+
+| UI | before | now |
+|---|---|---|
+| `EditorPropertyArray` | resource/node arrays only; untyped arrays and `Array[String]`/`PackedStringArray` (file paths) refused; drop only on the header and Add button | every array type the resolver covers; the expanded list takes drops too |
+| `EditorPropertyDictionary` | no drops | entries per item: as values keyed by name (deduplicated) or next int, or as keys with default values when the values hold plain data |
+| `EditorInspectorArray` (property arrays: the audio streams, MultiplayerSpawner scenes, ItemList/OptionButton/TabBar items, ...) | only its own reorder drags | appends an element per item into the element property that takes it, sets `name`/`text`; header, list and Add button; one undo step (count-property arrays append; move-function arrays insert last-first at the end so the recorded undos stay valid). An empty array's element properties come from a probe instance of the class |
+| Project Settings > Autoload | accepted any drag, then added nothing | scripts and scenes become autoloads; reordering only takes its own drags |
+| Project Settings > Localization | reorder only | translations, remaps, remap options and POT sources take files through the same add functions as their file dialogs |
+| Audio bus effects | reorder only | `AudioEffect` files/resources append |
+| Animation Library dialog | none | library files add libraries, animation files dropped on a library add to it |
+
+**Test**: `tests/editor_drop/run.sh` — real drags (`Control.force_drag()` + pushed mouse events) in a windowed editor
+under Xvfb: 32/32 (headless cannot work: its editor viewport is 2x2). Not covered: the Animation Library dialog.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
