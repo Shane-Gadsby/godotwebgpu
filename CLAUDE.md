@@ -61,6 +61,10 @@ cd webgpu_tests/preprocessing_tests && node run_tests.mjs
 cd webgpu_tests/resource_lifecycle && node run_tests.mjs
 cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
 
+# Web audio parity: the Sample-playback driver rendered offline against native AudioServer behavior (no build),
+# then native vs web end to end (needs the editor + web templates):
+cd webgpu_tests/web_audio && node run_tests.mjs && ./export.sh && node run_e2e.mjs
+
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 

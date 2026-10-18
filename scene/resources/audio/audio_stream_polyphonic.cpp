@@ -244,6 +244,7 @@ AudioStreamPlaybackPolyphonic::ID AudioStreamPlaybackPolyphonic::play_stream(con
 				sp.instantiate();
 				sp->stream = streams[i].stream;
 				sp->offset = p_from_offset;
+				sp->pitch_scale = p_pitch_scale;
 				sp->volume_vector.resize(4);
 				sp->volume_vector.write[0] = AudioFrame(linear_volume, linear_volume);
 				sp->volume_vector.write[1] = AudioFrame(linear_volume, /* LFE= */ 1.0f);
@@ -313,7 +314,16 @@ void AudioStreamPlaybackPolyphonic::set_stream_pitch_scale(ID p_stream_id, float
 }
 
 bool AudioStreamPlaybackPolyphonic::is_stream_playing(ID p_stream_id) const {
-	return _find_stream(p_stream_id) != nullptr;
+	const Stream *s = _find_stream(p_stream_id);
+	if (!s) {
+		return false;
+	}
+	if (s->stream_playback->get_is_sample()) {
+		// A sample stream is played by the audio driver: mix() never sees it end, so ask whether it still plays.
+		Ref<AudioSamplePlayback> stream_sample_playback = s->stream_playback->get_sample_playback();
+		return stream_sample_playback.is_valid() && AudioServer::get_singleton()->is_sample_playback_active(stream_sample_playback);
+	}
+	return true;
 }
 
 void AudioStreamPlaybackPolyphonic::stop_stream(ID p_stream_id) {

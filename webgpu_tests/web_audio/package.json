@@ -1,0 +1,15 @@
+{
+  "name": "web_audio",
+  "version": "1.0.0",
+  "description": "Parity tests of the Web Audio sample driver against native AudioServer behavior, rendered in an OfflineAudioContext.",
+  "main": "run_tests.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}

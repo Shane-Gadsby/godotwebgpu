@@ -96,6 +96,7 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
+| **after §4.30 (2026-10-18)** | `build-linux.sh --skip-native-templates --web-dlink no` rebuilt `godot.linuxbsd.editor.x86_64` and all four non-dlink web templates (debug/release × threads/nothreads) on the §4.30 tree. The editor no longer lists `*.audio.position.worklet.js` in a PWA cache, so pair it with templates from this tree or later; the dlink zips (Oct 17) predate §4.30 |
 | **after §4.29 (`f59c88668d`)** | `local_ci.sh --dev-mode` rebuilt `godot.linuxbsd.editor.x86_64`, `godot.web.template_release.wasm32.nothreads.zip` and `…nothreads.dlink.zip` as **`dev_mode=yes`** builds of that tree. Fine for tests, not for benchmarks. The **installed** export templates (`~/.local/share/godot/export_templates/4.8.dev/`) predate §4.29's shader changes — run `./build-linux.sh` before exporting real projects. The rows below describe the earlier state |
 | `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-17 with `webgpu=yes` on the uncommitted §4.23 tree (batched bake, WGSL cache, separate shader pack, cache prunes). Matches the nothreads release template below only |
 | `godot.web.template_release.wasm32.nothreads.zip` | rebuilt 2026-10-17 on the same tree and installed over `~/.local/share/godot/export_templates/4.8.dev/web_nothreads_release.zip` (previous zip backed up in the session scratchpad). Loads `index.shaders.pck`, `baked 747 / translated 0`. **The other seven installed web templates predate the shell change** — rerun `build-linux.sh` before exporting other preset combinations |
@@ -360,7 +361,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
-| 2.26 | Side project: Braced GDScript (`.gdb`) | not started | ~1-2 weeks, **human-scoped** |
+| 2.26 | Side project: Braced GDScript (`.gdb`) + Rider plugin | not started (plan revised 2026-10-18) | ~17-21 weeks, **human-scoped** |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
@@ -1572,14 +1573,26 @@ the whole thing depends on §4.20's F3 finding. Human-scoped: weeks, and a produ
 
 ### 2.26 Side project: Braced GDScript (`.gdb`) — not started
 
-Plan written 2026-09-29 against the 4.7.2 sync. GDScript with `{ }` blocks in `.gdb` files, compiled
-by the same module so `.gd` and `.gdb` mix freely; the extension is the opt-in and a lossless
-converter moves files either way. The core trick is translating braces into the
+Plan written 2026-09-29 against 4.7.2, revised 2026-10-18 against `webgpu-4.8`. GDScript with `{ }` blocks
+and a small JavaScript-style layer (`//` comments, `else if`, optionally `? :`, `=>` lambdas, `/** */`) in
+`.gdb` files, compiled by the same module so `.gd` and `.gdb` mix freely. The extension is the opt-in,
+and a lossless converter moves files either way. The core trick is translating braces into the
 `COLON`/`NEWLINE`/`INDENT`/`DEDENT` tokens the parser already consumes, leaving parser, analyzer,
-compiler, VM, debugger and completion untouched — which is what keeps feature parity automatic and
-the upstream diff small. Plus a formatter for both file types. 21 requirements and a phased plan are
-in `webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md`, which is **still on disk** — it is
-gitignored, so unlike every other retired doc it is not recoverable from history. Nothing built.
+compiler, VM, debugger and completion untouched. Plus one engine formatter (Ctrl+Alt+L, Godot and JS-like
+presets, `.editorconfig`) that the editor, the CLI, the language server and every IDE delegate to. Plus a
+Rider plugin (Phase 11), built as a dialect of JetBrains' bundled GdScript plugin, whose JFlex lexer already
+uses the same INDENT/DEDENT model.
+
+The revision checked the plan against the 4.8 tree. Three findings matter beyond the side project.
+`GDScriptTokenizerBuffer` rebuilds indentation from per-line token columns (`gdscript_tokenizer_buffer.cpp:452`),
+so binary-token export needs the plan's D8 virtual-column encoder. `foo.gd` and `foo.gdb` would both export as
+`foo.gdc` (D9). The language server has no `textDocument/formatting` at all.
+
+Decided 2026-10-18: extension stays `.gdb`, all three Tier B sugars ship in v1, new `.gdb` files default to the
+JS-like preset, the Rider plugin is a dialect of the bundled GdScript plugin in its own local repository, and
+nothing from this project is proposed upstream. 30 requirements and 15 phases are in `webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md`, which is
+**still on disk**. It is gitignored, so unlike every other retired doc it is not recoverable from history.
+Nothing built.
 
 ### 2.31 Forward+ gaps WebGPU itself cannot close `OPEN` — spec-limited; documented, each warns or degrades *(found by §4.29's sweep)*
 
@@ -1836,6 +1849,17 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `R16_UNORM`/`RG16_UNORM`/... looks free and lets FSR2 drop its snorm→half conversion, then every linear sampler on
     them is a validation error (`unfilterable-float` vs a filtering sampler). Reverted; the formats stay unsupported
     and the engine's fallbacks apply. FSR2's conversion now runs only when the device lacks `R16_SNORM`.
+32. **Sample playback is a second mixer, and nothing listened to it** (2026-10-18). On web every
+    `AudioStreamPlayer` defaults to Sample playback (`default_playback_type.web`), which skips `AudioServer`'s mixer
+    and hands the sound to Web Audio — so every rule `AudioServer::_mix_step()` applies has to be re-implemented in
+    `library_godot_audio.js`, and none of it was tested: surround gains were one channel off, ping-pong and backward
+    loops played forward, a send to an earlier bus did not fall back to Master, `move_bus` used the wrong index,
+    solo honored mute, volumes stepped (clicks) instead of ramping, and `set_bus_layout()` resolved sends against
+    freed buses. `webgpu_tests/web_audio/run_tests.mjs` now renders the driver in an `OfflineAudioContext` against
+    JS ports of the native code (§4.30). Two follow-ons: **headless native is no timing reference** — the dummy
+    driver's playback positions wander by ~100 ms run to run, so `run_e2e.mjs` checks numbers against what native
+    playback does by definition; and **a per-frame "unchanged" cache belongs on the C++ side** — caching in JS still
+    paid the string marshaling and the call (0.029 ms/frame) that a C++ compare avoids (0.002).
 
 ---
 
@@ -2755,6 +2779,40 @@ validated with `spirv-val`); `driver_unit_tests/test_binding_layout.mjs` (bindin
 every engine texture array fits, binding 40 agrees across both scene shaders and `MaterialStorage`); the six matrix
 arms and the parity tier above; `self_test_forward_plus.mjs` covers the parity judge.
 
+### 4.30 Web audio: Sample playback brought to parity with AudioServer, and a parity tier (October 2026)
+
+Asked for a tip-to-tail review of web audio against native. The Stream path (AudioWorklet / ScriptProcessor feeding
+`AudioServer`'s own mix) is the native mixer and was fine apart from the items marked *stream* below; the Sample path
+(the web default) re-implements the mixer on a Web Audio graph and had drifted in many places (§3 trap 32).
+
+| area | was | now |
+|---|---|---|
+| surround | `GodotChannel` indexes one off (C read the LFE gain, SR read past the vector); output always stereo | volume vector index *i* → output channel *i*; the context uses the device's channels in the layouts where Godot's order is Web Audio's (2, 5.1, 7.1), like the native drivers |
+| loops | ping-pong and backward played as forward loops | unrolled into the buffer exactly like `AudioStreamPlaybackWAV` (mirror at `loop_end`, backward from the start position); IMA ADPCM loops forward, as natively. Rendered from a non-looping copy of the WAV |
+| volume | `AudioParam.value` jumps (zipper clicks on every 3D move) | ramps over one 512-frame mix block; a new bus starts at full volume; a dropped bus, stop and pause fade over one block; resume fades in |
+| buses | single solo, mute honored while soloing; sends to earlier buses kept; new buses from `set_bus_count` unconnected; `move_bus` always inserted at `to - 1`; `add_bus` ignored -1 | `AudioServer::_mix_step()`'s rules: solo chains (several soloed buses, mute ignored), invalid sends → Master, `move_bus`/`add_bus` indexing identical |
+| `set_bus_layout()` | synced sample buses inside the rebuild loop: `get_bus_index()` read **freed** `Bus` pointers, and sends to later buses resolved to -1 | synced once after the loop (`servers/audio/audio_server.cpp`) |
+| 3D | attenuation high shelf ignored for samples | new `AudioDriver::set_sample_playback_highshelf_params()`; a `BiquadFilterNode` matching `AudioFilterSW` at and above the cutoff (Web Audio's shelf slope is fixed at S = 1, Godot's Q = 1: up to ~1 dB apart in the transition) |
+| positions | a worklet per playback posting one message per 128-frame quantum; pitch clamped to 4 in it | computed from the context clock and the playback rate (no worklet; `audio.position.worklet.js` and its export/PWA plumbing removed) |
+| polyphonic | sample streams ignored `pitch_scale`; `is_stream_playing()` stayed true forever after a sample stream ended on its own (upstream) | both fixed in `audio_stream_polyphonic.cpp` |
+| memory | the whole decoded sample copied into a new `AudioBuffer` on **every play**; registered samples never freed | playbacks share the stream's buffer; streams whose `AudioStream` was freed are unregistered on the next registration (and every 64 starts) |
+| marshaling | every call turned 64-bit ObjectIDs into strings both ways; volumes/pitch crossed into JS every frame (JS-side skip) | integer handles; unchanged volumes, pitch and high-shelf params are skipped in C++; registration/activity answered from C++ maps. 3D platformer audio glue **0.029 → 0.002 ms/frame** (`tests/web_audio_profiling.mjs`) |
+| *stream* | output truncated to 16 bits (`>> 16`); a mono microphone fed to Godot as if stereo (double speed); the nothreads capture ring buffer dropped data on wrap (`subarray(high, to_write)`) | full-precision conversion; the worklet up-mixes its input to two channels; wrap fixed |
+
+Shared-code edits (all no-ops on native): `AudioDriver::set_sample_playback_highshelf_params()`, the
+`set_bus_layout()` sync, the polyphonic fixes, and dropping the duplicate sample pitch update in the 2D/3D players
+(`set_playback_pitch_scale()` already routes samples).
+
+**Tests.** `webgpu_tests/web_audio/run_tests.mjs` (no build, ~10 s): 40 checks rendering the real driver in an
+`OfflineAudioContext` against ports of `AudioStreamPlaybackWAV::mix()`, `AudioFilterSW` and the bus rules — the loop
+modes are compared sample for sample. `run_e2e.mjs` (after `./export.sh`): the same GDScript natively and in both web
+exports — finish times, positions through loops/seeks/pitch/pause, bus edits, 3D, polyphonic — 18/18 on nothreads
+(served without COOP/COEP) and threads. Scene smoketest 21/21 on the new nothreads template.
+
+**Not reproducible on the Sample path:** bus effects, and streaming (a sample is decoded whole on its first
+`play()`). Those need `playback_type = Stream`, which is the native mixer; in a thread-enabled export it mixes on its
+own thread. Defaults are unchanged.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
@@ -2786,7 +2844,7 @@ git show <commit>^:webgpu_notes/HANDOFF.md                # read a file as it wa
 | `SYNC_4.7.3_PLAN.md` | a 4.7.3 merge that was never started | obsolete — superseded by the 4.8 sync (§4.17) |
 | `PR_DESCRIPTION.md` | draft upstream PR description | §2.24 |
 | `geckos_dedicated_server.md`, `geckos_backend_schedule.md` | Node dedicated-server evaluation + week-by-week schedule | §2.25 |
-| `Braced GDScript (.gdb) — Implementation Plan.md` | the `.gdb` language plan | §2.26 — **this one file was left on disk**: it is explicitly gitignored (`.gitignore:406`), so it is not in git history and deleting it would lose it |
+| `Braced GDScript (.gdb) — Implementation Plan.md` | the `.gdb` language plan | §2.26 — **this one file was left on disk**: it is explicitly gitignored (`.gitignore:408`), so it is not in git history and deleting it would lose it |
 
 **Still live, and not duplicated here**: `CLAUDE.md` (build/test commands, architecture, conventions),
 `drivers/webgpu/README.md` (driver-local notes), `webgpu_tests/README.md` (how to run every tier),

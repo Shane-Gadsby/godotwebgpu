@@ -32,8 +32,11 @@
 
 #include "godot_js.h"
 
+#include "core/object/object_id.h"
 #include "core/os/mutex.h"
 #include "core/os/thread.h"
+#include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 #include "servers/audio/audio_driver.h"
 
 class AudioDriverWeb : public AudioDriver {
@@ -54,11 +57,32 @@ private:
 	int mix_rate = 0;
 	int channel_count = 0;
 
+	// The JS side knows sample streams and playbacks by small integer handles: an ObjectID is 64 bits, and making it
+	// a string for every call cost more than the calls themselves, as the volume and pitch updates come every frame.
+	struct SamplePlayback {
+		int32_t id = 0;
+		// What JS was last given, so that the per-frame updates only cross into JS when something changed.
+		float pitch_scale = 1.0;
+		float highshelf_gain = 0.0;
+		float highshelf_cutoff_hz = 0.0;
+		LocalVector<int32_t> buses;
+		LocalVector<float> volumes; // AuSC::MAX_CHANNELS_PER_BUS * 2 per bus.
+	};
+	HashMap<ObjectID, int32_t> sample_streams;
+	HashMap<ObjectID, SamplePlayback> sample_playbacks;
+	HashMap<int32_t, ObjectID> sample_playback_objects;
+	int32_t last_sample_id = 0;
+	uint32_t sample_starts_since_sweep = 0;
+
+	int32_t _new_sample_id();
+	void _forget_sample_playback(ObjectID p_playback);
+	void _sweep_sample_streams();
+
 	WASM_EXPORT static void _state_change_callback(int p_state);
 	WASM_EXPORT static void _latency_update_callback(float p_latency);
-	WASM_EXPORT static void _sample_playback_finished_callback(const char *p_playback_object_id);
+	WASM_EXPORT static void _sample_playback_finished_callback(int p_playback_id);
 
-	static AudioDriverWeb *singleton;
+	static AudioDriverWeb *singleton; // The driver that was initialized.
 
 protected:
 	void _audio_driver_process(int p_from = 0, int p_samples = 0);
@@ -97,6 +121,7 @@ public:
 	virtual double get_sample_playback_position(const Ref<AudioSamplePlayback> &p_playback) override;
 	virtual void update_sample_playback_pitch_scale(const Ref<AudioSamplePlayback> &p_playback, float p_pitch_scale = 0.0f) override;
 	virtual void set_sample_playback_bus_volumes_linear(const Ref<AudioSamplePlayback> &p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes) override;
+	virtual void set_sample_playback_highshelf_params(const Ref<AudioSamplePlayback> &p_playback, float p_gain, float p_attenuation_cutoff_hz) override;
 
 	virtual void set_sample_bus_count(int p_count) override;
 	virtual void remove_sample_bus(int p_index) override;

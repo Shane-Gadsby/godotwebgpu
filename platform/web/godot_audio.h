@@ -45,18 +45,17 @@ extern void godot_audio_resume();
 extern int godot_audio_input_start();
 extern void godot_audio_input_stop();
 
-// Samples
-extern int godot_audio_sample_stream_is_registered(const char *p_stream_object_id);
-extern void godot_audio_sample_register_stream(const char *p_stream_object_id, float *p_frames_buf, int p_frames_total, const char *p_loop_mode, int p_loop_begin, int p_loop_end);
-extern void godot_audio_sample_unregister_stream(const char *p_stream_object_id);
-extern void godot_audio_sample_start(const char *p_playback_object_id, const char *p_stream_object_id, int p_bus_index, float p_offset, float p_pitch_scale, float *p_volume_ptr);
-extern void godot_audio_sample_stop(const char *p_playback_object_id);
-extern void godot_audio_sample_set_pause(const char *p_playback_object_id, bool p_pause);
-extern int godot_audio_sample_is_active(const char *p_playback_object_id);
-extern double godot_audio_get_sample_playback_position(const char *p_playback_object_id);
-extern void godot_audio_sample_update_pitch_scale(const char *p_playback_object_id, float p_pitch_scale);
-extern void godot_audio_sample_set_volumes_linear(const char *p_playback_object_id, int *p_buses_buf, int p_buses_size, float *p_volumes_buf, int p_volumes_size);
-extern void godot_audio_sample_set_finished_callback(void (*p_callback)(const char *));
+// Samples. Streams and playbacks are identified by handles that AudioDriverWeb assigns.
+extern void godot_audio_sample_register_stream(int p_stream_id, float *p_frames_buf, int p_frames_total, const char *p_loop_mode, int p_loop_begin, int p_loop_end);
+extern void godot_audio_sample_unregister_stream(int p_stream_id);
+extern void godot_audio_sample_start(int p_playback_id, int p_stream_id, int p_bus_index, float p_offset, float p_pitch_scale, float *p_volume_ptr);
+extern void godot_audio_sample_stop(int p_playback_id);
+extern void godot_audio_sample_set_pause(int p_playback_id, bool p_pause);
+extern double godot_audio_get_sample_playback_position(int p_playback_id);
+extern void godot_audio_sample_update_pitch_scale(int p_playback_id, float p_pitch_scale);
+extern void godot_audio_sample_set_volumes_linear(int p_playback_id, int *p_buses_buf, int p_buses_size, float *p_volumes_buf, int p_volumes_size);
+extern void godot_audio_sample_set_highshelf(int p_playback_id, float p_gain, float p_cutoff_hz);
+extern void godot_audio_sample_set_finished_callback(void (*p_callback)(int));
 
 extern void godot_audio_sample_bus_set_count(int p_count);
 extern void godot_audio_sample_bus_remove(int p_index);

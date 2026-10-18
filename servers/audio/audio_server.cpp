@@ -1238,6 +1238,12 @@ void AudioServer::set_playback_paused(Ref<AudioStreamPlayback> p_playback, bool 
 void AudioServer::set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playback, float p_gain, float p_attenuation_cutoff_hz) {
 	ERR_FAIL_COND(p_playback.is_null());
 
+	// Samples.
+	if (p_playback->get_is_sample() && p_playback->get_sample_playback().is_valid()) {
+		AudioDriver::get_singleton()->set_sample_playback_highshelf_params(p_playback->get_sample_playback(), p_gain, p_attenuation_cutoff_hz);
+		return;
+	}
+
 	AudioStreamPlaybackListNode *playback_node = _find_playback_list_node(p_playback);
 	if (!playback_node) {
 		return;
@@ -1582,8 +1588,6 @@ void AudioServer::set_bus_layout(const Ref<AudioBusLayout> &p_bus_layout) {
 	buses.resize(p_bus_layout->buses.size());
 	bus_map.clear();
 
-	AudioDriver::get_singleton()->set_sample_bus_count(buses.size());
-
 	for (int i = 0; i < p_bus_layout->buses.size(); i++) {
 		Bus *bus = memnew(Bus);
 		if (i == 0) {
@@ -1591,17 +1595,12 @@ void AudioServer::set_bus_layout(const Ref<AudioBusLayout> &p_bus_layout) {
 		} else {
 			bus->name = p_bus_layout->buses[i].name;
 			bus->send = p_bus_layout->buses[i].send;
-			AudioDriver::get_singleton()->set_sample_bus_send(i, bus->send);
 		}
 
 		bus->solo = p_bus_layout->buses[i].solo;
 		bus->mute = p_bus_layout->buses[i].mute;
 		bus->bypass = p_bus_layout->buses[i].bypass;
 		bus->volume_db = p_bus_layout->buses[i].volume_db;
-
-		AudioDriver::get_singleton()->set_sample_bus_solo(i, bus->solo);
-		AudioDriver::get_singleton()->set_sample_bus_mute(i, bus->mute);
-		AudioDriver::get_singleton()->set_sample_bus_volume_db(i, bus->volume_db);
 
 		for (int j = 0; j < p_bus_layout->buses[i].effects.size(); j++) {
 			Ref<AudioEffect> fx = p_bus_layout->buses[i].effects[j].effect;
@@ -1631,7 +1630,16 @@ void AudioServer::set_bus_layout(const Ref<AudioBusLayout> &p_bus_layout) {
 #endif
 	unlock();
 
-	// Samples bus sync.
+	// Samples bus sync. Only once every bus exists: a send is resolved by name, and may name a later bus.
+	AudioDriver::get_singleton()->set_sample_bus_count(buses.size());
+	for (int i = 0; i < buses.size(); i++) {
+		if (i > 0) {
+			AudioDriver::get_singleton()->set_sample_bus_send(i, buses[i]->send);
+		}
+		AudioDriver::get_singleton()->set_sample_bus_solo(i, buses[i]->solo);
+		AudioDriver::get_singleton()->set_sample_bus_mute(i, buses[i]->mute);
+		AudioDriver::get_singleton()->set_sample_bus_volume_db(i, buses[i]->volume_db);
+	}
 }
 
 Ref<AudioBusLayout> AudioServer::generate_bus_layout() const {

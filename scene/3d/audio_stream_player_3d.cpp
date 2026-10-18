@@ -585,13 +585,7 @@ Vector<AudioFrame> AudioStreamPlayer3D::_update_panning() {
 		}
 
 		for (Ref<AudioStreamPlayback> &playback : internal->stream_playbacks) {
-			AudioServer::get_singleton()->set_playback_pitch_scale(playback, actual_pitch_scale);
-			if (playback->get_is_sample()) {
-				Ref<AudioSamplePlayback> sample_playback = playback->get_sample_playback();
-				if (sample_playback.is_valid()) {
-					AudioServer::get_singleton()->update_sample_playback_pitch_scale(sample_playback, actual_pitch_scale);
-				}
-			}
+			AudioServer::get_singleton()->set_playback_pitch_scale(playback, actual_pitch_scale); // Also updates sample playbacks.
 		}
 	}
 	return output_volume_vector;

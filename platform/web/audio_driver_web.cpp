@@ -36,11 +36,13 @@
 #include "core/math/math_funcs_binary.h"
 #include "core/object/object.h"
 #include "scene/resources/audio/audio_stream.h"
+#include "scene/resources/audio/audio_stream_wav.h"
 #include "servers/audio/audio_server.h"
 
 #include <emscripten.h>
 
 AudioDriverWeb::AudioContext AudioDriverWeb::audio_context;
+AudioDriverWeb *AudioDriverWeb::singleton = nullptr;
 
 bool AudioDriverWeb::is_available() {
 	return godot_audio_is_available() != 0;
@@ -54,19 +56,20 @@ void AudioDriverWeb::_latency_update_callback(float p_latency) {
 	AudioDriverWeb::audio_context.output_latency = p_latency;
 }
 
-void AudioDriverWeb::_sample_playback_finished_callback(const char *p_playback_object_id) {
-	const ObjectID playback_id = ObjectID(String::to_int(p_playback_object_id));
-
-	Object *playback_object = ObjectDB::get_instance(playback_id);
-	if (playback_object == nullptr) {
+void AudioDriverWeb::_sample_playback_finished_callback(int p_playback_id) {
+	if (!singleton) {
 		return;
 	}
-	Ref<AudioSamplePlayback> playback = Object::cast_to<AudioSamplePlayback>(playback_object);
-	if (playback.is_null()) {
+	const ObjectID *playback_object = singleton->sample_playback_objects.getptr(p_playback_id);
+	if (!playback_object) {
 		return;
 	}
-
-	AudioServer::get_singleton()->stop_sample_playback(playback);
+	const ObjectID object_id = *playback_object;
+	Ref<AudioSamplePlayback> playback = Object::cast_to<AudioSamplePlayback>(ObjectDB::get_instance(object_id));
+	if (playback.is_valid()) {
+		AudioServer::get_singleton()->stop_sample_playback(playback);
+	}
+	singleton->_forget_sample_playback(object_id); // In case AudioServer no longer listed it.
 }
 
 void AudioDriverWeb::_audio_driver_process(int p_from, int p_samples) {
@@ -78,12 +81,14 @@ void AudioDriverWeb::_audio_driver_process(int p_from, int p_samples) {
 	if (to_write == 0) {
 		to_write = max_samples;
 	}
+	// AudioServer writes samples as 32-bit integers (about 21 significant bits): convert them in place, at full
+	// precision rather than shifted down to 16 bits.
 	// High part
 	if (write_pos + to_write > max_samples) {
 		const int samples_high = max_samples - write_pos;
 		audio_server_process(samples_high / channel_count, &stream_buffer[write_pos]);
 		for (int i = write_pos; i < max_samples; i++) {
-			output_rb[i] = float(stream_buffer[i] >> 16) / 32768.f;
+			output_rb[i] = float(stream_buffer[i]) * (1.0f / 2147483648.0f);
 		}
 		to_write -= samples_high;
 		write_pos = 0;
@@ -91,7 +96,7 @@ void AudioDriverWeb::_audio_driver_process(int p_from, int p_samples) {
 	// Leftover
 	audio_server_process(to_write / channel_count, &stream_buffer[write_pos]);
 	for (int i = write_pos; i < write_pos + to_write; i++) {
-		output_rb[i] = float(stream_buffer[i] >> 16) / 32768.f;
+		output_rb[i] = float(stream_buffer[i]) * (1.0f / 2147483648.0f);
 	}
 }
 
@@ -148,6 +153,7 @@ Error AudioDriverWeb::init() {
 		return ERR_OUT_OF_MEMORY;
 	}
 
+	singleton = this;
 	godot_audio_sample_set_finished_callback(&_sample_playback_finished_callback);
 
 	return OK;
@@ -177,6 +183,9 @@ AudioDriver::SpeakerMode AudioDriverWeb::get_speaker_mode() const {
 
 void AudioDriverWeb::finish() {
 	finish_driver();
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 	if (output_rb) {
 		memdelete_arr(output_rb);
 		output_rb = nullptr;
@@ -205,52 +214,96 @@ Error AudioDriverWeb::input_stop() {
 	return OK;
 }
 
+int32_t AudioDriverWeb::_new_sample_id() {
+	// Skips 0, and any ID still in use should the counter ever wrap.
+	do {
+		last_sample_id = last_sample_id == INT32_MAX ? 1 : last_sample_id + 1;
+	} while (sample_playback_objects.has(last_sample_id));
+	return last_sample_id;
+}
+
+void AudioDriverWeb::_forget_sample_playback(ObjectID p_playback) {
+	const SamplePlayback *playback = sample_playbacks.getptr(p_playback);
+	if (playback) {
+		sample_playback_objects.erase(playback->id);
+		sample_playbacks.erase(p_playback);
+	}
+}
+
+void AudioDriverWeb::_sweep_sample_streams() {
+	// Nothing tells the driver when a registered stream is freed, and its sample can be tens of megabytes of PCM.
+	LocalVector<ObjectID> freed;
+	for (const KeyValue<ObjectID, int32_t> &E : sample_streams) {
+		if (ObjectDB::get_instance(E.key) == nullptr) {
+			freed.push_back(E.key);
+		}
+	}
+	for (const ObjectID &stream : freed) {
+		godot_audio_sample_unregister_stream(sample_streams[stream]);
+		sample_streams.erase(stream);
+	}
+}
+
 bool AudioDriverWeb::is_stream_registered_as_sample(const Ref<AudioStream> &p_stream) const {
 	ERR_FAIL_COND_V_MSG(p_stream.is_null(), false, "Parameter p_stream is null.");
-	return godot_audio_sample_stream_is_registered(itos(p_stream->get_instance_id()).utf8().get_data()) != 0;
+	return sample_streams.has(p_stream->get_instance_id());
 }
 
 void AudioDriverWeb::register_sample(const Ref<AudioSample> &p_sample) {
 	ERR_FAIL_COND_MSG(p_sample.is_null(), "Parameter p_sample is null.");
 	ERR_FAIL_COND_MSG(p_sample->stream.is_null(), "Parameter p_sample->stream is null.");
 
-	String loop_mode;
-	switch (p_sample->loop_mode) {
+	_sweep_sample_streams();
+
+	AudioSample::LoopMode loop_mode = p_sample->loop_mode;
+	Ref<AudioStream> render_stream = p_sample->stream;
+	if (loop_mode == AudioSample::LoopMode::LOOP_PINGPONG || loop_mode == AudioSample::LoopMode::LOOP_BACKWARD) {
+		Ref<AudioStreamWAV> wav = render_stream;
+		if (wav.is_valid() && wav->get_format() == AudioStreamWAV::FORMAT_IMA_ADPCM) {
+			loop_mode = AudioSample::LoopMode::LOOP_FORWARD; // AudioStreamPlaybackWAV loops IMA ADPCM forward only.
+		} else if (wav.is_valid()) {
+			// JS unrolls these loops from the stream's data as it is, so render it without looping.
+			wav = wav->duplicate();
+			wav->set_loop_mode(AudioStreamWAV::LOOP_DISABLED);
+			render_stream = wav;
+		}
+	}
+
+	String loop_mode_name;
+	switch (loop_mode) {
 		case AudioSample::LoopMode::LOOP_DISABLED: {
-			loop_mode = "disabled";
+			loop_mode_name = "disabled";
 		} break;
 
 		case AudioSample::LoopMode::LOOP_FORWARD: {
-			loop_mode = "forward";
+			loop_mode_name = "forward";
 		} break;
 
 		case AudioSample::LoopMode::LOOP_PINGPONG: {
-			loop_mode = "pingpong";
+			loop_mode_name = "pingpong";
 		} break;
 
 		case AudioSample::LoopMode::LOOP_BACKWARD: {
-			loop_mode = "backward";
+			loop_mode_name = "backward";
 		} break;
 	}
 
-	double length = p_sample->stream->get_length();
-
-	Vector<AudioFrame> frames;
-	int frames_total = mix_rate * length;
+	// Render the stream at the mix rate, as AudioServer would mix it, into planar left/right channels.
+	const int frames_total = mix_rate * render_stream->get_length();
+	LocalVector<AudioFrame> frames;
+	frames.resize(frames_total);
+	int frames_mixed = 0;
 	{
-		Ref<AudioStreamPlayback> stream_playback = p_sample->stream->instantiate_playback();
-		frames.resize(frames_total);
-		AudioFrame *frames_ptr = frames.ptrw();
+		Ref<AudioStreamPlayback> stream_playback = render_stream->instantiate_playback();
 		stream_playback->start();
-		stream_playback->mix(frames_ptr, 1.0f, frames_total);
+		frames_mixed = CLAMP(stream_playback->mix(frames.ptr(), 1.0f, frames_total), 0, frames_total);
 	}
-
-	PackedFloat32Array data;
+	LocalVector<float> data;
 	data.resize(frames_total * 2);
-	float *data_ptrw = data.ptrw();
 	for (int i = 0; i < frames_total; i++) {
-		data_ptrw[i] = frames[i].left;
-		data_ptrw[i + frames_total] = frames[i].right;
+		const AudioFrame frame = i < frames_mixed ? frames[i] : AudioFrame(0, 0);
+		data[i] = frame.left;
+		data[i + frames_total] = frame.right;
 	}
 
 	// Adjust loop start/end to match mix rate.
@@ -262,105 +315,153 @@ void AudioDriverWeb::register_sample(const Ref<AudioSample> &p_sample) {
 		loop_end = Math::round(loop_end * (float(mix_rate) / sample_rate));
 	}
 
-	godot_audio_sample_register_stream(
-			itos(p_sample->stream->get_instance_id()).utf8().get_data(),
-			data_ptrw,
-			frames_total,
-			loop_mode.utf8().get_data(),
-			loop_begin,
-			loop_end);
+	const ObjectID stream_object = p_sample->stream->get_instance_id();
+	int32_t *stream_id = sample_streams.getptr(stream_object);
+	if (!stream_id) {
+		stream_id = &sample_streams.insert(stream_object, _new_sample_id())->value;
+	}
+	godot_audio_sample_register_stream(*stream_id, data.ptr(), frames_total, loop_mode_name.utf8().get_data(), loop_begin, loop_end);
 }
 
 void AudioDriverWeb::unregister_sample(const Ref<AudioSample> &p_sample) {
 	ERR_FAIL_COND_MSG(p_sample.is_null(), "Parameter p_sample is null.");
 	ERR_FAIL_COND_MSG(p_sample->stream.is_null(), "Parameter p_sample->stream is null.");
 
-	godot_audio_sample_unregister_stream(itos(p_sample->stream->get_instance_id()).utf8().get_data());
+	const ObjectID stream_object = p_sample->stream->get_instance_id();
+	const int32_t *stream_id = sample_streams.getptr(stream_object);
+	if (stream_id) {
+		godot_audio_sample_unregister_stream(*stream_id);
+		sample_streams.erase(stream_object);
+	}
 }
 
 void AudioDriverWeb::start_sample_playback(const Ref<AudioSamplePlayback> &p_playback) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
 	ERR_FAIL_COND_MSG(p_playback->stream.is_null(), "Parameter p_playback->stream is null.");
+	const int32_t *stream_id = sample_streams.getptr(p_playback->stream->get_instance_id());
+	ERR_FAIL_NULL_MSG(stream_id, "The playback's stream is not registered as a sample.");
+
+	if (++sample_starts_since_sweep >= 64) {
+		sample_starts_since_sweep = 0;
+		_sweep_sample_streams();
+	}
+
+	const ObjectID playback_object = p_playback->get_instance_id();
+	SamplePlayback *playback = sample_playbacks.getptr(playback_object);
+	if (!playback) {
+		playback = &sample_playbacks.insert(playback_object, SamplePlayback())->value;
+		playback->id = _new_sample_id();
+		sample_playback_objects.insert(playback->id, playback_object);
+	}
 
 	constexpr int real_max_channels = AuSC::MAX_CHANNELS_PER_BUS * 2;
-	PackedFloat32Array volume;
-	volume.resize(real_max_channels);
-	float *volume_ptrw = volume.ptrw();
-	for (int i = 0; i < real_max_channels; i += 2) {
-		if (p_playback->volume_vector.is_empty()) {
-			volume_ptrw[i] = 0;
-			volume_ptrw[i + 1] = 0;
-		} else {
-			const AudioFrame &frame = p_playback->volume_vector[i / 2];
-			volume_ptrw[i] = frame.left;
-			volume_ptrw[i + 1] = frame.right;
-		}
+	float volume[real_max_channels] = {};
+	for (int i = 0; i < MIN(int(p_playback->volume_vector.size()), AuSC::MAX_CHANNELS_PER_BUS); i++) {
+		volume[i * 2] = p_playback->volume_vector[i].left;
+		volume[i * 2 + 1] = p_playback->volume_vector[i].right;
 	}
-	godot_audio_sample_start(
-			itos(p_playback->get_instance_id()).utf8().get_data(),
-			itos(p_playback->stream->get_instance_id()).utf8().get_data(),
-			AudioServer::get_singleton()->get_bus_index(p_playback->bus),
-			p_playback->offset,
-			p_playback->pitch_scale,
-			volume_ptrw);
+	// AudioServer mixes to Master when the bus does not exist.
+	const int bus = MAX(AudioServer::get_singleton()->get_bus_index(p_playback->bus), 0);
+
+	// A start replaces the JS playback, which then has these settings and no filter.
+	playback->pitch_scale = p_playback->pitch_scale;
+	playback->highshelf_gain = 0.0;
+	playback->highshelf_cutoff_hz = 0.0;
+	playback->buses.resize(1);
+	playback->buses[0] = bus;
+	playback->volumes.resize(real_max_channels);
+	memcpy(playback->volumes.ptr(), volume, sizeof(volume));
+
+	godot_audio_sample_start(playback->id, *stream_id, bus, p_playback->offset, p_playback->pitch_scale, volume);
 }
 
 void AudioDriverWeb::stop_sample_playback(const Ref<AudioSamplePlayback> &p_playback) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
-	godot_audio_sample_stop(itos(p_playback->get_instance_id()).utf8().get_data());
+	const ObjectID playback_object = p_playback->get_instance_id();
+	const SamplePlayback *playback = sample_playbacks.getptr(playback_object);
+	if (playback) {
+		godot_audio_sample_stop(playback->id);
+		_forget_sample_playback(playback_object);
+	}
 }
 
 void AudioDriverWeb::set_sample_playback_pause(const Ref<AudioSamplePlayback> &p_playback, bool p_paused) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
-	godot_audio_sample_set_pause(itos(p_playback->get_instance_id()).utf8().get_data(), p_paused);
+	const SamplePlayback *playback = sample_playbacks.getptr(p_playback->get_instance_id());
+	if (playback) {
+		godot_audio_sample_set_pause(playback->id, p_paused);
+	}
 }
 
 bool AudioDriverWeb::is_sample_playback_active(const Ref<AudioSamplePlayback> &p_playback) {
 	ERR_FAIL_COND_V_MSG(p_playback.is_null(), false, "Parameter p_playback is null.");
-	return godot_audio_sample_is_active(itos(p_playback->get_instance_id()).utf8().get_data()) != 0;
+	return sample_playbacks.has(p_playback->get_instance_id());
 }
 
 double AudioDriverWeb::get_sample_playback_position(const Ref<AudioSamplePlayback> &p_playback) {
-	ERR_FAIL_COND_V_MSG(p_playback.is_null(), false, "Parameter p_playback is null.");
-	return godot_audio_get_sample_playback_position(itos(p_playback->get_instance_id()).utf8().get_data());
+	ERR_FAIL_COND_V_MSG(p_playback.is_null(), 0, "Parameter p_playback is null.");
+	const SamplePlayback *playback = sample_playbacks.getptr(p_playback->get_instance_id());
+	return playback ? godot_audio_get_sample_playback_position(playback->id) : 0;
 }
 
 void AudioDriverWeb::update_sample_playback_pitch_scale(const Ref<AudioSamplePlayback> &p_playback, float p_pitch_scale) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
-	godot_audio_sample_update_pitch_scale(
-			itos(p_playback->get_instance_id()).utf8().get_data(),
-			p_pitch_scale);
+	SamplePlayback *playback = sample_playbacks.getptr(p_playback->get_instance_id());
+	if (!playback || playback->pitch_scale == p_pitch_scale) {
+		return;
+	}
+	playback->pitch_scale = p_pitch_scale;
+	godot_audio_sample_update_pitch_scale(playback->id, p_pitch_scale);
 }
 
 void AudioDriverWeb::set_sample_playback_bus_volumes_linear(const Ref<AudioSamplePlayback> &p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
+	SamplePlayback *playback = sample_playbacks.getptr(p_playback->get_instance_id());
+	if (!playback) {
+		return;
+	}
 
 	constexpr int real_max_channels = AuSC::MAX_CHANNELS_PER_BUS * 2;
-
-	PackedInt32Array buses;
-	buses.resize(p_bus_volumes.size());
-	int32_t *buses_ptrw = buses.ptrw();
-	PackedFloat32Array values;
-	values.resize(p_bus_volumes.size() * AuSC::MAX_CHANNELS_PER_BUS * 2);
-	float *values_ptrw = values.ptrw();
-	int idx = 0;
-	for (KeyValue<StringName, Vector<AudioFrame>> pair : p_bus_volumes) {
-		int bus_index = AudioServer::get_singleton()->get_bus_index(pair.key);
-		buses_ptrw[idx] = bus_index;
-		ERR_FAIL_COND(pair.value.size() != AuSC::MAX_CHANNELS_PER_BUS);
-		for (int i = 0; i < real_max_channels; i += 2) {
-			const AudioFrame &frame = pair.value[i / 2];
-			values_ptrw[(idx * real_max_channels) + i] = frame.left;
-			values_ptrw[(idx * real_max_channels) + i + 1] = frame.right;
+	int32_t buses[AuSC::MAX_BUSES_PER_PLAYBACK];
+	float volumes[AuSC::MAX_BUSES_PER_PLAYBACK * real_max_channels];
+	int bus_count = 0;
+	for (const KeyValue<StringName, Vector<AudioFrame>> &pair : p_bus_volumes) {
+		if (bus_count >= AuSC::MAX_BUSES_PER_PLAYBACK) {
+			break;
 		}
-		idx++;
+		ERR_FAIL_COND(pair.value.size() != AuSC::MAX_CHANNELS_PER_BUS);
+		// AudioServer mixes to Master when the bus does not exist.
+		buses[bus_count] = MAX(AudioServer::get_singleton()->get_bus_index(pair.key), 0);
+		float *bus_volumes = &volumes[bus_count * real_max_channels];
+		for (int i = 0; i < AuSC::MAX_CHANNELS_PER_BUS; i++) {
+			bus_volumes[i * 2] = pair.value[i].left;
+			bus_volumes[i * 2 + 1] = pair.value[i].right;
+		}
+		bus_count++;
 	}
-	godot_audio_sample_set_volumes_linear(
-			itos(p_playback->get_instance_id()).utf8().get_data(),
-			buses_ptrw,
-			buses.size(),
-			values_ptrw,
-			values.size());
+
+	// 2D and 3D players send this every frame, nearly always unchanged.
+	const int volume_count = bus_count * real_max_channels;
+	if (int(playback->buses.size()) == bus_count && memcmp(playback->buses.ptr(), buses, bus_count * sizeof(int32_t)) == 0 && memcmp(playback->volumes.ptr(), volumes, volume_count * sizeof(float)) == 0) {
+		return;
+	}
+	playback->buses.resize(bus_count);
+	playback->volumes.resize(volume_count);
+	memcpy(playback->buses.ptr(), buses, bus_count * sizeof(int32_t));
+	memcpy(playback->volumes.ptr(), volumes, volume_count * sizeof(float));
+
+	godot_audio_sample_set_volumes_linear(playback->id, buses, bus_count, volumes, volume_count);
+}
+
+void AudioDriverWeb::set_sample_playback_highshelf_params(const Ref<AudioSamplePlayback> &p_playback, float p_gain, float p_attenuation_cutoff_hz) {
+	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
+	SamplePlayback *playback = sample_playbacks.getptr(p_playback->get_instance_id());
+	if (!playback || (playback->highshelf_gain == p_gain && playback->highshelf_cutoff_hz == p_attenuation_cutoff_hz)) {
+		return;
+	}
+	playback->highshelf_gain = p_gain;
+	playback->highshelf_cutoff_hz = p_attenuation_cutoff_hz;
+	godot_audio_sample_set_highshelf(playback->id, p_gain, p_attenuation_cutoff_hz);
 }
 
 void AudioDriverWeb::set_sample_bus_count(int p_count) {

@@ -14,6 +14,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 21 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Perf Guard](perf_guard/) | WebGPU calls per frame stay within budget (command encoders, submits, `writeBuffer` calls and bytes) on the post-fx/shadows/instances/PBR scenes; adapter-independent | ~90s | Yes (pre-exported scenes) |
+| [Web Audio Parity](web_audio/) | Sample playback (the web default) does what `AudioServer` does — loop modes sample for sample, volume ramps/fades, buses, positions, 3D filter — 40 checks; plus native vs web end to end | ~10s (+~2min e2e) | No (e2e: editor + web templates) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
 | [Font Rendering](scene_smoketest/test_font_visual.mjs) | Text renders in the colors it was asked to — guards the glyph-modulate regression | ~20s | Yes (pre-exported) |
@@ -259,6 +260,17 @@ cd webgpu_tests/resource_lifecycle
 npm install playwright && npx playwright install chromium --with-deps
 node run_tests.mjs
 ```
+
+### 5b. Web Audio Parity (standalone; e2e needs the editor + web templates)
+
+```bash
+cd webgpu_tests/web_audio
+npm install
+node run_tests.mjs                 # the sample driver in an OfflineAudioContext vs native algorithms
+./export.sh && node run_e2e.mjs    # the same GDScript natively and in the nothreads/threads exports
+```
+
+See [`web_audio/README.md`](web_audio/README.md) and `webgpu_notes/TASKS.md` §4.30.
 
 ### 6. WebRTC Parity (needs the editor + a web template)
 
