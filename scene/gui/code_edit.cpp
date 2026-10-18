@@ -1026,9 +1026,55 @@ void CodeEdit::_handle_unicode_input_internal(const uint32_t p_unicode, int p_ca
 		} else {
 			insert_text_at_caret(chr, i);
 		}
+
+		if (auto_unindent_closing_brackets && (p_unicode == '}' || p_unicode == ')' || p_unicode == ']')) {
+			_unindent_closing_bracket(i); // GDB
+		}
 	}
 	end_multicaret_edit();
 	end_action();
+}
+
+void CodeEdit::_unindent_closing_bracket(int p_caret) {
+	// GDB: A closing bracket typed with only whitespace before it takes the indentation of the line that opened it.
+	const int line = get_caret_line(p_caret);
+	const int column = get_caret_column(p_caret) - 1;
+	const String line_text = get_line(line);
+	if (column < 0 || column >= line_text.length() || (line_text[column] != '}' && line_text[column] != ')' && line_text[column] != ']')) {
+		return;
+	}
+	for (int i = 0; i < column; i++) {
+		if (line_text[i] != ' ' && line_text[i] != '\t') {
+			return;
+		}
+	}
+	const char32_t close = line_text[column];
+	const char32_t open = close == '}' ? '{' : (close == ')' ? '(' : '[');
+
+	// Find the matching opener, skipping strings and comments.
+	int depth = 0;
+	for (int l = line; l >= 0; l--) {
+		const String scan = get_line(l);
+		for (int c = (l == line ? column - 1 : scan.length() - 1); c >= 0; c--) {
+			const char32_t ch = scan[c];
+			if ((ch != open && ch != close) || is_in_string(l, c) != -1 || is_in_comment(l, c) != -1) {
+				continue;
+			}
+			if (ch == close) {
+				depth++;
+			} else if (depth > 0) {
+				depth--;
+			} else {
+				const String indent = scan.substr(0, get_first_non_whitespace_column(l));
+				if (indent != line_text.substr(0, column)) {
+					remove_text(line, 0, line, column);
+					insert_text(indent, line, 0);
+					set_caret_column(indent.length() + 1, p_caret == 0, p_caret);
+				}
+				return;
+			}
+		}
+	}
 }
 
 void CodeEdit::_backspace_internal(int p_caret) {

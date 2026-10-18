@@ -104,6 +104,7 @@ class ScriptTextEditor : public CodeEditorBase {
 		EDIT_PICK_COLOR,
 		EDIT_EVALUATE,
 		EDIT_CREATE_CODE_REGION,
+		EDIT_REFORMAT_CODE, // GDB
 
 		SEARCH_LOCATE_FUNCTION,
 
@@ -180,6 +181,7 @@ protected:
 
 	void _notification(int p_what);
 
+	Vector<String> _get_comment_delimiters(bool p_doc) const; // GDB
 	void _edit_option_toggle_inline_comment();
 
 	void _lookup_symbol(const String &p_symbol, int p_row, int p_column);

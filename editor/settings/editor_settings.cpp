@@ -837,6 +837,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	PackedStringArray extensions;
 	if (ClassDB::class_exists("GDScript")) {
 		extensions.push_back("gd");
+		extensions.push_back("gdb"); // GDB: Braced GDScript.
 	}
 	if (ClassDB::class_exists("CSharpScript")) {
 		extensions.push_back("cs");

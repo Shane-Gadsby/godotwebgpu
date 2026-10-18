@@ -30,6 +30,7 @@
 
 #include "gdscript.h"
 #include "gdscript_analyzer.h"
+#include "gdscript_formatter.h"
 #include "gdscript_linter.h"
 #include "gdscript_parser.h"
 #include "gdscript_tokenizer.h"
@@ -3981,6 +3982,104 @@ static void _find_call_arguments(GDScriptParser::CompletionContext &p_context, c
 //////// END COMPLETION //////////
 
 #ifdef TOOLS_ENABLED
+
+// GDB: Braced GDScript (`.gdb`) in the script editor.
+
+Vector<String> GDScriptEditorLanguage::get_comment_delimiters_for_path(const String &p_path) const {
+	return GDScriptTokenizer::is_braced_path(p_path) ? get_braced_comment_delimiters() : Vector<String>();
+}
+
+Vector<String> GDScriptEditorLanguage::get_doc_comment_delimiters_for_path(const String &p_path) const {
+	return GDScriptTokenizer::is_braced_path(p_path) ? get_braced_doc_comment_delimiters() : Vector<String>();
+}
+
+bool GDScriptEditorLanguage::uses_brace_blocks(const String &p_path) const {
+	return GDScriptTokenizer::is_braced_path(p_path);
+}
+
+void GDScriptEditorLanguage::format_code_for_path(String &r_code, uint32_t p_from_line, uint32_t p_to_line, const String &p_path) const {
+	if (!GDScriptTokenizer::is_braced_path(p_path)) {
+		format_code(r_code, p_from_line, p_to_line);
+		return;
+	}
+
+	// Braced GDScript is indented by bracket depth. Strings and comments are skipped; lines that start inside a
+	// multi-line string or block comment are left alone. Unlike Reformat Code, this works on unfinished code.
+	const String indent = _get_indentation();
+	Vector<String> lines = r_code.split("\n");
+	int depth = 0;
+	bool in_block_comment = false;
+	char32_t in_string = 0;
+	bool triple = false;
+	for (int i = 0; i < lines.size(); i++) {
+		const String line = lines[i];
+		const int length = line.length();
+		int start = 0;
+		while (start < length && (line[start] == ' ' || line[start] == '\t')) {
+			start++;
+		}
+		if (i >= (int)p_from_line && i <= (int)p_to_line && start < length && !in_block_comment && in_string == 0) {
+			const bool closes = line[start] == '}' || line[start] == ')' || line[start] == ']';
+			lines.write[i] = indent.repeat(MAX(0, closes ? depth - 1 : depth)) + line.substr(start);
+		}
+		for (int j = start; j < length; j++) {
+			const char32_t c = line[j];
+			const char32_t next = j + 1 < length ? line[j + 1] : 0;
+			if (in_block_comment) {
+				if (c == '*' && next == '/') {
+					in_block_comment = false;
+					j++;
+				}
+				continue;
+			}
+			if (in_string != 0) {
+				if (c == '\\') {
+					j++;
+				} else if (c == in_string && (!triple || (next == in_string && j + 2 < length && line[j + 2] == in_string))) {
+					j += triple ? 2 : 0;
+					in_string = 0;
+				}
+				continue;
+			}
+			if (c == '#' || (c == '/' && next == '/')) {
+				break;
+			}
+			if (c == '/' && next == '*') {
+				in_block_comment = true;
+				j++;
+			} else if (c == '"' || c == '\'') {
+				triple = next == c && j + 2 < length && line[j + 2] == c;
+				in_string = c;
+				j += triple ? 2 : 0;
+			} else if (c == '{' || c == '(' || c == '[') {
+				depth++;
+			} else if (c == '}' || c == ')' || c == ']') {
+				depth = MAX(0, depth - 1);
+			}
+		}
+		if (in_string != 0 && !triple) {
+			in_string = 0; // An unterminated single-line string ends with its line.
+		}
+	}
+	r_code = String("\n").join(lines);
+}
+
+bool GDScriptEditorLanguage::can_reformat_code(const String &p_path) const {
+	return GDScriptLanguage::is_gdscript_path(p_path);
+}
+
+Error GDScriptEditorLanguage::reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const {
+	// `.editorconfig` lookup needs a file system path.
+	const String path = ProjectSettings::get_singleton()->globalize_path(p_path);
+	const GDScriptFormatter::Result result = GDScriptFormatter::format(p_code, path, GDScriptFormatter::get_options_for_path(path));
+	if (result.error != OK) {
+		r_error_line = result.line;
+		r_error_message = result.message;
+		return result.error;
+	}
+	r_code = result.output;
+	return OK;
+}
 
 void GDScriptEditorLanguage::format_code(String &r_code, uint32_t p_from_line, uint32_t p_to_line) const {
 	String indent = _get_indentation();

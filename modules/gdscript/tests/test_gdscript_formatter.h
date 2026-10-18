@@ -38,6 +38,10 @@
 #include "modules/gdscript/gdscript_formatter.h"
 #include "modules/gdscript/gdscript_tokenizer.h"
 
+#ifdef TOOLS_ENABLED
+#include "modules/gdscript/editor/gdscript_editor_language.h"
+#endif // TOOLS_ENABLED
+
 namespace GDScriptTests {
 
 static String _format_or_fail(const String &p_source, const String &p_path, const String &p_preset) {
@@ -222,5 +226,61 @@ TEST_CASE("[Modules][GDScript] Formatter: braced GDScript (JS-like preset)") {
 		CHECK(result.message.contains("opened on line 1"));
 	}
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[Modules][GDScript] Script editor hooks for braced GDScript") {
+	const GDScriptEditorLanguage *language = GDScriptEditorLanguage::get_singleton();
+	REQUIRE(language != nullptr);
+
+	// `.gd` keeps the language's own behavior.
+	CHECK(language->get_comment_delimiters_for_path("res://a.gd").is_empty());
+	CHECK_FALSE(language->uses_brace_blocks("res://a.gd"));
+	CHECK(language->can_reformat_code("res://a.gd"));
+
+	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
+		return; // Braced GDScript is compiled out.
+	}
+
+	CHECK(language->get_comment_delimiters_for_path("res://a.gdb")[0] == "//");
+	CHECK(language->get_doc_comment_delimiters_for_path("res://a.gdb")[0] == "///");
+	CHECK(language->uses_brace_blocks("res://a.gdb"));
+
+	SUBCASE("Auto Indent follows braces and skips strings and comments") {
+		String code =
+				"func f() {\n"
+				"        if x {\n"
+				"a(\"{\") // {\n"
+				"  }\n"
+				"/* { */ b(\n"
+				"c)\n"
+				"}\n";
+		language->format_code_for_path(code, 0, 6, "res://a.gdb");
+		CHECK(code ==
+				"func f() {\n"
+				"\tif x {\n"
+				"\t\ta(\"{\") // {\n"
+				"\t}\n"
+				"\t/* { */ b(\n"
+				"\t\tc)\n"
+				"}\n");
+	}
+
+	SUBCASE("Reformat Code") {
+		String formatted;
+		int error_line = 0;
+		String error;
+		CHECK(language->reformat_code("func f(){\nif a{b()}\n}\n", "res://a.gdb", formatted, error_line, error) == OK);
+		// The indentation depends on whichever `.editorconfig` applies to `res://`, so only the layout is checked.
+		const Vector<String> lines = formatted.split("\n");
+		REQUIRE(lines.size() == 4);
+		CHECK(lines[0] == "func f() {");
+		CHECK(lines[1].strip_edges() == "if a { b() }");
+		CHECK(lines[1] != lines[1].strip_edges()); // Indented.
+		CHECK(lines[2] == "}");
+		CHECK(language->reformat_code("func f(){\n", "res://a.gdb", formatted, error_line, error) != OK);
+		CHECK(error_line == 1);
+	}
+}
+#endif // TOOLS_ENABLED
 
 } // namespace GDScriptTests

@@ -68,6 +68,8 @@ private:
 
 	bool auto_indent = false;
 	HashSet<char32_t> auto_indent_prefixes;
+	bool auto_unindent_closing_brackets = false; // GDB
+	void _unindent_closing_bracket(int p_caret); // GDB
 
 	bool indent_using_spaces = false;
 	int _calculate_spaces_till_next_left_indent(int p_column) const;
@@ -392,6 +394,10 @@ public:
 
 	void set_auto_indent_enabled(bool p_enabled);
 	bool is_auto_indent_enabled() const;
+
+	// GDB: Not bound; the script editor enables it for languages with brace-delimited blocks.
+	void set_auto_unindent_closing_brackets(bool p_enabled) { auto_unindent_closing_brackets = p_enabled; }
+	bool is_auto_unindent_closing_brackets() const { return auto_unindent_closing_brackets; }
 
 	void set_auto_indent_prefixes(const TypedArray<String> &p_prefixes);
 	TypedArray<String> get_auto_indent_prefixes() const;

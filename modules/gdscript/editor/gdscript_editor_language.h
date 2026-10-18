@@ -47,6 +47,16 @@ public:
 
 	virtual void format_code(String &r_code, uint32_t p_from_line, uint32_t p_to_line) const override;
 
+	// GDB: Braced GDScript (`.gdb`) in the script editor.
+	static Vector<String> get_braced_comment_delimiters() { return { "//", "/* */", "#" }; }
+	static Vector<String> get_braced_doc_comment_delimiters() { return { "///", "##" }; }
+	virtual Vector<String> get_comment_delimiters_for_path(const String &p_path) const override;
+	virtual Vector<String> get_doc_comment_delimiters_for_path(const String &p_path) const override;
+	virtual bool uses_brace_blocks(const String &p_path) const override;
+	virtual void format_code_for_path(String &r_code, uint32_t p_from_line, uint32_t p_to_line, const String &p_path) const override;
+	virtual bool can_reformat_code(const String &p_path) const override;
+	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message) const override;
+
 	virtual bool validate(const String &p_code, const String &p_path, List<ScriptError> *r_errors, List<Warning> *r_warnings, List<String> *r_functions, HashSet<int> *r_safe_lines) const override;
 
 	GDScriptEditorLanguage() {
