@@ -306,14 +306,34 @@ bool GDScriptTokenizerText::_brace_skip_comment(bool p_is_bol) {
 	}
 
 	// Block comment. A line break inside it ends the statement it follows, as a line break would.
+	// `/** */` is a documentation comment (but `/**/` is empty): each of its lines is stored as a `##` line, without
+	// the `*` that conventionally starts it, so documentation reads it like `##` comments.
 	const int open_line = line;
 	const int open_column = column;
+	const bool doc = _peek(2) == '*' && _peek(3) != '/';
 	_advance();
 	_advance();
+	if (doc) {
+		_advance();
+	}
 	bool make_newline = !p_is_bol;
 #ifdef TOOLS_ENABLED
-	String comment = "#";
+	String comment;
 	bool comment_new_line = p_is_bol;
+	Vector<int> doc_lines; // Line numbers the comment covers.
+	Vector<String> doc_texts; // Their text, without decoration; empty first and last lines dropped at the end.
+	auto store = [&](const String &p_text) {
+		if (!doc) {
+			comments[line] = CommentData("#" + p_text, comment_new_line);
+			return;
+		}
+		String text = p_text.strip_edges(true, false);
+		if (text.begins_with("*")) {
+			text = text.substr(1);
+		}
+		doc_lines.push_back(line);
+		doc_texts.push_back(text.begins_with(" ") ? text.substr(1) : text.strip_edges(false, true));
+	};
 #endif // TOOLS_ENABLED
 	for (;;) {
 		if (_is_at_end()) {
@@ -332,8 +352,8 @@ bool GDScriptTokenizerText::_brace_skip_comment(bool p_is_bol) {
 		}
 		if (_peek() == '\n') {
 #ifdef TOOLS_ENABLED
-			comments[line] = CommentData(comment, comment_new_line);
-			comment = "#";
+			store(comment);
+			comment = String();
 			comment_new_line = true;
 #endif // TOOLS_ENABLED
 			_advance();
@@ -348,7 +368,24 @@ bool GDScriptTokenizerText::_brace_skip_comment(bool p_is_bol) {
 #endif // TOOLS_ENABLED
 	}
 #ifdef TOOLS_ENABLED
-	comments[line] = CommentData(comment, comment_new_line);
+	store(comment);
+	if (doc) {
+		// The text goes on the comment's last lines, so the documentation ends right above what it documents and
+		// carries no empty `/**` or `*/` line.
+		int first = 0;
+		int last = doc_texts.size() - 1;
+		while (first < last && doc_texts[first].strip_edges().is_empty()) {
+			first++;
+		}
+		while (last > first && doc_texts[last].strip_edges().is_empty()) {
+			last--;
+		}
+		const int count = last - first + 1;
+		for (int i = 0; i < count; i++) {
+			const int index = doc_lines.size() - count + i;
+			comments[doc_lines[index]] = CommentData("##" + doc_texts[first + i], p_is_bol || index > 0);
+		}
+	}
 #endif // TOOLS_ENABLED
 	return true;
 }

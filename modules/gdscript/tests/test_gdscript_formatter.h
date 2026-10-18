@@ -311,6 +311,38 @@ TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
 }
 
 #ifdef TOOLS_ENABLED
+TEST_CASE("[Modules][GDScript] Braced GDScript documentation comments") {
+	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
+		return; // Braced GDScript is compiled out.
+	}
+	const String code =
+			"/** A braced class. */\n"
+			"extends Node\n"
+			"\n"
+			"/**\n"
+			" * Adds one.\n"
+			" * @deprecated: Use add_two.\n"
+			" */\n"
+			"func add_one(x: int) -> int { return x + 1 }\n"
+			"\n"
+			"/// Doubles.\n"
+			"func double(x: int) -> int { return x * 2 }\n";
+	GDScriptParser parser;
+	REQUIRE(parser.parse(code, "res://docs.gdb", false) == OK);
+	const GDScriptParser::ClassNode *head = parser.get_tree();
+	CHECK(head->doc_data.brief == "A braced class.");
+	const GDScriptParser::FunctionNode *add_one = head->get_member("add_one").function;
+	CHECK(add_one->doc_data.description == "Adds one.");
+	CHECK(add_one->doc_data.is_deprecated);
+	CHECK(add_one->doc_data.deprecated_message == "Use add_two.");
+	CHECK(head->get_member("double").function->doc_data.description == "Doubles.");
+
+	// Converting to `.gd` keeps them as `##` comments.
+	const GDScriptFormatter::Result result = GDScriptFormatter::convert(code, "res://docs.gdb", false, GDScriptFormatter::get_preset("godot"));
+	REQUIRE(result.error == OK);
+	CHECK(result.output.contains("## Adds one.\n## @deprecated: Use add_two.\nfunc add_one(x: int) -> int:"));
+}
+
 TEST_CASE("[Modules][GDScript] Script editor hooks for braced GDScript") {
 	const GDScriptEditorLanguage *language = GDScriptEditorLanguage::get_singleton();
 	REQUIRE(language != nullptr);

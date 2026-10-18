@@ -574,13 +574,28 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 				if (piece.kind == PIECE_LINE_COMMENT && braced && (p_to_indented || p_options.comment_style != COMMENT_STYLE_KEEP)) {
 					piece.text = _convert_comment(piece.text, p_to_indented ? COMMENT_STYLE_HASH : p_options.comment_style);
 				} else if (piece.kind == PIECE_BLOCK_COMMENT && p_to_indented) {
-					// `.gd` has only line comments: one `#` line per line of the block comment.
-					const String body = piece.text.substr(2, piece.text.length() - 4);
+					// `.gd` has only line comments: one `#` line per line of the block comment. A `/** */`
+					// documentation comment becomes `##` lines, without its `/**` and `*/` lines or the `*` that
+					// starts each line.
+					const bool doc = piece.text.begins_with("/**") && piece.text != "/**/";
+					const String body = piece.text.substr(doc ? 3 : 2, piece.text.length() - (doc ? 5 : 4));
+					const Vector<String> body_lines = body.split("\n");
 					Vector<String> comment_lines;
-					for (const String &comment_line : body.split("\n")) {
-						comment_lines.push_back("#" + comment_line.strip_edges(false, true));
+					for (int line_index = 0; line_index < body_lines.size(); line_index++) {
+						String text = body_lines[line_index].strip_edges(false, true);
+						if (doc) {
+							text = text.strip_edges(true, false);
+							text = text.begins_with("*") ? text.substr(1) : text;
+							text = text.begins_with(" ") ? text.substr(1) : text;
+							if (text.is_empty() && (line_index == 0 || line_index == body_lines.size() - 1) && body_lines.size() > 1) {
+								continue;
+							}
+							comment_lines.push_back("## " + text);
+						} else {
+							comment_lines.push_back("#" + text);
+						}
 					}
-					piece.text = String("\n").join(comment_lines);
+					piece.text = String("\n").join(comment_lines).strip_edges(false, true);
 				}
 				in_node_path = false;
 				continue;
@@ -712,6 +727,15 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 	lines.resize(line_count);
 	for (int i = pieces.size() - 1; i >= 0; i--) {
 		lines.write[pieces[i].line].first_piece = i;
+	}
+	// Lines inside a multi-line piece (a block comment, a long string) belong to the line it starts on.
+	Vector<int> covered_by;
+	covered_by.resize(line_count);
+	covered_by.fill(-1);
+	for (const Piece &piece : pieces) {
+		for (int covered = piece.line + 1; covered <= piece.end_line && covered < line_count; covered++) {
+			covered_by.write[covered] = piece.line;
+		}
 	}
 	{
 		List<StackEntry> stack; // `.gdb` brackets and blocks.
@@ -870,6 +894,9 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 				continue;
 			}
 			int previous = line - 1;
+			if (previous >= 0 && lines[previous].first_piece < 0 && covered_by[previous] >= 0) {
+				previous = covered_by[previous];
+			}
 			const bool attached = previous >= 0 && lines[previous].first_piece >= 0 && lines[previous].member_level && !lines[previous].decl && lines[previous].scope == info.scope;
 			if (!attached) {
 				bool has_decl = false;
