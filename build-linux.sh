@@ -377,7 +377,7 @@ install_prereqs() {
 		git submodule update --init --recursive
 	fi
 
-	step "Fetching pre-built AccessKit..."
+	step "Checking pre-built AccessKit (downloaded only if the pinned version is missing)..."
 	python3 misc/scripts/install_accesskit.py || { warn "AccessKit install failed, building with accesskit=no."; ACCESSKIT_ENABLED="no"; }
 
 	if [[ "$SKIP_WEB" -eq 0 ]]; then

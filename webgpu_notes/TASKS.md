@@ -28,10 +28,22 @@ shipped feature", was wrong: the delta matrix could not see SDFGI, volumetric fo
 `DEPTH_TEXTURE` or mipmap bias diverging from native (§3 trap 28). What remains is spec-limited and listed in
 §2.31; everything else in §2 is hardening, measurement, coverage or a rare non-visual error.
 
+**Web audio is at parity with native for everything Sample playback can do** as of §4.30 (2026-10-18):
+the web default (`audio/general/default_playback_type.web` = Sample) re-implements `AudioServer`'s mixer on a Web
+Audio graph, and is now checked against ports of the native code sample for sample (`webgpu_tests/web_audio`) and
+end to end (the smoketest's `audio_parity` scene). Bus effects and streaming are what Sample playback cannot do; they
+are warned about at export and at runtime, and the ways to close them are §2.32 (deferred by decision). The editor's
+lists all take drag-and-drop the same way since §4.31.
+
 ### Verified tiers
 
 | tier | result | when / where |
 |---|---|---|
+| web audio sample driver vs native, offline (`webgpu_tests/web_audio/run_tests.mjs`) | **40 / 40**: loop modes sample-identical to `AudioStreamPlaybackWAV`, ramps/fades, bus rules, positions, 3D high shelf within 1 dB | 2026-10-18, §4.30 |
+| web audio end to end, native vs nothreads (no COOP/COEP) and threads (`run_e2e.mjs`) | `[AUDIO-CHECK] PASS` on both, every boolean equal to native, each limitation warning exactly once on web and none natively | 2026-10-18, §4.30 |
+| scene smoketest with `audio_parity` (real GPU) | **22 / 22 Chrome**; `audio_parity` also passes on Firefox | 2026-10-18 |
+| 3D platformer audio glue (`tests/web_audio_profiling.mjs`) | **0.002 ms/frame** (0.029 before §4.30, 0.148 before §2.30) | 2026-10-18 |
+| editor drag-and-drop onto every list (`tests/editor_drop/run.sh`, Xvfb) | **32 / 32** real drags; editor `-Werror` clean as a `dev_mode=yes` build | 2026-10-18, §4.31 |
 | native editor + web template build | 0 errors, 0 warnings, incl. `warnings=extra werror=yes` | 2026-10-05, 4.8 port (§4.15) |
 | `wgsl_precompile.py` | 274 compiled, 0 glsl / 0 tint failures; **deterministic** (two runs, different `PYTHONHASHSEED`, byte-identical 1,806,893 B header) | 2026-10-14, `597d27e09` (§2.16 gap 5) |
 | `shader_corpus` | 14 / 0 | 4.8 |
@@ -81,7 +93,12 @@ gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load t
 
 ### What is built right now — snapshot 2026-10-16 (end of the render-thread day), HEAD after `2c3544102e`
 
-**Read the 2026-10-16 additions first:** §2.5 (the separate web render thread is implemented and measured — design, traps,
+**Read the 2026-10-18 additions first:** §4.30 (web audio parity, its two test tiers, the warnings), §2.32 (the
+deferred audio gaps, with trade-offs), §4.31 (editor drag-and-drop), §4.32 (AccessKit), §3 traps 32-34. Every
+commit is local; everything in `bin/` (editor, Linux templates, all eight web templates) is from a full `build-linux.sh`
+run of this tree on 2026-10-18 17:08-17:17.
+
+**Read the 2026-10-16 additions next:** §2.5 (the separate web render thread is implemented and measured — design, traps,
 before/after table), §2.30 (SSIL hoist pass, read-write storage textures, the upstream shadow-atlas bug, prepare-for-use trait,
 Web Audio writes, PR #123996 cherry-picked), §3 traps 21 and 22. `bin/` editor (`webgpu=yes`) is from the `b4de0b0b4b` tree;
 all eight web templates (release/debug × nothreads/threads × dlink or not) were relinked after it with the
@@ -96,6 +113,7 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
+| **2026-10-18, full `build-linux.sh` (17:08-17:17)** | editor, Linux templates and all eight web templates (dlink included) rebuilt together from this tree: after §4.30-4.32, so every template matches the editor's baker and the editor's export (no position-worklet file) |
 | **after §4.30's follow-up (2026-10-18)** | editor and the four non-dlink web templates rebuilt again for the warnings, the `changed` re-render and the `AudioServer::finish()` leak fix |
 | **after §4.30 (2026-10-18)** | `build-linux.sh --skip-native-templates --web-dlink no` rebuilt `godot.linuxbsd.editor.x86_64` and all four non-dlink web templates (debug/release × threads/nothreads) on the §4.30 tree. The editor no longer lists `*.audio.position.worklet.js` in a PWA cache, so pair it with templates from this tree or later; the dlink zips (Oct 17) predate §4.30 |
 | **after §4.29 (`f59c88668d`)** | `local_ci.sh --dev-mode` rebuilt `godot.linuxbsd.editor.x86_64`, `godot.web.template_release.wasm32.nothreads.zip` and `…nothreads.dlink.zip` as **`dev_mode=yes`** builds of that tree. Fine for tests, not for benchmarks. The **installed** export templates (`~/.local/share/godot/export_templates/4.8.dev/`) predate §4.29's shader changes — run `./build-linux.sh` before exporting real projects. The rows below describe the earlier state |
@@ -109,6 +127,15 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 Scratch state worth knowing about (all outside git): `/tmp/plat_baked`, `/tmp/plat_unbaked` (platformer
 exports used for the §2.27 re-measurement), `/tmp/fpref*` (native-Vulkan reference frames). `webgpu_tests/
 scene_smoketest/exports/*` and `forward_plus/export{,_heavy}` are regenerated by CI and gitignored.
+
+#### What landed 2026-10-18, in order (all on `webgpu-4.8`, all local)
+
+| commit | item | what it did |
+|---|---|---|
+| `be304f5cdc` | §4.30 | Web audio: Sample playback brought to parity with `AudioServer` (surround, loop modes, ramps/fades, bus rules, `set_bus_layout()` use-after-free, 3D high shelf, positions without a worklet, shared buffers, integer handles; stream-path precision, mono mic, capture wrap); `webgpu_tests/web_audio` tier |
+| `bcb8905fa7` | §4.30, §2.32 | Self-checking audio suite as the smoketest's `audio_parity` scene; WAV/Ogg/MP3 setters emit `changed` (re-render of stale samples); "cannot be sampled" warning only when Sample is explicit; **upstream** `AudioServer::finish()` leak; warnings for Sample playback's gaps at export and runtime |
+| `16d2e2bf98` | §4.31 | Editor: one drag-and-drop behavior for arrays, dictionaries, property arrays, the Autoload/Localization lists, bus effects and the Animation Library; `tests/editor_drop` real-drag test |
+| `aa40d03317` | §4.32 | `install_accesskit.py` skips the download when the pinned version is installed |
 
 #### What landed 2026-10-17, in order (all on `webgpu-4.8`, all local)
 
@@ -1889,6 +1916,17 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     driver's playback positions wander by ~100 ms run to run, so `run_e2e.mjs` checks numbers against what native
     playback does by definition; and **a per-frame "unchanged" cache belongs on the C++ side** — caching in JS still
     paid the string marshaling and the call (0.029 ms/frame) that a C++ compare avoids (0.002).
+33. **A headless editor cannot be driven through its UI** (2026-10-18). `--headless` gives the editor's root viewport
+    a 2x2 size, so every pushed mouse event lands outside it: a drag-and-drop test drops nothing and every check
+    "fails" — including drops that have always worked, which is the tell. Run UI-driving editor tests windowed under
+    Xvfb (`xvfb-run -a -s "-screen 0 1920x1080x24" ... --editor --rendering-driver opengl3`), as `tests/editor_drop`
+    does. Two more from the same test: a modal dialog left open (Project Settings) swallows the main window's input,
+    and after an edit the inspector rebuilds, so a control found before it may already be queued for deletion.
+34. **A resource setter that does not emit `changed` hides the edit from anything that caches the resource**
+    (2026-10-18). The web sample driver renders a stream once, on its first play; `AudioStreamOggVorbis::set_loop()`
+    and most WAV/MP3 setters emitted nothing, so turning `loop` off at runtime left the cached sample looping forever
+    and `finished` never fired. Natively nothing caches, so nothing showed it. The setters now emit `changed` and the
+    driver re-renders on the next start (§4.30's follow-up).
 
 ---
 
@@ -2880,6 +2918,13 @@ NodePaths. Then:
 
 **Test**: `tests/editor_drop/run.sh` — real drags (`Control.force_drag()` + pushed mouse events) in a windowed editor
 under Xvfb: 32/32 (headless cannot work: its editor viewport is 2x2). Not covered: the Animation Library dialog.
+
+### 4.32 AccessKit prerequisite no longer re-downloaded (October 2026)
+
+`misc/scripts/install_accesskit.py` (called by `build-linux.sh`, `build-macos.sh`, `build-windows.ps1` and the CI
+workflows) deleted and re-downloaded the AccessKit archive on every run. The `version` file it writes as the last step
+of an install now marks a complete one: when it names the pinned version (`ac_version`, 0.23.1) the script exits
+without a download, another version is replaced, and `--force` reinstalls. Bumping `ac_version` is all an upgrade takes.
 
 ## 5. References — retired docs
 

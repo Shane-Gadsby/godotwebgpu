@@ -317,6 +317,30 @@ Layer 3: firstInstance + PC dedup         -> eliminate per-draw SetBindGroup
     |                          |   First frame                |
 ```
 
+### Audio
+
+A web export plays sound two ways, chosen per player by `playback_type` (default from the project setting
+`audio/general/default_playback_type.web`, which is **Sample**):
+
+```
+Stream:  AudioStreamPlayback -> AudioServer::_mix_step() (buses, effects) -> int32 ring buffer
+             -> AudioWorklet (audio thread: threads=yes; main thread drives it: threads=no) -> speakers
+Sample:  AudioStream rendered once at the mix rate -> AudioBuffer (shared by every play)
+             -> AudioBufferSourceNode -> fader -> [3D high shelf] -> mixer per bus (one gain per output channel)
+             -> bus volume -> bus mute/solo -> send to the next bus or the destination
+```
+
+Stream is the native mixer, unchanged. Sample (`GodotSampleDriver` in `platform/web/js/libs/library_godot_audio.js`,
+fed by `AudioDriverWeb` in `platform/web/audio_driver_web.cpp`) exists so that a single-threaded export does not mix
+on the main thread, and it re-implements `AudioServer`'s behavior on a Web Audio graph: per-channel volume vectors,
+volume ramps and fade-outs over one 512-frame mix block, loop modes (ping-pong and backward unrolled into the buffer),
+the bus routing rules (sends to earlier buses go to Master, solo chains, mute), the 3D attenuation filter, and
+playback positions computed from the context clock. The C++ side hands JS small integer handles and skips calls whose
+values did not change, so a playing 3D sound costs nothing per frame unless it moves. Sample playback cannot run bus
+effects or stream (it decodes a sound whole on its first play); both are warned about at export and at runtime.
+Parity is tested by `webgpu_tests/web_audio` (and the smoketest's `audio_parity` scene); history and the deferred
+options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
+
 ### Build System
 
 - SCons with `webgpu=yes` flag, `--use-port=emdawnwebgpu` for Emscripten

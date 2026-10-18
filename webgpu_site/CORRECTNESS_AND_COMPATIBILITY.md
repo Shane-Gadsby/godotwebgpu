@@ -168,6 +168,24 @@ The sweep that introduced this check found five features that rendered wrongly w
 
 and, beyond those, texture arrays collapsed to element 0, four shader built-ins that crashed the page, FSR2 skipping its depth reconstruction, constant-alpha blending, depth clamp, contact shadows' border colour, and a material using `POINT_COORD` drawing nothing (an upstream bug that also affects D3D12).
 
+### 2.10 Audio Parity with Native
+
+**Status: Correct, measured** (2026-10-18, `webgpu_notes/TASKS.md` §4.30)
+
+Web exports default to Sample playback, which plays sounds through Web Audio instead of `AudioServer`'s mixer, so
+everything the mixer does has to be reproduced. `webgpu_tests/web_audio/run_tests.mjs` renders the real JS driver in
+an `OfflineAudioContext` and compares it with ports of the native code: the four loop modes are sample-identical to
+`AudioStreamPlaybackWAV` from several start frames; volume ramps, the full-volume start on a new bus, fades on stop,
+pause and bus removal follow `AudioServer::_mix_step()`; the bus rules (sends, solo chains, mute, `move_bus`,
+`add_bus`) match; positions follow pitch, loops and pause; the 3D high shelf matches `AudioFilterSW` within 1 dB.
+`run_e2e.mjs` and the smoketest's `audio_parity` scene run a self-checking GDScript suite natively and in both export
+kinds (Ogg/MP3, seeks, polyphony, 2D/3D players, Stream playback through effects, a generator, a randomizer).
+
+The review that introduced this found, among others: surround gains one channel off, ping-pong/backward loops playing
+forward, clicks from unramped volume changes, a use-after-free in `AudioServer::set_bus_layout()`, a stream's loop
+setting frozen at its first play (`finished` never fired), the whole sound copied on every play, and an upstream leak
+of every playback still running at quit.
+
 ---
 
 ## 3. Cross-Browser Compatibility
@@ -328,6 +346,9 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - No hardware multiview / VRS / subgroups
 
 ### Platform Limitations
+- Sample playback (the web default for audio) cannot run bus effects (reverb, EQ, capture, spectrum...) or stream:
+  a sound is decoded whole on its first play. Players that need either set `playback_type` to Stream, the native
+  mixer. Both gaps are warned about at export and at runtime; options to close them: `webgpu_notes/TASKS.md` §2.32
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages

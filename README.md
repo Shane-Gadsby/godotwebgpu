@@ -185,6 +185,15 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 | WGSL format-name remapping patches strings in place, assuming equal lengths | open (Task 7.18) | Fragile if Tint's output names change. Task 9.15 moved some of these patches to Tint IR transforms and made the rest `memcpy`-safe |
 | No device-loss recovery | open | Logged only; the page must be reloaded |
 
+**Audio**
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Bus effects (reverb, EQ, capture, spectrum...) do not apply to Sample playback, the web default | deferred (§2.32) | Sample playback plays sounds through Web Audio, outside `AudioServer`. Set `playback_type` to Stream on players that need effects (native mixer; on its own thread in thread-enabled exports). Warned about at export and once per bus at runtime |
+| Sample playback decodes a sound whole on its first `play()` | deferred (§2.32) | A hitch and the whole track in memory for long music; Stream playback streams. Warned about once per stream over 30 s |
+
+Everything else Sample playback does matches native, tested sample for sample (`webgpu_tests/web_audio`, §4.30).
+
 **Verification gaps**
 
 - **A green test suite does not mean Forward+ renders.** In a container the suite runs on a software adapter, which reports fewer than 48 textures per shader stage — and `RendererCompositorRD::initialize()` silently falls back to **Forward Mobile** when it sees that. SSAO and SSIL are Forward+-only, and SDFGI's voxelization lives in the clustered shader, so none of them execute there. The 4.8 port had every tier green while 3D rendered entirely black on real hardware (Task 15.5). Treat a container run as "the engine boots and loads every scene", and use a real-GPU run against a real project for anything renderer-dependent — `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` is the procedure.
@@ -209,7 +218,7 @@ Last full run **2026-10-17**, on Godot 4.8, real GPU (RTX 4080 SUPER, Chrome + F
 | `preprocessing_tests` | **291 pass, 0 fail, 1 skipped** | Node |
 | `resource_lifecycle` | all pass | Playwright |
 | `screenshot_comparison` | all pass | Playwright |
-| Scene smoketest — Chrome | **21 pass, 0 fail, 0 skip** | Editor + web template build |
+| Scene smoketest — Chrome | **21 pass, 0 fail, 0 skip**; **22 / 22** with the `audio_parity` scene on 2026-10-18 | Editor + web template build |
 | Scene smoketest — Firefox | **21 pass, 0 fail, 0 skip** | Editor + web template build |
 | Font rendering colors — Chrome | pass | Editor + web template build |
 | Font rendering colors — Firefox | pass on a real GPU (a known false positive headless, see Verification gaps) | Editor + web template build |
@@ -218,6 +227,9 @@ Last full run **2026-10-17**, on Godot 4.8, real GPU (RTX 4080 SUPER, Chrome + F
 | Forward+ feature matrix (71 features) | **71 / 71**; 10 features documented as uncovered | Own export, **real GPU** |
 | Forward+ parity vs native Vulkan (71 features) | **71 / 71** within tolerance | Own export + native editor with Vulkan, **real GPU** |
 | Forward+ matrix self-test | pass | Node |
+| Web audio parity, offline (`web_audio/run_tests.mjs`, 2026-10-18) | **40 / 40**, loop modes sample-identical to native | Playwright, no build |
+| Web audio end to end, native vs nothreads and threads exports (2026-10-18) | `[AUDIO-CHECK] PASS` on both, booleans equal to native | Editor + web templates |
+| Editor drag-and-drop onto every list (`tests/editor_drop`, 2026-10-18) | **32 / 32** real drags | Editor, Xvfb |
 | Scene smoketest — Safari | not run | macOS + AppleScript |
 | `./webgpu_tests/local_ci.sh --dev-mode --no-safari` (all of the above plus `spec_constant_overrides`, `wgsl_cache`, `perf_guard` and WebRTC parity) | **29 passed, 0 failed, 2 skipped** | Full rebuild + re-export |
 
@@ -225,8 +237,9 @@ Run headless on a software adapter, "Font rendering colors — Firefox" still fa
 [Verification gaps](#known-issues): headless Firefox cannot composite in this environment, so the
 canvas reads back black and the test blames glyph modulate. On a real GPU it passes.
 
-The 21 scenes are 8 benchmarks, 10 demos, 1 stress test and 2 assertion fixtures (font rendering and
-volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures. `local_ci.sh` rebuilds the editor, the dlink
+The 21 scenes of that run are 8 benchmarks, 10 demos, 1 stress test and 2 assertion fixtures (font rendering and
+volumetric fog), drawn from `godot-demo-projects` and this repo's own fixtures; since 2026-10-18 a 22nd,
+`audio_parity`, runs the self-checking audio suite of `webgpu_tests/web_audio` (clicked once to unlock Web Audio). `local_ci.sh` rebuilds the editor, the dlink
 template (compile check only) and the non-dlink nothreads template, then re-exports every scene from
 them before testing — so a green run reflects the working tree rather than whatever exports happened
 to be on disk.

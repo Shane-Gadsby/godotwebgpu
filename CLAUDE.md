@@ -41,6 +41,8 @@ Rebuild it directly (rather than through scons) when iterating on `drivers/webgp
 
 The **export-time** bake (`ShaderBakerExportPlugin` with the WebGPU platform, `webgpu_notes/TASKS.md` §4.23) runs `tint_convert_cli --batch` over all stages at once, in parallel chunks spawned with `posix_spawn` — not one serialized subprocess per stage, which used to be 24 of a 27 s export. Converted WGSL is cached by SPIR-V hash under the tool's own hash at `~/.cache/godot/webgpu_wgsl_bake/` (survives engine rebuilds, invalidated by a Tint rebuild; `WEBGPU_BAKE_CACHE=0` / `WEBGPU_BAKE_CACHE_DIR` / `WEBGPU_BAKE_JOBS`), so a warm export is ~4 s against ~8 s cold. Web presets ship the baked cache as `<name>.shaders.pck` (`shader_baker/separate_pack`), which the shell preloads and the engine mounts beside the main pack; **a template built before that change silently loads no shaders at all**, so rebuild the templates with the editor. Stale `.godot/exported/<hash>` directories (7 days) and shader-cache group directories from other engine builds are pruned automatically.
 
+`misc/scripts/install_accesskit.py` (run by every build helper unless `--skip-install`) downloads AccessKit only when `bin/build_deps/accesskit/version` does not name the version it pins; `--force` reinstalls (§4.32).
+
 `./build-linux.sh` is the full local build: editor, Linux templates and the 8-variant web matrix, one SCons run after another in this tree, so every template's baked WGSL matches the editor's baker. `--help` lists the flags: `--skip-install`, `--skip-web`, `--skip-native-templates`, `--skip-tint-cli`, `--force-shader-rebake`, `--linker`, `--jobs`, `--web-targets`/`--web-threads`/`--web-dlink` to narrow the matrix while iterating (a narrowed run cannot guarantee the editor/template match), and `--no-ccache`. **ccache is on by default** (§4.26): SCons signs every object with the resolved compiler path, so only the first run after that default changed recompiles every variant. `--no-ccache` leaves the ccache symlink directory on `PATH` and sets `CCACHE_DISABLE=1` rather than removing it, so the signed path never changes and opting out — or back in — is free. Use `ccache -C` to discard the cache itself. It prints a per-step timing table at the end. **Never start a `scons` run — not even a no-op read or a timing probe — while another is running in this tree** (`pgrep -ax scons` first): the runs share `.sconsign5.dblite`, so an overlap can lose a run's recorded signatures. The worse half of this is fixed — each variant now writes its own copy of the option-dependent generated sources (`modules/modules_enabled.gen.h` and five others) under `gen/<variant>/`, prepended to `CPPPATH`, so no build can compile against another's copy and look up to date forever (`webgpu_notes/TASKS.md` §4.25, §3 trap 24). A generated source must therefore spell its own includes from the project root, not relative to where it used to live.
 
 ## Testing
@@ -162,6 +164,35 @@ Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.
 - **Depth textures must look like depth textures**: a GLSL `texture2D` becomes WGSL `texture_depth_2d` only if `_reclassify_single_component_depth_textures()` recognizes it — by name (`depth`) and usage. Anything it misses gets a depth texture bound to a float slot, which the driver replaces with a blank fallback, silently (`print_verbose` names the shader, set and binding). Name new depth bindings in renderer shaders with `depth`, and read them linearly through `textureGather` + weights (`textureLod_linear_depth()`), never a linear sampler.
 - **Point size** is emulated (`SUPPORTS_POINT_SIZE` false): the scene shaders draw each point as a quad. `POINT_COORD_USED` implies `POINT_SIZE_USED` (scene `_inc.glsl`), or a `POINT_COORD`-only material draws nothing.
 - **Parity, not just "it changed"**: the Forward+ matrix's delta test passes a feature that renders wrongly. Judge renderer changes with `run_forward_plus.mjs --parity` (native Vulkan reference), and see `webgpu_notes/TASKS.md` §3 trap 28 for what makes that comparison trustworthy.
+
+### Web audio: Sample playback re-implements AudioServer
+
+Web exports default to **Sample** playback (`audio/general/default_playback_type.web`): the engine renders each
+sound once and Web Audio plays it (`GodotSampleDriver` in `platform/web/js/libs/library_godot_audio.js`, fed by
+`AudioDriverWeb` in `platform/web/audio_driver_web.cpp`), bypassing `AudioServer`'s mixer, which Stream playback
+(and every native platform) uses. So every behavior of `AudioServer::_mix_step()` that a Sample sound should have —
+per-channel volume vectors, volume ramps and fades over one 512-frame block, the bus routing rules, loop modes, the
+3D high shelf, positions — is re-implemented in that JS, and it is tested against ports of the native code by
+`webgpu_tests/web_audio/run_tests.mjs` (offline, sample for sample) and end to end by `run_e2e.mjs` / the smoketest's
+`audio_parity` scene. Change either side and run both. Rules that cost time to find (`webgpu_notes/TASKS.md` §4.30,
+§3 traps 32 and 34):
+
+- Per-frame updates (3D/2D volumes, pitch, high shelf) are compared in C++ and only cross into JS when they change;
+  JS knows streams and playbacks by integer handles, not ObjectID strings. Keep it that way: the JS-side skip alone
+  still cost 15x more.
+- The driver caches a rendered sample per stream and re-renders it when the stream emits `changed`. A new
+  `AudioStream` setter that changes what plays must call `emit_changed()`, or web playback keeps the old sound.
+- Sample playback cannot run bus effects or stream long files; it warns (export log; runtime, once per bus/stream).
+  The ways to close those gaps are §2.32, deliberately deferred.
+
+### Editor: drag-and-drop onto lists goes through one resolver
+
+`editor/inspector/editor_collection_drop.{h,cpp}` turns dragged files/folders, a resource or nodes into values for a
+slot type (resources by class, nodes, relative NodePaths, paths honoring file hints and `uid://` for
+`@export_file`). `EditorPropertyArray`, `EditorPropertyDictionary`, `EditorInspectorArray` (property arrays) and the
+Autoload, Localization, audio bus effect and Animation Library lists all use it; a new list-like UI should too, so
+every list accepts the same drops. Test with `tests/editor_drop/run.sh` (real drags in a windowed editor under Xvfb;
+a `--headless` editor has a 2x2 viewport and cannot be driven through its UI — §3 trap 33). Details: §4.31.
 
 ### Physics: Box3D is the default 3D physics engine
 
