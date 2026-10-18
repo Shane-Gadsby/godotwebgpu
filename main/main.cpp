@@ -667,7 +667,8 @@ void Main::print_help(const char *p_binary) {
 #ifdef MODULE_GDSCRIPT_ENABLED
 	print_help_option("--gdscript-docs <path>", "Rather than dumping the engine API, generate API reference from the inline documentation in the GDScript files found in <path> (used with --doctool).\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	// GDB
-	print_help_option("--gdscript-convert <to-gdb|to-gd> <paths>", "Convert GDScript files between indented (.gd) and braced (.gdb) form, next to the originals. Add --replace to remove the originals, --keep-lines to keep every statement on its line.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--gdscript-convert <to-gdb|to-gd> <paths>", "Convert GDScript files between indented (.gd) and braced (.gdb) form, next to the originals. Add --replace to remove the originals, --keep-lines to keep every statement on its line, or --stdin [--stdin-path <path>] to convert standard input to standard output.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--gdscript-braces-version", "Print the version of the braced GDScript (.gdb) syntax, for editor plugins that mirror it.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--gdscript-format <paths>", "Format the GDScript (.gd) and braced GDScript (.gdb) files and directories in <paths> in place. Add --check to only report what would change, --preset godot|js to override .editorconfig, or --stdin [--stdin-path <path>] to format standard input to standard output.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #endif
 	print_help_option("--build-solutions", "Build the scripting solutions (e.g. for C# projects). Implies --editor and requires a valid project to edit.\n", CLI_OPTION_AVAILABILITY_EDITOR);
@@ -1729,7 +1730,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing relative or absolute path to project for --gdscript-docs, aborting.\n");
 				goto error;
 			}
-		} else if (arg == "--gdscript-format" || arg == "--gdscript-convert") {
+		} else if (arg == "--gdscript-format" || arg == "--gdscript-convert" || arg == "--gdscript-braces-version") {
 			// GDB: Handled in start(). A command-line tool: no window or audio, and no header on standard output,
 			// which `--stdin` writes the formatted script to.
 			cmdline_tool = true;
@@ -4107,6 +4108,10 @@ int Main::start() {
 	}
 	if (args.find("--gdscript-convert")) {
 		return GDScriptFormatter::run_convert_cli(args) == 0 ? EXIT_SUCCESS : EXIT_FAILURE; // GDB
+	}
+	if (args.find("--gdscript-braces-version")) {
+		OS::get_singleton()->print("%d\n", GDScriptFormatter::get_braces_grammar_version()); // GDB
+		return EXIT_SUCCESS;
 	}
 #endif // TOOLS_ENABLED && MODULE_GDSCRIPT_ENABLED
 

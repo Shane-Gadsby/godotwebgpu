@@ -44,6 +44,13 @@
 // syntax there); their indentation is only converted between tabs and spaces.
 class GDScriptFormatter {
 public:
+	// The version of the braced syntax: the block-or-dictionary table (D3) and the JavaScript-style spellings. Bump it
+	// whenever either changes, together with `GRAMMAR_VERSION` in the Rider plugin's `GdbPsiLexer`, which mirrors them;
+	// `--gdscript-braces-version` prints it so the plugin can tell when it no longer matches the engine.
+	static constexpr int BRACES_GRAMMAR_VERSION = 1;
+	// BRACES_GRAMMAR_VERSION, or 0 in a build without braced GDScript (`gdscript_braces=no`).
+	static int get_braces_grammar_version();
+
 	enum OperatorStyle {
 		OPERATOR_STYLE_KEEP,
 		OPERATOR_STYLE_WORDS, // `and`, `or`, `not`
@@ -104,7 +111,8 @@ public:
 	static Result convert(const String &p_source, const String &p_path, bool p_keep_lines, const Options &p_options);
 
 	// `godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] <paths>` converts each file next to
-	// itself; `--replace` also removes the original and moves its `.uid` file. Returns the process exit code.
+	// itself; `--replace` also removes the original and moves its `.uid` file. With `--stdin [--stdin-path <path>]` it
+	// converts standard input to standard output instead, `<path>` naming the source file. Returns the process exit code.
 	static int run_convert_cli(const List<String> &p_args);
 
 	// `godot --headless --gdscript-format [--check] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]

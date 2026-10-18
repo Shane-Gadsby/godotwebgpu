@@ -1685,7 +1685,27 @@ String _absolute(const String &p_path) {
 	return dir->get_current_dir().path_join(p_path).simplify_path();
 }
 
+String _read_stdin() {
+	Vector<uint8_t> bytes;
+	for (;;) {
+		const PackedByteArray chunk = OS::get_singleton()->get_stdin_buffer(65536);
+		if (chunk.is_empty()) {
+			break;
+		}
+		bytes.append_array(chunk);
+	}
+	return String::utf8(reinterpret_cast<const char *>(bytes.ptr()), bytes.size());
+}
+
 } // namespace
+
+int GDScriptFormatter::get_braces_grammar_version() {
+#ifdef GDSCRIPT_BRACES_ENABLED
+	return BRACES_GRAMMAR_VERSION;
+#else
+	return 0;
+#endif // GDSCRIPT_BRACES_ENABLED
+}
 
 int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	bool check = false;
@@ -1736,15 +1756,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	};
 
 	if (use_stdin) {
-		Vector<uint8_t> bytes;
-		for (;;) {
-			const PackedByteArray chunk = OS::get_singleton()->get_stdin_buffer(65536);
-			if (chunk.is_empty()) {
-				break;
-			}
-			bytes.append_array(chunk);
-		}
-		const String source = String::utf8(reinterpret_cast<const char *>(bytes.ptr()), bytes.size());
+		const String source = _read_stdin();
 		const String path = stdin_path.is_empty() ? String("stdin.gd") : _absolute(stdin_path);
 		const Result result = format(source, path, options_for(path));
 		if (result.error != OK) {
@@ -1807,6 +1819,8 @@ int GDScriptFormatter::run_convert_cli(const List<String> &p_args) {
 	String direction;
 	bool keep_lines = false;
 	bool replace = false;
+	bool use_stdin = false;
+	String stdin_path;
 	String preset;
 	Vector<String> paths;
 	bool ours = false;
@@ -1822,6 +1836,11 @@ int GDScriptFormatter::run_convert_cli(const List<String> &p_args) {
 			keep_lines = true;
 		} else if (arg == "--replace") {
 			replace = true;
+		} else if (arg == "--stdin") {
+			use_stdin = true;
+		} else if (arg == "--stdin-path" && E->next()) {
+			E = E->next();
+			stdin_path = E->get();
 		} else if (arg == "--preset" && E->next()) {
 			E = E->next();
 			preset = E->get();
@@ -1829,11 +1848,29 @@ int GDScriptFormatter::run_convert_cli(const List<String> &p_args) {
 			paths.push_back(arg);
 		}
 	}
-	if (direction.is_empty() || paths.is_empty()) {
-		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] [--preset godot|js] <files or directories>\n");
+	if (direction.is_empty() || (paths.is_empty() && !use_stdin)) {
+		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] [--preset godot|js] <files or directories>\n"
+									  "       godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--preset godot|js] --stdin [--stdin-path <path>]\n");
 		return 1;
 	}
 	const bool to_braced = direction == "to-gdb";
+
+	if (use_stdin) {
+		// The source's path: its folder picks the `.editorconfig` that styles the result, as for the file beside it.
+		const String path = stdin_path.is_empty() ? String(to_braced ? "stdin.gd" : "stdin.gdb") : _absolute(stdin_path);
+		if (GDScriptTokenizer::is_braced_path(path) == to_braced) {
+			OS::get_singleton()->printerr("%s: already %s.\n", path.utf8().get_data(), to_braced ? "braced" : "indented");
+			return 1;
+		}
+		const String target = path.get_basename() + (to_braced ? ".gdb" : ".gd");
+		const Result result = convert(_read_stdin(), path, keep_lines, get_options_for_path(target, preset));
+		if (result.error != OK) {
+			OS::get_singleton()->printerr("%s:%d: %s\n", path.utf8().get_data(), result.line, result.message.utf8().get_data());
+			return 1;
+		}
+		OS::get_singleton()->print("%s", result.output.utf8().get_data());
+		return 0;
+	}
 
 	Vector<String> files;
 	for (const String &path : paths) {

@@ -115,6 +115,17 @@ if [ "$INSTALL" = 1 ] && [ "$differ" = 0 ]; then
 	echo "  installed the twins' .out files"
 fi
 
+echo "command line for editor plugins"
+check "$("$G" --headless --gdscript-braces-version 2> /dev/null)" "1" "--gdscript-braces-version (bump with GdbPsiLexer.GRAMMAR_VERSION in the Rider plugin)"
+# Each braced feature test, converted through standard input to .gd and back, still converts and parses.
+cfail=0
+for src in "$BRACES"/features/*.gdb; do
+	name=$(basename "$src")
+	"$G" --headless --gdscript-convert to-gd --stdin --stdin-path "$src" < "$src" 2> /dev/null > "$WORK/stdin_${name%.gdb}.gd" || { cfail=$((cfail + 1)); echo "    to-gd: $name"; continue; }
+	"$G" --headless --gdscript-convert to-gdb --stdin --stdin-path "$WORK/stdin_${name%.gdb}.gd" < "$WORK/stdin_${name%.gdb}.gd" > /dev/null 2>&1 || { cfail=$((cfail + 1)); echo "    to-gdb: $name"; }
+done
+check "$cfail" "0" "--gdscript-convert --stdin both ways"
+
 echo "formatter on every GDScript test"
 for preset in godot js; do
 	rm -rf "$WORK/fmt" && cp -r "$SCRIPTS" "$WORK/fmt"
