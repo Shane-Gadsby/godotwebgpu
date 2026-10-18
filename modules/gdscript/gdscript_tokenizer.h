@@ -267,11 +267,11 @@ class GDScriptTokenizerText : public GDScriptTokenizer {
 	HashMap<int, CommentData> comments;
 #endif // TOOLS_ENABLED
 
-#ifdef GDSCRIPT_BRACES_ENABLED
 	// GDB: Brace mode, used for `.gdb` files. Blocks are written with `{ }` and leading whitespace means nothing.
 	// The tokenizer turns a block's braces into the `COLON NEWLINE INDENT` / `NEWLINE DEDENT` tokens an indented
 	// block produces, so the parser sees the same stream as for the equivalent `.gd` file.
-	// See gdscript_tokenizer_braces.cpp.
+	// See gdscript_tokenizer_braces.cpp. Declared whether or not `GDSCRIPT_BRACES_ENABLED` is defined: the define is
+	// module-local, and this header is also included from `tests/test_main.cpp`, so the class layout must not depend on it.
 	enum BraceKind {
 		BRACE_BLOCK,
 		BRACE_DICTIONARY,
@@ -303,7 +303,6 @@ class GDScriptTokenizerText : public GDScriptTokenizer {
 	Token _brace_make_synthetic(Token::Type p_type, int p_line, int p_column) const;
 	bool _brace_skip_comment(bool p_is_bol);
 	void _brace_skip_line_start();
-#endif // GDSCRIPT_BRACES_ENABLED
 
 	_FORCE_INLINE_ bool _is_at_end() { return position >= length; }
 	_FORCE_INLINE_ char32_t _peek(int p_offset = 0) { return position + p_offset >= 0 && position + p_offset < length ? _current[p_offset] : '\0'; }
@@ -341,11 +340,9 @@ public:
 
 	const Vector<int> &get_continuation_lines() const { return continuation_lines; }
 
-#ifdef GDSCRIPT_BRACES_ENABLED
-	// GDB: Must be called before the first `scan()`.
+	// GDB: Must be called before the first `scan()`. Has no effect when the feature is compiled out.
 	void set_brace_mode(bool p_enabled) { brace_mode = p_enabled; }
 	bool is_brace_mode() const { return brace_mode; }
-#endif // GDSCRIPT_BRACES_ENABLED
 
 #ifdef TOOLS_ENABLED
 	virtual int get_current_position() const override { return position; }

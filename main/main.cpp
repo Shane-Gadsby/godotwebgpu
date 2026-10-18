@@ -153,6 +153,7 @@
 
 #ifdef MODULE_GDSCRIPT_ENABLED
 #include "modules/gdscript/gdscript.h"
+#include "modules/gdscript/gdscript_formatter.h" // GDB
 #if defined(TOOLS_ENABLED) && !defined(GDSCRIPT_NO_LSP)
 #include "modules/gdscript/language_server/gdscript_language_server.h"
 #endif // TOOLS_ENABLED && !GDSCRIPT_NO_LSP
@@ -665,6 +666,8 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--gdextension-docs", "Rather than dumping the engine API, generate API reference from all the GDExtensions loaded in the current project (used with --doctool).\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef MODULE_GDSCRIPT_ENABLED
 	print_help_option("--gdscript-docs <path>", "Rather than dumping the engine API, generate API reference from the inline documentation in the GDScript files found in <path> (used with --doctool).\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	// GDB
+	print_help_option("--gdscript-format <paths>", "Format the GDScript (.gd) and braced GDScript (.gdb) files and directories in <paths> in place. Add --check to only report what would change, --preset godot|js to override .editorconfig, or --stdin [--stdin-path <path>] to format standard input to standard output.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #endif
 	print_help_option("--build-solutions", "Build the scripting solutions (e.g. for C# projects). Implies --editor and requires a valid project to edit.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--dump-gdextension-interface", "Generate a GDExtension header file \"gdextension_interface.h\" in the current folder. This file is the base file required to implement a GDExtension.\n", CLI_OPTION_AVAILABILITY_EDITOR);
@@ -1725,6 +1728,14 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing relative or absolute path to project for --gdscript-docs, aborting.\n");
 				goto error;
 			}
+		} else if (arg == "--gdscript-format") {
+			// GDB: Handled in start(). A command-line tool: no window or audio, and no header on standard output,
+			// which `--stdin` writes the formatted script to.
+			cmdline_tool = true;
+			audio_driver = NULL_AUDIO_DRIVER;
+			display_driver = NULL_DISPLAY_DRIVER;
+			Engine::get_singleton()->_print_header = false;
+			main_args.push_back(arg);
 #endif // MODULE_GDSCRIPT_ENABLED
 #endif // TOOLS_ENABLED
 
@@ -4087,6 +4098,13 @@ int Main::start() {
 
 	main_timer_sync.init(OS::get_singleton()->get_ticks_usec());
 	List<String> args = OS::get_singleton()->get_cmdline_args();
+
+#if defined(TOOLS_ENABLED) && defined(MODULE_GDSCRIPT_ENABLED)
+	if (args.find("--gdscript-format")) {
+		// GDB: Format scripts and exit before anything else starts.
+		return GDScriptFormatter::run_cli(args) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+	}
+#endif // TOOLS_ENABLED && MODULE_GDSCRIPT_ENABLED
 
 	for (List<String>::Element *E = args.front(); E; E = E->next()) {
 		// First check parameters that do not have an argument to the right.
