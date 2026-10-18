@@ -136,7 +136,6 @@ public:
 	};
 
 protected:
-
 	String shader_cache_platform_name;
 	String shader_cache_renderer_name;
 	String shader_cache_export_path;

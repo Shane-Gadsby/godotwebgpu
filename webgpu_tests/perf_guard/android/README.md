@@ -3,13 +3,13 @@
 What a Godot WebGPU export actually does on a real phone: fps and frame-time percentiles per export variant, GPU
 time per pass from timestamp queries, and the WGSL dump/substitute loop for bisecting a slow shader on the device.
 First used 2026-10-17 on a Motorola Razr 60 (MediaTek MT6878, Mali-G615 MC2, Android 16, Chrome 154); the results
-and the conclusions drawn from them are in `webgpu_notes/TASKS.md` §2.9 (and summarised in
+and the conclusions drawn from them are in `webgpu_notes/TASKS.md` §2.9 (and summarized in
 `webgpu_site/PERFORMANCE_AND_OPTIMIZATION.md`, "The First Phone").
 
 ## Requirements
 
 - Node 22+ (global `WebSocket` and `fetch`; nothing to `npm install`).
-- `adb` with the phone authorised for USB debugging (`adb devices` must say `device`, not `unauthorized`).
+- `adb` with the phone authorized for USB debugging (`adb devices` must say `device`, not `unauthorized`).
 - Chrome on the phone. WebGPU is on by default in current Chrome for Android; no flags.
 - A web export to profile. Export it with **`variant/separate_render_thread=false`** (see *Limits* below).
 

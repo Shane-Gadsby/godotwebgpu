@@ -30,12 +30,11 @@
 
 #include "spirv_opt_passes.h"
 
-#include "spirv_binding_layout.h"
-
 #include "source/opt/build_module.h"
 #include "source/opt/ir_builder.h"
 #include "source/opt/ir_context.h"
 #include "source/util/string_utils.h"
+#include "spirv_binding_layout.h"
 
 #include <memory>
 #include <string>
@@ -474,13 +473,13 @@ uint32_t rebuild_chain(opt::IRContext *p_ctx, opt::InstructionBuilder &p_builder
 			break;
 		case spv::Op::OpSampledImage:
 			result = p_builder.AddSampledImage(def->type_id(),
-										rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(0), p_element_var, p_carriers, r_remap),
-										rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(1), p_element_var, p_carriers, r_remap))
+									  rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(0), p_element_var, p_carriers, r_remap),
+									  rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(1), p_element_var, p_carriers, r_remap))
 							 ->result_id();
 			break;
 		case spv::Op::OpImage:
 			result = p_builder.AddUnaryOp(def->type_id(), spv::Op::OpImage,
-										rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(0), p_element_var, p_carriers, r_remap))
+									  rebuild_chain(p_ctx, p_builder, def->GetSingleWordInOperand(0), p_element_var, p_carriers, r_remap))
 							 ->result_id();
 			break;
 		case spv::Op::OpCopyObject:
@@ -851,8 +850,7 @@ bool apply_sampler_lod_bias(std::vector<uint32_t> &r_words) {
 	// Cheap test first: is the bias buffer declared at all?
 	bool needed = false;
 	for_each_raw_instruction(r_words, [&needed](spv::Op p_op, const uint32_t *p_inst, uint32_t p_wc) {
-		needed = needed || (p_op == spv::Op::OpDecorate && p_wc >= 4 && p_inst[2] == (uint32_t)spv::Decoration::Binding &&
-									p_inst[3] == spirv_binding_layout::SAMPLER_LOD_BIAS_GLSL_BINDING * 2);
+		needed = needed || (p_op == spv::Op::OpDecorate && p_wc >= 4 && p_inst[2] == (uint32_t)spv::Decoration::Binding && p_inst[3] == spirv_binding_layout::SAMPLER_LOD_BIAS_GLSL_BINDING * 2);
 		return !needed;
 	});
 	if (!needed) {

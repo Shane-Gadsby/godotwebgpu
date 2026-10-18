@@ -52,7 +52,7 @@ namespace spirv_opt_passes {
 //  - OpImageQueryLod (textureQueryLod()): computed from the coordinate's
 //    screen-space derivatives and the image's size and mip count.
 //  - The PointCoord built-in: WebGPU points are always one pixel, so it is the
-//    pixel centre, vec2(0.5). Godot's emulated point sprites never read it.
+//    pixel center, vec2(0.5). Godot's emulated point sprites never read it.
 //  - The EarlyFragmentTests execution mode: WGSL has no way to request it.
 //    Without it, depth testing still happens; a fragment that would have been
 //    rejected early may additionally run its side effects (texture

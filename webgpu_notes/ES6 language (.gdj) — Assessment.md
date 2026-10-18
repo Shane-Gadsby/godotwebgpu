@@ -101,7 +101,7 @@ Decide by what the JavaScript is *for*:
   2. It runs with quickjs-ng on native and the browser backend in a nothreads web export. Then try threads, the separate render thread and dlink, because the web build matrix is where a third-party module is most likely to break.
   3. A per-frame Godot API call budget measured with `perf_guard` / `api_profile`, against the same scene in GDScript
   4. Rider: completion, refactoring and debugging on a TypeScript project using the generated typings
-  5. A judgement on maintenance: the module's code size, how it hooks into the engine, and what an upstream sync would cost
+  5. A judgment on maintenance: the module's code size, how it hooks into the engine, and what an upstream sync would cost
 
 The two are not exclusive. `.gdb` and GodotJS could coexist in one project, because they touch different parts of the engine.
 

@@ -1700,7 +1700,7 @@ function testLowerTintUnsupportedOps() {
   assert(/dpdx\(/.test(r.wgsl) && /dpdy\(/.test(r.wgsl), "textureQueryLod uses screen-space derivatives");
   assert(/log2\(max\(dot\(/.test(r.wgsl), "the lod is log2 of the larger squared footprint, halved");
   assert(/clamp\(/.test(r.wgsl), "the accessed level is clamped to the mip range");
-  // PointCoord: a WebGPU point is one pixel, so the coordinate is its centre.
+  // PointCoord: a WebGPU point is one pixel, so the coordinate is its center.
   assert(!/point_coord|PointCoord/i.test(r.wgsl), "no PointCoord built-in remains");
   assert(/0\.5f/.test(r.wgsl), "gl_PointCoord reads as vec2(0.5)");
   // EarlyFragmentTests has no WGSL spelling; it is dropped, not translated.
