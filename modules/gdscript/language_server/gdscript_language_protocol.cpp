@@ -390,7 +390,7 @@ ExtendGDScriptParser *GDScriptLanguageProtocol::LSPeer::parse_script(const Strin
 	String content;
 	const LSP::TextDocumentItem *document = managed_files.getptr(p_path);
 	if (document == nullptr) {
-		if (!p_path.has_extension("gd")) {
+		if (!GDScriptLanguage::is_gdscript_path(p_path)) { // GDB
 			return nullptr;
 		}
 		Error err;

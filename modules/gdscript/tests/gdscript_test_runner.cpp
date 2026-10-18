@@ -277,7 +277,7 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 			}
 		} else {
 			// `*.notest.gd` files are skipped.
-			if (next.ends_with(".notest.gd")) {
+			if (next.ends_with(".notest.gd") || next.ends_with(".notest.gdb")) { // GDB
 				next = dir->get_next();
 				continue;
 			} else if (binary_tokens && next.ends_with(".textonly.gd")) {

@@ -124,6 +124,9 @@ void ExtendGDScriptParser::update_document_links(const String &p_code) {
 	GDScriptTokenizerText scr_tokenizer;
 	Ref<FileAccess> fs = FileAccess::create(FileAccess::ACCESS_RESOURCES);
 	scr_tokenizer.set_source_code(p_code);
+#ifdef GDSCRIPT_BRACES_ENABLED
+	scr_tokenizer.set_brace_mode(GDScriptTokenizer::is_braced_path(path)); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 	while (true) {
 		GDScriptTokenizer::Token token = scr_tokenizer.scan();
 		if (token.type == GDScriptTokenizer::Token::TK_EOF) {

@@ -583,6 +583,10 @@ public:
 
 	_FORCE_INLINE_ static GDScriptLanguage *get_singleton() { return singleton; }
 
+	// GDB: Whether a path is a GDScript source file: `.gd`, or braced `.gdb` when that is compiled in.
+	// Use this rather than comparing with `get_extension()`, which can only return one extension.
+	static bool is_gdscript_path(const String &p_path);
+
 	virtual String get_name() const override;
 
 	/* LANGUAGE FUNCTIONS */

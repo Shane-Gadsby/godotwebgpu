@@ -1280,7 +1280,7 @@ static void _list_available_types(bool p_inherit_only, GDScriptParser::Completio
 	// Autoload singletons
 	for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &E : ProjectSettings::get_singleton()->get_autoload_list()) {
 		const ProjectSettings::AutoloadInfo &info = E.value;
-		if (!info.is_singleton || !info.path.has_extension("gd")) {
+		if (!info.is_singleton || !GDScriptLanguage::is_gdscript_path(info.path)) { // GDB
 			continue;
 		}
 		EditorLanguage::CompletionOption option(info.name, EditorLanguage::CompletionKind::CLASS, EditorLanguage::CompletionLocation::OTHER_USER_CODE);

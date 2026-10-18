@@ -30,6 +30,7 @@
 
 #include "gdscript_formatter.h"
 
+#include "gdscript.h"
 #include "gdscript_parser.h"
 #include "gdscript_tokenizer.h"
 
@@ -1222,7 +1223,7 @@ void _collect_scripts(const String &p_path, Vector<String> &r_files) {
 		const String full = p_path.path_join(name);
 		if (dir->current_is_dir()) {
 			_collect_scripts(full, r_files);
-		} else if (name.get_extension() == "gd" || GDScriptTokenizer::is_braced_path(name)) {
+		} else if (GDScriptLanguage::is_gdscript_path(name)) {
 			r_files.push_back(full);
 		}
 	}

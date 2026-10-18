@@ -2230,6 +2230,10 @@ String GDScriptLanguage::get_extension() const {
 	return "gd";
 }
 
+bool GDScriptLanguage::is_gdscript_path(const String &p_path) {
+	return p_path.has_extension("gd") || GDScriptTokenizer::is_braced_path(p_path);
+}
+
 void GDScriptLanguage::finish() {
 	ERR_FAIL_COND_MSG(finishing, "GDScript bug (please report): GDScriptLanguage double finish.");
 	finishing = true;
