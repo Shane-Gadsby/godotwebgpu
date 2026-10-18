@@ -73,12 +73,16 @@ struct Piece {
 	bool node_path = false; // Inside a `$Node/Path` or `%Unique` run, where spacing is kept as written.
 	bool walrus = false; // The `:` of `:=`.
 	bool multiline_block = false; // A `.gdb` block brace whose partner is on another line.
+	bool lambda_block = false; // A `.gdb` block brace of a lambda's body.
+	bool holds_block = false; // A `.gdb` block brace whose block holds another (non-lambda) block.
 };
 
 struct StackEntry {
 	BracketKind kind = BRACKET_NONE;
 	int opener_line = 0;
 	int level = 0; // Indentation level of the output line the opener is on.
+	int statement_level = 0; // A lambda body: the level of the statement holding the lambda.
+	bool lambda_block = false;
 	bool class_body = false;
 };
 
@@ -304,7 +308,7 @@ bool _calls_with_paren(const Piece &p_piece, const Piece *p_before) {
 	}
 }
 
-String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, const String &p_source, const GDScriptFormatter::Options &p_options) {
+String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, const String &p_source, const GDScriptFormatter::Options &p_options, bool p_to_indented) {
 	const String original = p_source.substr(p_a.end, p_b.start - p_a.end);
 	const String fallback = original.is_empty() ? String() : String(" ");
 
@@ -322,10 +326,10 @@ String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, con
 	const Token::Type b = p_b.type;
 
 	if (p_b.opens == BRACKET_BLOCK) {
-		return " ";
+		return p_to_indented ? String() : String(" "); // `if x {`, or `if x:` when converting to `.gd`.
 	}
 	if (p_b.closes == BRACKET_BLOCK) {
-		return p_a.opens == BRACKET_BLOCK ? String() : String(" ");
+		return (p_a.opens == BRACKET_BLOCK && p_b.text != "pass") ? String() : String(" ");
 	}
 	if (p_a.opens == BRACKET_BLOCK) {
 		return " ";
@@ -446,6 +450,10 @@ String GDScriptFormatter::get_default_preset(bool p_braced) {
 }
 
 GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, const String &p_path, const Options &p_options) {
+	return _format(p_source, p_path, p_options, false);
+}
+
+GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented) {
 	Result result;
 	const bool braced = GDScriptTokenizer::is_braced_path(p_path);
 	const bool crlf = p_options.use_crlf || p_source.contains("\r\n");
@@ -563,8 +571,16 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 		for (int i = 0; i < pieces.size(); i++) {
 			Piece &piece = pieces.write[i];
 			if (piece.kind != PIECE_TOKEN) {
-				if (piece.kind == PIECE_LINE_COMMENT && braced && p_options.comment_style != COMMENT_STYLE_KEEP) {
-					piece.text = _convert_comment(piece.text, p_options.comment_style);
+				if (piece.kind == PIECE_LINE_COMMENT && braced && (p_to_indented || p_options.comment_style != COMMENT_STYLE_KEEP)) {
+					piece.text = _convert_comment(piece.text, p_to_indented ? COMMENT_STYLE_HASH : p_options.comment_style);
+				} else if (piece.kind == PIECE_BLOCK_COMMENT && p_to_indented) {
+					// `.gd` has only line comments: one `#` line per line of the block comment.
+					const String body = piece.text.substr(2, piece.text.length() - 4);
+					Vector<String> comment_lines;
+					for (const String &comment_line : body.split("\n")) {
+						comment_lines.push_back("#" + comment_line.strip_edges(false, true));
+					}
+					piece.text = String("\n").join(comment_lines);
 				}
 				in_node_path = false;
 				continue;
@@ -592,9 +608,12 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 				piece.node_path = in_node_path;
 			}
 
-			if (braced && piece.type == Token::ELIF) {
+			// After a `.`, a keyword is an attribute name (`dict.elif`, `dict.and`): never respell it.
+			const bool attribute = previous_token != nullptr && previous_token->type == Token::PERIOD;
+
+			if (braced && piece.type == Token::ELIF && !attribute) {
 				// `.gdb` accepts `elif` and `else if` alike.
-				if (p_options.elif_style == ELIF_STYLE_ELIF) {
+				if (p_to_indented || p_options.elif_style == ELIF_STYLE_ELIF) {
 					piece.text = "elif";
 				} else if (p_options.elif_style == ELIF_STYLE_ELSE_IF || piece.text.begins_with("else")) {
 					piece.text = "else if";
@@ -602,7 +621,9 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 			}
 
 			const bool after_is = previous_token != nullptr && previous_token->type == Token::IS; // `is not`
-			if (p_options.operator_style == OPERATOR_STYLE_WORDS) {
+			if (attribute) {
+				// Leave it as written.
+			} else if (p_options.operator_style == OPERATOR_STYLE_WORDS) {
 				if (piece.type == Token::AMPERSAND_AMPERSAND) {
 					piece.type = Token::AND;
 					piece.text = "and";
@@ -629,9 +650,12 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 		}
 	}
 
-	// `:=`, and which block braces span lines.
+	// `:=`, which block braces span lines, which belong to lambdas, and what they become in `.gd`.
 	{
 		List<int> openers;
+		List<int> lambda_depths; // Bracket depth of each `func` that starts a lambda, until its body opens.
+		int depth = 0;
+		int previous_token = -1;
 		for (int i = 0; i < pieces.size(); i++) {
 			Piece &piece = pieces.write[i];
 			if (piece.kind != PIECE_TOKEN) {
@@ -640,16 +664,46 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 			if (piece.type == Token::COLON && i + 1 < pieces.size() && pieces[i + 1].kind == PIECE_TOKEN && pieces[i + 1].type == Token::EQUAL) {
 				piece.walrus = true;
 			}
+			if (piece.type == Token::FUNC && previous_token >= 0) {
+				// A `func` after `=`, `(`, `,`, `return` and the like is a lambda; one starting a statement is a method.
+				const Piece &before = pieces[previous_token];
+				if (before.opens != BRACKET_BLOCK && before.closes != BRACKET_BLOCK && (before.type == Token::EQUAL || before.type == Token::PARENTHESIS_OPEN || before.type == Token::BRACKET_OPEN || before.type == Token::BRACE_OPEN || before.type == Token::COMMA || before.type == Token::COLON || before.type == Token::RETURN || before.type == Token::ELSE || _is_binary_operator(before.type))) {
+					lambda_depths.push_back(depth);
+				}
+			}
 			if (piece.opens == BRACKET_BLOCK) {
+				if (!lambda_depths.is_empty() && lambda_depths.back()->get() == depth) {
+					piece.lambda_block = true;
+					lambda_depths.pop_back();
+				}
+				if (!piece.lambda_block) {
+					for (const int enclosing : openers) {
+						pieces.write[enclosing].holds_block = true;
+					}
+				}
+				if (p_to_indented) {
+					piece.text = ":";
+				}
 				openers.push_back(i);
 			} else if (piece.closes == BRACKET_BLOCK && !openers.is_empty()) {
 				const int opener = openers.back()->get();
 				openers.pop_back();
+				piece.lambda_block = pieces[opener].lambda_block;
+				piece.holds_block = pieces[opener].holds_block;
 				if (pieces[opener].line != piece.line) {
 					pieces.write[opener].multiline_block = true;
 					piece.multiline_block = true;
 				}
+				if (p_to_indented) {
+					piece.text = previous_token == opener ? "pass" : ""; // `{}` is an empty block; `}` has no `.gd` form.
+				}
 			}
+			if (piece.opens != BRACKET_NONE) {
+				depth++;
+			} else if (piece.closes != BRACKET_NONE) {
+				depth = MAX(0, depth - 1);
+			}
+			previous_token = i;
 		}
 	}
 
@@ -902,6 +956,11 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 			return 0;
 		}
 		const StackEntry &top = stack.back()->get();
+		if (p_to_indented && top.lambda_block && p_first.kind == PIECE_TOKEN && p_first.closes == BRACKET_BLOCK) {
+			// What follows a lambda's body in `.gd` (`, 6))`) must dedent to the statement's level, which the
+			// indentation stack knows, not to the line that opened the lambda inside brackets.
+			return top.statement_level;
+		}
 		if (p_first.kind == PIECE_TOKEN && p_first.closes != BRACKET_NONE) {
 			return top.level;
 		}
@@ -917,6 +976,20 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 	};
 	// `.gdb`: a block that spans lines gets its braces at the ends of lines, and a statement after a `}` its own line.
 	auto breaks_after = [&](const Piece &p_piece, const Piece &p_next) {
+		if (p_to_indented && p_piece.kind == PIECE_TOKEN && p_next.kind == PIECE_TOKEN) {
+			// A block written on one line stays on one line (`if x: a()`), which also keeps `@warning_ignore` on the
+			// statement's line, unless it holds another block, which `.gd` cannot nest on one line.
+			if (p_piece.opens == BRACKET_BLOCK) {
+				return p_piece.multiline_block || p_piece.holds_block;
+			}
+			if (p_next.closes == BRACKET_BLOCK) {
+				// A lambda's body ends where the code after it continues: `return 1,` closes the lambda inline.
+				return !p_next.lambda_block && (p_next.multiline_block || p_next.holds_block);
+			}
+			if (p_piece.closes == BRACKET_BLOCK && !p_piece.lambda_block) {
+				return true;
+			}
+		}
 		if (!braced || p_piece.kind != PIECE_TOKEN || p_next.kind != PIECE_TOKEN) {
 			return false;
 		}
@@ -935,7 +1008,8 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 				case Token::BRACE_CLOSE:
 					return false;
 				default:
-					return p_next.closes != BRACKET_BLOCK;
+					// Another block closing right after: its own line if it spans lines.
+					return p_next.closes != BRACKET_BLOCK || p_next.multiline_block;
 			}
 		}
 		return p_next.closes == BRACKET_BLOCK && p_next.multiline_block;
@@ -961,7 +1035,7 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 		pending_blank = 0;
 
 		// K&R: `} else {` and `} elif x {` on one line.
-		const bool joins_previous = braced && previous_is_lone_close && first.kind == PIECE_TOKEN && (first.type == Token::ELSE || first.type == Token::ELIF);
+		const bool joins_previous = braced && !p_to_indented && previous_is_lone_close && first.kind == PIECE_TOKEN && (first.type == Token::ELSE || first.type == Token::ELIF);
 		String text;
 		int level = 0;
 		if (joins_previous) {
@@ -982,23 +1056,43 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 
 		// The pieces on this line, and on the lines a multi-line piece runs into.
 		int last_line = line;
-		const Piece *previous = nullptr;
-		const Piece *before_previous = nullptr;
+		const Piece *previous = nullptr; // For line breaks.
+		const Piece *emitted = nullptr; // For spacing: the last piece that produced text.
+		const Piece *before_emitted = nullptr;
 		bool lone_close = true;
+		String deferred_comment; // `.gd`: a block comment with code after it goes to the end of the line.
+		auto flush = [&]() {
+			if (!deferred_comment.is_empty()) {
+				text += "  " + deferred_comment;
+				deferred_comment = String();
+			}
+			const String done = trimmed(text);
+			if (!(p_to_indented && done.strip_edges().is_empty())) {
+				out.push_back(done); // Converting to `.gd` drops lines that only held a `}`.
+			}
+		};
 		int i = info.first_piece;
 		for (; i < pieces.size() && pieces[i].line <= last_line; i++) {
 			const Piece &piece = pieces[i];
 			if (previous != nullptr && breaks_after(*previous, piece)) {
-				out.push_back(trimmed(text));
+				flush();
 				level = level_for(piece);
 				text = unit.repeat(level);
 				previous = nullptr;
+				emitted = nullptr;
 				lone_close = true;
 			}
-			if (previous != nullptr) {
-				text += _spacing(*previous, piece, before_previous, source, p_options);
+			const bool has_code_after = i + 1 < pieces.size() && pieces[i + 1].line <= MAX(last_line, piece.end_line) && pieces[i + 1].kind == PIECE_TOKEN;
+			if (p_to_indented && piece.kind == PIECE_BLOCK_COMMENT && has_code_after) {
+				deferred_comment = piece.text.replace("\n", " ");
+			} else if (!piece.text.is_empty()) {
+				if (emitted != nullptr) {
+					text += _spacing(*emitted, piece, before_emitted, source, p_options, p_to_indented);
+				}
+				text += piece.text;
+				before_emitted = emitted;
+				emitted = &pieces[i];
 			}
-			text += piece.text;
 			last_line = MAX(last_line, piece.end_line);
 			if (!(piece.kind == PIECE_TOKEN && piece.closes == BRACKET_BLOCK)) {
 				lone_close = false;
@@ -1012,10 +1106,19 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 					entry.kind = piece.opens;
 					entry.opener_line = line;
 					entry.level = level;
+					entry.lambda_block = piece.lambda_block;
+					if (piece.lambda_block) {
+						// The statement's level: one inside the nearest enclosing block, or the top level.
+						for (List<StackEntry>::Element *E = stack.back(); E; E = E->prev()) {
+							if (E->get().kind == BRACKET_BLOCK) {
+								entry.statement_level = E->get().level + 1;
+								break;
+							}
+						}
+					}
 					stack.push_back(entry);
 				}
 			}
-			before_previous = previous;
 			previous = &pieces[i];
 		}
 
@@ -1033,13 +1136,19 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 		if (!info.comment_only) {
 			previous_code_line = line;
 		}
-		out.push_back(trimmed(text));
+		flush();
 		line = last_line;
 	}
 
 	String output = String("\n").join(out);
 	if (!output.is_empty() && p_options.insert_final_newline) {
 		output += "\n";
+	}
+
+	if (p_to_indented) {
+		// A conversion produces different tokens by design; `convert()` checks it by comparing parse trees instead.
+		result.output = crlf ? output.replace("\n", "\r\n") : output;
+		return result;
 	}
 
 	// Safety: the same tokens, and still valid.
@@ -1061,6 +1170,122 @@ GDScriptFormatter::Result GDScriptFormatter::format(const String &p_source, cons
 
 	result.output = crlf ? output.replace("\n", "\r\n") : output;
 	return result;
+}
+
+// Conversion between `.gd` and `.gdb`.
+
+GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, const String &p_path, bool p_keep_lines, const Options &p_options) {
+	Result result;
+	auto fail = [&](const String &p_message, int p_line) {
+		result.error = ERR_PARSE_ERROR;
+		result.message = p_message;
+		result.line = p_line;
+		return result;
+	};
+#ifndef DEBUG_ENABLED
+	return fail("Converting scripts needs a debug or editor build.", 0);
+#else
+	if (!GDScriptTokenizer::is_braced_path("x.gdb")) {
+		return fail("Braced GDScript is not compiled into this build.", 0);
+	}
+	const bool from_braced = GDScriptTokenizer::is_braced_path(p_path);
+	const String base = p_path.is_empty() ? String("res://convert") : p_path.get_basename();
+	const String gd_path = base + ".gd";
+	const String gdb_path = base + ".gdb";
+	const bool crlf = p_options.use_crlf || p_source.contains("\r\n");
+	const String source = p_source.replace("\r\n", "\n");
+
+	// The source's tree, and for a `.gd` source where its blocks start and end.
+	GDScriptParser source_parser;
+	Vector<GDScriptParser::BlockRecord> blocks;
+	if (!from_braced) {
+		source_parser.set_block_log(&blocks);
+	}
+	if (source_parser.parse(source, from_braced ? gdb_path : gd_path, false) != OK) {
+		const List<GDScriptParser::ParserError> &errors = source_parser.get_errors();
+		return errors.is_empty() ? fail("The script has syntax errors.", 0) : fail(errors.front()->get().message, errors.front()->get().start_line);
+	}
+	const String tree = GDScriptParser::TreePrinter().get_tree_text(source_parser);
+
+	String output;
+	if (from_braced) {
+		const Result indented = _format(source, gdb_path, p_options, true);
+		if (indented.error != OK) {
+			return indented;
+		}
+		output = indented.output.replace("\r\n", "\n");
+	} else {
+		// Each block's `:` becomes ` {`, and ` }` goes after its last token, so every line stays where it was.
+		Vector<int> line_starts;
+		line_starts.push_back(0);
+		for (int i = 0; i < source.length(); i++) {
+			if (source[i] == '\n') {
+				line_starts.push_back(i + 1);
+			}
+		}
+		auto offset_of = [&](int p_line, int p_column) {
+			return line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1;
+		};
+		struct Edit {
+			int offset = 0;
+			int order = 0;
+			bool replaces_colon = false;
+		};
+		Vector<Edit> edits;
+		for (int i = 0; i < blocks.size(); i++) {
+			// Blocks are logged as they finish, inner first, so `order` puts an inner `}` before an outer one.
+			edits.push_back({ offset_of(blocks[i].colon_line, blocks[i].colon_column), i, true });
+			edits.push_back({ offset_of(blocks[i].end_line, blocks[i].end_column), i, false });
+		}
+		struct EditOrder {
+			bool operator()(const Edit &p_a, const Edit &p_b) const {
+				return p_a.offset == p_b.offset ? p_a.order < p_b.order : p_a.offset < p_b.offset;
+			}
+		};
+		edits.sort_custom<EditOrder>();
+		String converted;
+		int copied = 0;
+		for (const Edit &edit : edits) {
+			if (edit.offset < copied || edit.offset > source.length()) {
+				return fail("Internal converter error: overlapping blocks.", 0);
+			}
+			converted += source.substr(copied, edit.offset - copied);
+			copied = edit.offset;
+			if (edit.replaces_colon) {
+				if (source[edit.offset] != ':') {
+					return fail("Internal converter error: a block does not start with \":\".", 0);
+				}
+				const bool spaced = edit.offset > 0 && (source[edit.offset - 1] == ' ' || source[edit.offset - 1] == '\t');
+				converted += spaced ? "{" : " {";
+				copied++;
+			} else {
+				converted += " }";
+			}
+		}
+		converted += source.substr(copied);
+		output = converted;
+		if (!p_keep_lines) {
+			const Result formatted = _format(output, gdb_path, p_options, false);
+			if (formatted.error != OK) {
+				return fail("Internal converter error: the converted code cannot be formatted: " + formatted.message, formatted.line);
+			}
+			output = formatted.output.replace("\r\n", "\n");
+		}
+	}
+
+	// The result must mean exactly what the source meant.
+	GDScriptParser check;
+	if (check.parse(output, from_braced ? gd_path : gdb_path, false) != OK) {
+		const List<GDScriptParser::ParserError> &errors = check.get_errors();
+		const String reason = errors.is_empty() ? String() : vformat(" (line %d: %s)", errors.front()->get().start_line, errors.front()->get().message);
+		return fail("Internal converter error: the converted code does not parse" + reason + ". Nothing was changed.", errors.is_empty() ? 0 : errors.front()->get().start_line);
+	}
+	if (GDScriptParser::TreePrinter().get_tree_text(check) != tree) {
+		return fail("Internal converter error: the converted code would not mean the same thing. Nothing was changed.", 0);
+	}
+	result.output = crlf ? output.replace("\n", "\r\n") : output;
+	return result;
+#endif // DEBUG_ENABLED
 }
 
 // EditorConfig.
@@ -1370,4 +1595,88 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 
 	OS::get_singleton()->print("%d file(s) checked, %d %s, %d error(s).\n", (int)files.size(), changed, check ? "would change" : "changed", errors);
 	return (errors > 0 || (check && changed > 0)) ? 1 : 0;
+}
+
+int GDScriptFormatter::run_convert_cli(const List<String> &p_args) {
+	String direction;
+	bool keep_lines = false;
+	bool replace = false;
+	String preset;
+	Vector<String> paths;
+	bool ours = false;
+	for (const List<String>::Element *E = p_args.front(); E; E = E->next()) {
+		const String &arg = E->get();
+		if (!ours) {
+			ours = arg == "--gdscript-convert";
+			continue;
+		}
+		if (direction.is_empty() && (arg == "to-gdb" || arg == "to-gd")) {
+			direction = arg;
+		} else if (arg == "--keep-lines") {
+			keep_lines = true;
+		} else if (arg == "--replace") {
+			replace = true;
+		} else if (arg == "--preset" && E->next()) {
+			E = E->next();
+			preset = E->get();
+		} else if (!arg.begins_with("-")) {
+			paths.push_back(arg);
+		}
+	}
+	if (direction.is_empty() || paths.is_empty()) {
+		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] [--preset godot|js] <files or directories>\n");
+		return 1;
+	}
+	const bool to_braced = direction == "to-gdb";
+
+	Vector<String> files;
+	for (const String &path : paths) {
+		_collect_scripts(_absolute(path), files);
+	}
+	int errors = 0;
+	int converted = 0;
+	for (const String &file : files) {
+		if (GDScriptTokenizer::is_braced_path(file) == to_braced) {
+			continue; // Already in the target form.
+		}
+		const String target = file.get_basename() + (to_braced ? ".gdb" : ".gd");
+		if (FileAccess::exists(target)) {
+			OS::get_singleton()->printerr("%s: %s already exists; skipped.\n", file.utf8().get_data(), target.get_file().utf8().get_data());
+			errors++;
+			continue;
+		}
+		Error err = OK;
+		const String source = FileAccess::get_file_as_string(file, &err);
+		if (err != OK) {
+			OS::get_singleton()->printerr("%s: cannot read the file.\n", file.utf8().get_data());
+			errors++;
+			continue;
+		}
+		const Result result = convert(source, file, keep_lines, get_options_for_path(target, preset));
+		if (result.error != OK) {
+			OS::get_singleton()->printerr("%s:%d: %s\n", file.utf8().get_data(), result.line, result.message.utf8().get_data());
+			errors++;
+			continue;
+		}
+		Ref<FileAccess> f = FileAccess::open(target, FileAccess::WRITE, &err);
+		if (f.is_null()) {
+			OS::get_singleton()->printerr("%s: cannot write the file.\n", target.utf8().get_data());
+			errors++;
+			continue;
+		}
+		f->store_string(result.output);
+		f.unref();
+		if (replace) {
+			// Moving the `.uid` file keeps references by UID working; references by path still name the old file.
+			Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+			if (FileAccess::exists(file + ".uid")) {
+				dir->rename(file + ".uid", target + ".uid");
+			}
+			dir->remove(file);
+		}
+		converted++;
+		OS::get_singleton()->print("Converted %s -> %s\n", file.utf8().get_data(), target.get_file().utf8().get_data());
+	}
+	OS::get_singleton()->print("%d file(s) converted, %d error(s).\n", converted, errors);
+	return errors > 0 ? 1 : 0;
 }

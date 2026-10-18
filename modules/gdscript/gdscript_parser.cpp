@@ -446,7 +446,9 @@ void GDScriptParser::set_last_completion_call_arg(int p_argument) {
 }
 
 Error GDScriptParser::parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body) {
+	Vector<BlockRecord> *log = block_log; // GDB: `clear()` resets every member.
 	clear();
+	block_log = log;
 
 	String source = p_source_code;
 	int cursor_line = -1;
@@ -588,6 +590,10 @@ GDScriptTokenizer::Token GDScriptParser::advance() {
 		ERR_FAIL_COND_V_MSG(current.type == GDScriptTokenizer::Token::TK_EOF, current, "GDScript parser bug: Trying to advance past the end of stream.");
 	}
 	previous = current;
+	if (previous.type != GDScriptTokenizer::Token::NEWLINE && previous.type != GDScriptTokenizer::Token::INDENT && previous.type != GDScriptTokenizer::Token::DEDENT) {
+		last_significant_end_line = previous.end_line; // GDB: For the block log.
+		last_significant_end_column = previous.end_column;
+	}
 	current = tokenizer->scan();
 	while (current.type == GDScriptTokenizer::Token::ERROR) {
 		push_error(current.literal, current);
@@ -599,6 +605,18 @@ GDScriptTokenizer::Token GDScriptParser::advance() {
 		}
 	}
 	return previous;
+}
+
+void GDScriptParser::_log_block(int p_colon_line, int p_colon_column) {
+	if (block_log == nullptr) {
+		return;
+	}
+	BlockRecord record;
+	record.colon_line = p_colon_line;
+	record.colon_column = p_colon_column;
+	record.end_line = last_significant_end_line;
+	record.end_column = last_significant_end_column;
+	block_log->push_back(record);
 }
 
 bool GDScriptParser::match(GDScriptTokenizer::Token::Type p_token_type) {
@@ -965,6 +983,8 @@ GDScriptParser::ClassNode *GDScriptParser::parse_class(bool p_is_static) {
 	}
 
 	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after class declaration.)");
+	const int colon_line = previous.start_line; // GDB
+	const int colon_column = previous.start_column;
 
 	bool multiline = match(GDScriptTokenizer::Token::NEWLINE);
 
@@ -984,6 +1004,7 @@ GDScriptParser::ClassNode *GDScriptParser::parse_class(bool p_is_static) {
 
 	parse_class_body(multiline);
 	complete_extents(n_class);
+	_log_block(colon_line, colon_column); // GDB
 
 	if (multiline) {
 		consume(GDScriptTokenizer::Token::DEDENT, R"(Missing unindent at the end of the class body.)");
@@ -1256,10 +1277,14 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 	variable->is_static = p_is_static;
 
 	if (match(GDScriptTokenizer::Token::COLON)) {
+		const int colon_line = previous.start_line; // GDB: An untyped property's block starts here.
+		const int colon_column = previous.start_column;
 		if (check(GDScriptTokenizer::Token::NEWLINE)) {
 			if (p_allow_property) {
 				advance();
-				return parse_property(variable, true);
+				VariableNode *property = parse_property(variable, true);
+				_log_block(colon_line, colon_column); // GDB
+				return property;
 			} else {
 				push_error(R"(Expected type after ":")");
 				complete_extents(variable);
@@ -1274,7 +1299,9 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 				if (check(GDScriptTokenizer::Token::IDENTIFIER)) {
 					// Check if get or set.
 					if (current.get_identifier() == "get" || current.get_identifier() == "set") {
-						return parse_property(variable, false);
+						VariableNode *property = parse_property(variable, false);
+						_log_block(colon_line, colon_column); // GDB
+						return property;
 					}
 				}
 			}
@@ -1294,11 +1321,11 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 	}
 
 	if (p_allow_property && match(GDScriptTokenizer::Token::COLON)) {
-		if (match(GDScriptTokenizer::Token::NEWLINE)) {
-			return parse_property(variable, true);
-		} else {
-			return parse_property(variable, false);
-		}
+		const int colon_line = previous.start_line; // GDB
+		const int colon_column = previous.start_column;
+		VariableNode *property = match(GDScriptTokenizer::Token::NEWLINE) ? parse_property(variable, true) : parse_property(variable, false);
+		_log_block(colon_line, colon_column);
+		return property;
 	}
 
 	complete_extents(variable);
@@ -1957,6 +1984,10 @@ bool GDScriptParser::register_annotation(const MethodInfo &p_info, uint32_t p_ta
 
 GDScriptParser::SuiteNode *GDScriptParser::parse_suite(const String &p_context, SuiteNode *p_suite, bool p_for_lambda) {
 	SuiteNode *suite = p_suite != nullptr ? p_suite : alloc_node<SuiteNode>();
+	// GDB: Every block is a suite after its `:`.
+	const bool logged = previous.type == GDScriptTokenizer::Token::COLON;
+	const int colon_line = previous.start_line;
+	const int colon_column = previous.start_column;
 	suite->parent_block = current_suite;
 	suite->parent_function = current_function;
 	current_suite = suite;
@@ -2040,6 +2071,10 @@ GDScriptParser::SuiteNode *GDScriptParser::parse_suite(const String &p_context, 
 		}
 	} else if (previous.type == GDScriptTokenizer::Token::SEMICOLON) {
 		consume(GDScriptTokenizer::Token::NEWLINE, vformat(R"(Expected newline after ";" at the end of %s.)", p_context));
+	}
+
+	if (logged) {
+		_log_block(colon_line, colon_column); // GDB
 	}
 
 	if (p_for_lambda) {
@@ -2431,6 +2466,8 @@ GDScriptParser::MatchNode *GDScriptParser::parse_match() {
 	}
 
 	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after "match" expression.)");
+	const int colon_line = previous.start_line; // GDB
+	const int colon_column = previous.start_column;
 	consume(GDScriptTokenizer::Token::NEWLINE, R"(Expected a newline after "match" statement.)");
 
 	if (!consume(GDScriptTokenizer::Token::INDENT, R"(Expected an indented block after "match" statement.)")) {
@@ -2484,6 +2521,7 @@ GDScriptParser::MatchNode *GDScriptParser::parse_match() {
 		match_node->branches.push_back(branch);
 	}
 	complete_extents(match_node);
+	_log_block(colon_line, colon_column); // GDB
 
 	consume(GDScriptTokenizer::Token::DEDENT, R"(Expected an indented block after "match" statement.)");
 
@@ -6465,6 +6503,22 @@ void GDScriptParser::TreePrinter::print_while(const WhileNode *p_while) {
 	increase_indent();
 	print_suite(p_while->loop);
 	decrease_indent();
+}
+
+String GDScriptParser::TreePrinter::get_tree_text(const GDScriptParser &p_parser) {
+	ClassNode *class_tree = p_parser.get_tree();
+	ERR_FAIL_NULL_V_MSG(class_tree, String(), "Parse the code before printing the parse tree.");
+
+	if (p_parser.is_tool()) {
+		push_line("@tool");
+	}
+	if (!class_tree->icon_path.is_empty()) {
+		push_text(R"(@icon (")");
+		push_text(class_tree->icon_path);
+		push_line("\")");
+	}
+	print_class(class_tree);
+	return String(printed);
 }
 
 void GDScriptParser::TreePrinter::print_tree(const GDScriptParser &p_parser) {

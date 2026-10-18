@@ -1432,6 +1432,22 @@ private:
 
 	GDScriptTokenizer *tokenizer = nullptr;
 	GDScriptTokenizer::Token previous;
+
+public:
+	// GDB: Where each block starts (its `:`, one-based) and where its last token ends (exclusive column), in the order
+	// blocks finish: an inner block before the block holding it. Used by the `.gd` to `.gdb` converter.
+	struct BlockRecord {
+		int colon_line = 0;
+		int colon_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+	};
+
+private:
+	Vector<BlockRecord> *block_log = nullptr;
+	int last_significant_end_line = 0;
+	int last_significant_end_column = 0;
+	void _log_block(int p_colon_line, int p_colon_column);
 	GDScriptTokenizer::Token current;
 
 	ClassNode *current_class = nullptr;
@@ -1683,6 +1699,9 @@ private:
 
 public:
 	Error parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body = true);
+
+	// GDB: See `BlockRecord`.
+	void set_block_log(Vector<BlockRecord> *p_log) { block_log = p_log; }
 	Error parse_binary(const Vector<uint8_t> &p_binary, const String &p_script_path);
 	ClassNode *get_tree() const { return head; }
 	bool is_tool() const { return _is_tool; }
@@ -1770,6 +1789,9 @@ public:
 
 	public:
 		void print_tree(const GDScriptParser &p_parser);
+		// GDB: The tree as text, without printing it. It holds no source positions, so two scripts with the same
+		// structure and different layout print the same.
+		String get_tree_text(const GDScriptParser &p_parser);
 	};
 #endif // DEBUG_ENABLED
 	static void cleanup();

@@ -98,8 +98,21 @@ public:
 	// `p_path` only decides brace mode (by extension) and the parser's script path.
 	static Result format(const String &p_source, const String &p_path, const Options &p_options);
 
+	// Converts a script between `.gd` and braced `.gdb`; the extension of `p_path` says which one `p_source` is. The
+	// result is formatted with `p_options`. `p_keep_lines` keeps every statement on its line instead, which only a
+	// `.gd` to `.gdb` conversion can always do. The conversion is checked: both versions must parse to the same tree.
+	static Result convert(const String &p_source, const String &p_path, bool p_keep_lines, const Options &p_options);
+
+	// `godot --headless --gdscript-convert <to-gdb|to-gd> [--keep-lines] [--replace] <paths>` converts each file next to
+	// itself; `--replace` also removes the original and moves its `.uid` file. Returns the process exit code.
+	static int run_convert_cli(const List<String> &p_args);
+
 	// `godot --headless --gdscript-format [--check] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]
 	// [--stdin --stdin-path <path>] <paths>`. The indent flags override `.editorconfig`, so an editor can pass its own
 	// effective settings. Returns the process exit code.
 	static int run_cli(const List<String> &p_args);
+
+private:
+	// `p_to_indented`: `p_source` is braced, and the result is the equivalent indented `.gd` code.
+	static Result _format(const String &p_source, const String &p_path, const Options &p_options, bool p_to_indented);
 };

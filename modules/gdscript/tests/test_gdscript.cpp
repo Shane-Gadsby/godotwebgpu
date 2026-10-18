@@ -395,7 +395,9 @@ int generate_tests() {
 		path = "modules/gdscript/tests/scripts";
 	}
 
-	GDScriptTestRunner runner(path, print_filenames);
+	// GDB: `--use-binary-tokens` generates outputs through binary tokens, to compare them with text-mode outputs.
+	const bool use_binary_tokens = cmdline_args.find("--use-binary-tokens") != nullptr;
+	GDScriptTestRunner runner(path, print_filenames, use_binary_tokens);
 
 	bool completed = runner.generate_outputs();
 	return completed ? 0 : -1;

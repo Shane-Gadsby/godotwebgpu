@@ -227,6 +227,88 @@ TEST_CASE("[Modules][GDScript] Formatter: braced GDScript (JS-like preset)") {
 	}
 }
 
+TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
+	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
+		return; // Braced GDScript is compiled out.
+	}
+
+	SUBCASE(".gd to .gdb keeps every line") {
+		const String source =
+				"class Inner extends RefCounted:\n"
+				"\tvar p: int:\n"
+				"\t\tget:\n"
+				"\t\t\treturn 1\n"
+				"\n"
+				"\n"
+				"func f(x):\n"
+				"\tif x: print(1)\n"
+				"\telif x == 2:\n"
+				"\t\tprint(2) # two\n"
+				"\telse:\n"
+				"\t\tmatch x:\n"
+				"\t\t\t_:\n"
+				"\t\t\t\tpass\n"
+				"\tvar arr = [1].map(func(v): return v * 2)\n"
+				"\treturn arr\n";
+		const String expected =
+				"class Inner extends RefCounted {\n"
+				"\tvar p: int {\n"
+				"\t\tget {\n"
+				"\t\t\treturn 1 } } }\n"
+				"\n"
+				"\n"
+				"func f(x) {\n"
+				"\tif x { print(1) }\n"
+				"\telif x == 2 {\n"
+				"\t\tprint(2) } # two\n"
+				"\telse {\n"
+				"\t\tmatch x {\n"
+				"\t\t\t_ {\n"
+				"\t\t\t\tpass } } }\n"
+				"\tvar arr = [1].map(func(v) { return v * 2 })\n"
+				"\treturn arr }\n";
+		const GDScriptFormatter::Result result = GDScriptFormatter::convert(source, "res://a.gd", true, GDScriptFormatter::get_preset("js"));
+		CHECK_MESSAGE(result.error == OK, result.message);
+		CHECK(result.output == expected);
+	}
+
+	SUBCASE(".gdb to .gd") {
+		const String source =
+				"func f(x) {\n"
+				"    if x { print(1) } else if x == 2 { print(2) }\n"
+				"    if x { if x { print(3) } }\n"
+				"    var fns = [\n"
+				"        func() {\n"
+				"            return 1 },\n"
+				"    ]\n"
+				"    var y = 1 /* inline */ + 2 // trailing\n"
+				"    var empty = func() {}\n"
+				"    return [fns, y, empty]\n"
+				"}\n";
+		const String expected =
+				"func f(x):\n"
+				"\tif x: print(1)\n"
+				"\telif x == 2: print(2)\n"
+				"\tif x:\n"
+				"\t\tif x: print(3)\n"
+				"\tvar fns = [\n"
+				"\t\tfunc():\n"
+				"\t\t\treturn 1,\n"
+				"\t]\n"
+				"\tvar y = 1 + 2 # trailing  # inline\n"
+				"\tvar empty = func(): pass\n"
+				"\treturn [fns, y, empty]\n";
+		const GDScriptFormatter::Result result = GDScriptFormatter::convert(source, "res://a.gdb", false, GDScriptFormatter::get_preset("godot"));
+		CHECK_MESSAGE(result.error == OK, result.message);
+		CHECK(result.output == expected);
+	}
+
+	SUBCASE("Refuses code that does not parse") {
+		CHECK(GDScriptFormatter::convert("func f(:\n", "res://a.gd", true, GDScriptFormatter::get_preset("godot")).error != OK);
+		CHECK(GDScriptFormatter::convert("func f() {\n", "res://a.gdb", false, GDScriptFormatter::get_preset("godot")).error != OK);
+	}
+}
+
 #ifdef TOOLS_ENABLED
 TEST_CASE("[Modules][GDScript] Script editor hooks for braced GDScript") {
 	const GDScriptEditorLanguage *language = GDScriptEditorLanguage::get_singleton();

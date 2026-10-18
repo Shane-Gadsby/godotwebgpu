@@ -304,7 +304,7 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 				String out_file = next.get_basename() + ".out";
 				ERR_FAIL_COND_V_MSG(!is_generating && !dir->file_exists(out_file), false, "Could not find output file for " + next);
 
-				if (next.ends_with(".bin.gd")) {
+				if (next.ends_with(".bin.gd") || next.ends_with(".bin.gdb")) { // GDB
 					// Test text mode first.
 					GDScriptTest text_test(current_dir.path_join(next), current_dir.path_join(out_file), source_dir);
 					tests.push_back(text_test);
@@ -614,7 +614,7 @@ GDScriptTest::TestResult GDScriptTest::execute_test_code(bool p_is_generating) {
 	}
 
 	// `*.norun.gd` files are allowed to not contain a `test()` function (no runtime testing).
-	if (source_file.ends_with(".norun.gd")) {
+	if (source_file.ends_with(".norun.gd") || source_file.ends_with(".norun.gdb")) { // GDB
 		enable_stdout();
 		result.status = GDTEST_OK;
 		result.output = get_text_for_status(result.status) + "\n" + result.output;
