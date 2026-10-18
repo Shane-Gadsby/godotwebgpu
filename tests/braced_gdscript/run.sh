@@ -161,6 +161,13 @@ if [ "$QUICK" = 1 ]; then
 	exit $fail
 fi
 
+echo "fuzzing: mangled .gd and .gdb files through the tokenizer, parser, formatter and converter"
+for seed in 1 2; do
+	r=$(GDB_FUZZ_SEED=$seed GDB_FUZZ_ITERATIONS=${FUZZ_ITERATIONS:-20000} GDB_FUZZ_DUMP="$WORK/fuzz_input.gdb" GDB_FUZZ_FAILURES="$WORK" \
+		"$G" --headless --test --test-case="*mangled input*" 2>&1 | grep "assertions:" | grep -o "[0-9]* failed")
+	check "${r:-crashed (input in $WORK/fuzz_input.gdb)}" "0 failed" "seed $seed, ${FUZZ_ITERATIONS:-20000} inputs (failures kept in the work directory)"
+done
+
 echo "braced feature tests converted to .gd"
 mkdir -p "$WORK/b2g"
 cp "$BRACES"/features/*.gdb "$WORK/b2g/"

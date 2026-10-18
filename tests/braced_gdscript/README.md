@@ -13,6 +13,7 @@ formatter, converter and editor hooks, and run every test script under `modules/
 | Braced tests converted to `.gd` | The braced feature tests, converted with `--gdscript-convert to-gd`, print what the `.gdb` files print |
 | Every GDScript test converted to `.gdb` | Every upstream test, converted to `.gdb`, prints what it printed as `.gd`: with lines kept, with lines kept and binary tokens, and formatted with the `godot` preset |
 | Round trip | Every test converted to `.gdb` and back to `.gd` prints what it printed before |
+| Fuzzing | 2 × 20,000 mangled `.gd` and `.gdb` files (characters inserted and deleted, slices duplicated, lines swapped, brackets changed) go through the tokenizer, parser, formatter and converter without a crash, a hang, an internal formatter error or an unstable result. The unit tests run 300 of them; `FUZZ_ITERATIONS` changes the count here. `GDB_FUZZ_SEED`, `GDB_FUZZ_ITERATIONS`, `GDB_FUZZ_DUMP` and `GDB_FUZZ_FAILURES` drive the test case directly (`test_gdscript_braces_fuzz.h`) |
 
 Known differences are listed at the top of `run.sh`, each with its reason. A known difference that goes away fails the
 check too, so the table stays true.

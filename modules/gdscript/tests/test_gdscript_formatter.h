@@ -343,6 +343,25 @@ TEST_CASE("[Modules][GDScript] Formatter: line ranges and diffs") {
 	}
 }
 
+TEST_CASE("[Modules][GDScript] Formatter: cases found by fuzzing") {
+	SUBCASE("A file without a final line break") {
+		CHECK(_format_or_fail("var a = b", "res://a.gd", "godot") == "var a = b\n");
+		CHECK(_format_or_fail("func f() {\n}\nvar d = { \"a\": 1 }", "res://a.gdb", "js") == "func f() {\n}\n\nvar d = { \"a\": 1 }\n");
+		const GDScriptFormatter::Result converted = GDScriptFormatter::convert("var p = n ? 1 : 2", "res://a.gdb", false, GDScriptFormatter::get_preset("godot"));
+		CHECK(converted.error == OK);
+		CHECK(converted.output == "var p = 1 if n else 2\n");
+	}
+
+	SUBCASE("A respelled operator never touches a word") {
+		CHECK(_format_or_fail("func f(v):\n\treturn \"a\" if v else! \"b\"\n", "res://a.gd", "godot") == "func f(v):\n\treturn \"a\" if v else not \"b\"\n");
+	}
+
+	SUBCASE("A statement after a `}` gets its own line, and the blocks around it span lines") {
+		CHECK(_format_or_fail("func f(x) {\n\tif x { if x { g() } h() }\n}\n", "res://a.gdb", "js") == "func f(x) {\n    if x {\n        if x { g() }\n        h()\n    }\n}\n");
+		CHECK(_format_or_fail("func f() {\n}func g() {\n}\n", "res://a.gdb", "js") == "func f() {\n}\n\nfunc g() {\n}\n");
+	}
+}
+
 TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
 	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
 		return; // Braced GDScript is compiled out.

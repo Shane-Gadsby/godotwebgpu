@@ -166,13 +166,23 @@ Token::Type _canonical_type(Token::Type p_type) {
 	}
 }
 
-// The tokens without commas right before a closing bracket, which the formatter adds and removes (trailing commas).
+// The tokens without what the formatter may add or remove without changing the meaning: commas right before a closing
+// bracket (trailing commas), and line breaks right before the end of the file (a final newline).
 Vector<Token> _without_trailing_commas(const Vector<Token> &p_tokens) {
 	Vector<Token> result;
 	for (int i = 0; i < p_tokens.size(); i++) {
 		if (p_tokens[i].type == Token::COMMA && i + 1 < p_tokens.size()) {
 			const Token::Type next = p_tokens[i + 1].type;
 			if (next == Token::PARENTHESIS_CLOSE || next == Token::BRACKET_CLOSE || next == Token::BRACE_CLOSE) {
+				continue;
+			}
+		}
+		if (p_tokens[i].type == Token::NEWLINE) {
+			int next = i + 1;
+			while (next < p_tokens.size() && p_tokens[next].type == Token::NEWLINE) {
+				next++;
+			}
+			if (next < p_tokens.size() && p_tokens[next].type == Token::TK_EOF) {
 				continue;
 			}
 		}
@@ -338,7 +348,19 @@ bool _calls_with_paren(const Piece &p_piece, const Piece *p_before) {
 	}
 }
 
+String _spacing_rule(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, const String &p_source, const GDScriptFormatter::Options &p_options, bool p_to_indented);
+
+// The spacing rule, except that two pieces never touch where they would read as one word (`else` and a `!` respelled
+// `not`, or `4` and `not`).
 String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, const String &p_source, const GDScriptFormatter::Options &p_options, bool p_to_indented) {
+	const String spacing = _spacing_rule(p_a, p_b, p_before_a, p_source, p_options, p_to_indented);
+	if (spacing.is_empty() && !p_a.text.is_empty() && !p_b.text.is_empty() && is_unicode_identifier_continue(p_a.text[p_a.text.length() - 1]) && is_unicode_identifier_continue(p_b.text[0])) {
+		return " ";
+	}
+	return spacing;
+}
+
+String _spacing_rule(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, const String &p_source, const GDScriptFormatter::Options &p_options, bool p_to_indented) {
 	const String original = p_source.substr(p_a.end, p_b.start - p_a.end);
 	const String fallback = original.is_empty() ? String() : String(" ");
 
@@ -866,8 +888,13 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 		}
 	}
 	const int line_count = line_starts.size();
+	// Clamped: for what ends the file without a line break, positions past the end are reported (the column after
+	// it, or the start of a line that does not exist).
 	auto offset_of = [&](int p_line, int p_column) {
-		return line_starts[CLAMP(p_line - 1, 0, line_count - 1)] + p_column - 1;
+		if (p_line > line_count) {
+			return source.length();
+		}
+		return CLAMP(line_starts[CLAMP(p_line - 1, 0, line_count - 1)] + p_column - 1, 0, source.length());
 	};
 
 	// Pieces: every token that has text, plus the comments and continuations between them, in source order.
@@ -903,7 +930,9 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			}
 		} else {
 			piece.start = offset_of(token.start_line, token.start_column);
-			piece.end = offset_of(token.end_line, token.end_column);
+			// A token's text is its slice of the source. Not `end_line`/`end_column`: for a token that ends the file
+			// without a final line break, the tokenizer reports an end past it.
+			piece.end = piece.start + token.source.length();
 			piece.text = token.source;
 			if (source.substr(piece.start, piece.end - piece.start) != piece.text) {
 				return fail(vformat("Internal formatter error: token \"%s\" is not where the tokenizer placed it.", token.source), token.start_line);
@@ -1041,7 +1070,9 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 				} else if (piece.type == Token::PIPE_PIPE) {
 					piece.type = Token::OR;
 					piece.text = "or";
-				} else if (piece.type == Token::BANG) {
+				} else if (piece.type == Token::BANG && !after_value) {
+					// Only a prefix `!`: after a value the parser reads `!` and `not` differently (`4!2` parses, `4 not 2`
+					// does not).
 					piece.type = Token::NOT;
 					piece.text = "not";
 				}
@@ -1108,9 +1139,23 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 				openers.pop_back();
 				piece.lambda_block = pieces[opener].lambda_block;
 				piece.holds_block = pieces[opener].holds_block;
-				if (pieces[opener].line != piece.line) {
+				if (pieces[opener].line != piece.line || pieces[opener].multiline_block) {
 					pieces.write[opener].multiline_block = true;
 					piece.multiline_block = true;
+				}
+				// A statement after this `}` on the same line gets its own line, so the blocks around it span lines.
+				int next = i + 1;
+				while (next < pieces.size() && pieces[next].kind != PIECE_TOKEN) {
+					next++;
+				}
+				if (braced && !piece.lambda_block && next < pieces.size() && pieces[next].line == piece.line) {
+					const Token::Type after = pieces[next].type;
+					const bool joins = after == Token::ELSE || after == Token::ELIF || after == Token::COMMA || after == Token::SEMICOLON || after == Token::PERIOD || pieces[next].closes != BRACKET_NONE;
+					if (!joins) {
+						for (const int enclosing : openers) {
+							pieces.write[enclosing].multiline_block = true;
+						}
+					}
 				}
 				if (p_to_indented) {
 					piece.text = previous_token == opener ? "pass" : ""; // `{}` is an empty block; `}` has no `.gd` form.
@@ -1585,6 +1630,30 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			const Piece &piece = pieces[i];
 			if (previous != nullptr && breaks_after(*previous, piece)) {
 				flush();
+				// A member split off a `}` line (`}func f() {`) gets the blank lines it would get on its own line:
+				// after a function or class, or when it is one.
+				if (braced && !p_to_indented && previous->closes == BRACKET_BLOCK && !previous->lambda_block && piece.kind == PIECE_TOKEN && previous->partner >= 0) {
+					auto callable_at = [&](int p_index) {
+						int head = p_index;
+						while (head < pieces.size() && pieces[head].kind == PIECE_TOKEN && (pieces[head].type == Token::ANNOTATION || pieces[head].type == Token::STATIC)) {
+							head++;
+						}
+						return head < pieces.size() && (pieces[head].type == Token::FUNC || pieces[head].type == Token::CLASS);
+					};
+					int opener_head = previous->partner;
+					while (opener_head > 0 && pieces[opener_head - 1].line == pieces[previous->partner].line) {
+						opener_head--;
+					}
+					while (opener_head < previous->partner && pieces[opener_head].kind != PIECE_TOKEN) {
+						opener_head++;
+					}
+					if (callable_at(i) || callable_at(opener_head)) {
+						for (int blank_line = 0; blank_line < p_options.blank_lines_around_members; blank_line++) {
+							out.push_back(String());
+							out_pieces.push_back(OutPieces());
+						}
+					}
+				}
 				level = level_for(piece);
 				text = unit.repeat(level);
 				previous = nullptr;
@@ -1679,7 +1748,15 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 		return fail(vformat("Internal formatter error: the formatted code does not tokenize (%s). Nothing was changed.", scan_error), scan_error_line);
 	}
 	const Vector<Token> compared = _without_trailing_commas(tokens);
-	const int difference = _first_difference(compared, _without_trailing_commas(output_tokens));
+	const Vector<Token> compared_output = _without_trailing_commas(output_tokens);
+	const int difference = _first_difference(compared, compared_output);
+	if (difference >= 0 && !OS::get_singleton()->get_environment("GDSCRIPT_FORMAT_DEBUG").is_empty()) {
+		// For reports of this error: what the formatter produced, and where the token streams part.
+		auto describe = [](const Vector<Token> &p_tokens, int p_index) {
+			return p_index < p_tokens.size() ? vformat("%s '%s' at %d:%d", GDScriptTokenizer::get_token_name(p_tokens[p_index].type), p_tokens[p_index].source, p_tokens[p_index].start_line, p_tokens[p_index].start_column) : String("end");
+		};
+		OS::get_singleton()->printerr("--- formatted (rejected) ---\n%s\n--- input token %s, output token %s ---\n", output.utf8().get_data(), describe(compared, difference).utf8().get_data(), describe(compared_output, difference).utf8().get_data());
+	}
 	if (difference >= 0) {
 		const int report_line = difference < compared.size() ? compared[difference].start_line : line_count;
 		return fail("Internal formatter error: the formatted code would not mean the same thing. Nothing was changed.", report_line);
@@ -1710,8 +1787,12 @@ String _rewrite_question_marks(const String &p_source, const Vector<GDScriptPars
 			line_starts.push_back(i + 1);
 		}
 	}
+	// Clamped: for what ends the file without a line break, positions past the end are reported.
 	auto offset_of = [&](int p_line, int p_column) {
-		return line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1;
+		if (p_line > line_starts.size()) {
+			return p_source.length();
+		}
+		return CLAMP(line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1, 0, p_source.length());
 	};
 	struct Ternary {
 		int start = 0;
@@ -1721,7 +1802,10 @@ String _rewrite_question_marks(const String &p_source, const Vector<GDScriptPars
 	};
 	Vector<Ternary> ternaries;
 	for (const GDScriptParser::QuestionMarkRecord &record : p_records) {
-		ternaries.push_back({ offset_of(record.start_line, record.start_column), offset_of(record.question_line, record.question_column), offset_of(record.colon_line, record.colon_column), offset_of(record.end_line, record.end_column) });
+		const Ternary ternary = { offset_of(record.start_line, record.start_column), offset_of(record.question_line, record.question_column), offset_of(record.colon_line, record.colon_column), offset_of(record.end_line, record.end_column) };
+		if (ternary.start < ternary.question && ternary.question < ternary.colon && ternary.colon < ternary.end) {
+			ternaries.push_back(ternary);
+		}
 	}
 
 	struct Rewriter {
@@ -1844,8 +1928,12 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 			if (!record.node->void_return) {
 				continue;
 			}
+			if (record.arrow_line < 1 || record.arrow_line > line_starts.size() || record.end_line < 1) {
+				continue;
+			}
 			const int arrow = line_starts[record.arrow_line - 1] + record.arrow_column - 1;
-			const int end = line_starts[record.end_line - 1] + record.end_column - 1;
+			// The end may be on a line past the last, for code that ends the file without a line break.
+			const int end = record.end_line > line_starts.size() ? source.length() : MIN(source.length(), line_starts[record.end_line - 1] + record.end_column - 1);
 			rewritten = rewritten.substr(0, end) + " }" + rewritten.substr(end);
 			rewritten = rewritten.substr(0, arrow + 2) + " {" + rewritten.substr(arrow + 2);
 		}
@@ -1878,7 +1966,10 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 			}
 		}
 		auto offset_of = [&](int p_line, int p_column) {
-			return line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1;
+			if (p_line > line_starts.size()) {
+				return source.length(); // Past the end of a file without a final line break.
+			}
+			return CLAMP(line_starts[CLAMP(p_line - 1, 0, line_starts.size() - 1)] + p_column - 1, 0, source.length());
 		};
 		struct Edit {
 			int offset = 0;
