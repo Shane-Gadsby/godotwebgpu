@@ -1453,10 +1453,19 @@ public:
 		int end_line = 0;
 		int end_column = 0;
 	};
+	// GDB: The `return` an arrow lambda's expression body becomes: where its `=>` is and where the expression ends.
+	struct ArrowReturnRecord {
+		int arrow_line = 0;
+		int arrow_column = 0;
+		int end_line = 0;
+		int end_column = 0;
+		const ReturnNode *node = nullptr;
+	};
 
 private:
 	Vector<BlockRecord> *block_log = nullptr;
 	Vector<QuestionMarkRecord> *question_mark_log = nullptr;
+	Vector<ArrowReturnRecord> *arrow_return_log = nullptr;
 	bool braced_syntax = false; // GDB: The script is braced GDScript, which allows `c ? a : b`.
 	int last_significant_end_line = 0;
 	int last_significant_end_column = 0;
@@ -1717,6 +1726,8 @@ public:
 	// GDB: See `BlockRecord`.
 	void set_block_log(Vector<BlockRecord> *p_log) { block_log = p_log; }
 	void set_question_mark_log(Vector<QuestionMarkRecord> *p_log) { question_mark_log = p_log; }
+	bool is_braced_syntax() const { return braced_syntax; } // GDB
+	void set_arrow_return_log(Vector<ArrowReturnRecord> *p_log) { arrow_return_log = p_log; }
 	Error parse_binary(const Vector<uint8_t> &p_binary, const String &p_script_path);
 	ClassNode *get_tree() const { return head; }
 	bool is_tool() const { return _is_tool; }

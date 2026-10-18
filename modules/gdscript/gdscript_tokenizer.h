@@ -303,6 +303,9 @@ class GDScriptTokenizerText : public GDScriptTokenizer {
 	Token _brace_make_synthetic(Token::Type p_type, int p_line, int p_column) const;
 	bool _brace_skip_comment(bool p_is_bol);
 	void _brace_skip_line_start();
+	bool _brace_arrow_after_paren();
+	bool _brace_arrow_at(int p_offset) const;
+	Token _brace_arrow();
 
 	_FORCE_INLINE_ bool _is_at_end() { return position >= length; }
 	_FORCE_INLINE_ char32_t _peek(int p_offset = 0) { return position + p_offset >= 0 && position + p_offset < length ? _current[p_offset] : '\0'; }

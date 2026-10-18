@@ -52,7 +52,8 @@
 // parser can trip over the missing block.
 //
 // Brace mode also accepts `//` line comments, `///` documentation comments and `/* */` block comments, next to `#`,
-// and `else if` as a spelling of `elif`.
+// `else if` as a spelling of `elif`, and arrow lambdas: `(a, b) => a + b`, `x => x * 2` and `(a) => { ... }` are
+// `func(a, b): return a + b`, `func(x): return x * 2` and `func(a) { ... }`.
 
 #include "gdscript_tokenizer.h"
 
@@ -105,6 +106,14 @@ GDScriptTokenizer::Token GDScriptTokenizerText::_brace_scan() {
 		brace_in_scan = true;
 		token = scan();
 		brace_in_scan = false;
+
+		if (token.type == Token::IDENTIFIER && _brace_arrow_at(0)) {
+			// `x => ...`: a lambda with one parameter, `func(x) ...`.
+			brace_queue.push_back(_brace_make_synthetic(Token::PARENTHESIS_OPEN, token.start_line, token.start_column));
+			brace_queue.push_back(token);
+			brace_queue.push_back(_brace_make_synthetic(Token::PARENTHESIS_CLOSE, token.end_line, token.end_column));
+			token = _brace_make_synthetic(Token::FUNC, token.start_line, token.start_column);
+		}
 
 		if (token.type == Token::ELSE && brace_line_start) {
 			// `else if` after a block is `elif`. Only a statement-level `else` merges; the `else` of `a if c else b`
@@ -272,6 +281,84 @@ GDScriptTokenizer::Token GDScriptTokenizerText::_brace_check_paren_close(char32_
 		return make_error(vformat(R"(Closing "%c" found while the block opened by "{" on line %d is still open.)", p_paren, entry.line));
 	}
 	return Token();
+}
+
+bool GDScriptTokenizerText::_brace_arrow_at(int p_offset) const {
+	// `=>` after optional spaces, at `_current[p_offset]`.
+	int i = p_offset;
+	while (position + i < length && (_current[i] == ' ' || _current[i] == '\t')) {
+		i++;
+	}
+	return position + i + 1 < length && _current[i] == '=' && _current[i + 1] == '>';
+}
+
+bool GDScriptTokenizerText::_brace_arrow_after_paren() {
+	// Whether the "(" just read starts an arrow lambda's parameters: its ")" is followed by `=>`. Strings, comments and
+	// nested brackets are skipped; the scan stops at the end of a statement-ending line outside brackets.
+	int depth = 1;
+	int i = 0;
+	while (position + i < length) {
+		const char32_t c = _current[i];
+		if (c == '"' || c == '\'') {
+			const char32_t quote = c;
+			const bool triple = position + i + 2 < length && _current[i + 1] == quote && _current[i + 2] == quote;
+			i += triple ? 3 : 1;
+			while (position + i < length) {
+				if (_current[i] == '\\') {
+					i += 2;
+					continue;
+				}
+				if (_current[i] == quote && (!triple || (position + i + 2 < length && _current[i + 1] == quote && _current[i + 2] == quote))) {
+					i += triple ? 3 : 1;
+					break;
+				}
+				i++;
+			}
+			continue;
+		}
+		if (c == '#' || (c == '/' && position + i + 1 < length && _current[i + 1] == '/')) {
+			while (position + i < length && _current[i] != '\n') {
+				i++;
+			}
+			continue;
+		}
+		if (c == '/' && position + i + 1 < length && _current[i + 1] == '*') {
+			i += 2;
+			while (position + i + 1 < length && !(_current[i] == '*' && _current[i + 1] == '/')) {
+				i++;
+			}
+			i += 2;
+			continue;
+		}
+		if (c == '(' || c == '[' || c == '{') {
+			depth++;
+		} else if (c == ')' || c == ']' || c == '}') {
+			depth--;
+			if (depth == 0) {
+				return _brace_arrow_at(i + 1);
+			}
+		}
+		i++;
+	}
+	return false;
+}
+
+GDScriptTokenizer::Token GDScriptTokenizerText::_brace_arrow() {
+	// After `(a) =>` or `x =>`. Before a "{" the arrow adds nothing: the block is the lambda's body. Otherwise the
+	// body is one expression, returned: a COLON, then a RETURN whose text is the `=>` itself, so tools that map tokens
+	// back to the source find the arrow where it was written.
+	_advance(); // ">"
+	Token arrow = make_token(Token::RETURN);
+	int i = 0;
+	while (position + i < length && (_current[i] == ' ' || _current[i] == '\t' || _current[i] == '\r' || _current[i] == '\n')) {
+		i++;
+	}
+	if (position + i < length && _current[i] == '{') {
+		brace_in_scan = true;
+		return scan();
+	}
+	brace_queue.push_back(arrow);
+	return _brace_make_synthetic(Token::COLON, arrow.start_line, arrow.start_column);
 }
 
 bool GDScriptTokenizerText::_brace_skip_comment(bool p_is_bol) {

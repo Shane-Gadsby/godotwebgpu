@@ -448,9 +448,11 @@ void GDScriptParser::set_last_completion_call_arg(int p_argument) {
 Error GDScriptParser::parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body) {
 	Vector<BlockRecord> *log = block_log; // GDB: `clear()` resets every member.
 	Vector<QuestionMarkRecord> *question_log = question_mark_log;
+	Vector<ArrowReturnRecord> *arrow_log = arrow_return_log;
 	clear();
 	block_log = log;
 	question_mark_log = question_log;
+	arrow_return_log = arrow_log;
 
 	String source = p_source_code;
 	int cursor_line = -1;
@@ -2149,6 +2151,9 @@ GDScriptParser::Node *GDScriptParser::parse_statement() {
 			break;
 		case GDScriptTokenizer::Token::RETURN: {
 			advance();
+			const bool from_arrow = previous.source == "=>"; // GDB: The body of `(x) => x * 2`.
+			const int arrow_line = previous.start_line;
+			const int arrow_column = previous.start_column;
 			ReturnNode *n_return = alloc_node<ReturnNode>();
 			if (!is_statement_end()) {
 				if (current_function && (current_function->identifier->name == GDScriptLanguage::get_singleton()->strings._init || current_function->identifier->name == GDScriptLanguage::get_singleton()->strings._static_init)) {
@@ -2162,6 +2167,15 @@ GDScriptParser::Node *GDScriptParser::parse_statement() {
 			}
 			complete_extents(n_return);
 			result = n_return;
+			if (from_arrow && arrow_return_log != nullptr) {
+				ArrowReturnRecord record;
+				record.arrow_line = arrow_line;
+				record.arrow_column = arrow_column;
+				record.end_line = last_significant_end_line;
+				record.end_column = last_significant_end_column;
+				record.node = n_return;
+				arrow_return_log->push_back(record);
+			}
 
 			current_suite->has_return = true;
 

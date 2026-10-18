@@ -31,6 +31,7 @@
 #include "gdscript_formatter.h"
 
 #include "gdscript.h"
+#include "gdscript_analyzer.h"
 #include "gdscript_parser.h"
 #include "gdscript_tokenizer.h"
 
@@ -75,6 +76,7 @@ struct Piece {
 	bool ternary_colon = false; // The `:` of `c ? a : b`.
 	bool multiline_block = false; // A `.gdb` block brace whose partner is on another line.
 	bool lambda_block = false; // A `.gdb` block brace of a lambda's body.
+	bool synthetic = false; // Zero-width: a token the `.gdb` tokenizer adds for an arrow lambda.
 	bool holds_block = false; // A `.gdb` block brace whose block holds another (non-lambda) block.
 };
 
@@ -226,6 +228,11 @@ bool _scan_gap(const String &p_source, int p_from, int p_to, bool p_braced, cons
 		} else if (c == '\\') {
 			piece.kind = PIECE_CONTINUATION;
 			piece.end = i + 1;
+		} else if (p_braced && c == '=' && i + 1 < p_to && p_source[i + 1] == '>') {
+			// The `=>` of an arrow lambda with a block body: the tokenizer gives it no token, the block is the body.
+			piece.kind = PIECE_TOKEN;
+			piece.type = Token::EMPTY;
+			piece.end = i + 2;
 		} else {
 			return false;
 		}
@@ -317,6 +324,9 @@ String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, con
 	if (p_a.node_path && p_b.node_path) {
 		return original;
 	}
+	if (p_a.text == "=>" || p_b.text == "=>") {
+		return " "; // `.gdb` arrow lambda.
+	}
 	if (p_b.kind != PIECE_TOKEN || p_a.kind != PIECE_TOKEN) {
 		if (p_b.kind == PIECE_LINE_COMMENT || p_b.kind == PIECE_CONTINUATION) {
 			return " ";
@@ -337,7 +347,10 @@ String _spacing(const Piece &p_a, const Piece &p_b, const Piece *p_before_a, con
 		return " ";
 	}
 	if (p_a.closes == BRACKET_BLOCK) {
-		if (b == Token::COMMA || b == Token::SEMICOLON || b == Token::PERIOD || b == Token::PARENTHESIS_CLOSE || b == Token::BRACKET_CLOSE || b == Token::BRACE_CLOSE) {
+		if (b == Token::BRACE_CLOSE) {
+			return p_options.spaces_in_braces ? String(" ") : String(); // A lambda ending a dictionary.
+		}
+		if (b == Token::COMMA || b == Token::SEMICOLON || b == Token::PERIOD || b == Token::PARENTHESIS_CLOSE || b == Token::BRACKET_CLOSE) {
 			return String();
 		}
 		return " ";
@@ -515,7 +528,21 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			piece.text = "}";
 			piece.closes = BRACKET_BLOCK;
 		} else if (token.source.is_empty()) {
-			continue; // Synthetic, such as the `pass` of an empty `.gdb` block.
+			// Synthetic. An arrow lambda's `func`, its parentheses around a lone parameter and its `:` become zero-width
+			// pieces, which only a conversion to `.gd` spells out; others (`pass` of an empty block) are skipped.
+			const bool arrow_part = braced && (token.type == Token::FUNC || token.type == Token::PARENTHESIS_OPEN || token.type == Token::PARENTHESIS_CLOSE || token.type == Token::COLON);
+			if (!arrow_part) {
+				continue;
+			}
+			piece.start = offset_of(token.start_line, token.start_column);
+			piece.end = piece.start;
+			piece.synthetic = true;
+			piece.text = String();
+			if (token.type == Token::PARENTHESIS_OPEN) {
+				piece.opens = BRACKET_PAREN;
+			} else if (token.type == Token::PARENTHESIS_CLOSE) {
+				piece.closes = BRACKET_PAREN;
+			}
 		} else {
 			piece.start = offset_of(token.start_line, token.start_column);
 			piece.end = offset_of(token.end_line, token.end_column);
@@ -623,6 +650,15 @@ GDScriptFormatter::Result GDScriptFormatter::_format(const String &p_source, con
 			} else {
 				in_node_path = piece.type == Token::DOLLAR || (piece.type == Token::PERCENT && piece.unary);
 				piece.node_path = in_node_path;
+			}
+
+			if (p_to_indented) {
+				// An arrow lambda in `.gd`: `(x) => x * 2` is `func(x): return x * 2`, `(x) => {` is `func(x):`.
+				if (piece.synthetic) {
+					piece.text = piece.type == Token::FUNC ? "func" : (piece.type == Token::PARENTHESIS_OPEN ? "(" : (piece.type == Token::PARENTHESIS_CLOSE ? ")" : ":"));
+				} else if (piece.text == "=>") {
+					piece.text = piece.type == Token::RETURN ? "return" : "";
+				}
 			}
 
 			// After a `.`, a keyword is an attribute name (`dict.elif`, `dict.and`): never respell it.
@@ -1323,20 +1359,56 @@ GDScriptFormatter::Result GDScriptFormatter::convert(const String &p_source, con
 	const String gd_path = base + ".gd";
 	const String gdb_path = base + ".gdb";
 	const bool crlf = p_options.use_crlf || p_source.contains("\r\n");
-	const String source = p_source.replace("\r\n", "\n");
+	const String original_source = p_source.replace("\r\n", "\n");
 
 	// The source's tree, and for a `.gd` source where its blocks start and end.
+	String source = original_source;
 	GDScriptParser source_parser;
 	Vector<GDScriptParser::BlockRecord> blocks;
 	Vector<GDScriptParser::QuestionMarkRecord> question_marks;
+	Vector<GDScriptParser::ArrowReturnRecord> arrow_returns;
 	if (from_braced) {
 		source_parser.set_question_mark_log(&question_marks);
+		source_parser.set_arrow_return_log(&arrow_returns);
 	} else {
 		source_parser.set_block_log(&blocks);
 	}
 	if (source_parser.parse(source, from_braced ? gdb_path : gd_path, false) != OK) {
 		const List<GDScriptParser::ParserError> &errors = source_parser.get_errors();
 		return errors.is_empty() ? fail("The script has syntax errors.", 0) : fail(errors.front()->get().message, errors.front()->get().start_line);
+	}
+
+	// An arrow lambda may return a `void` call in `.gdb` (`() => print(1)`), which `.gd` cannot say as a `return`. Its
+	// analyzed meaning (run the call, return `null`) is the block `() => { print(1) }`, so write it that way first.
+	if (!arrow_returns.is_empty()) {
+		GDScriptAnalyzer analyzer(&source_parser);
+		analyzer.analyze();
+		Vector<int> line_starts;
+		line_starts.push_back(0);
+		for (int i = 0; i < source.length(); i++) {
+			if (source[i] == '\n') {
+				line_starts.push_back(i + 1);
+			}
+		}
+		String rewritten = source;
+		for (int i = arrow_returns.size() - 1; i >= 0; i--) {
+			const GDScriptParser::ArrowReturnRecord &record = arrow_returns[i];
+			if (!record.node->void_return) {
+				continue;
+			}
+			const int arrow = line_starts[record.arrow_line - 1] + record.arrow_column - 1;
+			const int end = line_starts[record.end_line - 1] + record.end_column - 1;
+			rewritten = rewritten.substr(0, end) + " }" + rewritten.substr(end);
+			rewritten = rewritten.substr(0, arrow + 2) + " {" + rewritten.substr(arrow + 2);
+		}
+		if (rewritten != source) {
+			source = rewritten;
+			question_marks.clear();
+			arrow_returns.clear();
+			if (source_parser.parse(source, gdb_path, false) != OK) {
+				return fail("Internal converter error: rewriting an arrow lambda broke the code.", 0);
+			}
+		}
 	}
 	const String tree = GDScriptParser::TreePrinter().get_tree_text(source_parser);
 

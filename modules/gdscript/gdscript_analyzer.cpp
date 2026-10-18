@@ -2578,11 +2578,20 @@ void GDScriptAnalyzer::resolve_return(GDScriptParser::ReturnNode *p_return) {
 	} else {
 		const bool is_void_function = has_expected_type && expected_type.is_hard_type() && expected_type.kind == GDScriptParser::DataType::BUILTIN && expected_type.builtin_type == Variant::NIL;
 		const bool is_call = p_return->return_value->type == GDScriptParser::Node::CALL;
-		if (is_void_function && is_call) {
+		// GDB: In braced GDScript a lambda may return a `void` call, as an arrow function does (`() => print(1)`):
+		// the call runs and the lambda returns `null`.
+		const bool lambda_call = is_call && parser->is_braced_syntax() && parser->current_function != nullptr && parser->current_function->source_lambda != nullptr;
+		if ((is_void_function || lambda_call) && is_call) {
 			// Pretend the call is a root expression to allow those that are `void`.
 			reduce_call(static_cast<GDScriptParser::CallNode *>(p_return->return_value), false, true);
 		} else {
 			reduce_expression(p_return->return_value);
+		}
+		if (lambda_call && !is_void_function) {
+			const GDScriptParser::DataType &call_type = p_return->return_value->type_constraint;
+			if (call_type.is_hard_type() && call_type.kind == GDScriptParser::DataType::BUILTIN && call_type.builtin_type == Variant::NIL) {
+				p_return->void_return = true;
+			}
 		}
 		if (is_void_function) {
 			p_return->void_return = true;

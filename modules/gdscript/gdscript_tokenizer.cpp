@@ -1501,6 +1501,13 @@ GDScriptTokenizer::Token GDScriptTokenizerText::scan() {
 		// Parens.
 		case '(':
 			push_paren('(');
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode && _brace_arrow_after_paren()) {
+				// GDB: `(a, b) => ...` is a lambda: `func` goes first.
+				brace_queue.push_back(make_token(Token::PARENTHESIS_OPEN));
+				return _brace_make_synthetic(Token::FUNC, start_line, start_column);
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			return make_token(Token::PARENTHESIS_OPEN);
 		case '[':
 			push_paren('[');
@@ -1660,6 +1667,11 @@ GDScriptTokenizer::Token GDScriptTokenizerText::scan() {
 
 		// Potential VCS conflict markers.
 		case '=':
+#ifdef GDSCRIPT_BRACES_ENABLED
+			if (brace_mode && _peek() == '>') {
+				return _brace_arrow(); // GDB
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (_peek() == '=') {
 				return check_vcs_marker('=', Token::EQUAL_EQUAL);
 			} else {
