@@ -63,6 +63,7 @@ void ResourceFormatLoaderGDScript::get_recognized_extensions(List<String> *p_ext
 	p_extensions->push_back("gdc");
 #ifdef GDSCRIPT_BRACES_ENABLED
 	p_extensions->push_back("gdb"); // GDB
+	p_extensions->push_back("gdbc");
 #endif // GDSCRIPT_BRACES_ENABLED
 }
 
@@ -76,7 +77,7 @@ String ResourceFormatLoaderGDScript::get_resource_type(const String &p_path) con
 		return "GDScript";
 	}
 #ifdef GDSCRIPT_BRACES_ENABLED
-	if (el == "gdb") {
+	if (el == "gdb" || el == "gdbc") {
 		return "GDScript"; // GDB
 	}
 #endif // GDSCRIPT_BRACES_ENABLED

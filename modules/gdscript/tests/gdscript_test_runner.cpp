@@ -280,15 +280,9 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 			if (next.ends_with(".notest.gd") || next.ends_with(".notest.gdb")) { // GDB
 				next = dir->get_next();
 				continue;
-			} else if (binary_tokens && next.ends_with(".textonly.gd")) {
+			} else if (binary_tokens && (next.ends_with(".textonly.gd") || next.ends_with(".textonly.gdb"))) { // GDB
 				next = dir->get_next();
 				continue;
-#ifdef GDSCRIPT_BRACES_ENABLED
-			} else if (binary_tokens && GDScriptTokenizer::is_braced_path(next)) {
-				// GDB: Binary tokens don't carry brace mode yet (plan decision D8), so `.gdb` tests are text-only.
-				next = dir->get_next();
-				continue;
-#endif // GDSCRIPT_BRACES_ENABLED
 			} else if (next.has_extension("gd") || GDScriptTokenizer::is_braced_path(next)) {
 				// GDB: A `.gdb` test shares its `.out` file with a `.gd` twin of the same name, if there is one.
 #ifndef DEBUG_ENABLED
@@ -512,7 +506,7 @@ GDScriptTest::TestResult GDScriptTest::execute_test_code(bool p_is_generating) {
 	} else {
 		String code = FileAccess::get_file_as_string(source_file, &err);
 		if (!err) {
-			Vector<uint8_t> buffer = GDScriptTokenizerBuffer::parse_code_string(code, GDScriptTokenizerBuffer::COMPRESS_ZSTD);
+			Vector<uint8_t> buffer = GDScriptTokenizerBuffer::parse_code_string(code, GDScriptTokenizerBuffer::COMPRESS_ZSTD, GDScriptTokenizer::is_braced_path(source_file)); // GDB
 			script->set_binary_tokens_source(buffer);
 		}
 	}

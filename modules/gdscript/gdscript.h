@@ -586,6 +586,8 @@ public:
 	// GDB: Whether a path is a GDScript source file: `.gd`, or braced `.gdb` when that is compiled in.
 	// Use this rather than comparing with `get_extension()`, which can only return one extension.
 	static bool is_gdscript_path(const String &p_path);
+	// GDB: Whether a path is a binary-token script: `.gdc`, or `.gdbc` compiled from a `.gdb` file (plan decision D9).
+	static bool is_gdscript_binary_path(const String &p_path);
 
 	virtual String get_name() const override;
 
