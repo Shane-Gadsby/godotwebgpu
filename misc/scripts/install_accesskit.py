@@ -29,6 +29,19 @@ if not os.path.exists(deps_folder):
 ac_filename = "accesskit-c-" + ac_version + ".zip"
 ac_archive = os.path.join(deps_folder, "accesskit.zip")
 ac_folder = os.path.join(deps_folder, "accesskit")
+ac_version_file = os.path.join(ac_folder, "version")
+
+# The version file is written last, so it only exists once an install completed. Skip the download when it names
+# the version pinned here; `--force` reinstalls anyway.
+if "--force" not in sys.argv[1:] and os.path.isfile(ac_version_file):
+    with open(ac_version_file) as f:
+        installed_version = f.read().strip()
+    if installed_version == ac_version:
+        print(
+            f"AccessKit {ac_version} is already installed in {ac_folder}, skipping download (--force to reinstall).\n"
+        )
+        sys.exit(0)
+    print(f"AccessKit {installed_version} is installed, updating to {ac_version} ...")
 
 if os.path.isfile(ac_archive):
     os.remove(ac_archive)
@@ -46,7 +59,7 @@ shutil.unpack_archive(ac_archive, deps_folder)
 os.remove(ac_archive)
 os.rename(os.path.join(deps_folder, "accesskit-c-" + ac_version), ac_folder)
 
-with open(os.path.join(ac_folder, "version"), "w") as f:
+with open(ac_version_file, "w") as f:
     f.write(ac_version)
 
 print("AccessKit installed successfully.\n")
