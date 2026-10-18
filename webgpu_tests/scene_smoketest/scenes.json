@@ -162,6 +162,22 @@
       "preset": "WebGPU",
       "max_errors": 0,
       "description": "Fog-dominated scene; guards froxel-sampling banding (see test_fog_visual.mjs)"
+    },
+    {
+      "id": "audio_parity",
+      "path": "../web_audio/fixture_project",
+      "preset": "Web",
+      "max_errors": 0,
+      "description": "Audio: Sample and Stream playback, loops, seeks, pitch, pause, buses, 2D/3D, polyphonic, Ogg/MP3, capture effect, generator (self-checking, webgpu_tests/web_audio)",
+      "pass_patterns": [
+        "[AUDIO-CHECK] PASS"
+      ],
+      "pass_patterns_browsers": [
+        "chrome",
+        "firefox"
+      ],
+      "click_to_start": true,
+      "timeout_ms": 90000
     }
   ]
 }

@@ -34,6 +34,7 @@
 
 #include "core/config/engine.h"
 #include "core/math/math_funcs_binary.h"
+#include "core/object/callable_mp.h"
 #include "core/object/object.h"
 #include "scene/resources/audio/audio_stream.h"
 #include "scene/resources/audio/audio_stream_wav.h"
@@ -233,14 +234,21 @@ void AudioDriverWeb::_forget_sample_playback(ObjectID p_playback) {
 void AudioDriverWeb::_sweep_sample_streams() {
 	// Nothing tells the driver when a registered stream is freed, and its sample can be tens of megabytes of PCM.
 	LocalVector<ObjectID> freed;
-	for (const KeyValue<ObjectID, int32_t> &E : sample_streams) {
+	for (const KeyValue<ObjectID, SampleStream> &E : sample_streams) {
 		if (ObjectDB::get_instance(E.key) == nullptr) {
 			freed.push_back(E.key);
 		}
 	}
 	for (const ObjectID &stream : freed) {
-		godot_audio_sample_unregister_stream(sample_streams[stream]);
+		godot_audio_sample_unregister_stream(sample_streams[stream].id);
 		sample_streams.erase(stream);
+	}
+}
+
+void AudioDriverWeb::_sample_stream_changed(ObjectID p_stream) {
+	SampleStream *stream = singleton ? singleton->sample_streams.getptr(p_stream) : nullptr;
+	if (stream) {
+		stream->changed = true;
 	}
 }
 
@@ -289,7 +297,14 @@ void AudioDriverWeb::register_sample(const Ref<AudioSample> &p_sample) {
 	}
 
 	// Render the stream at the mix rate, as AudioServer would mix it, into planar left/right channels.
-	const int frames_total = mix_rate * render_stream->get_length();
+	const double length = render_stream->get_length();
+	const int frames_total = mix_rate * length;
+	if (length > LONG_SAMPLE_SECONDS) {
+		// A sample is decoded whole on its first play, where Stream playback decodes as it plays. Fine for sound
+		// effects; for music it is a hitch on the main thread and the whole track in memory as 32-bit floats.
+		const String name = p_sample->stream->get_path().is_empty() ? p_sample->stream->get_class() : p_sample->stream->get_path();
+		WARN_PRINT(vformat(R"("%s" (%.0f s) plays as a Sample: on the web that decodes the whole stream when it is first played (%.1f MB) instead of streaming it. Long music plays better with "playback_type" set to Stream.)", name, length, frames_total * 2.0 * sizeof(float) / (1024.0 * 1024.0)));
+	}
 	LocalVector<AudioFrame> frames;
 	frames.resize(frames_total);
 	int frames_mixed = 0;
@@ -316,11 +331,15 @@ void AudioDriverWeb::register_sample(const Ref<AudioSample> &p_sample) {
 	}
 
 	const ObjectID stream_object = p_sample->stream->get_instance_id();
-	int32_t *stream_id = sample_streams.getptr(stream_object);
-	if (!stream_id) {
-		stream_id = &sample_streams.insert(stream_object, _new_sample_id())->value;
+	SampleStream *stream = sample_streams.getptr(stream_object);
+	if (!stream) {
+		stream = &sample_streams.insert(stream_object, SampleStream())->value;
+		stream->id = _new_sample_id();
+		// Natively a change to the stream applies to its next playback; here it has to be rendered again.
+		p_sample->stream->connect(CoreStringName(changed), callable_mp_static(&AudioDriverWeb::_sample_stream_changed).bind(stream_object));
 	}
-	godot_audio_sample_register_stream(*stream_id, data.ptr(), frames_total, loop_mode_name.utf8().get_data(), loop_begin, loop_end);
+	stream->changed = false;
+	godot_audio_sample_register_stream(stream->id, data.ptr(), frames_total, loop_mode_name.utf8().get_data(), loop_begin, loop_end);
 }
 
 void AudioDriverWeb::unregister_sample(const Ref<AudioSample> &p_sample) {
@@ -328,18 +347,23 @@ void AudioDriverWeb::unregister_sample(const Ref<AudioSample> &p_sample) {
 	ERR_FAIL_COND_MSG(p_sample->stream.is_null(), "Parameter p_sample->stream is null.");
 
 	const ObjectID stream_object = p_sample->stream->get_instance_id();
-	const int32_t *stream_id = sample_streams.getptr(stream_object);
-	if (stream_id) {
-		godot_audio_sample_unregister_stream(*stream_id);
+	const SampleStream *stream = sample_streams.getptr(stream_object);
+	if (stream) {
+		godot_audio_sample_unregister_stream(stream->id);
 		sample_streams.erase(stream_object);
+		p_sample->stream->disconnect(CoreStringName(changed), callable_mp_static(&AudioDriverWeb::_sample_stream_changed).bind(stream_object));
 	}
 }
 
 void AudioDriverWeb::start_sample_playback(const Ref<AudioSamplePlayback> &p_playback) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
 	ERR_FAIL_COND_MSG(p_playback->stream.is_null(), "Parameter p_playback->stream is null.");
-	const int32_t *stream_id = sample_streams.getptr(p_playback->stream->get_instance_id());
-	ERR_FAIL_NULL_MSG(stream_id, "The playback's stream is not registered as a sample.");
+	const SampleStream *stream = sample_streams.getptr(p_playback->stream->get_instance_id());
+	ERR_FAIL_NULL_MSG(stream, "The playback's stream is not registered as a sample.");
+	if (stream->changed) {
+		register_sample(p_playback->stream->generate_sample());
+	}
+	const int32_t stream_id = stream->id;
 
 	if (++sample_starts_since_sweep >= 64) {
 		sample_starts_since_sweep = 0;
@@ -372,7 +396,7 @@ void AudioDriverWeb::start_sample_playback(const Ref<AudioSamplePlayback> &p_pla
 	playback->volumes.resize(real_max_channels);
 	memcpy(playback->volumes.ptr(), volume, sizeof(volume));
 
-	godot_audio_sample_start(playback->id, *stream_id, bus, p_playback->offset, p_playback->pitch_scale, volume);
+	godot_audio_sample_start(playback->id, stream_id, bus, p_playback->offset, p_playback->pitch_scale, volume);
 }
 
 void AudioDriverWeb::stop_sample_playback(const Ref<AudioSamplePlayback> &p_playback) {

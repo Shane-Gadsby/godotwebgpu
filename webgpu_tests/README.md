@@ -12,7 +12,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
-| [Scene Smoketest](scene_smoketest/) | 21 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Scene Smoketest](scene_smoketest/) | 22 scenes (demos, benchmarks and a self-checking audio suite) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Perf Guard](perf_guard/) | WebGPU calls per frame stay within budget (command encoders, submits, `writeBuffer` calls and bytes) on the post-fx/shadows/instances/PBR scenes; adapter-independent | ~90s | Yes (pre-exported scenes) |
 | [Web Audio Parity](web_audio/) | Sample playback (the web default) does what `AudioServer` does — loop modes sample for sample, volume ramps/fades, buses, positions, 3D filter — 40 checks; plus native vs web end to end | ~10s (+~2min e2e) | No (e2e: editor + web templates) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
@@ -374,7 +374,7 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 │  ┌────────────────┐ ┌────────────┐ ┌───────────┐ ┌────────────┐ │
 │  │ validate-spirv │ │ smoke-test │ │ scene-    │ │ webrtc-    │ │
 │  │ All SPIR-V     │ │ Headless   │ │ smoketest │ │ parity     │ │
-│  │ through Tint   │ │ Chrome run │ │ 21 scenes │ │ 9 fixtures │ │
+│  │ through Tint   │ │ Chrome run │ │ 22 scenes │ │ 9 fixtures │ │
 │  │                │ │            │ │ × Chrome  │ │ in Chrome  │ │
 │  │                │ │            │ │ + Firefox │ │            │ │
 │  └────────────────┘ └────────────┘ └───────────┘ └────────────┘ │

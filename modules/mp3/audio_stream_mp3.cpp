@@ -243,6 +243,7 @@ void AudioStreamMP3::set_data(const Vector<uint8_t> &p_data) {
 	memdelete(mp3d);
 
 	data = p_data;
+	emit_changed();
 }
 
 Vector<uint8_t> AudioStreamMP3::get_data() const {
@@ -251,6 +252,7 @@ Vector<uint8_t> AudioStreamMP3::get_data() const {
 
 void AudioStreamMP3::set_loop(bool p_enable) {
 	loop = p_enable;
+	emit_changed();
 }
 
 bool AudioStreamMP3::has_loop() const {
@@ -259,6 +261,7 @@ bool AudioStreamMP3::has_loop() const {
 
 void AudioStreamMP3::set_loop_offset(double p_seconds) {
 	loop_offset = p_seconds;
+	emit_changed();
 }
 
 double AudioStreamMP3::get_loop_offset() const {

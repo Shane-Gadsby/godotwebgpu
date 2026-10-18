@@ -96,6 +96,7 @@ source of `af3d57ddd1` (the commits since are docs, tests, `wgsl_precompile.py` 
 
 | artifact | state |
 |---|---|
+| **after §4.30's follow-up (2026-10-18)** | editor and the four non-dlink web templates rebuilt again for the warnings, the `changed` re-render and the `AudioServer::finish()` leak fix |
 | **after §4.30 (2026-10-18)** | `build-linux.sh --skip-native-templates --web-dlink no` rebuilt `godot.linuxbsd.editor.x86_64` and all four non-dlink web templates (debug/release × threads/nothreads) on the §4.30 tree. The editor no longer lists `*.audio.position.worklet.js` in a PWA cache, so pair it with templates from this tree or later; the dlink zips (Oct 17) predate §4.30 |
 | **after §4.29 (`f59c88668d`)** | `local_ci.sh --dev-mode` rebuilt `godot.linuxbsd.editor.x86_64`, `godot.web.template_release.wasm32.nothreads.zip` and `…nothreads.dlink.zip` as **`dev_mode=yes`** builds of that tree. Fine for tests, not for benchmarks. The **installed** export templates (`~/.local/share/godot/export_templates/4.8.dev/`) predate §4.29's shader changes — run `./build-linux.sh` before exporting real projects. The rows below describe the earlier state |
 | `godot.linuxbsd.editor.x86_64` | rebuilt 2026-10-17 with `webgpu=yes` on the uncommitted §4.23 tree (batched bake, WGSL cache, separate shader pack, cache prunes). Matches the nothreads release template below only |
@@ -281,6 +282,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -363,6 +365,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 | Side project: Braced GDScript (`.gdb`) + Rider plugin | not started (plan revised 2026-10-18) | ~17-21 weeks, **human-scoped** |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1628,6 +1631,32 @@ Follow-ups from the same sweep, none of them a known breakage:
 4. **No dedicated test for the lightmap and VoxelGI arrays.** `texture_array` exercises the expansion through a material; a
    scene with several lightmaps or VoxelGI probes would cover the engine's own arrays.
 
+### 2.32 Sample playback's remaining gaps: bus effects and streaming `OPEN` — deferred 2026-10-18 *(from §4.30)*
+
+Web sounds default to Sample playback (`audio/general/default_playback_type.web`), which Web Audio plays outside
+`AudioServer`. After §4.30 it matches `AudioServer` on everything it does, but two things it cannot do at all:
+**bus effects** (reverb, EQ, compressor, and the analysis ones — capture, spectrum, record — get no data) and
+**streaming** (a sample is decoded whole on its first `play()`: a hitch, and the track in memory as 32-bit floats).
+`playback_type = Stream` per player is the native mixer and has neither gap. Decided 2026-10-18 to leave the defaults
+alone for now and make the gaps visible instead, so they are not reported as bugs:
+
+- export: the web export logs a warning naming every bus with enabled effects while `default_playback_type.web` is Sample;
+- runtime: `AudioServer::_warn_sample_bus_effects()` warns once per bus when a Sample sound starts on a bus whose send
+  chain has effects, and `AudioDriverWeb::register_sample()` warns about streams over 30 s (`LONG_SAMPLE_SECONDS`).
+  On web both go to `console.warn` (WebLogger); natively they never fire. `run_e2e.mjs` requires each exactly once.
+
+Options when this is picked up:
+
+| approach | pros | cons |
+|---|---|---|
+| **Auto-route `Default`**: threaded exports resolve it to Stream everywhere; single-threaded ones to Stream only for players whose bus chain has effects or whose stream is long, with a bigger mix buffer on that path | exact native parity wherever it applies (every effect, capture/spectrum, streaming, generators); small change (one decision point, plus `AudioStreamPlaybackPolyphonic::play_stream`); explicit `playback_type` still wins | on single-threaded exports Stream mixes on the main thread: a long frame (shader compile, GC) underruns the 512-frame ring buffer and crackles, hence the bigger buffer, which adds latency (~85 ms at 4096 frames) to those sounds; a bus that gains effects after a sound started does not move it; a behavior change for every web game |
+| **Web Audio effect equivalents** on the sample bus graph | never touches the main thread; keeps Sample's latency | approximate: EQ, filters, delay, amplify, panner, distortion can come close (`BiquadFilterNode`, `DelayNode`, `WaveShaperNode`); reverb (`ConvolverNode` with a generated impulse vs Godot's Freeverb), chorus, phaser, compressor, limiter would sound different; capture/spectrum/record impossible (no data path back); a large job, and each effect needs its own parity test like `run_tests.mjs` |
+| **Godot's own effect DSP in a Wasm audio worklet** (`-sAUDIO_WORKLET`) | exact effects with Sample's off-main-thread mixing | threads-only (shared memory); the effect instances would run outside `AudioServer`'s locking; the biggest job of the three |
+| **Both** auto-route and Web Audio effects | Stream parity where it is safe, approximate effects elsewhere | the cost of both |
+
+`webgpu_tests/web_audio/` is where any of these would be tested: `run_tests.mjs` for DSP against native ports,
+`run_e2e.mjs` and the `audio_parity` smoketest scene for the engine.
+
 ---
 
 ## 3. Traps and lessons — read before debugging
@@ -2811,7 +2840,20 @@ exports — finish times, positions through loops/seeks/pitch/pause, bus edits, 
 
 **Not reproducible on the Sample path:** bus effects, and streaming (a sample is decoded whole on its first
 `play()`). Those need `playback_type = Stream`, which is the native mixer; in a thread-enabled export it mixes on its
-own thread. Defaults are unchanged.
+own thread. Defaults are unchanged; the options are §2.32, and both gaps are now warned about (below).
+
+**Follow-up the same day (smoketest coverage, warnings).** The fixture became a self-checking suite (`main.gd` prints
+`[AUDIO-CHECK] PASS`/`FAIL`) with Ogg/MP3 samples, seek and pitch changes mid-play, polyphony, a 2D player, and Stream
+playback through a capture effect, a bus meter, a generator and a randomizer; it is the smoketest's `audio_parity`
+scene (Chrome and Firefox; new `click_to_start` and `timeout_ms` scene options) and `local_ci.sh` runs both audio tiers.
+Writing it found:
+
+| found | fix |
+|---|---|
+| a stream's loop settings and data were captured when it was first registered as a sample: turning `loop` off later still looped forever on web (`finished` never fired) | the WAV/Ogg/MP3 setters emit `changed` (they mostly did not); the web driver listens and renders the stream again on its next start |
+| every non-sampleable stream (generator, microphone, script streams) warned "cannot be sampled" on each `play()` on web, though only `Default` was asked for | warns only when Sample is requested explicitly |
+| **upstream**: `AudioServer::finish()` never freed the playback list, so a sound playing or fading out at quit leaked its playback and stream ("ObjectDB instances were leaked at exit") | `finish()` frees the list and the bus-details graveyards once the drivers stopped |
+| bus effects and long samples silently did nothing / hitched | warnings at export and at runtime (§2.32) |
 
 ## 5. References — retired docs
 

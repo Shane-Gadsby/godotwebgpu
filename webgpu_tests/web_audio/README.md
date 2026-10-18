@@ -32,15 +32,19 @@ Loads `library_godot_audio.js` straight from the tree into a Chrome page and ren
 node run_e2e.mjs       # [--only nothreads|threads]
 ```
 
-Runs `fixture_project` natively (headless, Stream playback) and in Chrome (Sample playback), and compares what
-its `main.gd` prints: finish times, positions through loops, seeks, pitch and pause; and that bus layouts with
-forward sends, runtime bus edits, a moving 3D player and polyphonic streams keep working. Any console error fails
-it. The nothreads export is served without COOP/COEP headers, like most `threads=no` exports are hosted
-(`webgpu_notes/TASKS.md` §3 trap 22).
+`fixture_project/main.gd` is a self-checking suite: finish times and positions through loops, seeks, pitch changes
+and pause; Ogg/MP3 samples; polyphony; bus layouts with forward sends and runtime bus edits; 2D, 3D and polyphonic
+players; Stream playback through a capture effect, a bus meter, a generator and a randomizer; and the two
+limitation warnings below. It ends with `[AUDIO-CHECK] PASS` or `FAIL: <checks>`. `run_e2e.mjs` runs it natively
+(headless) and in both exports, and requires the web verdict to pass, every boolean to agree with native, each
+limitation warning exactly once on web and none natively, and no other engine warning or console error. The
+nothreads export is served without COOP/COEP headers, like most `threads=no` exports are hosted
+(`webgpu_notes/TASKS.md` §3 trap 22). The same project is the scene smoketest's `audio_parity` scene.
 
 ## What Sample playback still cannot do
 
 Bus **effects** (reverb, EQ, compressor...) do not apply to Sample playbacks, and a long stream played as a
 sample is decoded in full on its first `play()`. A sound that needs either must use `playback_type = Stream`,
 which mixes through `AudioServer` exactly as on desktop — reliably so in a thread-enabled export, where the
-mixing runs on its own thread.
+mixing runs on its own thread. Both gaps are warned about: at export (buses with effects) and at runtime, once per
+bus and per long stream. Ways to close them, with trade-offs: `webgpu_notes/TASKS.md` §2.32.

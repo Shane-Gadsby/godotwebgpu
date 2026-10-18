@@ -68,15 +68,21 @@ private:
 		LocalVector<int32_t> buses;
 		LocalVector<float> volumes; // AuSC::MAX_CHANNELS_PER_BUS * 2 per bus.
 	};
-	HashMap<ObjectID, int32_t> sample_streams;
+	struct SampleStream {
+		int32_t id = 0;
+		bool changed = false; // The AudioStream changed since it was rendered (loop settings, data): render again.
+	};
+	HashMap<ObjectID, SampleStream> sample_streams;
 	HashMap<ObjectID, SamplePlayback> sample_playbacks;
 	HashMap<int32_t, ObjectID> sample_playback_objects;
 	int32_t last_sample_id = 0;
+	static constexpr double LONG_SAMPLE_SECONDS = 30.0; // register_sample() warns about longer streams.
 	uint32_t sample_starts_since_sweep = 0;
 
 	int32_t _new_sample_id();
 	void _forget_sample_playback(ObjectID p_playback);
 	void _sweep_sample_streams();
+	static void _sample_stream_changed(ObjectID p_stream);
 
 	WASM_EXPORT static void _state_change_callback(int p_state);
 	WASM_EXPORT static void _latency_update_callback(float p_latency);

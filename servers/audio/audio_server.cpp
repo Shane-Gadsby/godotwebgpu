@@ -596,6 +596,7 @@ bool AudioServer::get_debug_mute() const {
 #endif // DEBUG_ENABLED
 
 void AudioServer::set_bus_count(int p_count) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_COND(p_count < 1);
 	ERR_FAIL_INDEX(p_count, 256);
 
@@ -658,6 +659,7 @@ void AudioServer::set_bus_count(int p_count) {
 }
 
 void AudioServer::remove_bus(int p_index) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_index, buses.size());
 	ERR_FAIL_COND(p_index == 0);
 
@@ -675,6 +677,7 @@ void AudioServer::remove_bus(int p_index) {
 }
 
 void AudioServer::add_bus(int p_at_pos) {
+	sample_effects_clean_buses.clear();
 	MARK_EDITED
 
 	if (p_at_pos >= buses.size()) {
@@ -731,6 +734,7 @@ void AudioServer::add_bus(int p_at_pos) {
 }
 
 void AudioServer::move_bus(int p_bus, int p_to_pos) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_COND(p_bus < 1 || p_bus >= buses.size());
 	ERR_FAIL_COND(p_to_pos != -1 && (p_to_pos < 1 || p_to_pos > buses.size()));
 
@@ -761,6 +765,7 @@ int AudioServer::get_bus_count() const {
 }
 
 void AudioServer::set_bus_name(int p_bus, const String &p_name) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 	if (p_bus == 0 && p_name != "Master") {
 		return; // Bus 0 is always "Master".
@@ -847,6 +852,7 @@ int AudioServer::get_bus_channels(int p_bus) const {
 }
 
 void AudioServer::set_bus_send(int p_bus, const StringName &p_send) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 
 	MARK_EDITED
@@ -894,6 +900,7 @@ bool AudioServer::is_bus_mute(int p_bus) const {
 }
 
 void AudioServer::set_bus_bypass_effects(int p_bus, bool p_enable) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 
 	MARK_EDITED
@@ -921,6 +928,7 @@ void AudioServer::_update_bus_effects(int p_bus) {
 }
 
 void AudioServer::add_bus_effect(int p_bus, const Ref<AudioEffect> &p_effect, int p_at_pos) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_COND(p_effect.is_null());
 	ERR_FAIL_INDEX(p_bus, buses.size());
 
@@ -948,6 +956,7 @@ void AudioServer::add_bus_effect(int p_bus, const Ref<AudioEffect> &p_effect, in
 }
 
 void AudioServer::remove_bus_effect(int p_bus, int p_effect) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 
 	MARK_EDITED
@@ -982,6 +991,7 @@ Ref<AudioEffect> AudioServer::get_bus_effect(int p_bus, int p_effect) {
 }
 
 void AudioServer::swap_bus_effects(int p_bus, int p_effect, int p_by_effect) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 	ERR_FAIL_INDEX(p_effect, buses[p_bus]->effects.size());
 	ERR_FAIL_INDEX(p_by_effect, buses[p_bus]->effects.size());
@@ -995,6 +1005,7 @@ void AudioServer::swap_bus_effects(int p_bus, int p_effect, int p_by_effect) {
 }
 
 void AudioServer::set_bus_effect_enabled(int p_bus, int p_effect, bool p_enabled) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_INDEX(p_bus, buses.size());
 	ERR_FAIL_INDEX(p_effect, buses[p_bus]->effects.size());
 
@@ -1482,6 +1493,22 @@ void AudioServer::finish() {
 		AudioDriverManager::get_driver(i)->finish();
 	}
 
+	// Nothing mixes any more. Free the playbacks still listed (a sound playing, or stopped and still fading out,
+	// at quit) and the ones erased but waiting for update()'s cleanup: otherwise their streams leak at exit.
+	for (AudioStreamPlaybackListNode *playback : playback_list) {
+		_delete_stream_playback_list_node(playback);
+	}
+	playback_list.maybe_cleanup();
+	for (AudioStreamPlaybackBusDetails *bus_details : bus_details_graveyard_frame_old) {
+		bus_details_graveyard_frame_old.erase(bus_details, [](AudioStreamPlaybackBusDetails *d) { delete d; });
+	}
+	for (AudioStreamPlaybackBusDetails *bus_details : bus_details_graveyard) {
+		bus_details_graveyard.erase(bus_details, [](AudioStreamPlaybackBusDetails *d) { delete d; });
+	}
+	bus_details_graveyard.maybe_cleanup();
+	bus_details_graveyard_frame_old.maybe_cleanup();
+	sample_playback_list.clear();
+
 	for (int i = 0; i < buses.size(); i++) {
 		memdelete(buses[i]);
 	}
@@ -1579,6 +1606,7 @@ void AudioServer::remove_listener_changed_callback(AudioCallback p_callback, voi
 }
 
 void AudioServer::set_bus_layout(const Ref<AudioBusLayout> &p_bus_layout) {
+	sample_effects_clean_buses.clear();
 	ERR_FAIL_COND(p_bus_layout.is_null() || p_bus_layout->buses.is_empty());
 
 	lock();
@@ -1823,8 +1851,39 @@ void AudioServer::unregister_sample(const Ref<AudioSample> &p_sample) {
 	AudioDriver::get_singleton()->unregister_sample(p_sample);
 }
 
+void AudioServer::_warn_sample_bus_effects(const StringName &p_bus) {
+	// Sample playback (the web default) is played by the audio driver, outside this mixer, so bus effects never
+	// process it. Say so once per bus, or a reverb that works on desktop and not on the web reads as a bug.
+	if (sample_effects_warned_buses.has(p_bus) || sample_effects_clean_buses.has(p_bus)) {
+		return;
+	}
+	int index = MAX(get_bus_index(p_bus), 0); // A bus that does not exist mixes to Master.
+	for (int steps = 0; steps < buses.size(); steps++) {
+		const Bus *bus = buses[index];
+		bool has_effects = false;
+		if (!bus->bypass) {
+			for (const Bus::Effect &effect : bus->effects) {
+				has_effects |= effect.enabled && effect.effect.is_valid();
+			}
+		}
+		if (has_effects) {
+			sample_effects_warned_buses.insert(p_bus);
+			WARN_PRINT(vformat(R"(Bus "%s" has audio effects, but a sound playing on bus "%s" uses Sample playback, which bypasses every bus effect (reverb, EQ, capture, spectrum analyzer...). Sample playback is the web default ("audio/general/default_playback_type.web"); set "playback_type" to Stream on the players that need the effects. Warned once per bus.)", bus->name, p_bus));
+			return;
+		}
+		if (index == 0) {
+			break;
+		}
+		// The send chain, by AudioServer::_mix_step()'s rules: a missing or earlier target means Master.
+		const int send = get_bus_index(bus->send);
+		index = send > index ? send : 0;
+	}
+	sample_effects_clean_buses.insert(p_bus);
+}
+
 void AudioServer::start_sample_playback(const Ref<AudioSamplePlayback> &p_playback) {
 	ERR_FAIL_COND_MSG(p_playback.is_null(), "Parameter p_playback is null.");
+	_warn_sample_bus_effects(p_playback->bus);
 	AudioDriver::get_singleton()->start_sample_playback(p_playback);
 	sample_playback_list.ordered_insert(p_playback);
 }

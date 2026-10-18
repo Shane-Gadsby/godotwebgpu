@@ -1,18 +1,19 @@
 /**
- * Web audio end-to-end parity: runs fixture_project in Chrome from ./export.sh's exports (Sample playback) and
- * natively (Stream playback, headless), and checks the AUDIOTEST lines main.gd prints: finish times, playback
- * positions through loops, seeks, pitch and pause, and that bus edits, 3D players and polyphonic streams keep
- * working. Fails on any page error or console error, too.
+ * Web audio end to end: runs fixture_project natively (headless, Stream playback) and in Chrome from ./export.sh's
+ * exports (Sample playback by default, plus explicit Stream players). main.gd checks itself — finish times and
+ * positions through loops, seeks, pitch and pause; Ogg/MP3 samples; bus layouts and runtime bus edits; 2D, 3D and
+ * polyphonic players; Stream playback with a capture effect, a generator and a randomizer — and prints an
+ * [AUDIO-CHECK] verdict. Here the web verdict must be PASS, every boolean check must agree with the native run, and
+ * the page must log no error or warning.
  *
- * Numbers are checked against what native playback does by definition (EXPECTED), not against the native run:
- * headless native uses the dummy audio driver, whose positions wander by up to 100 ms between runs. The native
- * run's numbers are printed alongside; its booleans must match the web's. Sample-exact native parity of the loop
- * modes and the mixer is run_tests.mjs's job.
+ * Numbers are checked against what native playback does by definition, not against the native run: headless
+ * native uses the dummy audio driver, whose positions wander by up to 100 ms between runs. Sample-exact parity of
+ * the loop modes and the mixer is run_tests.mjs's job.
  *
  * The nothreads export is served without COOP/COEP headers, as such exports usually are (TASKS.md §3 trap 22),
  * the threaded one with them.
  *
- * Usage: ./export.sh && node run_e2e.mjs [--only nothreads|threads] [--chrome <path>]
+ * Usage: ./export.sh && node run_e2e.mjs [--only nothreads|threads] [--chrome <path>] [--console]
  */
 
 import { spawnSync } from 'child_process';
@@ -29,22 +30,9 @@ const option = (name) => {
 	return i >= 0 ? args[i + 1] : undefined;
 };
 const only = option('--only');
+const echoConsole = args.includes('--console'); // Echo the page's console, for triage.
 const chromePath = option('--chrome') ?? '/usr/bin/google-chrome-stable';
 const editor = process.env.EDITOR_BIN ?? join(root, 'bin/godot.linuxbsd.editor.x86_64');
-
-// Seconds, for main.gd's streams: 0.4 s long; loops between 0.1 and 0.3 s.
-const EXPECTED = {
-	'finish_pitch_1': 0.4,
-	'finish_pitch_2': 0.2,
-	'position_plain_0.25': 0.25,
-	'position_seek_0.2_plus_0.1': 0.3,
-	'position_forward_0.45': 0.25, // 0.1 + (0.45 - 0.1) % 0.2
-	'position_forward_pitch_2_0.3': 0.2, // 0.6 s of stream: 0.1 + (0.6 - 0.1) % 0.2
-	'position_pingpong_0.45': 0.15, // Up to 0.3, then 0.15 back down.
-	'position_backward_seek_0.25_plus_0.1': 0.15, // Down from 0.25.
-};
-// Finished is signaled on the main loop after the end; positions are read there too.
-const TOLERANCE = { finish: 0.05, position: 0.03 };
 
 function parse(lines) {
 	const results = {};
@@ -59,7 +47,9 @@ function parse(lines) {
 
 function runNative() {
 	const run = spawnSync(editor, ['--headless', '--path', join(here, 'fixture_project')], { encoding: 'utf8', timeout: 120000 });
-	return parse((run.stdout ?? '').split('\n'));
+	const results = parse((run.stdout ?? '').split('\n'));
+	results.warnings = `${run.stdout}\n${run.stderr}`.split('\n').filter((l) => l.startsWith('WARNING:'));
+	return results;
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.pck': 'application/octet-stream', '.png': 'image/png' };
@@ -95,48 +85,71 @@ async function runWeb(browser, name, isolated) {
 	const errors = [];
 	page.on('console', (msg) => {
 		lines.push(msg.text());
-		if (msg.type() === 'error') {
-			errors.push(msg.text());
+		if (echoConsole) {
+			console.log(`    [${name}] ${msg.type()}: ${msg.text().slice(0, 400)}`);
+		}
+		// The engine's warnings fail too (WebLogger sends them to console.warn as "WARNING: ..."); a native run
+		// of this project prints none. The browser's own notices (the WebGL probe's lost context) do not.
+		if (msg.type() === 'error' || (msg.type() === 'warning' && msg.text().includes('WARNING:'))) {
+			errors.push(`${msg.type()}: ${msg.text()}`);
 		}
 	});
 	page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 	await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
 	const deadline = Date.now() + 90000;
+	// Web Audio waits for a user gesture; main.gd waits for the audio clock to move.
+	await page.waitForSelector('#canvas');
+	await page.waitForTimeout(2000);
+	await page.click('#canvas').catch(() => {});
 	while (Date.now() < deadline && !lines.some((l) => l.includes('AUDIOTEST done'))) {
 		await page.waitForTimeout(250);
 	}
 	await page.close();
 	server.close();
-	return { results: parse(lines), errors };
+	const verdict = lines.find((l) => l.includes('[AUDIO-CHECK]')) ?? '';
+	return { results: parse(lines), errors, verdict };
 }
+
+// Engine warnings a web run must print exactly once (main.gd's _limitation_warnings()); any other fails.
+const EXPECTED_WARNINGS = [
+	{ name: 'bus effects bypassed by Sample playback', pattern: 'Bus "Fx" has audio effects' },
+	{ name: 'long stream decoded whole as a Sample', pattern: 'plays as a Sample: on the web that decodes the whole stream' },
+];
 
 function compare(label, native, web) {
 	let failed = 0;
-	for (const key of Object.keys(native)) {
+	for (const expected of EXPECTED_WARNINGS) {
+		const count = web.errors.filter((e) => e.includes(expected.pattern)).length;
+		const pass = count === 1;
+		failed += pass ? 0 : 1;
+		console.log(`${pass ? 'PASS' : 'FAIL'}  [${label}] warns once: ${expected.name} (${count}x)`);
+	}
+	web.errors = web.errors.filter((e) => !EXPECTED_WARNINGS.some((w) => e.includes(w.pattern) || e.startsWith('warning:    at:')));
+	// main.gd checks the numbers itself; here the booleans must also agree with the native run.
+	for (const key of Object.keys(native).filter((k) => k !== 'warnings')) {
 		const n = native[key];
 		const w = web.results[key];
-		let pass;
-		let reference = `native ${n}`;
-		if (w === undefined) {
-			pass = false;
-		} else if (key in EXPECTED) {
-			const tolerance = key.startsWith('finish') ? TOLERANCE.finish : TOLERANCE.position;
-			pass = Math.abs(Number(w) - EXPECTED[key]) <= tolerance;
-			reference = `expected ${EXPECTED[key]} ±${tolerance} (headless native ${n})`;
-		} else {
-			pass = n === w;
-		}
+		const isBool = n === 'true' || n === 'false';
+		const pass = w !== undefined && (!isBool || n === w);
 		failed += pass ? 0 : 1;
-		console.log(`${pass ? 'PASS' : 'FAIL'}  [${label}] ${key}: web ${w ?? '(missing)'}, ${reference}`);
+		console.log(`${pass ? 'PASS' : 'FAIL'}  [${label}] ${key}: web ${w ?? '(missing)'}, native ${n}`);
 	}
+	if (!web.verdict.includes('PASS')) {
+		failed++;
+	}
+	console.log(`${web.verdict.includes('PASS') ? 'PASS' : 'FAIL'}  [${label}] ${web.verdict || '(no [AUDIO-CHECK] verdict)'}`);
 	for (const e of web.errors) {
 		failed++;
-		console.log(`FAIL  [${label}] console error: ${e.slice(0, 300)}`);
+		console.log(`FAIL  [${label}] console ${e.slice(0, 300)}`);
 	}
 	return failed;
 }
 
 const native = runNative();
+if (native.warnings.length) {
+	console.error('native run printed warnings:', native.warnings);
+	process.exit(1);
+}
 if (!native.done) {
 	console.error('native run did not finish; got:', native);
 	process.exit(1);
@@ -146,7 +159,7 @@ const { chromium } = await import('playwright');
 const browser = await chromium.launch({
 	headless: true,
 	executablePath: existsSync(chromePath) ? chromePath : undefined,
-	args: ['--autoplay-policy=no-user-gesture-required', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
+	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
 });
 let failed = 0;
 let ran = 0;

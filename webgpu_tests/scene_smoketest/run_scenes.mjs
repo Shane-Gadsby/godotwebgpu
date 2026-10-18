@@ -511,8 +511,15 @@ async function runScenePlaywright(scene, browser, timeout) {
 
     // Wait for engine to start (and pass_patterns to match) or timeout
     const startTime = Date.now();
+    let clicked = false;
     while ((Date.now() - startTime) < timeout) {
         await new Promise(r => setTimeout(r, 500));
+        // `click_to_start`: browsers keep Web Audio suspended until the page gets a user gesture, so a scene that
+        // checks audio is clicked once the engine is up (Godot resumes its AudioContext on input).
+        if (scene.click_to_start && engineStarted && !clicked) {
+            clicked = true;
+            await page.click('#canvas').catch(() => {});
+        }
         const patternsReady = passPatterns.length === 0 || matchedPatterns.size >= passPatterns.length;
         if (engineStarted && patternsReady && (Date.now() - startTime) > Math.min(timeout, 10000)) {
             break;
@@ -988,9 +995,10 @@ async function main() {
 
             let result;
             if (browserHandle.type === 'applescript') {
-                result = await runSceneSafari(filteredScene, timeout);
+                result = await runSceneSafari(filteredScene, Math.max(timeout, scene.timeout_ms || 0));
             } else {
-                result = await runScenePlaywright(filteredScene, browserHandle.browser, timeout);
+                // `timeout_ms`: a scene whose checks run longer than the default per-scene timeout.
+                result = await runScenePlaywright(filteredScene, browserHandle.browser, Math.max(timeout, scene.timeout_ms || 0));
             }
 
             allResults.push({ scene: scene.id, browser: browserName, ...result });

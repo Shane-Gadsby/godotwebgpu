@@ -46,6 +46,7 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/resources/image_texture.h"
+#include "servers/audio/audio_server.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
@@ -782,6 +783,27 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 		String shell_js = FileAccess::get_file_as_string(base_path + ".js");
 		if (!shell_js.is_empty() && !shell_js.contains("shaderPack")) {
 			add_message(EXPORT_MESSAGE_WARNING, TTR("Export"), TTR("The export template predates separate shader packs, so the baked shaders in \"index.shaders.pck\" will not be loaded at runtime and every shader will be compiled from source on first launch. Rebuild the web export templates from this editor's commit, or disable \"shader_baker/separate_pack\".").replace("index.shaders.pck", shader_pack_path.get_file()));
+		}
+	}
+
+	// Sounds on the web default to Sample playback, which the browser plays outside AudioServer's mixer, so bus
+	// effects never process them. Say so at export rather than leave a missing reverb to be reported as a bug.
+	if (int(GLOBAL_GET("audio/general/default_playback_type.web")) == 1) { // 1: Sample.
+		AudioServer *audio_server = AudioServer::get_singleton();
+		PackedStringArray effect_buses;
+		for (int i = 0; i < audio_server->get_bus_count(); i++) {
+			if (audio_server->is_bus_bypassing_effects(i)) {
+				continue;
+			}
+			for (int j = 0; j < audio_server->get_bus_effect_count(i); j++) {
+				if (audio_server->is_bus_effect_enabled(i, j)) {
+					effect_buses.push_back("\"" + audio_server->get_bus_name(i) + "\"");
+					break;
+				}
+			}
+		}
+		if (!effect_buses.is_empty()) {
+			add_message(EXPORT_MESSAGE_WARNING, TTR("Audio"), vformat(TTR("The effects on bus %s will not apply to sounds that use Sample playback, the web default (\"audio/general/default_playback_type.web\"). Set \"playback_type\" to Stream on the players that need them; Stream playback mixes them as on desktop."), String(", ").join(effect_buses)));
 		}
 	}
 

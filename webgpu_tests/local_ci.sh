@@ -391,6 +391,12 @@ run_test "Forward+ matrix self-test" \
     "$SCRIPT_DIR/forward_plus" \
     node self_test_forward_plus.mjs
 
+# The Web Audio sample driver, rendered offline against ports of AudioServer/AudioStreamPlaybackWAV. No build.
+ensure_playwright "$SCRIPT_DIR/web_audio"
+run_test "Web audio sample driver parity (40)" \
+    "$SCRIPT_DIR/web_audio" \
+    node run_tests.mjs
+
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -437,6 +443,10 @@ if [[ "$DO_EXPORT" == true ]]; then
     run_test "Re-export WebRTC fixture" \
         "$SCRIPT_DIR/webrtc_parity" \
         ./export.sh
+    # The audio fixture, for run_e2e.mjs (nothreads and threads). The scene smoketest exports it itself.
+    run_test "Re-export audio fixture" \
+        "$SCRIPT_DIR/web_audio" \
+        ./export.sh
     if [[ $FAILED -gt 0 ]]; then
         echo ""
         echo "Export failed — aborting rather than testing stale exports."
@@ -449,11 +459,11 @@ else
     echo "    Testing whatever is already in scene_smoketest/exports/."
 fi
 
-run_test "Scene smoketest — Chrome (21 scenes)" \
+run_test "Scene smoketest — Chrome (22 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser chrome --timeout 30000
 
-run_test "Scene smoketest — Firefox (21 scenes)" \
+run_test "Scene smoketest — Firefox (22 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser firefox --timeout 30000
 
@@ -531,13 +541,13 @@ if [[ "$DO_BAKE" == true ]]; then
 fi
 
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
-    run_test "Scene smoketest — Safari (21 scenes)" \
+    run_test "Scene smoketest — Safari (22 scenes)" \
         "$SCRIPT_DIR/scene_smoketest" \
         node run_scenes.mjs --browser safari --timeout 30000
 else
-    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (21 scenes)"
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (22 scenes)"
     SKIPPED=$((SKIPPED + 1))
-    RESULTS+=("SKIP  Scene smoketest — Safari (21 scenes)")
+    RESULTS+=("SKIP  Scene smoketest — Safari (22 scenes)")
 fi
 
 echo ""
@@ -589,6 +599,12 @@ else
     SKIPPED=$((SKIPPED + 1))
     RESULTS+=("SKIP  WebRTC parity — Safari (9 fixtures)")
 fi
+
+# Audio, native against web: the same self-checking GDScript headless natively and in the nothreads (served
+# without COOP/COEP) and threads exports; the web verdict must pass and every boolean agree with native.
+run_test "Web audio end to end (native vs web)" \
+    "$SCRIPT_DIR/web_audio" \
+    node run_e2e.mjs
 
 echo ""
 

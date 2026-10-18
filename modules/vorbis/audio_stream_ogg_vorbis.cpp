@@ -490,6 +490,7 @@ void AudioStreamOggVorbis::set_packet_sequence(Ref<OggPacketSequence> p_packet_s
 	if (packet_sequence.is_valid()) {
 		maybe_update_info();
 	}
+	emit_changed();
 }
 
 Ref<OggPacketSequence> AudioStreamOggVorbis::get_packet_sequence() const {
@@ -498,6 +499,7 @@ Ref<OggPacketSequence> AudioStreamOggVorbis::get_packet_sequence() const {
 
 void AudioStreamOggVorbis::set_loop(bool p_enable) {
 	loop = p_enable;
+	emit_changed();
 }
 
 bool AudioStreamOggVorbis::has_loop() const {
@@ -506,6 +508,7 @@ bool AudioStreamOggVorbis::has_loop() const {
 
 void AudioStreamOggVorbis::set_loop_offset(double p_seconds) {
 	loop_offset = p_seconds;
+	emit_changed();
 }
 
 double AudioStreamOggVorbis::get_loop_offset() const {
