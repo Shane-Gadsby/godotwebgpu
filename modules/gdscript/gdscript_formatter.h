@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/vector2i.h"
 #include "core/string/ustring.h"
 #include "core/templates/list.h"
 
@@ -121,6 +122,14 @@ public:
 	// `p_path` only decides brace mode (by extension) and the parser's script path.
 	static Result format(const String &p_source, const String &p_path, const Options &p_options);
 
+	// Formats only the lines in `p_line_ranges` (1-based, inclusive): the changes formatting the whole file makes to
+	// those lines, and none elsewhere. Fails if the result would not parse, as mixing changed and unchanged indentation
+	// in `.gd` can do.
+	static Result format_ranges(const String &p_source, const String &p_path, const Options &p_options, const Vector<Vector2i> &p_line_ranges);
+
+	// A unified diff (`---`/`+++`/`@@`) between two texts, with three lines of context, or an empty string.
+	static String unified_diff(const String &p_before, const String &p_after, const String &p_path);
+
 	// Converts a script between `.gd` and braced `.gdb`; the extension of `p_path` says which one `p_source` is. The
 	// result is formatted with `p_options`. `p_keep_lines` keeps every statement on its line instead, which only a
 	// `.gd` to `.gdb` conversion can always do. The conversion is checked: both versions must parse to the same tree.
@@ -131,10 +140,17 @@ public:
 	// converts standard input to standard output instead, `<path>` naming the source file. Returns the process exit code.
 	static int run_convert_cli(const List<String> &p_args);
 
-	// `godot --headless --gdscript-format [--check] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]
-	// [--stdin --stdin-path <path>] <paths>`. The indent flags override `.editorconfig`, so an editor can pass its own
-	// effective settings. Returns the process exit code.
+	// `godot --headless --gdscript-format [--check [--diff]] [--preset <name>] [--indent-style tab|space] [--indent-size <n>]
+	// [--stdin --stdin-path <path> [--range <first>:<last>]...] <paths>`. The indent flags override `.editorconfig`, so an
+	// editor can pass its own effective settings; `--range` formats only those lines. Returns the process exit code.
 	static int run_cli(const List<String> &p_args);
+
+	// `godot --headless --gdscript-format-server`: stays running and answers requests on standard input, so an editor
+	// formats on save without starting the engine each time. Each request and response is a line holding the byte
+	// length of a JSON object, then the object. Request: `{"id", "path", "text", "mode": "format" | "to-gd" | "to-gdb" |
+	// "version", "preset", "indent_style", "indent_size", "ranges": [[first, last], ...], "keep_lines"}`. Response:
+	// `{"id", "ok": true, "text", "note"}` or `{"id", "ok": false, "line", "message"}`. Returns at end of input.
+	static int run_server();
 
 private:
 	// `p_to_indented`: `p_source` is braced, and the result is the equivalent indented `.gd` code. `r_wrapped` is set when

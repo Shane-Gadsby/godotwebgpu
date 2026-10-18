@@ -2935,6 +2935,11 @@ void DocumentEditorContainer::_reload_scripts(bool p_refresh_only) {
 }
 
 void DocumentEditorContainer::_auto_format_text(ScriptEditorBase *p_seb) {
+	if (reformat_code_on_save) {
+		if (ScriptTextEditor *ste = Object::cast_to<ScriptTextEditor>(p_seb)) {
+			ste->reformat_code(false); // GDB
+		}
+	}
 	if (TextEditorBase *teb = Object::cast_to<TextEditorBase>(p_seb)) {
 		if (trim_trailing_whitespace_on_save) {
 			teb->trim_trailing_whitespace();
@@ -3090,6 +3095,7 @@ void DocumentEditorContainer::_apply_editor_settings() {
 	trim_trailing_whitespace_on_save = EDITOR_GET("text_editor/behavior/files/trim_trailing_whitespace_on_save");
 	trim_final_newlines_on_save = EDITOR_GET("text_editor/behavior/files/trim_final_newlines_on_save");
 	convert_indent_on_save = EDITOR_GET("text_editor/behavior/files/convert_indent_on_save");
+	reformat_code_on_save = EDITOR_GET("text_editor/behavior/files/reformat_code_on_save"); // GDB
 
 	document_outline->update_editor_settings();
 
@@ -4305,6 +4311,7 @@ DocumentEditorContainer::DocumentEditorContainer(bool p_is_main_editor, const St
 	trim_trailing_whitespace_on_save = EDITOR_GET("text_editor/behavior/files/trim_trailing_whitespace_on_save");
 	trim_final_newlines_on_save = EDITOR_GET("text_editor/behavior/files/trim_final_newlines_on_save");
 	convert_indent_on_save = EDITOR_GET("text_editor/behavior/files/convert_indent_on_save");
+	reformat_code_on_save = EDITOR_GET("text_editor/behavior/files/reformat_code_on_save"); // GDB
 
 	//// Highlighters ////
 

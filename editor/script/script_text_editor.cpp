@@ -1762,6 +1762,48 @@ void ScriptTextEditor::_gutter_clicked(int p_line, int p_gutter) {
 	}
 }
 
+// GDB: Reformats the whole file with the language's formatter, as one undoable edit. `p_report_errors` says why it cannot
+// (Reformat Code); it is off when formatting on save.
+void ScriptTextEditor::reformat_code(bool p_report_errors) {
+	CodeEdit *tx = code_editor->get_text_editor();
+	Ref<Script> scr = edited_res;
+	const EditorLanguage *editor_language = scr.is_valid() ? scr->get_language()->get_editor_language() : nullptr;
+	if (editor_language == nullptr || !editor_language->can_reformat_code(scr->get_path())) {
+		if (p_report_errors) {
+			EditorToaster::get_singleton()->popup_str(TTR("This script's language has no formatter."), EditorToaster::SEVERITY_WARNING);
+		}
+		return;
+	}
+	const String text = tx->get_text();
+	String formatted;
+	int error_line = 0;
+	String error_message;
+	if (editor_language->reformat_code(text, scr->get_path(), formatted, error_line, error_message) != OK) {
+		if (!p_report_errors) {
+			return; // Saving code that does not parse: it is saved as it is.
+		}
+		const String message = error_line > 0 ? vformat(TTR("Cannot reformat: line %d: %s"), error_line, error_message) : vformat(TTR("Cannot reformat: %s"), error_message);
+		EditorToaster::get_singleton()->popup_str(message, EditorToaster::SEVERITY_WARNING);
+		if (error_line > 0) {
+			goto_line_centered(error_line - 1);
+		}
+		return;
+	}
+	if (formatted == text) {
+		return;
+	}
+	const int caret_line = tx->get_caret_line();
+	const int scroll = tx->get_v_scroll();
+	tx->begin_complex_operation();
+	tx->remove_text(0, 0, tx->get_line_count() - 1, tx->get_line(tx->get_line_count() - 1).length());
+	tx->insert_text(formatted, 0, 0);
+	tx->end_complex_operation();
+	tx->remove_secondary_carets();
+	tx->set_caret_line(MIN(caret_line, tx->get_line_count() - 1));
+	tx->set_caret_column(tx->get_first_non_whitespace_column(tx->get_caret_line()));
+	tx->set_v_scroll(scroll);
+}
+
 bool ScriptTextEditor::_edit_option(int p_op) {
 	CodeEdit *tx = code_editor->get_text_editor();
 	tx->apply_ime();
@@ -1827,38 +1869,7 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 			tx->end_complex_operation();
 		} break;
 		case EDIT_REFORMAT_CODE: {
-			// GDB: Reformat the whole file with the language's formatter, as one undoable edit.
-			Ref<Script> scr = edited_res;
-			const EditorLanguage *editor_language = scr.is_valid() ? scr->get_language()->get_editor_language() : nullptr;
-			if (editor_language == nullptr || !editor_language->can_reformat_code(scr->get_path())) {
-				EditorToaster::get_singleton()->popup_str(TTR("This script's language has no formatter."), EditorToaster::SEVERITY_WARNING);
-				break;
-			}
-			const String text = tx->get_text();
-			String formatted;
-			int error_line = 0;
-			String error_message;
-			if (editor_language->reformat_code(text, scr->get_path(), formatted, error_line, error_message) != OK) {
-				const String message = error_line > 0 ? vformat(TTR("Cannot reformat: line %d: %s"), error_line, error_message) : vformat(TTR("Cannot reformat: %s"), error_message);
-				EditorToaster::get_singleton()->popup_str(message, EditorToaster::SEVERITY_WARNING);
-				if (error_line > 0) {
-					goto_line_centered(error_line - 1);
-				}
-				break;
-			}
-			if (formatted == text) {
-				break;
-			}
-			const int caret_line = tx->get_caret_line();
-			const int scroll = tx->get_v_scroll();
-			tx->begin_complex_operation();
-			tx->remove_text(0, 0, tx->get_line_count() - 1, tx->get_line(tx->get_line_count() - 1).length());
-			tx->insert_text(formatted, 0, 0);
-			tx->end_complex_operation();
-			tx->remove_secondary_carets();
-			tx->set_caret_line(MIN(caret_line, tx->get_line_count() - 1));
-			tx->set_caret_column(tx->get_first_non_whitespace_column(tx->get_caret_line()));
-			tx->set_v_scroll(scroll);
+			reformat_code(true); // GDB
 		} break;
 		case EDIT_PICK_COLOR: {
 			_open_picker();

@@ -210,6 +210,7 @@ protected:
 
 public:
 	void _update_connected_methods();
+	void reformat_code(bool p_report_errors); // GDB
 
 	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
 

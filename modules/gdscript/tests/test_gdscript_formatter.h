@@ -316,6 +316,33 @@ TEST_CASE("[Modules][GDScript] Formatter: line wrapping, trailing commas and ali
 	}
 }
 
+TEST_CASE("[Modules][GDScript] Formatter: line ranges and diffs") {
+	const String source = "func a() {\nvar x=1\nvar y=2\n}\n\nfunc b() {\nvar z=3\n}\n";
+	const GDScriptFormatter::Options options = GDScriptFormatter::get_preset("js");
+
+	SUBCASE("Only the lines in the ranges change") {
+		GDScriptFormatter::Result result = GDScriptFormatter::format_ranges(source, "res://a.gdb", options, { Vector2i(2, 2) });
+		CHECK(result.error == OK);
+		CHECK(result.output == "func a() {\n    var x = 1\nvar y=2\n}\n\nfunc b() {\nvar z=3\n}\n");
+		result = GDScriptFormatter::format_ranges(source, "res://a.gdb", options, { Vector2i(6, 8), Vector2i(3, 3) });
+		CHECK(result.output == "func a() {\nvar x=1\n    var y = 2\n}\n\nfunc b() {\n    var z = 3\n}\n");
+	}
+
+	SUBCASE("A range that would leave .gd indentation inconsistent is refused") {
+		const String gd = "func f():\n    if true:\n        pass\n";
+		GDScriptFormatter::Options godot = GDScriptFormatter::get_preset("godot");
+		const GDScriptFormatter::Result result = GDScriptFormatter::format_ranges(gd, "res://a.gd", godot, { Vector2i(2, 2) });
+		CHECK(result.error != OK);
+	}
+
+	SUBCASE("Unified diff") {
+		const String after = GDScriptFormatter::format(source, "res://a.gdb", options).output;
+		const String diff = GDScriptFormatter::unified_diff(source, after, "a.gdb");
+		CHECK(diff.begins_with("--- a.gdb\n+++ a.gdb\n@@ -1,9 +1,9 @@\n func a() {\n-var x=1\n-var y=2\n+    var x = 1\n+    var y = 2\n"));
+		CHECK(GDScriptFormatter::unified_diff(after, after, "a.gdb").is_empty());
+	}
+}
+
 TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
 	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
 		return; // Braced GDScript is compiled out.

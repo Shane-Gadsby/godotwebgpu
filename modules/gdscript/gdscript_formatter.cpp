@@ -37,6 +37,8 @@
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/json.h"
+#include "core/io/logger.h"
 #include "core/os/os.h"
 #include "core/string/char_utils.h"
 #include "core/templates/hash_map.h"
@@ -2111,6 +2113,187 @@ GDScriptFormatter::Options GDScriptFormatter::get_options_for_path(const String 
 	return options;
 }
 
+// Line diffs, for `--range` and `--diff`.
+
+namespace {
+
+// `p_after[r_to_after]` replaces `p_before[from, to)`.
+struct LineHunk {
+	int from = 0;
+	int to = 0;
+	int after_from = 0;
+	int after_to = 0;
+};
+
+Vector<LineHunk> _line_hunks(const Vector<String> &p_before, const Vector<String> &p_after) {
+	Vector<LineHunk> hunks;
+	int prefix = 0;
+	while (prefix < p_before.size() && prefix < p_after.size() && p_before[prefix] == p_after[prefix]) {
+		prefix++;
+	}
+	int suffix = 0;
+	while (suffix < p_before.size() - prefix && suffix < p_after.size() - prefix && p_before[p_before.size() - 1 - suffix] == p_after[p_after.size() - 1 - suffix]) {
+		suffix++;
+	}
+	const int n = p_before.size() - prefix - suffix;
+	const int m = p_after.size() - prefix - suffix;
+	if (n == 0 && m == 0) {
+		return hunks;
+	}
+	if ((int64_t)(n + 1) * (m + 1) > 4000000) {
+		// Too large to align line by line: one hunk.
+		hunks.push_back({ prefix, prefix + n, prefix, prefix + m });
+		return hunks;
+	}
+	// Longest common subsequence of the middle, then the runs between its lines.
+	Vector<int> table;
+	table.resize((n + 1) * (m + 1));
+	table.fill(0);
+	auto at = [&](int i, int j) -> int & { return table.write[i * (m + 1) + j]; };
+	for (int i = n - 1; i >= 0; i--) {
+		for (int j = m - 1; j >= 0; j--) {
+			at(i, j) = p_before[prefix + i] == p_after[prefix + j] ? at(i + 1, j + 1) + 1 : MAX(at(i + 1, j), at(i, j + 1));
+		}
+	}
+	int i = 0;
+	int j = 0;
+	LineHunk open = { -1, -1, -1, -1 };
+	auto close = [&]() {
+		if (open.from < 0) {
+			return;
+		}
+		if (open.to - open.from == open.after_to - open.after_from) {
+			// Lines changed one for one (re-indented, re-spaced): a hunk each, so a range takes exactly its own lines.
+			for (int k = 0; k < open.to - open.from; k++) {
+				hunks.push_back({ open.from + k, open.from + k + 1, open.after_from + k, open.after_from + k + 1 });
+			}
+		} else {
+			hunks.push_back(open);
+		}
+		open = { -1, -1, -1, -1 };
+	};
+	while (i < n || j < m) {
+		if (i < n && j < m && p_before[prefix + i] == p_after[prefix + j]) {
+			close();
+			i++;
+			j++;
+			continue;
+		}
+		if (open.from < 0) {
+			open = { prefix + i, prefix + i, prefix + j, prefix + j };
+		}
+		if (j < m && (i == n || at(i, j + 1) >= at(i + 1, j))) {
+			j++;
+			open.after_to = prefix + j;
+		} else {
+			i++;
+			open.to = prefix + i;
+		}
+	}
+	close();
+	return hunks;
+}
+
+} // namespace
+
+GDScriptFormatter::Result GDScriptFormatter::format_ranges(const String &p_source, const String &p_path, const Options &p_options, const Vector<Vector2i> &p_line_ranges) {
+	Result result = format(p_source, p_path, p_options);
+	if (result.error != OK || p_line_ranges.is_empty()) {
+		return result;
+	}
+	const bool crlf = p_source.contains("\r\n");
+	const Vector<String> before = p_source.replace("\r\n", "\n").split("\n");
+	const Vector<String> after = result.output.replace("\r\n", "\n").split("\n");
+	Vector<String> lines;
+	int copied = 0;
+	for (const LineHunk &hunk : _line_hunks(before, after)) {
+		// 1-based inclusive ranges; a hunk that only inserts touches the line it is inserted before.
+		bool inside = false;
+		for (const Vector2i &range : p_line_ranges) {
+			const int first = range.x - 1;
+			const int last = range.y - 1;
+			inside = inside || (hunk.from == hunk.to ? (hunk.from >= first && hunk.from <= last + 1) : (hunk.from <= last && hunk.to - 1 >= first));
+		}
+		for (; copied < hunk.from; copied++) {
+			lines.push_back(before[copied]);
+		}
+		if (inside) {
+			for (int k = hunk.after_from; k < hunk.after_to; k++) {
+				lines.push_back(after[k]);
+			}
+		} else {
+			for (int k = hunk.from; k < hunk.to; k++) {
+				lines.push_back(before[k]);
+			}
+		}
+		copied = hunk.to;
+	}
+	for (; copied < before.size(); copied++) {
+		lines.push_back(before[copied]);
+	}
+	String output = String("\n").join(lines);
+	{
+		GDScriptParser parser;
+		if (parser.parse(output, p_path.is_empty() ? String("res://format.gd") : p_path, false) != OK) {
+			result.error = ERR_PARSE_ERROR;
+			result.message = "Formatting only these lines would leave the script invalid; format the whole file.";
+			result.line = 0;
+			result.output = String();
+			return result;
+		}
+	}
+	result.output = crlf ? output.replace("\n", "\r\n") : output;
+	return result;
+}
+
+String GDScriptFormatter::unified_diff(const String &p_before, const String &p_after, const String &p_path) {
+	const Vector<String> before = p_before.replace("\r\n", "\n").split("\n");
+	const Vector<String> after = p_after.replace("\r\n", "\n").split("\n");
+	const Vector<LineHunk> hunks = _line_hunks(before, after);
+	if (hunks.is_empty()) {
+		return String();
+	}
+	const int context = 3;
+	String diff = vformat("--- %s\n+++ %s\n", p_path, p_path);
+	int h = 0;
+	while (h < hunks.size()) {
+		// Merge hunks whose contexts touch.
+		int last = h;
+		while (last + 1 < hunks.size() && hunks[last + 1].from - hunks[last].to <= 2 * context) {
+			last++;
+		}
+		const int start = MAX(0, hunks[h].from - context);
+		const int end = MIN(before.size(), hunks[last].to + context);
+		const int after_start = hunks[h].after_from - (hunks[h].from - start);
+		const int after_end = hunks[last].after_to + (end - hunks[last].to);
+		diff += vformat("@@ -%d,%d +%d,%d @@\n", start + 1, end - start, after_start + 1, after_end - after_start);
+		int line = start;
+		for (int k = h; k <= last; k++) {
+			for (; line < hunks[k].from; line++) {
+				diff += " " + before[line] + "\n";
+			}
+			// Hunks that touch print as one: the removed lines, then the added ones.
+			int run_end = k;
+			while (run_end < last && hunks[run_end + 1].from == hunks[run_end].to) {
+				run_end++;
+			}
+			for (int b = hunks[k].from; b < hunks[run_end].to; b++) {
+				diff += "-" + before[b] + "\n";
+			}
+			for (int a = hunks[k].after_from; a < hunks[run_end].after_to; a++) {
+				diff += "+" + after[a] + "\n";
+			}
+			line = hunks[run_end].to;
+			k = run_end;
+		}
+		for (; line < end; line++) {
+			diff += " " + before[line] + "\n";
+		}
+		h = last + 1;
+	}
+	return diff;
+}
+
 // Command line.
 
 namespace {
@@ -2161,6 +2344,74 @@ String _read_stdin() {
 
 } // namespace
 
+int GDScriptFormatter::run_server() {
+	// Each request and response is a line with the byte length of a JSON object, then the object.
+	Logger::set_flush_stdout_on_print(true);
+	for (;;) {
+		const String header = OS::get_singleton()->get_stdin_string(64).strip_edges();
+		if (header.is_empty()) {
+			return 0; // End of input: the editor closed the pipe.
+		}
+		const int length = header.to_int();
+		const PackedByteArray payload = length > 0 ? OS::get_singleton()->get_stdin_buffer(length) : PackedByteArray();
+		if (payload.size() < length) {
+			return 0;
+		}
+
+		Dictionary response;
+		JSON json;
+		if (length <= 0 || json.parse(String::utf8(reinterpret_cast<const char *>(payload.ptr()), payload.size())) != OK || json.get_data().get_type() != Variant::DICTIONARY) {
+			response["ok"] = false;
+			response["line"] = 0;
+			response["message"] = "The request is not a JSON object.";
+		} else {
+			const Dictionary request = json.get_data();
+			response["id"] = request.get("id", Variant());
+			const String path = _absolute(request.get("path", "stdin.gd"));
+			const String mode = request.get("mode", "format");
+			const String text = request.get("text", "");
+			Result result;
+			if (mode == "version") {
+				result.output = itos(get_braces_grammar_version());
+			} else if (mode == "to-gd" || mode == "to-gdb") {
+				const bool to_braced = mode == "to-gdb";
+				const String target = path.get_basename() + (to_braced ? ".gdb" : ".gd");
+				result = convert(text, path, request.get("keep_lines", false), get_options_for_path(target, request.get("preset", "")));
+			} else {
+				Options options = get_options_for_path(path, request.get("preset", ""));
+				const String indent_style = request.get("indent_style", "");
+				if (indent_style == "tab" || indent_style == "space") {
+					options.use_spaces = indent_style == "space";
+				}
+				if ((int)request.get("indent_size", 0) > 0) {
+					options.indent_size = request.get("indent_size", 0);
+				}
+				Vector<Vector2i> ranges;
+				const Array raw_ranges = request.get("ranges", Array());
+				for (const Variant &raw : raw_ranges) {
+					const Array range = raw;
+					if (range.size() == 2 && (int)range[0] >= 1 && (int)range[1] >= (int)range[0]) {
+						ranges.push_back(Vector2i(range[0], range[1]));
+					}
+				}
+				result = ranges.is_empty() ? format(text, path, options) : format_ranges(text, path, options, ranges);
+			}
+			response["ok"] = result.error == OK;
+			if (result.error == OK) {
+				response["text"] = result.output;
+				if (!result.note.is_empty()) {
+					response["note"] = result.note;
+				}
+			} else {
+				response["line"] = result.line;
+				response["message"] = result.message;
+			}
+		}
+		const CharString out = JSON::stringify(response).utf8();
+		OS::get_singleton()->print("%d\n%s", (int)out.length(), out.get_data());
+	}
+}
+
 int GDScriptFormatter::get_braces_grammar_version() {
 #ifdef GDSCRIPT_BRACES_ENABLED
 	return BRACES_GRAMMAR_VERSION;
@@ -2171,6 +2422,8 @@ int GDScriptFormatter::get_braces_grammar_version() {
 
 int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	bool check = false;
+	bool diff = false;
+	Vector<Vector2i> ranges;
 	bool use_stdin = false;
 	String stdin_path;
 	String preset;
@@ -2187,6 +2440,18 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 		}
 		if (arg == "--check") {
 			check = true;
+		} else if (arg == "--diff") {
+			diff = true;
+		} else if (arg == "--range" && E->next()) {
+			E = E->next();
+			const String range = E->get();
+			const int first = range.get_slicec(':', 0).to_int();
+			const int last = range.contains_char(':') ? range.get_slicec(':', 1).to_int() : first;
+			if (first < 1 || last < first) {
+				OS::get_singleton()->printerr("--range %s: expected <first line>:<last line>, from 1.\n", range.utf8().get_data());
+				return 1;
+			}
+			ranges.push_back(Vector2i(first, last));
 		} else if (arg == "--stdin") {
 			use_stdin = true;
 		} else if (arg == "--stdin-path" && E->next()) {
@@ -2220,7 +2485,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	if (use_stdin) {
 		const String source = _read_stdin();
 		const String path = stdin_path.is_empty() ? String("stdin.gd") : _absolute(stdin_path);
-		const Result result = format(source, path, options_for(path));
+		const Result result = ranges.is_empty() ? format(source, path, options_for(path)) : format_ranges(source, path, options_for(path), ranges);
 		if (result.error != OK) {
 			OS::get_singleton()->printerr("%s:%d: %s\n", path.utf8().get_data(), result.line, result.message.utf8().get_data());
 			return 1;
@@ -2233,7 +2498,7 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 	}
 
 	if (paths.is_empty()) {
-		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-format [--check] [--preset godot|js] [--indent-style tab|space] [--indent-size <n>] [--stdin [--stdin-path <path>]] <files or directories>\n");
+		OS::get_singleton()->printerr("Usage: godot --headless --gdscript-format [--check [--diff]] [--preset godot|js] [--indent-style tab|space] [--indent-size <n>] [--stdin [--stdin-path <path>] [--range <first>:<last>]...] <files or directories>\n");
 		return 1;
 	}
 
@@ -2267,6 +2532,9 @@ int GDScriptFormatter::run_cli(const List<String> &p_args) {
 		changed++;
 		if (check) {
 			OS::get_singleton()->print("Would reformat %s\n", file.utf8().get_data());
+			if (diff) {
+				OS::get_singleton()->print("%s", unified_diff(source, result.output, file).utf8().get_data());
+			}
 			continue;
 		}
 		Ref<FileAccess> f = FileAccess::open(file, FileAccess::WRITE, &err);
