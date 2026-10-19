@@ -37,10 +37,16 @@ jobs:
   # CI_RUNNER to its label and refreshes CI_RUNNER_HEARTBEAT (a Unix time) every
   # minute. A heartbeat older than 3 minutes means the machine went away without
   # unsetting CI_RUNNER (power cut, hard kill), and the run goes to GitHub's runners.
+  #
+  # `vars` is captured when the run is created, not when this job starts, and this
+  # job can wait a long time for a hosted slot (20 concurrent jobs on the free plan).
+  # So the heartbeat's age is measured at the run's start, read from the API.
   pick-runner:
     runs-on: ubuntu-24.04
     name: Pick runner
     timeout-minutes: 2
+    permissions:
+      actions: read
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
     steps:
@@ -49,17 +55,22 @@ jobs:
         env:
           CI_RUNNER: ${{ vars.CI_RUNNER }}
           HEARTBEAT: ${{ vars.CI_RUNNER_HEARTBEAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           runner=ubuntu-24.04
+          # run_started_at moves on a re-run, as the captured vars do.
+          started="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          now="$(date -d "$started" +%s)"
+          echo "Run started at $started."
           if [[ -z "$CI_RUNNER" ]]; then
             echo "CI_RUNNER is unset: GitHub's runners."
           elif [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
             echo "::warning::CI_RUNNER=$CI_RUNNER but there is no CI_RUNNER_HEARTBEAT, so local_runner.sh is not running: GitHub's runners."
-          elif (( $(date +%s) - HEARTBEAT > 180 )); then
-            echo "::warning::CI_RUNNER=$CI_RUNNER but its last heartbeat was $(( $(date +%s) - HEARTBEAT ))s ago: GitHub's runners. Run 'webgpu_tests/local_runner.sh stop' on that machine to clear it."
+          elif (( now - HEARTBEAT > 180 )); then
+            echo "::warning::CI_RUNNER=$CI_RUNNER but its last heartbeat was $(( now - HEARTBEAT ))s before the run started: GitHub's runners. Run 'webgpu_tests/local_runner.sh stop' on that machine to clear it."
           else
             runner="$CI_RUNNER"
-            echo "$CI_RUNNER is online (heartbeat $(( $(date +%s) - HEARTBEAT ))s ago): self-hosted."
+            echo "$CI_RUNNER was online when the run started (heartbeat $(( now - HEARTBEAT ))s before): self-hosted."
           fi
           echo "runner=$runner" >> "$GITHUB_OUTPUT"
 
