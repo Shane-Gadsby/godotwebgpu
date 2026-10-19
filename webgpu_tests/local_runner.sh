@@ -2,9 +2,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # local_runner.sh — run this repo's GitHub Actions on local hardware, safely
 #
-# The workflow picks its runner with `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}`,
-# so setting the repository variable CI_RUNNER moves CI onto a self-hosted runner
-# and unsetting it moves CI back to GitHub's.
+# The workflow's pick-runner job sends every job to the runner named by the
+# repository variable CI_RUNNER, as long as CI_RUNNER_HEARTBEAT (a Unix time this
+# script refreshes every minute while GitHub reports the runner online) is under
+# 3 minutes old; otherwise to GitHub's runners.
 #
 # The trap is the whole point. GitHub does NOT fall back to hosted runners when a
 # self-hosted one is offline: it resolves runs-on to a label and waits for a runner
@@ -12,7 +13,8 @@
 # while this machine is off does not mean "CI ran in the cloud", it means "CI hung
 # until tomorrow". This script ties the variable to the runner process's lifetime:
 # set on start, unset on exit, however the exit happens (Ctrl-C, kill, crash,
-# logout).
+# logout). The heartbeat covers the exits no trap sees (power cut, kill -9): it
+# stops, and the next run falls back on its own.
 #
 #   ./webgpu_tests/local_runner.sh start    # set CI_RUNNER, run the runner, unset on exit
 #   ./webgpu_tests/local_runner.sh status   # where CI would run right now, and why
@@ -22,6 +24,7 @@
 #   RUNNER_DIR      Runner install dir            (default: ~/actions-runner)
 #   RUNNER_LABEL    Label given at config.sh time (default: godotwebgpu-local)
 #   CI_RUNNER_VAR   Variable name to toggle       (default: CI_RUNNER)
+#   HEARTBEAT_VAR   Variable name of the heartbeat (default: ${CI_RUNNER_VAR}_HEARTBEAT)
 #   GH_REPO         owner/repo                    (default: from origin remote)
 #
 # Requires: gh, authenticated, with admin on the repo. Registering the runner
@@ -32,6 +35,7 @@ set -euo pipefail
 RUNNER_DIR="${RUNNER_DIR:-$HOME/actions-runner}"
 RUNNER_LABEL="${RUNNER_LABEL:-godotwebgpu-local}"
 CI_RUNNER_VAR="${CI_RUNNER_VAR:-CI_RUNNER}"
+HEARTBEAT_VAR="${HEARTBEAT_VAR:-${CI_RUNNER_VAR}_HEARTBEAT}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -55,11 +59,14 @@ var_get() {
 	# Prints the value, or nothing when unset. `gh variable list` is used rather
 	# than a get subcommand because older gh builds do not have one.
 	gh variable list --repo "$REPO" --json name,value \
-		--jq ".[] | select(.name == \"$CI_RUNNER_VAR\") | .value" 2>/dev/null || true
+		--jq ".[] | select(.name == \"${1:-$CI_RUNNER_VAR}\") | .value" 2>/dev/null || true
 }
 
 var_set() { gh variable set "$CI_RUNNER_VAR" --body "$RUNNER_LABEL" --repo "$REPO" >/dev/null; }
-var_unset() { gh variable delete "$CI_RUNNER_VAR" --repo "$REPO" >/dev/null 2>&1 || true; }
+var_unset() {
+	gh variable delete "$CI_RUNNER_VAR" --repo "$REPO" >/dev/null 2>&1 || true
+	gh variable delete "$HEARTBEAT_VAR" --repo "$REPO" >/dev/null 2>&1 || true
+}
 
 runner_state() {
 	# Empty when the API is not readable (listing runners needs repo admin) or when
@@ -68,10 +75,22 @@ runner_state() {
 		--jq ".runners[] | select([.labels[].name] | index(\"$RUNNER_LABEL\")) | .status" 2>/dev/null || true
 }
 
+# Refreshes the heartbeat every minute while GitHub reports the runner online, so
+# a run only picks this machine while it can actually take the job.
+heartbeat() {
+	while true; do
+		if [[ "$(runner_state)" == "online" ]]; then
+			gh variable set "$HEARTBEAT_VAR" --body "$(date +%s)" --repo "$REPO" >/dev/null 2>&1 || true
+		fi
+		sleep 60
+	done
+}
+
 cmd_status() {
-	local current state
+	local current state beat
 	current="$(var_get)"
 	state="$(runner_state)"
+	beat="$(var_get "$HEARTBEAT_VAR")"
 
 	info "Repository:     $REPO"
 	info "Runner label:   $RUNNER_LABEL"
@@ -82,11 +101,13 @@ cmd_status() {
 		printf "${GREEN}→ CI runs on GitHub's runners.${NC}\n"
 	else
 		printf "${BOLD}%s:${NC}      %s\n" "$CI_RUNNER_VAR" "$current"
-		if [[ "$state" == "online" ]]; then
-			printf "${GREEN}→ CI runs here.${NC}\n"
+		if [[ "$beat" =~ ^[0-9]+$ ]] && (($(date +%s) - beat <= 180)); then
+			printf "${BOLD}Heartbeat:${NC}      %ss ago\n" "$(($(date +%s) - beat))"
+			printf "${GREEN}→ CI runs on '%s'.${NC}\n" "$current"
 		else
-			printf "${RED}→ CI is pointed at '%s', which is not online.${NC}\n" "$current"
-			printf "${RED}  Jobs will queue (~24h) instead of falling back. Run: %s stop${NC}\n" "$0"
+			printf "${BOLD}Heartbeat:${NC}      %s\n" "${beat:+stale ($(($(date +%s) - beat))s ago)}${beat:-none}"
+			printf "${YELLOW}→ CI falls back to GitHub's runners. '%s' is set but %s is not running.${NC}\n" "$CI_RUNNER_VAR" "$0"
+			printf "${YELLOW}  Run: %s stop  to clear it.${NC}\n" "$0"
 		fi
 	fi
 }
@@ -110,8 +131,10 @@ cmd_start() {
 
 	# Unset on the way out, whatever the reason. Registered before the variable is
 	# set so a failure in between cannot leave it behind.
+	hb_pid=""
 	cleanup() {
 		local rc=$?
+		[[ -n "$hb_pid" ]] && kill "$hb_pid" 2>/dev/null
 		printf "\n${YELLOW}Stopping — restoring CI to GitHub's runners...${NC}\n"
 		var_unset
 		if [[ -n "$(var_get)" ]]; then
@@ -128,6 +151,8 @@ cmd_start() {
 	var_set
 	[[ "$(var_get)" == "$RUNNER_LABEL" ]] || die "failed to set $CI_RUNNER_VAR."
 	printf "${GREEN}%s=%s${NC}\n" "$CI_RUNNER_VAR" "$RUNNER_LABEL"
+	heartbeat &
+	hb_pid=$!
 	printf "${YELLOW}Leave this running. Ctrl-C returns CI to GitHub's runners.${NC}\n\n"
 
 	# Not exec: that would replace this shell and the trap would never fire.

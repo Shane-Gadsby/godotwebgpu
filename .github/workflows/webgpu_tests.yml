@@ -28,11 +28,48 @@ env:
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════════
+  # Pick runner: the self-hosted one if it is up, GitHub's otherwise
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # GitHub never falls back from an offline self-hosted runner: a job whose runs-on
+  # names one waits for it, up to ~24h. So every job here runs where this one says,
+  # and this one only says "self-hosted" while webgpu_tests/local_runner.sh is
+  # running on that machine and GitHub reports it online: the script then sets
+  # CI_RUNNER to its label and refreshes CI_RUNNER_HEARTBEAT (a Unix time) every
+  # minute. A heartbeat older than 3 minutes means the machine went away without
+  # unsetting CI_RUNNER (power cut, hard kill), and the run goes to GitHub's runners.
+  pick-runner:
+    runs-on: ubuntu-24.04
+    name: Pick runner
+    timeout-minutes: 2
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Pick runner
+        id: pick
+        env:
+          CI_RUNNER: ${{ vars.CI_RUNNER }}
+          HEARTBEAT: ${{ vars.CI_RUNNER_HEARTBEAT }}
+        run: |
+          runner=ubuntu-24.04
+          if [[ -z "$CI_RUNNER" ]]; then
+            echo "CI_RUNNER is unset: GitHub's runners."
+          elif [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
+            echo "::warning::CI_RUNNER=$CI_RUNNER but there is no CI_RUNNER_HEARTBEAT, so local_runner.sh is not running: GitHub's runners."
+          elif (( $(date +%s) - HEARTBEAT > 180 )); then
+            echo "::warning::CI_RUNNER=$CI_RUNNER but its last heartbeat was $(( $(date +%s) - HEARTBEAT ))s ago: GitHub's runners. Run 'webgpu_tests/local_runner.sh stop' on that machine to clear it."
+          else
+            runner="$CI_RUNNER"
+            echo "$CI_RUNNER is online (heartbeat $(( $(date +%s) - HEARTBEAT ))s ago): self-hosted."
+          fi
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
   # Shader Corpus: Standalone SPIR-V → WGSL validation (fast, no build needed)
   # ═══════════════════════════════════════════════════════════════════════════════
   shader-corpus:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Shader Corpus (SPIR-V → WGSL)
+    needs: pick-runner
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -96,8 +133,9 @@ jobs:
   # Driver Unit Tests: Algorithmic correctness of WebGPU driver subsystems
   # ═══════════════════════════════════════════════════════════════════════════════
   driver-unit-tests:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Driver Unit Tests (JS)
+    needs: pick-runner
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -124,8 +162,9 @@ jobs:
   # Engine Build: Compile WebGPU export template + dump all SPIR-V
   # ═══════════════════════════════════════════════════════════════════════════════
   build-webgpu:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Build WebGPU Template + Dump SPIR-V
+    needs: pick-runner
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -176,11 +215,11 @@ jobs:
       # workflow in this repo, skip it on a self-hosted runner and use the Python and
       # SCons already installed there.
       - name: Setup Python and SCons
-        if: ${{ !vars.CI_RUNNER }}
+        if: runner.environment != 'self-hosted'
         uses: ./.github/actions/godot-deps
 
       - name: Use the runner's own Python and SCons
-        if: ${{ vars.CI_RUNNER }}
+        if: runner.environment == 'self-hosted'
         shell: bash
         run: |
           # pip --user installs land here, and the runner does not always inherit it.
@@ -472,9 +511,9 @@ jobs:
   # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
   # ═══════════════════════════════════════════════════════════════════════════════
   validate-spirv:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Validate Engine SPIR-V (Tint)
-    needs: [build-webgpu]
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -514,9 +553,9 @@ jobs:
   # Smoke Test: Run exported project in headless Chrome
   # ═══════════════════════════════════════════════════════════════════════════════
   smoke-test:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Headless Chrome Smoke Test
-    needs: [build-webgpu]
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -560,12 +599,12 @@ jobs:
   # Scene Smoketest: 18 demos/benchmarks across Chrome + Firefox
   # ═══════════════════════════════════════════════════════════════════════════════
   scene-smoketest:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Scene Smoketest (Chrome + Firefox)
     # Needs the exports built-webgpu produces. Before this dependency existed the
     # job ran in parallel with no exports on disk, skipped all 19 scenes and
     # exited 0 -- green while testing nothing. It now waits for the build.
-    needs: build-webgpu
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -624,8 +663,9 @@ jobs:
   # Resource Lifecycle: Browser-based stress test
   # ═══════════════════════════════════════════════════════════════════════════════
   resource-lifecycle:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Resource Lifecycle (Chrome WebGPU)
+    needs: pick-runner
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -655,9 +695,9 @@ jobs:
   # WebRTC Parity: web-half assertions for every parity fixture
   # ═══════════════════════════════════════════════════════════════════════════════
   webrtc-parity:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: WebRTC Parity (Chrome)
-    needs: build-webgpu
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -699,8 +739,9 @@ jobs:
   # Screenshot Comparison: Multi-browser visual regression
   # ═══════════════════════════════════════════════════════════════════════════════
   screenshot-comparison:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Screenshot Comparison (Chrome + Firefox)
+    needs: pick-runner
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -747,9 +788,11 @@ jobs:
   # Summary
   # ═══════════════════════════════════════════════════════════════════════════════
   test-summary:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    # Always GitHub's: it only reads results, and it must report a pick-runner
+    # failure, which leaves no runner to name.
+    runs-on: ubuntu-24.04
     name: Test Summary
-    needs: [shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
+    needs: [pick-runner, shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
     if: always()
     steps:
       - name: Check results
@@ -769,6 +812,11 @@ jobs:
           echo ""
 
           FAILED=0
+
+          if [ "${{ needs.pick-runner.result }}" != "success" ]; then
+            echo "::error::Picking a runner failed, so no test ran"
+            FAILED=1
+          fi
 
           if [ "${{ needs.shader-corpus.result }}" = "failure" ]; then
             echo "::error::Shader corpus tests failed"
