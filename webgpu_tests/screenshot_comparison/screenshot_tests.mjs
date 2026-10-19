@@ -157,16 +157,17 @@ function comparePngs(baseline, current, threshold) {
     };
 }
 
-/** True when every pixel of a capture is opaque pure black — see its use below. */
-function isBlankBlack(buffer) {
+/** True when every pixel of a capture is the same colour — see its use below. */
+function isBlankUniform(buffer) {
     let img;
     try {
         img = decodePng(buffer);
     } catch {
         return false;
     }
-    for (let i = 0; i < img.data.length; i += 4) {
-        if (img.data[i] || img.data[i + 1] || img.data[i + 2]) return false;
+    const d = img.data;
+    for (let i = 4; i < d.length; i += 4) {
+        if (d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2]) return false;
     }
     return true;
 }
@@ -200,10 +201,7 @@ async function captureScreenshots(baseUrl) {
     // Try to launch Chrome with WebGPU
     try {
         const chrome = await chromium.launch({
-            // Headless under CI, as resource_lifecycle/run_tests.mjs: a headed
-            // Chromium under xvfb on a GPU-less runner loses its GPU process before
-            // the first frame ("A valid external Instance reference no longer exists").
-            headless: isCI,
+            headless: false,
             args: isCI
                 ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
                 : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
@@ -272,13 +270,15 @@ async function captureScreenshots(baseUrl) {
 
                 // Firefox on a GPU-less runner under Xvfb reports an adapter and
                 // finishes without error, but nothing is ever composited, so the
-                // screenshot comes back pure black. None of these scenes renders
-                // an all-black frame (even compute_pattern, which clears to
-                // black, draws over it), so this is a capture failure and not a
+                // screenshot comes back pure black. Chromium on SwiftShader renders
+                // too, but its compositor cannot display the WebGPU canvas, so its
+                // screenshot is the page background (white). None of these scenes
+                // renders a single-colour frame (even compute_pattern, which clears
+                // to black, draws over it), so this is a capture failure and not a
                 // rendering regression to report against the baseline — these
                 // scenes are hand-written WebGPU JS and never touch the Godot
                 // driver, so nothing in this repo can turn one black.
-                if (isBlankBlack(screenshot)) {
+                if (isBlankUniform(screenshot)) {
                     const why = 'rendered blank (no compositing — browser has no working WebGPU on this machine)';
                     console.log(`    SKIP: ${why}`);
                     captures.push({ browser: browserName, scene, error: why });

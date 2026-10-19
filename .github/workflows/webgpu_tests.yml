@@ -774,7 +774,12 @@ jobs:
           # GitHub-hosted runners); a self-hosted box already has the libraries.
           if sudo -n true 2>/dev/null; then
             npx playwright install chromium firefox --with-deps
-            sudo apt-get update && sudo apt-get install -y xvfb
+            # mesa-vulkan-drivers (lavapipe): without a Vulkan driver, Chromium cannot
+            # allocate the shared image a WebGPU canvas presents into and destroys the
+            # device on the first frame ("A valid external Instance reference no longer
+            # exists"), and Firefox has no adapter at all. With it, Firefox renders and
+            # compares; Chromium renders, but its screenshot stays blank, so it skips.
+            sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
           else
             npx playwright install chromium firefox
           fi
