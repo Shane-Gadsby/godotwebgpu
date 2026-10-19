@@ -228,6 +228,7 @@
 			[b]Note:[/b] Leaving this disabled means exported WebGPU games do significant shader-compilation work on the player's machine at load time, which can look like a freeze on first launch.
 		</member>
 		<member name="shader_baker/separate_pack" type="bool" setter="" getter="">
+			If [code]true[/code], the shaders baked by [member shader_baker/enabled] are shipped in a separate [code]&lt;name&gt;.shaders.pck[/code] next to the main [code].pck[/code], which the page preloads and the engine mounts at startup. The baked shaders are most of a baked [code].pck[/code] and only change when the shaders do, so a deploy that uploads whole files re-uploads much less after a code change. Requires export templates built from the same commit as the editor; an older template silently loads no baked shaders, and the export warns about it.
 		</member>
 		<member name="threads/emscripten_pool_size" type="int" setter="" getter="">
 			The number of threads that emscripten will allocate at startup. A smaller value will allocate fewer threads and consume fewer system resources, but you may run the risk of running out of threads in the pool and needing to allocate more threads at run time which may cause a deadlock.
