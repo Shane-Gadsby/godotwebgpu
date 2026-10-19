@@ -1,0 +1,104 @@
+name: 🧩 Editor Plugins
+on:
+  workflow_call:
+  workflow_dispatch:
+
+# The editor plugins for braced GDScript (.gdb), built from their own repositories
+# as build-linux.sh builds them from the sibling checkouts: the Rider plugin and
+# the VS Code extension. The draft release attaches both.
+env:
+  GDB_RIDER_REPO: Shane-Gadsby/godot-gdb-rider
+  GDB_VSCODE_REPO: Shane-Gadsby/godot-gdb-vscode
+  # The Rider the plugin is built against (its riderPath). Keep it on the platform
+  # the plugin targets (sinceBuild in godot-gdb-rider's build.gradle.kts).
+  RIDER_VERSION: 2026.2.3.1
+  # Same pin as build-linux.sh.
+  VSCE_VERSION: 3.9.2
+
+jobs:
+  editor-plugins:
+    runs-on: ubuntu-24.04
+    name: Rider plugin + VS Code extension
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: godot
+
+      - name: Checkout the Rider plugin
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.GDB_RIDER_REPO }}
+          path: godot-gdb-rider
+
+      - name: Checkout the VS Code extension
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.GDB_VSCODE_REPO }}
+          path: godot-gdb-vscode
+
+      # A plugin built for another grammar version tells the user to update one side
+      # when it starts (GdbPostfix.kt); a release must never ship that pair.
+      - name: Check the plugin's grammar version matches the engine's
+        run: |
+          engine=$(sed -nE 's/.*BRACES_GRAMMAR_VERSION = ([0-9]+);.*/\1/p' godot/modules/gdscript/gdscript_formatter.h)
+          rider=$(sed -nE 's/.*const val GRAMMAR_VERSION = ([0-9]+).*/\1/p' godot-gdb-rider/src/main/kotlin/dev/gdb/rider/GdbPsiLexer.kt)
+          echo "Engine grammar version: $engine, Rider plugin: $rider"
+          if [ -z "$engine" ] || [ "$engine" != "$rider" ]; then
+            echo "::error::The Rider plugin's GRAMMAR_VERSION ($rider) does not match the engine's BRACES_GRAMMAR_VERSION ($engine)."
+            exit 1
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Streamed into tar, so the 2.4 GB archive is never stored, and checked against
+      # JetBrains' published checksum once it has been read.
+      - name: Download Rider ${{ env.RIDER_VERSION }}
+        run: |
+          url="https://download.jetbrains.com/rider/JetBrains.Rider-$RIDER_VERSION.tar.gz"
+          mkdir -p "$RUNNER_TEMP/rider"
+          curl -fsSL "$url" | tee >(sha256sum | cut -d' ' -f1 > "$RUNNER_TEMP/rider.sha256") | tar -xz -C "$RUNNER_TEMP/rider" --strip-components=1
+          expected=$(curl -fsSL "$url.sha256" | cut -d' ' -f1)
+          # The process substitution may still be writing when tar exits.
+          for _ in $(seq 30); do [ -s "$RUNNER_TEMP/rider.sha256" ] && break; sleep 1; done
+          actual=$(cat "$RUNNER_TEMP/rider.sha256")
+          echo "expected $expected"
+          echo "actual   $actual"
+          [ "$expected" = "$actual" ] || { echo "::error::Rider download checksum mismatch."; exit 1; }
+          echo "RIDER_PATH=$RUNNER_TEMP/rider" >> "$GITHUB_ENV"
+
+      - name: Build the Rider plugin
+        working-directory: godot-gdb-rider
+        run: ./gradlew buildPlugin --no-configuration-cache "-PriderPath=$RIDER_PATH"
+
+      - name: Package the VS Code extension
+        working-directory: godot-gdb-vscode
+        run: |
+          version=$(node -p "require('./package.json').version")
+          # --no-dependencies: the extension has no runtime dependencies, and its
+          # devDependencies (the test harness) must not end up in the package.
+          npx --yes "@vscode/vsce@$VSCE_VERSION" package --no-dependencies --allow-missing-repository --out "godot-gdb-$version.vsix"
+
+      - name: Collect the plugins
+        run: |
+          mkdir -p plugins
+          cp godot-gdb-rider/build/distributions/godot-gdb-rider-*.zip plugins/
+          cp godot-gdb-vscode/godot-gdb-*.vsix plugins/
+          ls -la plugins
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: editor-plugins
+          path: plugins/*
+          retention-days: 60
