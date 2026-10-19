@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "script_create_dialog.h"
+#include "script_create_dialog.compat.inc"
 
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"

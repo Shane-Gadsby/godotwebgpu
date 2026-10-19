@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "webrtc_multiplayer_peer.h"
+#include "webrtc_multiplayer_peer.compat.inc"
 
 #include "core/object/class_db.h"
 

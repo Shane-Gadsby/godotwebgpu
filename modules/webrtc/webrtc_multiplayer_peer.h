@@ -40,6 +40,11 @@ class WebRTCMultiplayerPeer : public MultiplayerPeer {
 protected:
 	static void _bind_methods();
 
+#ifndef DISABLE_DEPRECATED
+	Error _add_peer_bind_compat_webgpu_1(const Ref<WebRTCPeerConnection> &p_peer, int p_peer_id, int p_unreliable_lifetime = 1);
+	static void _bind_compatibility_methods();
+#endif
+
 public:
 	// Lifetime, in milliseconds, applied as "maxPacketLifeTime" to the two
 	// unreliable channels. It bounds how long the transport may keep
