@@ -349,6 +349,15 @@ TEST_CASE("[Modules][GDScript] Formatter: line ranges and diffs") {
 	}
 }
 
+// GDScriptFormatter::convert() needs a debug or editor build.
+static bool _converter_available() {
+#ifdef DEBUG_ENABLED
+	return true;
+#else
+	return false;
+#endif
+}
+
 TEST_CASE("[Modules][GDScript] Formatter: cases found by fuzzing") {
 	if (GDScriptFormatter::get_braces_grammar_version() == 0) {
 		return; // Uses braced GDScript, which this build does not have.
@@ -356,9 +365,11 @@ TEST_CASE("[Modules][GDScript] Formatter: cases found by fuzzing") {
 	SUBCASE("A file without a final line break") {
 		CHECK(_format_or_fail("var a = b", "res://a.gd", "godot") == "var a = b\n");
 		CHECK(_format_or_fail("func f() {\n}\nvar d = { \"a\": 1 }", "res://a.gdb", "js") == "func f() {\n}\n\nvar d = { \"a\": 1 }\n");
-		const GDScriptFormatter::Result converted = GDScriptFormatter::convert("var p = n ? 1 : 2", "res://a.gdb", false, GDScriptFormatter::get_preset("godot"));
-		CHECK(converted.error == OK);
-		CHECK(converted.output == "var p = 1 if n else 2\n");
+		if (_converter_available()) {
+			const GDScriptFormatter::Result converted = GDScriptFormatter::convert("var p = n ? 1 : 2", "res://a.gdb", false, GDScriptFormatter::get_preset("godot"));
+			CHECK(converted.error == OK);
+			CHECK(converted.output == "var p = 1 if n else 2\n");
+		}
 	}
 
 	SUBCASE("A respelled operator never touches a word") {
@@ -374,6 +385,9 @@ TEST_CASE("[Modules][GDScript] Formatter: cases found by fuzzing") {
 TEST_CASE("[Modules][GDScript] Converter between .gd and .gdb") {
 	if (!GDScriptTokenizer::is_braced_path("a.gdb")) {
 		return; // Braced GDScript is compiled out.
+	}
+	if (!_converter_available()) {
+		return; // A release template runs the tests too.
 	}
 
 	SUBCASE(".gd to .gdb keeps every line") {
