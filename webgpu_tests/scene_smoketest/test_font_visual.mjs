@@ -28,7 +28,6 @@ import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +143,9 @@ export function assertBands(png) {
  * materially different set of capabilities (TASKS.md Task 9.5).
  */
 async function launchBrowser(browserName) {
+  // Imported here, not at the top: self_test_font_visual.mjs imports assertBands() from
+  // this file and must run where Playwright is not installed.
+  const { default: pw } = await import('playwright');
   const isCI = !!process.env.CI;
   if (browserName === 'chrome') {
     if (process.env.WEBGPU_REAL_GPU) {

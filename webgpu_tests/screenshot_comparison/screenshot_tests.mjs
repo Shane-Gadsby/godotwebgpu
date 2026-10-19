@@ -200,7 +200,10 @@ async function captureScreenshots(baseUrl) {
     // Try to launch Chrome with WebGPU
     try {
         const chrome = await chromium.launch({
-            headless: false,
+            // Headless under CI, as resource_lifecycle/run_tests.mjs: a headed
+            // Chromium under xvfb on a GPU-less runner loses its GPU process before
+            // the first frame ("A valid external Instance reference no longer exists").
+            headless: isCI,
             args: isCI
                 ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
                 : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
