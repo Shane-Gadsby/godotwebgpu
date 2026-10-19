@@ -20,39 +20,61 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Template w/ threads (target=template_release, threads=yes)
+          # Every web template is a WebGPU one (webgpu=yes opengl3=no), the same 8 variants
+          # build-linux.sh builds: {threads, nothreads} x {dlink, no dlink} x {release, debug}.
+          # The draft release packs them as web_[dlink_][nothreads_]{release,debug}.zip
+          # (misc/scripts/package_release_tpz.py), the names the web export looks for.
+          - name: Template WebGPU, threads (target=template_release, threads=yes, dlink_enabled=no)
             cache-name: web-template
             target: template_release
-            scons-flags: threads=yes
+            scons-flags: threads=yes dlink_enabled=no webgpu=yes opengl3=no
             artifact: true
+            webgpu: true
 
-          - name: Template w/ threads, 64-bit, debug (target=template_debug, threads=yes, arch=wasm64)
+          - name: Template WebGPU, threads, debug (target=template_debug, threads=yes, dlink_enabled=no)
             cache-name: web-template-debug
             target: template_debug
-            scons-flags: threads=yes arch=wasm64
+            scons-flags: threads=yes dlink_enabled=no webgpu=yes opengl3=no
             artifact: true
+            webgpu: true
 
-          - name: Template w/o threads, 32-bit (target=template_release, threads=no, arch=wasm32)
+          - name: Template WebGPU, no threads (target=template_release, threads=no, dlink_enabled=no)
             cache-name: web-nothreads-template
             target: template_release
-            scons-flags: threads=no
+            scons-flags: threads=no dlink_enabled=no webgpu=yes opengl3=no
             artifact: true
+            webgpu: true
 
-          - name: Template w/o threads, 32-bit, debug (target=template_debug, threads=no, arch=wasm32)
+          - name: Template WebGPU, no threads, debug (target=template_debug, threads=no, dlink_enabled=no)
             cache-name: web-nothreads-template-debug
             target: template_debug
-            scons-flags: threads=no arch=wasm32
+            scons-flags: threads=no dlink_enabled=no webgpu=yes opengl3=no
             artifact: true
+            webgpu: true
 
-          - name: Template WebGPU (target=template_release, webgpu=yes)
-            cache-name: web-webgpu-template
+          - name: Template WebGPU, threads, dlink (target=template_release, threads=yes, dlink_enabled=yes)
+            cache-name: web-dlink-template
+            target: template_release
+            scons-flags: threads=yes dlink_enabled=yes webgpu=yes opengl3=no
+            artifact: true
+            webgpu: true
+
+          - name: Template WebGPU, threads, dlink, debug (target=template_debug, threads=yes, dlink_enabled=yes)
+            cache-name: web-dlink-template-debug
+            target: template_debug
+            scons-flags: threads=yes dlink_enabled=yes webgpu=yes opengl3=no
+            artifact: true
+            webgpu: true
+
+          - name: Template WebGPU, no threads, dlink (target=template_release, threads=no, dlink_enabled=yes)
+            cache-name: web-dlink-nothreads-template
             target: template_release
             scons-flags: threads=no dlink_enabled=yes webgpu=yes opengl3=no
             artifact: true
             webgpu: true
 
-          - name: Template WebGPU debug (target=template_debug, webgpu=yes)
-            cache-name: web-webgpu-template-debug
+          - name: Template WebGPU, no threads, dlink, debug (target=template_debug, threads=no, dlink_enabled=yes)
+            cache-name: web-dlink-nothreads-template-debug
             target: template_debug
             scons-flags: threads=no dlink_enabled=yes webgpu=yes opengl3=no
             artifact: true
