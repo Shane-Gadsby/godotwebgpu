@@ -1319,6 +1319,11 @@ void EditorExportPlatform::_prune_stale_export_caches(const String &p_current_ba
 	const uint64_t now = (uint64_t)OS::get_singleton()->get_unix_time();
 	constexpr uint64_t KEEP_SECONDS = 7ull * 24 * 60 * 60;
 
+	// A project's first export has no .godot/exported yet, and listing it would log an error.
+	if (!DirAccess::dir_exists_absolute(exported_dir)) {
+		return;
+	}
+
 	for (const String &dir_name : DirAccess::get_directories_at(exported_dir)) {
 		if (dir_name == current_name) {
 			continue;
