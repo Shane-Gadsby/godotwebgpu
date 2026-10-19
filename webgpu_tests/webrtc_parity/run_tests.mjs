@@ -181,14 +181,21 @@ for (const [variant, dir] of variants) {
 		if (browserUnavailable) {
 			continue;
 		}
-		const { out } = await runFixture(dir, test, browser);
+		let { out } = await runFixture(dir, test, browser);
+		// On GitHub's runners the first launch after lavapipe is installed can come up
+		// without an adapter, and every later one has it. Not a parity question:
+		// run that case again once.
+		if (!/RTC\|/.test(out) && /WebGPU adapter not found/i.test(out)) {
+			console.log(`  RETRY ${test}: this launch found no WebGPU adapter`);
+			({ out } = await runFixture(dir, test, browser));
+		}
 		// A browser that cannot launch, or has no WebGPU adapter to boot the
 		// engine on, is a missing prerequisite rather than a parity failure --
 		// Firefox has no software WebGPU on Linux, so this is the expected
 		// outcome on a GPU-less runner. Report it as a skip once, not as nine
 		// identical failures.
-		if (!/RTC\|/.test(out) && /browserType\.launch|Executable doesn't exist|needs macOS|No GPU adapter|WebGPU is not available/i.test(out)) {
-			const why = (out.match(/^.*(browserType\.launch|Executable doesn't exist|needs macOS|No GPU adapter|WebGPU is not available).*$/mi) || [''])[0].trim();
+		if (!/RTC\|/.test(out) && /browserType\.launch|Executable doesn't exist|needs macOS|No GPU adapter|WebGPU adapter not found|WebGPU is not available/i.test(out)) {
+			const why = (out.match(/^.*(browserType\.launch|Executable doesn't exist|needs macOS|No GPU adapter|WebGPU adapter not found|WebGPU is not available).*$/mi) || [''])[0].trim();
 			console.log(`  SKIP  ${browser} unavailable: ${why.slice(0, 120)}`);
 			skipped.push(`${browser}/${variant}`);
 			browserUnavailable = true;

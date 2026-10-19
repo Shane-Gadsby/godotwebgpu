@@ -814,6 +814,10 @@ async function launchChrome() {
                 '--enable-features=Vulkan,UseSkiaRenderer',
                 '--use-angle=swiftshader',
                 '--enable-gpu',
+                // GitHub's runners have no sound server. Without one, Web Audio never
+                // advances and audio_parity waits out its timeout; fake output streams
+                // run on their own clock.
+                '--disable-audio-output',
             ],
         });
         return { browser, name: 'chrome', type: 'playwright' };
