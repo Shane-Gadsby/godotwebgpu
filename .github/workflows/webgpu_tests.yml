@@ -314,12 +314,14 @@ jobs:
           # glslang/SPIR-V RD path at all, so GODOT_DUMP_SPIRV then dumps zero
           # files (and some engine shaders, e.g. fog, aren't even implemented
           # for that renderer, so it also errors outright).
-          # Skip when already satisfied: a self-hosted runner normally has these and
-          # has no passwordless sudo, so an unconditional install just fails.
-          if command -v xvfb-run >/dev/null 2>&1 && [ -f /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ]; then
-            echo "xvfb and Vulkan loader already present"
-          else
+          # Install wherever sudo works unattended (GitHub's runners). Testing for
+          # xvfb-run and the loader is not enough: the ubuntu-24.04 image ships both,
+          # but no ICD, so vulkaninfo finds no driver. A self-hosted runner has its
+          # own Vulkan driver and no passwordless sudo.
+          if sudo -n true 2>/dev/null; then
             sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          else
+            echo "No passwordless sudo: using this runner's own Xvfb and Vulkan driver"
           fi
 
       - name: Verify software Vulkan is actually usable

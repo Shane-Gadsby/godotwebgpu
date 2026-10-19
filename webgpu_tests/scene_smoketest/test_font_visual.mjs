@@ -163,7 +163,10 @@ async function launchBrowser(browserName) {
   }
   if (browserName === 'firefox') {
     return pw.firefox.launch({
-      headless: isCI,
+      // Headed whenever there is a display: headless Firefox renders the scene, but
+      // its screenshots of a WebGPU canvas come back black (so do headed ones under
+      // xvfb). A CI box without a display has no Firefox WebGPU adapter anyway.
+      headless: isCI && !process.env.DISPLAY,
       firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
     });
   }
@@ -198,6 +201,13 @@ async function testBrowser(browserName) {
   let result = 'FAIL';
   try {
     await page.goto(url);
+    // Firefox has no software WebGPU on Linux, so a GPU-less runner has no adapter
+    // and the scene never starts. That is not this test's regression to catch.
+    const hasAdapter = await page.evaluate(async () => !!(navigator.gpu && await navigator.gpu.requestAdapter()));
+    if (!hasAdapter) {
+      console.log(`  ${browserName}: SKIP -- no WebGPU adapter`);
+      return 'SKIP';
+    }
     const deadline = Date.now() + 60000;
     while (!ready && Date.now() < deadline) await new Promise((r) => setTimeout(r, 300));
 
