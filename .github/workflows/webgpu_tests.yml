@@ -377,10 +377,17 @@ jobs:
           mkdir -p webgpu_tests/test_project/export
 
           # Install WebGPU template (editor looks for web_nothreads_release.zip under
-          # its own version string, e.g. 4.7.2.stable — read from version.py so this
+          # its own version string, e.g. 4.7.2.stable or 4.8.dev: the patch number
+          # only when it is not 0, as Godot spells it -- read from version.py so this
           # doesn't silently break again on the next version bump).
-          GODOT_VERSION_DIR=$(python3 -c "import version; print(f'{version.major}.{version.minor}.{version.patch}.{version.status}')")
-          TEMPLATE_DIR=~/.local/share/godot/export_templates/$GODOT_VERSION_DIR
+          #
+          # Into a data directory of this run's own: a self-hosted runner's
+          # ~/.local/share/godot holds its owner's installed templates, which this
+          # would otherwise overwrite -- or, under the wrong version name, silently
+          # export with instead of the template built above.
+          export XDG_DATA_HOME="$RUNNER_TEMP/godot-data"
+          GODOT_VERSION_DIR=$(python3 -c "import version as v; print('.'.join(str(x) for x in [v.major, v.minor] + ([v.patch] if v.patch else []) + [v.status]))")
+          TEMPLATE_DIR="$XDG_DATA_HOME/godot/export_templates/$GODOT_VERSION_DIR"
           mkdir -p "$TEMPLATE_DIR"
           # Export config validation checks for both debug and release templates
           # even though only the release one is used by --export-release.
@@ -810,7 +817,7 @@ jobs:
     # failure, which leaves no runner to name.
     runs-on: ubuntu-24.04
     name: Test Summary
-    needs: [pick-runner, shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
+    needs: [pick-runner, build-webgpu, shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
     if: always()
     steps:
       - name: Check results
@@ -833,6 +840,12 @@ jobs:
 
           if [ "${{ needs.pick-runner.result }}" != "success" ]; then
             echo "::error::Picking a runner failed, so no test ran"
+            FAILED=1
+          fi
+          # Every test that needs the export is skipped when this fails, and a skip
+          # is not a failure below.
+          if [ "${{ needs.build-webgpu.result }}" != "success" ]; then
+            echo "::error::Building the WebGPU template and export failed, so the browser tests did not run"
             FAILED=1
           fi
 
