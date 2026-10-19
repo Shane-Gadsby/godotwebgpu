@@ -2,6 +2,12 @@ name: 🧩 Editor Plugins
 on:
   workflow_call:
   workflow_dispatch:
+  # A change to this file runs it, so a fix to it can be tested before it reaches
+  # main (workflow_dispatch only finds workflows that are on the default branch).
+  push:
+    branches: [webgpu-4.8]
+    paths:
+      - '.github/workflows/editor_plugins.yml'
 
 # The editor plugins for braced GDScript (.gdb), built from their own repositories
 # as build-linux.sh builds them from the sibling checkouts: the Rider plugin and
