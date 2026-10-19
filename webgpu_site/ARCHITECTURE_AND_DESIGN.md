@@ -77,7 +77,8 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 | Context Driver | `rendering_context_driver_webgpu.h/cpp` | ~300 | Device/surface lifecycle from JS shell |
 | Object Wrappers | `webgpu_objects.h` | 430 | GPU object wrapper structs |
 | Shader Container | `rendering_shader_container_webgpu.h/cpp` | ~210 | SPIR-V storage + push constant metadata |
-| SPIR-V Preprocessing | `spirv_preprocess.cpp/h` | ~3,000 | 12 binary-level SPIR-V rewriting passes |
+| SPIR-V Preprocessing | `spirv_preprocess.cpp/h` | ~5,100 | Binary-level SPIR-V rewriting passes, and `run_pipeline()`, the one pass order every converter uses |
+| SPIR-V IR passes | `spirv_opt_passes.cpp/h`, `spirv_binding_layout.h` | ~1,150 | Passes on SPIRV-Tools' optimizer IR: texture-array expansion, sampler LOD bias, lowering of ops Tint aborts on; the expanded-array binding layout shared with the driver |
 | Tint Wrapper | `tint_wrapper.cpp/h` | ~80 | C-compatible isolation layer for Tint (C++20) |
 | Tint (vendored) | `thirdparty/tint/` | (vendored, 811 files) | Google's Dawn/Chrome SPIR-V → WGSL compiler |
 | Renderer Integration | `servers/rendering/` (42 files) | ~1,224 | API traits, format promotion, batching |
@@ -98,6 +99,8 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 1. `engine.js` calls `navigator.gpu.requestAdapter()` + `requestDevice()`
 2. Device is ready before `Godot(moduleConfig)` is called
 3. C++ imports the device via `WebGPU.importJsDevice(Module.preinitializedWebGPUDevice)`
+
+With the separate render thread (the default for thread-enabled exports, `variant/separate_render_thread`; or `rendering/driver/threads/thread_model=2`) the render thread is a worker and repeats the same dance for itself: it requests its own adapter/device asynchronously on its event loop right after `Main::setup()` (the main thread waits a frame at a time — Chrome only resolves a worker's device request while the page's main thread is free), stores it in that worker's `Module.preinitializedWebGPUDevice`, and creates the context and `RenderingDevice` on its first command-queue wake. `engine.js` first probes that WebGPU works in a worker at all (`Engine.probeWebGPUWorker`); without it the engine stays on the Safe model. See `webgpu_notes/TASKS.md` §2.5.
 4. From that point, all C++ code has synchronous access to the GPU device
 
 ### 2.2 Runtime SPIR-V to WGSL Conversion
@@ -186,7 +189,7 @@ CPU Shadow Buffer (256KB):
 | `BUFFER_CREATE_MAPPED_AT_CREATION` | Uses `mappedAtCreation` optimization |
 | `STAGING_BUFFER_MAX_SIZE_MB` | Caps staging pool at 16MB |
 | `SKELETON_BUFFER_DIRECT_WRITE` | Direct queue write for bone data |
-| `FORCE_OMNI_DUAL_PARABOLOID` | Reduces shadow pass count |
+| `FORCE_OMNI_DUAL_PARABOLOID` | **0 since 2026-10-17** (was: reduce shadow pass count). Omni lights use the mode they ask for, for parity with native |
 | `BATCH_INSTANCE_DRAWS` | Instance batching for shadows + color |
 | `FIRST_INSTANCE_INDEX` | Eliminates per-draw push constant overhead |
 
@@ -232,19 +235,15 @@ GLSL (Godot shaders, authored or built-in)
 SPIR-V 1.3 bytecode (stored in shader container)
     | C++ driver: specialization constant patching (if needed)
     | 64-bit hash cache lookup (hit -> return cached WGSL)
-    | C++ spirv_preprocess.cpp (12 binary-level passes):
-        1. freeze_spec_constant_ops (evaluate OpSpecConstantOp)
-        2. rewrite_copy_logical (OpCopyLogical -> OpCopyObject)
-        3. rewrite_terminate_invocation (OpTerminateInvocation -> OpKill)
-        4. convert_push_constants_to_uniforms (PC -> storage buffer)
-        5. split_combined_samplers (combined -> image + sampler)
-        6. fix_depth2_images (depth=2 -> depth=1)
-        7. negate_position_y (Vulkan -> WebGPU NDC Y-flip)
-        8. strip_restrict_decoration (remove Restrict, no WGSL equivalent)
-        9. strip_memory_barrier (replace OpMemoryBarrier with OpNop)
-        10. fix_nonfinite_literals (Inf/NaN -> FLT_MAX/MIN)
-        11. flatten_binding_arrays (unwrap handle arrays)
-        12. infer_readonly_storage (add NonWritable to read-only SSBOs)
+    | spirv_preprocess::run_pipeline() (full order: TECHNICAL_REFERENCE.md 4.1):
+        - inline opaque functions; freeze spec constants unless all can be overrides
+        - SPIR-V 1.4+/1.6 rewrites, push constants -> storage buffer (group 3, binding 120)
+        - split combined samplers (texture 2b, sampler 2b+1), depth=2 fix, Y-flip
+        - strip what Tint's reader rejects (decorations, barriers, operand masks,
+          helper invocations, subgroup ops, Inf/NaN literals, initialized local arrays)
+        - IR passes: lower isnan/isinf/textureQueryLod/PointCoord, apply sampler LOD bias,
+          expand texture arrays (budgeted per stage)
+        - collapse remaining arrays, read-only SSBO inference, dead-resource removal
     | Tint (SPIR-V -> WGSL, compiled into engine WASM)
     | Return WGSL string
     | C++ WGSL post-processing:
@@ -318,6 +317,30 @@ Layer 3: firstInstance + PC dedup         -> eliminate per-draw SetBindGroup
     |                          |   First frame                |
 ```
 
+### Audio
+
+A web export plays sound two ways, chosen per player by `playback_type` (default from the project setting
+`audio/general/default_playback_type.web`, which is **Sample**):
+
+```
+Stream:  AudioStreamPlayback -> AudioServer::_mix_step() (buses, effects) -> int32 ring buffer
+             -> AudioWorklet (audio thread: threads=yes; main thread drives it: threads=no) -> speakers
+Sample:  AudioStream rendered once at the mix rate -> AudioBuffer (shared by every play)
+             -> AudioBufferSourceNode -> fader -> [3D high shelf] -> mixer per bus (one gain per output channel)
+             -> bus volume -> bus mute/solo -> send to the next bus or the destination
+```
+
+Stream is the native mixer, unchanged. Sample (`GodotSampleDriver` in `platform/web/js/libs/library_godot_audio.js`,
+fed by `AudioDriverWeb` in `platform/web/audio_driver_web.cpp`) exists so that a single-threaded export does not mix
+on the main thread, and it re-implements `AudioServer`'s behavior on a Web Audio graph: per-channel volume vectors,
+volume ramps and fade-outs over one 512-frame mix block, loop modes (ping-pong and backward unrolled into the buffer),
+the bus routing rules (sends to earlier buses go to Master, solo chains, mute), the 3D attenuation filter, and
+playback positions computed from the context clock. The C++ side hands JS small integer handles and skips calls whose
+values did not change, so a playing 3D sound costs nothing per frame unless it moves. Sample playback cannot run bus
+effects or stream (it decodes a sound whole on its first play); both are warned about at export and at runtime.
+Parity is tested by `webgpu_tests/web_audio` (and the smoketest's `audio_parity` scene); history and the deferred
+options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
+
 ### Build System
 
 - SCons with `webgpu=yes` flag, `--use-port=emdawnwebgpu` for Emscripten
@@ -335,15 +358,17 @@ Layer 3: firstInstance + PC dedup         -> eliminate per-draw SetBindGroup
 - Tessellation / Geometry Shaders
 - Subgroups / Wave operations
 - Buffer Device Address / Bindless
-- Hardware point/line size control
+- Hardware point/line size control (the scene shaders emulate point size by drawing each point as a quad, `sc_emulate_point_size`)
 
 ### Implemented with Trade-offs
-- Omni shadows: forced dual-paraboloid (quality trade-off for 43% performance gain)
+- Omni shadows: until 2026-10-17 forced to dual-paraboloid (the 43% gain was measured together with shadow-pass merging). Now each light's own `omni_shadow_mode` is honored -- cube by default, as on native; set dual-paraboloid per light to get the cheaper shadows back
 - Texture readback: async with 1-frame delay
 - Storage textures: limited formats requiring promotion
 - Multi-draw indirect: loop emulation
 - Indirect draw count: always uses max count
-- binding_array: flattened to single element (no multi-lightmap on web)
+- Texture arrays: expanded to one binding per element (multiple lightmaps, VoxelGI probes, particle colliders work). Arrays past a stage's texture budget (Chrome reports exactly the 48 sampled textures Forward+ needs) stay collapsed to element 0, with a one-time warning
+- Sampler LOD bias: applied in the shader from a uniform, implicit-LOD samples only
+- Constant-alpha blend factors: emulated through the single RGBA blend constant
 
 ### Stubs / TODOs
 - `command_resolve_texture`: unimplemented (MSAA resolve via render pass only)

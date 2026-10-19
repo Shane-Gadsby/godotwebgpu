@@ -42,6 +42,8 @@ jobs:
             # The baker runs tint_convert_cli from the editor's own directory,
             # so it ships in the editor artifact.
             tint-cli: true
+            # Braced GDScript (.gdb): twins, formatter corpus, property test.
+            braced-test: true
 
           - name: Template (target=template_release)
             cache-name: linux-template
@@ -104,14 +106,17 @@ jobs:
             legacy-scons: true
             free-space: true
 
-          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld)
+          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld, gdscript_braces=no)
             cache-name: linux-editor-thread-sanitizer
             target: editor
+            # gdscript_braces=no: keeps a build without braced GDScript compiling and passing its tests. This build
+            # ships nothing, so nothing loses .gdb support.
             scons-flags: >-
               dev_build=yes
               use_tsan=yes
               use_llvm=yes
               linker=lld
+              gdscript_braces=no
             bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
             free-space: true
 
@@ -294,6 +299,13 @@ jobs:
           ${{ matrix.bin }} --version
           ${{ matrix.bin }} --help
           ${{ matrix.bin }} --headless --test --force-colors
+
+      # The braced GDScript checks the unit tests cannot make on their own (tests/braced_gdscript/README.md).
+      # --quick leaves out the converted-suite and round-trip checks, which take about ten minutes.
+      - name: Braced GDScript regression
+        if: matrix.braced-test
+        run: |
+          EDITOR_BIN=${{ matrix.bin }} tests/braced_gdscript/run.sh --quick
 
       - name: .NET source generators tests
         if: matrix.build-mono

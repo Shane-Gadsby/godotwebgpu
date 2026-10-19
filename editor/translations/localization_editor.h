@@ -98,6 +98,8 @@ class LocalizationEditor : public VBoxContainer {
 	void _filesystem_file_removed(const String &p_file);
 
 	Variant get_drag_data_fw(const Point2 &p_point, Control *p_from);
+	// Files dragged from the FileSystem dock onto a list are added like the list's file dialog adds them.
+	bool _get_dropped_files(const Variant &p_data, const Control *p_list, PackedStringArray *r_paths) const;
 	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
 	void drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
 

@@ -172,7 +172,9 @@ Ref<AudioStreamPlayback> AudioStreamPlayerInternal::play_basic() {
 				sample_playback->pitch_scale = pitch_scale;
 				stream_playback->set_sample_playback(sample_playback);
 			}
-		} else if (!stream->is_meta_stream()) {
+		} else if (!stream->is_meta_stream() && get_playback_type() == AuSE::PlaybackType::PLAYBACK_TYPE_SAMPLE) {
+			// Only when asked for explicitly: a Default player whose stream cannot be sampled (a generator, the
+			// microphone, a script stream) plays it as a stream, as it does on every native platform.
 			WARN_PRINT(vformat(R"(%s is trying to play a sample from a stream that cannot be sampled.)", node->get_path()));
 		}
 	}

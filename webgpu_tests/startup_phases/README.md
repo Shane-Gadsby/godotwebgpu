@@ -18,6 +18,15 @@ node profile_phases.mjs --dir <export-dir> [options]
 | `--eager-pipelines` | also create every pipeline through `create*PipelineAsync`, to test whether deferred GPU-side compilation is what a later blocking queue call waits on (it is not — Task 14 subtask 2, Measured 3) |
 | `--headless` | default is headed, which WebGPU is generally happier with |
 | `--label` / `--output` | name the run and its JSON |
+| `--throttle <profile>` | cap the page's bandwidth through CDP: `off` (default), `fibre` (100 Mbit, 10ms), `cable` (20 Mbit, 30ms), `dsl` (5 Mbit, 50ms), `3g` (1.6 Mbit, 150ms). Chromium only |
+| `--compress` | serve `.wasm`/`.pck`/`.js` with `Content-Encoding: gzip`, as a real static host does |
+
+`--throttle` and `--compress` exist because every number this tool produced
+before them was taken over loopback with no compression, which is nobody's
+deployment. On loopback a 40 MB download costs ~130 ms, so download effects are
+invisible; compressed and throttled they are often the largest term in the whole
+load. They are also what settled §2.3: see `webgpu_notes/TASKS.md` §4.15 for the
+figures and what they ruled out.
 
 Nothing here needs an engine rebuild: all instrumentation is monkey-patched into
 the page by `instrument.js` via `addInitScript`, so it works against exports

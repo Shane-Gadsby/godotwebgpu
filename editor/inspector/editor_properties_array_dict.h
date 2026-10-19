@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/translations/editor_locale_dialog.h"
 
@@ -166,6 +167,7 @@ protected:
 
 	virtual void _button_draw();
 	virtual void _button_add_item_draw();
+	EditorCollectionDrop::Slot _get_drop_slot() const;
 	virtual bool _is_drop_valid(const Dictionary &p_drag_data) const;
 	virtual bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
 	virtual void drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
@@ -266,6 +268,19 @@ class EditorPropertyDictionary : public EditorProperty {
 	PropertyHint value_subtype_hint;
 	String value_subtype_hint_string;
 	void initialize_dictionary(Variant &p_dictionary);
+
+	// Dropping files, a resource or nodes adds one entry per item: as values keyed by the item's name (or the next
+	// integer) when the value type takes them, otherwise, if the values hold plain data, as keys with default values.
+	enum DropMode {
+		DROP_NONE,
+		DROP_AS_VALUES,
+		DROP_AS_KEYS,
+	};
+	bool dropping = false;
+	DropMode _get_drop_mode(const Variant &p_data) const;
+	void _edit_draw();
+	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
+	void drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
 
 protected:
 	void _notification(int p_what);

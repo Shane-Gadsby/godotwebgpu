@@ -1163,7 +1163,7 @@ Error RenderingDevice::_buffer_update(Buffer *p_buffer, RID p_buffer_id, uint32_
 
 		memcpy(dst_data + p_offset, p_data, p_size);
 		direct_copy_count++;
-		buffer_flush(p_buffer_id);
+		driver->buffer_flush_range(p_buffer->driver_id, p_offset, p_size);
 		return OK;
 	}
 
@@ -1549,6 +1549,14 @@ void RenderingDevice::buffer_flush(RID p_buffer) {
 	Buffer *buffer = _get_buffer_from_owner(p_buffer);
 	ERR_FAIL_NULL_MSG(buffer, "Buffer argument is not a valid buffer of any type.");
 	driver->buffer_flush(buffer->driver_id);
+}
+
+void RenderingDevice::buffer_flush_range(RID p_buffer, uint64_t p_offset, uint64_t p_size) {
+	ERR_RENDER_THREAD_GUARD();
+
+	Buffer *buffer = _get_buffer_from_owner(p_buffer);
+	ERR_FAIL_NULL_MSG(buffer, "Buffer argument is not a valid buffer of any type.");
+	driver->buffer_flush_range(buffer->driver_id, p_offset, p_size);
 }
 
 RID RenderingDevice::storage_buffer_create(uint32_t p_size_bytes, Span<uint8_t> p_data, BitField<StorageBufferUsage> p_usage, BitField<BufferCreationBits> p_creation_bits) {
@@ -6551,7 +6559,7 @@ void RenderingDevice::draw_list_draw(DrawListID p_list, bool p_use_indices, uint
 			found_first_set = true;
 		}
 		// Prepare descriptor sets if the API doesn't use pipeline barriers.
-		if (!driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS)) {
+		if (uniform_sets_need_prepare_for_use) {
 			draw_graph.add_draw_list_uniform_set_prepare_for_use(draw_list.state.pipeline_shader_driver_id, draw_list.state.sets[i].uniform_set_driver_id, i);
 		}
 	}
@@ -6699,7 +6707,7 @@ void RenderingDevice::draw_list_draw_indirect(DrawListID p_list, bool p_use_indi
 #endif
 
 	// Prepare descriptor sets if the API doesn't use pipeline barriers.
-	if (!driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS)) {
+	if (uniform_sets_need_prepare_for_use) {
 		for (uint32_t i = 0; i < draw_list.state.set_count; i++) {
 			if (draw_list.state.sets[i].pipeline_expected_format == 0) {
 				// Nothing expected by this pipeline.
@@ -7063,7 +7071,7 @@ void RenderingDevice::raytracing_list_trace_rays(RaytracingListID p_list, uint32
 #endif
 
 	// Prepare descriptor sets if the API doesn't use pipeline barriers.
-	if (!driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS)) {
+	if (uniform_sets_need_prepare_for_use) {
 		for (uint32_t i = 0; i < raytracing_list.state.set_count; i++) {
 			if (raytracing_list.state.sets[i].pipeline_expected_format == 0) {
 				// Nothing expected by this pipeline.
@@ -7364,7 +7372,7 @@ void RenderingDevice::compute_list_dispatch(ComputeListID p_list, uint32_t p_x_g
 			found_first_set = true;
 		}
 		// Prepare descriptor sets if the API doesn't use pipeline barriers.
-		if (!driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS)) {
+		if (uniform_sets_need_prepare_for_use) {
 			draw_graph.add_compute_list_uniform_set_prepare_for_use(compute_list.state.pipeline_shader_driver_id, compute_list.state.sets[i].uniform_set_driver_id, i);
 		}
 	}
@@ -7505,7 +7513,7 @@ void RenderingDevice::compute_list_dispatch_indirect(ComputeListID p_list, RID p
 		}
 
 		// Prepare descriptor sets if the API doesn't use pipeline barriers.
-		if (!driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS)) {
+		if (uniform_sets_need_prepare_for_use) {
 			draw_graph.add_compute_list_uniform_set_prepare_for_use(compute_list.state.pipeline_shader_driver_id, compute_list.state.sets[i].uniform_set_driver_id, i);
 		}
 	}
@@ -9196,6 +9204,7 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 	_configure_draw_graph_flags();
 #endif
 
+	uniform_sets_need_prepare_for_use = !driver->api_trait_get(RDD::API_TRAIT_HONORS_PIPELINE_BARRIERS) && driver->api_trait_get(RDD::API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE);
 	draw_graph.initialize(driver, &_render_pass_create_from_graph, frames.size(), main_queue_family, SECONDARY_COMMAND_BUFFERS_PER_FRAME);
 	draw_graph.begin();
 

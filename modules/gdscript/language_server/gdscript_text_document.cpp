@@ -31,9 +31,11 @@
 #include "gdscript_text_document.h"
 
 #include "../gdscript.h"
+#include "../gdscript_formatter.h"
 #include "gdscript_extend_parser.h"
 #include "gdscript_language_protocol.h"
 
+#include "core/config/project_settings.h"
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
@@ -58,6 +60,7 @@ void GDScriptTextDocument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("prepareRename", "params"), &GDScriptTextDocument::prepareRename);
 	ClassDB::bind_method(D_METHOD("references", "params"), &GDScriptTextDocument::references);
 	ClassDB::bind_method(D_METHOD("documentLink", "params"), &GDScriptTextDocument::documentLink);
+	ClassDB::bind_method(D_METHOD("formatting", "params"), &GDScriptTextDocument::formatting); // GDB
 	ClassDB::bind_method(D_METHOD("hover", "params"), &GDScriptTextDocument::hover);
 	ClassDB::bind_method(D_METHOD("definition", "params"), &GDScriptTextDocument::definition);
 	ClassDB::bind_method(D_METHOD("declaration", "params"), &GDScriptTextDocument::declaration);
@@ -274,6 +277,47 @@ Array GDScriptTextDocument::documentLink(const Dictionary &p_params) {
 	for (const LSP::DocumentLink &E : links) {
 		ret.push_back(E.to_json());
 	}
+	return ret;
+}
+
+Array GDScriptTextDocument::formatting(const Dictionary &p_params) {
+	// GDB: `textDocument/formatting`, by the GDScript formatter, for `.gd` and braced `.gdb` files. The file's
+	// `.editorconfig` decides the style; the client's indentation options apply on top, as the CLI's `--indent-*` do.
+	Array ret;
+	LSP::TextDocumentIdentifier document;
+	document.load(p_params["textDocument"]);
+	const String path = GDScriptLanguageProtocol::get_singleton()->get_workspace()->get_file_path(document.uri);
+	const ExtendGDScriptParser *parser = GDScriptLanguageProtocol::get_singleton()->get_parse_result(path);
+	if (parser == nullptr) {
+		return ret;
+	}
+	const String code = String("\n").join(parser->get_lines());
+
+	GDScriptFormatter::Options options = GDScriptFormatter::get_options_for_path(ProjectSettings::get_singleton()->globalize_path(path));
+	const Dictionary client_options = p_params.get("options", Dictionary());
+	if (client_options.has("insertSpaces")) {
+		options.use_spaces = client_options["insertSpaces"];
+	}
+	if (client_options.has("tabSize")) {
+		options.indent_size = MAX(1, int(client_options["tabSize"]));
+	}
+
+	const GDScriptFormatter::Result result = GDScriptFormatter::format(code, path, options);
+	if (result.error != OK) {
+		LSP::ShowMessageParams message{ LSP::MessageType::Warning, vformat("Cannot format %s: line %d: %s", path.get_file(), result.line, result.message) };
+		GDScriptLanguageProtocol::get_singleton()->notify_client("window/showMessage", message.to_json());
+		return ret;
+	}
+	if (result.output == code) {
+		return ret;
+	}
+	LSP::TextEdit edit;
+	edit.range.start.line = 0;
+	edit.range.start.character = 0;
+	edit.range.end.line = parser->get_lines().size();
+	edit.range.end.character = 0;
+	edit.newText = result.output;
+	ret.push_back(edit.to_json());
 	return ret;
 }
 

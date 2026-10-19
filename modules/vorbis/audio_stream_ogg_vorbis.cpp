@@ -33,6 +33,7 @@
 #include "core/io/file_access.h"
 #include "core/object/class_db.h"
 #include "core/templates/rb_map.h"
+#include "servers/audio/audio_server.h"
 
 #include <ogg/ogg.h>
 
@@ -489,6 +490,7 @@ void AudioStreamOggVorbis::set_packet_sequence(Ref<OggPacketSequence> p_packet_s
 	if (packet_sequence.is_valid()) {
 		maybe_update_info();
 	}
+	emit_changed();
 }
 
 Ref<OggPacketSequence> AudioStreamOggVorbis::get_packet_sequence() const {
@@ -497,6 +499,7 @@ Ref<OggPacketSequence> AudioStreamOggVorbis::get_packet_sequence() const {
 
 void AudioStreamOggVorbis::set_loop(bool p_enable) {
 	loop = p_enable;
+	emit_changed();
 }
 
 bool AudioStreamOggVorbis::has_loop() const {
@@ -505,6 +508,7 @@ bool AudioStreamOggVorbis::has_loop() const {
 
 void AudioStreamOggVorbis::set_loop_offset(double p_seconds) {
 	loop_offset = p_seconds;
+	emit_changed();
 }
 
 double AudioStreamOggVorbis::get_loop_offset() const {
@@ -563,13 +567,13 @@ void AudioStreamOggVorbis::get_parameter_list(List<Parameter> *r_parameters) {
 }
 
 Ref<AudioSample> AudioStreamOggVorbis::generate_sample() const {
+	const int mix_rate = AudioServer::get_singleton()->get_mix_rate();
 	Ref<AudioSample> sample;
 	sample.instantiate();
 	sample->stream = this;
-	sample->loop_mode = loop
-			? AudioSample::LoopMode::LOOP_FORWARD
-			: AudioSample::LoopMode::LOOP_DISABLED;
-	sample->loop_begin = loop_offset;
+	sample->loop_mode = loop ? AudioSample::LoopMode::LOOP_FORWARD : AudioSample::LoopMode::LOOP_DISABLED;
+	sample->sample_rate = mix_rate;
+	sample->loop_begin = Math::round(loop_offset * mix_rate);
 	sample->loop_end = 0;
 	return sample;
 }

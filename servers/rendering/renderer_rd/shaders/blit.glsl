@@ -189,7 +189,11 @@ void main() {
 		}
 	}
 
+#ifndef USE_ALPHA_BLEND
 	// WebGPU: force opaque alpha — Chrome may ignore CompositeAlphaMode_Opaque
 	// and compositing with alpha<1 produces transparent canvas output.
+	// Skipped when the pipeline blends, as the source alpha is the blend weight
+	// there (the boot splash is a mostly transparent image over a clear color).
 	color.a = 1.0;
+#endif
 }

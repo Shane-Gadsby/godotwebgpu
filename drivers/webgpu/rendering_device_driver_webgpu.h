@@ -33,6 +33,7 @@
 #ifdef WEBGPU_ENABLED
 
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "drivers/webgpu/webgpu_objects.h"
 #include "servers/rendering/rendering_device_driver.h"
 
@@ -85,6 +86,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 		// happens on an adapter without readonly-and-readwrite-storage-textures.
 		// Each one also breaks and restarts the compute pass.
 		uint32_t rw_shadow_refreshes = 0;
+		// Bind group slots the draw/dispatch path had to re-adapt because the
+		// group left on the encoder did not match the pipeline layout about to
+		// consume it (see _reconcile_bind_groups()). Expected to be 0 or very
+		// near it; a non-trivial number means something upstream of the driver
+		// stopped re-binding sets it used to.
+		uint32_t bind_group_reconciles = 0;
 		double last_log_time = 0;
 		uint32_t frames_since_log = 0;
 		void reset() {
@@ -103,6 +110,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 			bind_group_redundant_skips = 0;
 			dynamic_bind_group_binds = 0;
 			rw_shadow_refreshes = 0;
+			bind_group_reconciles = 0;
 		}
 	} perf;
 
@@ -123,7 +131,21 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// does not require it -- so without it those three have to be promoted, both in
 	// the texture and in the WGSL that binds it. See webgpu_notes/TASKS.md Task 41.
 	bool has_texture_formats_tier2 = false;
-	bool has_rw_storage_textures = false; // readonly-and-readwrite-storage-textures
+	// Queries *device* features for "readonly-and-readwrite-storage-textures",
+	// which is a WGSL language feature and never a device feature, so this is
+	// false in every browser. The read-only storage -> sampled conversion and the
+	// CopySrc/TextureBinding usage it gates have always run because of that and are
+	// relied on; whether a read_write texture is split is decided per format by
+	// _wgsl_format_supports_read_write() instead.
+	bool has_rw_storage_textures = false;
+	// navigator.gpu.wgslLanguageFeatures has readonly_and_readwrite_storage_textures.
+	bool has_wgsl_read_write_storage = false;
+	// True when a texture_storage_*<p_fmt, read_write> binding is valid on this
+	// device as-is, so it needs no write + shadow-read split (and no full-texture
+	// shadow copy before every dispatch that binds it). Core WebGPU allows
+	// read_write for r32float/r32uint/r32sint; texture-formats-tier2 adds the
+	// 8/16/32-bit r and rgba formats. TASKS.md 2.30.
+	bool _wgsl_format_supports_read_write(const String &p_fmt) const;
 
 	// Source WGPUTexture → shadow WGPUTexture handles for read_write storage splits.
 	// When a source texture is updated (command_copy_buffer_to_texture), the new
@@ -131,6 +153,8 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// the latest contents through the read-only shadow binding.
 	HashMap<WGPUTexture, LocalVector<WGPUTexture>> rw_shadow_copy_map;
 	bool float32_filterable_supported = false;
+	// depth-clip-control: lets a pipeline clamp depth (PrimitiveState.unclippedDepth).
+	bool depth_clip_control_supported = false;
 	bool float32_blendable_supported = false;
 	// Optional texture-compression features (BC, ETC2, ASTC). Requested by the JS
 	// shell at device creation; the driver must only report the corresponding
@@ -150,7 +174,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// --- Push Constant Emulation ---
 	// Ring buffer for push constant data. Each slot is 256-byte aligned.
 	WGPUBuffer push_constant_ring_buffer = nullptr;
-	static constexpr uint32_t PUSH_CONSTANT_RING_SIZE = 512 * 1024; // 512KB = 2048 draw calls at 256B/slot
+	static constexpr uint32_t PUSH_CONSTANT_RING_SIZE = 2 * 1024 * 1024; // 2MB = 8192 draw calls at 256B/slot (512KB overflowed once a frame at ~3600 draws, TASKS.md 2.6)
 	static constexpr uint32_t PUSH_CONSTANT_SLOT_ALIGNMENT = 256;
 	// Binding slot used for the PC ring buffer inside group 3.
 	// Must match the binding used in spirv_preprocess::convert_push_constants_to_uniforms().
@@ -164,6 +188,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	uint8_t push_constant_shadow[PUSH_CONSTANT_RING_SIZE] = {};
 	uint32_t push_constant_shadow_dirty_start = UINT32_MAX;
 	uint32_t push_constant_shadow_dirty_end = 0;
+
+	// Staging buffers with deferred shadow->GPU writes (see WGBuffer::pending_lo). Every wgpuQueueSubmit goes through
+	// _queue_submit(), which uploads them first.
+	LocalVector<WGBuffer *> pending_staging;
+	void _flush_pending_staging();
+	void _queue_submit(uint32_t p_count, const WGPUCommandBuffer *p_buffers);
 
 	// Universal push constant bind group layout: group N, binding PUSH_CONSTANT_RING_BINDING,
 	// ReadOnlyStorage buffer with hasDynamicOffset=true. Created once at initialize().
@@ -247,6 +277,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUBuffer aliasing_stub_buffer = nullptr;
 	static constexpr uint64_t ALIASING_STUB_BUFFER_SIZE = 65536; // 64KB — large enough for any sub-emitter emission buffer
 
+	// Source for command_clear_color_texture()'s zero clears of textures that
+	// cannot be render attachments: one slice, never written, so it stays zero.
+	// Grown on demand to the largest slice cleared so far.
+	WGPUBuffer clear_zero_buffer = nullptr;
+	uint64_t clear_zero_buffer_size = 0;
+
 	// --- Dummy Samplers for BGL Rebinding ---
 	// When a bind group must be re-created with a different BGL (e.g., because
 	// the original BGL has a Comparison sampler but the target has Filtering),
@@ -263,9 +299,38 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUSampler dummy_nonfiltering_sampler = nullptr;
 	HashSet<uint64_t> linear_filtering_samplers; // WGPUSampler handles created with a linear min/mag filter.
 
+	// Every live WGUniformSet, so shader_free() can purge the rebind caches
+	// that are keyed on the dying shader's bind group layouts. See
+	// _purge_rebind_caches_for_shader().
+	HashSet<WGUniformSet *> live_uniform_sets;
+	void _purge_rebind_caches_for_shader(WGShader *p_shader);
+
 	// --- BGL Rebinding Helper ---
-	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx);
+	// r_layout, when given, receives the layout the returned bind group was
+	// actually built against -- which is not always p_target_shader's, since
+	// several early-outs return p_us->handle unchanged. Callers that record
+	// what they bound (for the draw-time reconcile) need that distinction.
+	WGPUBindGroup _get_compatible_bind_group(WGUniformSet *p_us, WGShader *p_target_shader, uint32_t p_set_idx, WGPUBindGroupLayout *r_layout = nullptr);
 	bool _create_rw_shadow_bind_entry(WGUniformSet *p_us, WGTexture *p_orig_tex, uint32_t p_shadow_bnd, WGPUBindGroupEntry &r_entry);
+	WGPUTextureView _sampled_texture_view(WGUniformSet *p_us, WGTexture *p_tex, WGPUTextureViewDimension p_expected_dim, WGPUTextureSampleType p_expected_sample, const WGShader *p_shader, uint32_t p_set, uint32_t p_glsl_binding);
+	// (shader name, set, binding) of collapsed texture arrays already warned about.
+	HashSet<String> collapsed_array_warnings;
+
+	// Last line of defense before a draw/dispatch: make the bind groups
+	// actually set on the encoder match the pipeline that is about to consume
+	// them. WebGPU validates every group in the pipeline layout, including
+	// ones the shader never reads; RenderingDevice's rebinding rules are
+	// Vulkan-shaped and only cover the sets a pipeline declares a format for,
+	// so a group left over from an earlier variant can survive into a draw
+	// that no bind call follows. Re-adapts such a slot from the uniform set it
+	// came from. TASKS.md §2.1.
+	void _reconcile_render_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
+	void _reconcile_compute_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader);
+	// Shared body for the two above; p_render picks the encoder.
+	void _reconcile_bind_groups(WGCommandBuffer *p_cmd_buf, WGShader *p_shader, bool p_render);
+	// Bounded diagnostic budget for the repairs above, so a pathological frame
+	// cannot turn into a log flood.
+	uint32_t bind_group_reconcile_reports = 0;
 
 	// --- Pixel Format Mapping ---
 	// TODO: Move to dedicated pixel_formats_webgpu.h/cpp when ready.
@@ -338,6 +403,7 @@ public:
 	virtual uint64_t buffer_get_dynamic_offsets(Span<BufferID> p_buffers) override final;
 	/// Flush a buffer's shadow CPU data to the GPU via wgpuQueueWriteBuffer.
 	virtual void buffer_flush(BufferID p_buffer) override final;
+	virtual void buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) override final;
 	/// Direct queue write bypassing staging buffers (for skeleton/bone updates).
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) override final;
 	/// WebGPU: initiate async buffer map so it completes by next frame.
@@ -697,6 +763,7 @@ public:
 	virtual void command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) override final;
 	/// Bind uniform sets (bind groups) for a compute pipeline.
 	virtual void command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) override final;
+	virtual void command_end_compute_pass(CommandBufferID p_cmd_buffer) override final;
 	/// Dispatch compute workgroups.
 	virtual void command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) override final;
 	/// Dispatch compute workgroups with parameters from a GPU buffer.

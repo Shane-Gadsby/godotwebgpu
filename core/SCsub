@@ -217,7 +217,9 @@ env.add_source_files(env.core_sources, "*.cpp")
 
 # Generate disabled classes
 env.CommandNoCache(
-    "disabled_classes.gen.h", env.Value(env.disabled_classes), env.Run(core_builders.disabled_class_builder)
+    env.gen_path("core/disabled_classes.gen.h"),
+    env.Value(env.disabled_classes),
+    env.Run(core_builders.disabled_class_builder),
 )
 
 # Generate version info

@@ -213,13 +213,33 @@ const GodotDisplayCursor = {
 		},
 		lockPointer: function () {
 			const canvas = GodotConfig.canvas;
-			if (canvas.requestPointerLock) {
-				canvas.requestPointerLock();
+			if (!canvas.requestPointerLock) {
+				return;
+			}
+			try {
+				const promise = canvas.requestPointerLock();
+				// Chrome 113+ returns a promise, older browsers and Safari return undefined.
+				// A rejection is routine (no user gesture, a lock request during the
+				// browser's own unlock cooldown, or the canvas no longer being in the
+				// document), so swallow it instead of letting it surface as an
+				// unhandled rejection.
+				if (promise) {
+					promise.catch(function () {
+						// nothing to do.
+					});
+				}
+			} catch (e) {
+				// nothing to do.
 			}
 		},
 		releasePointer: function () {
-			if (document.exitPointerLock) {
+			if (!document.exitPointerLock) {
+				return;
+			}
+			try {
 				document.exitPointerLock();
+			} catch (e) {
+				// nothing to do.
 			}
 		},
 		isPointerLocked: function () {
@@ -233,6 +253,18 @@ const GodotDisplayScreen = {
 	$GodotDisplayScreen__deps: ['$GodotConfig', '$GodotOS', '$GL', 'emscripten_webgl_get_current_context'],
 	$GodotDisplayScreen: {
 		desired_size: [0, 0],
+		// Pixel size of a canvas whose control was transferred to an OffscreenCanvas (the web render
+		// thread, webgpu_notes/TASKS.md 2.5). The element's width/height can no longer be set and stop
+		// tracking the real size, so it is kept here; the OffscreenCanvas itself is resized on its own
+		// thread through emscripten_set_canvas_element_size(). null until the first resize.
+		transferred_size: null,
+		canvasSize: function () {
+			const canvas = GodotConfig.canvas;
+			if (canvas.controlTransferredOffscreen && GodotDisplayScreen.transferred_size) {
+				return GodotDisplayScreen.transferred_size;
+			}
+			return [canvas.width, canvas.height];
+		},
 		hidpi: true,
 		getPixelRatio: function () {
 			return GodotDisplayScreen.hidpi ? window.devicePixelRatio || 1 : 1;
@@ -307,8 +339,9 @@ const GodotDisplayScreen = {
 			let height = dHeight;
 			if (noResize) {
 				// Don't resize canvas, just update GL if needed.
-				if (canvas.width !== width || canvas.height !== height) {
-					GodotDisplayScreen.desired_size = [canvas.width, canvas.height];
+				const current = GodotDisplayScreen.canvasSize();
+				if (current[0] !== width || current[1] !== height) {
+					GodotDisplayScreen.desired_size = current;
 					GodotDisplayScreen._updateGL();
 					return 1;
 				}
@@ -322,6 +355,16 @@ const GodotDisplayScreen = {
 			}
 			const csw = `${Math.floor(width / scale)}px`;
 			const csh = `${Math.floor(height / scale)}px`;
+			if (canvas.controlTransferredOffscreen) {
+				const current = GodotDisplayScreen.canvasSize();
+				if (canvas.style.width !== csw || canvas.style.height !== csh || current[0] !== width || current[1] !== height) {
+					GodotDisplayScreen.transferred_size = [width, height];
+					canvas.style.width = csw;
+					canvas.style.height = csh;
+					return 1;
+				}
+				return 0;
+			}
 			if (canvas.style.width !== csw || canvas.style.height !== csh || canvas.width !== width || canvas.height !== height) {
 				// Size doesn't match.
 				// Resize canvas, set correct CSS pixel size, update GL.
@@ -517,8 +560,9 @@ const GodotDisplay = {
 	godot_js_display_window_size_get__proxy: 'sync',
 	godot_js_display_window_size_get__sig: 'vii',
 	godot_js_display_window_size_get: function (p_width, p_height) {
-		GodotRuntime.setHeapValue(p_width, GodotConfig.canvas.width, 'i32');
-		GodotRuntime.setHeapValue(p_height, GodotConfig.canvas.height, 'i32');
+		const size = GodotDisplayScreen.canvasSize();
+		GodotRuntime.setHeapValue(p_width, size[0], 'i32');
+		GodotRuntime.setHeapValue(p_height, size[1], 'i32');
 	},
 
 	godot_js_display_has_webgl__proxy: 'sync',

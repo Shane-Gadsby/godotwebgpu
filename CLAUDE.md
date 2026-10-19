@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-This is [Godot WebGPU](https://github.com/dwalter/godotwebgpu) — a fork of Godot Engine that adds a WebGPU rendering driver (`drivers/webgpu/`) as a browser export target, implementing the same `RenderingDeviceDriver` / `RenderingContextDriver` / `RenderingShaderContainerFormat` interfaces as the built-in Vulkan, Metal, and D3D12 backends. It targets the **Forward+ (Clustered)** renderer via Emscripten + the `emdawnwebgpu` port (Dawn). Note that `RendererCompositorRD::initialize()` silently falls back to Forward Mobile when the device reports fewer than 48 textures per shader stage, which on WebGPU is the adapter's `maxSampledTexturesPerShaderStage` — so a **software adapter (swiftshader, e.g. a `CI=1` test run) runs Forward Mobile, not Forward+**. `platform/web/js/engine/engine.js` requests that limit at the adapter's own max so real hardware takes the Forward+ branch. This distinction matters whenever a result depends on the scene renderer; see `webgpu_notes/TASKS.md` Task 46 §7b for a wrong conclusion it has already caused. See `README.md` for the project pitch/demos and `GODOT_README.md` for the original upstream Godot README.
+This is [Godot WebGPU](https://github.com/dwalter/godotwebgpu) — a fork of Godot Engine that adds a WebGPU rendering driver (`drivers/webgpu/`) as a browser export target, implementing the same `RenderingDeviceDriver` / `RenderingContextDriver` / `RenderingShaderContainerFormat` interfaces as the built-in Vulkan, Metal, and D3D12 backends. It targets the **Forward+ (Clustered)** renderer via Emscripten + the `emdawnwebgpu` port (Dawn). Note that `RendererCompositorRD::initialize()` silently falls back to Forward Mobile when the device reports fewer than 48 textures per shader stage, which on WebGPU is the adapter's `maxSampledTexturesPerShaderStage` — so a **software adapter (swiftshader, e.g. a `CI=1` test run) runs Forward Mobile, not Forward+**. `platform/web/js/engine/engine.js` requests that limit at the adapter's own max so real hardware takes the Forward+ branch. This distinction matters whenever a result depends on the scene renderer; see `webgpu_notes/TASKS.md` §1 and §3 trap 1 for the wrong conclusions this has already caused. See `README.md` for the project pitch/demos and `GODOT_README.md` for the original upstream Godot README.
 
-`origin` is `dwalter/godotwebgpu` (this fork); `upstream` is `godotengine/godot`. Base branch for this fork's own work is `webgpu-4.7.2`, now superseded by `webgpu-4.8` (the 4.8 port, `webgpu_notes/TASKS.md` Phase 15); `sync/*` branches track merges of newer upstream Godot releases (see Phase 8 for the 4.7.2 sync and Phase 15 for 4.8).
+`origin` is `dwalter/godotwebgpu` (this fork); `upstream` is `godotengine/godot`. Base branch for this fork's own work is `webgpu-4.7.2`, now superseded by `webgpu-4.8` (the 4.8 port, `webgpu_notes/TASKS.md` §4.17); `sync/*` branches track merges of newer upstream Godot releases (see §4.3 for the 4.7.2 sync and §4.17 for 4.8).
 
-This fork's history was detached from upstream's by a past rewrite and has since been **repaired** (`webgpu_notes/TASKS.md` Phase 16): `webgpu-4.8`, `webgpu-4.7.2` and `main` are grafted back onto upstream's real lineage, so `git merge-base` against `godotengine/godot` is correct and an upstream sync replays the ~2,800 commits it should rather than ~85,000. Nothing special is needed any more — merge upstream normally. The pre-repair tips are kept on `origin` as `backup/pre-lineage-repair/*`, alongside the `backup/pre-claude-author-strip*` branches that made the repair possible; **do not delete either set.**
+This fork's history was detached from upstream's by a past rewrite and has since been **repaired** (`webgpu_notes/TASKS.md` §4.18): `webgpu-4.8`, `webgpu-4.7.2` and `main` are grafted back onto upstream's real lineage, so `git merge-base` against `godotengine/godot` is correct and an upstream sync replays the ~2,800 commits it should rather than ~85,000. Nothing special is needed any more — merge upstream normally. The pre-repair tips are kept on `origin` as `backup/pre-lineage-repair/*`, alongside the `backup/pre-claude-author-strip*` branches that made the repair possible; **do not delete either set.**
 
 ## Build Commands
 
@@ -24,6 +24,8 @@ source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)
 ```
 
+**`dlink_enabled=yes` requires a patched Emscripten toolchain**, and `threads=yes` on top of it makes that mandatory: without the patches a threads+GDExtension export does not boot at all (`0001`, an `ASM_CONSTS` initialization race in Emscripten's dylink+pthread glue) and logs ~11 errors per load that silently drop later `Module` exports on worker threads (`0002`, `-sEXPORT_ALL` re-exporting the `HEAP*` views eagerly). Both live in dlink-only code paths and both need a pthread worker to fire, so `threads=no dlink_enabled=yes` is unaffected in practice — but `apply.sh` is all-or-nothing, so just apply it for any dlink build. See `misc/emsdk_patches/` (patches, tooling, and how to add a third) and `webgpu_notes/TASKS.md` §4.5. Apply with `./misc/emsdk_patches/apply.sh --apply`. **`emsdk install` overwrites the toolchain tree, so they must be re-applied after every toolchain change**, not just after an emsdk version bump; a `dlink_enabled=yes` build tells you when they are missing — loudly with `threads=yes`, as a note otherwise. Every build helper (`build.sh`, `build-linux.sh`, `build-macos.sh`, `build-windows.ps1`) and both web CI workflows apply them for you, right after setting up Emscripten. The toolchain's JS glue is hashed into the link's dependencies (`get_toolchain_js_fingerprint()` in `platform/web/detect.py`, consumed in `platform/web/SCsub`), so applying or reverting a patch relinks on its own — no need to delete the target `.js`/`.wasm`/`.zip` by hand. That hash reads `misc/emsdk_patches/emsdk_patch.py`'s own table, so a newly added patch is covered without touching `detect.py`. Before the fingerprint existed, scons did not relink and a stale `bin/godot*.js` silently survived, which is how the `ASM_CONSTS` crash reappeared in the *debug* template hours after the patch had fixed the release one. Threaded builds also need the page served with COOP/COEP cross-origin-isolation headers. A thread-enabled export (`variant/thread_support`) also renders on its own pthread by default — own WebGPU device, canvas as an OffscreenCanvas (`webgpu_notes/TASKS.md` §2.5) — through the `variant/separate_render_thread` export option, which passes `--render-thread separate`; turn it off and the project setting `rendering/driver/threads/thread_model` decides as on other platforms. `threads=no` templates and the Safe model are unaffected.
+
 `webgpu=yes` is a SConstruct option (`SConstruct:201`) that only takes effect combined with `platform=web` — `drivers/webgpu/` isn't compiled into non-web builds at all, so a native build never touches WebGPU driver code.
 
 `bin/tint_convert_cli` — the standalone host tool that does build-time SPIR-V→WGSL precompilation — is a **separate native build**, independent of Emscripten and of the two builds above:
@@ -35,7 +37,13 @@ scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=
 
 On Windows, run it from Git Bash with LLVM's `clang++` (auto-detected, or set `CXX`); it produces `bin/tint_convert_cli.exe`. Objects go in a per-OS `.build/<os>/` directory, so a checkout shared with WSL doesn't mix ELF and COFF objects. A native editor built with `webgpu=yes` (`WEBGPU_SHADER_BAKER_ENABLED`: export-time WGSL baking plus the shader capture toolbar toggle) runs `tint_convert_cli` from its own executable's directory, so the CI editor artifacts ship it next to the editor (inside `Contents/MacOS` for the macOS `.app`).
 
-Rebuild it directly (rather than through scons) when iterating on `drivers/webgpu/spirv_preprocess.cpp`, `tint_wrapper.cpp`, or anything under `thirdparty/tint`/`thirdparty/spirv-tools` — it's much faster than a full web build and is what `webgpu_tests/shader_corpus` and `drivers/webgpu/wgsl_precompile.py` (the build-time precompiler, invoked automatically by `scons ... webgpu=yes`) both drive.
+Rebuild it directly (rather than through scons) when iterating on `drivers/webgpu/spirv_preprocess.cpp`, `tint_wrapper.cpp`, or anything under `thirdparty/tint`/`thirdparty/spirv-tools` — it's much faster than a full web build and is what `webgpu_tests/shader_corpus` and `drivers/webgpu/wgsl_precompile.py` (the build-time precompiler, invoked automatically by `scons ... webgpu=yes`) both drive. The precompiled table `drivers/webgpu/wgsl_precompiled.gen.h` is dependency-tracked: `drivers/webgpu/SCsub` fingerprints the vendored Tint/SPIRV-Tools/`tint_cli` sources, `bin/tint_convert_cli` and glslang's version, so a web build re-bakes on its own after any of them change and skips the bake otherwise (`webgpu_notes/TASKS.md` §4.22).
+
+The **export-time** bake (`ShaderBakerExportPlugin` with the WebGPU platform, `webgpu_notes/TASKS.md` §4.23) runs `tint_convert_cli --batch` over all stages at once, in parallel chunks spawned with `posix_spawn` — not one serialized subprocess per stage, which used to be 24 of a 27 s export. Converted WGSL is cached by SPIR-V hash under the tool's own hash at `~/.cache/godot/webgpu_wgsl_bake/` (survives engine rebuilds, invalidated by a Tint rebuild; `WEBGPU_BAKE_CACHE=0` / `WEBGPU_BAKE_CACHE_DIR` / `WEBGPU_BAKE_JOBS`), so a warm export is ~4 s against ~8 s cold. Web presets ship the baked cache as `<name>.shaders.pck` (`shader_baker/separate_pack`), which the shell preloads and the engine mounts beside the main pack; **a template built before that change silently loads no shaders at all**, so rebuild the templates with the editor. Stale `.godot/exported/<hash>` directories (7 days) and shader-cache group directories from other engine builds are pruned automatically.
+
+`misc/scripts/install_accesskit.py` (run by every build helper unless `--skip-install`) downloads AccessKit only when `bin/build_deps/accesskit/version` does not name the version it pins; `--force` reinstalls (§4.32).
+
+`./build-linux.sh` is the full local build: editor, Linux templates and the 8-variant web matrix, one SCons run after another in this tree, so every template's baked WGSL matches the editor's baker. `--help` lists the flags: `--skip-install`, `--skip-web`, `--skip-native-templates`, `--skip-tint-cli`, `--force-shader-rebake`, `--linker`, `--jobs`, `--web-targets`/`--web-threads`/`--web-dlink` to narrow the matrix while iterating (a narrowed run cannot guarantee the editor/template match), `--no-ccache`, `--no-gdscript-braces` (a standard editor and templates, `gdscript_braces=no`; every build in the run gets the same value, so an editor never exports `.gdb` scripts for templates that cannot load them) `--skip-editor-plugins`, and `--plugins-only` (just the plugins: no prerequisites and no SCons, so it is safe while another build runs). Unless skipped, it ends by building the braced GDScript Rider plugin and VS Code `.vsix` from `../godot-gdb-rider` and `../godot-gdb-vscode` into `builds/<version>/editor_plugins/` (a failure there only warns; Gradle gets a JDK 21 found by the script, not whatever `JAVA_HOME` says). **ccache is on by default** (§4.26): SCons signs every object with the resolved compiler path, so only the first run after that default changed recompiles every variant. `--no-ccache` leaves the ccache symlink directory on `PATH` and sets `CCACHE_DISABLE=1` rather than removing it, so the signed path never changes and opting out — or back in — is free. Use `ccache -C` to discard the cache itself. It prints a per-step timing table at the end. **Never start a `scons` run — not even a no-op read or a timing probe — while another is running in this tree** (`pgrep -ax scons` first): the runs share `.sconsign5.dblite`, so an overlap can lose a run's recorded signatures. The worse half of this is fixed — each variant now writes its own copy of the option-dependent generated sources (`modules/modules_enabled.gen.h` and five others) under `gen/<variant>/`, prepended to `CPPPATH`, so no build can compile against another's copy and look up to date forever (`webgpu_notes/TASKS.md` §4.25, §3 trap 24). A generated source must therefore spell its own includes from the project root, not relative to where it used to live.
 
 ## Testing
 
@@ -54,6 +62,34 @@ cd webgpu_tests/preprocessing_tests && node run_tests.mjs
 # Resource lifecycle / screenshot comparison (standalone, need Playwright):
 cd webgpu_tests/resource_lifecycle && node run_tests.mjs
 cd webgpu_tests/screenshot_comparison && node screenshot_tests.mjs
+
+# Web audio parity: the Sample-playback driver rendered offline against native AudioServer behavior (no build),
+# then native vs web end to end (needs the editor + web templates):
+cd webgpu_tests/web_audio && node run_tests.mjs && ./export.sh && node run_e2e.mjs
+
+# Editor drag-and-drop onto every list (arrays, dictionaries, property arrays, Project Settings lists, bus effects):
+# real drags in a windowed editor under Xvfb (headless gives the editor a 2x2 viewport), see tests/editor_drop/README.md:
+tests/editor_drop/run.sh
+
+# WebRTC web/native parity (needs the editor + a web template exported first):
+cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
+
+# WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
+cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
+
+# Forward+ feature matrix (needs a real GPU and a fresh ./export.sh); --parity also compares every
+# frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly:
+cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity
+
+# Per-frame WebGPU call/byte budgets on the scene smoketest exports (needs a fresh export first, see TASKS.md §3):
+cd webgpu_tests/perf_guard && node run_perf_guard.mjs
+# Where a CPU-bound export spends its frame (api_profile.mjs: calls/ms per GPU method; cpu_steady.mjs: wasm CPU by function):
+node api_profile.mjs --dir <export> --uncapped
+# Whether it is GPU-bound instead, and which pass costs what on the GPU (uncapped "100% busy" includes waiting on the GPU):
+node gpu_time.mjs --dir <export> --uncapped [--passes]
+# JS-glue cost per function (ms/frame) on a tab YOU already have open in a Chrome started with --remote-debugging-port=9222
+# (no hosting or launching; written for the Web Audio AudioParam writes, --fn takes any names; usage in its header):
+node tests/web_audio_profiling.mjs --tab <url-or-title-substring> --fn setVolume,_syncPlaybackRate
 
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite
@@ -94,7 +130,9 @@ Godot's rendering backends are all implementations of the same abstract interfac
 | `rendering_shader_container_webgpu.{h,cpp}` | SPIR-V storage + push-constant metadata for compiled shaders |
 | `webgpu_objects.h` | Thin wrapper structs around WebGPU handles (`WGBuffer`, `WGTexture`, `WGShader`, `WGPipelineWrapper`, ...) |
 | `pixel_formats_webgpu.h` | Godot `DataFormat` ↔ `WGPUTextureFormat` mapping |
-| `spirv_preprocess.{h,cpp}` | 12 binary-level SPIR-V rewriting passes (see below) |
+| `spirv_preprocess.{h,cpp}` | Binary-level SPIR-V rewriting passes, and `run_pipeline()` — the single pass order every converter (runtime, `tint_convert_cli`, fuzzer) calls (see below) |
+| `spirv_opt_passes.{h,cpp}` | Passes written on SPIRV-Tools' optimizer IR because they restructure control flow or add types: `expand_binding_arrays`, `apply_sampler_lod_bias`, `lower_tint_unsupported_ops`. Separate file because SPIRV-Tools' internal headers need extra include paths (`env_spirv_opt` in `SCsub`) |
+| `spirv_binding_layout.h` | Dependency-free constants shared by the passes and the driver: where expanded texture-array elements bind (400 + 16b + k − 1), and the `SamplerLodBias` binding (40) |
 | `tint_wrapper.{h,cpp}` | Runs the preprocessing passes then calls into vendored Tint for SPIR-V→WGSL |
 | `wgsl_precompile.py` | Build-time driver: compiles every engine shader variant through the same pipeline the runtime uses, ahead of time, into `wgsl_precompiled.gen.h` (generated, gitignored) |
 | `tint_cli/` | `tint_convert_cli` — standalone native host tool wrapping `spirv_preprocess` + `tint_wrapper` for build-time precompilation and standalone testing/debugging (see Build Commands) |
@@ -103,14 +141,14 @@ Godot's rendering backends are all implementations of the same abstract interfac
 
 ```
 GLSL → SPIR-V (glslang, at engine/editor build time)
-     → 12 binary-rewriting passes (spirv_preprocess.cpp, C++, at runtime or build-time precompile)
+     → spirv_preprocess::run_pipeline() (~26 passes, C++, at runtime or build-time precompile)
      → WGSL (Tint, C++, linked directly into the engine — no WASM/JS translation step)
      → GPU (browser's WebGPU implementation)
 ```
 
-Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.md`), needing `thirdparty/spirv-tools` and `thirdparty/spirv-headers` (the latter extracts a broader header set than upstream Godot's own minimal extraction, specifically for Tint's SPIR-V reader). Shaders are precompiled ahead-of-time by `wgsl_precompile.py` during the engine build where possible; the same 12-pass + Tint pipeline also runs at runtime (via `tint_wrapper.cpp`) as a fallback for anything not precompiled. The 12 passes exist to work around specific gaps/quirks between what glslang emits and what Tint/WGSL accepts (combined-sampler splitting, push-constant→uniform conversion, depth-texture fixups, etc.) — when a new shader fails Tint conversion, the fix is almost always either a new/extended preprocessing pass here or a Tint patch, not a WGSL-writer change.
+Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.md`), needing `thirdparty/spirv-tools` and `thirdparty/spirv-headers` (the latter extracts a broader header set than upstream Godot's own minimal extraction, specifically for Tint's SPIR-V reader). Shaders are precompiled ahead-of-time by `wgsl_precompile.py` during the engine build where possible; the same `run_pipeline()` + Tint chain also runs at runtime (via `tint_wrapper.cpp`) as a fallback for anything not precompiled; the full pass order is listed in `webgpu_site/TECHNICAL_REFERENCE.md` §4.1, and `run_pipeline()` itself is the source of truth. The passes exist to work around specific gaps/quirks between what glslang emits and what Tint/WGSL accepts (combined-sampler splitting, push-constant→uniform conversion, depth-texture fixups, etc.) — when a new shader fails Tint conversion, the fix is almost always either a new/extended preprocessing pass here or a Tint patch, not a WGSL-writer change.
 
-**Debugging a Tint conversion failure**: `tint_convert_cli`'s batch mode (used by `wgsl_precompile.py`) forks a child process per shader and redirects its stdout/stderr to `/dev/null`, specifically so a Tint internal-compiler-error abort doesn't kill the whole batch — this means the real crash diagnostic is normally invisible. Run `tint_convert_cli <file.spv>` directly (single-file mode, un-forked) to see it. Two env-var-gated debug hooks exist for this: `WGSL_DEBUG_DUMP=<substring>` on `wgsl_precompile.py` dumps matching shaders' raw SPIR-V to `/tmp/wgsl_debug_dump/`, and `TINT_DEBUG_DUMP_PREPROCESSED=<path>` on `tint_convert_cli` dumps the SPIR-V after all 12 passes but before Tint sees it.
+**Debugging a Tint conversion failure**: `tint_convert_cli`'s batch mode (used by `wgsl_precompile.py`) forks a child process per shader and redirects its stdout/stderr to `/dev/null`, specifically so a Tint internal-compiler-error abort doesn't kill the whole batch — this means the real crash diagnostic is normally invisible. Run `tint_convert_cli <file.spv>` directly (single-file mode, un-forked) to see it. Two env-var-gated debug hooks exist for this: `WGSL_DEBUG_DUMP=<substring>` on `wgsl_precompile.py` dumps matching shaders' raw SPIR-V to `/tmp/wgsl_debug_dump/`, and `TINT_DEBUG_DUMP_PREPROCESSED=<path>` on `tint_convert_cli` dumps the SPIR-V after every pass but before Tint sees it.
 
 ### Key architectural decisions
 
@@ -121,6 +159,40 @@ Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.
 - **Buffer mapping**: `buffer_map()` returns a CPU shadow copy (not GPU-visible memory like Vulkan/Metal/D3D12); `buffer_unmap()` flushes it via `wgpuQueueWriteBuffer`. This is why `RenderingDevice`-level code that's driver-agnostic gates WebGPU-only behavior behind `driver->api_trait_get(RDD::API_TRAIT_*)` checks rather than `#ifdef WEBGPU_ENABLED` — see the `API_TRAIT_*` block in `rendering_device_driver.h` for the full list of WebGPU-specific traits and why each exists (they're heavily commented). **Any new cross-driver optimization gated this way must also get a base-class default in `rendering_device_driver.cpp`'s `api_trait_get()`**, or every non-WebGPU driver spams `ERR_FAIL_V(0)` when the shared code queries it.
 - **Device init**: the JS shell pre-initializes a `GPUDevice` and stores it on `Module["preinitializedWebGPUDevice"]`; C++ retrieves it via the emdawnwebgpu port's `WebGPU.importJsDevice()` through `EM_ASM_PTR`, not `emscripten_webgpu_get_device()`/`html5_webgpu.h` (removed in modern Emscripten).
 - **Format constraints**: no 3-component texture formats (RGB8/16/32 unsupported as textures), 256-byte row alignment for buffer↔texture copies, no multi-draw-indirect (loop over individual draws), max 4 bind groups (set 3 is reserved for push-constant emulation).
+- **Texture arrays**: WGSL has no handle arrays Chrome accepts, so `expand_binding_arrays` turns each into one binding per element (`spirv_binding_layout.h`) and dynamic indexing into a switch. It is budgeted per stage — Chrome reports exactly the 48 sampled textures Forward+ requires — and arrays past the budget fall back to `flatten_binding_arrays` (element 0, warned once). Don't raise the budget without counting the stage's other textures; over the adapter limit, pipeline creation fails outright.
+- **Sampler LOD bias**: WebGPU samplers have none. The scene shaders declare `SamplerLodBias` (set 1, binding 40, filled by `MaterialStorage::Samplers`), and `apply_sampler_lod_bias` adds it to implicit-LOD samples.
+- **Depth textures must look like depth textures**: a GLSL `texture2D` becomes WGSL `texture_depth_2d` only if `_reclassify_single_component_depth_textures()` recognizes it — by name (`depth`) and usage. Anything it misses gets a depth texture bound to a float slot, which the driver replaces with a blank fallback, silently (`print_verbose` names the shader, set and binding). Name new depth bindings in renderer shaders with `depth`, and read them linearly through `textureGather` + weights (`textureLod_linear_depth()`), never a linear sampler.
+- **Point size** is emulated (`SUPPORTS_POINT_SIZE` false): the scene shaders draw each point as a quad. `POINT_COORD_USED` implies `POINT_SIZE_USED` (scene `_inc.glsl`), or a `POINT_COORD`-only material draws nothing.
+- **Parity, not just "it changed"**: the Forward+ matrix's delta test passes a feature that renders wrongly. Judge renderer changes with `run_forward_plus.mjs --parity` (native Vulkan reference), and see `webgpu_notes/TASKS.md` §3 trap 28 for what makes that comparison trustworthy.
+
+### Web audio: Sample playback re-implements AudioServer
+
+Web exports default to **Sample** playback (`audio/general/default_playback_type.web`): the engine renders each
+sound once and Web Audio plays it (`GodotSampleDriver` in `platform/web/js/libs/library_godot_audio.js`, fed by
+`AudioDriverWeb` in `platform/web/audio_driver_web.cpp`), bypassing `AudioServer`'s mixer, which Stream playback
+(and every native platform) uses. So every behavior of `AudioServer::_mix_step()` that a Sample sound should have —
+per-channel volume vectors, volume ramps and fades over one 512-frame block, the bus routing rules, loop modes, the
+3D high shelf, positions — is re-implemented in that JS, and it is tested against ports of the native code by
+`webgpu_tests/web_audio/run_tests.mjs` (offline, sample for sample) and end to end by `run_e2e.mjs` / the smoketest's
+`audio_parity` scene. Change either side and run both. Rules that cost time to find (`webgpu_notes/TASKS.md` §4.30,
+§3 traps 32 and 34):
+
+- Per-frame updates (3D/2D volumes, pitch, high shelf) are compared in C++ and only cross into JS when they change;
+  JS knows streams and playbacks by integer handles, not ObjectID strings. Keep it that way: the JS-side skip alone
+  still cost 15x more.
+- The driver caches a rendered sample per stream and re-renders it when the stream emits `changed`. A new
+  `AudioStream` setter that changes what plays must call `emit_changed()`, or web playback keeps the old sound.
+- Sample playback cannot run bus effects or stream long files; it warns (export log; runtime, once per bus/stream).
+  The ways to close those gaps are §2.32, deliberately deferred.
+
+### Editor: drag-and-drop onto lists goes through one resolver
+
+`editor/inspector/editor_collection_drop.{h,cpp}` turns dragged files/folders, a resource or nodes into values for a
+slot type (resources by class, nodes, relative NodePaths, paths honoring file hints and `uid://` for
+`@export_file`). `EditorPropertyArray`, `EditorPropertyDictionary`, `EditorInspectorArray` (property arrays) and the
+Autoload, Localization, audio bus effect and Animation Library lists all use it; a new list-like UI should too, so
+every list accepts the same drops. Test with `tests/editor_drop/run.sh` (real drags in a windowed editor under Xvfb;
+a `--headless` editor has a 2x2 viewport and cannot be driven through its UI — §3 trap 33). Details: §4.31.
 
 ### Physics: Box3D is the default 3D physics engine
 
@@ -136,10 +208,28 @@ Key differences from a "normal" backend that are easy to trip over:
 
 Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
 
+### Braced GDScript (`.gdb`)
+
+`.gdb` files are GDScript written with `{ }` blocks (plus `//` comments, `else if`, `c ? a : b`, arrow lambdas),
+loaded by the same `GDScriptLanguage`. The tokenizer translates braces into the `COLON`/`NEWLINE`/`INDENT`/`DEDENT`
+tokens the parser already reads (`gdscript_tokenizer_braces.cpp`); everything after it is shared. User and developer
+docs: `docs/braced_gdscript/` (start with `internals.md`). One formatter (`gdscript_formatter.cpp`) serves the editor's
+Reformat Code, `--gdscript-format`, `--gdscript-convert`, `--gdscript-format-server` and the language server. Every
+upstream change to these files is tagged `// GDB`. Rules that cost time:
+
+- Any `get_extension() == "gd"` in `modules/gdscript` must be `GDScriptLanguage::is_gdscript_path()`, or `.gdb` scripts
+  silently miss that code path.
+- Test headers are compiled from `tests/test_main.cpp` without the module's defines, so a braced test checks for brace
+  mode at run time (`GDScriptFormatter::get_braces_grammar_version()`), not with `#ifdef GDSCRIPT_BRACES_ENABLED`.
+- A change to the block-or-dictionary rule or the braced spellings bumps `GDScriptFormatter::BRACES_GRAMMAR_VERSION` and
+  the Rider plugin's `GdbPsiLexer.GRAMMAR_VERSION` (and the tree-sitter grammar), which mirror it.
+- Test with `tests/braced_gdscript/run.sh` (`--quick` for two minutes); web templates must be built from this tree for
+  the `braced_gdscript` smoketest scene. Editor plugins live in `../godot-gdb-rider`, `../godot-gdb-vscode` and
+  `../godot-gdb-tree-sitter`.
+
 ### Where to look first
 
-- `webgpu_notes/HANDOFF.md` — snapshot of where the current work stands: verified test results, what landed, the one open problem and what has already been ruled out for it, corrections to things recorded wrongly elsewhere, and the build traps. Read this first when picking the work up cold; `TASKS.md` has the detail behind every line of it.
-- `webgpu_notes/TASKS.md` — the living task/status doc, organized by phase; check it before starting work to see what's known-broken or in-progress. Update it (status, completion notes) when you finish or discover something significant, following the existing per-task format (Status/Severity/Lines/Issue/Investigation).
+- `webgpu_notes/TASKS.md` — **the** task/status doc, and the only one: §1 current state and build traps, §2 outstanding work ordered by criticality with effort estimates, §3 the traps and lessons that have cost time, §4 the archive of completed phases, §5 what the retired notes docs were and how to read them out of git history. Read §1-§3 when picking the work up cold. Keep it updated: move an item out of §2 into §4 when it closes, and add a §3 entry for anything that cost an hour and would again.
 - `webgpu_site/ARCHITECTURE_AND_DESIGN.md`, `TECHNICAL_REFERENCE.md`, `PERFORMANCE_AND_OPTIMIZATION.md`, `CORRECTNESS_AND_COMPATIBILITY.md` — in-depth docs on the areas their names suggest.
 - `drivers/webgpu/README.md` — driver-local notes.
 - `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` — how to test a specific reported bug against a real Godot project (not this repo's own fixtures): scratch-copy setup, native-Vulkan screen-recording capture, WebGPU screenshot/console capture via Playwright, export-freshness verification, and reading numeric data back out of the engine for non-visual comparisons. Use this before improvising a one-off repro script.
@@ -150,5 +240,6 @@ Native validation: build the editor (see Build Commands) and run headless GDScri
 - Memory: `memnew(T)` / `memdelete(ptr)`, not `new`/`delete`. `Vector<T>` / `HashMap<K,V>`, not STL containers, in engine code.
 - Error handling: return `ERR_*` constants; use `ERR_FAIL_COND_V(cond, val)` / `ERR_FAIL_NULL_V(ptr, val)` macros rather than manual `if` + return.
 - Logging: `print_verbose(...)`, `WARN_PRINT(...)`, `ERR_PRINT(...)` — never `printf`/`std::cout` in engine code (the native `tint_cli` host tool is an exception, since it's a standalone binary outside the engine runtime).
+  **On web, pick the severity deliberately**: `WebLogger` (`platform/web/os_web.cpp`) is what makes the distinction visible — it routes `WARN_PRINT` to the page's `onPrintWarning` callback (`console.warn` by default) and leaves every error type on stderr, which Emscripten hands to the shell's `printErr` and every shell logs with `console.error()`, wasm backtrace attached. Before that logger existed there was no warning channel at all, so a warning about behavior that is correct by design (the first result of an asynchronous readback) read as a crash in the player's console and was reported as one. State-of-the-world messages belong at `print_verbose`, which in an export needs `--verbose` added to `GODOT_CONFIG['args']` in the HTML. See `webgpu_notes/TASKS.md` §4.28 and §3 trap 27.
 - Opaque driver IDs are integers cast to/from pointers via the `ID` helper — see existing RDD methods in `drivers/webgpu/` for the pattern.
 - Includes: `"..."` for project headers, `<...>` for system/third-party; no `.h` extension for standard library headers.

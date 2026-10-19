@@ -1,0 +1,4 @@
+Validate extension JSON: Error: Field 'classes/WebRTCMultiplayerPeer/methods/add_peer/arguments/2': default_value changed value in new API, from "1" to "50".
+
+The default `unreliable_lifetime` was raised from 1 ms to 50 ms, so the unreliable channels survive ordinary network jitter.
+Compatibility method registered with the old default, so existing GDExtension binaries keep getting 1 ms.

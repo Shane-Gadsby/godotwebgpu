@@ -115,6 +115,11 @@ class CommandQueueMT {
 	uint32_t sync_tail = 0;
 	uint32_t sync_awaiters = 0;
 	WorkerThreadPool::TaskID pump_task_id = WorkerThreadPool::INVALID_TASK_ID;
+	// Optional callback run after every push (including the sync markers sync() pushes), for a
+	// consumer that cannot block in WorkerThreadPool::yield() and must be woken another way: the
+	// web render thread returns to its event loop between flushes and waits asynchronously.
+	void (*push_notify)(void *) = nullptr;
+	void *push_notify_userdata = nullptr;
 	uint64_t flush_read_ptr = 0;
 	std::atomic<bool> pending{ false };
 
@@ -139,6 +144,9 @@ class CommandQueueMT {
 
 		if (pump_task_id != WorkerThreadPool::INVALID_TASK_ID) {
 			WorkerThreadPool::get_singleton()->notify_yield_over(pump_task_id);
+		}
+		if (push_notify) {
+			push_notify(push_notify_userdata);
 		}
 
 		if constexpr (NeedsSync) {
@@ -272,6 +280,12 @@ public:
 	void set_pump_task_id(WorkerThreadPool::TaskID p_task_id) {
 		MutexLock lock(mutex);
 		pump_task_id = p_task_id;
+	}
+
+	void set_push_notify(void (*p_notify)(void *), void *p_userdata) {
+		MutexLock lock(mutex);
+		push_notify = p_notify;
+		push_notify_userdata = p_userdata;
 	}
 
 	CommandQueueMT() {

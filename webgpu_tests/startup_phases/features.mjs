@@ -13,8 +13,9 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 for (const name of ['chromium', 'firefox']) {
 	const ctx = await pw[name].launchPersistentContext(mkdtempSync(join(tmpdir(), `feat-${name}-`)), {
+		...((typeof name!=='undefined' && name!=='chromium') ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
 		headless: false,
-		args: name === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan'] : [],
+		args: name === 'chromium' ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'] : [],
 		firefoxUserPrefs: name === 'firefox' ? { 'dom.webgpu.enabled': true, 'gfx.webrender.all': true, 'gfx.webgpu.ignore-blocklist': true } : undefined,
 	});
 	const page = await ctx.newPage();

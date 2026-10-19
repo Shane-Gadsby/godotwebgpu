@@ -35,7 +35,9 @@ Forward+ and Mobile renderers to run in the browser.
 | `rendering_context_driver_webgpu.cpp/h` | ~290 | Device bootstrap, surface/swap chain management |
 | `rendering_shader_container_webgpu.cpp/h` | ~480 | Shader container format (SPIR-V storage, baked WGSL, baked reflection) |
 | `webgpu_objects.h` | ~320 | GPU object wrappers (WGBuffer, WGTexture, WGShader, etc.) |
-| `spirv_preprocess.cpp/h` | ~1700 | SPIR-V preprocessing passes before Tint conversion |
+| `spirv_preprocess.cpp/h` | ~5100 | SPIR-V preprocessing passes before Tint conversion, and `run_pipeline()`, the one definition of their order |
+| `spirv_opt_passes.cpp/h` | ~1060 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of what Tint aborts on |
+| `spirv_binding_layout.h` | ~80 | Where expanded array elements and the SamplerLodBias block bind; shared by the passes and the driver |
 | `spirv_lite_reflect.cpp/h` | ~220 | Raw SPIR-V reflection with no SPIRV-Tools dependency, so the editor-side baker can run it too |
 | `tint_wrapper.cpp/h` | ~55 | C++20 isolation wrapper for Tint API |
 | `pixel_formats_webgpu.h` | ~710 | Godot DataFormat → WGPUTextureFormat mapping table |
@@ -61,6 +63,32 @@ rewritten to storage buffer references at binding 120, and various other
 fixups (depth image flags, position Y negation, point size stripping) are
 applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
 (`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
+
+`spirv_preprocess::run_pipeline()` is the only place the passes' order is
+written down; the runtime driver, `tint_convert_cli` (and so the export-time
+baker and the build-time precompile) and the fuzzers all call it. Three of the
+passes live in `spirv_opt_passes.cpp`, because they restructure control flow:
+
+- **Texture arrays** (`expand_binding_arrays()`): WGSL has no array of
+  textures Chrome accepts, so `uniform texture3D t[8]` becomes eight bindings
+  (`spirv_binding_layout.h` says where), and every dynamically indexed read a
+  switch over the index. Expansion is budgeted against the per-stage texture
+  limit -- 16, or 48 for a module already past 16, which only runs where
+  Forward+ runs -- and an array that does not fit is collapsed to element 0
+  as before, with a warning when its uniform set actually holds more.
+- **Sampler LOD bias** (`apply_sampler_lod_bias()`): WebGPU samplers have no
+  mip bias, so the scene shaders' render-pass samplers' bias (the viewport's
+  `texture_mipmap_bias`, TAA/FSR's sharpening) is passed as data
+  (`SamplerLodBias`, set 1 binding 40) and added to implicit-LOD samples.
+- **What Tint aborts on** (`lower_tint_unsupported_ops()`): `isnan`/`isinf`,
+  `textureQueryLod`, `POINT_COORD` and `early_fragment_tests` used to crash the
+  whole page from a material; they are rewritten into what Tint accepts.
+  (`gl_PointCoord` becomes `vec2(0.5)`, which only the non-emulated branch
+  reads: WebGPU has no point size, so `SUPPORTS_POINT_SIZE` is false and the
+  scene shaders draw each point as a quad with an interpolated coordinate. A
+  material that reads `POINT_COORD` without writing `POINT_SIZE` used to skip
+  that quad expansion and draw nothing, on D3D12 as well; the scene shader
+  includes now define `POINT_SIZE_USED` for it.)
 
 ### Shader Precompilation
 Three tiers, checked in order:
@@ -90,10 +118,32 @@ Three tiers, checked in order:
    - **`res://` is searched before `user://`** when loading the shader cache. The
      baked cache carries WGSL; one written by the running game does not, so a
      single earlier run could otherwise shadow the bake permanently.
+
+   How it runs (TASKS.md §4.23): every variant is compiled to SPIR-V on the
+   worker pool, then `webgpu::WgslBakeBatch` (`wgsl_bake_subprocess.cpp`)
+   converts all stages at once — deduplicated by SHA-256, screened for the
+   constructs WGSL cannot express, split into ~4 chunks per core of
+   `tint_convert_cli --batch` started with `posix_spawn()` — and only then are
+   the containers built. Converted WGSL is cached under
+   `<OS cache>/godot/webgpu_wgsl_bake/v1-<sha256 of tint_convert_cli>/`, keyed
+   by the SPIR-V's SHA-256, so it survives engine rebuilds and a Tint rebuild
+   invalidates it; `WEBGPU_BAKE_CACHE=0` turns it off. On web the containers
+   ship as `<name>.shaders.pck` next to the main pack (preset
+   `shader_baker/separate_pack`): the shell preloads it (`config.shaderPack`)
+   and `ProjectSettings::_setup` mounts it. The shell/mount halves live in the
+   template, so a template older than that change loads a game with no shader
+   cache at all (`baked: 0`, no mismatch warning); the exporter warns when the
+   template's `index.js` has no `shaderPack`.
 2. **Build-time table** — `wgsl_precompile.py` bakes the engine's own
    ubershaders into `wgsl_precompiled.gen.h` during `scons ... webgpu=yes`.
    Keyed by SPIR-V hash, so it only hits when the engine's glslang output
-   matches what the table was generated from.
+   matches what the table was generated from. `SCsub` re-bakes it when a
+   preprocessing-pass source, an engine `.glsl`, anything under vendored
+   Tint/SPIRV-Tools/`tint_cli`, `bin/tint_convert_cli` itself or glslang's
+   version changes (a fingerprint `Value`, ~30 ms per scons read);
+   `./build-linux.sh --force-shader-rebake` deletes the header to force one.
+   The bake runs glslangValidator and `tint_convert_cli --batch` across all
+   cores (~3 s for the 274 engine modules); `WGSL_PRECOMPILE_JOBS=N` caps it.
 3. **Runtime Tint** — anything that missed, translated in the browser on
    demand. This is what an export with baking turned off uses for everything,
    and it is the only route for a shader that does not exist at export time
@@ -187,6 +237,7 @@ project setting (a web export has no command line), and these line up:
 | Log line | Side | Says |
 |---|---|---|
 | `Shader baker: baking '<name>/<group>/<sha1>' from <origin>` | editor | which versions were baked, and what led the baker to each |
+| `WebGPU shader baker: N stages -> U unique to convert (D duplicates, X unconvertible, C from the WGSL cache); ...` | editor | the batch's one-line summary: how much Tint actually had to do, and how many stages it rejected or the tool failed on |
 | `Shader cache miss for <name>/<group>/<sha1>` | runtime | exactly which key the game wanted |
 | `^ version is: uni=… frag=… defines(n)=[…]` | both | every field the version SHA1 covers, hashed separately, so the *differing* field names itself |
 | `^ code[FRAGMENT]: …` | runtime | the generated shader body itself, when hashes are not enough |
@@ -257,6 +308,33 @@ prevents redundant re-creation.
 
 ## Known Limitations
 
+### Differences from native Vulkan that remain (2026-10-17 parity sweep, TASKS.md §4.29)
+
+Measured with `webgpu_tests/forward_plus/run_forward_plus.mjs --parity`. Every
+item is a WebGPU spec limit or has a stated reason.
+
+- **No image atomics in WGSL.** SDFGI voxelization ORs facing bits with a plain
+  read-modify-write (concurrent fragments can drop bits; 0.03/255 in the
+  matrix). FSR2 and volumetric fog keep their atomics on storage buffers.
+- **FSR2 runs fp32** (no `shader-f16` path here) with half-float lookup tables
+  (16-bit normalized formats are unfilterable on WebGPU): edges differ from
+  native's fp16 path by ~0.55/255 mean.
+- **MSAA is 1x or 4x** -- WebGPU's only counts. 2x becomes 4x, 8x becomes 4x.
+- **No polygon mode**: `render_mode wireframe` and the wireframe debug draw
+  render solid. **No VRS, no multiview** (XR).
+- **No sampler border colour**: clamp-to-border reads the edge texel. The one
+  Forward+ user (screen-space contact shadows) handles its border in the
+  shader.
+- **Sampler LOD bias** is applied to implicit-LOD samples through the scene
+  shaders' render-pass samplers (all of Godot's biased ones); other samplers
+  never carry a bias in Godot.
+- **`alpha_to_one`** is ignored (alpha-to-coverage works); stencil compare and
+  write masks are one per pipeline, not per face.
+- **Texture arrays** beyond a stage's texture budget stay collapsed to element
+  0 (a project with several LightmapGI or VoxelGI nodes and texture-heavy
+  materials); the driver warns when that loses data.
+- **HDR output** is not implemented (`SUPPORTS_HDR_OUTPUT` false).
+
 - **Max 4 bind groups** (WebGPU spec) — Godot uses sets 0–3, with set 3 shared
   between material uniforms and push constant ring buffer.
 - **No 3-component texture formats** — RGB8, RGB16F, RGB32F are unsupported as
@@ -297,17 +375,41 @@ prevents redundant re-creation.
   feature. Graceful fallback to dummy results when unavailable.
 - **Synchronous readback** — Not available in WebGPU. Timestamp and buffer
   readbacks use async callbacks with shadow buffers.
-- **`threads=yes`** — supported with `dlink_enabled=no` (the common case;
-  fixed and live-verified — see `webgpu_notes/TASKS.md` Task 12). The
-  `dlink_enabled=yes threads=yes` combination (GDExtension support together
-  with threads) is a known-unsupported configuration: it hits a genuine
-  initialization-order race inside Emscripten's own dylink+pthread runtime
-  glue (`libdylink.js`), not this fork's code, and is not planned to be
-  patched around here — see Task 12 for the full root-cause trail. Reconfirmed
-  2026-09-19 against a real-project export: `threads=no`/`dlink_enabled=no`,
-  `threads=no`/`dlink_enabled=yes`, and `threads=yes`/`dlink_enabled=no` all
-  work; `threads=yes`/`dlink_enabled=yes` fails with the same signature Task
-  12 already root-caused — no regression, no new information.
+- **`threads=yes`** — all four `threads` × `dlink_enabled` combinations now
+  boot. `threads=yes dlink_enabled=no` was fixed in Task 12 bug #1 (the
+  `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` dispatch fix).
+  `threads=yes dlink_enabled=yes` — GDExtension and threads together — was
+  broken until 2026-10-07 by two bugs in Emscripten's own glue, and **now
+  requires a patched toolchain**: run `misc/emsdk_patches/apply.sh --apply`
+  (`build-linux.sh` does it for you). The two are an initialization-order race
+  in `libdylink.js` that stopped the export booting at all (`0001`), and
+  `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble,
+  which threw on every pthread worker and silently dropped the `Module` exports
+  emitted after it (`0002`). Without them a `threads=yes` dlink build does not
+  boot, and the build warns. `emsdk install` overwrites the toolchain tree, so
+  they must be re-applied after every toolchain change — but scons does now
+  relink on its own when the toolchain moves, so there is nothing to delete by
+  hand. See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14
+  subtask 1.5.
+
+  Note that `threads=yes` is a *build* configuration, not a rendering change:
+  WebGPU object handles live in a per-thread JS table (emdawnwebgpu's
+  `WebGPU.Internals.jsObjects`), so shader-module and pipeline creation stay on
+  the thread that imported the device no matter how many threads exist. Threads
+  cannot move that work off the critical path.
+
+  Threaded builds also require the page to be served cross-origin isolated
+  (`Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp`), since they need
+  `SharedArrayBuffer`.
+
+  **Verified at the level stated and no further**: `threads=yes
+  dlink_enabled=yes` has been confirmed to boot, complete startup and run its
+  own game scripts with **zero console errors**, headless over COOP/COEP,
+  against a real GDExtension + thread-support project (2026-10-07). It has not
+  been run on real hardware, nor profiled, nor checked for stability beyond
+  startup — and per the note above, threads cannot move shader/pipeline work off
+  the critical path anyway, so "it boots" is not "it is worth enabling".
 
 ## Build Instructions
 
@@ -355,3 +457,29 @@ used instead.
 
 The HTML export shell automatically detects WebGPU availability and shows a
 clear error message if the browser doesn't support it.
+
+## Per-frame cost policy (2026-10-15, TASKS.md §2.17)
+
+The web build is CPU-bound on the main thread, so what matters is the number of WebGPU calls and bytes per frame, not shader
+work. The rules the driver now follows, each found by measurement and guarded by `webgpu_tests/perf_guard`:
+
+- **One command encoder and one submit per frame** (plus rare forced splits). `command_begin_render_pass` no longer finishes
+  and re-submits the encoder before passes whose attachment also has TextureBinding usage; that cost 80 encoders and submits
+  a frame in a post-processing scene.
+- **Uploads send only what was written.** `buffer_flush_range()` (base-class default = full flush) is used by dynamic persistent
+  buffers: the scene instance buffer and the canvas instance buffer pass the bytes actually filled instead of the whole slice.
+- **Staging-block writes are deferred and merged.** `command_copy_buffer()` records the union of the regions copied out of a
+  staging block; `_queue_submit()` uploads each block once with one `wgpuQueueWriteBuffer` before every `wgpuQueueSubmit`. Never
+  call `wgpuQueueSubmit` directly; go through `_queue_submit()`, or the copies read stale staging data.
+- **Instance index via `firstInstance`** (`API_TRAIT_FIRST_INSTANCE_INDEX`): Forward Mobile and Forward+ send a single
+  non-multimesh instance's index as drawIndexed's firstInstance and re-send the push constant only when another field changes.
+- **Shader code can cost more on the GPU than the same GLSL does natively.** After the SPIR-V -> WGSL -> SPIR-V round trip,
+  patterns a native driver folds may survive into Dawn's output: SSIL ran 12x native because a `const` sample-pattern array was
+  re-initialized per tap (now hoisted by `spirv_preprocess::hoist_constant_local_arrays`). Compare per pass before assuming
+  CPU cost: `gpu_time.mjs --passes` against the native project's `--gpu-profile`.
+- **Read-write storage textures bind as `read_write` when the format allows it** (`_wgsl_format_supports_read_write()`: WGSL
+  `readonly_and_readwrite_storage_textures` plus r32, or the tier2 set). Only other formats are split into write + shadow read,
+  and every split costs a full-texture copy before each dispatch that binds it (`rwShadowRefreshes` in the frame stats).
+- Profiling tools: `webgpu_tests/perf_guard/api_profile.mjs` (busy %, calls/ms per frame per GPU method), `cpu_steady.mjs`
+  (wasm CPU by function, needs `debug_symbols=yes`) and `gpu_time.mjs` (GPU ms per frame from timestamp queries; `--passes`
+  ranks every render/compute pass, `--replace-wgsl` swaps in a hand-edited shader module to bisect one).

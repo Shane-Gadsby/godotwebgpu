@@ -2745,6 +2745,18 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance, 
 		return true;
 	}
 
+	if (old_quadrant != SHADOW_INVALID) {
+		// The light wanted a differently-sized slot but none was free, so it keeps
+		// its current one. Record the version being drawn now, like the path that
+		// returns early above does; otherwise a version that changed while the
+		// light was eligible for reallocation never gets stored, and the light is
+		// redrawn on every frame from then on. That is what happened after a long
+		// first frame (e.g. a web export compiling shaders): every positional
+		// light wanting a different quadrant re-culled and re-rendered its shadow
+		// each frame, in a static scene.
+		shadow_atlas->quadrants[old_quadrant].shadows.write[old_shadow].version = p_light_version;
+	}
+
 	return should_redraw;
 }
 

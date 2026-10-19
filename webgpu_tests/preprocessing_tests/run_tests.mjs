@@ -1565,6 +1565,231 @@ function testImageDeclReflection() {
 testImageDeclReflection();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test 23: hoist_constant_local_arrays
+// ─────────────────────────────────────────────────────────────────────────────
+// A `const` array indexed at runtime becomes a Function-scope variable that
+// glslang re-stores the whole constant into before every access; re-initialized
+// per call it was 90% of SSIL's GPU time on WebGPU (TASKS.md 2.30). Only arrays
+// that never hold anything but that one constant may move to module scope: a
+// per-element store or an overwrite after a constant initializer must keep the
+// array local (otherwise every invocation would share... nothing, but every
+// *call* would see the previous call's writes).
+function testHoistConstantLocalArrays() {
+  console.log("\n=== Test 23: hoist_constant_local_arrays ===\n");
+
+  const src = join(__dirname, "fixtures_src", "constant_local_arrays.comp");
+  const spvOut = join(tmpdir(), `constant_local_arrays_${Date.now()}.spv`);
+  try {
+    execFileSync("glslangValidator", ["-V", src, "-o", spvOut], { encoding: "utf-8" });
+  } catch (e) {
+    skip(`glslangValidator unavailable: ${e.message}`);
+    return;
+  }
+  let wgsl;
+  try {
+    wgsl = execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 });
+  } catch (e) {
+    assert(false, `conversion failed: ${e.stderr || e.message}`);
+    return;
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+  }
+
+  const privates = [...wgsl.matchAll(/^var<private> (\w+) : (.+?) = /gm)].map((m) => m[2]);
+  assert(privates.includes("array<vec4<f32>, 8u>"), "the const vec4[8] read in a helper is a module-scope private");
+  assertEq(privates.filter((t) => t === "array<i32, 5u>").length, 1, "the const int[5] read twice in main is one private, not two");
+  assertEq(privates.length, 2, "nothing else was hoisted");
+  assert(/^\s+var scratch : array<vec4<f32>, 4u>;/m.test(wgsl), "an array written per element stays local");
+  assert(/^\s+var modified : array<vec4<f32>, 2u>;/m.test(wgsl), "an array overwritten after a constant initializer stays local");
+  // No whole-array constant stores remain inside functions.
+  assert(!/^\s+\w+ = array<vec4<f32>, 8u>\(/m.test(wgsl), "no per-call re-initialization of the vec4[8] remains");
+}
+
+testHoistConstantLocalArrays();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPIRV-Tools-IR passes (drivers/webgpu/spirv_opt_passes.cpp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Compiles a GLSL fixture from fixtures_src/ and converts it, keeping the
+// SPIR-V the preprocessing pipeline hands Tint (TINT_DEBUG_DUMP_PREPROCESSED).
+// Returns { wgsl, error, preprocessed } or null when glslang is unavailable.
+function convertGlslFixture(name) {
+  const src = join(__dirname, "fixtures_src", name);
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const spvOut = join(tmpdir(), `${name}_${stamp}.spv`);
+  const preOut = join(tmpdir(), `${name}_${stamp}.pre.spv`);
+  try {
+    execFileSync("glslangValidator", ["--target-env", "vulkan1.2", "-V", src, "-o", spvOut], { encoding: "utf-8" });
+  } catch (e) {
+    skip(`glslangValidator unavailable: ${e.message}`);
+    return null;
+  }
+  try {
+    const wgsl = execFileSync(TINT_CLI, [spvOut], {
+      encoding: "utf-8",
+      timeout: 30000,
+      env: { ...process.env, TINT_DEBUG_DUMP_PREPROCESSED: preOut },
+    });
+    return { wgsl, error: null, preprocessed: existsSync(preOut) ? readFileSync(preOut) : null };
+  } catch (e) {
+    return { wgsl: null, error: e.stderr || e.message || "unknown error", preprocessed: null };
+  } finally {
+    try { unlinkSync(spvOut); } catch (_) {}
+    try { unlinkSync(preOut); } catch (_) {}
+  }
+}
+
+// Structural validity of what Tint is given. These passes split blocks and
+// add switches and phis; a mistake there can still produce WGSL (Tint is
+// lenient) while being invalid SPIR-V, so check it directly.
+function assertValidSpirv(bytes, label) {
+  if (!bytes) {
+    assert(false, `${label}: no preprocessed SPIR-V was dumped`);
+    return;
+  }
+  const tmp = join(tmpdir(), `preprocessed_${Date.now()}_${Math.random().toString(36).slice(2)}.spv`);
+  writeFileSync(tmp, bytes);
+  try {
+    execFileSync("spirv-val", ["--target-env", "spv1.5", tmp], { encoding: "utf-8" });
+    assert(true, label);
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      skip(`spirv-val unavailable: ${label}`);
+    } else {
+      assert(false, `${label}: spirv-val rejects the preprocessed module: ${(e.stderr || e.stdout || e.message).slice(0, 400)}`);
+    }
+  } finally {
+    try { unlinkSync(tmp); } catch (_) {}
+  }
+}
+
+// WGSL bindings of every declared variable, as { name, group, binding }.
+function wgslBindings(wgsl) {
+  return [...wgsl.matchAll(/^@group\((\d+)u\) @binding\((\d+)u\) var(?:<[^>]*>)? (\w+)/gm)].map((m) => ({ group: +m[1], binding: +m[2], name: m[3] }));
+}
+
+// The WGSL binding the driver expects for element k of an array at GLSL
+// binding b (drivers/webgpu/spirv_binding_layout.h).
+function arrayElementBinding(b, k) {
+  return k === 0 ? b * 2 : 400 + b * 16 + (k - 1);
+}
+
+// lower_tint_unsupported_ops(): every input in the fixture used to abort Tint
+// with an internal compiler error -- in the browser, a trap that took down the
+// whole page the moment a material using isnan()/isinf()/textureQueryLod() or
+// POINT_COORD was compiled, or texture streaming was enabled.
+function testLowerTintUnsupportedOps() {
+  console.log("\n=== Test 24: lower_tint_unsupported_ops ===\n");
+  const r = convertGlslFixture("tint_crash_inputs.frag");
+  if (!r) {
+    return;
+  }
+  assert(r.wgsl !== null, `the fixture converts instead of crashing Tint: ${r.error && r.error.slice(0, 300)}`);
+  if (!r.wgsl) {
+    return;
+  }
+  assertValidSpirv(r.preprocessed, "lowered module is valid SPIR-V");
+  // isnan/isinf: compared on the bits, so a fast-math compiler cannot fold them away.
+  assert(/bitcast<vec2<u32>>\([^)]*\) & vec2<u32>\(2147483647u\)\) > vec2<u32>\(2139095040u\)/.test(r.wgsl) || /> vec2<u32>\(2139095040u\)/.test(r.wgsl),
+    "isnan(vec2) is |bits| > 0x7f800000 per component");
+  assert(/== 2139095040u/.test(r.wgsl), "isinf(float) is |bits| == 0x7f800000");
+  // textureQueryLod: derivatives of the coordinate in texels, log2, clamped to the mip range.
+  assert(/textureNumLevels\(tex\)/.test(r.wgsl), "textureQueryLod reads the mip count");
+  assert(/textureDimensions\(tex, 0i\)/.test(r.wgsl), "textureQueryLod reads the base level's size");
+  assert(/dpdx\(/.test(r.wgsl) && /dpdy\(/.test(r.wgsl), "textureQueryLod uses screen-space derivatives");
+  assert(/log2\(max\(dot\(/.test(r.wgsl), "the lod is log2 of the larger squared footprint, halved");
+  assert(/clamp\(/.test(r.wgsl), "the accessed level is clamped to the mip range");
+  // PointCoord: a WebGPU point is one pixel, so the coordinate is its center.
+  assert(!/point_coord|PointCoord/i.test(r.wgsl), "no PointCoord built-in remains");
+  assert(/0\.5f/.test(r.wgsl), "gl_PointCoord reads as vec2(0.5)");
+  // EarlyFragmentTests has no WGSL spelling; it is dropped, not translated.
+  assert(!/early_fragment_tests|early_depth_test/.test(r.wgsl), "no early-fragment-tests attribute remains");
+}
+
+// expand_binding_arrays(): arrays of textures used to collapse to element 0,
+// so a second VoxelGI, LightmapGI or particle collider read the first one's
+// data, and a lightmap's shadowmask read the lightmap.
+function testExpandBindingArrays() {
+  console.log("\n=== Test 25: expand_binding_arrays ===\n");
+  const r = convertGlslFixture("binding_arrays.frag");
+  if (!r) {
+    return;
+  }
+  assert(r.wgsl !== null, `the fixture converts: ${r.error && r.error.slice(0, 300)}`);
+  if (!r.wgsl) {
+    return;
+  }
+  assertValidSpirv(r.preprocessed, "expanded module is valid SPIR-V");
+  const bindings = wgslBindings(r.wgsl);
+  const at = (b) => bindings.find((x) => x.group === 1 && x.binding === b);
+  for (let k = 0; k < 8; k++) {
+    assert(at(arrayElementBinding(8, k)), `vox element ${k} has binding ${arrayElementBinding(8, k)}`);
+    assert(at(arrayElementBinding(7, k)), `lm element ${k} has binding ${arrayElementBinding(7, k)}`);
+  }
+  assert(!/binding_array/.test(r.wgsl), "no binding_array type is emitted");
+  // A dynamic index becomes a switch whose case k reads element k.
+  const switches = (r.wgsl.match(/switch\(/g) || []).length;
+  assert(switches >= 4, `dynamic indices became switches (found ${switches})`);
+  assert(/switch\(\(4u \+ idx\)\)/.test(r.wgsl), "the offset index lm[4 + idx] switches on 4u + idx");
+  // A constant index reads its element directly, with no switch.
+  const lm3 = bindings.find((x) => x.binding === arrayElementBinding(7, 3));
+  assert(lm3 && new RegExp(`textureSample\\(${lm3.name}, samp, p\\.xy`).test(r.wgsl), "lm[3] reads element 3 directly");
+  // The helper taking the texture was inlined, then switched over at the call site.
+  assert(/textureSampleLevel\(vox_7, samp, v_\d+, v_\d+\)/.test(r.wgsl), "the cone() helper's lookups read every element");
+  assert(/textureDimensions\(vox_7, 0i\)/.test(r.wgsl), "textureSize() is switched over too");
+}
+
+// The expansion is budgeted: WebGPU only guarantees 16 sampled textures per
+// stage, and a module already past that only runs where Forward+ does, on
+// adapters with at least 48. Going over turns collapsed reads into a pipeline
+// that cannot be created at all.
+function testExpandBindingArraysBudget() {
+  console.log("\n=== Test 26: expand_binding_arrays per-stage budget ===\n");
+  const r = convertGlslFixture("binding_arrays_budget.frag");
+  if (!r) {
+    return;
+  }
+  assert(r.wgsl !== null, `the fixture converts: ${r.error && r.error.slice(0, 300)}`);
+  if (!r.wgsl) {
+    return;
+  }
+  assertValidSpirv(r.preprocessed, "budgeted module is valid SPIR-V");
+  const bindings = wgslBindings(r.wgsl);
+  const sampled = (r.wgsl.match(/^@group\(\d+u\) @binding\(\d+u\) var \w+ : texture_(?!storage)/gm) || []).length;
+  assert(bindings.some((x) => x.binding === arrayElementBinding(1, 15)), "the first 16-element array fits (20 + 2 + 15 = 37 <= 48) and expands");
+  assert(!bindings.some((x) => x.binding >= arrayElementBinding(2, 1) && x.binding <= arrayElementBinding(2, 15)), "the second does not fit (+15 = 52 > 48) and stays collapsed");
+  assert(sampled <= 48, `the module stays within 48 sampled textures (${sampled})`);
+}
+
+// Storage images: a writeonly array expands within the default limit of 4; a
+// read_write one never does, because the driver may split it into a write
+// binding plus a read shadow at the next binding number -- where element 1
+// would be.
+function testExpandBindingArraysStorage() {
+  console.log("\n=== Test 27: expand_binding_arrays on storage images ===\n");
+  const r = convertGlslFixture("binding_arrays_storage.comp");
+  if (!r) {
+    return;
+  }
+  assert(r.wgsl !== null, `the fixture converts: ${r.error && r.error.slice(0, 300)}`);
+  if (!r.wgsl) {
+    return;
+  }
+  assertValidSpirv(r.preprocessed, "storage-image module is valid SPIR-V");
+  const bindings = wgslBindings(r.wgsl);
+  for (let k = 0; k < 3; k++) {
+    assert(bindings.some((x) => x.binding === arrayElementBinding(1, k)), `writeonly dst element ${k} has binding ${arrayElementBinding(1, k)}`);
+  }
+  assert(!bindings.some((x) => x.binding === arrayElementBinding(2, 1)), "the read_write array is left to the collapse");
+}
+
+testLowerTintUnsupportedOps();
+testExpandBindingArrays();
+testExpandBindingArraysBudget();
+testExpandBindingArraysStorage();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"=".repeat(50)}`);

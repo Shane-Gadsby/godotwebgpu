@@ -46,6 +46,8 @@ Destruction is the reverse: cast ID back to pointer, release GPU handles, delete
 - For strip topologies: both Uint16 and Uint32 pipeline variants
 - Owns specialized shader modules (released with pipeline)
 - Stored stencil reference (applied dynamically at bind time)
+- `blend_constant_alpha`: the pipeline blends with `BLEND_FACTOR_(ONE_MINUS_)CONSTANT_ALPHA`, which WebGPU lacks; `_apply_blend_constants()` then sets the single RGBA blend constant to the alpha broadcast (a pipeline using both constant colour and constant alpha warns once and reads the colour)
+- `primitive.unclippedDepth` when the rasterization state asks for depth clamp and the device has `depth-clip-control`; the multisample mask comes from `sample_mask`; every MSAA count other than 1 is clamped to 4 (WebGPU accepts 1 and 4 only)
 
 **WGUniformSet**
 - Bind group handle
@@ -167,12 +169,13 @@ BGLs are derived from two sources:
 
 The WGSL scanning handles information lost in the SPIR-V→WGSL conversion (WebGPU's type system is stricter than Vulkan's).
 
-**Binding numbering**: All bindings are doubled (`binding * 2`) because the combined-sampler split places sampler at `binding*2` and texture at `binding*2+1`.
+**Binding numbering**: All bindings are doubled because the combined-sampler split places the texture at `binding*2` and its sampler at `binding*2+1`. Elements 1..16 of an expanded texture array get bindings of their own from 400 up (`spirv_binding_layout.h`: `400 + 16*binding + element - 1`), above every doubled binding and clear of the push-constant ring's 120; the BGL lists them after the per-uniform entries, and the merged push-constant layout includes them.
 
 ### 3.2 Uniform Set Creation
 
 `uniform_set_create` builds bind group entries with extensive fixup logic:
-- **Depth/Float mismatch**: Substitutes fallback float textures for depth textures bound to float sample-type entries
+- **Depth/Float mismatch**: Substitutes fallback float textures for depth textures bound to float sample-type entries. Whatever the shader then reads is a constant, which is right for Godot's placeholder depth textures and silently wrong for a real depth buffer -- volumetric fog's shadows, `DEPTH_TEXTURE` and omni cube shadows were all lost that way until 2026-10-17. Every substitution is `print_verbose`d with the shader name, set and GLSL binding; whether a binding is a depth texture at all is decided by `_reclassify_single_component_depth_textures()` from its name and usage, so a depth binding in a renderer shader should carry `depth` in its name
+- **Expanded texture arrays**: element k of an array uniform is bound at its own binding (above); a uniform set whose array was collapsed by the shader (over the stage's texture budget) but holds more than filler warns once per (shader, set, binding)
 - **Float32 filterability**: Substitutes fallback when float32-filterable unavailable
 - **Dimension mismatch**: Creates corrected texture views (2DArray → 2D) using slice base offsets
 - **MSAA mismatch**: Uses fallback multisampled texture
@@ -212,22 +215,39 @@ When a uniform set created with shader A's BGL needs to be used with shader B's 
 
 ## 4. Shader Pipeline Details
 
-### 4.1 SPIR-V Pre-Processing (spirv_preprocess.cpp)
+### 4.1 SPIR-V Pre-Processing (`spirv_preprocess::run_pipeline()`)
 
-Twelve binary-level passes before Tint parsing (in runtime call order):
+Every path that converts SPIR-V to WGSL -- the runtime fallback (`spirv_to_wgsl.cpp`), the build-time
+precompiler and export-time baker (`tint_convert_cli`), and the fuzzer -- calls `run_pipeline()`, so this
+order exists in exactly one place. It is the source of truth; this list was written from it on 2026-10-17
+(the long-standing "twelve passes" had grown well past twelve). Raw word-rewriting passes live in
+`spirv_preprocess.cpp`; the three that restructure control flow or add types are written on SPIRV-Tools'
+optimizer IR in `spirv_opt_passes.cpp` (marked *IR*).
 
-1. **freeze_spec_constant_ops**: Evaluates `OpSpecConstantOp` instructions (integer arithmetic, logical ops, bitwise, select, comparisons, type conversions). Tint doesn't support spec constant operations.
-2. **rewrite_copy_logical**: Rewrites `OpCopyLogical` to `OpCopyObject` (SPIR-V 1.4+ feature Tint doesn't handle).
-3. **rewrite_terminate_invocation**: Rewrites `OpTerminateInvocation` to `OpKill` (SPIR-V 1.6 feature).
-4. **convert_push_constants_to_uniforms**: Rewrites push-constant variables to storage buffers at `@group(3) @binding(120)`. Changes storage class, injects decorations.
-5. **split_combined_samplers**: Most complex pass (~500 lines). Splits combined image-sampler variables, doubles all binding numbers, handles function parameters and call sites, updates entry point interfaces.
-6. **fix_depth2_images**: Rewrites SPIR-V `depth=2` (unknown comparison) to `depth=1`.
-7. **negate_position_y**: Flips Y component of `gl_Position` for Vulkan-to-WebGPU NDC difference.
-8. **strip_restrict_decoration**: Removes `Restrict` decoration (glslang hint, no WGSL equivalent).
-9. **strip_memory_barrier**: Replaces `OpMemoryBarrier` with `OpNop` (no WGSL equivalent).
-10. **fix_nonfinite_literals**: Replaces Inf/NaN float constants with FLT_MAX/MIN (WGSL has no literal infinity).
-11. **flatten_binding_arrays**: Unwraps arrays of handle types (image/sampler) into individual variables. Tint doesn't support `OpTypeArray` of handle types.
-12. **infer_readonly_storage**: Multi-pass analysis finds SSBOs never written to, injects `OpDecorate NonWritable`. Enables Tint to emit `var<storage, read>` instead of `var<storage, read_write>`. Recognizes both the modern `StorageBuffer`-storage-class SSBO encoding and the legacy pre-1.3 `Uniform`+`BufferBlock` encoding (glslang emits the latter whenever it isn't asked for `--target-env vulkan1.1`+/SPIR-V ≥1.3 explicitly, which is the common case for this driver's own build-time precompilation — see `webgpu_notes/TASKS.md` Task 9.7).
+1. **inline_opaque_functions**: inlines functions that take textures/samplers as parameters, so every later pass sees handles only at their use sites.
+2. **freeze_spec_constant_ops** -- only when `spec_constants_overridable()` says no: evaluates `OpSpecConstantOp` and fixes every spec constant to its default. Otherwise spec constants stay and become WGSL `@id(N) override`s.
+3. **rewrite_copy_logical**: `OpCopyLogical` → `OpCopyObject` (SPIR-V 1.4+).
+4. **rewrite_terminate_invocation**: `OpTerminateInvocation` → `OpKill` (SPIR-V 1.6).
+5. **convert_push_constants_to_uniforms**: push constants → a storage buffer at `@group(3) @binding(120)` (the push-constant ring).
+6. **split_combined_samplers**: splits combined image-samplers and doubles every binding (texture at 2b, sampler at 2b + 1).
+7. **fix_depth2_images**: `depth=2` (unknown) images → `depth=1`.
+8. **negate_position_y**: flips `gl_Position.y` for WebGPU's NDC.
+9. **strip_unsupported_decorations**: drops `Restrict` and similar hints Tint's reader rejects.
+10. **strip_memory_barrier**: `OpMemoryBarrier` → `OpNop`.
+11. **strip_image_write_operands** / 12. **strip_image_fetch_read_flag_only_operands**: drop sign-extension-only image operand masks Tint's reader rejects.
+13. **hoist_constant_local_arrays**: constant-initialized local arrays become module-scope constants.
+14. **split_initialized_local_arrays**: the remaining initialized local arrays get explicit stores instead of an initializer.
+15. **strip_helper_invocation_builtin**: `HelperInvocation` → false.
+16. **fold_ballot_bit_count** then 17. **lower_subgroup_ops**: subgroup ballots and reductions folded to single-lane equivalents (WebGPU has no subgroups here).
+18. **fix_nonfinite_literals**: Inf/NaN literals → FLT_MAX / FLT_MIN (WGSL has no such literals).
+19. **lower_tint_unsupported_ops** (*IR*): `OpIsNan`/`OpIsInf` → bit tests, `OpImageQueryLod` → derivative/size math, `PointCoord` → `vec2(0.5)`, `EarlyFragmentTests` removed. Each of these aborted Tint's reader, which took the whole page down.
+20. **apply_sampler_lod_bias** (*IR*): WebGPU samplers carry no mip bias, so in a module that declares the `SamplerLodBias` uniform (GLSL binding 40 of the scene shaders' render-pass set) every implicit-LOD sample through a sampler of that set gets the value added as a Bias operand.
+21. **expand_binding_arrays** (*IR*): arrays of textures/samplers/storage images become one variable per element, bound per `spirv_binding_layout.h` (element 0 at 2b, element k at 400 + 16b + k - 1); dynamic indexing becomes a switch. Budgeted against the stage's texture limit (16 sampled by default, 48 for a module already past 16; storage 4/8). Read-write storage-image arrays and arrays that do not fit are left for the next pass.
+22. **flatten_binding_arrays**: whatever is still an array is collapsed to element 0 (the driver warns once if its uniform set really holds more).
+23. **infer_readonly_storage**: adds `NonWritable` to SSBOs never written, so Tint emits `var<storage, read>`.
+24. **strip_writeonly_storage_decoration**: write-only SSBOs become read-write (WGSL has no write-only buffers).
+25. **eliminate_dead_resources**: drops resource variables the entry point never uses.
+26. **eliminate_local_single_block_vars** (SPIRV-Tools optimizer): removes the load/store idiom that otherwise fails Tint's uniformity analysis.
 
 ### 4.2 Tint Conversion
 
@@ -308,7 +328,9 @@ are unchanged. See `webgpu_notes/TASKS.md` Task 35.
 
 ### 5.3 Texture Copy Operations
 
-- `command_copy_buffer_to_texture`: Uses `wgpuQueueWriteTexture` when source has shadow map (bypasses GPU staging entirely)
+- `command_copy_buffer_to_texture`: always an encoder `copyBufferToTexture`. A staging buffer's CPU shadow is first queued for the pre-submit flush (`pending_lo`/`pending_hi`). It used to be `wgpuQueueWriteTexture`, which executes at submit *before* the encoder's own earlier commands, so an upload could land under a clear or copy recorded before it -- SDFGI's cascades scrolled into garbage while the camera moved
+- `command_clear_color_texture`: clears every z-slice of a 3D texture (only slice 0 was cleared before). Formats that cannot be a render attachment are cleared by an encoder copy from a cached zero buffer (or a per-clear pattern buffer for non-zero colors)
+- `command_copy_texture` / `command_copy_texture_to_buffer`: a 3D texture's z offset is `texture_offset.z`, not the array layer
 - `command_copy_buffer_to_texture_layered`: Collapses N per-layer copies into one multi-layer call (saves N-1 IPC crossings)
 - `texture_initialize_direct_layered`: Direct CPU→GPU write from malloc'd buffer (no transfer worker, no staging VRAM)
 - All copies respect WebGPU's 256-byte row alignment requirement
@@ -351,7 +373,7 @@ Chrome ignores `CompositeAlphaMode_Opaque` and composites alpha against backgrou
 ### 7.1 Forward Mobile Renderer Modifications
 
 **Shadow pass optimization**:
-- Force dual-paraboloid for omni lights (2 passes vs 6+2 for cubemap)
+- Omni lights use the shadow mode the light asks for. Until 2026-10-17 `API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID` forced dual-paraboloid (2 passes instead of 6) for speed; it is now 0 for parity with native, and a project that wants the cheaper shadows sets `omni_shadow_mode = SHADOW_DUAL_PARABOLOID` per light
 - Pre-clear positional shadow atlas once, individual passes use LOAD
 - Merge same-framebuffer shadow passes into single render pass encoder
 
@@ -394,6 +416,14 @@ All bone data consolidated into a single GPU storage buffer:
 | Array varyings → individual vars | WGSL doesn't support array interface variables |
 | switch → if/else chains | SPIR-V scoping issues with phi nodes in WGSL |
 | `texture()` → `textureLod()` on radiance | Avoid mipmap artifacts from octahedral discontinuity |
+| Depth textures named `*depth*` (`shadow_depth_atlas`, `directional_shadow_depth_atlas`, `source_depth_cube`, `source_depth`) | The reclassifier only turns a GLSL `texture2D`/`textureCube` into `texture_depth_*` by name and usage; a depth texture it misses is replaced by a blank float fallback (3.2) |
+| Linear depth reads through `textureGather` + bilinear weights (`textureLod_linear_depth()`, `texture_linear_depth()`) | WGSL cannot linearly filter a depth texture without comparison; replaces earlier NEAREST reads, so soft and transmittance shadows match native exactly |
+| `copy.glsl` `SOURCE_IS_DEPTH_FORMAT` / `COPY_MODE_SIMPLY_COPY_DEPTH_FORMAT` | `copy_depth_to_rect` reads the depth buffer as a depth texture (feeds `DEPTH_TEXTURE`, refraction, proximity fade) |
+| Contact shadows' `read_depth()` returns 0 outside [0, 1) | WebGPU samplers have no border colour |
+| `SamplerLodBias` UBO at set 1, binding 40 of both scene shaders, filled by `MaterialStorage::Samplers` | Carries the viewport's mipmap bias for `apply_sampler_lod_bias` (4.1) |
+| Scene `_inc.glsl`: `POINT_COORD_USED` implies `POINT_SIZE_USED` | `POINT_COORD` alone makes the material draw points; with point size emulated the quad expansion was skipped and nothing drew (upstream bug, D3D12 too) |
+| FSR2 `NO_IMAGE_ATOMICS` buffer forms, `SPD_NO_WAVE_OPERATIONS` (`thirdparty/amd-fsr2/patches/0004`) | No texture atomics or subgroups in WGSL |
+| Volumetric fog's own nearest, clamped `depth_sampler` (binding 22) | Point sampler for the shadow-atlas gathers, separate from the shader's linear sampler |
 
 ---
 
@@ -433,7 +463,8 @@ scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=ye
 
 The JS engine requests maximum capabilities from the adapter:
 - All supported optional features (texture tiers, compression families, timestamp-query, etc.)
-- Maximum limits for key resources (storage buffers, buffer size, bind groups)
+- Maximum limits for key resources (storage buffers, buffer size, bind groups, sampled/storage textures per stage, texture dimensions 1D/2D/3D, array layers, color-attachment bytes per sample). `maxSampledTexturesPerShaderStage` must reach 48 or the engine falls back to Forward Mobile
+- `depth-clip-control` when the adapter has it (depth clamp for the cluster builder's light volumes)
 - `powerPreference: 'high-performance'`
 - Graceful: never requests unsupported features (gated by adapter.features.has())
 
@@ -448,10 +479,9 @@ Additional safety:
 
 ### 9.3 Threading
 
-- WebGPU operates entirely on the main thread (single queue)
-- Works with both threaded and non-threaded WASM builds
-- Tint conversion runs in-process on the main thread (compiled into WASM)
-- No SharedArrayBuffer requirement for WebGPU itself (broader hosting compatibility)
+- Single WebGPU queue. In nothreads builds, and in threaded builds with the default (Safe) thread model, every WebGPU call is made on the main thread.
+- Thread-enabled exports render on their **own pthread** by default (export option `variant/separate_render_thread`, on by default; it passes `--render-thread separate`, which `rendering/driver/threads/thread_model=2` also selects): the thread owns the canvas as an `OffscreenCanvas`, requests its own adapter/device (every emdawnwebgpu handle lives in the JS table of the thread that created it), creates the `RenderingDevice` there, and pumps the command queue through `Atomics.waitAsync`, yielding to its event loop after each frame so it presents. The main thread never blocks on it: `RenderingServer::sync_previous_draw()` compares frame counters and the web main loop waits for the previous frame asynchronously. Shader translation (Tint) then runs on the render thread. `engine.js` probes WebGPU-in-a-worker at startup and the engine falls back to Safe where it is unavailable. See `webgpu_notes/TASKS.md` §2.5 and `PERFORMANCE_AND_OPTIMIZATION.md`.
+- No SharedArrayBuffer requirement for WebGPU itself; only threaded builds need cross-origin isolation.
 
 ### 9.4 WorkerThreadPool Nothreads Fix
 
@@ -460,6 +490,12 @@ On nothreads builds, `wait_for_group_task_completion` previously leaked Group al
 ### 9.5 Assertions Configuration
 
 Release templates no longer accidentally enable assertions (was adding ~2MB and reducing performance). Now a multi-value option: `auto`/`no`/`yes`/`extra`.
+
+---
+
+### 9.6 Profiling on an Android Phone
+
+`webgpu_tests/perf_guard/android/` drives Chrome on a USB-connected phone from the desktop: `adb reverse` so the phone loads `http://localhost:8099/` as a secure context (WebGPU without HTTPS), `adb forward` to `localabstract:chrome_devtools_remote` for raw CDP, instrumentation installed with `Page.addScriptToEvaluateOnNewDocument` before the engine's page runs. `probe.mjs` reports adapter/limits/renderer/fps; `fps_matrix.mjs` measures export variants cold; `gpu_time.mjs` reuses the desktop `gpu_time.mjs` timestamp-query instrumentation per command buffer or per pass, and can dump a shader module's WGSL (`--dump-wgsl`), substitute an edited one by exact code match (`--replace-pair`, since one label covers every material version of a scene shader), log the override constants each pipeline is created with (`--log-pipelines`) and request `shader-f16` (`--f16`). Exports must render on the main thread (`variant/separate_render_thread=false`): the separate render thread's pthread worker never returns to its event loop long enough to answer `Runtime.evaluate`. First results: `webgpu_notes/TASKS.md` §2.9.
 
 ---
 

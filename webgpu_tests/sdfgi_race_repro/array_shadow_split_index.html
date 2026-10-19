@@ -19,7 +19,7 @@
 </head>
 <body>
     <h1>Array-layer shadow-split copy-extent bug confirmation — Round 46b</h1>
-    <p>Confirms the exact bug found by code reading this round: the shadow-refresh copyTextureToTexture used depthOrArrayLayers=1 instead of the real layer count for a multi-layer array texture, so only layer 0 of the shadow ever got refreshed. Runs both the buggy (depth=1) and fixed (depth=historySize) copy extent side by side. See webgpu_notes/TASKS.md Task 9.5 Round 46 / plan-of-attack.md Tier 1 Phase 1.</p>
+    <p>Confirms the exact bug found by code reading this round: the shadow-refresh copyTextureToTexture used depthOrArrayLayers=1 instead of the real layer count for a multi-layer array texture, so only layer 0 of the shadow ever got refreshed. Runs both the buggy (depth=1) and fixed (depth=historySize) copy extent side by side. See webgpu_notes/TASKS.md Task 9.5 Round 46 / webgpu_notes/TASKS.md §2</p>
     <div id="status">Ready.</div>
     <div id="results"></div>
 

@@ -40,6 +40,7 @@
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/gui/editor_quick_open_dialog.h"
 #include "editor/gui/editor_toaster.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/settings/project_settings_editor.h"
@@ -587,7 +588,33 @@ Variant LocalizationEditor::get_drag_data_fw(const Point2 &p_point, Control *p_f
 	return drag_data;
 }
 
+bool LocalizationEditor::_get_dropped_files(const Variant &p_data, const Control *p_list, PackedStringArray *r_paths) const {
+	if (p_data.get_type() != Variant::DICTIONARY || Dictionary(p_data).get("type", "") != "files") {
+		return false;
+	}
+	bool accepted = false;
+	if (p_list == translation_list) {
+		accepted = EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "Translation"), nullptr);
+	} else if (p_list == translation_remap || (p_list == translation_remap_options && translation_remap->get_selected())) {
+		accepted = EditorCollectionDrop::can_accept(p_data, EditorCollectionDrop::Slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "Resource"), nullptr);
+	} else if (p_list == template_source_list) {
+		List<String> extensions;
+		EditorTranslationParser::get_singleton()->get_recognized_extensions(&extensions);
+		accepted = true;
+		for (const String &path : PackedStringArray(Dictionary(p_data)["files"])) {
+			accepted = accepted && extensions.find(path.get_extension().to_lower()) != nullptr;
+		}
+	}
+	if (accepted && r_paths) {
+		*r_paths = Dictionary(p_data)["files"];
+	}
+	return accepted && EditorCollectionDrop::get_item_count(p_data) > 0;
+}
+
 bool LocalizationEditor::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	if (_get_dropped_files(p_data, p_from, nullptr)) {
+		return true;
+	}
 	Tree *tree = Object::cast_to<Tree>(p_from);
 	ERR_FAIL_COND_V(trees.find(tree) == -1, false);
 
@@ -596,6 +623,19 @@ bool LocalizationEditor::can_drop_data_fw(const Point2 &p_point, const Variant &
 }
 
 void LocalizationEditor::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
+	PackedStringArray paths;
+	if (_get_dropped_files(p_data, p_from, &paths)) {
+		if (p_from == translation_list) {
+			_translation_add(paths);
+		} else if (p_from == translation_remap) {
+			_translation_res_add(paths);
+		} else if (p_from == translation_remap_options) {
+			_translation_res_option_add(paths);
+		} else if (p_from == template_source_list) {
+			_template_source_add(paths);
+		}
+		return;
+	}
 	Tree *tree = Object::cast_to<Tree>(p_from);
 	ERR_FAIL_COND(trees.find(tree) == -1);
 
@@ -947,6 +987,9 @@ LocalizationEditor::LocalizationEditor() {
 	for (Tree *tree : trees) {
 		SET_DRAG_FORWARDING_GCD(tree, LocalizationEditor);
 	}
+	// The remap lists cannot be reordered, but take files like the others.
+	SET_DRAG_FORWARDING_CD(translation_remap, LocalizationEditor);
+	SET_DRAG_FORWARDING_CD(translation_remap_options, LocalizationEditor);
 
 	EditorCommandPalette::get_singleton()->add_command(TTRC("Generate Translation Template"), "editor/template_generator/generate", callable_mp(this, &LocalizationEditor::_template_generate_command));
 }

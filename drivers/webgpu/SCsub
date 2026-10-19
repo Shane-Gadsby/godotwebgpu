@@ -3,6 +3,10 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
+import hashlib
+import os
+import subprocess
+
 import wgsl_precompile
 
 env_webgpu = env.Clone()
@@ -747,17 +751,116 @@ if env["platform"] == "web":
     webgpu_sources = [
         f
         for f in webgpu_sources
-        if "tint_wrapper" not in str(f) and "tint_ir_transforms" not in str(f) and "wgsl_bake_subprocess" not in str(f)
+        if "tint_wrapper" not in str(f)
+        and "tint_ir_transforms" not in str(f)
+        and "wgsl_bake_subprocess" not in str(f)
+        and "spirv_opt_passes" not in str(f)
     ]
     env_webgpu.add_source_files(env.drivers_sources, webgpu_sources)
 
+    # spirv_opt_passes.cpp is written against SPIRV-Tools' optimizer IR, whose
+    # headers need SPIRV-Tools' internal include paths. It includes no Godot
+    # headers, so those paths stay out of the rest of the driver (where bare
+    # names like "table.h" could otherwise resolve into SPIRV-Tools), while it
+    # keeps the driver's own warning flags.
+    env_spirv_opt = env_webgpu.Clone()
+    env_spirv_opt.Prepend(
+        CPPPATH=[
+            spirv_tools_dir,
+            spirv_tools_dir + "source/",
+            spirv_tools_dir + "generated/",
+            spirv_headers_dir + "include/spirv/unified1/",
+        ]
+    )
+    env_spirv_opt.add_source_files(env.drivers_sources, ["#drivers/webgpu/spirv_opt_passes.cpp"])
+
     # Generate precompiled SPIR-V → WGSL lookup table at build time.
     # The generated header is #included by rendering_device_driver_webgpu.cpp.
-    env.CommandNoCache(
+    precompiled = env.CommandNoCache(
         "#drivers/webgpu/wgsl_precompiled.gen.h",
         "#drivers/webgpu/wgsl_precompile.py",
         env.Run(wgsl_precompile.build_wgsl_precompiled),
     )
+    # The table is the output of the whole SPIR-V -> WGSL pipeline run over the engine's
+    # shaders, so it is stale whenever a preprocessing pass or a shader changes, not only
+    # when the script does. Without these a pass fix reached runtime-converted shaders but
+    # silently not the precompiled engine ones (TASKS.md 2.30). Vendored Tint itself is
+    # not listed (thousands of files); after a Tint patch, delete the header.
+    pipeline_sources = [
+        "#drivers/webgpu/" + f
+        for f in (
+            "spirv_preprocess.cpp",
+            "spirv_preprocess.h",
+            "spirv_opt_passes.cpp",
+            "spirv_opt_passes.h",
+            "spirv_binding_layout.h",
+            "spirv_to_wgsl.cpp",
+            "tint_wrapper.cpp",
+            "tint_ir_transforms.cpp",
+            "tint_cli/main.cpp",
+        )
+    ]
+    shader_sources = [
+        os.path.join(root, f)
+        for root, _, files in os.walk(env.Dir("#servers/rendering/renderer_rd/shaders").abspath)
+        for f in files
+        if f.endswith(".glsl")
+    ]
+    env.Depends(precompiled, pipeline_sources + shader_sources)
+
+    # Vendored Tint and SPIRV-Tools decide this table's contents just as much as
+    # the sources above do, but naming them as dependencies means naming
+    # thousands of files -- and the binary that actually does the work,
+    # bin/tint_convert_cli, is built by tint_cli/build.sh from inside the action,
+    # so SCons never sees it at all. Fingerprint the lot instead: size+mtime of
+    # every vendored/CLI source, the hash of the existing binary (so a
+    # hand-rebuilt or missing one re-bakes too) and glslangValidator's version
+    # (it produces the SPIR-V this table is derived from). A Tint patch, a
+    # spirv-tools bump or a glslang upgrade all move this Value and re-bake.
+    # build-linux.sh used to force the same guarantee by deleting the header on
+    # every run, which re-baked ~275 shader modules each time regardless.
+    def _pipeline_fingerprint():
+        parts = []
+        for d in (
+            "#thirdparty/tint",
+            "#thirdparty/spirv-tools",
+            "#thirdparty/spirv-headers",
+            "#drivers/webgpu/tint_cli",
+        ):
+            base = env.Dir(d).abspath
+            for walk_root, walk_dirs, walk_files in os.walk(base):
+                # Prune tint_cli/.build (the host tool's own object tree) and
+                # __pycache__: the bake action rebuilds the host tool, which
+                # rewrites those, which would move this fingerprint and re-bake
+                # on the next run, forever.
+                walk_dirs[:] = sorted(w for w in walk_dirs if not w.startswith(".") and w != "__pycache__")
+                for name in sorted(walk_files):
+                    full = os.path.join(walk_root, name)
+                    try:
+                        st = os.stat(full)
+                    except OSError:
+                        continue
+                    parts.append(f"{os.path.relpath(full, base)}:{st.st_size}:{int(st.st_mtime)}")
+
+        cli = env.File("#bin/tint_convert_cli" + (".exe" if os.name == "nt" else "")).abspath
+        try:
+            with open(cli, "rb") as f:
+                parts.append("cli:" + hashlib.sha1(f.read()).hexdigest())
+        except OSError:
+            parts.append("cli:absent")
+
+        glslang = env.get("GLSLANG", "glslangValidator")
+        try:
+            parts.append(
+                "glslang:"
+                + subprocess.run([glslang, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
+            )
+        except (OSError, subprocess.SubprocessError):
+            parts.append("glslang:unknown")
+
+        return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+
+    env.Depends(precompiled, env.Value(_pipeline_fingerprint()))
 else:
     # Native editor "shader baker" subset only (WEBGPU_SHADER_BAKER_ENABLED,
     # set by this platform's detect.py configure() when webgpu=yes tools=yes).

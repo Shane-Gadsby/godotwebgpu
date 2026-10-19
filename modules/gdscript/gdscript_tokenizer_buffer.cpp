@@ -234,7 +234,7 @@ Error GDScriptTokenizerBuffer::set_code_buffer(const Vector<uint8_t> &p_buffer) 
 	return OK;
 }
 
-Vector<uint8_t> GDScriptTokenizerBuffer::parse_code_string(const String &p_code, CompressMode p_compress_mode) {
+Vector<uint8_t> GDScriptTokenizerBuffer::parse_code_string(const String &p_code, CompressMode p_compress_mode, bool p_braced) {
 	HashMap<StringName, uint32_t> identifier_map;
 	HashMap<Variant, uint32_t> constant_map;
 	Vector<uint8_t> token_buffer;
@@ -244,17 +244,73 @@ Vector<uint8_t> GDScriptTokenizerBuffer::parse_code_string(const String &p_code,
 	GDScriptTokenizerText tokenizer;
 	tokenizer.set_source_code(p_code);
 	tokenizer.set_multiline_mode(true); // Ignore whitespace tokens.
+#ifdef GDSCRIPT_BRACES_ENABLED
+	// GDB: Braced GDScript (plan decision D8). The decoder rebuilds INDENT, DEDENT and NEWLINE from the column of the
+	// first token on each line, so the braces' synthetic tokens are not stored: each block's depth becomes a virtual
+	// column, and every synthetic NEWLINE (a `{` or `}`, even mid-line) forces a line entry. The stored line numbers
+	// stay those of the `.gdb` source. Whitespace mode follows the brackets, as the parser drives it, so a `{` is
+	// classified exactly as when the file is parsed as text.
+	tokenizer.set_brace_mode(p_braced);
+	int brace_depth = 0;
+	bool brace_line_break = false;
+	List<bool> brace_multiline;
+#endif // GDSCRIPT_BRACES_ENABLED
 	Token current = tokenizer.scan();
 	int token_pos = 0;
 	int last_token_line = 0;
 	int token_counter = 0;
 
 	while (current.type != Token::TK_EOF) {
+#ifdef GDSCRIPT_BRACES_ENABLED
+		if (p_braced) {
+			bool skip = true;
+			switch (current.type) {
+				case Token::NEWLINE:
+					brace_line_break = true;
+					break;
+				case Token::INDENT:
+					brace_depth++;
+					break;
+				case Token::DEDENT:
+					brace_depth--;
+					if (!brace_multiline.is_empty()) {
+						brace_multiline.pop_back(); // Every DEDENT is a block's "}".
+					}
+					break;
+				default:
+					skip = false;
+					break;
+			}
+			if (!skip) {
+				if (current.type == Token::PARENTHESIS_OPEN || current.type == Token::BRACKET_OPEN || current.type == Token::BRACE_OPEN) {
+					brace_multiline.push_back(true);
+				} else if ((current.type == Token::PARENTHESIS_CLOSE || current.type == Token::BRACKET_CLOSE || current.type == Token::BRACE_CLOSE) && !brace_multiline.is_empty()) {
+					brace_multiline.pop_back();
+				} else if (current.type == Token::COLON && current.source == "{") {
+					brace_multiline.push_back(false);
+				}
+			}
+			tokenizer.set_multiline_mode(brace_multiline.is_empty() || brace_multiline.back()->get());
+			if (skip) {
+				current = tokenizer.scan();
+				continue;
+			}
+		}
+#endif // GDSCRIPT_BRACES_ENABLED
 		int token_len = _token_to_binary(current, token_buffer, token_pos, identifier_map, constant_map);
 		token_pos += token_len;
-		if (token_counter > 0 && current.start_line > last_token_line) {
+		bool new_line = token_counter > 0 && current.start_line > last_token_line;
+#ifdef GDSCRIPT_BRACES_ENABLED
+		new_line = new_line || (p_braced && brace_line_break && token_counter > 0);
+		brace_line_break = false;
+#endif // GDSCRIPT_BRACES_ENABLED
+		if (new_line) {
 			token_lines[token_counter] = current.start_line;
+#ifdef GDSCRIPT_BRACES_ENABLED
+			token_columns[token_counter] = p_braced ? brace_depth + 1 : current.start_column;
+#else
 			token_columns[token_counter] = current.start_column;
+#endif // GDSCRIPT_BRACES_ENABLED
 		}
 		last_token_line = current.end_line;
 
@@ -275,7 +331,10 @@ Vector<uint8_t> GDScriptTokenizerBuffer::parse_code_string(const String &p_code,
 	}
 	HashMap<uint32_t, uint32_t> rev_token_lines;
 	for (const KeyValue<uint32_t, uint32_t> &E : token_lines) {
-		rev_token_lines[E.value] = E.key;
+		// GDB: A braced line can hold several entries; keep its first, the one a continuation refers to.
+		if (!rev_token_lines.has(E.value) || E.key < rev_token_lines[E.value]) {
+			rev_token_lines[E.value] = E.key;
+		}
 	}
 
 	// Remove continuation lines from map.

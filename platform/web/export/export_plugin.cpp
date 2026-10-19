@@ -35,15 +35,18 @@
 
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/io/pck_packer.h"
 #include "core/io/zip_io.h"
 #include "core/os/os.h"
 #include "editor/editor_string_names.h"
 #include "editor/export/editor_export.h"
+#include "editor/export/shader_baker/shader_baker_export_plugin.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/import/resource_importer_texture_settings.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/resources/image_texture.h"
+#include "servers/audio/audio_server.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
@@ -133,6 +136,43 @@ void EditorExportPlatformWeb::_replace_strings(const HashMap<String, String> &p_
 	}
 }
 
+// The loading screen's stages, in the order a player sees them. Each stage is
+// three export options -- `loading_screen/<key>/text`, `.../show_text` and
+// `.../show_spinner` -- and the shell (misc/dist/html/full-size.html) receives
+// them as the `$GODOT_LOADING_SCREEN` JSON object, keyed by `key`. The defaults
+// are the strings the shell used to hard-code; a stage's `text` is shown as-is,
+// except that "downloading" gets the percentage and "compiling_shaders" the
+// shader count appended when the shell knows them. The keys are part of the
+// shell contract: a custom shell looks stages up by these names.
+struct WebLoadingScreenStage {
+	const char *key;
+	const char *default_text;
+	bool show_text;
+	bool show_spinner;
+};
+
+// The spinner defaults match the previous behavior: it only appears once the
+// engine is running (from "Starting engine..." on), where the main thread can
+// block for seconds and a CSS animation is the only thing that keeps moving.
+static const WebLoadingScreenStage web_loading_screen_stages[] = {
+	{ "initializing_webgpu", "Initializing WebGPU...", true, false },
+	{ "downloading", "Downloading...", true, false },
+	{ "starting_engine", "Starting engine...", true, true },
+	{ "initializing_engine", "Initializing engine...", true, true },
+	{ "loading_extensions", "Loading extensions...", true, true },
+	{ "starting_display", "Starting display...", true, true },
+	{ "starting_renderer", "Starting renderer...", true, true },
+	{ "starting_audio", "Starting audio...", true, true },
+	{ "loading_translations", "Loading translations...", true, true },
+	{ "loading_fonts", "Loading fonts...", true, true },
+	{ "registering_types", "Registering types...", true, true },
+	{ "finalizing_setup", "Finalizing setup...", true, true },
+	{ "loading_autoloads", "Loading autoloads...", true, true },
+	{ "loading_main_scene", "Loading main scene...", true, true },
+	{ "rendering_first_frame", "Rendering first frame...", true, true },
+	{ "compiling_shaders", "Compiling shaders...", true, true },
+};
+
 void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes) {
 	// Engine.js config
 	Dictionary config;
@@ -150,8 +190,19 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	config["focusCanvas"] = p_preset->get("html/focus_canvas_on_start");
 	config["gdextensionLibs"] = libs;
 	config["executable"] = p_name;
+	if (p_preset->get("variant/thread_support") && p_preset->get("variant/separate_render_thread")) {
+		// Rendering on its own thread (DisplayServerWeb's render thread, webgpu_notes/TASKS.md 2.5). The
+		// engine falls back to the Safe model where the browser cannot use WebGPU from a worker.
+		args.push_back("--render-thread");
+		args.push_back("separate");
+	}
 	config["args"] = args;
 	config["fileSizes"] = p_file_sizes;
+	// Present only when _save_shader_pack() wrote one. The shell preloads it next
+	// to the main pack and the engine mounts it on its own (ProjectSettings::_setup).
+	if (p_file_sizes.has(p_name + ".shaders.pck")) {
+		config["shaderPack"] = p_name + ".shaders.pck";
+	}
 	config["ensureCrossOriginIsolationHeaders"] = (bool)p_preset->get("progressive_web_app/ensure_cross_origin_isolation_headers");
 
 	// Pass the rendering driver so the HTML shell can pre-initialize WebGPU if needed.
@@ -175,14 +226,28 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		config["serviceWorker"] = p_name + ".service.worker.js";
 	}
 
+	// Loading screen stages (see web_loading_screen_stages above). Every stage is
+	// always present so the shell never has to fall back to its own defaults.
+	Dictionary loading_screen;
+	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
+		const String prefix = String("loading_screen/") + stage.key + "/";
+		Dictionary stage_config;
+		stage_config["text"] = p_preset->get(prefix + "text");
+		stage_config["showText"] = p_preset->get(prefix + "show_text");
+		stage_config["showSpinner"] = p_preset->get(prefix + "show_spinner");
+		loading_screen[stage.key] = stage_config;
+	}
+
 	// Replaces HTML string
 	const String str_config = Variant(config).to_json_string();
+	const String str_loading_screen = Variant(loading_screen).to_json_string();
 	const String custom_head_include = p_preset->get("html/head_include");
 	HashMap<String, String> replaces;
 	replaces["$GODOT_URL"] = p_name + ".js";
 	replaces["$GODOT_PROJECT_NAME"] = get_project_setting(p_preset, "application/config/name");
 	replaces["$GODOT_HEAD_INCLUDE"] = head_include + custom_head_include;
 	replaces["$GODOT_CONFIG"] = str_config;
+	replaces["$GODOT_LOADING_SCREEN"] = str_loading_screen;
 	replaces["$GODOT_SPLASH_COLOR"] = "#" + Color(get_project_setting(p_preset, "application/boot_splash/bg_color")).to_html(false);
 
 	Vector<String> godot_splash_classes;
@@ -264,7 +329,6 @@ Error EditorExportPlatformWeb::_build_pwa(const Ref<EditorExportPreset> &p_prese
 	}
 
 	cache_files.push_back(name + ".audio.worklet.js");
-	cache_files.push_back(name + ".audio.position.worklet.js");
 	replaces["___GODOT_CACHE___"] = Variant(cache_files).to_json_string();
 
 	// Heavy files that are cached on demand.
@@ -272,6 +336,9 @@ Error EditorExportPlatformWeb::_build_pwa(const Ref<EditorExportPreset> &p_prese
 		name + ".wasm",
 		name + ".pck"
 	};
+	if (FileAccess::exists(dir.path_join(name + ".shaders.pck"))) {
+		opt_cache_files.push_back(name + ".shaders.pck");
+	}
 	if (extensions) {
 		opt_cache_files.push_back(name + ".side.wasm");
 		for (int i = 0; i < p_shared_objects.size(); i++) {
@@ -388,6 +455,7 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/extensions_support"), false)); // GDExtension support.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/thread_support"), false, true)); // Thread support (i.e. run with or without COEP/COOP headers).
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/separate_render_thread"), true)); // Render on the web render thread (threads only).
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_desktop"), true)); // S3TC
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_mobile"), false)); // ETC or ETC2, depending on renderer
 
@@ -397,6 +465,16 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/canvas_resize_policy", PROPERTY_HINT_ENUM, "None,Project,Adaptive"), 2));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/focus_canvas_on_start"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
+
+	// One text field and two tickboxes per loading-screen stage; the inspector
+	// shows them as a "Loading Screen" section with a subsection per stage.
+	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
+		const String prefix = String("loading_screen/") + stage.key + "/";
+		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, prefix + "text"), String(stage.default_text)));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, prefix + "show_text"), stage.show_text));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, prefix + "show_spinner"), stage.show_spinner));
+	}
+
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "progressive_web_app/enabled"), false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "progressive_web_app/ensure_cross_origin_isolation_headers"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "progressive_web_app/offline_page", PROPERTY_HINT_FILE, "*.html"), ""));
@@ -435,6 +513,12 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// option. Presets created before this default changed therefore keep their
 	// stored `false` — the export warning below is what tells their owner.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/enabled"), true));
+	// Ship the baked cache as <name>.shaders.pck instead of inside <name>.pck.
+	// The shader cache is two thirds of a baked pck and changes only when the
+	// shaders do, so a deploy that uploads whole files (scp, S3, a zip) then
+	// re-uploads the game's own 15 MB on a code change instead of 50 MB. Needs
+	// a template from the same build as the editor, which the bake needs anyway.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/separate_pack"), true));
 }
 
 bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const {
@@ -443,8 +527,12 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 		return advanced_options_enabled;
 	}
 
-	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size") {
+	if (p_option == "threads/godot_pool_size" || p_option == "threads/emscripten_pool_size" || p_option == "variant/separate_render_thread") {
 		return p_preset->get("variant/thread_support").operator bool();
+	}
+
+	if (p_option == "shader_baker/separate_pack") {
+		return p_preset->get("shader_baker/enabled").operator bool();
 	}
 
 	return true;
@@ -529,7 +617,7 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 		// by Tint on the *player's* machine, synchronously on the main thread, the
 		// first time each variant is drawn. This is the dominant cause of the
 		// multi-second startup stall/jank documented in
-		// webgpu_notes/STARTUP_PROFILING.md. Baking bakes ahead of time everything
+		// webgpu_notes/TASKS.md §4.21. Baking bakes ahead of time everything
 		// it can (see drivers/webgpu/README.md and webgpu_notes/TASKS.md's shader
 		// baking task), and since Task 25 it covers specialization-constant
 		// pipeline variants too: those no longer produce their own shader
@@ -560,6 +648,54 @@ List<String> EditorExportPlatformWeb::get_binary_extensions(const Ref<EditorExpo
 	List<String> list;
 	list.push_back("html");
 	return list;
+}
+
+Error EditorExportPlatformWeb::_save_shader_pack(const Ref<EditorExportPreset> &p_preset, const String &p_path, bool &r_written) {
+	r_written = false;
+
+	// The shader baker is one export plugin among the registered ones; when the
+	// preset asked for a separate pack it kept its files instead of add_file()-ing
+	// them into the main pack, and hands them over exactly once here.
+	Vector<ShaderBakerExportPlugin::SeparatePackFile> files;
+	for (const Ref<EditorExportPlugin> &plugin : EditorExport::get_singleton()->get_export_plugins()) {
+		ShaderBakerExportPlugin *baker = Object::cast_to<ShaderBakerExportPlugin>(plugin.ptr());
+		if (baker != nullptr) {
+			files.append_array(baker->take_separate_pack_files());
+		}
+	}
+	if (files.is_empty()) {
+		return OK;
+	}
+
+	// Sorted by path so the pack's bytes depend only on its contents: a deploy
+	// that compares or hashes whole files sees the same file for the same shaders.
+	struct ByPath {
+		bool operator()(const ShaderBakerExportPlugin::SeparatePackFile &p_a, const ShaderBakerExportPlugin::SeparatePackFile &p_b) const {
+			return p_a.path < p_b.path;
+		}
+	};
+	files.sort_custom<ByPath>();
+
+	Ref<PCKPacker> packer;
+	packer.instantiate();
+	Error err = packer->pck_start(p_path);
+	if (err != OK) {
+		return err;
+	}
+	for (const ShaderBakerExportPlugin::SeparatePackFile &file : files) {
+		err = packer->add_file_from_buffer(file.path, file.data);
+		if (err != OK) {
+			return err;
+		}
+	}
+	err = packer->flush(false);
+	if (err != OK) {
+		return err;
+	}
+
+	r_written = true;
+	print_verbose(vformat("Web export: wrote %d baked shader cache files to '%s'.", files.size(), p_path));
+	return OK;
 }
 
 Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_preset, bool p_debug, const String &p_path, BitField<EditorExportPlatform::DebugFlags> p_flags, bool p_notify) {
@@ -603,6 +739,21 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 		return error;
 	}
 
+	// The baked shader cache, when the preset keeps it out of the main pack.
+	// A stale one from an earlier export is removed either way: the shell only
+	// preloads what this export's config lists, but a leftover file next to a
+	// pack that now contains the shaders itself is a 35 MB trap for a deploy.
+	const String shader_pack_path = base_path + ".shaders.pck";
+	if (FileAccess::exists(shader_pack_path)) {
+		DirAccess::remove_absolute(shader_pack_path);
+	}
+	bool shader_pack_written = false;
+	error = _save_shader_pack(p_preset, shader_pack_path, shader_pack_written);
+	if (error != OK) {
+		add_message(EXPORT_MESSAGE_ERROR, TTR("Export"), vformat(TTR("Could not write file: \"%s\"."), shader_pack_path));
+		return error;
+	}
+
 	{
 		Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
 		for (int i = 0; i < shared_objects.size(); i++) {
@@ -622,11 +773,51 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 		return error;
 	}
 
+	// A template built before the shell learned to preload the shader pack
+	// would start the game without it: nothing fails, the shaders are simply
+	// not found and every one is compiled from source at load, which is the
+	// slow start the bake exists to prevent. The shell's config key is the
+	// cheapest proof the template is new enough; the engine's own mount code
+	// shipped in the same change, so one check covers both.
+	if (shader_pack_written) {
+		String shell_js = FileAccess::get_file_as_string(base_path + ".js");
+		if (!shell_js.is_empty() && !shell_js.contains("shaderPack")) {
+			add_message(EXPORT_MESSAGE_WARNING, TTR("Export"), TTR("The export template predates separate shader packs, so the baked shaders in \"index.shaders.pck\" will not be loaded at runtime and every shader will be compiled from source on first launch. Rebuild the web export templates from this editor's commit, or disable \"shader_baker/separate_pack\".").replace("index.shaders.pck", shader_pack_path.get_file()));
+		}
+	}
+
+	// Sounds on the web default to Sample playback, which the browser plays outside AudioServer's mixer, so bus
+	// effects never process them. Say so at export rather than leave a missing reverb to be reported as a bug.
+	if (int(GLOBAL_GET("audio/general/default_playback_type.web")) == 1) { // 1: Sample.
+		AudioServer *audio_server = AudioServer::get_singleton();
+		PackedStringArray effect_buses;
+		for (int i = 0; i < audio_server->get_bus_count(); i++) {
+			if (audio_server->is_bus_bypassing_effects(i)) {
+				continue;
+			}
+			for (int j = 0; j < audio_server->get_bus_effect_count(i); j++) {
+				if (audio_server->is_bus_effect_enabled(i, j)) {
+					effect_buses.push_back("\"" + audio_server->get_bus_name(i) + "\"");
+					break;
+				}
+			}
+		}
+		if (!effect_buses.is_empty()) {
+			add_message(EXPORT_MESSAGE_WARNING, TTR("Audio"), vformat(TTR("The effects on bus %s will not apply to sounds that use Sample playback, the web default (\"audio/general/default_playback_type.web\"). Set \"playback_type\" to Stream on the players that need them; Stream playback mixes them as on desktop."), String(", ").join(effect_buses)));
+		}
+	}
+
 	// Parse generated file sizes (pck and wasm, to help show a meaningful loading bar).
 	Dictionary file_sizes;
 	Ref<FileAccess> f = FileAccess::open(pck_path, FileAccess::READ);
 	if (f.is_valid()) {
 		file_sizes[pck_path.get_file()] = (uint64_t)f->get_length();
+	}
+	if (shader_pack_written) {
+		f = FileAccess::open(shader_pack_path, FileAccess::READ);
+		if (f.is_valid()) {
+			file_sizes[shader_pack_path.get_file()] = (uint64_t)f->get_length();
+		}
 	}
 	f = FileAccess::open(base_path + ".wasm", FileAccess::READ);
 	if (f.is_valid()) {
@@ -930,9 +1121,9 @@ Error EditorExportPlatformWeb::_export_project(const Ref<EditorExportPreset> &p_
 		DirAccess::remove_file_or_error(basepath + ".offline.html");
 		DirAccess::remove_file_or_error(basepath + ".js");
 		DirAccess::remove_file_or_error(basepath + ".audio.worklet.js");
-		DirAccess::remove_file_or_error(basepath + ".audio.position.worklet.js");
 		DirAccess::remove_file_or_error(basepath + ".service.worker.js");
 		DirAccess::remove_file_or_error(basepath + ".pck");
+		DirAccess::remove_file_or_error(basepath + ".shaders.pck");
 		DirAccess::remove_file_or_error(basepath + ".png");
 		DirAccess::remove_file_or_error(basepath + ".side.wasm");
 		DirAccess::remove_file_or_error(basepath + ".wasm");

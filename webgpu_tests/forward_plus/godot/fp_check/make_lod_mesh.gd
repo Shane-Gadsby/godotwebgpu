@@ -6,9 +6,10 @@ extends SceneTree
 ##   godot --headless --path . -s make_lod_mesh.gd
 ##
 ## The mesh is committed rather than generated at runtime because
-## ImporterMesh.generate_lods() produces no LODs in a web template (it works in
-## a native template, so this is web-specific), and runtime generation is not
-## how a real project gets LODs anyway -- they are baked by the importer. A
+## ImporterMesh.generate_lods() on a mesh read back from the GPU (e.g.
+## SphereMesh.get_mesh_arrays()) produces no LODs in a web template, because the
+## synchronous readback returns zeros there (TASKS.md 2.15 / 2.13), and runtime
+## generation is not how a real project gets LODs anyway -- they are baked by the importer. A
 ## committed resource therefore tests the path users actually ship.
 
 func _init() -> void:

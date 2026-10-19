@@ -56,8 +56,11 @@ public:
 		FLAG_IMAGE_DECLS_BAKED = 1 << 0,
 		// The per-shader SPIR-V payload is absent -- `code_compressed_bytes` is
 		// empty for every stage. Only set when the bake established that nothing
-		// at runtime can need it: every stage converted to WGSL successfully, so
-		// there is no Tint fallback to run, and no stage needs the legacy
+		// at runtime can need it. Two ways that holds: every stage converted to
+		// WGSL successfully, so there is no Tint fallback left to run; or a stage
+		// that did not convert is one WGSL cannot express at all (multiview,
+		// sub-32-bit integers, image atomics), where a runtime Tint call would
+		// abort rather than succeed. Either way no stage needs the legacy
 		// specialize-by-re-patching-SPIR-V path. See _set_code_from_spirv().
 		FLAG_SPIRV_OMITTED = 1 << 1,
 	};

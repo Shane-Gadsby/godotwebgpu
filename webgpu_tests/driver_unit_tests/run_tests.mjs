@@ -19,6 +19,7 @@
  *  11. Bind group layout compatibility
  *  12. Raw SPIR-V image declaration -> BindGroupLayout mapping
  *  13. Shader container payloads: SPIR-V omission rule and footer layout
+ *  14. Expanded texture array bindings and the SamplerLodBias binding
  *
  * Usage:
  *   node run_tests.mjs
@@ -38,6 +39,7 @@ import { runTests as testTextureConversion } from './test_texture_conversion.mjs
 import { runTests as testBindGroupCompat } from './test_bind_group_compat.mjs';
 import { runTests as testOverrideFiltering } from './test_override_filtering.mjs';
 import { runTests as testImageDeclMapping } from './test_image_decl_mapping.mjs';
+import { runTests as testBindingLayout } from './test_binding_layout.mjs';
 import { runTests as testContainerPayload } from './test_container_payload.mjs';
 
 console.log('================================================================');
@@ -60,6 +62,7 @@ testBindGroupCompat();
 testOverrideFiltering();
 testImageDeclMapping();
 testContainerPayload();
+testBindingLayout();
 
 // Print summary and exit.
 const results = summary();

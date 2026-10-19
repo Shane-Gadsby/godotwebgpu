@@ -6,7 +6,7 @@
  * readback of a 289x272 texture, and the final cycle of each config does a
  * full-grid readback (~314KB). Budget for a longer run than run_repro.mjs /
  * run_array_layer_repro.mjs — use run_in_background if driving this from an
- * agent loop, per plan-of-attack.md's own guidance for this round.
+ * agent loop, per webgpu_notes/TASKS.md §2's own guidance for this round.
  *
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_parallel_repro.mjs

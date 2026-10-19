@@ -446,7 +446,13 @@ void GDScriptParser::set_last_completion_call_arg(int p_argument) {
 }
 
 Error GDScriptParser::parse(const String &p_source_code, const String &p_script_path, bool p_for_completion, bool p_parse_body) {
+	Vector<BlockRecord> *log = block_log; // GDB: `clear()` resets every member.
+	Vector<QuestionMarkRecord> *question_log = question_mark_log;
+	Vector<ArrowReturnRecord> *arrow_log = arrow_return_log;
 	clear();
+	block_log = log;
+	question_mark_log = question_log;
+	arrow_return_log = arrow_log;
 
 	String source = p_source_code;
 	int cursor_line = -1;
@@ -481,11 +487,15 @@ Error GDScriptParser::parse(const String &p_source_code, const String &p_script_
 
 	GDScriptTokenizerText *text_tokenizer = memnew(GDScriptTokenizerText);
 	text_tokenizer->set_source_code(source);
+#ifdef GDSCRIPT_BRACES_ENABLED
+	text_tokenizer->set_brace_mode(GDScriptTokenizer::is_braced_path(p_script_path)); // GDB
+#endif // GDSCRIPT_BRACES_ENABLED
 
 	tokenizer = text_tokenizer;
 	tokenizer->set_cursor_position(cursor_line, cursor_column);
 
 	script_path = p_script_path.simplify_path();
+	braced_syntax = GDScriptTokenizer::is_braced_path(script_path); // GDB
 
 #ifdef DEBUG_ENABLED
 	evaluate_warning_directory_rules_for_script_path();
@@ -549,6 +559,7 @@ Error GDScriptParser::parse_binary(const Vector<uint8_t> &p_binary, const String
 	tokenizer = buffer_tokenizer;
 
 	script_path = p_script_path.simplify_path();
+	braced_syntax = GDScriptTokenizer::is_braced_path(script_path); // GDB
 
 #ifdef DEBUG_ENABLED
 	evaluate_warning_directory_rules_for_script_path();
@@ -585,6 +596,10 @@ GDScriptTokenizer::Token GDScriptParser::advance() {
 		ERR_FAIL_COND_V_MSG(current.type == GDScriptTokenizer::Token::TK_EOF, current, "GDScript parser bug: Trying to advance past the end of stream.");
 	}
 	previous = current;
+	if (previous.type != GDScriptTokenizer::Token::NEWLINE && previous.type != GDScriptTokenizer::Token::INDENT && previous.type != GDScriptTokenizer::Token::DEDENT) {
+		last_significant_end_line = previous.end_line; // GDB: For the block log.
+		last_significant_end_column = previous.end_column;
+	}
 	current = tokenizer->scan();
 	while (current.type == GDScriptTokenizer::Token::ERROR) {
 		push_error(current.literal, current);
@@ -596,6 +611,18 @@ GDScriptTokenizer::Token GDScriptParser::advance() {
 		}
 	}
 	return previous;
+}
+
+void GDScriptParser::_log_block(int p_colon_line, int p_colon_column) {
+	if (block_log == nullptr) {
+		return;
+	}
+	BlockRecord record;
+	record.colon_line = p_colon_line;
+	record.colon_column = p_colon_column;
+	record.end_line = last_significant_end_line;
+	record.end_column = last_significant_end_column;
+	block_log->push_back(record);
 }
 
 bool GDScriptParser::match(GDScriptTokenizer::Token::Type p_token_type) {
@@ -962,6 +989,8 @@ GDScriptParser::ClassNode *GDScriptParser::parse_class(bool p_is_static) {
 	}
 
 	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after class declaration.)");
+	const int colon_line = previous.start_line; // GDB
+	const int colon_column = previous.start_column;
 
 	bool multiline = match(GDScriptTokenizer::Token::NEWLINE);
 
@@ -981,6 +1010,7 @@ GDScriptParser::ClassNode *GDScriptParser::parse_class(bool p_is_static) {
 
 	parse_class_body(multiline);
 	complete_extents(n_class);
+	_log_block(colon_line, colon_column); // GDB
 
 	if (multiline) {
 		consume(GDScriptTokenizer::Token::DEDENT, R"(Missing unindent at the end of the class body.)");
@@ -1253,10 +1283,14 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 	variable->is_static = p_is_static;
 
 	if (match(GDScriptTokenizer::Token::COLON)) {
+		const int colon_line = previous.start_line; // GDB: An untyped property's block starts here.
+		const int colon_column = previous.start_column;
 		if (check(GDScriptTokenizer::Token::NEWLINE)) {
 			if (p_allow_property) {
 				advance();
-				return parse_property(variable, true);
+				VariableNode *property = parse_property(variable, true);
+				_log_block(colon_line, colon_column); // GDB
+				return property;
 			} else {
 				push_error(R"(Expected type after ":")");
 				complete_extents(variable);
@@ -1271,7 +1305,9 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 				if (check(GDScriptTokenizer::Token::IDENTIFIER)) {
 					// Check if get or set.
 					if (current.get_identifier() == "get" || current.get_identifier() == "set") {
-						return parse_property(variable, false);
+						VariableNode *property = parse_property(variable, false);
+						_log_block(colon_line, colon_column); // GDB
+						return property;
 					}
 				}
 			}
@@ -1291,11 +1327,11 @@ GDScriptParser::VariableNode *GDScriptParser::parse_variable(bool p_is_static, b
 	}
 
 	if (p_allow_property && match(GDScriptTokenizer::Token::COLON)) {
-		if (match(GDScriptTokenizer::Token::NEWLINE)) {
-			return parse_property(variable, true);
-		} else {
-			return parse_property(variable, false);
-		}
+		const int colon_line = previous.start_line; // GDB
+		const int colon_column = previous.start_column;
+		VariableNode *property = match(GDScriptTokenizer::Token::NEWLINE) ? parse_property(variable, true) : parse_property(variable, false);
+		_log_block(colon_line, colon_column);
+		return property;
 	}
 
 	complete_extents(variable);
@@ -1954,6 +1990,10 @@ bool GDScriptParser::register_annotation(const MethodInfo &p_info, uint32_t p_ta
 
 GDScriptParser::SuiteNode *GDScriptParser::parse_suite(const String &p_context, SuiteNode *p_suite, bool p_for_lambda) {
 	SuiteNode *suite = p_suite != nullptr ? p_suite : alloc_node<SuiteNode>();
+	// GDB: Every block is a suite after its `:`.
+	const bool logged = previous.type == GDScriptTokenizer::Token::COLON;
+	const int colon_line = previous.start_line;
+	const int colon_column = previous.start_column;
 	suite->parent_block = current_suite;
 	suite->parent_function = current_function;
 	current_suite = suite;
@@ -2039,6 +2079,10 @@ GDScriptParser::SuiteNode *GDScriptParser::parse_suite(const String &p_context, 
 		consume(GDScriptTokenizer::Token::NEWLINE, vformat(R"(Expected newline after ";" at the end of %s.)", p_context));
 	}
 
+	if (logged) {
+		_log_block(colon_line, colon_column); // GDB
+	}
+
 	if (p_for_lambda) {
 		lambda_ended = true;
 	}
@@ -2107,6 +2151,9 @@ GDScriptParser::Node *GDScriptParser::parse_statement() {
 			break;
 		case GDScriptTokenizer::Token::RETURN: {
 			advance();
+			const bool from_arrow = previous.source == "=>"; // GDB: The body of `(x) => x * 2`.
+			const int arrow_line = previous.start_line;
+			const int arrow_column = previous.start_column;
 			ReturnNode *n_return = alloc_node<ReturnNode>();
 			if (!is_statement_end()) {
 				if (current_function && (current_function->identifier->name == GDScriptLanguage::get_singleton()->strings._init || current_function->identifier->name == GDScriptLanguage::get_singleton()->strings._static_init)) {
@@ -2120,6 +2167,15 @@ GDScriptParser::Node *GDScriptParser::parse_statement() {
 			}
 			complete_extents(n_return);
 			result = n_return;
+			if (from_arrow && arrow_return_log != nullptr) {
+				ArrowReturnRecord record;
+				record.arrow_line = arrow_line;
+				record.arrow_column = arrow_column;
+				record.end_line = last_significant_end_line;
+				record.end_column = last_significant_end_column;
+				record.node = n_return;
+				arrow_return_log->push_back(record);
+			}
 
 			current_suite->has_return = true;
 
@@ -2428,6 +2484,8 @@ GDScriptParser::MatchNode *GDScriptParser::parse_match() {
 	}
 
 	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after "match" expression.)");
+	const int colon_line = previous.start_line; // GDB
+	const int colon_column = previous.start_column;
 	consume(GDScriptTokenizer::Token::NEWLINE, R"(Expected a newline after "match" statement.)");
 
 	if (!consume(GDScriptTokenizer::Token::INDENT, R"(Expected an indented block after "match" statement.)")) {
@@ -2481,6 +2539,7 @@ GDScriptParser::MatchNode *GDScriptParser::parse_match() {
 		match_node->branches.push_back(branch);
 	}
 	complete_extents(match_node);
+	_log_block(colon_line, colon_column); // GDB
 
 	consume(GDScriptTokenizer::Token::DEDENT, R"(Expected an indented block after "match" statement.)");
 
@@ -3122,6 +3181,49 @@ GDScriptParser::ExpressionNode *GDScriptParser::parse_ternary_operator(Expressio
 	}
 
 	complete_extents(operation);
+	return operation;
+}
+
+GDScriptParser::ExpressionNode *GDScriptParser::parse_question_mark(ExpressionNode *p_previous_operand, bool p_can_assign) {
+	if (!braced_syntax) {
+		return parse_invalid_token(p_previous_operand, p_can_assign);
+	}
+
+	// GDB: `condition ? true_expr : false_expr` in braced GDScript: the same node as `true_expr if condition else
+	// false_expr`, and right-associative like it.
+	QuestionMarkRecord record;
+	if (p_previous_operand != nullptr) {
+		record.start_line = p_previous_operand->start_line;
+		record.start_column = p_previous_operand->start_column;
+	}
+	record.question_line = previous.start_line;
+	record.question_column = previous.start_column;
+
+	TernaryOpNode *operation = alloc_node<TernaryOpNode>();
+	reset_extents(operation, p_previous_operand);
+	update_extents(operation);
+
+	operation->condition = p_previous_operand;
+	operation->true_expr = parse_precedence(PREC_TERNARY, false);
+	if (operation->true_expr == nullptr) {
+		push_error(R"(Expected expression after "?".)");
+	}
+
+	consume(GDScriptTokenizer::Token::COLON, R"(Expected ":" after the first value of "? :".)");
+	record.colon_line = previous.start_line;
+	record.colon_column = previous.start_column;
+
+	operation->false_expr = parse_precedence(PREC_TERNARY, false);
+	if (operation->false_expr == nullptr) {
+		push_error(R"(Expected expression after ":" in "? :".)");
+	}
+
+	complete_extents(operation);
+	if (question_mark_log != nullptr) {
+		record.end_line = last_significant_end_line;
+		record.end_column = last_significant_end_column;
+		question_mark_log->push_back(record);
+	}
 	return operation;
 }
 
@@ -4350,7 +4452,7 @@ GDScriptParser::ParseRule *GDScriptParser::get_rule(GDScriptTokenizer::Token::Ty
 		// Error message improvement
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // VCS_CONFLICT_MARKER,
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // BACKTICK,
-		{ nullptr,                                          &GDScriptParser::parse_invalid_token,        	PREC_CAST }, // QUESTION_MARK,
+		{ nullptr,                                          &GDScriptParser::parse_question_mark,        	PREC_TERNARY }, // QUESTION_MARK, // GDB: `c ? a : b` in braced GDScript.
 		// Special
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // ERROR,
 		{ nullptr,                                          nullptr,                                        PREC_NONE }, // TK_EOF,
@@ -6462,6 +6564,22 @@ void GDScriptParser::TreePrinter::print_while(const WhileNode *p_while) {
 	increase_indent();
 	print_suite(p_while->loop);
 	decrease_indent();
+}
+
+String GDScriptParser::TreePrinter::get_tree_text(const GDScriptParser &p_parser) {
+	ClassNode *class_tree = p_parser.get_tree();
+	ERR_FAIL_NULL_V_MSG(class_tree, String(), "Parse the code before printing the parse tree.");
+
+	if (p_parser.is_tool()) {
+		push_line("@tool");
+	}
+	if (!class_tree->icon_path.is_empty()) {
+		push_text(R"(@icon (")");
+		push_text(class_tree->icon_path);
+		push_line("\")");
+	}
+	print_class(class_tree);
+	return String(printed);
 }
 
 void GDScriptParser::TreePrinter::print_tree(const GDScriptParser &p_parser) {

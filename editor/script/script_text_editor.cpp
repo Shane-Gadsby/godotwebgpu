@@ -161,6 +161,7 @@ ScriptTextEditor::EditMenusScTE::EditMenusScTE(DocumentEditorContainer *p_docume
 
 	edit_menu_fold->add_shortcut(ED_GET_SHORTCUT("script_text_editor/create_code_region"), EDIT_CREATE_CODE_REGION);
 	edit_menu_convert_indent->add_shortcut(ED_GET_SHORTCUT("script_text_editor/auto_indent"), EDIT_AUTO_INDENT);
+	edit_menu->get_popup()->add_shortcut(ED_GET_SHORTCUT("script_text_editor/reformat_code"), EDIT_REFORMAT_CODE); // GDB
 
 	search_menu->get_popup()->add_separator();
 	search_menu->get_popup()->add_shortcut(ED_GET_SHORTCUT("script_text_editor/show_tooltip"), SHOW_TOOLTIP_AT_CARET);
@@ -334,7 +335,7 @@ void ScriptTextEditor::_set_theme_for_script() {
 
 	text_edit->clear_comment_delimiters();
 
-	for (const String &comment : script->get_language()->get_comment_delimiters()) {
+	for (const String &comment : _get_comment_delimiters(false)) {
 		String beg = comment.get_slicec(' ', 0);
 		String end = comment.get_slice_count(" ") > 1 ? comment.get_slicec(' ', 1) : String();
 		text_edit->add_comment_delimiter(beg, end, end.is_empty());
@@ -344,7 +345,7 @@ void ScriptTextEditor::_set_theme_for_script() {
 		}
 	}
 
-	for (const String &doc_comment : script->get_language()->get_doc_comment_delimiters()) {
+	for (const String &doc_comment : _get_comment_delimiters(true)) {
 		String beg = doc_comment.get_slicec(' ', 0);
 		String end = doc_comment.get_slice_count(" ") > 1 ? doc_comment.get_slicec(' ', 1) : String();
 		text_edit->add_comment_delimiter(beg, end, end.is_empty());
@@ -353,6 +354,24 @@ void ScriptTextEditor::_set_theme_for_script() {
 			text_edit->add_auto_brace_completion_pair(beg, end);
 		}
 	}
+
+	// GDB: In a language with brace-delimited blocks, a closing bracket typed at the start of a line lines up with its opener.
+	const EditorLanguage *editor_language = script->get_language()->get_editor_language();
+	text_edit->set_auto_unindent_closing_brackets(editor_language != nullptr && editor_language->uses_brace_blocks(script->get_path()));
+}
+
+Vector<String> ScriptTextEditor::_get_comment_delimiters(bool p_doc) const {
+	// GDB: A language can use different comments per file (GDScript: braced `.gdb` files also have `//` and `/* */`).
+	Ref<Script> script = edited_res;
+	ScriptLanguage *language = script->get_language();
+	const EditorLanguage *editor_language = language->get_editor_language();
+	if (editor_language != nullptr) {
+		Vector<String> delimiters = p_doc ? editor_language->get_doc_comment_delimiters_for_path(script->get_path()) : editor_language->get_comment_delimiters_for_path(script->get_path());
+		if (!delimiters.is_empty()) {
+			return delimiters;
+		}
+	}
+	return p_doc ? language->get_doc_comment_delimiters() : language->get_comment_delimiters();
 }
 
 void ScriptTextEditor::_show_errors_panel(bool p_show) {
@@ -1743,6 +1762,63 @@ void ScriptTextEditor::_gutter_clicked(int p_line, int p_gutter) {
 	}
 }
 
+// GDB: Reformats the file with the language's formatter, as one undoable edit: the selected lines when there is a
+// selection (Reformat Code), else the whole file. `p_report_errors` says why it cannot; it is off when formatting on save,
+// which always formats the whole file.
+void ScriptTextEditor::reformat_code(bool p_report_errors) {
+	CodeEdit *tx = code_editor->get_text_editor();
+	Ref<Script> scr = edited_res;
+	const EditorLanguage *editor_language = scr.is_valid() ? scr->get_language()->get_editor_language() : nullptr;
+	if (editor_language == nullptr || !editor_language->can_reformat_code(scr->get_path())) {
+		if (p_report_errors) {
+			EditorToaster::get_singleton()->popup_str(TTR("This script's language has no formatter."), EditorToaster::SEVERITY_WARNING);
+		}
+		return;
+	}
+	const String text = tx->get_text();
+	Vector<Vector2i> ranges;
+	if (p_report_errors && tx->has_selection()) {
+		for (int caret = 0; caret < tx->get_caret_count(); caret++) {
+			if (!tx->has_selection(caret)) {
+				continue;
+			}
+			const int from = tx->get_selection_from_line(caret);
+			int to = tx->get_selection_to_line(caret);
+			if (to > from && tx->get_selection_to_column(caret) == 0) {
+				to--; // A selection that ends at the start of a line does not include it.
+			}
+			ranges.push_back(Vector2i(from + 1, to + 1));
+		}
+	}
+	String formatted;
+	int error_line = 0;
+	String error_message;
+	if (editor_language->reformat_code(text, scr->get_path(), formatted, error_line, error_message, ranges) != OK) {
+		if (!p_report_errors) {
+			return; // Saving code that does not parse: it is saved as it is.
+		}
+		const String message = error_line > 0 ? vformat(TTR("Cannot reformat: line %d: %s"), error_line, error_message) : vformat(TTR("Cannot reformat: %s"), error_message);
+		EditorToaster::get_singleton()->popup_str(message, EditorToaster::SEVERITY_WARNING);
+		if (error_line > 0) {
+			goto_line_centered(error_line - 1);
+		}
+		return;
+	}
+	if (formatted == text) {
+		return;
+	}
+	const int caret_line = tx->get_caret_line();
+	const int scroll = tx->get_v_scroll();
+	tx->begin_complex_operation();
+	tx->remove_text(0, 0, tx->get_line_count() - 1, tx->get_line(tx->get_line_count() - 1).length());
+	tx->insert_text(formatted, 0, 0);
+	tx->end_complex_operation();
+	tx->remove_secondary_carets();
+	tx->set_caret_line(MIN(caret_line, tx->get_line_count() - 1));
+	tx->set_caret_column(tx->get_first_non_whitespace_column(tx->get_caret_line()));
+	tx->set_v_scroll(scroll);
+}
+
 bool ScriptTextEditor::_edit_option(int p_op) {
 	CodeEdit *tx = code_editor->get_text_editor();
 	tx->apply_ime();
@@ -1751,6 +1827,7 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 		case EDIT_AUTO_INDENT:
 		case EDIT_EVALUATE:
 		case EDIT_CREATE_CODE_REGION:
+		case EDIT_REFORMAT_CODE:
 		case SHOW_TOOLTIP_AT_CARET:
 		case EDIT_COMPLETE:
 		case EDIT_TOGGLE_COMMENT: {
@@ -1782,7 +1859,7 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 				// Auto indent all lines that have a caret or selection on it.
 				Vector<Point2i> line_ranges = tx->get_line_ranges_from_carets();
 				for (Point2i line_range : line_ranges) {
-					scr->get_language()->get_editor_language()->format_code(text, line_range.x, line_range.y);
+					scr->get_language()->get_editor_language()->format_code_for_path(text, line_range.x, line_range.y, scr->get_path()); // GDB
 					if (line_range.x < begin) {
 						begin = line_range.x;
 					}
@@ -1794,7 +1871,7 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 				// Auto indent entire text.
 				begin = 0;
 				end = tx->get_line_count() - 1;
-				scr->get_language()->get_editor_language()->format_code(text, begin, end);
+				scr->get_language()->get_editor_language()->format_code_for_path(text, begin, end, scr->get_path()); // GDB
 			}
 
 			// Apply auto indented code.
@@ -1805,6 +1882,9 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 
 			tx->end_multicaret_edit();
 			tx->end_complex_operation();
+		} break;
+		case EDIT_REFORMAT_CODE: {
+			reformat_code(true); // GDB
 		} break;
 		case EDIT_PICK_COLOR: {
 			_open_picker();
@@ -1911,7 +1991,7 @@ void ScriptTextEditor::_edit_option_toggle_inline_comment() {
 
 	String delimiter = "#";
 
-	for (const String &script_delimiter : script->get_language()->get_comment_delimiters()) {
+	for (const String &script_delimiter : _get_comment_delimiters(false)) {
 		if (!script_delimiter.contains_char(' ')) {
 			delimiter = script_delimiter;
 			break;
@@ -2638,6 +2718,8 @@ void ScriptTextEditor::register_editor() {
 	ED_SHORTCUT("script_text_editor/convert_indent_to_spaces", TTRC("Convert Indent to Spaces"), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::SHIFT | Key::Y);
 	ED_SHORTCUT("script_text_editor/convert_indent_to_tabs", TTRC("Convert Indent to Tabs"), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::SHIFT | Key::I);
 	ED_SHORTCUT("script_text_editor/auto_indent", TTRC("Auto Indent"), KeyModifierMask::CMD_OR_CTRL | Key::I);
+	// GDB: Ctrl+Alt+L, as in JetBrains IDEs. It locks the screen on some Linux desktops; rebind it there.
+	ED_SHORTCUT("script_text_editor/reformat_code", TTRC("Reformat Code"), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::ALT | Key::L);
 
 	ED_SHORTCUT_AND_COMMAND("script_text_editor/find", TTRC("Find..."), KeyModifierMask::CMD_OR_CTRL | Key::F);
 

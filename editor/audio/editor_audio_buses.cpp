@@ -43,6 +43,7 @@
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/gui/editor_file_dialog.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
@@ -781,7 +782,14 @@ Variant EditorAudioBus::get_drag_data_fw(const Point2 &p_point, Control *p_from)
 	return Variant();
 }
 
+// AudioEffect files from the FileSystem dock (or an AudioEffect dragged from a resource picker) append to the bus's
+// effects, like picking one from the "Add Effect" menu.
+static const EditorCollectionDrop::Slot audio_effect_slot(Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "AudioEffect");
+
 bool EditorAudioBus::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	if (Dictionary(p_data).get("type", "") != "audio_bus_effect") {
+		return EditorCollectionDrop::can_accept(p_data, audio_effect_slot, nullptr);
+	}
 	Dictionary d = p_data;
 	if (!d.has("type") || String(d["type"]) != "audio_bus_effect") {
 		return false;
@@ -798,6 +806,25 @@ bool EditorAudioBus::can_drop_data_fw(const Point2 &p_point, const Variant &p_da
 }
 
 void EditorAudioBus::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
+	if (Dictionary(p_data).get("type", "") != "audio_bus_effect") {
+		if (!EditorCollectionDrop::can_accept(p_data, audio_effect_slot, nullptr)) {
+			return;
+		}
+		const Vector<EditorCollectionDrop::Item> items = EditorCollectionDrop::resolve(p_data, audio_effect_slot, nullptr);
+		const int count = AudioServer::get_singleton()->get_bus_effect_count(get_index());
+		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+		ur->create_action(TTR("Add Audio Bus Effect"));
+		for (int i = 0; i < items.size(); i++) {
+			ur->add_do_method(AudioServer::get_singleton(), "add_bus_effect", get_index(), items[i].value, -1);
+		}
+		for (int i = items.size() - 1; i >= 0; i--) {
+			ur->add_undo_method(AudioServer::get_singleton(), "remove_bus_effect", get_index(), count + i);
+		}
+		ur->add_do_method(buses, "_update_bus", get_index());
+		ur->add_undo_method(buses, "_update_bus", get_index());
+		ur->commit_action();
+		return;
+	}
 	Dictionary d = p_data;
 
 	TreeItem *item = (p_point == Vector2(Math::INF, Math::INF)) ? effects->get_selected() : effects->get_item_at_position(p_point);

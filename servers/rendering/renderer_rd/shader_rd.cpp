@@ -746,12 +746,18 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 		// shader, and not one entry of the shipped cache can ever be found.
 		// Everything then recompiles from GLSL on the main thread, and the only
 		// visible symptom is a slow start. Say it once, plainly.
+		//
+		// Only an export template runs a shipped cache. An editor binary running
+		// a project from source (`--path`) finds the editor's own
+		// .godot/shader_cache here too, written by whichever build last opened
+		// the project; a miss there costs nothing and is not a broken export.
+		static const bool is_export = OS::get_singleton()->has_feature("template");
 		static uint32_t res_hits = 0;
 		static uint32_t res_misses = 0;
 		static bool warned_res_cache_unusable = false;
 		if (f.is_null()) {
 			res_misses++;
-			if (!warned_res_cache_unusable && res_hits == 0 && res_misses >= 16) {
+			if (is_export && !warned_res_cache_unusable && res_hits == 0 && res_misses >= 16) {
 				warned_res_cache_unusable = true;
 				WARN_PRINT("This export ships a baked shader cache, but none of it matches what this build asks for, so every shader is being compiled from source at load. Shader hashes include the engine version hash, so the editor that exported the project and this build must come from the same commit. Rebuild both from the same commit and export again.");
 			}
@@ -1256,6 +1262,32 @@ void ShaderRD::_initialize_cache() {
 		}
 
 		print_verbose("Shader '" + name + "' (group " + itos(E.key) + ") SHA256: " + group_sha256[E.key]);
+	}
+
+	// Every group directory under this shader's name that this build will never
+	// ask for. The group hash folds in GODOT_VERSION_HASH (base_sha256, see
+	// setup()), so each engine build writes into directories of its own and
+	// the previous build's become unreachable the moment it is replaced: an
+	// editor used across a month of local builds had 1,021 group directories
+	// (84 MB) under one project, 81 of them for the clustered scene shader
+	// alone, and an exported web game grows its IndexedDB-backed user:// the
+	// same way across deploys. This shader owns everything under its name, so
+	// it is the one place that knows which of them are live.
+	if (!shader_cache_user_dir.is_empty()) {
+		const String shader_dir = shader_cache_user_dir.path_join(name);
+		for (const String &group_dir_name : DirAccess::get_directories_at(shader_dir)) {
+			if (group_sha256.has(group_dir_name)) {
+				continue;
+			}
+			const String group_dir = shader_dir.path_join(group_dir_name);
+			Ref<DirAccess> da = DirAccess::open(group_dir);
+			if (da.is_null()) {
+				continue;
+			}
+			if (da->erase_contents_recursive() == OK && DirAccess::remove_absolute(group_dir) == OK) {
+				print_verbose(vformat("Shader '%s': removed stale cache group %s (written by a different engine build).", name, group_dir_name));
+			}
+		}
 	}
 }
 

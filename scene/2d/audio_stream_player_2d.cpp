@@ -199,11 +199,7 @@ void AudioStreamPlayer2D::_update_panning() {
 	}
 
 	for (const Ref<AudioStreamPlayback> &playback : internal->stream_playbacks) {
-		AudioServer::get_singleton()->set_playback_pitch_scale(playback, internal->pitch_scale);
-		if (playback->get_is_sample() && playback->get_sample_playback().is_valid()) {
-			Ref<AudioSamplePlayback> sample_playback = playback->get_sample_playback();
-			AudioServer::get_singleton()->update_sample_playback_pitch_scale(sample_playback, internal->pitch_scale);
-		}
+		AudioServer::get_singleton()->set_playback_pitch_scale(playback, internal->pitch_scale); // Also updates sample playbacks.
 	}
 
 	last_mix_count = AudioServer::get_singleton()->get_mix_count();

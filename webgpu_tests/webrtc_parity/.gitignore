@@ -1,0 +1,6 @@
+# Build-time dependency for the WebRTC parity tier (Phase 2 reference peer).
+# Cloned separately, not vendored — see webgpu_notes/TASKS.md §4.20.
+webrtc-native/
+exports/
+fixtures/loopback_project/.godot/
+node_modules/

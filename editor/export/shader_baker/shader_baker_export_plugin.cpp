@@ -115,6 +115,10 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 	tasks_processed = 0;
 	tasks_total = 0;
 	tasks_cancelled = false;
+	batch_stage_baking = active_platform.is_valid() && active_platform->uses_stage_batching();
+	separate_pack = active_platform.is_valid() && active_platform->uses_separate_pack(get_export_preset());
+	compiled_work_items.clear();
+	separate_pack_files.clear();
 
 	StringBuilder to_hash;
 	to_hash.append("[GodotVersionNumber]");
@@ -274,35 +278,59 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 	}
 
 	// Run a progress bar that waits for all shader baking tasks to finish.
-	bool progress_active = true;
-	EditorProgress editor_progress("baking_shaders", TTR("Baking shaders"), tasks_total);
-	editor_progress.step("Baking...", 0);
-	while (progress_active) {
-		uint32_t tasks_for_progress = 0;
-		{
-			MutexLock lock(tasks_mutex);
-			if (tasks_processed >= tasks_total) {
-				progress_active = false;
-			} else {
-				tasks_condition.wait(lock);
-				tasks_for_progress = tasks_processed;
+	{
+		bool progress_active = true;
+		EditorProgress editor_progress("baking_shaders", TTR("Baking shaders"), tasks_total);
+		editor_progress.step("Baking...", 0);
+		while (progress_active) {
+			uint32_t tasks_for_progress = 0;
+			{
+				MutexLock lock(tasks_mutex);
+				if (tasks_processed >= tasks_total) {
+					progress_active = false;
+				} else {
+					tasks_condition.wait(lock);
+					tasks_for_progress = tasks_processed;
+				}
 			}
-		}
 
-		if (progress_active && editor_progress.step("Baking...", tasks_for_progress)) {
-			// User skipped the shader baker, we just don't pack the shaders in the project.
-			tasks_cancelled = true;
-			progress_active = false;
+			if (progress_active && editor_progress.step("Baking...", tasks_for_progress)) {
+				// User skipped the shader baker, we just don't pack the shaders in the project.
+				tasks_cancelled = true;
+				progress_active = false;
+			}
 		}
 	}
 
-	String shader_cache_user_dir = ShaderRD::get_shader_cache_user_dir();
+	// Wait for every compilation task before reading any result. Waiting here
+	// rather than group by group below changes nothing for a platform that
+	// bakes per task, and is required for one that batches: its second phase
+	// needs every variant's SPIR-V at once.
 	for (const ShaderGroupItem &group_item : shader_group_items) {
-		// Wait for all shader compilation tasks of the group to be finished.
 		for (WorkerThreadPool::TaskID task_id : group_item.variant_tasks) {
 			WorkerThreadPool::get_singleton()->wait_for_task_completion(task_id);
 		}
+	}
 
+	if (batch_stage_baking && !tasks_cancelled) {
+		_bake_compiled_work_items();
+	}
+	compiled_work_items.clear();
+
+	// Either the main pack (add_file) or the platform's separate shader pack.
+	auto ship_file = [&](const String &p_path, const PackedByteArray &p_bytes) {
+		if (separate_pack) {
+			SeparatePackFile file;
+			file.path = p_path;
+			file.data = p_bytes;
+			separate_pack_files.push_back(file);
+		} else {
+			add_file(p_path, p_bytes, false);
+		}
+	};
+
+	String shader_cache_user_dir = ShaderRD::get_shader_cache_user_dir();
+	for (const ShaderGroupItem &group_item : shader_group_items) {
 		if (!tasks_cancelled) {
 			WorkResult work_result;
 			{
@@ -311,7 +339,7 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 			}
 
 			PackedByteArray cache_file_bytes = ShaderRD::save_shader_cache_bytes(group_item.variants, work_result.variant_data);
-			add_file(shader_cache_user_dir.path_join(group_item.cache_path), cache_file_bytes, false);
+			ship_file(shader_cache_user_dir.path_join(group_item.cache_path), cache_file_bytes);
 
 			String cache_file_path = shader_cache_export_path.path_join(group_item.cache_path);
 			if (!DirAccess::exists(cache_file_path)) {
@@ -339,7 +367,7 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 				if (!shader_paths_processed.has(cache_list_line)) {
 					PackedByteArray cache_file_bytes = FileAccess::get_file_as_bytes(shader_cache_export_path.path_join(cache_list_line));
 					if (!cache_file_bytes.is_empty()) {
-						add_file(shader_cache_user_dir.path_join(cache_list_line), cache_file_bytes, false);
+						ship_file(shader_cache_user_dir.path_join(cache_list_line), cache_file_bytes);
 					}
 				}
 
@@ -590,20 +618,16 @@ void ShaderBakerExportPlugin::_process_work_item(WorkItem p_work_item) {
 		Vector<RD::ShaderStageSPIRVData> spirv_data = ShaderRD::compile_stages(p_work_item.stage_sources, p_work_item.dynamic_buffers, p_work_item.shader_name);
 		if (unlikely(spirv_data.is_empty())) {
 			ERR_PRINT("Unable to retrieve SPIR-V data for shader.");
+		} else if (batch_stage_baking) {
+			// The container is built in _bake_compiled_work_items(), after the
+			// platform has converted every variant's stages in one go.
+			CompiledWorkItem compiled;
+			compiled.item = p_work_item;
+			compiled.spirv_data = spirv_data;
+			MutexLock lock(compiled_work_items_mutex);
+			compiled_work_items.push_back(compiled);
 		} else {
-			Ref<RenderingShaderContainer> shader_container = shader_container_format->create_container();
-
-			// Compile shader binary from SPIR-V.
-			bool code_compiled = shader_container->set_code_from_spirv(p_work_item.shader_name, spirv_data);
-			if (unlikely(!code_compiled)) {
-				ERR_PRINT("Failed to compile code to native for SPIR-V.");
-			} else {
-				PackedByteArray shader_bytes = shader_container->to_bytes();
-				{
-					MutexLock lock(shader_work_results_mutex);
-					shader_work_results[p_work_item.cache_path].variant_data.ptrw()[p_work_item.variant] = shader_bytes;
-				}
-			}
+			_build_container(p_work_item, spirv_data);
 		}
 	}
 
@@ -613,6 +637,81 @@ void ShaderBakerExportPlugin::_process_work_item(WorkItem p_work_item) {
 	}
 
 	tasks_condition.notify_one();
+}
+
+void ShaderBakerExportPlugin::_build_container(const WorkItem &p_work_item, const Vector<RD::ShaderStageSPIRVData> &p_spirv_data) {
+	Ref<RenderingShaderContainer> shader_container = shader_container_format->create_container();
+
+	// Compile shader binary from SPIR-V.
+	bool code_compiled = shader_container->set_code_from_spirv(p_work_item.shader_name, p_spirv_data);
+	if (unlikely(!code_compiled)) {
+		ERR_PRINT("Failed to compile code to native for SPIR-V.");
+		return;
+	}
+
+	PackedByteArray shader_bytes = shader_container->to_bytes();
+	MutexLock lock(shader_work_results_mutex);
+	shader_work_results[p_work_item.cache_path].variant_data.ptrw()[p_work_item.variant] = shader_bytes;
+}
+
+void ShaderBakerExportPlugin::_build_compiled_work_item(uint32_t p_index, void *p_unused) {
+	if (tasks_cancelled) {
+		return;
+	}
+	const CompiledWorkItem &compiled = compiled_work_items[p_index];
+	_build_container(compiled.item, compiled.spirv_data);
+}
+
+void ShaderBakerExportPlugin::_bake_compiled_work_items() {
+	if (compiled_work_items.is_empty()) {
+		return;
+	}
+
+	ShaderBakerStageBatch *batch = active_platform->create_stage_batch();
+	ERR_FAIL_NULL_MSG(batch, "Shader baker platform asked for batched stage baking but returned no batch.");
+
+	for (const CompiledWorkItem &compiled : compiled_work_items) {
+		for (const RD::ShaderStageSPIRVData &stage : compiled.spirv_data) {
+			batch->add_stage(stage.spirv);
+		}
+	}
+	batch->start();
+
+	// The batch runs on its own threads; this thread owns the progress bar.
+	// Polling at ~60 Hz keeps the bar live without costing the batch anything.
+	if (batch->get_total_count() > 0) {
+		EditorProgress batch_progress("baking_shader_stages", TTR("Converting shaders"), batch->get_total_count(), true);
+		while (!batch->is_done()) {
+			if (batch_progress.step(TTR("Converting..."), batch->get_done_count())) {
+				batch->cancel();
+				tasks_cancelled = true;
+				break;
+			}
+			OS::get_singleton()->delay_usec(16000);
+		}
+	}
+	batch->finish();
+	memdelete(batch);
+
+	if (tasks_cancelled) {
+		return;
+	}
+
+	// Every stage's result is published; building the containers is now the
+	// cheap part (reflection and serialization), spread across the pool.
+	EditorProgress container_progress("baking_shader_containers", TTR("Packing shaders"), (int)compiled_work_items.size());
+	WorkerThreadPool::GroupID group = WorkerThreadPool::get_singleton()->add_template_group_task(this, &ShaderBakerExportPlugin::_build_compiled_work_item, (void *)nullptr, (int)compiled_work_items.size(), -1, false, "Shader baker: build containers");
+	while (!WorkerThreadPool::get_singleton()->is_group_task_completed(group)) {
+		container_progress.step(TTR("Packing..."), (int)WorkerThreadPool::get_singleton()->get_group_processed_element_count(group));
+		OS::get_singleton()->delay_usec(16000);
+	}
+	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
+}
+
+Vector<ShaderBakerExportPlugin::SeparatePackFile> ShaderBakerExportPlugin::take_separate_pack_files() {
+	Vector<SeparatePackFile> files = separate_pack_files;
+	separate_pack_files.clear();
+	return files;
 }
 
 ShaderBakerExportPlugin::ShaderBakerExportPlugin() {

@@ -139,6 +139,7 @@ public:
 	virtual double get_sample_playback_position(const Ref<AudioSamplePlayback> &p_playback) { return false; }
 	virtual void update_sample_playback_pitch_scale(const Ref<AudioSamplePlayback> &p_playback, float p_pitch_scale = 0.0f) {}
 	virtual void set_sample_playback_bus_volumes_linear(const Ref<AudioSamplePlayback> &p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes) {}
+	virtual void set_sample_playback_highshelf_params(const Ref<AudioSamplePlayback> &p_playback, float p_gain, float p_attenuation_cutoff_hz) {}
 
 	virtual void set_sample_bus_count(int p_count) {}
 	virtual void remove_sample_bus(int p_bus) {}

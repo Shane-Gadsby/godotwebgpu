@@ -210,6 +210,10 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 
 	GodotProfileZoneGrouped(_profile_zone, "memory_info");
 	RSG::utilities->update_memory_info();
+	if (external_render_thread_draw_done != nullptr) {
+		external_draws_done.fetch_add(1);
+		external_render_thread_draw_done();
+	}
 }
 
 void RenderingServerDefault::_run_post_draw_steps() {
@@ -274,7 +278,13 @@ void RenderingServerDefault::_finish() {
 }
 
 void RenderingServerDefault::init() {
-	if (create_thread) {
+	if (create_thread && external_render_thread_start) {
+		print_verbose("RenderingServerWrapMT: Starting platform render thread");
+		// No pump task: the platform's thread flushes the queue itself (external_render_thread_pump()).
+		command_queue.push(this, &RenderingServerDefault::_assign_mt_ids, WorkerThreadPool::INVALID_TASK_ID);
+		external_render_thread_start(this);
+		command_queue.push_and_sync(this, &RenderingServerDefault::_init);
+	} else if (create_thread) {
 		print_verbose("RenderingServerWrapMT: Starting render thread");
 		DisplayServer::get_singleton()->release_rendering_thread();
 		WorkerThreadPool::TaskID tid = WorkerThreadPool::get_singleton()->add_task(callable_mp(this, &RenderingServerDefault::_thread_loop), true, "Rendering Server pump task", true);
@@ -289,7 +299,12 @@ void RenderingServerDefault::init() {
 }
 
 void RenderingServerDefault::finish() {
-	if (create_thread) {
+	if (create_thread && server_task_id == WorkerThreadPool::INVALID_TASK_ID && external_render_thread_start) {
+		// Platform render thread: there is no task to wait for, so wait for the commands instead.
+		command_queue.push(this, &RenderingServerDefault::_finish);
+		command_queue.push_and_sync(this, &RenderingServerDefault::_thread_exit);
+		server_thread = Thread::MAIN_ID;
+	} else if (create_thread) {
 		command_queue.push(this, &RenderingServerDefault::_finish);
 		command_queue.push(this, &RenderingServerDefault::_thread_exit);
 		if (server_task_id != WorkerThreadPool::INVALID_TASK_ID) {
@@ -416,6 +431,11 @@ void RenderingServerDefault::_thread_exit() {
 	exit = true;
 }
 
+bool RenderingServerDefault::external_render_thread_pump() {
+	command_queue.flush_all();
+	return !exit;
+}
+
 void RenderingServerDefault::_thread_loop() {
 	DisplayServer::get_singleton()->gl_window_make_current(DisplayServerEnums::MAIN_WINDOW_ID); // Move GL to this thread.
 
@@ -444,12 +464,28 @@ void RenderingServerDefault::sync() {
 	}
 }
 
+void RenderingServerDefault::sync_previous_draw() {
+	if (create_thread && external_render_thread_start) {
+		// The platform's main loop normally waits for the previous frame before iterating (see
+		// DisplayServerWeb::render_thread_wait_for_draw()), so this is a counter comparison; the
+		// full sync is the fallback for a loop that did not.
+		if (external_render_thread_draw_pending()) {
+			command_queue.sync();
+		}
+		return;
+	}
+	sync();
+}
+
 void RenderingServerDefault::draw(bool p_present, double frame_step) {
 	ERR_FAIL_COND_MSG(!Thread::is_main_thread(), "Manually triggering the draw function from the RenderingServer can only be done on the main thread. Call this function from the main thread or use call_deferred().");
 	// Needs to be done before changes is reset to 0, to not force the editor to redraw.
 	RS::get_singleton()->emit_signal(SNAME("frame_pre_draw"));
 	changes = 0;
 	if (create_thread) {
+		if (external_render_thread_start) {
+			external_draws_pushed.fetch_add(1);
+		}
 		command_queue.push(this, &RenderingServerDefault::_draw, p_present, frame_step);
 	} else {
 		_draw(p_present, frame_step);

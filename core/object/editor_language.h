@@ -33,6 +33,7 @@
 // TODO: This file resides in `core/` while migrating `ScriptLanguage` features to prevent `editor/` includes in core. It should be moved to `editor/` when those includes are not needed anymore.
 #ifdef TOOLS_ENABLED
 
+#include "core/math/vector2i.h"
 #include "core/object/script_language.h"
 
 /**
@@ -231,6 +232,51 @@ public:
 	 * @return `true` if the script has no errors, otherwise `false`.
 	 */
 	virtual bool validate(const String &p_code, const String &p_path, List<ScriptError> *r_errors, List<Warning> *r_warnings, List<String> *r_functions, HashSet<int> *r_safe_lines) const { return true; }
+
+	// GDB: Per-file behavior, for a language whose source files differ by extension (GDScript: `.gd` and braced `.gdb`).
+
+	/**
+	 * Comment delimiters for one file, in the format of `ScriptLanguage::get_comment_delimiters()`. An empty result
+	 * means the language's own.
+	 */
+	virtual Vector<String> get_comment_delimiters_for_path(const String &p_path) const { return Vector<String>(); }
+	virtual Vector<String> get_doc_comment_delimiters_for_path(const String &p_path) const { return Vector<String>(); }
+
+	/**
+	 * Whether blocks in this file are delimited by braces, so that a closing bracket typed at the start of a line
+	 * lines up with the line that opened it.
+	 */
+	virtual bool uses_brace_blocks(const String &p_path) const { return false; }
+
+	/**
+	 * `format_code()` for one file. The default ignores the path.
+	 */
+	virtual void format_code_for_path(String &r_code, uint32_t p_from_line, uint32_t p_to_line, const String &p_path) const { format_code(r_code, p_from_line, p_to_line); }
+
+	/**
+	 * Called by the editor to reformat a whole file (Reformat Code), as opposed to `format_code()`'s auto-indentation.
+	 *
+	 * @return `OK` with the result in `r_code`, or an error with a one-based `r_error_line` (0 if unknown) and a message.
+	 */
+	/**
+	 * The extensions of this language's source files, when there is more than `ScriptLanguage::get_extension()`.
+	 * Empty means that one only.
+	 */
+	virtual Vector<String> get_source_extensions() const { return Vector<String>(); }
+
+	/**
+	 * The extension the New Script dialog proposes. Empty means `ScriptLanguage::get_extension()`.
+	 */
+	virtual String get_new_script_extension() const { return String(); }
+
+	/**
+	 * Adapts a template's code to the file it is created as (GDScript: an indented template for a braced file).
+	 */
+	virtual String adapt_template_for_path(const String &p_code, const String &p_path) const { return p_code; }
+
+	virtual bool can_reformat_code(const String &p_path) const { return false; }
+	// `p_line_ranges`: only these lines (1-based, inclusive), or the whole file when empty.
+	virtual Error reformat_code(const String &p_code, const String &p_path, String &r_code, int &r_error_line, String &r_error_message, const Vector<Vector2i> &p_line_ranges = Vector<Vector2i>()) const { return ERR_UNAVAILABLE; }
 
 	virtual ~EditorLanguage() = default;
 };

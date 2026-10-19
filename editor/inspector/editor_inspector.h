@@ -709,11 +709,22 @@ class EditorInspectorArray : public EditorInspectorSection {
 
 	void _remove_item(int p_index);
 
+	// Dropping files, a resource or nodes appends one element per item, with the item in the element property that
+	// takes it (an AudioStream for AudioStreamRandomizer's streams, a scene path for MultiplayerSpawner's...).
+	bool dropping_collection = false;
+	Vector<PropertyInfo> _get_element_properties() const; // Names as formats: "stream_%d/stream".
+	int _find_drop_target(const Vector<PropertyInfo> &p_element_properties, const Variant &p_data, int p_item, const Node *p_base_node) const;
+	bool _can_drop_collection(const Variant &p_data) const;
+	void _drop_collection(const Variant &p_data);
+
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
+	virtual bool can_drop_data(const Point2 &p_point, const Variant &p_data) const override;
+	virtual void drop_data(const Point2 &p_point, const Variant &p_data) override;
+
 	void setup_with_move_element_function(Object *p_object, const String &p_category, const String &p_label, const StringName &p_array_element_prefix, int p_page, const Color &p_bg_color, bool p_foldable, bool p_movable = true, bool p_is_const = false, bool p_numbered = false, int p_page_length = 5, const String &p_add_item_text = "");
 	void setup_with_count_property(Object *p_object, const String &p_category, const String &p_label, const StringName &p_count_property, const StringName &p_array_element_prefix, int p_page, const Color &p_bg_color, bool p_foldable, bool p_movable = true, bool p_is_const = false, bool p_numbered = false, int p_page_length = 5, const String &p_add_item_text = "", const String &p_swap_method = "");
 	VBoxContainer *get_vbox(int p_index);

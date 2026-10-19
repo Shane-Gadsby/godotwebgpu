@@ -55,6 +55,12 @@ const EngineIFrame = (function () {
 						}
 						console.error.apply(console, Array.from(arguments)); // eslint-disable-line no-console
 					},
+					'onPrintWarning': function (warning) {
+						if (terminating) {
+							return; // Don't spam console on force quit.
+						}
+						console.warn(warning); // eslint-disable-line no-console
+					},
 					'onExit': () => {
 						engine = null;
 						notify('stopped');

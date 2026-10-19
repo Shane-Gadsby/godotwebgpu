@@ -39,4 +39,7 @@ public:
 	virtual RenderingShaderContainerFormat *create_shader_container_format(const Ref<EditorExportPlatform> &p_platform, const Ref<EditorExportPreset> &p_preset) override;
 	virtual bool matches_driver(const String &p_driver) override;
 	virtual void get_target_feature_overrides(HashMap<int, bool> &r_overrides) const override;
+	virtual bool uses_stage_batching() const override { return true; }
+	virtual ShaderBakerStageBatch *create_stage_batch() override;
+	virtual bool uses_separate_pack(const Ref<EditorExportPreset> &p_preset) const override;
 };

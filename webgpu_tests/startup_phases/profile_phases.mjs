@@ -24,6 +24,7 @@
  */
 
 import { createServer } from 'http';
+import { gzipSync } from 'zlib';
 import { readFileSync, existsSync, statSync, writeFileSync, mkdtempSync } from 'fs';
 import { join, extname, dirname, resolve as resolvePath } from 'path';
 import { fileURLToPath } from 'url';
@@ -57,6 +58,38 @@ const EXTRA_ARGS = (() => {
 	return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : '';
 })();
 const HEADED = flag('headed') || !flag('headless');
+// --throttle caps the page's bandwidth through CDP Network.emulateNetworkConditions,
+// because every number this tool has ever produced was taken over loopback, where
+// a download is effectively free. That is the wrong baseline for the one question
+// a dlink export raises: index.side.wasm is ~47 MB and Emscripten's dylink loader
+// fetches it into an ArrayBuffer and compiles it NON-streaming, so unlike the main
+// module its download cannot overlap its own compile. On loopback that costs ~100ms
+// and looks like nothing. See webgpu_notes/TASKS.md §2.3.
+//
+// Named profiles rather than raw numbers, so two runs are comparable and a figure
+// in the notes says what link it came from. Latency is one-way RTT as CDP wants it.
+const THROTTLE_PROFILES = {
+	off: null,
+	fibre: { mbit: 100, latencyMs: 10 },
+	cable: { mbit: 20, latencyMs: 30 },
+	dsl: { mbit: 5, latencyMs: 50 },
+	'3g': { mbit: 1.6, latencyMs: 150 },
+};
+const THROTTLE = arg('throttle', 'off');
+if (!(THROTTLE in THROTTLE_PROFILES)) {
+	console.error(`Unknown --throttle "${THROTTLE}". Known: ${Object.keys(THROTTLE_PROFILES).join(', ')}`);
+	process.exit(1);
+}
+
+// --compress serves .wasm/.pck/.js with Content-Encoding: gzip, which every real
+// static host does and none of this suite's numbers have ever included. It
+// matters here because the engine wasm is ~40MB raw and ~11MB gzipped, so an
+// uncompressed measurement overstates every download by ~3.5x -- while leaving
+// the streaming/non-streaming asymmetry §2.3 is about completely intact, since
+// the browser decompresses as it streams.
+const COMPRESS = flag('compress');
+const COMPRESSIBLE = /\.(wasm|pck|js|mjs|json|html)$/i;
+const gzipCache = new Map();
 
 const MIME_TYPES = {
 	'.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -80,16 +113,26 @@ function startServer(root) {
 			res.end(html);
 			return;
 		}
+		const useGzip = COMPRESS && COMPRESSIBLE.test(file) &&
+				/\bgzip\b/.test(req.headers['accept-encoding'] || '');
+		let body;
+		if (useGzip) {
+			if (!gzipCache.has(file)) { gzipCache.set(file, gzipSync(readFileSync(file), { level: 6 })); }
+			body = gzipCache.get(file);
+		} else {
+			body = readFileSync(file);
+		}
 		// Cross-origin isolation headers, so a threads=yes export would also load
 		// here -- harmless for the nothreads build this normally profiles.
 		res.writeHead(200, {
 			'Content-Type': MIME_TYPES[extname(file).toLowerCase()] || 'application/octet-stream',
-			'Content-Length': statSync(file).size,
+			'Content-Length': body.length,
+			...(useGzip ? { 'Content-Encoding': 'gzip' } : {}),
 			'Cross-Origin-Opener-Policy': 'same-origin',
 			'Cross-Origin-Embedder-Policy': 'require-corp',
 			'Cache-Control': 'no-store',
 		});
-		res.end(readFileSync(file));
+		res.end(body);
 	});
 	return new Promise((res) => server.listen(0, '127.0.0.1', () => res(server)));
 }
@@ -151,7 +194,7 @@ async function main() {
 	const SOFTWARE_ADAPTER = !!process.env.CI;
 	const args = SOFTWARE_ADAPTER
 		? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
-		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--gpu-no-context-lost'];
+		: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist', '--gpu-no-context-lost'];
 	if (!WARM) { args.push('--disable-gpu-shader-disk-cache', '--disable-gpu-program-cache'); }
 
 	const userDataDir = WARM
@@ -166,6 +209,7 @@ async function main() {
 		'gfx.webgpu.ignore-blocklist': true,
 	};
 	const context = await chromium.launchPersistentContext(userDataDir, {
+		...(BROWSER === 'firefox' || process.env.CI ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
 		// A software-adapter run has no display to be headed on.
 		headless: SOFTWARE_ADAPTER ? true : !HEADED,
 		args: BROWSER === 'firefox' ? [] : args,
@@ -192,10 +236,29 @@ async function main() {
 	}
 	await page.addInitScript({ path: join(__dirname, 'instrument.js') });
 
+	// Throttling has to be live before the navigation that fetches the wasm, and
+	// it is per-page: a CDP session on this page, not on the context.
+	const throttle = THROTTLE_PROFILES[THROTTLE];
+	if (throttle) {
+		if (BROWSER !== 'chromium') {
+			console.error('--throttle needs CDP, which only the chromium build exposes.');
+			process.exit(1);
+		}
+		const cdp = await context.newCDPSession(page);
+		await cdp.send('Network.enable');
+		await cdp.send('Network.emulateNetworkConditions', {
+			offline: false,
+			latency: throttle.latencyMs,
+			downloadThroughput: Math.round((throttle.mbit * 1000 * 1000) / 8),
+			uploadThroughput: Math.round((throttle.mbit * 1000 * 1000) / 8),
+		});
+	}
+
 	console.log(`Export:   ${EXPORT_DIR}`);
 	console.log(`Browser:  ${BROWSER}`);
 	console.log(`Args:     ${EXTRA_ARGS || '(none)'}   console listener: ${NO_CONSOLE ? 'DETACHED' : 'attached'}`);
 	console.log(`Cache:    ${WARM ? 'WARM (reused browser profile)' : 'COLD (fresh profile, GPU shader cache disabled)'}`);
+	console.log(`Link:     ${throttle ? `${THROTTLE} -- ${throttle.mbit} Mbit/s, ${throttle.latencyMs}ms latency (CDP)` : 'unthrottled (loopback)'}${COMPRESS ? ', Content-Encoding: gzip' : ', uncompressed'}`);
 	console.log(`Loading   ${url} -- observing for ${DURATION_SEC}s ...\n`);
 
 	await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -233,7 +296,7 @@ async function main() {
 	server.close();
 
 	if (!data) { console.error('No instrumentation data -- did the page fail to load?'); process.exit(1); }
-	data.meta = { exportDir: EXPORT_DIR, label: LABEL, warm: WARM, durationSec: DURATION_SEC, when: new Date().toISOString() };
+	data.meta = { exportDir: EXPORT_DIR, label: LABEL, warm: WARM, durationSec: DURATION_SEC, throttle: THROTTLE, throttleProfile: throttle, compress: COMPRESS, when: new Date().toISOString() };
 	data.consoleLog = consoleLog;
 	writeFileSync(OUTPUT_PATH, JSON.stringify(data, null, 2));
 	report(data);
@@ -246,14 +309,23 @@ function report(d) {
 	const bar = (c) => console.log(c.repeat(78));
 
 	bar('=');
-	console.log(`STARTUP PHASES -- ${d.meta.label} (${d.meta.warm ? 'warm' : 'cold'})`);
+	console.log(`STARTUP PHASES -- ${d.meta.label} (${d.meta.warm ? 'warm' : 'cold'}${d.meta.throttle && d.meta.throttle !== 'off' ? `, ${d.meta.throttle} link` : ''})`);
 	bar('=');
+
+	// --- Headline ------------------------------------------------------------
+	// The one number to compare two runs by. Everything below decomposes it.
+	console.log('\n--- Wall clock from navigation ---');
+	line('to before-callmain', m['godot-before-callmain'], 'the LOAD phase: fetch + wasm instantiate + shell');
+	line('to first presented frame', m['godot-webgpu-first-frame'], 'load phase + the engine CPU stall below');
 
 	// --- Downloads -----------------------------------------------------------
 	console.log('\n--- Downloads (Resource Timing) ---');
+	let dlBytes = 0;
 	for (const r of d.resources) {
-		line(r.name, r.endMs - r.startMs, `${mb(r.bytes || 0)}  (first byte at ${(r.responseStartMs || 0).toFixed(0)}ms)`);
+		dlBytes += r.bytes || 0;
+		line(r.name, r.endMs - r.startMs, `${mb(r.bytes || 0)}  (first byte at ${(r.responseStartMs || 0).toFixed(0)}ms, done at ${r.endMs.toFixed(0)}ms)`);
 	}
+	console.log(`         ${mb(dlBytes)} total over the wasm + pck fetches`);
 
 	// --- WASM compile/instantiate -------------------------------------------
 	console.log('\n--- WASM compile / instantiate ---');

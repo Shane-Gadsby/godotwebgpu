@@ -1,0 +1,325 @@
+diff --git a/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl b/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl
+index b0b295bc0b..c55cf77a48 100644
+--- a/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl
++++ b/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered.glsl
+@@ -1918,34 +1918,43 @@ void fragment_shader(in SceneData scene_data) {
+ 						specular_irradiance *= lightmaps.data[ofs].exposure_normalization;
+ 						vec3 specular_light_color = max(specular_irradiance, vec3(0.0)) / max(NdotL, 0.1);
+ 
+-						vec3 f0 = F0(metallic, specular, albedo);
++						vec3 f0 = vec3(F0(half(metallic), half(specular), hvec3(albedo)));
+ 
++						// EXPLICIT_FP16 bridge: scene_forward_lights_inc.glsl takes half types (Forward Mobile ported its locals to
++						// half; this shader keeps float locals), so every call converts at the boundary. When EXPLICIT_FP16 is off
++						// half == float and these are plain copies the compiler removes.
+ 						vec3 diffuse_light_discarded = diffuse_light;
+ 						float directionality = clamp(l1_len / l0_luminance, 0.0, 1.0);
+ 						float specular_intensity = directionality * lightmaps.data[ofs].normal_xform_and_specular_intensity[0][3] * 2.0;
+ 
+-						light_compute(normal, L_view, view, 0.0, specular_light_color, true, 1.0, f0, roughness, metallic, specular_intensity, albedo, alpha, screen_uv, energy_compensation,
++						hvec3 h_diffuse = hvec3(diffuse_light_discarded);
++						hvec3 h_specular = hvec3(direct_specular_light);
++						half h_alpha = half(alpha);
++						light_compute(hvec3(normal), hvec3(L_view), hvec3(view), half(0.0), hvec3(specular_light_color), true, half(1.0), hvec3(f0), half(roughness), half(metallic), half(specular_intensity), hvec3(albedo), h_alpha, screen_uv, hvec3(energy_compensation),
+ #ifdef LIGHT_BACKLIGHT_USED
+-								backlight,
++								hvec3(backlight),
+ #endif
+ #ifdef LIGHT_TRANSMITTANCE_USED
+-								transmittance_color,
+-								transmittance_depth,
+-								transmittance_boost,
+-								0.0,
++								hvec4(transmittance_color),
++								half(transmittance_depth),
++								half(transmittance_boost),
++								half(0.0),
+ #endif
+ #ifdef LIGHT_RIM_USED
+-								rim, rim_tint,
++								half(rim), half(rim_tint),
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-								clearcoat, clearcoat_roughness, geo_normal,
++								half(clearcoat), half(clearcoat_roughness), hvec3(geo_normal),
+ #endif // LIGHT_CLEARCOAT_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-								binormal,
+-								tangent, anisotropy,
+-#endif
+-								diffuse_light_discarded,
+-								direct_specular_light);
++								hvec3(binormal),
++								hvec3(tangent), half(anisotropy),
++#endif
++								h_diffuse,
++								h_specular);
++						diffuse_light_discarded = vec3(h_diffuse);
++						direct_specular_light = vec3(h_specular);
++						alpha = float(h_alpha);
+ 					}
+ 				}
+ 			}
+@@ -2185,11 +2194,21 @@ void fragment_shader(in SceneData scene_data) {
+ 				}
+ #endif // LIGHT_CLEARCOAT_USED
+ 
+-				reflection_process(reflection_index, vertex, ref_vec, normal, roughness, ambient_light,
++				hvec4 h_ambient_accum = hvec4(ambient_accum);
++				hvec4 h_reflection_accum = hvec4(reflection_accum);
++#ifdef LIGHT_CLEARCOAT_USED
++				hvec4 h_cc_reflection_accum = hvec4(cc_reflection_accum);
++#endif
++				reflection_process(reflection_index, vertex, hvec3(ref_vec), hvec3(normal), half(roughness), hvec3(ambient_light),
+ #ifdef LIGHT_CLEARCOAT_USED
+-						cc_ref_vec, mix(0.001, 0.1, clearcoat_roughness), cc_reflection_accum,
++						hvec3(cc_ref_vec), half(mix(0.001, 0.1, clearcoat_roughness)), h_cc_reflection_accum,
++#endif
++						h_ambient_accum, h_reflection_accum);
++				ambient_accum = vec4(h_ambient_accum);
++				reflection_accum = vec4(h_reflection_accum);
++#ifdef LIGHT_CLEARCOAT_USED
++				cc_reflection_accum = vec4(h_cc_reflection_accum);
+ #endif
+-						ambient_accum, reflection_accum);
+ 			}
+ 		}
+ 
+@@ -2334,14 +2353,14 @@ void fragment_shader(in SceneData scene_data) {
+ 	ao = mix(1.0, ao, ao_light_affect);
+ 
+ 	//this saves some VGPRs
+-	vec3 f0 = F0(metallic, specular, albedo);
++	vec3 f0 = vec3(F0(half(metallic), half(specular), hvec3(albedo)));
+ 
+ #ifdef LIGHT_CLEARCOAT_USED
+ 	// The base layer's f0 is computed assuming an interface from air to an IOR
+ 	// of 1.5, but the clear coat layer forms an interface from IOR 1.5 to IOR
+ 	// 1.5. We recompute f0 by first computing its IOR, then reconverting to f0
+ 	// by using the correct interface
+-	f0 = mix(f0, f0_Clear_Coat_To_Surface(f0), clearcoat);
++	f0 = mix(f0, vec3(f0_Clear_Coat_To_Surface(hvec3(f0))), clearcoat);
+ #endif
+ 
+ #ifndef AMBIENT_LIGHT_DISABLED
+@@ -2364,7 +2383,7 @@ void fragment_shader(in SceneData scene_data) {
+ 		float geo_NdotV = max(dot(geo_normal, view), 0.0001); // We want to use geometric normal, not normal_map
+ 		// The clearcoat layer assumes an IOR of 1.5 (4% reflectance).
+ 		// Attenuate underlying diffuse/specular by clearcoat fresnel (ONLY fresnel, hence we don't just invert the BRDF below).
+-		float NdotV5 = SchlickFresnel(geo_NdotV);
++		float NdotV5 = float(SchlickFresnel(half(geo_NdotV)));
+ 		float F = mix(0.04, 1.0, NdotV5) * clearcoat;
+ 		float cc_attenuation = 1.0 - F;
+ 
+@@ -2756,7 +2775,11 @@ void fragment_shader(in SceneData scene_data) {
+ 			shadow = mix(1.0, shadow, directional_lights.data[i].shadow_opacity);
+ #endif
+ 
+-			blur_shadow(shadow);
++			{
++				half h_shadow = half(shadow);
++				blur_shadow(h_shadow);
++				shadow = float(h_shadow);
++			}
+ 
+ #ifdef DEBUG_DRAW_PSSM_SPLITS
+ 			vec3 tint = vec3(1.0);
+@@ -2775,34 +2798,40 @@ void fragment_shader(in SceneData scene_data) {
+ 
+ 			float size_A = sc_use_directional_soft_shadows() ? directional_lights.data[i].size : 0.0;
+ 
+-			light_compute(normal, directional_lights.data[i].direction, normalize(view), size_A,
++			hvec3 h_diffuse = hvec3(diffuse_light);
++			hvec3 h_specular = hvec3(direct_specular_light);
++			half h_alpha = half(alpha);
++			light_compute(hvec3(normal), hvec3(directional_lights.data[i].direction), hvec3(normalize(view)), half(size_A),
+ #ifndef DEBUG_DRAW_PSSM_SPLITS
+-					directional_lights.data[i].color * directional_lights.data[i].energy,
++					hvec3(directional_lights.data[i].color * directional_lights.data[i].energy),
+ #else
+-					directional_lights.data[i].color * directional_lights.data[i].energy * tint,
++					hvec3(directional_lights.data[i].color * directional_lights.data[i].energy * tint),
+ #endif
+-					true, shadow, f0, roughness, metallic, directional_lights.data[i].specular, albedo, alpha, screen_uv, energy_compensation,
++					true, half(shadow), hvec3(f0), half(roughness), half(metallic), half(directional_lights.data[i].specular), hvec3(albedo), h_alpha, screen_uv, hvec3(energy_compensation),
+ #ifdef LIGHT_BACKLIGHT_USED
+-					backlight,
++					hvec3(backlight),
+ #endif
+ #ifdef LIGHT_TRANSMITTANCE_USED
+-					transmittance_color,
+-					transmittance_depth,
+-					transmittance_boost,
+-					transmittance_z,
++					hvec4(transmittance_color),
++					half(transmittance_depth),
++					half(transmittance_boost),
++					half(transmittance_z),
+ #endif
+ #ifdef LIGHT_RIM_USED
+-					rim, rim_tint,
++					half(rim), half(rim_tint),
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-					clearcoat, clearcoat_roughness, geo_normal,
++					half(clearcoat), half(clearcoat_roughness), hvec3(geo_normal),
+ #endif // LIGHT_CLEARCOAT_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-					binormal,
+-					tangent, anisotropy,
+-#endif
+-					diffuse_light,
+-					direct_specular_light);
++					hvec3(binormal),
++					hvec3(tangent), half(anisotropy),
++#endif
++					h_diffuse,
++					h_specular);
++			diffuse_light = vec3(h_diffuse);
++			direct_specular_light = vec3(h_specular);
++			alpha = float(h_alpha);
+ 		}
+ #endif // USE_VERTEX_LIGHTING
+ 	}
+@@ -2845,26 +2874,32 @@ void fragment_shader(in SceneData scene_data) {
+ 					continue; // Statically baked light and object uses lightmap, skip
+ 				}
+ 
+-				light_process_omni(light_index, vertex, view, normal, vertex_ddx, vertex_ddy, f0, roughness, metallic, scene_data.taa_frame_count, albedo, alpha, screen_uv, energy_compensation,
++				hvec3 h_diffuse = hvec3(diffuse_light);
++				hvec3 h_specular = hvec3(direct_specular_light);
++				half h_alpha = half(alpha);
++				light_process_omni(light_index, vertex, hvec3(view), hvec3(normal), vertex_ddx, vertex_ddy, hvec3(f0), half(roughness), half(metallic), scene_data.taa_frame_count, hvec3(albedo), h_alpha, screen_uv, hvec3(energy_compensation),
+ #ifdef LIGHT_BACKLIGHT_USED
+-						backlight,
++						hvec3(backlight),
+ #endif
+ #ifdef LIGHT_TRANSMITTANCE_USED
+-						transmittance_color,
+-						transmittance_depth,
+-						transmittance_boost,
++						hvec4(transmittance_color),
++						half(transmittance_depth),
++						half(transmittance_boost),
+ #endif
+ #ifdef LIGHT_RIM_USED
+-						rim,
+-						rim_tint,
++						half(rim),
++						half(rim_tint),
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-						clearcoat, clearcoat_roughness, geo_normal,
++						half(clearcoat), half(clearcoat_roughness), hvec3(geo_normal),
+ #endif // LIGHT_CLEARCOAT_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-						binormal, tangent, anisotropy,
++						hvec3(binormal), hvec3(tangent), half(anisotropy),
+ #endif
+-						diffuse_light, direct_specular_light);
++						h_diffuse, h_specular);
++				diffuse_light = vec3(h_diffuse);
++				direct_specular_light = vec3(h_specular);
++				alpha = float(h_alpha);
+ 			}
+ 		}
+ 	}
+@@ -2906,26 +2941,32 @@ void fragment_shader(in SceneData scene_data) {
+ 					continue; // Statically baked light and object uses lightmap, skip
+ 				}
+ 
+-				light_process_spot(light_index, vertex, view, normal, vertex_ddx, vertex_ddy, f0, roughness, metallic, scene_data.taa_frame_count, albedo, alpha, screen_uv, energy_compensation,
++				hvec3 h_diffuse = hvec3(diffuse_light);
++				hvec3 h_specular = hvec3(direct_specular_light);
++				half h_alpha = half(alpha);
++				light_process_spot(light_index, vertex, hvec3(view), hvec3(normal), vertex_ddx, vertex_ddy, hvec3(f0), half(roughness), half(metallic), scene_data.taa_frame_count, hvec3(albedo), h_alpha, screen_uv, hvec3(energy_compensation),
+ #ifdef LIGHT_BACKLIGHT_USED
+-						backlight,
++						hvec3(backlight),
+ #endif
+ #ifdef LIGHT_TRANSMITTANCE_USED
+-						transmittance_color,
+-						transmittance_depth,
+-						transmittance_boost,
++						hvec4(transmittance_color),
++						half(transmittance_depth),
++						half(transmittance_boost),
+ #endif
+ #ifdef LIGHT_RIM_USED
+-						rim,
+-						rim_tint,
++						half(rim),
++						half(rim_tint),
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-						clearcoat, clearcoat_roughness, geo_normal,
++						half(clearcoat), half(clearcoat_roughness), hvec3(geo_normal),
+ #endif // LIGHT_CLEARCOAT_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-						binormal, tangent, anisotropy,
++						hvec3(binormal), hvec3(tangent), half(anisotropy),
+ #endif
+-						diffuse_light, direct_specular_light);
++						h_diffuse, h_specular);
++				diffuse_light = vec3(h_diffuse);
++				direct_specular_light = vec3(h_specular);
++				alpha = float(h_alpha);
+ 			}
+ 		}
+ 	}
+@@ -2967,26 +3008,32 @@ void fragment_shader(in SceneData scene_data) {
+ 					continue; // Statically baked light and object uses lightmap, skip
+ 				}
+ 
+-				light_process_area(light_index, vertex, view, normal, vertex_ddx, vertex_ddy, f0, roughness, metallic, scene_data.taa_frame_count, albedo, alpha, screen_uv, energy_compensation,
++				hvec3 h_diffuse = hvec3(diffuse_light);
++				hvec3 h_specular = hvec3(direct_specular_light);
++				half h_alpha = half(alpha);
++				light_process_area(light_index, vertex, hvec3(view), hvec3(normal), vertex_ddx, vertex_ddy, hvec3(f0), half(roughness), half(metallic), scene_data.taa_frame_count, hvec3(albedo), h_alpha, screen_uv, hvec3(energy_compensation),
+ #ifdef LIGHT_BACKLIGHT_USED
+-						backlight,
++						hvec3(backlight),
+ #endif
+ #ifdef LIGHT_TRANSMITTANCE_USED
+-						transmittance_color,
+-						transmittance_depth,
+-						transmittance_boost,
++						hvec4(transmittance_color),
++						half(transmittance_depth),
++						half(transmittance_boost),
+ #endif
+ #ifdef LIGHT_RIM_USED
+-						rim,
+-						rim_tint,
++						half(rim),
++						half(rim_tint),
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-						clearcoat, clearcoat_roughness, geo_normal,
++						half(clearcoat), half(clearcoat_roughness), hvec3(geo_normal),
+ #endif
+ #ifdef LIGHT_ANISOTROPY_USED
+-						binormal, tangent, anisotropy,
++						hvec3(binormal), hvec3(tangent), half(anisotropy),
+ #endif
+-						diffuse_light, direct_specular_light);
++						h_diffuse, h_specular);
++				diffuse_light = vec3(h_diffuse);
++				direct_specular_light = vec3(h_specular);
++				alpha = float(h_alpha);
+ 			}
+ 		}
+ 	}
+diff --git a/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered_inc.glsl b/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered_inc.glsl
+index 3342d7c3e2..e3aac2e8f9 100644
+--- a/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered_inc.glsl
++++ b/servers/rendering/renderer_rd/shaders/forward_clustered/scene_forward_clustered_inc.glsl
+@@ -173,7 +173,7 @@ layout(constant_id = 2) const bool sc_emulate_point_size = false;
+ 
+ #endif
+ 
+-#define REFLECTION_MULTIPLIER 1.0
++#define REFLECTION_MULTIPLIER half(1.0)
+ 
+ #define SDFGI_MAX_CASCADES 8
+ 

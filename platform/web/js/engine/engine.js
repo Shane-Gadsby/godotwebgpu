@@ -151,14 +151,43 @@ const Engine = (function () {
 						return Promise.reject(new Error('The engine must be initialized before it can be started'));
 					}
 
+					// `callMain()` no longer runs the whole startup: the engine splits it
+					// into steps that each return to the browser, so the page can paint the
+					// loading progress between them (see platform/web/web_main.cpp). That
+					// means callMain() returns long before the engine has actually started,
+					// while this method's documented contract is to resolve once it *has*.
+					// So resolve on the engine's terminal startup phase instead, and fall
+					// back to the exit path so a failed startup rejects rather than hanging
+					// forever on a promise nothing will ever settle.
+					let startupSettle = null;
+					const startupStarted = new Promise(function (resolve, reject) {
+						startupSettle = { resolve: resolve, reject: reject };
+					});
+
 					let config = {};
 					try {
 						config = me.config.getGodotConfig(function () {
 							me.rtenv = null;
+							if (startupSettle) {
+								startupSettle.reject(new Error('The engine quit before it finished starting'));
+								startupSettle = null;
+							}
 						});
 					} catch (e) {
 						return Promise.reject(e);
 					}
+
+					const userStartupProgress = config['onStartupProgress'];
+					config['onStartupProgress'] = function (name, durationMs) {
+						if (typeof userStartupProgress === 'function') {
+							userStartupProgress(name, durationMs);
+						}
+						if (name === 'Startup:First Frame' && startupSettle) {
+							startupSettle.resolve();
+							startupSettle = null;
+						}
+					};
+
 					// Godot configuration.
 					me.rtenv['initConfig'](config);
 
@@ -177,7 +206,7 @@ const Engine = (function () {
 							me.rtenv['callMain'](me.config.args);
 							initPromise = null;
 							me.installServiceWorker();
-							resolve();
+							startupStarted.then(resolve, reject);
 						}
 
 						if (me.config.renderingDriver === 'webgpu' && typeof window !== 'undefined') {
@@ -249,12 +278,23 @@ const Engine = (function () {
 						}
 					});
 				}
+				// A threaded build may render from a worker (the "Separate" rendering thread
+				// model), which needs WebGPU in workers; find out in parallel with the device.
+				if (me.config.renderingDriver === 'webgpu' && window['crossOriginIsolated']) {
+					webgpuReady = Promise.all([webgpuReady, Engine.probeWebGPUWorker().then(function (capable) {
+						me.config.webgpuWorkerCapable = capable;
+					})]);
+				}
 
 				return webgpuReady.then(function () {
-					return Promise.all([
-						me.init(exe),
-						me.preloadFile(pack, pack),
-					]).then(function () {
+					// The baked shader pack, when the export produced one, is fetched
+					// alongside the main pack: the engine looks for
+					// `<main pack>.shaders.pck` next to it at startup and mounts it.
+					const pending = [me.init(exe), me.preloadFile(pack, pack)];
+					if (me.config.shaderPack) {
+						pending.push(me.preloadFile(me.config.shaderPack, me.config.shaderPack));
+					}
+					return Promise.all(pending).then(function () {
 						return me.start.apply(me);
 					});
 				});
@@ -410,6 +450,11 @@ const Engine = (function () {
 				// batches -- see command_render_draw_indirect()/
 				// command_render_draw_indexed_indirect() in the WebGPU driver.
 				'multi-draw-indirect',
+				// Lets a pipeline clamp depth instead of clipping
+				// (PipelineRasterizationState::enable_depth_clamp), which the
+				// Forward+ cluster builder relies on for geometry crossing the
+				// near or far plane.
+				'depth-clip-control',
 			];
 			for (let i = 0; i < optionalFeatures.length; i++) {
 				if (adapter.features.has(optionalFeatures[i])) {
@@ -448,6 +493,15 @@ const Engine = (function () {
 				// report a much higher maximum; request it.
 				'maxInterStageShaderVariables',
 				'maxInterStageShaderComponents',
+				// Defaults of 8192 (2D) and 256 layers are below what Godot's own
+				// settings can ask for: a 16384 shadow atlas, a large viewport, a
+				// texture array with more layers.
+				'maxTextureDimension1D',
+				'maxTextureDimension2D',
+				'maxTextureDimension3D',
+				'maxTextureArrayLayers',
+				// Forward+'s color pass writes several attachments at once.
+				'maxColorAttachmentBytesPerSample',
 			];
 			for (let li = 0; li < limitsToMax.length; li++) {
 				const key = limitsToMax[li];
@@ -478,6 +532,59 @@ const Engine = (function () {
 				});
 				return device;
 			});
+		});
+	};
+
+	/**
+	 * Whether a worker in this browser can render with WebGPU on an OffscreenCanvas, which the
+	 * engine's "Separate" rendering thread model needs (it is reported to the engine as the
+	 * ``webgpu_render_thread`` feature; the engine falls back to the "Safe" model without it).
+	 *
+	 * @ignore
+	 * @return {Promise<boolean>} Resolves to ``false`` wherever the question cannot be answered.
+	 */
+	Engine.probeWebGPUWorker = function () {
+		if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || !navigator.gpu) {
+			return Promise.resolve(false);
+		}
+		return new Promise(function (resolve) {
+			const source = 'self.onmessage = async function () {'
+				+ ' let capable = false;'
+				+ ' try {'
+				+ '  capable = !!(self.navigator.gpu && await self.navigator.gpu.requestAdapter())'
+				+ '   && !!new OffscreenCanvas(1, 1).getContext("webgpu");'
+				+ ' } catch (e) { capable = false; }'
+				+ ' self.postMessage(capable);'
+				+ '};';
+			let url = null;
+			let worker = null;
+			const done = function (capable) {
+				if (worker) {
+					worker.terminate();
+					worker = null;
+				}
+				if (url) {
+					URL.revokeObjectURL(url);
+					url = null;
+				}
+				resolve(capable);
+			};
+			try {
+				url = URL.createObjectURL(new Blob([source], { 'type': 'text/javascript' }));
+				worker = new Worker(url);
+				worker.onmessage = function (event) {
+					done(!!event.data);
+				};
+				worker.onerror = function () {
+					done(false);
+				};
+				worker.postMessage(0);
+				setTimeout(function () {
+					done(false);
+				}, 3000);
+			} catch (e) {
+				done(false);
+			}
 		});
 	};
 

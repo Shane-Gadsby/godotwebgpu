@@ -1,0 +1,8 @@
+GDTEST_OK
+11
+3
+{ "one": 1 }
+6
+HI
+early late
+{ "nested": { "deep": [1, { "deeper": true }] } }

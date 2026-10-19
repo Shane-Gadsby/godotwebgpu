@@ -32,6 +32,8 @@
 bin
 builds
 *.gen.*
+# Per-variant generated sources (see GEN_DIR in SConstruct).
+/gen/
 compile_commands.json
 platform/windows/godot_res.res
 
@@ -403,3 +405,4 @@ tmp/
 errors-chrome.txt
 sdks/MacOSX15.5.tar.xz
 /.logs/
+webgpu_notes/Braced GDScript (.gdb) — Implementation Plan.md

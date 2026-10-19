@@ -153,6 +153,7 @@
 
 #ifdef MODULE_GDSCRIPT_ENABLED
 #include "modules/gdscript/gdscript.h"
+#include "modules/gdscript/gdscript_formatter.h" // GDB
 #if defined(TOOLS_ENABLED) && !defined(GDSCRIPT_NO_LSP)
 #include "modules/gdscript/language_server/gdscript_language_server.h"
 #endif // TOOLS_ENABLED && !GDSCRIPT_NO_LSP
@@ -665,6 +666,11 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--gdextension-docs", "Rather than dumping the engine API, generate API reference from all the GDExtensions loaded in the current project (used with --doctool).\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef MODULE_GDSCRIPT_ENABLED
 	print_help_option("--gdscript-docs <path>", "Rather than dumping the engine API, generate API reference from the inline documentation in the GDScript files found in <path> (used with --doctool).\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	// GDB
+	print_help_option("--gdscript-convert <to-gdb|to-gd> <paths>", "Convert GDScript files between indented (.gd) and braced (.gdb) form, next to the originals. Add --replace to remove the originals, --keep-lines to keep every statement on its line, or --stdin [--stdin-path <path>] to convert standard input to standard output.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--gdscript-format-server", "Format and convert GDScript requests from standard input until it closes, for editors that format often (see GDScriptFormatter::run_server()).\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--gdscript-braces-version", "Print the version of the braced GDScript (.gdb) syntax, for editor plugins that mirror it.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--gdscript-format <paths>", "Format the GDScript (.gd) and braced GDScript (.gdb) files and directories in <paths> in place. Add --check to only report what would change (--diff to show it), --preset godot|js to override .editorconfig, or --stdin [--stdin-path <path>] [--range <first>:<last>] to format standard input (or only those lines of it) to standard output.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #endif
 	print_help_option("--build-solutions", "Build the scripting solutions (e.g. for C# projects). Implies --editor and requires a valid project to edit.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--dump-gdextension-interface", "Generate a GDExtension header file \"gdextension_interface.h\" in the current folder. This file is the base file required to implement a GDExtension.\n", CLI_OPTION_AVAILABILITY_EDITOR);
@@ -1725,6 +1731,14 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing relative or absolute path to project for --gdscript-docs, aborting.\n");
 				goto error;
 			}
+		} else if (arg == "--gdscript-format" || arg == "--gdscript-convert" || arg == "--gdscript-braces-version" || arg == "--gdscript-format-server") {
+			// GDB: Handled in start(). A command-line tool: no window or audio, and no header on standard output,
+			// which `--stdin` writes the formatted script to.
+			cmdline_tool = true;
+			audio_driver = NULL_AUDIO_DRIVER;
+			display_driver = NULL_DISPLAY_DRIVER;
+			Engine::get_singleton()->_print_header = false;
+			main_args.push_back(arg);
 #endif // MODULE_GDSCRIPT_ENABLED
 #endif // TOOLS_ENABLED
 
@@ -2785,6 +2799,15 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #if !defined(THREADS_ENABLED)
 	separate_thread_render = 0;
 #endif
+#ifdef WEB_ENABLED
+	if (separate_thread_render && (rendering_driver != "webgpu" || !OS::get_singleton()->has_feature("webgpu_render_thread"))) {
+		// On the web only the WebGPU driver can render from another thread, and only in a browser
+		// that lets a worker use WebGPU: the thread owns the canvas and its own device
+		// (DisplayServerWeb::render_thread_prestart()). A WebGL context cannot follow it there.
+		print_verbose("Separate rendering thread not available on this browser or driver; using the Safe thread model.");
+		separate_thread_render = 0;
+	}
+#endif
 	OS::get_singleton()->_separate_thread_render = separate_thread_render;
 
 	/* Determine audio and video drivers */
@@ -3545,9 +3568,15 @@ Error Main::setup2(bool p_show_boot_logo) {
 	}
 
 	if (OS::get_singleton()->_separate_thread_render) {
+#ifdef WEB_ENABLED
+		// The web's render thread is this fork's own (DisplayServerWeb, webgpu_notes/TASKS.md 2.5), on by
+		// default for thread-enabled exports (the "variant/separate_render_thread" export option).
+		print_verbose("Rendering on a separate thread.");
+#else
 		WARN_PRINT("The separate rendering thread feature is experimental. Feel free to try it since it will eventually become a stable feature.\n"
 				   "However, bear in mind that at the moment it can lead to project crashes or instability.\n"
 				   "So, unless you want to test the engine, set the \"rendering/driver/threads/thread_model\" project setting to 'Safe'.");
+#endif
 	}
 
 	/* Initialize Pen Tablet Driver */
@@ -4072,6 +4101,23 @@ int Main::start() {
 
 	main_timer_sync.init(OS::get_singleton()->get_ticks_usec());
 	List<String> args = OS::get_singleton()->get_cmdline_args();
+
+#if defined(TOOLS_ENABLED) && defined(MODULE_GDSCRIPT_ENABLED)
+	if (args.find("--gdscript-format")) {
+		// GDB: Format scripts and exit before anything else starts.
+		return GDScriptFormatter::run_cli(args) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+	}
+	if (args.find("--gdscript-convert")) {
+		return GDScriptFormatter::run_convert_cli(args) == 0 ? EXIT_SUCCESS : EXIT_FAILURE; // GDB
+	}
+	if (args.find("--gdscript-format-server")) {
+		return GDScriptFormatter::run_server() == 0 ? EXIT_SUCCESS : EXIT_FAILURE; // GDB
+	}
+	if (args.find("--gdscript-braces-version")) {
+		OS::get_singleton()->print("%d\n", GDScriptFormatter::get_braces_grammar_version()); // GDB
+		return EXIT_SUCCESS;
+	}
+#endif // TOOLS_ENABLED && MODULE_GDSCRIPT_ENABLED
 
 	for (List<String>::Element *E = args.front(); E; E = E->next()) {
 		// First check parameters that do not have an argument to the right.
@@ -5105,7 +5151,7 @@ bool Main::iteration() {
 #endif // NAVIGATION_3D_DISABLED
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::sync");
-	RenderingServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	RenderingServer::get_singleton()->sync_previous_draw(); //sync if still drawing from previous frames.
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::draw");
 #ifdef RD_ENABLED

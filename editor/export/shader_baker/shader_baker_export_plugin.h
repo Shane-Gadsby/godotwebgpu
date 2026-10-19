@@ -35,9 +35,29 @@
 #include "core/os/condition_variable.h"
 #include "core/templates/rb_set.h"
 #include "editor/export/editor_export_plugin.h"
+#include "servers/rendering/rendering_device_commons.h"
 
 class ShaderRD;
 class RenderingShaderContainerFormat;
+
+// One batched conversion of compiled shader stages; see
+// ShaderBakerExportPluginPlatform::create_stage_batch(). Driven from the main
+// thread: add_stage() for every stage of every variant, start(), then poll
+// is_done() while stepping a progress bar from get_done_count() (which counts
+// up to get_total_count(), the number of stages the batch actually has to do
+// itself), and finish() to join and publish. cancel() asks a running batch to
+// stop early; finish() is still required afterwards.
+class ShaderBakerStageBatch {
+public:
+	virtual void add_stage(const Vector<uint8_t> &p_spirv) = 0;
+	virtual void start() = 0;
+	virtual bool is_done() const = 0;
+	virtual uint32_t get_done_count() const = 0;
+	virtual uint32_t get_total_count() const = 0;
+	virtual void cancel() = 0;
+	virtual void finish() = 0;
+	virtual ~ShaderBakerStageBatch() {}
+};
 
 class ShaderBakerExportPluginPlatform : public RefCounted {
 	GDCLASS(ShaderBakerExportPluginPlatform, RefCounted);
@@ -56,6 +76,25 @@ public:
 	// knows its target disagrees with the editor needs to override this, so
 	// existing bakers are unaffected.
 	virtual void get_target_feature_overrides(HashMap<int, bool> &r_overrides) const {}
+
+	// Optional: convert every compiled stage in one batched step before any
+	// container is built from them, instead of inside each container's
+	// set_code_from_spirv(). A platform whose container format does expensive
+	// per-stage work there (WebGPU's WGSL bake shells out to a tool per stage)
+	// returns true and hands back a batch; the plugin then holds every variant's
+	// SPIR-V until all of them are compiled, runs the batch, and only then builds
+	// the containers. Platforms that leave this alone bake exactly as before,
+	// one container per task as its SPIR-V comes out of glslang.
+	virtual bool uses_stage_batching() const { return false; }
+	virtual ShaderBakerStageBatch *create_stage_batch() { return nullptr; }
+
+	// Optional: ship the baked cache files in a pack of their own rather than
+	// the main one, so a deploy that re-uploads whole files only re-uploads the
+	// shaders when the shaders changed. The plugin then hands the files to the
+	// export platform (ShaderBakerExportPlugin::take_separate_pack_files())
+	// instead of add_file(); a platform that answers true has to write that pack
+	// and arrange for the runtime to mount it. See platform/web/export.
+	virtual bool uses_separate_pack(const Ref<EditorExportPreset> &p_preset) const { return false; }
 
 	virtual ~ShaderBakerExportPluginPlatform() {}
 };
@@ -83,6 +122,20 @@ protected:
 		LocalVector<WorkerThreadPool::TaskID> variant_tasks;
 	};
 
+	// A variant whose stages have been compiled to SPIR-V but whose container
+	// has not been built yet; only used when the platform batches stage baking.
+	struct CompiledWorkItem {
+		WorkItem item;
+		Vector<RenderingDeviceCommons::ShaderStageSPIRVData> spirv_data;
+	};
+
+public:
+	struct SeparatePackFile {
+		String path;
+		Vector<uint8_t> data;
+	};
+
+protected:
 	String shader_cache_platform_name;
 	String shader_cache_renderer_name;
 	String shader_cache_export_path;
@@ -97,6 +150,13 @@ protected:
 	// it for the target's capability answers (see get_target_feature_overrides()).
 	Ref<ShaderBakerExportPluginPlatform> active_platform;
 	uint64_t customization_configuration_hash = 0;
+	// See ShaderBakerExportPluginPlatform::uses_stage_batching().
+	bool batch_stage_baking = false;
+	LocalVector<CompiledWorkItem> compiled_work_items;
+	Mutex compiled_work_items_mutex;
+	// See ShaderBakerExportPluginPlatform::uses_separate_pack().
+	bool separate_pack = false;
+	Vector<SeparatePackFile> separate_pack_files;
 	uint32_t tasks_processed = 0;
 	uint32_t tasks_total = 0;
 	std::atomic<bool> tasks_cancelled;
@@ -120,10 +180,23 @@ protected:
 	// asks for. See webgpu_notes/TASKS.md Task 32.
 	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin = String());
 	void _process_work_item(WorkItem p_work_item);
+	// The second half of _process_work_item(): the container for one compiled
+	// variant, stored into shader_work_results.
+	void _build_container(const WorkItem &p_work_item, const Vector<RenderingDeviceCommons::ShaderStageSPIRVData> &p_spirv_data);
+	void _build_compiled_work_item(uint32_t p_index, void *p_unused);
+	// Runs the platform's stage batch over every compiled variant, then builds
+	// their containers. Only called when batch_stage_baking is set.
+	void _bake_compiled_work_items();
 
 public:
 	ShaderBakerExportPlugin();
 	virtual ~ShaderBakerExportPlugin() override;
 	void add_platform(Ref<ShaderBakerExportPluginPlatform> p_platform);
 	void remove_platform(Ref<ShaderBakerExportPluginPlatform> p_platform);
+
+	// The baked cache files of the export that just ran, when the platform
+	// asked for them in a pack of their own (uses_separate_pack()); empty
+	// otherwise. Each path is the res:// path the runtime looks the file up
+	// at. Clears the list, so the platform takes them exactly once.
+	Vector<SeparatePackFile> take_separate_pack_files();
 };

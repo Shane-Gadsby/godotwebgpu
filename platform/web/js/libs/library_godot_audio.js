@@ -29,1218 +29,757 @@
 /**************************************************************************/
 
 /**
- * @typedef { "disabled" | "forward" | "backward" | "pingpong" } LoopMode
+ * The Web Audio backend of AudioServer's sample playback (AudioStreamPlayer's playback_type = Sample).
+ *
+ * It reproduces what AudioServer::_mix_step() does with a stream playback, on a Web Audio graph:
+ *
+ *   AudioBufferSourceNode -> fader -> [high-shelf filter] -> one mixer per bus -> bus volume -> bus mute/solo -> send
+ *
+ * - Volumes ramp across one mix block when they change, a playback added to a bus starts at full volume, and a
+ *   playback removed from a bus, stopped or paused fades out over one block, as AudioServer does.
+ * - Buses follow AudioServer's routing rules: a send to a bus that does not exist or is not after the sender goes
+ *   to Master, and solo keeps the soloed buses and their send chains audible while ignoring mute.
+ * - Loops use the source's native loop points. Ping-pong and backward loops are unrolled into the buffer, so they
+ *   play like AudioStreamPlaybackWAV does.
+ * - Playback positions are computed from the context clock and the playback rate, not reported by a worklet.
+ *
+ * @param {!AudioContext} audioContext
  */
+function GodotSampleDriver(audioContext) {
+	/** @type {?AudioContext} */
+	let ctx = audioContext;
 
-/**
- * @typedef {{
- *   id: string
- *   audioBuffer: AudioBuffer
- * }} SampleParams
- * @typedef {{
- *   numberOfChannels?: number
- *   sampleRate?: number
- *   loopMode?: LoopMode
- *   loopBegin?: number
- *   loopEnd?: number
- * }} SampleOptions
- */
+	/** @enum {string} */
+	const LoopMode = {
+		DISABLED: 'disabled',
+		FORWARD: 'forward',
+		BACKWARD: 'backward',
+		PINGPONG: 'pingpong',
+	};
+	/** @type {number} */
+	const sampleRate = ctx.sampleRate;
+	// AudioServer mixes in blocks of this many frames: it ramps a playback's volume across one block
+	// (AudioServer::_mix_step_for_channel()), and fades a playback out over one block when it stops or pauses.
+	const MIX_BLOCK_FRAMES = 512;
+	const RAMP_TIME = MIX_BLOCK_FRAMES / sampleRate;
+	const RAMP_TIME_CONSTANT = RAMP_TIME / 4; // setTargetAtTime() is within 2% of its target after 4 time constants.
+	// A volume vector holds one gain per output channel, in Godot's order (L, R, C, LFE, RL, RR, SL, SR). That is
+	// also the Web Audio order of the stereo, 5.1 and 7.1 layouts, the only ones GodotAudio.init() picks.
+	const VOLUME_CHANNELS = 8;
+	/** @type {number} */
+	const outputChannels = Math.min(ctx.destination.channelCount, VOLUME_CHANNELS);
 
-/**
- * Represents a sample, memory-wise.
- * @class
- */
-class Sample {
 	/**
-	 * Returns a `Sample`.
-	 * @param {string} id Id of the `Sample` to get.
-	 * @returns {Sample}
-	 * @throws {ReferenceError} When no `Sample` is found
+	 * JS pair of a Godot AudioBus.
+	 * @typedef {{
+	 *   input: !GainNode,
+	 *   output: !GainNode,
+	 *   send: ?Object,
+	 *   target: (?Object|undefined),
+	 *   mute: boolean,
+	 *   solo: boolean,
+	 *   outputGain: number,
+	 * }}
 	 */
-	static getSample(id) {
-		if (!GodotAudio.samples.has(id)) {
-			throw new ReferenceError(`Could not find sample "${id}"`);
+	var GodotBus; // eslint-disable-line no-var, no-unassigned-vars
+	/**
+	 * JS pair of a Godot AudioStream/AudioSample.
+	 * @typedef {{
+	 *   buffer: !AudioBuffer,
+	 *   loopMode: LoopMode,
+	 *   looping: boolean,
+	 *   loopBegin: number,
+	 *   loopEnd: number,
+	 *   bufferLoopStart: number,
+	 *   bufferLoopEnd: number,
+	 * }}
+	 */
+	var GodotStream; // eslint-disable-line no-var, no-unassigned-vars
+	/**
+	 * JS pair of a Godot AudioSamplePlayback.
+	 * @typedef {{
+	 *   retire: function(boolean): void,
+	 *   pause: function(boolean): void,
+	 *   setVolumes: function(!Int32Array, !Float32Array): void,
+	 *   setPitchScale: function(number): void,
+	 *   setHighshelf: function(number, number): void,
+	 *   getPlaybackPosition: function(): number,
+	 * }}
+	 */
+	var GodotPlayback; // eslint-disable-line no-var, no-unassigned-vars
+
+	/** @type {!Array<!GodotBus>} */
+	const buses = [];
+	/** @type {!Map<number, !GodotStream>} */
+	const streams = new Map();
+	/** @type {!Map<number, !GodotPlayback>} */
+	const playbacks = new Map();
+	/** @type {?function(number): void} */
+	let finishedCallback = null;
+
+	/** @param {?function(number): void} callback */
+	function setFinishedCallback(callback) {
+		finishedCallback = callback;
+	}
+
+	/**
+	 * @param {number} db
+	 * @return {number}
+	 */
+	function dbToLinear(db) {
+		return Math.exp(db * 0.11512925464970228420089957273422); // eslint-disable-line no-loss-of-precision
+	}
+
+	/** @return {!GodotBus} */
+	function createBus() {
+		const input = ctx.createGain(); // Bus volume.
+		const output = ctx.createGain(); // Mute and solo.
+		input.connect(output);
+		return {
+			input,
+			output,
+			send: null, // The bus this one sends to, null for Master.
+			target: undefined, // The bus the output is connected to, null for the destination, undefined for nothing.
+			mute: false,
+			solo: false,
+			outputGain: 1,
+		};
+	}
+	/** @param {!GodotBus} bus */
+	function clearBus(bus) {
+		bus.input.disconnect();
+		bus.output.disconnect();
+	}
+	/**
+	 * @param {number} index
+	 * @return {?GodotBus}
+	 */
+	function getBus(index) {
+		return buses[index] ?? null;
+	}
+
+	/**
+	 * Applies AudioServer::_mix_step()'s routing rules to the bus graph. A bus sends to Master when its target does
+	 * not exist or is not after it. While any bus is soloed, the soloed buses and every bus down their send chains
+	 * play and all others are silent, whether muted or not; otherwise the muted buses are silent.
+	 */
+	function updateRouting() {
+		for (let i = 0; i < buses.length; i++) {
+			const bus = buses[i];
+			let target = null;
+			if (i > 0) {
+				target = bus.send !== null && buses.indexOf(bus.send) > i ? bus.send : buses[0];
+			}
+			if (bus.target !== target) {
+				if (bus.target !== undefined) {
+					bus.output.disconnect();
+				}
+				bus.output.connect(target === null ? ctx.destination : target.input);
+				bus.target = target;
+			}
 		}
-		return GodotAudio.samples.get(id);
-	}
-
-	/**
-	 * Returns a `Sample` or `null`, if it doesn't exist.
-	 * @param {string} id Id of the `Sample` to get.
-	 * @returns {Sample?}
-	 */
-	static getSampleOrNull(id) {
-		return GodotAudio.samples.get(id) ?? null;
-	}
-
-	/**
-	 * Creates a `Sample` based on the params. Will register it to the
-	 * `GodotAudio.samples` registry.
-	 * @param {SampleParams} params Base params
-	 * @param {SampleOptions | undefined} options Optional params.
-	 * @returns {Sample}
-	 */
-	static create(params, options = {}) {
-		const sample = new GodotAudio.Sample(params, options);
-		GodotAudio.samples.set(params.id, sample);
-		return sample;
-	}
-
-	/**
-	 * Deletes a `Sample` based on the id.
-	 * @param {string} id `Sample` id to delete
-	 * @returns {void}
-	 */
-	static delete(id) {
-		GodotAudio.samples.delete(id);
-	}
-
-	/**
-	 * `Sample` constructor.
-	 * @param {SampleParams} params Base params
-	 * @param {SampleOptions | undefined} options Optional params.
-	 */
-	constructor(params, options = {}) {
-		/** @type {string} */
-		this.id = params.id;
-		/** @type {AudioBuffer} */
-		this._audioBuffer = null;
-		/** @type {number} */
-		this.numberOfChannels = options.numberOfChannels ?? 2;
-		/** @type {number} */
-		this.sampleRate = options.sampleRate ?? 44100;
-		/** @type {LoopMode} */
-		this.loopMode = options.loopMode ?? 'disabled';
-		/** @type {number} */
-		this.loopBegin = options.loopBegin ?? 0;
-		/** @type {number} */
-		this.loopEnd = options.loopEnd ?? 0;
-
-		this.setAudioBuffer(params.audioBuffer);
-	}
-
-	/**
-	 * Gets the audio buffer of the sample.
-	 * @returns {AudioBuffer}
-	 */
-	getAudioBuffer() {
-		return this._duplicateAudioBuffer();
-	}
-
-	/**
-	 * Sets the audio buffer of the sample.
-	 * @param {AudioBuffer} val The audio buffer to set.
-	 * @returns {void}
-	 */
-	setAudioBuffer(val) {
-		this._audioBuffer = val;
-	}
-
-	/**
-	 * Clears the current sample.
-	 * @returns {void}
-	 */
-	clear() {
-		this.setAudioBuffer(null);
-		GodotAudio.Sample.delete(this.id);
-	}
-
-	/**
-	 * Returns a duplicate of the stored audio buffer.
-	 * @returns {AudioBuffer}
-	 */
-	_duplicateAudioBuffer() {
-		if (this._audioBuffer == null) {
-			throw new Error('couldn\'t duplicate a null audioBuffer');
+		/** @type {!Set<!GodotBus>} */
+		const soloed = new Set();
+		for (const bus of buses) {
+			if (!bus.solo) {
+				continue;
+			}
+			for (let b = bus; b && !soloed.has(b); b = b.target) {
+				soloed.add(b);
+			}
 		}
-		/** @type {Array<Float32Array>} */
-		const channels = new Array(this._audioBuffer.numberOfChannels);
-		for (let i = 0; i < this._audioBuffer.numberOfChannels; i++) {
-			const channel = new Float32Array(this._audioBuffer.getChannelData(i));
-			channels[i] = channel;
+		for (const bus of buses) {
+			let gain = bus.mute ? 0 : 1;
+			if (soloed.size > 0) {
+				gain = soloed.has(bus) ? 1 : 0;
+			}
+			if (bus.outputGain !== gain) {
+				bus.outputGain = gain;
+				bus.output.gain.value = gain;
+			}
 		}
-		const buffer = GodotAudio.ctx.createBuffer(
-			this.numberOfChannels,
-			this._audioBuffer.length,
-			this._audioBuffer.sampleRate
-		);
-		for (let i = 0; i < channels.length; i++) {
-			buffer.copyToChannel(channels[i], i, 0);
+	}
+
+	/** @param {number} count */
+	function setBusCount(count) {
+		buses.splice(count).forEach(clearBus);
+		while (buses.length < count) {
+			buses.push(createBus()); // New buses send to Master, like in AudioServer::set_bus_count().
 		}
-		return buffer;
+		updateRouting();
 	}
-}
-
-/**
- * Represents a `SampleNode` linked to a `Bus`.
- * @class
- */
-class SampleNodeBus {
-	/**
-	 * Creates a new `SampleNodeBus`.
-	 * @param {Bus} bus The bus related to the new `SampleNodeBus`.
-	 * @returns {SampleNodeBus}
-	 */
-	static create(bus) {
-		return new GodotAudio.SampleNodeBus(bus);
-	}
-
-	/**
-	 * `SampleNodeBus` constructor.
-	 * @param {Bus} bus The bus related to the new `SampleNodeBus`.
-	 */
-	constructor(bus) {
-		const NUMBER_OF_WEB_CHANNELS = 6;
-
-		/** @type {Bus} */
-		this._bus = bus;
-
-		/** @type {ChannelSplitterNode} */
-		this._channelSplitter = GodotAudio.ctx.createChannelSplitter(NUMBER_OF_WEB_CHANNELS);
-		/** @type {GainNode} */
-		this._l = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._r = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._sl = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._sr = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._c = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._lfe = GodotAudio.ctx.createGain();
-		/** @type {ChannelMergerNode} */
-		this._channelMerger = GodotAudio.ctx.createChannelMerger(NUMBER_OF_WEB_CHANNELS);
-
-		this._channelSplitter
-			.connect(this._l, GodotAudio.WebChannel.CHANNEL_L)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_L
-			);
-		this._channelSplitter
-			.connect(this._r, GodotAudio.WebChannel.CHANNEL_R)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_R
-			);
-		this._channelSplitter
-			.connect(this._sl, GodotAudio.WebChannel.CHANNEL_SL)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_SL
-			);
-		this._channelSplitter
-			.connect(this._sr, GodotAudio.WebChannel.CHANNEL_SR)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_SR
-			);
-		this._channelSplitter
-			.connect(this._c, GodotAudio.WebChannel.CHANNEL_C)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_C
-			);
-		this._channelSplitter
-			.connect(this._lfe, GodotAudio.WebChannel.CHANNEL_L)
-			.connect(
-				this._channelMerger,
-				GodotAudio.WebChannel.CHANNEL_L,
-				GodotAudio.WebChannel.CHANNEL_LFE
-			);
-
-		this._channelMerger.connect(this._bus.getInputNode());
-	}
-
-	/**
-	 * Returns the input node.
-	 * @returns {AudioNode}
-	 */
-	getInputNode() {
-		return this._channelSplitter;
-	}
-
-	/**
-	 * Returns the output node.
-	 * @returns {AudioNode}
-	 */
-	getOutputNode() {
-		return this._channelMerger;
-	}
-
-	/**
-	 * Sets the volume for each (split) channel.
-	 * @param {Float32Array} volume Volume array from the engine for each channel.
-	 * @returns {void}
-	 */
-	setVolume(volume) {
-		if (volume.length !== GodotAudio.MAX_VOLUME_CHANNELS) {
-			throw new Error(
-				`Volume length isn't "${GodotAudio.MAX_VOLUME_CHANNELS}", is ${volume.length} instead`
-			);
+	/** @param {number} index Already resolved by AudioServer::add_bus(): -1 appends. */
+	function addBusAt(index) {
+		const bus = createBus();
+		if (index < 0 || index >= buses.length) {
+			buses.push(bus);
+		} else {
+			buses.splice(index, 0, bus);
 		}
-		this._l.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_L] ?? 0;
-		this._r.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_R] ?? 0;
-		this._sl.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_SL] ?? 0;
-		this._sr.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_SR] ?? 0;
-		this._c.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_C] ?? 0;
-		this._lfe.gain.value = volume[GodotAudio.GodotChannel.CHANNEL_LFE] ?? 0;
+		updateRouting();
 	}
-
 	/**
-	 * Clears the current `SampleNodeBus` instance.
-	 * @returns {void}
+	 * Same as AudioServer::move_bus().
+	 * @param {number} fromIndex
+	 * @param {number} toIndex
 	 */
-	clear() {
-		this._bus = null;
-		this._channelSplitter.disconnect();
-		this._channelSplitter = null;
-		this._l.disconnect();
-		this._l = null;
-		this._r.disconnect();
-		this._r = null;
-		this._sl.disconnect();
-		this._sl = null;
-		this._sr.disconnect();
-		this._sr = null;
-		this._c.disconnect();
-		this._c = null;
-		this._lfe.disconnect();
-		this._lfe = null;
-		this._channelMerger.disconnect();
-		this._channelMerger = null;
-	}
-}
-
-/**
- * @typedef {{
- *   id: string
- *   streamObjectId: string
- *   busIndex: number
- * }} SampleNodeParams
- * @typedef {{
- *   offset?: number
- *   playbackRate?: number
- *   startTime?: number
- *   pitchScale?: number
- *   loopMode?: LoopMode
- *   volume?: Float32Array
- *   start?: boolean
- * }} SampleNodeOptions
- */
-
-/**
- * Represents an `AudioNode` of a `Sample`.
- * @class
- */
-class SampleNode {
-	/**
-	 * Returns a `SampleNode`.
-	 * @param {string} id Id of the `SampleNode`.
-	 * @returns {SampleNode}
-	 * @throws {ReferenceError} When no `SampleNode` is not found
-	 */
-	static getSampleNode(id) {
-		if (!GodotAudio.sampleNodes.has(id)) {
-			throw new ReferenceError(`Could not find sample node "${id}"`);
-		}
-		return GodotAudio.sampleNodes.get(id);
-	}
-
-	/**
-	 * Returns a `SampleNode`, returns null if not found.
-	 * @param {string} id Id of the SampleNode.
-	 * @returns {SampleNode?}
-	 */
-	static getSampleNodeOrNull(id) {
-		return GodotAudio.sampleNodes.get(id) ?? null;
-	}
-
-	/**
-	 * Stops a `SampleNode` by id.
-	 * @param {string} id Id of the `SampleNode` to stop.
-	 * @returns {void}
-	 */
-	static stopSampleNode(id) {
-		const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(id);
-		if (sampleNode == null) {
+	function moveBus(fromIndex, toIndex) {
+		const bus = getBus(fromIndex);
+		if (!bus || fromIndex === toIndex) {
 			return;
 		}
-		sampleNode.stop();
+		buses.splice(fromIndex, 1);
+		if (toIndex < 0) {
+			buses.push(bus);
+		} else if (toIndex < fromIndex) {
+			buses.splice(toIndex, 0, bus);
+		} else {
+			buses.splice(toIndex - 1, 0, bus);
+		}
+		updateRouting();
 	}
-
-	/**
-	 * Pauses the `SampleNode` by id.
-	 * @param {string} id Id of the `SampleNode` to pause.
-	 * @param {boolean} enable State of the pause
-	 * @returns {void}
-	 */
-	static pauseSampleNode(id, enable) {
-		const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(id);
-		if (sampleNode == null) {
+	/** @param {number} index */
+	function removeBus(index) {
+		const bus = getBus(index);
+		if (!bus) {
 			return;
 		}
-		sampleNode.pause(enable);
+		buses.splice(index, 1);
+		clearBus(bus);
+		updateRouting(); // Buses that sent to it now send to Master.
+	}
+	/**
+	 * @param {number} index
+	 * @param {number} sendIndex -1 for Master.
+	 */
+	function setBusSend(index, sendIndex) {
+		const bus = getBus(index);
+		if (!bus) {
+			return;
+		}
+		bus.send = getBus(sendIndex);
+		updateRouting();
+	}
+	/**
+	 * @param {number} index
+	 * @param {number} db
+	 */
+	function setBusVolumeDb(index, db) {
+		const bus = getBus(index);
+		const linear = dbToLinear(db);
+		if (bus && !Number.isNaN(linear)) {
+			bus.input.gain.value = linear; // AudioServer applies bus volumes per block, without a ramp.
+		}
+	}
+	/**
+	 * @param {number} index
+	 * @param {boolean} enable
+	 */
+	function setBusMute(index, enable) {
+		const bus = getBus(index);
+		if (bus) {
+			bus.mute = enable;
+			updateRouting();
+		}
+	}
+	/**
+	 * @param {number} index
+	 * @param {boolean} enable
+	 */
+	function setBusSolo(index, enable) {
+		const bus = getBus(index);
+		if (bus) {
+			bus.solo = enable;
+			updateRouting();
+		}
 	}
 
 	/**
-	 * Creates a `SampleNode` based on the params. Will register the `SampleNode` to
-	 * the `GodotAudio.sampleNodes` regisery.
-	 * @param {SampleNodeParams} params Base params.
-	 * @param {SampleNodeOptions | undefined} options Optional params.
-	 * @returns {SampleNode}
+	 * Creates the AudioBuffer of a sample. Every playback of the stream shares it.
+	 * @param {number} streamId
+	 * @param {!Float32Array} left
+	 * @param {!Float32Array} right
+	 * @param {LoopMode} loopMode
+	 * @param {number} loopBegin In frames at the context's sample rate.
+	 * @param {number} loopEnd In frames at the context's sample rate, 0 for the end of the stream.
 	 */
-	static create(params, options = {}) {
-		const sampleNode = new GodotAudio.SampleNode(params, options);
-		GodotAudio.sampleNodes.set(params.id, sampleNode);
-		return sampleNode;
-	}
-
-	/**
-	 * Deletes a `SampleNode` based on the id.
-	 * @param {string} id Id of the `SampleNode` to delete.
-	 * @returns {void}
-	 */
-	static delete(id) {
-		GodotAudio.deleteSampleNode(id);
-	}
-
-	/**
-	 * @param {SampleNodeParams} params Base params
-	 * @param {SampleNodeOptions | undefined} options Optional params.
-	 */
-	constructor(params, options = {}) {
-		/** @type {string} */
-		this.id = params.id;
-		/** @type {string} */
-		this.streamObjectId = params.streamObjectId;
-		/** @type {number} */
-		this.offset = options.offset ?? 0;
-		/** @type {number} */
-		this._playbackPosition = options.offset;
-		/** @type {number} */
-		this.startTime = options.startTime ?? 0;
-		/** @type {boolean} */
-		this.isPaused = false;
-		/** @type {boolean} */
-		this.isStarted = false;
-		/** @type {boolean} */
-		this.isCanceled = false;
-		/** @type {number} */
-		this.pauseTime = 0;
-		/** @type {number} */
-		this._playbackRate = 44100;
-		/** @type {LoopMode} */
-		this.loopMode = options.loopMode ?? this.getSample().loopMode ?? 'disabled';
-		/** @type {number} */
-		this._pitchScale = options.pitchScale ?? 1;
-		/** @type {number} */
-		this._sourceStartTime = 0;
-		/** @type {Map<Bus, SampleNodeBus>} */
-		this._sampleNodeBuses = new Map();
-		/** @type {AudioBufferSourceNode | null} */
-		this._source = GodotAudio.ctx.createBufferSource();
-
-		this._onended = null;
-		/** @type {AudioWorkletNode | null} */
-		this._positionWorklet = null;
-
-		this.setPlaybackRate(options.playbackRate ?? 44100);
-		this._source.buffer = this.getSample().getAudioBuffer();
-
-		this._addEndedListener();
-
-		const bus = GodotAudio.Bus.getBus(params.busIndex);
-		const sampleNodeBus = this.getSampleNodeBus(bus);
-		sampleNodeBus.setVolume(options.volume);
-
-		this.connectPositionWorklet(options.start).catch((err) => {
-			const newErr = new Error('Failed to create PositionWorklet.');
-			newErr.cause = err;
-			GodotRuntime.error(newErr);
+	function createStream(streamId, left, right, loopMode, loopBegin, loopEnd) {
+		const frames = left.length;
+		const end = loopEnd > 0 ? Math.min(loopEnd, frames) : frames;
+		const begin = Math.min(Math.max(loopBegin, 0), end);
+		const looping = loopMode !== LoopMode.DISABLED && end > begin;
+		// AudioStreamPlaybackWAV plays a ping-pong loop forward to loop_end, mirrors back down to loop_begin and so on
+		// (..., end - 1, end, end - 1, ..., begin + 1, begin, begin + 1, ...), and a backward loop from its start
+		// position down to loop_begin, then from loop_end - 1 down to loop_begin over and over. Lay both out in a
+		// buffer that loops forward: ping-pong unrolled, backward reversed whole.
+		let length = frames;
+		let bufferLoopStart = begin;
+		let bufferLoopEnd = end;
+		if (looping && loopMode === LoopMode.PINGPONG) {
+			length = end + (end - begin);
+			bufferLoopEnd = length;
+		} else if (looping && loopMode === LoopMode.BACKWARD) {
+			bufferLoopStart = frames - end;
+			bufferLoopEnd = frames - begin;
+		}
+		const buffer = ctx.createBuffer(2, Math.max(length, 1), sampleRate);
+		// Writing through getChannelData() also accepts views of a SharedArrayBuffer heap, which copyToChannel() does not.
+		[left, right].forEach((src, ch) => {
+			const data = buffer.getChannelData(ch);
+			if (looping && loopMode === LoopMode.PINGPONG) {
+				data.set(src.subarray(0, end));
+				for (let i = 0; i < end - begin; i++) {
+					data[end + i] = src[Math.min(end - i, frames - 1)];
+				}
+			} else if (looping && loopMode === LoopMode.BACKWARD) {
+				for (let i = 0; i < frames; i++) {
+					data[i] = src[frames - 1 - i];
+				}
+			} else {
+				data.set(src);
+			}
+		});
+		streams.set(streamId, {
+			buffer,
+			loopMode: looping ? loopMode : LoopMode.DISABLED,
+			looping,
+			loopBegin: begin,
+			loopEnd: end,
+			bufferLoopStart,
+			bufferLoopEnd,
 		});
 	}
-
 	/**
-	 * Gets the playback rate.
-	 * @returns {number}
+	 * @param {number} id
+	 * @return {?GodotStream}
 	 */
-	getPlaybackRate() {
-		return this._playbackRate;
+	function getStream(id) {
+		return streams.get(id) ?? null;
+	}
+	/** @param {number} id */
+	function removeStream(id) {
+		streams.delete(id); // Playbacks still using the buffer keep it alive.
 	}
 
 	/**
-	 * Gets the playback position.
-	 * @returns {number}
+	 * @param {!GodotStream} stream
+	 * @param {number} position In frames, may be past the buffer's loop end.
+	 * @return {number}
 	 */
-	getPlaybackPosition() {
-		return this._playbackPosition;
-	}
-
-	/**
-	 * Sets the playback rate.
-	 * @param {number} val Value to set.
-	 * @returns {void}
-	 */
-	setPlaybackRate(val) {
-		this._playbackRate = val;
-		this._syncPlaybackRate();
-	}
-
-	/**
-	 * Gets the pitch scale.
-	 * @returns {number}
-	 */
-	getPitchScale() {
-		return this._pitchScale;
-	}
-
-	/**
-	 * Sets the pitch scale.
-	 * @param {number} val Value to set.
-	 * @returns {void}
-	 */
-	setPitchScale(val) {
-		this._pitchScale = val;
-		this._syncPlaybackRate();
-	}
-
-	/**
-	 * Returns the linked `Sample`.
-	 * @returns {Sample}
-	 */
-	getSample() {
-		return GodotAudio.Sample.getSample(this.streamObjectId);
-	}
-
-	/**
-	 * Returns the output node.
-	 * @returns {AudioNode}
-	 */
-	getOutputNode() {
-		return this._source;
-	}
-
-	/**
-	 * Starts the `SampleNode`.
-	 * @returns {void}
-	 */
-	start() {
-		if (this.isStarted) {
-			return;
+	function wrapBufferPosition(stream, position) {
+		if (!stream.looping || position < stream.bufferLoopEnd) {
+			return position;
 		}
-		this._resetSourceStartTime();
-		this._source.start(this.startTime, this.offset);
-		this.isStarted = true;
+		const start = stream.bufferLoopStart;
+		return start + ((position - start) % (stream.bufferLoopEnd - start));
 	}
-
 	/**
-	 * Stops the `SampleNode`.
-	 * @returns {void}
+	 * Maps a stream position (what AudioStreamPlaybackWAV seeks to) to the position in the stream's buffer.
+	 * @param {!GodotStream} stream
+	 * @param {number} position In frames.
+	 * @return {number}
 	 */
-	stop() {
-		this.clear();
-	}
-
-	/**
-	 * Restarts the `SampleNode`.
-	 */
-	restart() {
-		this.isPaused = false;
-		this.pauseTime = 0;
-		this._resetSourceStartTime();
-		this._restart();
-	}
-
-	/**
-	 * Pauses the `SampleNode`.
-	 * @param {boolean} [enable=true] State of the pause.
-	 * @returns {void}
-	 */
-	pause(enable = true) {
-		if (enable) {
-			this._pause();
-			return;
-		}
-
-		this._unpause();
-	}
-
-	/**
-	 * Connects an AudioNode to the output node of this `SampleNode`.
-	 * @param {AudioNode} node AudioNode to connect.
-	 * @returns {void}
-	 */
-	connect(node) {
-		return this.getOutputNode().connect(node);
-	}
-
-	/**
-	 * Sets the volumes of the `SampleNode` for each buses passed in parameters.
-	 * @param {Array<Bus>} buses
-	 * @param {Float32Array} volumes
-	 */
-	setVolumes(buses, volumes) {
-		for (let busIdx = 0; busIdx < buses.length; busIdx++) {
-			const sampleNodeBus = this.getSampleNodeBus(buses[busIdx]);
-			sampleNodeBus.setVolume(
-				volumes.slice(
-					busIdx * GodotAudio.MAX_VOLUME_CHANNELS,
-					(busIdx * GodotAudio.MAX_VOLUME_CHANNELS) + GodotAudio.MAX_VOLUME_CHANNELS
-				)
-			);
-		}
-	}
-
-	/**
-	 * Returns the SampleNodeBus based on the bus in parameters.
-	 * @param {Bus} bus Bus to get the SampleNodeBus from.
-	 * @returns {SampleNodeBus}
-	 */
-	getSampleNodeBus(bus) {
-		if (!this._sampleNodeBuses.has(bus)) {
-			const sampleNodeBus = GodotAudio.SampleNodeBus.create(bus);
-			this._sampleNodeBuses.set(bus, sampleNodeBus);
-			this._source.connect(sampleNodeBus.getInputNode());
-		}
-		return this._sampleNodeBuses.get(bus);
-	}
-
-	/**
-	 * Sets up and connects the source to the GodotPositionReportingProcessor
-	 * If the worklet module is not loaded in, it will be added
-	 */
-	async connectPositionWorklet(start) {
-		await GodotAudio.audioPositionWorkletPromise;
-		if (this.isCanceled) {
-			return;
-		}
-		this._source.connect(this.getPositionWorklet());
-		if (start) {
-			this.start();
-		}
-	}
-
-	/**
-	 * Get a AudioWorkletProcessor
-	 * @returns {AudioWorkletNode}
-	 */
-	getPositionWorklet() {
-		if (this._positionWorklet != null) {
-			return this._positionWorklet;
-		}
-		if (GodotAudio.audioPositionWorkletNodes.length > 0) {
-			this._positionWorklet = GodotAudio.audioPositionWorkletNodes.pop();
-		} else {
-			this._positionWorklet = new AudioWorkletNode(
-				GodotAudio.ctx,
-				'godot-position-reporting-processor'
-			);
-		}
-		this._playbackPosition = this.offset;
-		this._positionWorklet.port.onmessage = (event) => {
-			switch (event.data['type']) {
-			case 'position':
-				this._playbackPosition = (parseInt(event.data.data, 10) / this.getSample().sampleRate) + this.offset;
-				break;
-			default:
-				// Do nothing.
+	function streamToBufferPosition(stream, position) {
+		const begin = stream.loopBegin;
+		const end = stream.loopEnd;
+		if (stream.loopMode === LoopMode.BACKWARD) {
+			// Played backward from the start position; below loop_begin it wraps to loop_end.
+			const last = stream.buffer.length - 1;
+			let pos = Math.min(position, last);
+			while (pos < begin) {
+				pos = end - (begin - pos);
 			}
+			return last - pos;
+		}
+		return wrapBufferPosition(stream, position);
+	}
+	/**
+	 * Maps a position in the stream's buffer back to the stream position AudioStreamPlaybackWAV would report.
+	 * @param {!GodotStream} stream
+	 * @param {number} position In frames, inside the buffer.
+	 * @return {number}
+	 */
+	function bufferToStreamPosition(stream, position) {
+		const end = stream.loopEnd;
+		if (stream.loopMode === LoopMode.PINGPONG && position >= end) {
+			return Math.max(2 * end - position, 0);
+		} else if (stream.loopMode === LoopMode.BACKWARD) {
+			return Math.max(stream.buffer.length - 1 - position, 0);
+		}
+		return position;
+	}
+
+	/**
+	 * Routes a playback to one bus, with one gain per output channel.
+	 * @param {!GodotBus} bus
+	 * @param {!AudioNode} from
+	 */
+	function createMixer(bus, from) {
+		const splitter = ctx.createChannelSplitter(2);
+		const merger = ctx.createChannelMerger(outputChannels);
+		/** @type {!Array<!GainNode>} */
+		const gains = [];
+		// The last gain written per channel. Volumes only reach JS when they change, but a mixer only ramps the
+		// channels that did.
+		const written = new Float32Array(outputChannels);
+		for (let ch = 0; ch < outputChannels; ch++) {
+			const gain = ctx.createGain();
+			gain.gain.value = 0;
+			splitter.connect(gain, ch % 2);
+			gain.connect(merger, 0, ch);
+			gains.push(gain);
+		}
+		merger.connect(bus.input);
+		from.connect(splitter);
+		let active = false;
+		return {
+			/**
+			 * @param {!Float32Array} volumes
+			 * @param {number} offset
+			 */
+			setVolume(volumes, offset) {
+				const now = ctx.currentTime;
+				let audible = false;
+				for (let ch = 0; ch < outputChannels; ch++) {
+					const value = volumes[offset + ch];
+					audible ||= value !== 0;
+					if (written[ch] === value) {
+						continue;
+					}
+					written[ch] = value;
+					if (active) {
+						gains[ch].gain.setTargetAtTime(value, now, RAMP_TIME_CONSTANT);
+					} else {
+						// A playback starts on a bus at full volume. 2D and 3D players start silent and get their
+						// volumes on the next frame, which counts as the start.
+						gains[ch].gain.value = value;
+					}
+				}
+				active ||= audible;
+			},
+			/** Fades out of the bus, as when AudioServer stops mixing a playback to a bus. */
+			fadeOut() {
+				if (!active) {
+					return;
+				}
+				const now = ctx.currentTime;
+				for (let ch = 0; ch < outputChannels; ch++) {
+					written[ch] = 0;
+					gains[ch].gain.setTargetAtTime(0, now, RAMP_TIME_CONSTANT);
+				}
+				active = false;
+			},
+			/** @param {!AudioNode} newFrom */
+			reconnect(newFrom) {
+				newFrom.connect(splitter);
+			},
+			clear() {
+				splitter.disconnect();
+				gains.forEach((gain) => gain.disconnect());
+				merger.disconnect();
+			},
 		};
-
-		const resetParameter = this._positionWorklet.parameters.get('reset');
-		resetParameter.setValueAtTime(1, GodotAudio.ctx.currentTime);
-		resetParameter.setValueAtTime(0, GodotAudio.ctx.currentTime + 1);
-
-		return this._positionWorklet;
 	}
 
 	/**
-	 * Clears the `SampleNode`.
-	 * @returns {void}
+	 * @param {number} playbackId
+	 * @param {number} streamId
+	 * @param {number} pitchScale
+	 * @return {?GodotPlayback}
 	 */
-	clear() {
-		this.isCanceled = true;
-		this.isPaused = false;
-		this.pauseTime = 0;
-
-		if (this._source != null) {
-			this._source.removeEventListener('ended', this._onended);
-			this._onended = null;
-			if (this.isStarted) {
-				this._source.stop();
-			}
-			this._source.disconnect();
-			this._source = null;
-		}
-
-		for (const sampleNodeBus of this._sampleNodeBuses.values()) {
-			sampleNodeBus.clear();
-		}
-		this._sampleNodeBuses.clear();
-
-		if (this._positionWorklet) {
-			this._positionWorklet.disconnect();
-			this._positionWorklet.port.onmessage = null;
-			GodotAudio.audioPositionWorkletNodes.push(this._positionWorklet);
-			this._positionWorklet = null;
-		}
-
-		GodotAudio.SampleNode.delete(this.id);
-	}
-
-	/**
-	 * Resets the source start time
-	 * @returns {void}
-	 */
-	_resetSourceStartTime() {
-		this._sourceStartTime = GodotAudio.ctx.currentTime;
-	}
-
-	/**
-	 * Syncs the `AudioNode` playback rate based on the `SampleNode` playback rate and pitch scale.
-	 * @returns {void}
-	 */
-	_syncPlaybackRate() {
-		this._source.playbackRate.value = this.getPlaybackRate() * this.getPitchScale();
-	}
-
-	/**
-	 * Restarts the `SampleNode`.
-	 * Honors `isPaused` and `pauseTime`.
-	 * @returns {void}
-	 */
-	_restart() {
-		if (this._source != null) {
-			this._source.disconnect();
-		}
-		this._source = GodotAudio.ctx.createBufferSource();
-		this._source.buffer = this.getSample().getAudioBuffer();
-
-		// Make sure that we connect the new source to the sample node bus.
-		for (const sampleNodeBus of this._sampleNodeBuses.values()) {
-			this.connect(sampleNodeBus.getInputNode());
-		}
-
-		this._addEndedListener();
-		const pauseTime = this.isPaused
-			? this.pauseTime
-			: 0;
-		if (this._positionWorklet != null) {
-			this._positionWorklet.port.postMessage({ type: 'clear' });
-			this._source.connect(this._positionWorklet);
-		}
-		this._source.start(this.startTime, this.offset + pauseTime);
-		this.isStarted = true;
-	}
-
-	/**
-	 * Pauses the `SampleNode`.
-	 * @returns {void}
-	 */
-	_pause() {
-		if (!this.isStarted) {
-			return;
-		}
-		this.isPaused = true;
-		this.pauseTime = (GodotAudio.ctx.currentTime - this._sourceStartTime) / this.getPlaybackRate();
-		this._source.stop();
-	}
-
-	/**
-	 * Unpauses the `SampleNode`.
-	 * @returns {void}
-	 */
-	_unpause() {
-		this._restart();
-		this.isPaused = false;
-		this.pauseTime = 0;
-	}
-
-	/**
-	 * Adds an "ended" listener to the source node to repeat it if necessary.
-	 * @returns {void}
-	 */
-	_addEndedListener() {
-		if (this._onended != null) {
-			this._source.removeEventListener('ended', this._onended);
-		}
-
-		/** @type {SampleNode} */
-		// eslint-disable-next-line consistent-this
-		const self = this;
-		this._onended = (_) => {
-			if (self.isPaused) {
-				return;
-			}
-
-			switch (self.getSample().loopMode) {
-			case 'disabled':
-				self.stop();
-				break;
-			case 'forward':
-			case 'backward':
-				self.restart();
-				break;
-			default:
-				// do nothing
-			}
-		};
-		this._source.addEventListener('ended', this._onended);
-	}
-}
-
-/**
- * Collection of nodes to represents a Godot Engine audio bus.
- * @class
- */
-class Bus {
-	/**
-	 * Returns the number of registered buses.
-	 * @returns {number}
-	 */
-	static getCount() {
-		return GodotAudio.buses.length;
-	}
-
-	/**
-	 * Sets the number of registered buses.
-	 * Will delete buses if lower than the current number.
-	 * @param {number} val Count of registered buses.
-	 * @returns {void}
-	 */
-	static setCount(val) {
-		const buses = GodotAudio.buses;
-		if (val === buses.length) {
-			return;
-		}
-
-		if (val < buses.length) {
-			// TODO: what to do with nodes connected to the deleted buses?
-			const deletedBuses = buses.slice(val);
-			for (let i = 0; i < deletedBuses.length; i++) {
-				const deletedBus = deletedBuses[i];
-				deletedBus.clear();
-			}
-			GodotAudio.buses = buses.slice(0, val);
-			return;
-		}
-
-		for (let i = GodotAudio.buses.length; i < val; i++) {
-			GodotAudio.Bus.create();
-		}
-	}
-
-	/**
-	 * Returns a `Bus` based on it's index number.
-	 * @param {number} index
-	 * @returns {Bus}
-	 * @throws {ReferenceError} If the index value is outside the registry.
-	 */
-	static getBus(index) {
-		if (index < 0 || index >= GodotAudio.buses.length) {
-			throw new ReferenceError(`invalid bus index "${index}"`);
-		}
-		return GodotAudio.buses[index];
-	}
-
-	/**
-	 * Returns a `Bus` based on it's index number. Returns null if it doesn't exist.
-	 * @param {number} index
-	 * @returns {Bus?}
-	 */
-	static getBusOrNull(index) {
-		if (index < 0 || index >= GodotAudio.buses.length) {
+	function createPlayback(playbackId, streamId, pitchScale) {
+		const stream = getStream(streamId);
+		if (!stream) {
 			return null;
 		}
-		return GodotAudio.buses[index];
-	}
-
-	/**
-	 * Move a bus from an index to another.
-	 * @param {number} fromIndex From index
-	 * @param {number} toIndex To index
-	 * @returns {void}
-	 */
-	static move(fromIndex, toIndex) {
-		const movedBus = GodotAudio.Bus.getBusOrNull(fromIndex);
-		if (movedBus == null) {
-			return;
+		const source = ctx.createBufferSource();
+		source.buffer = stream.buffer;
+		if (stream.looping) {
+			source.loop = true;
+			source.loopStart = stream.bufferLoopStart / sampleRate;
+			source.loopEnd = stream.bufferLoopEnd / sampleRate;
 		}
-		const buses = GodotAudio.buses.filter((_, i) => i !== fromIndex);
-		// Inserts at index.
-		buses.splice(toIndex - 1, 0, movedBus);
-		GodotAudio.buses = buses;
-	}
+		const fader = ctx.createGain();
+		source.connect(fader);
+		/** @type {?BiquadFilterNode} */
+		let filter = null;
+		/** @type {!AudioNode} */
+		let tail = fader; // What the mixers listen to.
+		/** @type {!Map<!GodotBus, !Object>} */
+		const mixers = new Map();
 
-	/**
-	 * Adds a new bus at the specified index.
-	 * @param {number} index Index to add a new bus.
-	 * @returns {void}
-	 */
-	static addAt(index) {
-		const newBus = GodotAudio.Bus.create();
-		if (index !== newBus.getId()) {
-			GodotAudio.Bus.move(newBus.getId(), index);
+		let paused = false;
+		let retired = false;
+		let scale = pitchScale;
+		// The position is (time - anchorTime) * rate frames after anchorFrames, in the buffer.
+		let anchorTime = 0;
+		let anchorFrames = 0;
+		let rate = 0;
+		/**
+		 * @param {number} time
+		 * @return {number}
+		 */
+		function framesAt(time) {
+			return anchorFrames + (Math.max(time - anchorTime, 0) * sampleRate * rate);
 		}
-	}
-
-	/**
-	 * Creates a `Bus` and registers it.
-	 * @returns {Bus}
-	 */
-	static create() {
-		const newBus = new GodotAudio.Bus();
-		const isFirstBus = GodotAudio.buses.length === 0;
-		GodotAudio.buses.push(newBus);
-		if (isFirstBus) {
-			newBus.setSend(null);
-		} else {
-			newBus.setSend(GodotAudio.Bus.getBus(0));
+		/**
+		 * @param {number} newRate
+		 * @param {number} time
+		 */
+		function setRate(newRate, time) {
+			anchorFrames = framesAt(time);
+			anchorTime = time;
+			rate = newRate;
 		}
-		return newBus;
-	}
 
-	/**
-	 * `Bus` constructor.
-	 */
-	constructor() {
-		/** @type {Set<SampleNode>} */
-		this._sampleNodes = new Set();
-		/** @type {boolean} */
-		this.isSolo = false;
-		/** @type {Bus?} */
-		this._send = null;
-
-		/** @type {GainNode} */
-		this._gainNode = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._soloNode = GodotAudio.ctx.createGain();
-		/** @type {GainNode} */
-		this._muteNode = GodotAudio.ctx.createGain();
-
-		this._gainNode
-			.connect(this._soloNode)
-			.connect(this._muteNode);
-	}
-
-	/**
-	 * Returns the current id of the bus (its index).
-	 * @returns {number}
-	 */
-	getId() {
-		return GodotAudio.buses.indexOf(this);
-	}
-
-	/**
-	 * Returns the bus volume db value.
-	 * @returns {number}
-	 */
-	getVolumeDb() {
-		return GodotAudio.linear_to_db(this._gainNode.gain.value);
-	}
-
-	/**
-	 * Sets the bus volume db value.
-	 * @param {number} val Value to set
-	 * @returns {void}
-	 */
-	setVolumeDb(val) {
-		const linear = GodotAudio.db_to_linear(val);
-		if (isFinite(linear)) {
-			this._gainNode.gain.value = linear;
+		function teardown() {
+			source.disconnect();
+			fader.disconnect();
+			if (filter) {
+				filter.disconnect();
+			}
+			mixers.forEach((mixer) => mixer.clear());
+			mixers.clear();
 		}
-	}
-
-	/**
-	 * Returns the "send" bus.
-	 * If null, this bus sends its contents directly to the output.
-	 * If not null, this bus sends its contents to another bus.
-	 * @returns {Bus?}
-	 */
-	getSend() {
-		return this._send;
-	}
-
-	/**
-	 * Sets the "send" bus.
-	 * If null, this bus sends its contents directly to the output.
-	 * If not null, this bus sends its contents to another bus.
-	 *
-	 * **Note:** if null, `getId()` must be equal to 0. Otherwise, it will throw.
-	 * @param {Bus?} val
-	 * @returns {void}
-	 * @throws {Error} When val is `null` and `getId()` isn't equal to 0
-	 */
-	setSend(val) {
-		this._send = val;
-		if (val == null) {
-			if (this.getId() == 0) {
-				this.getOutputNode().connect(GodotAudio.ctx.destination);
+		/**
+		 * Stops the playback for good.
+		 * @param {boolean} fade Fade out over one mix block, like AudioServer::stop_playback_stream().
+		 */
+		function retire(fade) {
+			if (retired) {
 				return;
 			}
-			throw new Error(
-				`Cannot send to "${val}" without the bus being at index 0 (current index: ${this.getId()})`
-			);
-		}
-		this.connect(val);
-	}
-
-	/**
-	 * Returns the input node of the bus.
-	 * @returns {AudioNode}
-	 */
-	getInputNode() {
-		return this._gainNode;
-	}
-
-	/**
-	 * Returns the output node of the bus.
-	 * @returns {AudioNode}
-	 */
-	getOutputNode() {
-		return this._muteNode;
-	}
-
-	/**
-	 * Sets the mute status of the bus.
-	 * @param {boolean} enable
-	 */
-	mute(enable) {
-		this._muteNode.gain.value = enable ? 0 : 1;
-	}
-
-	/**
-	 * Sets the solo status of the bus.
-	 * @param {boolean} enable
-	 */
-	solo(enable) {
-		if (this.isSolo === enable) {
-			return;
-		}
-
-		if (enable) {
-			if (GodotAudio.busSolo != null && GodotAudio.busSolo !== this) {
-				GodotAudio.busSolo._disableSolo();
+			retired = true;
+			if (fade && !paused) {
+				const now = ctx.currentTime;
+				fader.gain.setTargetAtTime(0, now, RAMP_TIME_CONSTANT);
+				source.onended = teardown;
+				source.stop(now + RAMP_TIME);
+			} else {
+				source.onended = null;
+				source.stop();
+				teardown();
 			}
-			this._enableSolo();
+		}
+		/** @param {number} position In seconds, in the stream. */
+		function start(position) {
+			const frames = streamToBufferPosition(stream, position * sampleRate);
+			source.playbackRate.value = scale;
+			source.start(0, frames / sampleRate);
+			anchorTime = ctx.currentTime;
+			anchorFrames = frames;
+			rate = scale;
+		}
+		/** @param {number} newScale */
+		function setPitchScale(newScale) {
+			if (scale === newScale) {
+				return;
+			}
+			scale = newScale;
+			if (paused || retired) {
+				return;
+			}
+			setRate(scale, ctx.currentTime);
+			source.playbackRate.value = scale;
+		}
+		/** @param {boolean} enable */
+		function pause(enable) {
+			if (paused === enable || retired) {
+				return;
+			}
+			paused = enable;
+			const now = ctx.currentTime;
+			if (enable) {
+				// Fade out over one block, then hold the source in place (AudioServer's FADE_OUT_TO_PAUSE).
+				fader.gain.setTargetAtTime(0, now, RAMP_TIME_CONSTANT);
+				source.playbackRate.setValueAtTime(0, now + RAMP_TIME);
+				setRate(rate, now);
+				setRate(0, now + RAMP_TIME);
+			} else {
+				source.playbackRate.cancelScheduledValues(now);
+				source.playbackRate.value = scale;
+				fader.gain.setTargetAtTime(1, now, RAMP_TIME_CONSTANT);
+				anchorFrames = framesAt(now);
+				anchorTime = now;
+				rate = scale;
+			}
+		}
+		/**
+		 * @param {!Int32Array} busIndexes
+		 * @param {!Float32Array} volumes VOLUME_CHANNELS per bus. Not kept.
+		 */
+		function setVolumes(busIndexes, volumes) {
+			if (retired) {
+				return;
+			}
+			/** @type {!Set<!GodotBus>} */
+			const wanted = new Set();
+			for (let i = 0; i < busIndexes.length; i++) {
+				const bus = getBus(busIndexes[i]);
+				if (!bus || wanted.has(bus)) {
+					continue;
+				}
+				wanted.add(bus);
+				let mixer = mixers.get(bus);
+				if (!mixer) {
+					mixer = createMixer(bus, tail);
+					mixers.set(bus, mixer);
+				}
+				mixer.setVolume(volumes, i * VOLUME_CHANNELS);
+			}
+			// A bus the playback no longer mixes to fades out; its mixer stays, silent, should it come back.
+			mixers.forEach((mixer, bus) => {
+				if (!wanted.has(bus)) {
+					mixer.fadeOut();
+				}
+			});
+		}
+		/**
+		 * The 3D attenuation filter of AudioServer::_mix_step_for_channel().
+		 * @param {number} gain Linear; 0 for no filter.
+		 * @param {number} cutoffHz
+		 */
+		function setHighshelf(gain, cutoffHz) {
+			if (retired) {
+				return;
+			}
+			// AudioFilterSW's high shelf uses the gain where the RBJ cookbook, and so BiquadFilterNode, use
+			// A = 10^(dB / 40). Its transition is a little steeper (Q = 1 where BiquadFilterNode uses S = 1).
+			const db = gain > 0 ? 40 * Math.log10(Math.max(gain, 0.001)) : 0;
+			if (!filter) {
+				if (gain === 0) {
+					return;
+				}
+				filter = ctx.createBiquadFilter();
+				filter.type = 'highshelf';
+				filter.frequency.value = cutoffHz;
+				filter.gain.value = db;
+				fader.disconnect();
+				fader.connect(filter);
+				mixers.forEach((mixer) => mixer.reconnect(filter));
+				tail = filter;
+				return;
+			}
+			const now = ctx.currentTime;
+			filter.frequency.setTargetAtTime(cutoffHz, now, RAMP_TIME_CONSTANT);
+			filter.gain.setTargetAtTime(db, now, RAMP_TIME_CONSTANT);
+		}
+		/** @return {number} In seconds. */
+		function getPlaybackPosition() {
+			let frames = framesAt(ctx.currentTime);
+			if (stream.looping) {
+				frames = wrapBufferPosition(stream, frames);
+			} else {
+				frames = Math.min(frames, stream.buffer.length);
+			}
+			return bufferToStreamPosition(stream, frames) / sampleRate;
+		}
+
+		const node = {
+			start,
+			retire,
+			pause,
+			setVolumes,
+			setPitchScale,
+			setHighshelf,
+			getPlaybackPosition,
+		};
+		source.onended = () => {
+			// Reached the end of a non-looping stream.
+			if (retired) {
+				return;
+			}
+			retire(false);
+			if (playbacks.get(playbackId) === node) {
+				playbacks.delete(playbackId);
+			}
+			if (finishedCallback) {
+				finishedCallback(playbackId);
+			}
+		};
+		return node;
+	}
+	/**
+	 * @param {number} id
+	 * @return {?GodotPlayback}
+	 */
+	function getPlayback(id) {
+		return playbacks.get(id) ?? null;
+	}
+	/** @param {number} id */
+	function removePlayback(id) {
+		const playback = playbacks.get(id);
+		if (playback) {
+			playbacks.delete(id);
+			playback.retire(true);
+		}
+	}
+
+	/**
+	 * Starts a new playback, replacing (and fading out) the one with that ID, if any.
+	 * @param {number} playbackId
+	 * @param {number} streamId
+	 * @param {number} position In seconds.
+	 * @param {number} pitchScale
+	 * @param {!Int32Array} busIndexes
+	 * @param {!Float32Array} volumes
+	 */
+	function startPlayback(playbackId, streamId, position, pitchScale, busIndexes, volumes) {
+		removePlayback(playbackId);
+		const playback = createPlayback(playbackId, streamId, pitchScale);
+		if (!playback) {
 			return;
 		}
-
-		this._disableSolo();
+		playback.setVolumes(busIndexes, volumes);
+		playback.start(position);
+		playbacks.set(playbackId, playback);
+	}
+	function clear() {
+		playbacks.forEach((p) => p.retire(false));
+		playbacks.clear();
+		streams.clear();
+		buses.splice(0).forEach(clearBus);
+		ctx = null;
 	}
 
-	/**
-	 * Wrapper to simply add a sample node to the bus.
-	 * @param {SampleNode} sampleNode `SampleNode` to remove
-	 * @returns {void}
-	 */
-	addSampleNode(sampleNode) {
-		this._sampleNodes.add(sampleNode);
-		sampleNode.getOutputNode().connect(this.getInputNode());
-	}
-
-	/**
-	 * Wrapper to simply remove a sample node from the bus.
-	 * @param {SampleNode} sampleNode `SampleNode` to remove
-	 * @returns {void}
-	 */
-	removeSampleNode(sampleNode) {
-		this._sampleNodes.delete(sampleNode);
-		sampleNode.getOutputNode().disconnect();
-	}
-
-	/**
-	 * Wrapper to simply connect to another bus.
-	 * @param {Bus} bus
-	 * @returns {void}
-	 */
-	connect(bus) {
-		if (bus == null) {
-			throw new Error('cannot connect to null bus');
-		}
-		this.getOutputNode().disconnect();
-		this.getOutputNode().connect(bus.getInputNode());
-		return bus;
-	}
-
-	/**
-	 * Clears the current bus.
-	 * @returns {void}
-	 */
-	clear() {
-		GodotAudio.buses = GodotAudio.buses.filter((v) => v !== this);
-	}
-
-	_syncSampleNodes() {
-		const sampleNodes = Array.from(this._sampleNodes);
-		for (let i = 0; i < sampleNodes.length; i++) {
-			const sampleNode = sampleNodes[i];
-			sampleNode.getOutputNode().disconnect();
-			sampleNode.getOutputNode().connect(this.getInputNode());
-		}
-	}
-
-	/**
-	 * Process to enable solo.
-	 * @returns {void}
-	 */
-	_enableSolo() {
-		this.isSolo = true;
-		GodotAudio.busSolo = this;
-		this._soloNode.gain.value = 1;
-		const otherBuses = GodotAudio.buses.filter(
-			(otherBus) => otherBus !== this
-		);
-		for (let i = 0; i < otherBuses.length; i++) {
-			const otherBus = otherBuses[i];
-			otherBus._soloNode.gain.value = 0;
-		}
-	}
-
-	/**
-	 * Process to disable solo.
-	 * @returns {void}
-	 */
-	_disableSolo() {
-		this.isSolo = false;
-		GodotAudio.busSolo = null;
-		this._soloNode.gain.value = 1;
-		const otherBuses = GodotAudio.buses.filter(
-			(otherBus) => otherBus !== this
-		);
-		for (let i = 0; i < otherBuses.length; i++) {
-			const otherBus = otherBuses[i];
-			otherBus._soloNode.gain.value = 1;
-		}
-	}
+	const driver = /** @struct */ {
+		setFinishedCallback,
+		clear,
+		// Streams
+		createStream,
+		getStream,
+		removeStream,
+		// Playbacks
+		startPlayback,
+		getPlayback,
+		removePlayback,
+		// Buses
+		setBusCount,
+		addBusAt,
+		moveBus,
+		removeBus,
+		setBusSend,
+		setBusVolumeDb,
+		setBusMute,
+		setBusSolo,
+		// So they survive pre-stripping.
+		_: { GodotBus, GodotStream, GodotPlayback },
+	};
+	return driver;
 }
 
 const _GodotAudio = {
 	$GodotAudio__deps: ['$GodotRuntime', '$GodotOS'],
 	$GodotAudio: {
-		/**
-		 * Max number of volume channels.
-		 */
-		MAX_VOLUME_CHANNELS: 8,
-
-		/**
-		 * Represents the index of each sound channel relative to the engine.
-		 */
-		GodotChannel: Object.freeze({
-			CHANNEL_L: 0,
-			CHANNEL_R: 1,
-			CHANNEL_C: 3,
-			CHANNEL_LFE: 4,
-			CHANNEL_RL: 5,
-			CHANNEL_RR: 6,
-			CHANNEL_SL: 7,
-			CHANNEL_SR: 8,
-		}),
-
-		/**
-		 * Represents the index of each sound channel relative to the Web Audio API.
-		 */
-		WebChannel: Object.freeze({
-			CHANNEL_L: 0,
-			CHANNEL_R: 1,
-			CHANNEL_SL: 2,
-			CHANNEL_SR: 3,
-			CHANNEL_C: 4,
-			CHANNEL_LFE: 5,
-		}),
-
-		// `Sample` class
-		/**
-		 * Registry of `Sample`s.
-		 * @type {Map<string, Sample>}
-		 */
-		samples: null,
-		Sample,
-
-		// `SampleNodeBus` class
-		SampleNodeBus,
-
-		// `SampleNode` class
-		/**
-		 * Registry of `SampleNode`s.
-		 * @type {Map<string, SampleNode>}
-		 */
-		sampleNodes: null,
-		SampleNode,
-		deleteSampleNode: (pSampleNodeId) => {
-			GodotAudio.sampleNodes.delete(pSampleNodeId);
-			if (GodotAudio.sampleFinishedCallback == null) {
-				return;
-			}
-			const sampleNodeIdPtr = GodotRuntime.allocString(pSampleNodeId);
-			GodotAudio.sampleFinishedCallback(sampleNodeIdPtr);
-			GodotRuntime.free(sampleNodeIdPtr);
-		},
-
-		// `Bus` class
-		/**
-		 * Registry of `Bus`es.
-		 * @type {Array<Bus>}
-		 */
-		buses: null,
-		/**
-		 * Reference to the current bus in solo mode.
-		 * @type {Bus | null}
-		 */
-		busSolo: null,
-		Bus,
-
-		/**
-		 * Callback to signal that a sample has finished.
-		 * @type {(playbackObjectIdPtr: number) => void | null}
-		 */
-		sampleFinishedCallback: null,
-
 		/** @type {AudioContext} */
 		ctx: null,
 		input: null,
 		driver: null,
+		sample_driver: null,
 		interval: 0,
 
-		/** @type {Promise} */
-		audioPositionWorkletPromise: null,
-		/** @type {Array<AudioWorkletNode>} */
-		audioPositionWorkletNodes: null,
-
-		/**
-		 * Converts linear volume to Db.
-		 * @param {number} linear Linear value to convert.
-		 * @returns {number}
-		 */
-		linear_to_db: function (linear) {
-			// eslint-disable-next-line no-loss-of-precision
-			return Math.log(linear) * 8.6858896380650365530225783783321;
-		},
-		/**
-		 * Converts Db volume to linear.
-		 * @param {number} db Db value to convert.
-		 * @returns {number}
-		 */
-		db_to_linear: function (db) {
-			// eslint-disable-next-line no-loss-of-precision
-			return Math.exp(db * 0.11512925464970228420089957273422);
-		},
-
+		GodotSampleDriver,
 		init: function (mix_rate, latency, onstatechange, onlatencyupdate) {
-			// Initialize classes static values.
-			GodotAudio.samples = new Map();
-			GodotAudio.sampleNodes = new Map();
-			GodotAudio.buses = [];
-			GodotAudio.busSolo = null;
-			GodotAudio.audioPositionWorkletNodes = [];
-
 			const opts = {};
 			// If mix_rate is 0, let the browser choose.
 			if (mix_rate) {
@@ -1251,6 +790,22 @@ const _GodotAudio = {
 			// opts['latencyHint'] = latency / 1000;
 			const ctx = new (window.AudioContext || window.webkitAudioContext)(opts);
 			GodotAudio.ctx = ctx;
+			// Use the device's channels, like the native drivers do, but only in the layouts where Godot's channel
+			// order (L, R, C, LFE, RL, RR, SL, SR) is also Web Audio's: stereo, 5.1 and 7.1.
+			const maxChannels = ctx.destination.maxChannelCount;
+			let channels = 2;
+			if (maxChannels >= 8) {
+				channels = 8;
+			} else if (maxChannels >= 6) {
+				channels = 6;
+			}
+			if (ctx.destination.channelCount !== channels) {
+				try {
+					ctx.destination.channelCount = channels;
+				} catch (e) {
+					GodotRuntime.print(`Could not output ${channels} audio channels, using ${ctx.destination.channelCount}.`);
+				}
+			}
 			ctx.onstatechange = function () {
 				let state = 0;
 				switch (ctx.state) {
@@ -1282,8 +837,8 @@ const _GodotAudio = {
 			}, 1000);
 			GodotOS.atexit(GodotAudio.close_async);
 
-			const path = GodotConfig.locate_file('godot.audio.position.worklet.js');
-			GodotAudio.audioPositionWorkletPromise = ctx.audioWorklet.addModule(path);
+			// Initialize sample driver.
+			GodotAudio.sample_driver = GodotAudio.GodotSampleDriver(ctx);
 
 			return ctx.destination.channelCount;
 		},
@@ -1331,6 +886,11 @@ const _GodotAudio = {
 				resolve();
 				return;
 			}
+			// Clear audio driver
+			if (GodotAudio.sample_driver) {
+				GodotAudio.sample_driver.clear();
+				GodotAudio.sample_driver = null;
+			}
 			// Remove latency callback
 			if (GodotAudio.interval) {
 				clearInterval(GodotAudio.interval);
@@ -1356,183 +916,6 @@ const _GodotAudio = {
 				GodotRuntime.error('Error closing AudioContext', e);
 				resolve();
 			});
-		},
-
-		/**
-		 * Triggered when a sample node needs to start.
-		 * @param {string} playbackObjectId The unique id of the sample playback
-		 * @param {string} streamObjectId The unique id of the stream
-		 * @param {number} busIndex Index of the bus currently binded to the sample playback
-		 * @param {SampleNodeOptions | undefined} startOptions Optional params.
-		 * @returns {void}
-		 */
-		start_sample: function (
-			playbackObjectId,
-			streamObjectId,
-			busIndex,
-			startOptions
-		) {
-			GodotAudio.SampleNode.stopSampleNode(playbackObjectId);
-			GodotAudio.SampleNode.create(
-				{
-					busIndex,
-					id: playbackObjectId,
-					streamObjectId,
-				},
-				startOptions
-			);
-		},
-
-		/**
-		 * Triggered when a sample node needs to be stopped.
-		 * @param {string} playbackObjectId Id of the sample playback
-		 * @returns {void}
-		 */
-		stop_sample: function (playbackObjectId) {
-			GodotAudio.SampleNode.stopSampleNode(playbackObjectId);
-		},
-
-		/**
-		 * Triggered when a sample node needs to be paused or unpaused.
-		 * @param {string} playbackObjectId Id of the sample playback
-		 * @param {boolean} pause State of the pause
-		 * @returns {void}
-		 */
-		sample_set_pause: function (playbackObjectId, pause) {
-			GodotAudio.SampleNode.pauseSampleNode(playbackObjectId, pause);
-		},
-
-		/**
-		 * Triggered when a sample node needs its pitch scale to be updated.
-		 * @param {string} playbackObjectId Id of the sample playback
-		 * @param {number} pitchScale Pitch scale of the sample playback
-		 * @returns {void}
-		 */
-		update_sample_pitch_scale: function (playbackObjectId, pitchScale) {
-			const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(playbackObjectId);
-			if (sampleNode == null) {
-				return;
-			}
-			sampleNode.setPitchScale(pitchScale);
-		},
-
-		/**
-		 * Triggered when a sample node volumes need to be updated.
-		 * @param {string} playbackObjectId Id of the sample playback
-		 * @param {Array<number>} busIndexes Indexes of the buses that need to be updated
-		 * @param {Float32Array} volumes Array of the volumes
-		 * @returns {void}
-		 */
-		sample_set_volumes_linear: function (playbackObjectId, busIndexes, volumes) {
-			const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(playbackObjectId);
-			if (sampleNode == null) {
-				return;
-			}
-			const buses = busIndexes.map((busIndex) => GodotAudio.Bus.getBus(busIndex));
-			sampleNode.setVolumes(buses, volumes);
-		},
-
-		/**
-		 * Triggered when the bus count changes.
-		 * @param {number} count Number of buses
-		 * @returns {void}
-		 */
-		set_sample_bus_count: function (count) {
-			GodotAudio.Bus.setCount(count);
-		},
-
-		/**
-		 * Triggered when a bus needs to be removed.
-		 * @param {number} index Bus index
-		 * @returns {void}
-		 */
-		remove_sample_bus: function (index) {
-			const bus = GodotAudio.Bus.getBusOrNull(index);
-			if (bus == null) {
-				return;
-			}
-			bus.clear();
-		},
-
-		/**
-		 * Triggered when a bus needs to be at the desired position.
-		 * @param {number} atPos Position to add the bus
-		 * @returns {void}
-		 */
-		add_sample_bus: function (atPos) {
-			GodotAudio.Bus.addAt(atPos);
-		},
-
-		/**
-		 * Triggered when a bus needs to be moved.
-		 * @param {number} busIndex Index of the bus to move
-		 * @param {number} toPos Index of the new position of the bus
-		 * @returns {void}
-		 */
-		move_sample_bus: function (busIndex, toPos) {
-			GodotAudio.Bus.move(busIndex, toPos);
-		},
-
-		/**
-		 * Triggered when the "send" value of a bus changes.
-		 * @param {number} busIndex Index of the bus to update the "send" value
-		 * @param {number} sendIndex Index of the bus that is the new "send"
-		 * @returns {void}
-		 */
-		set_sample_bus_send: function (busIndex, sendIndex) {
-			const bus = GodotAudio.Bus.getBusOrNull(busIndex);
-			if (bus == null) {
-				// Cannot send from an invalid bus.
-				return;
-			}
-			let targetBus = GodotAudio.Bus.getBusOrNull(sendIndex);
-			if (targetBus == null) {
-				// Send to master.
-				targetBus = GodotAudio.Bus.getBus(0);
-			}
-			bus.setSend(targetBus);
-		},
-
-		/**
-		 * Triggered when a bus needs its volume db to be updated.
-		 * @param {number} busIndex Index of the bus to update its volume db
-		 * @param {number} volumeDb Volume of the bus
-		 * @returns {void}
-		 */
-		set_sample_bus_volume_db: function (busIndex, volumeDb) {
-			const bus = GodotAudio.Bus.getBusOrNull(busIndex);
-			if (bus == null) {
-				return;
-			}
-			bus.setVolumeDb(volumeDb);
-		},
-
-		/**
-		 * Triggered when a bus needs to update its solo status
-		 * @param {number} busIndex Index of the bus to update its solo status
-		 * @param {boolean} enable Status of the solo
-		 * @returns {void}
-		 */
-		set_sample_bus_solo: function (busIndex, enable) {
-			const bus = GodotAudio.Bus.getBusOrNull(busIndex);
-			if (bus == null) {
-				return;
-			}
-			bus.solo(enable);
-		},
-
-		/**
-		 * Triggered when a bus needs to update its mute status
-		 * @param {number} busIndex Index of the bus to update its mute status
-		 * @param {boolean} enable Status of the mute
-		 * @returns {void}
-		 */
-		set_sample_bus_mute: function (busIndex, enable) {
-			const bus = GodotAudio.Bus.getBusOrNull(busIndex);
-			if (bus == null) {
-				return;
-			}
-			bus.mute(enable);
 		},
 	},
 
@@ -1606,342 +989,207 @@ const _GodotAudio = {
 			GodotAudio.input = null;
 		}
 	},
-
-	godot_audio_sample_stream_is_registered__proxy: 'sync',
-	godot_audio_sample_stream_is_registered__sig: 'ii',
-	/**
-	 * Returns if the sample stream is registered
-	 * @param {number} streamObjectIdStrPtr Pointer of the streamObjectId
-	 * @returns {number}
-	 */
-	godot_audio_sample_stream_is_registered: function (streamObjectIdStrPtr) {
-		const streamObjectId = GodotRuntime.parseString(streamObjectIdStrPtr);
-		return Number(GodotAudio.Sample.getSampleOrNull(streamObjectId) != null);
-	},
-
-	godot_audio_sample_register_stream__proxy: 'sync',
-	godot_audio_sample_register_stream__sig: 'viiiiiii',
-	/**
-	 * Registers a stream.
-	 * @param {number} streamObjectIdStrPtr StreamObjectId pointer
-	 * @param {number} framesPtr Frames pointer
-	 * @param {number} framesTotal Frames total value
-	 * @param {number} loopModeStrPtr Loop mode pointer
-	 * @param {number} loopBegin Loop begin value
-	 * @param {number} loopEnd Loop end value
-	 * @returns {void}
-	 */
-	godot_audio_sample_register_stream: function (
-		streamObjectIdStrPtr,
-		framesPtr,
-		framesTotal,
-		loopModeStrPtr,
-		loopBegin,
-		loopEnd
-	) {
-		const BYTES_PER_FLOAT32 = 4;
-		const streamObjectId = GodotRuntime.parseString(streamObjectIdStrPtr);
-		const loopMode = GodotRuntime.parseString(loopModeStrPtr);
-		const numberOfChannels = 2;
-		const sampleRate = GodotAudio.ctx.sampleRate;
-
-		/** @type {Float32Array} */
-		const subLeft = GodotRuntime.heapSub(HEAPF32, framesPtr, framesTotal);
-		/** @type {Float32Array} */
-		const subRight = GodotRuntime.heapSub(
-			HEAPF32,
-			framesPtr + framesTotal * BYTES_PER_FLOAT32,
-			framesTotal
-		);
-
-		const audioBuffer = GodotAudio.ctx.createBuffer(
-			numberOfChannels,
-			framesTotal,
-			sampleRate
-		);
-		audioBuffer.copyToChannel(new Float32Array(subLeft), 0, 0);
-		audioBuffer.copyToChannel(new Float32Array(subRight), 1, 0);
-
-		GodotAudio.Sample.create(
-			{
-				id: streamObjectId,
-				audioBuffer,
-			},
-			{
-				loopBegin,
-				loopEnd,
-				loopMode,
-				numberOfChannels,
-				sampleRate,
-			}
-		);
-	},
-
-	godot_audio_sample_unregister_stream__proxy: 'sync',
-	godot_audio_sample_unregister_stream__sig: 'vi',
-	/**
-	 * Unregisters a stream.
-	 * @param {number} streamObjectIdStrPtr StreamObjectId pointer
-	 * @returns {void}
-	 */
-	godot_audio_sample_unregister_stream: function (streamObjectIdStrPtr) {
-		const streamObjectId = GodotRuntime.parseString(streamObjectIdStrPtr);
-		const sample = GodotAudio.Sample.getSampleOrNull(streamObjectId);
-		if (sample != null) {
-			sample.clear();
-		}
-	},
-
-	godot_audio_sample_start__proxy: 'sync',
-	godot_audio_sample_start__sig: 'viiiifi',
-	/**
-	 * Starts a sample.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @param {number} streamObjectIdStrPtr Stream object id pointer
-	 * @param {number} busIndex Bus index
-	 * @param {number} offset Sample offset
-	 * @param {number} pitchScale Pitch scale
-	 * @param {number} volumePtr Volume pointer
-	 * @returns {void}
-	 */
-	godot_audio_sample_start: function (
-		playbackObjectIdStrPtr,
-		streamObjectIdStrPtr,
-		busIndex,
-		offset,
-		pitchScale,
-		volumePtr
-	) {
-		/** @type {string} */
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		/** @type {string} */
-		const streamObjectId = GodotRuntime.parseString(streamObjectIdStrPtr);
-		/** @type {Float32Array} */
-		const volume = GodotRuntime.heapSub(HEAPF32, volumePtr, 8);
-		/** @type {SampleNodeOptions} */
-		const startOptions = {
-			offset,
-			volume,
-			playbackRate: 1,
-			pitchScale,
-			start: true,
-		};
-		GodotAudio.start_sample(
-			playbackObjectId,
-			streamObjectId,
-			busIndex,
-			startOptions
-		);
-	},
-
-	godot_audio_sample_stop__proxy: 'sync',
-	godot_audio_sample_stop__sig: 'vi',
-	/**
-	 * Stops a sample from playing.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @returns {void}
-	 */
-	godot_audio_sample_stop: function (playbackObjectIdStrPtr) {
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		GodotAudio.stop_sample(playbackObjectId);
-	},
-
-	godot_audio_sample_set_pause__proxy: 'sync',
-	godot_audio_sample_set_pause__sig: 'vii',
-	/**
-	 * Sets the pause state of a sample.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @param {number} pause Pause state
-	 */
-	godot_audio_sample_set_pause: function (playbackObjectIdStrPtr, pause) {
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		GodotAudio.sample_set_pause(playbackObjectId, Boolean(pause));
-	},
-
-	godot_audio_sample_is_active__proxy: 'sync',
-	godot_audio_sample_is_active__sig: 'ii',
-	/**
-	 * Returns if the sample is active.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @returns {number}
-	 */
-	godot_audio_sample_is_active: function (playbackObjectIdStrPtr) {
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		return Number(GodotAudio.sampleNodes.has(playbackObjectId));
-	},
-
-	godot_audio_get_sample_playback_position__proxy: 'sync',
-	godot_audio_get_sample_playback_position__sig: 'di',
-	/**
-	 * Returns the position of the playback position.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @returns {number}
-	 */
-	godot_audio_get_sample_playback_position: function (playbackObjectIdStrPtr) {
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(playbackObjectId);
-		if (sampleNode == null) {
-			return 0;
-		}
-		return sampleNode.getPlaybackPosition();
-	},
-
-	godot_audio_sample_update_pitch_scale__proxy: 'sync',
-	godot_audio_sample_update_pitch_scale__sig: 'vii',
-	/**
-	 * Updates the pitch scale of a sample.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @param {number} pitchScale Pitch scale value
-	 * @returns {void}
-	 */
-	godot_audio_sample_update_pitch_scale: function (
-		playbackObjectIdStrPtr,
-		pitchScale
-	) {
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-		GodotAudio.update_sample_pitch_scale(playbackObjectId, pitchScale);
-	},
-
-	godot_audio_sample_set_volumes_linear__proxy: 'sync',
-	godot_audio_sample_set_volumes_linear__sig: 'vii',
-	/**
-	 * Sets the volumes linear of each mentioned bus for the sample.
-	 * @param {number} playbackObjectIdStrPtr Playback object id pointer
-	 * @param {number} busesPtr Buses array pointer
-	 * @param {number} busesSize Buses array size
-	 * @param {number} volumesPtr Volumes array pointer
-	 * @param {number} volumesSize Volumes array size
-	 * @returns {void}
-	 */
-	godot_audio_sample_set_volumes_linear: function (
-		playbackObjectIdStrPtr,
-		busesPtr,
-		busesSize,
-		volumesPtr,
-		volumesSize
-	) {
-		/** @type {string} */
-		const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
-
-		/** @type {Uint32Array} */
-		const buses = GodotRuntime.heapSub(HEAP32, busesPtr, busesSize);
-		/** @type {Float32Array} */
-		const volumes = GodotRuntime.heapSub(HEAPF32, volumesPtr, volumesSize);
-
-		GodotAudio.sample_set_volumes_linear(
-			playbackObjectId,
-			Array.from(buses),
-			volumes
-		);
-	},
-
-	godot_audio_sample_bus_set_count__proxy: 'sync',
-	godot_audio_sample_bus_set_count__sig: 'vi',
-	/**
-	 * Sets the bus count.
-	 * @param {number} count Bus count
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_set_count: function (count) {
-		GodotAudio.set_sample_bus_count(count);
-	},
-
-	godot_audio_sample_bus_remove__proxy: 'sync',
-	godot_audio_sample_bus_remove__sig: 'vi',
-	/**
-	 * Removes a bus.
-	 * @param {number} index Index of the bus to remove
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_remove: function (index) {
-		GodotAudio.remove_sample_bus(index);
-	},
-
-	godot_audio_sample_bus_add__proxy: 'sync',
-	godot_audio_sample_bus_add__sig: 'vi',
-	/**
-	 * Adds a bus at the defined position.
-	 * @param {number} atPos Position to add the bus
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_add: function (atPos) {
-		GodotAudio.add_sample_bus(atPos);
-	},
-
-	godot_audio_sample_bus_move__proxy: 'sync',
-	godot_audio_sample_bus_move__sig: 'vii',
-	/**
-	 * Moves the bus from a position to another.
-	 * @param {number} fromPos Position of the bus to move
-	 * @param {number} toPos Final position of the bus
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_move: function (fromPos, toPos) {
-		GodotAudio.move_sample_bus(fromPos, toPos);
-	},
-
-	godot_audio_sample_bus_set_send__proxy: 'sync',
-	godot_audio_sample_bus_set_send__sig: 'vii',
-	/**
-	 * Sets the "send" of a bus.
-	 * @param {number} bus Position of the bus to set the send
-	 * @param {number} sendIndex Position of the "send" bus
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_set_send: function (bus, sendIndex) {
-		GodotAudio.set_sample_bus_send(bus, sendIndex);
-	},
-
-	godot_audio_sample_bus_set_volume_db__proxy: 'sync',
-	godot_audio_sample_bus_set_volume_db__sig: 'vii',
-	/**
-	 * Sets the volume db of a bus.
-	 * @param {number} bus Position of the bus to set the volume db
-	 * @param {number} volumeDb Volume db to set
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_set_volume_db: function (bus, volumeDb) {
-		GodotAudio.set_sample_bus_volume_db(bus, volumeDb);
-	},
-
-	godot_audio_sample_bus_set_solo__proxy: 'sync',
-	godot_audio_sample_bus_set_solo__sig: 'vii',
-	/**
-	 * Sets the state of solo for a bus
-	 * @param {number} bus Position of the bus to set the solo state
-	 * @param {number} enable State of the solo
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_set_solo: function (bus, enable) {
-		GodotAudio.set_sample_bus_solo(bus, Boolean(enable));
-	},
-
-	godot_audio_sample_bus_set_mute__proxy: 'sync',
-	godot_audio_sample_bus_set_mute__sig: 'vii',
-	/**
-	 * Sets the state of mute for a bus
-	 * @param {number} bus Position of the bus to set the mute state
-	 * @param {number} enable State of the mute
-	 * @returns {void}
-	 */
-	godot_audio_sample_bus_set_mute: function (bus, enable) {
-		GodotAudio.set_sample_bus_mute(bus, Boolean(enable));
-	},
-
-	godot_audio_sample_set_finished_callback__proxy: 'sync',
-	godot_audio_sample_set_finished_callback__sig: 'vi',
-	/**
-	 * Sets the finished callback
-	 * @param {Number} callbackPtr Finished callback pointer
-	 * @returns {void}
-	 */
-	godot_audio_sample_set_finished_callback: function (callbackPtr) {
-		GodotAudio.sampleFinishedCallback = GodotRuntime.get_func(callbackPtr);
-	},
 };
 
 autoAddDeps(_GodotAudio, '$GodotAudio');
 mergeInto(LibraryManager.library, _GodotAudio);
+
+/**
+ * The audio sample driver used by AudioStreamPlayer with playback_type = Sample.
+ * Streams and playbacks are identified by small integer handles that AudioDriverWeb assigns.
+ */
+const _GodotAudioSampleDriver = {
+	$GodotAudioSampleDriver__deps: ['$GodotAudio', '$GodotRuntime'],
+	$GodotAudioSampleDriver: {},
+
+	godot_audio_sample_register_stream__proxy: 'sync',
+	godot_audio_sample_register_stream__sig: 'viiiiii',
+	godot_audio_sample_register_stream: function (p_id, p_frames, p_frames_count, p_loop_mode, p_loop_begin, p_loop_end) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const BYTES_PER_FLOAT32 = 4;
+		const left = GodotRuntime.heapSub(HEAPF32, p_frames, p_frames_count);
+		const right = GodotRuntime.heapSub(HEAPF32, p_frames + p_frames_count * BYTES_PER_FLOAT32, p_frames_count);
+		const loopMode = GodotRuntime.parseString(p_loop_mode);
+		GodotAudio.sample_driver.createStream(p_id, left, right, loopMode, p_loop_begin, p_loop_end);
+	},
+
+	godot_audio_sample_unregister_stream__proxy: 'sync',
+	godot_audio_sample_unregister_stream__sig: 'vi',
+	godot_audio_sample_unregister_stream: function (p_id) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.removeStream(p_id);
+	},
+
+	godot_audio_sample_start__proxy: 'sync',
+	godot_audio_sample_start__sig: 'viiiffi',
+	godot_audio_sample_start: function (p_playback, p_stream, p_bus, p_offset, p_pitch_scale, p_volume) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const VOLUME_CHANNELS = 8;
+		const volume = GodotRuntime.heapSub(HEAPF32, p_volume, VOLUME_CHANNELS); // Not kept.
+		GodotAudio.sample_driver.startPlayback(p_playback, p_stream, p_offset, p_pitch_scale, Int32Array.of(p_bus), volume);
+	},
+
+	godot_audio_sample_stop__proxy: 'sync',
+	godot_audio_sample_stop__sig: 'vi',
+	godot_audio_sample_stop: function (p_id) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.removePlayback(p_id);
+	},
+
+	godot_audio_sample_set_pause__proxy: 'sync',
+	godot_audio_sample_set_pause__sig: 'vii',
+	godot_audio_sample_set_pause: function (p_id, p_pause) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const playback = GodotAudio.sample_driver.getPlayback(p_id);
+		if (playback) {
+			playback.pause(Boolean(p_pause));
+		}
+	},
+
+	godot_audio_get_sample_playback_position__proxy: 'sync',
+	godot_audio_get_sample_playback_position__sig: 'di',
+	godot_audio_get_sample_playback_position: function (p_id) {
+		if (!GodotAudio.sample_driver) {
+			return 0;
+		}
+		const playback = GodotAudio.sample_driver.getPlayback(p_id);
+		return playback ? playback.getPlaybackPosition() : 0;
+	},
+
+	godot_audio_sample_update_pitch_scale__proxy: 'sync',
+	godot_audio_sample_update_pitch_scale__sig: 'vif',
+	godot_audio_sample_update_pitch_scale: function (p_id, p_pitch_scale) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const playback = GodotAudio.sample_driver.getPlayback(p_id);
+		if (playback) {
+			playback.setPitchScale(p_pitch_scale);
+		}
+	},
+
+	godot_audio_sample_set_volumes_linear__proxy: 'sync',
+	godot_audio_sample_set_volumes_linear__sig: 'viiiii',
+	godot_audio_sample_set_volumes_linear: function (p_id, p_buses, p_buses_size, p_volume, p_volume_size) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const playback = GodotAudio.sample_driver.getPlayback(p_id);
+		if (!playback) {
+			return;
+		}
+		// Views, not copies: the playback does not keep them.
+		const buses = GodotRuntime.heapSub(HEAP32, p_buses, p_buses_size);
+		const volumes = GodotRuntime.heapSub(HEAPF32, p_volume, p_volume_size);
+		playback.setVolumes(buses, volumes);
+	},
+
+	godot_audio_sample_set_highshelf__proxy: 'sync',
+	godot_audio_sample_set_highshelf__sig: 'viff',
+	godot_audio_sample_set_highshelf: function (p_id, p_gain, p_cutoff_hz) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		const playback = GodotAudio.sample_driver.getPlayback(p_id);
+		if (playback) {
+			playback.setHighshelf(p_gain, p_cutoff_hz);
+		}
+	},
+
+	godot_audio_sample_bus_set_count__proxy: 'sync',
+	godot_audio_sample_bus_set_count__sig: 'vi',
+	godot_audio_sample_bus_set_count: function (p_count) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setBusCount(p_count);
+	},
+
+	godot_audio_sample_bus_remove__proxy: 'sync',
+	godot_audio_sample_bus_remove__sig: 'vi',
+	godot_audio_sample_bus_remove: function (p_index) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.removeBus(p_index);
+	},
+
+	godot_audio_sample_bus_add__proxy: 'sync',
+	godot_audio_sample_bus_add__sig: 'vi',
+	godot_audio_sample_bus_add: function (p_index) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.addBusAt(p_index);
+	},
+
+	godot_audio_sample_bus_move__proxy: 'sync',
+	godot_audio_sample_bus_move__sig: 'vii',
+	godot_audio_sample_bus_move: function (p_from, p_to) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.moveBus(p_from, p_to);
+	},
+
+	godot_audio_sample_bus_set_send__proxy: 'sync',
+	godot_audio_sample_bus_set_send__sig: 'vii',
+	godot_audio_sample_bus_set_send: function (p_index, p_send_index) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setBusSend(p_index, p_send_index);
+	},
+
+	godot_audio_sample_bus_set_volume_db__proxy: 'sync',
+	godot_audio_sample_bus_set_volume_db__sig: 'vif',
+	godot_audio_sample_bus_set_volume_db: function (p_bus, p_volume_db) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setBusVolumeDb(p_bus, p_volume_db);
+	},
+
+	godot_audio_sample_bus_set_solo__proxy: 'sync',
+	godot_audio_sample_bus_set_solo__sig: 'vii',
+	godot_audio_sample_bus_set_solo: function (p_bus, p_enable) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setBusSolo(p_bus, Boolean(p_enable));
+	},
+
+	godot_audio_sample_bus_set_mute__proxy: 'sync',
+	godot_audio_sample_bus_set_mute__sig: 'vii',
+	godot_audio_sample_bus_set_mute: function (p_bus, p_enable) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setBusMute(p_bus, Boolean(p_enable));
+	},
+
+	godot_audio_sample_set_finished_callback__proxy: 'sync',
+	godot_audio_sample_set_finished_callback__sig: 'vi',
+	godot_audio_sample_set_finished_callback: function (p_callback) {
+		if (!GodotAudio.sample_driver) {
+			return;
+		}
+		GodotAudio.sample_driver.setFinishedCallback(GodotRuntime.get_func(p_callback));
+	},
+};
+
+autoAddDeps(_GodotAudioSampleDriver, '$GodotAudioSampleDriver');
+mergeInto(LibraryManager.library, _GodotAudioSampleDriver);
 
 /**
  * The AudioWorklet API driver, used when threads are available.
@@ -1963,6 +1211,11 @@ const GodotAudioWorklet = {
 						'godot-processor',
 						{
 							outputChannelCount: [channels],
+							// Godot's input buffer is interleaved stereo: up-mix a mono microphone instead of
+							// handing over its samples as if they were stereo frames.
+							channelCount: 2,
+							channelCountMode: 'explicit',
+							channelInterpretation: 'speakers',
 						}
 					);
 					return Promise.resolve();
@@ -1992,6 +1245,7 @@ const GodotAudioWorklet = {
 			p_in_size,
 			in_callback
 		) {
+			/** @constructor */
 			function RingBuffer() {
 				let wpos = 0;
 				let rpos = 0;
@@ -2034,7 +1288,7 @@ const GodotAudioWorklet = {
 						rpos = 0;
 					}
 					if (to_write) {
-						buffer.set(recv_buf.subarray(high, to_write), rpos);
+						buffer.set(recv_buf.subarray(high, high + to_write), rpos);
 					}
 					in_callback(from, recv_buf.length);
 					rpos += to_write;
@@ -2237,7 +1491,7 @@ const GodotAudioScript = {
 		close: function () {
 			return new Promise(function (resolve, reject) {
 				GodotAudioScript.script.disconnect();
-				GodotAudioScript.script.onaudioprocess = null;
+				GodotAudioScript.script.onaudioprocess = function () {};
 				GodotAudioScript.script = null;
 				resolve();
 			});

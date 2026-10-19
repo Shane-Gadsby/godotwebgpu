@@ -212,6 +212,10 @@ public:
 	virtual uint8_t *buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) = 0;
 	virtual uint64_t buffer_get_dynamic_offsets(Span<BufferID> p_buffers) = 0;
 	virtual void buffer_flush(BufferID p_buffer) {}
+	// Flush only [p_offset, p_offset + p_size) of the current persistent slice, for callers that know how much they wrote
+	// (RenderingDevice::_buffer_update). Drivers whose flush is a real upload (WebGPU) override this to avoid uploading
+	// the whole per-frame slice; the default is the full flush, so every other driver behaves exactly as before.
+	virtual void buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) { buffer_flush(p_buffer); }
 	virtual void buffer_initiate_async_map(BufferID p_buffer) {} // WebGPU: start async map so it completes by next frame.
 	// Direct queue write to a buffer, bypassing staging buffers entirely.
 	// Used for skeleton/bone updates that are fully written before any draws.
@@ -1043,6 +1047,9 @@ public:
 		// per light) on backends where per-pass IPC overhead dominates, such
 		// as WebGPU. Dual-paraboloid renders 2 passes directly into the shadow
 		// atlas, which can then be merged into a single render pass.
+		// No driver sets it any more: WebGPU did until 2026-10-17, which made
+		// every web omni shadow differ from native and ignored the light's own
+		// omni_shadow_mode (webgpu_notes/TASKS.md §4.29).
 		API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID,
 		// If non-zero, the renderer batches consecutive shadow draws of the
 		// same mesh/pipeline into single instanced draw calls. This drastically
@@ -1121,6 +1128,16 @@ public:
 		// held for the whole session, in an address space with no swap and a hard
 		// ceiling, for bytes nothing will read again.
 		API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD,
+		// Non-zero (the default): when API_TRAIT_HONORS_PIPELINE_BARRIERS is 0,
+		// RenderingDevice records command_uniform_set_prepare_for_use() for every
+		// bound set of every draw, dispatch and trace, because the driver turns it
+		// into resource transitions (D3D12 without enhanced barriers). Zero: the
+		// driver's command_uniform_set_prepare_for_use() does nothing, so do not
+		// record it. WebGPU tracks hazards itself and has no barriers at all, yet
+		// must report HONORS_PIPELINE_BARRIERS as 0, so without this it paid for a
+		// render-graph instruction plus a virtual no-op per set per draw (~3,000 a
+		// frame on a 1,100-draw scene).
+		API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE,
 	};
 
 	enum ShaderChangeInvalidation {

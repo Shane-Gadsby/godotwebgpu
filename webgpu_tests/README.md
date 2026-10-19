@@ -7,19 +7,27 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | Test | What it validates | Runtime | Needs engine build? |
 |------|------------------|---------|---------------------|
 | [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
+| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs Tint CLI) |
+| [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
-| [Scene Smoketest](scene_smoketest/) | 21 demo/benchmark scenes across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Scene Smoketest](scene_smoketest/) | 23 scenes (demos, benchmarks, a self-checking audio suite and a braced GDScript project) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
+| [Perf Guard](perf_guard/) | WebGPU calls per frame stay within budget (command encoders, submits, `writeBuffer` calls and bytes) on the post-fx/shadows/instances/PBR scenes; adapter-independent | ~90s | Yes (pre-exported scenes) |
+| [Web Audio Parity](web_audio/) | Sample playback (the web default) does what `AudioServer` does — loop modes sample for sample, volume ramps/fades, buses, positions, 3D filter — 40 checks; plus native vs web end to end | ~10s (+~2min e2e) | No (e2e: editor + web templates) |
 | [Resource Lifecycle](resource_lifecycle/) | Rapid create/destroy of buffers, textures, pipelines | ~30s | No (standalone) |
 | [Screenshot Comparison](screenshot_comparison/) | Visual regression across Chrome and Firefox | ~60s | No (standalone) |
 | [Font Rendering](scene_smoketest/test_font_visual.mjs) | Text renders in the colors it was asked to — guards the glyph-modulate regression | ~20s | Yes (pre-exported) |
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 64 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
+| [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
+| [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
+| [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
 
 ## How It Works
 
@@ -27,19 +35,18 @@ The WebGPU shader pipeline is:
 
 ```
 GLSL → SPIR-V (glslang, at editor build time)
-     → 7 binary rewriting passes (C++ spirv_preprocess, at runtime)
+     → spirv_preprocess::run_pipeline() (C++, at build time, export time or runtime)
      → WGSL (Tint C++ library, linked into engine, at runtime)
      → GPU (browser's WebGPU implementation)
 ```
 
-The SPIR-V preprocessing passes (C++):
-1. **freeze_spec_constant_ops** — Evaluates `OpSpecConstantOp` into plain constants
-2. **rewrite_copy_logical** — `OpCopyLogical` → `OpCopyObject` (SPIR-V 1.4+ struct copy)
-3. **rewrite_terminate_invocation** — `OpTerminateInvocation` → `OpKill` (modern discard)
-4. **infer_readonly_storage** — Adds `NonWritable` to read-only SSBOs
-5. **convert_push_constants_to_uniforms** — PushConstant → StorageBuffer at group(3)/binding(120)
-6. **split_combined_samplers** — Combined image samplers → separate texture + sampler
-7. **fix_depth2_images** — depth=2 (unknown) → depth=1 for comparison sampling
+`run_pipeline()` is the one ordering of the SPIR-V passes every converter uses; the full list, with what
+each pass is for, is in [`webgpu_site/TECHNICAL_REFERENCE.md`](../webgpu_site/TECHNICAL_REFERENCE.md) §4.1.
+`preprocessing_tests/` covers the passes one at a time (291 assertions; tests 24-27 cover the three passes on
+SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
+`spirv-val` on each output, from `fixtures_src/tint_crash_inputs.frag` and `binding_arrays*.{frag,comp}`).
+`driver_unit_tests/test_binding_layout.mjs` checks the expanded-array binding layout against
+`drivers/webgpu/spirv_binding_layout.h` itself, and that every engine texture array fits it.
 
 ## Running Locally
 
@@ -135,8 +142,15 @@ fully green suite in the 4.8 port for exactly that reason.
 cd webgpu_tests/forward_plus
 ./export.sh                                     # after an engine build
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity   # ... every frame against native Vulkan
 node run_forward_plus.mjs --list                # covered and uncovered features
 ```
+
+The delta test only proves a feature *does something*; `--parity` proves it does
+what native Vulkan does, within a per-feature tolerance. It was what found
+`DEPTH_TEXTURE` reading zeros, volumetric fog without shadows and SDFGI corrupted
+by camera movement — all of which passed the delta test (`webgpu_notes/TASKS.md`
+§4.29).
 
 **Any feature added to the renderer — including code merged from upstream Godot
 — must get an entry in this matrix, or an entry in `features.mjs`'s `UNCOVERED`
@@ -247,7 +261,52 @@ npm install playwright && npx playwright install chromium --with-deps
 node run_tests.mjs
 ```
 
-### 6. Screenshot Comparison (standalone, needs Playwright)
+### 5b. Web Audio Parity (standalone; e2e needs the editor + web templates)
+
+```bash
+cd webgpu_tests/web_audio
+npm install
+node run_tests.mjs                 # the sample driver in an OfflineAudioContext vs native algorithms
+./export.sh && node run_e2e.mjs    # the same GDScript natively and in the nothreads/threads exports
+```
+
+See [`web_audio/README.md`](web_audio/README.md) and `webgpu_notes/TASKS.md` §4.30.
+
+### 6. WebRTC Parity (needs the editor + a web template)
+
+```bash
+cd webgpu_tests/webrtc_parity
+npm install && npx playwright install chromium firefox --with-deps
+./export.sh                                      # nothreads, threads and dlink
+node run_tests.mjs                               # web half — the CI entry point
+RTC_BROWSERS=chromium,firefox node run_tests.mjs
+```
+
+`run_tests.mjs` asserts what each fixture is supposed to *prove*. The real
+parity check is `./compare.sh <fixture>`, which diffs the same GDScript run
+natively against the browser — it needs the `webrtc-native` reference
+extension, a separate clone a fresh checkout does not have, which is why CI
+runs the web half. See [`webrtc_parity/README.md`](webrtc_parity/README.md),
+and `webgpu_notes/TASKS.md` §4.20 for the eight findings it produced.
+
+### 7. WebRTC Congestion (needs the editor, a web template, and unprivileged user namespaces)
+
+```bash
+cd webgpu_tests/webrtc_congestion
+./shape.sh --selftest --rate 2mbit --delay 25ms   # prove the shaping works first
+./export.sh                                        # needed for the browser-peer rows
+./sweep.sh                                         # the whole matrix, tabulated
+```
+
+Shapes the link with `netem` inside an `unshare -rnm` namespace, so it needs
+**no root** and touches nothing outside the test — do not use the
+`sudo tc qdisc ... dev lo` approach, which rate-limits all loopback traffic on
+the machine until removed. **Local only, not in CI**: it needs unprivileged
+user namespaces and ~15 minutes, and its verdicts are measurements rather than
+pass/fail gates. See [`webrtc_congestion/README.md`](webrtc_congestion/README.md)
+and `webgpu_notes/TASKS.md` §4.20
+
+### 8. Screenshot Comparison (standalone, needs Playwright)
 
 ```bash
 cd webgpu_tests/screenshot_comparison
@@ -261,6 +320,25 @@ this suite's own fixtures? See
 [`screenshot_comparison/LIVE_REPRO_METHODOLOGY.md`](screenshot_comparison/LIVE_REPRO_METHODOLOGY.md)
 for the scratch-copy + native-Vulkan-vs-WebGPU comparison workflow and its
 reusable capture scripts.
+
+### 9. Android On-Device Profiling (needs a phone over USB)
+
+```bash
+adb reverse tcp:8099 tcp:8099          # the phone loads http://localhost:8099/ = a secure context, no HTTPS needed
+cd webgpu_tests/perf_guard/android
+node probe.mjs      --dir <export>                              # adapter, limits, renderer banner, fps, console
+node fps_matrix.mjs --root <dir of exports> --variants a,b,c    # cold-boot fps / p50 p90 p99 / main busy % per export
+node gpu_time.mjs   --dir <export> --passes --top 40            # GPU ms per pass from timestamp queries, ranked
+node gpu_time.mjs   --dir <export> --dump-wgsl 'mod:SceneForwardClusteredShaderRD:18' --dump-dir D --dump-only
+node gpu_time.mjs   --dir <export> --passes --replace-pair D/<orig>.wgsl=<edited>.wgsl   # bisect a shader
+```
+
+Each script serves the export with COOP/COEP on 127.0.0.1:8099, force-stops Chrome on the phone, opens a blank
+tab, closes every other tab, installs its instrumentation with `Page.addScriptToEvaluateOnNewDocument` and then
+navigates — raw CDP through `adb forward tcp:9222 localabstract:chrome_devtools_remote`, no Playwright. Export
+with `variant/separate_render_thread=false`: with the separate render thread the engine's WebGPU calls happen in a
+pthread worker that never answers `Runtime.evaluate`, so the page-side tools see nothing. First results and the
+traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has the full recipe.
 
 ## CI Pipeline
 
@@ -285,24 +363,21 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 │  │ comparison      │                                            │
 │  └─────────────────┘                                            │
 │                                                                 │
-│  ┌─────────────────┐  (parallel, no build needed)               │
-│  │ scene-smoketest │  18 scenes × Chrome + Firefox              │
-│  │                 │  (needs pre-exported scenes — see below;   │
-│  │                 │  currently a no-op in CI, see * below)     │
-│  └─────────────────┘                                            │
-│                                                                 │
 │  ┌─────────────────┐                                            │
 │  │ build-webgpu    │  Web template + Linux editor + export      │
-│  │ (~60 min)       │  + SPIR-V dump (309 shaders)               │
+│  │ (~60 min)       │  + SPIR-V dump (309 shaders), and exports  │
+│  │                 │  the scene-smoketest and WebRTC fixtures   │
 │  └────────┬────────┘                                            │
 │           │                                                     │
-│           ├──────────────┐                                      │
-│           ▼              ▼                                      │
-│  ┌────────────────┐  ┌──────────────┐                           │
-│  │ validate-spirv │  │ smoke-test   │                           │
-│  │ All SPIR-V     │  │ Headless     │                           │
-│  │ through Tint   │  │ Chrome run   │                           │
-│  └────────────────┘  └──────────────┘                           │
+│           ├──────────────┬───────────────┬──────────────┐       │
+│           ▼              ▼               ▼              ▼       │
+│  ┌────────────────┐ ┌────────────┐ ┌───────────┐ ┌────────────┐ │
+│  │ validate-spirv │ │ smoke-test │ │ scene-    │ │ webrtc-    │ │
+│  │ All SPIR-V     │ │ Headless   │ │ smoketest │ │ parity     │ │
+│  │ through Tint   │ │ Chrome run │ │ 23 scenes │ │ 9 fixtures │ │
+│  │                │ │            │ │ × Chrome  │ │ in Chrome  │ │
+│  │                │ │            │ │ + Firefox │ │            │ │
+│  └────────────────┘ └────────────┘ └───────────┘ └────────────┘ │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────┐        │
 │  │ test-summary   │  Aggregates results, gates merge   │        │
@@ -318,12 +393,15 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 | `build-webgpu` | — | 90 min | Yes |
 | `validate-spirv` | build-webgpu | 10 min | Yes |
 | `smoke-test` | build-webgpu | 15 min | Yes |
-| `scene-smoketest` | — | 20 min | Yes* |
+| `scene-smoketest` | build-webgpu | 20 min | Yes |
 | `resource-lifecycle` | — | 15 min | Yes |
+| `webrtc-parity` | build-webgpu | 25 min | Yes |
 | `screenshot-comparison` | — | 20 min | No (warning only) |
 | `test-summary` | all above | — | — |
 
-\* **Known gap**: `scene-smoketest` runs `run_scenes.mjs` with the default `--skip-export`, but no exported scenes are checked into the repo and nothing exports them first in CI. Every scene comes back `SKIP` and the job passes having tested nothing — it isn't a real gate today despite the table above. Making it real requires: exporting the 18 scenes from a Linux editor + WebGPU template in CI (`run_scenes.mjs --export`), and fixing each scene project's `export_presets.cfg` first — they currently hardcode another contributor's local absolute template path (`/Users/dwalter/...`) and have `variant/extensions_support=false`, which silently resolves to the *non*-WebGPU template (the exact trap documented in `webgpu_notes/TASKS.md`'s Round 23 notes). `shader-corpus`, `validate-spirv`, `smoke-test`, `resource-lifecycle`, and `screenshot-comparison` do not have this problem — they build/use their dependencies for real.
+**`scene-smoketest` used to be a fake gate, and no longer is.** It once ran with the default `--skip-export` against exports that were never produced, so all 21 scenes came back `SKIP` and the job passed having tested nothing. Three things fixed it, and all three are load-bearing — removing any one of them puts the fake gate back: `build-webgpu` exports the scenes itself (`run_scenes.mjs --export-only`) and uploads them as the `scene-exports` artifact; `scene-smoketest` `needs: build-webgpu`, downloads that artifact and restores the deduped side modules; and it runs with **`--require-exports`**, which turns "no export on disk" from a skip into a failure. The old `export_presets.cfg` trap is gone too — `run_scenes.mjs` now rewrites both the template path and `variant/extensions_support` per export (deriving the latter from whether the template filename says `.dlink.`), instead of trusting a checked-in absolute path that pointed at one contributor's machine and silently resolved to the *non*-WebGPU template.
+
+**The general lesson, worth applying to any tier added here**: a test tier that skips is indistinguishable from one that passes unless it is built not to be. Every browser-driven tier in this suite now either fails or reports a distinct exit status when its inputs are missing — `--require-exports` for the scene smoketest, exit 2 plus a `SKIP --` line for `webrtc-parity` and the tiers `local_ci.sh` drives.
 
 ### Trigger Paths
 
@@ -390,5 +468,15 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 **New shader failures after engine changes** — Run validation, review the new errors. If they're Vulkan-only variants, update the baseline. If they affect WebGPU runtime, fix the GLSL or SPIR-V preprocessing.
 
 **Smoke test timeout** — The engine has 2 minutes to start and report PASS. If it hangs, check Chrome console output with `VERBOSE=1 node smoke_test.mjs ./export/`.
+
+**A `threads=yes` export hangs forever under one of these harnesses** — the page is almost certainly not cross-origin isolated. Threaded builds need `SharedArrayBuffer`, which needs the server to send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Several harnesses here spin up their own `http.createServer` and **do not send them**: `startup_phases/features.mjs`, `resource_lifecycle/run_tests.mjs`, `spec_constant_overrides/run_tests.mjs` and all five `sdfgi_race_repro/run_*.mjs`. `benchmark/run_benchmark.sh:220-221` is the pattern to copy. Check from the page with `window.crossOriginIsolated`.
+
+**A threaded export wedges with repeated `net::ERR_ABORTED` on the worker script** — check the export preset's `threads/emscripten_pool_size`. It must be `8` (the engine default); the link flag is `-sPTHREAD_POOL_SIZE="Module['emscriptenPoolSize']||8"` and `-1 || 8` evaluates to `-1`, which wedges every threaded build. See `webgpu_notes/TASKS.md`
+
+**A threaded + GDExtension export never finishes loading** — `threads=yes dlink_enabled=yes` needs this fork's two Emscripten toolchain patches (`misc/emsdk_patches/apply.sh --apply`); without `0001` a worker throws `Cannot set properties of undefined (setting '<addr>')` and the module never loads. The build warns, but `emsdk install` silently reverts the patches. `--status` describes the *toolchain*, not what is in `bin/` — grep the linked output when it matters (`misc/emsdk_patches/README.md` has the commands). A booting threaded dlink export should now log **zero** errors; the ~11 `growMemViews` "Cannot read properties of undefined (reading 'buffer')" errors that used to be expected noise were `0002`, now fixed.
+
+**Worker errors are invisible in Playwright** — `page.on('console')` does not forward worker-target output, and threaded failures are raised on workers. Use `page.on('pageerror')`, which does see them.
+
+**Screenshots during a web startup land at the wrong time** — `page.screenshot()` stalls while the main thread is blocked, so a wall-clock capture schedule produces mislabelled images (one taken at "3 s" can show a frame from 11 s). Trigger captures on DOM state with `waitForFunction` instead.
 
 **Export fails with "No export template found"** — Template must be installed at the path matching the editor's version string. Check `bin/godot --version` and install to the corresponding `export_templates/<version>/` directory.

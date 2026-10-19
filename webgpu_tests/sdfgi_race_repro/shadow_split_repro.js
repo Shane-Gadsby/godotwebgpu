@@ -1,5 +1,5 @@
 /**
- * Round 46 (Task 9.5 / plan-of-attack.md Tier 1 Phase 1) — RW-storage-texture
+ * Round 46 (Task 9.5 / webgpu_notes/TASKS.md §2) — RW-storage-texture
  * shadow-split repro. NOT Godot code, but modeling real driver code exactly.
  *
  * Code reading this round (rendering_device_driver_webgpu.cpp) found a

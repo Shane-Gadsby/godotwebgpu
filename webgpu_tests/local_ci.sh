@@ -11,6 +11,7 @@
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
 #   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
+#   ./webgpu_tests/local_ci.sh --bake       # Also export + test the BAKED Forward+ fixture (needs xvfb-run; minutes)
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
 #
@@ -27,7 +28,7 @@
 #
 #   The two builds have to happen in this order, and the web one has to come last:
 #   interleaving them in one tree goes stale in register_module_types.gen and ships
-#   a template that dies in callMain() (webgpu_notes/TASKS.md Task 40). The stale
+#   a template that dies in callMain() (webgpu_notes/TASKS.md §2.19). The stale
 #   objects are removed below rather than hoped about.
 #
 # Prerequisites:
@@ -53,6 +54,7 @@ JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 # Parse args
 NO_SAFARI=false
+DO_BAKE=false
 QUICK=false
 DO_DLINK=true
 DEV_MODE=false
@@ -66,6 +68,7 @@ for arg in "$@"; do
     [[ "$arg" == "--export" ]] && EXPORT_EXPLICIT="yes"
     [[ "$arg" == "--no-export" ]] && EXPORT_EXPLICIT="no"
     [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
+    [[ "$arg" == "--bake" ]] && DO_BAKE=true
     [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
 done
 
@@ -352,11 +355,11 @@ echo "  Stage 2: Unit Tests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-run_test "Driver unit tests (332)" \
+run_test "Driver unit tests (379)" \
     "$SCRIPT_DIR/driver_unit_tests" \
     node run_tests.mjs
 
-run_test "SPIR-V preprocessing tests (205)" \
+run_test "SPIR-V preprocessing tests (291)" \
     "$SCRIPT_DIR/preprocessing_tests" \
     node run_tests.mjs
 
@@ -372,6 +375,10 @@ run_test "WGSL precompile JS tests" \
     "$SCRIPT_DIR/wgsl_cache" \
     node test_wgsl_cache.mjs
 
+run_test "WGSL precompile determinism" \
+    "$SCRIPT_DIR/wgsl_cache" \
+    ./test_determinism.sh
+
 run_test "Font visual assertion self-test" \
     "$SCRIPT_DIR/scene_smoketest" \
     node self_test_font_visual.mjs
@@ -383,6 +390,12 @@ run_test "Fog visual assertion self-test" \
 run_test "Forward+ matrix self-test" \
     "$SCRIPT_DIR/forward_plus" \
     node self_test_forward_plus.mjs
+
+# The Web Audio sample driver, rendered offline against ports of AudioServer/AudioStreamPlaybackWAV. No build.
+ensure_playwright "$SCRIPT_DIR/web_audio"
+run_test "Web audio sample driver parity (40)" \
+    "$SCRIPT_DIR/web_audio" \
+    node run_tests.mjs
 
 echo ""
 
@@ -425,6 +438,15 @@ if [[ "$DO_EXPORT" == true ]]; then
     run_test "Re-export Forward+ fixture" \
         "$SCRIPT_DIR/forward_plus" \
         ./export.sh
+    # Same for the WebRTC fixture: one project driven through several fixtures,
+    # exported for both the nothreads and threads templates.
+    run_test "Re-export WebRTC fixture" \
+        "$SCRIPT_DIR/webrtc_parity" \
+        ./export.sh
+    # The audio fixture, for run_e2e.mjs (nothreads and threads). The scene smoketest exports it itself.
+    run_test "Re-export audio fixture" \
+        "$SCRIPT_DIR/web_audio" \
+        ./export.sh
     if [[ $FAILED -gt 0 ]]; then
         echo ""
         echo "Export failed — aborting rather than testing stale exports."
@@ -437,13 +459,19 @@ else
     echo "    Testing whatever is already in scene_smoketest/exports/."
 fi
 
-run_test "Scene smoketest — Chrome (21 scenes)" \
+run_test "Scene smoketest — Chrome (22 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser chrome --timeout 30000
 
-run_test "Scene smoketest — Firefox (21 scenes)" \
+run_test "Scene smoketest — Firefox (22 scenes)" \
     "$SCRIPT_DIR/scene_smoketest" \
     node run_scenes.mjs --browser firefox --timeout 30000
+
+# Per-frame WebGPU API budgets (encoders, submits, writeBuffer calls and bytes) on the scenes just exported.
+# Adapter-independent, so it also runs on the software adapter; TASKS.md 2.16 gap 4.
+run_test "Perf guard — WebGPU calls per frame" \
+    "$SCRIPT_DIR/perf_guard" \
+    node run_perf_guard.mjs
 
 run_test "Font rendering colors — Chrome" \
     "$SCRIPT_DIR/scene_smoketest" \
@@ -473,29 +501,118 @@ run_test "Forward+ feature matrix — Chrome" \
     "$SCRIPT_DIR/forward_plus" \
     node run_forward_plus.mjs --browser chrome
 
+# The same matrix compared frame by frame against a native Vulkan render of the
+# fixture (GODOT_EDITOR_BIN, exported above): catches a feature that renders,
+# but not the way native does -- DEPTH_TEXTURE reading zeros, fog without
+# shadows, SDFGI corrupted by camera movement all passed the delta test above.
+# SKIPs without a real GPU adapter, or without a native Vulkan device and a
+# display for the reference. ~15 minutes.
+run_test "Forward+ parity vs native Vulkan — Chrome" \
+    "$SCRIPT_DIR/forward_plus" \
+    node run_forward_plus.mjs --browser chrome --parity
+
+# Baked tier (TASKS.md 2.29): --headless exports skip the shader baker, so nothing above ever
+# loads the configuration that ships. Opt-in because baking takes minutes.
+if [[ "$DO_BAKE" == true ]]; then
+    if [[ "$DO_EXPORT" == true ]]; then
+        run_test "Re-export Forward+ fixture (baked)" \
+            "$SCRIPT_DIR/forward_plus" \
+            env BAKE=1 ./export.sh
+    fi
+    if [[ "$DO_EXPORT" == true ]]; then
+        # Stage 4 (WebRTC parity) picks exports/loopback_baked up automatically and asserts baked > 0.
+        run_test "Re-export WebRTC fixture (baked)" \
+            "$SCRIPT_DIR/webrtc_parity" \
+            env BAKE=1 ./export.sh
+    fi
+    run_test "Forward+ feature matrix — Chrome (baked)" \
+        "$SCRIPT_DIR/forward_plus" \
+        node run_forward_plus.mjs --browser chrome --baked
+    if command -v xvfb-run >/dev/null; then
+        if [[ "$DO_EXPORT" == true ]]; then
+            run_test "Re-export scenes (baked)" \
+                "$SCRIPT_DIR/scene_smoketest" \
+                env SMOKETEST_BAKE=1 SMOKETEST_EXPORTS_DIR="$SCRIPT_DIR/scene_smoketest/exports_baked" node run_scenes.mjs --export-only
+        fi
+        run_test "Scene smoketest — Chrome (baked)" \
+            "$SCRIPT_DIR/scene_smoketest" \
+            env SMOKETEST_EXPORTS_DIR="$SCRIPT_DIR/scene_smoketest/exports_baked" node run_scenes.mjs --browser chrome --timeout 30000 --baked
+    fi
+fi
+
 if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
-    run_test "Scene smoketest — Safari (21 scenes)" \
+    run_test "Scene smoketest — Safari (22 scenes)" \
         "$SCRIPT_DIR/scene_smoketest" \
         node run_scenes.mjs --browser safari --timeout 30000
 else
-    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (21 scenes)"
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "Scene smoketest — Safari (22 scenes)"
     SKIPPED=$((SKIPPED + 1))
-    RESULTS+=("SKIP  Scene smoketest — Safari (21 scenes)")
+    RESULTS+=("SKIP  Scene smoketest — Safari (22 scenes)")
 fi
 
 echo ""
 
 if [[ "$QUICK" == true ]]; then
     # Skip remaining stages in quick mode
-    echo "(--quick: skipping resource lifecycle and screenshot comparison)"
+    echo "(--quick: skipping WebRTC parity, resource lifecycle and screenshot comparison)"
     echo ""
 else
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. Resource Lifecycle
+# 4. WebRTC parity (web half)
 # ──────────────────────────────────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Stage 4: Resource Lifecycle Stress Test"
+echo "  Stage 4: WebRTC Parity (9 fixtures x exports x browsers)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+ensure_playwright "$SCRIPT_DIR/webrtc_parity"
+
+# Web half only: the native-vs-web diff (webrtc_parity/compare.sh) needs the
+# webrtc-native reference extension, a separate 581 MB clone whose built
+# libraries are gitignored, so it cannot run on a fresh checkout. Each fixture's
+# own verdict is asserted instead, which is what regresses if any of F1-F5, F7
+# or F8 breaks. See webgpu_notes/TASKS.md §4.20.
+# Chromium and Firefox both run every fixture; Firefox is where the browsers'
+# WebRTC stacks diverge most, and it is at parity (Task 18.8). run_tests.mjs
+# reports a browser it cannot launch -- or that has no WebGPU adapter to boot
+# the engine on, which is Firefox on a GPU-less runner -- as a SKIP rather than
+# nine failures.
+if [[ -n "${CI:-}" ]]; then
+    WEBRTC_BROWSERS=chromium
+else
+    WEBRTC_BROWSERS=chromium,firefox
+fi
+run_test "WebRTC parity (web, 9 fixtures)" \
+    "$SCRIPT_DIR/webrtc_parity" \
+    env RTC_BROWSERS="$WEBRTC_BROWSERS" node run_tests.mjs
+
+# Safari is AppleScript-driven and macOS-only, like the scene smoketest's Safari
+# tier. It has never been run, so a failure here is a new data point rather than
+# a regression; see webgpu_notes/TASKS.md §4.20.
+if [[ "$NO_SAFARI" == false && "$(uname)" == "Darwin" ]]; then
+    run_test "WebRTC parity — Safari (9 fixtures)" \
+        "$SCRIPT_DIR/webrtc_parity" \
+        env RTC_BROWSERS=safari RTC_VARIANTS=nothreads node run_tests.mjs
+else
+    printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-safari or not macOS)\n" "WebRTC parity — Safari (9 fixtures)"
+    SKIPPED=$((SKIPPED + 1))
+    RESULTS+=("SKIP  WebRTC parity — Safari (9 fixtures)")
+fi
+
+# Audio, native against web: the same self-checking GDScript headless natively and in the nothreads (served
+# without COOP/COEP) and threads exports; the web verdict must pass and every boolean agree with native.
+run_test "Web audio end to end (native vs web)" \
+    "$SCRIPT_DIR/web_audio" \
+    node run_e2e.mjs
+
+echo ""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Resource Lifecycle
+# ──────────────────────────────────────────────────────────────────────────────
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Stage 5: Resource Lifecycle Stress Test"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -508,10 +625,10 @@ run_test "Resource lifecycle stress tests" \
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Screenshot Comparison
+# 6. Screenshot Comparison
 # ──────────────────────────────────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Stage 5: Screenshot Comparison (Chrome + Firefox)"
+echo "  Stage 6: Screenshot Comparison (Chrome + Firefox)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 

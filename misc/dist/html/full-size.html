@@ -38,40 +38,48 @@ body {
 	outline: none;
 }
 
-#status, #status-splash, #status-progress {
-	position: absolute;
-	left: 0;
-	right: 0;
-}
-
-#status, #status-splash {
-	top: 0;
-	bottom: 0;
-}
-
+/* The loading screen is one centered column -- splash image, spinner, status
+   text, progress bar -- with the same gap between every neighbor. The chrome
+   used to be pinned to the bottom 10% of the viewport with absolute offsets,
+   which left it floating an arbitrary distance under the logo; here the whole
+   group is centered as a unit and `gap` spaces it. Elements a stage hides keep
+   their box (visibility, not display), so the bar never jumps between stages;
+   see showStage() for the exception when no stage ever shows an element. */
 #status {
+	position: absolute;
+	inset: 0;
+	box-sizing: border-box;
+	padding: 1rem;
 	background-color: $GODOT_SPLASH_COLOR;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
 	align-items: center;
+	gap: 1rem;
 	visibility: hidden;
 }
 
+/* A flex item that may shrink (min-height: 0) so that the chrome below it
+   always fits; object-fit keeps the picture's aspect when it does. */
 #status-splash {
 	max-height: 100%;
 	max-width: 100%;
-	margin: auto;
+	min-height: 0;
+	flex: 0 1 auto;
+	object-fit: contain;
 }
 
 #status-splash.show-image--false {
 	display: none;
 }
 
+/* Full width with the height following the picture's own aspect ratio (not
+   height: 100%, which would make the box fill the viewport and leave the chrome
+   an arbitrary distance under the letterboxed picture); the flex shrink above
+   takes care of the case where that is taller than the space left. */
 #status-splash.fullsize--true {
-	height: 100%;
 	width: 100%;
-	object-fit: contain;
+	height: auto;
 }
 
 #status-splash.use-filter--false {
@@ -83,9 +91,35 @@ body {
 }
 
 #status-progress {
-	bottom: 10%;
 	width: 50%;
-	margin: 0 auto;
+	max-width: 30rem;
+	flex: none;
+}
+
+/* Names the phase the engine is working through. Deliberately styled as neutral
+   chrome, not like #status-notice, which is the red error box -- "Loading main
+   scene" is not a problem report. Reserves one line while hidden. */
+#status-label {
+	flex: none;
+	min-height: 1.3em;
+	color: #e0e0e0;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 0.9rem;
+	line-height: 1.3;
+	opacity: 0.85;
+	text-align: center;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+	visibility: hidden;
+}
+
+#status-label.visible {
+	visibility: visible;
+}
+
+/* No stage of this export ever shows the element: drop it from the layout
+   entirely so the rest of the column closes up around it. */
+#status-label.unused, #webgpu-spinner.unused {
+	display: none;
 }
 
 #status-notice {
@@ -109,18 +143,19 @@ body {
    returns to JS, so nothing JS-driven (progress text, event listeners) can
    paint during that window. This spinner is the only feedback that can. */
 #webgpu-spinner {
-	width: 2rem;
-	height: 2rem;
-	margin: 0 auto 0.75rem;
+	flex: none;
+	box-sizing: border-box;
+	width: 1.5rem;
+	height: 1.5rem;
 	border-radius: 50%;
 	border: 3px solid rgba(255, 255, 255, 0.25);
 	border-top-color: #e0e0e0;
 	animation: webgpu-spin 0.8s linear infinite;
-	display: none;
+	visibility: hidden;
 }
 
 #webgpu-spinner.visible {
-	display: block;
+	visibility: visible;
 }
 
 @keyframes webgpu-spin {
@@ -175,8 +210,9 @@ body {
 
 		<div id="status">
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
-			<progress id="status-progress"></progress>
 			<div id="webgpu-spinner"></div>
+			<div id="status-label"></div>
+			<progress id="status-progress"></progress>
 			<div id="status-notice"></div>
 		</div>
 
@@ -196,6 +232,11 @@ const GODOT_CONFIG = $GODOT_CONFIG;
 // a stable, known aspect ratio to scale -- see that function for the rest.
 GODOT_CONFIG['canvasResizePolicy'] = 1;
 const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+// Per-stage loading screen text and visibility, from the export preset's
+// "Loading Screen" section: { <stage>: { text, showText, showSpinner } }. The
+// stage keys are listed in platform/web/export/export_plugin.cpp
+// (web_loading_screen_stages); showStage() below is the only reader.
+const GODOT_LOADING_SCREEN = $GODOT_LOADING_SCREEN;
 const GODOT_RENDERING_DRIVER = (GODOT_CONFIG['renderingDriver'] || '');
 const engine = new Engine(GODOT_CONFIG);
 
@@ -244,7 +285,137 @@ const engine = new Engine(GODOT_CONFIG);
 	const statusOverlay = document.getElementById('status');
 	const statusProgress = document.getElementById('status-progress');
 	const statusNotice = document.getElementById('status-notice');
+	const statusLabel = document.getElementById('status-label');
 	const webgpuSpinner = document.getElementById('webgpu-spinner');
+
+	// --- Unified loading progress -------------------------------------------------
+	//
+	// Downloading is only the first half of a Web load. Once the last byte has
+	// arrived the engine still has to bring up its servers, register types and load
+	// the main scene, and on a real project that takes longer than the download did --
+	// which is why a download-only bar fills to 100% and then appears to freeze. The
+	// bar below therefore covers both: downloads fill the first DOWNLOAD_SHARE of it,
+	// the engine's own startup phases fill the rest.
+	//
+	// The engine reports each completed phase through the `onStartupProgress` config
+	// callback (platform/web/os_web.cpp forwards `main.cpp`'s existing phase
+	// brackets). The weights below are *approximate* costs in milliseconds, measured
+	// on a real project -- see webgpu_notes/TASKS.md Task 14 for where they come from.
+	// They do not need to be accurate to be useful; they only need to stop a 500 ms
+	// phase and a 2 ms phase from advancing the bar by the same amount.
+	//
+	// Only leaf phases are listed. `main.cpp` also brackets wrappers around these
+	// ("Startup:Servers", "Startup:Main::Setup2", "Startup:Main::Start"), and counting
+	// those as well would double-count their children. Anything not listed -- a phase
+	// from a future engine version, an editor-only one -- is simply ignored, so an
+	// unknown name can never push the bar past 100%.
+	// How much of the bar the download owns. Measured on a fast local connection the
+	// download is ~450 ms against ~1150 ms of engine startup, so weighting it at half
+	// the bar makes it race to the midpoint and then crawl. Over a slow link the
+	// opposite is true and this understates it -- but a download segment that fills
+	// slowly is a bar that keeps moving, whereas overweighting it reproduces exactly
+	// the "100% then frozen" impression this whole change exists to remove. So the
+	// error is deliberately biased towards the engine phases.
+	const DOWNLOAD_SHARE = 0.35;
+
+	// [phase name, weight, loading screen stage for the work that follows it]
+	const STARTUP_PHASES = [
+		['Startup:Main::Setup', 60, 'initializing_engine'],
+		['Startup:Initialize Early Settings', 10, 'initializing_engine'],
+		['Servers:Modules and Extensions', 30, 'loading_extensions'],
+		['Servers:Input', 2, 'starting_display'],
+		['Servers:Display', 5, 'starting_renderer'],
+		['Servers:Rendering', 510, 'starting_audio'],
+		['Servers:Audio', 30, 'starting_engine'],
+		['Servers:XR', 1, 'starting_engine'],
+		['Startup:Setup Window and Boot', 5, 'loading_translations'],
+		['Startup:Translations and Remaps', 5, 'loading_fonts'],
+		['Startup:Text Server', 20, 'registering_types'],
+		['Startup:Scene', 110, 'registering_types'],
+		['Startup:Platforms', 1, 'finalizing_setup'],
+		['Startup:Finalize Setup', 10, 'loading_autoloads'],
+		['Startup:Load Autoloads', 20, 'loading_main_scene'],
+		['Startup:Load Game', 325, 'rendering_first_frame'],
+		['Startup:First Frame', 150, ''],
+	];
+
+	const phaseWeightTotal = STARTUP_PHASES.reduce((sum, phase) => sum + phase[1], 0);
+	const phaseIndex = new Map(STARTUP_PHASES.map((phase, i) => [phase[0], i]));
+	const phasesSeen = new Set();
+	let phaseWeightDone = 0;
+	let downloadFraction = 0;
+	let downloadIndeterminate = false;
+
+	function updateProgressBar() {
+		if (downloadIndeterminate && phaseWeightDone === 0) {
+			// No content-length to work from and the engine has not started yet, so
+			// there is genuinely nothing to report -- an indeterminate bar is honest.
+			statusProgress.removeAttribute('value');
+			statusProgress.removeAttribute('max');
+			return;
+		}
+		const fraction = (downloadFraction * DOWNLOAD_SHARE)
+			+ ((phaseWeightDone / phaseWeightTotal) * (1 - DOWNLOAD_SHARE));
+		statusProgress.max = 1000;
+		statusProgress.value = Math.round(Math.min(fraction, 1) * 1000);
+	}
+
+	function setStatusLabel(text) {
+		statusLabel.textContent = text || '';
+		statusLabel.classList.toggle('visible', !!text);
+	}
+
+	// Shows a loading screen stage: its configured text (plus `suffix`, for the
+	// download percentage and the shader count) if the stage shows text, and the
+	// spinner if the stage shows it. Both are decided per stage in the export
+	// preset, so every transition sets both explicitly rather than inheriting the
+	// previous stage's state. An element that no stage shows is removed from the
+	// layout outright (see the .unused rule); otherwise a hidden one keeps its
+	// box, so the bar sits still while stages come and go.
+	const loadingStages = (typeof GODOT_LOADING_SCREEN === 'object' && GODOT_LOADING_SCREEN) || {};
+	const stageList = Object.values(loadingStages);
+	statusLabel.classList.toggle('unused', !stageList.some((stage) => stage['showText']));
+	webgpuSpinner.classList.toggle('unused', !stageList.some((stage) => stage['showSpinner']));
+
+	function showStage(key, suffix) {
+		const stage = loadingStages[key];
+		if (!stage) {
+			console.warn(`Unknown loading screen stage "${key}".`);
+			return;
+		}
+		setStatusLabel(stage['showText'] ? `${stage['text'] || ''}${suffix || ''}` : '');
+		webgpuSpinner.classList.toggle('visible', !!stage['showSpinner']);
+	}
+
+	function onStartupProgress(name) {
+		const index = phaseIndex.get(name);
+		if (index === undefined || phasesSeen.has(name)) {
+			return; // Unknown phase, or a repeat -- never move the bar backwards.
+		}
+		phasesSeen.add(name);
+		if (name === 'Startup:First Frame') {
+			// Terminal phase: the startup is over, so the bar is full by definition.
+			// Accumulated weight alone stops a few points short, because not every
+			// phase runs in every configuration (no XR, no autoloads, ...) and the
+			// weights are fixed estimates.
+			phaseWeightDone = phaseWeightTotal;
+		} else {
+			phaseWeightDone += STARTUP_PHASES[index][1];
+		}
+		// Downloads are necessarily finished by the time the engine is running, and a
+		// download whose total was never known would otherwise leave that share of the
+		// bar permanently empty.
+		downloadFraction = 1;
+		downloadIndeterminate = false;
+		updateProgressBar();
+		// Name the work that comes *next*, not the phase that just finished: this
+		// callback paints during the gap before the next phase runs, so "what is it
+		// doing right now" is the useful thing to show.
+		const nextStage = STARTUP_PHASES[index][2];
+		if (nextStage) {
+			showStage(nextStage);
+		}
+	}
 
 	let initializing = true;
 	let statusMode = '';
@@ -261,7 +432,12 @@ const engine = new Engine(GODOT_CONFIG);
 		statusOverlay.style.visibility = 'visible';
 		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-		if (mode !== 'notice') {
+		// The label and spinner belong to progress mode only; in notice mode they
+		// leave the layout rather than holding an empty slot above the error box.
+		statusLabel.style.display = mode === 'progress' ? '' : 'none';
+		webgpuSpinner.style.display = mode === 'progress' ? '' : 'none';
+		if (mode !== 'progress') {
+			setStatusLabel('');
 			webgpuSpinner.classList.remove('visible');
 		}
 		statusMode = mode;
@@ -292,13 +468,17 @@ const engine = new Engine(GODOT_CONFIG);
 		initializing = false;
 	}
 
-	// Like setStatusNotice(), but also shows the CSS spinner -- for notices that
-	// mean "still working, please wait", as opposed to a terminal error/failure
-	// notice (displayFailureNotice() above), where a spinner would be misleading.
-	function setBusyNotice(text) {
-		setStatusNotice(text);
-		webgpuSpinner.classList.add('visible');
-		setStatusMode('notice');
+	// For "still working" stages during startup. This keeps the progress bar on
+	// screen rather than replacing it with the notice box (which displayFailureNotice()
+	// above owns, and which reads as an error): the engine now reports real progress
+	// while it starts up, so hiding the bar at exactly the point it finally has
+	// something to say would be the wrong trade. These stages default to showing
+	// the spinner, because a phase that blocks for hundreds of milliseconds paints
+	// nothing at all while it runs, and a compositor-driven CSS animation is the
+	// only thing that keeps visibly moving through that (see the long comment below).
+	function showBusyStage(key, suffix) {
+		setStatusMode('progress');
+		showStage(key, suffix);
 	}
 
 	// The WebGPU device can be lost well after startup (e.g. a GPU crash/driver
@@ -324,6 +504,7 @@ const engine = new Engine(GODOT_CONFIG);
 
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
+		webgl: GODOT_RENDERING_DRIVER !== 'webgpu',
 	});
 
 	if (GODOT_RENDERING_DRIVER === 'webgpu' && (typeof navigator === 'undefined' || !navigator.gpu)) {
@@ -365,8 +546,7 @@ const engine = new Engine(GODOT_CONFIG);
 		setStatusMode('progress');
 		// Show WebGPU initialization status if applicable.
 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
-			setStatusNotice('Initializing WebGPU...');
-			setStatusMode('notice');
+			showStage('initializing_webgpu');
 		}
 
 		// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
@@ -376,8 +556,8 @@ const engine = new Engine(GODOT_CONFIG);
 		// before the browser gets a chance to paint anything. On a cold shader
 		// cache this single call can block the main thread for many seconds
 		// (SPIR-V -> WGSL via Tint for every specialized pipeline variant the
-		// first frame needs; see webgpu_notes/STARTUP_PROFILING.md and Section 10
-		// of webgpu_notes/finish_async_shader_comp.md). No JS-side progress text
+		// first frame needs; see webgpu_notes/TASKS.md §4.21 and Section 10
+		// of webgpu_notes/TASKS.md §4.21). No JS-side progress text
 		// or event listener can update the screen during that window -- the JS
 		// thread that would run them is the same one that's blocked. Two
 		// consequences, both handled below:
@@ -404,9 +584,14 @@ const engine = new Engine(GODOT_CONFIG);
 		let firstFramePresented = false;
 		let shaderCompileCount = 0;
 		let lastShaderCompileTime = 0;
+		// Set once the engine is about to run. The preloader can still report a
+		// final progress callback after that point, and it must not pull the
+		// text back to the download stage once "Starting engine" is on screen.
+		let engineStarting = false;
 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
 			window.addEventListener('godot-before-callmain', () => {
-				setBusyNotice('Starting engine...\nThis can take up to 30 seconds on first load while shaders compile. The page is not frozen -- please wait.');
+				engineStarting = true;
+				showBusyStage('starting_engine');
 			});
 			window.addEventListener('godot-webgpu-first-frame', () => {
 				firstFramePresented = true;
@@ -414,7 +599,7 @@ const engine = new Engine(GODOT_CONFIG);
 			window.addEventListener('godot-webgpu-shader-compile', (event) => {
 				shaderCompileCount = event.detail.misses;
 				lastShaderCompileTime = performance.now();
-				setBusyNotice(`Starting engine — compiling shaders... (${shaderCompileCount})\nThis can take up to 30 seconds on first load. Please wait.`);
+				showBusyStage('compiling_shaders', ` (${shaderCompileCount})`);
 			});
 		}
 
@@ -441,13 +626,22 @@ const engine = new Engine(GODOT_CONFIG);
 			'onProgress': function (current, total) {
 				setStatusMode('progress');
 				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
+					downloadFraction = current / total;
+					downloadIndeterminate = false;
+					if (!engineStarting) {
+						showStage('downloading', ` ${Math.round(downloadFraction * 100)}%`);
+					}
 				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
+					// No usable content-length (chunked or compressed responses, or not
+					// every download has started yet) -- see EngineConfig.onProgress.
+					downloadIndeterminate = true;
+					if (!engineStarting) {
+						showStage('downloading');
+					}
 				}
+				updateProgressBar();
 			},
+			'onStartupProgress': onStartupProgress,
 			'onWebGPUDeviceLost': showDeviceLostOverlay,
 		}).then(() => {
 			if (GODOT_RENDERING_DRIVER !== 'webgpu') {

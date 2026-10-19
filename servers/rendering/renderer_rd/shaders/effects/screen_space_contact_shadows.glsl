@@ -7,6 +7,20 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) uniform sampler2D depth_buffer;
+
+// depth_buffer's sampler clamps to a transparent black border (0.0), which
+// WebGPU samplers cannot express: they clamp to the edge texel instead, so a
+// ray reaching past the screen edge read the edge's depth and cast a shadow
+// along it. The sampler is point-filtered, so reading 0.0 outside [0, 1] here
+// (and at 1.0, where nearest filtering already selects texel N) is exactly
+// what the border did, on every backend.
+float read_depth(vec2 p_uv) {
+	if (any(lessThan(p_uv, vec2(0.0))) || any(greaterThanEqual(p_uv, vec2(1.0)))) {
+		return 0.0;
+	}
+	return textureLod(depth_buffer, p_uv, 0.0).x;
+}
+
 layout(r8, set = 0, binding = 1) uniform restrict writeonly image2D output_shadow;
 
 layout(push_constant, std430) uniform Params {
@@ -141,10 +155,10 @@ void main() {
 
 		vec2 depths;
 		vec2 uv = (read_xy + 0.5) / vec2(params.screen_size);
-		depths.x = textureLod(depth_buffer, uv, 0.0).x;
+		depths.x = read_depth(uv);
 
 		vec2 uv_neighbor = (vec2(ivec2(read_xy) + neighbor_offset) + 0.5) / vec2(params.screen_size);
-		depths.y = textureLod(depth_buffer, uv_neighbor, 0.0).x;
+		depths.y = read_depth(uv_neighbor);
 
 		depth_thickness_scale[i] = abs(DEPTH_FAR - depths.x);
 		bool use_point_filter = abs(depths.x - depths.y) > depth_thickness_scale[i] * BILINEAR_THRESHOLD;

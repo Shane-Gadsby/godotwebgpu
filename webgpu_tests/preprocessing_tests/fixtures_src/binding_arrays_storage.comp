@@ -1,0 +1,17 @@
+#version 450
+// Storage-image arrays: a writeonly one expands (3 elements fit the default
+// limit of 4 storage textures), a read_write one never does -- the driver may
+// split it into a write binding and a read shadow at the next binding number,
+// where the next expanded element would sit.
+layout(local_size_x = 8) in;
+layout(r32f, set = 0, binding = 1) uniform restrict writeonly image2D dst[3];
+layout(r32f, set = 0, binding = 2) uniform restrict image2D rw[2];
+layout(set = 0, binding = 0) uniform Params {
+	uint index;
+} params;
+
+void main() {
+	ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+	imageStore(dst[params.index], p, vec4(1.0));
+	imageStore(rw[params.index], p, imageLoad(rw[params.index], p) + 1.0);
+}

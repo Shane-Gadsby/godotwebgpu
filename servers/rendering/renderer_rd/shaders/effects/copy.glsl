@@ -44,7 +44,15 @@ layout(push_constant, std430) uniform Params {
 }
 params;
 
-#ifdef MODE_OCTMAP_ARRAY_TO_PANORAMA
+#ifdef SOURCE_IS_DEPTH_FORMAT
+// A source in a real depth format (copy_depth_to_rect() picks this variant by
+// the source's format; under MSAA its source is a float resolve instead).
+// "depth" in the name and the single-component reads below are what let the
+// WebGPU driver declare it as a depth texture -- declared as a float texture,
+// a depth buffer cannot be bound there at all, and the driver binds a blank
+// fallback in its place.
+layout(set = 0, binding = 0) uniform sampler2D source_depth;
+#elif defined(MODE_OCTMAP_ARRAY_TO_PANORAMA)
 layout(set = 0, binding = 0) uniform sampler2DArray source_color;
 #elif defined(MODE_OCTMAP_TO_PANORAMA)
 layout(set = 0, binding = 0) uniform sampler2D source_color;
@@ -249,7 +257,11 @@ void main() {
 
 #ifdef MODE_SIMPLE_COPY_DEPTH
 
+#ifdef SOURCE_IS_DEPTH_FORMAT
+	vec4 color = vec4(texelFetch(source_depth, pos + params.section.xy, 0).r);
+#else
 	vec4 color = texelFetch(source_color, pos + params.section.xy, 0);
+#endif
 
 	if (bool(params.flags & FLAG_FLIP_Y)) {
 		pos.y = params.section.w - pos.y - 1;
@@ -261,7 +273,11 @@ void main() {
 
 #ifdef MODE_LINEARIZE_DEPTH_COPY
 
+#ifdef SOURCE_IS_DEPTH_FORMAT
+	float depth = texelFetch(source_depth, pos + params.section.xy, 0).r;
+#else
 	float depth = texelFetch(source_color, pos + params.section.xy, 0).r;
+#endif
 	depth = depth * 2.0 - 1.0;
 	depth = 2.0 * params.camera_z_near * params.camera_z_far / (params.camera_z_far + params.camera_z_near - depth * (params.camera_z_far - params.camera_z_near));
 	vec4 color = vec4(depth / params.camera_z_far);

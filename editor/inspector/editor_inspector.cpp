@@ -46,6 +46,7 @@
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/inspector/add_metadata_dialog.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/inspector/editor_properties.h"
 #include "editor/inspector/editor_property_name_processor.h"
 #include "editor/inspector/editor_resource_picker.h"
@@ -3107,6 +3108,14 @@ void EditorInspectorArray::_rmb_popup_id_pressed(int p_id) {
 }
 
 void EditorInspectorArray::_control_dropping_draw() {
+	if (dropping_collection) {
+		// Dropped items are appended: mark the end of the list.
+		Color color = get_theme_color(SNAME("accent_color"), EditorStringName(Editor));
+		const Transform2D xform = elements_vbox->get_transform();
+		const float y = elements_vbox->get_size().y;
+		control_dropping->draw_line(xform.xform(Vector2(0, y)), xform.xform(Vector2(elements_vbox->get_size().x, y)), color, 2);
+		return;
+	}
 	int drop_position = _drop_position();
 
 	if (dropping && drop_position >= 0) {
@@ -3681,6 +3690,10 @@ Variant EditorInspectorArray::get_drag_data_fw(const Point2 &p_point, Control *p
 }
 
 void EditorInspectorArray::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
+	if (_can_drop_collection(p_data)) {
+		_drop_collection(p_data);
+		return;
+	}
 	Dictionary dict = p_data;
 
 	int to_drop = dict["index"];
@@ -3692,6 +3705,9 @@ void EditorInspectorArray::drop_data_fw(const Point2 &p_point, const Variant &p_
 }
 
 bool EditorInspectorArray::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	if (_can_drop_collection(p_data)) {
+		return true;
+	}
 	if (!movable || read_only) {
 		return false;
 	}
@@ -3712,6 +3728,168 @@ bool EditorInspectorArray::can_drop_data_fw(const Point2 &p_point, const Variant
 	int drop_array_index = begin_array_index + drop_position;
 
 	return drop_array_index != moved_array_index && drop_array_index - 1 != moved_array_index;
+}
+
+Vector<PropertyInfo> EditorInspectorArray::_get_element_properties() const {
+	Vector<PropertyInfo> result;
+	const String first = String(array_element_prefix) + "0";
+	const auto collect = [&](const Object *p_object) {
+		List<PropertyInfo> properties;
+		p_object->get_property_list(&properties);
+		for (const PropertyInfo &property : properties) {
+			const String name = property.name;
+			if ((property.usage & PROPERTY_USAGE_EDITOR) && (name == first || name.begins_with(first + "/"))) {
+				PropertyInfo element_property = property;
+				element_property.name = String(array_element_prefix) + "%d" + name.substr(first.length());
+				result.push_back(element_property);
+			}
+		}
+	};
+	if (count > 0) {
+		collect(object);
+		return result;
+	}
+
+	// An empty array lists no element properties: ask a fresh instance of the class holding one element.
+	if (!ClassDB::can_instantiate(object->get_class_name())) {
+		return result;
+	}
+	Object *probe = ClassDB::instantiate(object->get_class_name());
+	ERR_FAIL_NULL_V(probe, result);
+	Ref<RefCounted> probe_ref = Object::cast_to<RefCounted>(probe); // Frees a RefCounted probe.
+	if (mode == MODE_USE_COUNT_PROPERTY) {
+		probe->set(count_property, 1);
+	} else {
+		// Arrays with a move function keep their size in a "<name>_count" property (AudioStreamRandomizer's
+		// streams_count, for one).
+		List<PropertyInfo> properties;
+		probe->get_property_list(&properties);
+		for (const PropertyInfo &property : properties) {
+			if (property.type == Variant::INT && property.name.ends_with("count")) {
+				probe->set(property.name, 1);
+			}
+		}
+	}
+	collect(probe);
+	if (probe_ref.is_null()) {
+		memdelete(probe);
+	}
+	return result;
+}
+
+int EditorInspectorArray::_find_drop_target(const Vector<PropertyInfo> &p_element_properties, const Variant &p_data, int p_item, const Node *p_base_node) const {
+	// The element property an item goes to: objects first (a dropped AudioStream fills "stream"), then NodePaths, paths
+	// with a file hint, and untyped values. Never a plain string: files dropped on a list of names (AnimationNodeTransition's
+	// inputs) would become elements named after their paths.
+	const auto priority = [](const PropertyInfo &p_property) {
+		switch (p_property.type) {
+			case Variant::OBJECT:
+				return 0;
+			case Variant::NODE_PATH:
+				return 1;
+			case Variant::STRING:
+			case Variant::STRING_NAME:
+				return p_property.hint == PROPERTY_HINT_NONE || p_property.hint == PROPERTY_HINT_PLACEHOLDER_TEXT || p_property.hint == PROPERTY_HINT_MULTILINE_TEXT ? -1 : 2;
+			case Variant::NIL:
+				return 3;
+			default:
+				return -1;
+		}
+	};
+	int best = -1;
+	for (int i = 0; i < p_element_properties.size(); i++) {
+		const int p = priority(p_element_properties[i]);
+		if (p < 0 || (best >= 0 && priority(p_element_properties[best]) <= p)) {
+			continue;
+		}
+		if (EditorCollectionDrop::can_accept_item(p_data, p_item, EditorCollectionDrop::Slot::from_property(p_element_properties[i]), p_base_node)) {
+			best = i;
+		}
+	}
+	return best;
+}
+
+bool EditorInspectorArray::_can_drop_collection(const Variant &p_data) const {
+	if (read_only || is_const || mode == MODE_NONE || !EditorCollectionDrop::is_collection_drag(p_data)) {
+		return false;
+	}
+	if (mode == MODE_USE_MOVE_ARRAY_ELEMENT_FUNCTION && !EditorNode::get_editor_data().get_move_array_element_function(object->get_class_name()).is_valid()) {
+		return false;
+	}
+	const Vector<PropertyInfo> element_properties = _get_element_properties();
+	const Node *base_node = EditorCollectionDrop::get_base_node(this);
+	for (int i = 0; i < EditorCollectionDrop::get_item_count(p_data); i++) {
+		if (_find_drop_target(element_properties, p_data, i, base_node) < 0) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void EditorInspectorArray::_drop_collection(const Variant &p_data) {
+	const Vector<PropertyInfo> element_properties = _get_element_properties();
+	Node *base_node = EditorCollectionDrop::get_base_node(this);
+
+	// What each new element gets: the item in its target property, and its name in a "name" or "text" property if it
+	// has one (AudioStreamInteractive's clips; ItemList, OptionButton, TabBar items given an icon).
+	Vector<Dictionary> elements;
+	for (int i = 0; i < EditorCollectionDrop::get_item_count(p_data); i++) {
+		const int target = _find_drop_target(element_properties, p_data, i, base_node);
+		ERR_FAIL_COND(target < 0);
+		const EditorCollectionDrop::Item item = EditorCollectionDrop::resolve_item(p_data, i, EditorCollectionDrop::Slot::from_property(element_properties[target]), base_node);
+		if (item.value.get_type() == Variant::NIL || (item.value.get_type() == Variant::OBJECT && !item.value.get_validated_object())) {
+			continue; // Failed to load.
+		}
+		Dictionary values;
+		values[element_properties[target].name] = item.value;
+		for (int j = 0; j < element_properties.size(); j++) {
+			const PropertyInfo &property = element_properties[j];
+			if (j != target && (property.name.ends_with("/name") || property.name.ends_with("/text")) && (property.type == Variant::STRING || property.type == Variant::STRING_NAME)) {
+				values[property.name] = property.type == Variant::STRING_NAME ? Variant(StringName(item.name)) : Variant(item.name);
+			}
+		}
+		elements.push_back(values);
+	}
+	if (elements.is_empty()) {
+		return;
+	}
+
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	undo_redo->create_action(vformat(TTR("Add %d elements to property array with prefix %s."), elements.size(), array_element_prefix));
+	if (mode == MODE_USE_COUNT_PROPERTY) {
+		// Appended, so nothing moves: no swap method or property shuffle needed, and undo just shrinks the array.
+		undo_redo->add_do_property(object, count_property, count + elements.size());
+		for (int k = 0; k < elements.size(); k++) {
+			for (const KeyValue<Variant, Variant> &kv : elements[k]) {
+				undo_redo->add_do_property(object, vformat(String(kv.key), count + k), kv.value);
+			}
+		}
+		undo_redo->add_undo_property(object, count_property, count);
+	} else {
+		// The move function records an insertion and its undo against the array as it is now, so insert every element
+		// at the current end, last one first: each pushes the previous ones up, and undoing removes that index again.
+		Callable move_function = EditorNode::get_editor_data().get_move_array_element_function(object->get_class_name());
+		for (int k = elements.size() - 1; k >= 0; k--) {
+			move_function.call(undo_redo, object, array_element_prefix, -1, count);
+			for (const KeyValue<Variant, Variant> &kv : elements[k]) {
+				undo_redo->add_do_property(object, vformat(String(kv.key), count), kv.value);
+			}
+		}
+	}
+	undo_redo->commit_action();
+
+	count += elements.size();
+	emit_signal(SNAME("page_change_request"), (count - 1) / page_length);
+}
+
+bool EditorInspectorArray::can_drop_data(const Point2 &p_point, const Variant &p_data) const {
+	return _can_drop_collection(p_data);
+}
+
+void EditorInspectorArray::drop_data(const Point2 &p_point, const Variant &p_data) {
+	if (_can_drop_collection(p_data)) {
+		_drop_collection(p_data);
+	}
 }
 
 void ArrayPanelContainer::_accessibility_action_menu(const Variant &p_data) {
@@ -3785,12 +3963,16 @@ void EditorInspectorArray::_notification(int p_what) {
 			if (dict.has("type") && dict["type"] == "property_array_element" && String(dict["property_array_prefix"]) == array_element_prefix) {
 				dropping = true;
 				control_dropping->queue_redraw();
+			} else if (is_visible_in_tree() && _can_drop_collection(dict)) {
+				dropping_collection = true;
+				control_dropping->queue_redraw();
 			}
 		} break;
 
 		case NOTIFICATION_DRAG_END: {
-			if (dropping) {
+			if (dropping || dropping_collection) {
 				dropping = false;
+				dropping_collection = false;
 				control_dropping->queue_redraw();
 			}
 		} break;
@@ -3870,6 +4052,7 @@ EditorInspectorArray::EditorInspectorArray(bool p_read_only) {
 
 	add_button = memnew(EditorInspectorActionButton(TTRC("Add Element"), SNAME("Add")));
 	add_button->connect(SceneStringName(pressed), callable_mp(this, &EditorInspectorArray::_add_button_pressed));
+	SET_DRAG_FORWARDING_CD(add_button, EditorInspectorArray); // Dropping files on "Add Element" adds them.
 	add_button->set_disabled(read_only);
 	vbox->add_child(add_button);
 

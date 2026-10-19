@@ -40,6 +40,8 @@ All optimizations are gated behind `ApiTrait` enums queried at initialization, m
 | +firstInstance dedup | Skip push constant IPC | ~46 ms | ~1.12x |
 | +Color pass batching | Merge color draws | ~36 ms | **Parity** |
 
+These numbers were measured while dual-paraboloid omni shadows were forced. That override was removed on 2026-10-17 for parity with native (see Layer 1); a scene with 32 shadowed omni lights left on the default cube mode now pays for 6 passes per light, and has not been re-measured.
+
 ### IPC Crossings Per Frame (3D Platformer)
 
 | Stage | Crossings/Frame | Cost at 0.3us each |
@@ -111,6 +113,8 @@ Each OmniLight3D with cubemap shadows generates 6 render pass encoder cycles + 2
 `API_TRAIT_FORCE_OMNI_DUAL_PARABOLOID` overrides `light_omni_get_shadow_mode()` to always return `SHADOW_DUAL_PARABOLOID`. 2 passes per light instead of 6+2.
 
 **Quality trade-off**: Dual-paraboloid shadows have a seam at the hemisphere equator and slightly different sampling distribution. Acceptable for web where performance is the bottleneck.
+
+> **Reverted 2026-10-17 (`webgpu_notes/TASKS.md` §4.29).** The trait now returns 0, so each OmniLight3D uses its own `omni_shadow_mode` -- cube by default, exactly as on native. Forcing dual-paraboloid made every project's omni shadows differ from native and ignored a setting the user had chosen; the Forward+ parity sweep counted it as a parity bug. The cost comes back for scenes with many shadowed omni lights (6 passes per light instead of 2; Part 2's pass merging still applies). The 133 → 76 ms figure below was measured with both parts together and has **not** been re-measured with cube shadows; the scene smoketest and `perf_guard` stayed green. To get the cheaper shadows on web, set `omni_shadow_mode = OmniLight3D.SHADOW_DUAL_PARABOLOID` on the lights that need it -- it is a per-light choice, as on every other platform.
 
 ### Solution Part 2: Merge Same-Framebuffer Shadow Passes
 
@@ -319,7 +323,7 @@ Layer 3: firstInstance + PC dedup         — reduces per-draw overhead for non-
 | `BUFFER_CREATE_MAPPED_AT_CREATION` | 1 | Zero-copy initial buffer data |
 | `TEXTURE_INITIALIZE_DIRECT_WRITE` | 1 | Bypass transfer worker for textures |
 | `SKELETON_BUFFER_DIRECT_WRITE` | 1 | Direct queue write for bone atlas |
-| `FORCE_OMNI_DUAL_PARABOLOID` | 1 | Reduce shadow pass count |
+| `FORCE_OMNI_DUAL_PARABOLOID` | 0 | Was 1 (reduce shadow pass count) until 2026-10-17; see Layer 1 |
 | `BATCH_INSTANCE_DRAWS` | 1 | Merge same-state draws |
 | `FIRST_INSTANCE_INDEX` | 1 | Encode base_index via firstInstance |
 
@@ -347,9 +351,75 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 
 ---
 
+## 2026-10-16: GPU Fixes and the Separate Render Thread
+
+One day of work on a real GPU (RTX 4080 SUPER, 165 Hz, Chrome), measured before and after on the user's cameraSim project, the heavy Forward+ stress scene, the 3D platformer demo and four benchmark scenes. *Main* is the main thread's CPU ms per frame at the 165 fps cap, *render* the render thread's; *uncapped* is engine fps with Chrome's frame-rate limit and vsync lifted; *GPU* is GPU busy ms per frame. Noise is about ±5%.
+
+What changed:
+
+- **SSIL constant local arrays hoisted** by a new SPIR-V pass (`hoist_constant_local_arrays`): Tint was materialising the kernel's constant arrays per invocation; the pass took SSIL's GPU time from 0.6 ms to under 0.05.
+- **Read-write storage textures bound as `read_write` per format** (the old check queried a WGSL language feature as a device feature and always failed): the heavy scene's GPU time 2.63 → ~1.5 ms.
+- **An upstream Godot shadow-atlas bug** (`light_storage.cpp`): when a reallocation found no slot, the light's version was never stored, so every positional shadow was redrawn every frame after any long early frame — which on the web is every frame. Heavy scene CPU −37%. Fix branch: `shadow-atlas/store-version-when-realloc-fails`.
+- **No-op uniform-set prepares skipped** on WebGPU (new `API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE`) and a 4-entry front on the bind-group rebind cache.
+- **Web Audio writes skipped when unchanged** (the engine resends every playing sample's gains and pitch each frame): platformer audio 0.148 → 0.029 ms/frame. Upstream's sample-driver rewrite (godotengine/godot#123996) is cherry-picked with the cache re-applied. Since 2026-10-18 (`webgpu_notes/TASKS.md` §4.30) the unchanged values are skipped in C++, before any JS call, and the driver uses integer handles instead of ObjectID strings: **0.029 → 0.002 ms/frame**. The same work removed a per-playback worklet that posted a message every 128 frames (positions now come from the context clock) and a full copy of the decoded sound on every play.
+- **A separate render thread**, on by default for thread-enabled exports (export option `variant/separate_render_thread`, which passes `--render-thread separate`; off, the project setting `rendering/driver/threads/thread_model` decides): rendering runs on its own pthread with its own WebGPU device, the canvas transferred as an `OffscreenCanvas`; the main thread never blocks on it (a blocking wait on the browser main thread is a busy-spin), waiting instead with `Atomics.waitAsync`; the render thread yields to its event loop through a `MessageChannel` message (never a timer: Chrome clamps nested `setTimeout(0)` to 4 ms). Browsers without WebGPU in workers fall back to the Safe model automatically. Design, traps and mechanics: `webgpu_notes/TASKS.md` §2.5.
+
+| Scene | Main, before → after (nothreads) | → after, Separate (main + render) | Uncapped fps, before → after | GPU ms, before → after |
+|---|---:|---:|---:|---:|
+| cameraSim (real project) | 0.51 → 0.49 ms (−4%) | **0.09** + 0.44 ms (**−82%**) | 837 → 832 (−1%) | 0.64 → 0.58 (−9%) |
+| Heavy Forward+ (scene_i) | 1.93 → 1.15 ms (**−40%**) | **0.06** + 1.18 ms (**−97%**) | 229 → 292 (**+28%**) | 3.40 → 1.46 (**−57%**) |
+| 3D platformer demo | 0.84 → 0.79 ms (−6%) | **0.36** + 0.50 ms (**−57%**) | 833 → 821 (−1%) | 0.40 → 0.42 (+5%) |
+| PBR Sphere | 0.28 → 0.27 ms (−4%) | 0.05 + 0.22 ms (−82%) | 1012 → 1022 (+1%) | 0.28 → 0.28 (0%) |
+| GPU Particles | 0.26 → 0.27 ms (+4%) | 0.05 + 0.19 ms (−81%) | 982 → 974 (−1%) | 0.13 → 0.14 (+8%) |
+| Other Effects (SSAO + Bloom) | 0.96 → 0.99 ms (+3%) | 0.09 + 0.99 ms (−91%) | 633 → 619 (−2%) | 0.50 → 0.49 (−2%) |
+| Shadows | 0.44 → 0.40 ms (−9%) | 0.06 + 0.36 ms (−86%) | 846 → 867 (+2%) | 0.34 → 0.34 (0%) |
+
+Averaged over the seven scenes the fixes alone are main thread −8%, GPU −8%, uncapped fps +4% — concentrated on the scenes that had something to fix, the rest already at their floor. With the render thread the main thread's per-frame cost falls −82% on average; what remains is the game's own logic (the platformer's 0.36 ms is physics, scripts and audio). Uncapped fps cannot be measured in Separate mode — Chrome's uncapped flags drive the rAF of a page whose canvas is worker-owned at ~60 Hz — and with vsync every configuration runs at the display rate. The Safe thread model measures the same as nothreads, and threads+GDExtension (dlink) the same as threads.
+
+---
+
+## 2026-10-17: The First Phone (Mali-G615, Chrome/Android)
+
+Everything above was measured on desktop GPUs, where this backend's problem was always the CPU side of the browser. The first phone run (Motorola Razr 60: MediaTek MT6878, 2-core Mali-G615 MC2, Android 16, Chrome 154; the user's cameraSim project — Forward+, bokeh DOF near and far, a directional light and three shadow-casting spots, seven opaque draws, 1920x1080 backbuffer) inverted that picture completely.
+
+**It is GPU-bound.** 20.5 fps; main thread 29% busy; **48.7 ms of GPU time per frame, 90% of the GPU timeline** (timestamp queries per pass, the same instrumentation as `gpu_time.mjs`, driven over USB by the tools in `webgpu_tests/perf_guard/android/`):
+
+| GPU ms/frame | Pass |
+|---:|---|
+| 28.0 | opaque lighting pass (`SceneForwardClusteredShaderRD:18`, 7 draws → 1920x1080 RGBA16F); the depth prepass of the same 7 draws is 0.67 |
+| 14.5 | bokeh DOF, four compute passes at full resolution |
+| 1.2 | tonemap |
+| ~1.7 | the 4096² shadow maps |
+| < 1 each | cluster build, blit, 113 UI draws, copies |
+
+Against the desktop profile of the same scene (opaque 0.29 ms, DOF 0.145) both big passes are ~100x — the hardware ratio, not one pathological shader.
+
+**What does not matter on this phone** (all 19–21 fps): the debug vs release template, `dlink`, threads, the separate render thread (the user's own observation), ASTC-compressing the character texture. Cheaper shadows (2048 maps, soft filter quality 1) buy 10%; a cheaper bokeh (Very Low, Box) 4% — the DOF cost is fixed full-resolution bandwidth, not sample count.
+
+**What matters is 3D pixel count**, almost exactly: `rendering/scaling_3d/scale` 0.75 → 30.1 fps, 0.66 with the cheap DOF/shadows → 50.1, 0.5 → 59.6 (the display cadence). FSR 1.0 upscaling undoes it (50.1 → 30.1: EASU+RCAS are 7.3 ms at 1080p output plus a 1.2 ms copy). The project now carries `.web_android` overrides (scale 0.6, bilinear, 2048 maps, filter quality 1, cheap bokeh) and runs at **55.6 fps**; `.web_ios` carries milder, untested ones. The web platform exposes `web_android` / `web_ios` feature tags, never `mobile`, so a project's `*.mobile` overrides do not apply in phones' browsers.
+
+**Bisecting the lighting pass** — the three lit materials' fragment modules were dumped from the device, edited by function signature (Tint mangles names but keeps parameter names), and substituted by exact code match; the unedited control reproduces 26.9 ms:
+
+| Cut in the fragment WGSL | `:18` ms |
+|---|---:|
+| none (control) | 26.9 |
+| fragment body returns at once (raster + RGBA16F write floor) | 1.85 |
+| `light_compute` (the BRDF) returns at once | 8.4 |
+| every `textureSampleCompare` → 1.0 | 16.4 |
+| omni/spot processing returns at once (the three spots) | 15.6 |
+| spot shadow samplers → 1.0 | 18.6 |
+| directional shadow samplers → 1.0 | 23.0 |
+| area-light and reflection-probe code returns at once | 27.2 |
+
+So the pass is BRDF + 8-tap PCF for four lights per pixel, and the cuts are super-additive (BRDF 18.5 + shadows 10.5 > 25): part of the cost is register pressure/occupancy of the whole clustered program, which the texture-latency-bound shadow taps need. Every candidate for a cost of *ours* was then checked and cleared: `:18` is the specialized colour pass (not the ubershader fallback); the override constants reach Dawn; unused feature paths are free; `OpImageGather` is translated natively; and **f16 is a null result on this GPU** — the Forward+ shader was bridged to `EXPLICIT_FP16` (Mobile's lighting include already takes `half`; Clustered's locals are float, so the bridge casts at the six lighting calls, `F0`, `blur_shadow`, `reflection_process` and the clearcoat helpers; it compiles for every optional material path and Tint emits `enable f16;`), and substituted with the device requesting `shader-f16`: 47.9 ms GPU vs a 48.7 ms f32 control. The bridge is kept as `webgpu_tests/perf_guard/android/forward_clustered_explicit_fp16_bridge.patch` for Apple GPUs, where f16 matters much more. Forward Mobile, for the record, settles at 21.6 fps here (opaque pass 34.1 ms for 4 draws — it has no depth prepass, so it shades overdraw).
+
+Still open: a native-Vulkan number on the same phone (needs an Android SDK for an APK export) and profiling exports that use the separate render thread (its pthread worker never answers CDP evaluates; `android/worker_gpu.mjs` is the unfinished self-driving variant).
+
+---
+
 ## Remaining Optimization Opportunities
 
-1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile.
+1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile. *Measured 2026-10-17:* on a Mali-G615 phone the main thread sits at 29% while the GPU is at 90%, so trampoline savings would not change the frame rate there; a weaker CPU with a stronger GPU (or a lighter scene) would be the case for it.
 
 2. **Skeleton atlas compaction**: Add free-list or generational compaction for dynamic skeleton scenes.
 
@@ -357,7 +427,7 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 
 4. **Batch size cap**: Add configurable maximum (e.g., 4096 instances) for mobile GPU scheduling.
 
-5. **Shader pre-compilation**: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
+5. **Shader pre-compilation** — *done*: the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
 
 6. **Push constant ring sizing**: Monitor peak usage and right-size the 256KB ring buffer. Add runtime warning when approaching the 1024-slot limit.
 
@@ -370,6 +440,9 @@ All traits default to 0 in the base class. Non-WebGPU backends are completely un
 | File | Role |
 |------|------|
 | `drivers/webgpu/rendering_device_driver_webgpu.cpp` | All WebGPU-specific fast paths |
+| `platform/web/display_server_web.cpp` | The separate render thread (`render_thread_prestart`, `_render_thread_wake`, `render_thread_wait_for_draw`) |
+| `servers/rendering/rendering_server_default.cpp` | `external_render_thread_*` hooks, `sync_previous_draw()` |
+| `drivers/webgpu/spirv_preprocess.cpp` | The SPIR-V passes, incl. `hoist_constant_local_arrays` |
 | `drivers/webgpu/webgpu_objects.h` | WGBuffer dirty tracking, RenderState |
 | `servers/rendering/rendering_device.cpp` | Staging cap, direct write, firstInstance plumbing |
 | `servers/rendering/rendering_device_driver.h` | API trait definitions |

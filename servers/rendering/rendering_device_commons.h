@@ -1044,6 +1044,10 @@ public:
 		SUPPORTS_RAY_QUERY,
 		SUPPORTS_RAYTRACING_PIPELINE,
 		SUPPORTS_HDR_OUTPUT,
+		SUPPORTS_RASTERIZATION_RATE_MAP,
+		SUPPORTS_GPU_MAPPABLE_BUFFER,
+		// Fork-only features go after upstream's, so the values bound to scripts and
+		// GDExtension (doc/classes/RenderingDevice.xml) stay the same as upstream's.
 		// Whether texture_create_shared()'s format_override can reinterpret a texture's
 		// bits as an arbitrary other same-size format (e.g. a packed-uint storage image
 		// viewed as a shared-exponent or 4-bit-per-channel unorm format for hardware-
@@ -1069,8 +1073,6 @@ public:
 		// found (a real bug: WebGPU's driver previously bound only the first array
 		// element for every such uniform, silently discarding the runtime index).
 		SUPPORTS_TEXTURE_ARRAY_BINDINGS,
-		SUPPORTS_RASTERIZATION_RATE_MAP,
-		SUPPORTS_GPU_MAPPABLE_BUFFER,
 		// Sentinel, so code that has to answer for every feature (the shader
 		// baker's target capability override) stays correct when one is added.
 		// Deliberately not BIND_ENUM_CONSTANT'd: it is not a feature.

@@ -346,6 +346,15 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 
 	bool should_request_redraw = false;
 
+	// firstInstance optimization (mirrors Forward Mobile): a single non-multimesh instance carries its instance-data
+	// index in drawIndexed's firstInstance (the shader adds gl_InstanceIndex to draw_call.instance_index, which is then
+	// 0), so the push constant only has to be re-sent when something other than the index changes.
+	const bool first_instance_eligible_pass = use_first_instance && p_pass_mode != PASS_MODE_DEPTH_MATERIAL;
+	bool pc_set_for_current_pipeline = false;
+	SceneState::PushConstant prev_fi_push_constant = {};
+	size_t prev_fi_push_constant_size = 0;
+	bool have_prev_fi_push_constant = false;
+
 	for (uint32_t i = p_from_element; i < p_to_element; i++) {
 		const GeometryInstanceSurfaceDataCache *surf = p_params->elements[i];
 		const RenderElementInfo &element_info = p_params->element_info[i];
@@ -568,6 +577,8 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 
 			if (!pipeline_rd.is_null()) {
 				RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, pipeline_rd);
+				// A new pipeline (possibly a new push constant layout) needs the push constant sent again.
+				pc_set_for_current_pipeline = false;
 			}
 
 			if (xforms_uniform_set.is_valid() && prev_xforms_uniform_set != xforms_uniform_set) {
@@ -603,8 +614,6 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				push_constant_size = sizeof(SceneState::PushConstant) - sizeof(SceneState::PushConstantUbershader);
 			}
 
-			RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, push_constant_size);
-
 			uint32_t instance_count = surf->owner->instance_count > 1 ? surf->owner->instance_count : element_info.repeat;
 			if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_PARTICLE_TRAILS) {
 				instance_count /= surf->owner->trail_steps;
@@ -612,15 +621,43 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 
 			bool indirect = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
 
-			if (emulate_point_size) {
-				if (indirect) {
-					WARN_PRINT("Indirect draws are not supported when emulating point size.");
+			const bool can_use_first_instance = first_instance_eligible_pass && instance_count == 1 && !indirect && !emulate_point_size &&
+					!(surf->owner->base_flags & (INSTANCE_DATA_FLAG_MULTIMESH | INSTANCE_DATA_FLAG_PARTICLES));
+
+			if (can_use_first_instance) {
+				const uint32_t actual_base_index = push_constant.base_index;
+				push_constant.base_index = 0;
+
+				bool need_pc = !pc_set_for_current_pipeline;
+				if (!need_pc && have_prev_fi_push_constant && prev_fi_push_constant_size == push_constant_size) {
+					need_pc = memcmp(&push_constant, &prev_fi_push_constant, push_constant_size) != 0;
+				} else if (!need_pc) {
+					need_pc = true;
 				}
-				RD::get_singleton()->draw_list_draw(draw_list, false, mesh_storage->mesh_surface_get_vertex_count(mesh_surface), instance_count * 6);
-			} else if (indirect) {
-				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
+				if (need_pc) {
+					RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, push_constant_size);
+					prev_fi_push_constant = push_constant;
+					prev_fi_push_constant_size = push_constant_size;
+					have_prev_fi_push_constant = true;
+					pc_set_for_current_pipeline = true;
+				}
+
+				RD::get_singleton()->draw_list_draw(draw_list, index_array_rd.is_valid(), 1, 0, actual_base_index);
 			} else {
-				RD::get_singleton()->draw_list_draw(draw_list, index_array_rd.is_valid(), instance_count);
+				have_prev_fi_push_constant = false;
+				RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, push_constant_size);
+				pc_set_for_current_pipeline = true;
+
+				if (emulate_point_size) {
+					if (indirect) {
+						WARN_PRINT("Indirect draws are not supported when emulating point size.");
+					}
+					RD::get_singleton()->draw_list_draw(draw_list, false, mesh_storage->mesh_surface_get_vertex_count(mesh_surface), instance_count * 6);
+				} else if (indirect) {
+					RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
+				} else {
+					RD::get_singleton()->draw_list_draw(draw_list, index_array_rd.is_valid(), instance_count);
+				}
 			}
 		}
 
@@ -814,7 +851,7 @@ void RenderForwardClustered::SceneState::grow_instance_buffer(RenderListType p_r
 	}
 }
 
-void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, int *p_render_info, uint32_t p_offset, int32_t p_max_elements, bool p_update_buffer) {
+void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, int *p_render_info, uint32_t p_offset, int32_t p_max_elements, bool p_update_buffer, bool p_shadow) {
 	RenderList *rl = &render_list[p_render_list];
 	uint32_t element_total = p_max_elements >= 0 ? uint32_t(p_max_elements) : rl->elements.size();
 
@@ -895,7 +932,8 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 
 		const bool cant_repeat = instance_data.flags & INSTANCE_DATA_FLAG_MULTIMESH || inst->mesh_instance.is_valid();
 
-		if (prev_surface != nullptr && !cant_repeat && prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && prev_surface->uses_lightmap_specular == surface->uses_lightmap_specular && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
+		const bool same_as_prev = prev_surface != nullptr && (p_shadow ? RenderList::shadow_variant_equal(prev_surface, surface) : (prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && prev_surface->uses_lightmap_specular == surface->uses_lightmap_specular));
+		if (same_as_prev && !cant_repeat && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
 			//this element is the same as the previous one, count repeats to draw it using instancing
 			repeats++;
 		} else {
@@ -928,8 +966,9 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 		}
 	}
 
+	scene_state.curr_gpu_used_bytes[p_render_list] = uint64_t(p_offset + element_total) * sizeof(SceneState::InstanceData);
 	if (p_update_buffer && element_total > 0u) {
-		RenderingDevice::get_singleton()->buffer_flush(scene_state.instance_buffer[p_render_list]._get(0u));
+		RenderingDevice::get_singleton()->buffer_flush_range(scene_state.instance_buffer[p_render_list]._get(0u), 0, scene_state.curr_gpu_used_bytes[p_render_list]);
 	}
 }
 
@@ -2031,8 +2070,13 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	_update_render_base_uniform_set();
 
 	_fill_render_list(RENDER_LIST_OPAQUE, p_render_data, PASS_MODE_COLOR, using_sdfgi, using_sdfgi || using_voxelgi, using_motion_pass);
-	render_list[RENDER_LIST_OPAQUE].sort_by_key();
-	render_list[RENDER_LIST_MOTION].sort_by_key();
+	if (geometry_first_sort) {
+		render_list[RENDER_LIST_OPAQUE].sort_by_key_geometry_first();
+		render_list[RENDER_LIST_MOTION].sort_by_key_geometry_first();
+	} else {
+		render_list[RENDER_LIST_OPAQUE].sort_by_key();
+		render_list[RENDER_LIST_MOTION].sort_by_key();
+	}
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
 
 	int *render_info = p_render_data->render_info ? p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : (int *)nullptr;
@@ -2975,8 +3019,8 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 	uint32_t render_list_from = render_list[RENDER_LIST_SECONDARY].elements.size();
 	_fill_render_list(RENDER_LIST_SECONDARY, &render_data, pass_mode, false, false, false, true);
 	uint32_t render_list_size = render_list[RENDER_LIST_SECONDARY].elements.size() - render_list_from;
-	render_list[RENDER_LIST_SECONDARY].sort_by_key_range(render_list_from, render_list_size);
-	_fill_instance_data(RENDER_LIST_SECONDARY, p_render_info ? p_render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW] : (int *)nullptr, render_list_from, render_list_size, false);
+	render_list[RENDER_LIST_SECONDARY].sort_by_shadow_variant_range(render_list_from, render_list_size);
+	_fill_instance_data(RENDER_LIST_SECONDARY, p_render_info ? p_render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW] : (int *)nullptr, render_list_from, render_list_size, false, true);
 
 	{
 		//regular forward for now
@@ -3011,7 +3055,7 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 void RenderForwardClustered::_render_shadow_process() {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (scene_state.instance_buffer[RENDER_LIST_SECONDARY].get_size(0u) > 0u) {
-		rd->buffer_flush(scene_state.instance_buffer[RENDER_LIST_SECONDARY]._get(0u));
+		rd->buffer_flush_range(scene_state.instance_buffer[RENDER_LIST_SECONDARY]._get(0u), 0, scene_state.curr_gpu_used_bytes[RENDER_LIST_SECONDARY]);
 	}
 
 	//render shadows one after the other, so this can be done un-barriered and the driver can optimize (as well as allow us to run compute at the same time)
@@ -3754,6 +3798,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 	}
 
 	p_samplers.append_uniforms(uniforms, 12);
+	uniforms.push_back(p_samplers.get_lod_bias_uniform());
 
 	{
 		RD::Uniform u;
@@ -4118,6 +4163,7 @@ RID RenderForwardClustered::_setup_sdfgi_render_pass_uniform_set(RID p_albedo_te
 	}
 
 	p_samplers.append_uniforms(uniforms, 12);
+	uniforms.push_back(p_samplers.get_lod_bias_uniform());
 
 	// actual sdfgi stuff
 
@@ -5321,6 +5367,8 @@ void RenderForwardClustered::_update_shader_quality_settings() {
 }
 
 RenderForwardClustered::RenderForwardClustered() {
+	use_first_instance = RD::get_singleton()->supports_first_instance_index();
+	geometry_first_sort = RD::get_singleton()->supports_batch_instance_draws();
 	singleton = this;
 
 	/* SCENE SHADER */

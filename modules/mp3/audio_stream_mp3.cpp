@@ -36,6 +36,7 @@
 
 #include "core/io/file_access.h"
 #include "core/object/class_db.h"
+#include "servers/audio/audio_server.h"
 
 #include <thirdparty/dr_libs/dr_bridge.h>
 
@@ -242,6 +243,7 @@ void AudioStreamMP3::set_data(const Vector<uint8_t> &p_data) {
 	memdelete(mp3d);
 
 	data = p_data;
+	emit_changed();
 }
 
 Vector<uint8_t> AudioStreamMP3::get_data() const {
@@ -250,6 +252,7 @@ Vector<uint8_t> AudioStreamMP3::get_data() const {
 
 void AudioStreamMP3::set_loop(bool p_enable) {
 	loop = p_enable;
+	emit_changed();
 }
 
 bool AudioStreamMP3::has_loop() const {
@@ -258,6 +261,7 @@ bool AudioStreamMP3::has_loop() const {
 
 void AudioStreamMP3::set_loop_offset(double p_seconds) {
 	loop_offset = p_seconds;
+	emit_changed();
 }
 
 double AudioStreamMP3::get_loop_offset() const {
@@ -307,13 +311,13 @@ int AudioStreamMP3::get_bar_beats() const {
 }
 
 Ref<AudioSample> AudioStreamMP3::generate_sample() const {
+	const int mix_rate = AudioServer::get_singleton()->get_mix_rate();
 	Ref<AudioSample> sample;
 	sample.instantiate();
 	sample->stream = this;
-	sample->loop_mode = loop
-			? AudioSample::LoopMode::LOOP_FORWARD
-			: AudioSample::LoopMode::LOOP_DISABLED;
-	sample->loop_begin = loop_offset;
+	sample->loop_mode = loop ? AudioSample::LoopMode::LOOP_FORWARD : AudioSample::LoopMode::LOOP_DISABLED;
+	sample->sample_rate = mix_rate;
+	sample->loop_begin = Math::round(loop_offset * mix_rate);
 	sample->loop_end = 0;
 	return sample;
 }

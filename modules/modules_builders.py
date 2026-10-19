@@ -32,7 +32,7 @@ def register_module_types_builder(target, source, env):
     with methods.generated_wrapper(str(target[0])) as file:
         file.write(
             f"""\
-#include "register_module_types.h"
+#include "modules/register_module_types.h"
 
 #include "modules/modules_enabled.gen.h"
 

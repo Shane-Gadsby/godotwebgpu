@@ -19,7 +19,7 @@
 </head>
 <body>
     <h1>SDFGI per-dispatch parallelism repro — Round 45</h1>
-    <p>Not Godot. Matches sdfgi_integrate.glsl's real dispatch shape (289x17 threads, workgroup_size 8x8x1, each looping 16 rows of a shared 289x272 texture) to test whether concurrent same-dispatch invocations touching shared persistent storage textures is the missing ingredient behind the SDFGI brightness runaway. See webgpu_notes/TASKS.md Task 9.5 Round 45 / plan-of-attack.md Tier 1 Phase 1.</p>
+    <p>Not Godot. Matches sdfgi_integrate.glsl's real dispatch shape (289x17 threads, workgroup_size 8x8x1, each looping 16 rows of a shared 289x272 texture) to test whether concurrent same-dispatch invocations touching shared persistent storage textures is the missing ingredient behind the SDFGI brightness runaway. See webgpu_notes/TASKS.md Task 9.5 Round 45 / webgpu_notes/TASKS.md §2</p>
     <div id="status">Ready.</div>
     <div id="results"></div>
 

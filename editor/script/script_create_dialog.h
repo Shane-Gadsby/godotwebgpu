@@ -119,6 +119,11 @@ protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 
+#ifndef DISABLE_DEPRECATED
+	void _config_bind_compat_webgpu_1(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled = true, bool p_load_enabled = true);
+	static void _bind_compatibility_methods();
+#endif
+
 public:
 	void config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled = true, bool p_load_enabled = true, bool p_use_default_folder = true);
 	void set_inheritance_base_type(const String &p_base);

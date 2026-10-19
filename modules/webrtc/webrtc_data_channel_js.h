@@ -45,13 +45,25 @@ private:
 	WriteMode _write_mode = WRITE_MODE_BINARY;
 
 	enum {
-		PACKET_BUFFER_SIZE = 65536 - 5 // 4 bytes for the size, 1 for for type
+		PACKET_BUFFER_SIZE = 65536 - 5, // 4 bytes for the size, 1 for for type
+		// Growing past this means the application is not polling; warned about
+		// once per channel, since nothing else makes a runaway queue visible.
+		IN_BUFFER_WARN_SHIFT = 23, // 8 MiB.
+		// Keeps the shift arithmetic sane; unreachable in practice.
+		IN_BUFFER_MAX_SHIFT = 30 // 1 GiB.
 	};
 
 	int _js_id = 0;
 	RingBuffer<uint8_t> in_buffer;
 	int queue_count = 0;
-	uint8_t packet_buffer[PACKET_BUFFER_SIZE];
+	// in_buffer's current power-of-two size. Starts at the base class's
+	// _in_buffer_shift and grows from there; see _grow_in_buffer().
+	unsigned int _in_buffer_cur_shift = 0;
+	bool _in_buffer_warned = false;
+	Vector<uint8_t> packet_buffer;
+
+	bool _grow_in_buffer(int p_needed);
+	void _shrink_in_buffer();
 
 	static void _on_open(void *p_obj);
 	static void _on_close(void *p_obj);

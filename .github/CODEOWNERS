@@ -301,6 +301,10 @@
 /webgpu_notes/                                @Shane-Gadsby
 /webgpu_site/                                 @Shane-Gadsby
 
+# Braced GDScript (.gdb, this fork's own addition)
+
+/docs/braced_gdscript/                        @Shane-Gadsby
+
 # Buildsystem (After everything to catch all)
 
 /*.*                                          @godotengine/buildsystem

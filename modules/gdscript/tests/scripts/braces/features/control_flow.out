@@ -1,0 +1,21 @@
+GDTEST_OK
+medium
+single line if
+single line else
+single line elif
+else on its own line
+while 1
+while 3
+for 0
+for 1
+for 2
+key a
+key b
+multi-line condition
+nested on one line
+else if
+else if on one line
+2
+1
+{ "k": 1 }
+compared with an empty dictionary

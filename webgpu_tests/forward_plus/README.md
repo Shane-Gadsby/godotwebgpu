@@ -18,8 +18,54 @@ this reason.
 ```bash
 ./export.sh                                             # after an engine build
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs             # the matrix
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity    # ... and every frame against native Vulkan
 node run_forward_plus.mjs --list                        # what is and is not covered
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --feature ssao   # one feature
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --feature ssao --console   # ...and print the page's console (add "--verbose" to GODOT_CONFIG args in export/index.html for driver detail)
+```
+
+## Parity against native Vulkan
+
+The delta test cannot tell a correct effect from a wrong one of a similar
+size. `--parity` closes that gap: the harness renders the fixture natively with
+Vulkan (the editor binary from `GODOT_EDITOR_BIN`, `--godot`, or the repo's
+`bin/godot.linuxbsd.editor.x86_64`; `--reference DIR` reuses an earlier
+render), then fails every feature whose WebGPU frame differs from that render
+by more than its tolerance — `PARITY_TOLERANCE` (0.05 mean absolute difference)
+unless the feature's `parityTol` says otherwise, with the reason written there.
+Identical work measures 0.002–0.006 between the two backends; every bug this
+mode was built to catch measured 0.06–25.
+
+Its first run found, in features the delta test passed: `DEPTH_TEXTURE` reading
+zeros (refraction and proximity fade with it), volumetric fog without shadows,
+SDFGI corrupted by camera movement, contact shadows smeared along the screen
+edge, every cube omni shadow missing, and the samplers' mip LOD bias ignored.
+See `webgpu_notes/TASKS.md` §4.29.
+
+Getting a comparable frame out of both backends took three things, all part of
+the mode now, and each was a false failure before it existed:
+
+- **A fixed timestep** (`--fixed-fps 60` on both sides; the harness adds it to
+  the served `index.html`). Without it, particles simulated a different amount
+  of time on each side.
+- **One long settle** (`--settle`, default 240 frames; `--fp-settle=N`
+  natively, the hash's third field on the web). Native Vulkan refilters a
+  changed sky's radiance over several frames, and at the matrix's default 4
+  frames height fog looked "wrong" — on the native side.
+- **A frozen frame.** The fixture stops particles and pauses the render loop
+  on the frame it reports `READY` for, because the harness's screenshot is
+  asynchronous and otherwise lands some frames later — enough to move every
+  particle and every TAA/FSR2 jitter sample.
+
+Arms marked `parityOnly` in `features.mjs` exist for this mode alone: their
+correct "on" frame equals the "off" frame (`sdfgi_camera_move` flies the camera
+away and back; SDFGI must end up exactly where it started).
+
+Natively, `--fp-only=a,b` limits the reference sweep, for triage:
+
+```bash
+godot --path godot/fp_check --rendering-driver vulkan --resolution 640x360 --fixed-fps 60 \
+      -- --fp-matrix=/tmp/fpref --fp-settle=240 --fp-only=volumetric_fog,fsr2
 ```
 
 ## This tier requires a real GPU
@@ -128,11 +174,15 @@ One export, many configurations. The fixture polls `location.hash` and
 reconfigures live, so the matrix costs one engine boot rather than 130:
 
 ```
-location.hash = "#fp=<id>:<0|1>"   →   [FP] READY <id> <0|1>
+location.hash = "#fp=<id>:<0|1>[:<settle>]"   →   [FP] READY <id> <0|1>
 ```
 
 `_reset()` returns every knob to baseline before each config, so results do not
-depend on matrix order. Features whose result accumulates (SDFGI, volumetric
+depend on matrix order: the fixture's resources (environment, camera
+attributes, the probe material, the particles' process material) are restored
+from a snapshot of every stored property taken at build time, and the nodes
+from an explicit list. The list alone used to miss knobs — `alpha_scissor`'s
+gradient albedo stayed on the probe for every later test. Features whose result accumulates (SDFGI, volumetric
 fog, TAA, auto-exposure, particles) declare extra settle frames; particles are
 pinned with a fixed seed and fixed step so their A/B is reproducible.
 

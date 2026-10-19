@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Runs one fixture on native and in a browser, normalizes the volatile parts of
+# the output, and diffs them. Any surviving line is a parity divergence.
+#
+#   ./compare.sh mesh
+#   ./compare.sh loopback
+#
+# Needs: a built native editor and an export. The runner serves it itself.
+# Override the export with RTC_DIR. See webgpu_notes/TASKS.md §4.20
+set -uo pipefail
+
+TEST="${1:-loopback}"
+RTC_DIR="${RTC_DIR:-}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+EDITOR="${EDITOR_BIN:-$ROOT/bin/godot.linuxbsd.editor.x86_64}"
+PROJ="$ROOT/webgpu_tests/webrtc_parity/fixtures/loopback_project"
+OUT="$(mktemp -d)"
+
+# Object ids, impl class names, tick counts, SDP lengths, the env banner (which
+# reports the target, not a divergence) and lines a fixture marks "curve" (a
+# quantity whose value is legitimately platform- and run-dependent, such as
+# get_buffered_amount() mid-flight — the raw output keeps the numbers) all
+# legitimately differ run to run or platform to platform; nothing else may.
+norm() {
+	sed -E -e 's/#-?[0-9]+//g' \
+	       -e 's/^RTC\| curve .*/RTC| curve (platform- and run-specific)/' \
+	       -e 's/<([A-Za-z]+)>/\1/g' \
+	       -e 's/WebRTC(Lib|)(PeerConnection|DataChannel)(JS|)/IMPL/g' \
+	       -e 's/^RTC\| env .*/RTC| env (target-specific)/' \
+	       -e 's/after [0-9]+ ticks/after N ticks/' \
+	       -e 's/after=[0-9]+ ticks/after=N ticks/' \
+	       -e 's/len=[0-9]+/len=N/' "$1"
+}
+
+"$EDITOR" --headless --path "$PROJ" -- "$TEST" 2>&1 | grep -oE "RTC\|.*" > "$OUT/native.txt"
+RTC_DIR="${RTC_DIR:-$ROOT/webgpu_tests/webrtc_parity/exports/loopback}" RTC_TEST="$TEST" node "$(dirname "${BASH_SOURCE[0]}")/run_loopback.mjs" 2>&1 \
+	| grep -oE "RTC\|.*" > "$OUT/web.txt"
+
+norm "$OUT/native.txt" > "$OUT/n.txt"
+norm "$OUT/web.txt"    > "$OUT/w.txt"
+
+echo "native: $(wc -l < "$OUT/n.txt") lines, web: $(wc -l < "$OUT/w.txt") lines"
+if diff -u "$OUT/n.txt" "$OUT/w.txt" > "$OUT/diff.txt"; then
+	echo "PARITY: identical"
+	rc=0
+else
+	echo "PARITY: divergences below (native = -, web = +)"
+	cat "$OUT/diff.txt"
+	rc=1
+fi
+echo "raw output kept in $OUT"
+exit $rc

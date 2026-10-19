@@ -443,6 +443,8 @@ public:
 	ScriptCreateDialog *get_script_create_dialog() const;
 
 	void fix_dependencies(const String &p_for_file);
+	// GDB: Renames a file as the dock's Rename does, updating the scenes, resources and settings that use it.
+	Error rename_file(const String &p_from, const String &p_to);
 	void update_all();
 
 	int get_h_split_offset() const { return split_box_offset_h; }

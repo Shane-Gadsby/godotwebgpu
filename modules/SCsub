@@ -17,12 +17,14 @@ Export("env_modules")
 
 # Header with MODULE_*_ENABLED defines.
 modules_enabled = env.CommandNoCache(
-    "modules_enabled.gen.h", env.Value(env.module_list), env.Run(modules_builders.modules_enabled_builder)
+    env.gen_path("modules/modules_enabled.gen.h"),
+    env.Value(env.module_list),
+    env.Run(modules_builders.modules_enabled_builder),
 )
 
 
 register_module_types = env.CommandNoCache(
-    "register_module_types.gen.cpp",
+    env.gen_path("modules/register_module_types.gen.cpp"),
     [env.Value(env.modules_detected), modules_enabled],
     env.Run(modules_builders.register_module_types_builder),
 )
@@ -52,7 +54,9 @@ for name, path in env.module_list.items():
 
 # Generate header to be included in `tests/test_main.cpp` to run module-specific tests.
 if env["tests"]:
-    env.CommandNoCache("modules_tests.gen.h", test_headers, env.Run(modules_builders.modules_tests_builder))
+    env.CommandNoCache(
+        env.gen_path("modules/modules_tests.gen.h"), test_headers, env.Run(modules_builders.modules_tests_builder)
+    )
 
 # libmodules.a with only register_module_types.
 # Must be last so that all libmodule_<name>.a libraries are on the right side

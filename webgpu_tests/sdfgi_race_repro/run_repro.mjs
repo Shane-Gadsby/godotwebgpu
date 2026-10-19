@@ -1,6 +1,6 @@
 /**
  * Headless runner for the SDFGI same-texel race repro (Tier 1 Phase 1, step 1
- * of plan-of-attack.md's investigation plan).
+ * of webgpu_notes/TASKS.md §2's investigation plan).
  *
  * Usage:
  *   node run_repro.mjs                          (swiftshader, sandbox default)

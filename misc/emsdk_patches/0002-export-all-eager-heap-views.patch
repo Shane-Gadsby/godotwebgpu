@@ -1,0 +1,130 @@
+GODOT WEBGPU PATCH: don't eagerly re-export HEAP* under -sEXPORT_ALL
+
+Derived against: emsdk / Emscripten 6.0.9
+Upstream status:  not reported upstream as of 2026-10-07; no known upstream fix
+Tracked in:       webgpu_notes/TASKS.md Task 12 bug #2 (1.5.10)
+
+WHAT IS BROKEN
+  Every `dlink_enabled=yes threads=yes` export logs ~11 of these in the first
+  ~300ms, one per freshly spawned pthread worker:
+
+      Uncaught TypeError: Cannot read properties of undefined (reading 'buffer')
+          at growMemViews (index.js:1:8540)
+
+  Non-fatal -- the engine boots and runs past them -- but each one aborts the
+  module's postamble export block partway through, so on worker threads every
+  `Module[...]` assignment emitted after the first heap view is silently never
+  made: `PThread`, `terminateWorker`, `cleanupThread`, `addRunDependency`,
+  `removeRunDependency`, and the rest. Nothing in this fork reads those off
+  `Module`, which is the only reason it has never bitten.
+
+WHY IT HAPPENS
+  Emscripten creates the memory views in `updateMemoryViews()` and, when they
+  are exported, assigns them onto Module right there:
+
+      Module["HEAP8"]=HEAP8=new Int8Array(b); ...   // src/runtime_common.js, maybeExportHeap()
+
+  That function runs on every thread once it has memory, and again after every
+  growth, so `Module.HEAP*` is already correct and already kept current. It is
+  the single owner of those properties.
+
+  `exportRuntimeSymbols()` knows this. Its `shouldExport()` skips `HEAP*` with
+  the comment "HEAP objects are exported separately in updateMemoryViews".
+
+  `exportLibrarySymbols()` -- the `-sEXPORT_ALL=1` path, three functions below
+  it in the same file -- never got that exclusion. So with EXPORT_ALL the ten
+  views are exported a SECOND time, eagerly, in the postamble. The acorn
+  `growableHeap` pass (tools/acorn-optimizer.mjs) then rewrites each one into
+  `(growMemViews(), HEAPxx)`, and `growMemViews()` dereferences `wasmMemory`:
+
+      function growMemViews() { if (wasmMemory.buffer != HEAP8.buffer) updateMemoryViews(); }
+
+  On the main thread `wasmMemory` is created in JS before the postamble runs. On
+  a freshly spawned pthread worker it arrives later, in the `load` message, so
+  the postamble runs with `wasmMemory` still undefined and the first of those
+  redundant assignments throws.
+
+  This fork hits it because `platform/web/SCsub` sets `-sEXPORT_ALL=1` for the
+  dlink main module. A non-dlink build has no EXPORT_ALL, takes only the
+  `exportRuntimeSymbols()` path, and is unaffected -- which is why the symptom
+  has always been dlink-specific.
+
+THE FIX
+  Apply the same exclusion `exportRuntimeSymbols()` already applies, leaving
+  `updateMemoryViews()` as the sole owner of `Module['HEAPxx']`.
+
+DO NOT "FIX" THIS WITH ACCESSORS
+  The tempting version -- export the views as `Object.defineProperty` getters so
+  they resolve lazily -- is actively harmful, and this is the thing to carry
+  forward. `updateMemoryViews()` *assigns* `Module['HEAP8'] = ...` directly. A
+  getter-only accessor makes that assignment throw under strict mode and
+  silently no-op otherwise, so `Module.HEAP*` would end up permanently wrong
+  instead of merely logging. The lazy-getter idea was written up in TASKS.md as
+  the preferred fix before `maybeExportHeap` was found; it was wrong, and the
+  claim that went with it (that `Module.HEAP*` goes stale after a memory growth)
+  was wrong too -- `updateMemoryViews()` refreshes them on every growth.
+
+VERIFIED
+  2026-10-07, emsdk 6.0.9, Chrome headless, real export of the user's project
+  with `variant/extensions_support=true` + `variant/thread_support=true`, served
+  with COOP/COEP.
+
+  Console: 22 errors before (11 of them this TypeError), 0 after. Engine still
+  reports `multi-threaded, GDExtension support.` and reaches its own game
+  scripts.
+
+  Generated output: the postamble's `Module["HEAPxx"]=(growMemViews(),HEAPxx)`
+  block is gone (0 occurrences), `updateMemoryViews()` still carries all ten
+  `Module["HEAPxx"]=` assignments, and `Module["PThread"]` now directly follows
+  `Module["GOT"]` where the heap block used to sit.
+
+  Runtime, main thread, after startup -- all ten views reachable off Module and
+  NOT broken by removing the eager copies:
+
+      HEAP8    Int8Array      len=208404480  detached=false
+      HEAPU8   Uint8Array     len=208404480  detached=false
+      HEAP32   Int32Array     len=52101120   detached=false
+      HEAPU64  BigUint64Array len=26050560   detached=false   (... all ten checked)
+      Object.getOwnPropertyDescriptor(Module,'HEAPU8') -> value property, not an accessor
+      Module.PThread -> object,  Module.addRunDependency -> function
+
+  Note the lengths: 208MB is well past the initial allocation, so the heap had
+  already grown and `updateMemoryViews()` had refreshed these properties. That is
+  the direct disproof of the "Module.HEAP* goes stale after growth" claim that
+  originally motivated the accessor idea.
+
+HOW TO TELL WHEN THIS CAN BE DELETED
+  Grep upstream's `exportLibrarySymbols()` in `src/modules.mjs`. If it skips the
+  heap views on its own -- or if `shouldExport`'s exclusion has been hoisted to
+  cover both paths -- this patch is redundant: delete the file and its entry in
+  emsdk_patch.py's PATCHES table. The runtime oracle is a real
+  `threads=yes dlink_enabled=yes` export: if it loads with no `growMemViews`
+  TypeError on an UNPATCHED toolchain, upstream has fixed it.
+
+--- a/src/modules.mjs
++++ b/src/modules.mjs
+@@ -609,6 +609,24 @@ function exportLibrarySymbols() {
+   assert(MODULARIZE != 'instance');
+   const results = ['// Begin JS library exports'];
+   for (const ident of librarySymbols) {
++    // GODOT WEBGPU PATCH (eager heap-view export): skip the memory views here.
++    // updateMemoryViews() already assigns Module['HEAPxx'] for every view it creates
++    // (see maybeExportHeap in src/runtime_common.js), and exportRuntimeSymbols()'s own
++    // shouldExport() deliberately skips HEAP* for that reason -- 'HEAP objects are
++    // exported separately in updateMemoryViews'. This loop never got the same
++    // exclusion, so under -sEXPORT_ALL=1 the views are exported a SECOND time,
++    // eagerly, in the postamble. The acorn growableHeap pass rewrites each of those
++    // into `(growMemViews(), HEAPxx)`, and growMemViews() dereferences wasmMemory --
++    // which on a freshly spawned pthread worker only arrives later, in the `load`
++    // message. So the first one throws there, and every Module export emitted after
++    // it is silently skipped (PThread, addRunDependency, ...).
++    //
++    // Skipping them leaves updateMemoryViews() as the single owner of
++    // Module['HEAPxx'], which is what the non-EXPORT_ALL path already does. Do NOT
++    // 'fix' this by exporting accessors instead: updateMemoryViews() assigns these
++    // properties directly, so a getter-only property would make that assignment
++    // throw under strict mode and silently no-op otherwise.
++    if (/^HEAP(?:U?(?:8|16|32|64)|F32|F64|_DATA_VIEW)$/.test(ident)) continue;
+     if ((EXPORT_ALL || EXPORTED_FUNCTIONS.has(ident) || extraExports.has(ident)) && !nativeAliases[ident]) {
+       results.push(exportSymbol(ident));
+     }

@@ -101,6 +101,7 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 		copy_modes.push_back("\n#define MODE_OCTMAP_TO_PANORAMA\n");
 		copy_modes.push_back("\n#define MODE_OCTMAP_ARRAY_TO_PANORAMA\n");
 		copy_modes.push_back("\n#define MODE_SIMPLE_COPY\n#define DST_IMAGE_RG16F\n");
+		copy_modes.push_back("\n#define MODE_SIMPLE_COPY_DEPTH\n#define SOURCE_IS_DEPTH_FORMAT\n");
 
 		copy.shader.initialize(copy_modes);
 		memset(&copy.push_constant, 0, sizeof(CopyPushConstant));
@@ -515,7 +516,23 @@ void CopyEffects::copy_depth_to_rect(RID p_source_rd_texture, RID p_dest_texture
 	RD::Uniform u_source_rd_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ default_sampler, p_source_rd_texture }));
 	RD::Uniform u_dest_texture(RD::UNIFORM_TYPE_IMAGE, 0, p_dest_texture);
 
-	CopyMode mode = COPY_MODE_SIMPLY_COPY_DEPTH;
+	// A real depth buffer and an MSAA depth resolve (a float texture) need
+	// different source declarations on WebGPU, where a binding is either a
+	// depth or a float texture; the two variants are otherwise identical.
+	bool source_is_depth = false;
+	switch (RD::get_singleton()->texture_get_format(p_source_rd_texture).format) {
+		case RD::DATA_FORMAT_D16_UNORM:
+		case RD::DATA_FORMAT_X8_D24_UNORM_PACK32:
+		case RD::DATA_FORMAT_D32_SFLOAT:
+		case RD::DATA_FORMAT_D16_UNORM_S8_UINT:
+		case RD::DATA_FORMAT_D24_UNORM_S8_UINT:
+		case RD::DATA_FORMAT_D32_SFLOAT_S8_UINT:
+			source_is_depth = true;
+			break;
+		default:
+			break;
+	}
+	CopyMode mode = source_is_depth ? COPY_MODE_SIMPLY_COPY_DEPTH_FORMAT : COPY_MODE_SIMPLY_COPY_DEPTH;
 	RID shader = copy.shader.version_get_shader(copy.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 

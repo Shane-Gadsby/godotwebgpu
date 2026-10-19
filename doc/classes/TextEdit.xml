@@ -1313,7 +1313,10 @@
 			If [code]false[/code], the context menu ignores mouse location.
 		</member>
 		<member name="caret_multiple" type="bool" setter="set_multiple_carets_enabled" getter="is_multiple_carets_enabled" default="true">
-			If [code]true[/code], multiple carets are allowed. Left-clicking with [kbd]Alt[/kbd] adds a new caret. See [method add_caret] and [method get_caret_count].
+			If [code]true[/code], multiple carets are allowed. Left-clicking with the [member caret_multiple_modifier] key adds a new caret. See [method add_caret] and [method get_caret_count].
+		</member>
+		<member name="caret_multiple_modifier" type="int" setter="set_multiple_carets_modifier" getter="get_multiple_carets_modifier" enum="TextEdit.MultipleCaretsModifier" default="0">
+			The modifier key that adds a new caret when left-clicking, if [member caret_multiple] is [code]true[/code].
 		</member>
 		<member name="caret_type" type="int" setter="set_caret_type" getter="get_caret_type" enum="TextEdit.CaretType" default="0">
 			Set the type of caret to draw.
@@ -1606,6 +1609,12 @@
 		</constant>
 		<constant name="CARET_TYPE_BLOCK" value="1" enum="CaretType">
 			Block caret.
+		</constant>
+		<constant name="MULTIPLE_CARETS_MODIFIER_ALT" value="0" enum="MultipleCaretsModifier">
+			Left-clicking with [kbd]Alt[/kbd] adds a new caret.
+		</constant>
+		<constant name="MULTIPLE_CARETS_MODIFIER_CMD_OR_CTRL" value="1" enum="MultipleCaretsModifier">
+			Left-clicking with [kbd]Ctrl[/kbd] ([kbd]Cmd[/kbd] on macOS) adds a new caret. In [CodeEdit], this disables symbol lookup on click, which uses the same modifier.
 		</constant>
 		<constant name="SELECTION_MODE_NONE" value="0" enum="SelectionMode">
 			Not selecting.

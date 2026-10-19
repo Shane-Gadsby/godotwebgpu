@@ -1,0 +1,2 @@
+GDTEST_PARSER_ERROR
+Closing ")" found while the block opened by "{" on line 2 is still open.

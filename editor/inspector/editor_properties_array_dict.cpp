@@ -42,6 +42,7 @@
 #include "editor/gui/editor_icon_manager.h"
 #include "editor/gui/editor_spin_slider.h"
 #include "editor/gui/editor_variant_type_selectors.h"
+#include "editor/inspector/editor_collection_drop.h"
 #include "editor/inspector/editor_properties.h"
 #include "editor/inspector/editor_properties_vector.h"
 #include "editor/settings/editor_settings.h"
@@ -466,6 +467,7 @@ void EditorPropertyArray::update_property() {
 
 		if (!container) {
 			container = memnew(PanelContainer);
+			SET_DRAG_FORWARDING_CD(container, EditorPropertyArray); // Drops anywhere on the list add to it.
 			add_child(container);
 			set_bottom_editor(container);
 
@@ -628,121 +630,24 @@ void EditorPropertyArray::_button_add_item_draw() {
 	}
 }
 
+EditorCollectionDrop::Slot EditorPropertyArray::_get_drop_slot() const {
+	if (array_type == Variant::PACKED_STRING_ARRAY) {
+		// Holds strings whatever the hint says: dropped files and folders become paths.
+		const bool hinted = subtype == Variant::STRING;
+		return EditorCollectionDrop::Slot(Variant::STRING, hinted ? subtype_hint : PROPERTY_HINT_NONE, hinted ? subtype_hint_string : String());
+	}
+	return EditorCollectionDrop::Slot(subtype, subtype_hint, subtype_hint_string);
+}
+
 bool EditorPropertyArray::_is_drop_valid(const Dictionary &p_drag_data) const {
-	if (is_read_only()) {
+	if (is_read_only() || !EditorCollectionDrop::is_collection_drag(p_drag_data)) {
 		return false;
 	}
-
-	String allowed_type = Variant::get_type_name(subtype);
-
-	// When the subtype is of type Object, an additional subtype may be specified in the hint string
-	// (e.g. Resource, Texture2D, ShaderMaterial, etc). We want the allowed type to be that, not just "Object".
-	if (subtype == Variant::OBJECT && !subtype_hint_string.is_empty()) {
-		allowed_type = subtype_hint_string;
-	}
-
-	Dictionary drag_data = p_drag_data;
-	const String drop_type = drag_data.get("type", "");
-
-	if (drop_type == "files") {
-		PackedStringArray files = drag_data["files"];
-
-		for (const String &file : files) {
-			int idx_in_dir;
-			const EditorFileSystemDirectory *dir = EditorFileSystem::get_singleton()->find_file(file, &idx_in_dir);
-			if (!dir) {
-				return false;
-			}
-			StringName ftype = dir->get_file_type(idx_in_dir);
-			String script_class = dir->get_file_resource_script_class(idx_in_dir);
-
-			for (String at : allowed_type.split(",", false)) {
-				at = at.strip_edges();
-				// Fail if one of the files is not of allowed type.
-				if (!ClassDB::is_parent_class(ftype, at) && !EditorNode::get_editor_data().script_class_is_parent(script_class, at)) {
-					return false;
-				}
-			}
-		}
-
-		// If no files fail, drop is valid.
-		return true;
-	}
-
-	if (drop_type == "resource") {
-		Ref<Resource> res = drag_data["resource"];
-		if (res.is_null()) {
-			return false;
-		}
-
-		StringName script_class;
-		if (res->get_script()) {
-			script_class = EditorNode::get_singleton()->get_object_custom_type_name(res->get_script());
-		}
-
-		for (String at : allowed_type.split(",", false)) {
-			at = at.strip_edges();
-			if (res->is_class(at) || EditorNode::get_editor_data().script_class_is_parent(script_class, at)) {
-				return true;
-			}
-		}
-
+	// Packed arrays other than strings hold no files, resources or nodes.
+	if (array_type != Variant::ARRAY && array_type != Variant::PACKED_STRING_ARRAY) {
 		return false;
 	}
-
-	if (drop_type == "nodes") {
-		Array node_paths = drag_data["nodes"];
-
-		PackedStringArray allowed_subtype_array;
-		if (allowed_type == "NodePath") {
-			if (subtype_hint_string == "NodePath") {
-				return true;
-			} else {
-				for (String ast : subtype_hint_string.split(",", false)) {
-					ast = ast.strip_edges();
-					allowed_subtype_array.append(ast);
-				}
-			}
-		}
-
-		bool is_drop_allowed = true;
-
-		for (int i = 0; i < node_paths.size(); i++) {
-			const Node *dropped_node = get_node_or_null(node_paths[i]);
-			ERR_FAIL_NULL_V_MSG(dropped_node, false, "Could not get the dropped node by its path.");
-
-			if (allowed_type != "NodePath") {
-				if (!dropped_node->is_class(allowed_type) &&
-						!EditorNode::get_singleton()->is_object_of_custom_type(dropped_node, allowed_type)) {
-					// Fail if one of the nodes is not of allowed type.
-					return false;
-				}
-			}
-
-			// The array of NodePaths is restricted to specific types using @export_node_path().
-			if (allowed_type == "NodePath" && subtype_hint_string != "NodePath") {
-				if (!allowed_subtype_array.has(dropped_node->get_class_name())) {
-					// The dropped node type was not found in the allowed subtype array, we must check if it inherits one of them.
-					for (const String &ast : allowed_subtype_array) {
-						if (dropped_node->is_class(ast) ||
-								EditorNode::get_singleton()->is_object_of_custom_type(dropped_node, ast)) {
-							is_drop_allowed = true;
-							break;
-						} else {
-							is_drop_allowed = false;
-						}
-					}
-					if (!is_drop_allowed) {
-						break;
-					}
-				}
-			}
-		}
-
-		return is_drop_allowed;
-	}
-
-	return false;
+	return EditorCollectionDrop::can_accept(p_drag_data, _get_drop_slot(), const_cast<EditorPropertyArray *>(this)->get_base_node());
 }
 
 bool EditorPropertyArray::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
@@ -750,8 +655,9 @@ bool EditorPropertyArray::can_drop_data_fw(const Point2 &p_point, const Variant 
 }
 
 void EditorPropertyArray::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
-	Dictionary drag_data = p_data;
-	const String drop_type = drag_data.get("type", "");
+	if (!_is_drop_valid(p_data)) {
+		return;
+	}
 	Variant array = object->get_array();
 
 	// Handle the case where array is not initialized yet.
@@ -761,58 +667,14 @@ void EditorPropertyArray::drop_data_fw(const Point2 &p_point, const Variant &p_d
 		array = array.duplicate();
 	}
 
-	if (drop_type == "files") {
-		PackedStringArray files = drag_data["files"];
-
-		// Loop the file array and add to existing array.
-		for (int i = 0; i < files.size(); i++) {
-			const String &file = files[i];
-
-			Ref<Resource> res = ResourceLoader::load(file);
-			if (res.is_valid()) {
-				array.call("push_back", res);
-			}
-		}
-
-		emit_changed(get_edited_property(), array);
+	for (const EditorCollectionDrop::Item &item : EditorCollectionDrop::resolve(p_data, _get_drop_slot(), get_base_node())) {
+		array.call("push_back", item.value);
 	}
-
-	if (drop_type == "resource") {
-		Ref<Resource> res = drag_data["resource"];
-
-		if (res.is_valid()) {
-			array.call("push_back", res);
-
-			emit_changed(get_edited_property(), array);
-		}
-	}
-
-	if (drop_type == "nodes") {
-		Array node_paths = drag_data["nodes"];
-		Node *base_node = get_base_node();
-
-		for (int i = 0; i < node_paths.size(); i++) {
-			const NodePath &path = node_paths[i];
-
-			if (subtype == Variant::OBJECT) {
-				array.call("push_back", get_node(path));
-			} else if (subtype == Variant::NODE_PATH) {
-				array.call("push_back", base_node->get_path().rel_path_to(path));
-			}
-		}
-
-		emit_changed(get_edited_property(), array);
-	}
+	emit_changed(get_edited_property(), array);
 }
 
 Node *EditorPropertyArray::get_base_node() {
-	Node *base_node = Object::cast_to<Node>(InspectorDock::get_inspector_singleton()->get_edited_object());
-
-	if (!base_node) {
-		base_node = get_tree()->get_edited_scene_root();
-	}
-
-	return base_node;
+	return EditorCollectionDrop::get_base_node(this);
 }
 
 void EditorPropertyArray::_notification(int p_what) {
@@ -1352,6 +1214,7 @@ void EditorPropertyDictionary::update_property() {
 
 		if (!container) {
 			container = memnew(PanelContainer);
+			SET_DRAG_FORWARDING_CD(container, EditorPropertyDictionary); // Drops anywhere on the list add to it.
 			add_child(container);
 			set_bottom_editor(container);
 
@@ -1383,6 +1246,7 @@ void EditorPropertyDictionary::update_property() {
 			_create_new_property_slot(EditorPropertyDictionaryObject::NEW_VALUE_INDEX);
 
 			button_add_item = memnew(EditorInspectorActionButton(TTRC("Add Key/Value Pair"), SNAME("Add")));
+			SET_DRAG_FORWARDING_CD(button_add_item, EditorPropertyDictionary);
 			button_add_item->set_disabled(is_read_only());
 			button_add_item->set_accessibility_name(TTRC("Add"));
 			button_add_item->connect(SceneStringName(pressed), callable_mp(this, &EditorPropertyDictionary::_add_key_value));
@@ -1572,7 +1436,100 @@ void EditorPropertyDictionary::_notification(int p_what) {
 				add_panel->add_theme_style_override(SceneStringName(panel), get_theme_stylebox(SNAME("DictionaryAddItem")));
 			}
 		} break;
+
+		case NOTIFICATION_DRAG_BEGIN: {
+			if (is_visible_in_tree() && _get_drop_mode(get_viewport()->gui_get_drag_data()) != DROP_NONE) {
+				dropping = true;
+				edit->queue_redraw();
+			}
+		} break;
+
+		case NOTIFICATION_DRAG_END: {
+			if (dropping) {
+				dropping = false;
+				edit->queue_redraw();
+			}
+		} break;
 	}
+}
+
+EditorPropertyDictionary::DropMode EditorPropertyDictionary::_get_drop_mode(const Variant &p_data) const {
+	if (is_read_only() || !EditorCollectionDrop::is_collection_drag(p_data)) {
+		return DROP_NONE;
+	}
+	const Node *base_node = EditorCollectionDrop::get_base_node(this);
+	const EditorCollectionDrop::Slot value_slot(value_subtype, value_subtype_hint, value_subtype_hint_string);
+	const bool generated_keys = key_subtype == Variant::NIL || key_subtype == Variant::STRING || key_subtype == Variant::STRING_NAME || key_subtype == Variant::INT;
+	if (generated_keys && EditorCollectionDrop::can_accept(p_data, value_slot, base_node)) {
+		return DROP_AS_VALUES;
+	}
+	// As keys only when the values could never hold what is dragged: a Dictionary[String, AudioStream] refuses a
+	// texture rather than file it under a path key with a null value.
+	const bool values_hold_items = value_subtype == Variant::NIL || value_subtype == Variant::OBJECT || value_subtype == Variant::NODE_PATH;
+	const EditorCollectionDrop::Slot key_slot(key_subtype, key_subtype_hint, key_subtype_hint_string);
+	if (!values_hold_items && key_subtype != Variant::NIL && EditorCollectionDrop::can_accept(p_data, key_slot, base_node)) {
+		return DROP_AS_KEYS;
+	}
+	return DROP_NONE;
+}
+
+void EditorPropertyDictionary::_edit_draw() {
+	if (dropping) {
+		Color color = get_theme_color(SNAME("accent_color"), EditorStringName(Editor));
+		edit->draw_rect(Rect2(Point2(), edit->get_size()), color, false);
+	}
+}
+
+bool EditorPropertyDictionary::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	return _get_drop_mode(p_data) != DROP_NONE;
+}
+
+void EditorPropertyDictionary::drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
+	const DropMode mode = _get_drop_mode(p_data);
+	if (mode == DROP_NONE) {
+		return;
+	}
+	Variant dict_value = get_edited_property_value();
+	if (dict_value.get_type() != Variant::DICTIONARY) {
+		initialize_dictionary(dict_value);
+	}
+	Dictionary dict = Dictionary(dict_value).duplicate();
+	Node *base_node = EditorCollectionDrop::get_base_node(this);
+
+	if (mode == DROP_AS_VALUES) {
+		const EditorCollectionDrop::Slot value_slot(value_subtype, value_subtype_hint, value_subtype_hint_string);
+		int64_t next_int_key = 0;
+		if (key_subtype == Variant::INT) {
+			for (const Variant &key : dict.keys()) {
+				next_int_key = MAX(next_int_key, int64_t(key) + 1);
+			}
+		}
+		for (const EditorCollectionDrop::Item &item : EditorCollectionDrop::resolve(p_data, value_slot, base_node)) {
+			Variant key;
+			if (key_subtype == Variant::INT) {
+				key = next_int_key++;
+			} else {
+				// The item's name, made unique the way the editor names duplicates ("Name 2", "Name 3"...).
+				String name = item.name;
+				for (int suffix = 2; dict.has(name) || dict.has(StringName(name)); suffix++) {
+					name = vformat("%s %d", item.name, suffix);
+				}
+				key = key_subtype == Variant::STRING_NAME ? Variant(StringName(name)) : Variant(name);
+			}
+			dict[key] = item.value;
+		}
+	} else {
+		const EditorCollectionDrop::Slot key_slot(key_subtype, key_subtype_hint, key_subtype_hint_string);
+		Variant default_value;
+		VariantInternal::initialize(&default_value, value_subtype);
+		for (const EditorCollectionDrop::Item &item : EditorCollectionDrop::resolve(p_data, key_slot, base_node)) {
+			if (!dict.has(item.value)) {
+				dict[item.value] = default_value.duplicate();
+			}
+		}
+	}
+	emit_changed(get_edited_property(), dict);
+	update_property();
 }
 
 void EditorPropertyDictionary::_edit_pressed() {
@@ -1616,6 +1573,8 @@ EditorPropertyDictionary::EditorPropertyDictionary() {
 	edit->set_theme_type_variation(SNAME("EditorInspectorButton"));
 	edit->connect(SceneStringName(pressed), callable_mp(this, &EditorPropertyDictionary::_edit_pressed));
 	edit->set_toggle_mode(true);
+	SET_DRAG_FORWARDING_CD(edit, EditorPropertyDictionary);
+	edit->connect(SceneStringName(draw), callable_mp(this, &EditorPropertyDictionary::_edit_draw));
 	add_child(edit);
 	add_focusable(edit);
 

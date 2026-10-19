@@ -61,6 +61,13 @@ struct WGBuffer {
 	uint64_t dirty_offset = 0;
 	uint64_t dirty_end = 0; // Exclusive end. 0 means "no explicit range set."
 
+	// Staging-block writes deferred by command_copy_buffer(): the union of the regions copied out of this buffer this
+	// frame, uploaded once by _flush_pending_staging() just before the next queue submit (one writeBuffer per block
+	// instead of one per region).
+	uint64_t pending_lo = UINT64_MAX;
+	uint64_t pending_hi = 0;
+	bool pending_listed = false;
+
 	// Dynamic persistent rotation (Task 7.5).
 	// `frame_idx` is UINT32_MAX for non-dynamic buffers. For BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT
 	// buffers, buffer_create sets frame_idx=0 and per_frame_size to the aligned single-frame
@@ -181,10 +188,6 @@ struct WGShader {
 	};
 	LocalVector<BindGroupInfo> bind_group_infos;
 
-	// Depth alias bindings: maps (set << 16 | alias_binding) → depth_binding.
-	// Used by uniform_set_create to add extra bind group entries for split depth textures.
-	HashMap<uint32_t, uint32_t> depth_alias_bindings;
-
 	// Read-write storage texture splits: maps (set << 16 | write_binding) → read_shadow_binding.
 	// When readonly-and-readwrite-storage-textures is unavailable, read_write storage
 	// textures are split into separate write (original) + read (shadow) bindings.
@@ -200,6 +203,18 @@ struct WGShader {
 	// Pipeline layout gap indices — slots between set_count and pc_group that
 	// need empty bind groups bound before draw (Firefox/wgpu requirement).
 	LocalVector<uint32_t> gap_bind_group_indices;
+
+	// The exact per-group layout array handed to wgpuDeviceCreatePipelineLayout:
+	// bind_group_layouts[i] for a populated set, merged_pc_group_layout or the
+	// universal push_constant_bind_group_layout at the PC group, and
+	// empty_bind_group_layout at every gap and every set that has no uniforms.
+	//
+	// This -- not bind_group_layouts -- is what Dawn validates each bound bind
+	// group against at draw time, for *every* group in the layout, including
+	// ones the shader never reads (where Vulkan only cares about the sets a
+	// pipeline actually accesses). Kept so the driver can check that invariant
+	// itself: see _reconcile_render_bind_groups(). TASKS.md §2.1.
+	LocalVector<WGPUBindGroupLayout> pipeline_group_layouts;
 
 	String name;
 
@@ -268,6 +283,10 @@ struct WGPipelineWrapper {
 	// Uint32 variants and select the correct one at draw time.
 	WGPURenderPipeline render_handle_u16 = nullptr;
 	bool is_strip = false;
+	// Blends with BLEND_FACTOR_(ONE_MINUS_)CONSTANT_ALPHA. WebGPU's only blend
+	// constant factor uses the whole constant color, so while this pipeline is
+	// bound the driver sets the constant to (a, a, a, a) instead.
+	bool blend_constant_alpha = false;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };
@@ -308,7 +327,37 @@ struct WGUniformSet {
 	// re-create the bind group with the correct BGL and cache it.
 	LocalVector<WGPUBindGroupEntry> cached_entries;
 	WGShader *source_shader = nullptr;
+	// The layout `handle` was created with, i.e. what Dawn will compare against
+	// the pipeline layout if `handle` is bound as-is. Needed because every
+	// _get_compatible_bind_group() early-out returns `handle`, and the caller
+	// has to be able to record which layout it actually bound.
+	WGPUBindGroupLayout handle_layout = nullptr;
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> rebind_cache;
+	// Small front for rebind_cache, searched linearly before the hash lookup that
+	// was the driver's largest per-bind cost (TASKS.md 2.30). Four entries, not
+	// one: a material's set is bound once per pass and each pass (shadow, depth
+	// pre-pass, colour) binds it against a different variant's layout, so a single
+	// most-recent slot never hit. Entries mirror rebind_cache (a null group is a
+	// cached failure) and are cleared with it in _purge_rebind_caches_for_shader(),
+	// so none can outlive its key.
+	static constexpr uint32_t REBIND_RECENT_COUNT = 4;
+	WGPUBindGroupLayout rebind_recent_layout[REBIND_RECENT_COUNT] = {};
+	WGPUBindGroup rebind_recent_group[REBIND_RECENT_COUNT] = {};
+	uint32_t rebind_recent_next = 0;
+
+	void rebind_recent_store(WGPUBindGroupLayout p_layout, WGPUBindGroup p_group) {
+		rebind_recent_layout[rebind_recent_next] = p_layout;
+		rebind_recent_group[rebind_recent_next] = p_group;
+		rebind_recent_next = (rebind_recent_next + 1) % REBIND_RECENT_COUNT;
+	}
+	void rebind_recent_forget(WGPUBindGroupLayout p_layout) {
+		for (uint32_t i = 0; i < REBIND_RECENT_COUNT; i++) {
+			if (rebind_recent_layout[i] == p_layout) {
+				rebind_recent_layout[i] = nullptr;
+				rebind_recent_group[i] = nullptr;
+			}
+		}
+	}
 
 	// Maps binding index → WGTexture* for texture entries, used during rebind
 	// to create compatible views when the target BGL has a different dimension.
@@ -398,6 +447,11 @@ struct WGCommandBuffer {
 		uint32_t current_subpass = 0;
 		WGPipelineWrapper *current_pipeline = nullptr;
 		WGPUIndexFormat current_index_format = WGPUIndexFormat_Uint32;
+		// The blend constants Godot last set in this pass, and whether they were
+		// applied as (a, a, a, a) for a constant-alpha pipeline.
+		WGPUColor blend_constants = {};
+		bool blend_constants_set = false;
+		bool blend_constants_as_alpha = false;
 		// Far edge (x + width, y + height) of the render area in attachment coordinates.
 		uint32_t render_area_width = 0;
 		uint32_t render_area_height = 0;
@@ -482,6 +536,17 @@ struct WGCommandBuffer {
 		WGPUBindGroup group = nullptr;
 		uint32_t dynamic_offsets[MAX_BIND_GROUP_DYN_OFFSETS] = {};
 		uint32_t dynamic_offset_count = 0;
+		// The layout `group` was built against, and the uniform set it came
+		// from (null for the empty/gap group and for the PC-only group, which
+		// have no uniform set behind them). Together these let the draw path
+		// check each slot against the pipeline layout and re-adapt from
+		// `source_set` when they disagree -- see
+		// _reconcile_render_bind_groups(). `source_set` is only dereferenced
+		// during the same frame it was bound in; RenderingDevice defers
+		// uniform-set deletion to a frame boundary, which is the same
+		// assumption the restart path above already makes about `group`.
+		WGPUBindGroupLayout layout = nullptr;
+		WGUniformSet *source_set = nullptr;
 	};
 	BoundGroupState last_bound_state[MAX_BIND_GROUPS] = {};
 
@@ -493,6 +558,31 @@ struct WGCommandBuffer {
 		current_pc_bind_group = nullptr;
 		last_flushed_pc_offset = 0;
 		pc_group_material_dyn_count = 0;
+	}
+
+	// Record that the shared empty bind group is now set at a pipeline-layout
+	// gap slot, so the draw-time reconcile and the mid-pass restart both see
+	// the slot as legitimately occupied rather than stale or empty.
+	void note_gap_group(uint32_t p_idx, WGPUBindGroup p_empty_group, WGPUBindGroupLayout p_empty_layout) {
+		if (p_idx >= MAX_BIND_GROUPS) {
+			return;
+		}
+		BoundGroupState &bs = last_bound_state[p_idx];
+		bs.group = p_empty_group;
+		bs.layout = p_empty_layout;
+		bs.source_set = nullptr;
+		bs.dynamic_offset_count = 0;
+	}
+
+	// last_bound_state is deliberately NOT cleared by invalidate_bind_groups():
+	// that runs on a shader change *within* a pass, where the groups are still
+	// bound on the encoder and the mid-pass restart path needs them. Clear it
+	// only where a fresh encoder makes the slots genuinely empty -- a new
+	// render/compute pass or subpass.
+	void reset_bound_group_state() {
+		for (uint32_t i = 0; i < MAX_BIND_GROUPS; i++) {
+			last_bound_state[i] = BoundGroupState();
+		}
 	}
 
 	// Track query pools that had timestamps written, for resolve at command buffer end.

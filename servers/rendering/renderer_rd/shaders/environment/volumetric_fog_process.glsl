@@ -24,8 +24,14 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 #define DENSITY_SCALE 1024.0
 
-layout(set = 0, binding = 1) uniform texture2D shadow_atlas;
-layout(set = 0, binding = 2) uniform texture2D directional_shadow_atlas;
+// Both atlases are depth textures. "depth" in their names, and reading them
+// only through texture_linear_depth() below, is what lets the WebGPU driver
+// declare them as depth textures in WGSL (see
+// _reclassify_single_component_depth_textures()); declared as float textures,
+// the real atlases could not be bound there and a blank fallback was read
+// instead, so the fog had no shadows at all on WebGPU.
+layout(set = 0, binding = 1) uniform texture2D shadow_depth_atlas;
+layout(set = 0, binding = 2) uniform texture2D directional_shadow_depth_atlas;
 
 layout(set = 0, binding = 3, std430) restrict readonly buffer OmniLights {
 	LightData data[];
@@ -123,6 +129,11 @@ voxel_gi_instances;
 layout(set = 0, binding = 13) uniform texture3D voxel_gi_textures[MAX_VOXEL_GI_INSTANCES];
 
 layout(set = 0, binding = 14) uniform sampler linear_sampler_with_mipmaps;
+// Point sampler for the shadow atlas gathers. WebGPU only reads a depth
+// texture's value through a non-filtering sampler, and gathering through
+// linear_sampler -- which the fog also filters its own volumes through --
+// would make the driver point-sample every read through it.
+layout(set = 0, binding = 22) uniform sampler depth_sampler;
 
 #ifdef ENABLE_SDFGI
 
@@ -306,6 +317,18 @@ bool any_nan_or_inf(vec4 v) {
 	return any(notEqual(v, v)) || any(greaterThan(abs(v), vec4(3.402823466e+38)));
 }
 
+// A linearly filtered value read of a shadow atlas, for the light visibility
+// tests below. WebGPU cannot filter a depth texture through a non-comparison
+// sampler; gathering the 2x2 footprint and blending it with the weights the
+// filter would use gives the linear result on every backend.
+float texture_linear_depth(texture2D p_tex, vec2 p_uv) {
+	vec2 size = vec2(textureSize(sampler2D(p_tex, depth_sampler), 0));
+	vec2 f = fract(p_uv * size - 0.5);
+	// Components: x = (u0, v1), y = (u1, v1), z = (u1, v0), w = (u0, v0).
+	vec4 g = textureGather(sampler2D(p_tex, depth_sampler), p_uv, 0);
+	return mix(mix(g.w, g.z, f.x), mix(g.x, g.y, f.x), f.y);
+}
+
 #define TEMPORAL_FRAMES 16
 
 const vec3 halton_map[TEMPORAL_FRAMES] = vec3[](
@@ -466,7 +489,7 @@ void main() {
 						z_range = directional_lights.data[i].shadow_z_range.w;
 					}
 
-					float depth = texture(sampler2D(directional_shadow_atlas, linear_sampler), pssm_coord.xy).r;
+					float depth = texture_linear_depth(directional_shadow_depth_atlas, pssm_coord.xy);
 					float shadow = exp(min(0.0, (pssm_coord.z - depth)) * z_range * INV_FOG_FADE);
 
 					shadow = mix(shadow, 1.0, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, view_pos.z)); //done with negative values for performance
@@ -556,7 +579,7 @@ void main() {
 							pos.xy = pos.xy * 0.5 + 0.5;
 							pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
 
-							float depth = texture(sampler2D(shadow_atlas, linear_sampler), pos.xy).r;
+							float depth = texture_linear_depth(shadow_depth_atlas, pos.xy);
 
 							shadow_attenuation = mix(1.0 - omni_lights.data[light_index].shadow_opacity, 1.0, exp(min(0.0, (pos.z - depth)) / omni_lights.data[light_index].inv_radius * INV_FOG_FADE));
 						}
@@ -621,7 +644,7 @@ void main() {
 
 							vec3 pos = vec3(splane.xy * spot_lights.data[light_index].atlas_rect.zw + spot_lights.data[light_index].atlas_rect.xy, splane.z);
 
-							float depth = texture(sampler2D(shadow_atlas, linear_sampler), pos.xy).r;
+							float depth = texture_linear_depth(shadow_depth_atlas, pos.xy);
 
 							shadow_attenuation = mix(1.0 - spot_lights.data[light_index].shadow_opacity, 1.0, exp(min(0.0, (pos.z - depth)) / spot_lights.data[light_index].inv_radius * INV_FOG_FADE));
 						}
@@ -722,7 +745,7 @@ void main() {
 								pos.xy = pos.xy * 0.5 + 0.5;
 								pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
 
-								float depth = texture(sampler2D(shadow_atlas, linear_sampler), pos.xy).r;
+								float depth = texture_linear_depth(shadow_depth_atlas, pos.xy);
 
 								shadow_attenuation = mix(1.0 - area_lights.data[light_index].shadow_opacity, 1.0, exp(min(0.0, (pos.z - depth)) / inv_center_range * INV_FOG_FADE));
 							}

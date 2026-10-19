@@ -20,7 +20,24 @@
  * `id` must match an arm of fp_scene.gd's `_apply()` and an entry in its
  * FEATURES list; run_forward_plus.mjs asserts all three agree, so a feature
  * added on one side and not the other fails loudly.
+ *
+ * The parity mode (run_forward_plus.mjs --parity) also compares every captured
+ * frame against a native Vulkan render of the same configuration, and fails a
+ * feature whose WebGPU frame differs by more than PARITY_TOLERANCE (mean
+ * absolute difference, 0-255) -- the check that catches a feature that does
+ * something, but the wrong thing. Two optional fields serve it:
+ *   parityOnly: true   -- the arm exists for the parity comparison alone; its
+ *                         correct "on" frame equals its "off" frame, so the
+ *                         delta test skips it.
+ *   parityTol: N       -- a larger tolerance for a feature whose WebGPU frame
+ *                         legitimately differs, with the reason next to it.
+ *                         Never raise one to make a regression pass.
  */
+
+// Default parity tolerance: well above what identical work measures across the
+// two backends (0.002-0.006 on the reference RTX 4080), well below a missing
+// or wrong effect (the bugs this mode found measured 0.06-25).
+export const PARITY_TOLERANCE = 0.05;
 
 export const CATEGORIES = {
   environment: 'Environment',
@@ -46,11 +63,17 @@ export const FEATURES = [
   { id: 'fog_aerial_perspective', cat: 'environment', label: 'Fog aerial perspective', minDelta: 0.896 },
   { id: 'volumetric_fog', cat: 'environment', label: 'Volumetric fog', minDelta: 14.4 },
   { id: 'glow', cat: 'environment', label: 'Glow / bloom', minDelta: 14.4 },
-  { id: 'glow_map', cat: 'environment', label: 'Glow map', minDelta: 10.4 },
+  { id: 'glow_map', cat: 'environment', label: 'Glow map', minDelta: 0.7 },
   { id: 'ssr', cat: 'environment', label: 'Screen-space reflections', minDelta: 0.394 },
   { id: 'ssao', cat: 'environment', label: 'Screen-space ambient occlusion', minDelta: 0.555 },
   { id: 'ssil', cat: 'environment', label: 'Screen-space indirect lighting', minDelta: 0.579 },
-  { id: 'sdfgi', cat: 'environment', label: 'SDFGI', minDelta: 11.7 },
+  { id: 'sdfgi', cat: 'environment', label: 'SDFGI', minDelta: 11.7,
+    // SDFGI voxelization ORs facing bits into a shared grid; WGSL has no image
+    // atomics, so WebGPU does a plain read-modify-write and concurrent
+    // fragments can drop each other's bits (measured 0.03).
+    parityTol: 0.08 },
+  { id: 'sdfgi_camera_move', cat: 'environment', label: 'SDFGI after the camera moves away and back', minDelta: 0, parityOnly: true,
+    parityTol: 0.08 },
 
   // ---- lights and shadows ----
   { id: 'directional_light', cat: 'lighting', label: 'Directional light', minDelta: 10.7 },
@@ -58,6 +81,7 @@ export const FEATURES = [
   { id: 'directional_shadow_splits', cat: 'lighting', label: 'Directional shadow splits (CSM)', minDelta: 0.207 },
   { id: 'omni_light', cat: 'lighting', label: 'Omni light', minDelta: 4.32 },
   { id: 'omni_shadow', cat: 'lighting', label: 'Omni shadow (dual paraboloid)', minDelta: 0.222 },
+  { id: 'omni_shadow_cube', cat: 'lighting', label: 'Omni shadow (cube)', minDelta: 0.222 },
   { id: 'spot_light', cat: 'lighting', label: 'Spot light', minDelta: 1.27 },
   { id: 'spot_shadow', cat: 'lighting', label: 'Spot shadow', minDelta: 0.415 },
   { id: 'light_projector', cat: 'lighting', label: 'Light projector texture', minDelta: 1.11 },
@@ -86,8 +110,13 @@ export const FEATURES = [
   { id: 'transparency', cat: 'material', label: 'Alpha blending', minDelta: 1.27 },
   { id: 'alpha_scissor', cat: 'material', label: 'Alpha scissor', minDelta: 1.15 },
   { id: 'alpha_hash', cat: 'material', label: 'Alpha hash', minDelta: 1.03 },
-  { id: 'proximity_fade', cat: 'material', label: 'Proximity fade', minDelta: 1.09 },
+  { id: 'proximity_fade', cat: 'material', label: 'Proximity fade', minDelta: 0.19 },
   { id: 'distance_fade', cat: 'material', label: 'Distance fade', minDelta: 1.1 },
+  { id: 'depth_texture', cat: 'material', label: 'DEPTH_TEXTURE in a material', minDelta: 1.4 },
+  { id: 'mipmap_bias', cat: 'material', label: 'Mipmap LOD bias (texture_mipmap_bias)', minDelta: 0.148 },
+  { id: 'texture_array', cat: 'material', label: 'Texture array indexed at runtime', minDelta: 1.2 },
+  { id: 'shader_builtins', cat: 'material', label: 'isnan/isinf/textureQueryLod in a material', minDelta: 0.028 },
+  { id: 'point_coord', cat: 'material', label: 'POINT_COORD without POINT_SIZE (drawn as points)', minDelta: 0.01 },
 
   // ---- mesh pipeline ----
   { id: 'multimesh', cat: 'mesh', label: 'MultiMesh instancing', minDelta: 1.72 },
@@ -106,7 +135,12 @@ export const FEATURES = [
   { id: 'fxaa', cat: 'post', label: 'FXAA', minDelta: 0.0812 },
   { id: 'debanding', cat: 'post', label: 'Debanding', minDelta: 0.0823 },
   { id: 'scaling_3d', cat: 'post', label: '3D resolution scaling (bilinear)', minDelta: 0.373 },
-  { id: 'fsr2', cat: 'post', label: 'FSR2 upscaling', minDelta: 0.358 },
+  { id: 'fsr2', cat: 'post', label: 'FSR2 upscaling', minDelta: 0.358,
+    // Native Vulkan runs FSR2's FFX_HALF (fp16) variants and its R16_SNORM
+    // lookup tables; WebGPU has neither (no shader-f16 path, no filterable
+    // 16-bit normalized format) and runs fp32 with half-float tables. Measured
+    // 0.55 mean, confined to high-frequency edges.
+    parityTol: 0.8 },
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },

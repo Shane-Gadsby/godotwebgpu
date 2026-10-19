@@ -57,6 +57,15 @@ extern void godot_js_os_shell_open(const char *p_uri);
 extern int godot_js_os_hw_concurrency_get();
 extern int godot_js_os_thread_pool_size_get();
 extern int godot_js_os_has_feature(const char *p_ftr);
+// Reports a completed engine startup phase to the page, so the loading UI can show
+// real progress through the startup rather than stopping at "download complete".
+// See `OS_Web::benchmark_end_measure()` and webgpu_notes/TASKS.md Task 14.
+extern void godot_js_os_startup_progress(const char *p_name, double p_duration_ms);
+// Prints one engine warning on the page's warning channel (`console.warn()` by default).
+// Everything the engine writes to stderr reaches the console as an error, so warnings --
+// which are not faults -- need a channel of their own. See `WebLogger` in `os_web.cpp`.
+extern void godot_js_os_print_warning(const char *p_text);
+
 extern int godot_js_pwa_cb(void (*p_callback)());
 extern int godot_js_pwa_update();
 

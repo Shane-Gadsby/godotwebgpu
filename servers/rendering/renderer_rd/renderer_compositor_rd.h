@@ -146,7 +146,12 @@ public:
 	_ALWAYS_INLINE_ virtual uint64_t get_frame_number() const override { return frame; }
 	_ALWAYS_INLINE_ virtual double get_frame_delta_time() const override { return delta; }
 	_ALWAYS_INLINE_ virtual double get_total_time() const override { return time; }
-	_ALWAYS_INLINE_ virtual bool can_create_resources_async() const override { return true; }
+	// False when the driver's objects belong to the thread that created them (WebGPU: see
+	// API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION). RenderingServer then queues resource
+	// creation to the render thread instead of creating on the caller's thread, which with a
+	// separate render thread would build WebGPU objects in the wrong thread's handle table.
+	bool resources_async = true;
+	_ALWAYS_INLINE_ virtual bool can_create_resources_async() const override { return resources_async; }
 
 	virtual bool is_xr_enabled() const override { return RendererCompositor::is_xr_enabled(); }
 

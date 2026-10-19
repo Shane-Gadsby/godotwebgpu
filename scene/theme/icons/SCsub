@@ -11,7 +11,7 @@ if env["target"] in ["editor", "template_debug"]:
     sources += Glob("debug_icons/*.svg")
 
 env.CommandNoCache(
-    "#scene/theme/default_theme_icons.gen.h",
+    env.gen_path("scene/theme/default_theme_icons.gen.h"),
     sources,
     env.Run(default_theme_icons_builders.make_default_theme_icons_action),
 )

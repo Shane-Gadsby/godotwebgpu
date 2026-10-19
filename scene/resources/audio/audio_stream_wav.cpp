@@ -432,6 +432,7 @@ void AudioStreamPlaybackWAV::set_sample_playback(const Ref<AudioSamplePlayback> 
 
 void AudioStreamWAV::set_format(Format p_format) {
 	format = p_format;
+	emit_changed();
 }
 
 AudioStreamWAV::Format AudioStreamWAV::get_format() const {
@@ -440,6 +441,7 @@ AudioStreamWAV::Format AudioStreamWAV::get_format() const {
 
 void AudioStreamWAV::set_loop_mode(LoopMode p_loop_mode) {
 	loop_mode = p_loop_mode;
+	emit_changed();
 }
 
 AudioStreamWAV::LoopMode AudioStreamWAV::get_loop_mode() const {
@@ -448,6 +450,7 @@ AudioStreamWAV::LoopMode AudioStreamWAV::get_loop_mode() const {
 
 void AudioStreamWAV::set_loop_begin(int p_frame) {
 	loop_begin = p_frame;
+	emit_changed();
 }
 
 int AudioStreamWAV::get_loop_begin() const {
@@ -456,6 +459,7 @@ int AudioStreamWAV::get_loop_begin() const {
 
 void AudioStreamWAV::set_loop_end(int p_frame) {
 	loop_end = p_frame;
+	emit_changed();
 }
 
 int AudioStreamWAV::get_loop_end() const {
@@ -465,6 +469,7 @@ int AudioStreamWAV::get_loop_end() const {
 void AudioStreamWAV::set_mix_rate(int p_hz) {
 	ERR_FAIL_COND(p_hz == 0);
 	mix_rate = p_hz;
+	emit_changed();
 }
 
 int AudioStreamWAV::get_mix_rate() const {
@@ -473,6 +478,7 @@ int AudioStreamWAV::get_mix_rate() const {
 
 void AudioStreamWAV::set_stereo(bool p_enable) {
 	stereo = p_enable;
+	emit_changed();
 }
 
 bool AudioStreamWAV::is_stereo() const {
@@ -523,6 +529,7 @@ void AudioStreamWAV::set_data(const Vector<uint8_t> &p_data) {
 	data = p_data;
 
 	AudioServer::get_singleton()->unlock();
+	emit_changed();
 }
 
 Vector<uint8_t> AudioStreamWAV::get_data() const {

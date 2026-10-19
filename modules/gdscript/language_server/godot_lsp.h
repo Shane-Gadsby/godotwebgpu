@@ -688,8 +688,9 @@ struct TextDocumentItem {
 		// We normalize some known ids to make them easier to work with:
 		// Rider < 2026.1: "gd"
 		// Kate: "godot"
+		// GDB: Braced GDScript (`.gdb`) clients may say "gdscript-braced" or "gdb"; the path picks brace mode.
 		String rawLanguageId = p_dict["languageId"];
-		if (rawLanguageId == "gdscript" || rawLanguageId == "gd" || rawLanguageId == "godot") {
+		if (rawLanguageId == "gdscript" || rawLanguageId == "gd" || rawLanguageId == "godot" || rawLanguageId == "gdscript-braced" || rawLanguageId == "gdb") {
 			languageId = LanguageId::GDSCRIPT;
 		} else {
 			languageId = LanguageId::OTHER;

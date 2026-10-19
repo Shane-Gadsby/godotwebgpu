@@ -172,6 +172,29 @@ Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> 
 // reads it without issue.
 Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes);
 
+// Move every Function-scope array variable that only ever holds one constant
+// to module scope, as a Private variable initialized with that constant.
+//
+// GLSL's `const T arr[N] = ...; ... arr[i]` with a runtime `i` makes glslang
+// emit a Function-scope "indexable" variable plus an OpStore of the whole
+// constant right before *every* access, so a helper that reads one entry per
+// call re-initializes the entire array per call. Native drivers fold that
+// away; after the SPIR-V -> WGSL -> SPIR-V round trip through Tint and Dawn,
+// NVIDIA does not, and the array is rebuilt in scratch memory each time. In
+// SSIL (32 x vec4 sample pattern, one read per tap) that was ~0.55 ms of the
+// pass's ~0.6 ms per frame on an RTX 4080; as a Private variable with an
+// initializer it is ~0.05 ms (TASKS.md 2.30).
+//
+// A candidate qualifies only if its whole-variable writes (initializer and
+// OpStores) all store the same non-spec constant and every other use is a
+// load, or an access chain whose own uses are loads. Anything else -- a
+// per-element store, passing the pointer to a function, OpCopyMemory --
+// leaves it untouched. Identical (type, constant) pairs share one variable;
+// on SPIR-V 1.4+ the variables are added to the (single) entry point's
+// interface. Runs before split_initialized_local_arrays(), which then only
+// sees the arrays that really are mutable.
+Vector<uint8_t> hoist_constant_local_arrays(const Vector<uint8_t> &p_bytes);
+
 // Replace non-finite (infinity, NaN) float constants with FLT_MAX/MIN.
 // Tint asserts std::isfinite on all float literal values.
 Vector<uint8_t> fix_nonfinite_literals(const Vector<uint8_t> &p_bytes);
@@ -238,6 +261,12 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 // introduce or restructure such a variable) so it sees the final shape
 // Tint will actually receive.
 Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes);
+
+// The whole preprocessing pipeline, in order: what every SPIR-V module goes
+// through before Tint sees it. The single definition of that order -- the
+// runtime driver, the export-time baker (via tint_convert_cli) and the
+// build-time precompile all call this, so they cannot disagree.
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes);
 
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage

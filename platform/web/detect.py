@@ -1,4 +1,7 @@
+import hashlib
+import importlib.util
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -73,6 +76,78 @@ def get_doc_classes():
 
 def get_doc_path():
     return "doc_classes"
+
+
+def _emsdk_patched_files(em_root):
+    """Toolchain files named by misc/emsdk_patches/emsdk_patch.py's PATCHES table.
+
+    Imported by path so this keeps working from any working directory and does
+    not depend on the patch directory being importable as a package. Any failure
+    degrades to "track nothing extra" -- the explicit list in the caller still
+    covers both current patches, so a missing table cannot break a build.
+    """
+    # parents: [0] platform/web, [1] platform, [2] repo root.
+    table = Path(__file__).resolve().parents[2] / "misc" / "emsdk_patches" / "emsdk_patch.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_godot_emsdk_patch", table)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return [em_root / h["file"] for patch in module.PATCHES for h in patch["hunks"]]
+    except Exception as e:
+        # Loud, not silent: the whole point of reading the table is that a patched
+        # file missing from the hash reintroduces the stale-relink bug, whose only
+        # symptom is "the patch did nothing". A quiet fallback here would hide
+        # exactly what this is guarding.
+        print_warning(
+            f"Could not read {table} to hash the patched toolchain files ({e}). A toolchain patch may not trigger a relink."
+        )
+        return []
+
+
+def get_toolchain_js_fingerprint():
+    """Content hash of the toolchain files that shape the generated JS glue.
+
+    scons only relinks when its own inputs change, and the Emscripten tree is not
+    one of them, so patching the toolchain (or an `emsdk install` silently
+    reverting a patch) leaves a stale bin/godot*.js in place and the next build is
+    a no-op. That is how the dylink+pthread ASM_CONSTS race came back *after*
+    misc/emsdk_patches was applied: the release template relinked and picked the
+    fix up, the debug one did not, and the debug export kept crashing on a bug
+    that was already fixed on disk. Depending on this hash makes the toolchain an
+    actual build input, so no one has to remember to delete the target by hand.
+
+    Returns "" when the toolchain can't be located, which just restores the old
+    behavior rather than failing the build.
+    """
+    emcc = WhereIs("emcc")
+    if not emcc:
+        return ""
+    em_root = Path(os.path.realpath(emcc)).parent
+    # Only the files that end up in, or generate, the JS glue -- not the whole
+    # tree, which would hash tens of thousands of files on every build.
+    tracked = [
+        em_root / "emscripten-version.txt",
+        em_root / "tools" / "emscripten.py",
+        em_root / "tools" / "acorn-optimizer.mjs",
+        em_root / "src" / "modules.mjs",
+        em_root / "src" / "runtime_common.js",
+        em_root / "src" / "lib" / "libdylink.js",
+        em_root / "src" / "lib" / "libpthread.js",
+    ]
+    # Plus every file misc/emsdk_patches actually patches, read from its own
+    # table rather than duplicated here. Without this, adding a patch that
+    # touches a file the list above happens to miss would silently reintroduce
+    # the stale-relink bug this function exists to prevent -- which is not a
+    # mistake anyone would catch, because the symptom is "the patch did nothing".
+    tracked += _emsdk_patched_files(em_root)
+    digest = hashlib.sha256()
+    for f in tracked:
+        try:
+            digest.update(f.read_bytes())
+        except OSError:
+            digest.update(b"<missing>")  # Still a state change worth relinking on.
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def get_flags():
@@ -281,6 +356,10 @@ def configure(env: "SConsEnvironment"):
     if env["threads"]:
         # Thread support (via SharedArrayBuffer).
         env.Append(CPPDEFINES=["PTHREAD_NO_RENAME"])
+        if env["webgpu"]:
+            # The separate render thread (thread_model=Separate) owns the canvas as an OffscreenCanvas
+            # transferred to its pthread (webgpu_notes/TASKS.md 2.5).
+            env.Append(LINKFLAGS=["-sOFFSCREENCANVAS_SUPPORT=1"])
         env.Append(CCFLAGS=["-pthread"])
         env.Append(LINKFLAGS=["-pthread"])
         env.Append(LINKFLAGS=[f"-sDEFAULT_PTHREAD_STACK_SIZE={env['default_pthread_stack_size']}KB"])
@@ -310,6 +389,47 @@ def configure(env: "SConsEnvironment"):
         env.Append(CCFLAGS=["-fvisibility=hidden"])
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
+
+        # A dlink build needs this fork's Emscripten toolchain patches (both of
+        # them are about -sSIDE_MODULE/-sEXPORT_ALL code paths that only a dlink
+        # build takes) -- see misc/emsdk_patches/ and webgpu_notes/TASKS.md Task 12
+        # bug #2. How much it hurts depends on `threads`:
+        #   threads=yes -- the export does not boot at all (0001: an ASM_CONSTS
+        #                  initialization race in Emscripten's dylink+pthread glue),
+        #                  and logs ~11 errors per load from 0002's eager heap-view
+        #                  export, which silently drops later Module exports on
+        #                  worker threads.
+        #   threads=no  -- neither symptom can fire (both need a pthread worker),
+        #                  so this is cosmetic, but the patches are still correct.
+        #
+        # This warns rather than fails because the toolchain is outside the repo
+        # and may legitimately be patched by other means. It is loud because
+        # `emsdk install` overwrites the toolchain tree and silently reverts the
+        # patches -- without this, the next person rediscovers a crash that was
+        # already diagnosed and fixed, which is the same silent-failure shape
+        # Task 36's version-hash mismatch had.
+        apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
+        try:
+            patched = subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
+        except OSError:
+            patched = False  # Can't run it (Windows without bash, not executable, ...).
+        if not patched:
+            if env["threads"]:
+                print_warning(
+                    "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
+                    "does not have this fork's patches applied. The resulting export will most "
+                    f"likely fail to start. Run '{apply_sh}' --apply, then rebuild."
+                )
+            else:
+                print_info(
+                    "The Emscripten toolchain does not have this fork's patches applied "
+                    f"('{apply_sh}' --apply). Harmless for threads=no, but required as soon as "
+                    "threads=yes is combined with dlink_enabled=yes."
+                )
+
+    # Make the toolchain's JS glue a real build input, so applying or reverting an
+    # emsdk patch relinks instead of leaving a stale bin/godot*.js behind.
+    env["JS_TOOLCHAIN_FINGERPRINT"] = get_toolchain_js_fingerprint()
 
     # WASM_BIGINT is on by default for wasm output (only ever implicitly disabled by
     # -sWASM=0); setting it explicitly is deprecated as of Emscripten 4.x.

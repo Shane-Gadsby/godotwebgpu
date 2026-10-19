@@ -700,11 +700,25 @@ Error ProjectSettings::_setup(const String &p_path, const String &p_main_pack, b
 		}
 	}
 
+	// A pack of baked shaders the exporter wrote next to the main pack, as
+	// `<main pack>.shaders.pck` (the web exporter's shader_baker/separate_pack
+	// option): the same files the main pack would otherwise carry under
+	// res://.godot/shader_cache/, kept apart so they only have to be re-uploaded
+	// when the shaders change. Mounted right after the main pack so the shader
+	// cache finds them exactly as if they had been in it. Missing is the normal
+	// case for every other export and costs one failed open.
+	auto load_shader_pack_beside = [&](const String &p_pack_path) {
+		if (p_pack_path.get_extension() == "pck") {
+			_load_resource_pack(p_pack_path.get_basename() + ".shaders.pck", false, 0, true);
+		}
+	};
+
 	// Attempt with a user-defined main pack first
 
 	if (!p_main_pack.is_empty()) {
 		bool ok = _load_resource_pack(p_main_pack, false, 0, true);
 		ERR_FAIL_COND_V_MSG(!ok, ERR_CANT_OPEN, vformat("Cannot open resource pack '%s'.", p_main_pack));
+		load_shader_pack_beside(p_main_pack);
 
 		Error err = _load_settings_text_or_binary("res://project.godot", "res://project.binary");
 #ifdef OVERRIDE_ENABLED
@@ -751,6 +765,10 @@ Error ProjectSettings::_setup(const String &p_path, const String &p_main_pack, b
 			// Try to load data pack at the location of the executable.
 			// As mentioned above, we have two potential names to attempt.
 			found = _load_resource_pack(exec_dir.path_join(exec_basename + ".pck"), false, 0, true) || _load_resource_pack(exec_dir.path_join(exec_filename + ".pck"), false, 0, true);
+			if (found) {
+				load_shader_pack_beside(exec_dir.path_join(exec_basename + ".pck"));
+				load_shader_pack_beside(exec_dir.path_join(exec_filename + ".pck"));
+			}
 		}
 
 		if (!found) {

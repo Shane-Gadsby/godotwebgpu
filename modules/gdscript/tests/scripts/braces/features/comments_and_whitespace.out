@@ -1,0 +1,12 @@
+GDTEST_OK
+~~ WARNING at line 13: (INTEGER_DIVISION) Integer division. Decimal part will be discarded.
+no indentation at all
+odd indentation
+mixed tabs and spaces
+3
+5
+after a block comment
+{ "a": 1, "b": 2 }
+ok
+[1, 2, 3]
+end

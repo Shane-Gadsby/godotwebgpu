@@ -72,16 +72,19 @@ const Features = {
 	 *
 	 * @returns {Array<string>} A list of human-readable missing features.
 	 * @function Engine.getMissingFeatures
-	 * @param {{threads: (boolean|undefined)}} supportedFeatures
+	 * @param {{threads: (boolean|undefined), webgl: (boolean|undefined)}} supportedFeatures
 	 */
 	getMissingFeatures: function (supportedFeatures = {}) {
 		const {
 			// Quotes are needed for the Closure compiler.
 			'threads': supportsThreads = true,
+			// A WebGPU-only page does not need WebGL2, and probing for it creates a throwaway
+			// WebGL context (~110 ms on the critical path, before the first byte is fetched).
+			'webgl': requiresWebGL = true,
 		} = supportedFeatures;
 
 		const missing = [];
-		if (!Features.isWebGLAvailable(2)) {
+		if (requiresWebGL && !Features.isWebGLAvailable(2)) {
 			missing.push('WebGL2 - Check web browser configuration and hardware support');
 		}
 		if (!Features.isFetchAvailable()) {

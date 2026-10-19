@@ -17,7 +17,7 @@
  * Asserting is done on a screenshot of the canvas rather than inside GDScript
  * because RenderingDeviceDriverWebGPU::texture_get_data() is a one-shot cache:
  * a caller that calls texture_2d_get() once can never get data on WebGPU
- * (webgpu_notes/HANDOFF.md 4.6). The screenshot is also the more faithful test
+ * (webgpu_notes/TASKS.md 4.6). The screenshot is also the more faithful test
  * -- it checks what actually reached the screen.
  *
  * Usage:
@@ -28,7 +28,6 @@ import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,13 +143,16 @@ export function assertBands(png) {
  * materially different set of capabilities (TASKS.md Task 9.5).
  */
 async function launchBrowser(browserName) {
+  // Imported here, not at the top: self_test_font_visual.mjs imports assertBands() from
+  // this file and must run where Playwright is not installed.
+  const { default: pw } = await import('playwright');
   const isCI = !!process.env.CI;
   if (browserName === 'chrome') {
     if (process.env.WEBGPU_REAL_GPU) {
       return pw.chromium.launch({
-        headless: true,
-        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan',
-          '--use-angle=vulkan', '--use-vulkan=native', '--ignore-gpu-blocklist', '--no-sandbox'],
+        headless: false,
+        executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+        args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
       });
     }
     return pw.chromium.launch({
@@ -161,7 +163,10 @@ async function launchBrowser(browserName) {
   }
   if (browserName === 'firefox') {
     return pw.firefox.launch({
-      headless: isCI,
+      // Headed whenever there is a display: headless Firefox renders the scene, but
+      // its screenshots of a WebGPU canvas come back black (so do headed ones under
+      // xvfb). A CI box without a display has no Firefox WebGPU adapter anyway.
+      headless: isCI && !process.env.DISPLAY,
       firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
     });
   }
@@ -196,6 +201,13 @@ async function testBrowser(browserName) {
   let result = 'FAIL';
   try {
     await page.goto(url);
+    // Firefox has no software WebGPU on Linux, so a GPU-less runner has no adapter
+    // and the scene never starts. That is not this test's regression to catch.
+    const hasAdapter = await page.evaluate(async () => !!(navigator.gpu && await navigator.gpu.requestAdapter()));
+    if (!hasAdapter) {
+      console.log(`  ${browserName}: SKIP -- no WebGPU adapter`);
+      return 'SKIP';
+    }
     const deadline = Date.now() + 60000;
     while (!ready && Date.now() < deadline) await new Promise((r) => setTimeout(r, 300));
 
@@ -203,8 +215,18 @@ async function testBrowser(browserName) {
       console.log(`  ${browserName}: FAIL -- no [FontCheck] READY within 60s`);
     } else {
       const canvas = await page.locator('canvas').first();
-      const png = decodePng(await canvas.screenshot());
-      const { failures, fill, outline } = assertBands(png);
+      // READY is emitted by the scene, not by the compositor: Firefox can still be
+      // showing an unpresented (black) canvas for several seconds afterwards, which
+      // reads as "glyph modulate is being dropped". Retry until it passes or the
+      // window closes, so a real failure still fails.
+      let png, failures, fill, outline;
+      const settleDeadline = Date.now() + 10000;
+      do {
+        png = decodePng(await canvas.screenshot());
+        ({ failures, fill, outline } = assertBands(png));
+        if (failures.length === 0) break;
+        await new Promise((r) => setTimeout(r, 500));
+      } while (Date.now() < settleDeadline);
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  ${browserName}: canvas ${png.width}x${png.height}  ` +
         `fill[red ${pct(fill.red)} white ${pct(fill.white)}]  outline[black ${pct(outline.black)}]`);

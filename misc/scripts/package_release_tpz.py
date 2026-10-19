@@ -85,18 +85,17 @@ def main():
     take("macos-template", "godot_macos*.zip", "macos.zip")
 
     # --- Web / WebGPU (EditorExportPlatformWeb::_get_template_name) ---
-    take("web-template", "godot.web.template_release.wasm64*.zip", "web_release.zip")
-    take("web-template-debug", "godot.web.template_debug.wasm64*.zip", "web_debug.zip")
-    take("web-nothreads-template", "godot.web.template_release.wasm32*.zip", "web_nothreads_release.zip")
-    take("web-nothreads-template-debug", "godot.web.template_debug.wasm32*.zip", "web_nothreads_debug.zip")
-    take("web-webgpu-template", "godot.web.template_release.wasm32*.zip", "web_dlink_nothreads_release.zip")
-    take("web-webgpu-template-debug", "godot.web.template_debug.wasm32*.zip", "web_dlink_nothreads_debug.zip")
+    # All 8 web templates are WebGPU builds (.github/workflows/web_builds.yml), every one wasm32.
+    for dlink in (False, True):
+        for threads in (True, False):
+            for target in ("release", "debug"):
+                artifact = "web" + ("-dlink" if dlink else "") + ("" if threads else "-nothreads") + "-template"
+                artifact += "-debug" if target == "debug" else ""
+                scons_zip = f"godot.web.template_{target}.wasm32" + ("" if threads else ".nothreads")
+                scons_zip += ".dlink" if dlink else ""
+                dest = "web_" + ("dlink_" if dlink else "") + ("" if threads else "nothreads_") + target + ".zip"
+                take(artifact, scons_zip + ".zip", dest)
 
-    # --- Android ---
-    # android_builds.yml now builds both arm32 and arm64, for both
-    # template_debug and template_release, in one job before running gradle
-    # once, so these are genuinely multi-ABI, genuinely release-optimized
-    # APKs (see that workflow's "Compilation (templates, ...)" step comment).
     take("android-template", "android_debug.apk", "android_debug.apk")
     take("android-template", "android_release.apk", "android_release.apk")
     take("android-template", "android_source.zip", "android_source.zip")

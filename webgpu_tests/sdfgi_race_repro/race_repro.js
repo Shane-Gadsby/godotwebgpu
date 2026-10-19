@@ -1,7 +1,7 @@
 /**
  * Minimal, from-scratch repro of the SDFGI brightness-runaway pattern —
  * NOT Godot code. See webgpu_notes/TASKS.md Task 9.5 (Round 38-39) and
- * plan-of-attack.md Tier 1 Phase 1 for the full investigation this narrows.
+ * webgpu_notes/TASKS.md §2
  *
  * The essential pattern from sdfgi_integrate.glsl (~L339-355):
  *   ivec4 prev_value = imageLoad(lightprobe_history_texture, prev_pos);

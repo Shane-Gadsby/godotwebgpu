@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://holder.gd" id="1"]
+
+[node name="Main" type="Node"]
+
+[node name="Holder" type="Node" parent="."]
+script = ExtResource("1")
+
+[node name="Spawner" type="MultiplayerSpawner" parent="."]
+
+[node name="A" type="Node2D" parent="."]
+
+[node name="B" type="Sprite2D" parent="."]
+
+[node name="List" type="ItemList" parent="."]
+
+[node name="Tree" type="AnimationTree" parent="."]

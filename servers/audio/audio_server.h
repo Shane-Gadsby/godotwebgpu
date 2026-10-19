@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/templates/hash_set.h"
 #include "core/templates/safe_list.h"
 #include "core/variant/variant.h"
 #include "servers/audio/audio_bus_layout.h"
@@ -203,6 +204,11 @@ private:
 	void _driver_process(int p_frames, int32_t *p_buffer);
 
 	LocalVector<Ref<AudioSamplePlayback>> sample_playback_list;
+	// _warn_sample_bus_effects(): buses warned about (once each, ever), and buses found to have no effects down their
+	// send chain, which any change to the bus graph or its effects forgets.
+	HashSet<StringName> sample_effects_warned_buses;
+	HashSet<StringName> sample_effects_clean_buses;
+	void _warn_sample_bus_effects(const StringName &p_bus);
 
 protected:
 	static void _bind_methods();

@@ -1,0 +1,13 @@
+{
+  "name": "webgpu-webrtc-congestion",
+  "private": true,
+  "type": "module",
+  "description": "WebRTC behavior under real bandwidth pressure. shape.sh builds a netem-shaped two-namespace link (no root); run_congestion.mjs runs one fixture across it.",
+  "scripts": {
+    "export": "./export.sh",
+    "selftest": "./shape.sh --selftest"
+  },
+  "dependencies": {
+    "playwright": "^1.56.0"
+  }
+}

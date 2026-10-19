@@ -272,18 +272,26 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 				next = dir->get_next();
 				continue;
 			}
+#ifndef GDSCRIPT_BRACES_ENABLED
+			// GDB: Braced GDScript is compiled out. Its tests, and their `.gd` twins that use `.gdb` helpers, can't run.
+			if (next == "braces") {
+				next = dir->get_next();
+				continue;
+			}
+#endif // GDSCRIPT_BRACES_ENABLED
 			if (!make_tests_for_dir(current_dir.path_join(next))) {
 				return false;
 			}
 		} else {
 			// `*.notest.gd` files are skipped.
-			if (next.ends_with(".notest.gd")) {
+			if (next.ends_with(".notest.gd") || next.ends_with(".notest.gdb")) { // GDB
 				next = dir->get_next();
 				continue;
-			} else if (binary_tokens && next.ends_with(".textonly.gd")) {
+			} else if (binary_tokens && (next.ends_with(".textonly.gd") || next.ends_with(".textonly.gdb"))) { // GDB
 				next = dir->get_next();
 				continue;
-			} else if (next.has_extension("gd")) {
+			} else if (next.has_extension("gd") || GDScriptTokenizer::is_braced_path(next)) {
+				// GDB: A `.gdb` test shares its `.out` file with a `.gd` twin of the same name, if there is one.
 #ifndef DEBUG_ENABLED
 				// On release builds, skip tests marked as debug only.
 				Error open_err = OK;
@@ -303,7 +311,7 @@ bool GDScriptTestRunner::make_tests_for_dir(const String &p_dir) {
 				String out_file = next.get_basename() + ".out";
 				ERR_FAIL_COND_V_MSG(!is_generating && !dir->file_exists(out_file), false, "Could not find output file for " + next);
 
-				if (next.ends_with(".bin.gd")) {
+				if (next.ends_with(".bin.gd") || next.ends_with(".bin.gdb")) { // GDB
 					// Test text mode first.
 					GDScriptTest text_test(current_dir.path_join(next), current_dir.path_join(out_file), source_dir);
 					tests.push_back(text_test);
@@ -363,7 +371,7 @@ static bool generate_class_index_recursive(const String &p_dir) {
 				return false;
 			}
 		} else {
-			if (!next.ends_with(".gd")) {
+			if (!next.ends_with(".gd") && !GDScriptTokenizer::is_braced_path(next)) { // GDB
 				next = dir->get_next();
 				continue;
 			}
@@ -505,7 +513,7 @@ GDScriptTest::TestResult GDScriptTest::execute_test_code(bool p_is_generating) {
 	} else {
 		String code = FileAccess::get_file_as_string(source_file, &err);
 		if (!err) {
-			Vector<uint8_t> buffer = GDScriptTokenizerBuffer::parse_code_string(code, GDScriptTokenizerBuffer::COMPRESS_ZSTD);
+			Vector<uint8_t> buffer = GDScriptTokenizerBuffer::parse_code_string(code, GDScriptTokenizerBuffer::COMPRESS_ZSTD, GDScriptTokenizer::is_braced_path(source_file)); // GDB
 			script->set_binary_tokens_source(buffer);
 		}
 	}
@@ -613,7 +621,7 @@ GDScriptTest::TestResult GDScriptTest::execute_test_code(bool p_is_generating) {
 	}
 
 	// `*.norun.gd` files are allowed to not contain a `test()` function (no runtime testing).
-	if (source_file.ends_with(".norun.gd")) {
+	if (source_file.ends_with(".norun.gd") || source_file.ends_with(".norun.gdb")) { // GDB
 		enable_stdout();
 		result.status = GDTEST_OK;
 		result.output = get_text_for_status(result.status) + "\n" + result.output;

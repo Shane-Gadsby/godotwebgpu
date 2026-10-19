@@ -5,7 +5,7 @@
 | Area | Score | Verdict |
 |------|-------|---------|
 | Resource lifecycle | 9/10 | All failure paths covered; async lifetime robust |
-| Rendering correctness | 8/10 | Core features working; mid-pass clear TODO |
+| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 71 matrix features (2026-10-17, §2.9); remaining gaps are WebGPU spec limits |
 | Cross-browser compatibility | 9/10 | Well-scoped workarounds for Chrome/Firefox/Safari |
 | Error handling | 8/10 | Robust async patterns; deadlock prevention |
 | Code quality | 8/10 | Well-documented; defensive; some TODOs remain |
@@ -111,7 +111,9 @@ Multi-frame physical buffers with per-frame rotation:
 
 `command_clear_color_texture` has two paths:
 1. Fast path (RenderAttachment usage): zero-draw render pass per mip/layer
-2. Fallback (CopyDst only): `wgpuQueueWriteTexture` fill with clear color, handles zero-clear optimization
+2. Fallback (CopyDst only): an encoder `copyBufferToTexture` from a cached zero buffer (or a per-clear pattern buffer for a non-zero colour), so the clear is ordered with the rest of the command buffer
+
+Both paths clear every z-slice of a 3D texture. Until 2026-10-17 the fallback was `wgpuQueueWriteTexture`, which runs at submit ahead of everything the encoder recorded earlier, and only slice 0 of a 3D texture was cleared; together they corrupted SDFGI's cascades whenever the camera moved.
 
 ### 2.5b MSAA Resolve
 
@@ -148,6 +150,42 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 | `command_render_clear_attachments` | WARN_PRINT, no-op | Mid-pass clears silently ignored |
 | `draw_indexed_indirect_count` | Uses max_count | Wastes GPU cycles, no correctness issue |
 
+### 2.9 Forward+ Parity with Native Vulkan
+
+**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29)
+
+`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.8 for its fp16 resolve). All 71 arms pass. Most land at 0.002-0.006; SDFGI 0.025, volumetric fog 0.046, omni cube shadows 0.015, FSR2 0.57 (edge-only).
+
+The sweep that introduced this check found five features that rendered wrongly while passing the older "does the frame change" test -- the reason the parity mode exists:
+
+| Feature | Was | Cause |
+|---|---|---|
+| SDFGI with a moving camera | 25.1 off native | 3D clears hit slice 0 only; queue-level uploads overtook earlier encoder commands |
+| Volumetric fog | 2.05, shadows missing | shadow atlases are depth textures declared as float -> blank fallback |
+| Omni lights | always dual-paraboloid | a performance trait forced it, ignoring the light's mode |
+| `DEPTH_TEXTURE`, refraction, proximity fade | reading 0 | the depth copy sampled a depth texture in a float slot |
+| Mipmap bias (TAA, FSR) | dropped | WebGPU samplers have no LOD bias |
+
+and, beyond those, texture arrays collapsed to element 0, four shader built-ins that crashed the page, FSR2 skipping its depth reconstruction, constant-alpha blending, depth clamp, contact shadows' border colour, and a material using `POINT_COORD` drawing nothing (an upstream bug that also affects D3D12).
+
+### 2.10 Audio Parity with Native
+
+**Status: Correct, measured** (2026-10-18, `webgpu_notes/TASKS.md` §4.30)
+
+Web exports default to Sample playback, which plays sounds through Web Audio instead of `AudioServer`'s mixer, so
+everything the mixer does has to be reproduced. `webgpu_tests/web_audio/run_tests.mjs` renders the real JS driver in
+an `OfflineAudioContext` and compares it with ports of the native code: the four loop modes are sample-identical to
+`AudioStreamPlaybackWAV` from several start frames; volume ramps, the full-volume start on a new bus, fades on stop,
+pause and bus removal follow `AudioServer::_mix_step()`; the bus rules (sends, solo chains, mute, `move_bus`,
+`add_bus`) match; positions follow pitch, loops and pause; the 3D high shelf matches `AudioFilterSW` within 1 dB.
+`run_e2e.mjs` and the smoketest's `audio_parity` scene run a self-checking GDScript suite natively and in both export
+kinds (Ogg/MP3, seeks, polyphony, 2D/3D players, Stream playback through effects, a generator, a randomizer).
+
+The review that introduced this found, among others: surround gains one channel off, ping-pong/backward loops playing
+forward, clicks from unramped volume changes, a use-after-free in `AudioServer::set_bus_layout()`, a stream's loop
+setting frozen at its first play (`finished` never fired), the whole sound copied on every play, and an upstream leak
+of every playback still running at quit.
+
 ---
 
 ## 3. Cross-Browser Compatibility
@@ -183,6 +221,20 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 **Data handling**: Bidirectional conversion — `texture_upload_convert` (float32→float16) and `texture_readback_convert` (float16→float32) ensure correct data at both ends.
 
 **Fallback of last resort**: If float32 textures can't be downgraded (e.g., StorageBinding required), they're substituted with a 4x4 RGBA8 fallback at bind time. Rendering continues without GPU errors, though visual quality degrades.
+
+### 3.3b Mali GPUs (Chrome/Android) — measured 2026-10-17
+
+First real phone run of this fork: a Motorola Razr 60 (MediaTek MT6878, Mali-G615 MC2 "valhall", Android 16, Chrome 154), driven over USB from the Linux desktop (`webgpu_tests/perf_guard/android/`). No flags, no workarounds needed:
+
+| Observation | Detail |
+|---|---|
+| Boots and renders correctly | A real Forward+ project (DOF, three-point shadowed light rig, UI); console shows only the known asynchronous-readback notice and the `float32-blendable` capability note |
+| Adapter | `maxSampledTexturesPerShaderStage` = 48 (the engine asks for the adapter maximum), so `RendererCompositorRD` keeps **Forward+**; features include `shader-f16`, `timestamp-query`, ASTC/ETC2, texture-formats tier 1 and 2, subgroups |
+| Specialization | Pipeline `override` constants reach Dawn with the engine's values (`pso_sc_packed_0 = 0x308308B0`: 8/12 PCF and penumbra samples for soft filter quality 3) — verified on device with `--log-pipelines` |
+| Performance | GPU-bound, not CPU-bound: 20.5 fps at 1920x1080 with 48.7 ms of GPU time per frame; see *Performance & Optimization*, "The First Phone" |
+| Not an issue here | Debug vs release template, dlink, threads, the separate render thread, texture compression, `textureGather` (translated natively), f16 (a Forward+ f16 build changed nothing), dead feature code in the clustered shader |
+
+Untested on phones: Adreno (the §3.3 fallbacks), Safari/iOS.
 
 ### 3.4 All Browsers (Spec Compliance)
 
@@ -284,20 +336,43 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 ### Rendering Limitations
 - `command_render_clear_attachments` not implemented (rarely used in Forward Mobile)
 - `draw_indexed_indirect_count` always uses max count (no GPU-driven rendering)
-- `binding_array` flattened to single element (no multi-lightmap on web)
-- Omni shadows forced to dual-paraboloid (quality trade-off)
+- Texture arrays past a shader stage's texture budget stay collapsed to element 0 (one-time warning); every engine array fits in practice
+- No image atomics: SDFGI voxelization does a plain read-modify-write (0.025 mean diff from native)
+- MSAA 2x and 8x run as 4x (WebGPU allows 1 and 4)
+- No wireframe / polygon mode, no sampler border colour (engine readers emulate it), no `alpha_to_one`, one stencil mask pair for both faces
+- No HDR canvas output
+- Full list with what would close each: `webgpu_notes/TASKS.md` §2.31
 - Subpass-based post-processing disabled (WebGPU has no input attachments)
 - No hardware multiview / VRS / subgroups
 
 ### Platform Limitations
+- Sample playback (the web default for audio) cannot run bus effects (reverb, EQ, capture, spectrum...) or stream:
+  a sound is decoded whole on its first play. Players that need either set `playback_type` to Stream, the native
+  mixer. Both gaps are warned about at export and at runtime; options to close them: `webgpu_notes/TASKS.md` §2.32
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages
-- `threads=yes` is supported, but only with `dlink_enabled=no`. Combining
-  threads with GDExtension support (`threads=yes dlink_enabled=yes`) is not
-  supported — it hits an initialization-order race inside Emscripten's own
-  dylink+pthread runtime glue, not this fork's code (see `drivers/webgpu/README.md`
-  and `webgpu_notes/TASKS.md` Task 12)
+- `threads=yes` works with and without `dlink_enabled=yes`. Combining threads
+  with GDExtension support (`threads=yes dlink_enabled=yes`) was unsupported
+  until 2026-10-07 — two bugs in Emscripten's own dylink/`EXPORT_ALL` glue, not
+  this fork's code — and now **requires a patched toolchain**:
+  `misc/emsdk_patches/apply.sh --apply`, re-applied after every `emsdk install`
+  (`build-linux.sh` does it for you). Without the patches that configuration
+  does not boot at all, and logs ~11 errors per load that silently drop later
+  `Module` exports on worker threads. With them it boots clean — verified
+  headless over COOP/COEP against a real GDExtension + thread-support project,
+  0 console errors, running its own game scripts. Since 2026-10-16 threaded
+  builds (with and without dlink) are exercised on real hardware with the
+  separate render thread (the default for thread-enabled exports,
+  `variant/separate_render_thread`):
+  cameraSim, the heavy Forward+ scene, the platformer and four benchmark scenes
+  at the display cap on Chrome and Firefox, quit clean. See
+  `misc/emsdk_patches/README.md` and `webgpu_notes/TASKS.md` §2.5
+- Threaded builds require the page to be served cross-origin isolated
+  (`Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Embedder-Policy: require-corp`), because they need
+  `SharedArrayBuffer`. Godot's own editor HTTP server (Remote Deploy) and
+  `platform/web/serve.py` already send both
 
 ### Format Limitations
 - Float32 textures downgraded to float16 on Adreno (precision loss)
@@ -338,7 +413,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | Firefox validation: unbound bind groups | Pre-bind empty bind group at gaps |
 | Firefox: >8 SSBOs per stage | Per-stage visibility metadata |
 | Chrome: alpha compositing on canvas | Strip alpha writes from swap chain pipelines |
-| Chrome: binding_array unsupported | WGSL text-level flattening |
+| Chrome: binding_array unsupported | Expanded to one binding per element (`expand_binding_arrays`), collapsed only past the stage budget |
 | Adreno: float32 not filterable | Downgrade to float16 with bidirectional conversion |
 
 ### 7.4 WebGPU Spec Compliance (All Fixed)
@@ -348,9 +423,12 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | read_write storage in vertex shader | Demote to read-only |
 | Stencil reference not set dynamically | Apply at pipeline bind time |
 | Strip topology format unknown at pipeline creation | Create Uint16/Uint32 variants |
-| Texture clear without RenderAttachment usage | Fallback via wgpuQueueWriteTexture |
+| Texture clear without RenderAttachment usage | Encoder copy from a zero/pattern buffer (was `wgpuQueueWriteTexture`, which reordered it; see 2.5) |
 | Dynamic buffer offsets not applied | Multi-frame rotation with alignment |
 | Encoder sync scope violation | Proactive encoder splitting |
+| Constant-alpha blend factors don't exist | Single blend constant set to the alpha broadcast |
+| No sampler LOD bias | Bias added in the shader from a uniform (`apply_sampler_lod_bias`) |
+| Depth clamp | `depth-clip-control` + `unclippedDepth` |
 | 256-byte row alignment | Applied in all copy operations |
 
 ---
@@ -370,11 +448,13 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 | Suite | Count | Coverage |
 |-------|-------|----------|
-| SPIR-V preprocessing unit tests | 191 | All 12 binary-level passes, edge cases, spec constant ops |
-| Driver unit tests | 305 | Bind group layouts, format handling, pipeline state |
-| Shader corpus (GLSL → SPIR-V → WGSL) | 13 fixtures | End-to-end conversion + validation |
+| SPIR-V preprocessing unit tests | 291 | Every pass in `run_pipeline()`, edge cases, spec constant ops; the IR passes' outputs checked with `spirv-val` |
+| Driver unit tests | 379 | Bind group layouts, format handling, pipeline state, expanded-array binding layout |
+| Shader corpus (GLSL → SPIR-V → WGSL) | 14 fixtures | End-to-end conversion + validation |
+| Forward+ feature matrix | 71 features | Each feature off/on must change the frame (real GPU) |
+| Forward+ parity | 71 features | Each frame must match a native Vulkan render of the same scene |
 | Engine shader corpus | ~400+ shaders | Regression baseline with `expected_failures.json` |
-| Scene smoketests | 19 scenes × 3 browsers | Chrome, Firefox, Safari — zero GPU errors required |
+| Scene smoketests | 21 scenes × 3 browsers | Chrome, Firefox, Safari (never run: no Mac) — zero GPU errors required |
 | Resource lifecycle stress tests | - | Rapid create/destroy cycles |
 | Screenshot comparison | Chrome + Firefox | Pixel-level regression detection |
 | C++ fuzz targets | 3 targets | `fuzz_preprocess_passes`, `fuzz_split_samplers`, `fuzz_spirv_to_wgsl` |
@@ -409,4 +489,4 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 The godot-webgpu backend is **production-ready** for its target use case: running Godot 4.6 games in the browser with the Forward Mobile renderer. All critical rendering paths work correctly, resource lifecycle is properly managed, and cross-browser compatibility is handled through well-scoped, spec-compliant workarounds.
 
-The known limitations (mid-pass clear, indirect count, binding array flattening, shader startup time) are acceptable for an initial public release and clearly documented. No critical bugs were found during this comprehensive review.
+The known limitations (mid-pass clear, indirect count, the WebGPU spec gaps in §6, shader startup time) are acceptable for an initial public release and clearly documented. No critical bugs were found during this comprehensive review.

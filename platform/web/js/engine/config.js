@@ -53,6 +53,15 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		mainPack: null,
 		/**
+		 * A pack of baked shaders exported next to the main pack (``<name>.shaders.pck``), preloaded
+		 * with it. The engine mounts it by itself; this only has to be fetched before start.
+		 *
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?string}
+		 */
+		shaderPack: null,
+		/**
 		 * Specify a language code to select the proper localization for the game.
 		 *
 		 * The browser locale will be used if none is specified. See complete list of
@@ -147,6 +156,12 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		preinitializedWebGPUDevice: null,
 		/**
+		 * Set by the engine at start (Engine.probeWebGPUWorker): a worker can render with WebGPU.
+		 * @ignore
+		 * @type {boolean}
+		 */
+		webgpuWorkerCapable: false,
+		/**
 		 * @ignore
 		 * @type {Object<string, number>}
 		 */
@@ -238,6 +253,30 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		onProgress: null,
 		/**
+		 * A callback function for reporting the engine's own startup progress, after all
+		 * downloads have finished.
+		 *
+		 * Downloading is only the first part of a Web load: the engine then has to
+		 * initialize its servers, register types, and load the main scene, which on a large
+		 * project takes longer than the download did. This callback is invoked once per
+		 * completed startup phase so a loading bar can keep moving through that, instead of
+		 * reaching 100% when the download ends and then appearing to freeze.
+		 *
+		 * Phase names are the engine's own internal ones (``"Servers:Rendering"``,
+		 * ``"Startup:Load Game"``, ...) and are **not** a stable API -- treat an unknown
+		 * name as "some progress was made" rather than failing on it. The terminal phase is
+		 * ``"Startup:First Frame"``.
+		 *
+		 * @callback EngineConfig.onStartupProgress
+		 * @param {string} name The name of the startup phase that just completed.
+		 * @param {number} durationMs How long that phase took, in milliseconds.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(string, number)}
+		 */
+		onStartupProgress: null,
+		/**
 		 * A callback function for handling the standard output stream. This method should usually only be used in debug pages.
 		 *
 		 * By default, ``console.log()`` is used.
@@ -267,6 +306,21 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		onPrintError: function (var_args) {
 			console.error.apply(console, Array.from(arguments)); // eslint-disable-line no-console
 		},
+		/**
+		 * A callback function for handling engine warnings (``WARN_PRINT`` and friends).
+		 *
+		 * Warnings do not go through the standard error stream on this platform, because
+		 * everything written there is logged as an error by the browser. By default,
+		 * ``console.warn()`` is used.
+		 *
+		 * @callback EngineConfig.onPrintWarning
+		 * @param {string} warning The warning text, already formatted as the engine prints it.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(string)}
+		 */
+		onPrintWarning: null,
 		/**
 		 * A callback function for being notified when the WebGPU device is lost (e.g. a GPU crash/reset,
 		 * or the browser reclaiming the device). Only relevant when ``renderingDriver`` is ``"webgpu"``.
@@ -315,13 +369,16 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		// Module config
 		this.unloadAfterInit = parse('unloadAfterInit', this.unloadAfterInit);
 		this.onPrintError = parse('onPrintError', this.onPrintError);
+		this.onPrintWarning = parse('onPrintWarning', this.onPrintWarning);
 		this.onPrint = parse('onPrint', this.onPrint);
 		this.onProgress = parse('onProgress', this.onProgress);
+		this.onStartupProgress = parse('onStartupProgress', this.onStartupProgress);
 
 		// Godot config
 		this.canvas = parse('canvas', this.canvas);
 		this.executable = parse('executable', this.executable);
 		this.mainPack = parse('mainPack', this.mainPack);
+		this.shaderPack = parse('shaderPack', this.shaderPack);
 		this.locale = parse('locale', this.locale);
 		this.canvasResizePolicy = parse('canvasResizePolicy', this.canvasResizePolicy);
 		this.persistentPaths = parse('persistentPaths', this.persistentPaths);
@@ -331,6 +388,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
 		this.renderingDriver = parse('renderingDriver', this.renderingDriver);
 		this.preinitializedWebGPUDevice = parse('preinitializedWebGPUDevice', this.preinitializedWebGPUDevice);
+		this.webgpuWorkerCapable = parse('webgpuWorkerCapable', this.webgpuWorkerCapable);
 		this.fileSizes = parse('fileSizes', this.fileSizes);
 		this.emscriptenPoolSize = parse('emscriptenPoolSize', this.emscriptenPoolSize);
 		this.godotPoolSize = parse('godotPoolSize', this.godotPoolSize);
@@ -360,6 +418,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'emscriptenPoolSize': this.emscriptenPoolSize,
 			// WebGPU: pass pre-initialized device if provided (for emscripten_webgpu_get_device()).
 			...(this.preinitializedWebGPUDevice ? { 'preinitializedWebGPUDevice': this.preinitializedWebGPUDevice } : {}),
+			'webgpuWorkerCapable': this.webgpuWorkerCapable,
 			'instantiateWasm': function (imports, onSuccess) {
 				function done(result) {
 					onSuccess(result['instance'], result['module']);
@@ -379,8 +438,6 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 					return path;
 				} else if (path.endsWith('.audio.worklet.js')) {
 					return `${loadPath}.audio.worklet.js`;
-				} else if (path.endsWith('.audio.position.worklet.js')) {
-					return `${loadPath}.audio.position.worklet.js`;
 				} else if (path.endsWith('.js')) {
 					return `${loadPath}.js`;
 				} else if (path in gdext) {
@@ -443,6 +500,8 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 					onExit(p_code);
 				}
 			},
+			'onStartupProgress': this.onStartupProgress,
+			'onPrintWarning': this.onPrintWarning,
 		};
 	};
 	return new Config(initConfig);

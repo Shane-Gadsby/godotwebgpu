@@ -56,7 +56,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const SCENES_CONFIG = join(__dirname, 'scenes.json');
-const EXPORTS_DIR = join(__dirname, 'exports');
+// SMOKETEST_EXPORTS_DIR keeps a baked set (local_ci.sh --bake) apart from the fast unbaked one.
+// --baked additionally requires each scene to have loaded its shaders from the baked cache.
+const EXPORTS_DIR = process.env.SMOKETEST_EXPORTS_DIR || join(__dirname, 'exports');
+const REQUIRE_BAKED = process.argv.includes('--baked');
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_FRAMES = 60;
 
@@ -187,7 +190,7 @@ function exportScene(scene, editorBin, templateZip) {
     //   - A failed export used to leave the previous one in place, so the scene
     //     ran the *old* build and reported PASS. That is the misleading
     //     "benchmark_sprites exports fine after failing" note in
-    //     webgpu_notes/HANDOFF.md. Now a failed export leaves nothing, which
+    //     webgpu_notes/TASKS.md. Now a failed export leaves nothing, which
     //     shows up as a skip -- or a failure under --require-exports.
     rmSync(exportDir, { recursive: true, force: true });
     mkdirSync(exportDir, { recursive: true });
@@ -346,9 +349,15 @@ function exportScene(scene, editorBin, templateZip) {
 
     const exportPath = join(exportDir, 'index.html');
 
+    // --headless skips the export-time shader baker, so every export this suite makes
+    // is an unbaked one (TASKS.md 2.16 gap 7). SMOKETEST_BAKE=1 exports under xvfb-run
+    // instead, which bakes -- the configuration that actually ships.
+    const bake = !!process.env.SMOKETEST_BAKE;
     const runExport = () => execSync(
-        `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
-        { timeout: 90000, stdio: 'pipe' }
+        bake
+            ? `xvfb-run -a "${editorBin}" --path "${projectPath}" --export-release "${preset}" "${exportPath}"`
+            : `"${editorBin}" --headless --path "${projectPath}" --export-release "${preset}" "${exportPath}"`,
+        { timeout: bake ? 900000 : 90000, stdio: 'pipe' }
     );
 
     try {
@@ -361,7 +370,7 @@ function exportScene(scene, editorBin, templateZip) {
             // singleton. It reads like an engine crash and is not one -- the cache
             // is regenerable, so drop it and try once more. Rebuilding the editor
             // is what makes this likely, which is exactly what local_ci.sh does
-            // before it exports. See webgpu_notes/HANDOFF.md section 6.
+            // before it exports. See webgpu_notes/TASKS.md section 6.
             const out = `${e.stderr?.toString() || ''}${e.stdout?.toString() || ''}`;
             const importCache = join(projectPath, '.godot');
             if (!/is_cmdline_mode|Parameter "singleton" is null/.test(out) || !existsSync(importCache)) {
@@ -451,11 +460,15 @@ async function runScenePlaywright(scene, browser, timeout) {
     const passPatterns = scene.pass_patterns || [];
     const matchedPatterns = new Set();
 
+    let cacheMismatch = false;
     page.on('console', (msg) => {
         if (!capturing) {
             return;
         }
         const text = msg.text();
+        if (text.includes('none of it matches what this build asks for')) {
+            cacheMismatch = true;
+        }
 
         if (text.includes('UNCAPTURED-GPU-ERROR') || text.includes('GPUValidationError')) {
             gpuErrors.push(text.substring(0, 200));
@@ -498,8 +511,15 @@ async function runScenePlaywright(scene, browser, timeout) {
 
     // Wait for engine to start (and pass_patterns to match) or timeout
     const startTime = Date.now();
+    let clicked = false;
     while ((Date.now() - startTime) < timeout) {
         await new Promise(r => setTimeout(r, 500));
+        // `click_to_start`: browsers keep Web Audio suspended until the page gets a user gesture, so a scene that
+        // checks audio is clicked once the engine is up (Godot resumes its AudioContext on input).
+        if (scene.click_to_start && engineStarted && !clicked) {
+            clicked = true;
+            await page.click('#canvas').catch(() => {});
+        }
         const patternsReady = passPatterns.length === 0 || matchedPatterns.size >= passPatterns.length;
         if (engineStarted && patternsReady && (Date.now() - startTime) > Math.min(timeout, 10000)) {
             break;
@@ -516,8 +536,20 @@ async function runScenePlaywright(scene, browser, timeout) {
                 allErrors: d.allErrors || [],
                 canvasW: document.getElementById('canvas')?.width || 0,
                 canvasH: document.getElementById('canvas')?.height || 0,
+                shaderStats: window.godotWebGPUShaderStats || null,
             };
         });
+        // The baker only bakes the project's own rendering method, so a gl_compatibility project
+        // legitimately exports with nothing baked (the four 2D/GUI demos).
+        const projectFile = join(__dirname, scene.path || '', 'project.godot');
+        const compat = existsSync(projectFile) &&
+            /rendering_method="gl_compatibility"/.test(readFileSync(projectFile, 'utf8'));
+        if (REQUIRE_BAKED && !compat) {
+            const st = debugData.shaderStats;
+            if (!st || !(st.baked > 0) || cacheMismatch) {
+                shaderErrors.push(`baked export did not use its shader cache: ${JSON.stringify(st && { baked: st.baked, translated: st.translated })} mismatchWarning=${cacheMismatch}`);
+            }
+        }
 
         // Merge any errors captured by the injected script
         for (const e of debugData.gpuErrors) {
@@ -963,9 +995,10 @@ async function main() {
 
             let result;
             if (browserHandle.type === 'applescript') {
-                result = await runSceneSafari(filteredScene, timeout);
+                result = await runSceneSafari(filteredScene, Math.max(timeout, scene.timeout_ms || 0));
             } else {
-                result = await runScenePlaywright(filteredScene, browserHandle.browser, timeout);
+                // `timeout_ms`: a scene whose checks run longer than the default per-scene timeout.
+                result = await runScenePlaywright(filteredScene, browserHandle.browser, Math.max(timeout, scene.timeout_ms || 0));
             }
 
             allResults.push({ scene: scene.id, browser: browserName, ...result });

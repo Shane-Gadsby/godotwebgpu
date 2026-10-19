@@ -28,11 +28,59 @@ env:
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════════
+  # Pick runner: the self-hosted one if it is up, GitHub's otherwise
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # GitHub never falls back from an offline self-hosted runner: a job whose runs-on
+  # names one waits for it, up to ~24h. So every job here runs where this one says,
+  # and this one only says "self-hosted" while webgpu_tests/local_runner.sh is
+  # running on that machine and GitHub reports it online: the script then sets
+  # CI_RUNNER to its label and refreshes CI_RUNNER_HEARTBEAT (a Unix time) every
+  # minute. A heartbeat older than 3 minutes means the machine went away without
+  # unsetting CI_RUNNER (power cut, hard kill), and the run goes to GitHub's runners.
+  #
+  # `vars` is captured when the run is created, not when this job starts, and this
+  # job can wait a long time for a hosted slot (20 concurrent jobs on the free plan).
+  # So the heartbeat's age is measured at the run's start, read from the API.
+  pick-runner:
+    runs-on: ubuntu-24.04
+    name: Pick runner
+    timeout-minutes: 2
+    permissions:
+      actions: read
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Pick runner
+        id: pick
+        env:
+          CI_RUNNER: ${{ vars.CI_RUNNER }}
+          HEARTBEAT: ${{ vars.CI_RUNNER_HEARTBEAT }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runner=ubuntu-24.04
+          # run_started_at moves on a re-run, as the captured vars do.
+          started="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          now="$(date -d "$started" +%s)"
+          echo "Run started at $started."
+          if [[ -z "$CI_RUNNER" ]]; then
+            echo "CI_RUNNER is unset: GitHub's runners."
+          elif [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
+            echo "::warning::CI_RUNNER=$CI_RUNNER but there is no CI_RUNNER_HEARTBEAT, so local_runner.sh is not running: GitHub's runners."
+          elif (( now - HEARTBEAT > 180 )); then
+            echo "::warning::CI_RUNNER=$CI_RUNNER but its last heartbeat was $(( now - HEARTBEAT ))s before the run started: GitHub's runners. Run 'webgpu_tests/local_runner.sh stop' on that machine to clear it."
+          else
+            runner="$CI_RUNNER"
+            echo "$CI_RUNNER was online when the run started (heartbeat $(( now - HEARTBEAT ))s before): self-hosted."
+          fi
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+
+  # ═══════════════════════════════════════════════════════════════════════════════
   # Shader Corpus: Standalone SPIR-V → WGSL validation (fast, no build needed)
   # ═══════════════════════════════════════════════════════════════════════════════
   shader-corpus:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Shader Corpus (SPIR-V → WGSL)
+    needs: pick-runner
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -96,8 +144,9 @@ jobs:
   # Driver Unit Tests: Algorithmic correctness of WebGPU driver subsystems
   # ═══════════════════════════════════════════════════════════════════════════════
   driver-unit-tests:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Driver Unit Tests (JS)
+    needs: pick-runner
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -124,8 +173,9 @@ jobs:
   # Engine Build: Compile WebGPU export template + dump all SPIR-V
   # ═══════════════════════════════════════════════════════════════════════════════
   build-webgpu:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Build WebGPU Template + Dump SPIR-V
+    needs: pick-runner
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -142,6 +192,26 @@ jobs:
       - name: Verify Emscripten setup
         run: emcc -v
 
+      # dlink_enabled=yes builds need this fork's two Emscripten toolchain patches,
+      # and setup-emsdk above lays down a fresh toolchain tree every run, so they
+      # have to be applied here. See misc/emsdk_patches/README.md.
+      #
+      # Run for every web job, not just the dlink ones: it is harmless for the
+      # others (neither patched code path is taken without -sSIDE_MODULE /
+      # -sEXPORT_ALL), and gating it on the matrix means a future dlink entry that
+      # forgets the gate silently builds an unpatched template -- the exact
+      # silent-failure shape this directory exists to prevent.
+      #
+      # Deliberately fatal on refusal. apply.sh exits 3 when upstream has changed
+      # the text a patch pins, which can only happen here by bumping EM_VERSION in
+      # this same file -- and that bump requires re-deriving the patches anyway.
+      # One loud, named failure now beats discovering it from a broken export later.
+      - name: Apply Emscripten toolchain patches
+        run: ./misc/emsdk_patches/apply.sh --apply
+
+      - name: Verify Emscripten toolchain patches are applied
+        run: ./misc/emsdk_patches/apply.sh --status
+
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
@@ -156,11 +226,11 @@ jobs:
       # workflow in this repo, skip it on a self-hosted runner and use the Python and
       # SCons already installed there.
       - name: Setup Python and SCons
-        if: ${{ !vars.CI_RUNNER }}
+        if: runner.environment != 'self-hosted'
         uses: ./.github/actions/godot-deps
 
       - name: Use the runner's own Python and SCons
-        if: ${{ vars.CI_RUNNER }}
+        if: runner.environment == 'self-hosted'
         shell: bash
         run: |
           # pip --user installs land here, and the runner does not always inherit it.
@@ -244,12 +314,14 @@ jobs:
           # glslang/SPIR-V RD path at all, so GODOT_DUMP_SPIRV then dumps zero
           # files (and some engine shaders, e.g. fog, aren't even implemented
           # for that renderer, so it also errors outright).
-          # Skip when already satisfied: a self-hosted runner normally has these and
-          # has no passwordless sudo, so an unconditional install just fails.
-          if command -v xvfb-run >/dev/null 2>&1 && [ -f /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ]; then
-            echo "xvfb and Vulkan loader already present"
-          else
+          # Install wherever sudo works unattended (GitHub's runners). Testing for
+          # xvfb-run and the loader is not enough: the ubuntu-24.04 image ships both,
+          # but no ICD, so vulkaninfo finds no driver. A self-hosted runner has its
+          # own Vulkan driver and no passwordless sudo.
+          if sudo -n true 2>/dev/null; then
             sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          else
+            echo "No passwordless sudo: using this runner's own Xvfb and Vulkan driver"
           fi
 
       - name: Verify software Vulkan is actually usable
@@ -305,10 +377,17 @@ jobs:
           mkdir -p webgpu_tests/test_project/export
 
           # Install WebGPU template (editor looks for web_nothreads_release.zip under
-          # its own version string, e.g. 4.7.2.stable — read from version.py so this
+          # its own version string, e.g. 4.7.2.stable or 4.8.dev: the patch number
+          # only when it is not 0, as Godot spells it -- read from version.py so this
           # doesn't silently break again on the next version bump).
-          GODOT_VERSION_DIR=$(python3 -c "import version; print(f'{version.major}.{version.minor}.{version.patch}.{version.status}')")
-          TEMPLATE_DIR=~/.local/share/godot/export_templates/$GODOT_VERSION_DIR
+          #
+          # Into a data directory of this run's own: a self-hosted runner's
+          # ~/.local/share/godot holds its owner's installed templates, which this
+          # would otherwise overwrite -- or, under the wrong version name, silently
+          # export with instead of the template built above.
+          export XDG_DATA_HOME="$RUNNER_TEMP/godot-data"
+          GODOT_VERSION_DIR=$(python3 -c "import version as v; print('.'.join(str(x) for x in [v.major, v.minor] + ([v.patch] if v.patch else []) + [v.status]))")
+          TEMPLATE_DIR="$XDG_DATA_HOME/godot/export_templates/$GODOT_VERSION_DIR"
           mkdir -p "$TEMPLATE_DIR"
           # Export config validation checks for both debug and release templates
           # even though only the release one is used by --export-release.
@@ -372,7 +451,7 @@ jobs:
       # demos as a *sibling* of the repo root (../../../godot-demo-projects from
       # webgpu_tests/scene_smoketest) and checkout refuses any path outside
       # $GITHUB_WORKSPACE. The parent of the workspace is writable. Shallow, and on
-      # master, matching the local setup documented in webgpu_notes/HANDOFF.md.
+      # master, matching the local setup documented in webgpu_notes/TASKS.md.
       #
       # Sitting outside the workspace, this directory is *not* cleaned between
       # runs on a self-hosted runner, so a plain `git clone` fails with "already
@@ -427,13 +506,34 @@ jobs:
           path: webgpu_tests/scene_smoketest/exports/
           retention-days: 7
 
+      # WebRTC parity tier. Exported here because this is where the editor and
+      # the template both exist. Only the dlink template is built in this job,
+      # so RTC_TEMPLATE_ZIP points at it and export.sh derives
+      # variant/extensions_support from the ".dlink." in the filename -- which
+      # also means this covers the dlink variant specifically (TASKS.md Task
+      # 18.8). The reference extension is not available here, so the job runs
+      # the web half (run_tests.mjs), not the native-vs-web diff.
+      - name: Export WebRTC parity fixture
+        working-directory: webgpu_tests/webrtc_parity
+        env:
+          EDITOR_BIN: ${{ github.workspace }}/bin/godot.linuxbsd.editor.x86_64
+          RTC_TEMPLATE_ZIP: ${{ github.workspace }}/bin/godot.web.template_release.wasm32.nothreads.dlink.zip
+        run: ./export.sh
+
+      - name: Upload WebRTC export
+        uses: actions/upload-artifact@v5
+        with:
+          name: webrtc-export
+          path: webgpu_tests/webrtc_parity/exports/
+          retention-days: 7
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
   # ═══════════════════════════════════════════════════════════════════════════════
   validate-spirv:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Validate Engine SPIR-V (Tint)
-    needs: [build-webgpu]
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -473,9 +573,9 @@ jobs:
   # Smoke Test: Run exported project in headless Chrome
   # ═══════════════════════════════════════════════════════════════════════════════
   smoke-test:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Headless Chrome Smoke Test
-    needs: [build-webgpu]
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -519,12 +619,12 @@ jobs:
   # Scene Smoketest: 18 demos/benchmarks across Chrome + Firefox
   # ═══════════════════════════════════════════════════════════════════════════════
   scene-smoketest:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Scene Smoketest (Chrome + Firefox)
     # Needs the exports built-webgpu produces. Before this dependency existed the
     # job ran in parallel with no exports on disk, skipped all 19 scenes and
     # exited 0 -- green while testing nothing. It now waits for the build.
-    needs: build-webgpu
+    needs: [pick-runner, build-webgpu]
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -583,8 +683,9 @@ jobs:
   # Resource Lifecycle: Browser-based stress test
   # ═══════════════════════════════════════════════════════════════════════════════
   resource-lifecycle:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Resource Lifecycle (Chrome WebGPU)
+    needs: pick-runner
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -611,11 +712,56 @@ jobs:
         run: node run_tests.mjs
 
   # ═══════════════════════════════════════════════════════════════════════════════
+  # WebRTC Parity: web-half assertions for every parity fixture
+  # ═══════════════════════════════════════════════════════════════════════════════
+  webrtc-parity:
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
+    name: WebRTC Parity (Chrome)
+    needs: [pick-runner, build-webgpu]
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Download WebRTC export
+        uses: actions/download-artifact@v5
+        with:
+          name: webrtc-export
+          path: webgpu_tests/webrtc_parity/exports/
+
+      - name: Install Playwright
+        run: |
+          cd webgpu_tests/webrtc_parity
+          npm install
+          if sudo -n true 2>/dev/null; then
+            npx playwright install chromium --with-deps
+          else
+            npx playwright install chromium
+          fi
+
+      # Chromium only: Firefox has no software WebGPU on Linux, so on a GPU-less
+      # runner the engine has no adapter and never boots. Firefox is verified
+      # locally instead (TASKS.md Task 18.8). run_tests.mjs exits 2 if no export
+      # is present or no browser could run a fixture, which this job treats as a
+      # failure -- otherwise it could report success without having run anything.
+      - name: Run WebRTC parity tests (web half)
+        working-directory: webgpu_tests/webrtc_parity
+        env:
+          RTC_BROWSERS: chromium
+        run: node run_tests.mjs
+
+  # ═══════════════════════════════════════════════════════════════════════════════
   # Screenshot Comparison: Multi-browser visual regression
   # ═══════════════════════════════════════════════════════════════════════════════
   screenshot-comparison:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-runner.outputs.runner }}
     name: Screenshot Comparison (Chrome + Firefox)
+    needs: pick-runner
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -635,7 +781,12 @@ jobs:
           # GitHub-hosted runners); a self-hosted box already has the libraries.
           if sudo -n true 2>/dev/null; then
             npx playwright install chromium firefox --with-deps
-            sudo apt-get update && sudo apt-get install -y xvfb
+            # mesa-vulkan-drivers (lavapipe): without a Vulkan driver, Chromium cannot
+            # allocate the shared image a WebGPU canvas presents into and destroys the
+            # device on the first frame ("A valid external Instance reference no longer
+            # exists"), and Firefox has no adapter at all. With it, Firefox renders and
+            # compares; Chromium renders, but its screenshot stays blank, so it skips.
+            sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
           else
             npx playwright install chromium firefox
           fi
@@ -662,9 +813,11 @@ jobs:
   # Summary
   # ═══════════════════════════════════════════════════════════════════════════════
   test-summary:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    # Always GitHub's: it only reads results, and it must report a pick-runner
+    # failure, which leaves no runner to name.
+    runs-on: ubuntu-24.04
     name: Test Summary
-    needs: [shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, screenshot-comparison]
+    needs: [pick-runner, build-webgpu, shader-corpus, driver-unit-tests, validate-spirv, smoke-test, scene-smoketest, resource-lifecycle, webrtc-parity, screenshot-comparison]
     if: always()
     steps:
       - name: Check results
@@ -679,10 +832,22 @@ jobs:
           echo "  Smoke Test:           ${{ needs.smoke-test.result }}"
           echo "  Scene Smoketest:      ${{ needs.scene-smoketest.result }}"
           echo "  Resource Lifecycle:   ${{ needs.resource-lifecycle.result }}"
+          echo "  WebRTC Parity:        ${{ needs.webrtc-parity.result }}"
           echo "  Screenshot Compare:   ${{ needs.screenshot-comparison.result }}"
           echo ""
 
           FAILED=0
+
+          if [ "${{ needs.pick-runner.result }}" != "success" ]; then
+            echo "::error::Picking a runner failed, so no test ran"
+            FAILED=1
+          fi
+          # Every test that needs the export is skipped when this fails, and a skip
+          # is not a failure below.
+          if [ "${{ needs.build-webgpu.result }}" != "success" ]; then
+            echo "::error::Building the WebGPU template and export failed, so the browser tests did not run"
+            FAILED=1
+          fi
 
           if [ "${{ needs.shader-corpus.result }}" = "failure" ]; then
             echo "::error::Shader corpus tests failed"
@@ -706,6 +871,10 @@ jobs:
           fi
           if [ "${{ needs.resource-lifecycle.result }}" = "failure" ]; then
             echo "::error::Resource lifecycle tests failed"
+            FAILED=1
+          fi
+          if [ "${{ needs.webrtc-parity.result }}" = "failure" ]; then
+            echo "::error::WebRTC parity tests failed — a fixture no longer proves what it asserts (see TASKS.md Phase 18)"
             FAILED=1
           fi
           # Screenshot comparison failures are warnings, not blockers
