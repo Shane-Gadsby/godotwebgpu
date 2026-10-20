@@ -329,6 +329,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) in progress | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; 90 fps on an M1 / mid-range laptop |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -413,6 +414,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) in progress | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; 90 fps on an M1 / mid-range laptop |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1869,6 +1871,72 @@ Options when this is picked up:
 
 `webgpu_tests/web_audio/` is where any of these would be tested: `run_tests.mjs` for DSP against native ports,
 `run_e2e.mjs` and the `audio_parity` smoketest scene for the engine.
+
+### 2.33 MetaHuman importer: DNA rig, clothing, hair `OPEN` — phase 1 in progress, started 2026-10-20
+
+Import an Epic MetaHuman DCC-style export as a rigged Godot scene — body and face rig, clothing, hair — with hair either
+dynamic or baked to a mesh. **Target: 90 fps or better on an M1 MacBook and a mid-range laptop, in a WebGPU export.**
+The only sample is `~/Downloads/Ava.zip`, given to the user as an example; who or what exported it is unknown, so the
+importer must not depend on anything only that exporter writes.
+
+**What an export holds** (measured on Ava, 2026-10-20):
+
+| part | format | numbers |
+|---|---|---|
+| head rig + meshes | `head.dna` (DNA 2.5, `MH.6`) | 8 LODs, 870 joints (840 at LOD 0, 84 at LOD 4), **0 blend shapes** — the face is joints only; up to 12 influences per vertex; 174 GUI → 263 raw controls, 545 PSDs, 82 animated-map channels, 1 RBF solver (neck correctives); 50 meshes (head, teeth, saliva, eyes, eye shell, lashes, lacrimal edge, cartilage per LOD) |
+| body rig + meshes | `body.dna` (DNA 2.8, `MHB.1`) | 4 LODs, 342 joints, 176 raw controls, 72 RBF solvers + 8 twist / 8 swing setups (correctives), body LOD 0 30,455 vertices |
+| clothing | `Clothing/outfits.fbx` | one mesh skinned to the same 342-joint body skeleton, 2 used materials |
+| grooms | 4 Alembic (Ogawa) files | hair 100,498 strands / 3.86 M points from 1,280 guides; fuzz 44,550 strands; eyebrows 1,915; eyelashes 787. Guide interpolation (`groom_sim_curve_a/b`, weights, per-vertex lerp) is already in the files |
+| assembly | `CharacterAssemblyManifest.json`, `ExportPlan.json`, `Geometry/*.json` | components, materials (hair melanin/redness, fabric colors), groom physics parameters, and `visible_triangles` per mesh: `[face, p0, p1, p2]` in position indices; it drops ~13 k body triangles hidden under the clothes |
+| maps | 38 PNGs | `Head_Normal` and `Head_SRMF` are 8192², ~256 MB of VRAM each uncompressed. SRMF = specular, roughness, metallic (0), unknown A. Wrinkle color/normal deltas (CM1-3, WM1-3) are exported but **the region masks are not**, so the 82 animated-map channels cannot be applied yet |
+
+**DNA facts that cost time to establish:**
+- DNA space is Y-up, +Z front, centimetres (`coord_sys` right/up/front): the same orientation as Godot, so only ×0.01.
+- In quaternion mode (`rl4::Configuration::rotationType`), joint pose = translation `neutral + delta`, rotation
+  `neutral * delta`, scale `neutral + delta`; `RigLogic::getJointVariableAttributeIndices(lod)` lists only the
+  attributes that move at that LOD.
+- Correctives (body RBF/twist/swing, the face's neck RBF) take the driver joint's rotation **relative to its neutral**
+  as raw controls `joint.qx/qy/qz/qw` (every solver's `default` pose is the identity quaternion).
+- The head DNA's root, `spine_04`, is stored in **world** space; its other 26 joints shared with the body match the
+  body's local transforms. Merge by name and take shared joints from the body.
+- `Geometry/*.json` `faces` are the DNA faces in position indices. Body UVs sit in UDIM tile 1002 (u ≈ 1.5) and wrap.
+- Truncating to Godot's 8 influences loses on average 0.9% of a head vertex's weight (8,385 vertices are over 8),
+  17.6% at worst; at 4 influences 11% on average — unusable.
+
+**RigLogic is open source:** [OpenRigLogic](https://github.com/EpicGames/openriglogic) (MIT) is the DNA reader and
+evaluator Unreal uses. Built with Emscripten 6.0.9 and timed in Node: head LOD 0 **86 µs** with SIMD (`RL_BUILD_WITH_SSE`
++ `-msse4.2`, which emulates SSE over SIMD128 — `wasm_simd` alone does not turn on its vector paths), 327 µs scalar,
+58 µs native; body 19 µs. The rig evaluation is ~0.1 ms of a character's frame.
+
+**Licensing is not settled:** June 2025 coverage of MetaHuman 5.6 says characters may ship in other engines under the
+UE EULA (free below $1 M revenue, a seat licence above); a 2026 blog disputes it. Read Epic's EULA text before shipping.
+
+**Plan** (effort at Opus 5, medium):
+
+1. **Rig, meshes, materials, clothing** (1-2 weeks) — `modules/metahuman/`, `thirdparty/openriglogic/` (5.8 branch).
+   - `.dna` scene importer: `head.dna` builds the whole character from its folder (body DNA, manifest, clothing,
+     maps), `body.dna` the body alone. Without a manifest it still imports the DNA rigs and meshes.
+   - One merged `Skeleton3D` with one shared `Skin`, so all LODs drive one render-server skeleton.
+   - Authored LODs as visibility ranges; the rig follows them through `RigInstance::setLOD`.
+   - 8-influence weights; hidden body triangles culled; the hidden slots (saliva, cartilage) dropped.
+   - Custom skin, eye, teeth and cloth shaders.
+   - Map import settings: size limit 2048 by default, VRAM compressed, normal maps flagged. They are applied through
+     `reimport_append` with a generator marker, so a user's own settings are never overwritten.
+   - Runtime: `MetaHumanRig`, a `SkeletonModifier3D`. Each frame it feeds driver rotations to the body correctives
+     and face GUI controls to the face rig, then writes only the variable joints. Controls are properties, so
+     animation tracks can key them.
+   - The DNA is stored stripped of geometry, which is already baked into the meshes.
+2. **Groom reader + baked hair** (~1 week) — a minimal Ogawa reader (the scratch probe is ~200 lines), Z-up→Y-up,
+   strand decimation, and root binding to the head surface. Eyebrows, lashes and fuzz then skin like any mesh.
+   Solid-shell bake: voxelize, mesh, simplify with meshoptimizer, bake a flow map for an anisotropic highlight.
+3. **Hair cards** (~1 week) — cluster strands into cards and bake an atlas (albedo/alpha/depth/root-tip).
+   Alpha to coverage is already wired in the driver.
+4. **Dynamic strands** (1-2 weeks) — simulate only the guides (~20 k particles, using the manifest's physics
+   parameters), and render decimated strands as camera-facing ribbons interpolated from the guides in the vertex
+   shader. Either mode can also sway through generated chain bones and `SpringBoneSimulator3D`.
+
+Gaps to close or decide: wrinkle masks (not exported); a refit of the >8-influence face weights against sampled rig
+poses if truncation shows; ARKit / Live Link control mapping (not in DNA).
 
 ---
 
