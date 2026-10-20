@@ -11,6 +11,8 @@ def get_doc_classes():
     return [
         "EditorSceneFormatImporterMetaHuman",
         "MetaHumanDNA",
+        "MetaHumanHairSimulation",
+        "MetaHumanHairSimulator",
         "MetaHumanRig",
     ]
 

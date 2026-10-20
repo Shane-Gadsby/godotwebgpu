@@ -31,6 +31,7 @@
 #include "register_types.h"
 
 #include "metahuman_dna.h"
+#include "metahuman_hair_simulator.h"
 #include "metahuman_rig.h"
 
 #include "core/object/class_db.h"
@@ -50,6 +51,8 @@ void initialize_metahuman_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		GDREGISTER_CLASS(MetaHumanDNA);
 		GDREGISTER_CLASS(MetaHumanRig);
+		GDREGISTER_CLASS(MetaHumanHairSimulation);
+		GDREGISTER_CLASS(MetaHumanHairSimulator);
 	}
 
 #ifdef TOOLS_ENABLED

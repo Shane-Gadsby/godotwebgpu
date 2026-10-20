@@ -7,7 +7,8 @@
 		Imports a MetaHuman from its DNA files, as Unreal's MetaHuman DCC export writes them.
 		[code]head.dna[/code] imports the whole character from its folder: one [Skeleton3D] holding the body and face joints, every LOD of the body and head meshes as visibility ranges, the clothing (an FBX file) bound to the same skeleton, materials for the skin, eyes, teeth, eyelashes and clothes, and a [MetaHumanRig] that evaluates both rigs. [code]body.dna[/code] imports the body alone.
 		When the folder has a [code]CharacterAssemblyManifest.json[/code], it supplies the clothing, the textures, and which skin triangles the clothing hides. Without it the rigs and meshes still import, with untextured materials.
-		The textures get import settings meant for web exports the first time they are used: VRAM compressed, at most [code]metahuman/textures/max_size[/code] pixels, and normal maps flagged and converted from Unreal's DirectX convention. Settings changed afterwards are kept.
+		Grooms (the [code]Grooms/*.abc[/code] Alembic files) import as hair: eyebrows and eyelashes as camera-facing strands that follow the face joints; scalp hair as decimated strands up close ([code]metahuman/hair/scalp_strand_fraction[/code], [code]scalp_strand_points[/code]) that cross-fade to a baked opaque shell beyond [code]metahuman/hair/scalp_strand_distance[/code], or as the shell alone. The shell casts the hair's shadow. With [code]metahuman/hair/dynamic[/code], a [MetaHumanHairSimulator] moves the scalp hair.
+The textures get import settings meant for web exports the first time they are used: VRAM compressed, at most [code]metahuman/textures/max_size[/code] pixels, and normal maps flagged and converted from Unreal's DirectX convention. Settings changed afterwards are kept.
 	</description>
 	<tutorials>
 	</tutorials>

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MetaHumanHairSimulator" inherits="SkeletonModifier3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Simulates a MetaHuman groom's guides and moves its hair meshes with them.
+	</brief_description>
+	<description>
+		Simulates a groom's guide curves every frame and moves the hair meshes in [member hair_meshes] with them. Each frame it writes how far every guide point is from where skinning alone would put it into a small texture, which the hair materials' vertex shaders read: every rendered strand, and the hair shell, follows its two guides, so the cost is that of the guides (about 20 000 particles for a MetaHuman) however dense the hair is drawn.
+		The solver is position-based and steps at a fixed rate of [code]60 * substeps[/code] steps per second, so it behaves the same at any frame rate. It keeps segment lengths, pulls toward the groomed shape (from [member root_stiffness] at the root to [member tip_stiffness] at the tip, so the style holds while the ends move), and pushes the hair out of the [MetaHumanHairSimulation]'s colliders. The groom was styled under gravity, so the hair is first settled at rest and offsets are measured from there: idle hair keeps exactly its groomed shape.
+		Each hair mesh gets its own copy of its materials, so several instances of a character move their hair independently. The MetaHuman importer creates this node for the scalp hair when [code]metahuman/hair/dynamic[/code] is on.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_max_offset" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the largest distance, in meters, between a guide point and its rest position this frame.
+			</description>
+		</method>
+		<method name="get_mean_offset" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the mean distance, in meters, between the guide points and their rest positions this frame.
+			</description>
+		</method>
+		<method name="reset">
+			<return type="void" />
+			<description>
+				Snaps the hair back to its rest shape, for example after teleporting the character.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.1">
+			Fraction of velocity lost per step.
+		</member>
+		<member name="gravity" type="Vector3" setter="set_gravity" getter="get_gravity" default="Vector3(0, -9.8, 0)">
+			Gravity, in world space.
+		</member>
+		<member name="hair_meshes" type="NodePath[]" setter="set_hair_meshes" getter="get_hair_meshes" default="[]">
+			The [MeshInstance3D]s whose hair materials read the simulation (paths from this node).
+		</member>
+		<member name="iterations" type="int" setter="set_iterations" getter="get_iterations" default="3">
+			Constraint iterations per step.
+		</member>
+		<member name="root_stiffness" type="float" setter="set_root_stiffness" getter="get_root_stiffness" default="0.6">
+			How strongly hair near the root is pulled back to its groomed shape, per step.
+		</member>
+		<member name="simulating" type="bool" setter="set_simulating" getter="is_simulating" default="true">
+			If [code]false[/code], the hair holds its rest shape and follows the head rigidly.
+		</member>
+		<member name="simulation" type="MetaHumanHairSimulation" setter="set_simulation" getter="get_simulation">
+			The guides to simulate.
+		</member>
+		<member name="substeps" type="int" setter="set_substeps" getter="get_substeps" default="2">
+			Solver steps per 1/60 s.
+		</member>
+		<member name="tip_stiffness" type="float" setter="set_tip_stiffness" getter="get_tip_stiffness" default="0.02">
+			How strongly the hair tips are pulled back to their groomed shape, per step.
+		</member>
+		<member name="wind" type="Vector3" setter="set_wind" getter="get_wind" default="Vector3(0, 0, 0)">
+			An extra acceleration on the hair, in world space.
+		</member>
+	</members>
+</class>

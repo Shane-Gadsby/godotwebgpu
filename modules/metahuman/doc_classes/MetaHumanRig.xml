@@ -16,31 +16,31 @@
 			<return type="float" />
 			<param index="0" name="name" type="StringName" />
 			<description>
-			Returns the value of the face control [param name], an expression ([code]CTRL_expressions.jawOpen[/code]) or a face board control ([code]CTRL_C_jaw.ty[/code]).
+				Returns the value of the face control [param name], an expression ([code]CTRL_expressions.jawOpen[/code]) or a face board control ([code]CTRL_C_jaw.ty[/code]).
 			</description>
 		</method>
 		<method name="get_control_names" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-			Returns the names of the face controls of the current [member control_mode]. Driver inputs ([code]head.qx[/code], ...) are not among them: the rig reads those from the skeleton.
+				Returns the names of the face controls of the current [member control_mode]. Driver inputs ([code]head.qx[/code], ...) are not among them: the rig reads those from the skeleton.
 			</description>
 		</method>
 		<method name="get_current_body_lod" qualifiers="const">
 			<return type="int" />
 			<description>
-			Returns the LOD the body rig was last evaluated at, or [code]-1[/code] before its first evaluation.
+				Returns the LOD the body rig was last evaluated at, or [code]-1[/code] before its first evaluation.
 			</description>
 		</method>
 		<method name="get_current_face_lod" qualifiers="const">
 			<return type="int" />
 			<description>
-			Returns the LOD the face rig was last evaluated at, or [code]-1[/code] before its first evaluation.
+				Returns the LOD the face rig was last evaluated at, or [code]-1[/code] before its first evaluation.
 			</description>
 		</method>
 		<method name="reset_controls">
 			<return type="void" />
 			<description>
-			Sets every face control back to [code]0[/code].
+				Sets every face control back to [code]0[/code].
 			</description>
 		</method>
 		<method name="set_control">
@@ -48,7 +48,7 @@
 			<param index="0" name="name" type="StringName" />
 			<param index="1" name="value" type="float" />
 			<description>
-			Sets the face control [param name] to [param value]. Expressions range from [code]0[/code] to [code]1[/code].
+				Sets the face control [param name] to [param value]. Expressions range from [code]0[/code] to [code]1[/code].
 			</description>
 		</method>
 	</methods>

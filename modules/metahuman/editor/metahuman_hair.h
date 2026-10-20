@@ -60,6 +60,9 @@ struct StrandSettings {
 	float strand_fraction = 1.0;
 	// Curves are resampled to at most this many points (0 keeps them as they are).
 	int max_points = 0;
+	// Writes CUSTOM0 = (guide a, guide b, weight of a, position along the curve) from the groom's guide
+	// interpolation, for MetaHumanHairSimulator's offsets.
+	bool with_guides = false;
 };
 
 // Builds camera-facing ribbons, two vertices per curve point: VERTEX the curve point, TANGENT its
@@ -82,11 +85,18 @@ struct ShellSettings {
 	int flow_smoothing = 8;
 	// Isosurface level in the smoothed 0..1 occupancy.
 	float iso_level = 0.22;
+	// When set (guide_count * guide_point_count points), each vertex follows its nearest guide point:
+	// CUSTOM0 = (guide, guide, 1, position along it).
+	const LocalVector<Vector3> *guide_points = nullptr;
+	int guide_point_count = 0;
 };
 
 // Bakes the groom to one opaque mesh: the strands are voxelized, closed, smoothed, meshed with surface
 // nets and simplified. TANGENT is the local strand direction (for an anisotropic highlight), COLOR the
 // local groom color; skin weights come from the root of the curve that filled each voxel.
 bool build_shell(const MetaHumanGroom &p_groom, const MetaHumanSkinSurface &p_surface, const ShellSettings &p_settings, Array &r_arrays);
+
+// Curve p_curve resampled to exactly p_points points by arc length.
+void resample_curve(const MetaHumanGroom &p_groom, uint32_t p_curve, int p_points, LocalVector<Vector3> &r_points);
 
 } // namespace MetaHumanHair

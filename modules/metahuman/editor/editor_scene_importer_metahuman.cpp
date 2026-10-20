@@ -31,6 +31,7 @@
 #include "editor_scene_importer_metahuman.h"
 
 #include "../metahuman_dna.h"
+#include "../metahuman_hair_simulator.h"
 #include "../metahuman_rig.h"
 #include "../metahuman_riglogic.h"
 #include "metahuman_groom.h"
@@ -132,6 +133,10 @@ struct Context {
 	MetaHumanSkinSurface head_surface;
 	// The groom eyelashes replace the DNA's eyelash cards.
 	bool groom_eyelashes = false;
+	// Head LOD 0 positions, for fitting the hair colliders.
+	LocalVector<Vector3> head_vertices;
+	// Modifiers to add under the skeleton after MetaHumanRig.
+	LocalVector<Node *> pending_modifiers;
 
 	template <typename T>
 	T option(const char *p_name, const T &p_default) const {
@@ -257,6 +262,20 @@ Ref<Shader> _shader(Context &p_ctx, const String &p_kind) {
 		code = MetaHumanShaders::HAIR_STRANDS;
 	} else if (p_kind == "hair_shell") {
 		code = MetaHumanShaders::HAIR_SHELL;
+	} else if (p_kind == "hair_strands_opaque") {
+		// Dense scalp hair: depth-written and shadowed, so strands sort against each other.
+		code = String(MetaHumanShaders::HAIR_STRANDS)
+					   .replace("render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;",
+							   "render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx;")
+					   .replace("\tALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n", "");
+	} else if (p_kind == "hair_strands_hashed") {
+		// As above, but hashed alpha drops sub-pixel strands by their coverage, so fine flyaways thin out
+		// instead of drawing as solid 2 px wires. Grainy unless the project uses TAA.
+		code = String(MetaHumanShaders::HAIR_STRANDS)
+					   .replace("render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;",
+							   "render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx;")
+					   .replace("\tALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n",
+							   "\tALPHA = pow(v_coverage, coverage_exponent);\n\tALPHA_HASH_SCALE = 1.0;\n");
 	}
 	Ref<Shader> shader;
 	if (!code.is_empty()) {
@@ -604,6 +623,10 @@ void _add_dna_meshes(Context &p_ctx, const LoadedDNA &p_dna, const String &p_rol
 			}
 			if (dna_name == "head_lod0_mesh") {
 				p_ctx.head_surface.set_from_arrays(arrays);
+				const PackedVector3Array head_vertices = arrays[Mesh::ARRAY_VERTEX];
+				for (const Vector3 &v : head_vertices) {
+					p_ctx.head_vertices.push_back(v);
+				}
 			}
 			const String material_id = info.material_id.is_empty() ? dna_name : info.material_id;
 			const Ref<Material> material = _material(p_ctx, material_id, dna_name.trim_suffix("_mesh"));
@@ -643,6 +666,13 @@ enum GroomKind {
 enum ScalpMode {
 	SCALP_NONE,
 	SCALP_SHELL,
+	// Decimated strands up close, the shell beyond metahuman/hair/scalp_strand_distance.
+	SCALP_STRANDS,
+};
+
+enum ScalpCoverage {
+	SCALP_COVERAGE_SOLID,
+	SCALP_COVERAGE_HASHED,
 };
 
 enum StrandMode {
@@ -737,7 +767,9 @@ Ref<Material> _hair_material(Context &p_ctx, const GroomSource &p_source, bool p
 	material.instantiate();
 	material->set_name(String(p_source.material.get("display_name", p_source.path.get_file().get_basename())) + (p_shell ? "_Shell" : "_Strands"));
 	material->set_shader(_shader(p_ctx, p_shell ? "hair_shell" : "hair_strands"));
-	material->set_shader_parameter("roughness", hair_color.get("roughness", 0.4));
+	// Unreal's hair roughness drives a Marschner model; under Godot's GGX the same number gives a
+	// harsh, plastic highlight. Keep it from going below 0.5.
+	material->set_shader_parameter("roughness", MAX((float)hair_color.get("roughness", 0.4), p_shell ? 0.7f : 0.5f));
 	// The manifest's colors are linear; source_color uniforms take sRGB.
 	const bool use_groom_color = p_has_groom_color && hair_color.is_empty();
 	material->set_shader_parameter("use_groom_color", use_groom_color ? 1.0 : 0.0);
@@ -767,85 +799,315 @@ Ref<Material> _hair_material(Context &p_ctx, const GroomSource &p_source, bool p
 	return material;
 }
 
+// Root-bound groom vertices rarely use more than a few joints; 4 weights halve their skinning cost.
+void _reduce_to_four_weights(Array &r_arrays) {
+	const PackedInt32Array bones = r_arrays[Mesh::ARRAY_BONES];
+	const PackedFloat32Array weights = r_arrays[Mesh::ARRAY_WEIGHTS];
+	const int count = bones.size() / 8;
+	PackedInt32Array out_bones;
+	PackedFloat32Array out_weights;
+	out_bones.resize(count * 4);
+	out_weights.resize(count * 4);
+	for (int v = 0; v < count; v++) {
+		// The 8 weights are sorted strongest first by build_strands()/build_shell()'s source.
+		int order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+		for (int i = 1; i < 8; i++) {
+			for (int j = i; j > 0 && weights[v * 8 + order[j]] > weights[v * 8 + order[j - 1]]; j--) {
+				SWAP(order[j], order[j - 1]);
+			}
+		}
+		float total = 0.0;
+		for (int k = 0; k < 4; k++) {
+			total += weights[v * 8 + order[k]];
+		}
+		for (int k = 0; k < 4; k++) {
+			out_bones.set(v * 4 + k, bones[v * 8 + order[k]]);
+			out_weights.set(v * 4 + k, total > 0.0f ? weights[v * 8 + order[k]] / total : (k == 0 ? 1.0f : 0.0f));
+		}
+	}
+	r_arrays[Mesh::ARRAY_BONES] = out_bones;
+	r_arrays[Mesh::ARRAY_WEIGHTS] = out_weights;
+}
+
+// One way a groom is drawn: strands or a shell, visible over a range of camera distances.
+struct GroomRepresentation {
+	bool shell = false;
+	float visible_from = 0.0;
+	float visible_to = 0.0; // 0 is always.
+	bool opaque = false; // Strands only: opaque, depth-written and shadowed, for dense scalp hair.
+	float strand_fraction = 1.0;
+	int max_points = 0;
+	float crossfade = 0.0; // Meters of dithered fade at either end of the range.
+	bool shadows_only = false; // Shell only: casts the hair's shadow for strands, which cast none.
+};
+
+// A groom's simulation, built once and shared by its representations.
+struct GroomDynamics {
+	Ref<MetaHumanHairSimulation> simulation;
+	LocalVector<Vector3> guide_points; // Rest, skeleton space, guide_count * point_count.
+	int point_count = 0;
+	PackedStringArray mesh_names;
+};
+
+// Collider spheres for the scalp groom: the skull, fitted to the head's vertices above the head joint,
+// then the neck, the upper spine and the shoulders.
+void _add_colliders(const Context &p_ctx, const Ref<MetaHumanHairSimulation> &p_simulation, const LocalVector<Vector3> &p_head_vertices) {
+	PackedInt32Array bones;
+	PackedVector3Array offsets;
+	PackedFloat32Array radii;
+	const auto add = [&](const String &p_bone, const Vector3 &p_center, float p_radius) {
+		const int bone = p_ctx.skeleton->find_bone(p_bone);
+		if (bone < 0) {
+			return;
+		}
+		bones.push_back(bone);
+		offsets.push_back(p_ctx.global_rests[bone].affine_inverse().xform(p_center));
+		radii.push_back(p_radius);
+	};
+	const int head = p_ctx.skeleton->find_bone("head");
+	if (head >= 0 && !p_head_vertices.is_empty()) {
+		const float head_y = p_ctx.global_rests[head].origin.y;
+		Vector3 sum;
+		int count = 0;
+		for (const Vector3 &v : p_head_vertices) {
+			if (v.y > head_y + 0.03) {
+				sum += v;
+				count++;
+			}
+		}
+		if (count > 0) {
+			const Vector3 center = sum / count;
+			float distance = 0.0;
+			for (const Vector3 &v : p_head_vertices) {
+				if (v.y > head_y + 0.03) {
+					distance += v.distance_to(center);
+				}
+			}
+			// The mean distance overstates the radius where the skull is narrow; hair sits on it.
+			add("head", center, distance / count * 0.85);
+		}
+	}
+	for (const char *neck : { "neck_01", "neck_02" }) {
+		const int bone = p_ctx.skeleton->find_bone(neck);
+		if (bone >= 0) {
+			add(neck, p_ctx.global_rests[bone].origin, 0.055);
+		}
+	}
+	const int spine = p_ctx.skeleton->find_bone("spine_05");
+	if (spine >= 0) {
+		add("spine_05", p_ctx.global_rests[spine].origin, 0.1);
+	}
+	for (const char *side : { "l", "r" }) {
+		const int clavicle = p_ctx.skeleton->find_bone(String("clavicle_") + side);
+		const int upperarm = p_ctx.skeleton->find_bone(String("upperarm_") + side);
+		if (clavicle >= 0 && upperarm >= 0) {
+			add(String("clavicle_") + side, p_ctx.global_rests[clavicle].origin.lerp(p_ctx.global_rests[upperarm].origin, 0.6), 0.065);
+		}
+	}
+	p_simulation->set_collider_bones(bones);
+	p_simulation->set_collider_offsets(offsets);
+	p_simulation->set_collider_radii(radii);
+}
+
+bool _build_dynamics(Context &p_ctx, const MetaHumanGroom &p_groom, GroomDynamics &r_dynamics) {
+	const int point_count = p_ctx.option("metahuman/hair/guide_points", 16);
+	PackedVector3Array rest;
+	PackedInt32Array root_bones;
+	PackedFloat32Array root_weights;
+	LocalVector<Vector3> points;
+	int bones8[8];
+	float weights8[8];
+	for (uint32_t c = 0; c < p_groom.get_curve_count(); c++) {
+		if (!p_groom.is_guide[c]) {
+			continue;
+		}
+		MetaHumanHair::resample_curve(p_groom, c, point_count, points);
+		for (const Vector3 &q : points) {
+			rest.push_back(q);
+			r_dynamics.guide_points.push_back(q);
+		}
+		// The root binding's 4 strongest weights, renormalized.
+		p_ctx.head_surface.get_weights(p_ctx.head_surface.nearest(points[0]), bones8, weights8);
+		float total = 0.0;
+		for (int k = 0; k < 4; k++) {
+			total += weights8[k];
+		}
+		for (int k = 0; k < 4; k++) {
+			root_bones.push_back(bones8[k]);
+			root_weights.push_back(total > 0.0f ? weights8[k] / total : (k == 0 ? 1.0f : 0.0f));
+		}
+	}
+	if (rest.is_empty()) {
+		return false;
+	}
+	r_dynamics.point_count = point_count;
+	r_dynamics.simulation.instantiate();
+	r_dynamics.simulation->set_name("HairSimulation");
+	r_dynamics.simulation->set_point_count(point_count);
+	r_dynamics.simulation->set_rest_points(rest);
+	r_dynamics.simulation->set_root_bones(root_bones);
+	r_dynamics.simulation->set_root_weights(root_weights);
+	_add_colliders(p_ctx, r_dynamics.simulation, p_ctx.head_vertices);
+	return true;
+}
+
+void _add_groom_instance(Context &p_ctx, const GroomSource &p_source, const MetaHumanGroom &p_groom, const GroomRepresentation &p_rep, GroomDynamics *p_dynamics) {
+	const float distance_scale = p_ctx.option("metahuman/lods/distance_scale", 1.0f);
+	Array arrays;
+	float max_width = 0.0;
+	bool built = false;
+	if (p_rep.shell) {
+		MetaHumanHair::ShellSettings settings;
+		settings.voxel_size = p_ctx.option("metahuman/hair/shell_voxel_size_mm", 3.0f) * 0.001f;
+		settings.target_triangles = p_ctx.option("metahuman/hair/shell_triangles", 8000);
+		if (p_dynamics) {
+			settings.guide_points = &p_dynamics->guide_points;
+			settings.guide_point_count = p_dynamics->point_count;
+		}
+		built = MetaHumanHair::build_shell(p_groom, p_ctx.head_surface, settings, arrays);
+	} else {
+		MetaHumanHair::StrandSettings settings;
+		settings.strand_fraction = p_rep.strand_fraction;
+		settings.max_points = p_rep.max_points;
+		settings.with_guides = p_dynamics != nullptr;
+		built = MetaHumanHair::build_strands(p_groom, p_ctx.head_surface, settings, arrays, max_width);
+	}
+	if (!built) {
+		WARN_PRINT(vformat("MetaHuman: groom '%s' produced no geometry.", p_source.path));
+		return;
+	}
+	_reduce_to_four_weights(arrays);
+
+	Ref<Material> material = _hair_material(p_ctx, p_source, p_rep.shell, max_width, !p_groom.colors.is_empty());
+	if (!p_rep.shell && p_rep.opaque) {
+		Ref<ShaderMaterial> strands = material;
+		const bool hashed = p_ctx.option("metahuman/hair/scalp_strand_coverage", (int)SCALP_COVERAGE_SOLID) == SCALP_COVERAGE_HASHED;
+		strands->set_shader(_shader(p_ctx, hashed ? "hair_strands_hashed" : "hair_strands_opaque"));
+		strands->set_shader_parameter("root_darkening", 0.5);
+	}
+	const String name = p_source.path.get_file().get_basename() + (p_rep.shell ? (p_rep.shadows_only ? "_shadow" : "_shell") : "_strands");
+	Ref<ImporterMesh> mesh;
+	mesh.instantiate();
+	mesh->set_name(name);
+	const bool has_guides = arrays[Mesh::ARRAY_CUSTOM0].get_type() == Variant::PACKED_FLOAT32_ARRAY;
+	const uint64_t format = has_guides ? (uint64_t(Mesh::ARRAY_CUSTOM_RGBA_FLOAT) << Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT) : 0;
+	mesh->add_surface(Mesh::PRIMITIVE_TRIANGLES, arrays, TypedArray<Array>(), Dictionary(), material, material->get_name(), format);
+	if (has_guides && p_dynamics) {
+		p_dynamics->mesh_names.push_back(name);
+	}
+
+	ImporterMeshInstance3D *instance = memnew(ImporterMeshInstance3D);
+	instance->set_name(name);
+	instance->set_mesh(mesh);
+	instance->set_skin(p_ctx.skin);
+	instance->set_skeleton_path(NodePath(".."));
+	instance->set_visibility_range_begin(p_rep.visible_from * distance_scale);
+	instance->set_visibility_range_end(p_rep.visible_to * distance_scale);
+	if (p_rep.crossfade > 0.0) {
+		// Dither from one representation to the next instead of popping.
+		instance->set_visibility_range_begin_margin(p_rep.visible_from > 0.0 ? p_rep.crossfade * distance_scale : 0.0);
+		instance->set_visibility_range_end_margin(p_rep.visible_to > 0.0 ? p_rep.crossfade * distance_scale : 0.0);
+		instance->set_visibility_range_fade_mode(GeometryInstance3D::VISIBILITY_RANGE_FADE_SELF);
+	}
+	if (!p_rep.shell) {
+		// Blended strands draw no shadow anyway. Opaque scalp strands would, but hundreds of thousands
+		// of triangles in every shadow map cost more than the hair's shadow is worth: a shadows-only
+		// shell casts it instead (the shell's own shading differs, its shadow hardly).
+		instance->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
+	} else if (p_rep.shadows_only) {
+		instance->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
+	}
+	p_ctx.skeleton->add_child(instance, true);
+	instance->set_owner(p_ctx.skeleton->get_owner());
+	const PackedInt32Array indices = arrays[Mesh::ARRAY_INDEX];
+	print_verbose(vformat("MetaHuman: groom '%s': %d curves, %d triangles as %s.", p_source.path, p_groom.get_curve_count(), indices.size() / 3, p_rep.shell ? "a shell" : "strands"));
+}
+
 void _add_grooms(Context &p_ctx, const Vector<GroomSource> &p_sources) {
 	ERR_FAIL_COND_MSG(p_ctx.head_surface.is_empty(), "MetaHuman: no head LOD 0 to bind the grooms to.");
-	const float distance_scale = p_ctx.option("metahuman/lods/distance_scale", 1.0f);
+	const float strand_fraction = p_ctx.option("metahuman/hair/strand_fraction", 1.0f);
 	for (const GroomSource &source : p_sources) {
-		bool shell = false;
-		float visible_to = 0.0; // Meters; 0 is always.
+		Vector<GroomRepresentation> reps;
 		switch (source.kind) {
-			case GROOM_SCALP:
-				if (p_ctx.option("metahuman/hair/scalp", (int)SCALP_SHELL) != SCALP_SHELL) {
-					continue;
+			case GROOM_SCALP: {
+				const int mode = p_ctx.option("metahuman/hair/scalp", (int)SCALP_STRANDS);
+				const float switch_distance = p_ctx.option("metahuman/hair/scalp_strand_distance", 3.0f);
+				if (mode == SCALP_STRANDS) {
+					GroomRepresentation strands;
+					strands.opaque = true;
+					strands.strand_fraction = p_ctx.option("metahuman/hair/scalp_strand_fraction", 0.2f);
+					strands.max_points = p_ctx.option("metahuman/hair/scalp_strand_points", 10);
+					strands.visible_to = switch_distance;
+					strands.crossfade = 0.5;
+					reps.push_back(strands);
 				}
-				shell = true;
-				break;
+				if (mode == SCALP_STRANDS) {
+					GroomRepresentation shadow;
+					shadow.shell = true;
+					shadow.shadows_only = true;
+					shadow.visible_to = switch_distance;
+					reps.push_back(shadow);
+				}
+				if (mode == SCALP_STRANDS || mode == SCALP_SHELL) {
+					GroomRepresentation shell;
+					shell.shell = true;
+					shell.visible_from = mode == SCALP_STRANDS ? switch_distance : 0.0f;
+					shell.crossfade = mode == SCALP_STRANDS ? 0.5f : 0.0f;
+					reps.push_back(shell);
+				}
+			} break;
 			case GROOM_EYEBROWS:
-				if (p_ctx.option("metahuman/hair/eyebrows", (int)STRANDS_ON) != STRANDS_ON) {
-					continue;
+				if (p_ctx.option("metahuman/hair/eyebrows", (int)STRANDS_ON) == STRANDS_ON) {
+					GroomRepresentation strands;
+					strands.strand_fraction = strand_fraction;
+					strands.visible_to = FACE_LOD_DISTANCES[3];
+					reps.push_back(strands);
 				}
-				visible_to = FACE_LOD_DISTANCES[3];
 				break;
 			case GROOM_EYELASHES:
-				if (!p_ctx.groom_eyelashes) {
-					continue;
+				if (p_ctx.groom_eyelashes) {
+					GroomRepresentation strands;
+					strands.strand_fraction = strand_fraction;
+					strands.visible_to = FACE_LOD_DISTANCES[3];
+					reps.push_back(strands);
 				}
-				visible_to = FACE_LOD_DISTANCES[3];
 				break;
 			case GROOM_FUZZ:
-				if (p_ctx.option("metahuman/hair/fuzz", (int)STRANDS_NONE) != STRANDS_ON) {
-					continue;
+				if (p_ctx.option("metahuman/hair/fuzz", (int)STRANDS_NONE) == STRANDS_ON) {
+					GroomRepresentation strands;
+					strands.strand_fraction = strand_fraction;
+					strands.visible_to = FACE_LOD_DISTANCES[0];
+					reps.push_back(strands);
 				}
-				visible_to = FACE_LOD_DISTANCES[0];
 				break;
 			case GROOM_UNKNOWN:
 				WARN_PRINT(vformat("MetaHuman: skipping groom '%s': not scalp hair, eyebrows, eyelashes or fuzz.", source.path));
-				continue;
+				break;
 		}
-
+		if (reps.is_empty()) {
+			continue;
+		}
 		MetaHumanGroom groom;
 		if (MetaHumanGroom::load(source.path, groom) != OK) {
 			continue;
 		}
-		Array arrays;
-		float max_width = 0.0;
-		bool built = false;
-		if (shell) {
-			MetaHumanHair::ShellSettings settings;
-			settings.voxel_size = p_ctx.option("metahuman/hair/shell_voxel_size_mm", 3.0f) * 0.001f;
-			settings.target_triangles = p_ctx.option("metahuman/hair/shell_triangles", 8000);
-			built = MetaHumanHair::build_shell(groom, p_ctx.head_surface, settings, arrays);
-		} else {
-			MetaHumanHair::StrandSettings settings;
-			settings.strand_fraction = p_ctx.option("metahuman/hair/strand_fraction", 1.0f);
-			built = MetaHumanHair::build_strands(groom, p_ctx.head_surface, settings, arrays, max_width);
+		GroomDynamics dynamics;
+		const bool dynamic = source.kind == GROOM_SCALP && p_ctx.option("metahuman/hair/dynamic", true) && _build_dynamics(p_ctx, groom, dynamics);
+		for (const GroomRepresentation &rep : reps) {
+			_add_groom_instance(p_ctx, source, groom, rep, dynamic ? &dynamics : nullptr);
 		}
-		if (!built) {
-			WARN_PRINT(vformat("MetaHuman: groom '%s' produced no geometry.", source.path));
-			continue;
+		if (dynamic && !dynamics.mesh_names.is_empty()) {
+			MetaHumanHairSimulator *simulator = memnew(MetaHumanHairSimulator);
+			simulator->set_name(source.path.get_file().get_basename().capitalize().replace(" ", "") + "Simulator");
+			simulator->set_simulation(dynamics.simulation);
+			TypedArray<NodePath> meshes;
+			for (const String &mesh_name : dynamics.mesh_names) {
+				meshes.push_back(NodePath("../" + mesh_name));
+			}
+			simulator->set_hair_meshes(meshes);
+			// After MetaHumanRig in the modifier order: the hair follows the posed face and neck.
+			p_ctx.pending_modifiers.push_back(simulator);
 		}
-
-		const Ref<Material> material = _hair_material(p_ctx, source, shell, max_width, !groom.colors.is_empty());
-		const String name = source.path.get_file().get_basename() + (shell ? "_shell" : "_strands");
-		Ref<ImporterMesh> mesh;
-		mesh.instantiate();
-		mesh->set_name(name);
-		mesh->add_surface(Mesh::PRIMITIVE_TRIANGLES, arrays, TypedArray<Array>(), Dictionary(), material, material->get_name(), Mesh::ARRAY_FLAG_USE_8_BONE_WEIGHTS);
-
-		ImporterMeshInstance3D *instance = memnew(ImporterMeshInstance3D);
-		instance->set_name(name);
-		instance->set_mesh(mesh);
-		instance->set_skin(p_ctx.skin);
-		instance->set_skeleton_path(NodePath(".."));
-		instance->set_visibility_range_end(visible_to * distance_scale);
-		if (!shell) {
-			// Strands are blended: they cast no shadow (Godot skips blended materials there anyway).
-			instance->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
-		}
-		p_ctx.skeleton->add_child(instance, true);
-		instance->set_owner(p_ctx.skeleton->get_owner());
-		const PackedInt32Array indices = arrays[Mesh::ARRAY_INDEX];
-		print_verbose(vformat("MetaHuman: groom '%s': %d curves, %d triangles as %s.", source.path, groom.get_curve_count(), indices.size() / 3, shell ? "a shell" : "strands"));
 	}
 }
 
@@ -1074,7 +1336,13 @@ void EditorSceneFormatImporterMetaHuman::get_import_options(const String &p_path
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/lods/body_lod_count", PROPERTY_HINT_RANGE, "1,4,1"), 4));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/lods/distance_scale", PROPERTY_HINT_RANGE, "0.1,10,0.01"), 1.0));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::BOOL, "metahuman/materials/subsurface_scattering"), true));
-	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp", PROPERTY_HINT_ENUM, "None,Shell"), SCALP_SHELL));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp", PROPERTY_HINT_ENUM, "None,Shell,Strands"), SCALP_STRANDS));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/hair/scalp_strand_fraction", PROPERTY_HINT_RANGE, "0.02,1,0.01"), 0.2));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp_strand_points", PROPERTY_HINT_RANGE, "4,64,1"), 10));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/hair/scalp_strand_distance", PROPERTY_HINT_RANGE, "0.5,20,0.1,suffix:m"), 3.0));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp_strand_coverage", PROPERTY_HINT_ENUM, "Solid,Hashed (needs TAA)"), SCALP_COVERAGE_SOLID));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::BOOL, "metahuman/hair/dynamic"), true));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/guide_points", PROPERTY_HINT_RANGE, "4,64,1"), 16));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/eyebrows", PROPERTY_HINT_ENUM, "None,Strands"), STRANDS_ON));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/eyelashes", PROPERTY_HINT_ENUM, "DNA Cards,Strands"), EYELASHES_STRANDS));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/fuzz", PROPERTY_HINT_ENUM, "None,Strands"), STRANDS_NONE));
@@ -1192,6 +1460,10 @@ Node *EditorSceneFormatImporterMetaHuman::import_scene(const String &p_path, uin
 	}
 	ctx.skeleton->add_child(rig, true);
 	rig->set_owner(root);
+	for (Node *modifier : ctx.pending_modifiers) {
+		ctx.skeleton->add_child(modifier, true);
+		modifier->set_owner(root);
+	}
 
 	if (r_err) {
 		*r_err = OK;

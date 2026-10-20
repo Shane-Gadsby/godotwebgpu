@@ -13,51 +13,51 @@
 		<method name="get_animated_map_names" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-			Returns the names of the rig's animated maps (the wrinkle-map channels).
+				Returns the names of the rig's animated maps (the wrinkle-map channels).
 			</description>
 		</method>
 		<method name="get_gui_control_names" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-			Returns the names of the rig's face board controls.
+				Returns the names of the rig's face board controls.
 			</description>
 		</method>
 		<method name="get_joint_count" qualifiers="const">
 			<return type="int" />
 			<description>
-			Returns the number of joints in the rig.
+				Returns the number of joints in the rig.
 			</description>
 		</method>
 		<method name="get_joint_name" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="joint" type="int" />
 			<description>
-			Returns the name of joint [param joint].
+				Returns the name of joint [param joint].
 			</description>
 		</method>
 		<method name="get_lod_count" qualifiers="const">
 			<return type="int" />
 			<description>
-			Returns the number of LODs in the rig.
+				Returns the number of LODs in the rig.
 			</description>
 		</method>
 		<method name="get_raw_control_names" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-			Returns the names of the rig's raw controls, driver inputs included.
+				Returns the names of the rig's raw controls, driver inputs included.
 			</description>
 		</method>
 		<method name="is_valid" qualifiers="const">
 			<return type="bool" />
 			<description>
-			Returns [code]true[/code] if [member data] holds a DNA rig that RigLogic accepts.
+				Returns [code]true[/code] if [member data] holds a DNA rig that RigLogic accepts.
 			</description>
 		</method>
 		<method name="strip_geometry" qualifiers="static">
 			<return type="PackedByteArray" />
 			<param index="0" name="full_dna" type="PackedByteArray" />
 			<description>
-			Returns a DNA file holding only the layers a rig needs at run time, from the bytes of a full one. Returns an empty array if [param full_dna] cannot be read.
+				Returns a DNA file holding only the layers a rig needs at run time, from the bytes of a full one. Returns an empty array if [param full_dna] cannot be read.
 			</description>
 		</method>
 	</methods>

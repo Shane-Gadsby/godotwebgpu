@@ -161,6 +161,8 @@ bool MetaHumanHair::build_strands(const MetaHumanGroom &p_groom, const MetaHuman
 	PackedInt32Array bones;
 	PackedFloat32Array weights;
 	PackedInt32Array indices;
+	PackedFloat32Array custom0;
+	const bool guided = p_settings.with_guides && p_groom.sim_curve_a.size() == p_groom.get_curve_count() && p_groom.sim_weight_a.size() == p_groom.get_curve_count();
 
 	r_max_width = 0.0;
 	for (float w : p_groom.widths) {
@@ -215,6 +217,14 @@ bool MetaHumanHair::build_strands(const MetaHumanGroom &p_groom, const MetaHuman
 					bones.push_back(root_bones[k]);
 					weights.push_back(root_weights[k]);
 				}
+				if (guided) {
+					const int a = MAX(p_groom.sim_curve_a[c], 0);
+					const int b = c < p_groom.sim_curve_b.size() && p_groom.sim_curve_b[c] >= 0 ? p_groom.sim_curve_b[c] : a;
+					custom0.push_back(a);
+					custom0.push_back(b);
+					custom0.push_back(p_groom.sim_curve_b.size() ? p_groom.sim_weight_a[c] : 1.0f);
+					custom0.push_back(t);
+				}
 			}
 		}
 		for (uint32_t i = 0; i + 1 < points.size(); i++) {
@@ -241,7 +251,20 @@ bool MetaHumanHair::build_strands(const MetaHumanGroom &p_groom, const MetaHuman
 	r_arrays[Mesh::ARRAY_BONES] = bones;
 	r_arrays[Mesh::ARRAY_WEIGHTS] = weights;
 	r_arrays[Mesh::ARRAY_INDEX] = indices;
+	if (guided) {
+		r_arrays[Mesh::ARRAY_CUSTOM0] = custom0;
+	}
 	return true;
+}
+
+void MetaHumanHair::resample_curve(const MetaHumanGroom &p_groom, uint32_t p_curve, int p_points, LocalVector<Vector3> &r_points) {
+	LocalVector<float> widths;
+	LocalVector<Color> colors;
+	_curve_points(p_groom, p_curve, p_points, r_points, widths, colors);
+	// _curve_points() keeps short curves as they are; pad them to exactly p_points.
+	while ((int)r_points.size() < p_points) {
+		r_points.push_back(r_points[r_points.size() - 1]);
+	}
 }
 
 // Shell --------------------------------------------------------------------------------------------
@@ -592,6 +615,17 @@ bool MetaHumanHair::build_shell(const MetaHumanGroom &p_groom, const MetaHumanSk
 	HashMap<int32_t, int> curve_root_vertex;
 	int root_bones[8];
 	float root_weights[8];
+	PackedFloat32Array custom0;
+	const bool guided = p_settings.guide_points && p_settings.guide_point_count > 1 && !p_settings.guide_points->is_empty();
+	// Guide points by grid cell, for the nearest-guide lookups.
+	HashMap<Vector3i, LocalVector<uint32_t>> guide_cells;
+	const float guide_cell = 0.02;
+	if (guided) {
+		for (uint32_t i = 0; i < p_settings.guide_points->size(); i++) {
+			const Vector3 &q = (*p_settings.guide_points)[i];
+			guide_cells[Vector3i(Math::floor(q.x / guide_cell), Math::floor(q.y / guide_cell), Math::floor(q.z / guide_cell))].push_back(i);
+		}
+	}
 	for (uint32_t i = 0; i < simplified.size(); i++) {
 		const uint32_t source = simplified[i];
 		HashMap<uint32_t, int>::Iterator E = remap.find(source);
@@ -654,6 +688,39 @@ bool MetaHumanHair::build_shell(const MetaHumanGroom &p_groom, const MetaHumanSk
 				bones.push_back(root_bones[k]);
 				weights.push_back(root_weights[k]);
 			}
+			if (guided) {
+				const Vector3i center(Math::floor(p.x / guide_cell), Math::floor(p.y / guide_cell), Math::floor(p.z / guide_cell));
+				int best_point = -1;
+				real_t best_distance = 1e20;
+				for (int radius = 0; radius < 16 && best_point < 0; radius++) {
+					for (int dz = -radius; dz <= radius; dz++) {
+						for (int dy = -radius; dy <= radius; dy++) {
+							for (int dx = -radius; dx <= radius; dx++) {
+								if (MAX(Math::abs(dx), MAX(Math::abs(dy), Math::abs(dz))) != radius) {
+									continue;
+								}
+								const LocalVector<uint32_t> *list = guide_cells.getptr(center + Vector3i(dx, dy, dz));
+								if (!list) {
+									continue;
+								}
+								for (uint32_t q : *list) {
+									const real_t d = (*p_settings.guide_points)[q].distance_squared_to(p);
+									if (d < best_distance) {
+										best_distance = d;
+										best_point = q;
+									}
+								}
+							}
+						}
+					}
+				}
+				const int guide = best_point >= 0 ? best_point / p_settings.guide_point_count : 0;
+				const float along = best_point >= 0 ? float(best_point % p_settings.guide_point_count) / (p_settings.guide_point_count - 1) : 0.0f;
+				custom0.push_back(guide);
+				custom0.push_back(guide);
+				custom0.push_back(1.0);
+				custom0.push_back(along);
+			}
 		}
 		indices.push_back(E->value);
 	}
@@ -707,6 +774,9 @@ bool MetaHumanHair::build_shell(const MetaHumanGroom &p_groom, const MetaHumanSk
 	r_arrays[Mesh::ARRAY_BONES] = bones;
 	r_arrays[Mesh::ARRAY_WEIGHTS] = weights;
 	r_arrays[Mesh::ARRAY_INDEX] = indices;
+	if (guided) {
+		r_arrays[Mesh::ARRAY_CUSTOM0] = custom0;
+	}
 	print_verbose(vformat("MetaHuman: hair shell %dx%dx%d voxels, %d triangles before simplification, %d after.", grid.size.x, grid.size.y, grid.size.z, quads_indices.size() / 3, indices.size() / 3));
 	return true;
 }

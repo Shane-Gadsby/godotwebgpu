@@ -16,6 +16,7 @@ var last_tick := 0
 var arm_l := -1
 var arm_r := -1
 var fore_l := -1
+var neck := -1
 
 func _ready() -> void:
 	var env := Environment.new()
@@ -41,6 +42,7 @@ func _ready() -> void:
 	arm_l = skel.find_bone("upperarm_l")
 	arm_r = skel.find_bone("upperarm_r")
 	fore_l = skel.find_bone("lowerarm_l")
+	neck = skel.find_bone("neck_02")
 	var cam := Camera3D.new()
 	cam.fov = 40
 	add_child(cam)
@@ -58,6 +60,8 @@ func _process(delta: float) -> void:
 	skel.set_bone_pose_rotation(arm_l, skel.get_bone_rest(arm_l).basis.get_rotation_quaternion() * Quaternion(Vector3(0, 0, 1), sin(t) * 0.8))
 	skel.set_bone_pose_rotation(arm_r, skel.get_bone_rest(arm_r).basis.get_rotation_quaternion() * Quaternion(Vector3(0, 1, 0), sin(t * 1.3) * 0.6))
 	skel.set_bone_pose_rotation(fore_l, skel.get_bone_rest(fore_l).basis.get_rotation_quaternion() * Quaternion(Vector3(0, 0, 1), -1.0 - sin(t * 0.7)))
+	# Sway the head so the hair simulation has work every frame.
+	skel.set_bone_pose_rotation(neck, skel.get_bone_rest(neck).basis.get_rotation_quaternion() * Quaternion(Vector3(1, 0, 0), sin(t * 2.1) * 0.35))
 	var now := Time.get_ticks_usec()
 	frame_us += now - last_tick
 	last_tick = now

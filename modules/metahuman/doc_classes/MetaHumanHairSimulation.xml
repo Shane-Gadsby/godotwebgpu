@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MetaHumanHairSimulation" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		The guide curves of a groom, for hair simulation.
+	</brief_description>
+	<description>
+		The guide curves of a groom as [MetaHumanHairSimulator] simulates them: their rest shape in skeleton space, [member point_count] points per guide, the skin binding of their roots (four bones and weights per guide), and the sphere colliders the hair keeps out of. The MetaHuman importer builds it from a groom's guides.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_guide_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of guides.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="collider_bones" type="PackedInt32Array" setter="set_collider_bones" getter="get_collider_bones" default="PackedInt32Array()">
+			Per collider, the skeleton bone it follows.
+		</member>
+		<member name="collider_offsets" type="PackedVector3Array" setter="set_collider_offsets" getter="get_collider_offsets" default="PackedVector3Array()">
+			Per collider, its center in its bone's space.
+		</member>
+		<member name="collider_radii" type="PackedFloat32Array" setter="set_collider_radii" getter="get_collider_radii" default="PackedFloat32Array()">
+			Per collider, its radius.
+		</member>
+		<member name="point_count" type="int" setter="set_point_count" getter="get_point_count" default="16">
+			Points per guide.
+		</member>
+		<member name="rest_points" type="PackedVector3Array" setter="set_rest_points" getter="get_rest_points" default="PackedVector3Array()">
+			The guides' points at rest, in skeleton space: guide [code]g[/code], point [code]p[/code] is at [code]g * point_count + p[/code]. Point 0 is the root.
+		</member>
+		<member name="root_bones" type="PackedInt32Array" setter="set_root_bones" getter="get_root_bones" default="PackedInt32Array()">
+			Four skeleton bones per guide, which its root is skinned to.
+		</member>
+		<member name="root_weights" type="PackedFloat32Array" setter="set_root_weights" getter="get_root_weights" default="PackedFloat32Array()">
+			The weights of [member root_bones].
+		</member>
+	</members>
+</class>

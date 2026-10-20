@@ -218,19 +218,48 @@ uniform float coverage_exponent : hint_range(0.1, 1.0) = 0.5;
 // Brows and lashes lie within a fraction of a millimeter of the skin; pulled this far toward the
 // camera they stop depth-fighting it (seen as stipple at portrait distance).
 uniform float depth_offset = 0.0005;
+// Strands in the shadow map are drawn this much wider than they are, standing in for the clumped
+// strands a decimated groom leaves out.
+uniform float shadow_width_scale = 2.0;
+uniform float specular : hint_range(0.0, 1.0) = 0.3;
+uniform float root_darkening : hint_range(0.0, 1.0) = 1.0;
 
 varying float v_coverage;
 varying float v_t;
 varying float v_seed;
 varying vec3 v_groom_color;
 
+// Hair simulation (MetaHumanHairSimulator): per guide point, how far it moved from where skinning
+// puts it, in skeleton space; CUSTOM0 = (guide a, guide b, weight of a, position along the guide).
+uniform sampler2D guide_offsets : hint_default_black, filter_nearest, repeat_disable;
+uniform int guide_point_count = 0;
+
+vec3 guide_offset(float p_guide, float p_t) {
+	float x = clamp(p_t, 0.0, 1.0) * float(guide_point_count - 1);
+	int i = int(floor(x));
+	int j = min(i + 1, guide_point_count - 1);
+	vec3 a = texelFetch(guide_offsets, ivec2(i, int(p_guide)), 0).xyz;
+	vec3 b = texelFetch(guide_offsets, ivec2(j, int(p_guide)), 0).xyz;
+	return mix(a, b, x - float(i));
+}
+
+vec3 simulated_offset(vec4 p_binding) {
+	if (guide_point_count < 2) {
+		return vec3(0.0);
+	}
+	return mix(guide_offset(p_binding.y, p_binding.w), guide_offset(p_binding.x, p_binding.w), p_binding.z);
+}
+
 void vertex() {
+	VERTEX += simulated_offset(CUSTOM0);
 	// Worked in world space (camera facing, pixel width), applied in model space: VERTEX here is the
 	// skinned point, relative to the skeleton.
 	mat3 to_world = mat3(MODEL_MATRIX);
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec3 t = normalize(to_world * TANGENT);
-	vec3 to_camera = normalize(CAMERA_POSITION_WORLD - world);
+	// In a shadow pass the "camera" is the light's, often orthographic: face its view axis, and keep the
+	// true width (the pixel clamp below is for the screen; there it would make giant shadow casters).
+	vec3 to_camera = IN_SHADOW_PASS ? normalize(INV_VIEW_MATRIX[2].xyz) : normalize(CAMERA_POSITION_WORLD - world);
 	vec3 side = cross(t, to_camera);
 	float side_length = length(side);
 	side = side_length > 1e-5 ? side / side_length : normalize(cross(t, vec3(0.0, 1.0, 0.0)));
@@ -238,7 +267,7 @@ void vertex() {
 	float depth = max(distance(CAMERA_POSITION_WORLD, world), 1e-3);
 	// abs(): the projection's Y can be flipped, making [1][1] negative.
 	float pixel = depth * 2.0 / (abs(PROJECTION_MATRIX[1][1]) * VIEWPORT_SIZE.y);
-	float drawn = max(width, pixel * min_pixel_width);
+	float drawn = IN_SHADOW_PASS ? width * shadow_width_scale : max(width, pixel * min_pixel_width);
 	v_coverage = clamp(width / drawn, 0.0, 1.0);
 	mat3 to_model = inverse(to_world);
 	VERTEX += to_model * (side * (UV.x - 0.5) * drawn + to_camera * depth_offset);
@@ -254,9 +283,12 @@ void vertex() {
 
 void fragment() {
 	vec3 base = mix(root_color, tip_color, v_t) * mix(variation_a, variation_b, v_seed);
-	ALBEDO = mix(base, v_groom_color, use_groom_color);
+	// Strands near the scalp sit under the rest of the hair and get less light.
+	float root_light = mix(root_darkening, 1.0, smoothstep(0.0, 0.35, v_t));
+	ALBEDO = mix(base, v_groom_color, use_groom_color) * root_light;
+	AO = root_light;
 	ROUGHNESS = roughness;
-	SPECULAR = 0.5;
+	SPECULAR = specular;
 	ANISOTROPY = 0.6;
 	ALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
 }
@@ -290,7 +322,29 @@ float strand_noise(float x) {
 	return mix(hash(i), hash(i + 1.0), smoothstep(0.0, 1.0, fract(x)));
 }
 
+// Hair simulation (MetaHumanHairSimulator): per guide point, how far it moved from where skinning
+// puts it, in skeleton space; CUSTOM0 = (guide a, guide b, weight of a, position along the guide).
+uniform sampler2D guide_offsets : hint_default_black, filter_nearest, repeat_disable;
+uniform int guide_point_count = 0;
+
+vec3 guide_offset(float p_guide, float p_t) {
+	float x = clamp(p_t, 0.0, 1.0) * float(guide_point_count - 1);
+	int i = int(floor(x));
+	int j = min(i + 1, guide_point_count - 1);
+	vec3 a = texelFetch(guide_offsets, ivec2(i, int(p_guide)), 0).xyz;
+	vec3 b = texelFetch(guide_offsets, ivec2(j, int(p_guide)), 0).xyz;
+	return mix(a, b, x - float(i));
+}
+
+vec3 simulated_offset(vec4 p_binding) {
+	if (guide_point_count < 2) {
+		return vec3(0.0);
+	}
+	return mix(guide_offset(p_binding.y, p_binding.w), guide_offset(p_binding.x, p_binding.w), p_binding.z);
+}
+
 void vertex() {
+	VERTEX += simulated_offset(CUSTOM0);
 	v_position = VERTEX;
 	v_binormal = cross(NORMAL, TANGENT.xyz);
 	v_groom_color = COLOR.rgb;

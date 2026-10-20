@@ -113,5 +113,34 @@ func _initialize() -> void:
 			any_moved = any_moved or d > 0.0005
 	check(helpers.size() > 0 and any_moved, "elbow bend drives a corrective joint")
 
+	# Hair simulation: a quick head turn makes the hair lag behind, then it settles back.
+	var sim: MetaHumanHairSimulator = skel.find_child("*Simulator", false, false)
+	check(sim != null, "scalp hair has a simulator")
+	if sim:
+		# The solver runs at a fixed step; headless frames are otherwise uncapped and nearly instant.
+		Engine.max_fps = 60
+		var neck := skel.find_bone("neck_02")
+		await process_frame
+		await process_frame
+		var rest_offset := sim.get_mean_offset()
+		var peak := 0.0
+		var peak_max := 0.0
+		for i in 12:
+			skel.set_bone_pose_rotation(neck, skel.get_bone_rest(neck).basis.get_rotation_quaternion() * Quaternion(Vector3(0, 1, 0), deg_to_rad(5.0 * i)))
+			await process_frame
+			peak = maxf(peak, sim.get_mean_offset())
+			peak_max = maxf(peak_max, sim.get_max_offset())
+		for i in 200:
+			await process_frame
+		var late := sim.get_mean_offset()
+		for i in 40:
+			await process_frame
+		var settled := sim.get_mean_offset()
+		print("hair offsets (mean): at rest %.4f m, peak during the turn %.4f m (max %.4f), %.4f then %.4f m after it" % [rest_offset, peak, peak_max, late, settled])
+		check(rest_offset < 0.003, "idle hair keeps its groomed shape (%.4f m)" % rest_offset)
+		check(peak > 0.003 and peak_max < 0.25, "a head turn moves the hair (mean %.3f m, max %.3f m)" % [peak, peak_max])
+		# The turn also tilts the head, so the hair comes to rest in a new shape; it must stop moving.
+		check(absf(settled - late) < 0.0005, "the hair comes to rest after the turn (%.5f m in the last 40 frames)" % absf(settled - late))
+
 	print("DONE failures=", failures)
 	quit(failures)
