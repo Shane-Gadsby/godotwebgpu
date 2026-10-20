@@ -770,6 +770,12 @@ public:
 	virtual void command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) override final;
 	/// Create a compute pipeline with optional specialization constants.
 	virtual PipelineID compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) override final;
+	// Compiles a compute pipeline compute_pipeline_create() deferred. False when
+	// it could not be created.
+	bool _ensure_compute_pipeline(WGPipelineWrapper *p_pipeline);
+	// A shader stage's module, created from its WGSL on first use; null when the
+	// shader has no such stage.
+	WGPUShaderModule _get_stage_module(WGShader *p_shader, ShaderStage p_stage);
 
 	// -----------------------------------------------------------------------
 	// QUERIES
