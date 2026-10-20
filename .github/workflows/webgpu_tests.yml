@@ -659,7 +659,9 @@ jobs:
             npx playwright install chromium firefox --with-deps
             # Without a Vulkan driver, Chromium's GPU process cannot back a WebGPU
             # canvas and loses the device on the first frame. lavapipe is enough.
-            sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+            # Firefox also needs a display (xvfb): without one it cannot read the GPU
+            # and blocklists WebGPU, and the engine never starts.
+            sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
           else
             npx playwright install chromium firefox
           fi
@@ -670,9 +672,12 @@ jobs:
         working-directory: webgpu_tests/scene_smoketest
         run: node run_scenes.mjs --browser chrome --require-exports --timeout 30000
 
+      # Under xvfb-run: headless Firefox with no display blocklists WebGPU ("WebGPU is
+      # disabled by blocklist"), so every scene loaded no engine and passed vacuously
+      # (webgpu_notes/TASKS.md §3 trap 53).
       - name: Run scene smoketest (Firefox)
         working-directory: webgpu_tests/scene_smoketest
-        run: node run_scenes.mjs --browser firefox --require-exports --timeout 30000
+        run: xvfb-run -a node run_scenes.mjs --browser firefox --require-exports --timeout 30000
 
       # Colour-correctness of rendered text. Separate from the scene smoketest
       # above because that one only counts GPU errors, and this regression
@@ -683,7 +688,7 @@ jobs:
 
       - name: Run font rendering colour check (Firefox)
         working-directory: webgpu_tests/scene_smoketest
-        run: node test_font_visual.mjs --browser firefox
+        run: xvfb-run -a node test_font_visual.mjs --browser firefox
 
   # ═══════════════════════════════════════════════════════════════════════════════
   # Resource Lifecycle: Browser-based stress test
