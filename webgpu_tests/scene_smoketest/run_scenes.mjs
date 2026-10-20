@@ -462,11 +462,18 @@ async function runScenePlaywright(scene, browser, timeout) {
     const matchedPatterns = new Set();
 
     let cacheMismatch = false;
+    // The last lines the page logged, printed when a pass pattern never shows: a self-checking scene that hangs
+    // otherwise says only that it did not finish, not where it stopped.
+    const consoleTail = [];
     page.on('console', (msg) => {
         if (!capturing) {
             return;
         }
         const text = msg.text();
+        consoleTail.push(text.substring(0, 200));
+        if (consoleTail.length > 12) {
+            consoleTail.shift();
+        }
         if (text.includes('none of it matches what this build asks for')) {
             cacheMismatch = true;
         }
@@ -602,6 +609,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
+        consoleTail: unmatchedPatterns.length ? consoleTail : [],
         totalErrors,
         maxErrors,
         details: [...gpuErrors.slice(0, 3), ...shaderErrors.slice(0, 3)],
@@ -1037,6 +1045,9 @@ async function main() {
                 if (result.unmatchedPatterns?.length) {
                     for (const p of result.unmatchedPatterns) {
                         console.log(`         Missing required log: "${p}"`);
+                    }
+                    for (const line of result.consoleTail || []) {
+                        console.log(`           | ${line}`);
                     }
                 }
                 if (result.details && result.details.length > 0) {

@@ -63,6 +63,22 @@ func _wait(seconds: float) -> void:
 	await get_tree().create_timer(seconds).timeout
 
 
+# Waits for `p` to emit `finished`, for `limit` seconds at most, and returns when it did (Time.get_ticks_usec()).
+# A sound that never finishes fails `<name>_finished` and returns 0, rather than hanging the suite until the
+# smoketest gives up on it without saying where it stopped.
+func _finished(p: Node, name: String, limit := 5.0) -> int:
+	var state := {"at": 0}
+	var on_finished := func() -> void: state.at = Time.get_ticks_usec()
+	p.finished.connect(on_finished, CONNECT_ONE_SHOT)
+	var deadline := Time.get_ticks_msec() + int(limit * 1000.0)
+	while state.at == 0 and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	if state.at == 0:
+		p.finished.disconnect(on_finished)
+		_check("%s_finished" % name, false)
+	return state.at
+
+
 # `direction` is -1 when the position runs backward at that point (ping-pong return, backward loop).
 func _position_after(stream: AudioStream, seconds: float, pitch := 1.0, from := 0.0, direction := 1.0, type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> float:
 	var p := _player(stream, pitch, &"Master", type)
@@ -80,8 +96,8 @@ func _finish_time(stream: AudioStream, pitch := 1.0, type := AudioServer.PLAYBAC
 	var p := _player(stream, pitch, &"Master", type)
 	var start := Time.get_ticks_usec()
 	p.play()
-	await p.finished
-	var elapsed := (Time.get_ticks_usec() - start) / 1000000.0
+	var at := await _finished(p, "finish_time")
+	var elapsed := (at - start) / 1000000.0 if at else -1.0
 	p.queue_free()
 	return snappedf(elapsed, 0.001)
 
@@ -184,7 +200,7 @@ func _sample_playback() -> void:
 	await _wait(0.05)
 	p.play()
 	_check("polyphony_playing", p.playing)
-	await p.finished
+	await _finished(p, "polyphony")
 	await _wait(0.15)
 	_check("polyphony_all_finished", not p.playing)
 	p.queue_free()
@@ -250,7 +266,7 @@ func _spatial_and_polyphonic() -> void:
 	p2d.play()
 	await _wait(0.05)
 	_check("player_2d_playing", p2d.playing)
-	await p2d.finished
+	await _finished(p2d, "player_2d")
 	_check("player_2d_finished", not p2d.playing)
 	p2d.queue_free()
 
@@ -323,9 +339,9 @@ func _stream_playback() -> void:
 func _limitation_warnings() -> void:
 	var fx := _player(_wav(0.1), 1.0, &"Fx") # A reverb on the bus: bypassed by Sample playback.
 	fx.play()
-	await fx.finished
+	await _finished(fx, "fx_bus")
 	fx.play()
-	await fx.finished
+	await _finished(fx, "fx_bus_again")
 	fx.queue_free()
 	var long := _player(_wav(31.0)) # Decoded whole as a Sample.
 	long.volume_db = -80.0
