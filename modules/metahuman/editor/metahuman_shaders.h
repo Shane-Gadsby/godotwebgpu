@@ -82,9 +82,17 @@ uniform vec2 iris_center = vec2(0.5, 0.5);
 uniform float iris_uv_radius = 0.15;
 uniform float limbus_width = 0.012;
 uniform float limbus_darkness : hint_range(0.0, 1.0) = 0.6;
+// How deep the iris sits under the cornea, in UV units.
+uniform float iris_depth = 0.02;
 
 void fragment() {
-	vec2 d = UV - iris_center;
+	// The iris sits behind the cornea: offset its lookup against the view, in tangent space, for the
+	// parallax Unreal gets from refraction.
+	vec3 view_ts = vec3(dot(VIEW, TANGENT), dot(VIEW, BINORMAL), dot(VIEW, NORMAL));
+	vec2 parallax = view_ts.xy / max(view_ts.z, 0.25) * iris_depth;
+	vec2 d0 = UV - iris_center;
+	float iris_area = 1.0 - smoothstep(iris_uv_radius * 0.9, iris_uv_radius * 1.2, length(d0));
+	vec2 d = d0 - parallax * iris_area;
 	float r = length(d);
 	vec2 iris_uv = d / (2.0 * iris_uv_radius) + vec2(0.5);
 	float iris = 1.0 - smoothstep(iris_uv_radius - limbus_width, iris_uv_radius, r);
