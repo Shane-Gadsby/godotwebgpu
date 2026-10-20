@@ -294,9 +294,57 @@ const Engine = (function () {
 					if (me.config.shaderPack) {
 						pending.push(me.preloadFile(me.config.shaderPack, me.config.shaderPack));
 					}
+					// Only the texture pack this device samples, under the one name the
+					// engine mounts beside the main pack (ProjectSettings::_setup).
+					const texturePack = Engine.pickTexturePack(me.config.texturePacks, me.config.preinitializedWebGPUDevice);
+					if (texturePack) {
+						pending.push(me.preloadFile(texturePack, `${pack.replace(/\.pck$/, '')}.textures.pck`));
+					}
 					return Promise.all(pending).then(function () {
-						return me.start.apply(me);
+						const started = me.start.apply(me);
+						// Not waited on. Everything startup needs has been downloaded by
+						// now, so the extras compete with nothing; and the engine yields to
+						// the browser between startup steps, so they can still arrive in
+						// time for a first frame that turns on a feature the export could
+						// not see (TASKS.md §2.27).
+						if (me.config.shaderExtras) {
+							me.loadShaderExtras(me.config.shaderExtras);
+						}
+						return started;
 					});
+				});
+			},
+
+			/**
+			 * Fetch the export's shader cache extras in the background and hand them to the
+			 * engine, which reads them on its next shader cache miss. ``startGame`` calls this
+			 * as the engine starts, when the export produced extras. The engine must be
+			 * initialized.
+			 *
+			 * @param {string} url The extras file (``<name>.shaders_extra.bin``).
+			 * @return {Promise} Resolves when the extras are in place, or could not be loaded.
+			 */
+			loadShaderExtras: function (url) {
+				const me = this;
+				// Low priority where the browser supports it, so the extras never compete
+				// with what the game itself is loading.
+				const init = (typeof Request !== 'undefined' && 'priority' in Request.prototype) ? { priority: 'low' } : {};
+				return fetch(url, init).then(function (response) {
+					if (!response.ok) {
+						throw new Error(`HTTP ${response.status}`);
+					}
+					return response.arrayBuffer();
+				}).then(function (buffer) {
+					if (!me.rtenv) {
+						return; // The game quit meanwhile.
+					}
+					// One synchronous write, so the engine never sees a partial file.
+					// Must match ShaderRD::set_shader_cache_extras_path() in
+					// renderer_compositor_rd.cpp.
+					me.rtenv['copyToFS']('/godot_shader_cache_extras.bin', buffer);
+				}).catch(function (err) {
+					// eslint-disable-next-line no-console
+					console.warn(`Godot: the shader extras could not be loaded (${err}); the shaders they hold will compile when first used.`);
 				});
 			},
 
@@ -398,6 +446,50 @@ const Engine = (function () {
 	 *
 	 * @function Engine.requestWebGPUDevice
 	 */
+	/**
+	 * Choose which of an export's per-family texture packs this device should load.
+	 *
+	 * Mirrors the engine's own choice (ResourceFormatImporter picks the first
+	 * variant the device supports, and the importer lists BC before ETC2/ASTC),
+	 * so BC wins when the device samples both. A device that samples neither gets
+	 * BC, which the engine decompresses on the CPU.
+	 *
+	 * @param {?Object} texturePacks ``{bc, etc2_astc}`` file names, from the export.
+	 * @param {?GPUDevice} device The WebGPU device, or null under WebGL.
+	 * @return {?string} The pack to fetch, or null when the export has none.
+	 * @ignore
+	 */
+	Engine.pickTexturePack = function (texturePacks, device) {
+		if (!texturePacks) {
+			return null;
+		}
+		let bc = false;
+		let mobile = false;
+		if (device) {
+			bc = device.features.has('texture-compression-bc');
+			mobile = device.features.has('texture-compression-etc2') || device.features.has('texture-compression-astc');
+		} else if (typeof document !== 'undefined') {
+			// WebGL (Compatibility renderer): ask a throwaway context.
+			try {
+				const gl = document.createElement('canvas').getContext('webgl2');
+				if (gl) {
+					bc = !!gl.getExtension('WEBGL_compressed_texture_s3tc');
+					mobile = !!(gl.getExtension('WEBGL_compressed_texture_etc') || gl.getExtension('WEBGL_compressed_texture_astc'));
+					const lose = gl.getExtension('WEBGL_lose_context');
+					if (lose) {
+						lose.loseContext();
+					}
+				}
+			} catch (e) {
+				// Fall through to BC.
+			}
+		}
+		if (!bc && mobile && texturePacks['etc2_astc']) {
+			return texturePacks['etc2_astc'];
+		}
+		return texturePacks['bc'] || texturePacks['etc2_astc'] || null;
+	};
+
 	Engine.requestWebGPUDevice = function (adapterOptions, deviceDescriptor) {
 		if (typeof navigator === 'undefined' || !navigator.gpu) {
 			return Promise.reject(new Error(

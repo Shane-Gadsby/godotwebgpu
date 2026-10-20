@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/marshalls.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/os.h"
 #include "core/string/string_builder.h"
@@ -766,12 +767,37 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 		}
 	}
 
+	// Groups the export deferred to the extras, once they have arrived.
+	if (f.is_null() && shader_cache_res_dir_valid) {
+		f = _open_from_extras(_get_cache_file_relative_path(p_version, p_group, api_safe_name));
+	}
+
 	if (f.is_null() && shader_cache_user_dir_valid) {
 		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
 	}
 
 	if (f.is_null()) {
 		const String &sha1 = _version_get_sha1(p_version);
+		// The export baked this version's first group but not this one: the shader
+		// baker's variant pruning decided the game could not reach it (see
+		// ShaderRD::GroupBakeRequirement). It compiles from source now, which is a
+		// stall at the moment a feature turns on, so say once what to do about it.
+		if (shader_cache_res_dir_valid && p_group != 0 && group_bake_requirements[p_group] != 0) {
+			static bool warned_pruned_group = false;
+			bool extras_pending = false;
+			{
+				MutexLock lock(shader_cache_extras_mutex);
+				extras_pending = !shader_cache_extras_path.is_empty() && !shader_cache_extras_indexed;
+			}
+			if (extras_pending) {
+				// Expected while the extras are still downloading; the group would
+				// have been in them.
+				print_verbose(vformat("Shader '%s' needs shader group %d before the shader cache extras have arrived, so it is compiling from source.", name, p_group));
+			} else if (!warned_pruned_group && OS::get_singleton()->has_feature("template") && FileAccess::exists(_get_cache_file_path(p_version, 0, api_safe_name, false))) {
+				warned_pruned_group = true;
+				WARN_PRINT(vformat("Shader '%s' needs shader group %d, which this export did not bake, so it is compiling from source now. The exporter's variant pruning found nothing in the project that uses it (it looks for TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering and compositor effects needing motion vectors or separate specular). Export again with shader_baker/variant_pruning set to Disabled to bake it.", name, p_group));
+			}
+		}
 		print_verbose(vformat("Shader cache miss for %s", name.path_join(group_sha256[p_group]).path_join(sha1)));
 		// Says which material's version this is, so a gap between what the baker
 		// enumerated and what the runtime wants can be named rather than only
@@ -1155,6 +1181,21 @@ const LocalVector<int> &ShaderRD::get_group_to_variants(int p_group) const {
 	return group_to_variant_map[p_group];
 }
 
+void ShaderRD::set_group_bake_requirements(int p_group, uint32_t p_requirements) {
+	ERR_FAIL_INDEX(p_group, group_bake_requirements.size());
+	group_bake_requirements.write[p_group] = p_requirements;
+}
+
+uint32_t ShaderRD::get_group_bake_requirements(int p_group) const {
+	ERR_FAIL_INDEX_V(p_group, group_bake_requirements.size(), 0);
+	return group_bake_requirements[p_group];
+}
+
+String ShaderRD::get_group_cache_dir_name(int p_group) const {
+	ERR_FAIL_INDEX_V(p_group, (int)group_sha256.size(), String());
+	return group_sha256[p_group];
+}
+
 const String &ShaderRD::get_name() const {
 	return name;
 }
@@ -1192,6 +1233,7 @@ void ShaderRD::initialize(const Vector<String> &p_variant_defines, const String 
 	// When initialized this way, there is just one group and its always enabled.
 	group_to_variant_map.insert(0, LocalVector<int>{});
 	group_enabled.push_back(true);
+	group_bake_requirements.push_back(0);
 
 	for (int i = 0; i < p_variant_defines.size(); i++) {
 		variant_defines.push_back(VariantDefine(0, p_variant_defines[i], true));
@@ -1322,6 +1364,7 @@ void ShaderRD::initialize(const Vector<VariantDefine> &p_variant_defines, const 
 
 	// Set all to groups to false, then enable those that should be default.
 	group_enabled.resize_initialized(max_group_id + 1);
+	group_bake_requirements.resize_initialized(max_group_id + 1);
 	bool *enabled_ptr = group_enabled.ptrw();
 	for (int i = 0; i < p_variant_defines.size(); i++) {
 		if (p_variant_defines[i].default_enabled) {
@@ -1411,6 +1454,123 @@ void ShaderRD::set_shader_cache_res_dir(const String &p_dir) {
 
 const String &ShaderRD::get_shader_cache_res_dir() {
 	return shader_cache_res_dir;
+}
+
+static const char *shader_cache_extras_magic = "GDSX";
+static const uint32_t shader_cache_extras_version = 1;
+
+void ShaderRD::set_shader_cache_extras_path(const String &p_path) {
+	MutexLock lock(shader_cache_extras_mutex);
+	shader_cache_extras_path = p_path;
+	shader_cache_extras_indexed = false;
+	shader_cache_extras_index.clear();
+}
+
+bool ShaderRD::are_shader_cache_extras_loaded() {
+	MutexLock lock(shader_cache_extras_mutex);
+	return shader_cache_extras_indexed;
+}
+
+PackedByteArray ShaderRD::build_shader_cache_extras(const Vector<Pair<String, Vector<uint8_t>>> &p_files) {
+	// Header and index first, so the reader can index the file from its start.
+	Vector<CharString> paths;
+	uint64_t index_size = 4 + 4 + 4;
+	for (const Pair<String, Vector<uint8_t>> &file : p_files) {
+		paths.push_back(file.first.utf8());
+		index_size += 4 + paths[paths.size() - 1].length() + 8 + 8;
+	}
+
+	PackedByteArray bytes;
+	uint64_t total = index_size;
+	for (const Pair<String, Vector<uint8_t>> &file : p_files) {
+		total += file.second.size();
+	}
+	bytes.resize(total);
+	uint8_t *w = bytes.ptrw();
+	uint64_t pos = 0;
+	auto put_32 = [&](uint32_t p_value) {
+		encode_uint32(p_value, w + pos);
+		pos += 4;
+	};
+	auto put_64 = [&](uint64_t p_value) {
+		encode_uint64(p_value, w + pos);
+		pos += 8;
+	};
+
+	memcpy(w + pos, shader_cache_extras_magic, 4);
+	pos += 4;
+	put_32(shader_cache_extras_version);
+	put_32(p_files.size());
+	uint64_t data_offset = index_size;
+	for (int i = 0; i < p_files.size(); i++) {
+		put_32(paths[i].length());
+		memcpy(w + pos, paths[i].get_data(), paths[i].length());
+		pos += paths[i].length();
+		put_64(data_offset);
+		put_64(p_files[i].second.size());
+		data_offset += p_files[i].second.size();
+	}
+	for (const Pair<String, Vector<uint8_t>> &file : p_files) {
+		memcpy(w + pos, file.second.ptr(), file.second.size());
+		pos += file.second.size();
+	}
+	DEV_ASSERT(pos == total);
+	return bytes;
+}
+
+Ref<FileAccess> ShaderRD::_open_from_extras(const String &p_relative_path) {
+	ExtrasEntry entry;
+	String path;
+	{
+		MutexLock lock(shader_cache_extras_mutex);
+		if (shader_cache_extras_path.is_empty()) {
+			return Ref<FileAccess>();
+		}
+		if (!shader_cache_extras_indexed) {
+			// Not delivered yet, most likely; try again on the next miss. The
+			// platform writes the file in one step, so it is complete once it exists.
+			if (!FileAccess::exists(shader_cache_extras_path)) {
+				return Ref<FileAccess>();
+			}
+			Ref<FileAccess> f = FileAccess::open(shader_cache_extras_path, FileAccess::READ);
+			if (f.is_null()) {
+				return Ref<FileAccess>();
+			}
+			shader_cache_extras_indexed = true; // Whatever the outcome, index it once.
+			char magic[5] = {};
+			f->get_buffer((uint8_t *)magic, 4);
+			if (String(magic) != shader_cache_extras_magic || f->get_32() != shader_cache_extras_version) {
+				ERR_PRINT(vformat("Shader cache extras at '%s' are not in a format this build reads; the shaders they hold will compile from source when first used.", shader_cache_extras_path));
+				return Ref<FileAccess>();
+			}
+			const uint32_t count = f->get_32();
+			for (uint32_t i = 0; i < count && !f->eof_reached(); i++) {
+				const uint32_t path_length = f->get_32();
+				Vector<uint8_t> path_utf8;
+				path_utf8.resize(path_length);
+				f->get_buffer(path_utf8.ptrw(), path_length);
+				ExtrasEntry e;
+				e.offset = f->get_64();
+				e.size = f->get_64();
+				shader_cache_extras_index[String::utf8((const char *)path_utf8.ptr(), path_length)] = e;
+			}
+			print_verbose(vformat("Shader cache extras: indexed %d cache file(s) from '%s'.", shader_cache_extras_index.size(), shader_cache_extras_path));
+		}
+		const ExtrasEntry *found = shader_cache_extras_index.getptr(p_relative_path);
+		if (found == nullptr) {
+			return Ref<FileAccess>();
+		}
+		entry = *found;
+		path = shader_cache_extras_path;
+	}
+
+	// The cache reader in _load_from_cache() reads exactly the bytes it needs, so a
+	// handle positioned at the entry behaves as the entry's own file.
+	Ref<FileAccess> f = FileAccess::open(path, FileAccess::READ);
+	if (f.is_valid()) {
+		f->seek(entry.offset);
+	}
+	return f;
 }
 
 void ShaderRD::set_shader_cache_save_compressed(bool p_enable) {
@@ -1531,6 +1691,10 @@ PackedByteArray ShaderRD::save_shader_cache_bytes(const LocalVector<int> &p_vari
 
 String ShaderRD::shader_cache_user_dir;
 String ShaderRD::shader_cache_res_dir;
+String ShaderRD::shader_cache_extras_path;
+Mutex ShaderRD::shader_cache_extras_mutex;
+bool ShaderRD::shader_cache_extras_indexed = false;
+HashMap<String, ShaderRD::ExtrasEntry> ShaderRD::shader_cache_extras_index;
 bool ShaderRD::shader_cache_save_compressed = true;
 bool ShaderRD::shader_cache_save_compressed_zstd = true;
 bool ShaderRD::shader_cache_save_debug = true;

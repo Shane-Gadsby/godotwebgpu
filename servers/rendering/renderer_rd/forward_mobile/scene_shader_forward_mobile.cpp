@@ -630,6 +630,12 @@ void SceneShaderForwardMobile::init(const String p_defines) {
 		dynamic_buffers.push_back(ShaderRD::DynamicBuffer::encode(RenderForwardMobile::RENDER_PASS_UNIFORM_SET, 0));
 		dynamic_buffers.push_back(ShaderRD::DynamicBuffer::encode(RenderForwardMobile::RENDER_PASS_UNIFORM_SET, 1));
 		shader.initialize(shader_versions, p_defines, immutable_samplers, dynamic_buffers);
+		// use_fp16 is exactly the device's half-float support, so only one of the
+		// two precisions is ever selected on a given device.
+		shader.set_group_bake_requirements(SHADER_GROUP_FP32, ShaderRD::GROUP_BAKE_REQUIRES_NO_HALF_FLOAT);
+		shader.set_group_bake_requirements(SHADER_GROUP_FP32_MULTIVIEW, ShaderRD::GROUP_BAKE_REQUIRES_NO_HALF_FLOAT | ShaderRD::GROUP_BAKE_REQUIRES_XR);
+		shader.set_group_bake_requirements(SHADER_GROUP_FP16, ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT);
+		shader.set_group_bake_requirements(SHADER_GROUP_FP16_MULTIVIEW, ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT | ShaderRD::GROUP_BAKE_REQUIRES_XR);
 
 		if (RendererCompositorRD::get_singleton()->is_xr_enabled()) {
 			enable_multiview_shader_group();

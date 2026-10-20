@@ -102,7 +102,7 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 
 	Error _extract_template(const String &p_template, const String &p_dir, const String &p_name, bool pwa);
 	void _replace_strings(const HashMap<String, String> &p_replaces, Vector<uint8_t> &r_template);
-	void _fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes);
+	void _fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes, const Dictionary &p_texture_packs);
 	Error _add_manifest_icon(const Ref<EditorExportPreset> &p_preset, const String &p_path, const String &p_icon, int p_size, Array &r_arr);
 	Error _build_pwa(const Ref<EditorExportPreset> &p_preset, const String p_path, const Vector<SharedObject> &p_shared_objects);
 	Error _write_or_error(const uint8_t *p_content, int p_len, String p_path);
@@ -111,6 +111,13 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 	// produced; none is when the preset keeps shaders in the main pack or the
 	// bake produced nothing.
 	Error _save_shader_pack(const Ref<EditorExportPreset> &p_preset, const String &p_path, bool &r_written);
+	Error _save_shader_extras(const String &p_path, bool &r_written);
+	// vram_texture_compression/separate_packs: the main pack's save function
+	// diverts imported textures of each compression family here, and
+	// _save_texture_packs() writes one pack per family.
+	static Error _save_pack_file_split_textures(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data);
+	Error _save_texture_packs(const String &p_base_path, Dictionary &r_texture_packs);
+	bool _uses_texture_packs(const Ref<EditorExportPreset> &p_preset) const;
 
 	Error _export_project(const Ref<EditorExportPreset> &p_preset, int p_debug_flags);
 	Error _launch_browser(const String &p_bind_host, uint16_t p_bind_port, bool p_use_tls);

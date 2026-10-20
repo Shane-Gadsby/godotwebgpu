@@ -33,6 +33,7 @@
 #include "core/object/object.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/condition_variable.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/rb_set.h"
 #include "editor/export/editor_export_plugin.h"
 #include "servers/rendering/rendering_device_commons.h"
@@ -96,6 +97,19 @@ public:
 	// and arrange for the runtime to mount it. See platform/web/export.
 	virtual bool uses_separate_pack(const Ref<EditorExportPreset> &p_preset) const { return false; }
 
+	// Optional: leave out shader groups this export can never select (see
+	// ShaderRD::GroupBakeRequirement). Only meaningful together with
+	// get_target_feature_overrides(), since without them the bake only covers
+	// groups the editor already has enabled.
+	virtual bool uses_variant_pruning(const Ref<EditorExportPreset> &p_preset) const { return false; }
+
+	// Optional, with uses_variant_pruning(): groups the export could not prove
+	// unreachable, but found no use for, are baked into a separate archive the
+	// runtime loads lazily after startup (ShaderRD's shader cache extras) instead
+	// of being left out. The platform writes it from take_extras_pack_files() and
+	// arranges for the runtime to receive it.
+	virtual bool uses_lazy_shader_extras(const Ref<EditorExportPreset> &p_preset) const { return false; }
+
 	virtual ~ShaderBakerExportPluginPlatform() {}
 };
 
@@ -120,6 +134,8 @@ protected:
 		String cache_path;
 		LocalVector<int> variants;
 		LocalVector<WorkerThreadPool::TaskID> variant_tasks;
+		// Shipped in the lazily loaded extras rather than with the startup shaders.
+		bool extras = false;
 	};
 
 	// A variant whose stages have been compiled to SPIR-V but whose container
@@ -157,6 +173,18 @@ protected:
 	// See ShaderBakerExportPluginPlatform::uses_separate_pack().
 	bool separate_pack = false;
 	Vector<SeparatePackFile> separate_pack_files;
+	// ShaderRD::GroupBakeRequirement bits this export cannot meet; a group that
+	// needs any of them is not baked. Zero when pruning is off.
+	uint32_t unmet_group_requirements = 0;
+	// Requirement bits the export found no use for but cannot rule out; a group
+	// needing one goes to the lazily loaded extras (see uses_lazy_shader_extras()).
+	uint32_t deferred_group_requirements = 0;
+	HashSet<String> deferred_group_dirs;
+	Vector<SeparatePackFile> extras_pack_files;
+	// Cache directory names (group hashes) of the groups left out, so cache files
+	// a previous export baked for them are not shipped again from file_cache.
+	HashSet<String> pruned_group_dirs;
+	uint32_t pruned_group_count = 0;
 	uint32_t tasks_processed = 0;
 	uint32_t tasks_total = 0;
 	std::atomic<bool> tasks_cancelled;
@@ -187,6 +215,9 @@ protected:
 	// Runs the platform's stage batch over every compiled variant, then builds
 	// their containers. Only called when batch_stage_baking is set.
 	void _bake_compiled_work_items();
+	// Decides unmet_group_requirements for this export. Logs each decision and
+	// the reason, since a wrong one costs a stall at runtime.
+	void _compute_unmet_group_requirements(const Ref<EditorExportPreset> &p_preset);
 
 public:
 	ShaderBakerExportPlugin();
@@ -199,4 +230,8 @@ public:
 	// otherwise. Each path is the res:// path the runtime looks the file up
 	// at. Clears the list, so the platform takes them exactly once.
 	Vector<SeparatePackFile> take_separate_pack_files();
+	// The shader groups this export deferred to the lazily loaded extras
+	// (uses_lazy_shader_extras()); empty otherwise. Same path convention and
+	// take-once semantics as take_separate_pack_files().
+	Vector<SeparatePackFile> take_extras_pack_files();
 };
