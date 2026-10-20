@@ -925,6 +925,23 @@ Files extracted from upstream source:
 - `LICENSE`
 
 
+## openriglogic
+
+- Upstream: https://github.com/EpicGames/openriglogic
+- Version: 5.8 branch (55756aca0c4c55adc56ad68a796bcc1c0bf6fa5a, 2026)
+- License: MIT
+
+Files extracted from upstream repository:
+
+- All files in `include/` and `src/`
+- `LICENSE`
+
+Patches:
+
+- `0001-scopedptr-type-traits.patch` (`pma/ScopedPtr.h` uses `std::remove_pointer` without including
+  `<type_traits>`; Emscripten's libc++ does not pull it in through `<utility>`)
+
+
 ## openxr
 
 - Upstream: https://github.com/KhronosGroup/OpenXR-SDK
