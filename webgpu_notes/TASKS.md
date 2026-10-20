@@ -329,7 +329,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) DONE 2026-10-20: LOD 0 character 1.1 ms/frame uncapped in WebGPU, 0.20 ms GPU | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; measure on an M1 |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -414,7 +414,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) DONE 2026-10-20: LOD 0 character 1.1 ms/frame uncapped in WebGPU, 0.20 ms GPU | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; measure on an M1 |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1872,7 +1872,7 @@ Options when this is picked up:
 `webgpu_tests/web_audio/` is where any of these would be tested: `run_tests.mjs` for DSP against native ports,
 `run_e2e.mjs` and the `audio_parity` smoketest scene for the engine.
 
-### 2.33 MetaHuman importer: DNA rig, clothing, hair `OPEN` — phase 1 done 2026-10-20; phases 2-4 (hair) to do
+### 2.33 MetaHuman importer: DNA rig, clothing, hair `DONE 2026-10-20` — rig, clothing, strands, shell, simulation; open: an M1 run, wrinkle masks
 
 Import an Epic MetaHuman DCC-style export as a rigged Godot scene — body and face rig, clothing, hair — with hair either
 dynamic or baked to a mesh. **Target: 90 fps or better on an M1 MacBook and a mid-range laptop, in a WebGPU export.**
@@ -1975,8 +1975,46 @@ Engine fixes found on the way, all in §3:
 - trap 46: the export cache keys on the import's `.md5`;
 - trap 47: the scene importer keeps a format importer's mesh-instance settings.
 
-Next (phase 2): the Ogawa groom reader, then baked hair. Ava is bald until it lands, and the DNA eyelash cards stand
-in for the groom lashes.
+**Phases 2-4 — done 2026-10-20.**
+
+Grooms:
+- `editor/metahuman_groom.cpp` reads Unreal's groom Alembic (Ogawa only, one curves object). Godot = (x, z, y)/100
+  of the file: the fit against the DNA's eyelash mesh decided it (0.46 mm against 0.59 mm mirrored).
+- Every curve takes the skin weights of the head vertex nearest its root (4 kept). That binds the scalp to the
+  `FACIAL_*_Hair*` joints, so the hairline moves with the brows.
+
+Representations (`editor/metahuman_hair.cpp`, `editor/metahuman_shaders.h`):
+- **Strands:** camera-facing ribbons at least 2 px wide, coverage-scaled.
+  - Brows and lashes are blended; the groom lashes replace the DNA cards.
+  - Scalp hair is opaque: 20% of the curves at 10 points, with root darkening and an optional hashed coverage for
+    projects with TAA.
+- **Shell:** voxelized (3 mm), closed, stray pieces dropped, smoothed, surface nets, simplified to 8,000 triangles,
+  flow tangents smoothed over the mesh for the anisotropic highlight.
+  - It cross-fades in beyond 3 m.
+  - A shadows-only copy casts the hair's shadow, so the strands cast none: the shadow pass went from 0.165 to
+    0.021 ms.
+
+Phase 3 (hair cards) was superseded: decimated real strands at that budget look better than cards would, and need
+no texture-baking pipeline.
+
+Dynamics (`metahuman_hair_simulator.cpp`):
+- The simulator steps the 1,280 guides at 16 points each (Verlet, segment lengths, a shape constraint from root to
+  tip, head/neck/spine/shoulder spheres) at a fixed 120 Hz.
+- Each frame it uploads the offset of every guide point from where skinning puts it (RGBA16F, 32 × guides). The
+  strand and shell vertex shaders follow their two guides from the groom's own interpolation (`groom_sim_*`).
+- Idle hair keeps exactly its groomed shape: offsets are measured from the settled rest pose (Unreal's "gravity
+  preloading" problem).
+- `verify.gd` checks idle, head-turn and settle.
+
+Measured (RTX 4080 SUPER, Chrome, 1920x1080 page, Ava at LOD 0, face, arms and head animated, all 1,142 shaders baked):
+- Frame: 1.52 ms uncapped. GPU: 0.43 ms with scalp strands, 0.23 ms with the shell alone.
+- Pack: `index.pck` 95 MB, `index.shaders.pck` 62 MB.
+- The offset upload still lands as 20 `copyBufferToTexture` calls per frame (0.066 ms). The driver's staging split
+  was not chased.
+- Not measured on an M1. Scaled by compute and bandwidth (~12x), the GPU half is about 5 ms.
+
+New §3 entries: 49 (shader define order), 50 (a projection with negative [1][1]), 51 (camera-facing geometry in a
+shadow pass), 52 (a step-size-dependent rest pose).
 
 ---
 
@@ -2297,6 +2335,22 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     repeats LOD 0's nine material slots for every LOD, but the DNA drops saliva and cartilage from LOD 3, so from there
     every mesh gets its neighbor's material and `eyeLeft_lod3` was hidden as saliva. Match materials by the DNA mesh
     name instead (`eyeLeft_lod3_mesh` -> slot `eyeLeft_shader_shader`); the geometry JSON's own names are right.
+49. **A material's usage defines came out in a different order in the editor and the template** (2026-10-20, fixed).
+    `ShaderCompiler` appends `UV_USED`, `UV2_USED`, ... in the order it first meets each built-in, and the two
+    disagreed on that order for the groom strand shader. The shader cache key hashes the list, so the browser asked
+    for a version the export never wrote: 40 stages translated by Tint at load, `translatedShaders` naming only
+    `SceneForwardClusteredShaderRD` groups. The tell is in a `--verbose` run (`GODOT_CONFIG['args']`):
+    "Shader cache miss for ..." with a `^ version is:` fingerprint. Compare its define list with the export's
+    `--verbose` "Shader baker: baking ..." fingerprints. The defines are now sorted at the end of compilation.
+50. **`PROJECTION_MATRIX[1][1]` can be negative** (2026-10-20). Godot's projection may flip Y, so pixel-size math
+    must use `abs()`. Without it the strands' "at least 2 px" clamp was silently off: binary stipple brows at
+    portrait distance.
+51. **Camera-facing geometry in a shadow pass faces the light's camera** (2026-10-20). With a pixel-width clamp
+    computed from that camera (far, huge shadow atlas), strands became giant shadow casters that darkened the whole
+    lower face. Branch on `IN_SHADOW_PASS`: face `INV_VIEW_MATRIX[2]`, use the true width.
+52. **A Verlet hair solver's rest sag depends on its step size** (2026-10-20). Gravity enters as step², while the
+    shape constraint acts per step. A rest pose settled at 1/120 s drifted 1 cm when the frames came at another
+    rate. Simulate at a fixed step with an accumulator.
 
 ---
 

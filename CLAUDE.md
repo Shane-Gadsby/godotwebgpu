@@ -216,6 +216,22 @@ Key differences from a "normal" backend that are easy to trip over:
 
 Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
 
+### MetaHuman importer
+
+`modules/metahuman/` imports a MetaHuman export: `head.dna` imports the whole character.
+- **Rig:** OpenRigLogic (`thirdparty/openriglogic`, MIT) evaluates the face and the body correctives in
+  `MetaHumanRig`, a `SkeletonModifier3D`.
+- **Clothing:** the FBX is rebound to the DNA skeleton.
+- **Grooms:** the Alembic grooms become strands, a baked shell, and a guide simulation (`MetaHumanHairSimulator`).
+
+`webgpu_notes/TASKS.md` §2.33 has the formats, the measured numbers and why each choice was made. Test with
+`webgpu_tests/metahuman/run.sh <export.zip> [--shots] [--export]`; no export ships in the repo.
+
+Rules that cost time:
+- Match DNA meshes to materials by mesh name: the manifest's per-mesh list is wrong past LOD 2 (§3 trap 48).
+- DNA is Y-up centimeters; grooms are (x, z, y) centimeters.
+- Hair shaders branch on `IN_SHADOW_PASS` and `abs(PROJECTION_MATRIX[1][1])` (traps 50, 51).
+
 ### Braced GDScript (`.gdb`)
 
 `.gdb` files are GDScript written with `{ }` blocks (plus `//` comments, `else if`, `c ? a : b`, arrow lambdas),
