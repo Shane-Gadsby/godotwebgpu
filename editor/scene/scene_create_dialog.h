@@ -77,6 +77,7 @@ private:
 	LineEdit *scene_name_edit = nullptr;
 	OptionButton *scene_extension_picker = nullptr;
 	LineEdit *root_name_edit = nullptr;
+	CheckBox *remember_folder = nullptr;
 
 	EditorValidationPanel *validation_panel = nullptr;
 
@@ -93,6 +94,7 @@ public:
 
 	String get_scene_path() const;
 	String get_root_name() const;
+	bool is_remember_folder_pressed() const;
 	Node *create_scene_root();
 
 	SceneCreateDialog();

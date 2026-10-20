@@ -3797,6 +3797,7 @@ void GI::init(SkyRD *p_sky) {
 		}
 
 		shader.initialize(variants, defines);
+		shader.set_group_bake_requirements(GROUP_VRS, ShaderRD::GROUP_BAKE_REQUIRES_VRS);
 
 		bool vrs_supported = RendererSceneRenderRD::get_singleton()->is_vrs_supported();
 		if (vrs_supported) {

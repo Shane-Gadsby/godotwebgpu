@@ -58,6 +58,22 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	uint32_t frame_index = 0;
 	uint32_t frames_drawn = 0;
 
+	// Background prewarm of the compute pipelines compute_pipeline_create()
+	// deferred: see _prewarm_compute_pipelines().
+	LocalVector<WGPipelineWrapper *> prewarm_queue;
+	HashMap<uint64_t, WGPipelineWrapper *> prewarm_in_flight;
+	uint64_t prewarm_next_token = 1;
+	uint32_t prewarm_segments_seen = 0;
+	void _prewarm_compute_pipelines();
+	static void _prewarm_compute_pipeline_cb(WGPUCreatePipelineAsyncStatus p_status, WGPUComputePipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
+	void _cancel_prewarm(WGPipelineWrapper *p_pipeline);
+
+	// Render pipelines created through createRenderPipelineAsync() while
+	// pipeline_set_async_creation() is on, by token until their result arrives.
+	bool async_pipeline_creation = false;
+	HashMap<uint64_t, WGPipelineWrapper *> render_pipelines_in_flight;
+	static void _render_pipeline_async_cb(WGPUCreatePipelineAsyncStatus p_status, WGPURenderPipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
+
 	// Per-frame performance counters (logged once per second via EM_ASM).
 	struct PerfCounters {
 		uint32_t draw_calls = 0;
@@ -675,6 +691,8 @@ public:
 
 	/// Release a render or compute pipeline.
 	virtual void pipeline_free(PipelineID p_pipeline) override final;
+	virtual void pipeline_set_async_creation(bool p_enabled) override final;
+	virtual bool pipeline_is_ready(PipelineID p_pipeline) override final;
 	/// Write push constant data. Emulated via a ring buffer (WebGPU has no push constants).
 	virtual void command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) override final;
 	/// Stub — WebGPU has no pipeline cache. Returns true.
@@ -770,6 +788,15 @@ public:
 	virtual void command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) override final;
 	/// Create a compute pipeline with optional specialization constants.
 	virtual PipelineID compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) override final;
+	// Compiles a compute pipeline compute_pipeline_create() deferred. False when
+	// it could not be created.
+	bool _ensure_compute_pipeline(WGPipelineWrapper *p_pipeline);
+	// A shader stage's module, created from its WGSL on first use; null when the
+	// shader has no such stage.
+	WGPUShaderModule _get_stage_module(WGShader *p_shader, ShaderStage p_stage);
+	// The pipeline-constant entries of a compute pipeline whose shader takes
+	// specialization constants as WGSL overrides; r_keys owns the key strings.
+	void _fill_compute_constants(WGShader *p_shader, const LocalVector<PipelineSpecializationConstant> &p_constants, LocalVector<WGPUConstantEntry> &r_entries, LocalVector<CharString> &r_keys);
 
 	// -----------------------------------------------------------------------
 	// QUERIES

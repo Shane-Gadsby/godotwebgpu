@@ -183,8 +183,18 @@ jobs:
           rm -f ./bin/godot.macos.*.x86_64 ./bin/godot.macos.*.arm64
           rm -rf ./bin/build_deps
 
+      # Zipped here, not uploaded as a bare .app: upload-artifact drops Unix
+      # permissions, and the release used to ship Contents/MacOS/Godot without
+      # its executable bit, so macOS refused to open the editor at all. The
+      # template zip above was already made on this runner.
+      - name: Package editor
+        if: matrix.target == 'editor'
+        uses: ./.github/actions/package-editor
+        with:
+          platform: macos
+
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
           name: ${{ matrix.cache-name }}
-          path: ${{ matrix.target == 'editor' && 'bin/*.app' || 'bin/godot_macos*.zip' }}
+          path: ${{ matrix.target == 'editor' && 'dist/godot-webgpu-editor-macos.zip' || 'bin/godot_macos*.zip' }}

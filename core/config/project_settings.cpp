@@ -707,9 +707,15 @@ Error ProjectSettings::_setup(const String &p_path, const String &p_main_pack, b
 	// when the shaders change. Mounted right after the main pack so the shader
 	// cache finds them exactly as if they had been in it. Missing is the normal
 	// case for every other export and costs one failed open.
+	//
+	// Likewise `<main pack>.textures.pck`: the web exporter's
+	// vram_texture_compression/separate_packs moves each VRAM compression
+	// family's imported textures into a pack of its own, and the shell fetches
+	// only the one this device can sample, under this one name.
 	auto load_shader_pack_beside = [&](const String &p_pack_path) {
 		if (p_pack_path.get_extension() == "pck") {
 			_load_resource_pack(p_pack_path.get_basename() + ".shaders.pck", false, 0, true);
+			_load_resource_pack(p_pack_path.get_basename() + ".textures.pck", false, 0, true);
 		}
 	};
 

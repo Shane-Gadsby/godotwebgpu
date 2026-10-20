@@ -106,3 +106,19 @@ bool ShaderBakerExportPluginPlatformWebGPU::uses_separate_pack(const Ref<EditorE
 	}
 	return bool(p_preset->get("shader_baker/separate_pack"));
 }
+
+// shader_baker/variant_pruning (0 Disabled, 1 Automatic): leave out the shader
+// groups this export cannot select. See ShaderRD::GroupBakeRequirement and
+// ShaderBakerExportPlugin::_compute_unmet_group_requirements().
+bool ShaderBakerExportPluginPlatformWebGPU::uses_variant_pruning(const Ref<EditorExportPreset> &p_preset) const {
+	if (p_preset.is_null() || !p_preset->has("shader_baker/variant_pruning")) {
+		return false;
+	}
+	return int(p_preset->get("shader_baker/variant_pruning")) != 0;
+}
+
+// The web shell can fetch a file after the game has started, which is all the
+// extras need; they go next to the separate shader pack, so only with one.
+bool ShaderBakerExportPluginPlatformWebGPU::uses_lazy_shader_extras(const Ref<EditorExportPreset> &p_preset) const {
+	return uses_variant_pruning(p_preset) && uses_separate_pack(p_preset);
+}

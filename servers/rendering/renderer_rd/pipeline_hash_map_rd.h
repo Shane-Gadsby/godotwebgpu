@@ -57,18 +57,42 @@ private:
 	HashMap<uint32_t, WorkerThreadPool::TaskID> compilation_tasks;
 	Mutex local_mutex;
 
+	// Pipelines compiled asynchronously by a driver that compiles on the calling thread (see
+	// RenderingDevice::set_pipeline_creation_async()), by hash. They wait in compiled_queue
+	// until the driver reports them ready, and keep their key so they can be compiled again
+	// synchronously by a caller that cannot wait (_finish_pending_now()).
+	struct PendingPipeline {
+		Key key;
+		uint64_t frame = 0;
+	};
+	HashMap<uint32_t, PendingPipeline> pending_pipelines;
+	// After this many frames a pending pipeline is compiled synchronously instead: its
+	// completion is delivered by the browser's event loop, which a render thread that never
+	// returns to it does not run.
+	static constexpr uint64_t PENDING_PIPELINE_MAX_FRAMES = 300;
+
 	bool _add_new_pipelines_to_map() {
 		thread_local Vector<uint32_t> hashes_added;
 		hashes_added.clear();
 
 		{
+			MutexLock local_lock(local_mutex);
 			MutexLock lock(compiled_queue_mutex);
-			for (const Pair<uint32_t, RID> &pair : compiled_queue) {
+			uint32_t still_compiling = 0;
+			for (uint32_t i = 0; i < compiled_queue.size(); i++) {
+				const Pair<uint32_t, RID> pair = compiled_queue[i];
+				if (pending_pipelines.has(pair.first)) {
+					if (pair.second.is_valid() && !RD::get_singleton()->render_pipeline_is_ready(pair.second)) {
+						compiled_queue[still_compiling++] = pair;
+						continue;
+					}
+					pending_pipelines.erase(pair.first);
+				}
 				hash_map[pair.first] = pair.second;
 				hashes_added.push_back(pair.first);
 			}
 
-			compiled_queue.clear();
+			compiled_queue.resize(still_compiling);
 		}
 
 		{
@@ -99,6 +123,37 @@ private:
 		}
 	}
 
+	bool _is_pending_too_long(uint32_t p_hash) {
+		MutexLock local_lock(local_mutex);
+		const PendingPipeline *pending = pending_pipelines.getptr(p_hash);
+		return pending != nullptr && RD::get_singleton()->get_frames_drawn() - pending->frame > PENDING_PIPELINE_MAX_FRAMES;
+	}
+
+	// Compiles a pipeline that is still compiling asynchronously again, synchronously, for a
+	// caller that needs it now. The asynchronous one is freed, and the driver drops its result.
+	void _finish_pending_now(uint32_t p_hash) {
+		MutexLock local_lock(local_mutex);
+		const PendingPipeline *pending = pending_pipelines.getptr(p_hash);
+		if (pending == nullptr) {
+			return;
+		}
+		const Key key = pending->key;
+		pending_pipelines.erase(p_hash);
+		{
+			MutexLock lock(compiled_queue_mutex);
+			for (uint32_t i = 0; i < compiled_queue.size(); i++) {
+				if (compiled_queue[i].first == p_hash) {
+					if (compiled_queue[i].second.is_valid()) {
+						RD::get_singleton()->free_rid(compiled_queue[i].second);
+					}
+					compiled_queue.remove_at(i);
+					break;
+				}
+			}
+		}
+		(creation_object->*creation_function)(key);
+	}
+
 public:
 	void add_compiled_pipeline(uint32_t p_hash, RID p_pipeline) {
 		compiled_queue_mutex.lock();
@@ -108,6 +163,13 @@ public:
 
 	// Start compilation of a pipeline ahead of time in the background. Returns true if the compilation was started, false if it wasn't required. Source is only used for collecting statistics.
 	void compile_pipeline(const Key &p_key, uint32_t p_key_hash, RSE::PipelineSource p_source, bool p_high_priority) {
+		_compile_pipeline(p_key, p_key_hash, p_source, p_high_priority, false);
+	}
+
+private:
+	// p_needed_now: get_pipeline() is about to wait for it, so where pipelines compile on
+	// the calling thread there is no point in compiling it asynchronously.
+	void _compile_pipeline(const Key &p_key, uint32_t p_key_hash, RSE::PipelineSource p_source, bool p_high_priority, bool p_needed_now) {
 		DEV_ASSERT((creation_object != nullptr) && (creation_function != nullptr) && "Creation object and function was not set before attempting to compile a pipeline.");
 
 		MutexLock local_lock(local_mutex);
@@ -154,8 +216,23 @@ public:
 		// directly instead of dispatching it as a background task in that case; it's
 		// still responsible for calling add_compiled_pipeline() itself, exactly as the
 		// background-task path expects.
+		//
+		// A pipeline that is not needed this moment -- one compiled ahead of time, such as
+		// a material's ubershader while its scene loads, or a specialization the renderer
+		// draws with the ubershader until it is ready -- is created asynchronously instead,
+		// so its compilation does not stall the frame. _add_new_pipelines_to_map() moves it
+		// into the map once the driver reports it ready; until then get_pipeline() returns an
+		// empty RID, as for a background task still running, or compiles it again
+		// synchronously if its caller waits (_finish_pending_now()).
 		if (RD::get_singleton()->requires_synchronous_pipeline_compilation()) {
+			if (!p_needed_now) {
+				pending_pipelines.insert(p_key_hash, { p_key, RD::get_singleton()->get_frames_drawn() });
+				RD::get_singleton()->set_pipeline_creation_async(true);
+			}
 			(creation_object->*creation_function)(p_key);
+			if (!p_needed_now) {
+				RD::get_singleton()->set_pipeline_creation_async(false);
+			}
 			return;
 		}
 
@@ -164,6 +241,7 @@ public:
 		compilation_tasks.insert(p_key_hash, task_id);
 	}
 
+public:
 	void wait_for_pipeline(uint32_t p_key_hash) {
 		WorkerThreadPool::TaskID task_id_to_wait = WorkerThreadPool::INVALID_TASK_ID;
 
@@ -200,13 +278,19 @@ public:
 
 		if (e == nullptr) {
 			// Request compilation. The method will ignore the request if it's already being compiled.
-			compile_pipeline(p_key, p_key_hash, p_source, p_wait_for_compilation);
+			_compile_pipeline(p_key, p_key_hash, p_source, p_wait_for_compilation, p_wait_for_compilation);
 
 			if (p_wait_for_compilation) {
 				wait_for_pipeline(p_key_hash);
 				_add_new_pipelines_to_map();
 
 				e = hash_map.find(p_key_hash);
+				if (e == nullptr) {
+					// Requested in the background earlier and still compiling asynchronously.
+					_finish_pending_now(p_key_hash);
+					_add_new_pipelines_to_map();
+					e = hash_map.find(p_key_hash);
+				}
 				if (e != nullptr) {
 					return e->value();
 				} else {
@@ -214,6 +298,11 @@ public:
 					hash_map[p_key_hash] = RID();
 					return RID();
 				}
+			} else if (_is_pending_too_long(p_key_hash)) {
+				_finish_pending_now(p_key_hash);
+				_add_new_pipelines_to_map();
+				e = hash_map.find(p_key_hash);
+				return e != nullptr ? e->value() : RID();
 			} else {
 				return RID();
 			}
@@ -229,6 +318,19 @@ public:
 
 		for (KeyValue<uint32_t, RID> entry : hash_map) {
 			RD::get_singleton()->free_rid(entry.value);
+		}
+
+		{
+			// What is left in the queue is still compiling asynchronously.
+			MutexLock local_lock(local_mutex);
+			MutexLock lock(compiled_queue_mutex);
+			for (const Pair<uint32_t, RID> &pair : compiled_queue) {
+				if (pair.second.is_valid()) {
+					RD::get_singleton()->free_rid(pair.second);
+				}
+			}
+			compiled_queue.clear();
+			pending_pipelines.clear();
 		}
 
 		hash_map.clear();

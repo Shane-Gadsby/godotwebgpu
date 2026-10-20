@@ -362,6 +362,12 @@ RendererCompositorRD::RendererCompositorRD() {
 		Ref<DirAccess> res_da = DirAccess::open(shader_cache_res_dir);
 		if (res_da.is_valid()) {
 			ShaderRD::set_shader_cache_res_dir(shader_cache_res_dir);
+#ifdef WEB_ENABLED
+			// The web shell fetches the export's shader cache extras
+			// (<name>.shaders_extra.bin) in the background once the game has
+			// started and writes them here; engine.js names the same path.
+			ShaderRD::set_shader_cache_extras_path("/godot_shader_cache_extras.bin");
+#endif
 		}
 	}
 
@@ -408,4 +414,5 @@ RendererCompositorRD::~RendererCompositorRD() {
 	memdelete(framebuffer_cache);
 	ShaderRD::set_shader_cache_user_dir(String());
 	ShaderRD::set_shader_cache_res_dir(String());
+	ShaderRD::set_shader_cache_extras_path(String());
 }

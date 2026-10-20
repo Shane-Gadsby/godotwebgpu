@@ -766,6 +766,9 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		Vector<uint64_t> dynamic_buffers;
 		dynamic_buffers.push_back(ShaderRD::DynamicBuffer::encode(RenderForwardClustered::RENDER_PASS_UNIFORM_SET, 2));
 		shader.initialize(shader_versions, p_defines, Vector<RD::PipelineImmutableSampler>(), dynamic_buffers);
+		shader.set_group_bake_requirements(SHADER_GROUP_ADVANCED, ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED);
+		shader.set_group_bake_requirements(SHADER_GROUP_MULTIVIEW, ShaderRD::GROUP_BAKE_REQUIRES_XR);
+		shader.set_group_bake_requirements(SHADER_GROUP_ADVANCED_MULTIVIEW, ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED | ShaderRD::GROUP_BAKE_REQUIRES_XR);
 
 		// The SDF variant's defines come from device capabilities, so the shader
 		// baker has to be able to recompute them for the export target rather than

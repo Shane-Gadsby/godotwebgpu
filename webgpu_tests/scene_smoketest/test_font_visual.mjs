@@ -135,6 +135,15 @@ export function assertBands(png) {
   return { failures, fill, outline };
 }
 
+/** True when every pixel of a capture is the same colour. */
+function isUniform(png) {
+  const d = png.data;
+  for (let i = 4; i < d.length; i += 4) {
+    if (d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2]) return false;
+  }
+  return true;
+}
+
 /**
  * Mirrors run_scenes.mjs's launch logic so this test runs wherever the scene
  * smoketest does. Notably `headless: true` under CI, so the workflow needs no
@@ -227,6 +236,14 @@ async function testBrowser(browserName) {
         if (failures.length === 0) break;
         await new Promise((r) => setTimeout(r, 500));
       } while (Date.now() < settleDeadline);
+      // A single-colour capture is not a render: on a GPU-less runner, Chromium on
+      // SwiftShader renders the scene but its compositor never shows the WebGPU
+      // canvas (the screenshot comparison skips the same case). Even the glyph
+      // regression this test exists for leaves the gray backdrop visible.
+      if (failures.length > 0 && isUniform(png)) {
+        console.log(`  ${browserName}: SKIP -- the capture is a single colour (the browser cannot composite WebGPU here)`);
+        return 'SKIP';
+      }
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  ${browserName}: canvas ${png.width}x${png.height}  ` +
         `fill[red ${pct(fill.red)} white ${pct(fill.white)}]  outline[black ${pct(outline.black)}]`);

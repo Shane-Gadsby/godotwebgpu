@@ -1670,6 +1670,12 @@ Error ShaderCompiler::compile(RSE::ShaderMode p_mode, const String &p_code, Iden
 	// Return value only relevant within nested calls.
 	_ALLOW_DISCARD_ _dump_node_code(shader, 1, r_gen_code, *p_actions, actions, false);
 
+	// Defines are collected in the order the generator first meets each built-in, which the editor and
+	// an export template do not always agree on (UV2_USED before UV_USED in one, after it in the other).
+	// The shader cache key hashes this list, so a material whose order differed was never found among
+	// its baked shaders and compiled at load instead. Each entry is an independent #define; sort them.
+	r_gen_code.defines.sort();
+
 	return OK;
 }
 

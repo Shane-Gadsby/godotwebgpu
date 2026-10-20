@@ -86,9 +86,16 @@ A layered optimization stack that reduces IPC message count:
 
 ### 10. What's the startup time?
 
-Approximately 15 seconds for first-time shader compilation (~383 unique SPIR-V stages converted to WGSL via Tint). Subsequent loads from browser cache are near-instant because the WGSL cache persists for the page session.
+That 15-second figure was from before export-time baking, when ~383 SPIR-V stages were converted to WGSL by Tint in the browser at every load. Now the editor bakes WGSL into the export (`shader_baker/enabled`), and a baked export converts nothing at load.
 
-This is a known limitation. Future work: pre-compile WGSL at export time, shipping directly without runtime conversion.
+Three later changes cut what remains (`webgpu_notes/TASKS.md` §2.27, §2.18, §2.4):
+
+- **Fewer shaders before the first frame.** `shader_baker/variant_pruning` leaves out shader groups the browser can never select, and moves the ones nothing in the project was found to use (Forward+'s TAA/FSR 2/lightmap/VoxelGI/SDFGI variants, when the project uses none of them) into `<name>.shaders_extra.bin`, which loads in the background once the game is starting. On the 3D platformer demo the shaders downloaded before the first frame went from 10.7 MB to 1.84 MB gzipped.
+- **One texture family, not two.** With both desktop (BC) and mobile (ETC2/ASTC) texture compression exported, each family ships in its own pack and the browser downloads only the one its GPU samples.
+- **Nothing compiled that is not used.** The driver creates shader modules and compute pipelines on first use. Chrome compiles them on the thread that also draws the page's frames, and the engine used to create every effect's pipelines and every shader variant's module at startup; on the platformer that took the time from engine start to first frame from 6.8 s to 2.8 s (measured on a software adapter, so real-GPU numbers are smaller).
+- **No freeze when something new comes into view.** Render pipelines the renderer compiles in the background (a material's variants while its scene loads, and the specialized versions it swaps in for the ubershader) are created asynchronously, so Chrome compiles them on a worker thread instead of the one that draws the page. Before, each one could freeze a Forward+ game for about half a second on a desktop GPU.
+
+What is left is ordinary main-thread work: engine initialization, scene loading, and the browser compiling the engine's WebAssembly functions the first time they run.
 
 ### 11. Are there any performance regressions vs native I should know about?
 
@@ -189,6 +196,8 @@ If you use very advanced GLSL features or rely on specific Vulkan behaviors, tes
 - **Chrome Android**: yes, measured on 2026-10-17 on a Motorola Razr 60 (Mali-G615 MC2, Chrome 154, no flags needed). Everything loads and renders correctly, and the adapter reports 48 sampled textures per shader stage, so a `forward_plus` project runs **Forward+** there, not Forward Mobile. Adreno GPUs may additionally trigger the float32→float16 texture downgrades (untested in this fork).
 - **Safari iOS 18+**: untested in this fork; reported working upstream with the texture-array and format workarounds.
 - **Firefox Android**: not yet shipping WebGPU.
+
+For texture downloads, export with both `vram_texture_compression/for_desktop` and `for_mobile` on: with `separate_packs` (the default) a phone downloads only the ETC2/ASTC textures and a desktop only the BC ones.
 
 What a phone is actually limited by is the GPU, not the browser overhead this backend spent most of its effort on: on that Razr a real Forward+ project at its 1920x1080 backbuffer is 20 fps with the main thread 29% busy and 48.7 ms of GPU time per frame (lighting pass 28 ms, bokeh DOF 14.5 ms). Template kind, dlink, threads, the separate render thread and texture compression make no difference; 3D resolution does — `rendering/scaling_3d/scale` 0.5 gives 60 fps. Use `.web_android` / `.web_ios` setting suffixes to lower the 3D scale, shadow map sizes and soft-shadow quality on phones only (the web platform never exposes the `mobile` feature tag), and keep bilinear upscaling (FSR 1.0 costs ~7 ms at 1080p output on that GPU). The full investigation, including the lighting-shader bisection and why an f16 build of the Forward+ shader did not help, is in `webgpu_notes/TASKS.md` §2.9; the on-device tooling is `webgpu_tests/perf_guard/android/`.
 

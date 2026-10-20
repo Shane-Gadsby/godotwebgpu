@@ -132,7 +132,6 @@ private:
 	void _export_find_customized_resources(const Ref<EditorExportPreset> &p_preset, EditorFileSystemDirectory *p_dir, EditorExportPreset::FileExportMode p_mode, HashSet<String> &p_paths);
 	void _export_find_dependencies(const String &p_path, HashSet<String> &p_paths);
 
-	static Error _save_pack_file(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data);
 	static Error _save_pack_patch_file(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data);
 	static Error _pack_add_shared_object(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SharedObject &p_so);
 
@@ -177,6 +176,9 @@ private:
 	String _export_customize(const String &p_path, LocalVector<Ref<EditorExportPlugin>> &customize_resources_plugins, LocalVector<Ref<EditorExportPlugin>> &customize_scenes_plugins, HashMap<String, FileExportCache> &export_cache, const String &export_base_path, bool p_force_save);
 
 protected:
+	// The default SaveFileFunction of save_pack(). Protected so a platform can
+	// wrap it and divert some files elsewhere (the web exporter's texture packs).
+	static Error _save_pack_file(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data);
 	struct ExportNotifier {
 		bool enabled = true;
 

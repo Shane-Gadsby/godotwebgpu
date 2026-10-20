@@ -417,6 +417,57 @@ Still open: a native-Vulkan number on the same phone (needs an Android SDK for a
 
 ---
 
+## 2026-10-20: The Load — What Ships Before the First Frame, and What Compiles
+
+Three changes aimed at time-to-first-frame rather than frame time (`webgpu_notes/TASKS.md` §2.27, §2.18, §2.4).
+
+**The startup stall was the GPU process.** Every earlier startup measurement looked at the page's main thread,
+where the WebGPU calls are cheap. A trace of both processes with Dawn's categories
+(`webgpu_tests/startup_phases/gpu_process_trace.mjs`) showed the GPU process's main thread compiling 89 compute
+pipelines (~5.9 s on swiftshader) and parsing ~500 shader modules before the first frame, while the page's main
+thread sat idle ~4.9 s between startup steps: the startup advances one step per animation frame, and Chrome
+compiles WebGPU work on the thread that produces frames. The first frame used none of those pipelines and ~5% of
+the modules -- the renderer creates every effect's compute pipelines at init and loads every variant of every
+shader. The driver now creates both on first use:
+
+| platformer, `callMain` → first frame (swiftshader, Forward+) | ms |
+|---|---|
+| before | 6,787 / 6,734 / 6,872 |
+| lazy compute pipelines | 3,265 / 3,086 / 3,055 |
+| + lazy shader modules | **2,775 / 2,857** |
+
+So that an effect turned on later does not hitch instead, the deferred compute pipelines are compiled in the
+background once the game runs (`createComputePipelineAsync()`, which Chrome compiles off the frame-producing thread;
+one per frame). On the platformer 150 of 184 were ready within a minute and 5 had to compile on first use.
+
+**Render pipelines off the frame thread.** Render pipelines were still created with `createRenderPipeline()`, and a
+Forward+ variant takes ~0.5 s to compile on a desktop GPU (RTX 4080), on that same thread: a user's game froze for
+up to 0.8 s whenever a new surface or a decal came into view, and in bursts just after the first frame. The
+ubershaders compiled while a scene loads and the specializations the renderer draws with the ubershader until they
+are ready now go through `createRenderPipelineAsync()`, which Chrome compiles on a worker thread. On that game, on an
+idle RTX 4080:
+
+| GPU-process main thread | before | after |
+|---|---|---|
+| busy before the first frame | 800-820 ms | **550 ms** |
+| synchronous render pipelines after it | 23, 1.34-1.36 s | **11, 0.17 s** |
+| stall when looking around the level (3 runs) | up to 521 ms | none from pipelines |
+| phone (Razr 60, Mali-G615): freeze when the scene first draws | 17-18 s | **7 s** |
+
+Still synchronous: `createShaderModule` (WebGPU has no asynchronous form) and the compute pipelines the first frame
+binds.
+
+**Fewer shader bytes before the first frame.** Variant pruning drops shader groups the target can never select and
+defers the ones the project was not found to use into a lazily fetched extras file: the platformer's startup shader
+pack went 68.9 → 14.5 MB (10.7 → 1.84 MB gzipped), with 51.4 MB (8.7 MB gzipped) fetched as the engine starts.
+
+**One texture family per device.** With both VRAM compression families exported, each ships in its own pack and the
+shell fetches only the one the device samples, instead of every player downloading both.
+
+What remains on the critical path is main-thread CPU, about a third of it V8 compiling wasm functions the first time
+they run (`wasm.CompileLazy`); Chrome ships no compile hints for Wasm, and the wasm code cache did not change it on a
+repeat visit.
+
 ## Remaining Optimization Opportunities
 
 1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile. *Measured 2026-10-17:* on a Mali-G615 phone the main thread sits at 29% while the GPU is at 90%, so trampoline savings would not change the frame rate there; a weaker CPU with a stronger GPU (or a lighter scene) would be the case for it.
@@ -427,7 +478,7 @@ Still open: a native-Vulkan number on the same phone (needs an Android SDK for a
 
 4. **Batch size cap**: Add configurable maximum (e.g., 4096 instances) for mobile GPU scheduling.
 
-5. **Shader pre-compilation** — *done*: the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
+5. **Shader pre-compilation** — *done*, and since 2026-10-20 pruned and partly deferred (above): the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
 
 6. **Push constant ring sizing**: Monitor peak usage and right-size the 256KB ring buffer. Add runtime warning when approaching the 1024-slot limit.
 

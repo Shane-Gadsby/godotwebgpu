@@ -62,6 +62,27 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		shaderPack: null,
 		/**
+		 * Baked shaders the export deferred out of the startup set (``<name>.shaders_extra.bin``):
+		 * shader groups nothing in the project was found to use. Fetched at low priority once
+		 * everything startup needs has been downloaded, so it never delays the first frame; a
+		 * shader the game needs before it arrives compiles from source as in an unbaked export.
+		 *
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?string}
+		 */
+		shaderExtras: null,
+		/**
+		 * The export's per-family texture packs, ``{bc: '<name>.textures_bc.pck', etc2_astc: '...'}``,
+		 * when it shipped each VRAM compression family on its own. Only the one the device samples is
+		 * fetched, and written as ``<main pack>.textures.pck``, which the engine mounts.
+		 *
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?Object}
+		 */
+		texturePacks: null,
+		/**
 		 * Specify a language code to select the proper localization for the game.
 		 *
 		 * The browser locale will be used if none is specified. See complete list of
@@ -379,6 +400,8 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.executable = parse('executable', this.executable);
 		this.mainPack = parse('mainPack', this.mainPack);
 		this.shaderPack = parse('shaderPack', this.shaderPack);
+		this.shaderExtras = parse('shaderExtras', this.shaderExtras);
+		this.texturePacks = parse('texturePacks', this.texturePacks);
 		this.locale = parse('locale', this.locale);
 		this.canvasResizePolicy = parse('canvasResizePolicy', this.canvasResizePolicy);
 		this.persistentPaths = parse('persistentPaths', this.persistentPaths);

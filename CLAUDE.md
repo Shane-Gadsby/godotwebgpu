@@ -39,7 +39,7 @@ On Windows, run it from Git Bash with LLVM's `clang++` (auto-detected, or set `C
 
 Rebuild it directly (rather than through scons) when iterating on `drivers/webgpu/spirv_preprocess.cpp`, `tint_wrapper.cpp`, or anything under `thirdparty/tint`/`thirdparty/spirv-tools` — it's much faster than a full web build and is what `webgpu_tests/shader_corpus` and `drivers/webgpu/wgsl_precompile.py` (the build-time precompiler, invoked automatically by `scons ... webgpu=yes`) both drive. The precompiled table `drivers/webgpu/wgsl_precompiled.gen.h` is dependency-tracked: `drivers/webgpu/SCsub` fingerprints the vendored Tint/SPIRV-Tools/`tint_cli` sources, `bin/tint_convert_cli` and glslang's version, so a web build re-bakes on its own after any of them change and skips the bake otherwise (`webgpu_notes/TASKS.md` §4.22).
 
-The **export-time** bake (`ShaderBakerExportPlugin` with the WebGPU platform, `webgpu_notes/TASKS.md` §4.23) runs `tint_convert_cli --batch` over all stages at once, in parallel chunks spawned with `posix_spawn` — not one serialized subprocess per stage, which used to be 24 of a 27 s export. Converted WGSL is cached by SPIR-V hash under the tool's own hash at `~/.cache/godot/webgpu_wgsl_bake/` (survives engine rebuilds, invalidated by a Tint rebuild; `WEBGPU_BAKE_CACHE=0` / `WEBGPU_BAKE_CACHE_DIR` / `WEBGPU_BAKE_JOBS`), so a warm export is ~4 s against ~8 s cold. Web presets ship the baked cache as `<name>.shaders.pck` (`shader_baker/separate_pack`), which the shell preloads and the engine mounts beside the main pack; **a template built before that change silently loads no shaders at all**, so rebuild the templates with the editor. Stale `.godot/exported/<hash>` directories (7 days) and shader-cache group directories from other engine builds are pruned automatically.
+The **export-time** bake (`ShaderBakerExportPlugin` with the WebGPU platform, `webgpu_notes/TASKS.md` §4.23) runs `tint_convert_cli --batch` over all stages at once, in parallel chunks spawned with `posix_spawn` — not one serialized subprocess per stage, which used to be 24 of a 27 s export. Converted WGSL is cached by SPIR-V hash under the tool's own hash at `~/.cache/godot/webgpu_wgsl_bake/` (survives engine rebuilds, invalidated by a Tint rebuild; `WEBGPU_BAKE_CACHE=0` / `WEBGPU_BAKE_CACHE_DIR` / `WEBGPU_BAKE_JOBS`), so a warm export is ~4 s against ~8 s cold. Web presets ship the baked cache as `<name>.shaders.pck` (`shader_baker/separate_pack`), which the shell preloads and the engine mounts beside the main pack; **a template built before that change silently loads no shaders at all**, so rebuild the templates with the editor. `shader_baker/variant_pruning` (Automatic by default) leaves out shader groups the target can never select and moves the ones nothing in the project was found to use — Forward+'s advanced group, unless the project uses TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, SSS or a motion-vector compositor effect — into `<name>.shaders_extra.bin`, which the shell fetches as the engine starts and `ShaderRD` reads on a cache miss (`webgpu_notes/TASKS.md` §2.27). With both VRAM compression families exported, `vram_texture_compression/separate_packs` puts each in its own `<name>.textures_*.pck` and the shell fetches only the one the device samples (§2.18). Stale `.godot/exported/<hash>` directories (7 days) and shader-cache group directories from other engine builds are pruned automatically.
 
 `misc/scripts/install_accesskit.py` (run by every build helper unless `--skip-install`) downloads AccessKit only when `bin/build_deps/accesskit/version` does not name the version it pins; `--force` reinstalls (§4.32).
 
@@ -70,6 +70,9 @@ cd webgpu_tests/web_audio && node run_tests.mjs && ./export.sh && node run_e2e.m
 # Editor drag-and-drop onto every list (arrays, dictionaries, property arrays, Project Settings lists, bus effects):
 # real drags in a windowed editor under Xvfb (headless gives the editor a 2x2 viewport), see tests/editor_drop/README.md:
 tests/editor_drop/run.sh
+
+# Editor default folders (editor/default_folders/*): drives the create/save dialogs and their check boxes under Xvfb:
+tests/default_folders/run.sh
 
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
@@ -103,6 +106,10 @@ node tests/web_audio_profiling.mjs --tab <url-or-title-substring> --fn setVolume
 `local_ci.sh` builds the editor, the dlink web template (a compile check only — nothing loads it) and the **non-dlink nothreads** one, which with the editor is the pair the scene smoketest exports with. It re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
 
 **CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`; none of the commands above do.** A warning that is fatal in CI is invisible locally — this is how an unused-variable error kept 🧪 WebGPU Tests red for two days while every local tier was green. Run `./webgpu_tests/local_ci.sh --dev-mode` before assuming a local green means CI will agree.
+
+On GitHub, `🔗 GHA` (`runner.yml`) builds everything on a push to `main` and drafts a release. To build only an editor, run `🐧 Linux editor`, `🍎 macOS editor`, `🏁 Windows editor` or `🖥️ All editors` (`.github/workflows/editor_*.yml`) from the Actions tab; each uploads the editor zipped by `.github/actions/package-editor`, exactly as a release ships it. Editors must be zipped on the runner that built them — `actions/upload-artifact` drops Unix permissions, which is how every Linux and macOS release up to v1.5 shipped an editor that could not start (§3 trap 41). Keep the manual workflows' flags in step with the release editor jobs in `*_builds.yml`.
+
+Every Playwright launch in these tiers must set `headless` explicitly (`headless: isCI`, or `false` for real-GPU runs): Playwright defaults to headless, where Chrome gets only the swiftshader fallback adapter and loses the WebGPU device at the first canvas present — a failure that comes and goes with startup time, which is how `webrtc_parity` bisected to an innocent commit (`webgpu_notes/TASKS.md` §3 trap 43).
 
 SPIR-V dump validation and the smoke/scene-smoketest tiers need a full editor + web template build first (see `webgpu_tests/README.md` for exact commands and `GODOT_DUMP_SPIRV` env var usage). `webgpu_tests/shader_corpus/expected_failures.json` is the baseline of known/accepted Tint conversion failures (Vulkan-only shader variants never used by the WebGPU runtime) — CI only fails on failures *not* in that baseline.
 
@@ -155,6 +162,7 @@ Tint is vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.
 - **Push constants**: not supported by WebGPU — emulated via a ring buffer at group(3)/binding(120), rewritten from `OpVariable PushConstant` at the SPIR-V level.
 - **Subpasses**: not supported — each Godot subpass becomes a separate `WGPURenderPassEncoder`. `render_forward_mobile.cpp` disables `using_subpass_post_process` under `WEB_ENABLED`.
 - **Barriers**: `command_pipeline_barrier` is a no-op — WebGPU tracks hazards automatically.
+- **Pipelines and the GPU process**: Chrome compiles `createShaderModule`/`createRenderPipeline`/`createComputePipeline` on the GPU process's main thread, which also produces the page's frames, so a synchronous compile freezes the page however cheap the call looks (`webgpu_tests/startup_phases/gpu_process_trace.mjs --after <ms>` shows it). Modules and compute pipelines are created on first use, compute pipelines are prewarmed with `createComputePipelineAsync()`, and render pipelines that `PipelineHashMapRD` compiles in the background go through `createRenderPipelineAsync()` (`RD::set_pipeline_creation_async()` / `render_pipeline_is_ready()`): such a pipeline must not be bound before it is ready, and stays out of the map until then. See `drivers/webgpu/README.md` and `webgpu_notes/TASKS.md` §2.4.
 - **Specialization constants**: normally left in the SPIR-V so Tint emits `@id(N) override` declarations, which pipeline creation sets through WebGPU pipeline constants — one base module per shader, no runtime re-conversion. `spirv_preprocess::spec_constants_overridable()` decides per module; anything it rejects (non-scalar constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array sizes/composites/workgroup sizes) is frozen to its defaults by `freeze_spec_constant_ops()` and specializes through the legacy re-patch-and-re-convert path instead. All-or-nothing per shader — see `drivers/webgpu/README.md`.
 - **Buffer mapping**: `buffer_map()` returns a CPU shadow copy (not GPU-visible memory like Vulkan/Metal/D3D12); `buffer_unmap()` flushes it via `wgpuQueueWriteBuffer`. This is why `RenderingDevice`-level code that's driver-agnostic gates WebGPU-only behavior behind `driver->api_trait_get(RDD::API_TRAIT_*)` checks rather than `#ifdef WEBGPU_ENABLED` — see the `API_TRAIT_*` block in `rendering_device_driver.h` for the full list of WebGPU-specific traits and why each exists (they're heavily commented). **Any new cross-driver optimization gated this way must also get a base-class default in `rendering_device_driver.cpp`'s `api_trait_get()`**, or every non-WebGPU driver spams `ERR_FAIL_V(0)` when the shared code queries it.
 - **Device init**: the JS shell pre-initializes a `GPUDevice` and stores it on `Module["preinitializedWebGPUDevice"]`; C++ retrieves it via the emdawnwebgpu port's `WebGPU.importJsDevice()` through `EM_ASM_PTR`, not `emscripten_webgpu_get_device()`/`html5_webgpu.h` (removed in modern Emscripten).
@@ -207,6 +215,22 @@ Key differences from a "normal" backend that are easy to trip over:
 - Web builds always run Box3D single threaded (`workerCount = 1`); its own thread creation cannot work from the web export's fixed pthread pool.
 
 Native validation: build the editor (see Build Commands) and run headless GDScript scenes against each engine (`--headless --path <project> -s test.gd`, switching `physics/3d/physics_engine`).
+
+### MetaHuman importer
+
+`modules/metahuman/` imports a MetaHuman export: `head.dna` imports the whole character.
+- **Rig:** OpenRigLogic (`thirdparty/openriglogic`, MIT) evaluates the face and the body correctives in
+  `MetaHumanRig`, a `SkeletonModifier3D`.
+- **Clothing:** the FBX is rebound to the DNA skeleton.
+- **Grooms:** the Alembic grooms become strands, a baked shell, and a guide simulation (`MetaHumanHairSimulator`).
+
+`webgpu_notes/TASKS.md` §2.33 has the formats, the measured numbers and why each choice was made. Test with
+`webgpu_tests/metahuman/run.sh <export.zip> [--shots] [--export]`; no export ships in the repo.
+
+Rules that cost time:
+- Match DNA meshes to materials by mesh name: the manifest's per-mesh list is wrong past LOD 2 (§3 trap 48).
+- DNA is Y-up centimeters; grooms are (x, z, y) centimeters.
+- Hair shaders branch on `IN_SHADOW_PASS` and `abs(PROJECTION_MATRIX[1][1])` (traps 50, 51).
 
 ### Braced GDScript (`.gdb`)
 

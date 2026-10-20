@@ -1137,6 +1137,24 @@
 			Directory that contains the [code].sln[/code] file. By default, the [code].sln[/code] files is in the root of the project directory, next to the [code]project.godot[/code] and [code].csproj[/code] files.
 			Change this value to set up a multi-project scenario where there are multiple [code].csproj[/code] files. Keep in mind that the Godot project is considered one of the C# projects in the workspace and its root directory should contain the [code]project.godot[/code] and [code].csproj[/code] files next to each other.
 		</member>
+		<member name="editor/default_folders/materials" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new [Material] files are saved in by default, e.g. [code]res://materials[/code]. When empty (the default), the Save Resource As dialog opens in the folder it was last used in. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default.
+		</member>
+		<member name="editor/default_folders/resources" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new resource files are saved in by default when their type has no default folder of its own (see the other [code]editor/default_folders/*[/code] settings), e.g. [code]res://resources[/code]. Resources whose script is a custom class fall in the folder of their built-in base type. When empty (the default), the Save Resource As dialog opens in the folder it was last used in. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default.
+		</member>
+		<member name="editor/default_folders/scenes" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new scenes are saved in by default, e.g. [code]res://scenes[/code], when a scene is saved for the first time. When empty (the default), the Save Scene As dialog opens in the folder it was last used in. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default.
+		</member>
+		<member name="editor/default_folders/scripts" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new scripts are created in by default, e.g. [code]res://scripts[/code]. When empty (the default), new scripts are instead proposed next to the scene or resource they are created for. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default. Projects that set the former [code]editor/script/default_script_folder[/code] setting have it moved here when opened.
+		</member>
+		<member name="editor/default_folders/settings" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new configuration resources are saved in by default, e.g. [code]res://settings[/code]. These are [Environment], [CameraAttributes], [Compositor], [Theme], [AudioBusLayout], [Shortcut], [InputEvent] and [PhysicsMaterial] resources. When empty (the default), the Save Resource As dialog opens in the folder it was last used in. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default.
+		</member>
+		<member name="editor/default_folders/shaders" type="String" setter="" getter="" default="&quot;&quot;">
+			The folder new shaders and shader includes are created in by default, e.g. [code]res://shaders[/code]. When empty (the default), new shaders are instead proposed next to the material or scene they are created for. This is ignored when creating from a specific folder in the FileSystem dock, and if the folder does not exist. The create and save dialogs have a check box that makes the folder they save to the new default.
+		</member>
 		<member name="editor/export/convert_text_resources_to_binary" type="bool" setter="" getter="" default="true">
 			If [code]true[/code], text resource ([code]tres[/code]) and text scene ([code]tscn[/code]) files are converted to their corresponding binary format on export. This decreases file sizes and speeds up loading slightly.
 			[b]Note:[/b] Because a resource's file extension may change in an exported project, it is heavily recommended to use [method @GDScript.load] or [ResourceLoader] instead of [FileAccess] to load resources dynamically.
@@ -1217,9 +1235,6 @@
 		</member>
 		<member name="editor/script/braced_gdscript_by_default" type="bool" setter="" getter="" default="false">
 			If [code]true[/code], the Create Script dialog proposes braced GDScript ([code].gdb[/code], GDScript written with [code]{ }[/code] blocks) for new GDScript files instead of [code].gd[/code]. Either extension can still be typed.
-		</member>
-		<member name="editor/script/default_script_folder" type="String" setter="" getter="" default="&quot;&quot;">
-			The folder new scripts are created in by default, e.g. [code]res://scripts[/code]. When empty (the default), new scripts are instead proposed next to the scene or resource they are created for. This is ignored when creating a script from a specific folder in the FileSystem dock, and if the folder does not exist.
 		</member>
 		<member name="editor/script/templates_search_path" type="String" setter="" getter="" default="&quot;res://script_templates&quot;">
 			Search path for project-specific script templates. Godot will search for script templates both in the editor-specific path and in this project-specific path.
@@ -3394,8 +3409,8 @@
 		<member name="rendering/renderer/rendering_method.mobile" type="String" setter="" getter="" default="&quot;mobile&quot;">
 			Override for [member rendering/renderer/rendering_method] on mobile devices.
 		</member>
-		<member name="rendering/renderer/rendering_method.web" type="String" setter="" getter="" default="&quot;gl_compatibility&quot;">
-			Override for [member rendering/renderer/rendering_method] on web.
+		<member name="rendering/renderer/rendering_method.web" type="String" setter="" getter="" default="&quot;forward_plus&quot;">
+			Override for [member rendering/renderer/rendering_method] on web. Defaults to the project's [member rendering/renderer/rendering_method]: [code]"forward_plus"[/code] and [code]"mobile"[/code] render through WebGPU and need WebGPU export templates, [code]"gl_compatibility"[/code] through WebGL 2.
 		</member>
 		<member name="rendering/rendering_device/d3d12/agility_sdk_version" type="int" setter="" getter="" default="618">
 			Version code of the [url=https://devblogs.microsoft.com/directx/directx12agility/]Direct3D 12 Agility SDK[/url] to use ([code]D3D12SDKVersion[/code]). This must match the [i]minor[/i] version that is installed next to the editor binary and in the export templates directory for the current editor version. For example, if you have [code]1.618.5[/code] installed, you need to input [code]618[/code] here.

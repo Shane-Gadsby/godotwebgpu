@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MetaHumanRig" inherits="SkeletonModifier3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Evaluates a MetaHuman's body and face rigs and poses the skeleton.
+	</brief_description>
+	<description>
+		Evaluates a MetaHuman's rigs with RigLogic, Epic's rig evaluator (from OpenRigLogic), and poses its [Skeleton3D] parent, after animation and before skinning.
+		The body rig adds the correctives (RBF, twist and swing helper joints) that the main joints' pose calls for: animate the skeleton's main joints as usual and the helpers follow. The face rig turns face controls into the face joints. Each rig writes only the joints that move at its current LOD, and skips its evaluation when its inputs did not change.
+		Face controls are properties under [code]expressions/[/code] (the raw [code]CTRL_expressions.*[/code] controls, which Unreal's face animation curves, ARKit and Live Link drive) and [code]face_board/[/code] (the face board controls), so animation tracks can key them. [member control_mode] decides which set drives the face.
+		The MetaHuman importer ([code].dna[/code] files) creates this node with both rigs set up.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_control" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the value of the face control [param name], an expression ([code]CTRL_expressions.jawOpen[/code]) or a face board control ([code]CTRL_C_jaw.ty[/code]).
+			</description>
+		</method>
+		<method name="get_control_names" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the names of the face controls of the current [member control_mode]. Driver inputs ([code]head.qx[/code], ...) are not among them: the rig reads those from the skeleton.
+			</description>
+		</method>
+		<method name="get_current_body_lod" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the LOD the body rig was last evaluated at, or [code]-1[/code] before its first evaluation.
+			</description>
+		</method>
+		<method name="get_current_face_lod" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the LOD the face rig was last evaluated at, or [code]-1[/code] before its first evaluation.
+			</description>
+		</method>
+		<method name="reset_controls">
+			<return type="void" />
+			<description>
+				Sets every face control back to [code]0[/code].
+			</description>
+		</method>
+		<method name="set_control">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets the face control [param name] to [param value]. Expressions range from [code]0[/code] to [code]1[/code].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="body_dna" type="MetaHumanDNA" setter="set_body_dna" getter="get_body_dna">
+			The body rig. Its raw controls are the rotations of driver joints such as [code]upperarm_l[/code], read from the skeleton.
+		</member>
+		<member name="body_lod" type="int" setter="set_body_lod" getter="get_body_lod" default="-1">
+			The body rig's LOD, or [code]-1[/code] to pick it from [member body_lod_distances] and the distance to the current camera.
+		</member>
+		<member name="body_lod_distances" type="PackedFloat32Array" setter="set_body_lod_distances" getter="get_body_lod_distances" default="PackedFloat32Array()">
+			With [member body_lod] at [code]-1[/code], the camera distance below which each LOD is used: LOD [code]i[/code] up to [code]body_lod_distances[i][/code], the last LOD beyond. The importer matches these to the body meshes' visibility ranges.
+		</member>
+		<member name="control_mode" type="int" setter="set_control_mode" getter="get_control_mode" enum="MetaHumanRig.ControlMode" default="0">
+			Which face controls drive the face rig.
+		</member>
+		<member name="face_dna" type="MetaHumanDNA" setter="set_face_dna" getter="get_face_dna">
+			The face rig. Setting it lists its controls as properties.
+		</member>
+		<member name="face_lod" type="int" setter="set_face_lod" getter="get_face_lod" default="-1">
+			The face rig's LOD, or [code]-1[/code] to pick it from [member face_lod_distances] and the distance to the current camera.
+		</member>
+		<member name="face_lod_distances" type="PackedFloat32Array" setter="set_face_lod_distances" getter="get_face_lod_distances" default="PackedFloat32Array()">
+			With [member face_lod] at [code]-1[/code], the camera distance below which each LOD is used. The importer matches these to the head meshes' visibility ranges.
+		</member>
+	</members>
+	<constants>
+		<constant name="CONTROL_MODE_EXPRESSIONS" value="0" enum="ControlMode">
+			The raw expression controls ([code]expressions/*[/code]) drive the face.
+		</constant>
+		<constant name="CONTROL_MODE_FACE_BOARD" value="1" enum="ControlMode">
+			The face board controls ([code]face_board/*[/code]) drive the face; the rig maps them to expressions.
+		</constant>
+	</constants>
+</class>

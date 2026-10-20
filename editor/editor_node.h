@@ -408,6 +408,7 @@ private:
 
 	PopupMenu *vcs_actions_menu = nullptr;
 	EditorFileDialog *file = nullptr;
+	int file_default_folder_category = -1; // EditorDefaultFolders::Category offered by `file`'s check box.
 	ExportTemplateManager *export_template_manager = nullptr;
 	EditorFeatureProfileManager *feature_profile_manager = nullptr;
 	EditorBuildProfileManager *build_profile_manager = nullptr;
@@ -548,6 +549,8 @@ private:
 	void _enable_pending_addons();
 
 	void _dialog_action(String p_file);
+	void _set_file_default_folder_option(int p_category);
+	void _apply_file_default_folder_option(const String &p_file);
 
 	void _add_to_history(const Object *p_object, const String &p_property, bool p_inspector_only);
 	void _edit_current(bool p_skip_foreign = false, bool p_skip_inspector_update = false);

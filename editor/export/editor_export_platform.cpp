@@ -40,6 +40,7 @@
 #include "core/io/file_access_pack.h" // PACK_HEADER_MAGIC, PACK_FORMAT_VERSION
 #include "core/io/image.h"
 #include "core/io/image_loader.h"
+#include "core/io/resource_importer.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/io/resource_uid.h"
@@ -1010,6 +1011,40 @@ bool EditorExportPlatform::_export_customize_scene_resources(Node *p_root, Node 
 	return changed;
 }
 
+// What decides whether a customized file in .godot/exported is still current. Besides the source and its
+// .import file, this covers the import's output, through the .md5 file the import writes next to it: a
+// reimport with unchanged options (an importer improved by an engine update, a deleted import cache)
+// changes neither of the first two, and the export then kept shipping the previous output, its baked
+// shaders included (webgpu_notes/TASKS.md §3).
+static String _export_cache_import_md5_path(const String &p_path) {
+	if (!FileAccess::exists(p_path + ".import")) {
+		return String();
+	}
+	return ResourceFormatImporter::get_singleton()->get_import_base_path(p_path) + ".md5";
+}
+
+static uint64_t _export_cache_modified_time(const String &p_path) {
+	uint64_t time = FileAccess::get_modified_time(p_path);
+	const String import_md5 = _export_cache_import_md5_path(p_path);
+	if (!import_md5.is_empty() && FileAccess::exists(import_md5)) {
+		time = MAX(time, FileAccess::get_modified_time(import_md5));
+	}
+	return time;
+}
+
+static String _export_cache_md5(const String &p_path) {
+	String md5 = FileAccess::get_md5(p_path);
+	if (FileAccess::exists(p_path + ".import")) {
+		// Also consider the import file in the string
+		md5 += FileAccess::get_md5(p_path + ".import");
+		const String import_md5 = _export_cache_import_md5_path(p_path);
+		if (FileAccess::exists(import_md5)) {
+			md5 += FileAccess::get_md5(import_md5);
+		}
+	}
+	return md5;
+}
+
 String EditorExportPlatform::_export_customize(const String &p_path, LocalVector<Ref<EditorExportPlugin>> &customize_resources_plugins, LocalVector<Ref<EditorExportPlugin>> &customize_scenes_plugins, HashMap<String, FileExportCache> &export_cache, const String &export_base_path, bool p_force_save) {
 	if (!p_force_save && customize_resources_plugins.is_empty() && customize_scenes_plugins.is_empty()) {
 		return p_path; // do none
@@ -1022,18 +1057,14 @@ String EditorExportPlatform::_export_customize(const String &p_path, LocalVector
 		if (fec.saved_path.is_empty() || FileAccess::exists(fec.saved_path)) {
 			// Destination file exists (was not erased) or not needed
 
-			uint64_t mod_time = FileAccess::get_modified_time(p_path);
+			uint64_t mod_time = _export_cache_modified_time(p_path);
 			if (fec.source_modified_time == mod_time) {
 				// Cached (modified time matches).
 				fec.used = true;
 				return fec.saved_path.is_empty() ? p_path : fec.saved_path;
 			}
 
-			String md5 = FileAccess::get_md5(p_path);
-			if (FileAccess::exists(p_path + ".import")) {
-				// Also consider the import file in the string
-				md5 += FileAccess::get_md5(p_path + ".import");
-			}
+			String md5 = _export_cache_md5(p_path);
 			if (fec.source_md5 == md5) {
 				// Cached (md5 matches).
 				fec.source_modified_time = mod_time;
@@ -1045,15 +1076,8 @@ String EditorExportPlatform::_export_customize(const String &p_path, LocalVector
 
 	FileExportCache fec;
 	fec.used = true;
-	fec.source_modified_time = FileAccess::get_modified_time(p_path);
-
-	String md5 = FileAccess::get_md5(p_path);
-	if (FileAccess::exists(p_path + ".import")) {
-		// Also consider the import file in the string
-		md5 += FileAccess::get_md5(p_path + ".import");
-	}
-
-	fec.source_md5 = md5;
+	fec.source_modified_time = _export_cache_modified_time(p_path);
+	fec.source_md5 = _export_cache_md5(p_path);
 
 	// Check if it should convert
 

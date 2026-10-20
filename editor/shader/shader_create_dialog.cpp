@@ -37,6 +37,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/editor_node.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/gui/editor_validation_panel.h"
@@ -147,6 +148,7 @@ void ShaderCreateDialog::ok_pressed() {
 }
 
 void ShaderCreateDialog::_create_new() {
+	String saved_path;
 	Ref<Resource> shader;
 	Ref<Resource> shader_inc;
 
@@ -170,6 +172,7 @@ void ShaderCreateDialog::_create_new() {
 			alert->popup_centered();
 			return;
 		}
+		saved_path = lpath;
 
 		emit_signal(SNAME("shader_include_created"), shader_inc);
 	} else {
@@ -188,9 +191,14 @@ void ShaderCreateDialog::_create_new() {
 				alert->popup_centered();
 				return;
 			}
+			saved_path = lpath;
 		}
 
 		emit_signal(SNAME("shader_created"), shader);
+	}
+
+	if (!saved_path.is_empty() && remember_folder->is_pressed()) {
+		EditorDefaultFolders::set_folder(EditorDefaultFolders::CATEGORY_SHADERS, saved_path.get_base_dir());
 	}
 
 	file_path->set_text(file_path->get_text().get_base_dir());
@@ -204,6 +212,9 @@ void ShaderCreateDialog::_load_exist() {
 		alert->set_text(vformat(TTR("Error loading shader from %s"), path));
 		alert->popup_centered();
 		return;
+	}
+	if (remember_folder->is_pressed()) {
+		EditorDefaultFolders::set_folder(EditorDefaultFolders::CATEGORY_SHADERS, p_shader->get_path().get_base_dir());
 	}
 
 	emit_signal(SNAME("shader_created"), p_shader);
@@ -334,7 +345,7 @@ void ShaderCreateDialog::_path_submitted(const String &p_path) {
 	}
 }
 
-void ShaderCreateDialog::config(const String &p_base_path, bool p_built_in_enabled, bool p_load_enabled, const String &p_preferred_type, int p_preferred_mode) {
+void ShaderCreateDialog::config(const String &p_base_path, bool p_built_in_enabled, bool p_load_enabled, const String &p_preferred_type, int p_preferred_mode, bool p_use_default_folder) {
 	_update_language_info();
 	type_menu->clear();
 	const Vector<Ref<EditorShaderLanguagePlugin>> shader_langs = EditorShaderLanguagePlugin::get_shader_languages_read_only();
@@ -371,8 +382,9 @@ void ShaderCreateDialog::config(const String &p_base_path, bool p_built_in_enabl
 	type_menu->select(preferred_type);
 	current_type = 0;
 
-	if (!p_base_path.is_empty()) {
-		initial_base_path = p_base_path.get_basename();
+	const String base_path = p_use_default_folder ? EditorDefaultFolders::apply_folder(EditorDefaultFolders::CATEGORY_SHADERS, p_base_path) : p_base_path;
+	if (!base_path.is_empty()) {
+		initial_base_path = base_path.get_basename();
 		file_path->set_text(initial_base_path + "." + type_data.get(type_menu->get_selected()).default_extension);
 		current_type = type_menu->get_selected();
 	} else {
@@ -380,6 +392,7 @@ void ShaderCreateDialog::config(const String &p_base_path, bool p_built_in_enabl
 		file_path->set_text("");
 	}
 	file_path->deselect();
+	EditorDefaultFolders::reset_remember_check_box(remember_folder, EditorDefaultFolders::CATEGORY_SHADERS);
 
 	built_in_enabled = p_built_in_enabled;
 	load_enabled = p_load_enabled;
@@ -466,6 +479,8 @@ void ShaderCreateDialog::_update_dialog() {
 	}
 
 	internal->set_disabled(!built_in_enabled);
+	remember_folder_spacer->set_visible(!is_built_in);
+	remember_folder->set_visible(!is_built_in);
 
 	if (is_built_in) {
 		validation_panel->set_message(MSG_ID_BUILT_IN, TTRC("Note: Built-in shaders can't be edited using an external editor."), EditorValidationPanel::MSG_INFO, false);
@@ -488,7 +503,7 @@ void ShaderCreateDialog::_update_dialog() {
 }
 
 void ShaderCreateDialog::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("config", "path", "built_in_enabled", "load_enabled"), &ShaderCreateDialog::config, DEFVAL(true), DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("config", "path", "built_in_enabled", "load_enabled", "preferred_type", "preferred_mode", "use_default_folder"), &ShaderCreateDialog::config, DEFVAL(true), DEFVAL(true), DEFVAL(""), DEFVAL(-1), DEFVAL(true));
 
 	ADD_SIGNAL(MethodInfo("shader_created", PropertyInfo(Variant::OBJECT, "shader", PROPERTY_HINT_RESOURCE_TYPE, Shader::get_class_static())));
 	ADD_SIGNAL(MethodInfo("shader_include_created", PropertyInfo(Variant::OBJECT, "shader_include", PROPERTY_HINT_RESOURCE_TYPE, ShaderInclude::get_class_static())));
@@ -580,6 +595,13 @@ ShaderCreateDialog::ShaderCreateDialog() {
 	hb->add_child(path_button);
 	gc->add_child(memnew(Label(TTR("Path:"))));
 	gc->add_child(hb);
+
+	// Default Folder.
+
+	remember_folder_spacer = memnew(Control);
+	remember_folder = EditorDefaultFolders::create_remember_check_box(EditorDefaultFolders::CATEGORY_SHADERS);
+	gc->add_child(remember_folder_spacer);
+	gc->add_child(remember_folder);
 
 	// Dialog Setup.
 

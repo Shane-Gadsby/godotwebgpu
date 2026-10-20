@@ -59,6 +59,15 @@ int Fog::_get_fog_shader_group() {
 	}
 }
 
+// Both fog shaders order their groups the same way (VolumetricFogShader's
+// SHADER_GROUP_*), and _get_fog_shader_group() enables exactly one of them.
+void Fog::_set_fog_group_bake_requirements(ShaderRD &p_shader) {
+	p_shader.set_group_bake_requirements(VolumetricFogShader::SHADER_GROUP_BASE, ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_NO_VULKAN_MEMORY_MODEL);
+	p_shader.set_group_bake_requirements(VolumetricFogShader::SHADER_GROUP_NO_ATOMICS, ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_NO_VULKAN_MEMORY_MODEL);
+	p_shader.set_group_bake_requirements(VolumetricFogShader::SHADER_GROUP_VULKAN_MEMORY_MODEL, ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_VULKAN_MEMORY_MODEL);
+	p_shader.set_group_bake_requirements(VolumetricFogShader::SHADER_GROUP_VULKAN_MEMORY_MODEL_NO_ATOMICS, ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_VULKAN_MEMORY_MODEL);
+}
+
 int Fog::_get_fog_variant() {
 	RenderingDevice *rd = RD::get_singleton();
 	bool use_32_bit_atomics = rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT);
@@ -225,6 +234,7 @@ void Fog::init_fog_shader(uint32_t p_max_directional_lights, int p_roughness_lay
 		volumetric_fog_modes.push_back(ShaderRD::VariantDefine(VolumetricFogShader::SHADER_GROUP_VULKAN_MEMORY_MODEL_NO_ATOMICS, "#define USE_VULKAN_MEMORY_MODEL\n#define NO_IMAGE_ATOMICS\n", false));
 
 		volumetric_fog.shader.initialize(volumetric_fog_modes, defines);
+		_set_fog_group_bake_requirements(volumetric_fog.shader);
 		volumetric_fog.shader.enable_group(_get_fog_shader_group());
 
 		material_storage->shader_set_data_request_function(RendererRD::MaterialStorage::SHADER_TYPE_FOG, _create_fog_shader_funcs);
@@ -322,6 +332,7 @@ ALBEDO = vec3(1.0);
 		}
 
 		volumetric_fog.process_shader.initialize(volumetric_fog_modes, defines);
+		_set_fog_group_bake_requirements(volumetric_fog.process_shader);
 		volumetric_fog.process_shader.enable_group(_get_fog_shader_group());
 
 		volumetric_fog.process_shader_version = volumetric_fog.process_shader.version_create();

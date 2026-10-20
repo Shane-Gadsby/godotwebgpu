@@ -1,0 +1,104 @@
+name: 🐧 Linux editor
+# Builds just the Linux editor, on demand (Actions → this workflow → Run workflow), and uploads it
+# zipped the way a release ships it. The flags are those of linux_builds.yml's
+# "Editor (target=editor)" job, which builds the released editor; keep the two in step.
+on:
+  workflow_dispatch:
+    inputs:
+      scons-flags:
+        description: Extra SCons flags, after the release editor's (e.g. "precision=double" or "dev_build=yes")
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      scons-flags:
+        required: false
+        default: ""
+        type: string
+
+env:
+  SCONS_FLAGS: >-
+    dev_mode=yes
+    module_text_server_fb_enabled=yes
+    webgpu=yes
+
+jobs:
+  build:
+    # As linux_builds.yml: one LTS before latest, for portability.
+    runs-on: ubuntu-22.04
+    name: Editor (target=editor)
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libwayland-bin
+
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: linux-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download pre-built AccessKit
+        shell: sh
+        id: accesskit-sdk
+        run: |
+          if python ./misc/scripts/install_accesskit.py; then
+            echo "ACCESSKIT_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::AccessKit SDK installation failed, building without AccessKit support."
+            echo "ACCESSKIT_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilation
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} ${{ inputs.scons-flags }}
+          platform: linuxbsd
+          target: editor
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: linux-editor
+        continue-on-error: true
+
+      - name: Cache tint_convert_cli build
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+
+      # The export-time shader baker runs it from the editor's own directory. g++-12 for Tint's
+      # C++20, static libstdc++ so it runs on older distros (as linux_builds.yml).
+      - name: Build tint_convert_cli
+        env:
+          CXX: g++-12
+          LDFLAGS: -static-libstdc++ -static-libgcc
+        run: ./drivers/webgpu/tint_cli/build.sh
+
+      - name: Prepare artifact
+        run: |
+          rm -rf ./bin/build_deps
+          strip bin/godot.* bin/tint_convert_cli
+
+      - name: Package editor
+        uses: ./.github/actions/package-editor
+        with:
+          platform: linux
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: linux-editor
+          path: dist/godot-webgpu-editor-linux.zip

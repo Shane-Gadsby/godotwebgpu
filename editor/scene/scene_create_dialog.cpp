@@ -35,6 +35,7 @@
 #include "core/object/callable_mp.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/gui/create_dialog.h"
 #include "editor/gui/editor_validation_panel.h"
 #include "editor/settings/editor_feature_profile.h"
@@ -68,6 +69,7 @@ void SceneCreateDialog::config(const String &p_dir, const String &p_scene_name) 
 	directory = p_dir;
 	root_name_edit->set_text("");
 	scene_name_edit->set_text(p_scene_name.get_basename());
+	EditorDefaultFolders::reset_remember_check_box(remember_folder, EditorDefaultFolders::CATEGORY_SCENES);
 	callable_mp((Control *)scene_name_edit, &Control::grab_focus).call_deferred(false);
 	validation_panel->update();
 
@@ -161,6 +163,10 @@ String SceneCreateDialog::get_scene_path() const {
 
 String SceneCreateDialog::get_root_name() const {
 	return root_name;
+}
+
+bool SceneCreateDialog::is_remember_folder_pressed() const {
+	return remember_folder->is_pressed();
 }
 
 Node *SceneCreateDialog::create_scene_root() {
@@ -300,6 +306,12 @@ SceneCreateDialog::SceneCreateDialog() {
 		root_name_edit->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 		root_name_edit->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 		root_name_edit->connect(SceneStringName(text_submitted), callable_mp(this, &SceneCreateDialog::accept_create).unbind(1));
+	}
+
+	{
+		gc->add_child(memnew(Control));
+		remember_folder = EditorDefaultFolders::create_remember_check_box(EditorDefaultFolders::CATEGORY_SCENES);
+		gc->add_child(remember_folder);
 	}
 
 	Control *spacing = memnew(Control);

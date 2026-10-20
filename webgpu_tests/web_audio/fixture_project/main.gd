@@ -13,6 +13,9 @@ const FINISH_TOLERANCE := 0.05
 const POSITION_TOLERANCE := 0.03
 
 var failures := PackedStringArray()
+# The longest frame of the last _finished() wait: finished is only seen on a frame, so a finish time can be late
+# by one. GitHub's runners render in software at a few frames per second, which failed mp3_finish by 12 ms.
+var finish_frame_slack := 0.0
 var timing_checks := AudioServer.get_driver_name() != "Dummy"
 
 
@@ -24,6 +27,11 @@ func _check(name: String, ok: bool) -> void:
 	_log(name, ok)
 	if not ok:
 		failures.push_back(name)
+
+
+# A finish time from _finish_time(), allowed one frame of lateness on top of `tolerance`.
+func _check_finish(name: String, got: float, expected: float, tolerance := FINISH_TOLERANCE) -> void:
+	_check_near(name, got, expected, tolerance + finish_frame_slack)
 
 
 func _check_near(name: String, got: float, expected: float, tolerance: float) -> void:
@@ -63,6 +71,27 @@ func _wait(seconds: float) -> void:
 	await get_tree().create_timer(seconds).timeout
 
 
+# Waits for `p` to emit `finished`, for `limit` seconds at most, and returns when it did (Time.get_ticks_usec()).
+# A sound that never finishes fails `<name>_finished` and returns 0, rather than hanging the suite until the
+# smoketest gives up on it without saying where it stopped.
+func _finished(p: Node, name: String, limit := 5.0) -> int:
+	var state := {"at": 0}
+	var on_finished := func() -> void: state.at = Time.get_ticks_usec()
+	p.finished.connect(on_finished, CONNECT_ONE_SHOT)
+	var deadline := Time.get_ticks_msec() + int(limit * 1000.0)
+	finish_frame_slack = 0.0
+	var frame_start := Time.get_ticks_usec()
+	while state.at == 0 and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		finish_frame_slack = maxf(finish_frame_slack, (now - frame_start) / 1000000.0)
+		frame_start = now
+	if state.at == 0:
+		p.finished.disconnect(on_finished)
+		_check("%s_finished" % name, false)
+	return state.at
+
+
 # `direction` is -1 when the position runs backward at that point (ping-pong return, backward loop).
 func _position_after(stream: AudioStream, seconds: float, pitch := 1.0, from := 0.0, direction := 1.0, type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> float:
 	var p := _player(stream, pitch, &"Master", type)
@@ -80,8 +109,8 @@ func _finish_time(stream: AudioStream, pitch := 1.0, type := AudioServer.PLAYBAC
 	var p := _player(stream, pitch, &"Master", type)
 	var start := Time.get_ticks_usec()
 	p.play()
-	await p.finished
-	var elapsed := (Time.get_ticks_usec() - start) / 1000000.0
+	var at := await _finished(p, "finish_time")
+	var elapsed := (at - start) / 1000000.0 if at else -1.0
 	p.queue_free()
 	return snappedf(elapsed, 0.001)
 
@@ -129,8 +158,8 @@ func _sample_playback() -> void:
 	var pingpong := _wav(0.4, AudioStreamWAV.LOOP_PINGPONG, 0.1, 0.3)
 	var backward := _wav(0.4, AudioStreamWAV.LOOP_BACKWARD, 0.1, 0.3)
 
-	_check_near("finish_pitch_1", await _finish_time(plain), 0.4, FINISH_TOLERANCE)
-	_check_near("finish_pitch_2", await _finish_time(plain, 2.0), 0.2, FINISH_TOLERANCE)
+	_check_finish("finish_pitch_1", await _finish_time(plain), 0.4)
+	_check_finish("finish_pitch_2", await _finish_time(plain, 2.0), 0.2)
 	_check_near("position_plain_0.25", await _position_after(plain, 0.25), 0.25, POSITION_TOLERANCE)
 	_check_near("position_seek_0.2_plus_0.1", await _position_after(plain, 0.1, 1.0, 0.2), 0.3, POSITION_TOLERANCE)
 	# Loops between 0.1 and 0.3 s.
@@ -150,18 +179,23 @@ func _sample_playback() -> void:
 	_check_near("seek_0.3_plus_0.05", snappedf(p.get_playback_position() - late, 0.001), 0.35, POSITION_TOLERANCE)
 	p.queue_free()
 
-	p = _player(looped)
+	# Both waits are corrected for overshoot, the first at pitch 1, the second at pitch 2. Not on a loop, so a late
+	# timer cannot wrap the position.
+	p = _player(_wav(2.0))
+	t0 = Time.get_ticks_usec()
 	p.play()
 	await _wait(0.1)
+	var late_before := (Time.get_ticks_usec() - t0) / 1000000.0 - 0.1
 	p.pitch_scale = 2.0
 	t0 = Time.get_ticks_usec()
 	await _wait(0.05)
 	late = (Time.get_ticks_usec() - t0) / 1000000.0 - 0.05
-	_check_near("pitch_change_mid_play", snappedf(p.get_playback_position() - late * 2.0, 0.001), 0.2, POSITION_TOLERANCE)
+	_check_near("pitch_change_mid_play", snappedf(p.get_playback_position() - late_before - late * 2.0, 0.001), 0.2, POSITION_TOLERANCE)
 	p.queue_free()
 
-	# Pause holds the position.
-	p = _player(looped)
+	# Pause holds the position. Not on a loop: a runner's late timers carried the resumed position past the loop
+	# end and back below where it was paused, which failed resumes_playing on audio that had resumed.
+	p = _player(_wav(2.0))
 	p.play()
 	await _wait(0.15)
 	p.stream_paused = true
@@ -184,7 +218,7 @@ func _sample_playback() -> void:
 	await _wait(0.05)
 	p.play()
 	_check("polyphony_playing", p.playing)
-	await p.finished
+	await _finished(p, "polyphony")
 	await _wait(0.15)
 	_check("polyphony_all_finished", not p.playing)
 	p.queue_free()
@@ -202,7 +236,7 @@ func _compressed_samples() -> void:
 		var at := length + 0.1
 		_check_near("%s_loop_position" % kind, await _position_after(stream, at), 0.1 + (at - length), POSITION_TOLERANCE)
 		stream.set("loop", false)
-		_check_near("%s_finish" % kind, await _finish_time(stream), length, FINISH_TOLERANCE)
+		_check_finish("%s_finish" % kind, await _finish_time(stream), length)
 
 
 func _bus_edits() -> void:
@@ -250,7 +284,7 @@ func _spatial_and_polyphonic() -> void:
 	p2d.play()
 	await _wait(0.05)
 	_check("player_2d_playing", p2d.playing)
-	await p2d.finished
+	await _finished(p2d, "player_2d")
 	_check("player_2d_finished", not p2d.playing)
 	p2d.queue_free()
 
@@ -272,7 +306,7 @@ func _stream_playback() -> void:
 	var plain := _wav(0.4)
 	var looped := _wav(0.4, AudioStreamWAV.LOOP_FORWARD, 0.1, 0.3)
 	var stream_type := AudioServer.PLAYBACK_TYPE_STREAM
-	_check_near("stream_finish", await _finish_time(plain, 1.0, stream_type), 0.4, FINISH_TOLERANCE + 0.03)
+	_check_finish("stream_finish", await _finish_time(plain, 1.0, stream_type), 0.4, FINISH_TOLERANCE + 0.03)
 	_check_near("stream_position_forward_0.45", await _position_after(looped, 0.45, 1.0, 0.0, 1.0, stream_type), 0.25, POSITION_TOLERANCE + 0.03)
 
 	# A bus effect hears it: AudioEffectCapture fills up and the bus meter moves.
@@ -315,7 +349,7 @@ func _stream_playback() -> void:
 	var randomizer := AudioStreamRandomizer.new()
 	randomizer.add_stream(-1, plain)
 	randomizer.add_stream(-1, _wav(0.4))
-	_check_near("randomizer_finish", await _finish_time(randomizer), 0.4, FINISH_TOLERANCE + 0.03)
+	_check_finish("randomizer_finish", await _finish_time(randomizer), 0.4, FINISH_TOLERANCE + 0.03)
 
 
 # What Sample playback cannot do is warned about, once: run_e2e.mjs expects each of these warnings exactly once
@@ -323,9 +357,9 @@ func _stream_playback() -> void:
 func _limitation_warnings() -> void:
 	var fx := _player(_wav(0.1), 1.0, &"Fx") # A reverb on the bus: bypassed by Sample playback.
 	fx.play()
-	await fx.finished
+	await _finished(fx, "fx_bus")
 	fx.play()
-	await fx.finished
+	await _finished(fx, "fx_bus_again")
 	fx.queue_free()
 	var long := _player(_wav(31.0)) # Decoded whole as a Sample.
 	long.volume_db = -80.0

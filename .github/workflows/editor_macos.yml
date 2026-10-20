@@ -1,0 +1,132 @@
+name: 🍎 macOS editor
+# Builds just the macOS editor, on demand (Actions → this workflow → Run workflow): a universal
+# (arm64 + x86_64), ad-hoc signed .app, uploaded zipped the way a release ships it. The flags are
+# those of macos_builds.yml's "Editor (target=editor)" job, which builds the released editor;
+# keep the two in step.
+on:
+  workflow_dispatch:
+    inputs:
+      scons-flags:
+        description: Extra SCons flags, after the release editor's (e.g. "precision=double" or "dev_build=yes")
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      scons-flags:
+        required: false
+        default: ""
+        type: string
+
+env:
+  SCONS_FLAGS: >-
+    dev_mode=yes
+    module_text_server_fb_enabled=yes
+    webgpu=yes
+
+jobs:
+  build:
+    runs-on: macos-26
+    name: Editor (target=editor)
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: macos-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download pre-built ANGLE
+        shell: sh
+        id: angle-sdk
+        run: |
+          if python ./misc/scripts/install_angle.py; then
+            echo "ANGLE_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANGLE SDK installation failed, building without ANGLE support."
+            echo "ANGLE_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download pre-built AccessKit
+        shell: sh
+        id: accesskit-sdk
+        run: |
+          if python3 ./misc/scripts/install_accesskit.py; then
+            echo "ACCESSKIT_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::AccessKit SDK installation failed, building without AccessKit support."
+            echo "ACCESSKIT_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Vulkan SDK
+        id: vulkan-sdk
+        run: |
+          if sh misc/scripts/install_vulkan_sdk_macos.sh; then
+            echo "VULKAN_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::macOS: Vulkan SDK installation failed, building without Vulkan support."
+            echo "VULKAN_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      # metal=no on x86_64 silences the warning that Metal is not supported there.
+      - name: Compilation (x86_64)
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=x86_64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }} metal=no ${{ inputs.scons-flags }}
+          platform: macos
+          target: editor
+
+      - name: Compilation (arm64)
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }} ${{ inputs.scons-flags }}
+          platform: macos
+          target: editor
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: macos-editor
+        continue-on-error: true
+
+      - name: Cache tint_convert_cli build
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-universal-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+
+      # Universal, like the editor it ships next to; generate_bundle() copies it into
+      # Contents/MacOS before signing.
+      - name: Build tint_convert_cli
+        env:
+          CXXFLAGS: -arch arm64 -arch x86_64
+        run: ./drivers/webgpu/tint_cli/build.sh
+
+      # Lipos the two binaries into a universal .app and ad-hoc signs it
+      # (platform_macos_builders.py's generate_bundle()); the compile is already done.
+      - name: Generate .app bundle
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=x86_64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }} generate_bundle=yes ${{ inputs.scons-flags }}
+          platform: macos
+          target: editor
+
+      - name: Package editor
+        uses: ./.github/actions/package-editor
+        with:
+          platform: macos
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: macos-editor
+          path: dist/godot-webgpu-editor-macos.zip

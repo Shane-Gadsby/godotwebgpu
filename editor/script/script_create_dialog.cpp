@@ -41,6 +41,7 @@
 #include "core/object/editor_language.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/gui/create_dialog.h"
@@ -207,26 +208,14 @@ String ScriptCreateDialog::_adjust_file_path(const String &p_base_path) const {
 	return base_dir.path_join(file_name + "." + extension);
 }
 
-String ScriptCreateDialog::_apply_default_script_folder(const String &p_base_path) const {
-	if (p_base_path.is_empty()) {
-		return p_base_path;
-	}
-
-	const String default_folder = GLOBAL_GET("editor/script/default_script_folder");
-	if (default_folder.is_empty() || !DirAccess::dir_exists_absolute(default_folder)) {
-		return p_base_path;
-	}
-
-	return default_folder.path_join(p_base_path.get_file());
-}
-
 void ScriptCreateDialog::config(const String &p_base_name, const String &p_base_path, bool p_built_in_enabled, bool p_load_enabled, bool p_use_default_folder) {
 	parent_name->set_text(p_base_name);
 	parent_name->deselect();
 	built_in_name->set_text("");
 
-	file_path->set_text(p_use_default_folder ? _apply_default_script_folder(p_base_path) : p_base_path);
+	file_path->set_text(p_use_default_folder ? EditorDefaultFolders::apply_folder(EditorDefaultFolders::CATEGORY_SCRIPTS, p_base_path) : p_base_path);
 	file_path->deselect();
+	EditorDefaultFolders::reset_remember_check_box(remember_folder, EditorDefaultFolders::CATEGORY_SCRIPTS);
 
 	built_in_enabled = p_built_in_enabled;
 	load_enabled = p_load_enabled;
@@ -426,6 +415,9 @@ void ScriptCreateDialog::_create_new() {
 			alert->popup_centered();
 			return;
 		}
+		if (remember_folder->is_pressed()) {
+			EditorDefaultFolders::set_folder(EditorDefaultFolders::CATEGORY_SCRIPTS, lpath.get_base_dir());
+		}
 	}
 
 	emit_signal(SNAME("script_created"), scr);
@@ -439,6 +431,9 @@ void ScriptCreateDialog::_load_exist() {
 		alert->set_text(vformat(TTR("Error loading script from %s"), path));
 		alert->popup_centered();
 		return;
+	}
+	if (remember_folder->is_pressed()) {
+		EditorDefaultFolders::set_folder(EditorDefaultFolders::CATEGORY_SCRIPTS, p_script->get_path().get_base_dir());
 	}
 
 	emit_signal(SNAME("script_created"), p_script);
@@ -710,6 +705,8 @@ void ScriptCreateDialog::_update_dialog() {
 
 	path_controls[0]->set_visible(!is_built_in);
 	path_controls[1]->set_visible(!is_built_in);
+	remember_folder_controls[0]->set_visible(!is_built_in);
+	remember_folder_controls[1]->set_visible(!is_built_in);
 	name_controls[0]->set_visible(is_built_in);
 	name_controls[1]->set_visible(is_built_in);
 
@@ -1038,6 +1035,15 @@ ScriptCreateDialog::ScriptCreateDialog() {
 	gc->add_child(hb);
 	path_controls[0] = label;
 	path_controls[1] = hb;
+
+	/* Default Folder */
+
+	Control *remember_folder_spacer = memnew(Control);
+	remember_folder = EditorDefaultFolders::create_remember_check_box(EditorDefaultFolders::CATEGORY_SCRIPTS);
+	gc->add_child(remember_folder_spacer);
+	gc->add_child(remember_folder);
+	remember_folder_controls[0] = remember_folder_spacer;
+	remember_folder_controls[1] = remember_folder;
 
 	/* Name */
 

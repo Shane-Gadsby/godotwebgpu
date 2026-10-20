@@ -30,9 +30,11 @@
 
 #pragma once
 
+#include "core/io/file_access.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/pair.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server_types.h"
@@ -67,6 +69,7 @@ private:
 	Vector<uint32_t> variant_to_group;
 	HashMap<int, LocalVector<int>> group_to_variant_map;
 	Vector<bool> group_enabled;
+	Vector<uint32_t> group_bake_requirements;
 
 	Vector<RD::PipelineImmutableSampler> immutable_samplers;
 	Vector<uint64_t> dynamic_buffers;
@@ -154,6 +157,23 @@ private:
 
 	static String shader_cache_user_dir;
 	static String shader_cache_res_dir;
+
+	// Shader cache extras: baked cache files an export deferred out of the startup
+	// shaders, in one archive the platform delivers after the game has started
+	// (the web shell fetches it in the background). Read through this index
+	// rather than mounted as a pack, because PackedData is not safe to extend
+	// while other threads are opening files. See build_shader_cache_extras().
+	struct ExtrasEntry {
+		uint64_t offset = 0;
+		uint64_t size = 0;
+	};
+	static String shader_cache_extras_path;
+	static Mutex shader_cache_extras_mutex;
+	static bool shader_cache_extras_indexed;
+	static HashMap<String, ExtrasEntry> shader_cache_extras_index;
+	// Opens the cache file at p_relative_path from the extras, positioned at its
+	// first byte, or returns null when the extras have not arrived or lack it.
+	static Ref<FileAccess> _open_from_extras(const String &p_relative_path);
 	static LocalVector<GeneralDefinesRefreshCallback> general_defines_refresh_callbacks;
 	static bool shader_cache_cleanup_on_start;
 	static bool shader_cache_save_compressed;
@@ -252,6 +272,34 @@ public:
 	int64_t get_group_count() const;
 	const LocalVector<int> &get_group_to_variants(int p_group) const;
 
+	// What a group needs before an exported game can ever enable it, for the
+	// shader baker's variant pruning. A group whose requirements the exported
+	// project cannot meet is left out of the baked cache; if the game enables it
+	// anyway, the cache misses and the group compiles from source at that point,
+	// exactly as an unbaked export would. Only lazily enabled groups should carry
+	// a requirement: a group enabled at startup is always reachable. See
+	// webgpu_notes/TASKS.md §2.27.
+	//
+	// The first two depend on the project; the rest on what the target device
+	// reports, so a group the target can never select (the FP16 scene shaders
+	// on a device without half floats, say) is never baked for it.
+	enum GroupBakeRequirement {
+		GROUP_BAKE_REQUIRES_XR = 1 << 0, // Multiview: only reachable with xr/shaders/enabled.
+		GROUP_BAKE_REQUIRES_ADVANCED = 1 << 1, // Forward+ advanced passes: motion vectors, separate specular, lightmaps, VoxelGI, SDFGI.
+		GROUP_BAKE_REQUIRES_HALF_FLOAT = 1 << 2,
+		GROUP_BAKE_REQUIRES_NO_HALF_FLOAT = 1 << 3,
+		GROUP_BAKE_REQUIRES_VRS = 1 << 4,
+		GROUP_BAKE_REQUIRES_IMAGE_ATOMICS = 1 << 5,
+		GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS = 1 << 6,
+		GROUP_BAKE_REQUIRES_VULKAN_MEMORY_MODEL = 1 << 7,
+		GROUP_BAKE_REQUIRES_NO_VULKAN_MEMORY_MODEL = 1 << 8,
+	};
+	void set_group_bake_requirements(int p_group, uint32_t p_requirements);
+	uint32_t get_group_bake_requirements(int p_group) const;
+	// The group's directory name in the shader cache (its hash), which is how a
+	// cache file path names its group.
+	String get_group_cache_dir_name(int p_group) const;
+
 	const String &get_name() const;
 
 	const Vector<uint64_t> &get_dynamic_buffers() const;
@@ -293,6 +341,15 @@ public:
 	static const String &get_shader_cache_user_dir();
 	static void set_shader_cache_res_dir(const String &p_dir);
 	static const String &get_shader_cache_res_dir();
+	// Where the platform puts the shader cache extras once they arrive. Looked
+	// up again on every cache miss until the file exists.
+	static void set_shader_cache_extras_path(const String &p_path);
+	static bool are_shader_cache_extras_loaded();
+	// The extras archive: "GDSX", a version, an entry count, then per entry the
+	// relative cache path and its offset and size in the file, then the data.
+	// p_files maps relative cache paths (as version_get_cache_file_relative_path()
+	// returns them) to cache file bytes.
+	static PackedByteArray build_shader_cache_extras(const Vector<Pair<String, Vector<uint8_t>>> &p_files);
 	static void set_shader_cache_save_compressed(bool p_enable);
 	static void set_shader_cache_save_compressed_zstd(bool p_enable);
 	static void set_shader_cache_save_debug(bool p_enable);

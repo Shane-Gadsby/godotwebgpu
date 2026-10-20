@@ -80,6 +80,7 @@
 #include "editor/export/project_zip_packer.h"
 #include "editor/export/register_exporters.h"
 #include "editor/file_system/dependency_editor.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/gui/editor_about.h"
 #include "editor/gui/editor_bottom_panel.h"
@@ -1923,6 +1924,9 @@ void EditorNode::save_resource_as(const Ref<Resource> &p_resource, const String 
 		new_resource_name_snake_case = "new_" + resource_name_snake_case + "." + preferred.front()->get().to_lower();
 	}
 
+	const EditorDefaultFolders::Category default_folder_category = EditorDefaultFolders::get_category_for_type(p_resource->get_class());
+	const String default_folder = EditorDefaultFolders::get_folder(default_folder_category);
+
 	if (!p_at_path.is_empty()) {
 		file->set_current_dir(p_at_path);
 		if (is_resource) {
@@ -1930,6 +1934,9 @@ void EditorNode::save_resource_as(const Ref<Resource> &p_resource, const String 
 		} else {
 			file->set_current_file(new_resource_name_snake_case);
 		}
+	} else if (!is_resource && !default_folder.is_empty()) {
+		file->set_current_dir(default_folder);
+		file->set_current_file(new_resource_name_snake_case);
 	} else if (!p_resource->get_path().get_base_dir().is_empty()) {
 		if (is_resource) {
 			if (!extensions.is_empty()) {
@@ -1946,6 +1953,7 @@ void EditorNode::save_resource_as(const Ref<Resource> &p_resource, const String 
 		file->set_current_path(new_resource_name_snake_case);
 	}
 	file->set_title(TTR("Save Resource As..."));
+	_set_file_default_folder_option(default_folder_category);
 	file->popup_file_dialog();
 }
 
@@ -2732,6 +2740,25 @@ bool EditorNode::is_scene_unsaved(int p_idx) {
 	return false;
 }
 
+void EditorNode::_set_file_default_folder_option(int p_category) {
+	// `file` serves many purposes, so every popup sets (or clears) the check box, which also unticks it.
+	file_default_folder_category = p_category;
+	file->set_option_count(0);
+	if (p_category != EditorDefaultFolders::CATEGORY_NONE) {
+		file->add_option(EditorDefaultFolders::get_remember_text(EditorDefaultFolders::Category(p_category)), Vector<String>(), 0);
+	}
+}
+
+void EditorNode::_apply_file_default_folder_option(const String &p_file) {
+	if (file_default_folder_category == EditorDefaultFolders::CATEGORY_NONE) {
+		return;
+	}
+	const EditorDefaultFolders::Category category = EditorDefaultFolders::Category(file_default_folder_category);
+	if (file->get_selected_options().get(EditorDefaultFolders::get_remember_text(category), false).operator bool()) {
+		EditorDefaultFolders::set_folder(category, p_file.get_base_dir());
+	}
+}
+
 void EditorNode::_dialog_action(String p_file) {
 	switch (current_menu_option) {
 		case SCENE_NEW_INHERITED_SCENE: {
@@ -2785,6 +2812,7 @@ void EditorNode::_dialog_action(String p_file) {
 				_save_scene_with_preview(p_file, scene_idx);
 				_add_to_recent_scenes(p_file);
 				save_editor_layout_delayed();
+				_apply_file_default_folder_option(p_file);
 
 				if (scene_idx != -1) {
 					_discard_changes();
@@ -2867,6 +2895,7 @@ void EditorNode::_dialog_action(String p_file) {
 		case RESOURCE_SAVE_AS: {
 			ERR_FAIL_COND(saving_resource.is_null());
 			save_resource_in_path(saving_resource, p_file);
+			_apply_file_default_folder_option(p_file);
 
 			saving_resource = Ref<Resource>();
 			ObjectID current_id = editor_history.get_current();
@@ -3490,6 +3519,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				file->set_current_path(scene->get_scene_file_path());
 			};
 			file->set_title(p_option == SCENE_OPEN_SCENE ? TTR("Open Scene") : TTR("Open Base Scene"));
+			_set_file_default_folder_option(EditorDefaultFolders::CATEGORY_NONE);
 			file->popup_file_dialog();
 
 		} break;
@@ -3628,9 +3658,12 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			} else if (extensions.size()) {
 				String root_name = scene->get_name();
 				root_name = EditorNode::adjust_scene_name_casing(root_name);
-				file->set_current_path(root_name + "." + extensions.front()->get().to_lower());
+				const String scene_file = root_name + "." + extensions.front()->get().to_lower();
+				const String default_folder = EditorDefaultFolders::get_folder(EditorDefaultFolders::CATEGORY_SCENES);
+				file->set_current_path(default_folder.is_empty() ? scene_file : default_folder.path_join(scene_file));
 			}
 			file->set_title(TTR("Save Scene As..."));
+			_set_file_default_folder_option(EditorDefaultFolders::CATEGORY_SCENES);
 			file->popup_file_dialog();
 
 		} break;
@@ -4000,6 +4033,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				file->set_current_path(scene->get_scene_file_path());
 			}
 			file->set_title(TTR("Pick a Main Scene"));
+			_set_file_default_folder_option(EditorDefaultFolders::CATEGORY_NONE);
 			file->popup_file_dialog();
 
 		} break;

@@ -50,6 +50,7 @@ private:
 	static Fog *singleton;
 
 	static int _get_fog_shader_group();
+	static void _set_fog_group_bake_requirements(ShaderRD &p_shader);
 	static int _get_fog_variant();
 	static int _get_fog_process_variant(int p_idx);
 

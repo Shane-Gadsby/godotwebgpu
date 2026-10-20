@@ -146,7 +146,11 @@ struct WGVertexFormat {
 
 struct WGShader {
 	// Per-stage shader modules. Indexed by RDD::ShaderStage enum value.
+	// Created on first use by a pipeline, not when the shader is: until then
+	// stage_wgsl holds the stage's final WGSL (see
+	// RenderingDeviceDriverWebGPU::_get_stage_module()). Read them through that.
 	WGPUShaderModule stage_modules[6] = {}; // SHADER_STAGE_MAX = 6 (vertex/frag/tess×2/compute/max)
+	CharString stage_wgsl[6];
 	WGPUShaderModule module = nullptr; // Legacy alias — points to first non-null module.
 
 	// Per-stage raw SPIR-V bytes. Stored for deferred specialization constant patching.
@@ -287,6 +291,24 @@ struct WGPipelineWrapper {
 	// constant factor uses the whole constant color, so while this pipeline is
 	// bound the driver sets the constant to (a, a, a, a) instead.
 	bool blend_constant_alpha = false;
+	// A compute pipeline is compiled on its first bind, not when it is created:
+	// see RenderingDeviceDriverWebGPU::compute_pipeline_create(). Until then
+	// compute_handle is null and this holds what creating it needs; the shader
+	// outlives the pipeline (RenderingDevice frees dependent pipelines first).
+	bool compute_pending = false;
+	LocalVector<RenderingDeviceDriver::PipelineSpecializationConstant> pending_specialization_constants;
+	CharString pending_label; // Also an asynchronous render pipeline's, below.
+	// Background prewarm (RenderingDeviceDriverWebGPU::_prewarm_compute_pipelines()):
+	// queued, or the token of an asynchronous creation in flight (0 if none).
+	bool queued_for_prewarm = false;
+	uint64_t prewarm_token = 0;
+	// A render pipeline created asynchronously
+	// (RenderingDeviceDriverWebGPU::pipeline_set_async_creation()): render_handle
+	// is null until the result arrives, and the token of the creation in flight is
+	// non-zero until then. RenderingDevice's users do not bind it before
+	// pipeline_is_ready(); one that failed to compile stays not ready.
+	bool render_pending = false;
+	uint64_t render_async_token = 0;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };

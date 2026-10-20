@@ -51,6 +51,7 @@
 #include "editor/export/editor_export_platform_pc.h"
 #include "editor/export/editor_export_plugin.h"
 #include "editor/export/register_exporters.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/gui/editor_file_dialog.h"
@@ -299,7 +300,7 @@ void register_editor_types() {
 	// For correct doc generation.
 	GLOBAL_DEF(PropertyInfo(Variant::STRING, "editor/run/main_run_args", PROPERTY_HINT_NONE, "monospace"), "");
 
-	GLOBAL_DEF(PropertyInfo(Variant::STRING, "editor/script/default_script_folder", PROPERTY_HINT_DIR), "");
+	EditorDefaultFolders::register_settings();
 	GLOBAL_DEF(PropertyInfo(Variant::STRING, "editor/script/templates_search_path", PROPERTY_HINT_DIR), "res://script_templates");
 
 	GLOBAL_DEF("editor/naming/default_signal_callback_name", "_on_{node_name}_{signal_name}");

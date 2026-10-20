@@ -34,6 +34,29 @@ produced by any build of this fork. That is deliberate — it makes measuring th
 cheap step and rebuilding the expensive one, which is the opposite of how this
 task was approached before.
 
+## The GPU process: `gpu_process_trace.mjs`
+
+Everything below measures the page's main thread. The work behind a WebGPU call -- parsing a shader module,
+compiling a pipeline -- runs on the GPU process's main thread (`CrGpuMain`), which also produces the page's
+frames, and the startup advances one step per animation frame. So GPU-process work can stall the load without a
+single slow call on the page. `gpu_process_trace.mjs` traces both processes with Dawn's trace categories from
+navigation to the first frame and prints the page thread's busy/idle split (and V8's lazy wasm compilation), the
+idle gap before each startup step, and what `CrGpuMain` was doing:
+
+```bash
+CI=1 node gpu_process_trace.mjs --dir <export-dir> [--args --verbose] [--warm] [--after <ms>] [--output trace.json]
+```
+
+`--after <ms>` keeps tracing that long past the first frame (default 500) and then lists every `CrGpuMain` task of
+30 ms or more after it, with the Dawn calls inside, and which thread did each kind of pipeline work -- the frames that
+stall once the game is running, not during the load. Without `CI=1` it runs system Chrome on the real GPU. It is
+what showed that `createRenderPipelineAsync()` compiles on `ThreadPoolForegroundWorker` while `createRenderPipeline()`
+compiles on `CrGpuMain` (TASKS.md §2.4, render pipelines compiled asynchronously).
+
+It is what found §2.4's root cause: on the platformer, 89 compute pipelines (~5.9 s on swiftshader) and ~500
+shader modules compiled on `CrGpuMain` before the first frame while the page sat idle between steps -- none of the
+pipelines and ~5% of the modules were used. `CHROMIUM_PATH` overrides the browser binary.
+
 ## What it can and cannot see
 
 On WebGPU the engine's first frame runs **synchronously inside `callMain()`**

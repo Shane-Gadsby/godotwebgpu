@@ -61,6 +61,11 @@ jobs:
     if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
     uses: ./.github/workflows/web_builds.yml
 
+  editor-plugins:
+    name: 🧩 Editor plugins
+    needs: static-checks
+    uses: ./.github/workflows/editor_plugins.yml
+
   # Third stage: every build succeeded on main, so draft a release with all their artifacts.
   # A job with `needs` on this list only runs if every one of them succeeded (the default
   # behavior without an explicit always()/success() condition), so no extra guard is needed
@@ -76,6 +81,7 @@ jobs:
       - macos-build
       - windows-build
       - web-build
+      - editor-plugins
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -90,24 +96,14 @@ jobs:
         with:
           path: artifacts
 
-      # The release ships exactly 4 files: one editor zip per desktop
-      # platform, and one combined export-templates .tpz. Every other
+      # The release ships one editor zip per desktop platform, one combined
+      # export-templates .tpz and the two braced GDScript editor plugins, every
+      # name but the plugins' carrying the engine version. Every other
       # downloaded artifact (mono/clang/sanitizer editor variants, mono/
       # minimal templates, per-arch Android jobs, etc.) is real, useful CI
       # output -- it stays available as a normal 60-day workflow artifact --
       # but was never meant to be end-user-facing, so it's deliberately not
       # attached to the release itself.
-      - name: Zip editor artifacts
-        working-directory: artifacts
-        run: |
-          for name in linux-editor macos-editor windows-editor; do
-            if [[ -d "$name" ]]; then
-              (cd "$name" && zip -qr "../${name}.zip" .)
-            else
-              echo "::warning::Editor artifact '$name' was not downloaded (its build job may have failed or been skipped) -- release will be missing this platform's editor."
-            fi
-          done
-
       - name: Resolve version string
         id: version
         run: |
@@ -124,6 +120,24 @@ jobs:
           )"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Zip editor artifacts
+        working-directory: artifacts
+        run: |
+          for os in linux macos windows; do
+            name="$os-editor"
+            release_zip="godot-webgpu-editor-${{ steps.version.outputs.version }}-$os.zip"
+            if [[ -f "$name/godot-webgpu-editor-$os.zip" ]]; then
+              # Packaged on the build runner (.github/actions/package-editor), with the
+              # executable bits that re-zipping the downloaded files here would lose.
+              cp "$name/godot-webgpu-editor-$os.zip" "$release_zip"
+            elif [[ -d "$name" ]]; then
+              echo "::warning::Editor artifact '$name' is not a packaged zip; re-zipping it here loses its executable bits."
+              (cd "$name" && zip -qr "../$release_zip" .)
+            else
+              echo "::warning::Editor artifact '$name' was not downloaded (its build job may have failed or been skipped) -- release will be missing this platform's editor."
+            fi
+          done
+
       - name: Package combined export-templates .tpz
         run: |
           python3 misc/scripts/package_release_tpz.py \
@@ -135,10 +149,20 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: main-${{ github.sha }}
-          name: main @ ${{ github.sha }}
+          # The version leads, so two drafts from different engine versions cannot be
+          # told apart only by their commit hashes.
+          name: Godot WebGPU ${{ steps.version.outputs.version }} @ ${{ github.sha }}
           draft: true
+          body: |
+            Editors for Linux, macOS (universal) and Windows, the export templates as one `.tpz`
+            (Editor → Manage Export Templates → Install from File), and the braced GDScript editor plugins.
+
+            **macOS:** the editor is ad-hoc signed, not notarized, so macOS blocks its first launch. Open it once, then
+            allow it in System Settings → Privacy & Security → *Open Anyway*, or run
+            `xattr -dr com.apple.quarantine godot_macos_editor.app`.
           files: |
-            artifacts/linux-editor.zip
-            artifacts/macos-editor.zip
-            artifacts/windows-editor.zip
+            artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-linux.zip
+            artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-macos.zip
+            artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-windows.zip
             artifacts/godot-webgpu-export-templates-${{ steps.version.outputs.version }}.tpz
+            artifacts/editor-plugins/*

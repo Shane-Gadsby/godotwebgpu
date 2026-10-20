@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/io/file_access_compressed.h"
 #include "core/os/os.h"
 #include "core/string/string_builder.h"
 #include "core/version.h"
@@ -119,6 +120,7 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 	separate_pack = active_platform.is_valid() && active_platform->uses_separate_pack(get_export_preset());
 	compiled_work_items.clear();
 	separate_pack_files.clear();
+	extras_pack_files.clear();
 
 	StringBuilder to_hash;
 	to_hash.append("[GodotVersionNumber]");
@@ -172,6 +174,13 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 			print_verbose(vformat("Shader baker: baking with %d target capability override(s) instead of the editor's device answers.", target_feature_overrides.size()));
 		}
 	}
+
+	// Which shader groups this export can never select, from the target's answers
+	// and the project. Part of the customization hash: a different decision bakes
+	// a different set of groups, so cached customizations must not be reused.
+	_compute_unmet_group_requirements(get_export_preset());
+	customization_configuration_hash = hash_murmur3_one_64(unmet_group_requirements, customization_configuration_hash);
+	customization_configuration_hash = hash_murmur3_one_64(deferred_group_requirements, customization_configuration_hash);
 
 	// Included all shaders created by renderers and effects.
 	ShaderRD::shaders_embedded_set_lock();
@@ -317,9 +326,15 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 	}
 	compiled_work_items.clear();
 
-	// Either the main pack (add_file) or the platform's separate shader pack.
-	auto ship_file = [&](const String &p_path, const PackedByteArray &p_bytes) {
-		if (separate_pack) {
+	// Either the main pack (add_file), the platform's separate shader pack, or
+	// the lazily loaded extras.
+	auto ship_file = [&](const String &p_path, const PackedByteArray &p_bytes, bool p_extras) {
+		if (p_extras) {
+			SeparatePackFile file;
+			file.path = p_path;
+			file.data = p_bytes;
+			extras_pack_files.push_back(file);
+		} else if (separate_pack) {
 			SeparatePackFile file;
 			file.path = p_path;
 			file.data = p_bytes;
@@ -339,7 +354,7 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 			}
 
 			PackedByteArray cache_file_bytes = ShaderRD::save_shader_cache_bytes(group_item.variants, work_result.variant_data);
-			ship_file(shader_cache_user_dir.path_join(group_item.cache_path), cache_file_bytes);
+			ship_file(shader_cache_user_dir.path_join(group_item.cache_path), cache_file_bytes, group_item.extras);
 
 			String cache_file_path = shader_cache_export_path.path_join(group_item.cache_path);
 			if (!DirAccess::exists(cache_file_path)) {
@@ -363,11 +378,13 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 		if (cache_list_access.is_valid()) {
 			String cache_list_line;
 			while (cache_list_line = cache_list_access->get_line(), !cache_list_line.is_empty()) {
-				// Only add if it wasn't already added.
-				if (!shader_paths_processed.has(cache_list_line)) {
+				// Only add if it wasn't already added, and not if this export pruned
+				// its group: a previous export may have baked it.
+				const String cache_group_dir = cache_list_line.get_slice("/", 1);
+				if (!shader_paths_processed.has(cache_list_line) && !pruned_group_dirs.has(cache_group_dir)) {
 					PackedByteArray cache_file_bytes = FileAccess::get_file_as_bytes(shader_cache_export_path.path_join(cache_list_line));
 					if (!cache_file_bytes.is_empty()) {
-						ship_file(shader_cache_user_dir.path_join(cache_list_line), cache_file_bytes);
+						ship_file(shader_cache_user_dir.path_join(cache_list_line), cache_file_bytes, deferred_group_dirs.has(cache_group_dir));
 					}
 				}
 
@@ -382,7 +399,18 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 		}
 	}
 
+	if (pruned_group_count > 0) {
+		print_line(vformat("Shader baker: left out %d shader group(s) this export cannot use (shader_baker/variant_pruning).", pruned_group_count));
+	}
+
+	if (!extras_pack_files.is_empty()) {
+		print_line(vformat("Shader baker: %d shader cache file(s) deferred to the shader extras.", extras_pack_files.size()));
+	}
+
 	shader_paths_processed.clear();
+	pruned_group_dirs.clear();
+	deferred_group_dirs.clear();
+	pruned_group_count = 0;
 	shader_work_results.clear();
 	shader_group_items.clear();
 
@@ -526,6 +554,217 @@ Node *ShaderBakerExportPlugin::_customize_scene(Node *p_root, const String &p_pa
 	return nullptr;
 }
 
+// Variant pruning (webgpu_notes/TASKS.md §2.27). Forward+'s advanced scene
+// shader group -- motion vectors, separate specular, lightmaps, VoxelGI and SDF
+// depth passes -- is about 70% of every material's baked shader bytes, and
+// render_forward_clustered.cpp enables it only when a frame needs one of:
+//
+//   motion vectors      TAA, FSR 2 / MetalFX temporal upscaling, a CompositorEffect
+//                       with needs_motion_vectors, the motion-vector debug draw
+//   separate specular   subsurface scattering, a CompositorEffect with
+//                       needs_separate_specular
+//   lightmaps           a LightmapGI
+//   VoxelGI / SDFGI     a VoxelGI node (also the VoxelGI dynamic-object render),
+//                       an Environment with SDFGI
+//
+// The scan below looks for all of them, conservatively: anything that *mentions*
+// one keeps the group. Property names are matched as bytes, which works for text
+// resources, scripts and shaders, and for binary resources too, whose property
+// names sit in a string table. Neither saver stores a property at its default, so
+// in a resource the name alone means it was set. Scripts and comments that only
+// talk about a feature keep the group too, which costs bytes, not correctness.
+//
+// Getting this wrong is not fatal: the runtime finds no cache file for the group
+// and compiles it from source the moment the feature turns on, as an unbaked
+// export would (ShaderRD::_load_from_cache() says so in a warning).
+struct ShaderBakerAdvancedMarker {
+	const char *text;
+	const char *reason;
+};
+
+static const ShaderBakerAdvancedMarker shader_baker_advanced_markers[] = {
+	{ "sdfgi_enabled", "SDFGI (Environment.sdfgi_enabled)" },
+	{ "use_taa", "TAA (use_taa)" },
+	{ "FSR2", "FSR 2 upscaling" },
+	{ "METALFX_TEMPORAL", "MetalFX temporal upscaling" },
+	{ "needs_motion_vectors", "a CompositorEffect needing motion vectors" },
+	{ "needs_separate_specular", "a CompositorEffect needing separate specular" },
+	{ "DEBUG_DRAW_MOTION_VECTORS", "the motion vector debug draw" },
+	{ "LightmapGI", "LightmapGI" },
+	{ "VoxelGI", "VoxelGI" },
+	{ "subsurf_scatter_enabled", "subsurface scattering (BaseMaterial3D)" },
+	{ "SSS_STRENGTH", "subsurface scattering (shader SSS_STRENGTH)" },
+	{ "bake_render_uv2", "RenderingServer.bake_render_uv2()" },
+	// The same features through RenderingServer directly.
+	{ "environment_set_sdfgi", "SDFGI (RenderingServer.environment_set_sdfgi())" },
+	{ "voxel_gi_create", "VoxelGI (RenderingServer.voxel_gi_create())" },
+	{ "lightmap_create", "lightmaps (RenderingServer.lightmap_create())" },
+	{ "NEEDS_MOTION_VECTORS", "a compositor effect needing motion vectors" },
+	{ "NEEDS_SEPARATE_SPECULAR", "a compositor effect needing separate specular" },
+};
+
+static bool _shader_baker_bytes_contain(const Vector<uint8_t> &p_bytes, const char *p_needle) {
+	const int64_t needle_len = strlen(p_needle);
+	const int64_t size = p_bytes.size();
+	const uint8_t *data = p_bytes.ptr();
+	for (int64_t i = 0; i + needle_len <= size; i++) {
+		const void *found = memchr(data + i, p_needle[0], size - needle_len - i + 1);
+		if (found == nullptr) {
+			return false;
+		}
+		i = (const uint8_t *)found - data;
+		if (memcmp(data + i, p_needle, needle_len) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static Vector<uint8_t> _shader_baker_read_for_scan(const String &p_path) {
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
+	if (f.is_null()) {
+		return Vector<uint8_t>();
+	}
+	uint8_t header[4] = {};
+	f->get_buffer(header, 4);
+	if (header[0] == 'R' && header[1] == 'S' && header[2] == 'C' && header[3] == 'C') {
+		// A compressed binary resource; same unwrapping ResourceLoaderBinary does.
+		Ref<FileAccessCompressed> fac;
+		fac.instantiate();
+		if (fac->open_after_magic(f) != OK) {
+			return Vector<uint8_t>();
+		}
+		Vector<uint8_t> bytes;
+		bytes.resize(fac->get_length());
+		fac->get_buffer(bytes.ptrw(), bytes.size());
+		return bytes;
+	}
+	f->seek(0);
+	Vector<uint8_t> bytes;
+	bytes.resize(f->get_length());
+	f->get_buffer(bytes.ptrw(), bytes.size());
+	return bytes;
+}
+
+// Returns the first reason found to keep the advanced group, or an empty string.
+static String _shader_baker_scan_dir_for_advanced(const String &p_dir) {
+	static const char *scanned_extensions[] = { "tscn", "tres", "scn", "res", "material", "lmbake", "gdshader", "gdshaderinc", "gd", "gdb", "cs" };
+
+	Ref<DirAccess> da = DirAccess::open(p_dir);
+	if (da.is_null()) {
+		return String();
+	}
+	if (p_dir != "res://" && da->file_exists(".gdignore")) {
+		return String();
+	}
+
+	LocalVector<String> subdirs;
+	da->list_dir_begin();
+	for (String name = da->get_next(); !name.is_empty(); name = da->get_next()) {
+		if (name.begins_with(".")) {
+			continue; // ".", "..", ".godot", hidden folders.
+		}
+		const String path = p_dir.path_join(name);
+		if (da->current_is_dir()) {
+			subdirs.push_back(path);
+			continue;
+		}
+		const String ext = name.get_extension().to_lower();
+		bool scanned = false;
+		for (const char *e : scanned_extensions) {
+			if (ext == e) {
+				scanned = true;
+				break;
+			}
+		}
+		if (!scanned) {
+			continue;
+		}
+
+		const Vector<uint8_t> bytes = _shader_baker_read_for_scan(path);
+		for (const ShaderBakerAdvancedMarker &marker : shader_baker_advanced_markers) {
+			if (_shader_baker_bytes_contain(bytes, marker.text)) {
+				return vformat("%s, in %s", marker.reason, path);
+			}
+		}
+		// scaling_3d_mode is set to a spatial scaler as often as to a temporal one.
+		// Text resources say which (2 is FSR 2, 4 MetalFX temporal; see
+		// RSE::ViewportScaling3DMode); anything else that sets it keeps the group.
+		if (_shader_baker_bytes_contain(bytes, "scaling_3d_mode")) {
+			const bool text_resource = ext == "tscn" || ext == "tres";
+			if (!text_resource || _shader_baker_bytes_contain(bytes, "scaling_3d_mode = 2") || _shader_baker_bytes_contain(bytes, "scaling_3d_mode = 4")) {
+				return vformat("a temporal 3D scaling mode (scaling_3d_mode), in %s", path);
+			}
+		}
+	}
+	da->list_dir_end();
+
+	for (const String &subdir : subdirs) {
+		const String reason = _shader_baker_scan_dir_for_advanced(subdir);
+		if (!reason.is_empty()) {
+			return reason;
+		}
+	}
+	return String();
+}
+
+void ShaderBakerExportPlugin::_compute_unmet_group_requirements(const Ref<EditorExportPreset> &p_preset) {
+	unmet_group_requirements = 0;
+	deferred_group_requirements = 0;
+	pruned_group_dirs.clear();
+	deferred_group_dirs.clear();
+	pruned_group_count = 0;
+
+	// Only with a capability override: without one the bake already covers just
+	// the groups the editor has enabled, and the target answers are the editor's.
+	if (!RD::get_singleton()->shader_bake_feature_override_is_active() || active_platform.is_null() || !active_platform->uses_variant_pruning(p_preset)) {
+		return;
+	}
+
+	// Called with the target's capability override installed, so these are the
+	// target device's answers.
+	RenderingDevice *rd = RD::get_singleton();
+	unmet_group_requirements |= rd->has_feature(RD::SUPPORTS_HALF_FLOAT) ? ShaderRD::GROUP_BAKE_REQUIRES_NO_HALF_FLOAT : ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT;
+	unmet_group_requirements |= rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT) ? ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS : ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS;
+	unmet_group_requirements |= rd->has_feature(RD::SUPPORTS_VULKAN_MEMORY_MODEL) ? ShaderRD::GROUP_BAKE_REQUIRES_NO_VULKAN_MEMORY_MODEL : ShaderRD::GROUP_BAKE_REQUIRES_VULKAN_MEMORY_MODEL;
+	if (!rd->has_feature(RD::SUPPORTS_ATTACHMENT_VRS)) {
+		unmet_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_VRS;
+	}
+
+	if (!bool(p_preset->get_project_setting("xr/shaders/enabled"))) {
+		unmet_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_XR;
+	}
+
+	String advanced_reason;
+	if (bool(p_preset->get_project_setting("rendering/anti_aliasing/quality/use_taa"))) {
+		advanced_reason = "TAA (project setting rendering/anti_aliasing/quality/use_taa)";
+	} else {
+		const RSE::ViewportScaling3DMode scaling_mode = RSE::ViewportScaling3DMode(int(p_preset->get_project_setting("rendering/scaling_3d/mode")));
+		if (RSE::scaling_3d_mode_type(scaling_mode) == RSE::VIEWPORT_SCALING_3D_TYPE_TEMPORAL) {
+			advanced_reason = "a temporal 3D scaling mode (project setting rendering/scaling_3d/mode)";
+		} else {
+			advanced_reason = _shader_baker_scan_dir_for_advanced("res://");
+			if (advanced_reason.is_empty()) {
+				// The scan above skips hidden folders, so it never sees what importers produce: a
+				// glTF, FBX or MetaHuman scene keeps its materials in its imported .scn.
+				advanced_reason = _shader_baker_scan_dir_for_advanced(ProjectSettings::get_singleton()->get_imported_files_path());
+			}
+		}
+	}
+
+	if (advanced_reason.is_empty()) {
+		if (active_platform->uses_lazy_shader_extras(p_preset)) {
+			deferred_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED;
+			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering or motion-vector compositor effects, so Forward+'s advanced shader variants go to the shader extras, which load in the background after the game starts.");
+		} else {
+			unmet_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED;
+			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering or motion-vector compositor effects, so Forward+'s advanced shader variants are not baked. If the game turns one of them on in a way the export cannot see (GDExtension code, say), they compile when first used; set shader_baker/variant_pruning to Disabled to bake them.");
+		}
+	} else {
+		print_line(vformat("Shader baker: baking Forward+'s advanced shader variants, needed for %s.", advanced_reason));
+	}
+}
+
 uint64_t ShaderBakerExportPlugin::_get_customization_configuration_hash() const {
 	return customization_configuration_hash;
 }
@@ -572,6 +811,16 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 			continue;
 		}
 
+		if (p_shader->get_group_bake_requirements(i) & unmet_group_requirements) {
+			const String group_dir = p_shader->get_group_cache_dir_name(i);
+			if (!group_dir.is_empty() && !pruned_group_dirs.has(group_dir)) {
+				pruned_group_dirs.insert(group_dir);
+				print_verbose(vformat("Shader baker: not baking %s group %d (requirements 0x%x not met by this export).", p_shader->get_name(), i, p_shader->get_group_bake_requirements(i)));
+			}
+			pruned_group_count++;
+			continue;
+		}
+
 		String cache_path = p_shader->version_get_cache_file_relative_path(p_version, i, shader_container_driver);
 		if (shader_paths_processed.has(cache_path)) {
 			continue;
@@ -580,6 +829,10 @@ void ShaderBakerExportPlugin::_customize_shader_version(ShaderRD *p_shader, RID 
 		shader_paths_processed.insert(cache_path);
 		groups_to_compile.insert(i);
 
+		group_items[i].extras = (p_shader->get_group_bake_requirements(i) & deferred_group_requirements) != 0;
+		if (group_items[i].extras) {
+			deferred_group_dirs.insert(p_shader->get_group_cache_dir_name(i));
+		}
 		group_items[i].cache_path = cache_path;
 		group_items[i].variants = p_shader->get_group_to_variants(i);
 
@@ -706,6 +959,12 @@ void ShaderBakerExportPlugin::_bake_compiled_work_items() {
 		OS::get_singleton()->delay_usec(16000);
 	}
 	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
+}
+
+Vector<ShaderBakerExportPlugin::SeparatePackFile> ShaderBakerExportPlugin::take_extras_pack_files() {
+	Vector<SeparatePackFile> files = extras_pack_files;
+	extras_pack_files.clear();
+	return files;
 }
 
 Vector<ShaderBakerExportPlugin::SeparatePackFile> ShaderBakerExportPlugin::take_separate_pack_files() {

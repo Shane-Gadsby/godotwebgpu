@@ -447,6 +447,7 @@ async function runScenePlaywright(scene, browser, timeout) {
     let deviceLost = false;
     let deviceLostMessage = '';
     let engineStarted = false;
+    let lastClick = 0;
     // Closing the page destroys the GPUDevice, which resolves engine.js's
     // `device.lost` promise with reason "destroyed" and logs "device lost" like any
     // other loss. That console event can still be delivered while page.close() is in
@@ -461,11 +462,18 @@ async function runScenePlaywright(scene, browser, timeout) {
     const matchedPatterns = new Set();
 
     let cacheMismatch = false;
+    // The last lines the page logged, printed when a pass pattern never shows: a self-checking scene that hangs
+    // otherwise says only that it did not finish, not where it stopped.
+    const consoleTail = [];
     page.on('console', (msg) => {
         if (!capturing) {
             return;
         }
         const text = msg.text();
+        consoleTail.push(text.substring(0, 200));
+        if (consoleTail.length > 12) {
+            consoleTail.shift();
+        }
         if (text.includes('none of it matches what this build asks for')) {
             cacheMismatch = true;
         }
@@ -511,16 +519,17 @@ async function runScenePlaywright(scene, browser, timeout) {
 
     // Wait for engine to start (and pass_patterns to match) or timeout
     const startTime = Date.now();
-    let clicked = false;
     while ((Date.now() - startTime) < timeout) {
         await new Promise(r => setTimeout(r, 500));
         // `click_to_start`: browsers keep Web Audio suspended until the page gets a user gesture, so a scene that
-        // checks audio is clicked once the engine is up (Godot resumes its AudioContext on input).
-        if (scene.click_to_start && engineStarted && !clicked) {
-            clicked = true;
+        // checks audio is clicked once the engine is up (Godot resumes its AudioContext on input). Keep clicking
+        // until its checks are in: one click can land before Godot listens for it and be lost, which made
+        // audio_parity fail intermittently.
+        const patternsReady = passPatterns.length === 0 || matchedPatterns.size >= passPatterns.length;
+        if (scene.click_to_start && engineStarted && !patternsReady && Date.now() - lastClick > 2000) {
+            lastClick = Date.now();
             await page.click('#canvas').catch(() => {});
         }
-        const patternsReady = passPatterns.length === 0 || matchedPatterns.size >= passPatterns.length;
         if (engineStarted && patternsReady && (Date.now() - startTime) > Math.min(timeout, 10000)) {
             break;
         }
@@ -585,7 +594,10 @@ async function runScenePlaywright(scene, browser, timeout) {
     const maxErrors = scene.max_errors || 0;
     const totalErrors = gpuErrors.length + shaderErrors.length + (deviceLost ? 1 : 0);
     const unmatchedPatterns = passPatterns.filter(p => !matchedPatterns.has(p));
-    const passed = totalErrors <= maxErrors && !deviceLost && !blankCanvas && unmatchedPatterns.length === 0;
+    // A scene whose engine never printed its banner tested nothing. On GitHub's runners Firefox had no
+    // display and blocklisted WebGPU, so every Firefox scene "passed" with no errors for weeks; only the
+    // scenes with required logs failed (webgpu_notes/TASKS.md §3 trap 53).
+    const passed = engineStarted && totalErrors <= maxErrors && !deviceLost && !blankCanvas && unmatchedPatterns.length === 0;
 
     return {
         status: passed ? 'PASS' : 'FAIL',
@@ -597,6 +609,7 @@ async function runScenePlaywright(scene, browser, timeout) {
         deviceLostMessage,
         blankCanvas,
         unmatchedPatterns,
+        consoleTail: unmatchedPatterns.length ? consoleTail : [],
         totalErrors,
         maxErrors,
         details: [...gpuErrors.slice(0, 3), ...shaderErrors.slice(0, 3)],
@@ -814,6 +827,10 @@ async function launchChrome() {
                 '--enable-features=Vulkan,UseSkiaRenderer',
                 '--use-angle=swiftshader',
                 '--enable-gpu',
+                // GitHub's runners have no sound server. Without one, Web Audio never
+                // advances and audio_parity waits out its timeout; fake output streams
+                // run on their own clock.
+                '--disable-audio-output',
             ],
         });
         return { browser, name: 'chrome', type: 'playwright' };
@@ -1014,6 +1031,9 @@ async function main() {
                 const blankNote = result.blankCanvas ? ', blank_canvas=true' : '';
                 const patNote = result.unmatchedPatterns?.length ? ', missing_patterns=' + result.unmatchedPatterns.length : '';
                 console.log(`FAIL  (gpu=${result.gpuErrors}, shader=${result.shaderErrors}, device_lost=${result.deviceLost}${blankNote}${patNote})`);
+                if (result.engineStarted === false) {
+                    console.log('         The engine never started (no "Godot Engine v" banner): no WebGPU adapter? (Firefox needs a display: run it under xvfb-run)');
+                }
                 // A device-lost failure with no GPU errors prints nothing else
                 // otherwise, which says only that something went wrong somewhere.
                 if (result.deviceLost && result.deviceLostMessage) {
@@ -1025,6 +1045,9 @@ async function main() {
                 if (result.unmatchedPatterns?.length) {
                     for (const p of result.unmatchedPatterns) {
                         console.log(`         Missing required log: "${p}"`);
+                    }
+                    for (const line of result.consoleTail || []) {
+                        console.log(`           | ${line}`);
                     }
                 }
                 if (result.details && result.details.length > 0) {
