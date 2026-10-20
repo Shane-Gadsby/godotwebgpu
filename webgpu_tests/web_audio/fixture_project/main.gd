@@ -179,18 +179,23 @@ func _sample_playback() -> void:
 	_check_near("seek_0.3_plus_0.05", snappedf(p.get_playback_position() - late, 0.001), 0.35, POSITION_TOLERANCE)
 	p.queue_free()
 
-	p = _player(looped)
+	# Both waits are corrected for overshoot, the first at pitch 1, the second at pitch 2. Not on a loop, so a late
+	# timer cannot wrap the position.
+	p = _player(_wav(2.0))
+	t0 = Time.get_ticks_usec()
 	p.play()
 	await _wait(0.1)
+	var late_before := (Time.get_ticks_usec() - t0) / 1000000.0 - 0.1
 	p.pitch_scale = 2.0
 	t0 = Time.get_ticks_usec()
 	await _wait(0.05)
 	late = (Time.get_ticks_usec() - t0) / 1000000.0 - 0.05
-	_check_near("pitch_change_mid_play", snappedf(p.get_playback_position() - late * 2.0, 0.001), 0.2, POSITION_TOLERANCE)
+	_check_near("pitch_change_mid_play", snappedf(p.get_playback_position() - late_before - late * 2.0, 0.001), 0.2, POSITION_TOLERANCE)
 	p.queue_free()
 
-	# Pause holds the position.
-	p = _player(looped)
+	# Pause holds the position. Not on a loop: a runner's late timers carried the resumed position past the loop
+	# end and back below where it was paused, which failed resumes_playing on audio that had resumed.
+	p = _player(_wav(2.0))
 	p.play()
 	await _wait(0.15)
 	p.stream_paused = true
