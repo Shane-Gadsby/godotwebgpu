@@ -33,6 +33,8 @@
 #include "../metahuman_dna.h"
 #include "../metahuman_rig.h"
 #include "../metahuman_riglogic.h"
+#include "metahuman_groom.h"
+#include "metahuman_hair.h"
 #include "metahuman_shaders.h"
 
 #include "core/config/project_settings.h"
@@ -125,6 +127,11 @@ struct Context {
 	Skeleton3D *skeleton = nullptr;
 	Ref<Skin> skin;
 	Vector<Transform3D> global_rests;
+
+	// Head LOD 0, which groom roots bind to.
+	MetaHumanSkinSurface head_surface;
+	// The groom eyelashes replace the DNA's eyelash cards.
+	bool groom_eyelashes = false;
 
 	template <typename T>
 	T option(const char *p_name, const T &p_default) const {
@@ -246,6 +253,10 @@ Ref<Shader> _shader(Context &p_ctx, const String &p_kind) {
 		code = MetaHumanShaders::EYELASHES;
 	} else if (p_kind == "cloth") {
 		code = MetaHumanShaders::CLOTH;
+	} else if (p_kind == "hair_strands") {
+		code = MetaHumanShaders::HAIR_STRANDS;
+	} else if (p_kind == "hair_shell") {
+		code = MetaHumanShaders::HAIR_SHELL;
 	}
 	Ref<Shader> shader;
 	if (!code.is_empty()) {
@@ -584,12 +595,15 @@ void _add_dna_meshes(Context &p_ctx, const LoadedDNA &p_dna, const String &p_rol
 				info.material_type = def.get("type", "");
 				info.hidden = _is_hidden_material(def);
 			}
-			if (info.hidden) {
+			if (info.hidden || (info.material_type == "eyelashes" && p_ctx.groom_eyelashes)) {
 				continue;
 			}
 			Array arrays;
 			if (!_build_dna_surface(p_ctx, p_dna, mesh_index, info, arrays)) {
 				continue;
+			}
+			if (dna_name == "head_lod0_mesh") {
+				p_ctx.head_surface.set_from_arrays(arrays);
 			}
 			const String material_id = info.material_id.is_empty() ? dna_name : info.material_id;
 			const Ref<Material> material = _material(p_ctx, material_id, dna_name.trim_suffix("_mesh"));
@@ -613,6 +627,225 @@ void _add_dna_meshes(Context &p_ctx, const LoadedDNA &p_dna, const String &p_rol
 			p_ctx.skeleton->add_child(instance, true);
 			instance->set_owner(p_ctx.skeleton->get_owner());
 		}
+	}
+}
+
+// Grooms -----------------------------------------------------------------------------------------
+
+enum GroomKind {
+	GROOM_SCALP,
+	GROOM_EYEBROWS,
+	GROOM_EYELASHES,
+	GROOM_FUZZ,
+	GROOM_UNKNOWN,
+};
+
+enum ScalpMode {
+	SCALP_NONE,
+	SCALP_SHELL,
+};
+
+enum StrandMode {
+	STRANDS_NONE,
+	STRANDS_ON,
+};
+
+enum EyelashMode {
+	EYELASHES_DNA_CARDS,
+	EYELASHES_STRANDS,
+};
+
+struct GroomSource {
+	String path;
+	GroomKind kind = GROOM_UNKNOWN;
+	Dictionary material; // The manifest's material, with hair_color.
+	Dictionary settings; // The component's groom settings (root_scale, tip_scale, ...).
+};
+
+GroomKind _groom_kind(const String &p_name, const String &p_material_type) {
+	const String type = p_material_type.to_lower();
+	const String name = p_name.to_lower();
+	if (type == "eyebrows" || name.contains("eyebrow")) {
+		return GROOM_EYEBROWS;
+	}
+	if (type == "eyelashes_groom" || name.contains("eyelash")) {
+		return GROOM_EYELASHES;
+	}
+	if (type == "peach_fuzz" || name.contains("fuzz")) {
+		return GROOM_FUZZ;
+	}
+	if (type == "hair" || name == "hair" || name.contains("hair")) {
+		return GROOM_SCALP;
+	}
+	return GROOM_UNKNOWN;
+}
+
+// The grooms of the export: from the manifest's alembic components, else Grooms/*.abc by file name.
+Vector<GroomSource> _groom_sources(const Context &p_ctx) {
+	Vector<GroomSource> sources;
+	const Array components = p_ctx.manifest.get("components", Array());
+	for (int i = 0; i < components.size(); i++) {
+		const Dictionary component = components[i];
+		if (String(component.get("type", "")) != "alembic") {
+			continue;
+		}
+		GroomSource source;
+		source.path = p_ctx.folder.path_join(String(component.get("path", "")));
+		source.settings = component.get("groom", Dictionary());
+		const Array materials = component.get("materials", Array());
+		if (!materials.is_empty()) {
+			const String id = Dictionary(materials[0]).get("name", "");
+			if (p_ctx.material_defs.has(id)) {
+				source.material = p_ctx.material_defs[id];
+			}
+		}
+		source.kind = _groom_kind(component.get("name", ""), source.material.get("type", ""));
+		sources.push_back(source);
+	}
+	if (sources.is_empty()) {
+		const String dir = p_ctx.folder.path_join("Grooms");
+		for (const char *name : { "hair", "eyebrows", "eyelashes", "fuzz" }) {
+			const String path = dir.path_join(String(name) + ".abc");
+			if (FileAccess::exists(path)) {
+				GroomSource source;
+				source.path = path;
+				source.kind = _groom_kind(name, "");
+				sources.push_back(source);
+			}
+		}
+	}
+	return sources;
+}
+
+// First and last colors of a manifest color ramp.
+void _ramp_ends(const Dictionary &p_hair_color, const String &p_ramp, const Color &p_default, Color &r_first, Color &r_last) {
+	const Dictionary ramps = p_hair_color.get("ramps", Dictionary());
+	const Array ramp = ramps.get(p_ramp, Array());
+	r_first = p_default;
+	r_last = p_default;
+	if (ramp.is_empty()) {
+		return;
+	}
+	r_first = _color(Dictionary(ramp[0]).get("color", Variant()), p_default);
+	r_last = _color(Dictionary(ramp[ramp.size() - 1]).get("color", Variant()), p_default);
+}
+
+Ref<Material> _hair_material(Context &p_ctx, const GroomSource &p_source, bool p_shell, float p_max_width, bool p_has_groom_color) {
+	const Dictionary hair_color = p_source.material.get("hair_color", Dictionary());
+	const Color base = _color(hair_color.get("color", Variant()), Color(0.02, 0.015, 0.01));
+	Ref<ShaderMaterial> material;
+	material.instantiate();
+	material->set_name(String(p_source.material.get("display_name", p_source.path.get_file().get_basename())) + (p_shell ? "_Shell" : "_Strands"));
+	material->set_shader(_shader(p_ctx, p_shell ? "hair_shell" : "hair_strands"));
+	material->set_shader_parameter("roughness", hair_color.get("roughness", 0.4));
+	// The manifest's colors are linear; source_color uniforms take sRGB.
+	const bool use_groom_color = p_has_groom_color && hair_color.is_empty();
+	material->set_shader_parameter("use_groom_color", use_groom_color ? 1.0 : 0.0);
+	if (p_shell) {
+		// A shell is lit like an opaque surface, but hair reads lighter than its strands' color because
+		// light scatters through it; without that a dark groom renders as black plastic. The square
+		// root lifts dark colors most (0.0003 -> 0.017 linear) and leaves light ones nearly alone.
+		const Color lifted(Math::sqrt(base.r), Math::sqrt(base.g), Math::sqrt(base.b));
+		material->set_shader_parameter("hair_color", lifted.linear_to_srgb());
+	} else {
+		Color root, tip, variation_a, variation_b;
+		_ramp_ends(hair_color, "root_to_tip", base, root, tip);
+		_ramp_ends(hair_color, "variation", base, variation_a, variation_b);
+		// The variation ramp holds absolute colors; the shader scales the root-to-tip color by it, so
+		// pass it as per-channel factors around the base color (linear, no sRGB hint).
+		const auto factor = [&base](const Color &p_color) {
+			return Vector3(p_color.r / MAX(base.r, 1e-5f), p_color.g / MAX(base.g, 1e-5f), p_color.b / MAX(base.b, 1e-5f)).clampf(0.0, 4.0);
+		};
+		material->set_shader_parameter("root_color", root.linear_to_srgb());
+		material->set_shader_parameter("tip_color", tip.linear_to_srgb());
+		material->set_shader_parameter("variation_a", factor(variation_a));
+		material->set_shader_parameter("variation_b", factor(variation_b));
+		material->set_shader_parameter("max_width", p_max_width);
+		material->set_shader_parameter("root_scale", p_source.settings.get("root_scale", 1.0));
+		material->set_shader_parameter("tip_scale", p_source.settings.get("tip_scale", 0.5));
+	}
+	return material;
+}
+
+void _add_grooms(Context &p_ctx, const Vector<GroomSource> &p_sources) {
+	ERR_FAIL_COND_MSG(p_ctx.head_surface.is_empty(), "MetaHuman: no head LOD 0 to bind the grooms to.");
+	const float distance_scale = p_ctx.option("metahuman/lods/distance_scale", 1.0f);
+	for (const GroomSource &source : p_sources) {
+		bool shell = false;
+		float visible_to = 0.0; // Meters; 0 is always.
+		switch (source.kind) {
+			case GROOM_SCALP:
+				if (p_ctx.option("metahuman/hair/scalp", (int)SCALP_SHELL) != SCALP_SHELL) {
+					continue;
+				}
+				shell = true;
+				break;
+			case GROOM_EYEBROWS:
+				if (p_ctx.option("metahuman/hair/eyebrows", (int)STRANDS_ON) != STRANDS_ON) {
+					continue;
+				}
+				visible_to = FACE_LOD_DISTANCES[3];
+				break;
+			case GROOM_EYELASHES:
+				if (!p_ctx.groom_eyelashes) {
+					continue;
+				}
+				visible_to = FACE_LOD_DISTANCES[3];
+				break;
+			case GROOM_FUZZ:
+				if (p_ctx.option("metahuman/hair/fuzz", (int)STRANDS_NONE) != STRANDS_ON) {
+					continue;
+				}
+				visible_to = FACE_LOD_DISTANCES[0];
+				break;
+			case GROOM_UNKNOWN:
+				WARN_PRINT(vformat("MetaHuman: skipping groom '%s': not scalp hair, eyebrows, eyelashes or fuzz.", source.path));
+				continue;
+		}
+
+		MetaHumanGroom groom;
+		if (MetaHumanGroom::load(source.path, groom) != OK) {
+			continue;
+		}
+		Array arrays;
+		float max_width = 0.0;
+		bool built = false;
+		if (shell) {
+			MetaHumanHair::ShellSettings settings;
+			settings.voxel_size = p_ctx.option("metahuman/hair/shell_voxel_size_mm", 3.0f) * 0.001f;
+			settings.target_triangles = p_ctx.option("metahuman/hair/shell_triangles", 8000);
+			built = MetaHumanHair::build_shell(groom, p_ctx.head_surface, settings, arrays);
+		} else {
+			MetaHumanHair::StrandSettings settings;
+			settings.strand_fraction = p_ctx.option("metahuman/hair/strand_fraction", 1.0f);
+			built = MetaHumanHair::build_strands(groom, p_ctx.head_surface, settings, arrays, max_width);
+		}
+		if (!built) {
+			WARN_PRINT(vformat("MetaHuman: groom '%s' produced no geometry.", source.path));
+			continue;
+		}
+
+		const Ref<Material> material = _hair_material(p_ctx, source, shell, max_width, !groom.colors.is_empty());
+		const String name = source.path.get_file().get_basename() + (shell ? "_shell" : "_strands");
+		Ref<ImporterMesh> mesh;
+		mesh.instantiate();
+		mesh->set_name(name);
+		mesh->add_surface(Mesh::PRIMITIVE_TRIANGLES, arrays, TypedArray<Array>(), Dictionary(), material, material->get_name(), Mesh::ARRAY_FLAG_USE_8_BONE_WEIGHTS);
+
+		ImporterMeshInstance3D *instance = memnew(ImporterMeshInstance3D);
+		instance->set_name(name);
+		instance->set_mesh(mesh);
+		instance->set_skin(p_ctx.skin);
+		instance->set_skeleton_path(NodePath(".."));
+		instance->set_visibility_range_end(visible_to * distance_scale);
+		if (!shell) {
+			// Strands are blended: they cast no shadow (Godot skips blended materials there anyway).
+			instance->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
+		}
+		p_ctx.skeleton->add_child(instance, true);
+		instance->set_owner(p_ctx.skeleton->get_owner());
+		const PackedInt32Array indices = arrays[Mesh::ARRAY_INDEX];
+		print_verbose(vformat("MetaHuman: groom '%s': %d curves, %d triangles as %s.", source.path, groom.get_curve_count(), indices.size() / 3, shell ? "a shell" : "strands"));
 	}
 }
 
@@ -841,6 +1074,13 @@ void EditorSceneFormatImporterMetaHuman::get_import_options(const String &p_path
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/lods/body_lod_count", PROPERTY_HINT_RANGE, "1,4,1"), 4));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/lods/distance_scale", PROPERTY_HINT_RANGE, "0.1,10,0.01"), 1.0));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::BOOL, "metahuman/materials/subsurface_scattering"), true));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp", PROPERTY_HINT_ENUM, "None,Shell"), SCALP_SHELL));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/eyebrows", PROPERTY_HINT_ENUM, "None,Strands"), STRANDS_ON));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/eyelashes", PROPERTY_HINT_ENUM, "DNA Cards,Strands"), EYELASHES_STRANDS));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/fuzz", PROPERTY_HINT_ENUM, "None,Strands"), STRANDS_NONE));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/hair/strand_fraction", PROPERTY_HINT_RANGE, "0.05,1,0.01"), 1.0));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/hair/shell_voxel_size_mm", PROPERTY_HINT_RANGE, "1,10,0.1"), 3.0));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/shell_triangles", PROPERTY_HINT_RANGE, "500,100000,100"), 8000));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::BOOL, "metahuman/textures/configure_import"), true));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/textures/max_size", PROPERTY_HINT_ENUM, "No Limit:0,512:512,1024:1024,2048:2048,4096:4096,8192:8192"), 2048));
 }
@@ -907,8 +1147,16 @@ Node *EditorSceneFormatImporterMetaHuman::import_scene(const String &p_path, uin
 	if (want_body) {
 		_add_dna_meshes(ctx, body_dna, "body", BODY_LOD_DISTANCES, (int)std::size(BODY_LOD_DISTANCES), ctx.option("metahuman/lods/body_lod_count", 4));
 	}
+	Vector<GroomSource> grooms;
 	if (want_face) {
+		grooms = _groom_sources(ctx);
+		for (const GroomSource &groom : grooms) {
+			if (groom.kind == GROOM_EYELASHES && ctx.option("metahuman/hair/eyelashes", (int)EYELASHES_STRANDS) == EYELASHES_STRANDS) {
+				ctx.groom_eyelashes = true;
+			}
+		}
 		_add_dna_meshes(ctx, face_dna, "head", FACE_LOD_DISTANCES, (int)std::size(FACE_LOD_DISTANCES), ctx.option("metahuman/lods/face_lod_count", 8));
+		_add_grooms(ctx, grooms);
 	}
 
 #ifdef MODULE_FBX_ENABLED

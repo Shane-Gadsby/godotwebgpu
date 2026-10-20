@@ -43,8 +43,7 @@ if [[ ! -f "$PROJECT/MH/head.dna" ]]; then
     fi
     [[ -f "$SOURCE/head.dna" ]] || { echo "no head.dna in $SOURCE"; exit 1; }
     mkdir -p "$PROJECT/MH"
-    # Grooms (Alembic) are not imported yet (phase 2).
-    (cd "$SOURCE" && find . -maxdepth 1 -mindepth 1 ! -name Grooms -exec cp -r {} "$PROJECT/MH/" \;)
+    cp -r "$SOURCE"/. "$PROJECT/MH/"
 fi
 
 cp "$HERE/verify.gd" "$HERE/shot.gd" "$HERE/bench.gd" "$PROJECT/"

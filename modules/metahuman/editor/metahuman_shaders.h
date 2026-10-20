@@ -191,4 +191,129 @@ void fragment() {
 }
 )";
 
+// Groom strands (eyebrows, groom eyelashes, fuzz) as camera-facing ribbons; see
+// MetaHumanHair::build_strands() for the vertex layout. Each ribbon is at least min_pixel_width wide
+// and its alpha drops by the widening, so thin strands thin out at distance instead of flickering.
+inline constexpr const char *HAIR_STRANDS = R"(shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;
+
+uniform float max_width = 0.0001;
+uniform float width_scale = 1.0;
+uniform float root_scale = 1.0;
+uniform float tip_scale = 0.5;
+// Below ~2 px a ribbon covers pixel centers only now and then and breaks into dots.
+uniform float min_pixel_width = 2.0;
+uniform vec3 root_color : source_color = vec3(0.02, 0.015, 0.01);
+uniform vec3 tip_color : source_color = vec3(0.02, 0.015, 0.01);
+// Per-channel factors on the root-to-tip color, picked per strand.
+uniform vec3 variation_a = vec3(1.0);
+uniform vec3 variation_b = vec3(1.0);
+uniform float use_groom_color = 0.0;
+uniform float roughness : hint_range(0.0, 1.0) = 0.4;
+uniform float opacity : hint_range(0.0, 1.0) = 1.0;
+// Coverage of a sub-pixel strand is width / pixel; raised to this power. 1 is physically right, but
+// one blended pass of strands that thin reads far lighter than the groom does with temporal
+// accumulation, so brows and lashes default to 0.5.
+uniform float coverage_exponent : hint_range(0.1, 1.0) = 0.5;
+// Brows and lashes lie within a fraction of a millimeter of the skin; pulled this far toward the
+// camera they stop depth-fighting it (seen as stipple at portrait distance).
+uniform float depth_offset = 0.0005;
+
+varying float v_coverage;
+varying float v_t;
+varying float v_seed;
+varying vec3 v_groom_color;
+
+void vertex() {
+	// Worked in world space (camera facing, pixel width), applied in model space: VERTEX here is the
+	// skinned point, relative to the skeleton.
+	mat3 to_world = mat3(MODEL_MATRIX);
+	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec3 t = normalize(to_world * TANGENT);
+	vec3 to_camera = normalize(CAMERA_POSITION_WORLD - world);
+	vec3 side = cross(t, to_camera);
+	float side_length = length(side);
+	side = side_length > 1e-5 ? side / side_length : normalize(cross(t, vec3(0.0, 1.0, 0.0)));
+	float width = UV2.x * max_width * width_scale * mix(root_scale, tip_scale, UV.y);
+	float depth = max(distance(CAMERA_POSITION_WORLD, world), 1e-3);
+	// abs(): the projection's Y can be flipped, making [1][1] negative.
+	float pixel = depth * 2.0 / (abs(PROJECTION_MATRIX[1][1]) * VIEWPORT_SIZE.y);
+	float drawn = max(width, pixel * min_pixel_width);
+	v_coverage = clamp(width / drawn, 0.0, 1.0);
+	mat3 to_model = inverse(to_world);
+	VERTEX += to_model * (side * (UV.x - 0.5) * drawn + to_camera * depth_offset);
+	vec3 n = normalize(cross(side, t));
+	n = dot(n, to_camera) < 0.0 ? -n : n;
+	NORMAL = normalize(to_model * n);
+	TANGENT = normalize(to_model * t);
+	BINORMAL = normalize(to_model * side);
+	v_t = UV.y;
+	v_seed = UV2.y;
+	v_groom_color = COLOR.rgb;
+}
+
+void fragment() {
+	vec3 base = mix(root_color, tip_color, v_t) * mix(variation_a, variation_b, v_seed);
+	ALBEDO = mix(base, v_groom_color, use_groom_color);
+	ROUGHNESS = roughness;
+	SPECULAR = 0.5;
+	ANISOTROPY = 0.6;
+	ALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
+}
+)";
+
+// A groom baked to one opaque mesh (MetaHumanHair::build_shell): TANGENT follows the strands, which
+// Godot's anisotropic GGX stretches the highlight along; a fine noise across the flow draws strands.
+inline constexpr const char *HAIR_SHELL = R"(shader_type spatial;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert_wrap, specular_schlick_ggx;
+
+uniform vec3 hair_color : source_color = vec3(0.1, 0.07, 0.05);
+uniform float use_groom_color = 0.0;
+uniform float roughness : hint_range(0.0, 1.0) = 0.7;
+uniform float specular : hint_range(0.0, 1.0) = 0.2;
+uniform float anisotropy : hint_range(-1.0, 1.0) = 0.8;
+uniform float strand_frequency = 350.0;
+uniform float strand_contrast : hint_range(0.0, 1.0) = 0.2;
+// How far the strand noise tilts the normal across the flow, breaking the highlight into streaks.
+uniform float strand_tilt : hint_range(0.0, 1.0) = 0.12;
+
+varying vec3 v_position;
+varying vec3 v_binormal;
+varying vec3 v_groom_color;
+
+float hash(float p) {
+	return fract(sin(p * 12.9898) * 43758.5453);
+}
+
+float strand_noise(float x) {
+	float i = floor(x);
+	return mix(hash(i), hash(i + 1.0), smoothstep(0.0, 1.0, fract(x)));
+}
+
+void vertex() {
+	v_position = VERTEX;
+	v_binormal = cross(NORMAL, TANGENT.xyz);
+	v_groom_color = COLOR.rgb;
+}
+
+void fragment() {
+	// The across-the-strands coordinate is taken per fragment: per vertex it changes by many strands
+	// across a triangle and interpolates into a maze.
+	float across = dot(v_position, normalize(v_binormal)) * strand_frequency;
+	// Fade the fine strands out where they get finer than a pixel or two; they alias into a maze.
+	float fine_detail = clamp(1.5 - fwidth(across), 0.0, 1.0);
+	float fine = mix(0.5, strand_noise(across), fine_detail);
+	float coarse = strand_noise(across * 0.17 + 31.0);
+	float strands = mix(fine, coarse, 0.4);
+	vec3 base = mix(hair_color, v_groom_color, use_groom_color);
+	ALBEDO = base * (1.0 - strand_contrast + strand_contrast * 2.0 * strands);
+	// Tilt the normal across the strands (tangent space: x along the flow, y across it).
+	NORMAL_MAP = normalize(vec3(0.0, (strands - 0.5) * 2.0 * strand_tilt, 1.0)) * 0.5 + 0.5;
+	ROUGHNESS = clamp(roughness + (0.5 - fine) * 0.2, 0.0, 1.0);
+	SPECULAR = specular;
+	ANISOTROPY = anisotropy;
+	AO = 0.55 + 0.45 * strands;
+}
+)";
+
 } // namespace MetaHumanShaders
