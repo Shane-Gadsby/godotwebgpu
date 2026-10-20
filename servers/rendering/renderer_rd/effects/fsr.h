@@ -70,6 +70,14 @@ private:
 	FsrUpscaleShaderRD fsr_shader;
 	RID shader_version;
 	PipelineDeferredRD pipeline;
+
+	// Variant 0's define text depends on SUPPORTS_HALF_FLOAT, so the shader baker
+	// asks for it again with the export target's answers (see
+	// ShaderRD::add_general_defines_refresh_callback()). Without this an editor
+	// with half floats baked a variant a WebGPU export never asked for.
+	static FSR *singleton;
+	static String _normal_variant_define();
+	static void _refresh_variant_defines();
 };
 
 } // namespace RendererRD

@@ -478,9 +478,17 @@ because the first frame never finished to start the fetch.
 
 **Not yet done:** a real-GPU Forward+ run (swiftshader cannot run Forward+ properly — CLAUDE.md), and the
 Forward+ matrix with pruning on (its fixture builds materials in GDScript, so the scan keeps the advanced group
-for any feature it toggles by name). **Found on the way, pre-existing and unrelated:** `OctmapFilterRasterShaderRD`,
-`OctmapDownsamplerRasterShaderRD`, `OctmapRoughnessRasterShaderRD` and `FsrUpscaleShaderRD` are never in the
-baked cache at all (missing with pruning disabled too), so every export compiles them at startup.
+for any feature it toggles by name). **Found on the way, and fixed the same day:** `OctmapFilterRasterShaderRD`, `OctmapDownsamplerRasterShaderRD`,
+`OctmapRoughnessRasterShaderRD` and `FsrUpscaleShaderRD` were never in the baked cache, so every export compiled them
+at startup (`translated: 1`, four cache misses). Two causes, both "the editor's device decides what exists":
+`FSR::FSR()` picked variant 0's define text from `SUPPORTS_HALF_FLOAT` at construction, so the Vulkan editor baked a
+group the WebGPU runtime never asks for -- it now registers a general-defines refresh callback
+(`FSR::_refresh_variant_defines()`), the same mechanism as the clustered SDF variant; and `CopyEffects` creates the
+raster octmap shaders only when the device has fewer than six storage images per stage, which an editor never has
+and a WebGPU adapter may (swiftshader, some phones), so they never existed to be baked -- its refresh callback
+(`CopyEffects::_create_raster_octmap_versions_for_bake()`) now creates bake-only versions when a target override is
+active. Platformer, forced Forward+: all four in `index.shaders.pck`, `translated: 0`, **zero** shader cache misses
+during startup.
 
 *(First cut landed 2026-10-14 — the numbers below are the original measurement; the pck is now
 62.36 MB. See "Landed" at the end.)*
@@ -2074,6 +2082,13 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     GPU-less container, build a scratch template with the `textures_per_stage < 48` fallback in
     `RendererCompositorRD::initialize()` lowered to 16 (never commit it): shader loading, caching and timing are real,
     but draws whose pipelines exceed the adapter's limit fail, so it says nothing about the image.
+40. **A shader whose variants are chosen from a capability at construction is invisible to the baker** (2026-10-20).
+    The baker bakes the versions that exist in the editor, flavored by the target's `has_feature()` answers only where
+    a subsystem recomputes its defines through `ShaderRD::add_general_defines_refresh_callback()`. A constructor that
+    reads a capability or a limit once -- `FSR::FSR()`'s half-float variant text, `CopyEffects` creating raster octmap
+    shaders only below six storage images -- produces the editor's flavor or nothing, and the export misses it at
+    load (`translated` > 0, "Shader cache miss" in `--verbose`). Register a refresh callback that recomputes the text,
+    or creates the target's versions, whenever a new effect makes such a choice.
 
 ---
 

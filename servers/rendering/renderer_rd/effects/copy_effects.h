@@ -371,6 +371,17 @@ private:
 
 	static CopyEffects *singleton;
 
+	// The raster octmap shaders are only created when the device takes the raster
+	// path (fewer than OCTMAP_FILTER_STORAGE_IMAGES storage images per stage), which
+	// an editor's device never does and a WebGPU adapter may. So for a bake that
+	// answers as such a target, they are created here just to be baked; see
+	// _create_raster_octmap_versions_for_bake().
+	RID bake_raster_downsampler_version;
+	RID bake_raster_filter_version;
+	RID bake_raster_roughness_version;
+	static Vector<String> _raster_filter_modes();
+	static void _create_raster_octmap_versions_for_bake();
+
 public:
 	static CopyEffects *get_singleton();
 

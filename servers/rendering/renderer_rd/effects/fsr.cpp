@@ -37,7 +37,21 @@
 
 using namespace RendererRD;
 
+FSR *FSR::singleton = nullptr;
+
+String FSR::_normal_variant_define() {
+	return RD::get_singleton()->has_feature(RD::SUPPORTS_HALF_FLOAT) ? "\n#define MODE_FSR_UPSCALE_NORMAL\n" : "\n#define MODE_FSR_UPSCALE_FALLBACK\n";
+}
+
+void FSR::_refresh_variant_defines() {
+	if (singleton == nullptr) {
+		return;
+	}
+	singleton->fsr_shader.set_variant_define_text(FSR_SHADER_VARIANT_NORMAL, _normal_variant_define());
+}
+
 FSR::FSR() {
+	singleton = this;
 	bool has_half_float = RD::get_singleton()->has_feature(RD::SUPPORTS_HALF_FLOAT);
 
 	Vector<String> fsr_upscale_modes;
@@ -55,9 +69,10 @@ FSR::FSR() {
 	// unreachable at runtime either way, see below) rather than ever asking any
 	// backend without half-float support to compile the 16-bit-int path at all.
 	// See webgpu_notes/TASKS.md Task 9.5.
-	fsr_upscale_modes.push_back(has_half_float ? "\n#define MODE_FSR_UPSCALE_NORMAL\n" : "\n#define MODE_FSR_UPSCALE_FALLBACK\n");
+	fsr_upscale_modes.push_back(_normal_variant_define());
 	fsr_upscale_modes.push_back("\n#define MODE_FSR_UPSCALE_FALLBACK\n");
 	fsr_shader.initialize(fsr_upscale_modes);
+	ShaderRD::add_general_defines_refresh_callback(&FSR::_refresh_variant_defines);
 
 	FSRShaderVariant variant;
 	if (has_half_float) {
@@ -71,6 +86,9 @@ FSR::FSR() {
 }
 
 FSR::~FSR() {
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 	pipeline.free();
 	fsr_shader.version_free(shader_version);
 }

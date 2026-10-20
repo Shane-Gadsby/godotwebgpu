@@ -209,17 +209,7 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 
 		Vector<String> cubemap_filter_modes;
 		if (raster_effects.has_flag(RASTER_EFFECT_OCTMAP)) {
-			for (int i = 0; i < FILTER_MODE_RASTER_MAX; i++) {
-				String mode;
-				if (i & FILTER_MODE_FLAG_HIGH_QUALITY) {
-					mode += "\n#define USE_HIGH_QUALITY\n";
-				} else {
-					mode += "\n#define USE_LOW_QUALITY\n";
-				}
-				cubemap_filter_modes.push_back(mode);
-			}
-
-			filter.raster_shader.initialize(cubemap_filter_modes);
+			filter.raster_shader.initialize(_raster_filter_modes());
 			filter.shader_version = filter.raster_shader.version_create();
 
 			for (int i = 0; i < FILTER_MODE_RASTER_MAX; i++) {
@@ -348,9 +338,44 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 			}
 		}
 	}
+
+	ShaderRD::add_general_defines_refresh_callback(&CopyEffects::_create_raster_octmap_versions_for_bake);
+}
+
+Vector<String> CopyEffects::_raster_filter_modes() {
+	Vector<String> modes;
+	for (int i = 0; i < FILTER_MODE_RASTER_MAX; i++) {
+		modes.push_back((i & FILTER_MODE_FLAG_HIGH_QUALITY) ? "\n#define USE_HIGH_QUALITY\n" : "\n#define USE_LOW_QUALITY\n");
+	}
+	return modes;
+}
+
+// Registered as a general-defines refresh callback, which the shader baker runs
+// with the target's capability answers installed, before it enumerates shaders.
+// Created once and kept: the baker only finds versions that exist, and these are
+// embedded versions like any other effect's.
+void CopyEffects::_create_raster_octmap_versions_for_bake() {
+	if (singleton == nullptr || singleton->raster_effects.has_flag(RASTER_EFFECT_OCTMAP) || singleton->bake_raster_filter_version.is_valid()) {
+		return;
+	}
+	if (!RD::get_singleton()->shader_bake_feature_override_is_active()) {
+		return;
+	}
+	singleton->octmap_downsampler.raster_shader.initialize({ "" });
+	singleton->bake_raster_downsampler_version = singleton->octmap_downsampler.raster_shader.version_create();
+	singleton->filter.raster_shader.initialize(_raster_filter_modes());
+	singleton->bake_raster_filter_version = singleton->filter.raster_shader.version_create();
+	singleton->roughness.raster_shader.initialize({ "" });
+	singleton->bake_raster_roughness_version = singleton->roughness.raster_shader.version_create();
 }
 
 CopyEffects::~CopyEffects() {
+	if (bake_raster_filter_version.is_valid()) {
+		octmap_downsampler.raster_shader.version_free(bake_raster_downsampler_version);
+		filter.raster_shader.version_free(bake_raster_filter_version);
+		roughness.raster_shader.version_free(bake_raster_roughness_version);
+	}
+
 	for (int i = 0; i < COPY_MODE_MAX; i++) {
 		copy.pipelines[i].free();
 	}
