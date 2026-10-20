@@ -297,11 +297,18 @@ struct WGPipelineWrapper {
 	// outlives the pipeline (RenderingDevice frees dependent pipelines first).
 	bool compute_pending = false;
 	LocalVector<RenderingDeviceDriver::PipelineSpecializationConstant> pending_specialization_constants;
-	CharString pending_label;
+	CharString pending_label; // Also an asynchronous render pipeline's, below.
 	// Background prewarm (RenderingDeviceDriverWebGPU::_prewarm_compute_pipelines()):
 	// queued, or the token of an asynchronous creation in flight (0 if none).
 	bool queued_for_prewarm = false;
 	uint64_t prewarm_token = 0;
+	// A render pipeline created asynchronously
+	// (RenderingDeviceDriverWebGPU::pipeline_set_async_creation()): render_handle
+	// is null until the result arrives, and the token of the creation in flight is
+	// non-zero until then. RenderingDevice's users do not bind it before
+	// pipeline_is_ready(); one that failed to compile stays not ready.
+	bool render_pending = false;
+	uint64_t render_async_token = 0;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };

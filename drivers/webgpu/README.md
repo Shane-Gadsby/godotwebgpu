@@ -306,6 +306,23 @@ background with `createComputePipelineAsync()` (one per frame, two in flight), s
 hitch; a pipeline bound first compiles synchronously and the late result is dropped. `godotWebGPUPipelineStats` in
 the page says how many were deferred, prewarmed and compiled on first use.
 
+### Render pipelines compiled in the background are created asynchronously
+
+`createRenderPipeline()` compiles on that same GPU-process thread, ~0.5 s for a Forward+ variant on a desktop GPU, so
+every specialization the renderer asked for froze the game until it was done (a new surface or a decal coming into
+view). `PipelineHashMapRD::compile_pipeline()` -- a material's ubershader compiled while its scene loads, and the
+specializations the renderer draws with the ubershader until they are ready -- now turns on
+`RD::set_pipeline_creation_async()` around the creation. While it is on, `render_pipeline_create()` goes through
+`createRenderPipelineAsync()` (Chrome compiles that on a worker thread) and returns a pipeline with
+`render_pending` set and a null handle; `_render_pipeline_async_cb()` fills it in. `PipelineHashMapRD` keeps it out of
+its map until `pipeline_is_ready()`, exactly like a native background compile still running, so it is never bound
+before then (`command_bind_render_pipeline()` refuses one that is). A caller that cannot wait -- `get_pipeline()` with
+`p_wait_for_compilation`, or a pipeline still pending after 300 frames, which a render thread that never returns to
+its event loop would cause -- gets it compiled synchronously instead and the late result is released; freeing a
+pending pipeline does the same (`render_pipelines_in_flight`). Strip pipelines need a second, Uint16 variant and
+stay synchronous. Shader modules cannot be created asynchronously in WebGPU, so a variant's modules are still created
+on its first pipeline. Measured in TASKS.md §2.4.
+
 ### Barrier No-ops
 WebGPU tracks resource hazards automatically. All barrier/sync commands are
 no-ops.

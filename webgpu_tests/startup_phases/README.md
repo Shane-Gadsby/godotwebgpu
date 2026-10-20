@@ -44,8 +44,14 @@ navigation to the first frame and prints the page thread's busy/idle split (and 
 idle gap before each startup step, and what `CrGpuMain` was doing:
 
 ```bash
-CI=1 node gpu_process_trace.mjs --dir <export-dir> [--args --verbose] [--warm] [--output trace.json]
+CI=1 node gpu_process_trace.mjs --dir <export-dir> [--args --verbose] [--warm] [--after <ms>] [--output trace.json]
 ```
+
+`--after <ms>` keeps tracing that long past the first frame (default 500) and then lists every `CrGpuMain` task of
+30 ms or more after it, with the Dawn calls inside, and which thread did each kind of pipeline work -- the frames that
+stall once the game is running, not during the load. Without `CI=1` it runs system Chrome on the real GPU. It is
+what showed that `createRenderPipelineAsync()` compiles on `ThreadPoolForegroundWorker` while `createRenderPipeline()`
+compiles on `CrGpuMain` (TASKS.md §2.4, render pipelines compiled asynchronously).
 
 It is what found §2.4's root cause: on the platformer, 89 compute pipelines (~5.9 s on swiftshader) and ~500
 shader modules compiled on `CrGpuMain` before the first frame while the page sat idle between steps -- none of the

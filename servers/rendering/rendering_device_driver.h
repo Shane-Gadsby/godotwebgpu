@@ -675,6 +675,17 @@ public:
 
 	virtual void pipeline_free(PipelineID p_pipeline) = 0;
 
+	// Background compilation for a driver that compiles pipelines on the calling thread
+	// (API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION). PipelineHashMapRD enables
+	// asynchronous creation around the pipelines it compiles in the background; while it is
+	// enabled, render_pipeline_create() may return a pipeline that is still compiling, which
+	// must not be bound until pipeline_is_ready() reports it ready. On WebGPU this is what
+	// keeps a specialized pipeline's compilation off the browser's GPU-process main thread,
+	// where a synchronous one stalls every frame until it is done. The defaults (never
+	// asynchronous, always ready) are what every other driver needs.
+	virtual void pipeline_set_async_creation(bool p_enabled) {}
+	virtual bool pipeline_is_ready(PipelineID p_pipeline) { return true; }
+
 	// ----- BINDING -----
 
 	virtual void command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) = 0;

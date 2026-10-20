@@ -293,6 +293,16 @@ the startup stall (`webgpu_notes/TASKS.md` §2.4). Once the game runs, `_prewarm
 deferred compute pipelines through `createComputePipelineAsync()` (off that thread), one per frame, so first use
 rarely compiles anything; `window.godotWebGPUPipelineStats` reports the counts.
 
+**Render pipelines compiled in the background are created asynchronously.** On a driver with
+`API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION`, `PipelineHashMapRD` used to run every "background" compile
+inline, so each Forward+ specialization (~0.5 s on a desktop GPU) froze the frame. Its ahead-of-time compiles
+(ubershaders while a scene loads) and specializations now run inside `RD::set_pipeline_creation_async(true)`;
+the WebGPU driver creates those through `createRenderPipelineAsync()`, and the pipeline joins the map once
+`RD::render_pipeline_is_ready()`. Until then the renderer draws with the ubershader, as it does on native while a
+WorkerThreadPool compile runs. A waiting `get_pipeline()`, or a pipeline pending for 300 frames, compiles
+synchronously instead. New `RenderingDeviceDriver` virtuals `pipeline_set_async_creation()` and
+`pipeline_is_ready()` default to "never asynchronous, always ready", so other drivers are unaffected.
+
 ---
 
 ## 5. Texture & Buffer Operations

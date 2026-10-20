@@ -9233,6 +9233,11 @@ void RenderingDeviceDriverWebGPU::pipeline_free(PipelineID p_pipeline) {
 	WGPipelineWrapper *pw = (WGPipelineWrapper *)(p_pipeline.id);
 	ERR_FAIL_NULL(pw);
 	_cancel_prewarm(pw);
+	if (pw->render_async_token) {
+		// The callback finds no entry and releases its result.
+		render_pipelines_in_flight.erase(pw->render_async_token);
+		pw->render_async_token = 0;
+	}
 	if (pw->type == WGPipelineWrapper::RENDER && pw->render_handle) {
 		wgpuRenderPipelineRelease(pw->render_handle);
 		if (pw->render_handle_u16) {
@@ -9248,6 +9253,44 @@ void RenderingDeviceDriverWebGPU::pipeline_free(PipelineID p_pipeline) {
 		}
 	}
 	memdelete(pw);
+}
+
+void RenderingDeviceDriverWebGPU::pipeline_set_async_creation(bool p_enabled) {
+	async_pipeline_creation = p_enabled;
+}
+
+bool RenderingDeviceDriverWebGPU::pipeline_is_ready(PipelineID p_pipeline) {
+	const WGPipelineWrapper *pw = (const WGPipelineWrapper *)(p_pipeline.id);
+	ERR_FAIL_NULL_V(pw, true);
+	return !pw->render_pending;
+}
+
+void RenderingDeviceDriverWebGPU::_render_pipeline_async_cb(WGPUCreatePipelineAsyncStatus p_status, WGPURenderPipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2) {
+	RenderingDeviceDriverWebGPU *driver = (RenderingDeviceDriverWebGPU *)p_userdata1;
+	const uint64_t token = (uint64_t)(uintptr_t)p_userdata2;
+	WGPipelineWrapper *pw = nullptr;
+	if (WGPipelineWrapper **found = driver->render_pipelines_in_flight.getptr(token)) {
+		pw = *found;
+		driver->render_pipelines_in_flight.erase(token);
+		pw->render_async_token = 0;
+	}
+	if (!pw || p_status != WGPUCreatePipelineAsyncStatus_Success) {
+		if (pw && p_status != WGPUCreatePipelineAsyncStatus_CallbackCancelled) {
+			// It stays not ready, so PipelineHashMapRD compiles it again synchronously
+			// after a while, which reports the error the usual way.
+			print_verbose(vformat("WebGPU: asynchronous compile of a render pipeline failed (%s).", String::utf8(p_message.data, p_message.length == WGPU_STRLEN ? -1 : (int)p_message.length)));
+		}
+		if (p_pipeline) {
+			wgpuRenderPipelineRelease(p_pipeline);
+		}
+		return;
+	}
+	if (pw->pending_label.length() > 0) {
+		wgpuRenderPipelineSetLabel(p_pipeline, { pw->pending_label.get_data(), WGPU_STRLEN });
+		pw->pending_label = CharString();
+	}
+	pw->render_handle = p_pipeline;
+	pw->render_pending = false;
 }
 
 void RenderingDeviceDriverWebGPU::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
@@ -10314,6 +10357,7 @@ void RenderingDeviceDriverWebGPU::command_bind_render_pipeline(CommandBufferID p
 	ERR_FAIL_NULL(cmd);
 	ERR_FAIL_NULL(pw);
 	ERR_FAIL_COND(!cmd->render_encoder);
+	ERR_FAIL_COND_MSG(pw->render_pending, "WebGPU: a render pipeline was bound before its asynchronous compilation finished (pipeline_is_ready()).");
 
 	if (cmd->render_state.current_pipeline == pw) {
 		return; // Pipeline already bound, skip redundant call.
@@ -11597,20 +11641,42 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 	CharString _pipeline_label_cs = _pipeline_label_str.utf8();
 	desc.label = { _pipeline_label_cs.get_data(), WGPU_STRLEN };
 
-	WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(device, &desc);
-	if (!pipeline) {
-		if (specialized_vertex) {
-			wgpuShaderModuleRelease(specialized_vertex);
+	// A pipeline compiled in the background (pipeline_set_async_creation()) goes
+	// through createRenderPipelineAsync(), which Chrome compiles on a worker
+	// thread. createRenderPipeline() compiles on the GPU process's main thread,
+	// which also produces the page's frames, so a Forward+ specialization (~0.5 s
+	// on a desktop GPU) froze the game each time a new one was needed. A strip
+	// pipeline needs a second, Uint16 variant and stays synchronous.
+	const bool create_async = async_pipeline_creation && !is_strip;
+	WGPURenderPipeline pipeline = nullptr;
+	if (!create_async) {
+		pipeline = wgpuDeviceCreateRenderPipeline(device, &desc);
+		if (!pipeline) {
+			if (specialized_vertex) {
+				wgpuShaderModuleRelease(specialized_vertex);
+			}
+			if (specialized_fragment) {
+				wgpuShaderModuleRelease(specialized_fragment);
+			}
+			ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create render pipeline.");
 		}
-		if (specialized_fragment) {
-			wgpuShaderModuleRelease(specialized_fragment);
-		}
-		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create render pipeline.");
 	}
 
 	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
 	pw->type = WGPipelineWrapper::RENDER;
 	pw->render_handle = pipeline;
+	if (create_async) {
+		const uint64_t token = prewarm_next_token++;
+		pw->render_pending = true;
+		pw->render_async_token = token;
+		render_pipelines_in_flight.insert(token, pw);
+		WGPUCreateRenderPipelineAsyncCallbackInfo callback_info = {};
+		callback_info.mode = WGPUCallbackMode_AllowSpontaneous;
+		callback_info.callback = &RenderingDeviceDriverWebGPU::_render_pipeline_async_cb;
+		callback_info.userdata1 = this;
+		callback_info.userdata2 = (void *)(uintptr_t)token;
+		wgpuDeviceCreateRenderPipelineAsync(device, &desc, callback_info);
+	}
 	pw->shader = shader;
 	pw->specialized_modules[SHADER_STAGE_VERTEX] = specialized_vertex;
 	pw->specialized_modules[SHADER_STAGE_FRAGMENT] = specialized_fragment;
@@ -12517,7 +12583,7 @@ void RenderingDeviceDriverWebGPU::set_object_name(ObjectType p_type, ID p_driver
 				wgpuRenderPipelineSetLabel(pw->render_handle, label);
 			} else if (pw->type == WGPipelineWrapper::COMPUTE && pw->compute_handle) {
 				wgpuComputePipelineSetLabel(pw->compute_handle, label);
-			} else if (pw->type == WGPipelineWrapper::COMPUTE && pw->compute_pending) {
+			} else if ((pw->type == WGPipelineWrapper::COMPUTE && pw->compute_pending) || pw->render_pending) {
 				pw->pending_label = p_name.utf8(); // Applied when it is compiled.
 			}
 		} break;

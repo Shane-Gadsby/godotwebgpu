@@ -68,6 +68,12 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	static void _prewarm_compute_pipeline_cb(WGPUCreatePipelineAsyncStatus p_status, WGPUComputePipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
 	void _cancel_prewarm(WGPipelineWrapper *p_pipeline);
 
+	// Render pipelines created through createRenderPipelineAsync() while
+	// pipeline_set_async_creation() is on, by token until their result arrives.
+	bool async_pipeline_creation = false;
+	HashMap<uint64_t, WGPipelineWrapper *> render_pipelines_in_flight;
+	static void _render_pipeline_async_cb(WGPUCreatePipelineAsyncStatus p_status, WGPURenderPipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
+
 	// Per-frame performance counters (logged once per second via EM_ASM).
 	struct PerfCounters {
 		uint32_t draw_calls = 0;
@@ -685,6 +691,8 @@ public:
 
 	/// Release a render or compute pipeline.
 	virtual void pipeline_free(PipelineID p_pipeline) override final;
+	virtual void pipeline_set_async_creation(bool p_enabled) override final;
+	virtual bool pipeline_is_ready(PipelineID p_pipeline) override final;
 	/// Write push constant data. Emulated via a ring buffer (WebGPU has no push constants).
 	virtual void command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) override final;
 	/// Stub — WebGPU has no pipeline cache. Returns true.

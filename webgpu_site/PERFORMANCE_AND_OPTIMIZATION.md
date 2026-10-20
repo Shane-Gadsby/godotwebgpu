@@ -440,6 +440,23 @@ So that an effect turned on later does not hitch instead, the deferred compute p
 background once the game runs (`createComputePipelineAsync()`, which Chrome compiles off the frame-producing thread;
 one per frame). On the platformer 150 of 184 were ready within a minute and 5 had to compile on first use.
 
+**Render pipelines off the frame thread.** Render pipelines were still created with `createRenderPipeline()`, and a
+Forward+ variant takes ~0.5 s to compile on a desktop GPU (RTX 4080), on that same thread: a user's game froze for
+up to 0.8 s whenever a new surface or a decal came into view, and in bursts just after the first frame. The
+ubershaders compiled while a scene loads and the specializations the renderer draws with the ubershader until they
+are ready now go through `createRenderPipelineAsync()`, which Chrome compiles on a worker thread. On that game, on an
+idle RTX 4080:
+
+| GPU-process main thread | before | after |
+|---|---|---|
+| busy before the first frame | 800-820 ms | **550 ms** |
+| synchronous render pipelines after it | 23, 1.34-1.36 s | **11, 0.17 s** |
+| stall when looking around the level (3 runs) | up to 521 ms | none from pipelines |
+| phone (Razr 60, Mali-G615): freeze when the scene first draws | 17-18 s | **7 s** |
+
+Still synchronous: `createShaderModule` (WebGPU has no asynchronous form) and the compute pipelines the first frame
+binds.
+
 **Fewer shader bytes before the first frame.** Variant pruning drops shader groups the target can never select and
 defers the ones the project was not found to use into a lazily fetched extras file: the platformer's startup shader
 pack went 68.9 → 14.5 MB (10.7 → 1.84 MB gzipped), with 51.4 MB (8.7 MB gzipped) fetched as the engine starts.

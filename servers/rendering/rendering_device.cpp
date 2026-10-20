@@ -5520,6 +5520,23 @@ bool RenderingDevice::render_pipeline_is_valid(RID p_pipeline) {
 	return render_pipeline_owner.owns(p_pipeline);
 }
 
+void RenderingDevice::set_pipeline_creation_async(bool p_enabled) {
+	_THREAD_SAFE_METHOD_
+
+	driver->pipeline_set_async_creation(p_enabled);
+}
+
+bool RenderingDevice::render_pipeline_is_ready(RID p_pipeline) {
+	_THREAD_SAFE_METHOD_
+
+	const RenderPipeline *pipeline = render_pipeline_owner.get_or_null(p_pipeline);
+	// Nothing to wait for: an invalid pipeline is reported by whoever uses it.
+	if (pipeline == nullptr) {
+		return true;
+	}
+	return driver->pipeline_is_ready(pipeline->driver_id);
+}
+
 RID RenderingDevice::compute_pipeline_create(RID p_shader, const Vector<PipelineSpecializationConstant> &p_specialization_constants) {
 	Shader *shader;
 

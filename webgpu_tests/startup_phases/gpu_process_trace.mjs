@@ -13,7 +13,11 @@
  *   - the gaps between startup steps (requestAnimationFrame callbacks);
  *   - what CrGpuMain was doing: CreateComputePipeline, CreateShaderModule, ...
  *
- *   node gpu_process_trace.mjs --dir <export-dir> [--args --verbose,...] [--warm] [--output trace.json]
+ *   node gpu_process_trace.mjs --dir <export-dir> [--args --verbose,...] [--warm] [--after <ms>] [--output trace.json]
+ *
+ * --after keeps tracing that long past the first frame (default 500 ms) and then lists every CrGpuMain task of
+ * 30 ms or more after it, with the Dawn calls inside, and the threads Dawn's pipeline work ran on: what stalls the
+ * frames once the game is running, as opposed to during the load.
  *
  * --warm loads the page once (untraced, 25 s) and traces a second load in the same
  * profile, for repeat-visit questions (HTTP and V8 code caches). CI=1 uses the
@@ -36,6 +40,7 @@ const arg = (name, fallback) => {
 const DIR = resolvePath(arg('dir', '.'));
 const OUTPUT = arg('output', '');
 const WARM = process.argv.includes('--warm');
+const AFTER_MS = Number(arg('after', '500'));
 const EXTRA_ARGS = (arg('args', '') || '').split(',').filter(Boolean);
 const SOFTWARE_ADAPTER = !!process.env.CI;
 
@@ -119,7 +124,7 @@ await cdp.send('Tracing.start', {
 });
 await page.goto(url);
 await firstFrame();
-await page.waitForTimeout(500);
+await page.waitForTimeout(AFTER_MS);
 const marks = await page.evaluate(() => window.__godotPhases.marks);
 await cdp.send('Tracing.end');
 await complete;
@@ -197,4 +202,39 @@ if (gpuThread) {
 	}
 } else {
 	console.log('No CrGpuMain thread in the trace (is the GPU process running in-process?).');
+}
+
+if (AFTER_MS > 500 && gpuThread) {
+	// After the first frame: every long CrGpuMain task, and the Dawn calls inside it.
+	const longTasks = events.filter((e) => `${e.pid}:${e.tid}` === gpuThread && e.ph === 'X' && e.name === 'RunTask' && e.ts >= to && e.dur >= 30000)
+		.sort((a, b) => a.ts - b.ts);
+	console.log(`\nafter the first frame (${AFTER_MS} ms): CrGpuMain tasks of 30 ms or more: ${longTasks.length}`);
+	for (const t of longTasks) {
+		const inner = new Map();
+		for (const e of events) {
+			if (e.pid === t.pid && e.tid === t.tid && e.ph === 'X' && e !== t && e.ts >= t.ts && e.ts < t.ts + t.dur && (e.name.startsWith('DeviceBase::') || /Pipeline|ShaderModule|Tint|Compile/.test(e.name))) {
+				const c = inner.get(e.name) || { ms: 0, n: 0 };
+				c.ms += e.dur / 1000;
+				c.n++;
+				inner.set(e.name, c);
+			}
+		}
+		const top = [...inner].sort((a, b) => b[1].ms - a[1].ms).slice(0, 5).map(([n, c]) => `${n} ${c.ms.toFixed(0)} ms x${c.n}`).join(', ');
+		console.log(`  +${((t.ts - to) / 1000).toFixed(0).padStart(6)} ms  ${(t.dur / 1000).toFixed(0).padStart(5)} ms  ${top}`);
+	}
+	// Which threads did pipeline compilation (any process): an async creation that stays off CrGpuMain shows here.
+	const byThread = new Map();
+	for (const e of events) {
+		if (e.ph === 'X' && e.ts >= to && /Pipeline/.test(e.name)) {
+			const key = `${threadNames.get(`${e.pid}:${e.tid}`) || `${e.pid}:${e.tid}`} :: ${e.name}`;
+			const c = byThread.get(key) || { ms: 0, n: 0 };
+			c.ms += e.dur / 1000;
+			c.n++;
+			byThread.set(key, c);
+		}
+	}
+	console.log('pipeline work after the first frame, by thread:');
+	for (const [k, c] of [...byThread].sort((a, b) => b[1].ms - a[1].ms).slice(0, 15)) {
+		console.log(`  ${c.ms.toFixed(0).padStart(7)} ms  x${String(c.n).padStart(4)}  ${k}`);
+	}
 }
