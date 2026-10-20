@@ -71,6 +71,9 @@ cd webgpu_tests/web_audio && node run_tests.mjs && ./export.sh && node run_e2e.m
 # real drags in a windowed editor under Xvfb (headless gives the editor a 2x2 viewport), see tests/editor_drop/README.md:
 tests/editor_drop/run.sh
 
+# Editor default folders (editor/default_folders/*): drives the create/save dialogs and their check boxes under Xvfb:
+tests/default_folders/run.sh
+
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 

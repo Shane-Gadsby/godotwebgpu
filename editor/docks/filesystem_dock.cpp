@@ -50,6 +50,7 @@
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/dependency_editor.h"
+#include "editor/file_system/editor_default_folders.h"
 #include "editor/gui/create_dialog.h"
 #include "editor/gui/directory_create_dialog.h"
 #include "editor/gui/editor_dir_dialog.h"
@@ -1826,6 +1827,9 @@ void FileSystemDock::_make_scene_confirm() {
 	EditorNode::get_editor_data().set_scene_path(idx, scene_path);
 	EditorNode::get_singleton()->set_edited_scene(make_scene_dialog->create_scene_root());
 	EditorNode::get_singleton()->save_scene_if_open(scene_path);
+	if (make_scene_dialog->is_remember_folder_pressed() && FileAccess::exists(scene_path)) {
+		EditorDefaultFolders::set_folder(EditorDefaultFolders::CATEGORY_SCENES, scene_path.get_base_dir());
+	}
 }
 
 void FileSystemDock::_resource_removed(const Ref<Resource> &p_resource) {
@@ -2909,15 +2913,15 @@ void FileSystemDock::_resource_created() {
 
 	const String type_name = new_resource_dialog->get_selected_type();
 	if (type_name == "Shader") {
-		make_shader_dialog->config(fpath.path_join("new_shader"), false, false, type_name);
+		make_shader_dialog->config(fpath.path_join("new_shader"), false, false, type_name, -1, false);
 		make_shader_dialog->popup_centered();
 		return;
 	} else if (type_name == "ShaderInclude") {
-		make_shader_dialog->config(fpath.path_join("new_shader_include"), false, false, type_name);
+		make_shader_dialog->config(fpath.path_join("new_shader_include"), false, false, type_name, -1, false);
 		make_shader_dialog->popup_centered();
 		return;
 	} else if (type_name == "VisualShader") {
-		make_shader_dialog->config(fpath.path_join("new_shader"), false, false, type_name);
+		make_shader_dialog->config(fpath.path_join("new_shader"), false, false, type_name, -1, false);
 		make_shader_dialog->popup_centered();
 		return;
 	} else if (ClassDB::is_parent_class(type_name, "Script")) {

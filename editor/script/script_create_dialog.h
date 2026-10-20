@@ -62,6 +62,7 @@ class ScriptCreateDialog : public ConfirmationDialog {
 	EditorFileDialog *file_browse = nullptr;
 	CheckBox *built_in = nullptr;
 	CheckBox *use_templates = nullptr;
+	CheckBox *remember_folder = nullptr;
 	AcceptDialog *alert = nullptr;
 	CreateDialog *select_class = nullptr;
 
@@ -82,6 +83,7 @@ class ScriptCreateDialog : public ConfirmationDialog {
 	bool missing_base_dir = false;
 
 	Control *path_controls[2];
+	Control *remember_folder_controls[2];
 	Control *name_controls[2];
 
 	Vector<ScriptLanguage::ScriptTemplate> template_list;
@@ -113,7 +115,6 @@ class ScriptCreateDialog : public ConfirmationDialog {
 	ScriptLanguage::ScriptTemplate _parse_template(const ScriptLanguage *p_language, const String &p_path, const String &p_filename, const ScriptLanguage::TemplateLocation &p_origin, const String &p_inherits) const;
 	String _get_script_origin_label(const ScriptLanguage::TemplateLocation &p_origin) const;
 	String _adjust_file_path(const String &p_base_path) const;
-	String _apply_default_script_folder(const String &p_base_path) const;
 
 protected:
 	void _notification(int p_what);

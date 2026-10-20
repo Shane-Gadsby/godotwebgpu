@@ -3116,6 +3116,34 @@ tree-sitter grammar; `docs/braced_gdscript/internals.md` says when to bump it. T
 assessed and rejected (`webgpu_notes/ES6 language (.gdj) — Assessment.md`; its conclusion is also in
 `docs/braced_gdscript/faq.md`).
 
+### 4.34 Editor: per-project default folders for new files (October 2026)
+
+Asked for: extend the per-project default script folder (`editor/script/default_script_folder`, added 2026-09-28) to
+materials, shaders, scenes, settings and resources, and give the create dialogs a check box (off by default) that makes
+the chosen folder the new default. Models and audio were dropped from the request: they are imported, not created.
+
+**One helper**, `editor/file_system/editor_default_folders.{h,cpp}`: the `editor/default_folders/{scripts, materials,
+shaders, scenes, settings, resources}` project settings, the category of a resource type (Script, Shader/ShaderInclude,
+Material, PackedScene, the configuration types Environment/CameraAttributes/Compositor/Theme/AudioBusLayout/Shortcut/
+InputEvent/PhysicsMaterial, then every other Resource; a script-class resource falls under its native base), and the
+"Make this the default folder for ..." check box, whose tooltip names the current default. Ticking it writes the setting,
+saves `project.godot` and shows a toast. The old script setting is moved to `editor/default_folders/scripts` when a
+project is opened (in memory; it reaches disk with the next settings save).
+
+| Dialog | proposes the default folder | check box |
+|---|---|---|
+| Create Script (`ScriptCreateDialog`) | as before, unless opened from a FileSystem dock folder | under Path, hidden for built-in scripts |
+| Create Shader (`ShaderCreateDialog`, new `use_default_folder` argument; its `config` binding now names all six arguments) | unless opened from a FileSystem dock folder | under Path, hidden for built-in shaders |
+| Create New Scene (`SceneCreateDialog`, FileSystem dock only) | no: it creates in the dock's folder | yes |
+| Save Scene As (`EditorNode`'s shared `file` dialog) | for a scene saved the first time | yes, as a `FileDialog` option |
+| Save Resource As (`EditorNode::save_resource_as()`: inspector, resource picker, script/shader/theme editors, FileSystem "New Resource") | for a resource that is not a file yet, unless a folder was given | yes, by the resource's category |
+
+`EditorNode`'s `file` dialog serves every scene/resource open and save, so each popup sets or clears the option
+(`_set_file_default_folder_option()`), which also resets it to unticked.
+
+**Test**: `tests/default_folders/run.sh` — an editor plugin drives the real dialogs (menu items, OK button, check
+boxes) in a windowed editor under Xvfb and checks the proposed paths, the settings and `project.godot`: 30/30.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
