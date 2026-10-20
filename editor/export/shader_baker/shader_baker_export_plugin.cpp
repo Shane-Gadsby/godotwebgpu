@@ -744,6 +744,11 @@ void ShaderBakerExportPlugin::_compute_unmet_group_requirements(const Ref<Editor
 			advanced_reason = "a temporal 3D scaling mode (project setting rendering/scaling_3d/mode)";
 		} else {
 			advanced_reason = _shader_baker_scan_dir_for_advanced("res://");
+			if (advanced_reason.is_empty()) {
+				// The scan above skips hidden folders, so it never sees what importers produce: a
+				// glTF, FBX or MetaHuman scene keeps its materials in its imported .scn.
+				advanced_reason = _shader_baker_scan_dir_for_advanced(ProjectSettings::get_singleton()->get_imported_files_path());
+			}
 		}
 	}
 
