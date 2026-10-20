@@ -288,11 +288,20 @@ jobs:
             strip bin/tint_convert_cli
           fi
 
+      # An editor goes up as a zip made here: upload-artifact drops Unix
+      # permissions, so the chmod above did not survive into the release.
+      - name: Package editor
+        if: matrix.artifact && matrix.target == 'editor'
+        uses: ./.github/actions/package-editor
+        with:
+          platform: linux
+
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         if: matrix.artifact
         with:
           name: ${{ matrix.cache-name }}
+          path: ${{ matrix.target == 'editor' && 'dist/godot-webgpu-editor-linux.zip' || 'bin/*' }}
 
       - name: Unit tests
         run: |

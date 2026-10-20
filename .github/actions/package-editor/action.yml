@@ -1,0 +1,84 @@
+name: Package Godot editor
+description: >-
+  Zip the editor on the runner that built it, into dist/godot-webgpu-editor-<platform>.zip.
+  actions/upload-artifact does not keep Unix file permissions, so an editor uploaded as loose
+  files reaches the release without its executable bit: macOS refuses to open the .app and
+  Linux needs a chmod +x first. A zip made here (ditto on macOS, which also keeps the bundle's
+  extended attributes, Info-ZIP on Linux) records the permissions, and uploading the zip keeps
+  it intact.
+
+inputs:
+  platform:
+    description: linux, macos or windows.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Zip the editor
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        out="$PWD/dist/godot-webgpu-editor-${{ inputs.platform }}.zip"
+        rm -f "$out"
+        case "${{ inputs.platform }}" in
+          macos)
+            apps=(bin/*.app)
+            if [[ ${#apps[@]} -ne 1 || ! -d "${apps[0]}" ]]; then
+              echo "::error::Expected exactly one .app bundle in bin/, found: ${apps[*]}"
+              exit 1
+            fi
+            ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "$out"
+            ;;
+          linux)
+            chmod +x bin/godot.* bin/tint_convert_cli 2>/dev/null || true
+            (cd bin && zip -qry "$out" . -x '*.zip')
+            ;;
+          windows)
+            (cd bin && 7z a -tzip -bso0 "$out" .)
+            ;;
+          *)
+            echo "::error::Unknown platform '${{ inputs.platform }}'"
+            exit 1
+            ;;
+        esac
+        echo "Packaged $out ($(du -h "$out" | cut -f1))"
+        if command -v unzip > /dev/null; then
+          # Permissions as recorded: the executables must show -rwx.
+          unzip -Z "$out" | head -20 || true
+        fi
+
+    # What a user gets: unpack the zip somewhere else and start the editor from there. This
+    # is what failed for every Linux and macOS release before the zip moved onto the runner.
+    - name: Verify the packaged editor starts
+      shell: bash
+      run: |
+        set -euo pipefail
+        out="$PWD/dist/godot-webgpu-editor-${{ inputs.platform }}.zip"
+        check="$RUNNER_TEMP/package-editor-check"
+        rm -rf "$check"
+        mkdir -p "$check"
+        case "${{ inputs.platform }}" in
+          macos)
+            ditto -x -k "$out" "$check"
+            app=("$check"/*.app)
+            codesign --verify --deep --strict --verbose=2 "${app[0]}"
+            "${app[0]}/Contents/MacOS/Godot" --version
+            test -x "${app[0]}/Contents/MacOS/tint_convert_cli" || { echo "::error::tint_convert_cli is not executable in the bundle"; exit 1; }
+            ;;
+          linux)
+            unzip -q "$out" -d "$check"
+            editor=("$check"/godot.linuxbsd.editor.*)
+            "${editor[0]}" --version
+            if [[ -f "$check/tint_convert_cli" ]]; then
+              test -x "$check/tint_convert_cli" || { echo "::error::tint_convert_cli is not executable"; exit 1; }
+            fi
+            ;;
+          windows)
+            7z x -bso0 "$out" -o"$check"
+            editor=("$check"/godot.windows.editor.*.console.exe)
+            [[ -f "${editor[0]}" ]] || editor=("$check"/godot.windows.editor.*.exe)
+            "${editor[0]}" --version
+            ;;
+        esac

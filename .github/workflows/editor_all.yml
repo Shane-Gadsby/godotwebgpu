@@ -1,0 +1,30 @@
+name: 🖥️ All editors
+# Builds the Linux, macOS and Windows editors in parallel, on demand, through the per-platform
+# editor_*.yml workflows. Each uploads its editor zipped the way a release ships it.
+on:
+  workflow_dispatch:
+    inputs:
+      scons-flags:
+        description: Extra SCons flags for every platform (e.g. "precision=double")
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  linux:
+    name: 🐧 Linux
+    uses: ./.github/workflows/editor_linux.yml
+    with:
+      scons-flags: ${{ inputs.scons-flags }}
+
+  macos:
+    name: 🍎 macOS
+    uses: ./.github/workflows/editor_macos.yml
+    with:
+      scons-flags: ${{ inputs.scons-flags }}
+
+  windows:
+    name: 🏁 Windows
+    uses: ./.github/workflows/editor_windows.yml
+    with:
+      scons-flags: ${{ inputs.scons-flags }}

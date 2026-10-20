@@ -125,8 +125,14 @@ jobs:
         run: |
           for os in linux macos windows; do
             name="$os-editor"
-            if [[ -d "$name" ]]; then
-              (cd "$name" && zip -qr "../godot-webgpu-editor-${{ steps.version.outputs.version }}-$os.zip" .)
+            release_zip="godot-webgpu-editor-${{ steps.version.outputs.version }}-$os.zip"
+            if [[ -f "$name/godot-webgpu-editor-$os.zip" ]]; then
+              # Packaged on the build runner (.github/actions/package-editor), with the
+              # executable bits that re-zipping the downloaded files here would lose.
+              cp "$name/godot-webgpu-editor-$os.zip" "$release_zip"
+            elif [[ -d "$name" ]]; then
+              echo "::warning::Editor artifact '$name' is not a packaged zip; re-zipping it here loses its executable bits."
+              (cd "$name" && zip -qr "../$release_zip" .)
             else
               echo "::warning::Editor artifact '$name' was not downloaded (its build job may have failed or been skipped) -- release will be missing this platform's editor."
             fi
@@ -147,6 +153,13 @@ jobs:
           # told apart only by their commit hashes.
           name: Godot WebGPU ${{ steps.version.outputs.version }} @ ${{ github.sha }}
           draft: true
+          body: |
+            Editors for Linux, macOS (universal) and Windows, the export templates as one `.tpz`
+            (Editor → Manage Export Templates → Install from File), and the braced GDScript editor plugins.
+
+            **macOS:** the editor is ad-hoc signed, not notarized, so macOS blocks its first launch. Open it once, then
+            allow it in System Settings → Privacy & Security → *Open Anyway*, or run
+            `xattr -dr com.apple.quarantine godot_macos_editor.app`.
           files: |
             artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-linux.zip
             artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-macos.zip

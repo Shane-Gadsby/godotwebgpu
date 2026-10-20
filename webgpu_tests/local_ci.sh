@@ -163,8 +163,11 @@ run_test() {
     fi
 
     local output status
-    output=$(cd "$dir" && "${cmd[@]}" 2>&1)
-    status=$?
+    # `|| status=$?`: under `set -e` a bare failing assignment would end the whole
+    # script right here, so a SKIP (2) or a FAIL (1) never reached the code below
+    # and the run stopped with no summary.
+    status=0
+    output=$(cd "$dir" && "${cmd[@]}" 2>&1) || status=$?
     # Exit 2 means "this environment cannot run the tier" (e.g. no real GPU
     # adapter, or no display), as distinct from 0 pass and 1 fail. Without it a
     # tier that skipped everything would be reported as PASS, which is how a

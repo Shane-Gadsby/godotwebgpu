@@ -158,11 +158,20 @@ jobs:
           Remove-Item bin/build_deps -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
 
+      # Zipped like the other platforms' editors, so the release job treats
+      # all three the same way.
+      - name: Package editor
+        if: matrix.compiler == 'msvc' && matrix.target == 'editor'
+        uses: ./.github/actions/package-editor
+        with:
+          platform: windows
+
       - name: Upload artifact
         if: matrix.compiler == 'msvc'
         uses: ./.github/actions/upload-artifact
         with:
           name: ${{ matrix.cache-name }}
+          path: ${{ matrix.target == 'editor' && 'dist/godot-webgpu-editor-windows.zip' || 'bin/*' }}
 
       - name: Unit tests
         run: |

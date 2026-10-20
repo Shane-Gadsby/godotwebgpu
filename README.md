@@ -439,9 +439,21 @@ Try all benchmarks live at **[godotwebgpu.com/#benchmarks](https://godotwebgpu.c
 
 Clone the repo and build the engine yourself.
 
-### [Download the GodotWebGPU Editor](https://github.com/dwalter/godotwebgpu/releases) *(Coming Soon)*
+### [Download the GodotWebGPU Editor](https://github.com/Shane-Gadsby/godotwebgpu/releases)
 
-Pre-built macOS editor with WebGPU export support.
+Pre-built editors for Linux, macOS (universal: Apple Silicon and Intel) and Windows, with WebGPU export
+support, plus the export templates as one `.tpz` (Editor → Manage Export Templates → Install from File).
+
+- **macOS:** the editor is ad-hoc signed, not notarized, so macOS blocks its first launch. Open it once,
+  then allow it in System Settings → Privacy & Security → *Open Anyway* (macOS 15 and later no longer offer
+  right-click → Open for this). Or clear the download quarantine from a terminal:
+  `xattr -dr com.apple.quarantine /path/to/godot_macos_editor.app`.
+- **Linux:** unzip and run `godot.linuxbsd.editor.x86_64`. Keep `tint_convert_cli` next to it: the export-time
+  shader baker runs it from the editor's own directory.
+- **Windows:** unzip and run the `.exe`, keeping `tint_convert_cli.exe` beside it for the same reason.
+
+Releases up to and including v1.5 shipped the Linux and macOS editors without their executable bit; macOS
+refused to open those at all. On Linux, `chmod +x godot.linuxbsd.editor.x86_64 tint_convert_cli` fixes one.
 
 ---
 

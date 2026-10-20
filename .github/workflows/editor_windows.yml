@@ -1,0 +1,124 @@
+name: 🏁 Windows editor
+# Builds just the Windows editor, on demand (Actions → this workflow → Run workflow), and uploads it
+# zipped the way a release ships it. The flags are those of windows_builds.yml's
+# "Editor (target=editor)" job, which builds the released editor, minus the Visual Studio project
+# files (vsproj), which do not change the binary; keep the two in step.
+on:
+  workflow_dispatch:
+    inputs:
+      scons-flags:
+        description: Extra SCons flags, after the release editor's (e.g. "precision=double" or "dev_build=yes")
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      scons-flags:
+        required: false
+        default: ""
+        type: string
+
+env:
+  SCONS_FLAGS: >-
+    dev_mode=yes
+    module_text_server_fb_enabled=yes
+    debug_symbols=no
+    windows_subsystem=console
+    webgpu=yes
+  SCONS_CACHE_MSVC_CONFIG: true
+  PYTHONIOENCODING: utf8
+
+jobs:
+  build:
+    runs-on: windows-latest
+    name: Editor (target=editor)
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: windows-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download Direct3D 12 SDK components
+        shell: sh
+        id: d3d12-sdk
+        run: |
+          if python ./misc/scripts/install_d3d12_sdk_windows.py; then
+            echo "D3D12_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Windows: Direct3D 12 SDK installation failed, building without Direct3D 12 support."
+            echo "D3D12_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      - name: Download pre-built ANGLE
+        shell: sh
+        id: angle-sdk
+        run: |
+          if python ./misc/scripts/install_angle.py; then
+            echo "ANGLE_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANGLE SDK installation failed, building without ANGLE support."
+            echo "ANGLE_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download pre-built AccessKit
+        shell: sh
+        id: accesskit-sdk
+        run: |
+          if python ./misc/scripts/install_accesskit.py; then
+            echo "ACCESSKIT_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::AccessKit SDK installation failed, building without AccessKit support."
+            echo "ACCESSKIT_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilation
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONS_FLAGS }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }} ${{ inputs.scons-flags }}
+          platform: windows
+          target: editor
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: windows-editor
+        continue-on-error: true
+
+      - name: Cache tint_convert_cli build
+        uses: actions/cache@v6
+        with:
+          path: drivers/webgpu/tint_cli/.build
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+
+      # Git Bash + the runner's preinstalled LLVM clang++ (see tint_cli/build.sh). The export-time
+      # shader baker runs it from the editor's own directory.
+      - name: Build tint_convert_cli
+        shell: bash
+        run: ./drivers/webgpu/tint_cli/build.sh
+
+      - name: Prepare artifact
+        run: |
+          Remove-Item bin/build_deps -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
+
+      - name: Package editor
+        uses: ./.github/actions/package-editor
+        with:
+          platform: windows
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: windows-editor
+          path: dist/godot-webgpu-editor-windows.zip
