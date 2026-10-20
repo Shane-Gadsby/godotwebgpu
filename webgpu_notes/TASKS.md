@@ -294,7 +294,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.2 | non-dlink export abort | CLOSED | — |
 | 2.3 | dlink under throttling | CLOSED | — |
 | 2.27 | baked containers are 79% of the download | **DONE 2026-10-20** — automatic variant pruning + lazily loaded shader extras: platformer startup shaders 10.7 → 1.84 MB gzipped | a real-GPU Forward+ run; WGSL compression in containers (optional) |
-| 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
+| 2.4 | startup fixed floor | **ROOT-CAUSED 2026-10-20** — GPU process compiling unused compute pipelines and shader modules while the startup waited on frames; both now created on first use (callMain → first frame 6.8 → 2.8 s, swiftshader) | real-GPU numbers; background prewarm of deferred pipelines if first-use hitches matter |
 | 2.5 ✔ | threading decision | **IMPLEMENTED 2026-10-16**, open for tooling — separate render thread for `threads=yes` + `thread_model=2` (Chrome + Firefox, dlink too); main thread −57% (platformer) to −97% (heavy) per frame; `requestQuit()` clean | `perf_guard` tools see only the main thread under Separate; uncapped fps unmeasurable there (Chrome rAF ~60 Hz with a worker-owned canvas); Safari/mobile never run |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | upstream F10 default | OPEN, human | — |
@@ -367,7 +367,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
 | 2.27 | Baked containers: multiview SPIR-V dropped (−59%), then unreachable groups pruned and unverified ones deferred to lazily loaded extras (startup shaders −83% gzipped) | `DONE` 2026-10-20 | real-GPU check only |
-| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
+| 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `ROOT-CAUSED` 2026-10-20 — lazy shader modules and compute pipelines in the driver (−59% callMain → first frame); what is left is main-thread CPU, a third of it V8 lazy compilation | real-GPU measurement; optional async prewarm |
 | 2.5 | Decide whether threading is worth having | `IMPLEMENTED 2026-10-16` (open: perf tooling for the render thread, Safari/mobile) | done; tooling ~1 session |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
 | 2.7 | Offer F10's default change upstream | `OPEN` | **human** |
