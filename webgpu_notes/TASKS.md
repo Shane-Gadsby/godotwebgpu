@@ -2351,6 +2351,16 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
 52. **A Verlet hair solver's rest sag depends on its step size** (2026-10-20). Gravity enters as step², while the
     shape constraint acts per step. A rest pose settled at 1/120 s drifted 1 cm when the frames came at another
     rate. Simulate at a fixed step with an accumulator.
+53. **On GitHub's runners the Firefox smoketest never ran the engine** (2026-10-21, fixed). Headless Firefox with no
+    display cannot read the GPU, so it blocklists WebGPU ("WebGPU is disabled by blocklist"). `gfx.webgpu.force-enabled`
+    and `gfx.webgpu.ignore-blocklist` do not override that, so `requestAdapter()` returned null and no scene started.
+    The 20 scenes without required logs "passed" with zero errors; only `demo_compute_heightmap`, `audio_parity` and
+    `braced_gdscript` failed, and only for want of their pass line, which kept 🧪 WebGPU Tests red on PR #19.
+    The fix: the Firefox steps run under `xvfb-run` (lavapipe then gives a fallback adapter), and `run_scenes.mjs` now
+    fails any scene whose engine never prints its banner. Reproduce locally with
+    `env -u DISPLAY VK_ICD_FILENAMES=.../lvp_icd.json`. Separately, `click_to_start` clicked once, which could land
+    before Godot listened for it (`audio_parity`'s intermittent Chrome failures): it now clicks every 2 s until the
+    checks are in.
 
 ---
 
