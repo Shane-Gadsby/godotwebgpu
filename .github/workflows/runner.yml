@@ -42,6 +42,18 @@ jobs:
     uses: ./.github/workflows/linux_builds.yml
     with:
       changed-files: ${{ needs.static-checks.outputs.changed-files }}
+      jobs: release
+
+  # The ASan/UBSan/TSan editors: they run on every push, but ship nothing, so draft-release does not wait for them
+  # (the GCC one alone took over an hour). A failure here still fails the run.
+  linux-sanitizers:
+    name: 🐧 Linux sanitizers
+    needs: static-checks
+    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
+    uses: ./.github/workflows/linux_builds.yml
+    with:
+      changed-files: ${{ needs.static-checks.outputs.changed-files }}
+      jobs: sanitizers
 
   macos-build:
     name: 🍎 macOS
@@ -123,9 +135,11 @@ jobs:
       - name: Zip editor artifacts
         working-directory: artifacts
         run: |
-          for os in linux macos windows; do
-            name="$os-editor"
-            release_zip="godot-webgpu-editor-${{ steps.version.outputs.version }}-$os.zip"
+          # <artifact>:<platform>:<release name>. The double-precision editor is packaged as a Linux editor.
+          for entry in linux-editor:linux:linux macos-editor:macos:macos windows-editor:windows:windows \
+              linux-editor-double:linux:linux-double; do
+            IFS=: read -r name os label <<< "$entry"
+            release_zip="godot-webgpu-editor-${{ steps.version.outputs.version }}-$label.zip"
             if [[ -f "$name/godot-webgpu-editor-$os.zip" ]]; then
               # Packaged on the build runner (.github/actions/package-editor), with the
               # executable bits that re-zipping the downloaded files here would lose.
@@ -156,12 +170,15 @@ jobs:
           body: |
             Editors for Linux, macOS (universal) and Windows, the export templates as one `.tpz`
             (Editor → Manage Export Templates → Install from File), and the braced GDScript editor plugins.
+            `linux-double` is a Linux editor built with `precision=double`, for large worlds; such a project
+            also needs export templates built with `precision=double`, which this release does not include.
 
             **macOS:** the editor is ad-hoc signed, not notarized, so macOS blocks its first launch. Open it once, then
             allow it in System Settings → Privacy & Security → *Open Anyway*, or run
             `xattr -dr com.apple.quarantine godot_macos_editor.app`.
           files: |
             artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-linux.zip
+            artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-linux-double.zip
             artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-macos.zip
             artifacts/godot-webgpu-editor-${{ steps.version.outputs.version }}-windows.zip
             artifacts/godot-webgpu-export-templates-${{ steps.version.outputs.version }}.tpz
