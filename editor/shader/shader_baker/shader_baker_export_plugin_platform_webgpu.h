@@ -42,4 +42,6 @@ public:
 	virtual bool uses_stage_batching() const override { return true; }
 	virtual ShaderBakerStageBatch *create_stage_batch() override;
 	virtual bool uses_separate_pack(const Ref<EditorExportPreset> &p_preset) const override;
+	virtual bool uses_variant_pruning(const Ref<EditorExportPreset> &p_preset) const override;
+	virtual bool uses_lazy_shader_extras(const Ref<EditorExportPreset> &p_preset) const override;
 };

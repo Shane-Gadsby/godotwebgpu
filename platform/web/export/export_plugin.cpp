@@ -48,6 +48,7 @@
 #include "scene/resources/image_texture.h"
 #include "servers/audio/audio_server.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
+#include "servers/rendering/renderer_rd/shader_rd.h"
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
 #include "modules/svg/image_loader_svg.h"
@@ -173,7 +174,7 @@ static const WebLoadingScreenStage web_loading_screen_stages[] = {
 	{ "compiling_shaders", "Compiling shaders...", true, true },
 };
 
-void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes) {
+void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes, const Dictionary &p_texture_packs) {
 	// Engine.js config
 	Dictionary config;
 	Array libs;
@@ -202,6 +203,17 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	// to the main pack and the engine mounts it on its own (ProjectSettings::_setup).
 	if (p_file_sizes.has(p_name + ".shaders.pck")) {
 		config["shaderPack"] = p_name + ".shaders.pck";
+	}
+	// Present only when _save_texture_packs() wrote them: one pack per VRAM
+	// compression family, keyed by family. The shell fetches the one the device
+	// samples (or "bc" when it samples none, which the engine then decompresses)
+	// as <main pack>.textures.pck, which the engine mounts beside the main pack.
+	if (!p_texture_packs.is_empty()) {
+		config["texturePacks"] = p_texture_packs;
+	}
+	// Present only when _save_shader_extras() wrote one; fetched after start.
+	if (p_file_sizes.has(p_name + ".shaders_extra.bin")) {
+		config["shaderExtras"] = p_name + ".shaders_extra.bin";
 	}
 	config["ensureCrossOriginIsolationHeaders"] = (bool)p_preset->get("progressive_web_app/ensure_cross_origin_isolation_headers");
 
@@ -339,6 +351,14 @@ Error EditorExportPlatformWeb::_build_pwa(const Ref<EditorExportPreset> &p_prese
 	if (FileAccess::exists(dir.path_join(name + ".shaders.pck"))) {
 		opt_cache_files.push_back(name + ".shaders.pck");
 	}
+	if (FileAccess::exists(dir.path_join(name + ".shaders_extra.bin"))) {
+		opt_cache_files.push_back(name + ".shaders_extra.bin");
+	}
+	for (const char *suffix : { ".textures_bc.pck", ".textures_etc2_astc.pck" }) {
+		if (FileAccess::exists(dir.path_join(name + suffix))) {
+			opt_cache_files.push_back(name + suffix);
+		}
+	}
 	if (extensions) {
 		opt_cache_files.push_back(name + ".side.wasm");
 		for (int i = 0; i < p_shared_objects.size(); i++) {
@@ -458,6 +478,10 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "variant/separate_render_thread"), true)); // Render on the web render thread (threads only).
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_desktop"), true)); // S3TC
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/for_mobile"), false)); // ETC or ETC2, depending on renderer
+	// With both families exported, ship each in a pack of its own and let the
+	// browser fetch only the one its GPU samples, instead of every player
+	// downloading both. See _save_texture_packs().
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/separate_packs"), true));
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/export_icon"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/custom_html_shell", PROPERTY_HINT_FILE, "*.html"), ""));
@@ -519,6 +543,13 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// re-uploads the game's own 15 MB on a code change instead of 50 MB. Needs
 	// a template from the same build as the editor, which the bake needs anyway.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "shader_baker/separate_pack"), true));
+	// Leave out the shader groups this export can never select: the target's
+	// unsupported paths (FP16 scene shaders, VRS, image-atomic fog), multiview
+	// without XR, and Forward+'s advanced passes (motion vectors, separate
+	// specular, lightmaps, VoxelGI, SDFGI) when nothing in the project uses
+	// them. A group the game turns on anyway compiles from source at that point.
+	// See webgpu_notes/TASKS.md §2.27.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "shader_baker/variant_pruning", PROPERTY_HINT_ENUM, "Disabled,Automatic"), 1));
 }
 
 bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const {
@@ -531,7 +562,11 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 		return p_preset->get("variant/thread_support").operator bool();
 	}
 
-	if (p_option == "shader_baker/separate_pack") {
+	if (p_option == "vram_texture_compression/separate_packs") {
+		return p_preset->get("vram_texture_compression/for_desktop").operator bool() && p_preset->get("vram_texture_compression/for_mobile").operator bool();
+	}
+
+	if (p_option == "shader_baker/separate_pack" || p_option == "shader_baker/variant_pruning") {
 		return p_preset->get("shader_baker/enabled").operator bool();
 	}
 
@@ -698,6 +733,124 @@ Error EditorExportPlatformWeb::_save_shader_pack(const Ref<EditorExportPreset> &
 	return OK;
 }
 
+// Set for the duration of one save_pack() that splits textures out.
+struct WebTexturePackFiles {
+	Vector<ShaderBakerExportPlugin::SeparatePackFile> bc;
+	Vector<ShaderBakerExportPlugin::SeparatePackFile> etc2_astc;
+};
+static WebTexturePackFiles *web_texture_pack_files = nullptr;
+
+bool EditorExportPlatformWeb::_uses_texture_packs(const Ref<EditorExportPreset> &p_preset) const {
+	// Not with an encrypted pack: the side packs are written unencrypted, the
+	// same rule as the separate shader pack.
+	return p_preset->get("vram_texture_compression/for_desktop").operator bool() && p_preset->get("vram_texture_compression/for_mobile").operator bool() && p_preset->get("vram_texture_compression/separate_packs").operator bool() && !p_preset->get_enc_pck();
+}
+
+Error EditorExportPlatformWeb::_save_pack_file_split_textures(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data) {
+	if (web_texture_pack_files != nullptr) {
+		// Imported files carry their compression family before the extension:
+		// res://.godot/imported/<name>-<hash>.s3tc.ctex (also .ctexarray, .ctex3d, ...).
+		const String path = simplify_path(p_info.path);
+		if (path.trim_prefix("res://").begins_with(".godot/imported/")) {
+			const String family = path.get_basename().get_extension();
+			Vector<ShaderBakerExportPlugin::SeparatePackFile> *target = nullptr;
+			if (family == "s3tc" || family == "bptc") {
+				target = &web_texture_pack_files->bc;
+			} else if (family == "etc2" || family == "astc") {
+				target = &web_texture_pack_files->etc2_astc;
+			}
+			if (target != nullptr) {
+				ShaderBakerExportPlugin::SeparatePackFile file;
+				file.path = path;
+				file.data = p_data;
+				target->push_back(file);
+				return OK;
+			}
+		}
+	}
+	return _save_pack_file(p_preset, p_userdata, p_info, p_data);
+}
+
+Error EditorExportPlatformWeb::_save_texture_packs(const String &p_base_path, Dictionary &r_texture_packs) {
+	ERR_FAIL_NULL_V(web_texture_pack_files, ERR_BUG);
+	struct Family {
+		const char *key;
+		const char *suffix;
+		Vector<ShaderBakerExportPlugin::SeparatePackFile> *files;
+	};
+	const Family families[] = {
+		{ "bc", ".textures_bc.pck", &web_texture_pack_files->bc },
+		{ "etc2_astc", ".textures_etc2_astc.pck", &web_texture_pack_files->etc2_astc },
+	};
+	for (const Family &family : families) {
+		const String pack_path = p_base_path + family.suffix;
+		if (FileAccess::exists(pack_path)) {
+			DirAccess::remove_absolute(pack_path);
+		}
+		if (family.files->is_empty()) {
+			continue;
+		}
+		Ref<PCKPacker> packer;
+		packer.instantiate();
+		Error err = packer->pck_start(pack_path);
+		if (err != OK) {
+			return err;
+		}
+		for (const ShaderBakerExportPlugin::SeparatePackFile &file : *family.files) {
+			err = packer->add_file_from_buffer(file.path, file.data);
+			if (err != OK) {
+				return err;
+			}
+		}
+		err = packer->flush(false);
+		if (err != OK) {
+			return err;
+		}
+		r_texture_packs[family.key] = pack_path.get_file();
+		print_verbose(vformat("Web export: wrote %d imported textures to '%s'.", family.files->size(), pack_path));
+	}
+	return OK;
+}
+
+Error EditorExportPlatformWeb::_save_shader_extras(const String &p_path, bool &r_written) {
+	r_written = false;
+
+	Vector<ShaderBakerExportPlugin::SeparatePackFile> files;
+	for (const Ref<EditorExportPlugin> &plugin : EditorExport::get_singleton()->get_export_plugins()) {
+		ShaderBakerExportPlugin *baker = Object::cast_to<ShaderBakerExportPlugin>(plugin.ptr());
+		if (baker != nullptr) {
+			files.append_array(baker->take_extras_pack_files());
+		}
+	}
+	if (files.is_empty()) {
+		return OK;
+	}
+
+	// Keyed by the path relative to the shader cache, which is what the runtime
+	// looks up (ShaderRD::_open_from_extras()); sorted for stable bytes.
+	const String cache_prefix = ShaderRD::get_shader_cache_user_dir() + "/";
+	Vector<Pair<String, Vector<uint8_t>>> entries;
+	for (const ShaderBakerExportPlugin::SeparatePackFile &file : files) {
+		ERR_CONTINUE_MSG(!file.path.begins_with(cache_prefix), vformat("Shader extras file '%s' is outside the shader cache.", file.path));
+		entries.push_back(Pair<String, Vector<uint8_t>>(file.path.trim_prefix(cache_prefix), file.data));
+	}
+	struct ByPath {
+		bool operator()(const Pair<String, Vector<uint8_t>> &p_a, const Pair<String, Vector<uint8_t>> &p_b) const {
+			return p_a.first < p_b.first;
+		}
+	};
+	entries.sort_custom<ByPath>();
+
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+	if (f.is_null()) {
+		return ERR_CANT_CREATE;
+	}
+	f->store_buffer(ShaderRD::build_shader_cache_extras(entries));
+	r_written = true;
+	print_verbose(vformat("Web export: wrote %d deferred shader cache files to '%s'.", entries.size(), p_path));
+	return OK;
+}
+
 Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_preset, bool p_debug, const String &p_path, BitField<EditorExportPlatform::DebugFlags> p_flags, bool p_notify) {
 	ExportNotifier notifier(*this, p_preset, p_debug, p_path, p_flags, p_notify);
 
@@ -733,7 +886,24 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 	// Export pck and shared objects
 	Vector<SharedObject> shared_objects;
 	String pck_path = base_path + ".pck";
-	Error error = save_pack(p_preset, p_debug, pck_path, &shared_objects);
+	Dictionary texture_packs;
+	Error error;
+	if (_uses_texture_packs(p_preset)) {
+		WebTexturePackFiles split_files;
+		web_texture_pack_files = &split_files;
+		error = save_pack(p_preset, p_debug, pck_path, &shared_objects, _save_pack_file_split_textures);
+		if (error == OK) {
+			error = _save_texture_packs(base_path, texture_packs);
+		}
+		web_texture_pack_files = nullptr;
+	} else {
+		for (const char *suffix : { ".textures_bc.pck", ".textures_etc2_astc.pck" }) {
+			if (FileAccess::exists(base_path + suffix)) {
+				DirAccess::remove_absolute(base_path + suffix);
+			}
+		}
+		error = save_pack(p_preset, p_debug, pck_path, &shared_objects);
+	}
 	if (error != OK) {
 		add_message(EXPORT_MESSAGE_ERROR, TTR("Export"), vformat(TTR("Could not write file: \"%s\"."), pck_path));
 		return error;
@@ -751,6 +921,18 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 	error = _save_shader_pack(p_preset, shader_pack_path, shader_pack_written);
 	if (error != OK) {
 		add_message(EXPORT_MESSAGE_ERROR, TTR("Export"), vformat(TTR("Could not write file: \"%s\"."), shader_pack_path));
+		return error;
+	}
+
+	// The shader groups the baker deferred, fetched by the shell after start.
+	const String shader_extras_path = base_path + ".shaders_extra.bin";
+	if (FileAccess::exists(shader_extras_path)) {
+		DirAccess::remove_absolute(shader_extras_path);
+	}
+	bool shader_extras_written = false;
+	error = _save_shader_extras(shader_extras_path, shader_extras_written);
+	if (error != OK) {
+		add_message(EXPORT_MESSAGE_ERROR, TTR("Export"), vformat(TTR("Could not write file: \"%s\"."), shader_extras_path));
 		return error;
 	}
 
@@ -819,6 +1001,18 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 			file_sizes[shader_pack_path.get_file()] = (uint64_t)f->get_length();
 		}
 	}
+	if (shader_extras_written) {
+		f = FileAccess::open(shader_extras_path, FileAccess::READ);
+		if (f.is_valid()) {
+			file_sizes[shader_extras_path.get_file()] = (uint64_t)f->get_length();
+		}
+	}
+	for (const Variant &texture_pack : texture_packs.values()) {
+		f = FileAccess::open(base_dir.path_join(texture_pack), FileAccess::READ);
+		if (f.is_valid()) {
+			file_sizes[texture_pack] = (uint64_t)f->get_length();
+		}
+	}
 	f = FileAccess::open(base_path + ".wasm", FileAccess::READ);
 	if (f.is_valid()) {
 		file_sizes[base_name + ".wasm"] = (uint64_t)f->get_length();
@@ -837,7 +1031,7 @@ Error EditorExportPlatformWeb::export_project(const Ref<EditorExportPreset> &p_p
 	f.unref(); // close file.
 
 	// Generate HTML file with replaced strings.
-	_fix_html(html, p_preset, base_name, p_debug, p_flags, shared_objects, file_sizes);
+	_fix_html(html, p_preset, base_name, p_debug, p_flags, shared_objects, file_sizes, texture_packs);
 	Error err = _write_or_error(html.ptr(), html.size(), p_path);
 	if (err != OK) {
 		// Message is supplied by the subroutine method.
@@ -1124,6 +1318,9 @@ Error EditorExportPlatformWeb::_export_project(const Ref<EditorExportPreset> &p_
 		DirAccess::remove_file_or_error(basepath + ".service.worker.js");
 		DirAccess::remove_file_or_error(basepath + ".pck");
 		DirAccess::remove_file_or_error(basepath + ".shaders.pck");
+		DirAccess::remove_file_or_error(basepath + ".shaders_extra.bin");
+		DirAccess::remove_file_or_error(basepath + ".textures_bc.pck");
+		DirAccess::remove_file_or_error(basepath + ".textures_etc2_astc.pck");
 		DirAccess::remove_file_or_error(basepath + ".png");
 		DirAccess::remove_file_or_error(basepath + ".side.wasm");
 		DirAccess::remove_file_or_error(basepath + ".wasm");

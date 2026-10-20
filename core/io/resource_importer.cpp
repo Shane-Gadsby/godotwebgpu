@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/io/config_file.h"
+#include "core/io/file_access.h"
 #include "core/io/image.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
@@ -90,7 +91,12 @@ Error ResourceFormatImporter::_get_path_and_type(const String &p_path, PathAndTy
 		if (!assign.is_empty()) {
 			if (!path_found && assign.begins_with("path.") && r_path_and_type.path.is_empty()) {
 				String feature = assign.get_slicec('.', 1);
-				if (OS::get_singleton()->has_feature(feature)) {
+				if (p_load && !FileAccess::exists(String(value))) {
+					// An export can ship each compression family in a pack of its own
+					// and mount only the one the device samples (the web exporter's
+					// vram_texture_compression/separate_packs), so a listed variant is
+					// not necessarily present. Fall through to one that is.
+				} else if (OS::get_singleton()->has_feature(feature)) {
 					r_path_and_type.path = value;
 					path_found = true; // First match must have priority.
 				} else if (p_load && Image::can_decompress(feature) && !decomp_path_found) { // When loading, check for decompressable formats and use first one found if nothing else is supported.

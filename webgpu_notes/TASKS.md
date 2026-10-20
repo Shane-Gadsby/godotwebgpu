@@ -293,7 +293,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.1 | bind-group layout mismatch | CLOSED | — |
 | 2.2 | non-dlink export abort | CLOSED | — |
 | 2.3 | dlink under throttling | CLOSED | — |
-| 2.27 | baked containers are 79% of the download | OPEN (baking wins at 20 Mbit) | variant pruning, unsafe without an opt-in design |
+| 2.27 | baked containers are 79% of the download | **DONE 2026-10-20** — automatic variant pruning + lazily loaded shader extras: platformer startup shaders 10.7 → 1.84 MB gzipped | a real-GPU Forward+ run; WGSL compression in containers (optional) |
 | 2.4 | startup fixed floor | EFFECTIVELY DONE (stage loop 391 → ~180 ms; tail attributed) | nothing tunable; lazy renderer init (FSR/GI storage) is design work; unbaked Tint (~6 s) is by design |
 | 2.5 ✔ | threading decision | **IMPLEMENTED 2026-10-16**, open for tooling — separate render thread for `threads=yes` + `thread_model=2` (Chrome + Firefox, dlink too); main thread −57% (platformer) to −97% (heavy) per frame; `requestQuit()` clean | `perf_guard` tools see only the main thread under Separate; uncapped fps unmeasurable there (Chrome rAF ~60 Hz with a worker-owned canvas); Safari/mobile never run |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
@@ -313,7 +313,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
-| 2.18 | texture compression export option | BLOCKED | — |
+| 2.18 | texture compression export option | **DONE 2026-10-20** — per-family texture packs, the browser fetches only the one it samples | Safari/iOS and an Android device run |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
 | 2.21 | deferred emdawnwebgpu features | OPEN | — |
@@ -366,7 +366,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.1 | ~~Bind-group layout mismatch — rare residual~~ | **`CLOSED` 2026-10-14 → §4.19** | — |
 | 2.2 | ~~Confirm the non-dlink export abort is gone on 6.0.9~~ | **`CLOSED` 2026-10-14 → §4.5** | — |
 | 2.3 | ~~Profile a dlink export under network throttling~~ | **`CLOSED` 2026-10-14 → §4.15** | — |
-| 2.27 | Baked containers: multiview SPIR-V dropped (−59%); baking now beats not baking at 20 Mbit (12.9 s vs 17.7 s); pruning is an opt-in decision | `OPEN` — re-measured 2026-10-14 | ~0.5 session |
+| 2.27 | Baked containers: multiview SPIR-V dropped (−59%), then unreachable groups pruned and unverified ones deferred to lazily loaded extras (startup shaders −83% gzipped) | `DONE` 2026-10-20 | real-GPU check only |
 | 2.4 | Startup's fixed floor: `Servers:Rendering` + first frame | `EFFECTIVELY DONE` — stage loop 391 → ~180 ms; remainder attributed (a ~1.1 s tail of wasm CPU, no dominant term); only lazy renderer init is left, not planned | design work only (lazy renderer init), not planned |
 | 2.5 | Decide whether threading is worth having | `IMPLEMENTED 2026-10-16` (open: perf tooling for the render thread, Safari/mobile) | done; tooling ~1 session |
 | 2.6 ✔ | real-GPU profile | DONE 2026-10-15 (baked heavy: `translated 0`, stall 18.5 -> 7.7 s) | `rwShadowRefreshes` 40 -> 4/frame on 2026-10-16: they were a detection bug, not inherent (§2.30) |
@@ -383,7 +383,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
-| 2.18 | Texture compression as an export option | `BLOCKED` | needs 2.8 / 2.9 |
+| 2.18 | Texture compression as an export option: per-family texture packs | `DONE` 2026-10-20 | device runs (Safari/iOS, Android) |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
 | 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
@@ -416,7 +416,59 @@ never idle, so overlapping cannot speed up a bandwidth-bound load. The lever tha
 transport compression, worth 3.5×. Figures, and the far larger thing they turned up (§2.27), are in
 §4.15.
 
-### 2.27 Baked shader containers are 79% of the download `OPEN` — baking now wins; pruning is optional *(found closing §2.3)*
+### 2.27 Baked shader containers are 79% of the download `DONE 2026-10-20` — automatic variant pruning and lazily loaded shader extras *(found closing §2.3)*
+
+**Landed 2026-10-20 — the pruning, made safe by deferring instead of dropping.** The objection below ("a pruned
+variant that gets requested ... is a hard failure") turned out to be wrong for whole *groups*: a group's cache
+file that is simply absent is an ordinary cache miss, and `ShaderRD::_load_from_cache()` falls back to compiling
+the group from GLSL, as an unbaked export would. (It is only a container *present but stripped* that cannot be
+used.) So pruning works at group granularity, and it now does, in three tiers:
+
+1. **Groups the target can never select are not baked.** `ShaderRD::set_group_bake_requirements()` tags each
+   lazily enabled group with what it needs (`ShaderRD::GroupBakeRequirement`); the baker evaluates the bits
+   against the target's capability answers and the project. Dropped for WebGPU: Forward Mobile's FP16 groups
+   (`use_fp16` is exactly `SUPPORTS_HALF_FLOAT`), the GI VRS group, three of the four fog groups (image atomics /
+   Vulkan memory model), and every multiview group unless `xr/shaders/enabled`.
+2. **Groups the export cannot verify go to the shader extras.** Forward+'s advanced group (motion vectors,
+   separate specular, lightmaps, VoxelGI and SDF depth passes — ~70% of each material's bytes) is enabled only
+   when a frame needs TAA, FSR 2, a LightmapGI, VoxelGI, SDFGI, subsurface scattering or a compositor effect
+   needing motion vectors or separate specular. `_compute_unmet_group_requirements()` checks the project
+   settings and scans every scene, resource, shader and script in the project for those features (property and
+   API names as bytes, which also works on binary and compressed resources, since property names live in their
+   string table). If nothing mentions any of them, the group is baked into `<name>.shaders_extra.bin` instead
+   of the startup pack.
+3. **The shell fetches the extras at low priority as the engine starts** (`Engine.loadShaderExtras()`), after
+   every startup download has finished, and writes them to `/godot_shader_cache_extras.bin`; `ShaderRD` indexes
+   that file on its next cache miss (`_open_from_extras()`). The extras are deliberately **not** mounted as a pack:
+   `PackedData` has no lock, and the render thread may be opening shader cache files at the time.
+
+Export option `shader_baker/variant_pruning` (`Disabled` / `Automatic`, default Automatic). Without a separate
+shader pack (or with an encrypted pack) there is nowhere to put extras, and tier 2 drops the group instead. A
+group the game needs before the extras arrive compiles from source (verbose log says so); one needed after they
+arrived but missing from them (a wrong scan, e.g. a feature enabled from GDExtension code) warns once at runtime
+with the fix. The decision is part of the customization hash, and `file_cache` re-shipping respects it.
+
+Measured on `3d/platformer` (Forward+, nothing advanced), same editor and template:
+
+| | startup shader pack | gzipped | extras (fetched after start) | gzipped |
+|---|---|---|---|---|
+| `variant_pruning` Disabled | 68.9 MB | 10.7 MB | — | — |
+| Automatic | **14.5 MB** | **1.84 MB** | 51.4 MB | 8.7 MB |
+
+So the gzipped download before the first frame drops by ~8.9 MB (−83% of the shaders); ~3 MB of unreachable
+groups are no longer shipped at all. Verified in headless Chromium (swiftshader) with a scratch template that
+skips the <48-textures Forward Mobile fallback, and a probe that enables TAA through a spelling the scan cannot
+see: TAA turned on after startup → the extras were indexed on the first miss and `translated` stayed at 1 (an
+unrelated octmap shader, below); TAA turned on in an autoload's `_ready()`, i.e. needed by the first frame →
+the extras still arrived mid-startup (the engine yields between startup steps) and nothing compiled. Before the
+fetch was moved from "after the first frame" to "as the engine starts", that last case compiled 482 stages,
+because the first frame never finished to start the fetch.
+
+**Not yet done:** a real-GPU Forward+ run (swiftshader cannot run Forward+ properly — CLAUDE.md), and the
+Forward+ matrix with pruning on (its fixture builds materials in GDScript, so the scan keeps the advanced group
+for any feature it toggles by name). **Found on the way, pre-existing and unrelated:** `OctmapFilterRasterShaderRD`,
+`OctmapDownsamplerRasterShaderRD`, `OctmapRoughnessRasterShaderRD` and `FsrUpscaleShaderRD` are never in the
+baked cache at all (missing with pruning disabled too), so every export compiles them at startup.
 
 *(First cut landed 2026-10-14 — the numbers below are the original measurement; the pck is now
 62.36 MB. See "Landed" at the end.)*
@@ -1500,11 +1552,28 @@ disable_path_overrides=no` (release templates refuse `--path` otherwise) run on 
 5. ~~**Threading** — §2.5, after 1-2 are re-measured.~~ Done 2026-10-16: §2.5 closed, separate render thread is the default.
 **Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
 
-### 2.18 Texture compression as an export option `BLOCKED` *(old Task 39)*
+### 2.18 Texture compression as an export option `DONE 2026-10-20` — per-family texture packs *(old Task 39)*
 
-Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at RMSE 0.0006. Safari
-and mobile are exactly the platforms the option exists to serve, and both are unmeasured — blocked on
-§2.8 / §2.9.
+Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at RMSE 0.0006. The export
+options themselves (`vram_texture_compression/for_desktop` / `for_mobile`) were already upstream; what was
+missing is that exporting both put both families in the main pack, so **every player downloaded every texture
+twice** to serve desktop and mobile from one export.
+
+**Landed 2026-10-20:** `vram_texture_compression/separate_packs` (default on, shown when both families are
+exported). The web exporter's save function diverts imported `*.s3tc|bptc.*` files into
+`<name>.textures_bc.pck` and `*.etc2|astc.*` into `<name>.textures_etc2_astc.pck`
+(`EditorExportPlatformWeb::_save_pack_file_split_textures()`). The shell's `Engine.pickTexturePack()` picks one
+from the WebGPU device's features (WebGL extensions under Compatibility), preferring BC as the engine does (the
+importer lists BC first), and preloads it as `<main pack>.textures.pck`, which `ProjectSettings` mounts beside the
+main pack. `ResourceFormatImporter` now skips a `path.<feature>` variant whose file is not there, so a device that
+supports a family whose pack it did not get (ASTC-only with an ETC2 texture, say) falls through to one it has.
+Not with an encrypted pack (same rule as the shader pack).
+
+Verified in headless Chromium with the platformer's 28 3D textures forced to VRAM compression: BC device →
+only `textures_bc` fetched, 28 `.s3tc.ctex` loaded; BC stripped from the device → only `textures_etc2_astc`,
+`.etc2.ctex` loaded natively; no compression feature at all → `textures_bc`, CPU-decompressed (bcdec), as
+before. **Still unmeasured:** Safari/iOS (§2.8) and a real Android device (§2.9) — the formats there are what the
+option is for.
 
 ### 2.19 Interleaved-build stale object — the real fix `OPEN` — NOT REPRODUCED 2026-10-15 *(old Task 40)*
 
