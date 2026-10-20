@@ -719,7 +719,11 @@ synchronous.
 | + async ahead-of-time compiles | **550 ms** | **11, 0.17 s** |
 
 Looking around the level (scripted pointer-lock turns, 3 runs each): before, one run froze 521 ms on 4 synchronous
-Forward+ pipelines; after, no pipeline was created synchronously in any run.
+Forward+ pipelines; after, no pipeline was created synchronously in any run. Left on `CrGpuMain`: `createShaderModule`
+(0.26-0.73 s after the first frame, synchronous in WebGPU, parsed by Chrome on that thread) and the 26 compute
+pipelines frame 1 binds (SSAO/SSIL/SSR/fog/cluster store, ~0.44 s). Starting all compute pipelines asynchronously at
+creation was considered and not done: sewer-shift creates 169, whose modules alone (~370 ms, synchronous) would land in
+the load, and their compiles would compete with the ubershaders frame 1 needs.
 
 On the Razr 60 (Mali-G615, Chrome 155, Forward+; same two exports, 2 runs each, raw CDP over `adb forward`) the
 freeze when the scene first draws went **18.0 / 17.0 s → 6.8 / 7.1 s**, synchronous render pipelines 33 → 18; `Player
@@ -729,18 +733,18 @@ binds, ~12 ubershaders requested at draw time, ~72 modules -- each far slower on
 correctly and logged no errors. Once running the game is GPU-bound there at ~9 fps (full resolution, SSAO/SSIL/SSR/fog):
 §2.9's `.web_android` scaling overrides apply.
 
-**Open, found the same evening: `webrtc_parity` in Chrome logs `ERROR: WebGPU: device was lost`.** Every Chrome
-fixture fails its "no engine error" assertion on that one line (20 of 706 assertions; the WebRTC behavior itself
-passes, and Firefox passes all of it). Chrome there runs the swiftshader adapter, so Forward Mobile. It is not the
-asynchronous render pipelines: the nothreads export with `HEAD`'s template (`3ce02f33e`, before them) loses the device
-the same way, 2 runs of 2. The tier passed on GitHub's swiftshader runners on 2026-10-19 (`5d3e4c672`), so the
-first suspects are this day's `c19a9a73e` (modules and compute pipelines on first use) and `fcec15d2d` (compute
-prewarm): bisect with `RTC_VARIANTS=nothreads RTC_BROWSERS=chromium node run_tests.mjs`, swapping templates into
-`exports/loopback` (back it up first). Left on `CrGpuMain`: `createShaderModule`
-(0.26-0.73 s after the first frame, synchronous in WebGPU, parsed by Chrome on that thread) and the 26 compute
-pipelines frame 1 binds (SSAO/SSIL/SSR/fog/cluster store, ~0.44 s). Starting all compute pipelines asynchronously at
-creation was considered and not done: sewer-shift creates 169, whose modules alone (~370 ms, synchronous) would land in
-the load, and their compiles would compete with the ubershaders frame 1 needs.
+**Found the same evening, then fixed: `webrtc_parity` in Chrome logged `ERROR: WebGPU: device was lost`** (20 of 706
+assertions, every Chrome fixture's "no engine error" check; the WebRTC behavior itself passed, Firefox all of it). A
+bisect pointed at `c19a9a73e` (5d3e4c672 and 98b210017 good in 7/7 runs, c19a9a73e bad 2/2; undoing only its lazy compute
+pipelines made it pass), but that commit only moved the failure into the test's window. Locally `run_loopback.mjs`
+launched Chrome with no `headless` option, so Playwright ran it headless: the swiftshader fallback adapter (16 textures,
+hence the Mobile renderer in every fixture), and a GPU process that cannot back a WebGPU canvas -- at the first present
+it logs `Could not find SharedImageBackingFactory ... WebgpuSwapChainTexture ... RGBA_8888` and the device is lost
+(reason `destroyed`, or `unknown` with "A valid external Instance reference no longer exists"). Before `c19a9a73e` the
+~26 compute pipelines compiled on swiftshader at init pushed the first present past the fixture's `END`, so the test
+finished first; the eager-compute variant still lost the device, at 8.8 s instead of 5.0 s. Fixed with `headless: isCI`
+(the comment already said "headed"): all four Chrome variants 353/353 on the current tree. The `CI=1` path (headless,
+ANGLE on Vulkan) presents fine, 86/86. §3 trap 43.
 
 **Investigated and not changed:** (1) V8's wasm code cache. The preloader hands `instantiateStreaming()` a
 synthetic `Response` (for progress tracking), which in principle can never hit the cache; passing the real one
@@ -2152,6 +2156,13 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     exit, before `status=$?` was read, so its SKIP (2) and FAIL (1) branches never ran: a run without
     `WEBGPU_REAL_GPU=1` died silently at the fog-smoothness SKIP, and a real failure would have looked the same. It
     now captures the status with `|| status=$?`. If a run ends without its results table, that is what happened.
+43. **A Playwright Chrome launch without `headless: false` runs headless, which on this machine cannot present WebGPU**
+    (2026-10-20). Playwright defaults to headless; there Chrome gets only the swiftshader fallback adapter (16 sampled
+    textures, so the Mobile renderer) and loses the device at the first canvas present (GPU process: "Could not find
+    SharedImageBackingFactory ... WebgpuSwapChainTexture"). A test then fails only if its first frame lands inside its
+    window, so any change to startup time moves the failure in or out -- `webrtc_parity` bisected cleanly to an
+    innocent commit that made startup faster. Set `headless` explicitly in every launch, and log the adapter
+    (`adapter.info`, `isFallbackAdapter`) before trusting a "real GPU" run.
 
 ---
 

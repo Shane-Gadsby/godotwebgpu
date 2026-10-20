@@ -126,6 +126,11 @@ async function runPlaywright(name) {
 		: await pw.chromium.launch({
 			// The user's own launcher (see scene_smoketest/run_scenes.mjs): system Chrome, headed.
 			// --use-angle=vulkan / --use-vulkan=native / --no-sandbox make it report "WebGL2 missing".
+			// `headless` has to be explicit: Playwright defaults to headless, where this Chrome gets
+			// only the swiftshader fallback adapter and cannot present a WebGPU canvas at all (the GPU
+			// process logs "Could not find SharedImageBackingFactory ... WebgpuSwapChainTexture" and the
+			// device is lost at the first present). TASKS.md §3 trap 43.
+			headless: isCI,
 			...(isCI ? {} : { executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'] }),
 			args: isCI
 				? ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=angle', '--use-angle=vulkan']
