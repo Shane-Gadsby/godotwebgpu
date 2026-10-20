@@ -30,8 +30,21 @@
 
 #pragma once
 
-// The only place the module includes OpenRigLogic, so its names stay out of the module's headers.
+#include "core/typedefs.h"
+
+// The only place the module includes OpenRigLogic, so its names stay out of the module's headers. Its
+// public headers are third-party code: hold them to their own warnings, not Godot's dev_mode set.
+GODOT_GCC_WARNING_PUSH
+GODOT_GCC_WARNING_IGNORE("-Wvirtual-inheritance")
+GODOT_GCC_WARNING_IGNORE("-Wctor-dtor-privacy")
+GODOT_GCC_WARNING_IGNORE("-Wnon-virtual-dtor")
+GODOT_GCC_WARNING_IGNORE("-Wshadow")
+GODOT_CLANG_WARNING_PUSH
+GODOT_CLANG_WARNING_IGNORE("-Wnon-virtual-dtor")
+GODOT_CLANG_WARNING_IGNORE("-Wshadow")
 #include <riglogic/RigLogic.h>
+GODOT_CLANG_WARNING_POP
+GODOT_GCC_WARNING_POP
 
 namespace MetaHumanRigLogic {
 

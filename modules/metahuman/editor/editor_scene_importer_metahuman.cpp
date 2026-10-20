@@ -868,7 +868,6 @@ Node *EditorSceneFormatImporterMetaHuman::import_scene(const String &p_path, uin
 
 	// Which rigs this file brings in.
 	const String file = p_path.get_file().to_lower();
-	const String head_path = _manifest_dna_path(ctx, "head");
 	const String body_path = _manifest_dna_path(ctx, "body");
 	const bool is_body = p_path.simplify_path() == body_path.simplify_path() || (file == "body.dna" && manifest.get_type() != Variant::DICTIONARY);
 	const bool want_face = !is_body;
