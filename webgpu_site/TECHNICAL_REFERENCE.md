@@ -275,6 +275,22 @@ Implemented via SPIR-V binary patching:
 - ~1k entries typical, never evicted (process lifetime = page session)
 - Hit/miss counters for diagnostics
 
+**The baked shader cache and its groups.** `ShaderRD` keeps one cache file per (shader version, group), looked up in
+this order: `res://.godot/shader_cache` (the export's baked cache, from `.shaders.pck`), the shader cache extras,
+then `user://`. A miss compiles the group from GLSL as an unbaked export would. The baker decides per group from
+`ShaderRD::GroupBakeRequirement` bits set where each lazily enabled group is declared: a group needing a capability
+the target lacks (FP16, VRS, image atomics, the Vulkan memory model) or XR without `xr/shaders/enabled` is not baked;
+Forward+'s advanced group is baked into the extras unless the project scan
+(`ShaderBakerExportPlugin::_compute_unmet_group_requirements()`) finds TAA, FSR 2, LightmapGI, VoxelGI, SDFGI,
+subsurface scattering or a motion-vector/separate-specular compositor effect, in which case it stays in the startup
+pack. Export option `shader_baker/variant_pruning` (`Disabled` / `Automatic`).
+
+**Modules and compute pipelines are created on first use.** `shader_create_from_container()` keeps each stage's final
+WGSL (`WGShader::stage_wgsl`) and `_get_stage_module()` creates the module when a pipeline first needs it;
+`compute_pipeline_create()` defers to `_ensure_compute_pipeline()` on the first `command_bind_compute_pipeline()`.
+Chrome does both on the GPU process's main thread, which also produces frames, so creating everything at load was
+the startup stall (`webgpu_notes/TASKS.md` §2.4).
+
 ---
 
 ## 5. Texture & Buffer Operations
@@ -452,8 +468,11 @@ scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=ye
 
 1. `engine.js` detects `renderingDriver === 'webgpu'`
 2. Requests WebGPU device (async, before WASM loads)
-3. Device ready → `Godot(moduleConfig)` called with preinitializedWebGPUDevice
+3. Device ready → `Godot(moduleConfig)` called with preinitializedWebGPUDevice; alongside the wasm and the main pack the shell preloads, when the export has them, `<name>.shaders.pck` (the baked shader cache) and **one** of `<name>.textures_bc.pck` / `<name>.textures_etc2_astc.pck` (`Engine.pickTexturePack()`: BC if the device samples it, else ETC2/ASTC if it samples that, else BC for CPU decompression), written as `<main pack>.textures.pck`. `ProjectSettings` mounts `.shaders.pck` and `.textures.pck` beside the main pack.
 4. C++ imports device, Tint is already compiled into the WASM, rendering begins
+5. As the engine starts, the shell fetches `<name>.shaders_extra.bin` at low priority (`Engine.loadShaderExtras()`) and writes it to `/godot_shader_cache_extras.bin`; `ShaderRD` indexes it on its next shader cache miss (`_open_from_extras()`). It holds the shader groups the export deferred (§4.5).
+
+Files of an export with every option on: `index.html`, `index.js`, `index.wasm`, `index.pck`, `index.shaders.pck`, `index.shaders_extra.bin`, `index.textures_bc.pck`, `index.textures_etc2_astc.pck`, plus icons and the audio worklet.
 
 ---
 
