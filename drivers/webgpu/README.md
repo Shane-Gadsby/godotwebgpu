@@ -291,6 +291,16 @@ runtime. The choice is all-or-nothing per shader: if any stage that declares
 specialization constants ends up frozen, the whole shader takes the legacy path,
 since mixing the two would leave that stage silently on its defaults.
 
+### Modules and compute pipelines are created on first use
+
+`shader_create_from_container()` keeps each stage's final WGSL and creates the `WGPUShaderModule` when a pipeline
+first needs it (`_get_stage_module()`); `compute_pipeline_create()` records the request and compiles on the first
+`command_bind_compute_pipeline()` (`_ensure_compute_pipeline()`). Chrome parses modules and compiles pipelines on the
+GPU process's main thread, which also produces the page's frames, and the engine loads every variant of a shader and
+creates every effect's compute pipelines at init. Eagerly, that was the startup stall (TASKS.md §2.4): ~90 compute
+pipelines and ~500 modules before the first frame, none of the pipelines and ~5% of the modules actually used. Read a
+stage's module through `_get_stage_module()`, never `stage_modules[]` directly.
+
 ### Barrier No-ops
 WebGPU tracks resource hazards automatically. All barrier/sync commands are
 no-ops.

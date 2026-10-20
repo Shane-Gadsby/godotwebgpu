@@ -146,7 +146,11 @@ struct WGVertexFormat {
 
 struct WGShader {
 	// Per-stage shader modules. Indexed by RDD::ShaderStage enum value.
+	// Created on first use by a pipeline, not when the shader is: until then
+	// stage_wgsl holds the stage's final WGSL (see
+	// RenderingDeviceDriverWebGPU::_get_stage_module()). Read them through that.
 	WGPUShaderModule stage_modules[6] = {}; // SHADER_STAGE_MAX = 6 (vertex/frag/tess×2/compute/max)
+	CharString stage_wgsl[6];
 	WGPUShaderModule module = nullptr; // Legacy alias — points to first non-null module.
 
 	// Per-stage raw SPIR-V bytes. Stored for deferred specialization constant patching.
@@ -287,6 +291,13 @@ struct WGPipelineWrapper {
 	// constant factor uses the whole constant color, so while this pipeline is
 	// bound the driver sets the constant to (a, a, a, a) instead.
 	bool blend_constant_alpha = false;
+	// A compute pipeline is compiled on its first bind, not when it is created:
+	// see RenderingDeviceDriverWebGPU::compute_pipeline_create(). Until then
+	// compute_handle is null and this holds what creating it needs; the shader
+	// outlives the pipeline (RenderingDevice frees dependent pipelines first).
+	bool compute_pending = false;
+	LocalVector<RenderingDeviceDriver::PipelineSpecializationConstant> pending_specialization_constants;
+	CharString pending_label;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };

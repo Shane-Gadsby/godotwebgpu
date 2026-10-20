@@ -618,6 +618,57 @@ measurement of what ADVANCED costs per project first.
 
 ### 2.4 Startup's fixed floor: `Servers:Rendering` and the first frame `OPEN` *(old Task 14, subtask 2)*
 
+**Root-caused 2026-10-20 — the stall was the GPU process compiling things nobody used, serialized with the main
+thread.** The tools below only ever looked at the page's main thread and at how long each WebGPU *call* took on it;
+the work behind those calls happens on the GPU process, and nothing looked there. A Chrome trace with Dawn's
+categories (`gpu.dawn`, `disabled-by-default-gpu.dawn`) over the platformer's startup (headless Chromium on
+swiftshader, with a scratch template that skips the <48-textures Forward Mobile fallback so Forward+ runs)
+shows, between `godot-before-callmain` and the first frame:
+
+| where | what | ms |
+|---|---|---|
+| GPU process main thread (`CrGpuMain`) | `CreateComputePipeline` x89 — every effect's compute pipelines, built at renderer init | **~5,900** |
+| | `CreateShaderModule` x220-494 — every baked variant of every loaded shader | 600-2,100 |
+| page main thread | engine wasm, of which `wasm.CompileLazy` (V8 compiling 17,000 functions on first call) | 3,700 total, 1,140 lazy compile |
+| page main thread | **idle**, between startup steps | **~4,900** |
+
+The idle time is the link. The startup runs one step per `requestAnimationFrame` (`web_main.cpp`), and Chrome runs
+Dawn on the same GPU-process thread that produces the page's frames, so after `setup2` has queued its pipelines
+and modules, no frame -- and so no next startup step -- comes until that thread has compiled all of them. The two
+processes took turns instead of overlapping. And the first frame needed **none** of the 89 compute pipelines and
+~23 of the ~500 modules: they belong to effects and variants the scene never uses. (This is also what the
+September "single blocking `writeTexture`" was: the call where the main thread's wire buffer filled up while the
+GPU process was still compiling; it no longer shows since the glyph-atlas uploads were coalesced.)
+
+**Fixed in the driver, no engine changes:** `compute_pipeline_create()` records the request and compiles on the
+first `command_bind_compute_pipeline()` (`_ensure_compute_pipeline()`), and `shader_create_from_container()` keeps
+each stage's final WGSL and creates the module when a pipeline first needs it (`_get_stage_module()`). Same
+export, same commit, `callMain` to first frame:
+
+| | runs (ms) | GPU process before the first frame |
+|---|---|---|
+| before | 6,787 / 6,734 / 6,872 | 89-91 compute pipelines (~5.9 s), 220 modules |
+| lazy compute pipelines | 3,265 / 3,086 / 3,055 | 494 modules (~1.8 s) |
+| + lazy shader modules | **2,775 / 2,857** | 22-24 modules (~0.4 s) |
+
+Afterwards the startup steps run back to back (no idle gaps) and the GPU process works in parallel (~0.9 s busy).
+What is left is main-thread CPU: `setup2` 1.6 s, `start` 0.65 s, first frame 0.37 s on this (slow, 4-core,
+software-GPU) machine, about a third of it V8's lazy compilation. Absolute numbers on a real GPU will be smaller --
+swiftshader compiles pipelines on the CPU -- but the structure is not specific to it: pipelines and modules are
+compiled on `CrGpuMain` on every platform Chrome runs Dawn on.
+
+The cost moves rather than vanishing for what *is* used: an effect's compute pipelines now compile on its first
+dispatch (a hitch when, say, SDFGI is first turned on), and a shader variant's module on its first pipeline.
+Prewarming them in the background with `create*PipelineAsync` after startup, which Dawn compiles off `CrGpuMain`,
+is the follow-up if that hitch matters.
+
+**Investigated and not changed:** (1) V8's wasm code cache. The preloader hands `instantiateStreaming()` a
+synthetic `Response` (for progress tracking), which in principle can never hit the cache; passing the real one
+with progress read from a clone made no difference on a repeat visit (lazy compile ~0.95 s both ways, and no
+cached module was ever deserialized, persistent profile or not), so it was reverted. (2) Wasm compilation hints:
+Chrome has shipped explicit compile hints only for JavaScript, not Wasm, so the lazy compilation of
+startup-only functions cannot be avoided from the page.
+
 Measured (2026-09-26, `webgpu_tests/startup_phases`, user's real project; `OS_Web` now publishes
 `main.cpp`'s benchmark marks to `window.godotStartupMarks` under `--benchmark`). Total stall 1925 ms
 on the user's project vs 833 ms on a minimal control, decomposed:

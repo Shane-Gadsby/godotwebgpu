@@ -5775,19 +5775,16 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		}
 		wgsl_str = _reclassify_single_component_depth_textures(wgsl_str, wgsl_reclassify_exclude);
 
-		WGPUShaderSourceWGSL wgsl_source = {};
-		wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
-		wgsl_source.code = WGPUStringView{ wgsl_str, WGPU_STRLEN };
-
-		WGPUShaderModuleDescriptor mod_desc = {};
-		mod_desc.nextInChain = (WGPUChainedStruct *)&wgsl_source;
-
-		// Label the module so Dawn error messages (and JS-side patch logs) identify it.
-		String _mod_label = "mod:" + shader->name + ":stg" + itos((int)s.shader_stage);
-		CharString _mod_label_cs = _mod_label.utf8();
-		mod_desc.label = { _mod_label_cs.get_data(), WGPU_STRLEN };
-
-		WGPUShaderModule mod = wgpuDeviceCreateShaderModule(device, &mod_desc);
+		// The module itself is created when a pipeline first needs it
+		// (_get_stage_module()). A loaded shader holds every variant of its
+		// group, most of which a given game never draws with, and Chrome parses
+		// and validates a module's WGSL on the GPU process's main thread -- the
+		// thread that also produces the page's frames, which the startup waits
+		// on between its steps. Eagerly, that was ~500 modules and a large part
+		// of the startup stall on the platformer (webgpu_notes/TASKS.md §2.4).
+		if (s.shader_stage < 6) {
+			shader->stage_wgsl[s.shader_stage] = CharString(wgsl_str);
+		}
 
 		// Scan WGSL for texture dimension declarations so the BGL uses the right viewDimension.
 		// Tint format: "@group(G) @binding(B) var NAME: texture_TYPE<...>;"
@@ -6282,18 +6279,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		}
 
 		free(wgsl_str); // Free the EM_ASM-allocated string.
-		if (mod == nullptr) {
-			error_text = vformat("WebGPU: wgpuDeviceCreateShaderModule failed for stage %d.", (int)s.shader_stage);
-			break;
-		}
-
-		if (s.shader_stage < 6) {
-			shader->stage_modules[s.shader_stage] = mod;
-		}
-		// Set the legacy module alias to the first created module.
-		if (!shader->module) {
-			shader->module = mod;
-		}
 	}
 
 	_container_stage_loop_ms += double(OS::get_singleton()->get_ticks_usec() - _stage_loop_from) / 1000.0;
@@ -6989,6 +6974,8 @@ void RenderingDeviceDriverWebGPU::shader_free(ShaderID p_shader) {
 	memdelete(shader);
 }
 
+// Only the canvas shadow shaders call this, after creating every pipeline they
+// will use; a stage that was never needed is dropped along with its WGSL.
 void RenderingDeviceDriverWebGPU::shader_destroy_modules(ShaderID p_shader) {
 	WGShader *shader = (WGShader *)(p_shader.id);
 	ERR_FAIL_NULL(shader);
@@ -6997,8 +6984,36 @@ void RenderingDeviceDriverWebGPU::shader_destroy_modules(ShaderID p_shader) {
 			wgpuShaderModuleRelease(shader->stage_modules[i]);
 			shader->stage_modules[i] = nullptr;
 		}
+		shader->stage_wgsl[i] = CharString();
 	}
 	shader->module = nullptr;
+}
+
+WGPUShaderModule RenderingDeviceDriverWebGPU::_get_stage_module(WGShader *p_shader, ShaderStage p_stage) {
+	ERR_FAIL_INDEX_V((int)p_stage, 6, nullptr);
+	if (p_shader->stage_modules[p_stage] || p_shader->stage_wgsl[p_stage].length() == 0) {
+		return p_shader->stage_modules[p_stage];
+	}
+
+	WGPUShaderSourceWGSL wgsl_source = {};
+	wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;
+	wgsl_source.code = WGPUStringView{ p_shader->stage_wgsl[p_stage].get_data(), WGPU_STRLEN };
+
+	WGPUShaderModuleDescriptor mod_desc = {};
+	mod_desc.nextInChain = (WGPUChainedStruct *)&wgsl_source;
+
+	// Label the module so Dawn error messages (and JS-side patch logs) identify it.
+	const CharString mod_label = ("mod:" + p_shader->name + ":stg" + itos((int)p_stage)).utf8();
+	mod_desc.label = { mod_label.get_data(), WGPU_STRLEN };
+
+	WGPUShaderModule mod = wgpuDeviceCreateShaderModule(device, &mod_desc);
+	ERR_FAIL_NULL_V_MSG(mod, nullptr, vformat("WebGPU: wgpuDeviceCreateShaderModule failed for '%s' stage %d.", p_shader->name, (int)p_stage));
+	p_shader->stage_modules[p_stage] = mod;
+	p_shader->stage_wgsl[p_stage] = CharString(); // The module has its own copy.
+	if (!p_shader->module) {
+		p_shader->module = mod;
+	}
+	return mod;
 }
 
 // =============================================================================
@@ -11079,8 +11094,8 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 	// (spirv_to_wgsl_with_overrides), we can pass specialization values as
 	// pipeline constants instead of creating specialized shader modules.
 	// This eliminates all runtime SPIR-V patching and Tint conversion.
-	WGPUShaderModule vertex_module = shader->stage_modules[SHADER_STAGE_VERTEX];
-	WGPUShaderModule fragment_module = shader->stage_modules[SHADER_STAGE_FRAGMENT];
+	WGPUShaderModule vertex_module = _get_stage_module(shader, SHADER_STAGE_VERTEX);
+	WGPUShaderModule fragment_module = _get_stage_module(shader, SHADER_STAGE_FRAGMENT);
 	WGPUShaderModule specialized_vertex = nullptr;
 	WGPUShaderModule specialized_fragment = nullptr;
 
@@ -11634,6 +11649,9 @@ void RenderingDeviceDriverWebGPU::command_bind_compute_pipeline(CommandBufferID 
 		cmd->reset_bound_group_state();
 	}
 
+	if (!_ensure_compute_pipeline(pw)) {
+		return;
+	}
 	wgpuComputePassEncoderSetPipeline(cmd->compute_encoder, pw->compute_handle);
 	cmd->render_state.current_pipeline = pw;
 
@@ -11882,14 +11900,45 @@ void RenderingDeviceDriverWebGPU::command_compute_dispatch_indirect(CommandBuffe
 	wgpuComputePassEncoderDispatchWorkgroupsIndirect(cmd->compute_encoder, indirect->handle, p_offset);
 }
 
+// Compute pipelines are compiled on first bind rather than here. The renderer
+// creates every compute pipeline of every effect when it initializes (FSR, SDFGI,
+// VoxelGI, particles, SSAO/SSIL, fog, ...), used or not, and Chrome compiles a
+// WebGPU pipeline synchronously on the GPU process's main thread -- the thread
+// that also produces the page's frames. Compiled eagerly, they were the largest
+// term of the startup stall: the startup steps wait for a frame between them,
+// and no frame comes until that thread has worked through every pipeline (on
+// the platformer, 88 compute pipelines before the first frame; see
+// webgpu_notes/TASKS.md §2.4). Deferred, an effect the project never runs never
+// compiles, and one it does run compiles when first dispatched, as it would on
+// first use of a lazily created render pipeline.
 RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
 	WGShader *shader = (WGShader *)(p_shader.id);
 	ERR_FAIL_COND_V(!shader, PipelineID());
-	ERR_FAIL_COND_V_MSG(!shader->stage_modules[SHADER_STAGE_COMPUTE], PipelineID(),
+	ERR_FAIL_COND_V_MSG(!shader->stage_modules[SHADER_STAGE_COMPUTE] && shader->stage_wgsl[SHADER_STAGE_COMPUTE].length() == 0, PipelineID(),
 			"WebGPU: compute_pipeline_create called with a shader that has no compute stage.");
 
+	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
+	pw->type = WGPipelineWrapper::COMPUTE;
+	pw->compute_handle = nullptr;
+	pw->shader = shader;
+	pw->compute_pending = true;
+	for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
+		pw->pending_specialization_constants.push_back(p_specialization_constants[i]);
+	}
+	return PipelineID(pw);
+}
+
+bool RenderingDeviceDriverWebGPU::_ensure_compute_pipeline(WGPipelineWrapper *p_pipeline) {
+	if (!p_pipeline->compute_pending) {
+		return p_pipeline->compute_handle != nullptr;
+	}
+	p_pipeline->compute_pending = false; // Whatever happens below, try once.
+	WGShader *shader = p_pipeline->shader;
+	const VectorView<PipelineSpecializationConstant> p_specialization_constants(p_pipeline->pending_specialization_constants.ptr(), p_pipeline->pending_specialization_constants.size());
+
 	// Specialization constants: override path or legacy module-patching path.
-	WGPUShaderModule compute_module = shader->stage_modules[SHADER_STAGE_COMPUTE];
+	WGPUShaderModule compute_module = _get_stage_module(shader, SHADER_STAGE_COMPUTE);
+	ERR_FAIL_NULL_V(compute_module, false);
 	WGPUShaderModule specialized_compute = nullptr;
 	LocalVector<WGPUConstantEntry> compute_constants;
 	LocalVector<CharString> compute_key_storage;
@@ -11945,19 +11994,21 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 	desc.label = { pipeline_label.get_data(), WGPU_STRLEN };
 
 	WGPUComputePipeline pipeline = wgpuDeviceCreateComputePipeline(device, &desc);
+	p_pipeline->pending_specialization_constants.clear();
 	if (!pipeline) {
 		if (specialized_compute) {
 			wgpuShaderModuleRelease(specialized_compute);
 		}
-		ERR_FAIL_V_MSG(PipelineID(), "WebGPU: Failed to create compute pipeline.");
+		ERR_FAIL_V_MSG(false, vformat("WebGPU: Failed to create compute pipeline for '%s'.", shader->name));
+	}
+	if (p_pipeline->pending_label.length() > 0) {
+		wgpuComputePipelineSetLabel(pipeline, { p_pipeline->pending_label.get_data(), WGPU_STRLEN });
+		p_pipeline->pending_label = CharString();
 	}
 
-	WGPipelineWrapper *pw = memnew(WGPipelineWrapper());
-	pw->type = WGPipelineWrapper::COMPUTE;
-	pw->compute_handle = pipeline;
-	pw->shader = shader;
-	pw->specialized_modules[SHADER_STAGE_COMPUTE] = specialized_compute;
-	return PipelineID(pw);
+	p_pipeline->compute_handle = pipeline;
+	p_pipeline->specialized_modules[SHADER_STAGE_COMPUTE] = specialized_compute;
+	return true;
 }
 
 // =============================================================================
@@ -12314,6 +12365,8 @@ void RenderingDeviceDriverWebGPU::set_object_name(ObjectType p_type, ID p_driver
 				wgpuRenderPipelineSetLabel(pw->render_handle, label);
 			} else if (pw->type == WGPipelineWrapper::COMPUTE && pw->compute_handle) {
 				wgpuComputePipelineSetLabel(pw->compute_handle, label);
+			} else if (pw->type == WGPipelineWrapper::COMPUTE && pw->compute_pending) {
+				pw->pending_label = p_name.utf8(); // Applied when it is compiled.
 			}
 		} break;
 		case OBJECT_TYPE_ACCELERATION_STRUCTURE:
