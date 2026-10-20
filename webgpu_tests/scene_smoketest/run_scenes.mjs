@@ -866,12 +866,6 @@ async function launchFirefox() {
         firefoxUserPrefs: {
             'dom.webgpu.enabled': true,
             'gfx.webgpu.force-enabled': true,
-            // Let Web Audio start without a user gesture. Under Xvfb on GitHub's runners Firefox sometimes never
-            // counted the click_to_start clicks as one, and audio_parity failed audio_clock_running after 30 s.
-            // Chrome's run still unlocks audio by clicking.
-            'media.autoplay.default': 0,
-            'media.autoplay.block-webaudio': false,
-            'media.autoplay.blocking_policy': 0,
         },
     });
     return { browser, name: 'firefox', type: 'playwright' };

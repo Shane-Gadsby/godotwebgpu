@@ -672,6 +672,26 @@ jobs:
         working-directory: webgpu_tests/scene_smoketest
         run: node run_scenes.mjs --browser chrome --require-exports --timeout 30000
 
+      # Firefox plays Web Audio through a sound server, and GitHub's images run none:
+      # its AudioContext never started and audio_parity failed audio_clock_running in
+      # every Firefox run (Chrome has --disable-audio-output instead). A PulseAudio
+      # daemon with only a null sink is enough. The runtime directory is short on
+      # purpose: a unix socket path over 108 bytes is never created.
+      - name: Start a null-sink sound server (Firefox)
+        run: |
+          if pactl info >/dev/null 2>&1; then
+            echo "A sound server is already running"
+            exit 0
+          fi
+          if ! command -v pulseaudio >/dev/null 2>&1 || ! command -v pactl >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y pulseaudio pulseaudio-utils
+          fi
+          dir=$(mktemp -d /tmp/pa.XXXX)
+          XDG_RUNTIME_DIR="$dir" pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
+            -L module-null-sink -L module-native-protocol-unix
+          echo "PULSE_SERVER=unix:$dir/pulse/native" >> "$GITHUB_ENV"
+          PULSE_SERVER="unix:$dir/pulse/native" pactl list short sinks
+
       # Under xvfb-run: headless Firefox with no display blocklists WebGPU ("WebGPU is
       # disabled by blocklist"), so every scene loaded no engine and passed vacuously
       # (webgpu_notes/TASKS.md §3 trap 53).
