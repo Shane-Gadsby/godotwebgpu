@@ -2662,7 +2662,10 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	default_renderer = renderer_hints.get_slicec(',', 0);
 	GLOBAL_DEF_RST_BASIC(PropertyInfo(Variant::STRING, "rendering/renderer/rendering_method", PROPERTY_HINT_ENUM, renderer_hints), default_renderer);
 	GLOBAL_DEF_RST_BASIC("rendering/renderer/rendering_method.mobile", default_renderer_mobile);
-	GLOBAL_DEF_RST_BASIC(PropertyInfo(Variant::STRING, "rendering/renderer/rendering_method.web", PROPERTY_HINT_ENUM, "forward_plus,mobile,gl_compatibility"), "gl_compatibility"); // Default gl_compatibility for backward compat; forward_plus/mobile use WebGPU.
+	// The web runs the project's own renderer unless the project says otherwise: Forward+ and Mobile through
+	// WebGPU, Compatibility through WebGL. A fixed gl_compatibility default made every Forward+ project export
+	// for WebGL unless it set this override, which a project made before the override existed never does.
+	GLOBAL_DEF_RST_BASIC(PropertyInfo(Variant::STRING, "rendering/renderer/rendering_method.web", PROPERTY_HINT_ENUM, "forward_plus,mobile,gl_compatibility"), String(GLOBAL_GET("rendering/renderer/rendering_method")));
 
 	// Default to ProjectSettings default if nothing set on the command line.
 	if (rendering_method.is_empty()) {
