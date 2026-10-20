@@ -294,6 +294,33 @@ static void _publish_shader_stats() {
 		globalThis.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, names_copy, _container_create_ms, _container_create_calls, _container_stage_loop_ms, (double)load_stats.containers, (double)load_stats.spirv_bytes, (double)load_stats.wgsl_bytes, load_stats.footer_parse_ms);
 }
 
+// What happened to the compute pipelines compute_pipeline_create() deferred,
+// published as `godotWebGPUPipelineStats` whenever it changes:
+//
+//     { deferred: 103, compiledOnFirstUse: 4, prewarmStarted: 60, prewarmDone: 58 }
+//
+// `compiledOnFirstUse` is the hitch count: dispatches that had to compile their
+// pipeline synchronously because no background result was ready.
+static uint32_t _compute_deferred = 0;
+static uint32_t _compute_compiled_on_first_use = 0;
+static uint32_t _compute_prewarm_started = 0;
+static uint32_t _compute_prewarm_done = 0;
+static bool _pipeline_stats_dirty = false;
+
+static void _publish_pipeline_stats() {
+	if (!_pipeline_stats_dirty) {
+		return;
+	}
+	_pipeline_stats_dirty = false;
+	MAIN_THREAD_ASYNC_EM_ASM({
+		var stats = {};
+		stats.deferred = $0;
+		stats.compiledOnFirstUse = $1;
+		stats.prewarmStarted = $2;
+		stats.prewarmDone = $3;
+		globalThis.godotWebGPUPipelineStats = stats; }, _compute_deferred, _compute_compiled_on_first_use, _compute_prewarm_started, _compute_prewarm_done);
+}
+
 // Publishes the per-frame counters to `window`, averaged over the last second,
 // so per-draw cost can be read from the devtools console or collected by a
 // Playwright harness without a rebuild and without WEBGPU_VERBOSE:
@@ -9205,6 +9232,7 @@ void RenderingDeviceDriverWebGPU::command_copy_texture_to_buffer(CommandBufferID
 void RenderingDeviceDriverWebGPU::pipeline_free(PipelineID p_pipeline) {
 	WGPipelineWrapper *pw = (WGPipelineWrapper *)(p_pipeline.id);
 	ERR_FAIL_NULL(pw);
+	_cancel_prewarm(pw);
 	if (pw->type == WGPipelineWrapper::RENDER && pw->render_handle) {
 		wgpuRenderPipelineRelease(pw->render_handle);
 		if (pw->render_handle_u16) {
@@ -11925,7 +11953,150 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::compute_pipeline_create(ShaderID p_
 	for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
 		pw->pending_specialization_constants.push_back(p_specialization_constants[i]);
 	}
+	pw->queued_for_prewarm = true;
+	prewarm_queue.push_back(pw);
+	_compute_deferred++;
+	_pipeline_stats_dirty = true;
 	return PipelineID(pw);
+}
+
+void RenderingDeviceDriverWebGPU::_fill_compute_constants(WGShader *p_shader, const LocalVector<PipelineSpecializationConstant> &p_constants, LocalVector<WGPUConstantEntry> &r_entries, LocalVector<CharString> &r_keys) {
+	const HashSet<uint32_t> &cmp_ids = p_shader->stage_override_ids[SHADER_STAGE_COMPUTE];
+	// Reserved up front: the entries point into r_keys.
+	r_keys.reserve(p_constants.size());
+	for (const PipelineSpecializationConstant &sc : p_constants) {
+		if (!cmp_ids.has(sc.constant_id)) {
+			continue; // This constant ID doesn't exist in the compute stage's WGSL.
+		}
+		r_keys.push_back(itos(sc.constant_id).utf8());
+		WGPUConstantEntry entry = {};
+		entry.key = { r_keys[r_keys.size() - 1].get_data(), WGPU_STRLEN };
+		switch (sc.type) {
+			case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
+				entry.value = sc.bool_value ? 1.0 : 0.0;
+				break;
+			case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
+				entry.value = (double)sc.int_value;
+				break;
+			case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
+				entry.value = (double)sc.float_value;
+				break;
+		}
+		r_entries.push_back(entry);
+	}
+}
+
+// Deferring compute pipelines (compute_pipeline_create()) moves an effect's
+// compilation to its first dispatch, which is a hitch at the moment it turns on.
+// Once the game is running, compile the deferred ones in the background instead,
+// through createComputePipelineAsync(), which Chrome compiles off the GPU
+// process's main thread -- unlike createComputePipeline(), which is what made
+// them a startup stall. A couple at a time, so the shader modules they need
+// (created synchronously) are spread over many frames. A pipeline bound before
+// its result arrives takes the synchronous path as before, and the late result
+// is dropped. One whose specialization re-runs Tint (the legacy path) is left to
+// first use: that conversion would run on this thread.
+static constexpr uint32_t PREWARM_START_SEGMENT = 120; // ~2 s at 60 fps: after startup.
+static constexpr uint32_t PREWARM_PER_SEGMENT = 1;
+static constexpr uint32_t PREWARM_MAX_IN_FLIGHT = 2;
+
+void RenderingDeviceDriverWebGPU::_prewarm_compute_pipelines() {
+	if (prewarm_queue.is_empty()) {
+		return;
+	}
+	if (prewarm_segments_seen < PREWARM_START_SEGMENT) {
+		prewarm_segments_seen++;
+		return;
+	}
+
+	uint32_t started = 0;
+	while (started < PREWARM_PER_SEGMENT && prewarm_in_flight.size() < PREWARM_MAX_IN_FLIGHT && !prewarm_queue.is_empty()) {
+		WGPipelineWrapper *pw = prewarm_queue[0];
+		prewarm_queue.remove_at(0); // Creation order, so the earliest effects go first.
+		pw->queued_for_prewarm = false;
+		if (!pw->compute_pending) {
+			continue; // Already compiled by a dispatch.
+		}
+		WGShader *shader = pw->shader;
+		if (!pw->pending_specialization_constants.is_empty() && !shader->has_override_declarations) {
+			continue; // Legacy specialization: see above.
+		}
+		WGPUShaderModule module = _get_stage_module(shader, SHADER_STAGE_COMPUTE);
+		if (!module) {
+			continue;
+		}
+
+		LocalVector<WGPUConstantEntry> constants;
+		LocalVector<CharString> keys;
+		_fill_compute_constants(shader, pw->pending_specialization_constants, constants, keys);
+		WGPUComputePipelineDescriptor desc = {};
+		desc.layout = shader->pipeline_layout;
+		desc.compute.module = module;
+		desc.compute.entryPoint = { "main", WGPU_STRLEN };
+		if (!constants.is_empty()) {
+			desc.compute.constantCount = constants.size();
+			desc.compute.constants = constants.ptr();
+		}
+		const CharString label = ("cpipe-prewarm:" + shader->name).utf8();
+		desc.label = { label.get_data(), WGPU_STRLEN };
+
+		const uint64_t token = prewarm_next_token++;
+		pw->prewarm_token = token;
+		prewarm_in_flight.insert(token, pw);
+		WGPUCreateComputePipelineAsyncCallbackInfo callback_info = {};
+		callback_info.mode = WGPUCallbackMode_AllowSpontaneous;
+		callback_info.callback = &RenderingDeviceDriverWebGPU::_prewarm_compute_pipeline_cb;
+		callback_info.userdata1 = this;
+		callback_info.userdata2 = (void *)(uintptr_t)token;
+		wgpuDeviceCreateComputePipelineAsync(device, &desc, callback_info);
+		_compute_prewarm_started++;
+		_pipeline_stats_dirty = true;
+		started++;
+	}
+}
+
+void RenderingDeviceDriverWebGPU::_prewarm_compute_pipeline_cb(WGPUCreatePipelineAsyncStatus p_status, WGPUComputePipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2) {
+	RenderingDeviceDriverWebGPU *driver = (RenderingDeviceDriverWebGPU *)p_userdata1;
+	const uint64_t token = (uint64_t)(uintptr_t)p_userdata2;
+	WGPipelineWrapper *pw = nullptr;
+	if (WGPipelineWrapper **found = driver->prewarm_in_flight.getptr(token)) {
+		pw = *found;
+		driver->prewarm_in_flight.erase(token);
+		pw->prewarm_token = 0;
+	}
+	// Freed meanwhile (no entry), or compiled synchronously by a dispatch that
+	// came first: the result is not needed.
+	if (!pw || !pw->compute_pending || p_status != WGPUCreatePipelineAsyncStatus_Success) {
+		if (p_status != WGPUCreatePipelineAsyncStatus_Success && p_status != WGPUCreatePipelineAsyncStatus_CallbackCancelled) {
+			// Leave it to the synchronous path, whose error reporting is the usual one.
+			print_verbose(vformat("WebGPU: background compile of a compute pipeline failed (%s); it will compile on first use.", String::utf8(p_message.data, p_message.length == WGPU_STRLEN ? -1 : (int)p_message.length)));
+		}
+		if (p_pipeline) {
+			wgpuComputePipelineRelease(p_pipeline);
+		}
+		return;
+	}
+	if (pw->pending_label.length() > 0) {
+		wgpuComputePipelineSetLabel(p_pipeline, { pw->pending_label.get_data(), WGPU_STRLEN });
+		pw->pending_label = CharString();
+	}
+	pw->compute_handle = p_pipeline;
+	pw->compute_pending = false;
+	pw->pending_specialization_constants.clear();
+	_compute_prewarm_done++;
+	_pipeline_stats_dirty = true;
+}
+
+void RenderingDeviceDriverWebGPU::_cancel_prewarm(WGPipelineWrapper *p_pipeline) {
+	if (p_pipeline->queued_for_prewarm) {
+		prewarm_queue.erase(p_pipeline);
+		p_pipeline->queued_for_prewarm = false;
+	}
+	if (p_pipeline->prewarm_token) {
+		// The callback finds no entry and releases its result.
+		prewarm_in_flight.erase(p_pipeline->prewarm_token);
+		p_pipeline->prewarm_token = 0;
+	}
 }
 
 bool RenderingDeviceDriverWebGPU::_ensure_compute_pipeline(WGPipelineWrapper *p_pipeline) {
@@ -11933,6 +12104,8 @@ bool RenderingDeviceDriverWebGPU::_ensure_compute_pipeline(WGPipelineWrapper *p_
 		return p_pipeline->compute_handle != nullptr;
 	}
 	p_pipeline->compute_pending = false; // Whatever happens below, try once.
+	_compute_compiled_on_first_use++;
+	_pipeline_stats_dirty = true;
 	WGShader *shader = p_pipeline->shader;
 	const VectorView<PipelineSpecializationConstant> p_specialization_constants(p_pipeline->pending_specialization_constants.ptr(), p_pipeline->pending_specialization_constants.size());
 
@@ -11945,30 +12118,7 @@ bool RenderingDeviceDriverWebGPU::_ensure_compute_pipeline(WGPipelineWrapper *p_
 	bool use_override_path = shader->has_override_declarations;
 	if (p_specialization_constants.size() > 0) {
 		if (use_override_path) {
-			const HashSet<uint32_t> &cmp_ids = shader->stage_override_ids[SHADER_STAGE_COMPUTE];
-			for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
-				const PipelineSpecializationConstant &sc = p_specialization_constants[i];
-				if (!cmp_ids.has(sc.constant_id)) {
-					continue; // This constant ID doesn't exist in the compute stage's WGSL.
-				}
-				WGPUConstantEntry entry = {};
-				String key_str = itos(sc.constant_id);
-				CharString key_cs = key_str.utf8();
-				compute_key_storage.push_back(key_cs);
-				entry.key = { compute_key_storage[compute_key_storage.size() - 1].get_data(), WGPU_STRLEN };
-				switch (sc.type) {
-					case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_BOOL:
-						entry.value = sc.bool_value ? 1.0 : 0.0;
-						break;
-					case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT:
-						entry.value = (double)sc.int_value;
-						break;
-					case PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT:
-						entry.value = (double)sc.float_value;
-						break;
-				}
-				compute_constants.push_back(entry);
-			}
+			_fill_compute_constants(shader, p_pipeline->pending_specialization_constants, compute_constants, compute_key_storage);
 		} else if (!shader->stage_spirv[SHADER_STAGE_COMPUTE].is_empty()) {
 			specialized_compute = _create_module_with_spec_constants(
 					shader->stage_spirv[SHADER_STAGE_COMPUTE], p_specialization_constants, SHADER_STAGE_COMPUTE, shader->rw_storage_splits);
@@ -12257,6 +12407,8 @@ void RenderingDeviceDriverWebGPU::command_insert_breadcrumb(CommandBufferID p_cm
 void RenderingDeviceDriverWebGPU::begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) {
 	frame_index = p_frame_index;
 	frames_drawn = p_frames_drawn;
+	_prewarm_compute_pipelines();
+	_publish_pipeline_stats();
 
 	// Per-frame counters, summarized once a second.
 	//

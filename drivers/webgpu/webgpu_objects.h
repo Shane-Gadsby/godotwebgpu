@@ -298,6 +298,10 @@ struct WGPipelineWrapper {
 	bool compute_pending = false;
 	LocalVector<RenderingDeviceDriver::PipelineSpecializationConstant> pending_specialization_constants;
 	CharString pending_label;
+	// Background prewarm (RenderingDeviceDriverWebGPU::_prewarm_compute_pipelines()):
+	// queued, or the token of an asynchronous creation in flight (0 if none).
+	bool queued_for_prewarm = false;
+	uint64_t prewarm_token = 0;
 
 	WGPipelineWrapper() : render_handle(nullptr) {}
 };

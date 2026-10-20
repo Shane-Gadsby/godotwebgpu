@@ -301,6 +301,11 @@ creates every effect's compute pipelines at init. Eagerly, that was the startup 
 pipelines and ~500 modules before the first frame, none of the pipelines and ~5% of the modules actually used. Read a
 stage's module through `_get_stage_module()`, never `stage_modules[]` directly.
 
+From ~120 frames after startup, `_prewarm_compute_pipelines()` compiles the deferred compute pipelines in the
+background with `createComputePipelineAsync()` (one per frame, two in flight), so an effect turned on later does not
+hitch; a pipeline bound first compiles synchronously and the late result is dropped. `godotWebGPUPipelineStats` in
+the page says how many were deferred, prewarmed and compiled on first use.
+
 ### Barrier No-ops
 WebGPU tracks resource hazards automatically. All barrier/sync commands are
 no-ops.

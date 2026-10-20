@@ -436,6 +436,10 @@ shader. The driver now creates both on first use:
 | lazy compute pipelines | 3,265 / 3,086 / 3,055 |
 | + lazy shader modules | **2,775 / 2,857** |
 
+So that an effect turned on later does not hitch instead, the deferred compute pipelines are compiled in the
+background once the game runs (`createComputePipelineAsync()`, which Chrome compiles off the frame-producing thread;
+one per frame). On the platformer 150 of 184 were ready within a minute and 5 had to compile on first use.
+
 **Fewer shader bytes before the first frame.** Variant pruning drops shader groups the target can never select and
 defers the ones the project was not found to use into a lazily fetched extras file: the platformer's startup shader
 pack went 68.9 → 14.5 MB (10.7 → 1.84 MB gzipped), with 51.4 MB (8.7 MB gzipped) fetched as the engine starts.

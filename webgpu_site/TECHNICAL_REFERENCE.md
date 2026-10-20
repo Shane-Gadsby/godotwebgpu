@@ -289,7 +289,9 @@ pack. Export option `shader_baker/variant_pruning` (`Disabled` / `Automatic`).
 WGSL (`WGShader::stage_wgsl`) and `_get_stage_module()` creates the module when a pipeline first needs it;
 `compute_pipeline_create()` defers to `_ensure_compute_pipeline()` on the first `command_bind_compute_pipeline()`.
 Chrome does both on the GPU process's main thread, which also produces frames, so creating everything at load was
-the startup stall (`webgpu_notes/TASKS.md` §2.4).
+the startup stall (`webgpu_notes/TASKS.md` §2.4). Once the game runs, `_prewarm_compute_pipelines()` compiles the
+deferred compute pipelines through `createComputePipelineAsync()` (off that thread), one per frame, so first use
+rarely compiles anything; `window.godotWebGPUPipelineStats` reports the counts.
 
 ---
 

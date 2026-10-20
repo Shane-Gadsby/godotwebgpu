@@ -58,6 +58,16 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	uint32_t frame_index = 0;
 	uint32_t frames_drawn = 0;
 
+	// Background prewarm of the compute pipelines compute_pipeline_create()
+	// deferred: see _prewarm_compute_pipelines().
+	LocalVector<WGPipelineWrapper *> prewarm_queue;
+	HashMap<uint64_t, WGPipelineWrapper *> prewarm_in_flight;
+	uint64_t prewarm_next_token = 1;
+	uint32_t prewarm_segments_seen = 0;
+	void _prewarm_compute_pipelines();
+	static void _prewarm_compute_pipeline_cb(WGPUCreatePipelineAsyncStatus p_status, WGPUComputePipeline p_pipeline, WGPUStringView p_message, void *p_userdata1, void *p_userdata2);
+	void _cancel_prewarm(WGPipelineWrapper *p_pipeline);
+
 	// Per-frame performance counters (logged once per second via EM_ASM).
 	struct PerfCounters {
 		uint32_t draw_calls = 0;
@@ -776,6 +786,9 @@ public:
 	// A shader stage's module, created from its WGSL on first use; null when the
 	// shader has no such stage.
 	WGPUShaderModule _get_stage_module(WGShader *p_shader, ShaderStage p_stage);
+	// The pipeline-constant entries of a compute pipeline whose shader takes
+	// specialization constants as WGSL overrides; r_keys owns the key strings.
+	void _fill_compute_constants(WGShader *p_shader, const LocalVector<PipelineSpecializationConstant> &p_constants, LocalVector<WGPUConstantEntry> &r_entries, LocalVector<CharString> &r_keys);
 
 	// -----------------------------------------------------------------------
 	// QUERIES

@@ -669,10 +669,19 @@ software-GPU) machine, about a third of it V8's lazy compilation. Absolute numbe
 swiftshader compiles pipelines on the CPU -- but the structure is not specific to it: pipelines and modules are
 compiled on `CrGpuMain` on every platform Chrome runs Dawn on.
 
-The cost moves rather than vanishing for what *is* used: an effect's compute pipelines now compile on its first
+The cost moves rather than vanishing for what *is* used: an effect's compute pipelines would compile on its first
 dispatch (a hitch when, say, SDFGI is first turned on), and a shader variant's module on its first pipeline.
-Prewarming them in the background with `create*PipelineAsync` after startup, which Dawn compiles off `CrGpuMain`,
-is the follow-up if that hitch matters.
+
+**Prewarm, landed the same day.** From ~120 frames after startup, `_prewarm_compute_pipelines()` (called from
+`begin_segment()`) compiles the deferred compute pipelines in the background through
+`createComputePipelineAsync()`, which Chrome compiles off `CrGpuMain`: one started per frame, at most two in flight,
+in creation order. A pipeline bound before its result arrives compiles synchronously as before and the late result
+is released; one whose specialization re-runs Tint (the legacy path) is left to first use. Progress is published as
+`window.godotWebGPUPipelineStats` (`deferred`, `compiledOnFirstUse`, `prewarmStarted`, `prewarmDone`). On the
+platformer (forced Forward+, swiftshader): 184 deferred, 5 compiled on first use (the effects of the first
+seconds), 150 compiled in the background within 60 s. Scene smoketest unchanged (22/23, same audio check). If the
+render thread never returns to its event loop (separate render thread), the callbacks never fire and everything
+falls back to compile-on-first-use, which is the behavior without prewarm.
 
 **Investigated and not changed:** (1) V8's wasm code cache. The preloader hands `instantiateStreaming()` a
 synthetic `Response` (for progress tracking), which in principle can never hit the cache; passing the real one
