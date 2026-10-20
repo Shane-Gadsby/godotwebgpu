@@ -329,7 +329,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) in progress | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; 90 fps on an M1 / mid-range laptop |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) DONE 2026-10-20: LOD 0 character 1.1 ms/frame uncapped in WebGPU, 0.20 ms GPU | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; measure on an M1 |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -414,7 +414,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) in progress | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; 90 fps on an M1 / mid-range laptop |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | OPEN — phase 1 (rig, meshes, materials, clothing) DONE 2026-10-20: LOD 0 character 1.1 ms/frame uncapped in WebGPU, 0.20 ms GPU | phases 2-4: groom reader + baked hair, hair cards, dynamic strands; measure on an M1 |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1872,7 +1872,7 @@ Options when this is picked up:
 `webgpu_tests/web_audio/` is where any of these would be tested: `run_tests.mjs` for DSP against native ports,
 `run_e2e.mjs` and the `audio_parity` smoketest scene for the engine.
 
-### 2.33 MetaHuman importer: DNA rig, clothing, hair `OPEN` — phase 1 in progress, started 2026-10-20
+### 2.33 MetaHuman importer: DNA rig, clothing, hair `OPEN` — phase 1 done 2026-10-20; phases 2-4 (hair) to do
 
 Import an Epic MetaHuman DCC-style export as a rigged Godot scene — body and face rig, clothing, hair — with hair either
 dynamic or baked to a mesh. **Target: 90 fps or better on an M1 MacBook and a mid-range laptop, in a WebGPU export.**
@@ -1891,7 +1891,7 @@ importer must not depend on anything only that exporter writes.
 | maps | 38 PNGs | `Head_Normal` and `Head_SRMF` are 8192², ~256 MB of VRAM each uncompressed. SRMF = specular, roughness, metallic (0), unknown A. Wrinkle color/normal deltas (CM1-3, WM1-3) are exported but **the region masks are not**, so the 82 animated-map channels cannot be applied yet |
 
 **DNA facts that cost time to establish:**
-- DNA space is Y-up, +Z front, centimetres (`coord_sys` right/up/front): the same orientation as Godot, so only ×0.01.
+- DNA space is Y-up, +Z front, centimeters (`coord_sys` right/up/front): the same orientation as Godot, so only ×0.01.
 - In quaternion mode (`rl4::Configuration::rotationType`), joint pose = translation `neutral + delta`, rotation
   `neutral * delta`, scale `neutral + delta`; `RigLogic::getJointVariableAttributeIndices(lod)` lists only the
   attributes that move at that LOD.
@@ -1909,7 +1909,7 @@ evaluator Unreal uses. Built with Emscripten 6.0.9 and timed in Node: head LOD 0
 58 µs native; body 19 µs. The rig evaluation is ~0.1 ms of a character's frame.
 
 **Licensing is not settled:** June 2025 coverage of MetaHuman 5.6 says characters may ship in other engines under the
-UE EULA (free below $1 M revenue, a seat licence above); a 2026 blog disputes it. Read Epic's EULA text before shipping.
+Unreal Engine EULA (free below $1 M revenue, a seat license above); a 2026 blog disputes it. Read Epic's EULA text before shipping.
 
 **Plan** (effort at Opus 5, medium):
 
@@ -1937,6 +1937,46 @@ UE EULA (free below $1 M revenue, a seat licence above); a 2026 blog disputes it
 
 Gaps to close or decide: wrinkle masks (not exported); a refit of the >8-influence face weights against sampled rig
 poses if truncation shows; ARKit / Live Link control mapping (not in DNA).
+
+**Phase 1 — done 2026-10-20.** `modules/metahuman/` with OpenRigLogic vendored (`thirdparty/openriglogic/`, 5.8 branch,
+one patch: `<type_traits>` for Emscripten's libc++).
+- `.dna` scene importer (`editor/editor_scene_importer_metahuman.cpp`):
+  - one `Skeleton3D` (1,185 bones for Ava) with one shared `Skin`;
+  - every DNA LOD as visibility ranges (face 1.5/3/5/8/12/18/26 m, body 3/8/16 m, `metahuman/lods/distance_scale`);
+  - top-8 renormalized weights; hidden-under-clothing triangles culled (body LOD 0 30,455 → 25,328 vertices);
+  - clothing rebound from FBXDocument (the Unreal FBX skeleton is Z-up under a -90° X parent; `Root` vs DNA `root`);
+  - shaders for skin, eye, wet shell, teeth (mouth darkening from teeth mask 002 R), blended procedural eyelashes and
+    cloth (`editor/metahuman_shaders.h`);
+  - map import settings applied once (VRAM compressed, 2048 limit, normal maps flagged and Y-inverted): the 8K head
+    normal and SRMF become 5.6 MB each.
+- `MetaHumanRig` (`SkeletonModifier3D`, `metahuman_rig.cpp`):
+  - body correctives from driver rotations, face from `expressions/*` or `face_board/*` properties;
+  - writes only the LOD's variable joints;
+  - skips RigLogic when its inputs are unchanged;
+  - LOD by camera distance from `head`/`pelvis`, where the meshes' visibility ranges measure from.
+- `MetaHumanDNA` keeps the stripped DNA.
+- Tests: `webgpu_tests/metahuman/run.sh <export.zip> [--shots] [--export]`, nine checks: structure, eye meshes on their
+  joints (2.6 mm), jaw opens, an elbow bend drives the correctives.
+
+Measured:
+- **8-influence truncation**: rest pose exact; under a strong pose (jaw open + smile + blink at 1.0) mean 0.05 mm,
+  max 2.7 mm, 110 of 24,049 head vertices over 1 mm. Not worth a refit yet.
+- **WebGPU, baked** (1,030 shaders baked, 0 translated), Ava framed head-and-torso so every rig and mesh is at LOD 0,
+  40 expressions and both arms animated, RTX 4080 SUPER, 1920x1080: **~1.1-1.4 ms/frame uncapped (700-880 fps)**.
+  **GPU 0.20 ms/frame** (`gpu_time.mjs`), 32 draws, 11 passes, so the frame is main-thread CPU. Both rigs together
+  add ~0.2 ms of process time (capped run, rig on 0.51 vs off 0.33 ms).
+- **Download**: `index.pck` 73.6 MB (textures 2048, head scene 10.5 MB, all LODs) and `index.shaders.pck` 54 MB
+  (advanced group baked for SSS).
+- **Not measured: an M1 or a mid-range laptop.** By these numbers, one character has a large margin at 90 fps.
+
+Engine fixes found on the way, all in §3:
+- trap 44: `rendering_method.web` now follows the project's renderer;
+- trap 45: the baker scans `.godot/imported`;
+- trap 46: the export cache keys on the import's `.md5`;
+- trap 47: the scene importer keeps a format importer's mesh-instance settings.
+
+Next (phase 2): the Ogawa groom reader, then baked hair. Ava is bald until it lands, and the DNA eyelash cards stand
+in for the groom lashes.
 
 ---
 
@@ -2233,6 +2273,30 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     window, so any change to startup time moves the failure in or out -- `webrtc_parity` bisected cleanly to an
     innocent commit that made startup faster. Set `headless` explicitly in every launch, and log the adapter
     (`adapter.info`, `isFallbackAdapter`) before trusting a "real GPU" run.
+44. **A project without a `rendering_method.web` override exported for WebGL, whatever its renderer** (2026-10-20,
+    fixed). The override defaulted to `gl_compatibility`, so a Forward+ project that never set it ran Compatibility on
+    the web; with a WebGPU-only template (`opengl3=no`) that is a black canvas with no renderer line in the console,
+    while the main loop still ticks at 60 Hz -- it read as "57 fps, rig costs nothing". The default now follows
+    `rendering/renderer/rendering_method` (`main/main.cpp`): Forward+ and Mobile projects get WebGPU, Compatibility
+    projects keep WebGL. A template built before the change still defaults to Compatibility, so rebuild templates.
+45. **The baker's variant pruning never saw imported scenes** (2026-10-20, fixed). Its scan for features that need
+    Forward+'s advanced group (`SSS_STRENGTH`, `subsurf_scatter_enabled`, ...) skips hidden folders, and every
+    importer's output lives in `.godot/imported`. A glTF/FBX/MetaHuman material with subsurface scattering therefore
+    got its advanced variants pruned, and the browser compiled them with Tint: 360 scene shaders, the page frozen for
+    over 45 s. `_compute_unmet_group_requirements` now also scans the imported files path.
+46. **The export cache kept shipping a reimported file's previous output** (2026-10-20, fixed). `.godot/exported` is
+    keyed by the source file's mtime, else its md5 plus its `.import` file's; a reimport with unchanged options (an
+    importer improved by an engine update, a deleted import cache) changes neither, so the export reused the old
+    customized scene and its stale baked shaders (46 translated in the browser). The key now includes the import's
+    own `.md5` file (`_export_cache_md5()` in `editor_export_platform.cpp`).
+47. **The scene importer overwrote what a format importer set on `ImporterMeshInstance3D`** (2026-10-20, fixed). It
+    fills every per-node option with its default and then applies them, so the MetaHuman importer's LOD visibility
+    ranges (and any cast-shadow or layer choice) came out as 0..0. Those defaults now come from the node itself
+    (`_post_fix_node` in `resource_importer_scene.cpp`); a user's per-node setting still wins.
+48. **A MetaHuman manifest's per-mesh material list is wrong from LOD 3 down** (2026-10-20). `dna_geometry[].meshes`
+    repeats LOD 0's nine material slots for every LOD, but the DNA drops saliva and cartilage from LOD 3, so from there
+    every mesh gets its neighbor's material and `eyeLeft_lod3` was hidden as saliva. Match materials by the DNA mesh
+    name instead (`eyeLeft_lod3_mesh` -> slot `eyeLeft_shader_shader`); the geometry JSON's own names are right.
 
 ---
 
