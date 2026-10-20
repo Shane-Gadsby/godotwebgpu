@@ -1497,8 +1497,18 @@ Node *ResourceImporterScene::_post_fix_node(Node *p_node, Node *p_root, HashMap<
 		node_settings = node_settings.duplicate(true);
 		//fill node settings for this node with default values
 		List<ImportOption> iopts;
-		if (Object::cast_to<ImporterMeshInstance3D>(p_node)) {
+		// A format importer may already have set these on the node (the MetaHuman importer sets LOD
+		// visibility ranges): its values are the defaults a user's per-node setting replaces.
+		Dictionary node_defaults;
+		if (ImporterMeshInstance3D *mi = Object::cast_to<ImporterMeshInstance3D>(p_node)) {
 			get_internal_import_options(INTERNAL_IMPORT_CATEGORY_MESH_3D_NODE, &iopts);
+			node_defaults["mesh_instance/layers"] = mi->get_layer_mask();
+			node_defaults["mesh_instance/visibility_range_begin"] = mi->get_visibility_range_begin();
+			node_defaults["mesh_instance/visibility_range_begin_margin"] = mi->get_visibility_range_begin_margin();
+			node_defaults["mesh_instance/visibility_range_end"] = mi->get_visibility_range_end();
+			node_defaults["mesh_instance/visibility_range_end_margin"] = mi->get_visibility_range_end_margin();
+			node_defaults["mesh_instance/visibility_range_fade_mode"] = (int)mi->get_visibility_range_fade_mode();
+			node_defaults["mesh_instance/cast_shadow"] = (int)mi->get_cast_shadows_setting();
 		} else if (Object::cast_to<AnimationPlayer>(p_node)) {
 			get_internal_import_options(INTERNAL_IMPORT_CATEGORY_ANIMATION_NODE, &iopts);
 		} else if (Object::cast_to<Skeleton3D>(p_node)) {
@@ -1508,7 +1518,7 @@ Node *ResourceImporterScene::_post_fix_node(Node *p_node, Node *p_root, HashMap<
 		}
 		for (const ImportOption &E : iopts) {
 			if (!node_settings.has(E.option.name)) {
-				node_settings[E.option.name] = E.default_value;
+				node_settings[E.option.name] = node_defaults.get(E.option.name, E.default_value);
 			}
 		}
 	}
