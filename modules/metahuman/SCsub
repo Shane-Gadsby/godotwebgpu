@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_metahuman = env_modules.Clone()
+
+# Thirdparty source files
+
+thirdparty_obj = []
+
+thirdparty_dir = "#thirdparty/openriglogic/"
+env_metahuman.Prepend(CPPPATH=[thirdparty_dir + "include"])
+if env.editor_build and env["module_fbx_enabled"]:
+    # The importer reads clothing through FBXDocument, whose headers include ufbx.
+    env_metahuman.Prepend(CPPPATH=["#thirdparty/ufbx"])
+
+env_thirdparty = env_metahuman.Clone()
+env_thirdparty.disable_warnings()
+env_thirdparty.Prepend(CPPPATH=[thirdparty_dir + "src"])
+
+# RigLogic picks its vector kernels from these defines alone, not from what the compiler targets.
+# On web, `-msse4.2` makes Emscripten translate the SSE intrinsics to SIMD128: head LOD 0 takes
+# 86 us per evaluation that way, 327 us scalar (webgpu_notes/TASKS.md §2.33).
+rl_defines = ["RL_DISABLE_RUNTIME_FEATURE_DETECTION"]
+if env["platform"] == "web":
+    if env["wasm_simd"]:
+        rl_defines.append("RL_BUILD_WITH_SSE")
+        env_thirdparty.Append(CCFLAGS=["-msse4.2"])
+elif env["arch"] == "x86_64":
+    # SConstruct already targets SSE 4.2 on x86_64.
+    rl_defines.append("RL_BUILD_WITH_SSE")
+elif env["arch"] == "arm64":
+    # NEON is baseline on AArch64; it rejects `-mfpu`.
+    rl_defines.append("RL_BUILD_WITH_NEON")
+for order in ["XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"]:
+    rl_defines.append("RL_BUILD_WITH_" + order + "_ROTATION_ORDER")
+env_thirdparty.Append(CPPDEFINES=rl_defines)
+
+thirdparty_sources = Glob(thirdparty_dir + "src/*/*.cpp")
+for depth in ["*/*/", "*/*/*/", "*/*/*/*/", "*/*/*/*/*/"]:
+    thirdparty_sources += Glob(thirdparty_dir + "src/" + depth + "*.cpp")
+
+env_thirdparty.add_source_files(thirdparty_obj, thirdparty_sources)
+env.modules_sources += thirdparty_obj
+
+# Godot source files
+
+module_obj = []
+
+env_metahuman.add_source_files(module_obj, "*.cpp")
+if env.editor_build:
+    env_metahuman.add_source_files(module_obj, "editor/*.cpp")
+
+env.modules_sources += module_obj
+
+# Needed to force rebuilding the module files when the thirdparty library is updated.
+env.Depends(module_obj, thirdparty_obj)

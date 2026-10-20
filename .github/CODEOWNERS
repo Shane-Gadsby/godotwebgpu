@@ -115,6 +115,9 @@
 /modules/hdr/                                 @godotengine/asset-pipeline
 /modules/jpg/                                 @godotengine/asset-pipeline
 /modules/ktx/                                 @godotengine/asset-pipeline
+/modules/metahuman/                           @godotengine/asset-pipeline @godotengine/animation
+/modules/metahuman/doc_classes/               @godotengine/asset-pipeline @godotengine/animation @godotengine/documentation
+/modules/metahuman/editor/                    @godotengine/asset-pipeline @godotengine/editor
 /modules/svg/                                 @godotengine/asset-pipeline
 /modules/tga/                                 @godotengine/asset-pipeline
 /modules/tinyexr/                             @godotengine/asset-pipeline
