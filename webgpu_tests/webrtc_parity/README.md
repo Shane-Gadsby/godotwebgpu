@@ -52,6 +52,11 @@ RTC_BROWSERS=chromium,firefox node run_tests.mjs
 RTC_VARIANTS=dlink RTC_FILTER=rpc node run_tests.mjs
 ```
 
+Locally Chrome runs headed on the real GPU (system Chrome); with `CI=1` it runs headless on ANGLE/Vulkan. A local
+launch that ends up headless gets only the swiftshader fallback adapter, which cannot present a WebGPU canvas: every
+Chrome fixture then fails "no engine error" on `ERROR: WebGPU: device was lost`, and only when its first frame lands
+before `END` (TASKS.md §3 trap 43). If that appears, check the launch's `headless` first.
+
 ```bash
 # Native-vs-web parity. Needs the reference peer, built once
 # (see `webgpu_notes/TASKS.md` §4.20):

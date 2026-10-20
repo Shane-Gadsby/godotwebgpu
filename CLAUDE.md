@@ -109,6 +109,8 @@ node tests/web_audio_profiling.mjs --tab <url-or-title-substring> --fn setVolume
 
 On GitHub, `🔗 GHA` (`runner.yml`) builds everything on a push to `main` and drafts a release. To build only an editor, run `🐧 Linux editor`, `🍎 macOS editor`, `🏁 Windows editor` or `🖥️ All editors` (`.github/workflows/editor_*.yml`) from the Actions tab; each uploads the editor zipped by `.github/actions/package-editor`, exactly as a release ships it. Editors must be zipped on the runner that built them — `actions/upload-artifact` drops Unix permissions, which is how every Linux and macOS release up to v1.5 shipped an editor that could not start (§3 trap 41). Keep the manual workflows' flags in step with the release editor jobs in `*_builds.yml`.
 
+Every Playwright launch in these tiers must set `headless` explicitly (`headless: isCI`, or `false` for real-GPU runs): Playwright defaults to headless, where Chrome gets only the swiftshader fallback adapter and loses the WebGPU device at the first canvas present — a failure that comes and goes with startup time, which is how `webrtc_parity` bisected to an innocent commit (`webgpu_notes/TASKS.md` §3 trap 43).
+
 SPIR-V dump validation and the smoke/scene-smoketest tiers need a full editor + web template build first (see `webgpu_tests/README.md` for exact commands and `GODOT_DUMP_SPIRV` env var usage). `webgpu_tests/shader_corpus/expected_failures.json` is the baseline of known/accepted Tint conversion failures (Vulkan-only shader variants never used by the WebGPU runtime) — CI only fails on failures *not* in that baseline.
 
 ## Linting
