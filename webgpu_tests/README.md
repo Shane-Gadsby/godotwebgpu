@@ -24,7 +24,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
-| [Software Ray Tracing Probe](raytracing_probe/) | Rays per second a WGSL BVH traversal reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; a real GPU for numbers that mean anything) |
+| [Software Ray Tracing Probe](raytracing_probe/) | A WGSL BVH traversal agrees with a brute-force CPU trace, and how many rays per second it reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; `--software` for the correctness checks, a real GPU for numbers that mean anything) |
 | [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
@@ -346,16 +346,18 @@ traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has t
 ```bash
 cd webgpu_tests/raytracing_probe
 node run_probe.mjs                     # system Chrome, headed, 1080p, 100k and 1M triangles; results/latest.json
-node run_probe.mjs --software          # swiftshader at 320x180: checks the kernels still run
-node run_probe.mjs --url-only          # serve only, open the URL in a browser you already have up
+node run_probe.mjs --software          # swiftshader at 320x180: the correctness checks only, exit 0/1
+node run_probe.mjs --url-only --port 8099   # serve only: a browser you already have up, or the phone via adb reverse
 ```
 
 A CPU-built binned-SAH BVH over a procedural scene, traversed by a compute shader with a per-thread stack:
 primary camera rays, any-hit shadow rays to a point light and cosine-weighted bounce rays from each hit,
-each timed with GPU timestamp queries. Prints Mrays/s per kernel, the adapter's limits and features, BVH
-build time and traversal steps, and draws the result so a wrong traversal is visible. Exits 2 if a real-GPU
-run landed on the fallback adapter. The directory's README explains how to read the numbers; the
-investigation they feed is `webgpu_notes/TASKS.md` §2.34.
+each timed with GPU timestamp queries. A grid of primary rays is re-traced on the CPU by brute force and must
+agree with the GPU; hit, occlusion and bounce fractions must be the fixed camera's; the BVH depth must fit the
+traversal stack — exit 1 on any failure, 2 if a real-GPU run landed on the fallback adapter. Prints Mrays/s per
+kernel, the adapter's limits and features, BVH build time and traversal steps, and draws the result so a wrong
+traversal is visible. The directory's README explains how to read the numbers and the phone recipe; the
+investigation they feed is `webgpu_notes/TASKS.md` §2.34, and §1 "Experiments in flight" says what to run next.
 
 ## CI Pipeline
 

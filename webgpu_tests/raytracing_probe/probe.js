@@ -19,6 +19,7 @@ const LEAF_MAX = 4;
 const STACK_SIZE = 48; // per-thread traversal stack; the build caps depth below it
 const MAX_DEPTH = STACK_SIZE - 4;
 const MISS = 0xffffffff;
+const VERIFY_SAMPLES = Math.max(0, +(qs.get('verify') ?? 64)); // primary rays checked against a CPU brute-force trace
 
 const logEl = document.getElementById('log');
 function log(...a) {
@@ -134,6 +135,51 @@ function makeScene(targetTris) {
 		}
 	}
 	return { tris: new Float32Array(tris), half, objCount };
+}
+
+// Brute-force closest hit over the original, unordered triangle list, in double precision: the truth a
+// sample of the GPU's primary rays is checked against. Same Moller-Trumbore as the shader.
+function bruteForceClosest(tri, n, ro, rd, tmax) {
+	let best = tmax;
+	for (let i = 0; i < n; i++) {
+		const o = i * 9;
+		const v0x = tri[o];
+		const v0y = tri[o + 1];
+		const v0z = tri[o + 2];
+		const e1x = tri[o + 3] - v0x;
+		const e1y = tri[o + 4] - v0y;
+		const e1z = tri[o + 5] - v0z;
+		const e2x = tri[o + 6] - v0x;
+		const e2y = tri[o + 7] - v0y;
+		const e2z = tri[o + 8] - v0z;
+		const hx = rd[1] * e2z - rd[2] * e2y;
+		const hy = rd[2] * e2x - rd[0] * e2z;
+		const hz = rd[0] * e2y - rd[1] * e2x;
+		const a = e1x * hx + e1y * hy + e1z * hz;
+		if (Math.abs(a) < 1e-12) {
+			continue;
+		}
+		const f = 1 / a;
+		const sx = ro[0] - v0x;
+		const sy = ro[1] - v0y;
+		const sz = ro[2] - v0z;
+		const u = f * (sx * hx + sy * hy + sz * hz);
+		if (u < 0 || u > 1) {
+			continue;
+		}
+		const qx = sy * e1z - sz * e1y;
+		const qy = sz * e1x - sx * e1z;
+		const qz = sx * e1y - sy * e1x;
+		const v = f * (rd[0] * qx + rd[1] * qy + rd[2] * qz);
+		if (v < 0 || u + v > 1) {
+			continue;
+		}
+		const t = f * (e2x * qx + e2y * qy + e2z * qz);
+		if (t > 0 && t < best) {
+			best = t;
+		}
+	}
+	return best < tmax ? best : -1;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -578,7 +624,13 @@ struct Params {
 // Harness
 // ---------------------------------------------------------------------------------------------
 async function main() {
-	const result = { ok: false, resolution: [WIDTH, HEIGHT], iters: ITERS, scenes: [] };
+	const result = { ok: false, resolution: [WIDTH, HEIGHT], iters: ITERS, scenes: [], checks: [] };
+	const check = (scene, name, pass, detail) => {
+		result.checks.push({ scene, name, pass: !!pass, detail });
+		if (!pass) {
+			log(`CHECK FAILED [${scene}] ${name}: ${detail}`);
+		}
+	};
 	window.__probeResult = result;
 	try {
 		if (!navigator.gpu) {
@@ -838,6 +890,49 @@ async function main() {
 			entry.primary = { ...prim, rays: pixels, mrays_per_s: pixels / prim.ms / 1e3, hit_fraction: hits / pixels, mean_steps: steps / pixels, max_steps: maxSteps };
 			log(`primary  ${prim.ms.toFixed(3)} ms  ${entry.primary.mrays_per_s.toFixed(1)} Mrays/s  hits ${(100 * hits / pixels).toFixed(1)}%  steps mean ${(steps / pixels).toFixed(1)} max ${maxSteps}`);
 
+			// Check a grid of primary rays against the brute-force CPU trace.
+			if (VERIFY_SAMPLES > 0) {
+				const tv = performance.now();
+				const tmax = paramsF32[24];
+				const cols = Math.max(1, Math.round(Math.sqrt(VERIFY_SAMPLES * aspect)));
+				const rows = Math.max(1, Math.round(VERIFY_SAMPLES / cols));
+				const tolAbs = 2e-4 * half;
+				let mismatches = 0;
+				let maxErr = 0;
+				let checked = 0;
+				for (let r = 0; r < rows; r++) {
+					for (let c = 0; c < cols; c++) {
+						const px = Math.min(WIDTH - 1, Math.floor(((c + 0.5) / cols) * WIDTH));
+						const py = Math.min(HEIGHT - 1, Math.floor(((r + 0.5) / rows) * HEIGHT));
+						const uvx = ((px + 0.5) / WIDTH) * 2 - 1;
+						const uvy = ((py + 0.5) / HEIGHT) * 2 - 1;
+						const rdx = fwd[0] + uvx * right[0] * tanHalf * aspect - uvy * up[0] * tanHalf;
+						const rdy = fwd[1] + uvx * right[1] * tanHalf * aspect - uvy * up[1] * tanHalf;
+						const rdz = fwd[2] + uvx * right[2] * tanHalf * aspect - uvy * up[2] * tanHalf;
+						const len = Math.hypot(rdx, rdy, rdz);
+						const tCpu = bruteForceClosest(scene.tris, triCount, camPos, [rdx / len, rdy / len, rdz / len], tmax);
+						const tGpu = posData[(py * WIDTH + px) * 4 + 3];
+						checked++;
+						if (tCpu < 0 && tGpu < 0) {
+							continue;
+						}
+						if (tCpu < 0 || tGpu < 0) {
+							mismatches++;
+							continue;
+						}
+						const err = Math.abs(tCpu - tGpu);
+						maxErr = Math.max(maxErr, err);
+						if (err > tolAbs + 1e-4 * tCpu) {
+							mismatches++;
+						}
+					}
+				}
+				entry.verify = { samples: checked, mismatches, max_abs_t_error: maxErr, ms: performance.now() - tv };
+				log(`verify   ${checked} primary rays vs brute force: ${mismatches} mismatches, max |dt| ${maxErr.toExponential(2)} (${entry.verify.ms.toFixed(0)} ms)`);
+				// One edge-grazing ray in a sample may legitimately land differently in f32 and f64.
+				check(target, 'primary traversal matches brute force', mismatches <= Math.max(1, Math.floor(checked * 0.02)), `${mismatches}/${checked} mismatches, max |dt| ${maxErr}`);
+			}
+
 			// Shadow (any hit).
 			const sh = await timeKernel('shadow', bindGroup, 100);
 			let resData = new Float32Array(await readback(resultsBuf, readRes, pixels * 8));
@@ -890,11 +985,18 @@ async function main() {
 			// What one 1080p-equivalent frame of "1 primary + 1 shadow + 1 bounce per pixel" would cost here.
 			entry.frame_ms_1spp = prim.ms + sh.ms + bo.ms;
 			log(`1 spp (primary+shadow+bounce) at ${WIDTH}x${HEIGHT}: ${entry.frame_ms_1spp.toFixed(2)} ms`);
+
+			check(target, 'BVH depth fits the traversal stack', bvh.maxDepth + 1 <= STACK_SIZE, `depth ${bvh.maxDepth}, stack ${STACK_SIZE}`);
+			check(target, 'primary hit fraction plausible for the fixed camera', entry.primary.hit_fraction > 0.45 && entry.primary.hit_fraction < 0.8, `${(100 * entry.primary.hit_fraction).toFixed(1)}% (expect ~61%)`);
+			check(target, 'shadow occlusion plausible', entry.shadow.occluded_fraction > 0.05 && entry.shadow.occluded_fraction < 0.6, `${(100 * entry.shadow.occluded_fraction).toFixed(1)}% occluded (expect 20-30%)`);
+			check(target, 'bounce hit fraction plausible', entry.bounce.hit_fraction > 0.05 && entry.bounce.hit_fraction < 0.7, `${(100 * entry.bounce.hit_fraction).toFixed(1)}% hit (expect 20-35%)`);
+			check(target, 'mean traversal steps bounded', entry.primary.mean_steps < 80 && entry.shadow.mean_steps < 80 && entry.bounce.mean_steps < 80, `primary ${entry.primary.mean_steps.toFixed(1)}, shadow ${entry.shadow.mean_steps.toFixed(1)}, bounce ${entry.bounce.mean_steps.toFixed(1)}`);
 			result.scenes.push(entry);
 			nodesBuf.destroy();
 			trisBuf.destroy();
 		}
-		result.ok = !(result.errors && result.errors.length);
+		result.ok = result.checks.every((c) => c.pass) && !(result.errors && result.errors.length) && result.scenes.length === TRI_TARGETS.length;
+		log(`checks: ${result.checks.filter((c) => c.pass).length}/${result.checks.length} passed -> ${result.ok ? 'OK' : 'FAILED'}`);
 	} catch (e) {
 		result.error = String(e && e.stack || e);
 		log('ERROR ' + result.error);

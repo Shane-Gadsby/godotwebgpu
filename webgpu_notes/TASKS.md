@@ -39,6 +39,7 @@ lists all take drag-and-drop the same way since §4.31.
 
 | tier | result | when / where |
 |---|---|---|
+| `raytracing_probe --software` (swiftshader, 320×180, 18 k and 190 k triangles) | **12 / 12 checks**: GPU BVH traversal = CPU brute force on 66/66 sampled primary rays per scene (max \|Δt\| 1.4e-5), hit / occlusion / bounce fractions as the fixed camera predicts, depth 21 within the 48-entry stack. Throughput numbers from this adapter mean nothing; the real-GPU run is pending | 2026-10-23, §2.34 |
 | web audio sample driver vs native, offline (`webgpu_tests/web_audio/run_tests.mjs`) | **40 / 40**: loop modes sample-identical to `AudioStreamPlaybackWAV`, ramps/fades, bus rules, positions, 3D high shelf within 1 dB | 2026-10-18, §4.30 |
 | web audio end to end, native vs nothreads (no COOP/COEP) and threads (`run_e2e.mjs`) | `[AUDIO-CHECK] PASS` on both, every boolean equal to native, each limitation warning exactly once on web and none natively | 2026-10-18, §4.30 |
 | scene smoketest with `audio_parity` (real GPU) | **22 / 22 Chrome**; `audio_parity` also passes on Firefox | 2026-10-18 |
@@ -90,6 +91,21 @@ Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9
 Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches its first frame in
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
+
+### Experiments in flight — 2026-10-23 (read this first next session)
+
+Two things were started and deliberately not finished; each has everything it needs to be picked up without
+re-deriving anything. Both commits are local on `webgpu-4.8` (`127ce9a34c`, `d64e8a2602` and this doc); nothing pushed.
+
+| experiment | state | how to run it | what the result decides |
+|---|---|---|---|
+| **PrimitiveMesh arrays rebuilt on the CPU** (§3 trap 54, `127ce9a34c`) | committed; validated by a native build, pre-commit and a GDScript check of a `CapsuleMesh` only. **No test tier has run against it, and the templates in `bin/` predate it.** | `pgrep -ax scons` (tree idle), then `./webgpu_tests/local_ci.sh --dev-mode` (editor + templates, re-export, full suite). Then re-export `/mnt/109313D2109313D2/godot-game-dev/webgpu-test` from that editor and load it: the TressFX collider's `mesh has no extent` must be gone. | green → done, record it in §4 (nothing in §2 to move). A regression could only come from a `surface_get_arrays()` caller that relied on the quantized readback values. Worth a sweep for other synchronous readbacks in driver-agnostic code (trap 54's general lesson). |
+| **Ray / path tracing on Forward+** (§2.34) | investigation written. Probe `webgpu_tests/raytracing_probe/` written and **self-checking** (12/12 checks on swiftshader; GPU traversal = CPU brute force on 66/66 sampled rays per scene). **Not run on real hardware yet** — the 4080 SUPER sat at 95 % utilization from a game all session. | `nvidia-smi` (idle GPU: no game, no loaded LM Studio model), then `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` (1080p, 100 k and 1 M triangles, about a minute). Phone: `node run_probe.mjs --url-only --port 8099`, `adb reverse tcp:8099 tcp:8099`, open the printed `http://localhost:8099/...` URL in Chrome on the Razr 60 (`--w 1280 --h 720 --tris 100000 --iters 10`); the result is on the page. | the empty rows of §2.34's table. **≥ 300 Mrays/s on `bounce` (incoherent) on the desktop → Tier A (RT AO through the SSAO texture, then RT shadows through `sscs_buffer`) is viable at half resolution; ≥ 600 at full; below ~100 only the offline reference tier is worth building.** Then continue at §2.34 step 2. |
+
+How to talk about them: §2.34 holds the findings (why software-only, upstream's RT API and who uses it, the four tiers, the
+shared acceleration-structure layer, WebGPU's constraints, the budget arithmetic); `webgpu_tests/raytracing_probe/README.md`
+says what each kernel stands for and how to read Mrays/s; §3 trap 54 is the readback lesson behind the first experiment.
+The probe's `--software` run is a correctness test with an exit code and could join `local_ci.sh`; it is not wired in yet.
 
 ### What is built right now — snapshot 2026-10-16 (end of the render-thread day), HEAD after `2c3544102e`
 
@@ -2115,14 +2131,19 @@ procedural scene (ground + tessellated spheres and boxes to a requested triangle
 one WGSL compute shader with `primary` (coherent, closest hit), `shadow` (to a point light, any hit) and `bounce`
 (cosine hemisphere from each hit, closest hit) entry points, each timed over 20 dispatches with GPU timestamp queries;
 prints Mrays/s, hit fractions, traversal steps, BVH build time and depth, the adapter's features and the limits that bound
-a software tracer, and draws the result so a broken traversal is visible. The runner launches the system Chrome headed
-with the real-GPU flags (§3 "Measurement traps") and exits 2 on the fallback adapter; `--software` runs swiftshader at
-320×180 as a correctness check only.
+a software tracer, and draws the result so a broken traversal is visible. **It is also a correctness test**: a grid of 66
+primary rays is re-traced on the CPU by brute force over every triangle in double precision and must agree with the GPU
+traversal (it does, to 1.4e-5), the hit, occlusion and bounce-hit fractions must be the ones the fixed camera gives, and
+the BVH depth must fit the 48-entry stack; the runner exits 0/1 on the checks and 2 when a real-GPU run landed on the
+fallback adapter. It launches the system Chrome headed with the real-GPU flags (§3 "Measurement traps"); `--software`
+runs swiftshader at 320×180, which proves the kernels and nothing about hardware; `--url-only --port 8099` serves it for
+a browser you already have up or for the phone (`adb reverse tcp:8099 tcp:8099`, then the printed `http://localhost:8099/...`
+URL in Chrome on the Razr 60; the result is on the page itself).
 
 | run | adapter | triangles | BVH build | primary | shadow | bounce | 1 spp frame |
 |---|---|---|---|---|---|---|---|
-| 2026-10-23, `--software`, 320×180 | swiftshader (fallback) | 18 k | 37 ms | 6.0 Mrays/s, 11.7 steps | 3.8 Mrays/s, 26 % occluded | 2.9 Mrays/s, 23 % hit | 31 ms |
-| 2026-10-23, `--software`, 640×360 | swiftshader | 190 k, depth 21 | 200 ms | 3.9 Mrays/s, 15.4 steps | 3.0 Mrays/s | 2.1 Mrays/s, 21 steps | 172 ms |
+| 2026-10-23, `--software`, 320×180, 12/12 checks | swiftshader (fallback) | 18 k | 37 ms | 6.0 Mrays/s, 11.7 steps | 3.8 Mrays/s, 26 % occluded | 2.9 Mrays/s, 23 % hit | 31 ms |
+| 2026-10-23, `--software`, 640×360, 66/66 rays = brute force | swiftshader | 190 k, depth 21 | 200 ms | 3.9 Mrays/s, 15.4 steps | 3.0 Mrays/s | 2.1 Mrays/s, 21 steps | 172 ms |
 | **real GPU, 1080p, 100 k and 1 M** | RTX 4080 SUPER | | | **not yet measured** | | | |
 
 The software numbers prove the kernels and the picture (correct spheres, boxes, blocked shadow rays, sky), nothing about
@@ -2131,7 +2152,8 @@ session**, which would have made the numbers meaningless and hurt the game (`nvi
 
 **Next steps, in order:**
 1. **Measure.** `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` on the 4080 SUPER with the GPU
-   idle; then the Razr 60 through the `perf_guard/android` recipe (adb reverse + the page). Fill the table above.
+   idle; then the Razr 60: `node run_probe.mjs --url-only --port 8099`, `adb reverse tcp:8099 tcp:8099`, and the printed
+   URL in Chrome on the phone (`--w 1280 --h 720 --tris 100000 --iters 10`; the result is on the page). Fill the table above.
    **Decision gate: ≥ 300 Mrays/s incoherent on the desktop → Tier A is viable at half resolution with temporal
    accumulation; ≥ 600 → at full resolution.** Below ~100, only Tier D (no frame budget) is worth building.
 2. **If viable, prototype Tier A engine-side**, behind a project setting (`rendering/raytracing/*`, default off): RT AO
