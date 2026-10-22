@@ -2361,6 +2361,18 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `env -u DISPLAY VK_ICD_FILENAMES=.../lvp_icd.json`. Separately, `click_to_start` clicked once, which could land
     before Godot listened for it (`audio_parity`'s intermittent Chrome failures): it now clicks every 2 s until the
     checks are in.
+54. **`PrimitiveMesh::surface_get_arrays()` read the mesh back off the GPU, so on web it returned zeros**
+    (2026-10-21, fixed). A `CapsuleMesh` handed to a GDExtension collider (TressFX-Godot's `TressFXCollisionMesh`)
+    failed in a web export with `mesh has no extent` — its own `verts.is_empty()` check had passed, so the arrays came
+    back the right *size* with every vertex at the origin. `PrimitiveMesh` threw away the arrays it generated in
+    `_update()` and re-read them through `RenderingServer::mesh_surface_get_arrays()`; on WebGPU a readback is
+    asynchronous, and a first one returns the zero-filled shadow buffer (`RenderingDeviceDriverWebGPU::buffer_map()`,
+    documented in §2.13 — it is `print_verbose`, so nothing in the console connects the zeros to the readback unless
+    the export runs with `--verbose`). The fix is `_build_mesh_arrays()`, shared by `_update()` and
+    `surface_get_arrays()`: the arrays are rebuilt on the CPU from `_create_mesh_array()`, which is correct on every
+    backend, drops a pointless GPU round trip, and no longer loses the quantization the vertex format applies. The
+    general lesson: **any driver-agnostic engine code that reads a GPU resource back synchronously is wrong on
+    WebGPU** — if the data was on the CPU a moment earlier, recompute it instead. Worth sweeping for other callers.
 
 ---
 
