@@ -288,6 +288,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-17 (§4.29):** Forward+ now matches native Vulkan on every matrix feature; the sweep's follow-ups are at the end of §2.31 (omni cube shadow cost not re-measured, `POINT_COORD` bug to report upstream). Judge any renderer change with `run_forward_plus.mjs --parity`.
 
+**Added 2026-10-23:** §2.34 opens the ray / path tracing investigation. WebGPU has no hardware ray tracing and none is scheduled, so it is a software (compute-shader BVH) design; the first step is a measurement, `webgpu_tests/raytracing_probe/`, which has only run on swiftshader so far — the real GPU was busy. Run it before building anything.
+
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
@@ -2015,6 +2017,132 @@ Measured (RTX 4080 SUPER, Chrome, 1920x1080 page, Ava at LOD 0, face, arms and h
 
 New §3 entries: 49 (shader define order), 50 (a projection with negative [1][1]), 51 (camera-facing geometry in a
 shadow pass), 52 (a step-size-dependent rest pose).
+
+### 2.34 Ray and path tracing on WebGPU Forward+ `INVESTIGATING` — started 2026-10-23; software-only by necessity, probe written, real-GPU numbers pending
+
+**The constraint that shapes everything: WebGPU has no hardware ray tracing, and none is coming soon.** The spec issue
+([gpuweb #535](https://github.com/gpuweb/gpuweb/issues/535)) sits at "Milestone 4+" with no date; the Chrome lead's position
+(Oct 2025) is that Dawn has nothing, that it cannot come through browser extensions, and that bindless resources are a
+prerequisite that is itself years out. WGSL has no `rayQuery`, no acceleration-structure binding type, no RT pipeline
+stages. So on this target "ray tracing" can only mean **compute-shader traversal of an acceleration structure we build
+ourselves, in storage buffers** — the same thing Unity's TrueTrace, WebRTX and every WebGPU path-tracer demo do. That is
+not only a limitation: the same code runs on Metal and D3D12 (where upstream has no RT implementation either) and on
+GPUs without RT cores, so a software path is the only one that makes an RT feature available on every Godot backend.
+
+**Upstream state (the 4.8 base of this branch).** `RenderingDevice` has a full hardware RT API since PR #99119 (merged
+2026-01-27, fixes in #122051 / #123093 through Oct 2026): `blas_create` / `tlas_create` /
+`acceleration_structure_instance_write`, `command_build_blas` / `command_build_tlas`, RT pipelines with raygen / miss /
+closest-hit / any-hit / intersection stages, shader binding tables, `raytracing_list_*`, two feature bits
+(`SUPPORTS_RAYTRACING_PIPELINE`, `SUPPORTS_RAY_QUERY`). **Only Vulkan implements it, and no Godot renderer uses it**: a
+grep of `servers/`, `modules/` and `scene/` finds the API's only client to be `ShaderRD`'s stage plumbing. Open upstream
+items: BLAS refit/compaction missing, the ray-query flag cannot be enabled at device creation, push constants arrive as
+zeros in raygen on NVIDIA. Around it: NVIDIA's `nvidia-pt-dlss` fork (GDC 2026) replaces rasterization with full path
+tracing plus DLSS Ray Reconstruction, NVIDIA Vulkan only; a student project did hybrid RT reflections through an RT
+pipeline from a Forward+ depth/normal reconstruction; Calinou's assessment is that without bindless, RT shadows and AO are
+feasible in Godot and reflections/GI are not yet. **This driver** returns `false` for both feature bits and every RT entry
+point is an `ERR_FAIL` stub (`rendering_device_driver_webgpu.cpp:3676`), which `RenderingDevice` guards against anyway.
+
+**What the engine already has that is software ray tracing**, i.e. prior art inside this tree:
+
+| what | where | shape | on web? |
+|---|---|---|---|
+| lightmapper | `modules/lightmapper_rd/lm_compute.glsl` `trace_ray()` | uniform grid (`grid` texture → cluster list → clusters of `CLUSTER_SIZE` triangles with cluster AABBs), CPU-built in `_create_acceleration_structures()`; closest-hit and any-hit; hit albedo/emission from a UV2 atlas `texture2DArray` — its answer to "materials at the hit point without bindless" | **no**: editor-only module (`config.py`: `env.editor_build`), so not in the template, not in the precompile list, not in the corpus |
+| SDFGI | `environment/gi.cpp`, `sdfgi_*.glsl` | ray-marching a signed distance field in cascades | yes, at parity (§4.29) |
+| VoxelGI | `voxel_gi*.glsl` | cone tracing a voxel octree | yes, at parity |
+| contact shadows | `_process_sscs` → `sscs_buffer` (set 1 binding 37), `min()`ed into the directional shadow term in `scene_forward_clustered.glsl:2655` | screen-space depth ray march | yes |
+
+So GI by ray marching exists; what does not exist anywhere in the runtime is **triangle-accurate ray tracing**.
+
+**What is feasible, in order of value per effort.** Every tier shares one acceleration-structure layer (below).
+
+- **Tier A — RT shadows and RT AO (geometry only).** Needs no material at the hit, except alpha-tested surfaces
+  (treat as opaque first; an alpha-mask atlas later). Integration is small: a compute pass in `_pre_opaque_render` after
+  the depth prepass, which already produces depth and `normal_roughness` for SSAO/SSIL/SSR. **RT AO writes the SSAO
+  texture** (`RB_SCOPE_SSAO`/`RB_FINAL`, sampled as `ao_buffer` set 1 binding 27) — zero change to the scene shader.
+  **RT directional shadows write a screen-space mask** consumed exactly where `sscs_buffer` is today (one more
+  `min()` into `shadow`, or a replacement for the shadow-map lookup when the mask covers the pixel); omni/spot RT shadows
+  are the same mask with a layer per light, like `sscs_index`. Soft shadows: N rays toward the light's disc with a
+  temporal blue-noise sequence and the TAA/temporal reprojection the renderer already has. Value: pixel-exact contact
+  without PCF/bias artifacts, no shadow-atlas passes for the lights that use it (6 passes per omni light today, §2.31
+  follow-up 1).
+- **Tier B — RT reflections replacing SSR** (post-opaque, writes `RB_SCOPE_SSR`, sampled as `ssr_buffer` binding 35).
+  Needs shading at the hit: the realistic answer is a hybrid — reproject the hit into the current frame's color where it is
+  on screen (what SSR does), and otherwise a coarse surface cache (lightmap/UV2 atlas as the lightmapper does, or
+  reflection-probe/SDFGI radiance at the hit) rather than evaluating materials. Scope: large; the cache is most of it.
+- **Tier C — path-traced GI** (1 spp ReSTIR-GI style, denoised, as an alternative to SDFGI). Research-grade: the denoiser
+  (SVGF or a temporal/spatial pair) is more work than the tracing. The probe decides whether even 1 spp fits.
+- **Tier D — a progressive reference path tracer** (Movie Maker / stills, no frame budget). A *generic* Godot path tracer
+  is a bindless problem — every material is its own shader, which a compute kernel cannot evaluate at a hit. The feasible
+  subset is StandardMaterial3D-like materials with their textures in an atlas or in texture arrays within the 48-per-stage
+  budget (§2.31). Honest scope: a reference mode for standard materials, not for arbitrary shader code.
+
+**The acceleration-structure layer (shared):**
+
+- **BLAS per mesh surface**, a binned-SAH BVH2 (BVH4 / compressed wide BVH later if the probe shows traversal-bound)
+  built on the CPU: `MeshStorage` keeps the CPU `SurfaceData` (`mesh_get_surface()`), so positions are there without a
+  readback (the readback would be §3 trap 54 all over again). Build cost: the JS probe builds 190 k triangles in 200 ms;
+  C++ is several times faster and it can run on a worker in threaded builds; better still, **bake at export** next to the
+  WGSL (`ShaderBakerExportPlugin` pattern, §4.23) and ship the trees in the pack.
+- **TLAS per frame** over the culled `RenderGeometryInstance` list (transform, BLAS id, flags/mask, material id), CPU-built
+  (thousands of instances, well under a millisecond) and uploaded as a storage buffer; two-level traversal in GLSL
+  (instance → object-space ray → BLAS). MultiMesh/particles are instances; their transform buffers are already storage.
+- **Skinned / blend-shaped meshes:** `skeleton.glsl` already writes skinned vertices to a storage-usage vertex buffer per
+  frame; a compute refit (leaf AABBs from the skinned vertices, then bottom-up by level) keeps the BLAS valid. Rebuild
+  small ones outright.
+- **Where it lives:** a driver-agnostic `RendererRD` effect (next to `environment/gi.*` and `effects/ss_effects.*`) with a
+  shared `rt_trace_inc.glsl`, so it also runs natively (and so the Forward+ parity harness can compare web against
+  native — RT features have no native Vulkan *reference* otherwise; their truth is a many-spp brute-force render of the
+  same fixture). **Rejected for now:** implementing upstream's acceleration-structure API inside the WebGPU driver and
+  lowering GLSL `rayQueryEXT` to a traversal in a SPIR-V pass. It would let future upstream ray-query shaders run
+  unchanged, but Tint has no ray-query ops, so it is a DXR-fallback-layer-sized project — and upstream has no such
+  shaders yet. Revisit if they appear.
+- **WebGPU-specific constraints, all survivable:** no bindless → one node buffer and one triangle buffer for the whole
+  scene (Chrome exposes the adapter's `maxStorageBufferBindingSize`, which `engine.js` already requests; swiftshader
+  reports 1 GiB, the default is 128 MiB); 10 storage buffers per stage on Chrome; no 64-bit atomics (no LBVH Morton
+  sorts with 64-bit keys — use 32-bit or the CPU); subgroups are available (Chrome 134+) for compaction later; a
+  `array<u32, 48>` function-scope traversal stack and the data-dependent loop compile and run through Tint (probe); the
+  output textures must be storage-capable formats, which the SSAO path already handles for `R8_UNORM`.
+
+**Budget arithmetic** (to fill in with the real-GPU probe): 1080p is 2.07 M pixels, so a kernel at *N* Mrays/s costs
+2074 / *N* ms. A 60 fps frame has 16.7 ms and a hybrid effect can take 3–5 ms of it, so a full-resolution one-ray-per-pixel
+effect needs **400–700 Mrays/s** of its ray type, a half-resolution one with temporal accumulation a quarter of that. Rough
+expectation for a well-written BVH2 in WGSL on the 4080 SUPER: hundreds of Mrays/s to low Grays/s coherent, a few hundred
+Mrays/s incoherent (software traversal is typically 4–8× behind the RT cores). Mobile (Razr 60, Adreno) will be one to two
+orders of magnitude lower, which is why any RT feature is a per-project opt-in with a quality ladder, never a default.
+
+**The probe — `webgpu_tests/raytracing_probe/` (`node run_probe.mjs`, README there).** Standalone page: deterministic
+procedural scene (ground + tessellated spheres and boxes to a requested triangle count), binned-SAH BVH2 in JavaScript,
+one WGSL compute shader with `primary` (coherent, closest hit), `shadow` (to a point light, any hit) and `bounce`
+(cosine hemisphere from each hit, closest hit) entry points, each timed over 20 dispatches with GPU timestamp queries;
+prints Mrays/s, hit fractions, traversal steps, BVH build time and depth, the adapter's features and the limits that bound
+a software tracer, and draws the result so a broken traversal is visible. The runner launches the system Chrome headed
+with the real-GPU flags (§3 "Measurement traps") and exits 2 on the fallback adapter; `--software` runs swiftshader at
+320×180 as a correctness check only.
+
+| run | adapter | triangles | BVH build | primary | shadow | bounce | 1 spp frame |
+|---|---|---|---|---|---|---|---|
+| 2026-10-23, `--software`, 320×180 | swiftshader (fallback) | 18 k | 37 ms | 6.0 Mrays/s, 11.7 steps | 3.8 Mrays/s, 26 % occluded | 2.9 Mrays/s, 23 % hit | 31 ms |
+| 2026-10-23, `--software`, 640×360 | swiftshader | 190 k, depth 21 | 200 ms | 3.9 Mrays/s, 15.4 steps | 3.0 Mrays/s | 2.1 Mrays/s, 21 steps | 172 ms |
+| **real GPU, 1080p, 100 k and 1 M** | RTX 4080 SUPER | | | **not yet measured** | | | |
+
+The software numbers prove the kernels and the picture (correct spheres, boxes, blocked shadow rays, sky), nothing about
+hardware. **The real-GPU run did not happen on 2026-10-23: the GPU sat at 95 % utilization from a game the whole
+session**, which would have made the numbers meaningless and hurt the game (`nvidia-smi` before any run).
+
+**Next steps, in order:**
+1. **Measure.** `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` on the 4080 SUPER with the GPU
+   idle; then the Razr 60 through the `perf_guard/android` recipe (adb reverse + the page). Fill the table above.
+   **Decision gate: ≥ 300 Mrays/s incoherent on the desktop → Tier A is viable at half resolution with temporal
+   accumulation; ≥ 600 → at full resolution.** Below ~100, only Tier D (no frame budget) is worth building.
+2. **If viable, prototype Tier A engine-side**, behind a project setting (`rendering/raytracing/*`, default off): RT AO
+   first (writes the SSAO texture, no scene-shader change, so the existing SSAO fixture in the Forward+ matrix exercises
+   it), then directional RT shadows through the `sscs_buffer` path. BLAS at load from the CPU surface data, TLAS per frame,
+   skinned meshes excluded until refit exists. Truth for tests: a many-spp render of the same fixture, not native Vulkan.
+3. **BVH infrastructure proper**: export-time bake, GPU refit, BVH4 if traversal-bound.
+4. Tiers B–D only on the numbers from step 1.
+
+Effort: Tier A prototype 2–3 weeks, of which the acceleration-structure layer is about one; Tier B another 2–3; Tier C
+open-ended; Tier D 2 weeks for the standard-material subset once the layer exists.
 
 ---
 

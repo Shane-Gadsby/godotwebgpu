@@ -24,6 +24,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
+| [Software Ray Tracing Probe](raytracing_probe/) | Rays per second a WGSL BVH traversal reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; a real GPU for numbers that mean anything) |
 | [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
@@ -339,6 +340,22 @@ navigates — raw CDP through `adb forward tcp:9222 localabstract:chrome_devtool
 with `variant/separate_render_thread=false`: with the separate render thread the engine's WebGPU calls happen in a
 pthread worker that never answers `Runtime.evaluate`, so the page-side tools see nothing. First results and the
 traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has the full recipe.
+
+### 10. Software Ray Tracing Probe (standalone; a real GPU for meaningful numbers)
+
+```bash
+cd webgpu_tests/raytracing_probe
+node run_probe.mjs                     # system Chrome, headed, 1080p, 100k and 1M triangles; results/latest.json
+node run_probe.mjs --software          # swiftshader at 320x180: checks the kernels still run
+node run_probe.mjs --url-only          # serve only, open the URL in a browser you already have up
+```
+
+A CPU-built binned-SAH BVH over a procedural scene, traversed by a compute shader with a per-thread stack:
+primary camera rays, any-hit shadow rays to a point light and cosine-weighted bounce rays from each hit,
+each timed with GPU timestamp queries. Prints Mrays/s per kernel, the adapter's limits and features, BVH
+build time and traversal steps, and draws the result so a wrong traversal is visible. Exits 2 if a real-GPU
+run landed on the fallback adapter. The directory's README explains how to read the numbers; the
+investigation they feed is `webgpu_notes/TASKS.md` §2.34.
 
 ## CI Pipeline
 
