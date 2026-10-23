@@ -347,7 +347,8 @@ traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has t
 cd webgpu_tests/raytracing_probe
 node run_probe.mjs                     # system Chrome, headed, 1080p, 100k and 1M triangles; results/latest.json
 node run_probe.mjs --software          # swiftshader at 320x180: the correctness checks only, exit 0/1
-node run_probe.mjs --url-only --port 8099   # serve only: a browser you already have up, or the phone via adb reverse
+node run_probe.mjs --url-only --port 8099   # serve only: a browser you already have up
+node run_probe_phone.mjs --shot phone.png   # the Razr 60 over USB: adb reverse + CDP, result read back, its tab closed
 ```
 
 A CPU-built binned-SAH BVH over a procedural scene, traversed by a compute shader with a per-thread stack:

@@ -65,11 +65,14 @@ why the 2026-10-23 session has only software-adapter numbers. Results are writte
 and a timestamped copy beside it (`results/` is ignored by git); the numbers that matter are recorded in
 `webgpu_notes/TASKS.md` §2.34.
 
-**On the phone** (Motorola Razr 60, the `perf_guard/android` recipe): `node run_probe.mjs --url-only --port
-8099 --w 1280 --h 720 --tris 100000 --iters 10`, then `adb reverse tcp:8099 tcp:8099` and open the printed
-`http://localhost:8099/…` URL in Chrome on the device — `localhost` is a secure context there, so WebGPU
-works without HTTPS. The result is on the page (and in its console as a `[PROBE-RESULT]` line); a
-screenshot is `adb exec-out screencap -d <main display id> -p`.
+**On the phone** (Motorola Razr 60 over USB): `node run_probe_phone.mjs [--shot phone.png --display
+4627039422300187648]`. It serves the probe on port 8099, runs `adb reverse` so `http://localhost:8099/` is a
+secure context on the device, starts Chrome, opens the tab through CDP (`Target.createTarget` on the browser
+socket — a VIEW intent does not reliably open a tab on a locked phone, and Chrome 155 refuses `/json/new`),
+polls the page's log, reads `window.__probeResult`, takes the screenshot, and closes only the tab it opened.
+Defaults there are 1280×720, 100 k triangles, 10 dispatches, 32 verified rays. The manual route still
+works: `node run_probe.mjs --url-only --port 8099`, `adb reverse tcp:8099 tcp:8099`, open the printed URL in
+the device's Chrome; the result is on the page.
 
 Playwright is imported from `../scene_smoketest/node_modules`, so that tier's `npm install` is the only
 prerequisite.
@@ -87,3 +90,8 @@ worth building.
 
 Software-adapter numbers (swiftshader) are a correctness check only; they are two to three orders of
 magnitude below real hardware.
+
+Measured 2026-10-23 (details and the decision in `webgpu_notes/TASKS.md` §2.34): RTX 4080 SUPER at 1080p,
+primary 5.3 / 3.7 Grays/s, shadow 5.4 / 3.8, incoherent bounce 2.3 / 1.9 (93 k / 945 k triangles), 1 spp
+1.2–1.6 ms; Razr 60 (Mali-G615) at 720p, primary 45 Mrays/s, shadow 40, bounce 19, 1 spp 65 ms. Desktop passes
+the gate several times over; the phone is a hundred times slower, so ray tracing is a desktop-class feature.

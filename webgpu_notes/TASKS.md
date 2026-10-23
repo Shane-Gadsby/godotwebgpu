@@ -39,7 +39,9 @@ lists all take drag-and-drop the same way since §4.31.
 
 | tier | result | when / where |
 |---|---|---|
-| `raytracing_probe --software` (swiftshader, 320×180, 18 k and 190 k triangles) | **12 / 12 checks**: GPU BVH traversal = CPU brute force on 66/66 sampled primary rays per scene (max \|Δt\| 1.4e-5), hit / occlusion / bounce fractions as the fixed camera predicts, depth 21 within the 48-entry stack. Throughput numbers from this adapter mean nothing; the real-GPU run is pending | 2026-10-23, §2.34 |
+| `raytracing_probe --software` (swiftshader, 320×180, 18 k and 190 k triangles) | **12 / 12 checks**: GPU BVH traversal = CPU brute force on 66/66 sampled primary rays per scene (max \|Δt\| 1.4e-5), hit / occlusion / bounce fractions as the fixed camera predicts, depth 21 within the 48-entry stack. Throughput numbers from this adapter mean nothing | 2026-10-23, §2.34 |
+| `raytracing_probe` on the Razr 60 (`run_probe_phone.mjs`, Mali-G615, 1280×720, 93 k triangles, 10 dispatches) | **6 / 6 checks**, 32/32 rays = brute force; **primary 45 Mrays/s, shadow 40, incoherent bounce 19**; 1 spp primary+shadow+bounce 64.6 ms — RT is desktop-only | 2026-10-23, §2.34 |
+| `raytracing_probe` on the real GPU (RTX 4080 SUPER, 1920×1080, 93 k and 945 k triangles, 20 dispatches) | **12 / 12 checks**, 66/66 rays = brute force per scene; **primary 5.3 / 3.7 Grays/s, shadow 5.4 / 3.8, incoherent bounce 2.3 / 1.9**; 1 spp primary+shadow+bounce 1.17 / 1.55 ms; timestamps = wall clock − 50–100 µs; GPU idle (4 %) during the run | 2026-10-23, §2.34 |
 | web audio sample driver vs native, offline (`webgpu_tests/web_audio/run_tests.mjs`) | **40 / 40**: loop modes sample-identical to `AudioStreamPlaybackWAV`, ramps/fades, bus rules, positions, 3D high shelf within 1 dB | 2026-10-18, §4.30 |
 | web audio end to end, native vs nothreads (no COOP/COEP) and threads (`run_e2e.mjs`) | `[AUDIO-CHECK] PASS` on both, every boolean equal to native, each limitation warning exactly once on web and none natively | 2026-10-18, §4.30 |
 | scene smoketest with `audio_parity` (real GPU) | **22 / 22 Chrome**; `audio_parity` also passes on Firefox | 2026-10-18 |
@@ -100,7 +102,7 @@ re-deriving anything. Both commits are local on `webgpu-4.8` (`127ce9a34c`, `d64
 | experiment | state | how to run it | what the result decides |
 |---|---|---|---|
 | **PrimitiveMesh arrays rebuilt on the CPU** (§3 trap 54, `127ce9a34c`) | committed; validated by a native build, pre-commit and a GDScript check of a `CapsuleMesh` only. **No test tier has run against it, and the templates in `bin/` predate it.** | `pgrep -ax scons` (tree idle), then `./webgpu_tests/local_ci.sh --dev-mode` (editor + templates, re-export, full suite). Then re-export `/mnt/109313D2109313D2/godot-game-dev/webgpu-test` from that editor and load it: the TressFX collider's `mesh has no extent` must be gone. | green → done, record it in §4 (nothing in §2 to move). A regression could only come from a `surface_get_arrays()` caller that relied on the quantized readback values. Worth a sweep for other synchronous readbacks in driver-agnostic code (trap 54's general lesson). |
-| **Ray / path tracing on Forward+** (§2.34) | investigation written. Probe `webgpu_tests/raytracing_probe/` written and **self-checking** (12/12 checks on swiftshader; GPU traversal = CPU brute force on 66/66 sampled rays per scene). **Not run on real hardware yet** — the 4080 SUPER sat at 95 % utilization from a game all session. | `nvidia-smi` (idle GPU: no game, no loaded LM Studio model), then `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` (1080p, 100 k and 1 M triangles, about a minute). Phone: `node run_probe.mjs --url-only --port 8099`, `adb reverse tcp:8099 tcp:8099`, open the printed `http://localhost:8099/...` URL in Chrome on the Razr 60 (`--w 1280 --h 720 --tris 100000 --iters 10`); the result is on the page. | the empty rows of §2.34's table. **≥ 300 Mrays/s on `bounce` (incoherent) on the desktop → Tier A (RT AO through the SSAO texture, then RT shadows through `sscs_buffer`) is viable at half resolution; ≥ 600 at full; below ~100 only the offline reference tier is worth building.** Then continue at §2.34 step 2. |
+| **Ray / path tracing on Forward+** (§2.34) | investigation written; probe `webgpu_tests/raytracing_probe/` written, self-checking, **measured on both devices 2026-10-23**. Desktop (RTX 4080 SUPER, 1080p): **1.9–2.3 Grays/s incoherent, 3.7–5.3 Grays/s coherent**, 1 spp primary + shadow + bounce = 1.2–1.6 ms — the gate for full-resolution RT shadows/AO was 600 Mrays/s. Phone (Razr 60, Mali-G615, 720p): **19 Mrays/s incoherent, 40–45 coherent**, 1 spp = 65 ms — a hundred times less. Traversal matched brute force on every sampled ray on both. | Desktop: `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` on an idle GPU (`nvidia-smi`). Phone on USB: `node run_probe_phone.mjs --shot phone.png --display 4627039422300187648` (serves, `adb reverse`, opens the tab through CDP, reads the result, closes only its tab). Both exit 0/1 on the checks. | **Decided: build Tier A as a desktop-class opt-in** (§2.34 step 2 — RT AO writing the SSAO texture, then RT shadows through `sscs_buffer`, behind a project setting, default off, disabled on mobile-class adapters). Nothing left to measure before starting. |
 
 How to talk about them: §2.34 holds the findings (why software-only, upstream's RT API and who uses it, the four tiers, the
 shared acceleration-structure layer, WebGPU's constraints, the budget arithmetic); `webgpu_tests/raytracing_probe/README.md`
@@ -304,7 +306,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-17 (§4.29):** Forward+ now matches native Vulkan on every matrix feature; the sweep's follow-ups are at the end of §2.31 (omni cube shadow cost not re-measured, `POINT_COORD` bug to report upstream). Judge any renderer change with `run_forward_plus.mjs --parity`.
 
-**Added 2026-10-23:** §2.34 opens the ray / path tracing investigation. WebGPU has no hardware ray tracing and none is scheduled, so it is a software (compute-shader BVH) design; the first step is a measurement, `webgpu_tests/raytracing_probe/`, which has only run on swiftshader so far — the real GPU was busy. Run it before building anything.
+**Added 2026-10-23:** §2.34 opens the ray / path tracing investigation. WebGPU has no hardware ray tracing and none is scheduled, so it is a software (compute-shader BVH) design; the first step was a measurement, `webgpu_tests/raytracing_probe/`: on the 4080 SUPER a WGSL BVH traversal does 1.9–2.3 Grays/s incoherent and 3.7–5.3 Grays/s coherent at 1080p, 3–4× over the gate for full-resolution RT shadows/AO — so Tier A (RT AO through the SSAO texture, then RT shadows) is the next thing to build. The Razr 60 does 19 Mrays/s incoherent (100× less): RT is a desktop feature, off on mobile.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -2034,7 +2036,7 @@ Measured (RTX 4080 SUPER, Chrome, 1920x1080 page, Ava at LOD 0, face, arms and h
 New §3 entries: 49 (shader define order), 50 (a projection with negative [1][1]), 51 (camera-facing geometry in a
 shadow pass), 52 (a step-size-dependent rest pose).
 
-### 2.34 Ray and path tracing on WebGPU Forward+ `INVESTIGATING` — started 2026-10-23; software-only by necessity, probe written, real-GPU numbers pending
+### 2.34 Ray and path tracing on WebGPU Forward+ `MEASURED 2026-10-23` — software-only by necessity; desktop passes the gate 3–4×, the phone is 100× slower: desktop-only feature, Tier A next
 
 **The constraint that shapes everything: WebGPU has no hardware ray tracing, and none is coming soon.** The spec issue
 ([gpuweb #535](https://github.com/gpuweb/gpuweb/issues/535)) sits at "Milestone 4+" with no date; the Chrome lead's position
@@ -2144,18 +2146,32 @@ URL in Chrome on the Razr 60; the result is on the page itself).
 |---|---|---|---|---|---|---|---|
 | 2026-10-23, `--software`, 320×180, 12/12 checks | swiftshader (fallback) | 18 k | 37 ms | 6.0 Mrays/s, 11.7 steps | 3.8 Mrays/s, 26 % occluded | 2.9 Mrays/s, 23 % hit | 31 ms |
 | 2026-10-23, `--software`, 640×360, 66/66 rays = brute force | swiftshader | 190 k, depth 21 | 200 ms | 3.9 Mrays/s, 15.4 steps | 3.0 Mrays/s | 2.1 Mrays/s, 21 steps | 172 ms |
-| **real GPU, 1080p, 100 k and 1 M** | RTX 4080 SUPER | | | **not yet measured** | | | |
+| **2026-10-23, real GPU, 1920×1080, 20 dispatches, 12/12 checks** | **RTX 4080 SUPER** (Chrome/Dawn/Vulkan; subgroups 32, `shader-f16`, 16 storage buffers/stage, 2 GiB binding) | 93 k, depth 20, 6 MB | 101 ms (JS) | **0.39 ms, 5.3 Grays/s**, 14.4 steps | **0.24 ms, 5.4 Grays/s** (1.27 M rays), 25 % occluded | **0.54 ms, 2.3 Grays/s**, 30 % hit, 19.4 steps | **1.17 ms** |
+| same | same | 945 k, depth 23, 60 MB | 749 ms (JS) | **0.55 ms, 3.7 Grays/s**, 16.9 steps | **0.33 ms, 3.8 Grays/s** | **0.67 ms, 1.9 Grays/s**, 35 % hit, 23.8 steps | **1.55 ms** |
+| **2026-10-23, Razr 60, 1280×720, 10 dispatches, 6/6 checks** | **Mali-G615 MC2** (Chrome 155, `arm / valhall`; subgroups 16, `shader-f16`, 16 storage buffers/stage), screen on, tab in front | 93 k, depth 20 | 177 ms (JS) | **20.7 ms, 45 Mrays/s**, 14.4 steps | **14.3 ms, 40 Mrays/s** (0.57 M rays), 25 % occluded | **29.6 ms, 19 Mrays/s**, 30 % hit | **64.6 ms** |
 
-The software numbers prove the kernels and the picture (correct spheres, boxes, blocked shadow rays, sky), nothing about
-hardware. **The real-GPU run did not happen on 2026-10-23: the GPU sat at 95 % utilization from a game the whole
-session**, which would have made the numbers meaningless and hurt the game (`nvidia-smi` before any run).
+The software rows prove the kernels and the picture (correct spheres, boxes, blocked shadow rays, sky), nothing about
+hardware. **The desktop rows are the decision**: GPU timestamps and wall clock agree to within the 50–100 µs submit
+overhead, the traversal matched brute force on every sampled ray, and the GPU was idle (4 %) during the run. The gate below
+asked for 300 Mrays/s incoherent for half-resolution Tier A and 600 for full resolution; the 4080 SUPER delivers **1.9–2.3
+Grays/s incoherent** and **3.7–5.3 Grays/s coherent**, so one full-resolution primary + shadow + bounce sample per pixel
+costs 1.2–1.6 ms of a 16.7 ms frame. **The phone is a different world: 19 Mrays/s incoherent, 40–45 coherent, a hundred
+times less** — one 720p bounce ray per pixel is 30 ms on its own, and even quarter-resolution AO (230 k rays) would be
+12 ms, so no RT effect fits a mobile frame on this class of GPU. The traversal was correct on both (every sampled ray
+matched brute force), so the gap is hardware, not a translation problem. Read the desktop rows with three discounts: the scene is geometry only (no material fetch, no alpha
+test, no TLAS instance transform — expect ~1.5× for a two-level traversal); it is cache-friendly (60 MB of BVH and triangles
+sits in the AD103's 64 MB L2, a game scene with textures in flight will miss more — expect 2–3× in a real frame); and the
+guess above ("a few hundred Mrays/s incoherent") was 5–10× too pessimistic, which says the WGSL→SPIR-V→NVIDIA path adds
+no measurable penalty to a plain stack traversal. Even with every discount, **Tier A fits at full resolution on this class
+of GPU with room for several rays per pixel, and Tier C's *tracing* at 1 spp fits (the denoiser is then the cost).**
+The phone row settles the defaults: **RT is a desktop-class feature — a per-project opt-in that the engine turns off (or
+falls back to SSAO/shadow maps) when the adapter is mobile-class**, which the adapter info the shell already reads
+(`arm`/`qualcomm` vendors) or a first-frame throughput check can decide at startup.
 
 **Next steps, in order:**
-1. **Measure.** `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` on the 4080 SUPER with the GPU
-   idle; then the Razr 60: `node run_probe.mjs --url-only --port 8099`, `adb reverse tcp:8099 tcp:8099`, and the printed
-   URL in Chrome on the phone (`--w 1280 --h 720 --tris 100000 --iters 10`; the result is on the page). Fill the table above.
-   **Decision gate: ≥ 300 Mrays/s incoherent on the desktop → Tier A is viable at half resolution with temporal
-   accumulation; ≥ 600 → at full resolution.** Below ~100, only Tier D (no frame budget) is worth building.
+1. **Measure.** **Done 2026-10-23 on both.** Desktop: the gate (≥ 300 Mrays/s incoherent for half-resolution Tier A,
+   ≥ 600 for full) is passed 3–4× over. Phone (`node run_probe_phone.mjs`, which drives the device's Chrome over adb +
+   CDP): 19 Mrays/s incoherent, far under the ~100 that would have allowed a mobile mode — RT stays desktop-only.
 2. **If viable, prototype Tier A engine-side**, behind a project setting (`rendering/raytracing/*`, default off): RT AO
    first (writes the SSAO texture, no scene-shader change, so the existing SSAO fixture in the Forward+ matrix exercises
    it), then directional RT shadows through the `sscs_buffer` path. BLAS at load from the CPU surface data, TLAS per frame,
