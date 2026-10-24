@@ -32,7 +32,8 @@ case "$WGSL_BACKEND" in
     *) echo "Error: WGSL_BACKEND must be spirv-cross or tint, not '$WGSL_BACKEND'." >&2; exit 1 ;;
 esac
 
-JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+# JOBS=<n> caps parallel compiles (several worktrees building at once share the cores and memory).
+JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) IS_WINDOWS=true ;;

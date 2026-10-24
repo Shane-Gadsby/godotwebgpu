@@ -1,5 +1,15 @@
 # Status (lead-maintained)
 
+## 2026-10-25 09:50 — workers 01-06 out; first exports
+
+- Workers spawned 09:41 for tasks 01-06 (one worktree each, `../godotwebgpu-0N`, branch `work/N`).
+- Their six first `build.sh` runs at once peaked at ~250 compilers, 26 GB, load 147 (available memory fell to ~10 GB
+  with the game + Ghidra up); it recovered within two minutes. `build.sh` now takes `JOBS=<n>`; worktrees building at
+  once should use `JOBS=6`.
+- Task 07 exports made (fp_check, baked, existing editor/templates from 2026-10-23, bake cache off): Tint
+  `index.shaders.pck` 29.6 MB raw / 4.43 MB gzip -9; SPIRV-Cross 34.8 MB raw / **3.70 MB gzip** (−17% compressed).
+  Parity runs wait for the GPU (the game holds ~8-10 GB VRAM).
+
 ## 2026-10-25 09:40 — board opened
 
 Foundation integrated (task 00, see its file): `thirdparty/spirv-cross-wgsl` vendored, `spirv_cross_wrapper`,
