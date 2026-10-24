@@ -3972,6 +3972,14 @@ void CompilerWGSL::emit_instruction(const Instruction &instruction)
 			emit_op(result_type, id, join("atomicLoad(&", to_expression(ops[2]), ")"), false);
 			break;
 		}
+		// WGSL local patch 0001: the load of a barrier/load/barrier triple, see OpControlBarrier.
+		if (barrier_wrapped_loads.count(ops[1]))
+		{
+			uint32_t id = ops[1];
+			forced_temporaries.insert(id);
+			emit_op(ops[0], id, join("workgroupUniformLoad(&", to_expression(ops[2]), ")"), false);
+			break;
+		}
 		CompilerGLSL::emit_instruction(instruction);
 		break;
 	}
@@ -4256,6 +4264,39 @@ void CompilerWGSL::emit_instruction(const Instruction &instruction)
 	case OpControlBarrier:
 	case OpMemoryBarrier:
 	{
+		// WGSL local patch 0001: a workgroup barrier, a load of a workgroup variable, then the same barrier again
+		// (the GLSL idiom for broadcasting a value written by one thread) becomes workgroupUniformLoad(&var). The
+		// load result is then uniform for WGSL's uniformity analysis, so it can drive an early return that sits
+		// before further barriers; a plain load of a workgroup variable never is. workgroupUniformLoad is itself
+		// barrier, load, barrier, so the semantics are unchanged.
+		if (skipped_barriers.count(&instruction))
+			break;
+		if (opcode == OpControlBarrier)
+		{
+			const Instruction *load = get_next_instruction_in_block(instruction);
+			const Instruction *end = load ? get_next_instruction_in_block(*load) : nullptr;
+			if (load && end && load->op == OpLoad && end->op == OpControlBarrier)
+			{
+				const uint32_t *lops = stream(*load);
+				const uint32_t *eops = stream(*end);
+				auto *ptr_var = maybe_get_backing_variable(lops[2]);
+				auto &res_type = get<SPIRType>(lops[0]);
+				if (ptr_var && ptr_var->storage == StorageClassWorkgroup && !is_atomic_pointer(lops[2]) &&
+				    res_type.basetype != SPIRType::Struct && res_type.array.empty() && res_type.pointer == false &&
+				    evaluate_constant_u32(ops[0]) == ScopeWorkgroup && evaluate_constant_u32(eops[0]) == ScopeWorkgroup &&
+				    mask_relevant_memory_semantics(evaluate_constant_u32(ops[2])) ==
+				        mask_relevant_memory_semantics(evaluate_constant_u32(eops[2])) &&
+				    (mask_relevant_memory_semantics(evaluate_constant_u32(ops[2])) &
+				     ~uint32_t(MemorySemanticsWorkgroupMemoryMask)) == 0)
+				{
+					barrier_wrapped_loads.insert(lops[1]);
+					skipped_barriers.insert(end);
+					flush_control_dependent_expressions(current_emitting_block->self);
+					flush_all_active_variables();
+					break;
+				}
+			}
+		}
 		uint32_t execution_scope = 0;
 		uint32_t semantics;
 		if (opcode == OpMemoryBarrier)
