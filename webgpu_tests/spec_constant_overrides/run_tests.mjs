@@ -34,6 +34,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,7 +120,13 @@ async function runOnGpu(wgsl) {
     try {
         ({ chromium } = await import('playwright'));
     } catch {
-        return { skipped: 'playwright is not installed (npm install)' };
+        // Worktrees and fresh checkouts have no node_modules of their own; the scene smoketest's install is the one
+        // every other tier shares.
+        try {
+            ({ chromium } = createRequire(join(REPO_ROOT, 'webgpu_tests', 'scene_smoketest', 'package.json'))('playwright'));
+        } catch {
+            return { skipped: 'playwright is not installed (npm install)' };
+        }
     }
 
     // Explicit args rather than Playwright's defaults, which inject

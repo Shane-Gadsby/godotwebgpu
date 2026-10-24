@@ -1,8 +1,8 @@
 # 04-spec-constants: specialization constants through SPIRV-Cross overrides
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-04
+Claimed: 2026-10-25 09:40
 Needs: — (gpu for the browser half of the tier)
 Branch: work/4
 Results: webgpu_notes/work/results/04-spec-constants/
