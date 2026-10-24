@@ -1,5 +1,15 @@
 # Status (lead-maintained)
 
+## 2026-10-25 10:00 — task 04 integrated
+
+- **04 integrated** (merge f62806e2e3): `spec_constants_overridable()` unchanged on evidence; engine: 183 variants
+  without spec constants, 93 overridable (216 overrides), 0 frozen, same under both backends. 44 probe modules mapped
+  what SPIRV-Cross lowers (SUMMARY in results/04). New: `tint_convert_cli --spec-info` / `--raw`,
+  `spirv_cross_eval/run_spec_ops.sh`. Docs text waits in results/04/for-docs.md for task 10.
+- **Follow-up found, not swap-caused:** `freeze_spec_constant_ops()` folds CompositeExtract / CompositeInsert /
+  VectorShuffle of a spec composite to 0 (same with Tint). No engine shader takes that path; a user shader could.
+  Goes into TASKS.md §2 at task 10 unless a worker picks it up first.
+
 ## 2026-10-25 09:58 — task 01 integrated
 
 - **01 integrated** (merge 6bfc543fd2): SPIRV-Cross patch 0001, barrier/load/barrier on a workgroup variable becomes
@@ -31,7 +41,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 01 | FSR2 barrier uniformity (SPIRV-Cross patch) | integrated (render check in 07) | worker-01 (retired) |
 | 02 | driver WGSL text scans | open | |
 | 03 | runtime converter in wasm, exceptions, SCsub | open | |
-| 04 | spec constants | open | |
+| 04 | spec constants | integrated | worker-04 (retired) |
 | 05 | real projects' shaders | open | |
 | 06 | offline test tiers | open | |
 | 07 | Forward+ parity vs Vulkan | open | lead (gpu) |

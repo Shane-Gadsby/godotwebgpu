@@ -1,6 +1,6 @@
 # 04-spec-constants: specialization constants through SPIRV-Cross overrides
 
-State: ready-for-integration
+State: integrated (merged f62806e2e3; smoke OK, spec_constant_overrides 8/8 offline on the merged tree)
 Owner: worker-04
 Claimed: 2026-10-25 09:40
 Needs: — (gpu for the browser half of the tier)
