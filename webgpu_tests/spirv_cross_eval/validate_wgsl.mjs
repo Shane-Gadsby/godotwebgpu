@@ -6,6 +6,7 @@
 //
 // Usage: node validate_wgsl.mjs <dir> [<dir> ...]
 
+import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import http from 'http';
@@ -13,8 +14,24 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(path.join(here, '..', 'scene_smoketest', 'package.json'));
-const { chromium } = require('playwright');
+// Playwright comes from scene_smoketest's node_modules. A git worktree has none (node_modules is not tracked), so
+// fall back to the main checkout's, found through the shared git directory.
+function loadPlaywright() {
+	const candidates = [path.join(here, '..', 'scene_smoketest')];
+	try {
+		const common = execFileSync('git', ['-C', here, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim();
+		candidates.push(path.join(path.dirname(common), 'webgpu_tests', 'scene_smoketest'));
+	} catch {
+		// Not a git checkout: only the local copy can work.
+	}
+	for (const dir of candidates) {
+		if (fs.existsSync(path.join(dir, 'node_modules', 'playwright'))) {
+			return createRequire(path.join(dir, 'package.json'))('playwright');
+		}
+	}
+	throw new Error(`playwright not found in ${candidates.join(' or ')}/node_modules (npm ci in webgpu_tests/scene_smoketest)`);
+}
+const { chromium } = loadPlaywright();
 
 const dirs = process.argv.slice(2);
 if (!dirs.length) {

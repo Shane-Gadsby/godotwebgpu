@@ -1,5 +1,14 @@
 # Status (lead-maintained)
 
+## 2026-10-25 09:58 — task 01 integrated
+
+- **01 integrated** (merge 6bfc543fd2): SPIRV-Cross patch 0001, barrier/load/barrier on a workgroup variable becomes
+  `workgroupUniformLoad`; smoke on the merged tree 276/276 valid in Chrome, interface identical, expected-invalid list
+  empty. Only the FSR2 `no_image_atomics` module's WGSL changed. FSR2 still has to be seen rendering (task 07).
+- Worktree traps worker-01 hit, both fixed on webgpu-4.8: `validate_wgsl.mjs` finds Playwright in the main checkout
+  when a worktree has no node_modules; `build.sh` throws away SPIRV-Cross objects after any SPIRV-Cross header edit
+  (stale objects gave `free(): invalid pointer`). Workers on older bases: merge webgpu-4.8 into your branch for these.
+
 ## 2026-10-25 09:50 — workers 01-06 out; first exports
 
 - Workers spawned 09:41 for tasks 01-06 (one worktree each, `../godotwebgpu-0N`, branch `work/N`).
@@ -19,7 +28,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | task | what | state | owner |
 |---|---|---|---|
 | 00 | foundation | integrated | lead |
-| 01 | FSR2 barrier uniformity (SPIRV-Cross patch) | open | |
+| 01 | FSR2 barrier uniformity (SPIRV-Cross patch) | integrated (render check in 07) | worker-01 (retired) |
 | 02 | driver WGSL text scans | open | |
 | 03 | runtime converter in wasm, exceptions, SCsub | open | |
 | 04 | spec constants | open | |

@@ -231,6 +231,14 @@ echo "  ${#SPIRV_TOOLS_OBJS[@]} objects"
 TINT_OBJS=()
 SPIRV_CROSS_OBJS=()
 if [[ "$WGSL_BACKEND" == spirv-cross ]]; then
+# compile_one only compares an object with its .cpp. A SPIRV-Cross header edit (a local patch adding a member)
+# left objects with two class layouts in one link, which crashes at run time (free(): invalid pointer), so any
+# header newer than the stamp throws away everything compiled against them.
+SPIRV_CROSS_STAMP="$BUILD_DIR/spirv_cross/.headers"
+if [[ ! -f "$SPIRV_CROSS_STAMP" ]] || [[ -n "$(find "$SPIRV_CROSS_DIR" drivers/webgpu/spirv_cross_wrapper.h \( -name '*.hpp' -o -name '*.h' \) -newer "$SPIRV_CROSS_STAMP" -print -quit)" ]]; then
+    find "$BUILD_DIR/spirv_cross" "$CLI_DIR" -name '*.o' -delete
+    touch "$SPIRV_CROSS_STAMP"
+fi
 echo "[2/4] Compiling SPIRV-Cross (WGSL backend)..."
 for name in spirv_cfg spirv_cross spirv_cross_parsed_ir spirv_cross_util spirv_glsl spirv_parser spirv_wgsl; do
     obj="$BUILD_DIR/spirv_cross/$name.o"

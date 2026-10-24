@@ -1116,7 +1116,10 @@ Files extracted from upstream source:
 
 Patches (in `patches/`, never upstreamed):
 
-- none yet
+- `0001-workgroup-uniform-load.patch` — a workgroup `OpControlBarrier`, an `OpLoad` of a scalar/vector workgroup
+  variable and the same barrier again (the GLSL broadcast idiom) become `workgroupUniformLoad(&var)`, which is that
+  exact sequence. A plain workgroup load is non-uniform to WGSL's analysis, so an early return on it before further
+  barriers (FSR2's luminance pyramid, `SpdExitWorkgroup`) failed barrier uniformity. Tint does the same.
 
 
 ## spirv-headers
