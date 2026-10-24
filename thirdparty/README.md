@@ -1095,6 +1095,30 @@ Versions of this SDK do not have to match the `vulkan` section, as this SDK is r
 to generate Metal source from Vulkan SPIR-V.
 
 
+## spirv-cross-wgsl
+
+- Upstream: https://github.com/Ludicon/spirv-cross-wgsl (branch `wgsl`: KhronosGroup/SPIRV-Cross plus a WGSL backend)
+- Version: git (bad70810418b10064d9ea91e51c78935f112ba5c, 2026)
+- License: Apache 2.0 (`spirv_wgsl.*`: Apache 2.0 OR MIT)
+
+Separate from `spirv-cross` above (Metal's), compiled only into the WebGPU driver and `tint_convert_cli`, in the
+namespace `spirv_cross_wgsl` (`SPIRV_CROSS_NAMESPACE_OVERRIDE`) so both can link into one macOS editor.
+See `webgpu_notes/TASKS.md` §2.35.
+
+Files extracted from upstream source:
+
+- `spirv_cfg.*`, `spirv_cross.*`, `spirv_cross_parsed_ir.*`, `spirv_cross_util.*`, `spirv_glsl.*`, `spirv_parser.*`,
+  `spirv_wgsl.*`, `spirv_common.hpp`, `spirv_cross_containers.hpp`, `spirv_cross_error_handling.hpp`
+- `spirv.hpp`, `GLSL.std.450.h`, `NonSemanticShaderDebugInfo100.h` (this version needs a newer `spirv.hpp` than
+  `thirdparty/spirv-headers` has)
+- `include/` folder
+- `LICENSE` and `LICENSES/` folder, minus `CC-BY-4.0.txt`
+
+Patches (in `patches/`, never upstreamed):
+
+- none yet
+
+
 ## spirv-headers
 
 - Upstream: https://github.com/KhronosGroup/SPIRV-Headers

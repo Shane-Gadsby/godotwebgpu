@@ -41,7 +41,11 @@
 
 #include "../spirv_lite_reflect.h"
 #include "../spirv_preprocess.h"
+#ifdef WGSL_BACKEND_TINT
 #include "../tint_wrapper.h"
+#else
+#include "../spirv_cross_wrapper.h"
+#endif
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -154,9 +158,13 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	const uint32_t *words = reinterpret_cast<const uint32_t *>(spv.ptr());
 
 	char *error_msg = nullptr;
+#ifdef WGSL_BACKEND_TINT
 	char *wgsl = tint_wrapper_spirv_to_wgsl(words, word_count, &error_msg);
+#else
+	char *wgsl = spirv_cross_wrapper_spirv_to_wgsl(words, word_count, &error_msg);
+#endif
 	if (!wgsl) {
-		r_error = error_msg ? error_msg : "Tint conversion failed (unknown error)";
+		r_error = error_msg ? error_msg : "WGSL conversion failed (unknown error)";
 		free(error_msg);
 		return {};
 	}
@@ -523,7 +531,9 @@ static int run(int argc, char *argv[]) {
 	_setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+#ifdef WGSL_BACKEND_TINT
 	tint_wrapper_initialize();
+#endif
 
 #ifdef _WIN32
 	if (strcmp(argv[1], "--isolated-child") == 0) {

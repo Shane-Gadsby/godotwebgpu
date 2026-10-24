@@ -1,7 +1,8 @@
-"""Dump every engine shader variant the precompiler builds, as SPIR-V and as Tint's WGSL.
+"""Dump every engine shader variant the precompiler builds, as SPIR-V and as bin/tint_convert_cli's WGSL.
 
 Runs drivers/webgpu/wgsl_precompile.py exactly as a web build does, with its batch converter wrapped so each
-module's SPIR-V lands in <out>/raw/<key>.spv and Tint's output in <out>/tint/<key>.wgsl. The generated header goes
+module's SPIR-V lands in <out>/raw/<key>.spv and the converter's output in <out>/wgsl/<key>.wgsl
+(whichever backend bin/tint_convert_cli was built with). The generated header goes
 to <out>/gen.h, never into the tree. Not SCons: safe to run while a build is going, but it uses every core.
 
 Usage: python3 dump_corpus.py <repo_root> <out_dir> [glslangValidator]
@@ -18,7 +19,7 @@ sys.path.insert(0, os.path.join(repo_root, "drivers", "webgpu"))
 
 import wgsl_precompile  # noqa: E402
 
-for sub in ("raw", "tint"):
+for sub in ("raw", "wgsl"):
     os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
 
 _convert = wgsl_precompile.convert_spirv_batch
@@ -34,7 +35,7 @@ def _dumping_convert(spv_files, tint_cli_path):
     results = _convert(spv_files, tint_cli_path)
     for key, wgsl in results.items():
         if isinstance(wgsl, str):
-            with open(os.path.join(out_dir, "tint", _safe(key) + ".wgsl"), "w") as f:
+            with open(os.path.join(out_dir, "wgsl", _safe(key) + ".wgsl"), "w") as f:
                 f.write(wgsl)
     return results
 

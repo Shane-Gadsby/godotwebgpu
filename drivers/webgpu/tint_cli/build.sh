@@ -5,6 +5,11 @@
 #   ./drivers/webgpu/tint_cli/build.sh          # Build with auto-detected parallelism
 #   ./drivers/webgpu/tint_cli/build.sh --clean   # Remove build artifacts and rebuild
 #
+# WGSL_BACKEND=spirv-cross (default) converts with SPIRV-Cross's WGSL backend
+# (thirdparty/spirv-cross-wgsl); WGSL_BACKEND=tint builds the Tint converter it
+# replaced (webgpu_notes/TASKS.md §2.35), into its own object directory, for A/B
+# comparisons. Both write bin/tint_convert_cli unless OUTPUT is set.
+#
 # Output: bin/tint_convert_cli (bin/tint_convert_cli.exe on Windows)
 #
 # On Windows, run from Git Bash or MSYS2 with LLVM's clang++ (targets the MSVC
@@ -20,6 +25,12 @@ TINT_DIR="thirdparty/tint"
 SPIRV_TOOLS_DIR="thirdparty/spirv-tools"
 SPIRV_HEADERS_DIR="thirdparty/spirv-headers"
 SHIM_DIR="drivers/webgpu/tint_cli"
+SPIRV_CROSS_DIR="thirdparty/spirv-cross-wgsl"
+WGSL_BACKEND="${WGSL_BACKEND:-spirv-cross}"
+case "$WGSL_BACKEND" in
+    spirv-cross | tint) ;;
+    *) echo "Error: WGSL_BACKEND must be spirv-cross or tint, not '$WGSL_BACKEND'." >&2; exit 1 ;;
+esac
 
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
@@ -44,12 +55,14 @@ else
     CXX="${CXX:-c++}"
     EXE_SUFFIX=""
 fi
-OUTPUT="bin/tint_convert_cli$EXE_SUFFIX"
+OUTPUT="${OUTPUT:-bin/tint_convert_cli$EXE_SUFFIX}"
 
 # Per-OS object directory: a checkout shared between OSes (WSL, dual boot, a
 # network drive) would otherwise reuse another OS's up-to-date-looking objects
 # and fail to link.
 BUILD_DIR="drivers/webgpu/tint_cli/.build/$(uname -s | cut -d_ -f1 | tr '[:upper:]' '[:lower:]')"
+# The CLI objects differ per backend (main.cpp's #ifdef); the libraries are shared.
+CLI_DIR="$BUILD_DIR/cli-$WGSL_BACKEND"
 
 # Parse args.
 CLEAN=false
@@ -62,7 +75,7 @@ if [[ "$CLEAN" == true ]]; then
     rm -rf "$BUILD_DIR"
 fi
 
-mkdir -p "$BUILD_DIR/spirv_tools" "$BUILD_DIR/tint" "$BUILD_DIR/cli"
+mkdir -p "$BUILD_DIR/spirv_tools" "$BUILD_DIR/tint" "$BUILD_DIR/spirv_cross" "$CLI_DIR"
 
 # Common flags.
 WARNINGS="-w"  # Suppress warnings from thirdparty code.
@@ -90,6 +103,16 @@ TINT_INCLUDES=(
     -I"$SPIRV_TOOLS_DIR/generated/"
     -I"$SPIRV_HEADERS_DIR/include/"
     -I"$SPIRV_HEADERS_DIR/include/spirv/unified1/"
+)
+
+# SPIRV-Cross: its own spirv.hpp (newer than thirdparty/spirv-headers'), its own namespace, so a macOS editor that also links drivers/metal's
+# copy (thirdparty/spirv-cross) gets no duplicate symbols; and exceptions, which
+# are how SPIRV-Cross reports an unsupported shader (drivers/metal/SCsub does the same).
+SPIRV_CROSS_FLAGS=(
+    -I"$SPIRV_CROSS_DIR"
+    -I"$SPIRV_CROSS_DIR/include"
+    -DSPIRV_CROSS_NAMESPACE_OVERRIDE=spirv_cross_wgsl
+    -fexceptions
 )
 
 # Tint preprocessor defines (must match SCsub).
@@ -204,12 +227,23 @@ echo "  ${#SPIRV_TOOLS_OBJS[@]} objects"
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Compile Tint
 # ─────────────────────────────────────────────────────────────────────────────
+TINT_OBJS=()
+SPIRV_CROSS_OBJS=()
+if [[ "$WGSL_BACKEND" == spirv-cross ]]; then
+echo "[2/4] Compiling SPIRV-Cross (WGSL backend)..."
+for name in spirv_cfg spirv_cross spirv_cross_parsed_ir spirv_cross_util spirv_glsl spirv_parser spirv_wgsl; do
+    obj="$BUILD_DIR/spirv_cross/$name.o"
+    SPIRV_CROSS_OBJS+=("$obj")
+    compile_one "$SPIRV_CROSS_DIR/$name.cpp" "$obj" "c++17" "${SPIRV_CROSS_FLAGS[@]}" &
+done
+wait
+echo "  ${#SPIRV_CROSS_OBJS[@]} objects"
+else
 echo "[2/4] Compiling Tint..."
 
 # Collect Tint source files from the SCsub list.
 # Rather than duplicating the full 400-line list, find all .cc files that match
 # the SCsub pattern (excluding test files, benchmarks, fuzzers).
-TINT_OBJS=()
 while IFS= read -r src; do
     objname="${src#$TINT_DIR/}"
     objname="${objname%.cc}.o"
@@ -280,16 +314,17 @@ done
 
 wait
 echo "  ${#TINT_OBJS[@]} objects"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Compile CLI sources (spirv_preprocess.cpp + tint_wrapper.cpp + main.cpp)
+# 3. Compile CLI sources (spirv_preprocess.cpp + the backend wrapper + main.cpp)
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[3/4] Compiling CLI sources..."
 
 # spirv_preprocess.cpp — compiled with shim include path (before repo root so
 # the shim core/templates/ is found instead of Godot's).
 compile_one "drivers/webgpu/spirv_preprocess.cpp" \
-    "$BUILD_DIR/cli/spirv_preprocess.o" \
+    "$CLI_DIR/spirv_preprocess.o" \
     "c++17" \
     -I"$SHIM_DIR" \
     "${SPIRV_TOOLS_INCLUDES[@]}" &
@@ -297,7 +332,7 @@ compile_one "drivers/webgpu/spirv_preprocess.cpp" \
 # spirv_opt_passes.cpp — the passes written against SPIRV-Tools' optimizer IR;
 # needs SPIRV-Tools' internal headers, but not the shim (no Godot types).
 compile_one "drivers/webgpu/spirv_opt_passes.cpp" \
-    "$BUILD_DIR/cli/spirv_opt_passes.o" \
+    "$CLI_DIR/spirv_opt_passes.o" \
     "c++17" \
     "${SPIRV_TOOLS_INCLUDES[@]}" &
 
@@ -305,13 +340,23 @@ compile_one "drivers/webgpu/spirv_opt_passes.cpp" \
 # spirv_preprocess.cpp delegates has_spec_constants() to. Same shim include
 # path, no SPIRV-Tools includes needed.
 compile_one "drivers/webgpu/spirv_lite_reflect.cpp" \
-    "$BUILD_DIR/cli/spirv_lite_reflect.o" \
+    "$CLI_DIR/spirv_lite_reflect.o" \
     "c++17" \
     -I"$SHIM_DIR" &
 
+if [[ "$WGSL_BACKEND" == spirv-cross ]]; then
+BACKEND_OBJS=("$CLI_DIR/spirv_cross_wrapper.o")
+BACKEND_FLAGS=(-I"drivers/webgpu/" "${SPIRV_CROSS_FLAGS[@]}")
+compile_one "drivers/webgpu/spirv_cross_wrapper.cpp" \
+    "$CLI_DIR/spirv_cross_wrapper.o" \
+    "c++17" \
+    "${BACKEND_FLAGS[@]}" &
+else
+BACKEND_OBJS=("$CLI_DIR/tint_wrapper.o" "$CLI_DIR/tint_ir_transforms.o")
+BACKEND_FLAGS=(-DWGSL_BACKEND_TINT=1 "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}")
 # tint_wrapper.cpp — compiled with Tint C++20 environment.
 compile_one "drivers/webgpu/tint_wrapper.cpp" \
-    "$BUILD_DIR/cli/tint_wrapper.o" \
+    "$CLI_DIR/tint_wrapper.o" \
     "c++20" \
     "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" \
     -I"drivers/webgpu/" &
@@ -319,29 +364,31 @@ compile_one "drivers/webgpu/tint_wrapper.cpp" \
 # tint_ir_transforms.cpp — Tint-IR-level polyfills used by tint_wrapper.cpp;
 # same environment as tint_wrapper.cpp (see tint_ir_transforms.h).
 compile_one "drivers/webgpu/tint_ir_transforms.cpp" \
-    "$BUILD_DIR/cli/tint_ir_transforms.o" \
+    "$CLI_DIR/tint_ir_transforms.o" \
     "c++20" \
     "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" \
     -I"drivers/webgpu/" &
 
+fi
+
 # main.cpp — compiled with shim + Tint includes.
 compile_one "drivers/webgpu/tint_cli/main.cpp" \
-    "$BUILD_DIR/cli/main.o" \
+    "$CLI_DIR/main.o" \
     "c++20" \
     -I"$SHIM_DIR" \
     -I"drivers/webgpu/" \
-    "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" &
+    "${SPIRV_TOOLS_INCLUDES[@]}" "${BACKEND_FLAGS[@]}" &
 
 wait
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Link
 # ─────────────────────────────────────────────────────────────────────────────
-echo "[4/4] Linking tint_convert_cli..."
+echo "[4/4] Linking tint_convert_cli ($WGSL_BACKEND)..."
 
 # Filter to only .o files that were successfully compiled.
-LINK_OBJS=("$BUILD_DIR/cli/main.o" "$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_opt_passes.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/tint_wrapper.o" "$BUILD_DIR/cli/tint_ir_transforms.o")
-for obj in "${SPIRV_TOOLS_OBJS[@]}" "${TINT_OBJS[@]}"; do
+LINK_OBJS=("$CLI_DIR/main.o" "$CLI_DIR/spirv_preprocess.o" "$CLI_DIR/spirv_opt_passes.o" "$CLI_DIR/spirv_lite_reflect.o" "${BACKEND_OBJS[@]}")
+for obj in "${SPIRV_TOOLS_OBJS[@]}" "${TINT_OBJS[@]}" "${SPIRV_CROSS_OBJS[@]}"; do
     [[ -f "$obj" ]] && LINK_OBJS+=("$obj")
 done
 
@@ -350,7 +397,7 @@ echo "  Linking ${#LINK_OBJS[@]} objects..."
 mkdir -p bin
 # Pass the object list through a response file: a couple of thousand paths
 # overflow Windows' 32K command-line limit (and are harmless elsewhere).
-LINK_RSP="$BUILD_DIR/link.rsp"
+LINK_RSP="$CLI_DIR/link.rsp"
 printf '"%s"
 ' "${LINK_OBJS[@]}" >"$LINK_RSP"
 "$CXX" -o "$OUTPUT" "@$LINK_RSP" -O2 ${CXXFLAGS:-} ${LDFLAGS:-}

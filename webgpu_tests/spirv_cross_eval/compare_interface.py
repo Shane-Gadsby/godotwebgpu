@@ -58,5 +58,7 @@ print(f"identical interface: {same}/{len(names)}, mismatched: {len(mismatches)},
 if ref_bytes:
     print(f"WGSL bytes: reference {ref_bytes}, candidate {cand_bytes} ({cand_bytes / ref_bytes:.3f}x)")
 for name, only_ref, only_cand, ovr in mismatches[:20]:
-    print(f"  {name}\n    only in reference: {only_ref}\n    only in candidate: {only_cand}\n    override ids differing: {ovr}")
+    print(
+        f"  {name}\n    only in reference: {only_ref}\n    only in candidate: {only_cand}\n    override ids differing: {ovr}"
+    )
 sys.exit(1 if mismatches else 0)
