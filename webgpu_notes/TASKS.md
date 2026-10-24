@@ -310,6 +310,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-23:** §2.34 opens the ray / path tracing investigation. WebGPU has no hardware ray tracing and none is scheduled, so it is a software (compute-shader BVH) design; the first step was a measurement, `webgpu_tests/raytracing_probe/`: on the 4080 SUPER a WGSL BVH traversal does 1.9–2.3 Grays/s incoherent and 3.7–5.3 Grays/s coherent at 1080p, 3–4× over the gate for full-resolution RT shadows/AO — so Tier A (RT AO through the SSAO texture, then RT shadows) is the next thing to build. The Razr 60 does 19 Mrays/s incoherent (100× less): RT is a desktop feature, off on mobile.
 
+**Added 2026-10-25:** §2.35 evaluates [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), a SPIRV-Cross fork with a WGSL backend, as a replacement for Tint. Fed our preprocessed SPIR-V it emits all 276 engine variants with the same bindings and override ids as Tint, 275 pass Chrome's compiler (FSR2's luminance pyramid fails a barrier-uniformity check), and it converts about 10× faster. Not yet checked for rendering parity. The swap was started right after (tag `pre-SPIR-V-Cross` marks the tree before it).
+
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
@@ -352,6 +354,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -437,6 +440,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2185,6 +2189,58 @@ falls back to SSAO/shadow maps) when the adapter is mobile-class**, which the ad
 
 Effort: Tier A prototype 2–3 weeks, of which the acceleration-structure layer is about one; Tier B another 2–3; Tier C
 open-ended; Tier D 2 weeks for the standard-material subset once the layer exists.
+
+### 2.35 SPIRV-Cross's WGSL backend instead of Tint `EVALUATED 2026-10-25` — a drop-in after our passes on every engine variant; swap started
+
+**What it is.** [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl) (Ignacio Castaño) is
+KhronosGroup/SPIRV-Cross plus one backend, `spirv_wgsl.{hpp,cpp}` (4,640 lines, `CompilerWGSL : CompilerGLSL`), on a
+`wgsl` branch that merges upstream automatically. First commit 2026-10-02; one author; 165 reference shaders under
+`shaders-wgsl/`, its output checked with Tint in its CI; Apache-2.0 OR MIT. It emits spec constants as `@id(N) override`,
+splits combined image samplers (sampler at `binding + 16`, or Tint's layout with `--wgsl-resolve-binding-conflicts`),
+turns push-constant blocks into a uniform buffer at a chosen group/binding, adds `diagnostic(off, derivative_uniformity)`
+when implicit derivatives are used, and has a warning channel for lossy translations (non-finite constants, depth compare
+at non-zero LOD, bias outside fragment, weak compare-exchange, ignored builtins such as `gl_PointSize`). It throws on what
+WGSL cannot express: arrays of textures/samplers/buffers, 16-bit integers, geometry/tessellation, image atomics, etc.
+**We already vendor SPIRV-Cross** (`thirdparty/spirv-cross`, for Metal), so adopting it is the WGSL files plus a version
+bump, not a new dependency.
+
+**Measured 2026-10-25 on the 276 variants `wgsl_precompile.py` builds** (81 shader files; `webgpu_tests/spirv_cross_eval/`,
+`./run.sh <out> <spirv-cross>` reproduces all of it; Chrome on the 4080 SUPER, every optional feature enabled):
+
+| | Tint (current) | spirv-cross, raw glslang SPIR-V | spirv-cross after `run_pipeline()` |
+|---|---|---|---|
+| converted | 276/276 | 195/276 — 79 "Arrays of textures and samplers are not supported", 1 subgroup op, 1 storage format | **276/276** |
+| valid in Chrome | 276/276 | 107/195 — 86 duplicate bindings (combined-sampler split at the default offset) | **275/276** |
+| bindings + kinds + override ids equal to Tint's | — | — | **276/276** |
+| WGSL bytes, all variants | 6,287,157 | — | 6,686,228 (+6%) |
+| biggest variant (Forward+ color uber, lightmap+motion+sepspec frag, 288 KB SPIR-V) | 0.43 s | — | 0.035 s |
+| whole corpus, one process per module | 8.8 s | — | 1.7 s |
+
+- **It replaces Tint, not our passes.** Raw glslang output fails on exactly what `spirv_preprocess` exists for
+  (texture arrays → `expand_binding_arrays`); after the passes it accepts everything, and the interface comparison is
+  what makes it a drop-in: the driver's bind-group layouts and pipeline constants come out the same.
+- **The one invalid shader** is `effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl` (`no_image_atomics`, comp):
+  "`workgroupBarrier` must only be called from uniform control flow", reached through `SpdDownsampleNextFour` from
+  `SpdDownsample`. Barrier uniformity has no diagnostic switch; Tint's structurization of the same SPIR-V passes, so the
+  difference is in how SPIRV-Cross emits that control flow.
+- **The Tint times include running our passes a second time** on already-preprocessed input; `perf` is not permitted
+  on this machine (`perf_event_paranoid=4`), so the Tint-only share was not separated. The ~10× is an upper bound.
+  It matters less than it looks: baked exports translate nothing at runtime (`baked 747 / translated 0`, §4.23), and the
+  cold export's whole Tint stage is 1.8 s of 7.8 s.
+- **Size is estimated, not measured.** Tint is 11.5 MB of 202.5 MB of web-template objects (5.6%); natively its objects
+  are 18.5 MB against ~4.2 MB for SPIRV-Cross core + GLSL + WGSL. The web wasm has no name section, so the saving in
+  `godot.wasm` is unknown until a template is built without Tint. Tint is also 384 translation units in every one of the
+  eight web variants `build-linux.sh` builds.
+- **Validation is not parity.** Nothing above renders anything. Tint's WGSL is what `run_forward_plus.mjs --parity`
+  (71/71, §4.29) has been judged on.
+
+**Value, in order.** (1) A fallback when Tint aborts (`TINT_UNIMPLEMENTED` on `sewer-shift`, §4.27) — cheap, the library is
+already here. (2) A second converter in `shader_corpus`: the interface comparison catches Tint and pass regressions.
+(3) A full replacement: smaller wasm, shorter web builds, no Tint patches to carry — only behind Forward+ `--parity`
+and a GPU-time comparison.
+
+**Decision 2026-10-25 (user): do the full swap**, patching SPIRV-Cross locally as needed (never upstreamed), until
+Forward+ is back at parity with Vulkan. The tree before it is tagged `pre-SPIR-V-Cross`.
 
 ---
 
