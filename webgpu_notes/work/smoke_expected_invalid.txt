@@ -1,2 +1,1 @@
 # WGSL files smoke.sh accepts as invalid in Chrome, one file name per line, with the task that will fix it.
-servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_compute_luminance_pyramid_pass.glsl_no_image_atomics_comp.wgsl # task 01

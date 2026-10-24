@@ -245,6 +245,9 @@ private:
 	bool is_depth_texture(uint32_t id);
 	bool is_comparison_sampler(uint32_t id) const;
 	bool is_atomic_pointer(uint32_t ptr_id);
+	// Local patch 0001: loads emitted as workgroupUniformLoad and the barriers they replace.
+	std::unordered_set<uint32_t> barrier_wrapped_loads;
+	std::unordered_set<const Instruction *> skipped_barriers;
 	bool resolve_atomic_target(uint32_t ptr_id, uint32_t &type_id, uint32_t &member, uint32_t &var_id);
 	bool member_is_atomic(uint32_t type_id, uint32_t index) const;
 	bool variable_is_atomic(uint32_t var_id) const;

@@ -1,6 +1,6 @@
 # 01-fsr2-barrier-uniformity: FSR2's luminance pyramid fails WGSL barrier uniformity
 
-State: open
+State: ready-for-integration
 Owner:
 Claimed:
 Needs: — (tint_convert_cli + Chrome compile; no lease)
