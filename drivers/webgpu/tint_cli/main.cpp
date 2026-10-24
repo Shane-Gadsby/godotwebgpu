@@ -120,6 +120,10 @@ static std::vector<uint8_t> read_file(const char *p_path) {
 	return buf;
 }
 
+// --raw: convert the module as it is, without run_pipeline(). For probing what the backend itself accepts (for
+// example whether it can lower specialization constants that spec_constants_overridable() freezes).
+static bool g_skip_pipeline = false;
+
 // Run the full SPIR-V preprocessing pipeline + Tint conversion.
 // Returns WGSL string on success, empty string on failure (error written to r_error).
 static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes, std::string &r_error) {
@@ -133,7 +137,9 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	spv.resize((int64_t)p_spv_bytes.size());
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
-	spv = spirv_preprocess::run_pipeline(spv);
+	if (!g_skip_pipeline) {
+		spv = spirv_preprocess::run_pipeline(spv);
+	}
 
 	// Debug: dump post-preprocessing SPIR-V when requested.
 	if (const char *dump_path = getenv("TINT_DEBUG_DUMP_PREPROCESSED")) {
@@ -470,6 +476,8 @@ static void print_usage() {
 	fprintf(stderr, "  tint_convert_cli <file.spv>                       Single file → WGSL to stdout\n");
 	fprintf(stderr, "  tint_convert_cli --batch <file1.spv> [file2.spv]  Batch → JSON to stdout\n");
 	fprintf(stderr, "  tint_convert_cli --image-decls <file.spv>         Raw image declarations → JSON to stdout\n");
+	fprintf(stderr, "  tint_convert_cli --raw <file.spv>                 Convert without run_pipeline() (SPIRV-Cross builds only; probes)\n");
+	fprintf(stderr, "  tint_convert_cli --spec-info <file.spv>...        Per file: none, overridable or frozen, one line each\n");
 }
 
 // Prints what spirv_lite_reflect::extract_raw_image_decls() reads out of a
@@ -547,6 +555,33 @@ static int run(int argc, char *argv[]) {
 			return 1;
 		}
 		return run_image_decls(argv[2]);
+	}
+
+	if (strcmp(argv[1], "--raw") == 0) {
+		if (argc < 3) {
+			fprintf(stderr, "Error: --raw requires a file argument.\n");
+			return 1;
+		}
+		g_skip_pipeline = true;
+		argv[1] = argv[0];
+		argv++;
+		argc--;
+	}
+
+	if (strcmp(argv[1], "--spec-info") == 0) {
+		// Which path a module takes at pipeline creation: "overridable" keeps its spec constants as WGSL overrides,
+		// "frozen" is specialized by re-patching and re-converting the SPIR-V.
+		for (int i = 2; i < argc; i++) {
+			auto bytes = read_file(argv[i]);
+			Vector<uint8_t> spv;
+			spv.resize((int64_t)bytes.size());
+			memcpy(spv.ptrw(), bytes.data(), bytes.size());
+			spv = spirv_preprocess::inline_opaque_functions(spv);
+			const bool has = spirv_preprocess::has_spec_constants(spv);
+			const bool over = spirv_preprocess::spec_constants_overridable(spv);
+			std::cout << argv[i] << " " << (!has ? "none" : (over ? "overridable" : "frozen")) << std::endl;
+		}
+		return 0;
 	}
 
 	bool batch_mode = (strcmp(argv[1], "--batch") == 0);
