@@ -885,6 +885,10 @@ else:
         # dependency, which is what lets it be here -- see
         # spirv_lite_reflect.h's doc comment.
         "#drivers/webgpu/spirv_lite_reflect.cpp",
+        # The WGSL text reads the runtime driver makes, shared so the baker's
+        # "does this stage declare an override" test is the driver's own. Plain
+        # std, no engine types.
+        "#drivers/webgpu/wgsl_text_scan.cpp",
         # Needed to bake recorded specialization-constant variants at export
         # time (Task 13 Phase 2) -- pure SPIR-V byte patching + hashing, no
         # SPIRV-Tools/Tint dependency, so safe to add here unlike

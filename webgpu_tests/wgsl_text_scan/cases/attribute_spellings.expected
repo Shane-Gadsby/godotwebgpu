@@ -1,0 +1,15 @@
+VAR 0/1 tex dim=2 depth=0 ms=0 sample=1
+VAR 0/2 tex dim=2 depth=0 ms=0 sample=2
+VAR 0/3 tex dim=4 depth=0 ms=0 sample=3
+VAR 0/4 tex dim=6 depth=0 ms=0 sample=1
+VAR 1/0 uniform
+VAR 1/1 ssbo_ro
+VAR 1/2 ssbo_ro
+VAR 1/3 ssbo_rw
+VAR 1/4 ssbo_rw
+VAR 2/0 sampler
+VAR 2/1 sampler_comparison
+VAR 2/2 tex dim=2 depth=1 ms=0 sample=0
+VAR 2/3 tex dim=2 depth=1 ms=1 sample=0
+VAR 2/4 tex dim=2 depth=0 ms=1 sample=1
+VAR 2/5 tex dim=6 depth=1 ms=0 sample=0
