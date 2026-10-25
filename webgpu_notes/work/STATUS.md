@@ -1,5 +1,17 @@
 # Status (lead-maintained)
 
+## 2026-10-25 20:45 — 09 and 10 integrated; Tint is gone
+
+- **09 merged** (d3cf5ff893): thirdparty/tint and every Tint path deleted, `tint_convert_cli` → `wgsl_convert_cli`.
+  Lead rebuild (editor + wgsl_convert_cli + release nothreads template, 2:00) clean; smoke OK (276/276 interface vs the
+  stored reference, 552/552 scan facts, 0 invalid in Chrome); `BAKE=1 ./export.sh` + `--parity --baked` on the 4080:
+  **71/71**, RESULT FAIL only from the pre-existing bake gate (translated 97 > 80, now TASKS §2.39). Old
+  `bin/tint_convert_cli` moved out of bin/ so a missed reference fails loudly.
+- **10 merged**: CLAUDE.md, READMEs, webgpu_site, thirdparty/README.md describe SPIRV-Cross; swap archived as TASKS
+  §4.36, web wake/orientation §4.37, new §2.38-2.44, traps 55-65.
+- Open with the user: rename `lower_tint_unsupported_ops` / `tint_crash_inputs.frag` (board, default keep). Board
+  retirement waits on §2.38 (smoke.sh lives here and CLAUDE.md points at it).
+
 ## 2026-10-25 18:50 — 19 integrated; build-time measurement
 
 - **19 integrated**: merged tree builds (editor + web release template, 1:30), smoke OK, driver unit 379/0, fixture export
@@ -279,8 +291,8 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 06 | offline test tiers | integrated | worker-06 (retired) |
 | 07 | Forward+ parity vs Vulkan | unbaked 71/71; baked 71/71 after 16; repeat at 09 | lead |
 | 08 | GPU timing (desktop Chrome) | integrated: equal or faster | worker-08 (retired) |
-| 09 | remove Tint, rename to wgsl_convert_cli | in progress | worker-09 | |
-| 10 | docs | after 09 | lead |
+| 09 | remove Tint, rename to wgsl_convert_cli | integrated | worker-09 | d3cf5ff893 |
+| 10 | docs | integrated | worker-10 |
 | 11 | Firefox desktop: works, as fast as Tint | integrated: equal correctness and speed | worker-11 (retired) |
 | 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | integrated (patch 0019; lead parity 71/71) | worker-12, 12b (retired) |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |

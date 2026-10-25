@@ -1,6 +1,6 @@
 # 10-docs: the documentation describes SPIRV-Cross
 
-State: ready-for-integration
+State: integrated
 Owner: worker-10 (delegated by the lead)
 Claimed: 2026-10-25
 Needs: —
