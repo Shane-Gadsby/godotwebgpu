@@ -42,7 +42,7 @@ SDFGI corrupted by camera movement, contact shadows smeared along the screen
 edge, every cube omni shadow missing, and the samplers' mip LOD bias ignored.
 See `webgpu_notes/TASKS.md` §4.29.
 
-Getting a comparable frame out of both backends took three things, all part of
+Getting a comparable frame out of both backends took four things, all part of
 the mode now, and each was a false failure before it existed:
 
 - **A fixed timestep** (`--fixed-fps 60` on both sides; the harness adds it to
@@ -56,6 +56,14 @@ the mode now, and each was a false failure before it existed:
   on the frame it reports `READY` for, because the harness's screenshot is
   asynchronous and otherwise lands some frames later — enough to move every
   particle and every TAA/FSR2 jitter sample.
+- **A fixed jitter phase.** Volumetric fog's Halton offset is the frame number
+  mod 16, and a settled temporal effect still differs by phase: natively, two
+  adjacent phases measure 0.07 apart. The fixture delays each config until its
+  capture frame lands on phase 0 mod 16 (`_aligned()`; `--fp-phase=N` natively
+  for triage) and prints `[FP] FRAME <n> (phase <p>)` before `READY`. Before
+  that, the phase depended on whether the harness's first hash change landed in
+  boot frame 1 or 2, and baked exports, which boot fast enough to straddle it,
+  measured fog at 0.046 or 0.082 from native at random.
 
 Arms marked `parityOnly` in `features.mjs` exist for this mode alone: their
 correct "on" frame equals the "off" frame (`sdfgi_camera_move` flies the camera

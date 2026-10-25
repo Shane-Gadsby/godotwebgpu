@@ -59,6 +59,12 @@ const FEATURES := [
 ]
 
 const SETTLE_DEFAULT := 4
+# Temporal effects pick their jitter from the frame number: volumetric fog's
+# Halton offset is frame % 16 (VolumetricFog::MAX_TEMPORAL_FRAMES), and TAA and
+# FSR2 jitter cycle the same way. Two captures of a settled temporal effect are
+# only comparable at the same phase of that cycle, so every capture is made to
+# land on a frame whose number is _phase modulo this period (_aligned()).
+const JITTER_PERIOD := 16
 # Features whose result accumulates over frames. Undershooting these produces a
 # flaky "feature does nothing" failure, which is worse than a slow test.
 const SETTLE_OVERRIDE := {
@@ -131,6 +137,10 @@ var _cam_base: Transform3D
 var _settle_override := -1
 
 var _last_hash := ""
+# A request read from the hash, waiting for its start frame (see _aligned()).
+var _queued_spec := ""
+# The jitter phase every captured frame lands on (--fp-phase=N natively, for triage).
+var _phase := 0
 var _settle := -1
 var _pending_id := ""
 var _pending_on := false
@@ -151,6 +161,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fp-settle="):
 			_settle_override = int(a.substr(12))
+		if a.begins_with("--fp-phase="):
+			_phase = posmod(int(a.substr(11)), JITTER_PERIOD)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fp-matrix="):
 			_run_native_matrix(a.substr(12))
@@ -191,15 +203,23 @@ func _run_native_matrix(dir: String) -> void:
 		if not only.is_empty() and not only.has(id):
 			continue
 		for on in [false, true]:
+			# Same timeline as the web side: the config is applied during the
+			# process step of the frame _aligned() picks, and the frame captured
+			# is the one drawn settle - 1 frames later.
+			var settle := _settle_for(id)
+			await get_tree().process_frame
+			while not _aligned(settle):
+				await get_tree().process_frame
 			_reset()
 			if not _apply(id, on):
 				print("[FP] UNKNOWN %s" % id)
 				continue
-			for i in _settle_for(id):
+			for i in settle - 1:
 				await get_tree().process_frame
 			# Freeze at the same point the web side does (see _process()).
 			particles.speed_scale = 0.0
 			await RenderingServer.frame_post_draw
+			print("[FP] FRAME %d (phase %d)" % [Engine.get_frames_drawn(), posmod(Engine.get_frames_drawn(), JITTER_PERIOD)])
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%d.png" % [dir, id, 1 if on else 0])
 		print("[FP] NATIVE %s" % id)
@@ -708,15 +728,46 @@ func _process(_delta: float) -> void:
 			_last_hash = h
 			var idx := h.find("fp=")
 			if idx >= 0:
-				_request(h.substr(idx + 3))
+				_queued_spec = h.substr(idx + 3)
+				# Frames must be drawn to reach the start frame; while frozen, none are.
+				RenderingServer.render_loop_enabled = true
+		if not _queued_spec.is_empty() and _spec_aligned(_queued_spec):
+			var spec := _queued_spec
+			_queued_spec = ""
+			_request(spec)
 	if _settle > 0:
 		_settle -= 1
 		if _settle == 0:
 			# Freeze this frame for the harness (see the protocol note above).
 			particles.speed_scale = 0.0
 			RenderingServer.frame_post_draw.connect(func(): RenderingServer.render_loop_enabled = false, CONNECT_ONE_SHOT)
+			print("[FP] FRAME %d (phase %d)" % [Engine.get_frames_drawn(), posmod(Engine.get_frames_drawn(), JITTER_PERIOD)])
 			print("[FP] READY %s %d" % [_pending_id, 1 if _pending_on else 0])
 			_settle = -1
+
+
+## Whether a config applied in this frame's process step and settled for
+## `settle` frames would be captured on a frame of phase _phase. The capture is
+## the frame drawn settle - 1 frames after this one (the apply frame counts),
+## and get_frames_drawn() during the process step numbers the frame about to be
+## drawn, on the web and natively alike.
+##
+## Without this the phase depended on when the harness's first hash change
+## landed: one boot frame earlier or later moved every later capture by one
+## Halton step, and volumetric fog measured 0.046 or 0.082 from native at
+## random. A baked export boots fast enough to straddle that frame; an unbaked
+## one, converting shaders during its first frames, did not (work task 16).
+func _aligned(settle: int) -> bool:
+	return posmod(Engine.get_frames_drawn() + settle - 1, JITTER_PERIOD) == _phase
+
+
+func _spec_aligned(spec: String) -> bool:
+	var parts := spec.split(":")
+	var id := parts[0].strip_edges()
+	if not FEATURES.has(id):
+		return true # nothing is captured ("all"), or _request() reports the id unknown
+	_settle_override = int(parts[2]) if parts.size() > 2 else -1
+	return _aligned(_settle_for(id))
 
 
 func _settle_for(id: String) -> int:

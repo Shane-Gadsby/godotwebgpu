@@ -1,0 +1,32 @@
+SPIRV-Cross-baked (fixed fixture):
+run1: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run2: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run3: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run4: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run5: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run6: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run7: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run8: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run9: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run10: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+
+Tint-baked (fixed fixture):
+run1: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run2: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run3: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run4: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run5: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run6: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run7: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run8: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run9: FRAME 256 (phase 0) FRAME 496 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+run10: FRAME 240 (phase 0) FRAME 480 (phase 0)  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+
+SPIRV-Cross-baked, BEFORE the fix (old fixture + frame print):
+run1: drawn=240 process=240 mod16=0 drawn=480 process=496 mod16=0  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.046
+run1: drawn=240 process=240 mod16=0 drawn=480 process=509 mod16=0  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.046
+run2: drawn=241 process=241 mod16=1 drawn=481 process=502 mod16=1  |     FAIL  volumetric_fog               delta 43.797; differs from native by 0.082 (off 0.002, on 0.082) > 0.05
+run3: drawn=240 process=240 mod16=0 drawn=480 process=529 mod16=0  |     PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.046
+run4: drawn=241 process=241 mod16=1 drawn=481 process=498 mod16=1  |     FAIL  volumetric_fog               delta 43.797; differs from native by 0.082 (off 0.002, on 0.082) > 0.05
+run5: drawn=241 process=241 mod16=1 drawn=481 process=498 mod16=1  |     FAIL  volumetric_fog               delta 43.797; differs from native by 0.082 (off 0.002, on 0.082) > 0.05
+run6: drawn=241 process=241 mod16=1 drawn=481 process=499 mod16=1  |     FAIL  volumetric_fog               delta 43.797; differs from native by 0.082 (off 0.002, on 0.082) > 0.05

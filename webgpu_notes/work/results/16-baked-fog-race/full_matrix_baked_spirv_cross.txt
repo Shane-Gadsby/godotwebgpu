@@ -1,0 +1,99 @@
+Forward+ Feature Matrix (WebGPU) -- 71 features, parity against native Vulkan
+
+  rendering the native reference into /tmp/fp_reference_oNzTET ...
+  WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+
+  shader stats: {"baked":426,"precompiled":0,"cached":0,"translated":97,"specialized":0,"translatedShaders":["SceneForwardClusteredShaderRD:0 x12","SceneForwardClusteredShaderRD:1 x12","SceneForwardClusteredShaderRD:2 x12","SceneForwardClusteredShaderRD:9 x12","SceneForwardClusteredShaderRD:10 x12","SceneForwardClusteredShaderRD:11 x12","SceneForwardClusteredShaderRD:18 x12","SceneForwardClusteredShaderRD:19 x12","ParticlesShaderRD:0 x1"],"containerCreateMs":2704.5699999999997,"containerCreateCalls":342,"containerStageLoopMs":2681.640000000001,"containersParsed":343,"spirvBytes":5931588,"wgslBytes":4775795,"footerParseMs":0.8600000000000005}
+
+  FAIL  baked export did not use its shader cache (want baked > 0, translated <= 80, no mismatch warning; mismatch=false)
+
+  Environment
+    PASS  ambient_light                delta 37.909; native diff off 0.000 on 0.002
+    PASS  reflected_light              delta 12.080; native diff off 0.000 on 0.003
+    PASS  sky                          delta 44.520; native diff off 0.002 on 0.002
+    PASS  tonemap                      delta 22.051; native diff off 0.002 on 0.003
+    PASS  tonemap_exposure             delta 46.358; native diff off 0.002 on 0.003
+    PASS  adjustments                  delta 61.485; native diff off 0.002 on 0.006
+    PASS  color_correction             delta 25.249; native diff off 0.002 on 0.003
+    PASS  fog                          delta 57.278; native diff off 0.002 on 0.001
+    PASS  fog_height                   delta 37.658; native diff off 0.002 on 0.001
+    PASS  fog_aerial_perspective       delta 2.692; native diff off 0.002 on 0.002
+    PASS  volumetric_fog               delta 43.822; native diff off 0.002 on 0.001
+    PASS  glow                         delta 43.175; native diff off 0.002 on 0.002
+    PASS  glow_map                     delta 2.122; native diff off 0.003 on 0.002
+    PASS  ssr                          delta 1.182; native diff off 0.003 on 0.002
+    PASS  ssao                         delta 1.673; native diff off 0.002 on 0.008
+    PASS  ssil                         delta 1.744; native diff off 0.002 on 0.005
+    PASS  sdfgi                        delta 35.446; native diff off 0.002 on 0.025
+    PASS  sdfgi_camera_move            parity only; native diff off 0.024 on 0.025
+
+  Lights and shadows
+    PASS  directional_light            delta 33.037; native diff off 0.004 on 0.002
+    PASS  directional_shadow           delta 1.894; native diff off 0.002 on 0.002
+    PASS  directional_shadow_splits    delta 0.617; native diff off 0.002 on 0.002
+    PASS  omni_light                   delta 13.028; native diff off 0.002 on 0.002
+    PASS  omni_shadow                  delta 0.647; native diff off 0.002 on 0.002
+    PASS  omni_shadow_cube             delta 0.658; native diff off 0.002 on 0.015
+    PASS  spot_light                   delta 3.853; native diff off 0.002 on 0.002
+    PASS  spot_shadow                  delta 1.269; native diff off 0.002 on 0.002
+    PASS  light_projector              delta 3.365; native diff off 0.002 on 0.003
+    PASS  soft_shadows                 delta 2.012; native diff off 0.002 on 0.002
+    PASS  shadow_blur                  delta 5.044; native diff off 0.003 on 0.003
+    PASS  contact_shadows              delta 0.103; native diff off 0.002 on 0.003
+    PASS  light_negative               delta 34.690; native diff off 0.002 on 0.003
+    PASS  light_specular               delta 0.419; native diff off 0.003 on 0.003
+
+  Global illumination
+    PASS  reflection_probe             delta 12.569; native diff off 0.003 on 0.002
+    PASS  voxel_gi                     delta 7.780; native diff off 0.002 on 0.002
+    PASS  decal                        delta 1.354; native diff off 0.002 on 0.003
+
+  Materials
+    PASS  normal_map                   delta 1.780; native diff off 0.002 on 0.003
+    PASS  emission                     delta 3.379; native diff off 0.002 on 0.002
+    PASS  rim                          delta 0.223; native diff off 0.002 on 0.002
+    PASS  clearcoat                    delta 0.221; native diff off 0.002 on 0.002
+    PASS  anisotropy                   delta 0.366; native diff off 0.003 on 0.003
+    PASS  subsurface_scattering        delta 0.680; native diff off 0.002 on 0.002
+    PASS  backlight                    delta 0.488; native diff off 0.002 on 0.002
+    PASS  refraction                   delta 0.450; native diff off 0.003 on 0.003
+    PASS  heightmap                    delta 1.796; native diff off 0.002 on 0.003
+    PASS  triplanar                    delta 1.674; native diff off 0.002 on 0.002
+    PASS  transparency                 delta 3.824; native diff off 0.002 on 0.002
+    PASS  alpha_scissor                delta 3.455; native diff off 0.003 on 0.003
+    PASS  alpha_hash                   delta 3.039; native diff off 0.003 on 0.003
+    PASS  proximity_fade               delta 0.565; native diff off 0.002 on 0.003
+    PASS  distance_fade                delta 1.188; native diff off 0.002 on 0.003
+    PASS  depth_texture                delta 4.201; native diff off 0.002 on 0.002
+    PASS  mipmap_bias                  delta 0.444; native diff off 0.002 on 0.002
+    PASS  texture_array                delta 3.594; native diff off 0.002 on 0.002
+    PASS  shader_builtins              delta 0.841; native diff off 0.002 on 0.004
+    PASS  point_coord                  delta 0.894; native diff off 0.020 on 0.020
+
+  Mesh pipeline
+    PASS  multimesh                    delta 5.309; native diff off 0.002 on 0.002
+    PASS  blend_shapes                 delta 2.586; native diff off 0.002 on 0.002
+    PASS  mesh_lod                     delta 1.505; native diff off 0.002 on 0.003
+    PASS  visibility_range             delta 2.185; native diff off 0.002 on 0.003
+
+  Particles
+    PASS  gpu_particles                delta 10.501; native diff off 0.002 on 0.002
+    PASS  particle_collision           delta 12.967; native diff off 0.002 on 0.002
+    PASS  particle_attractor           delta 18.165; native diff off 0.002 on 0.002
+
+  Post-processing, AA and scaling
+    PASS  msaa                         delta 0.207; native diff off 0.002 on 0.002
+    PASS  taa                          delta 0.542; native diff off 0.002 on 0.006
+    PASS  fxaa                         delta 0.348; native diff off 0.002 on 0.003
+    PASS  debanding                    delta 0.248; native diff off 0.002 on 0.002
+    PASS  scaling_3d                   delta 1.388; native diff off 0.002 on 0.002
+    PASS  fsr2                         delta 1.480; native diff off 0.002 on 0.546
+    PASS  dof_far                      delta 8.124; native diff off 0.002 on 0.003
+    PASS  dof_near                     delta 1.844; native diff off 0.002 on 0.002
+    PASS  auto_exposure                delta 35.715; native diff off 0.002 on 0.003
+
+  71/71 features pass
+  10 Forward+ features are documented as not covered (--list to see them)
+  wrote /tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/06ad18c7-2f4b-4e67-91c1-7151308515f2/scratchpad/full_sc.json
+
+RESULT: FAIL
