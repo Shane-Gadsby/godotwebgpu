@@ -1,5 +1,20 @@
 # Status (lead-maintained)
 
+## 2026-10-25 10:50 — the user's answers (hand-offs page, all twelve)
+
+- GPU: game closed, go ahead → task 07 parity running (gpu lease: lead), Tint baseline then SPIRV-Cross.
+- Acceptance bar widened (README goal): + Firefox, + Razr 60, + cameraSim by eye; Firefox and Android Chrome must be
+  as fast as Tint or faster → tasks 08 (desktop Chrome), 11 (Firefox), 12 (Android) measure against Tint-baked exports.
+- Rename `tint_convert_cli` → `wgsl_convert_cli`; delete `thirdparty/tint` once the bar holds → task 09.
+- Harden the passes against malformed SPIR-V now → task 13. Fix the spec-composite fold inside the swap → task 14.
+- Workers: Opus 5, effort medium. The Agent tool cannot select Opus 5; the user sets the default sub-agent model in
+  /config. New workers (13, 14, then 08, 11, 12) wait for that.
+- ccache: 20 GB (`ccache -M 20G`; the user asked whether 20 is enough instead of 40 — start at 20, watch evictions) and
+  `base_dir=/mnt/109313D2109313D2/godot-editors` so worktrees share it. Before: 5.6 GB used, 72% hits.
+- Worktrees removed after merge (branches kept): -01, -04, -06.
+- sewer-shift: `/mnt/109313D2109313D2/godot-game-dev/sewer-shift`; cameraSim: `~/Downloads/cameraSim_2026-09-09_10-26-06/testing`
+  → sent to worker-05.
+
 ## 2026-10-25 10:15 — task 06 integrated
 
 - **06 integrated** (merge bead486f41). On the merged tree: smoke OK (276/276 valid, interface identical);
@@ -60,6 +75,10 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 08 | GPU timing | open | |
 | 09 | remove Tint | blocked on 07, 02, 03, 05, 06 | |
 | 10 | docs | after 09 | lead |
+| 11 | Firefox desktop: works, as fast as Tint | open | |
+| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
+| 13 | harden passes against malformed SPIR-V | open | |
+| 14 | spec-composite fold fix | open | |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.

@@ -6,11 +6,16 @@ is how they share the work without stepping on each other. It is modeled on the 
 file before doing anything.** TASKS.md stays the project's record: the lead folds finished work into §2.35 / §4; this
 board is the coordination layer for the swap and is retired when the swap closes.
 
-**The goal, and what counts as done:** Tint is gone from the build (runtime, `tint_convert_cli`, the precompiler, the
-export-time bake, tests, CI, docs) and SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, patched locally)
-does every SPIR-V → WGSL conversion, with Forward+ back at full parity against native Vulkan
-(`webgpu_tests/forward_plus/run_forward_plus.mjs --parity`, every feature that passed before the swap passes after it)
-and nothing else in the test tiers worse than at the tag `pre-SPIR-V-Cross`.
+**The goal, and what counts as done:** Tint is gone from the build (runtime, the converter tool — renamed
+`wgsl_convert_cli` —, the precompiler, the export-time bake, tests, CI, docs; `thirdparty/tint` deleted) and SPIRV-Cross's
+WGSL backend (`thirdparty/spirv-cross-wgsl`, patched locally) does every SPIR-V → WGSL conversion. The bar for deleting
+Tint (user, 2026-10-25, on the hand-offs page):
+- Forward+ at full parity against native Vulkan (`webgpu_tests/forward_plus/run_forward_plus.mjs --parity`: every feature
+  that passed before the swap passes after it), and no test tier worse than at the tag `pre-SPIR-V-Cross`;
+- the user's cameraSim project (`~/Downloads/cameraSim_2026-09-09_10-26-06/testing`) judged by eye, WebGPU beside Vulkan;
+- **Firefox (desktop and Android) and Chrome on Android work, and are ideally as fast as with Tint or faster** — a
+  performance bar, measured against Tint-baked exports, not only a correctness one (desktop on the 4080 SUPER, Android on
+  the Razr 60 over adb, TASKS.md §2.9 and memory "Android phone profiling").
 
 **SPIRV-Cross patches are never upstreamed** (user, 2026-10-25): no PRs, issues or comments to Ludicon or Khronos.
 Patch the vendored copy, record each patch in `thirdparty/spirv-cross-wgsl/patches/` and `thirdparty/README.md`.

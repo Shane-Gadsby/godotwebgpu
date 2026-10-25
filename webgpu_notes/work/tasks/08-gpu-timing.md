@@ -14,6 +14,9 @@ params, `let` vs `var`, loops, the private-variable stage I/O wrapper SPIRV-Cros
 runs. Tools: `webgpu_tests/perf_guard/gpu_time.mjs --dir <export> --uncapped --passes`, `api_profile.mjs`,
 `run_perf_guard.mjs` (CLAUDE.md "Testing"); the heavy Forward+ export `webgpu_tests/forward_plus/export_heavy.sh`.
 
+**Scope widened (user, 2026-10-25):** "Firefox and Chrome on Android must work, ideally as performant or better than
+Tint". Measure desktop Chrome here; Firefox (desktop) and Android (Chrome, Firefox) are tasks 11 and 12, same method.
+
 ## Goal
 
 Same exports baked with each converter (`bin/tint_convert_cli.tint-pre-swap` vs the SPIRV-Cross build), measured
