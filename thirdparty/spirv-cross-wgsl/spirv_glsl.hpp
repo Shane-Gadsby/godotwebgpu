@@ -970,6 +970,8 @@ protected:
 		bool switch_requires_default = false;
 		// If false, for loops can only have a single initializer and a single continue statement.
 		bool support_complex_for_loop = true;
+		// If false, no for statement is emitted: every loop takes the generic form (Godot local patch 0019).
+		bool support_for_loop = true;
 		// If true, redundant parentheses around if, for and while conditions are removed.
 		bool strip_condition_parentheses = false;
 		// If true, a break is emitted after an OpUnreachable merge inside a switch case, so that languages

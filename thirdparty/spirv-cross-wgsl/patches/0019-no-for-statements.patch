@@ -1,0 +1,61 @@
+diff --git a/spirv_glsl.cpp b/spirv_glsl.cpp
+index 8105660929..92aa115043 100644
+--- a/spirv_glsl.cpp
++++ b/spirv_glsl.cpp
+@@ -18813,6 +18813,13 @@ bool CompilerGLSL::attempt_emit_loop_header(SPIRBlock &block, SPIRBlock::Method
+ 			{
+ 			case SPIRBlock::ForLoop:
+ 			{
++				if (!control_flow.support_for_loop)
++				{
++					block.disable_block_optimization = true;
++					force_recompile();
++					begin_scope(); // We'll see an end_scope() later.
++					return false;
++				}
+ 				// This block may be a dominating block, so make sure we flush undeclared variables before building the for loop header.
+ 				flush_undeclared_variables(block);
+ 
+@@ -18908,6 +18915,13 @@ bool CompilerGLSL::attempt_emit_loop_header(SPIRBlock &block, SPIRBlock::Method
+ 			{
+ 			case SPIRBlock::ForLoop:
+ 			{
++				if (!control_flow.support_for_loop)
++				{
++					block.disable_block_optimization = true;
++					force_recompile();
++					begin_scope(); // We'll see an end_scope() later.
++					return false;
++				}
+ 				// Important that we do this in this order because
+ 				// emitting the continue block can invalidate the condition expression.
+ 				auto initializer = emit_for_loop_initializers(block);
+diff --git a/spirv_glsl.hpp b/spirv_glsl.hpp
+index 4a0cd07e8e..384c6d95ae 100644
+--- a/spirv_glsl.hpp
++++ b/spirv_glsl.hpp
+@@ -970,6 +970,8 @@ protected:
+ 		bool switch_requires_default = false;
+ 		// If false, for loops can only have a single initializer and a single continue statement.
+ 		bool support_complex_for_loop = true;
++		// If false, no for statement is emitted: every loop takes the generic form (Godot local patch 0019).
++		bool support_for_loop = true;
+ 		// If true, redundant parentheses around if, for and while conditions are removed.
+ 		bool strip_condition_parentheses = false;
+ 		// If true, a break is emitted after an OpUnreachable merge inside a switch case, so that languages
+diff --git a/spirv_wgsl.cpp b/spirv_wgsl.cpp
+index 11121b0777..c487773aea 100644
+--- a/spirv_wgsl.cpp
++++ b/spirv_wgsl.cpp
+@@ -91,6 +91,11 @@ string CompilerWGSL::compile()
+ 	control_flow.merge_case_labels = true;
+ 	control_flow.switch_requires_default = true;
+ 	control_flow.support_complex_for_loop = false;
++	// Local patch 0019: never emit a WGSL for statement. On the Razr 60 (Mali-G615, Chrome 155) a counted for loop
++	// starting below zero, `for (var i = -3; i <= 3; i++)` in volumetric fog's filter pass, ran zero times, so the fog
++	// lost its density (12.6 mean abs diff from native; the same loop written as loop/if/break or while is correct).
++	// The generic loop form is the shape Tint always emitted.
++	control_flow.support_for_loop = false;
+ 	control_flow.strip_condition_parentheses = true;
+ 	// Switch cases never fall through in WGSL, reaching the end of a case exits the switch.
+ 	control_flow.unreachable_requires_switch_break = false;
