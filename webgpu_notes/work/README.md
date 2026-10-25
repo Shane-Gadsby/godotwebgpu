@@ -54,6 +54,20 @@ When **done**: write `webgpu_notes/work/results/<id>/SUMMARY.md` (what changed, 
 numbers, what the lead must still run, risks), set `State: ready-for-integration`, commit both on your branch. That is
 the whole hand-back: report in ~10 lines and stop.
 
+## Questions for the user: the WebGPU Hand-offs page
+
+Anything only the user can settle goes on **https://claude.ai/artifact/ULPkGBh3V4gRFSoujWs4pP** (source:
+`webgpu_notes/work/webgpu-handoffs.html`; modelled on the co-op project's Rig Hand-offs board), never only into chat:
+decisions (a pick with a marked default, so "all defaults" is a complete answer), typed answers, and looks (frames to
+judge by eye, uploaded as artifact assets, WebGPU beside Vulkan). Its data is the artifact database (`ArtifactData`):
+collection `questions` (doc id = question id; `kind` choice | text | look, `order`, `visible`, `title`, `ref`,
+`question`, `context`, `choices[{label, detail}]`, `default`, `media[{url:"/_blob/<id>", kind, caption}]`,
+`placeholder`, and the user's `answer`, `note`, `updated`, `told`) and `meta/board` (`message`, `updatedAt`,
+`busy_gpu`, `busy_text`). A look with no media shows as queued. Workers put a question in `for-tasks.md` under
+"Questions for the user"; only the lead writes the page. Set `busy_gpu` while a real-GPU run is going.
+The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
+publishing): a raw U+2028 in a regex once blanked the co-op board.
+
 ## Shared resources (leases)
 
 `webgpu_notes/work/lease.sh take|drop|show <name> <owner> [hours]`. Leases live in `~/.cache/godotwebgpu-leases/`.
