@@ -1,0 +1,21 @@
+{
+ "readyAt_s": "3.02",
+ "firstCaptureAt_s": "19.56",
+ "saved": [
+  "default.png",
+  "face_200mm.png",
+  "dof_f1_4.png",
+  "hair_side_200mm.png",
+  "face_200mm_lights.png"
+ ],
+ "stats": {
+  "baked": 1570,
+  "precompiled": 0,
+  "cached": 0,
+  "translated": 0,
+  "specialized": 0,
+  "translatedShaders": []
+ },
+ "rafPerSec": 60.00928320397227,
+ "errorCount": 0
+}

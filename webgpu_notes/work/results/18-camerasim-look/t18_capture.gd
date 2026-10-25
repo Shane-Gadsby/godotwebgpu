@@ -18,6 +18,7 @@ var capturing := false
 var tries := 0
 var main: Node3D
 var is_web := OS.has_feature("web")
+var finished := false
 
 
 func _ready() -> void:
@@ -49,32 +50,43 @@ func _apply(view: String) -> void:
 			main.update_camera_position()
 			main.set_lens(200)
 		"dof_f1_4":
-			# Back to the default framing, aperture slider at f/1.4: the shallowest depth of field the UI offers.
+			# Back to the default framing, aperture slider at its minimum (f/1.4, which the app stores in an int: f/1)
+			# for the shallowest depth of field the UI offers; shutter at 1/4000 so the exposure stays close to the default.
 			main.camera_height = 0.4
 			main.update_camera_position()
 			main.set_lens(50)
 			ec.aperture_slider.value = 1.4
+			ec.shutter_slider.value = 12
 		"hair_side_200mm":
-			# Not reachable from the UI (no camera-angle slider): the camera orbits to the side, 200mm at face height.
+			# Not reachable from the UI (no camera-angle slider): the camera orbits 50 degrees to the side, 200mm at face
+			# height. main.update_camera_position() aims correctly only at its default 90 degrees, so aim with look_at().
 			ec.aperture_slider.value = 8
-			main.camera_angle = 30
+			ec.shutter_slider.value = 7
+			main.camera_angle = 40
 			main.camera_height = head.y + 0.06 - main.subject.global_position.y
 			main.update_camera_position()
+			main.camera.look_at(Vector3(head.x, main.camera.global_position.y, head.z))
 			main.set_lens(200)
 		"face_200mm_lights":
 			# Not reachable from the UI (the scene ships its key/fill/rim spots hidden): three-point lighting on.
 			main.camera_angle = 90
 			main.update_camera_position()
+			# Shutter 1/500: at the default exposure the 5-energy spots blow the frame out to white.
+			ec.shutter_slider.value = 9
 			for l in ["KeyLight", "FillLight", "RimLight"]:
 				main.get_node(l).visible = true
 			main.update_lights()
 
 
 func _process(_delta: float) -> void:
+	if finished:
+		return
 	if main == null:
 		main = get_tree().current_scene
 		if main == null:
 			return
+		# The FPS counter label differs by design (frame pacing), hide it so it does not count in the difference.
+		main.get_node("CanvasLayer/Label").visible = false
 		view_i = 0
 		wait = FIRST_SETTLE
 		_apply(views[0])
@@ -106,6 +118,7 @@ func _next() -> void:
 	capturing = false
 	view_i += 1
 	if view_i >= views.size():
+		finished = true
 		print("[t18] done")
 		if not is_web:
 			get_tree().quit()

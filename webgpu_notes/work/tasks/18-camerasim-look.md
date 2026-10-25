@@ -1,6 +1,6 @@
 # 18-camerasim-look: the user's cameraSim project, WebGPU (SPIRV-Cross) beside native Vulkan, for a by-eye check
 
-State: claimed
+State: ready-for-integration
 Owner: worker-18
 Claimed: 2026-10-25 15:00
 Needs: gpu, build (only if a template has to be rebuilt)
