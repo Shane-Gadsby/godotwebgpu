@@ -1,6 +1,6 @@
 # Task 19: text for the shared docs
 
-## TASKS.md §2.36 (status line + what was done; move to §4 once the phone check passes)
+## TASKS.md §2.36 → §4 (closed 2026-10-25)
 
 **Done 2026-10-25 (work/19):**
 - *Screen awake:* `DisplayServerWeb::screen_set_keep_on()` requests a Screen Wake Lock
@@ -32,15 +32,35 @@ Landscape, so on a phone the export now locks to landscape when it enters fullsc
 says `landscape-primary` instead of `any`. That is what native Android does with the same project; set the project
 setting (or `html/orientation`) to Sensor for the old free rotation.
 
-**Fullscreen is the game's job:** the lock only applies in fullscreen, and nothing in the shells enters fullscreen on
-its own; a project calls `DisplayServer.window_set_mode(WINDOW_MODE_FULLSCREEN)` from an input event.
+- *Fullscreen on the first tap (user decision 2026-10-25):* export option `html/fullscreen_on_first_tap` (default
+  on; Engine config `fullscreenOnFirstTap`, default off for hand-written shells). Where the **primary** pointer is a
+  touchscreen (`(pointer: coarse)`), the canvas enters fullscreen on the `touchend` of the first tap — the end of a
+  touch is user activation, its start is not, so a request made on touchstart (or on a Godot touch *press*) is
+  refused by Chrome. Retried on later taps until it succeeds, never again once the page has been in fullscreen (the
+  player may have left on purpose). Lives in `library_godot_display.js`, so custom shells get it too. Entering
+  fullscreen fires the orientation lock, so `html/orientation` applies from the first tap with no game code. Desktops
+  (fine primary pointer, including touchscreen laptops) are unaffected. A game can still enter fullscreen itself with
+  `DisplayServer.window_set_mode(WINDOW_MODE_FULLSCREEN)` from an input event, on a touch **release**.
+
+**Phone (Razr 60, Chrome 155, 2026-10-25):** first tap → fullscreen and `landscape-primary` (Landscape export) /
+`portrait-primary` (Portrait); with the option off a tap stays windowed; screen Awake for 60 s untouched against a
+30 s system timeout, then Dozing 30 s after the tab closed. Only console lines: the known float32-blendable notice and
+Chrome's AudioContext autoplay notice.
 
 **Known edge:** a feature-tag override of the setting (`display/window/handheld/orientation.web_android`, say) still
 beats `html/orientation` at run time, because the export override writes the base key only.
 
+## TASKS.md §3 trap (cost time here)
+
+**Chrome refuses fullscreen requested on a touch press.** `requestFullscreen()` needs user activation, and a touch
+gives it on `touchend`, not `touchstart`. Godot delivers `InputEventScreenTouch` with `pressed = true` from touchstart,
+so `window_set_mode(FULLSCREEN)` on a press fails silently on the first tap and "works" on the second (activation from
+the first tap's end is still live). Request it on the release. Found with the task 19 probe, 2026-10-25.
+
 ## webgpu_site/CORRECTNESS_AND_COMPATIBILITY.md (web platform features)
 
 Web exports keep the screen on (Screen Wake Lock, `display/window/energy_saving/keep_screen_on`, secure context
-required) and lock the screen orientation chosen by the `html/orientation` export option (default: the
-`display/window/handheld/orientation` project setting) whenever the page is in fullscreen on a phone or tablet;
-desktop browsers cannot lock orientation and report `FEATURE_ORIENTATION` as unsupported.
+required). On phones and tablets the first tap puts the page in fullscreen (`html/fullscreen_on_first_tap`, on by
+default), where the browser locks the orientation chosen by the `html/orientation` export option (default: the
+`display/window/handheld/orientation` project setting). Desktop browsers cannot lock orientation, report
+`FEATURE_ORIENTATION` as unsupported, and are not put in fullscreen by a tap.
