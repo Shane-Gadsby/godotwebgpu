@@ -15,6 +15,11 @@ Measured on fp_check's `fsr2_1` frame (3x3 Laplacian standard deviation, higher 
 from native each); FSR2 off: 7.85 on all three. So WebGPU's FSR2 output differs from native in the same way under both
 converters: within the parity tolerance (`run_forward_plus.mjs` passes it), but visible.
 
+**Check first (from task 16, 2026-10-25):** the frames measured above were captured on different temporal-jitter
+phases (native on phase 15, web on 0 or 1); FSR2's jitter cycles with the frame number like fog's. Task 16 made every
+capture land on phase 0. Re-measure on aligned captures before looking for an engine cause: part or all of the gap may
+have been the capture. After the fix the fixture still reports fsr2 0.546 from native.
+
 ## Goal
 
 Find where the web FSR2 path differs from native: render scale / jitter sequence, RCAS sharpening (strength, the

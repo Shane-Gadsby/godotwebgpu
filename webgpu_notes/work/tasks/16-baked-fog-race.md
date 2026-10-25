@@ -1,6 +1,6 @@
 # 16-baked-fog-race: volumetric fog in baked exports lands in one of two states per run
 
-State: ready-for-integration
+State: integrated (merged; fixture-only change, worker evidence: native-vs-native gives the same two numbers; 10/10 both converters baked; full matrix SPIRV-Cross-baked 71/71)
 Owner: worker-16
 Claimed: 2026-10-25 12:15
 Needs: gpu

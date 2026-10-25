@@ -1,5 +1,16 @@
 # Status (lead-maintained)
 
+## 2026-10-25 12:40 — task 16: the fog "race" was the capture phase
+
+- **16 integrated**: volumetric fog (and TAA/FSR2) jitter on `frame % 16`; the fixture captured on phase 0 or 1 depending
+  on which boot frame the harness's first hash write landed in. Vulkan against itself gives the same 0.045 / 0.082.
+  `fp_scene.gd` now starts every config so its capture lands on phase 0, web and native (`--fp-phase=N` to triage,
+  `[FP] FRAME n (phase p)` logged). Fog: 0.001 from native, 10/10, SPIRV-Cross-baked and Tint-baked. **Full matrix
+  SPIRV-Cross-baked: 71/71**; RESULT still FAIL only on the pre-existing bake gate (translated 97 > 80).
+- Saved native `--reference` directories from before this are invalid.
+- Task 17 (FSR2 softness) may be partly the same artifact: the measured frames were on different phases; re-measure
+  first.
+
 ## 2026-10-25 12:20 — second wave out: 13, 14, 16, 08
 
 - Workers now run with `model: "opus"` (Opus 5.5) on each Agent call, effort medium: the user's settings set
@@ -152,7 +163,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 13 | harden passes against malformed SPIR-V | open | |
 | 14 | spec-composite fold fix | open | |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
-| 16 | baked volumetric fog race (pre-existing) | open | |
+| 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
 | 17 | FSR2 softer on WebGPU than native (pre-existing, user's look) | open | |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
