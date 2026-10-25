@@ -1,6 +1,6 @@
 # 17-fsr2-sharpness: FSR2 on WebGPU is visibly softer than native Vulkan (pre-existing)
 
-State: ready-for-integration (not a swap regression; found while judging task 07's frames)
+State: integrated (not a swap regression; found while judging task 07's frames)
 Owner: worker-17
 Claimed: 2026-10-25 12:27
 Needs: gpu

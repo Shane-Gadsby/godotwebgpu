@@ -1,6 +1,6 @@
 # Status (lead-maintained)
 
-## 2026-10-25 14:25 — task 17 merged (GPU check pending)
+## 2026-10-25 14:25 — task 17 integrated
 
 - **17 merged**: FSR2's softness on WebGPU was not the capture phase. FSR2 read its reactive mask through
   `get_internal_texture_reactive()`, an alpha-swizzled view; WebGPU views cannot swizzle and the driver drops it
@@ -10,7 +10,11 @@
   Worker's full baked matrix 71/71.
 - Lead on top: `drivers/webgpu/SCsub` now makes the precompiled table depend on `thirdparty/amd-fsr{,2}` shader sources
   (the gap 17 found); the merged build re-baked on its own. Editor + web release template build, smoke OK (276/0).
-- Pending: the lead's full `--parity --baked` run on the merged tree, queued behind worker-12's `gpu` lease.
+- **Lead verification (14:50): full `--parity --baked` on the merged tree 71/71** (fsr2 0.142, volumetric_fog 0.001,
+  taa 0.006); RESULT FAIL only on the pre-existing bake gate (translated 97 > 80). **17 integrated.**
+- Lead trap, fixed: the first lead run failed fsr2 (0.578) and volumetric_fog (0.071) because `--baked` reads
+  `export_baked/`, which only `BAKE=1 ./export.sh` refreshes; it was from 11:28. `run_forward_plus.mjs` now refuses an
+  export older than the template, the editor or `fp_scene.gd` (`--allow-stale-export` to override). §3 trap for task 10.
 - Follow-ups for TASKS (task 10): trap "texture view swizzles silently dropped on WebGPU" — audit other swizzled
   views (`texture_storage.cpp`); FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (check with a
   moving camera and sky).
@@ -218,7 +222,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 17 | FSR2 softer on WebGPU than native (reactive mask read red) | merged, lead GPU check pending | worker-17 (retired) |
+| 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.
