@@ -14,7 +14,7 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'applica
 const server = createServer((q, r) => {
 	const p = decodeURIComponent(q.url.split('?')[0]);
 	const f = join(DIR, p === '/' ? 'index.html' : p);
-	if (!existsSync(f) || !statSync(f).isFile()) { r.writeHead(404); r.end(); return; }
+	if (!existsSync(f) || !statSync(f).isFile()) { console.log('404', p); r.writeHead(404); r.end(); return; }
 	const body = readFileSync(f);
 	r.writeHead(200, { 'Content-Type': MIME[extname(f)] || 'application/octet-stream', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cache-Control': 'no-store' });
 	r.end(body);

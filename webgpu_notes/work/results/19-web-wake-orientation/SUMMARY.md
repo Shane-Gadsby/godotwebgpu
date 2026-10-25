@@ -48,8 +48,14 @@ State: ready-for-integration (branch work/19; worktree ../godotwebgpu-19)
     is made on touch release (§3 trap text in for-docs.md).
 - Desktop Chrome + Firefox: see "Desktop" below.
 
-## Desktop
-PENDING (gpu lease)
+## Desktop (Linux, RTX 4080 SUPER, headed, `gpu` lease; `desktop_check.mjs`, `desktop_check.json`, export Default)
+- Chrome 156 (system, Vulkan flags): probe `keep_screen_on_feature` true / `orientation_feature` false, matching the
+  browser (`navigator.wakeLock` present on localhost; `lock()` present but pointer fine). `kept_on` true. A click
+  does not enter fullscreen (first tap is touch-only). Console: one 404, which is `/favicon.ico` (the export has no
+  icon; the test server logged it), nothing else.
+- Firefox 155 (Playwright's build): same probe answers, same click result. Console: Firefox's wasm `try` deprecation
+  warning and the known `float32-blendable` notice — both pre-existing, nothing from this change.
+- No orientation-lock or wake-lock messages in either (refusals are verbose-only, as intended).
 
 ## Risks
 - Default behaviour changes (both as the user decided 2026-10-25): phones now go fullscreen on the first tap, and
