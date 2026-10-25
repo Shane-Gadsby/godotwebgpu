@@ -273,7 +273,10 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 // The input is validated first (spirv_opt_passes::validate_module()). A module
 // the validator rejects is not converted: the result is empty and *r_error (if
 // given) says why. Callers must treat an empty result as a failed conversion.
-Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error = nullptr);
+// p_validate_input = false skips that full validation (the size check and each
+// optimizer pass's own precondition check stay): for input the engine compiled
+// itself with glslang moments before, where it would only add load time.
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error = nullptr, bool p_validate_input = true);
 
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage

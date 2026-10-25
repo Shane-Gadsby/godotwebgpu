@@ -5456,7 +5456,7 @@ static Vector<uint8_t> run_opt_pass(const Vector<uint8_t> &p_bytes, bool (*p_pas
 	return out;
 }
 
-Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error) {
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error, bool p_validate_input) {
 	// Validate first. The passes below that run SPIRV-Tools' optimizer assert
 	// on malformed modules instead of failing (TASKS.md §2.35, task 13's fuzz
 	// reproducers), and the raw word passes were written for glslang's output,
@@ -5466,7 +5466,7 @@ Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_erro
 	std::string error;
 	if (p_bytes.size() < 20 || (p_bytes.size() % 4) != 0) {
 		error = "not a SPIR-V module (" + std::to_string(p_bytes.size()) + " bytes)";
-	} else {
+	} else if (p_validate_input) {
 		spirv_opt_passes::validate_module(reinterpret_cast<const uint32_t *>(p_bytes.ptr()), (size_t)p_bytes.size() / 4, &error);
 	}
 	if (!error.empty()) {

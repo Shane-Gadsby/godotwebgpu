@@ -69,7 +69,11 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	memcpy(spv.ptrw(), p_spv_ptr, p_spv_size);
 
 	std::string pipeline_error;
-	spv = spirv_preprocess::run_pipeline(spv, &pipeline_error);
+	// No full validation here: this is the engine's own glslang output (or a baked container's SPIR-V the export
+	// already converted), and on the web every millisecond lands on load time -- ~2 ms a module natively, several
+	// hundred modules on an unbaked load. tint_convert_cli, which bakes whatever a project's shaders compile to,
+	// validates (TASKS.md §2.35, work task 13).
+	spv = spirv_preprocess::run_pipeline(spv, &pipeline_error, false);
 	if (spv.is_empty()) {
 		ERR_PRINT(vformat("SPIR-V→WGSL failed: %s", String::utf8(pipeline_error.c_str())));
 		return nullptr;
