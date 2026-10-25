@@ -2,13 +2,15 @@
 # compare_ft.sh <out dir> <runs> <scene>... -- tagA=exportsA tagB=exportsB [...]
 #
 # Frame-time A/B for browsers without timestamp queries (task 11, Firefox): task 08's compare.sh with
-# perf_guard/frame_time.mjs in place of gpu_time.mjs. BROWSER (default firefox) picks the browser; one uncapped launch
-# per (run, scene, config), the order of the configs rotated every run; same prechecks (no SCons, load, VRAM, GPU
-# utilization, no game or LM Studio on the GPU) and the same CONTAMINATED marking. Logs: <out>/<scene>.<tag>.<run>.log;
+# two uncapped launches per (run, scene, config): perf_guard/frame_time.mjs (rAF interval, no instrumentation) and
+# gpu_time.mjs --browser (timestamp queries per command buffer; Firefox has them). BROWSER (default firefox) picks the
+# browser; the order of the configs is rotated every run; same prechecks (no SCons, load, VRAM, GPU
+# utilization, no game or LM Studio on the GPU) and the same CONTAMINATED marking. Logs: <out>/<scene>.<tag>.<run>.{ft,gt}.log;
 # summarize_ft.mjs tabulates. Resumable.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FT="$HERE/../../../../webgpu_tests/perf_guard/frame_time.mjs"
+GT="$HERE/../../../../webgpu_tests/perf_guard/gpu_time.mjs"
 out=$1 runs=$2; shift 2
 scenes=(); while [[ $1 != -- ]]; do scenes+=("$1"); shift; done; shift
 configs=("$@")
@@ -39,12 +41,15 @@ for ((run = 1; run <= runs; run++)); do
 		for ((i = 0; i < n; i++)); do
 			c=${configs[$(((i + run - 1) % n))]}
 			tag=${c%%=*} dir=${c#*=}
-			log="$out/$scene.$tag.$run.log"
-			if grep -q "ms/frame" "$log" 2>/dev/null && ! grep -q CONTAMINATED "$log"; then continue; fi
+			log="$out/$scene.$tag.$run.ft.log" glog="$out/$scene.$tag.$run.gt.log"
+			if grep -q "ms/frame" "$log" 2>/dev/null && grep -q "GPU busy" "$glog" 2>/dev/null && ! grep -q CONTAMINATED "$log" "$glog"; then continue; fi
 			precheck
 			echo "$(date +%T) run $run $scene $tag (load $(cut -d' ' -f1 /proc/loadavg))"
 			node "$FT" --dir "$dir/$scene" --browser "$BROWSER" --uncapped --settle "$SETTLE" --window "$WINDOW" >"$log" 2>&1 || echo "  FAILED: $log"
 			postcheck "$log"
+			precheck
+			node "$GT" --dir "$dir/$scene" --browser "$BROWSER" --uncapped --settle "$SETTLE" --size 1280x720 >"$glog" 2>&1 || echo "  FAILED: $glog"
+			postcheck "$glog"
 		done
 	done
 done

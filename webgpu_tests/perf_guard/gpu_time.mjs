@@ -1,6 +1,6 @@
 // How long does a WebGPU export's work take *on the GPU*? (TASKS.md 2.30)
 //
-//   node gpu_time.mjs --dir <export dir> [--uncapped] [--passes [--top 30] [--dims]] [--rounds N] [--settle 12000] [--size 1280x720]
+//   node gpu_time.mjs --dir <export dir> [--browser chrome|firefox] [--uncapped] [--passes [--top 30] [--dims]] [--rounds N] [--settle 12000] [--size 1280x720]
 //
 // api_profile.mjs says where the main thread's time goes, but uncapped, a main thread that is "100% busy" can be
 // blocked in getCurrentTexture()/submit() waiting for the GPU or the compositor, which reads exactly like CPU cost.
@@ -14,6 +14,7 @@ import { createServer } from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join, extname, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i !== -1 ? process.argv[i + 1] : d; };
 const DIR = resolve(arg('dir'));
@@ -28,8 +29,12 @@ const server = createServer((q, r) => {
 	r.writeHead(200, { 'Content-Type': MIME[extname(f)] || 'application/octet-stream', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' }); r.end(readFileSync(f));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const { chromium } = await import(join(HERE, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
-const browser = await chromium.launch({
+const { chromium, firefox } = await import(join(HERE, '..', 'scene_smoketest', 'node_modules', 'playwright', 'index.mjs'));
+// --browser firefox: Firefox exposes 'timestamp-query' too (work task 11); uncapped there is layout.frame_rate=0 (ASAP mode).
+const BROWSER = arg('browser', 'chrome');
+const browser = BROWSER === 'firefox' ? await firefox.launch({
+	headless: false, firefoxUserPrefs: { ...FIREFOX_WEBGPU_PREFS, ...(UNCAPPED ? { 'layout.frame_rate': 0 } : {}) },
+}) : await chromium.launch({
 	headless: false, executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
 	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist', '--enable-webgpu-developer-features',
 		...(UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])],

@@ -13,6 +13,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Playwright comes from scene_smoketest's node_modules. A git worktree has none (node_modules is not tracked), so
@@ -51,7 +52,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 // Firefox needs WebGPU switched on and takes none of Chrome's flags (scene_smoketest/run_scenes.mjs launchFirefox).
 const browser = BROWSER === 'firefox' ? await firefox.launch({
 	headless: false,
-	firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
+	firefoxUserPrefs: FIREFOX_WEBGPU_PREFS,
 }) : await chromium.launch({
 	headless: false,
 	executablePath: '/usr/bin/google-chrome-stable',

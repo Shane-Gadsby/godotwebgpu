@@ -47,6 +47,7 @@ import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
 import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE, byId } from './features.mjs';
 import { attachAudit } from '../scene_smoketest/webgpu_audit.mjs';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // --baked runs against export_baked/ (made by `BAKE=1 ./export.sh`) and additionally asserts the
@@ -145,7 +146,7 @@ async function launchBrowser(name) {
   if (name === 'firefox') {
     return pw.firefox.launch({
       headless: !!process.env.CI,
-      firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
+      firefoxUserPrefs: FIREFOX_WEBGPU_PREFS,
     });
   }
   return null;

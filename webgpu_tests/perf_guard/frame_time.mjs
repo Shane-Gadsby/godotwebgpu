@@ -15,7 +15,9 @@ import { createServer } from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join, extname, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 import { attachAudit } from '../scene_smoketest/webgpu_audit.mjs';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i !== -1 ? process.argv[i + 1] : d; };
@@ -39,7 +41,7 @@ const pw = await import(join(HERE, '..', 'scene_smoketest', 'node_modules', 'pla
 const browser = BROWSER === 'firefox'
 	? await pw.firefox.launch({
 		headless: false,
-		firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true, ...(UNCAPPED ? { 'layout.frame_rate': 0 } : {}) },
+		firefoxUserPrefs: { ...FIREFOX_WEBGPU_PREFS, ...(UNCAPPED ? { 'layout.frame_rate': 0 } : {}) },
 	})
 	: await pw.chromium.launch({
 		headless: false, executablePath: '/usr/bin/google-chrome-stable', ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
@@ -77,7 +79,16 @@ await page.addInitScript(() => {
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await new Promise((r) => setTimeout(r, SETTLE));
 await page.evaluate(() => { window.__ft.t = []; window.__ft.on = true; });
-await new Promise((r) => setTimeout(r, WINDOW));
+await new Promise((r) => setTimeout(r, WINDOW / 2));
+// Which GPU the browser is on: Firefox hides GPUAdapterInfo, so the proof that a number is real-GPU is its process in
+// nvidia-smi's table (graphics and compute) halfway through the window.
+let gpuProcs = '';
+try {
+	gpuProcs = execFileSync('nvidia-smi', { encoding: 'utf8' }).split('\n').filter((l) => new RegExp(BROWSER === 'firefox' ? 'firefox' : 'chrome', 'i').test(l)).map((l) => l.replace(/\s+/g, ' ').trim()).join(' | ');
+} catch {
+	gpuProcs = 'nvidia-smi unavailable';
+}
+await new Promise((r) => setTimeout(r, WINDOW / 2));
 const r = await page.evaluate(() => {
 	const F = window.__ft;
 	F.on = false;
@@ -98,6 +109,7 @@ if (d.length < 10) {
 	console.log(`frames ${d.length} over ${span.toFixed(0)} ms -> ${(1000 * d.length / span).toFixed(1)} fps, mean ${(span / d.length).toFixed(3)} ms/frame, median ${q(0.5).toFixed(3)}, p95 ${q(0.95).toFixed(3)}, max ${d[d.length - 1].toFixed(1)}`);
 }
 console.log(`shader sources: ${JSON.stringify(r.shaders)}`);
+console.log(`nvidia-smi: ${gpuProcs || '(browser not in the GPU process table)'}`);
 console.log(`console errors: ${errors}${firstErrors.length ? ' first: ' + firstErrors.join(' | ') : ''}`);
 await browser.close();
 server.close();
