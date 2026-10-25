@@ -1,5 +1,21 @@
 # Status (lead-maintained)
 
+## 2026-10-25 14:25 — task 17 merged (GPU check pending)
+
+- **17 merged**: FSR2's softness on WebGPU was not the capture phase. FSR2 read its reactive mask through
+  `get_internal_texture_reactive()`, an alpha-swizzled view; WebGPU views cannot swizzle and the driver drops it
+  silently, so reactivity was the scene's red channel. amd-fsr2 patch 0005 (`FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA`)
+  reads `.a` and forward clustered passes the plain color view; native byte-identical. fsr2_1 Laplacian 13.35 vs 13.34
+  (was 11.03), mean diff 0.142. FSR2 jitter at scale 0.5 has 32 phases: `JITTER_PERIOD` 32, fsr2 parityTol 0.3.
+  Worker's full baked matrix 71/71.
+- Lead on top: `drivers/webgpu/SCsub` now makes the precompiled table depend on `thirdparty/amd-fsr{,2}` shader sources
+  (the gap 17 found); the merged build re-baked on its own. Editor + web release template build, smoke OK (276/0).
+- Pending: the lead's full `--parity --baked` run on the merged tree, queued behind worker-12's `gpu` lease.
+- Follow-ups for TASKS (task 10): trap "texture view swizzles silently dropped on WebGPU" — audit other swizzled
+  views (`texture_storage.cpp`); FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (check with a
+  moving camera and sky).
+- FSR2 before/after look posted on the board.
+
 ## 2026-10-25 14:10 — task 08 integrated; 11 and 12 out
 
 - **08 integrated**: desktop Chrome (4080 SUPER) GPU time, SPIRV-Cross everywhere vs Tint everywhere (a Tint-runtime
@@ -198,7 +214,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 17 | FSR2 softer on WebGPU than native (pre-existing, user's look) | open | |
+| 17 | FSR2 softer on WebGPU than native (reactive mask read red) | merged, lead GPU check pending | worker-17 (retired) |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.
