@@ -1,8 +1,8 @@
 # 16-baked-fog-race: volumetric fog in baked exports lands in one of two states per run
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-16
+Claimed: 2026-10-25 12:15
 Needs: gpu
 Branch: work/16
 Results: webgpu_notes/work/results/16-baked-fog-race/
