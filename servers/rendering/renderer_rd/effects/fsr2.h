@@ -159,6 +159,7 @@ public:
 		RID color;
 		RID depth;
 		RID velocity;
+		// Read as reactivity from its alpha channel (FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA).
 		RID reactive;
 		RID exposure;
 		RID output;
