@@ -218,12 +218,13 @@ When a uniform set created with shader A's BGL needs to be used with shader B's 
 ### 4.1 SPIR-V Pre-Processing (`spirv_preprocess::run_pipeline()`)
 
 Every path that converts SPIR-V to WGSL -- the runtime fallback (`spirv_to_wgsl.cpp`), the build-time
-precompiler and export-time baker (`tint_convert_cli`), and the fuzzer -- calls `run_pipeline()`, so this
+precompiler and export-time baker (`wgsl_convert_cli`), and the fuzzers -- calls `run_pipeline()`, so this
 order exists in exactly one place. It is the source of truth; this list was written from it on 2026-10-17
-(the long-standing "twelve passes" had grown well past twelve). Raw word-rewriting passes live in
+(the long-standing "twelve passes" had grown well past twelve) and checked against it on 2026-10-25. Raw word-rewriting passes live in
 `spirv_preprocess.cpp`; the three that restructure control flow or add types are written on SPIRV-Tools'
 optimizer IR in `spirv_opt_passes.cpp` (marked *IR*).
 
+0. **Input validation**: SPIRV-Tools' validator (`SPV_ENV_VULKAN_1_2`) runs on the input first, because the optimizer-based passes assert on malformed modules instead of failing. A rejected module returns empty with `invalid SPIR-V, not converted: <validator message>`, which every caller reports as a failed conversion. `wgsl_convert_cli` and the fuzzers validate; the engine's own runtime conversion opts out (`p_validate_input`), since its input is its own glslang output and validation would be pure load time. Every optimizer-based pass also runs `check_ir_preconditions()` and skips itself on a module an earlier raw pass broke.
 1. **inline_opaque_functions**: inlines functions that take textures/samplers as parameters, so every later pass sees handles only at their use sites.
 2. **freeze_spec_constant_ops** -- only when `spec_constants_overridable()` says no: evaluates `OpSpecConstantOp` and fixes every spec constant to its default. Otherwise spec constants stay and become WGSL `@id(N) override`s.
 3. **rewrite_copy_logical**: `OpCopyLogical` → `OpCopyObject` (SPIR-V 1.4+).
@@ -232,26 +233,28 @@ optimizer IR in `spirv_opt_passes.cpp` (marked *IR*).
 6. **split_combined_samplers**: splits combined image-samplers and doubles every binding (texture at 2b, sampler at 2b + 1).
 7. **fix_depth2_images**: `depth=2` (unknown) images → `depth=1`.
 8. **negate_position_y**: flips `gl_Position.y` for WebGPU's NDC.
-9. **strip_unsupported_decorations**: drops `Restrict` and similar hints Tint's reader rejects.
+9. **strip_unsupported_decorations**: drops `Restrict` and similar hints Tint's reader rejected (kept: WGSL has no use for them).
 10. **strip_memory_barrier**: `OpMemoryBarrier` → `OpNop`.
-11. **strip_image_write_operands** / 12. **strip_image_fetch_read_flag_only_operands**: drop sign-extension-only image operand masks Tint's reader rejects.
+11. **strip_image_write_operands** / 12. **strip_image_fetch_read_flag_only_operands**: drop sign-extension-only image operand masks Tint's reader rejected (kept: they carry nothing WGSL can express).
 13. **hoist_constant_local_arrays**: constant-initialized local arrays become module-scope constants.
 14. **split_initialized_local_arrays**: the remaining initialized local arrays get explicit stores instead of an initializer.
 15. **strip_helper_invocation_builtin**: `HelperInvocation` → false.
 16. **fold_ballot_bit_count** then 17. **lower_subgroup_ops**: subgroup ballots and reductions folded to single-lane equivalents (WebGPU has no subgroups here).
 18. **fix_nonfinite_literals**: Inf/NaN literals → FLT_MAX / FLT_MIN (WGSL has no such literals).
-19. **lower_tint_unsupported_ops** (*IR*): `OpIsNan`/`OpIsInf` → bit tests, `OpImageQueryLod` → derivative/size math, `PointCoord` → `vec2(0.5)`, `EarlyFragmentTests` removed. Each of these aborted Tint's reader, which took the whole page down.
+19. **lower_tint_unsupported_ops** (*IR*): `OpIsNan`/`OpIsInf` → bit tests, `OpImageQueryLod` → derivative/size math, `PointCoord` → `vec2(0.5)`, `EarlyFragmentTests` removed. WGSL has no direct form for any of them; the pass is named for Tint, the converter before SPIRV-Cross, whose reader aborted on each and took the whole page down.
 20. **apply_sampler_lod_bias** (*IR*): WebGPU samplers carry no mip bias, so in a module that declares the `SamplerLodBias` uniform (GLSL binding 40 of the scene shaders' render-pass set) every implicit-LOD sample through a sampler of that set gets the value added as a Bias operand.
 21. **expand_binding_arrays** (*IR*): arrays of textures/samplers/storage images become one variable per element, bound per `spirv_binding_layout.h` (element 0 at 2b, element k at 400 + 16b + k - 1); dynamic indexing becomes a switch. Budgeted against the stage's texture limit (16 sampled by default, 48 for a module already past 16; storage 4/8). Read-write storage-image arrays and arrays that do not fit are left for the next pass.
 22. **flatten_binding_arrays**: whatever is still an array is collapsed to element 0 (the driver warns once if its uniform set really holds more).
-23. **infer_readonly_storage**: adds `NonWritable` to SSBOs never written, so Tint emits `var<storage, read>`.
+23. **infer_readonly_storage**: adds `NonWritable` to SSBOs never written, so the converter emits `var<storage, read>`.
 24. **strip_writeonly_storage_decoration**: write-only SSBOs become read-write (WGSL has no write-only buffers).
 25. **eliminate_dead_resources**: drops resource variables the entry point never uses.
-26. **eliminate_local_single_block_vars** (SPIRV-Tools optimizer): removes the load/store idiom that otherwise fails Tint's uniformity analysis.
+26. **eliminate_local_single_block_vars** (SPIRV-Tools optimizer): removes the load/store idiom that otherwise fails WGSL's uniformity analysis.
 
-### 4.2 Tint Conversion
+### 4.2 SPIRV-Cross Conversion
 
-After preprocessing, the SPIR-V is passed to Tint (Google's Dawn/Chrome shader compiler) via `tint_wrapper_spirv_to_wgsl()`. Tint performs SPIR-V parsing, IR validation, and WGSL code generation. Six patches to Tint handle Godot-specific requirements (UBO layout, spec constant size mismatches, point_size tolerance).
+After preprocessing, the SPIR-V is passed to SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, Ludicon/spirv-cross-wgsl, namespace `spirv_cross_wgsl`) via `spirv_cross_wrapper_spirv_to_wgsl()`; `webgpu::spirv_to_wgsl()` (`spirv_to_wgsl.cpp`) is the runtime entry point that runs `run_pipeline()` first. The wrapper sets `allow_non_uniform_derivatives` (the backend then emits `diagnostic(off, derivative_uniformity)` where implicit derivatives are used) and marks storage buffers the vertex stage only reads `NonWritable`, since WebGPU forbids `read_write` storage in vertex shaders. SPIRV-Cross reports an unsupported shader by throwing, so its translation units, and only those, are built with `-fwasm-exceptions`; the wrapper catches and the caller sees a failed conversion. Spec constants come out as `@id(N) override`.
+
+Four local patches, never upstreamed (`thirdparty/README.md`): `0001` emits the barrier/load/barrier broadcast idiom as `workgroupUniformLoad`, `0006` adds the 16-bit normalized storage formats, `0015` passes uniform compute builtins (`workgroup_id`, `num_workgroups`) as parameters so barrier uniformity holds, and `0019` never emits a WGSL `for` (Mali-G615 / Chrome ran a negative-start counted loop zero times). Tint, the converter until October 2026, is gone from the tree (`webgpu_notes/TASKS.md` §4.36).
 
 ### 4.3 WGSL Post-Processing
 
@@ -471,7 +474,7 @@ scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=ye
 
 1. SCons reads `platform/web/detect.py` → sets `WEBGPU_ENABLED`, `RD_ENABLED`, links emdawnwebgpu
 2. `modules/glslang/config.py` → enables glslang for SPIR-V compilation
-3. `drivers/SCsub` → includes `drivers/webgpu/SCsub` → compiles driver sources, SPIRV-Tools (~150 .cpp), Tint (~300 .cc with C++20), and tint_wrapper
+3. `drivers/SCsub` → includes `drivers/webgpu/SCsub` → compiles driver sources, SPIRV-Tools (~150 .cpp), SPIRV-Cross's WGSL backend (7 .cpp, with `-fwasm-exceptions`) and `spirv_cross_wrapper`
 4. Emscripten (emcc) compiles C++ with `--use-port=emdawnwebgpu` headers
 5. Emscripten links with emdawnwebgpu JS glue
 6. `emscripten_helpers.py` packages: .js + .wasm into template zip
@@ -481,7 +484,7 @@ scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=ye
 1. `engine.js` detects `renderingDriver === 'webgpu'`
 2. Requests WebGPU device (async, before WASM loads)
 3. Device ready → `Godot(moduleConfig)` called with preinitializedWebGPUDevice; alongside the wasm and the main pack the shell preloads, when the export has them, `<name>.shaders.pck` (the baked shader cache) and **one** of `<name>.textures_bc.pck` / `<name>.textures_etc2_astc.pck` (`Engine.pickTexturePack()`: BC if the device samples it, else ETC2/ASTC if it samples that, else BC for CPU decompression), written as `<main pack>.textures.pck`. `ProjectSettings` mounts `.shaders.pck` and `.textures.pck` beside the main pack.
-4. C++ imports device, Tint is already compiled into the WASM, rendering begins
+4. C++ imports device, the SPIR-V → WGSL converter is already compiled into the WASM, rendering begins
 5. As the engine starts, the shell fetches `<name>.shaders_extra.bin` at low priority (`Engine.loadShaderExtras()`) and writes it to `/godot_shader_cache_extras.bin`; `ShaderRD` indexes it on its next shader cache miss (`_open_from_extras()`). It holds the shader groups the export deferred (§4.5).
 
 Files of an export with every option on: `index.html`, `index.js`, `index.wasm`, `index.pck`, `index.shaders.pck`, `index.shaders_extra.bin`, `index.textures_bc.pck`, `index.textures_etc2_astc.pck`, plus icons and the audio worklet.
@@ -511,7 +514,7 @@ Additional safety:
 ### 9.3 Threading
 
 - Single WebGPU queue. In nothreads builds, and in threaded builds with the default (Safe) thread model, every WebGPU call is made on the main thread.
-- Thread-enabled exports render on their **own pthread** by default (export option `variant/separate_render_thread`, on by default; it passes `--render-thread separate`, which `rendering/driver/threads/thread_model=2` also selects): the thread owns the canvas as an `OffscreenCanvas`, requests its own adapter/device (every emdawnwebgpu handle lives in the JS table of the thread that created it), creates the `RenderingDevice` there, and pumps the command queue through `Atomics.waitAsync`, yielding to its event loop after each frame so it presents. The main thread never blocks on it: `RenderingServer::sync_previous_draw()` compares frame counters and the web main loop waits for the previous frame asynchronously. Shader translation (Tint) then runs on the render thread. `engine.js` probes WebGPU-in-a-worker at startup and the engine falls back to Safe where it is unavailable. See `webgpu_notes/TASKS.md` §2.5 and `PERFORMANCE_AND_OPTIMIZATION.md`.
+- Thread-enabled exports render on their **own pthread** by default (export option `variant/separate_render_thread`, on by default; it passes `--render-thread separate`, which `rendering/driver/threads/thread_model=2` also selects): the thread owns the canvas as an `OffscreenCanvas`, requests its own adapter/device (every emdawnwebgpu handle lives in the JS table of the thread that created it), creates the `RenderingDevice` there, and pumps the command queue through `Atomics.waitAsync`, yielding to its event loop after each frame so it presents. The main thread never blocks on it: `RenderingServer::sync_previous_draw()` compares frame counters and the web main loop waits for the previous frame asynchronously. Shader translation (SPIRV-Cross) then runs on the render thread. `engine.js` probes WebGPU-in-a-worker at startup and the engine falls back to Safe where it is unavailable. See `webgpu_notes/TASKS.md` §2.5 and `PERFORMANCE_AND_OPTIMIZATION.md`.
 - No SharedArrayBuffer requirement for WebGPU itself; only threaded builds need cross-origin isolation.
 
 ### 9.4 WorkerThreadPool Nothreads Fix

@@ -15,7 +15,7 @@ Forward+ and Mobile renderers to run in the browser.
 │    • Buffers, Textures, Samplers, Pipelines, Draw calls │
 │    • Push constant ring buffer emulation (group 3)      │
 │    • Subpass flattening (each subpass → render pass)     │
-│    • SPIR-V → WGSL translation (Tint, linked in)        │
+│    • SPIR-V → WGSL translation (SPIRV-Cross, linked in) │
 ├─────────────────────────────────────────────────────────┤
 │  RenderingContextDriverWebGPU                           │
 │    • Device import from JS pre-initialized GPUDevice    │
@@ -35,11 +35,14 @@ Forward+ and Mobile renderers to run in the browser.
 | `rendering_context_driver_webgpu.cpp/h` | ~290 | Device bootstrap, surface/swap chain management |
 | `rendering_shader_container_webgpu.cpp/h` | ~480 | Shader container format (SPIR-V storage, baked WGSL, baked reflection) |
 | `webgpu_objects.h` | ~320 | GPU object wrappers (WGBuffer, WGTexture, WGShader, etc.) |
-| `spirv_preprocess.cpp/h` | ~5100 | SPIR-V preprocessing passes before Tint conversion, and `run_pipeline()`, the one definition of their order |
-| `spirv_opt_passes.cpp/h` | ~1060 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of what Tint aborts on |
+| `spirv_preprocess.cpp/h` | ~5100 | SPIR-V preprocessing passes before conversion, and `run_pipeline()` (which validates its input first), the one definition of their order |
+| `spirv_opt_passes.cpp/h` | ~1060 | Passes that restructure control flow or add types, written against SPIRV-Tools' optimizer IR: texture-array expansion, the sampler LOD bias, lowering of constructs WGSL has no direct form for |
 | `spirv_binding_layout.h` | ~80 | Where expanded array elements and the SamplerLodBias block bind; shared by the passes and the driver |
 | `spirv_lite_reflect.cpp/h` | ~220 | Raw SPIR-V reflection with no SPIRV-Tools dependency, so the editor-side baker can run it too |
-| `tint_wrapper.cpp/h` | ~55 | C++20 isolation wrapper for Tint API |
+| `spirv_cross_wrapper.cpp/h` | ~130 | SPIRV-Cross's WGSL backend on preprocessed SPIR-V: options, vertex-stage `read_write` demotion, exceptions caught |
+| `spirv_to_wgsl.cpp/h` | ~140 | Runtime entry point: `run_pipeline()` + the wrapper for anything not precompiled or baked |
+| `wgsl_text_scan.cpp/h` | ~1430 | Everything the driver and baker read out of converted WGSL, parsed structurally, and the three text rewrites (std-only, tested natively by `webgpu_tests/wgsl_text_scan`) |
+| `wgsl_cli/` | — | `wgsl_convert_cli`, the native host tool (precompile, export bake, debugging) and its fuzzers (`wgsl_cli/fuzz/`) |
 | `pixel_formats_webgpu.h` | ~710 | Godot DataFormat → WGPUTextureFormat mapping table |
 
 ## Key Design Decisions
@@ -56,16 +59,36 @@ WebGPU has no subpasses. Each Godot subpass becomes a separate
 Godot's subpass configuration.
 
 ### Shader Translation
-GLSL → SPIR-V (glslang, at build time) → WGSL (Tint, linked in as C++).
-SPIR-V is preprocessed in C++ before Tint conversion: combined image-samplers
+GLSL → SPIR-V (glslang, at build time) → WGSL (SPIRV-Cross's WGSL backend,
+linked in as C++). SPIR-V is preprocessed in C++ before conversion: combined image-samplers
 are split into separate texture + sampler bindings, push constant blocks are
 rewritten to storage buffer references at binding 120, and various other
 fixups (depth image flags, position Y negation, point size stripping) are
-applied. Tint is compiled as a thirdparty C++20 library via a thin wrapper
-(`tint_wrapper.cpp`) that isolates its C++20 headers from the Godot build.
+applied. SPIRV-Cross (`thirdparty/spirv-cross-wgsl`, patched locally, never
+upstreamed) reports an unsupported shader by throwing, so its translation units
+are built with `-fwasm-exceptions` in their own SCons environment (the link gets
+the flag too) and `spirv_cross_wrapper.cpp` catches; the rest of the engine
+stays `-fno-exceptions`. A throw returns no WGSL and the stage fails to convert
+like any other error. Tint was the converter until 2026-10-25 (TASKS.md §4.36).
+
+`run_pipeline()` first validates its input with SPIRV-Tools' validator
+(`spirv_opt_passes::validate_module()`, Vulkan 1.2 rules, ~2.3 ms a module on
+average, 26 ms on the 288 KB Forward+ uber shader) and rejects a malformed
+module with `invalid SPIR-V, not converted: ...`, because SPIRV-Tools' optimizer
+asserts on one. The engine's own runtime conversion (`spirv_to_wgsl.cpp`) opts
+out — its input is glslang's output, and on the web the check would be pure
+load time; `wgsl_convert_cli` and the fuzzers validate. Every pass that runs
+the optimizer (`inline_opaque_functions`, `eliminate_dead_resources`,
+`eliminate_local_single_block_vars`, and the three in `spirv_opt_passes.cpp`)
+first runs `check_ir_preconditions()`, a linear scan for what the IR loader
+asserts on; it is not a validator, and inside `run_pipeline()` it only fires
+when an earlier raw pass broke the module (`WebGPU: <pass>: skipped, the module
+is malformed: ...`). `rewrite_copy_logical` keeps an `OpCopyLogical` it would
+expand past 65532 elements or 16 MB of words (a valid 1e8-element copy once took
+6.2 GB).
 
 `spirv_preprocess::run_pipeline()` is the only place the passes' order is
-written down; the runtime driver, `tint_convert_cli` (and so the export-time
+written down; the runtime driver, `wgsl_convert_cli` (and so the export-time
 baker and the build-time precompile) and the fuzzers all call it. Three of the
 passes live in `spirv_opt_passes.cpp`, because they restructure control flow:
 
@@ -80,9 +103,10 @@ passes live in `spirv_opt_passes.cpp`, because they restructure control flow:
   mip bias, so the scene shaders' render-pass samplers' bias (the viewport's
   `texture_mipmap_bias`, TAA/FSR's sharpening) is passed as data
   (`SamplerLodBias`, set 1 binding 40) and added to implicit-LOD samples.
-- **What Tint aborts on** (`lower_tint_unsupported_ops()`): `isnan`/`isinf`,
-  `textureQueryLod`, `POINT_COORD` and `early_fragment_tests` used to crash the
-  whole page from a material; they are rewritten into what Tint accepts.
+- **What WGSL has no form for** (`lower_tint_unsupported_ops()`, named for
+  Tint, which aborted on them): `isnan`/`isinf`, `textureQueryLod`,
+  `POINT_COORD` and `early_fragment_tests` used to crash the whole page from a
+  material; they are rewritten into what the converter accepts.
   (`gl_PointCoord` becomes `vec2(0.5)`, which only the non-emulated branch
   reads: WebGPU has no point size, so `SUPPORTS_POINT_SIZE` is false and the
   scene shaders draw each point as a quad with an interpolated coordinate. A
@@ -123,11 +147,11 @@ Three tiers, checked in order:
    worker pool, then `webgpu::WgslBakeBatch` (`wgsl_bake_subprocess.cpp`)
    converts all stages at once — deduplicated by SHA-256, screened for the
    constructs WGSL cannot express, split into ~4 chunks per core of
-   `tint_convert_cli --batch` started with `posix_spawn()` — and only then are
+   `wgsl_convert_cli --batch` started with `posix_spawn()` — and only then are
    the containers built. Converted WGSL is cached under
-   `<OS cache>/godot/webgpu_wgsl_bake/v1-<sha256 of tint_convert_cli>/`, keyed
-   by the SPIR-V's SHA-256, so it survives engine rebuilds and a Tint rebuild
-   invalidates it; `WEBGPU_BAKE_CACHE=0` turns it off. On web the containers
+   `<OS cache>/godot/webgpu_wgsl_bake/v1-<sha256 of wgsl_convert_cli>/`, keyed
+   by the SPIR-V's SHA-256, so it survives engine rebuilds and a converter
+   rebuild invalidates it; `WEBGPU_BAKE_CACHE=0` turns it off. On web the containers
    ship as `<name>.shaders.pck` next to the main pack (preset
    `shader_baker/separate_pack`): the shell preloads it (`config.shaderPack`)
    and `ProjectSettings::_setup` mounts it. The shell/mount halves live in the
@@ -139,12 +163,13 @@ Three tiers, checked in order:
    Keyed by SPIR-V hash, so it only hits when the engine's glslang output
    matches what the table was generated from. `SCsub` re-bakes it when a
    preprocessing-pass source, an engine `.glsl`, anything under vendored
-   Tint/SPIRV-Tools/`tint_cli`, `bin/tint_convert_cli` itself or glslang's
+   SPIRV-Cross/SPIRV-Tools/`wgsl_cli`, the FSR 1/2 shader sources under
+   `thirdparty/amd-fsr{,2}`, `bin/wgsl_convert_cli` itself or glslang's
    version changes (a fingerprint `Value`, ~30 ms per scons read);
    `./build-linux.sh --force-shader-rebake` deletes the header to force one.
-   The bake runs glslangValidator and `tint_convert_cli --batch` across all
-   cores (~3 s for the 274 engine modules); `WGSL_PRECOMPILE_JOBS=N` caps it.
-3. **Runtime Tint** — anything that missed, translated in the browser on
+   The bake runs glslangValidator and `wgsl_convert_cli --batch` across all
+   cores (~3 s for the 276 engine modules); `WGSL_PRECOMPILE_JOBS=N` caps it.
+3. **Runtime conversion** — anything that missed, translated in the browser on
    demand. This is what an export with baking turned off uses for everything,
    and it is the only route for a shader that does not exist at export time
    (`Shader.new()` + `set_code()` at runtime).
@@ -161,7 +186,7 @@ Three tiers, checked in order:
 ### What a container ships, and why the SPIR-V is usually not in it
 
 Every shader container used to carry two descriptions of the same shader: the
-SPIR-V glslang produced, and the WGSL Tint baked from that SPIR-V. Both
+SPIR-V glslang produced, and the WGSL the converter baked from that SPIR-V. Both
 uncompressed — the WebGPU container is the one container format in the engine
 that never compresses its code, because the web runtime pays CPU for
 decompression in the one place where CPU is the scarce resource.
@@ -184,8 +209,8 @@ So a container now ships only what the runtime will read:
   (`FLAG_SPIRV_OMITTED`). The runtime reads a stage's SPIR-V for exactly four
   things, and three of them are now baked into the container instead: the
   pre-DCE image declarations (see `spirv_lite_reflect.h`), the "declares
-  specialization constants" bit, and — moot once the WGSL is baked — the Tint
-  fallback. The fourth is the legacy specialization path, which re-patches the
+  specialization constants" bit, and — moot once the WGSL is baked — the runtime
+  conversion fallback. The fourth is the legacy specialization path, which re-patches the
   SPIR-V with constant values and re-converts it; a shader that can reach that
   path keeps its bytes. SPIR-V is the *larger* of the two payloads, so this is
   the larger saving, and it shrinks the `.pck` by the same amount.
@@ -222,7 +247,7 @@ is what lets you fix it. The `--verbose` log carries the same thing, but a web
 export has no convenient way to pass `--verbose`, so it is readable straight from
 the console.
 
-`translated` is the one that matters — it counts stages this driver ran Tint on
+`translated` is the one that matters — it counts stages this driver converted
 at load time *that baking should have covered*. Zero means every shader arrived
 ready, and whatever startup cost remains is the browser compiling WGSL into
 pipelines, which baking cannot remove. A non-zero value with baking enabled
@@ -237,17 +262,17 @@ project setting (a web export has no command line), and these line up:
 | Log line | Side | Says |
 |---|---|---|
 | `Shader baker: baking '<name>/<group>/<sha1>' from <origin>` | editor | which versions were baked, and what led the baker to each |
-| `WebGPU shader baker: N stages -> U unique to convert (D duplicates, X unconvertible, C from the WGSL cache); ...` | editor | the batch's one-line summary: how much Tint actually had to do, and how many stages it rejected or the tool failed on |
+| `WebGPU shader baker: N stages -> U unique to convert (D duplicates, X unconvertible, C from the WGSL cache); ...` | editor | the batch's one-line summary: how much the converter actually had to do, and how many stages it rejected or the tool failed on |
 | `Shader cache miss for <name>/<group>/<sha1>` | runtime | exactly which key the game wanted |
 | `^ version is: uni=… frag=… defines(n)=[…]` | both | every field the version SHA1 covers, hashed separately, so the *differing* field names itself |
 | `^ code[FRAGMENT]: …` | runtime | the generated shader body itself, when hashes are not enough |
 | `BaseMaterial3D: generating shader for '<path>' … shading_mode=… disable_fog=…` | both | which **material** produced a generated shader — a generated shader has no path of its own, the material usually does |
 
-`specialized` also runs Tint at load time, but is **not** a baking gap and is
+`specialized` also converts at load time, but is **not** a baking gap and is
 counted separately for that reason. It is a shader whose specialization
 constants had to be patched into the SPIR-V because
 `spirv_preprocess::spec_constants_overridable()` rejected it (non-scalar
-constants, an `OpSpecConstantOp` Tint cannot lower, spec-constant array
+constants, an `OpSpecConstantOp` the override path cannot lower, spec-constant array
 sizes/composites/workgroup sizes — see "Specialization constants" above). The
 patched bytes are built at pipeline-creation time from values the exporter never
 saw, so no export-time bake could have produced them. The only way to reduce
@@ -259,14 +284,16 @@ build.
 **Two traps worth knowing**, both of which look exactly like "baking did
 nothing":
 
-- `bin/tint_convert_cli` is a **separate native build** from the editor
-  (`drivers/webgpu/tint_cli/build.sh`), and the baker runs the copy sitting
+- `bin/wgsl_convert_cli` is a **separate native build** from the editor
+  (`drivers/webgpu/wgsl_cli/build.sh`), and the baker runs the copy sitting
   next to the editor executable. A stale copy bakes stale WGSL — and a copy
   predating WGSL `override` support bakes shaders whose specialization
   constants are frozen, which sends every specialized pipeline back down the
   legacy runtime-translation path. Rebuild it whenever anything under
-  `drivers/webgpu/spirv_preprocess.*`, `tint_wrapper.*` or `thirdparty/tint`
-  changes.
+  `drivers/webgpu/spirv_preprocess.*`, `spirv_cross_wrapper.*` or
+  `thirdparty/spirv-cross-wgsl` changes. An editor built before the rename
+  (2026-10-25) looks for `tint_convert_cli` and finds nothing: it warns once
+  and ships every shader unbaked (TASKS.md §3 trap 61).
 - Baked containers are cached between exports. After changing anything that
   affects WGSL output, clear `res://.godot/shader_cache` before re-exporting
   or the old bake is served back.
@@ -274,14 +301,14 @@ nothing":
 ### Specialization Constants
 Godot's specialization constants are always scalar (`bool`/`int`/`float`), which
 is exactly what WGSL's `override` mechanism covers, so they are normally left in
-the SPIR-V for Tint to turn into `@id(N) override` declarations and set with
+the SPIR-V for SPIRV-Cross to turn into `@id(N) override` declarations and set with
 WebGPU pipeline constants at `wgpuDeviceCreate*Pipeline()` time — one base shader
-module serves every value combination, with no runtime SPIR-V patching or Tint
-conversion.
+module serves every value combination, with no runtime SPIR-V patching or
+re-conversion.
 
 `spirv_preprocess::spec_constants_overridable()` decides this per module. A
 module whose constants cannot all become overrides — a non-scalar one, an
-`OpSpecConstantOp` operation Tint cannot lower, a specialization-constant-sized
+`OpSpecConstantOp` operation the converter cannot lower, a specialization-constant-sized
 array, an `OpSpecConstantComposite` built from one, a spec-constant workgroup
 size — is frozen to its defaults by `freeze_spec_constant_ops()` instead, and
 such a shader specializes through the legacy path:
@@ -290,6 +317,19 @@ real values and re-runs the whole pipeline, once per distinct combination, at
 runtime. The choice is all-or-nothing per shader: if any stage that declares
 specialization constants ends up frozen, the whole shader takes the legacy path,
 since mixing the two would leave that stage silently on its defaults.
+
+The rules were re-checked when SPIRV-Cross replaced Tint and stand unchanged:
+of the 276 engine variants, 93 keep their spec constants as overrides (216
+overrides) and none is frozen, so the legacy path serves user shaders only.
+SPIRV-Cross lowers every scalar `OpSpecConstantOp` Tint could; it cannot convert
+a spec composite used by runtime code or shuffled, nor a function-scope array
+sized by a spec constant (both stay frozen). `SMod` follows WGSL's truncated
+`%`. `freeze_spec_constant_ops()` evaluates `CompositeExtract`/`Insert`,
+`VectorShuffle` and component-wise vector ops on constant composites, and
+`SRem`/`SMod` with Vulkan's values; an op it cannot evaluate warns and becomes
+`OpConstantNull`, never a silent 0. `wgsl_convert_cli --spec-info <file.spv>`
+says which path a module takes; `webgpu_tests/spirv_cross_eval/run_spec_ops.sh`
+(real GPU) probes every op kind on both paths.
 
 ### Modules and compute pipelines are created on first use
 
@@ -388,13 +428,14 @@ item is a WebGPU spec limit or has a stated reason.
 - **No user-facing subgroup operations** — `LIMIT_SUBGROUP_IN_SHADERS` reports
   0, so custom `.gdshader`/visual-shader code cannot use subgroup intrinsics.
   This is narrower than it sounds: the `subgroups` device feature *is*
-  requested and used internally — the driver's own SPIR-V preprocessing
-  (`tint_wrapper.cpp`'s `allow_non_uniform_subgroup_operations`) and
-  build-time precompilation (`wgsl_precompile.py`'s SPIR-V 1.3 target) both
-  support subgroup ops in built-in engine shaders (e.g. `cluster_render.glsl`,
-  used by the Forward+/Clustered renderer's light culling) — it's only the
-  RenderingDevice-facing capability query for user shaders that's hardcoded
-  off.
+  requested, but the built-in engine shaders that use subgroup ops
+  (`cluster_render.glsl`'s light culling, `scene_forward_clustered.glsl`'s
+  cluster loop) have them lowered to single-lane equivalents by the driver's
+  own SPIR-V preprocessing (`fold_ballot_bit_count`, `lower_subgroup_ops`),
+  because Firefox's naga rejects `enable subgroups` and a baked export cannot
+  know which browser will run it (TASKS.md Task 38). Both uses are
+  optimizations over a correct per-lane computation, so nothing is lost but the
+  optimization.
 - **Forward+ (Clustered) renderer is supported** — the driver requests
   `maxSampledTexturesPerShaderStage` at the adapter's actual limit (not a
   conservative default), so Forward+'s ≥48-sampled-textures-per-stage

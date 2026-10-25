@@ -246,7 +246,7 @@ Untested on phones: Adreno (the §3.3 fallbacks), Safari/iOS.
 | No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU; monochrome font atlases rasterized as RGBA8 up front |
 | No 3-component texture formats | RGB8/RGBH/RGBF expanded to RGBA8 on CPU, once per texture at load |
 | No push constants | 256KB ring buffer emulation |
-| No combined image-samplers | SPIR-V-level split before Tint |
+| No combined image-samplers | SPIR-V-level split before conversion |
 | No subpasses | Flatten to separate render passes |
 | 256-byte row alignment for copies | Applied in all buffer↔texture operations |
 
@@ -316,18 +316,18 @@ All `WGPUSurfaceGetCurrentTextureStatus` values handled:
 
 ---
 
-## 5. Tint Patch Correctness
+## 5. SPIRV-Cross Patch Correctness
 
-Six patches covering 8 files in vendored Tint. Assessment by logical group:
+SPIR-V → WGSL is SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, Ludicon/spirv-cross-wgsl) since October 2026; Tint, the converter before it, and its six patches are gone (`webgpu_notes/TASKS.md` §4.36). Four local patches (the WGSL backend, plus one hook in `spirv_glsl.*` for `0019`), recorded in `thirdparty/spirv-cross-wgsl/patches/` and `thirdparty/README.md`, never upstreamed (a project rule):
 
-| Patch Group | Files | Risk Level | Correctness |
-|-------------|-------|-----------|-------------|
-| UBO layout relaxation | 1 | Low | Uses spirv-tools' official `SetSkipBlockLayout` API — one line, always necessary |
-| Spec constant size mismatches | 5 | Low | Capability-gated guards following Tint's own patterns — clean, well-scoped |
-| Point size tolerance | 1 | Low | Accepts non-constant stores to a value Tint strips anyway — arguably a Tint bug |
-| Vendoring (abseil removal) | 1 | None | Mechanical `absl::from_chars` → `std::from_chars` — zero behavioral difference |
+| Patch | Fixes | Risk Level | Correctness |
+|-------|-------|-----------|-------------|
+| `0001` workgroup uniform load | FSR2 luminance pyramid failed barrier uniformity | Low | Rewrites only the exact barrier / workgroup load / barrier sequence, which is what `workgroupUniformLoad` is defined as |
+| `0006` 16-bit norm storage formats | `CanvasSdfShaderRD` (R16Snorm) did not convert | None | Table entries for six formats WGSL names (`r16unorm` ... `rgba16snorm`); the driver still remaps formats the device lacks |
+| `0015` uniform compute builtins as parameters | Screen-space contact shadows failed barrier uniformity | Low | `workgroup_id` / `num_workgroups` reach the inner entry point as parameters shadowing their `var<private>` copies; same values, now visibly uniform |
+| `0019` no `for` statements | Volumetric fog lost its density on Mali-G615 / Chrome (a `for` starting at -3 ran zero times) | Low | Every loop takes the backend's generic `loop { if (!c) { break; } ... }` form, the shape Tint always emitted |
 
-**Divergence risk**: Low overall. All patches are localized (3 logical groups), follow Tint's own coding patterns, and are straightforward to reapply on Tint upgrades. This is a dramatic improvement over the previous naga approach which required 42 patched files across many subsystems.
+**Divergence risk**: Low. Each patch is 25-125 lines and is reapplied by hand when the vendored fork is updated. What guards the interface: `webgpu_tests/spirv_cross_eval/interface_reference.json` (bindings, kinds and override ids of every engine variant, as Tint emitted them) and `webgpu_tests/wgsl_text_scan/scan_reference.txt` are compared on every smoke run, and Forward+ is judged against native Vulkan (`run_forward_plus.mjs --parity`, 71/71 after the swap).
 
 ---
 
@@ -349,6 +349,11 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Sample playback (the web default for audio) cannot run bus effects (reverb, EQ, capture, spectrum...) or stream:
   a sound is decoded whole on its first play. Players that need either set `playback_type` to Stream, the native
   mixer. Both gaps are warned about at export and at runtime; options to close them: `webgpu_notes/TASKS.md` §2.32
+- Web exports keep the screen on (Screen Wake Lock, `display/window/energy_saving/keep_screen_on`, secure context
+  required). On phones and tablets the first tap puts the page in fullscreen (`html/fullscreen_on_first_tap`, on by
+  default), where the browser locks the orientation chosen by the `html/orientation` export option (default: the
+  `display/window/handheld/orientation` project setting). Desktop browsers cannot lock orientation, report
+  `FEATURE_ORIENTATION` as unsupported, and are not put in fullscreen by a tap
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages
@@ -460,7 +465,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | C++ fuzz targets | 3 targets | `fuzz_preprocess_passes`, `fuzz_split_samplers`, `fuzz_spirv_to_wgsl` |
 
 ### Remaining Gaps
-- Edge cases of the Tint patches rely on Godot's built-in shader corpus
+- Edge cases of the SPIRV-Cross patches rely on Godot's built-in shader corpus and the real-project corpus (`webgpu_tests/spirv_cross_eval/project_export.sh`, 2566 stages)
 - Fuzz targets use standalone mutation driver (libFuzzer not available with Apple clang)
 
 ---
@@ -469,7 +474,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 ### Input Validation
 - SPIR-V input is engine-generated (not user-supplied in typical use)
-- Tint validates the SPIR-V before WGSL generation
+- `run_pipeline()` validates its SPIR-V input with SPIRV-Tools before any pass runs (the engine's own runtime conversions skip it: their input is the engine's glslang output), and rejects a malformed module cleanly instead of asserting
 - WebGPU API performs its own validation layer (browser-side)
 
 ### Memory Safety

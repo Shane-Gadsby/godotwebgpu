@@ -50,6 +50,10 @@ Patches:
   storage-buffer forms of the SPD global atomic and the reconstructed previous
   depth, `SPD_NO_WAVE_OPERATIONS`, and a fixed `rgba16f` upscaled output, since
   WGSL has neither texture atomics nor formatless storage textures)
+- `0005-godot-reactive-mask-from-alpha.patch` (Godot WebGPU fork only:
+  `FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA` makes `LoadReactiveMask()` read the
+  reactivity from the alpha of the color buffer Godot binds, instead of `.r` through
+  an alpha-swizzled view, since WebGPU texture views cannot swizzle)
 
 
 ## angle
@@ -1101,9 +1105,11 @@ to generate Metal source from Vulkan SPIR-V.
 - Version: git (bad70810418b10064d9ea91e51c78935f112ba5c, 2026)
 - License: Apache 2.0 (`spirv_wgsl.*`: Apache 2.0 OR MIT)
 
-Separate from `spirv-cross` above (Metal's), compiled only into the WebGPU driver and `tint_convert_cli`, in the
+Separate from `spirv-cross` above (Metal's), compiled only into the WebGPU driver and `wgsl_convert_cli`, in the
 namespace `spirv_cross_wgsl` (`SPIRV_CROSS_NAMESPACE_OVERRIDE`) so both can link into one macOS editor.
-See `webgpu_notes/TASKS.md` §2.35.
+It is the only SPIR-V → WGSL converter since 2026-10-25, when it replaced Tint (`webgpu_notes/TASKS.md` §2.35,
+§4.36). Its translation units are the only engine code built with `-fwasm-exceptions` (it throws on unsupported
+shaders; `drivers/webgpu/spirv_cross_wrapper.cpp` catches).
 
 Files extracted from upstream source:
 
@@ -1119,7 +1125,7 @@ Patches (in `patches/`, never upstreamed):
 - `0001-workgroup-uniform-load.patch` — a workgroup `OpControlBarrier`, an `OpLoad` of a scalar/vector workgroup
   variable and the same barrier again (the GLSL broadcast idiom) become `workgroupUniformLoad(&var)`, which is that
   exact sequence. A plain workgroup load is non-uniform to WGSL's analysis, so an early return on it before further
-  barriers (FSR2's luminance pyramid, `SpdExitWorkgroup`) failed barrier uniformity. Tint does the same.
+  barriers (FSR2's luminance pyramid, `SpdExitWorkgroup`) failed barrier uniformity. Tint, the converter before SPIRV-Cross, did the same.
 - `0006-wgsl-16bit-norm-storage-formats.patch` — the 16-bit normalized storage image formats (`R16`, `R16Snorm`,
   `Rg16`, `Rg16Snorm`, `Rgba16`, `Rgba16Snorm` → `r16unorm` ... `rgba16snorm`); `CanvasSdfShaderRD` writes R16Snorm and
   failed to convert without it.
@@ -1141,7 +1147,8 @@ Patches (in `patches/`, never upstreamed):
 - Upstream: https://github.com/KhronosGroup/SPIRV-Headers
 - Version: `spirv.h`/`spirv.hpp` at vulkan-sdk-1.4.335.0 (b824a462d4256d720bebb40e78b9eb8f78bbb305, 2025);
   `spirv.hpp11` updated separately to git (ad9184e76a66b1001c29db9b0a3e87f646c64de0, 2026) — a strict superset
-  with newer SPIR-V enum/extension entries required by spirv-tools/Tint. Re-sync `spirv.hpp11` to the
+  with newer SPIR-V enum/extension entries required by spirv-tools (Tint, which needed them too, is gone; whether
+  `spirv.hpp11` can return to the pin has not been tried). Re-sync `spirv.hpp11` to the
   vulkan-sdk pin above once it carries an equivalent enum set.
 - License: MIT
 
@@ -1188,10 +1195,12 @@ Files extracted from upstream source:
 - `generated/` folder (pre-generated from upstream build)
 - `LICENSE`
 
-Required by Tint for SPIR-V parsing and validation. Also used directly by the WebGPU
-backend's `inline_opaque_functions` SPIR-V preprocessing pass (`drivers/webgpu/spirv_preprocess.cpp`),
-via `spvtools::Optimizer` + `CreateInlineOpaquePass()`, to work around a Tint SPIR-V reader bug —
-see `webgpu_notes/TASKS.md` Task 8.2. Version pinned by Dawn DEPS.
+Required by the WebGPU backend's SPIR-V preprocessing passes (`drivers/webgpu/spirv_preprocess.cpp`,
+`spirv_opt_passes.cpp`): input validation (`run_pipeline()` rejects malformed modules with SPIRV-Tools' validator),
+and the optimizer-based passes such as `inline_opaque_functions` (`spvtools::Optimizer` +
+`CreateInlineOpaquePass()`, first written to work around a Tint SPIR-V reader bug — `webgpu_notes/TASKS.md`
+Task 8.2), `expand_binding_arrays` and `eliminate_local_single_block_vars`. Originally vendored for Tint's SPIR-V
+reader, and its version was pinned by Dawn DEPS; since Tint was removed (2026-10-25) it has no Dawn tie.
 
 
 ## swappy-frame-pacing
@@ -1206,38 +1215,6 @@ Files extracted from upstream source:
 - `include/swappy/{swappy_common.h,swappyVk.h}`
 - `LICENSE`
 
-
-## tint
-
-- Upstream: https://dawn.googlesource.com/dawn (src/tint/)
-- Version: git (b975919dfb45406ca17162e4d44c74a650caa679, 2026)
-- License: BSD-3-Clause
-
-Files extracted from upstream source:
-
-- `src/tint/` folder (extracted via `extract_tint.sh`)
-- `src/utils/{compiler.h,numeric.h}` (Dawn top-level `src/utils/`, sibling to `src/tint/` — a small
-  dependency `extract_tint.sh` doesn't copy itself, referenced via `#include "src/utils/..."` from a
-  few files inside `src/tint/`)
-- `LICENSE`
-
-Patches:
-
-- `0001-skip-block-layout-validation.patch` — `SetSkipBlockLayout(true)` for Godot UBO layout
-- `0002-allow-struct-member-size-mismatch.patch` — `kAllowStructMemberSizeMismatch` for specialization constants
-- `0003-decompose-strided-array-stride-guard.patch` — Skip padding when stride < element size
-- `0004-accept-non-constant-point-size.patch` — Accept non-constant `point_size` stores
-- `0005-size-emission-and-capability.patch` — `@size` emission guard for specialization constants
-- `0006-remove-abseil-dependency.patch` — Replace `absl::from_chars` with `std::from_chars`
-- `0007-support-spirv-1-4-target-env.patch` — Bump the reader's hardcoded SPIR-V validation target env from `SPV_ENV_VULKAN_1_1` (≤1.3) to `SPV_ENV_VULKAN_1_2` (≤1.5); defense-in-depth, not required by this fork's actual (SPIR-V 1.3-targeting) WebGPU pipeline — see `webgpu_notes/TASKS.md` Task 8.6
-- `0008-handle-phony-texture-usages.patch` — Handle `Phony` instructions when converting texture/sampler resource usages. Originally thought "needed only if SPIR-V 1.4 input is ever encountered" and not required by this fork's actual pipeline — **that assumption was wrong**: Task 16 (`webgpu_notes/TASKS.md`) confirmed real, in-production shader SPIR-V (glslang's actual output for a compute shader, captured live from the browser) is version 1.4 despite `RenderingShaderContainerFormatWebGPU::get_shader_spirv_version()` declaring 1.3, so this interface-list/`Phony` mechanism does fire for real. See 0011.
-- `0009-allow-phony-instructions-capability.patch` — Add `kAllowPhonyInstructions` to the reader's final IR validation capability set, same SPIR-V 1.4 mechanism as 0007/0008 (see 0008's updated note — this is not just defense-in-depth); reapplied by hand for the 2026-09-18 resync (patch context drift, not a real conflict — see `webgpu_notes/TASKS.md` §4.21 Phase 3.2)
-- `0010-atomics-type-for-access-matrix-vector.patch` — Add `Matrix`/`Vector` cases (plus a `TINT_ICE_ON_NO_MATCH` fallback) to the atomics-lowering pass's `TypeForAccess()` access-chain type walk, which previously handled only `Struct`/`Array` and silently miscomputed the type of any access chain indexing past a struct member into a matrix column or vector component — see `webgpu_notes/TASKS.md` Task 15
-- `0011-atomics-handle-phony-usages.patch` — Add the same `Phony` case (drop it) to the atomics-lowering pass's `ConvertUsagesToAtomic()` usage switch that 0008 already added to the texture-lowering pass's analogous switch, but which was never applied here. Real crash: `particles.glsl`'s compute shader (an atomic-containing storage buffer) hit `TINT_ICE_ON_NO_MATCH` — "Switch() matched no cases. Type: tint::core::ir::Phony" — fatally, in the browser's linked runtime Tint (no subprocess isolation there, unlike export-time baking), taking down the whole engine. See `webgpu_notes/TASKS.md` Task 16 for the full live-repro chain.
-- `0012-skip-handle-interface-phony.patch` — Skip `AddRefToOutputsIfNeeded()`'s phony-reference insertion (`parser.cc`, the root source of every phony 0008/0009/0011 exist to catch downstream) for Handle-address-space (sampler/texture) `OpEntryPoint` interface variables, rather than catching the resulting invalid `_ = &(var);` later. 0008/0009's defense-in-depth never actually caught this specific path — it reaches the WGSL writer directly and surfaces as "cannot take the address of 'var X' in handle address space", the root cause behind Task 18's `strip_handle_vars_from_entry_point_interface` SPIR-V-preprocessing workaround (which downgraded every module's declared version below 1.4 to dodge SPIR-V 1.4's stricter interface-completeness rule — a real fix, but one that then broke an unrelated, genuinely-1.4-only construct, `OpSelect`'s scalar-condition/vector-result form, needing its own compensating pass). This patch fixes the actual bug at its source instead: modules now keep whatever SPIR-V version they really arrive at, and both preprocessing passes were removed as no longer needed. See `webgpu_notes/TASKS.md` Task 21.
-
-Used for SPIR-V to WGSL translation in the WebGPU rendering backend.
-Requires spirv-tools and spirv-headers.
 
 
 ## thorvg
