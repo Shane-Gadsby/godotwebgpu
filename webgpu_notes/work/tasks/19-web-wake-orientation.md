@@ -1,6 +1,6 @@
 # 19-web-wake-orientation: web export keeps the screen awake, asks for performance, locks orientation
 
-State: queued (starts after task 12's phone run)
+State: in progress
 Owner: worker-19
 Claimed:
 Needs: phone (Razr 60), build, gpu only for desktop checks

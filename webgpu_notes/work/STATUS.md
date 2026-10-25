@@ -1,5 +1,22 @@
 # Status (lead-maintained)
 
+## 2026-10-25 17:10 — task 12 merged; 19 out; 11 re-times with 0019
+
+- **12 merged** (worker-12, finished by worker-12b): Chrome for Android on the Razr 60 works with SPIRV-Cross and is as
+  fast or faster than Tint with **SPIRV-Cross patch 0019** (never emit WGSL `for`: Mali-G615 / Chrome 155 ran
+  `for (var i = -3; i <= 3; i++)` zero times, volumetric fog lost its density, 12.6 from native). GPU ms/frame, Tint vs
+  SC+0019, 3 rotated runs: fp 16.9 / 16.8, heavy 73.8 / 71.3, postfx 23.3 / 23.2, platformer 29.6 / 28.7, stress
+  28.8 / 28.1. Phone Look set identical to Tint (34 frames). Desktop: smoke OK, 2566/2566 project stages valid and
+  interface-identical with 0019. thirdparty/README.md line added. Phone setting restored, phone lease dropped.
+- **Lead verification still owed**: build + smoke + desktop `--parity --baked` on the merged tree with 0019 (it changes
+  every module's text). Deferred: worker-18 is running captures with the lead's `bin/` editor, so `bin/` must not be
+  rebuilt until 18 hands back.
+- Lease incident: worker-11's gpu lease expired at 16:50 mid timing run; 12b and then 18 took it. 11's runs since 16:33
+  are contaminated; 11 is told to stop, wait for the lease (3 h next time), and re-time SPIRV-Cross with 0019.
+- **19 out** (TASKS §2.36: wake lock, orientation option, performance hint), on the phone now that 12 is done.
+- For TASKS (task 10): SSS on the phone is 11.1 from desktop Vulkan with both converters (pre-existing, §2.9);
+  `fetch` keepalive 64 KB cap trap; phone_bench.mjs README note.
+
 ## 2026-10-25 14:55 — user answers; 12 resumed on the phone
 
 - User: Firefox for Android is out of scope ("I only care about Firefox for desktop"; Linux Firefox needs the Vulkan /
@@ -224,12 +241,12 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 09 | remove Tint | blocked on 11, 12, cameraSim look | |
 | 10 | docs | after 09 | lead |
 | 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
-| 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | in progress (phone attached) | worker-12 |
+| 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | merged (patch 0019); lead build/parity after 18 | worker-12, 12b (retired) |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | queued: starts when 12 hands back the phone | worker-19 |
+| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | in progress | worker-19 |
 | 18 | cameraSim by eye (user look, bar for 09) | in progress | worker-18 |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
