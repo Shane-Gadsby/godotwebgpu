@@ -1,8 +1,8 @@
 # 08-gpu-timing: does SPIRV-Cross WGSL cost GPU time?
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-08
+Claimed: 2026-10-25 12:05
 Needs: gpu
 Branch: work/8
 Results: webgpu_notes/work/results/08-gpu-timing/

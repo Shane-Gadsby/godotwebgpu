@@ -56,6 +56,9 @@ await page.addInitScript((PASSES) => {
 	const rd = GPUAdapter.prototype.requestDevice;
 	GPUAdapter.prototype.requestDevice = async function (desc = {}) {
 		const d = { ...desc };
+		// Which adapter a number came from: swiftshader runs Forward Mobile (CLAUDE.md), so a timing taken on it is not a Forward+ timing.
+		const ai = this.info || {};
+		console.log(`[gpu_time] adapter ${ai.vendor || '?'}/${ai.architecture || '?'} ${ai.description || ''}, maxSampledTexturesPerShaderStage ${this.limits.maxSampledTexturesPerShaderStage}`);
 		if (this.features.has('timestamp-query')) d.requiredFeatures = [...(desc.requiredFeatures || []), 'timestamp-query'];
 		else console.log('[gpu_time] adapter has no timestamp-query; nothing will be measured');
 		const dev = await rd.call(this, d);
