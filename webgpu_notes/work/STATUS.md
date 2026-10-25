@@ -1,5 +1,12 @@
 # Status (lead-maintained)
 
+## 2026-10-25 14:55 — user answers; 12 resumed on the phone
+
+- User: Firefox for Android is out of scope ("I only care about Firefox for desktop"; Linux Firefox needs the Vulkan /
+  WebGPU prefs). Task 12 is Chrome for Android only; nothing installed on the phone.
+- User: FSR2 after the reactive-mask fix matches Vulkan by eye.
+- Razr 60 attached (ZY22LHCBJ6). worker-12 resumed: merge webgpu-4.8, re-export both sets (pre-fix exports), run.
+
 ## 2026-10-25 14:25 — task 17 integrated
 
 - **17 merged**: FSR2's softness on WebGPU was not the capture phase. FSR2 read its reactive mask through
@@ -217,7 +224,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 09 | remove Tint | blocked on 11, 12, cameraSim look | |
 | 10 | docs | after 09 | lead |
 | 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
-| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | blocked: phone not attached; harness + exports ready on work/12 (run_phone.sh) | worker-12 (retired) |
+| 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | in progress (phone attached) | worker-12 |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
