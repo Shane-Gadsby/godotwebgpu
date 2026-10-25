@@ -1,5 +1,19 @@
 # Status (lead-maintained)
 
+## 2026-10-25 18:45 — 11 and 19 merged; the bar holds; 09 (remove Tint) out
+
+- **11 integrated** (harness only): Firefox desktop (Linux, Playwright Firefox 155, wgpu pinned to Vulkan) works on
+  SPIRV-Cross exactly as on Tint: Forward+ `--parity` 69/71 on both (SDFGI 0.277 in Firefox for both: Firefox-only,
+  new item), smoketest 23/23, 0 naga/pipeline errors, naga 276/276 and 2564/2566 project stages on both. Heavy GPU 3.82
+  vs 3.88 ms (SC+0019 vs Tint); postfx +10% fps; shadows/pbr ~1.8% fewer fps at ~1000 fps, CPU-side, GPU equal.
+  SUMMARY saved by the lead from the worker's report (the harness refused the worker's write).
+- **19 merged**: wake lock, `html/orientation` (Project Setting default), `html/fullscreen_on_first_tap` (default on),
+  high-performance on the probe adapter; phone and desktop checked by the worker. Lead build + smoke pending (the
+  build-time measurement holds the build lease).
+- **The user's bar holds**: Forward+ parity 71/71 (Chrome, with 0019), no tier worse, cameraSim matches by eye (user),
+  Firefox desktop works and is as fast, Chrome for Android works and is as fast. **Task 09 (remove Tint, rename the CLI)
+  started.** Task 10 (docs) after it.
+
 ## 2026-10-25 17:45 — user answers (board)
 
 - cameraSim look: **Matches** (user). The Tint-deletion bar now waits only on task 11 (Firefox timing with 0019).
@@ -256,15 +270,15 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 06 | offline test tiers | integrated | worker-06 (retired) |
 | 07 | Forward+ parity vs Vulkan | unbaked 71/71; baked 71/71 after 16; repeat at 09 | lead |
 | 08 | GPU timing (desktop Chrome) | integrated: equal or faster | worker-08 (retired) |
-| 09 | remove Tint | blocked on 11, 12, cameraSim look | |
+| 09 | remove Tint, rename to wgsl_convert_cli | in progress | worker-09 | |
 | 10 | docs | after 09 | lead |
-| 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
+| 11 | Firefox desktop: works, as fast as Tint | integrated: equal correctness and speed | worker-11 (retired) |
 | 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | integrated (patch 0019; lead parity 71/71) | worker-12, 12b (retired) |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | blocked: phone PIN lock; code done | worker-19 |
+| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | merged; lead build/smoke pending | worker-19 (retired) |
 | 18 | cameraSim by eye (user look, bar for 09) | merged: 5 views 0.00-0.03 from Vulkan; look posted | worker-18 (retired) |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 

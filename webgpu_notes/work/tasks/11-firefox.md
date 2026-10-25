@@ -1,6 +1,6 @@
 # 11-firefox: Firefox (desktop) on SPIRV-Cross WGSL, works and is as fast as Tint
 
-State: ready-for-integration
+State: integrated
 Owner: worker-11
 Claimed: 2026-10-25 14:05
 Needs: gpu

@@ -1,7 +1,7 @@
 # 09-remove-tint: Tint leaves the tree
 
-State: open (blocked on 07 reaching parity and 02, 03, 05, 06 integrated)
-Owner:
+State: open
+Owner: worker-09
 Claimed:
 Needs: build
 Branch: work/9
