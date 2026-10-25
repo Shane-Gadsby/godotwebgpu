@@ -1,5 +1,15 @@
 # Status (lead-maintained)
 
+## 2026-10-25 17:45 — lead verification of 0019; 18 merged; 19 blocked on the phone lock
+
+- **0019 verified on the merged tree**: editor + web release template built (2:07, table re-baked), smoke OK (276/0, no
+  `for` left), desktop `--parity --baked` **71/71** (bake gate pre-existing). **12 integrated.**
+- **18 merged**: cameraSim (Ava) 5 views 0.00-0.03 from native, same as Tint and run-to-run noise; look posted on the
+  board. Found: the user's web preset has both VRAM compression options off, so Ava exports untextured (board question).
+- **19 blocked**: code done on work/19 (wake lock, `html/orientation`, manifest clamp fix, high-performance on the probe
+  adapter); phone checks wait on the PIN lock. Two design questions on the board (orientation default, fullscreen on
+  first tap).
+
 ## 2026-10-25 17:10 — task 12 merged; 19 out; 11 re-times with 0019
 
 - **12 merged** (worker-12, finished by worker-12b): Chrome for Android on the Razr 60 works with SPIRV-Cross and is as
@@ -241,12 +251,12 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 09 | remove Tint | blocked on 11, 12, cameraSim look | |
 | 10 | docs | after 09 | lead |
 | 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
-| 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | merged (patch 0019); lead build/parity after 18 | worker-12, 12b (retired) |
+| 12 | Android Chrome (Razr 60): works, as fast as Tint (Firefox Android out of scope, user) | integrated (patch 0019; lead parity 71/71) | worker-12, 12b (retired) |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | in progress | worker-19 |
+| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | blocked: phone PIN lock; code done | worker-19 |
 | 18 | cameraSim by eye (user look, bar for 09) | merged: 5 views 0.00-0.03 from Vulkan; look posted | worker-18 (retired) |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
