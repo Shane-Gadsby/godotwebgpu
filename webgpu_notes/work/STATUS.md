@@ -1,5 +1,15 @@
 # Status (lead-maintained)
 
+## 2026-10-25 11:12 — user: ccache 50 GB; MetaHuman = cameraSim's Ava
+
+- ccache config set to 50 GB, matching build-linux.sh's `CCACHE_MAXSIZE=50G` (base_dir shared across worktrees).
+- MetaHuman: cameraSim's main scene has Ava (`character/Ava/head.dna`); task 05 exported it with all_resources, so its
+  materials are already in the corpus: 189 of cameraSim's 1318 stages are hair/strand/groom/skin, all convert,
+  interface-identical, valid (the 4 invalid stages are all contact shadows, task 15). No separate MetaHuman export.
+- Task 07 first reading: Tint baseline 71/71 at parity; the bake gate fails for both (translated 97-99 > 80: the old
+  template converts 8 Forward+ scene groups at runtime), so the SPIRV-Cross reading on the old template is partial.
+  Next: re-export with the merged pair (2c2ebe96a1, runtime converter = SPIRV-Cross), baked and unbaked.
+
 ## 2026-10-25 11:10 — 03 and 02 merged; merged tree builds and smokes
 
 - **03 merged** (e05c777b8d): in-engine converter on SPIRV-Cross (`webgpu_wgsl_backend=spirv-cross|tint`,
