@@ -1,0 +1,18 @@
+Vulkan 1.4.351 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+[t18] ready, web=false frame=0
+[t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[t18] capture view=default at frame=360
+[t18] captured view=default frame=361 tries=1 size=(1920, 1080)
+[t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[t18] capture view=face_200mm at frame=601
+[t18] captured view=face_200mm frame=602 tries=1 size=(1920, 1080)
+[t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[t18] capture view=dof_f1_4 at frame=842
+[t18] captured view=dof_f1_4 frame=843 tries=1 size=(1920, 1080)
+[t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[t18] capture view=hair_side_200mm at frame=1083
+[t18] captured view=hair_side_200mm frame=1084 tries=1 size=(1920, 1080)
+[t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[t18] capture view=face_200mm_lights at frame=1324
+[t18] captured view=face_200mm_lights frame=1325 tries=1 size=(1920, 1080)
+[t18] done

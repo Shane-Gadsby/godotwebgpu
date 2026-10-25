@@ -1,0 +1,20 @@
+[0.14s] [log] [t18-adapter] vendor=nvidia arch=lovelace device= desc= fallback=false maxSampledTex=48
+[1.34s] [log] WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+[1.73s] [log] Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[2.59s] [log] [t18] ready, web=true frame=0
+[4.63s] [log] [t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[16.19s] [log] [t18] capture view=default at frame=360
+[16.26s] [log] [t18] captured view=default frame=364 tries=4 size=(1920, 1080)
+[16.34s] [log] [t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[20.33s] [log] [t18] capture view=face_200mm at frame=604
+[20.39s] [log] [t18] captured view=face_200mm frame=607 tries=3 size=(1920, 1080)
+[20.49s] [log] [t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[24.49s] [log] [t18] capture view=dof_f1_4 at frame=847
+[24.55s] [log] [t18] captured view=dof_f1_4 frame=850 tries=3 size=(1920, 1080)
+[24.62s] [log] [t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[28.62s] [log] [t18] capture view=hair_side_200mm at frame=1090
+[28.67s] [log] [t18] captured view=hair_side_200mm frame=1093 tries=3 size=(1920, 1080)
+[28.76s] [log] [t18] head=(-0.001962, 0.279186, 0.011753) subject=(0.0, -0.24, 0.0)
+[32.79s] [log] [t18] capture view=face_200mm_lights at frame=1333
+[32.84s] [log] [t18] captured view=face_200mm_lights frame=1336 tries=3 size=(1920, 1080)
+[32.95s] [log] [t18] done
