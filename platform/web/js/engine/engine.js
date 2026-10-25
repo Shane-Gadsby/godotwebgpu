@@ -643,7 +643,7 @@ const Engine = (function () {
 			const source = 'self.onmessage = async function () {'
 				+ ' let capable = false;'
 				+ ' try {'
-				+ '  capable = !!(self.navigator.gpu && await self.navigator.gpu.requestAdapter())'
+				+ '  capable = !!(self.navigator.gpu && await self.navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))'
 				+ '   && !!new OffscreenCanvas(1, 1).getContext("webgpu");'
 				+ ' } catch (e) { capable = false; }'
 				+ ' self.postMessage(capable);'
