@@ -1,5 +1,13 @@
 # Status (lead-maintained)
 
+## 2026-10-25 12:45 — task 14 integrated
+
+- **14 integrated**: `freeze_spec_constant_ops()` evaluates CompositeExtract / CompositeInsert / VectorShuffle and
+  vector ops on constant composites per component, and SRem/SMod with Vulkan's values; an op it cannot evaluate warns and
+  becomes OpConstantNull instead of a silent 0. Frozen-path probes 40/49 → 48/49 (SPIRV-Cross), 39 → 47 (Tint). No engine
+  shader is frozen, so engine output is unchanged (smoke identical). Merged tree: smoke OK, preprocessing 291/0/1,
+  spec_constant_overrides 8/8, driver unit 379/0.
+
 ## 2026-10-25 12:40 — task 16: the fog "race" was the capture phase
 
 - **16 integrated**: volumetric fog (and TAA/FSR2) jitter on `frame % 16`; the fixture captured on phase 0 or 1 depending
@@ -161,7 +169,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 11 | Firefox desktop: works, as fast as Tint | open | |
 | 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
 | 13 | harden passes against malformed SPIR-V | open | |
-| 14 | spec-composite fold fix | open | |
+| 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
 | 17 | FSR2 softer on WebGPU than native (pre-existing, user's look) | open | |

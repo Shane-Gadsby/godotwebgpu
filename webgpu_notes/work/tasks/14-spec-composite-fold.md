@@ -1,6 +1,6 @@
 # 14-spec-composite-fold: freeze_spec_constant_ops() evaluates composite ops instead of folding to 0
 
-State: ready-for-integration
+State: integrated (merged; on the merged tree smoke OK, preprocessing 291/0/1, spec_constant_overrides 8/8, driver unit 379/0; probes 48/49 SPIRV-Cross frozen path on the worker branch, web template compiles)
 Owner: worker-14
 Claimed: 2026-10-25 12:05
 Needs: — (gpu lease for the browser half of the probes)
