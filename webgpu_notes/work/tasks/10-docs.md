@@ -1,11 +1,11 @@
 # 10-docs: the documentation describes SPIRV-Cross
 
-State: open (after 09)
-Owner: lead
-Claimed:
+State: ready-for-integration
+Owner: worker-10 (delegated by the lead)
+Claimed: 2026-10-25
 Needs: —
-Branch: (lead)
-Results: —
+Branch: work/10
+Results: — (summary in the hand-back; board retirement left to the lead)
 
 ## Goal
 

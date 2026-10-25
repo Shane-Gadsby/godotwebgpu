@@ -75,6 +75,7 @@ Building on that base, this fork has two main goals:
 
 - **Forward+ renderer support.** The upstream project targets Godot's Forward Mobile renderer. This fork is working toward running the **Forward+** renderer (Godot's default desktop-class renderer, with clustered lighting, SDFGI, and other features Forward Mobile omits) over WebGPU — currently a full Forward+ pipeline, including SDFGI. Verified on real hardware against a real project with Ambient/Reflected Light, Tonemap, SSR, SSAO, SSIL, SDFGI, Glow, Fog, Volumetric Fog and Adjustments all enabled at once, in both Chrome and Firefox: mean absolute difference **0.57 / 255** against a native-Vulkan Forward+ capture of the same frame, with no pixel differing by more than 10. Since 2026-10-17 every Forward+ feature is also checked one at a time against native Vulkan (`webgpu_tests/forward_plus --parity`, 71 features, all within 0.05 / 255 mean except SDFGI's and FSR2's documented differences); what WebGPU itself cannot do is listed in `webgpu_notes/TASKS.md` §2.31.
 - **Newer upstream Godot.** The original project forked from Godot 4.6.2. This fork has been synced forward and currently tracks **Godot 4.8** (code freeze; `webgpu_notes/TASKS.md` §4.17 for the port, Phase 8 for the earlier 4.7.2 sync).
+- **SPIRV-Cross instead of Tint.** Since 2026-10-25 every SPIR-V → WGSL conversion (build-time precompile, export-time bake, runtime fallback) goes through SPIRV-Cross's WGSL backend ([Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), vendored and patched in `thirdparty/spirv-cross-wgsl`) after the same SPIR-V passes. Forward+ stayed at parity with native Vulkan (71/71), desktop Chrome, Firefox and Chrome for Android are as fast or faster, the baked shader pack is 17% smaller gzipped, and ~204k lines of vendored Tint are gone (`webgpu_notes/TASKS.md` §4.36).
 - **Box3D as the default 3D physics engine.** A new `PhysicsServer3D` implementation on top of Erin Catto's [Box3D](https://github.com/erincatto/box3d) — see [3D Physics](#3d-physics-box3d) below. Independent of the renderer work; it happens to matter most on the web, where Godot's other 3D physics options are the heaviest part of the build.
 - **Editor quality-of-life.** Small in-editor additions on top of upstream: mouse events in the script editor, and a per-project default directory for newly created scripts.
 
@@ -172,7 +173,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 | Interleaving editor and web builds in one tree ships a template that dies in `callMain()` | workaround (Task 40); not reproduced on 4.8 (2026-10-15) | Stale `register_module_types.gen` object. Delete it plus `libmodules.a` and rebuild; verify with `grep -ac initialize_betsy_module bin/godot.side.web.*.wasm` (want 0) |
 | The editor and the export template must be built from the same commit | by design (Task 36) | Baked shader caches are keyed to the engine version hash. A mismatch silently discards the whole cache (`{baked: 0, translated: N}` and a ~5× slower load); the engine now reports it |
 | An export made with `--headless` silently skips the shader baker | workaround | 15 MB `.pck` instead of ~135 MB. Use `xvfb-run` with a real rendering driver |
-| `tint_convert_cli` is compiled without `-DNDEBUG` | open (Task 13.1) | SPIRV-Tools/Tint asserts are live in the host tool; they surface as isolated "Tint crashed" bake entries |
+| `wgsl_convert_cli` is compiled without `-DNDEBUG` | open (Task 13.1) | SPIRV-Tools / SPIRV-Cross asserts are live in the host tool; they surface as isolated "WGSL conversion crashed" bake entries. Malformed input no longer reaches them: `run_pipeline()` validates it first (`webgpu_notes/TASKS.md` §4.36) |
 | Box3D has never run physics in a browser | open (Task 11.1) | The web link is no longer in doubt — the module compiles for `wasm32` with `-msimd128 -msse2` and links into both shipped templates (symbols present in `godot.side.web.*.wasm`). What is still unverified is an actual in-browser physics run: no smoketest scene exercises 3D physics on the web. `precision=double` (`BOX3D_DOUBLE_PRECISION`) is wired but never built |
 
 **Performance and lifetime**
@@ -182,7 +183,7 @@ Outstanding problems as of **2026-10-06**. Everything here is reproduced and dia
 | A fixed ~500 ms `Servers:Rendering` engine-init cost on every project, ~180 ms of it our own per-stage WGSL text scanning | open (Task 14) | Baking binding metadata into the shader container at export time is the remaining win. Project-dependent load time is already down from ~9.2 s to ~1.0 s |
 | Temporary texture views in `WGUniformSet::temp_views` may not be released | open (Task 7.15) | Suspected leak; not yet characterized as per-frame or unbounded |
 | Specialized shader modules may not be released by `pipeline_free()` | open (Task 7.17) | Narrowed by Task 25's move to WGSL `@id(N) override`s, which removes most re-specialization |
-| WGSL format-name remapping patches strings in place, assuming equal lengths | open (Task 7.18) | Fragile if Tint's output names change. Task 9.15 moved some of these patches to Tint IR transforms and made the rest `memcpy`-safe |
+| WGSL format-name remapping patches strings in place, assuming equal lengths | open (Task 7.18) | Fragile if the converter's output names change. The rest are `memcpy`-safe; the vertex-stage `read_write` demotion that Task 9.15 had moved into a Tint IR transform now happens in `spirv_cross_wrapper.cpp` (`NonWritable` on vertex-stage storage buffers) |
 | No device-loss recovery | open | Logged only; the page must be reloaded |
 
 **Audio**
@@ -213,7 +214,7 @@ Last full run **2026-10-17**, on Godot 4.8, real GPU (RTX 4080 SUPER, Chrome + F
 
 | Tier | Result | Needs |
 |------|--------|-------|
-| `shader_corpus` | **14 / 14** | `tint_convert_cli` only — no engine build |
+| `shader_corpus` | **14 / 14** | `wgsl_convert_cli` only — no engine build |
 | `driver_unit_tests` | **379 pass, 0 fail** | Node |
 | `preprocessing_tests` | **291 pass, 0 fail, 1 skipped** | Node |
 | `resource_lifecycle` | all pass | Playwright |
@@ -448,12 +449,13 @@ support, plus the export templates as one `.tpz` (Editor → Manage Export Templ
   then allow it in System Settings → Privacy & Security → *Open Anyway* (macOS 15 and later no longer offer
   right-click → Open for this). Or clear the download quarantine from a terminal:
   `xattr -dr com.apple.quarantine /path/to/godot_macos_editor.app`.
-- **Linux:** unzip and run `godot.linuxbsd.editor.x86_64`. Keep `tint_convert_cli` next to it: the export-time
+- **Linux:** unzip and run `godot.linuxbsd.editor.x86_64`. Keep `wgsl_convert_cli` next to it: the export-time
   shader baker runs it from the editor's own directory.
-- **Windows:** unzip and run the `.exe`, keeping `tint_convert_cli.exe` beside it for the same reason.
+- **Windows:** unzip and run the `.exe`, keeping `wgsl_convert_cli.exe` beside it for the same reason. Editors built before 2026-10-25 look for
+  `tint_convert_cli` instead; the editor and the tool always ship together.
 
 Releases up to and including v1.5 shipped the Linux and macOS editors without their executable bit; macOS
-refused to open those at all. On Linux, `chmod +x godot.linuxbsd.editor.x86_64 tint_convert_cli` fixes one.
+refused to open those at all. On Linux, `chmod +x godot.linuxbsd.editor.x86_64 wgsl_convert_cli` fixes one.
 
 ---
 
@@ -469,17 +471,17 @@ scons platform=linuxbsd target=editor dev_build=yes -j$(nproc)   # or platform=m
 source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j$(nproc)
 
-# 3. tint_convert_cli — the host tool that precompiles SPIR-V to WGSL at build time:
-./drivers/webgpu/tint_cli/build.sh          # --clean for a full rebuild
+# 3. wgsl_convert_cli — the host tool that precompiles SPIR-V to WGSL at build time:
+./drivers/webgpu/wgsl_cli/build.sh          # --clean for a full rebuild
 ```
 
 `webgpu=yes` only takes effect with `platform=web`; `drivers/webgpu/` is not compiled into native builds
 at all. An editor built with `webgpu=yes` additionally gets the export-time WGSL shader baker, and runs
-`tint_convert_cli` from its own executable's directory — so the two must sit next to each other.
+`wgsl_convert_cli` from its own executable's directory — so the two must sit next to each other.
 
 Requirements:
 - Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
-- No Rust toolchain needed (Tint C++ translator is compiled directly into the engine)
+- No Rust toolchain needed (SPIRV-Cross's WGSL backend is C++, compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
 
 Two build traps that have each cost a day:
@@ -522,8 +524,8 @@ Common questions about the WebGPU backend — architecture, performance, compati
 |--------|-------|
 | WebGPU driver | 23,369 lines across `drivers/webgpu/`, 11,968 of them in the core `.cpp` |
 | Box3D physics module | 11,141 lines in `modules/box3d_physics/` |
-| Shaders converted | 146 engine shaders (SPIR-V → WGSL via Tint), 189 WGSL variants baked into the current build |
-| SPIR-V rewriting passes | 12 (combined-sampler splitting, push-constant emulation, depth fixups, subgroup lowering, …) |
+| Shaders converted | 146 engine shaders (SPIR-V → WGSL via SPIRV-Cross; Tint until 2026-10-25), 276 WGSL variants precompiled into the current build |
+| SPIR-V rewriting passes | 26 (combined-sampler splitting, push-constant emulation, depth fixups, subgroup lowering, …) |
 | Renderer | Forward+ (this fork) / Forward Mobile (original) |
 | 3D physics | Box3D by default; Jolt and GodotPhysics3D still selectable |
 | Performance vs native | ~80% of Vulkan/Metal FPS |

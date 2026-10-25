@@ -35,10 +35,24 @@ end to end (the smoketest's `audio_parity` scene). Bus effects and streaming are
 are warned about at export and at runtime, and the ways to close them are §2.32 (deferred by decision). The editor's
 lists all take drag-and-drop the same way since §4.31.
 
+**The SPIR-V → WGSL converter is SPIRV-Cross** as of §4.36 (2026-10-25): SPIRV-Cross's WGSL backend
+(`thirdparty/spirv-cross-wgsl`, four local patches, never upstreamed) after the same `run_pipeline()` passes, in the
+runtime, the build-time precompile, the export-time bake and every test tier. Tint is deleted (`thirdparty/tint`,
+`tint_wrapper.*`); the host tool is `bin/wgsl_convert_cli` (`drivers/webgpu/wgsl_cli/`). Forward+ parity stayed 71/71,
+and desktop Chrome, Firefox and Chrome for Android are as fast or faster. The tag `pre-SPIR-V-Cross` marks the tree
+before. Rebuild editor, `wgsl_convert_cli` and templates together after pulling it: an older editor looks for
+`tint_convert_cli` (§3 trap 61). Browser-side Tint (Chrome/Dawn compiling our WGSL) is untouched.
+
 ### Verified tiers
 
 | tier | result | when / where |
 |---|---|---|
+| Forward+ `--parity --baked`, real GPU, Chrome, after SPIRV-Cross patch 0019 | **71 / 71** (fsr2 0.142, volumetric_fog 0.001, taa 0.006); RESULT FAIL only on the pre-existing bake gate (translated 97 > 80, §2.39) | 2026-10-25, merged swap tree, §4.36 |
+| Forward+ `--parity`, unbaked (every stage converted at runtime by SPIRV-Cross) | **71 / 71** | 2026-10-25, `62a570d31f` pair, §4.36 |
+| Firefox desktop (Linux, wgpu on Vulkan): Forward+ `--parity`, smoketest, naga | **69 / 71** with SPIRV-Cross *and* Tint (SDFGI 0.277, Firefox-only, §2.40); smoketest **23 / 23**; naga 276/276 engine variants, 2564/2566 project stages | 2026-10-25, §4.36 |
+| Chrome for Android (Razr 60): GPU ms/frame, Tint vs SPIRV-Cross+0019; fp_check Look set | fp 16.9 / 16.8, heavy 73.8 / 71.3, postfx 23.3 / 23.2, platformer 29.6 / 28.7, stress 28.8 / 28.1; 34 frames identical to Tint's | 2026-10-25, §4.36 |
+| user's `cameraSim` (Ava MetaHuman), 5 views, SPIRV-Cross baked vs native Vulkan | MAD **0.00–0.03**, same as Tint-baked and as run-to-run noise; `baked 1570 / translated 0`; user: "Matches" | 2026-10-25, §4.36 |
+| swap removal branch (work/9): editor + all 8 web variants `dev_mode=yes`; offline tiers | builds clean, 276 compiled / 0 failures; interface 276/276 and scan facts 552/552 against the stored references; shader_corpus 14/14, preprocessing 291/0/1, driver unit 379/0, fuzzers smoke PASS; `local_ci.sh --dev-mode --no-safari` 28 / 1 / 5 (web audio e2e nothreads, environmental: the 2026-10-23 export fails the same way) | 2026-10-25, §4.36 |
 | `raytracing_probe --software` (swiftshader, 320×180, 18 k and 190 k triangles) | **12 / 12 checks**: GPU BVH traversal = CPU brute force on 66/66 sampled primary rays per scene (max \|Δt\| 1.4e-5), hit / occlusion / bounce fractions as the fixed camera predicts, depth 21 within the 48-entry stack. Throughput numbers from this adapter mean nothing | 2026-10-23, §2.34 |
 | `local_ci.sh --dev-mode --no-safari --bake`, real GPU, on `e0b5115389` (PrimitiveMesh change included) | **partial, stopped by request**: werror editor + both nothreads templates built, shader corpus, every unit tier (379 / 291 / overrides / precompile / self-tests / audio 40) PASS, all re-exports PASS, **scene smoketest Chrome 22 / 22 PASS**; stopped during the Firefox smoketest — Forward+ matrix, parity, perf guard, WebRTC, lifecycle, screenshots, baked fixture **not run** | 2026-10-23, §1 "Experiments in flight" |
 | `raytracing_probe` on the Razr 60 (`run_probe_phone.mjs`, Mali-G615, 1280×720, 93 k triangles, 10 dispatches) | **6 / 6 checks**, 32/32 rays = brute force; **primary 45 Mrays/s, shadow 40, incoherent bounce 19**; 1 spp primary+shadow+bounce 64.6 ms — RT is desktop-only | 2026-10-23, §2.34 |
@@ -293,7 +307,7 @@ node capture_errors.mjs exports/<scene> [--browser firefox] [--wait 25000]  # fu
 
 # SPIR-V / WGSL investigation
 GODOT_DUMP_SPIRV=/tmp/spv ./bin/godot.linuxbsd.editor.x86_64 --path <proj> --quit-after 120
-TINT_DEBUG_DUMP_PREPROCESSED=/tmp/out.spv ./bin/tint_convert_cli <file.spv>
+WGSL_DEBUG_DUMP_PREPROCESSED=/tmp/out.spv ./bin/wgsl_convert_cli <file.spv>   # --spec-info, --raw: see CLAUDE.md
 WGSL_DEBUG_DUMP=<substring> drivers/webgpu/wgsl_precompile.py   # dumps raw SPIR-V to /tmp/wgsl_debug_dump/
 ```
 
@@ -315,6 +329,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 **Added 2026-10-25 (evening):** §2.37 (replay each render pass from one JS call) and §2.21 (the four deferred emdawnwebgpu features) are prioritized by the user, after alternatives to emdawnwebgpu (juj's wasm_webgpu, Rust wgpu, Emscripten's removed `USE_WEBGPU`) were evaluated and none was better: the glue is 8–10% of main-thread CPU, and emdawnwebgpu's `webgpu.h` is the API native Dawn shares.
 
 **Added 2026-10-25 (later):** §2.36, requested by the user: the web export should keep the screen awake (Wake Lock), ask for high performance, and lock to the orientation set in the export panel, with a non-PWA orientation option. Today only the PWA manifest carries an orientation and `keep_screen_on` does nothing on the web.
+
+**Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -358,9 +374,16 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
-| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
-| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
+| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
+| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | **DONE 2026-10-25 → §4.37** — Wake Lock, `html/orientation`, fullscreen on the first tap, high-performance everywhere | a feature-tag orientation override still beats `html/orientation` |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
+| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | OPEN — before the board retires | move `smoke.sh` into `webgpu_tests/`, wire it into `local_ci.sh`/CI; first GitHub run of the renamed CI jobs |
+| 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate (`translated <= 80`) fails; 8 scene-shader groups and a particles stage are never baked |
+| 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
+| 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
+| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
+| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
+| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -446,9 +469,16 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
-| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
-| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
-| 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
+| 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
+| 2.36 | ~~Web export: performance hint, keep screen awake, orientation~~ | **`DONE` 2026-10-25 → §4.37** | — |
+| 2.37 | Record each render pass in wasm memory, replay in one JS call | `OPEN` — prioritized by the user 2026-10-25 | ~2–4 sessions |
+| 2.38 | Converter smoke check and stored references out of the work board | `OPEN` | ~0.5 session |
+| 2.39 | Baked Forward+ fixture converts ~97 stages at load (bake gate) | `OPEN` — pre-existing | ~1 session, needs the GPU |
+| 2.40 | SDFGI differs from native in Firefox only (0.277) | `OPEN` | ~1 session, needs the GPU and Firefox |
+| 2.41 | Subsurface scattering on the Razr 60, 11.1 from desktop Vulkan | `OPEN` — pre-existing | ~1 session, needs the phone |
+| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `OPEN` | ~0.5 session, needs the GPU |
+| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
+| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2204,7 +2234,12 @@ falls back to SSAO/shadow maps) when the adapter is mobile-class**, which the ad
 Effort: Tier A prototype 2–3 weeks, of which the acceleration-structure layer is about one; Tier B another 2–3; Tier C
 open-ended; Tier D 2 weeks for the standard-material subset once the layer exists.
 
-### 2.35 SPIRV-Cross's WGSL backend instead of Tint `EVALUATED 2026-10-25` — a drop-in after our passes on every engine variant; swap started
+### 2.35 SPIRV-Cross's WGSL backend instead of Tint `DONE 2026-10-25` → §4.36 — swapped; Tint deleted
+
+**Closed 2026-10-25.** The swap ran as tasks 00–19 on a work board (`webgpu_notes/work/`, retired with it) and ended
+with Tint deleted; results, numbers and what each task changed are in §4.36, follow-ups in §2.38–2.44. The
+evaluation below is kept as written, since it is what the decision was made on.
+
 
 **What it is.** [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl) (Ignacio Castaño) is
 KhronosGroup/SPIRV-Cross plus one backend, `spirv_wgsl.{hpp,cpp}` (4,640 lines, `CompilerWGSL : CompilerGLSL`), on a
@@ -2256,7 +2291,12 @@ and a GPU-time comparison.
 **Decision 2026-10-25 (user): do the full swap**, patching SPIRV-Cross locally as needed (never upstreamed), until
 Forward+ is back at parity with Vulkan. The tree before it is tagged `pre-SPIR-V-Cross`.
 
-### 2.36 Web export asks for performance, a screen that stays on, and its orientation `OPEN` — requested 2026-10-25 (user)
+### 2.36 Web export asks for performance, a screen that stays on, and its orientation `DONE 2026-10-25` → §4.37
+
+**Closed 2026-10-25** (work task 19, merged `6d8a3e6dc0`): Wake Lock, `html/orientation`, fullscreen on the first tap,
+high-performance on every adapter request. What was built and how it was checked: §4.37. The request and the survey
+below are as written before the work.
+
 
 **Ask (user, 2026-10-25):** the web export template should signal that it wants performance mode, that the screen should
 stay awake, and that it prefers the orientation set in the export panel, adding a portrait/landscape export option if
@@ -2265,7 +2305,7 @@ there is none.
 **What exists today (checked 2026-10-25):**
 - *Performance:* the WebGPU adapter is already requested with `powerPreference: 'high-performance'`
   (`platform/web/js/engine/engine.js`, and the render thread's own adapter in `display_server_web.cpp`). Nothing else
-  is signalled. The web has no general "performance mode" API: `powerPreference` is a hint the browser may ignore (it
+  is signaled. The web has no general "performance mode" API: `powerPreference` is a hint the browser may ignore (it
   matters on dual-GPU laptops and some phones), and the Compute Pressure API only reports, it cannot request.
 - *Screen awake:* nothing. `DisplayServerWeb::screen_set_keep_on()` is an empty override and `FEATURE_KEEP_SCREEN_ON`
   is commented out in `has_feature()`, so the project setting `display/window/energy_saving/keep_screen_on` (default
@@ -2291,7 +2331,7 @@ there is none.
    to the new one, so there is one place to set it; fix the clamp bug.
 3. Performance: keep `powerPreference: 'high-performance'`, make sure every adapter request uses it (the shells in
    `misc/dist/html/`, the render thread, the editor), and document that the web offers no stronger signal. Check on the
-   Razr 60 whether Chrome's behaviour differs (§2.9 recipe).
+   Razr 60 whether Chrome's behavior differs (§2.9 recipe).
 
 **Test:** the Razr 60 over adb (keep-awake: screen does not dim past the system timeout while running; orientation:
 fullscreen locks to the export setting), desktop Chrome and Firefox (no errors where the APIs are missing or reject).
@@ -2329,6 +2369,72 @@ bundles, indirect draws and custom bindings; the decision then was command buffe
 
 **Done when** the Razr 60 and desktop numbers show the main-thread saving, parity is unchanged, and `perf_guard` passes.
 Effort: ~2–4 sessions.
+
+### 2.38 Converter smoke check and stored references out of the work board `OPEN` *(from §4.36)*
+
+The one check that the converter still produces what the driver expects without rendering anything is
+`webgpu_notes/work/smoke.sh`: it builds `wgsl_convert_cli`, converts every engine variant `wgsl_precompile.py` builds,
+compares bindings, kinds and override ids with `webgpu_tests/spirv_cross_eval/interface_reference.json`, runs
+`webgpu_tests/wgsl_text_scan/run_tests.sh` against `scan_reference.txt`, and compiles every module in Chrome. It lives in
+the swap's work board, which is being retired, and `wgsl_text_scan/run_tests.sh` takes a smoke run directory as input,
+so the text-scan tier has no producer outside the board. Nothing in `local_ci.sh` or CI runs either.
+
+**Do:** move `smoke.sh` and `smoke_expected_invalid.txt` to `webgpu_tests/spirv_cross_eval/` (or a `converter_smoke/`
+tier), drop its board-only parts (leases), point `compare_interface.py`'s and `run_tests.sh`'s comments and the
+CLAUDE.md Testing block at it, and add it to `local_ci.sh --quick` (no GPU: Chrome compiles WGSL on any adapter). Also
+watch the first GitHub run after the swap: work/9 changed matrix keys (`wgsl-cli`), the artifact name
+(`wgsl-convert-cli`) and the cache keys of every workflow without a CI run (§4.36). Effort ~0.5 session.
+
+### 2.39 The baked Forward+ fixture still converts ~97 stages at load `OPEN` — pre-existing, every converter *(from §4.36)*
+
+`run_forward_plus.mjs --baked` ends in RESULT FAIL on its bake gate (`translated <= 80`) with every converter, Tint
+before the swap included: 8 Forward+ scene-shader groups (×12 stages) and one particles stage are converted at runtime,
+because the baker never sees those versions. Parity itself is 71/71, so this is load time, not correctness, but the
+gate being red means the tier cannot catch a real baking regression. Start from the fixture's `--verbose` "Shader cache
+miss for ..." lines against the export's "Shader baker: baking ..." fingerprints (§3 traps 40, 45, 49 are the three
+earlier causes of the same symptom). Effort ~1 session, needs the GPU.
+
+### 2.40 SDFGI differs from native in Firefox only `OPEN` *(from §4.36)*
+
+In Firefox desktop (Linux, wgpu on Vulkan) `sdfgi` and `sdfgi_camera_move` are 0.277 from native Vulkan (tolerance
+0.08), with Tint-converted and SPIRV-Cross-converted exports alike; Chrome passes the same exports. The difference is
+subtle by eye. Frames: `webgpu_notes/work/results/11-firefox/sdfgi_frames/` (in git history once the board is gone).
+Some SDFGI pass behaves differently on Firefox/wgpu — bisect by swapping single modules' WGSL
+(`gpu_time.mjs --replace-wgsl`, if it runs under `--browser firefox`) or by disabling SDFGI's passes one at a time, and compare with naga's
+own translation of the module. Effort ~1 session, needs the GPU and Firefox (`scene_smoketest/firefox_prefs.mjs`).
+
+### 2.41 Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan `OPEN` — pre-existing *(from §4.36, §2.9)*
+
+fp_check's `subsurface_scattering_1` on the phone (Mali-G615, Chrome) is 11.1 mean abs diff from desktop Vulkan with
+both Tint and SPIRV-Cross, while desktop WebGPU passes; every other look matches. Not the swap. Compare with an Android
+Vulkan render if one can be made, then bisect on device by swapping WGSL modules (`phone_bench.mjs --swap-wgsl`, the
+method that found patch 0019's zero-trip loop, §3 trap 58). Effort ~1 session, needs the phone lease.
+
+### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `OPEN` *(from §4.36)*
+
+With `--verbose`, every frame logs `'Fsr2AccumulatePassShaderRD:1' set 1 binding 5: a 320x180 depth texture is bound
+where the shader declares a float texture`: FSR2's accumulate pass reads `r_input_depth` as a float texture, so the
+driver substitutes the blank fallback (§3 trap 29). It is read only to derive motion vectors where there are none
+(`GODOT_DERIVE_INVALID_MOTION_VECTORS`, i.e. the sky), and a fallback reading 0 is the sky's reversed-Z depth, so the
+fixture shows nothing. `SceneForwardClusteredShaderRD` set 1 binding 24 logs the same (a 4x4 depth texture; it is §2.31's
+"trace the 4x4 depth placeholder message"). Check FSR2 with the camera moving and the sky in view; if it differs, make
+the binding a depth texture by name (`*_depth*`) or teach the reclassifier its use. Effort ~0.5 session, needs the GPU.
+
+### 2.43 Audit swizzled texture views `OPEN` *(from §4.36, §3 trap 55)*
+
+WebGPU texture views have no component swizzle, and `RenderingDeviceDriverWebGPU` stores a view's swizzle without
+applying it, with no warning. FSR2's reactive mask was such a view and read the wrong channel for months (amd-fsr2 patch
+0005). Find every other non-identity swizzle that reaches the driver: `texture_storage.cpp` builds views from
+`ret_format.swizzle_*` for image formats such as L8/LA8 (some are already converted to RGBA up front, §3 trap 17), and
+`RenderSceneBuffersRD`'s `alpha_only_view` exists for MetalFX. For each, either convert the data, do the swizzle in the
+shader, or have the driver warn once when it drops one. Effort ~0.5–1 session.
+
+### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `OPEN` *(from §4.36)*
+
+`webgpu_tests/spirv_cross_eval/spec_op_probes.py` builds `op_FConvert_f32` as an FConvert to the same width, which the
+validator rejects ("Expected component type of Value to be different"). Since `run_pipeline()` validates its input
+(§4.36), the probe's legacy (frozen) path is rejected, so `run_spec_ops.sh` should report it as a new failure. Run it
+once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 session.
 
 ---
 
@@ -2397,15 +2503,16 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
 **Shaders and the conversion pipeline**
 
 8. **Trace against the *preprocessed* SPIR-V, not glslang's output.** They are different modules;
-   designing against the wrong one cost a full implementation. `TINT_DEBUG_DUMP_PREPROCESSED`.
-9. **WGSL captured from the engine is not Tint's output** — it has already been through the driver's
-   own text passes. `tint_convert_cli` on the same SPIR-V is. Diffing the two is a two-minute check
+   designing against the wrong one cost a full implementation. `WGSL_DEBUG_DUMP_PREPROCESSED` on `wgsl_convert_cli`.
+9. **WGSL captured from the engine is not the converter's output** — it has already been through the driver's
+   own text passes. `wgsl_convert_cli` on the same SPIR-V is (it was Tint's when this was found). Diffing the two is a two-minute check
    and it is what finally attributed the depth-promotion bug correctly.
-10. **`tint_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
-   the child's output to `/dev/null` so one Tint ICE cannot kill the batch. Run it single-file,
+10. **`wgsl_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
+   the child's output to `/dev/null` so one converter abort cannot kill the batch. Run it single-file,
    un-forked, to see the real abort.
-11. **When a new shader fails Tint conversion**, the fix is almost always a new/extended SPIR-V
-    preprocessing pass or a vendored Tint patch — not a WGSL-writer change.
+11. **When a new shader fails conversion**, the fix is almost always a new/extended SPIR-V
+    preprocessing pass or a SPIRV-Cross patch (`thirdparty/spirv-cross-wgsl/patches/`, never upstreamed) — not a
+    WGSL text rewrite. It was a Tint patch before §4.36.
 
 **Merges and upstream**
 
@@ -2443,11 +2550,12 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     scons target — the name must carry the full variant suffix (e.g.
     `….wasm32.nothreads.o`). No full web build needed.
 20. **`wgsl_precompiled.gen.h` used to depend only on `wgsl_precompile.py`** (fixed 2026-10-16). A change to a
-    preprocessing pass or an engine `.glsl` rebuilt `tint_convert_cli` and the runtime path, but the precompiled engine
+    preprocessing pass or an engine `.glsl` rebuilt the converter tool and the runtime path, but the precompiled engine
     shaders kept the old WGSL — the header was a day old after a pass change, with nothing saying so. `drivers/webgpu/SCsub`
     now lists the pass sources and `servers/rendering/renderer_rd/shaders/**/*.glsl`, and since 2026-10-17 (§4.22) a
-    fingerprint `Value` over every vendored Tint/SPIRV-Tools/`tint_cli` source, `bin/tint_convert_cli` itself and
-    glslang's version, so a Tint patch re-bakes on its own; `./build-linux.sh --force-shader-rebake` deletes the header
+    fingerprint `Value` over every vendored converter/SPIRV-Tools/CLI source (today SPIRV-Cross and `wgsl_cli`),
+    `bin/wgsl_convert_cli` itself and glslang's version, so a converter patch re-bakes on its own (since 2026-10-25
+    the FSR 1/2 shader sources under `thirdparty/amd-fsr{,2}` too: an amd-fsr2 patch alone left the table stale); `./build-linux.sh --force-shader-rebake` deletes the header
     when you want to be certain. Check with `ls -la drivers/webgpu/wgsl_precompiled.gen.h` and the
     `[WGSL Precompile] Results:` line in the build log.
 21. **The browser main thread cannot wait, and a worker must not re-schedule itself with a timer** (§2.5, 2026-10-16). A
@@ -2593,7 +2701,9 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `GODOT_VERSION_HASH`, which is the git HEAD at build time, so committing between two builds makes the second one miss
     the whole baked cache (`baked: 0`) and an A/B "measures" Tint. For a before/after of a driver change, build the editor
     and both templates at one HEAD (apply/revert the change as a working-tree diff), export once, and swap only
-    `index.wasm`/`index.js` between runs.
+    `index.wasm`/`index.js` between runs. The converter A/B of §4.36 hit the same thing from the other side: a
+    template built from another commit than the editor that bakes for it loads `baked: 0`, so build every A/B
+    template from a detached worktree at the editor's exact commit.
 39. **A software adapter runs Forward Mobile, so a Forward+ startup cannot be measured there as-is** (2026-10-20).
     swiftshader reports 16 sampled textures per stage. To exercise Forward+'s shader loading and pipeline creation in a
     GPU-less container, build a scratch template with the `textures_per_stage < 48` fallback in
@@ -2688,6 +2798,70 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     general lesson: **any driver-agnostic engine code that reads a GPU resource back synchronously is wrong on
     WebGPU** — if the data was on the CPU a moment earlier, recompute it instead. Worth sweeping for other callers.
 
+55. **A WebGPU texture view cannot swizzle, and the driver drops a swizzle silently** (2026-10-25). `RD::texture_create_shared()`
+    with a `TextureView` whose `swizzle_*` is not identity creates a plain view: WebGPU has no component swizzle, and
+    `RenderingDeviceDriverWebGPU` stores the swizzle without applying it ("WebGPU has no texture component swizzle").
+    No error, no warning. FSR2's reactive mask was such a view (`get_internal_texture_reactive()`, alpha broadcast to
+    RGBA), so FSR2 read the scene's red channel as reactivity, every lit pixel was reactive, and the output was soft:
+    0.55 from native, Laplacian sharpness 0.83× native — which had been accepted as "FSR2 is a little softer on web".
+    amd-fsr2 patch 0005 reads `.a` itself; sharpness is now 1.000× native. Anything that relies on a swizzled view needs
+    the swizzle in the shader (§2.43 audits the rest). Metal honors swizzles, so `get_internal_texture_reactive()` stays
+    for MetalFX.
+56. **A parity capture must land on a fixed temporal-jitter phase, and FSR2 at scale 0.5 has 32 of them** (2026-10-25).
+    Volumetric fog (Halton, `frame % 16`), TAA and FSR2 jitter by frame number, and a settled temporal effect still
+    differs by phase: native Vulkan measures 0.045–0.082 against itself one or two phases apart. The Forward+ fixture's
+    capture phase depended on whether the harness's first hash change landed in boot frame 1 or 2; baked exports boot
+    fast enough to straddle it, so fog "flipped between two exact states" (0.046 / 0.082) and was reported as a race in
+    the baked path. `fp_scene.gd` now aligns every capture to phase 0 (`--fp-phase=N` to triage, `[FP] FRAME n (phase p)`
+    logged). The period is `JITTER_PERIOD` 32, not 16: FSR2's phase count is `8 / scale²`, so aligning mod 16 left the
+    FSR2 arm on one of two phases at random. Lesson: when a result takes exactly two values, print the frame number first.
+    Native `--reference` directories saved before this are invalid.
+57. **A stale `export_baked/` gives false parity FAILs** (2026-10-25). `run_forward_plus.mjs --baked` reads
+    `forward_plus/export_baked/`, which only `BAKE=1 ./export.sh` refreshes; a plain `./export.sh` after a rebuild leaves
+    it hours old. A lead run failed FSR2 (0.578) and volumetric fog (0.071) that way, on a tree that passes. The harness
+    now refuses an export older than its template, the editor or `fp_scene.gd` (`--allow-stale-export` overrides).
+58. **Mali-G615 / Chrome 155 ran a WGSL `for (var i = -3; i <= 3; i++)` zero times** (2026-10-25, cost ~2 h).
+    Volumetric fog's filter pass lost its density on the Razr 60 only (12.6 from native); the same loop written as
+    `loop`/`while`, or counted from 0, is correct, and desktop shows nothing. SPIRV-Cross emitted `for` where Tint never
+    had; patch 0019 makes it emit only `loop { if (!c) { break; } ... }`. A phone-only look bug is bisected on device by
+    swapping single modules' WGSL (`phone_bench.mjs --swap-wgsl`), not by reading the WGSL.
+59. **A `fetch(..., { keepalive: true })` body is capped at 64 KB** (2026-10-25). Above it the fetch rejects — silently
+    if the rejection is caught — so a page script that reported its frames that way lost every frame. `phone_bench.mjs`
+    sets `keepalive` only below 60 KB.
+60. **Firefox hides `GPUAdapterInfo`** (2026-10-25). vendor and architecture are empty, so a Firefox number cannot prove
+    from inside the page that it ran on the real GPU (trap 1, trap 43). `perf_guard/frame_time.mjs` logs the browser's
+    row in `nvidia-smi`'s process table instead (C+G, ~1.6 GB). Firefox does expose `timestamp-query`, so
+    `gpu_time.mjs --browser firefox` works. Linux Firefox also needs wgpu pinned to Vulkan
+    (`scene_smoketest/firefox_prefs.mjs`, `dom.webgpu.wgpu-backend`).
+61. **An editor built before the converter rename cannot bake** (2026-10-25). The editor runs `wgsl_convert_cli` from its
+    own directory (`wgsl_bake_subprocess.cpp`); an editor from before work/9 looks for `tint_convert_cli`, and a new
+    editor beside only a stale `tint_convert_cli` finds nothing either. The export warns once ("not found next to the
+    editor executable") and ships every shader unbaked: it works, and loads slowly (`baked: 0`). Rebuild editor, tool
+    and templates together, and update anything that copies the tool by name (CI artifacts, older scripts).
+62. **`git -C <repo> worktree add <relative path>` resolves the path against `<repo>`, not the shell's directory**
+    (2026-10-25). A worker briefly created its worktree *inside* the lead's checkout that way. Always pass an absolute
+    path.
+63. **Chrome refuses fullscreen requested on a touch press** (2026-10-25). `requestFullscreen()` needs user activation,
+    and a touch gives it on `touchend`, not `touchstart`. Godot delivers `InputEventScreenTouch` with `pressed = true`
+    from touchstart, so `window_set_mode(WINDOW_MODE_FULLSCREEN)` on a press fails silently on the first tap and "works"
+    on the second (the first tap's activation is still live). Request it on the release; the export's own
+    `html/fullscreen_on_first_tap` does (§4.37).
+64. **A scan of generated WGSL that finds nothing does not fail** (2026-10-25). The driver reads binding facts out of the
+    converter's text; when the text's shape changes, the scan just misses and the binding silently gets a default.
+    SPIRV-Cross keeps a sampled texture in `let _27 = textureLoad(depth_tex, ...)` and swizzles at each use, where Tint
+    swizzled the call, so the depth reclassifier would have left SSR's `source_depth` a float texture with the blank
+    fallback (trap 29) — the kind of bug only the parity matrix finds by eye. Every such read now goes through
+    `wgsl_text_scan.{h,cpp}` (structural, with cases in `webgpu_tests/wgsl_text_scan/cases/`), checked against
+    `scan_reference.txt` for every engine variant.
+65. **SPIRV-Tools' optimizer asserts on invalid SPIR-V, and a structural pre-check is not enough** (2026-10-25, cost about
+    an hour). Ids, function references and block terminators look like all the IR loader needs, and a scan for them
+    stopped the first three fuzzer asserts; the fuzzer then found AggressiveDCE asserting on an `OpLoad` from a
+    non-pointer, and `expand_binding_arrays` getting result id 0 once the id bound neared IRContext's 0x3FFFFF limit
+    (`TakeNextId()` returns 0, unchecked). Only the validator rules out type errors: `run_pipeline()` validates untrusted
+    input; `check_ir_preconditions()` is only a guard against our own passes' bugs. The fuzzers had been blind too —
+    linked against uninstrumented pass objects, ~200 coverage edges instead of ~5,000 — so a clean fuzz run said nothing
+    until §4.36.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -2705,6 +2879,9 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
   fog do not scale with it. Native per-section GPU time for comparison: run the project with `--gpu-profile`.
 - **`api_profile.mjs` inflates the frame** (it wraps every GPU method with two `performance.now()` calls); read its fps as a
   lower bound and take fps from `gpu_time.mjs` or the engine's `godotWebGPUFrameStats` instead.
+- **Sub-0.06 ms passes move ±0.01 ms between launches of the same export, and about 1 launch in 10 runs in a slow GPU
+  state (half the fps)** (2026-10-25, §4.36's GPU A/B). Use at least 3 launches with the order rotated, read medians, and
+  confirm a per-pass gap by swapping the WGSL (`gpu_time.mjs --replace-wgsl`) before blaming a converter or a change.
 - **Stale exports**: `scene_smoketest/run_scenes.mjs --export-only` needs `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` or it exports
   nothing (default is the macOS editor); an editor without `webgpu=yes` bakes nothing; a commit after the build mismatches the
   baked cache. Check `baked > 0` and the template/editor version before trusting a number.
@@ -3050,8 +3227,11 @@ measure.
 
 ### 4.16 The Tint / SPIR-V arc
 
-The pipeline is `GLSL → SPIR-V (glslang) → 12 binary-rewriting passes → WGSL (Tint, linked in) → GPU`,
-with Tint vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.md`).
+*Superseded 2026-10-25: Tint was replaced by SPIRV-Cross and deleted (§4.36). This entry is the history of the Tint
+years; its pass and patch numbers refer to that tree (tag `pre-SPIR-V-Cross`).*
+
+The pipeline was `GLSL → SPIR-V (glslang) → 12 binary-rewriting passes → WGSL (Tint, linked in) → GPU`,
+with Tint vendored under `thirdparty/tint` (its patches were listed in `thirdparty/README.md`).
 
 - **naga → Tint (May 2026)**: replaced the 1.1 MB prebuilt Rust/WASM naga blob with Google's Tint
   (C++20, BSD-3) specifically to make an upstream PR possible — Godot has no Rust dependency and no
@@ -3757,6 +3937,123 @@ entries cannot be filtered by `exclude`, and an `if:` on every step of three wor
 flags in step with the release jobs. Only the Linux half of `package-editor` was run locally (a zip of non-executable
 files comes out `-rwxrwxr-x` and the unpacked editor starts); the macOS and Windows halves first run on GitHub.
 
+### 4.36 Tint → SPIRV-Cross: the converter swap (October 2026) *(was §2.35; work tasks 00–19)*
+
+**What changed.** SPIRV-Cross's WGSL backend ([Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl),
+vendored as `thirdparty/spirv-cross-wgsl`, its own namespace beside Metal's `thirdparty/spirv-cross`) now does every
+SPIR-V → WGSL conversion after the unchanged `run_pipeline()` passes: the runtime (`spirv_to_wgsl.cpp` →
+`spirv_cross_wrapper.cpp`), `wgsl_precompile.py`, the export-time bake and every test tier. Tint is deleted
+(`thirdparty/tint`, 830 files; `tint_wrapper.*`, `tint_ir_transforms.*`; the temporary `webgpu_wgsl_backend` SCons
+option), ~204k lines in all. The host tool is `bin/wgsl_convert_cli`, built by `drivers/webgpu/wgsl_cli/build.sh` (C++17
+now, ~210 objects instead of ~570); `WGSL_DEBUG_DUMP_PREPROCESSED`, `WGSL_CONVERT_CLI` and `--skip-wgsl-cli` replace the
+`TINT_*` names and `--skip-tint-cli` (the old env var and flag still work for one release). The tag `pre-SPIR-V-Cross`
+marks the tree before; the user's decision and the evaluation it was made on are §2.35. It ran 2026-10-25 as one lead
+and parallel workers on a work board (`webgpu_notes/work/`, retired afterwards; its `results/` are in git history).
+
+**The bar** (user, 2026-10-25): Forward+ at parity with native Vulkan, no test tier worse than at `pre-SPIR-V-Cross`,
+cameraSim by eye, and Firefox desktop and Chrome for Android working *and as fast as with Tint or faster*. Every part
+held:
+
+| check | Tint | SPIRV-Cross |
+|---|---|---|
+| Forward+ `--parity`, Chrome desktop (4080 SUPER) | 71/71 baked | **71/71** unbaked (every stage converted at runtime) and baked; fsr2 0.142, fog 0.001 |
+| Firefox desktop (Linux, wgpu/Vulkan): parity, smoketest, naga | 69/71, 23/23 | **69/71, 23/23** — the same two SDFGI arms, 0.277, Firefox-only (§2.40); naga 276/276 engine variants, 2564/2566 project stages on both |
+| cameraSim (Ava MetaHuman), 5 views vs native Vulkan | MAD 0.00–0.03 | **MAD 0.00–0.03** — run-to-run noise; user: "Matches"; `baked 1570 / translated 0` |
+| desktop Chrome GPU, heavy Forward+, median ms/frame | 1.47 | **1.43**; perf_guard scenes equal, benchmark_postfx +0.014 ms (+2%) |
+| Firefox desktop GPU, heavy, ms/frame | 3.88 | **3.82**; postfx +10% fps; shadows/pbr ~1.8% fewer fps at ~1000 fps, CPU-side, GPU equal |
+| Razr 60 (Mali-G615, Chrome 155) GPU ms/frame: fp / heavy / postfx / platformer / stress | 16.9 / 73.8 / 23.3 / 29.6 / 28.8 | **16.8 / 71.3 / 23.2 / 28.7 / 28.1** with patch 0019; fp_check Look set (34 frames) identical to Tint's |
+| fp_check `index.shaders.pck` raw / gzip -9 | 29.6 / 4.43 MB | 34.8 / **3.70 MB** (−17% compressed) |
+| release nothreads wasm | — | −1.6% raw, −2.0% gzip (SPIRV-Tools stays) |
+| converter CLI, clean build (-j12) | 63 s | **44 s** (368 → 7 converter objects; both compile SPIRV-Tools' 199) |
+| web template: converter + driver objects cold + precompile, no link | 41.9 s, 380 TUs | **10.7 s, 20 TUs** — ~31 s per variant, ~4 min over `build-linux.sh`'s 8 (small with a warm ccache: 121 vs 102 s relink) |
+
+Firefox for Android was ruled out of scope by the user. Every engine variant converts per module several times faster
+(§2.35's table; the bake was never converter-bound, §3 trap 26).
+
+**What it took, by task** (each merged as `Merge work/<n>`, `git log --first-parent pre-SPIR-V-Cross..`):
+- *00* foundation: vendored backend, `spirv_cross_wrapper`, the CLI building either converter, `smoke.sh`.
+- *01, 15, 06, 12* — the four SPIRV-Cross patches (`thirdparty/README.md`): **0001** barrier/load/barrier on a workgroup
+  variable → `workgroupUniformLoad` (FSR2's luminance pyramid failed barrier uniformity); **0015** uniform compute builtins
+  reach the inner entry point as parameters, not `var<private>` (screen-space contact shadows failed it the same way);
+  **0006** 16-bit norm storage formats (CanvasSdf's r16snorm); **0019** never emit WGSL `for` (§3 trap 58).
+- *02* the driver's WGSL reads moved into `wgsl_text_scan.{h,cpp}` (~1,500 lines of `strstr` replaced); found SSR's
+  `source_depth` that SPIRV-Cross's output shape would have sent to the blank fallback (§3 trap 64).
+- *03* the in-engine converter on SPIRV-Cross: `-fwasm-exceptions` on its translation units and the link only, the
+  rest of the engine stays `-fno-exceptions`; a throw is a failed conversion. All 8 web variants link.
+- *04, 14* specialization constants: `spec_constants_overridable()` unchanged on evidence (93 of 276 variants keep 216
+  overrides, none frozen); `wgsl_convert_cli --spec-info`/`--raw`, `run_spec_ops.sh`; `freeze_spec_constant_ops()` now
+  evaluates CompositeExtract/Insert, VectorShuffle and vector ops on constant composites and SRem/SMod (it folded them
+  to 0, with Tint too), and warns with `OpConstantNull` where it cannot.
+- *05* real projects: fp_check, sewer-shift, cameraSim and the smoketest projects, 2,566 unique stages, all converted
+  with Tint-identical interfaces, output 1.09–1.14× Tint's size (`spirv_cross_eval/project_export.sh`, `project_eval.py`).
+- *06* every offline tier on the converter of choice (backend-neutral assertions); the fuzzers, broken before the swap,
+  fixed and ported.
+- *07, 16* Forward+ parity; the baked "fog race" was the capture landing on two jitter phases (§3 trap 56).
+- *08, 11, 12* GPU timing on desktop Chrome, Firefox and the Razr 60 (rotated launch order, ≥3 launches, medians;
+  `perf_guard/frame_time.mjs`, `phone_bench.mjs`, `firefox_prefs.mjs`, `WEBGPU_AUDIT=<file.jsonl>`). A `var<private>`
+  candidate for SPIRV-Cross's module-scope `const` arrays (SSIL, §2.30) measured no different and was not applied.
+- *13* `run_pipeline()` validates its input (SPIRV-Tools, Vulkan 1.2, ~2.3 ms a module) and rejects malformed SPIR-V
+  instead of asserting; every optimizer pass runs `check_ir_preconditions()` first; `rewrite_copy_logical` capped (a
+  valid 1e8-element copy took 6.2 GB / 51 s); fuzzers instrument the passes (~5,000 edges, all 27 passes, 10 min each
+  clean). The lead made full validation opt-out for the engine's runtime (`e99b18555e`): its input is glslang's, and on
+  the web it would be pure load time (§3 trap 65).
+- *17* FSR2's softness on WebGPU was a dropped view swizzle (amd-fsr2 patch 0005, §3 trap 55); `drivers/webgpu/SCsub`
+  now also fingerprints the FSR 1/2 shader sources; `run_forward_plus.mjs` refuses a stale export (§3 trap 57).
+- *18* cameraSim by eye (above). *19* is §4.37, done on the same board.
+- *09* Tint removed, the CLI renamed, CI keys/artifacts renamed (`wgsl-cli`, `wgsl-convert-cli`; not yet run on GitHub,
+  §2.38). Verified with the editor and all 8 web variants built `dev_mode=yes`, smoke 276/276 against the stored
+  references, shader_corpus 14/14, preprocessing 291/0/1, driver unit 379/0, spec_constant_overrides 5/0 offline,
+  determinism, fuzzers, `local_ci.sh --dev-mode --no-safari` 28/1/5 (the one failure, web audio e2e nothreads in a
+  headless page, fails identically on a 2026-10-23 Tint-era export).
+
+**Interface references.** With no Tint to compare against, `webgpu_tests/spirv_cross_eval/interface_reference.json`
+(bindings, kinds and override ids of the 276 engine variants, as Tint emitted them at `7f2bf18eb2`) and
+`webgpu_tests/wgsl_text_scan/scan_reference.txt` (the driver's text-scan facts for the same variants, both modes) are
+what the smoke check and the text-scan tier compare with; SPIRV-Cross matched 276/276 and 552/552. After a deliberate
+interface change, regenerate (`compare_interface.py --write`, `WRITE_REFERENCE=1 run_tests.sh`) and say why in the
+commit.
+
+**Left as is, on purpose.** `lower_tint_unsupported_ops()` and `tint_crash_inputs.frag` keep their names (the
+comments explain them; renaming is the user's call). Pass rationales keep their Tint history in past tense. Browser
+Tint (Chrome/Dawn compiling our WGSL) is unrelated and untouched. `spirv-headers`' broad `unified1` extraction stays
+for SPIRV-Tools; whether `spirv.hpp11` can return to the vulkan-sdk pin was not tried.
+
+### 4.37 Web export: a screen that stays on, its orientation, fullscreen on the first tap (October 2026) *(was §2.36; work task 19)*
+
+Asked for (user, 2026-10-25): signal performance, keep the screen awake, lock the export panel's orientation. Merged
+`6d8a3e6dc0`.
+- *Screen awake:* `DisplayServerWeb::screen_set_keep_on()` takes a Screen Wake Lock and re-requests it on every
+  `visibilitychange` to visible (the browser drops it when the page is hidden); the constructor applies
+  `display/window/energy_saving/keep_screen_on` as X11/Wayland/Windows do; released at exit. `FEATURE_KEEP_SCREEN_ON`
+  is true where `navigator.wakeLock` exists (not in insecure contexts).
+- *Orientation:* `screen_set_orientation()` / `screen_get_orientation()` map to `screen.orientation.lock()`, requested
+  at once and on every fullscreen entry, since Chrome for Android allows it only in fullscreen. `FEATURE_ORIENTATION`
+  needs `lock()` **and** `(any-pointer: coarse)`: desktop browsers have `lock()` and always reject it. Export option
+  `html/orientation` (default Project Setting): any other value is written into the exported `project.binary` as
+  `display/window/handheld/orientation` (`get_custom_project_settings()`, as iOS does) — no `GODOT_CONFIG` key, so
+  custom shells get it too. The PWA manifest follows the same value; `progressive_web_app/orientation` is hidden and
+  honored only for old presets. The manifest's `display` clamp read past its array; fixed.
+- *Fullscreen on the first tap* (user decision): `html/fullscreen_on_first_tap`, default on (Engine config
+  `fullscreenOnFirstTap`, default off for hand-written shells). Where the **primary** pointer is coarse, the canvas
+  enters fullscreen on the first tap's `touchend` (§3 trap 63), retried until it succeeds and never again once the
+  page has been fullscreen; entering it fires the orientation lock. Desktops, touchscreen laptops included, are
+  unaffected.
+- *Performance:* every adapter request already asked for `powerPreference: 'high-performance'` except the worker
+  capability probe in `engine.js`, which now does. The web has no stronger signal (`powerPreference` is a hint; the
+  Compute Pressure API only observes).
+- Refusals (no API, hidden page, lock outside fullscreen, desktop) print only with `--verbose`, never as warnings.
+
+**Behavior change:** a project that never set `display/window/handheld/orientation` has the default, Landscape, so on
+a phone the export now locks landscape when it enters fullscreen and an installed PWA's manifest says
+`landscape-primary` instead of `any` — what native Android does with the same project. Set Sensor for free rotation.
+**Known edge:** a feature-tag override (`display/window/handheld/orientation.web_android`) still beats
+`html/orientation` at run time, because the export writes the base key only.
+
+**Verified:** Razr 60, Chrome 155: first tap → fullscreen and `landscape-primary` / `portrait-primary` as exported,
+with the option off a tap stays windowed; screen awake 60 s untouched against a 30 s system timeout, dozing 30 s after
+the tab closed. Desktop Chrome and Firefox: no errors, features reported unsupported where expected. Lead: editor +
+release template built, smoke OK, driver unit 379/0, fixture export clean with `fullscreenOnFirstTap: true`.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
@@ -3794,5 +4091,5 @@ git show <commit>^:webgpu_notes/HANDOFF.md                # read a file as it wa
 `drivers/webgpu/README.md` (driver-local notes), `webgpu_tests/README.md` (how to run every tier),
 `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` (how to test a reported bug against a
 real project), `webgpu_tests/forward_plus/README.md` (the add-a-feature rule), `misc/emsdk_patches/`
-(the toolchain patches and how to add a third), `thirdparty/README.md` (vendored Tint patches), and
+(the toolchain patches and how to add a third), `thirdparty/README.md` (the vendored SPIRV-Cross and amd-fsr2 patches), and
 `webgpu_site/{ARCHITECTURE_AND_DESIGN,TECHNICAL_REFERENCE,PERFORMANCE_AND_OPTIMIZATION,CORRECTNESS_AND_COMPATIBILITY,FAQ}.md`.

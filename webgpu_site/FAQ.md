@@ -28,7 +28,7 @@ The `dlink_enabled=yes` flag enables Emscripten dynamic linking, which produces 
 
 Requirements:
 - Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
-- No Rust toolchain needed (Tint C++ translator is compiled directly into the engine)
+- No Rust toolchain needed (SPIRV-Cross's C++ WGSL backend is compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
 
 ### 5. Do I need to modify my Godot project to use WebGPU?
@@ -86,7 +86,7 @@ A layered optimization stack that reduces IPC message count:
 
 ### 10. What's the startup time?
 
-That 15-second figure was from before export-time baking, when ~383 SPIR-V stages were converted to WGSL by Tint in the browser at every load. Now the editor bakes WGSL into the export (`shader_baker/enabled`), and a baked export converts nothing at load.
+That 15-second figure was from before export-time baking, when ~383 SPIR-V stages were converted to WGSL in the browser at every load (by Tint then; SPIRV-Cross since October 2026). Now the editor bakes WGSL into the export (`shader_baker/enabled`), and a baked export converts nothing at load.
 
 Three later changes cut what remains (`webgpu_notes/TASKS.md` §2.27, §2.18, §2.4):
 
@@ -131,27 +131,27 @@ This design means push constant updates cost zero additional IPC — they're bat
 Godot compiles GLSL → SPIR-V at engine build time (via glslang). At runtime in the browser:
 
 1. SPIR-V bytecode is loaded from the shader container
-2. `spirv_preprocess::run_pipeline()` runs a fixed chain of C++ passes (`spirv_preprocess.cpp`, plus three on SPIRV-Tools' IR in `spirv_opt_passes.cpp`) that transform the SPIR-V for WebGPU compatibility: push constant rewrite, combined sampler split, Y-negation, texture-array expansion, the sampler mipmap bias, lowering of `isnan`/`isinf`/`textureQueryLod` that Tint cannot read, readonly inference, and more. The full order is in `TECHNICAL_REFERENCE.md` §4.1
-3. Tint (Google's Dawn/Chrome SPIR-V→WGSL compiler, compiled directly into the engine WASM) parses the preprocessed SPIR-V and generates WGSL
+2. `spirv_preprocess::run_pipeline()` runs a fixed chain of C++ passes (`spirv_preprocess.cpp`, plus three on SPIRV-Tools' IR in `spirv_opt_passes.cpp`) that transform the SPIR-V for WebGPU compatibility: push constant rewrite, combined sampler split, Y-negation, texture-array expansion, the sampler mipmap bias, lowering of `isnan`/`isinf`/`textureQueryLod`, which WGSL has no direct form for, readonly inference, and more. The full order is in `TECHNICAL_REFERENCE.md` §4.1
+3. SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, compiled directly into the engine WASM) parses the preprocessed SPIR-V and generates WGSL
 4. Post-processing fixes browser-specific issues (f32::MAX literals, f16 stripping, derivative uniformity)
 5. C++ applies format remapping
 6. `wgpuDeviceCreateShaderModule` creates the GPU shader
 
 Results are cached by 64-bit SPIR-V hash — identical stages are never converted twice.
 
-### 15. Why Tint instead of Naga? Why vendor and patch it?
+### 15. Why SPIRV-Cross? Why vendor and patch it?
 
-Tint is Google's SPIR-V→WGSL compiler from the Dawn/Chrome project — it's literally what Chrome uses for WebGPU shader compilation. We chose Tint over the previous Naga (Rust) approach because:
-- **C++ only** — matches Godot's build system (no Rust/wasm-pack dependency)
-- **Compiled directly into the engine WASM** — no separate sidecar binary to load
-- **Far fewer patches** — 6 patches covering 8 files (3 logical groups) vs Naga's 42 patched files
-- **BSD 3-Clause license** — compatible with Godot's licensing
+The converter changed twice. Naga (Rust, prebuilt WASM, 42 patched files) went in May 2026 for Tint, Google's SPIR-V→WGSL compiler from Dawn: C++ only, no Rust toolchain, compiled straight into the engine. In October 2026 Tint gave way to SPIRV-Cross's WGSL backend ([Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), Apache-2.0/MIT), measured on everything before Tint was deleted (`webgpu_notes/TASKS.md` §4.36):
+- **Drop-in after our passes** — all 276 engine variants convert, with bindings, binding kinds and override ids identical to Tint's
+- **Faster and smaller** — ~5-10× faster per module; the converter CLI builds clean in 44 s instead of 63 s, a web template variant compiles ~31 s less; ~204k lines of vendored source deleted (1.8 MB vendored instead of Tint's 9.1 MB). The WGSL text is 6-9% larger, but the baked `index.shaders.pck` gzips 17% smaller (3.70 vs 4.43 MB)
+- **Same image, same speed** — Forward+ 71/71 at parity with native Vulkan, the user's cameraSim project indistinguishable from Vulkan, desktop Chrome, Firefox and the Razr 60 phone as fast or faster on the GPU
+- **Already a dependency** — the engine vendors SPIRV-Cross for Metal; the WGSL fork is a second copy in its own namespace (`spirv_cross_wgsl`) so both link into one macOS editor
 
-Six small patches to vendored Tint handle Godot-specific requirements:
-1. UBO layout relaxation (Godot uses C++ struct packing, not std140/std430)
-2. Spec constant size mismatches (Godot's specialization constants change struct sizes at runtime) — 5 files
-3. Point size tolerance (accept non-constant `gl_PointSize` stores)
-4. Vendoring (replace `absl::from_chars` with `std::from_chars`)
+Four small local patches, never upstreamed (`thirdparty/README.md`):
+1. `0001` the barrier/load/barrier broadcast idiom as `workgroupUniformLoad` (FSR2 barrier uniformity)
+2. `0006` 16-bit normalized storage formats (`CanvasSdfShaderRD`)
+3. `0015` uniform compute builtins passed as parameters (contact shadows barrier uniformity)
+4. `0019` no WGSL `for` statements (a Mali-G615 driver ran a negative-start `for` zero times)
 
 ### 16. How does the WebGPU device get created?
 
@@ -160,7 +160,7 @@ JavaScript creates the device **before** WASM loads (since device creation is as
 2. Requests a device with all supported optional features and maximum limits
 3. Passes the device into the Emscripten module config
 4. C++ imports it via `WebGPU.importJsDevice()`
-5. Tint is already compiled into the engine WASM — no separate shader converter to load
+5. The SPIR-V → WGSL converter is already compiled into the engine WASM — no separate shader converter to load
 
 ### 17. Why a single 7733-line implementation file?
 
@@ -272,7 +272,7 @@ The 1-frame latency is acceptable for viewport capture, profiling, and compute r
 
 ### 27. How is the combined-sampler splitting implemented?
 
-At the SPIR-V binary level (before Tint parsing), the most complex preprocessing pass (~500 lines of C++):
+At the SPIR-V binary level (before conversion), the most complex preprocessing pass (~500 lines of C++):
 
 1. Identifies all `OpVariable` with `OpTypeSampledImage` pointer type
 2. For each combined variable at binding N:
@@ -299,7 +299,7 @@ New methods include: `buffer_create_with_data`, `buffer_initiate_async_map`, `bu
 ### 29. What would need to change for upstream Godot acceptance?
 
 1. **RFC for API traits**: The 10 new trait enums need formal review by Godot rendering team
-2. **Upstream Tint patches**: Submit the 6 patches to the Dawn/Tint project (patches 5 & 6 are arguably Tint bugs)
+2. **Vendored converter**: a second SPIRV-Cross (the WGSL fork, beside Metal's) with four local patches; by the project's rule the patches are not offered upstream, so upstream Godot would vendor the fork as patched here or wait for the WGSL backend to land in KhronosGroup/SPIRV-Cross
 4. **Reduce WGSL text manipulation**: Move remaining string-level transforms into SPIR-V preprocessing where possible
 5. **CI infrastructure**: Headless Chrome/Firefox WebGPU testing
 6. **Shared constants**: Single source of truth for magic numbers (binding 120, ring size, alignment)
@@ -336,7 +336,7 @@ Currently, there is no automated test suite for the WebGPU backend. Correctness 
 - Manual testing across Chrome, Firefox, and Safari
 - Stress test scenes (20k instances, 32 lights, 60k shared-material objects)
 - The browser's own WebGPU validation layer (catches spec violations)
-- Tint's built-in SPIR-V and WGSL validation passes
+- SPIRV-Tools' validator on `run_pipeline()`'s input, and the browser's WGSL compiler on the output
 - Performance counter monitoring for unexpected behavior
 
 For upstream, we'd need:
