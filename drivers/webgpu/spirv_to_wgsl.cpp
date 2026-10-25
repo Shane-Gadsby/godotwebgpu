@@ -42,6 +42,7 @@
 #endif
 
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace webgpu {
@@ -67,7 +68,12 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	spv.resize(p_spv_size);
 	memcpy(spv.ptrw(), p_spv_ptr, p_spv_size);
 
-	spv = spirv_preprocess::run_pipeline(spv);
+	std::string pipeline_error;
+	spv = spirv_preprocess::run_pipeline(spv, &pipeline_error);
+	if (spv.is_empty()) {
+		ERR_PRINT(vformat("SPIR-V→WGSL failed: %s", String::utf8(pipeline_error.c_str())));
+		return nullptr;
+	}
 
 	// Convert to uint32_t words for Tint.
 	int word_count = spv.size() / 4;

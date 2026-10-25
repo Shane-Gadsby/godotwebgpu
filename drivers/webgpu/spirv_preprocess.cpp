@@ -43,6 +43,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace spirv_preprocess {
@@ -1257,6 +1258,15 @@ struct CopyLogicalTypeInfo {
 // p_forced_result_id is nonzero, the final value is emitted with that exact
 // id, so callers referencing the original OpCopyLogical's result id keep
 // working unmodified.
+//
+// Bounded: each component is one operand of an OpCompositeConstruct, whose word
+// count is 16 bits, so a longer array cannot be rebuilt at all; and a nest of
+// long arrays (lengths are whatever the module says) would otherwise emit
+// gigabytes before finishing, so a copy that outgrows the output cap falls back
+// too. glslang's copies are a few members.
+static constexpr uint32_t COPY_LOGICAL_MAX_COMPONENTS = 0xFFFF - 3;
+static constexpr int64_t COPY_LOGICAL_MAX_OUTPUT_BYTES = 16 << 20;
+
 static uint32_t decompose_logical_copy(Vector<uint8_t> &r_out, uint32_t p_src_id, uint32_t p_src_type,
 		uint32_t p_dst_type, const HashMap<uint32_t, CopyLogicalTypeInfo> &p_types, uint32_t &r_next_id,
 		int p_depth, uint32_t p_forced_result_id = 0) {
@@ -1294,9 +1304,15 @@ static uint32_t decompose_logical_copy(Vector<uint8_t> &r_out, uint32_t p_src_id
 	} else {
 		return 0;
 	}
+	if (count > COPY_LOGICAL_MAX_COMPONENTS) {
+		return 0;
+	}
 
 	Vector<uint32_t> components;
 	for (uint32_t i = 0; i < count; i++) {
+		if (r_out.size() > COPY_LOGICAL_MAX_OUTPUT_BYTES) {
+			return 0;
+		}
 		uint32_t member_src_type = src_info->kind == CopyLogicalTypeInfo::KIND_STRUCT ? src_info->member_types[i] : src_info->elem_type;
 		uint32_t member_dst_type = dst_info->kind == CopyLogicalTypeInfo::KIND_STRUCT ? dst_info->member_types[i] : dst_info->elem_type;
 
@@ -1431,7 +1447,9 @@ Vector<uint8_t> rewrite_copy_logical(const Vector<uint8_t> &p_bytes) {
 			const uint32_t *src_type = id_to_type.getptr(src_id);
 
 			bool decomposed = false;
-			if (src_type) {
+			// The cap is on the whole module too: many copies each under it
+			// would add up just the same.
+			if (src_type && out.size() < COPY_LOGICAL_MAX_OUTPUT_BYTES) {
 				Vector<uint8_t> attempt;
 				uint32_t candidate_next_id = next_id;
 				uint32_t result = decompose_logical_copy(attempt, src_id, *src_type, dst_type, types, candidate_next_id, /*p_depth=*/16, orig_result);
@@ -5049,6 +5067,21 @@ Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_byte
 	return out;
 }
 
+// The check every pass here that runs SPIRV-Tools' optimizer makes first:
+// the optimizer and its analyses assert on a malformed module instead of
+// reporting it (spirv_opt_passes::check_ir_preconditions()). run_pipeline()
+// validates its input, so inside it this only fires when an earlier pass left
+// the module broken, which is a bug worth seeing; called on its own (the
+// fuzzers do), a pass skips garbage instead of aborting.
+static bool _optimizer_preconditions_met(const char *p_pass, const std::vector<uint32_t> &p_words) {
+	std::string error;
+	if (spirv_opt_passes::check_ir_preconditions(p_words.data(), p_words.size(), &error)) {
+		return true;
+	}
+	fprintf(stderr, "WebGPU: %s: skipped, the module is malformed: %s\n", p_pass, error.c_str());
+	return false;
+}
+
 // ---- inline_opaque_functions ----
 
 Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
@@ -5082,6 +5115,9 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 	// including future version bumps we won't see coming.
 	std::vector<uint32_t> result;
 	spvtools::ValidatorOptions validator_options;
+	if (!_optimizer_preconditions_met("inline_opaque_functions", words)) {
+		return p_bytes;
+	}
 	if (!optimizer.Run(words.data(), words.size(), &result, validator_options, /*skip_validation=*/true)) {
 		// Genuinely unexpected at this point (not a validation rejection --
 		// those are skipped above). Warn loudly instead of silently falling
@@ -5330,6 +5366,9 @@ Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 	// unreferenced is only unreferenced at its *default* value, so DCE must not
 	// remove it -- the pipeline still needs the override to set it.
 	optimizer_options.set_preserve_spec_constants(true);
+	if (!_optimizer_preconditions_met("eliminate_dead_resources", words)) {
+		return p_bytes;
+	}
 	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
 		// for tint_cli against shim core/templates/ headers with no error_macros.h.
@@ -5383,6 +5422,9 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 	// unreferenced is only unreferenced at its *default* value, so DCE must not
 	// remove it -- the pipeline still needs the override to set it.
 	optimizer_options.set_preserve_spec_constants(true);
+	if (!_optimizer_preconditions_met("eliminate_local_single_block_vars", words)) {
+		return p_bytes;
+	}
 	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
 		// for tint_cli against shim core/templates/ headers with no error_macros.h.
@@ -5414,7 +5456,26 @@ static Vector<uint8_t> run_opt_pass(const Vector<uint8_t> &p_bytes, bool (*p_pas
 	return out;
 }
 
-Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes) {
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error) {
+	// Validate first. The passes below that run SPIRV-Tools' optimizer assert
+	// on malformed modules instead of failing (TASKS.md §2.35, task 13's fuzz
+	// reproducers), and the raw word passes were written for glslang's output,
+	// not for arbitrary words. Rejecting here is a clean conversion failure
+	// every caller already handles: the runtime reports it, the baker leaves
+	// the stage to the runtime, tint_convert_cli prints it.
+	std::string error;
+	if (p_bytes.size() < 20 || (p_bytes.size() % 4) != 0) {
+		error = "not a SPIR-V module (" + std::to_string(p_bytes.size()) + " bytes)";
+	} else {
+		spirv_opt_passes::validate_module(reinterpret_cast<const uint32_t *>(p_bytes.ptr()), (size_t)p_bytes.size() / 4, &error);
+	}
+	if (!error.empty()) {
+		if (r_error) {
+			*r_error = "invalid SPIR-V, not converted: " + error;
+		}
+		return Vector<uint8_t>();
+	}
+
 	Vector<uint8_t> spv = inline_opaque_functions(p_bytes);
 	// Specialization constants are left in place when every one of them can
 	// become a WGSL `@id(N) override`, so a pipeline can specialize them through

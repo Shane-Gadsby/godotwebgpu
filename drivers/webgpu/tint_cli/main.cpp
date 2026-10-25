@@ -138,7 +138,10 @@ static std::string convert_spirv_to_wgsl(const std::vector<uint8_t> &p_spv_bytes
 	memcpy(spv.ptrw(), p_spv_bytes.data(), p_spv_bytes.size());
 
 	if (!g_skip_pipeline) {
-		spv = spirv_preprocess::run_pipeline(spv);
+		spv = spirv_preprocess::run_pipeline(spv, &r_error);
+		if (spv.is_empty()) {
+			return {};
+		}
 	}
 
 	// Debug: dump post-preprocessing SPIR-V when requested.
