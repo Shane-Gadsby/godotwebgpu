@@ -1,5 +1,11 @@
 # Status (lead-maintained)
 
+## 2026-10-25 12:10 — the user's looks
+
+FSR2, SSIL/SSAO, contact shadows/SSR: match. Fog: "can't tell them apart" but wants the race fixed (task 16 stays).
+FSR2: "a little more pixelated" on web → measured: identical with Tint before the swap (Laplacian 11.04 vs native
+12.82), so not the swap → task 17.
+
 ## 2026-10-25 12:05 — Forward+ parity: 71/71 with every shader converted by SPIRV-Cross
 
 - Pair rebuilt from 62a570d31f (editor + web release nothreads). **Unbaked export (every stage converted at runtime by
@@ -139,6 +145,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 14 | spec-composite fold fix | open | |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog race (pre-existing) | open | |
+| 17 | FSR2 softer on WebGPU than native (pre-existing, user's look) | open | |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.
