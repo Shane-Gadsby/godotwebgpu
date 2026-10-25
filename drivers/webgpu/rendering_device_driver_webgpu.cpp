@@ -46,6 +46,7 @@
 #ifdef WGSL_BACKEND_TINT
 #include "drivers/webgpu/tint_wrapper.h"
 #endif
+#include "drivers/webgpu/wgsl_text_scan.h"
 
 #include <emscripten/emscripten.h>
 #include <webgpu/webgpu.h>
@@ -53,6 +54,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
 // Define WEBGPU_VERBOSE to enable diagnostic console.log prints in the browser.
@@ -88,60 +92,11 @@ static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStri
 	fence->signaled = true;
 }
 
-// Parse "@group(G[u]) @binding(B[u])" from a WGSL string.
-// Handles the optional 'u'/'i' suffix that Tint emits for integer literals.
-// Returns true and sets r_grp/r_bnd on success.
-// strstr() limited to [p_hay, p_end). The WGSL scans below only ever care about a
-// match inside the current declaration (before its ';'), but an unbounded strstr()
-// walks to the end of the whole text whenever the needle is absent -- once per
-// @group declaration, per stage (webgpu_notes/TASKS.md §2.4).
-static const char *_strstr_before(const char *p_hay, const char *p_end, const char *p_needle) {
-	const size_t n = strlen(p_needle);
-	for (; p_hay + n <= p_end; p_hay++) {
-		if (*p_hay == *p_needle && memcmp(p_hay, p_needle, n) == 0) {
-			return p_hay;
-		}
-	}
-	return nullptr;
-}
-
-static bool parse_group_binding(const char *p, unsigned int &r_grp, unsigned int &r_bnd) {
-	if (strncmp(p, "@group(", 7) != 0) {
-		return false;
-	}
-	const char *g = p + 7;
-	char *end = nullptr;
-	unsigned long grp = strtoul(g, &end, 10);
-	if (end == g) {
-		return false;
-	}
-	if (*end == 'u' || *end == 'i') {
-		end++;
-	}
-	if (*end != ')') {
-		return false;
-	}
-	end++; // skip ')'
-	while (*end == ' ') {
-		end++;
-	}
-	if (strncmp(end, "@binding(", 9) != 0) {
-		return false;
-	}
-	const char *b = end + 9;
-	unsigned long bnd = strtoul(b, &end, 10);
-	if (end == b) {
-		return false;
-	}
-	if (*end == 'u' || *end == 'i') {
-		end++;
-	}
-	if (*end != ')') {
-		return false;
-	}
-	r_grp = (unsigned int)grp;
-	r_bnd = (unsigned int)bnd;
-	return true;
+// Replaces the malloc'd WGSL text with p_text (the in-place rewrites own and free it).
+static void _set_wgsl_text(char *&r_wgsl_str, const std::string &p_text) {
+	free(r_wgsl_str);
+	r_wgsl_str = (char *)malloc(p_text.size() + 1);
+	memcpy(r_wgsl_str, p_text.c_str(), p_text.size() + 1);
 }
 
 // =============================================================================
@@ -634,6 +589,37 @@ static WGPUTextureFormat _wgsl_storage_format_string_to_wgpu(const String &p_fmt
 		return WGPUTextureFormat_RG11B10Ufloat;
 	}
 	return WGPUTextureFormat_RGBA8Unorm; // fallback
+}
+
+// The format named in a storage texture declaration as the stage-loop scan reads it. A superset of
+// _wgsl_storage_format_string_to_wgpu(): it also names the 16-bit formats, with the same fallbacks the
+// pre-wgsl_text_scan string chain had (the snorm/unorm 16-bit ones are not storage formats and land on
+// float), so the BGL entry is built from the same format as before.
+static WGPUTextureFormat _wgsl_scan_storage_format_to_wgpu(const std::string &p_fmt) {
+	static const struct {
+		const char *name;
+		WGPUTextureFormat format;
+	} TABLE[] = {
+		{ "r16float", WGPUTextureFormat_R16Float },
+		{ "r16uint", WGPUTextureFormat_R16Uint },
+		{ "r16sint", WGPUTextureFormat_R16Sint },
+		{ "r16snorm", WGPUTextureFormat_R16Float },
+		{ "r16unorm", WGPUTextureFormat_R16Float },
+		{ "rg16float", WGPUTextureFormat_RG16Float },
+		{ "rg16uint", WGPUTextureFormat_RG16Uint },
+		{ "rg16sint", WGPUTextureFormat_RG16Sint },
+		{ "rg16snorm", WGPUTextureFormat_RG16Float },
+		{ "rg16unorm", WGPUTextureFormat_RG16Float },
+		{ "rgba16snorm", WGPUTextureFormat_RGBA16Float },
+		{ "rgba16unorm", WGPUTextureFormat_RGBA16Float },
+	};
+	for (const auto &e : TABLE) {
+		if (p_fmt == e.name) {
+			return e.format;
+		}
+	}
+	// Everything else is in the string table, which falls back to RGBA8Unorm for an unknown name.
+	return _wgsl_storage_format_string_to_wgpu(String(p_fmt.c_str()));
 }
 
 // Maps a SPIR-V `ImageFormat` operand (see the SPIR-V spec's "Image Format"
@@ -4359,607 +4345,6 @@ static WGPUShaderStage _stages_to_wgpu_visibility(uint32_t p_stage_mask) {
 	return vis;
 }
 
-static bool _is_ident_char(char p_c) {
-	return (p_c >= 'a' && p_c <= 'z') || (p_c >= 'A' && p_c <= 'Z') || (p_c >= '0' && p_c <= '9') || p_c == '_';
-}
-
-// Find the index of the ')' that matches the '(' at p_open_paren (which must
-// point at a '(' character). Returns -1 if unbalanced.
-static int64_t _find_matching_paren(const char *p_str, int64_t p_len, int64_t p_open_paren) {
-	int depth = 0;
-	for (int64_t i = p_open_paren; i < p_len; i++) {
-		if (p_str[i] == '(') {
-			depth++;
-		} else if (p_str[i] == ')') {
-			depth--;
-			if (depth == 0) {
-				return i;
-			}
-		}
-	}
-	return -1;
-}
-
-// Finds the [start, end) byte range of the p_index'th (0-based) top-level
-// comma-separated argument within [p_args_start, p_args_end) (the region
-// strictly inside a call's parens). Sets r_start to -1 if there aren't
-// enough top-level arguments.
-static void _find_nth_top_level_arg(const char *p_str, int64_t p_args_start, int64_t p_args_end, int p_index, int64_t &r_start, int64_t &r_end) {
-	int depth = 0;
-	int64_t arg_start = p_args_start;
-	int arg_idx = 0;
-	for (int64_t i = p_args_start; i < p_args_end; i++) {
-		char c = p_str[i];
-		if (c == '(' || c == '[') {
-			depth++;
-		} else if (c == ')' || c == ']') {
-			depth--;
-		} else if (c == ',' && depth == 0) {
-			if (arg_idx == p_index) {
-				r_start = arg_start;
-				r_end = i;
-				return;
-			}
-			arg_idx++;
-			arg_start = i + 1;
-		}
-	}
-	if (arg_idx == p_index) {
-		r_start = arg_start;
-		r_end = p_args_end;
-		return;
-	}
-	r_start = -1;
-	r_end = -1;
-}
-
-// Detects texture_2d<f32> combined-binding variables that are ONLY EVER read
-// via a single-component swizzle (.x or .r) following a non-comparison
-// sample/load call, and rewrites the declaration + every such call site to
-// texture_depth_2d (dropping the swizzle, since texture_depth_2d's sample/
-// load functions already return a plain f32, not a vec4).
-//
-// Why this is needed: a binding like Bokeh DOF's `source_depth`
-// (servers/rendering/renderer_rd/shaders/effects/bokeh_dof_raster.glsl) is
-// genuinely fed a real WebGPU depth-format texture by its C++ caller
-// (BokehDOF::bokeh_dof_raster() binds the scene's actual depth buffer), but
-// Tint compiles it as texture_2d<f32> because GLSL's plain `sampler2D` /
-// `texture()` / `textureLod()` give it no way to signal "this samples a
-// depth-format resource" distinctly from an ordinary float texture --
-// glslang emits identical (Depth=0) SPIR-V either way. With no such signal,
-// the driver's existing Depth/Float mismatch handling (see the
-// _is_depth_format() fallback substitution further below) can only assume
-// the binding truly wants Float and silently substitutes a meaningless 4x4
-// dummy texture for the real depth data -- producing plausible-looking but
-// numerically wrong output (e.g. Bokeh DOF's blur amount/falloff looking
-// wrong while still blurring *something*). See webgpu_notes/TASKS.md Task
-// 7.13.
-//
-// This is conservatively scoped: a texture is only rewritten if EVERY
-// occurrence of its identifier in the whole module is either the
-// declaration itself, the first argument of textureSample/
-// textureSampleLevel/textureSampleBias/textureSampleGrad/textureLoad
-// immediately followed by .x or .r, or the 2nd argument of textureGather(
-// component, tex, samp, coords) (dropping the leading component argument
-// entirely instead, since texture_depth_2d's textureGather overload has no
-// component parameter at all -- see Task 7.22) -- any other usage (full
-// vec4 access, .rgb/.xy, textureSampleCompare*, being passed to a
-// user-defined function, textureDimensions, etc.) disqualifies it and
-// leaves the original Float-typed binding untouched. Once rewritten, this
-// binding's BindGroupLayout entry naturally ends up Depth-sampleType via
-// the existing wgsl_is_depth_texture-driven scan just below in
-// shader_create_from_container() (which runs against this function's
-// output), so the real depth texture gets bound directly -- no fallback
-// needed. Every draw using this compiled shader module must supply a real
-// depth-format texture at this binding from then on; verified true by
-// construction for Bokeh DOF (bokeh_dof.cpp has exactly one call site that
-// creates this uniform, always from the scene's real depth buffer).
-// Finds the "@group(G) @binding(B)" attribute pair immediately preceding the
-// declaration whose identifier starts at p_name_start (bounded by the previous
-// ';'/'}' so an unrelated, earlier declaration's attributes are never picked
-// up), and parses it via parse_group_binding(). Returns false if none found.
-static bool _find_preceding_group_binding(const char *p_wgsl, int64_t p_name_start, unsigned int &r_grp, unsigned int &r_bnd) {
-	int64_t stmt_start = 0;
-	for (int64_t j = p_name_start - 1; j >= 0; j--) {
-		if (p_wgsl[j] == ';' || p_wgsl[j] == '}') {
-			stmt_start = j + 1;
-			break;
-		}
-	}
-	const char *best = nullptr;
-	const char *scan = p_wgsl + stmt_start;
-	while (true) {
-		const char *found = strstr(scan, "@group(");
-		if (!found || (found - p_wgsl) >= p_name_start) {
-			break;
-		}
-		best = found;
-		scan = found + 7;
-	}
-	if (!best) {
-		return false;
-	}
-	return parse_group_binding(best, r_grp, r_bnd);
-}
-
-// p_storage_converted_keys: (group<<16 | binding) keys that were just converted
-// from a readonly storage texture to a sampled texture_2d<f32> by the
-// read-only-storage-to-sampled pass (see wgsl_read_storage_to_sampled just
-// above shader_create_from_container()'s call site). These are NEVER real
-// depth-format textures -- they're ordinary Godot color-format storage
-// textures (e.g. voxel_gi.glsl's r32f "depth"/"source_depth" dynamic-GI
-// light-injection buffers, which store a plain distance/height value, not a
-// hardware depth attachment) that merely happen to be named "depth" and read
-// back one component at a time, which is exactly this function's structural
-// heuristic. Reclassifying them to texture_depth_2d produces a WGSL module
-// that declares Depth sampleType while the BindGroupLayout (built from the
-// original storage format, e.g. R32Float -> UnfilterableFloat) still expects
-// Float/UnfilterableFloat, a hard Dawn validation error at pipeline-creation
-// time. Must be excluded before the naming heuristic below ever gets a
-// chance to misfire on them. See webgpu_notes/TASKS.md Task 9.5 Round 5.
-static char *_reclassify_single_component_depth_textures(char *p_wgsl_str, const HashSet<uint32_t> &p_storage_converted_keys) {
-	static const char *const TEX_TYPE = "texture_2d<f32>";
-	static const int TEX_TYPE_LEN = 15;
-	// Multisampled depth-format combined samplers (GLSL sampler2DMS bound to a real
-	// depth attachment, e.g. resolve.glsl's MODE_RESOLVE_DEPTH/MODE_RESOLVE_GI
-	// `source_depth`, read via texelFetch(...).r -- the same structural/naming
-	// shape this whole pass targets) were falling through this scan entirely: Tint's
-	// natural non-depth output for a multisampled texture is
-	// `texture_multisampled_2d<f32>`, not `texture_2d<f32>`, so the single-string
-	// search above never matched them, and they never got reclassified to
-	// `texture_depth_multisampled_2d` (WGSL's multisampled depth type -- no `<f32>`
-	// parameter, unlike its non-depth counterpart). Left un-reclassified, the real
-	// bound resource (a genuine multisampled depth texture, e.g. Forward+'s MSAA
-	// depth buffer) mismatched the BGL's Float-expecting entry, and this driver's
-	// *existing* depth/float-mismatch fallback (see uniform_set_create()'s
-	// `fallback_ms_texture` substitution) silently kicked in -- avoiding a crash,
-	// but replacing real MSAA depth data with an all-zero texture, corrupting
-	// anything that consumes the result (SDFGI's GI resolve, DOF, ...) without a
-	// single error printed. See webgpu_notes/TASKS.md Task 24 round 3.
-	static const char *const TEX_TYPE_MS = "texture_multisampled_2d<f32>";
-	static const int TEX_TYPE_MS_LEN = 28;
-	// Depth cubemaps sampled for their value: cube_to_dp.glsl's
-	// `source_depth_cube`, which copies an omni light's cube shadow into the
-	// shadow atlas. Left as texture_cube<f32>, the real depth cubemap could not
-	// be bound and the blank fallback cube was sampled instead, so every omni
-	// light in Cube shadow mode -- the default -- cast no shadow at all.
-	static const char *const TEX_TYPE_CUBE = "texture_cube<f32>";
-	static const int TEX_TYPE_CUBE_LEN = 17;
-	// textureSampleBias/textureSampleGrad are NOT defined for texture_depth_2d
-	// in WGSL at all (depth textures don't support mip bias/gradient
-	// sampling) -- deliberately excluded here so any texture used via either
-	// disqualifies (falls through to "no matching call prefix" below).
-	static const char *const CALL_FNS[] = {
-		"textureSampleLevel(",
-		"textureSample(",
-		"textureLoad(",
-	};
-	static const int CALL_FN_COUNT = 3;
-
-	const char *wgsl = p_wgsl_str;
-	const int64_t len = (int64_t)strlen(wgsl);
-
-	enum CandidateKind {
-		CANDIDATE_2D,
-		CANDIDATE_MULTISAMPLED,
-		CANDIDATE_CUBE,
-	};
-	struct Candidate {
-		String name;
-		int64_t name_start = 0;
-		int64_t type_start = 0;
-		int type_len = 0;
-		CandidateKind kind = CANDIDATE_2D;
-	};
-	Vector<Candidate> candidates;
-	for (int pass = 0; pass < 3; pass++) {
-		const char *tex_type = pass == 0 ? TEX_TYPE : (pass == 1 ? TEX_TYPE_MS : TEX_TYPE_CUBE);
-		int tex_type_len = pass == 0 ? TEX_TYPE_LEN : (pass == 1 ? TEX_TYPE_MS_LEN : TEX_TYPE_CUBE_LEN);
-		CandidateKind kind = (CandidateKind)pass;
-		const char *scan = wgsl;
-		while (true) {
-			const char *found = strstr(scan, tex_type);
-			if (!found) {
-				break;
-			}
-			int64_t type_pos = found - wgsl;
-			int64_t i = type_pos - 1;
-			while (i >= 0 && (wgsl[i] == ' ' || wgsl[i] == '\t')) {
-				i--;
-			}
-			if (i >= 0 && wgsl[i] == ':') {
-				i--;
-				while (i >= 0 && (wgsl[i] == ' ' || wgsl[i] == '\t')) {
-					i--;
-				}
-				int64_t name_end = i + 1;
-				while (i >= 0 && _is_ident_char(wgsl[i])) {
-					i--;
-				}
-				int64_t name_start = i + 1;
-				if (name_start < name_end) {
-					Candidate c;
-					c.name = String::utf8(wgsl + name_start, (int)(name_end - name_start));
-					c.name_start = name_start;
-					c.type_start = type_pos;
-					c.type_len = tex_type_len;
-					c.kind = kind;
-					candidates.push_back(c);
-				}
-			}
-			scan = found + tex_type_len;
-		}
-	}
-	if (candidates.is_empty()) {
-		return p_wgsl_str;
-	}
-
-	struct Edit {
-		int64_t start = 0;
-		int64_t end = 0; // [start, end) in the ORIGINAL text.
-		String replacement;
-	};
-	Vector<Edit> edits;
-
-	for (const Candidate &c : candidates) {
-		CharString name_cs = c.name.utf8();
-		const char *name = name_cs.get_data();
-		const int name_len = name_cs.length();
-		if (name_len == 0) {
-			continue;
-		}
-
-		if (!p_storage_converted_keys.is_empty()) {
-			unsigned int grp = 0, bnd = 0;
-			if (_find_preceding_group_binding(wgsl, c.name_start, grp, bnd)) {
-				uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-				if (p_storage_converted_keys.has(key)) {
-					continue;
-				}
-			}
-		}
-
-		// The single-component-access structural heuristic alone is NOT
-		// sufficient: plenty of legitimate texture_2d<f32> bindings are
-		// single-channel by nature without being depth-format data (e.g.
-		// CanvasSdfShaderRD's SDF distance texture, sampled and used the
-		// exact same .x-only way). Require the WGSL variable name to also
-		// contain "depth" (case-insensitive) -- Godot's own GLSL source
-		// consistently names depth-buffer-as-texture uniforms this way
-		// (source_depth, depth_tex, depth_buffer, ...) -- as a second,
-		// independent signal before touching a binding. This is
-		// conservative by design: shaders whose depth-reading uniform
-		// happens not to follow this naming convention will keep hitting
-		// the pre-existing dummy-texture fallback instead of being fixed,
-		// which is no worse than the status quo, whereas a false positive
-		// here breaks a previously-working, unrelated shader outright.
-		{
-			bool has_depth_in_name = false;
-			for (int ni = 0; ni + 5 <= name_len; ni++) {
-				if ((name[ni] == 'd' || name[ni] == 'D') &&
-						(name[ni + 1] == 'e' || name[ni + 1] == 'E') &&
-						(name[ni + 2] == 'p' || name[ni + 2] == 'P') &&
-						(name[ni + 3] == 't' || name[ni + 3] == 'T') &&
-						(name[ni + 4] == 'h' || name[ni + 4] == 'H')) {
-					has_depth_in_name = true;
-					break;
-				}
-			}
-			if (!has_depth_in_name) {
-				continue;
-			}
-
-			// Godot's own SSR code (screen_space_reflection_resolve.glsl's
-			// "source_depth_half", bound from RB_HIZ -- a plain R32Float linear-
-			// depth derivative, never a real depth-attachment texture, see
-			// ss_effects.cpp's ssr_resolve()) uses "_half" specifically to
-			// distinguish a downsampled/derived depth buffer from the real one
-			// ("source_depth", bound from get_depth_texture(), on the very same
-			// shader). The name+single-component heuristic alone can't tell
-			// these apart -- both are named with "depth" and read single-
-			// component -- so treat "half" anywhere in the name as a third,
-			// independent disqualifying signal, mirroring how the storage-
-			// converted-keys exclusion set already handles the other two known
-			// synthetic-binding false-positive sources. A real depth-format
-			// binding legitimately named with "half" in it would be highly
-			// unusual and is not known to exist in this engine's shaders.
-			bool has_half_in_name = false;
-			for (int ni = 0; ni + 4 <= name_len; ni++) {
-				if ((name[ni] == 'h' || name[ni] == 'H') &&
-						(name[ni + 1] == 'a' || name[ni + 1] == 'A') &&
-						(name[ni + 2] == 'l' || name[ni + 2] == 'L') &&
-						(name[ni + 3] == 'f' || name[ni + 3] == 'F')) {
-					has_half_in_name = true;
-					break;
-				}
-			}
-			if (has_half_in_name) {
-				continue;
-			}
-
-			// AMD FidelityFX FSR2's `r_dilatedDepth` (ffx_fsr2_callbacks_glsl.h,
-			// read via `texelFetch(r_dilatedDepth, ...).r` -- single-component,
-			// exactly this heuristic's structural trigger) is the same false-
-			// positive shape again: an ordinary r16f-format buffer FSR2 itself
-			// computes and writes (`rw_dilatedDepth`, StoreDilatedDepth), never a
-			// real depth-attachment texture, that merely has "Depth" in its name
-			// because it holds a dilated *copy* of depth values. Every "dilated"-
-			// prefixed FFX resource (DilatedDepth/DilatedMotionVectors/
-			// DilatedReactiveMasks) is one of these synthetic intermediate
-			// buffers by construction, never the real hardware depth buffer, so
-			// "dilated" anywhere in the name is a fourth independent
-			// disqualifying signal, mirroring "half" above. Found live: Dawn
-			// rejected FSR2's depth-clip pass bind group with "None of the
-			// supported sample types (Float|UnfilterableFloat) ... match the
-			// expected sample types (Depth)" the first time FSR2 actually ran on
-			// WebGPU. See webgpu_notes/TASKS.md's FSR2 task.
-			bool has_dilated_in_name = false;
-			for (int ni = 0; ni + 7 <= name_len; ni++) {
-				if ((name[ni] == 'd' || name[ni] == 'D') &&
-						(name[ni + 1] == 'i' || name[ni + 1] == 'I') &&
-						(name[ni + 2] == 'l' || name[ni + 2] == 'L') &&
-						(name[ni + 3] == 'a' || name[ni + 3] == 'A') &&
-						(name[ni + 4] == 't' || name[ni + 4] == 'T') &&
-						(name[ni + 5] == 'e' || name[ni + 5] == 'E') &&
-						(name[ni + 6] == 'd' || name[ni + 6] == 'D')) {
-					has_dilated_in_name = true;
-					break;
-				}
-			}
-			if (has_dilated_in_name) {
-				continue;
-			}
-
-			// The scene shaders' own `depth_buffer` is the fifth false-positive
-			// shape, and the one that broke the three 3D demo scenes (Task 44):
-			// a *copy* of depth in a colour format, not a depth attachment.
-			// `scene_forward_clustered_inc.glsl:440` / `scene_forward_mobile_inc.glsl:397`
-			// declare `layout(set = 1, binding = 24/9) uniform texture2D depth_buffer`,
-			// which user material code reads through Godot's `DEPTH_TEXTURE`
-			// (proximity fade and refraction, `scene/resources/material.cpp:1805`/`:1834`,
-			// both `textureLod(depth_texture, ..., 0.0).r`) -- single-component, named
-			// "depth", so structurally indistinguishable from Bokeh DOF's genuinely
-			// depth-format `source_depth` that this pass exists for. What the engine
-			// binds there is `RB_TEX_BACK_DEPTH` (`renderer_scene_render_rd.cpp:418`),
-			// created `R32_SFLOAT` with `COLOR_ATTACHMENT_BIT | STORAGE_BIT` because a
-			// copy pass renders into it -- upstream's own comment says "Set this as
-			// color attachment because we're copying data into it, it's not actually
-			// used as a depth buffer". Reclassifying it makes the BGL entry
-			// `sampleType: Depth` while a colour `R32Float` is bound, which Dawn
-			// rejects outright:
-			//   None of the supported sample types (Float|UnfilterableFloat) of
-			//   [Texture 1152x648 R32Float] match the expected sample types (Depth).
-			// The binding is polymorphic on top of that (`render_forward_clustered.cpp`
-			// binds `DEFAULT_RD_TEXTURE_DEPTH` when the copy does not exist), so no
-			// single sample type can serve both -- and `Float` is the one that serves
-			// the case that actually renders. Left un-reclassified the WGSL keeps
-			// `texture_2d<f32>` plus the `.x` swizzle, which is exactly right for the
-			// R32Float copy; the fallback path only engages in the rarer
-			// default-texture case, where there is no depth copy to read anyway.
-			//
-			// Gated on group 1 -- the scene shaders' render-buffers set, whose binding
-			// names are fixed by engine GLSL -- so the two *other* `depth_buffer`
-			// bindings in this engine are untouched: `taa_resolve.glsl:47` (set 0,
-			// genuinely fed the real depth texture by `taa.cpp`, and audited in
-			// Task 7.13 as a binding this pass *should* rewrite) and
-			// `cluster_debug.glsl:65` (set 0). A user material uniform that happened
-			// to be named `depth_buffer` lands in group 3, also untouched.
-			if (name_len == 12 && strncmp(name, "depth_buffer", 12) == 0) {
-				unsigned int grp = 0, bnd = 0;
-				if (_find_preceding_group_binding(wgsl, c.name_start, grp, bnd) && grp == 1) {
-					continue;
-				}
-			}
-		}
-
-		bool disqualified = false;
-		Vector<Edit> call_edits;
-
-		const char *p = wgsl;
-		while (true) {
-			const char *found = strstr(p, name);
-			if (!found) {
-				break;
-			}
-			int64_t pos = found - wgsl;
-			p = found + 1;
-
-			bool left_ok = (pos == 0) || !_is_ident_char(wgsl[pos - 1]);
-			int64_t after = pos + name_len;
-			bool right_ok = (after >= len) || !_is_ident_char(wgsl[after]);
-			if (!left_ok || !right_ok) {
-				continue;
-			}
-
-			if (pos == c.name_start) {
-				continue; // The declaration's own identifier -- fine.
-			}
-
-			bool matched_call = false;
-			for (int fi = 0; fi < CALL_FN_COUNT; fi++) {
-				const char *fn = CALL_FNS[fi];
-				size_t fn_len = strlen(fn);
-				int64_t probe = pos;
-				while (probe > 0 && (wgsl[probe - 1] == ' ' || wgsl[probe - 1] == '\t')) {
-					probe--;
-				}
-				int64_t fn_start = probe - (int64_t)fn_len;
-				if (fn_start < 0 || strncmp(wgsl + fn_start, fn, fn_len) != 0) {
-					continue;
-				}
-				int64_t open_paren = fn_start + (int64_t)fn_len - 1;
-				int64_t close_paren = _find_matching_paren(wgsl, len, open_paren);
-				if (close_paren < 0) {
-					continue;
-				}
-				int64_t after_call = close_paren + 1;
-				if (after_call + 1 < len && wgsl[after_call] == '.' &&
-						(wgsl[after_call + 1] == 'x' || wgsl[after_call + 1] == 'r')) {
-					int64_t after_swizzle = after_call + 2;
-					bool swizzle_ok = (after_swizzle >= len) || !_is_ident_char(wgsl[after_swizzle]);
-					if (swizzle_ok) {
-						// texture_depth_2d's textureSampleLevel takes an i32
-						// level (unlike texture_2d<f32>'s f32 level) -- wrap
-						// the 4th argument (0-indexed: 3) in i32(...) so a
-						// float-literal/expression level still type-checks.
-						bool level_wrap_ok = true;
-						Edit level_edit;
-						if (strcmp(fn, "textureSampleLevel(") == 0) {
-							int64_t a_start, a_end;
-							_find_nth_top_level_arg(wgsl, open_paren + 1, close_paren, 3, a_start, a_end);
-							if (a_start < 0) {
-								level_wrap_ok = false;
-							} else {
-								int64_t trimmed_start = a_start;
-								int64_t trimmed_end = a_end;
-								while (trimmed_start < trimmed_end && (wgsl[trimmed_start] == ' ' || wgsl[trimmed_start] == '\t')) {
-									trimmed_start++;
-								}
-								while (trimmed_end > trimmed_start && (wgsl[trimmed_end - 1] == ' ' || wgsl[trimmed_end - 1] == '\t')) {
-									trimmed_end--;
-								}
-								level_edit.start = a_start;
-								level_edit.end = a_end;
-								level_edit.replacement = "i32(" + String::utf8(wgsl + trimmed_start, (int)(trimmed_end - trimmed_start)) + ")";
-							}
-						}
-						if (level_wrap_ok) {
-							Edit e;
-							e.start = after_call;
-							e.end = after_call + 2;
-							e.replacement = "";
-							call_edits.push_back(e);
-							if (strcmp(fn, "textureSampleLevel(") == 0) {
-								call_edits.push_back(level_edit);
-							}
-							matched_call = true;
-							break;
-						}
-					}
-				}
-				break; // Function-prefix matched but a disqualifying usage shape.
-			}
-			if (!matched_call) {
-				// textureDimensions(name, ...) means the same on a depth texture,
-				// so it neither disqualifies nor needs rewriting. Shaders that
-				// filter a depth texture by hand (gather plus weights) read its
-				// size this way -- volumetric_fog_process.glsl's
-				// texture_linear_depth().
-				static const char *const DIMS_FN = "textureDimensions(";
-				static const int64_t DIMS_FN_LEN = 18;
-				int64_t probe = pos;
-				while (probe > 0 && (wgsl[probe - 1] == ' ' || wgsl[probe - 1] == '\t')) {
-					probe--;
-				}
-				if (probe >= DIMS_FN_LEN && strncmp(wgsl + probe - DIMS_FN_LEN, DIMS_FN, DIMS_FN_LEN) == 0) {
-					matched_call = true;
-				}
-			}
-			if (!matched_call) {
-				// texture_depth_2d's textureGather overload drops the leading
-				// component argument entirely (textureGather(tex, samp, coords)),
-				// unlike texture_2d<f32>'s (textureGather(component, tex, samp,
-				// coords)) -- GLSL's implicit-default-component textureGather(
-				// sampler, uv) always converts to WGSL's explicit `textureGather(
-				// 0i, tex, samp, uv)` form, so this isn't a swizzle-drop like the
-				// CALL_FNS cases above but an argument-drop. See Task 7.22.
-				static const char *const GATHER_FN = "textureGather(";
-				static const int64_t GATHER_FN_LEN = 14;
-				const char *gscan = wgsl;
-				while (true) {
-					const char *gfound = strstr(gscan, GATHER_FN);
-					if (!gfound) {
-						break;
-					}
-					int64_t g_open = (gfound - wgsl) + GATHER_FN_LEN - 1;
-					int64_t g_close = _find_matching_paren(wgsl, len, g_open);
-					gscan = gfound + 1;
-					if (g_close < 0 || g_open >= pos || g_close <= pos) {
-						continue; // This occurrence of `name` isn't inside this call's parens.
-					}
-					int64_t a1_start, a1_end;
-					_find_nth_top_level_arg(wgsl, g_open + 1, g_close, 1, a1_start, a1_end);
-					if (a1_start < 0) {
-						continue;
-					}
-					int64_t t_start = a1_start, t_end = a1_end;
-					while (t_start < t_end && (wgsl[t_start] == ' ' || wgsl[t_start] == '\t')) {
-						t_start++;
-					}
-					while (t_end > t_start && (wgsl[t_end - 1] == ' ' || wgsl[t_end - 1] == '\t')) {
-						t_end--;
-					}
-					if (t_start != pos || t_end != pos + name_len) {
-						continue; // `name` isn't (whitespace aside) exactly the 2nd argument.
-					}
-					int64_t a0_start, a0_end;
-					_find_nth_top_level_arg(wgsl, g_open + 1, g_close, 0, a0_start, a0_end);
-					if (a0_start < 0) {
-						continue;
-					}
-					Edit e;
-					e.start = a0_start;
-					e.end = t_start; // Drop the component arg plus its trailing comma/whitespace.
-					e.replacement = "";
-					call_edits.push_back(e);
-					matched_call = true;
-					break;
-				}
-			}
-			if (!matched_call) {
-				disqualified = true;
-				break;
-			}
-		}
-
-		if (disqualified || call_edits.is_empty()) {
-			continue;
-		}
-
-		Edit decl_edit;
-		decl_edit.start = c.type_start;
-		decl_edit.end = c.type_start + c.type_len;
-		decl_edit.replacement = c.kind == CANDIDATE_MULTISAMPLED ? "texture_depth_multisampled_2d" : (c.kind == CANDIDATE_CUBE ? "texture_depth_cube" : "texture_depth_2d");
-		edits.push_back(decl_edit);
-		for (const Edit &ce : call_edits) {
-			edits.push_back(ce);
-		}
-	}
-
-	if (edits.is_empty()) {
-		return p_wgsl_str;
-	}
-
-	// Small insertion sort by start offset (edit counts per shader are tiny).
-	for (int i = 1; i < edits.size(); i++) {
-		Edit key = edits[i];
-		int j = i - 1;
-		while (j >= 0 && edits[j].start > key.start) {
-			edits.set(j + 1, edits[j]);
-			j--;
-		}
-		edits.set(j + 1, key);
-	}
-
-	String out;
-	int64_t cursor = 0;
-	for (const Edit &e : edits) {
-		if (e.start < cursor) {
-			continue; // Overlap safety net; shouldn't happen given disjoint sources.
-		}
-		out += String::utf8(wgsl + cursor, (int)(e.start - cursor));
-		out += e.replacement;
-		cursor = e.end;
-	}
-	out += String::utf8(wgsl + cursor, (int)(len - cursor));
-
-	free(p_wgsl_str);
-	CharString cs = out.utf8();
-	char *result = (char *)malloc(cs.length() + 1);
-	memcpy(result, cs.get_data(), cs.length() + 1);
-	return result;
-}
-
 // Rewrites WGSL storage-texel-format names that WebGPU doesn't support to
 // supported equivalents, and demotes vertex-stage read_write storage buffers
 // to read-only (WebGPU forbids a writable storage buffer's visibility from
@@ -5165,13 +4550,6 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// all 216 baked shader containers of a real project's export. It had already
 	// cost one investigation round by looking live. TASKS.md §2.12.
 	//
-	// Maps a WGSL variable name (as Tint names it, e.g. "depth_tex" or "v_3") to its
-	// (set_index << 16 | binding) key. This lets the call-site scan below (populating
-	// wgsl_sampler_needs_nonfiltering) resolve a texture or sampler *name* seen in a
-	// textureSample(...) call back to the binding key its BGL entry was built from.
-	// See webgpu_notes/TASKS.md Task 8.8.
-	HashMap<String, uint32_t> wgsl_var_binding_key;
-
 	// Maps (set_index << 16 | binding) → true if this sampler binding is statically passed
 	// to a non-comparison sample call (textureSample/textureSampleLevel/textureSampleBias/
 	// textureSampleGrad) together with a texture this scan has already marked Depth
@@ -5354,434 +4732,55 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// Safari rejects read_write storage texture access at BGL validation.
 		// The shadow read binding uses the odd slot (B+1) which is free for IMAGE
 		// types due to preprocessing's binding doubling (even=resource, odd=sampler for combined).
-		if (!has_rw_storage_textures && strstr(wgsl_str, "read_write>")) {
-			struct RWSplitInfo {
-				uint32_t grp, bnd;
-				String var_name, dim_type, fmt;
-			};
-			LocalVector<RWSplitInfo> rw_infos;
-
-			// Scan for texture_storage_*<fmt,read_write> declarations.
-			{
-				const char *p = wgsl_str;
-				while ((p = strstr(p, "@group(")) != nullptr) {
-					unsigned int grp = 0, bnd = 0;
-					if (!parse_group_binding(p, grp, bnd)) {
-						p++;
-						continue;
-					}
-					const char *semi = strchr(p, ';');
-					if (!semi) {
-						p++;
-						continue;
-					}
-					const char *rw = _strstr_before(p, semi, "read_write>");
-					if (!rw || rw >= semi) {
-						p = semi;
-						continue;
-					}
-					const char *ts = _strstr_before(p, semi, "texture_storage_");
-					if (!ts || ts >= semi) {
-						p = semi;
-						continue;
-					}
-					// Variable name: "var NAME:"
-					const char *vp = _strstr_before(p, semi, "var ");
-					if (!vp || vp > ts) {
-						p = semi;
-						continue;
-					}
-					vp += 4;
-					const char *colon = strchr(vp, ':');
-					if (!colon || colon > ts) {
-						p = semi;
-						continue;
-					}
-					const char *ne = colon;
-					while (ne > vp && (*(ne - 1) == ' ' || *(ne - 1) == '\t')) {
-						ne--;
-					}
-					if (ne <= vp) {
-						p = semi;
-						continue;
-					}
-					// Dim type: texture_storage_Xd
-					const char *lt = strchr(ts, '<');
-					if (!lt || lt > rw) {
-						p = semi;
-						continue;
-					}
-					// Format: between < and , before read_write
-					const char *comma = strchr(lt + 1, ',');
-					if (!comma || comma >= rw) {
-						p = semi;
-						continue;
-					}
-					int fmt_len = (int)(comma - lt - 1);
-					if (fmt_len <= 0 || fmt_len >= 64) {
-						p = semi;
-						continue;
-					}
-
-					RWSplitInfo info;
-					info.grp = grp;
-					info.bnd = bnd;
-					{
-						char buf[256];
-						int len = (int)(ne - vp);
-						if (len > 255) {
-							len = 255;
-						}
-						memcpy(buf, vp, len);
-						buf[len] = '\0';
-						info.var_name = buf;
-					}
-					{
-						char buf[256];
-						int len = (int)(lt - ts);
-						if (len > 255) {
-							len = 255;
-						}
-						memcpy(buf, ts, len);
-						buf[len] = '\0';
-						info.dim_type = buf;
-					}
-					{
-						char buf[64];
-						if (fmt_len > 63) {
-							fmt_len = 63;
-						}
-						memcpy(buf, lt + 1, fmt_len);
-						buf[fmt_len] = '\0';
-						info.fmt = String(buf).strip_edges();
-					}
-					if (_wgsl_format_supports_read_write(info.fmt)) {
-						// Valid as read_write on this device: bind it directly. No shadow, so no
-						// full-texture copy before every dispatch (SDFGI's probe history alone was
-						// 8 x 19 MB per frame).
-						p = semi;
-						continue;
-					}
-					rw_infos.push_back(info);
-					p = semi;
+		if (!has_rw_storage_textures && strstr(wgsl_str, "read_write")) {
+			std::string ws(wgsl_str);
+			// A format valid as read_write on this device is bound directly: no shadow, so no
+			// full-texture copy before every dispatch (SDFGI's probe history alone was 8 x 19 MB
+			// per frame).
+			const std::vector<wgsl_text_scan::RWSplit> rw_splits = wgsl_text_scan::split_read_write_storage(ws, [this](const std::string &p_fmt) {
+				return _wgsl_format_supports_read_write(String(p_fmt.c_str()));
+			});
+			if (!rw_splits.empty()) {
+				for (const wgsl_text_scan::RWSplit &split : rw_splits) {
+					uint32_t key = (split.group << 16) | split.binding;
+					wgsl_rw_storage_splits[key] = split.shadow_binding;
+					// The shadow's format must be recorded too, keyed by its OWN binding: its
+					// declaration is a synthetic `texture_2d<T>` with no format literal, so the
+					// declaration scan has nothing to find there, and a lookup that missed
+					// would fall through to the RGBA8Unorm/UnfilterableFloat default, which
+					// mismatches the shadow's real component type (webgpu_notes/TASKS.md
+					// Task 9.5 Round 7).
+					uint32_t shadow_key = (split.group << 16) | split.shadow_binding;
+					wgsl_storage_tex_format[shadow_key] = _wgsl_storage_format_string_to_wgpu(String(split.format.c_str()));
 				}
-			}
-
-			if (rw_infos.size() > 0) {
-				String ws(wgsl_str);
-				for (const RWSplitInfo &info : rw_infos) {
-					uint32_t shadow_bnd = info.bnd + 1;
-					String shadow_name = info.var_name + "_rw_in";
-
-					// 1. Replace read_write with write in the declaration.
-					ws = ws.replace(
-							info.dim_type + "<" + info.fmt + ",read_write>",
-							info.dim_type + "<" + info.fmt + ",write>");
-					ws = ws.replace(
-							info.dim_type + "<" + info.fmt + ", read_write>",
-							info.dim_type + "<" + info.fmt + ", write>");
-
-					// 2. Insert shadow read binding as a sampled texture (not storage).
-					// ReadOnly storage textures require the readonly-and-readwrite-storage-textures
-					// feature which Firefox lacks. A regular sampled texture works everywhere.
-					String write_pat = info.dim_type + "<" + info.fmt + ",write>;";
-					int64_t wt_pos = ws.find(write_pat);
-					if (wt_pos == -1) {
-						write_pat = info.dim_type + "<" + info.fmt + ", write>;";
-						wt_pos = ws.find(write_pat);
-					}
-					if (wt_pos != -1) {
-						int64_t insert_pos = wt_pos + write_pat.length();
-						// Map texture_storage_Xd → texture_Xd and determine component type.
-						String sampled_dim = info.dim_type.replace("texture_storage_", "texture_");
-						String comp_type = "f32";
-						if (info.fmt.find("uint") != -1) {
-							comp_type = "u32";
-						} else if (info.fmt.find("sint") != -1) {
-							comp_type = "i32";
-						}
-						String shadow_decl = "\n@group(" + itos(info.grp) + ") @binding(" + itos(shadow_bnd) + ") \nvar " + shadow_name + ": " + sampled_dim + "<" + comp_type + ">;";
-						ws = ws.substr(0, insert_pos) + shadow_decl + ws.substr(insert_pos);
-					}
-
-					// 3. Redirect textureLoad to the shadow (not textureStore).
-					ws = ws.replace("textureLoad(" + info.var_name + ",", "textureLoad(" + shadow_name + ",");
-					ws = ws.replace("textureLoad(" + info.var_name + ")", "textureLoad(" + shadow_name + ")");
-
-					// 4. Sampled textures need a mip level parameter in textureLoad.
-					// textureLoad(shadow, coords) → textureLoad(shadow, coords, 0)
-					{
-						String search = "textureLoad(" + shadow_name;
-						int64_t pos = 0;
-						while ((pos = ws.find(search, pos)) != -1) {
-							int64_t paren_start = pos + String("textureLoad").length();
-							int depth = 0;
-							int64_t insert_mip = -1;
-							for (int64_t k = paren_start; k < ws.length(); k++) {
-								if (ws[k] == '(') {
-									depth++;
-								} else if (ws[k] == ')') {
-									depth--;
-									if (depth == 0) {
-										insert_mip = k;
-										break;
-									}
-								}
-							}
-							if (insert_mip != -1) {
-								ws = ws.substr(0, insert_mip) + ", 0" + ws.substr(insert_mip);
-								pos = insert_mip + 3;
-							} else {
-								pos += search.length();
-							}
-						}
-					}
-
-					// Record the split for BGL/bind-group creation. The shadow's
-					// format must be recorded too (keyed by its OWN binding, not
-					// the write-side binding) -- the BGL-construction code below
-					// looks it up via wgsl_storage_tex_format[shadow_key] to pick
-					// the shadow's sampleType, but nothing else ever wrote to that
-					// map for the shadow's key: its own WGSL declaration is a
-					// synthetic `texture_2d<T>` with no format literal at all (see
-					// shadow_decl above), so the general format-scanning pass has
-					// nothing to find here either. Left unrecorded, the lookup fell
-					// through to the RGBA8Unorm/UnfilterableFloat default,
-					// mismatching the shadow's real component type (e.g. Sint for
-					// an rgba16sint source, as in sdfgi_integrate.glsl's
-					// lightprobe_history_texture) against what Tint actually
-					// declared it as. See webgpu_notes/TASKS.md Task 9.5 Round 7.
-					uint32_t key = ((uint32_t)info.grp << 16) | info.bnd;
-					wgsl_rw_storage_splits[key] = shadow_bnd;
-					uint32_t shadow_key = ((uint32_t)info.grp << 16) | shadow_bnd;
-					wgsl_storage_tex_format[shadow_key] = _wgsl_storage_format_string_to_wgpu(info.fmt);
-				}
-				// Log the transformed WGSL for debugging.
-				WEBGPU_DIAG({ console.log('[RW-SPLIT] Split ' + $0 + ' read_write storage texture(s)'); }, (int)rw_infos.size());
-				print_verbose("WebGPU rw_storage split WGSL:\n" + ws);
-
-				free(wgsl_str);
-				CharString cs = ws.utf8();
-				wgsl_str = (char *)malloc(cs.length() + 1);
-				memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
+				WEBGPU_DIAG({ console.log('[RW-SPLIT] Split ' + $0 + ' read_write storage texture(s)'); }, (int)rw_splits.size());
+				print_verbose("WebGPU rw_storage split WGSL:\n" + String(ws.c_str()));
+				_set_wgsl_text(wgsl_str, ws);
 			}
 		}
 
 		// When readonly-and-readwrite-storage-textures is not available, convert
 		// read-only storage textures to sampled textures. Firefox/wgpu rejects
 		// texture_storage_*<fmt, read> without the feature.
-		if (!has_rw_storage_textures && (strstr(wgsl_str, ", read>") || strstr(wgsl_str, ",read>"))) {
-			struct ReadOnlyInfo {
-				uint32_t grp, bnd;
-				String var_name, dim_type, fmt;
-			};
-			LocalVector<ReadOnlyInfo> ro_infos;
-
-			// Scan for texture_storage_*<fmt, read> declarations.
-			{
-				const char *p = wgsl_str;
-				while ((p = strstr(p, "@group(")) != nullptr) {
-					unsigned int grp = 0, bnd = 0;
-					if (!parse_group_binding(p, grp, bnd)) {
-						p++;
-						continue;
-					}
-					const char *semi = strchr(p, ';');
-					if (!semi) {
-						p++;
-						continue;
-					}
-					// Look for ", read>" or ",read>" but NOT "read_write>"
-					const char *rd = _strstr_before(p, semi, ",read>");
-					if (!rd || rd >= semi) {
-						rd = _strstr_before(p, semi, ", read>");
-					}
-					if (!rd || rd >= semi) {
-						p = semi;
-						continue;
-					}
-					// Make sure it's not read_write (already handled above).
-					if (rd > wgsl_str && *(rd - 1) == '_') {
-						p = semi;
-						continue;
-					} // part of "read_write"
-					// Check for "read_write>" pattern — skip if found.
-					const char *rw_check = _strstr_before(p, semi, "read_write>");
-					if (rw_check && rw_check < semi && rw_check < rd) {
-						p = semi;
-						continue;
-					}
-
-					const char *ts = _strstr_before(p, semi, "texture_storage_");
-					if (!ts || ts >= semi) {
-						p = semi;
-						continue;
-					}
-					// Variable name: "var NAME:"
-					const char *vp = _strstr_before(p, semi, "var ");
-					if (!vp || vp > ts) {
-						p = semi;
-						continue;
-					}
-					vp += 4;
-					const char *colon = strchr(vp, ':');
-					if (!colon || colon > ts) {
-						p = semi;
-						continue;
-					}
-					const char *ne = colon;
-					while (ne > vp && (*(ne - 1) == ' ' || *(ne - 1) == '\t')) {
-						ne--;
-					}
-					if (ne <= vp) {
-						p = semi;
-						continue;
-					}
-					// Dim type: texture_storage_Xd
-					const char *lt = strchr(ts, '<');
-					if (!lt || lt > rd) {
-						p = semi;
-						continue;
-					}
-					// Format: between < and , before read
-					// Note: rd points to ",read>" (includes comma) so comma == rd is expected.
-					// Use > not >= so the format-access separator comma is correctly accepted.
-					const char *comma = strchr(lt + 1, ',');
-					if (!comma || comma > rd) {
-						p = semi;
-						continue;
-					}
-					int fmt_len = (int)(comma - lt - 1);
-					if (fmt_len <= 0 || fmt_len >= 64) {
-						p = semi;
-						continue;
-					}
-
-					ReadOnlyInfo info;
-					info.grp = grp;
-					info.bnd = bnd;
-					{
-						char buf[256];
-						int len = (int)(ne - vp);
-						if (len > 255) {
-							len = 255;
-						}
-						memcpy(buf, vp, len);
-						buf[len] = '\0';
-						info.var_name = buf;
-					}
-					{
-						char buf[256];
-						int len = (int)(lt - ts);
-						if (len > 255) {
-							len = 255;
-						}
-						memcpy(buf, ts, len);
-						buf[len] = '\0';
-						info.dim_type = buf;
-					}
-					{
-						char buf[64];
-						if (fmt_len > 63) {
-							fmt_len = 63;
-						}
-						memcpy(buf, lt + 1, fmt_len);
-						buf[fmt_len] = '\0';
-						info.fmt = String(buf).strip_edges();
-					}
-					ro_infos.push_back(info);
-					p = semi;
-				}
-			}
-
-			if (ro_infos.size() > 0) {
-				String ws(wgsl_str);
-				for (const ReadOnlyInfo &info : ro_infos) {
-					// Map texture_storage_Xd → texture_Xd and determine component type.
-					String sampled_dim = info.dim_type.replace("texture_storage_", "texture_");
-					String comp_type = "f32";
-					if (info.fmt.find("uint") != -1) {
-						comp_type = "u32";
-					} else if (info.fmt.find("sint") != -1) {
-						comp_type = "i32";
-					}
-
-					// Replace the full declaration:
-					//   texture_storage_Xd<fmt, read> → texture_Xd<comp_type>
-					// Try both spacing variants.
-					String old_decl = info.dim_type + "<" + info.fmt + ", read>";
-					String new_decl = sampled_dim + "<" + comp_type + ">";
-					ws = ws.replace(old_decl, new_decl);
-					old_decl = info.dim_type + "<" + info.fmt + ",read>";
-					ws = ws.replace(old_decl, new_decl);
-
-					// Add mip level parameter to textureLoad calls for this variable.
-					// textureLoad(var, coords) → textureLoad(var, coords, 0)
-					{
-						String search = "textureLoad(" + info.var_name;
-						int64_t pos = 0;
-						while ((pos = ws.find(search, pos)) != -1) {
-							// Guard against one converted variable's name being a
-							// literal prefix of another's (e.g. sdfgi's "src_light"
-							// vs. "src_light_aniso") -- without this, searching for
-							// "textureLoad(src_light" also matches inside
-							// "textureLoad(src_light_aniso, ...)"'s own call,
-							// appending a second, spurious mip-level argument to it
-							// (produces an invalid 4-argument textureLoad on a
-							// texture_3d<T>, which only takes 3). See
-							// webgpu_notes/TASKS.md Task 9.5.
-							int64_t after_name = pos + search.length();
-							char32_t next_char = after_name < ws.length() ? ws[after_name] : 0;
-							bool is_ident_continuation = next_char == '_' ||
-									(next_char >= 'a' && next_char <= 'z') ||
-									(next_char >= 'A' && next_char <= 'Z') ||
-									(next_char >= '0' && next_char <= '9');
-							if (is_ident_continuation) {
-								pos += search.length();
-								continue;
-							}
-							int64_t paren_start = pos + String("textureLoad").length();
-							int depth = 0;
-							int64_t insert_mip = -1;
-							for (int64_t k = paren_start; k < ws.length(); k++) {
-								if (ws[k] == '(') {
-									depth++;
-								} else if (ws[k] == ')') {
-									depth--;
-									if (depth == 0) {
-										insert_mip = k;
-										break;
-									}
-								}
-							}
-							if (insert_mip != -1) {
-								ws = ws.substr(0, insert_mip) + ", 0" + ws.substr(insert_mip);
-								pos = insert_mip + 3;
-							} else {
-								pos += search.length();
-							}
-						}
-					}
-
-					// Record the conversion for BGL creation and populate the
-					// format map so the BGL entry gets the correct sample type.
-					// The WGSL declaration is about to be removed, so the later
-					// format-scanning pass won't find it — we must record it now.
-					uint32_t key = ((uint32_t)info.grp << 16) | info.bnd;
+		if (!has_rw_storage_textures && strstr(wgsl_str, "texture_storage_")) {
+			std::string ws(wgsl_str);
+			const std::vector<wgsl_text_scan::ReadStorageConversion> ro_conversions = wgsl_text_scan::convert_read_storage_to_sampled(ws);
+			if (!ro_conversions.empty()) {
+				for (const wgsl_text_scan::ReadStorageConversion &c : ro_conversions) {
+					// The declaration is about to be gone, so the declaration scan cannot
+					// read the format later: record it now so the BGL entry gets the
+					// correct sample type.
+					uint32_t key = (c.group << 16) | c.binding;
 					wgsl_read_storage_to_sampled.insert(key);
-					wgsl_storage_tex_format[key] = _wgsl_storage_format_string_to_wgpu(info.fmt);
+					wgsl_storage_tex_format[key] = _wgsl_storage_format_string_to_wgpu(String(c.format.c_str()));
 				}
-				WEBGPU_DIAG({ console.log('[READ-CONVERT] Converted ' + $0 + ' read-only storage texture(s) to sampled'); }, (int)ro_infos.size());
-				print_verbose("WebGPU read_storage→sampled WGSL:\n" + ws);
-
-				free(wgsl_str);
-				CharString cs = ws.utf8();
-				wgsl_str = (char *)malloc(cs.length() + 1);
-				memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
+				WEBGPU_DIAG({ console.log('[READ-CONVERT] Converted ' + $0 + ' read-only storage texture(s) to sampled'); }, (int)ro_conversions.size());
+				print_verbose("WebGPU read_storage→sampled WGSL:\n" + String(ws.c_str()));
+				_set_wgsl_text(wgsl_str, ws);
 			}
 		}
 
-		// See _reclassify_single_component_depth_textures()'s doc comment
+		// See wgsl_text_scan::reclassify_single_component_depth_textures()'s doc comment
 		// (Task 7.13): rewrites texture_2d<f32> bindings that are only ever
 		// read as a single scalar component to texture_depth_2d, so a real
 		// depth-format texture bound there (e.g. Bokeh DOF's source_depth)
@@ -5804,7 +4803,16 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			uint32_t shadow_key = (kv.key & 0xFFFF0000u) | kv.value;
 			wgsl_reclassify_exclude.insert(shadow_key);
 		}
-		wgsl_str = _reclassify_single_component_depth_textures(wgsl_str, wgsl_reclassify_exclude);
+		{
+			std::set<uint32_t> exclude_keys;
+			for (uint32_t k : wgsl_reclassify_exclude) {
+				exclude_keys.insert(k);
+			}
+			std::string ws(wgsl_str);
+			if (wgsl_text_scan::reclassify_single_component_depth_textures(ws, exclude_keys)) {
+				_set_wgsl_text(wgsl_str, ws);
+			}
+		}
 
 		// The module itself is created when a pipeline first needs it
 		// (_get_stage_module()). A loaded shader holds every variant of its
@@ -5817,214 +4825,15 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			shader->stage_wgsl[s.shader_stage] = CharString(wgsl_str);
 		}
 
-		// Scan WGSL for texture dimension declarations so the BGL uses the right viewDimension.
-		// Tint format: "@group(G) @binding(B) var NAME: texture_TYPE<...>;"
-		// Also detects sampler / sampler_comparison types.
-		{
-			const char *p = wgsl_str;
-			while ((p = strstr(p, "@group(")) != nullptr) {
-				unsigned int grp = 0, bnd = 0;
-				if (parse_group_binding(p, grp, bnd)) {
-					// Find the ':' that separates the variable name from the type.
-					// This avoids matching "sampler" in variable names like "shadow_sampler".
-					const char *colon = strchr(p, ':');
-					const char *semi = strchr(p, ';');
-					if (!semi) {
-						p++;
-						continue;
-					}
-					const char *type_start = colon && colon < semi ? colon + 1 : p;
-					const char *limit = semi; // scan up to the semicolon
-
-					const char *fwd = type_start;
-					const char *tp = nullptr;
-					const char *sp = nullptr; // sampler type position
-					while (fwd < limit && *fwd) {
-						if (!tp && strncmp(fwd, "texture_", 8) == 0) {
-							tp = fwd;
-							break;
-						}
-						if (!sp && strncmp(fwd, "sampler_comparison", 18) == 0) {
-							sp = fwd;
-							break;
-						}
-						if (!sp && strncmp(fwd, "sampler", 7) == 0 && fwd[7] != '_') {
-							sp = fwd;
-							break;
-						}
-						fwd++;
-					}
-					// Check for comparison sampler (sampler_comparison type).
-					if (sp && strncmp(sp, "sampler_comparison", 18) == 0) {
-						uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-						wgsl_is_comparison_sampler[key] = true;
-					}
-					if (tp) {
-						WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
-						// Multisampled variants first (must precede plain texture_2d / texture_depth_2d).
-						if (strncmp(tp, "texture_depth_multisampled_2d", 29) == 0) {
-							dim = WGPUTextureViewDimension_2D;
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_is_multisampled_texture[key] = true;
-						} else if (strncmp(tp, "texture_multisampled_2d", 23) == 0) {
-							dim = WGPUTextureViewDimension_2D;
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_is_multisampled_texture[key] = true;
-						} else if (strncmp(tp, "texture_depth_2d_array", 22) == 0) {
-							dim = WGPUTextureViewDimension_2DArray;
-						} else if (strncmp(tp, "texture_depth_cube_array", 24) == 0) {
-							dim = WGPUTextureViewDimension_CubeArray;
-						} else if (strncmp(tp, "texture_depth_cube", 18) == 0) {
-							dim = WGPUTextureViewDimension_Cube;
-						} else if (strncmp(tp, "texture_depth_2d", 16) == 0) {
-							dim = WGPUTextureViewDimension_2D;
-						} else if (strncmp(tp, "texture_2d_array", 16) == 0) {
-							dim = WGPUTextureViewDimension_2DArray;
-						} else if (strncmp(tp, "texture_cube_array", 18) == 0) {
-							dim = WGPUTextureViewDimension_CubeArray;
-						} else if (strncmp(tp, "texture_cube", 12) == 0) {
-							dim = WGPUTextureViewDimension_Cube;
-						} else if (strncmp(tp, "texture_3d", 10) == 0) {
-							dim = WGPUTextureViewDimension_3D;
-						} else if (strncmp(tp, "texture_2d", 10) == 0) {
-							dim = WGPUTextureViewDimension_2D;
-						} else if (strncmp(tp, "texture_1d", 10) == 0) {
-							dim = WGPUTextureViewDimension_1D;
-						} else if (strncmp(tp, "texture_storage_2d_array", 24) == 0) {
-							dim = WGPUTextureViewDimension_2DArray;
-						} else if (strncmp(tp, "texture_storage_cube_array", 26) == 0) {
-							dim = WGPUTextureViewDimension_CubeArray;
-						} else if (strncmp(tp, "texture_storage_2d", 18) == 0) {
-							dim = WGPUTextureViewDimension_2D;
-						} else if (strncmp(tp, "texture_storage_3d", 18) == 0) {
-							dim = WGPUTextureViewDimension_3D;
-						}
-						if (dim != WGPUTextureViewDimension_Undefined) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							if (!wgsl_tex_dims.has(key)) {
-								wgsl_tex_dims[key] = dim;
-							} else if (wgsl_tex_dims[key] != dim) {
-								// Different stages have different types for the same binding — use the later stage value.
-								wgsl_tex_dims[key] = dim;
-							}
-						}
-						// Check if this is a depth texture (texture_depth_*).
-						bool is_depth_tp = tp && strncmp(tp, "texture_depth_", 14) == 0;
-						if (is_depth_tp) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_is_depth_texture[key] = true;
-						}
-						// Detect the sampled component type from the texture_*<T> generic
-						// parameter (depth and storage textures have no such component-type
-						// parameter, so skip them -- depth is always Depth sampleType, and
-						// storage textures use a completely different BGL field).
-						if (tp && !is_depth_tp && strncmp(tp, "texture_storage_", 16) != 0) {
-							const char *angle = (const char *)memchr(tp, '<', (size_t)(limit - tp));
-							if (angle) {
-								WGPUTextureSampleType stype = WGPUTextureSampleType_Float;
-								if (strncmp(angle + 1, "u32", 3) == 0) {
-									stype = WGPUTextureSampleType_Uint;
-								} else if (strncmp(angle + 1, "i32", 3) == 0) {
-									stype = WGPUTextureSampleType_Sint;
-								}
-								uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-								wgsl_tex_sample_type[key] = stype;
-							}
-						}
-					}
-					// The variable name is between "var " and ":".
-					{
-						const char *var_kw = strstr(p, "var ");
-						if (var_kw && var_kw < semi) {
-							const char *name_start = var_kw + 4;
-							// Skip any <...> (e.g., var<uniform>)
-							if (*name_start == '<') {
-								const char *gt = strchr(name_start, '>');
-								if (gt && gt < semi) {
-									name_start = gt + 1;
-									while (name_start < semi && *name_start == ' ') {
-										name_start++;
-									}
-								}
-							}
-							int name_len = 0;
-							const char *nc = name_start;
-							while (nc < semi && *nc != ':' && *nc != ' ') {
-								nc++;
-								name_len++;
-							}
-							if (name_len > 0) {
-								uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-								wgsl_var_binding_key[String::utf8(name_start, name_len)] = key;
-							}
-						}
-					}
-				}
-				p++;
-			}
-		}
-
-		// Find samplers statically passed to a non-comparison sample call together
-		// with a texture already marked Depth above (wgsl_is_depth_texture) -- these
-		// need WGPUSamplerBindingType_NonFiltering, not the default Filtering. See
-		// wgsl_sampler_needs_nonfiltering's declaration for why this can't be inferred
-		// from either variable's own declared WGSL type. textureSampleCompare /
-		// textureSampleCompareLevel are deliberately excluded: those pair a texture
-		// with a sampler_comparison, already handled by wgsl_is_comparison_sampler.
-		// textureGather( is included -- its texture_depth_2d overload (Task 7.22)
-		// is (tex, sampler, coords), same shape as the others, and was missing here
-		// entirely: found via a real Chrome run against ss_effects_downsample.glsl,
-		// whose source_depth is read via a mix of texelFetch (no sampler reference
-		// in WGSL at all, so nothing to detect) and textureGather (which does
-		// reference the sampler, but wasn't scanned) -- the paired sampler kept its
-		// default Filtering type, which WebGPU rejects for any static use with a
-		// Depth-sampleType texture binding. See webgpu_notes/TASKS.md Task 9.5 Round 10.
-		{
-			static const char *const non_compare_fns[] = {
-				"textureSample(", "textureSampleLevel(", "textureSampleBias(", "textureSampleGrad(", "textureGather("
-			};
-			for (const char *fn : non_compare_fns) {
-				const size_t fn_len = strlen(fn);
-				const char *p = wgsl_str;
-				while ((p = strstr(p, fn)) != nullptr) {
-					const char *args = p + fn_len;
-					p = args;
-					// Handle-typed call arguments in Tint's WGSL output are always plain
-					// identifiers (variable/parameter references) -- WGSL doesn't allow
-					// computed expressions for texture/sampler handles -- so a simple
-					// identifier scan is sufficient here.
-					auto read_ident = [&args]() -> String {
-						while (*args == ' ' || *args == '\t' || *args == '\n') {
-							args++;
-						}
-						const char *start = args;
-						while ((*args >= 'a' && *args <= 'z') || (*args >= 'A' && *args <= 'Z') || (*args >= '0' && *args <= '9') || *args == '_') {
-							args++;
-						}
-						return String::utf8(start, (int)(args - start));
-					};
-					String tex_name = read_ident();
-					while (*args == ' ') {
-						args++;
-					}
-					if (*args != ',' || tex_name.is_empty()) {
-						continue;
-					}
-					args++;
-					String samp_name = read_ident();
-					if (samp_name.is_empty() || !wgsl_var_binding_key.has(tex_name) || !wgsl_var_binding_key.has(samp_name)) {
-						continue;
-					}
-					uint32_t tex_key = wgsl_var_binding_key[tex_name];
-					if (wgsl_is_depth_texture.has(tex_key) && wgsl_is_depth_texture[tex_key]) {
-						wgsl_sampler_needs_nonfiltering[wgsl_var_binding_key[samp_name]] = true;
-						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 1;
-					} else {
-						sampler_depth_use_shared_check[wgsl_var_binding_key[samp_name]] |= 2;
-					}
-				}
-			}
-		}
+		// Everything this stage's bind group layout needs from the converted text comes
+		// from wgsl_text_scan (drivers/webgpu/wgsl_text_scan.h): one structural read of the
+		// module-scope resource declarations, which is also what
+		// webgpu_tests/wgsl_text_scan runs over Tint's and SPIRV-Cross's output for every
+		// engine shader. A string search here would silently find nothing in a spelling it
+		// did not expect (`@group(0)` against `@group(0u)`, `var<storage>` against
+		// `var<storage, read>`) and leave the binding on a default.
+		const std::string wgsl_text(wgsl_str);
+		const std::vector<wgsl_text_scan::ResourceVar> scanned_vars = wgsl_text_scan::scan_resource_vars(wgsl_text);
 
 		// Which WGPUShaderStage this stage's separately-translated WGSL module
 		// corresponds to. Used below (see wgsl_binding_stages) to record, per binding,
@@ -6038,263 +4847,105 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			current_wgpu_stage = WGPUShaderStage_Compute;
 		}
 
-		// Scan WGSL for storage buffer access modes and uniform bindings.
-		// Tint actual output formats:
-		//   - Read-write: "var<storage, read_write>"  (space after comma)
-		//   - Read-only:  "var<storage>"              (NO access modifier — Tint omits "read" for LOAD-only)
-		{
-			const char *p = wgsl_str;
-			while ((p = strstr(p, "@group(")) != nullptr) {
-				unsigned int grp = 0, bnd = 0;
-				if (parse_group_binding(p, grp, bnd)) {
-					uint32_t stage_key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-					if (wgsl_binding_stages.has(stage_key)) {
-						wgsl_binding_stages[stage_key] |= (uint32_t)current_wgpu_stage;
-					} else {
-						wgsl_binding_stages[stage_key] = (uint32_t)current_wgpu_stage;
-					}
+		for (const wgsl_text_scan::ResourceVar &rv : scanned_vars) {
+			const uint32_t key = rv.key();
+			const wgsl_text_scan::Description d = wgsl_text_scan::describe(rv);
 
-					const char *fwd = p;
-					const char *limit = fwd + 256;
-					while (fwd < limit && *fwd && *fwd != ';') {
-						if (strncmp(fwd, "var<storage, read_write>", 24) == 0 ||
-								strncmp(fwd, "var<storage,read_write>", 23) == 0) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_ssbo_readonly[key] = false;
-							break;
-						} else if (strncmp(fwd, "var<storage, read>", 18) == 0 ||
-								strncmp(fwd, "var<storage,read>", 17) == 0) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_ssbo_readonly[key] = true;
-							break;
-						} else if (strncmp(fwd, "var<storage>", 12) == 0) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_ssbo_readonly[key] = true;
-							break;
-						} else if (strncmp(fwd, "var<uniform", 11) == 0) {
-							uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-							wgsl_is_uniform[key] = true;
-							break;
-						}
-						fwd++;
-					}
+			if (wgsl_binding_stages.has(key)) {
+				wgsl_binding_stages[key] |= (uint32_t)current_wgpu_stage;
+			} else {
+				wgsl_binding_stages[key] = (uint32_t)current_wgpu_stage;
+			}
+
+			if (d.is_comparison_sampler) {
+				wgsl_is_comparison_sampler[key] = true;
+			}
+			if (d.is_texture) {
+				if (d.is_multisampled) {
+					wgsl_is_multisampled_texture[key] = true;
 				}
-				p++;
+				WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
+				switch (d.dim) {
+					case wgsl_text_scan::DIM_1D:
+						dim = WGPUTextureViewDimension_1D;
+						break;
+					case wgsl_text_scan::DIM_2D:
+						dim = WGPUTextureViewDimension_2D;
+						break;
+					case wgsl_text_scan::DIM_2D_ARRAY:
+						dim = WGPUTextureViewDimension_2DArray;
+						break;
+					case wgsl_text_scan::DIM_3D:
+						dim = WGPUTextureViewDimension_3D;
+						break;
+					case wgsl_text_scan::DIM_CUBE:
+						dim = WGPUTextureViewDimension_Cube;
+						break;
+					case wgsl_text_scan::DIM_CUBE_ARRAY:
+						dim = WGPUTextureViewDimension_CubeArray;
+						break;
+					default:
+						break;
+				}
+				if (dim != WGPUTextureViewDimension_Undefined) {
+					// Different stages can type the same binding differently; the later stage wins.
+					wgsl_tex_dims[key] = dim;
+				}
+				if (d.is_depth) {
+					wgsl_is_depth_texture[key] = true;
+				}
+				// Depth and storage textures have no component-type parameter: depth is always
+				// Depth sampleType, and storage textures use a different BGL field.
+				if (d.sample_kind != wgsl_text_scan::SAMPLE_NONE) {
+					wgsl_tex_sample_type[key] = d.sample_kind == wgsl_text_scan::SAMPLE_UINT ? WGPUTextureSampleType_Uint : (d.sample_kind == wgsl_text_scan::SAMPLE_SINT ? WGPUTextureSampleType_Sint : WGPUTextureSampleType_Float);
+				}
+			}
+			if (d.is_storage_buffer) {
+				wgsl_ssbo_readonly[key] = d.storage_read_only;
+			} else if (d.is_uniform) {
+				wgsl_is_uniform[key] = true;
+			}
+			if (d.is_storage_texture && !d.storage_format.empty()) {
+				wgsl_storage_tex_format[key] = _wgsl_scan_storage_format_to_wgpu(d.storage_format);
+				if (d.storage_access == "read_write") {
+					wgsl_storage_tex_access[key] = WGPUStorageTextureAccess_ReadWrite;
+				} else if (d.storage_access == "write") {
+					wgsl_storage_tex_access[key] = WGPUStorageTextureAccess_WriteOnly;
+				} else if (d.storage_access == "read") {
+					wgsl_storage_tex_access[key] = WGPUStorageTextureAccess_ReadOnly;
+				}
 			}
 		}
 
-		// Scan WGSL for storage texture access mode and format.
-		// Tint format: "@group(G) @binding(B) var name: texture_storage_*<format, access>;"
-		{
-			const char *p = wgsl_str;
-			while ((p = strstr(p, "@group(")) != nullptr) {
-				unsigned int grp = 0, bnd = 0;
-				if (parse_group_binding(p, grp, bnd)) {
-					const char *fwd = p;
-					const char *limit = fwd + 300;
-					while (fwd < limit && *fwd && *fwd != ';') {
-						if (strncmp(fwd, "texture_storage_", 16) == 0) {
-							const char *lt = strchr(fwd, '<');
-							if (lt && lt < limit) {
-								// Extract format (between < and ,)
-								const char *comma = strchr(lt + 1, ',');
-								if (comma && comma < limit) {
-									uint32_t key = ((uint32_t)grp << 16) | (uint32_t)bnd;
-									// Parse format name
-									const char *fmt = lt + 1;
-									WGPUTextureFormat tf = WGPUTextureFormat_RGBA8Unorm; // fallback
-									if (strncmp(fmt, "rgba8unorm,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA8Unorm;
-									} else if (strncmp(fmt, "rgba8snorm,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA8Snorm;
-									} else if (strncmp(fmt, "rgba8uint,", 10) == 0) {
-										tf = WGPUTextureFormat_RGBA8Uint;
-									} else if (strncmp(fmt, "rgba8sint,", 10) == 0) {
-										tf = WGPUTextureFormat_RGBA8Sint;
-									} else if (strncmp(fmt, "rgba16float,", 12) == 0) {
-										tf = WGPUTextureFormat_RGBA16Float;
-									} else if (strncmp(fmt, "rgba16uint,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA16Uint;
-									} else if (strncmp(fmt, "rgba16sint,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA16Sint;
-									} else if (strncmp(fmt, "rgba32float,", 12) == 0) {
-										tf = WGPUTextureFormat_RGBA32Float;
-									} else if (strncmp(fmt, "rgba32uint,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA32Uint;
-									} else if (strncmp(fmt, "rgba32sint,", 11) == 0) {
-										tf = WGPUTextureFormat_RGBA32Sint;
-									} else if (strncmp(fmt, "rg32float,", 10) == 0) {
-										tf = WGPUTextureFormat_RG32Float;
-									} else if (strncmp(fmt, "rg32uint,", 9) == 0) {
-										tf = WGPUTextureFormat_RG32Uint;
-									} else if (strncmp(fmt, "rg32sint,", 9) == 0) {
-										tf = WGPUTextureFormat_RG32Sint;
-									} else if (strncmp(fmt, "r32float,", 9) == 0) {
-										tf = WGPUTextureFormat_R32Float;
-									} else if (strncmp(fmt, "r32uint,", 8) == 0) {
-										tf = WGPUTextureFormat_R32Uint;
-									} else if (strncmp(fmt, "r32sint,", 8) == 0) {
-										tf = WGPUTextureFormat_R32Sint;
-									} else if (strncmp(fmt, "r16float,", 9) == 0) {
-										tf = WGPUTextureFormat_R16Float;
-									} else if (strncmp(fmt, "r16uint,", 8) == 0) {
-										tf = WGPUTextureFormat_R16Uint;
-									} else if (strncmp(fmt, "r16sint,", 8) == 0) {
-										tf = WGPUTextureFormat_R16Sint;
-									} else if (strncmp(fmt, "r16snorm,", 9) == 0) {
-										tf = WGPUTextureFormat_R16Float; // Fallback
-									} else if (strncmp(fmt, "r16unorm,", 9) == 0) {
-										tf = WGPUTextureFormat_R16Float; // Fallback
-									} else if (strncmp(fmt, "r8unorm,", 8) == 0) {
-										tf = WGPUTextureFormat_R8Unorm;
-									} else if (strncmp(fmt, "r8snorm,", 8) == 0) {
-										tf = WGPUTextureFormat_R8Snorm;
-									} else if (strncmp(fmt, "r8uint,", 7) == 0) {
-										tf = WGPUTextureFormat_R8Uint;
-									} else if (strncmp(fmt, "r8sint,", 7) == 0) {
-										tf = WGPUTextureFormat_R8Sint;
-									} else if (strncmp(fmt, "rg8unorm,", 9) == 0) {
-										tf = WGPUTextureFormat_RG8Unorm;
-									} else if (strncmp(fmt, "rg8snorm,", 9) == 0) {
-										tf = WGPUTextureFormat_RG8Snorm;
-									} else if (strncmp(fmt, "rg8uint,", 8) == 0) {
-										tf = WGPUTextureFormat_RG8Uint;
-									} else if (strncmp(fmt, "rg8sint,", 8) == 0) {
-										tf = WGPUTextureFormat_RG8Sint;
-									} else if (strncmp(fmt, "rg16float,", 10) == 0) {
-										tf = WGPUTextureFormat_RG16Float;
-									} else if (strncmp(fmt, "rg16uint,", 9) == 0) {
-										tf = WGPUTextureFormat_RG16Uint;
-									} else if (strncmp(fmt, "rg16sint,", 9) == 0) {
-										tf = WGPUTextureFormat_RG16Sint;
-									} else if (strncmp(fmt, "rg16snorm,", 10) == 0) {
-										tf = WGPUTextureFormat_RG16Float; // Fallback
-									} else if (strncmp(fmt, "rg16unorm,", 10) == 0) {
-										tf = WGPUTextureFormat_RG16Float; // Fallback
-									} else if (strncmp(fmt, "rgba16snorm,", 12) == 0) {
-										tf = WGPUTextureFormat_RGBA16Float; // Fallback
-									} else if (strncmp(fmt, "rgba16unorm,", 12) == 0) {
-										tf = WGPUTextureFormat_RGBA16Float; // Fallback
-									} else if (strncmp(fmt, "bgra8unorm,", 11) == 0) {
-										tf = WGPUTextureFormat_BGRA8Unorm;
-									}
-									// rgb10a2unorm/rgb10a2uint/rg11b10ufloat were missing entirely,
-									// silently falling through to the RGBA8Unorm default above --
-									// found via a real Chrome run where octmap_downsampler.glsl /
-									// octmap_filter.glsl's OCTMAP_FORMAT=rgb10_a2 variant (ShaderRD
-									// compiles both the rgb10_a2 and rgba16f variants eagerly, same
-									// "dead but still compiled" pattern as Task 9.5's FSR1 fix) hit
-									// "layout's binding format RGBA8Unorm doesn't match shader's
-									// binding format RGB10A2Unorm". See webgpu_notes/TASKS.md Task
-									// 9.5 Round 9.
-									else if (strncmp(fmt, "rgb10a2unorm,", 13) == 0) {
-										tf = WGPUTextureFormat_RGB10A2Unorm;
-									} else if (strncmp(fmt, "rgb10a2uint,", 12) == 0) {
-										tf = WGPUTextureFormat_RGB10A2Uint;
-									} else if (strncmp(fmt, "rg11b10ufloat,", 14) == 0) {
-										tf = WGPUTextureFormat_RG11B10Ufloat;
-									}
-									wgsl_storage_tex_format[key] = tf;
-									// Parse access mode (after comma, skip space)
-									const char *acc = comma + 1;
-									while (*acc == ' ') {
-										acc++;
-									}
-									WGPUStorageTextureAccess access = WGPUStorageTextureAccess_Undefined;
-									if (strncmp(acc, "read_write>", 11) == 0) {
-										access = WGPUStorageTextureAccess_ReadWrite;
-									} else if (strncmp(acc, "write>", 6) == 0) {
-										access = WGPUStorageTextureAccess_WriteOnly;
-									} else if (strncmp(acc, "read>", 5) == 0) {
-										access = WGPUStorageTextureAccess_ReadOnly;
-									}
-									if (access != WGPUStorageTextureAccess_Undefined) {
-										wgsl_storage_tex_access[key] = access;
-									}
-								}
-							}
-							break;
-						}
-						fwd++;
-					}
-				}
-				p++;
+		// Samplers statically passed to a non-comparison sample call together with a
+		// texture already marked Depth (wgsl_is_depth_texture) need
+		// WGPUSamplerBindingType_NonFiltering, not the default Filtering. See
+		// wgsl_sampler_needs_nonfiltering for why this can't be inferred from either
+		// variable's declared type. textureSampleCompare / textureSampleCompareLevel pair a
+		// texture with a sampler_comparison, already handled by wgsl_is_comparison_sampler.
+		// textureGather is included: its texture_depth_2d overload is (tex, sampler, coords),
+		// the same shape as the others (webgpu_notes/TASKS.md Task 9.5 Round 10).
+		for (const wgsl_text_scan::TextureSamplerPair &pair : wgsl_text_scan::scan_texture_sampler_pairs(wgsl_text, scanned_vars)) {
+			if (wgsl_is_depth_texture.has(pair.texture_key) && wgsl_is_depth_texture[pair.texture_key]) {
+				wgsl_sampler_needs_nonfiltering[pair.sampler_key] = true;
+				sampler_depth_use_shared_check[pair.sampler_key] |= 1;
+			} else {
+				sampler_depth_use_shared_check[pair.sampler_key] |= 2;
 			}
 		}
 
-		// Extract per-stage override constant IDs from WGSL (@id(N) override ...).
-		// These are present when Tint preserved specialization constants as overrides.
-		// Only include overrides whose variable is actually referenced in the shader
-		// body (beyond the declaration line). Safari's WebGPU WGSL→MSL compiler
+		// Per-stage override constant IDs (`@id(N) override NAME`), present when the
+		// converter preserved specialization constants as overrides. Only overrides
+		// referenced beyond their own declaration count: Safari's WGSL to MSL compiler
 		// crashes when pipeline constants are passed for unreferenced overrides.
 		{
 			bool stage_has_override_decls = false;
-			const char *scan = wgsl_str;
-			while ((scan = strstr(scan, "@id(")) != nullptr) {
-				scan += 4; // skip "@id("
-				uint32_t oid = 0;
-				bool has_digits = false;
-				while (*scan >= '0' && *scan <= '9') {
-					oid = oid * 10 + (*scan - '0');
-					scan++;
-					has_digits = true;
-				}
-				if (has_digits && *scan == ')') {
-					detected_override_declarations = true;
-					stage_has_override_decls = true;
-					// Extract variable name: skip ") override " then read name up to ":".
-					const char *p = scan + 1; // skip ')'
-					while (*p == ' ' || *p == '\t' || *p == '\n') {
-						p++;
-					}
-					if (strncmp(p, "override", 8) == 0) {
-						p += 8;
-						while (*p == ' ' || *p == '\t') {
-							p++;
-						}
-						const char *name_start = p;
-						while (*p != ':' && *p != '\0' && *p != ' ' && *p != '\n') {
-							p++;
-						}
-						int name_len = (int)(p - name_start);
-						if (name_len > 0 && name_len < 256) {
-							// Copy the variable name to a null-terminated buffer for strstr.
-							char name_buf[256];
-							memcpy(name_buf, name_start, name_len);
-							name_buf[name_len] = '\0';
-							// Check if this variable name is referenced beyond its declaration.
-							// Search from after the declaration line (past the ';').
-							const char *decl_end = p;
-							while (*decl_end && *decl_end != '\n') {
-								decl_end++;
-							}
-							bool found_usage = false;
-							const char *search = decl_end;
-							while ((search = strstr(search, name_buf)) != nullptr) {
-								// Verify it's a whole-word match (not a substring of another identifier).
-								if (search + name_len <= wgsl_str + strlen(wgsl_str)) {
-									char before = (search > wgsl_str) ? *(search - 1) : ' ';
-									char after = *(search + name_len);
-									bool boundary_before = !(before >= 'a' && before <= 'z') && !(before >= 'A' && before <= 'Z') && !(before >= '0' && before <= '9') && before != '_';
-									bool boundary_after = !(after >= 'a' && after <= 'z') && !(after >= 'A' && after <= 'Z') && !(after >= '0' && after <= '9') && after != '_';
-									if (boundary_before && boundary_after) {
-										found_usage = true;
-										break;
-									}
-								}
-								search++;
-							}
-							if (found_usage) {
-								shader->stage_override_ids[s.shader_stage].insert(oid);
-							}
-						} else {
-							// Fallback: couldn't parse name, include the override to be safe.
-							shader->stage_override_ids[s.shader_stage].insert(oid);
-						}
-					} else {
-						// Not followed by "override" keyword — include to be safe.
-						shader->stage_override_ids[s.shader_stage].insert(oid);
-					}
+			for (const wgsl_text_scan::OverrideDecl &o : wgsl_text_scan::scan_overrides(wgsl_text)) {
+				detected_override_declarations = true;
+				stage_has_override_decls = true;
+				// Not followed by `override`, or a name that could not be read: include to be safe.
+				if (!o.followed_by_override || o.name.empty() || o.name_used) {
+					shader->stage_override_ids[s.shader_stage].insert(o.id);
 				}
 			}
 			// From the container when the bake recorded it, for the same two
@@ -7136,7 +5787,7 @@ WGPUTextureView RenderingDeviceDriverWebGPU::_sampled_texture_view(WGUniformSet 
 		// shadow atlas landing here means the shader's WGSL declares it as a
 		// float texture -- volumetric fog's shadow atlases and the omni cube
 		// shadow copy both rendered without shadows that way, silently.
-		print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see _reclassify_single_component_depth_textures()).", p_shader->name, p_set, p_glsl_binding, p_tex->width, p_tex->height));
+		print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see wgsl_text_scan::reclassify_single_component_depth_textures()).", p_shader->name, p_set, p_glsl_binding, p_tex->width, p_tex->height));
 		// Also check if we need cube dimension for the depth fallback.
 		if (p_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
 			view = fallback_cube_texture_view;
@@ -7429,7 +6080,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 						// forbids sampling depth as float, so the MSAA fallback is used).
 						//
 						// The depth-format sub-case is guarded by swt_expected_sample_type !=
-						// Depth: since _reclassify_single_component_depth_textures() (Task 7.13)
+						// Depth: since wgsl_text_scan::reclassify_single_component_depth_textures() (Task 7.13)
 						// started also reclassifying multisampled candidates (Task 24 round 3,
 						// Bug 7), a real multisampled depth texture bound to a binding the BGL
 						// *correctly* expects Depth+multisampled for is not a mismatch at all --
@@ -7448,13 +6099,13 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 							// depth buffer here means the WGSL declares it as a float
 							// texture (copy.glsl's depth copy did, which left
 							// DEPTH_TEXTURE reading zeros everywhere).
-							print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see _reclassify_single_component_depth_textures()).", shader->name, p_set_index, uniform.binding, tex->width, tex->height));
+							print_verbose(vformat("WebGPU: '%s' set %d binding %d: a %dx%d depth texture is bound where the shader declares a float texture; it reads a blank fallback instead (see wgsl_text_scan::reclassify_single_component_depth_textures()).", shader->name, p_set_index, uniform.binding, tex->width, tex->height));
 							// Fix depth/float mismatch: this combined binding's WGSL type is
 							// Float (texture_2d<f32>) but the real texture is depth-format.
 							// Substitute a float fallback rather than let Dawn reject binding a
 							// depth-format view to a Float-sampleType slot. (When the BGL
 							// already expects Depth sampleType here -- see
-							// _reclassify_single_component_depth_textures(), Task 7.13 -- this
+							// wgsl_text_scan::reclassify_single_component_depth_textures(), Task 7.13 -- this
 							// branch is skipped and the real texture's own view is bound
 							// directly below, since it's already the correct type.)
 							if (swt_expected_dim == WGPUTextureViewDimension_Cube && fallback_cube_texture_view != nullptr) {
@@ -7467,7 +6118,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 								fallback_depth_texture_view != nullptr) {
 							// Reverse of the depth/float mismatch above: this combined
 							// binding's WGSL type was reclassified to Depth
-							// (texture_depth_2d, see _reclassify_single_component_depth_textures(),
+							// (texture_depth_2d, see wgsl_text_scan::reclassify_single_component_depth_textures(),
 							// Task 7.13) because the naming/access-pattern heuristic that
 							// decision is based on can't see runtime state -- but the actual
 							// bound texture is a plain float format this time (e.g. Forward+'s
@@ -10917,199 +9568,14 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 	// this specialization's own DCE has stripped entirely are simply absent
 	// from the WGSL text and the scan below finds nothing for them, which is
 	// correct: no binding, nothing to split.
-	if (!has_rw_storage_textures && !p_rw_storage_splits.is_empty() && strstr(wgsl_str, "read_write>")) {
-		struct RWSplitInfo {
-			uint32_t grp, bnd, shadow_bnd;
-			String var_name, dim_type, fmt;
-		};
-		LocalVector<RWSplitInfo> rw_infos;
-
-		// Scan for texture_storage_*<fmt,read_write> declarations -- identical
-		// detection logic to shader_create_from_container()'s own copy.
-		{
-			const char *p = wgsl_str;
-			while ((p = strstr(p, "@group(")) != nullptr) {
-				unsigned int grp = 0, bnd = 0;
-				if (!parse_group_binding(p, grp, bnd)) {
-					p++;
-					continue;
-				}
-				const char *semi = strchr(p, ';');
-				if (!semi) {
-					p++;
-					continue;
-				}
-				const char *rw = strstr(p, "read_write>");
-				if (!rw || rw >= semi) {
-					p = semi;
-					continue;
-				}
-				// Only split bindings the primary module already split --
-				// see the doc comment above for why this must not be a
-				// blind re-detection.
-				const uint32_t *shadow_bnd_ptr = p_rw_storage_splits.getptr(((uint32_t)grp << 16) | bnd);
-				if (!shadow_bnd_ptr) {
-					p = semi;
-					continue;
-				}
-				const char *ts = strstr(p, "texture_storage_");
-				if (!ts || ts >= semi) {
-					p = semi;
-					continue;
-				}
-				// Variable name: "var NAME:"
-				const char *vp = strstr(p, "var ");
-				if (!vp || vp > ts) {
-					p = semi;
-					continue;
-				}
-				vp += 4;
-				const char *colon = strchr(vp, ':');
-				if (!colon || colon > ts) {
-					p = semi;
-					continue;
-				}
-				const char *ne = colon;
-				while (ne > vp && (*(ne - 1) == ' ' || *(ne - 1) == '\t')) {
-					ne--;
-				}
-				if (ne <= vp) {
-					p = semi;
-					continue;
-				}
-				// Dim type: texture_storage_Xd
-				const char *lt = strchr(ts, '<');
-				if (!lt || lt > rw) {
-					p = semi;
-					continue;
-				}
-				// Format: between < and , before read_write
-				const char *comma = strchr(lt + 1, ',');
-				if (!comma || comma >= rw) {
-					p = semi;
-					continue;
-				}
-				int fmt_len = (int)(comma - lt - 1);
-				if (fmt_len <= 0 || fmt_len >= 64) {
-					p = semi;
-					continue;
-				}
-
-				RWSplitInfo info;
-				info.grp = grp;
-				info.bnd = bnd;
-				info.shadow_bnd = *shadow_bnd_ptr;
-				{
-					char buf[256];
-					int len = (int)(ne - vp);
-					if (len > 255) {
-						len = 255;
-					}
-					memcpy(buf, vp, len);
-					buf[len] = '\0';
-					info.var_name = buf;
-				}
-				{
-					char buf[256];
-					int len = (int)(lt - ts);
-					if (len > 255) {
-						len = 255;
-					}
-					memcpy(buf, ts, len);
-					buf[len] = '\0';
-					info.dim_type = buf;
-				}
-				{
-					char buf[64];
-					if (fmt_len > 63) {
-						fmt_len = 63;
-					}
-					memcpy(buf, lt + 1, fmt_len);
-					buf[fmt_len] = '\0';
-					info.fmt = String(buf).strip_edges();
-				}
-				rw_infos.push_back(info);
-				p = semi;
-			}
+	if (!has_rw_storage_textures && !p_rw_storage_splits.is_empty() && strstr(wgsl_str, "read_write")) {
+		std::vector<std::pair<uint32_t, uint32_t>> only;
+		for (const KeyValue<uint32_t, uint32_t> &kv : p_rw_storage_splits) {
+			only.push_back({ kv.key, kv.value });
 		}
-
-		if (rw_infos.size() > 0) {
-			String ws(wgsl_str);
-			for (const RWSplitInfo &info : rw_infos) {
-				uint32_t shadow_bnd = info.shadow_bnd;
-				String shadow_name = info.var_name + "_rw_in";
-
-				// 1. Replace read_write with write in the declaration.
-				ws = ws.replace(
-						info.dim_type + "<" + info.fmt + ",read_write>",
-						info.dim_type + "<" + info.fmt + ",write>");
-				ws = ws.replace(
-						info.dim_type + "<" + info.fmt + ", read_write>",
-						info.dim_type + "<" + info.fmt + ", write>");
-
-				// 2. Insert shadow read binding as a sampled texture (not storage) --
-				// same reasoning as the primary path's copy of this step.
-				String write_pat = info.dim_type + "<" + info.fmt + ",write>;";
-				int64_t wt_pos = ws.find(write_pat);
-				if (wt_pos == -1) {
-					write_pat = info.dim_type + "<" + info.fmt + ", write>;";
-					wt_pos = ws.find(write_pat);
-				}
-				if (wt_pos != -1) {
-					int64_t insert_pos = wt_pos + write_pat.length();
-					String sampled_dim = info.dim_type.replace("texture_storage_", "texture_");
-					String comp_type = "f32";
-					if (info.fmt.find("uint") != -1) {
-						comp_type = "u32";
-					} else if (info.fmt.find("sint") != -1) {
-						comp_type = "i32";
-					}
-					String shadow_decl = "\n@group(" + itos(info.grp) + ") @binding(" + itos(shadow_bnd) + ") \nvar " + shadow_name + ": " + sampled_dim + "<" + comp_type + ">;";
-					ws = ws.substr(0, insert_pos) + shadow_decl + ws.substr(insert_pos);
-				}
-
-				// 3. Redirect textureLoad to the shadow (not textureStore).
-				ws = ws.replace("textureLoad(" + info.var_name + ",", "textureLoad(" + shadow_name + ",");
-				ws = ws.replace("textureLoad(" + info.var_name + ")", "textureLoad(" + shadow_name + ")");
-
-				// 4. Sampled textures need a mip level parameter in textureLoad.
-				{
-					String search = "textureLoad(" + shadow_name;
-					int64_t pos = 0;
-					while ((pos = ws.find(search, pos)) != -1) {
-						int64_t paren_start = pos + String("textureLoad").length();
-						int depth = 0;
-						int64_t insert_mip = -1;
-						for (int64_t k = paren_start; k < ws.length(); k++) {
-							if (ws[k] == '(') {
-								depth++;
-							} else if (ws[k] == ')') {
-								depth--;
-								if (depth == 0) {
-									insert_mip = k;
-									break;
-								}
-							}
-						}
-						if (insert_mip != -1) {
-							ws = ws.substr(0, insert_mip) + ", 0" + ws.substr(insert_mip);
-							pos = insert_mip + 3;
-						} else {
-							pos += search.length();
-						}
-					}
-				}
-
-				// Deliberately not touching wgsl_rw_storage_splits/wgsl_storage_tex_format
-				// here -- those are shader_create_from_container()-local, and already
-				// correctly populated once from the primary module; this path only
-				// needs the specialized module's *text* to agree with the
-				// already-built BGL, not to rebuild any of that metadata itself.
-			}
-			free(wgsl_str);
-			CharString cs = ws.utf8();
-			wgsl_str = (char *)malloc(cs.length() + 1);
-			memcpy(wgsl_str, cs.get_data(), cs.length() + 1);
+		std::string ws(wgsl_str);
+		if (!wgsl_text_scan::split_read_write_storage(ws, nullptr, &only).empty()) {
+			_set_wgsl_text(wgsl_str, ws);
 		}
 	}
 
@@ -11117,12 +9583,16 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 	// shader_create_from_container() above (Task 9.15/Tier 1 #4 Phase 2): dead
 	// code, already superseded by spirv_preprocess::flatten_binding_arrays().
 
-	// See _reclassify_single_component_depth_textures()'s doc comment (Task
+	// See wgsl_text_scan::reclassify_single_component_depth_textures()'s doc comment (Task
 	// 7.13); must match shader_create_from_container(). This path never
 	// performs the read-only-storage-to-sampled conversion itself, so there's
 	// no exclusion set to pass -- an empty set disables the exclusion check.
-	static const HashSet<uint32_t> empty_storage_converted_keys;
-	wgsl_str = _reclassify_single_component_depth_textures(wgsl_str, empty_storage_converted_keys);
+	{
+		std::string ws(wgsl_str);
+		if (wgsl_text_scan::reclassify_single_component_depth_textures(ws, std::set<uint32_t>())) {
+			_set_wgsl_text(wgsl_str, ws);
+		}
+	}
 
 	WGPUShaderSourceWGSL wgsl_source = {};
 	wgsl_source.chain.sType = WGPUSType_ShaderSourceWGSL;

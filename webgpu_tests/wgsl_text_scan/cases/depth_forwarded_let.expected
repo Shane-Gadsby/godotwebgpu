@@ -1,0 +1,6 @@
+DEPTH_RECLASSIFIED 0/1
+DEPTH_RECLASSIFIED 0/2
+PAIR 0/2 0/3
+VAR 0/1 tex dim=2 depth=1 ms=0 sample=0
+VAR 0/2 tex dim=2 depth=1 ms=0 sample=0
+VAR 0/3 sampler
