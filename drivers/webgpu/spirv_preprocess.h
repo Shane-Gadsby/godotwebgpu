@@ -33,6 +33,7 @@
 #include "core/templates/vector.h"
 
 #include <cstdint>
+#include <string>
 
 namespace spirv_preprocess {
 
@@ -266,7 +267,11 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 // through before Tint sees it. The single definition of that order -- the
 // runtime driver, the export-time baker (via tint_convert_cli) and the
 // build-time precompile all call this, so they cannot disagree.
-Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes);
+//
+// The input is validated first (spirv_opt_passes::validate_module()). A module
+// the validator rejects is not converted: the result is empty and *r_error (if
+// given) says why. Callers must treat an empty result as a failed conversion.
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error = nullptr);
 
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage

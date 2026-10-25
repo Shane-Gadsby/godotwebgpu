@@ -187,6 +187,27 @@ else
     DRIVER_OBJ="$BUILD_DIR/fuzz/standalone_driver.o"
 fi
 
+# Our own pass sources are compiled again here, instrumented. The objects build.sh made are plain -O2: linked
+# into a fuzzer, libFuzzer saw coverage from the harness file alone (~200 edges), mutated blind, and ASan
+# could not see an out-of-bounds read in a raw word pass. SPIRV-Tools and the backend stay uninstrumented
+# (a crash there still aborts, so it is still found; it just does not steer the mutations).
+if [[ "$USE_LIBFUZZER" == true ]]; then
+    echo "[fuzz] Compiling the passes with coverage + ASan..."
+    INSTR_FLAGS=(-O1 -g -std=c++17 -w -fsanitize=fuzzer-no-link,address)
+    $CXX -c "$REPO_ROOT/drivers/webgpu/spirv_preprocess.cpp" -o "$BUILD_DIR/fuzz/spirv_preprocess.o" \
+        "${INSTR_FLAGS[@]}" "${PREPROCESS_INCLUDES[@]}" &
+    INSTR_PIDS=($!)
+    $CXX -c "$REPO_ROOT/drivers/webgpu/spirv_opt_passes.cpp" -o "$BUILD_DIR/fuzz/spirv_opt_passes.o" \
+        "${INSTR_FLAGS[@]}" "${PREPROCESS_INCLUDES[@]}" &
+    INSTR_PIDS+=($!)
+    $CXX -c "$REPO_ROOT/drivers/webgpu/spirv_lite_reflect.cpp" -o "$BUILD_DIR/fuzz/spirv_lite_reflect.o" \
+        "${INSTR_FLAGS[@]}" -I"$SHIM_DIR" &
+    INSTR_PIDS+=($!)
+    # wait with no pid always succeeds; waiting on each one makes a compile error stop the script.
+    for pid in "${INSTR_PIDS[@]}"; do wait "$pid"; done
+    PREPROCESS_OBJS=("$BUILD_DIR/fuzz/spirv_preprocess.o" "$BUILD_DIR/fuzz/spirv_lite_reflect.o" "$BUILD_DIR/fuzz/spirv_opt_passes.o" "${SPIRV_TOOLS_OBJS[@]}")
+fi
+
 # --- fuzz_preprocess_passes (preprocessing only, no Tint) ---
 echo "[fuzz] Building fuzz_preprocess_passes..."
 $CXX -c "$SCRIPT_DIR/fuzz_preprocess_passes.cpp" \

@@ -228,8 +228,11 @@ function buildMinimalVertexShader() {
 
 // Build a minimal fragment shader with OpTerminateInvocation.
 function buildFragmentWithTerminateInvocation() {
+  // OpTerminateInvocation needs SPV_KHR_terminate_invocation below SPIR-V 1.6;
+  // without it the module is invalid and run_pipeline() rejects it unconverted.
   return buildSpirv(10, [
     ...encodeInst(Op.Capability, 1), // Shader
+    ...encodeInst(10, ...encodeString("SPV_KHR_terminate_invocation")), // OpExtension
     ...encodeInst(Op.MemoryModel, 0, 1),
     ...encodeEntryPoint(ExecModel.Fragment, 5, "main"),
     ...encodeInst(Op.ExecutionMode, 5, 7), // OriginUpperLeft
@@ -272,7 +275,10 @@ function buildComputeWithPushConstants() {
   // eliminate_dead_resources (spirv_preprocess.cpp) correctly strips it --
   // same as it would for any real shader that reads a push constant and
   // never uses the result. See webgpu_notes/TASKS.md Task 8.7.
-  return buildSpirv(17, [
+  //
+  // SPIR-V 1.3: the StorageBuffer storage class is core from 1.3 (an extension
+  // before), and run_pipeline() rejects an invalid module unconverted.
+  return buildSpirvV13(17, [
     ...encodeInst(Op.Capability, 1),
     ...encodeInst(Op.MemoryModel, 0, 1),
     ...encodeEntryPoint(ExecModel.GLCompute, 7, "main"),
@@ -522,18 +528,18 @@ console.log("\n=== Test 1: freeze_spec_constant_ops / spec_constants_overridable
 }
 
 {
-  // 1k. An OpSpecConstantOp whose operation Tint's SPIR-V reader has no
-  // override lowering for (here OpCopyLogical, which is not in its
-  // EmitSpecConstants switch at all) forces the freeze. Without the guard Tint
-  // raises a TINT_ICE and conversion fails outright, so "converts successfully"
-  // is the real assertion here.
+  // 1k. An OpSpecConstantOp whose operation is not allowed in one (here
+  // OpCopyLogical, which Tint's SPIR-V reader also had no override lowering
+  // for and raised a TINT_ICE on) is invalid SPIR-V. run_pipeline() validates
+  // its input, so it is rejected with the validator's message before any pass
+  // or the backend sees it.
   const spv = buildComputeWithSpecConstants([
     encodeInst(Op.SpecConstantOp, 3, 6, 400, 4), // 400 = OpCopyLogical
   ]);
   const r = convertToWgsl(spv);
-  assert(r.wgsl !== null, "unsupported spec op converts successfully (frozen, not ICEd)");
-  if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "unsupported spec op forces freeze");
+  assert(r.wgsl === null, "invalid spec op is rejected, not converted");
+  if (r.wgsl === null) {
+    assert(/invalid SPIR-V, not converted: .*SpecConstantOp/.test(r.error), "rejection names the invalid OpSpecConstantOp");
   }
 }
 
@@ -1224,12 +1230,13 @@ console.log("\n=== Test 17: negate_position_y struct member Position ===");
 console.log("\n=== Test 18: Additional spec constant operations ===");
 
 {
-  // 18a. UDiv (opcode 134): 20 / 10 = 2
+  // 18a. SDiv (opcode 135): 20 / 10 = 2. (UDiv needs an unsigned result type,
+  // and these constants are signed: the validator rejects that module.)
   const spv = buildComputeWithSpecConstants([
-    encodeInst(Op.SpecConstantOp, 3, 6, 134, 5, 4), // UDiv(20, 10) = 2
+    encodeInst(Op.SpecConstantOp, 3, 6, 135, 5, 4), // SDiv(20, 10) = 2
   ]);
   const r = convertToWgsl(spv);
-  assert(r.wgsl !== null, "OpSpecConstantOp UDiv converts");
+  assert(r.wgsl !== null, "OpSpecConstantOp SDiv converts");
 }
 
 {

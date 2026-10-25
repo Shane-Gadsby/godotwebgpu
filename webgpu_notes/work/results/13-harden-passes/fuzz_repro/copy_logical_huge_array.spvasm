@@ -1,0 +1,32 @@
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %in %out
+               OpExecutionMode %main LocalSize 1 1 1
+               OpDecorate %sa Block
+               OpMemberDecorate %sa 0 Offset 0
+               OpDecorate %arr_a ArrayStride 4
+               OpDecorate %in DescriptorSet 0
+               OpDecorate %in Binding 0
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %uint = OpTypeInt 32 0
+        %len = OpConstant %uint 100000000
+      %arr_a = OpTypeArray %float %len
+      %arr_b = OpTypeArray %float %len
+         %sa = OpTypeStruct %arr_a
+      %ptr_a = OpTypePointer StorageBuffer %sa
+      %ptr_b = OpTypePointer Function %arr_b
+     %ptr_aa = OpTypePointer StorageBuffer %arr_a
+       %zero = OpConstant %uint 0
+         %in = OpVariable %ptr_a StorageBuffer
+     %ptr_fb = OpTypePointer Private %arr_b
+        %out = OpVariable %ptr_fb Private
+       %main = OpFunction %void None %fn
+          %l = OpLabel
+         %ac = OpAccessChain %ptr_aa %in %zero
+          %v = OpLoad %arr_a %ac
+          %c = OpCopyLogical %arr_b %v
+               OpStore %out %c
+               OpReturn
+               OpFunctionEnd

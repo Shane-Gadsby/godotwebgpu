@@ -77,7 +77,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	memcpy(spv.ptrw(), data, size);
 
 	// The full preprocessing pipeline runs in-process (crashes here ARE bugs).
+	// It validates its input first, so most mutations end here as a clean
+	// rejection; what gets through is valid SPIR-V the passes must handle.
 	spv = spirv_preprocess::run_pipeline(spv);
+	if (spv.is_empty()) {
+		return 0;
+	}
 
 	// Bump version to 1.3 (same as tint_convert_cli).
 	if (spv.size() >= 20) {

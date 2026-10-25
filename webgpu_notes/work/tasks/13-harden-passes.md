@@ -1,8 +1,8 @@
 # 13-harden-passes: malformed SPIR-V is rejected, never asserted on
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-13
+Claimed: 2026-10-25 12:07
 Needs: —
 Branch: work/13
 Results: webgpu_notes/work/results/13-harden-passes/
