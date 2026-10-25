@@ -312,6 +312,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25:** §2.35 evaluates [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), a SPIRV-Cross fork with a WGSL backend, as a replacement for Tint. Fed our preprocessed SPIR-V it emits all 276 engine variants with the same bindings and override ids as Tint, 275 pass Chrome's compiler (FSR2's luminance pyramid fails a barrier-uniformity check), and it converts about 10× faster. Not yet checked for rendering parity. The swap was started right after (tag `pre-SPIR-V-Cross` marks the tree before it).
 
+**Added 2026-10-25 (evening):** §2.37 (replay each render pass from one JS call) and §2.21 (the four deferred emdawnwebgpu features) are prioritized by the user, after alternatives to emdawnwebgpu (juj's wasm_webgpu, Rust wgpu, Emscripten's removed `USE_WEBGPU`) were evaluated and none was better: the glue is 8–10% of main-thread CPU, and emdawnwebgpu's `webgpu.h` is the API native Dawn shares.
+
 **Added 2026-10-25 (later):** §2.36, requested by the user: the web export should keep the screen awake (Wake Lock), ask for high performance, and lock to the orientation set in the export panel, with a non-PWA orientation option. Today only the PWA manifest carries an orientation and `keep_screen_on` does nothing on the web.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
@@ -358,13 +360,14 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
 | 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
+| 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
 | 2.18 | texture compression export option | **DONE 2026-10-20** — per-family texture packs, the browser fetches only the one it samples | Safari/iOS and an Android device run |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
-| 2.21 | deferred emdawnwebgpu features | OPEN | — |
+| 2.21 | deferred emdawnwebgpu features | OPEN — prioritized by the user 2026-10-25 | — |
 | 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
 | 2.24 | upstream the driver | OPEN, human | — |
@@ -434,7 +437,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.18 | Texture compression as an export option: per-family texture packs | `DONE` 2026-10-20 | device runs (Safari/iOS, Android) |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
-| 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
+| 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` — prioritized by the user 2026-10-25 | ~1 session each |
 | 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
@@ -445,6 +448,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
 | 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
+| 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1765,6 +1769,12 @@ has to agree, and §4.16's catalog of benign bake failures needs re-checking. Re
 
 ### 2.21 Deferred emdawnwebgpu feature adoption `OPEN` *(old `emsdk-upgrade.md` Phase 5)*
 
+**Prioritized by the user 2026-10-25** (with §2.37), after an evaluation of emdawnwebgpu's alternatives found none
+better: these are capabilities emdawnwebgpu already gives us. Context from the converter swap (§2.35): SPIRV-Cross patch
+0006 already emits 16-bit norm *storage* formats where the device has them, and Firefox's naga rejects CanvasSdf's
+`r16snorm` storage texture without `STORAGE_TEXTURE_16BIT_NORM_FORMATS` (the driver remaps it, §4.14) — item 2 must keep
+that runtime fallback. Firefox fails `sdfgi` parity with both converters (task 11, 2026-10-25); check item 1 against it.
+
 Four items deferred during the Emscripten 4.0.11 → 6.0.9 upgrade (§4.21), each independently
 landable — and each to be landed and verified *separately*, because a regression from one must never
 be diagnosed alongside another's:
@@ -2285,6 +2295,40 @@ there is none.
 
 **Test:** the Razr 60 over adb (keep-awake: screen does not dim past the system timeout while running; orientation:
 fullscreen locks to the export setting), desktop Chrome and Firefox (no errors where the APIs are missing or reject).
+
+### 2.37 Record each render pass in wasm memory, replay it in one JS call `OPEN` — prioritized by the user 2026-10-25
+
+**Why.** Every WebGPU call from the driver is a wasm→JS crossing into emdawnwebgpu's glue (one `getJsObject` table
+lookup, then the browser method). Measured 2026-10-16 (§2.30, `cpu_steady.mjs` capped, heavy_i / 3D platformer): main
+thread 1.99 / 1.31 ms per frame, of which engine wasm 60% / 54%, browser WebGPU methods 21% / 12%, **Emscripten glue
+0.19 / 0.10 ms (10% / 8%)**. A faster glue table was tried and lost (§2.30 option 3), and replacing emdawnwebgpu with
+another binding (juj's wasm_webgpu, evaluated 2026-10-25) keeps the same per-call shape while giving up the `webgpu.h`
+API native Dawn shares, so the remaining lever at this layer is fewer crossings: record a render pass's commands
+(`setPipeline`, `setBindGroup`, `setVertexBuffer`, `setIndexBuffer`, `draw*`, `setViewport`, `setScissorRect`, ...) into
+a flat buffer in wasm memory and replay the whole pass from one JS function with direct references to the GPU objects.
+Ceiling on desktop heavy_i: ~0.15 ms/frame (~7% of main-thread CPU); on phones each crossing costs several times more
+(the May 2026 IPC arc measured crossings at 20–45% of mobile frame time before the per-call optimizations), so the Razr
+60 is where it should pay most and where it must be measured.
+
+**Prior design.** `webgpu_notes/COMMAND_STREAM_RECORDER_PERF_OPTIM.md` (read it with
+`git show bb79e0122f^:webgpu_notes/COMMAND_STREAM_RECORDER_PERF_OPTIM.md`), Approach 2 "Godot-level JS batch replay",
+designed 2026-05-04 and not built because the per-call work of §4.21 closed the gap first. The same doc weighs render
+bundles, indirect draws and custom bindings; the decision then was command buffering only.
+
+**Plan.**
+1. Measure first on the current tree: `cpu_steady.mjs` on heavy_i and the platformer (desktop, capped) and the Razr 60
+   (§2.9 recipe), glue and WebGPU-method self time per frame, so the result has a baseline.
+2. Recorder in `rendering_device_driver_webgpu.cpp`: render-pass commands append fixed-size records to a per-pass wasm
+   buffer; `command_end_render_pass()` (and any command that must not be reordered against it) flushes with one
+   `EM_JS` call. The JS side resolves handles once per object through emdawnwebgpu's table (or a parallel array the
+   driver fills at object creation), and calls the `GPURenderPassEncoder` methods in a tight loop. Compute passes
+   second, only if the measurement says they matter.
+3. Keep the direct path behind a switch for A/B and as a fallback; the recorder must be bit-identical in output
+   (Forward+ `--parity`, the scene smoketest and `perf_guard` budgets unchanged) and no slower anywhere.
+4. The render thread (§2.5) has its own device and encoders: the replay runs on whichever thread owns the pass.
+
+**Done when** the Razr 60 and desktop numbers show the main-thread saving, parity is unchanged, and `perf_guard` passes.
+Effort: ~2–4 sessions.
 
 ---
 
