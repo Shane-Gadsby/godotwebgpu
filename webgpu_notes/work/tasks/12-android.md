@@ -1,8 +1,8 @@
 # 12-android: Chrome and Firefox on the Razr 60, works and is as fast as Tint
 
-State: open (after 07's first reading)
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-12, worker-12b (from 16:10)
+Claimed: 2026-10-25 14:06
 Needs: phone (lease `phone`; desktop `gpu` only for desktop reference captures), the Razr 60 over adb
 Branch: work/12
 Results: webgpu_notes/work/results/12-android/

@@ -91,6 +91,11 @@ string CompilerWGSL::compile()
 	control_flow.merge_case_labels = true;
 	control_flow.switch_requires_default = true;
 	control_flow.support_complex_for_loop = false;
+	// Local patch 0019: never emit a WGSL for statement. On the Razr 60 (Mali-G615, Chrome 155) a counted for loop
+	// starting below zero, `for (var i = -3; i <= 3; i++)` in volumetric fog's filter pass, ran zero times, so the fog
+	// lost its density (12.6 mean abs diff from native; the same loop written as loop/if/break or while is correct).
+	// The generic loop form is the shape Tint always emitted.
+	control_flow.support_for_loop = false;
 	control_flow.strip_condition_parentheses = true;
 	// Switch cases never fall through in WGSL, reaching the end of a case exits the switch.
 	control_flow.unreachable_requires_switch_break = false;

@@ -312,6 +312,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25:** §2.35 evaluates [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), a SPIRV-Cross fork with a WGSL backend, as a replacement for Tint. Fed our preprocessed SPIR-V it emits all 276 engine variants with the same bindings and override ids as Tint, 275 pass Chrome's compiler (FSR2's luminance pyramid fails a barrier-uniformity check), and it converts about 10× faster. Not yet checked for rendering parity. The swap was started right after (tag `pre-SPIR-V-Cross` marks the tree before it).
 
+**Added 2026-10-25 (later):** §2.36, requested by the user: the web export should keep the screen awake (Wake Lock), ask for high performance, and lock to the orientation set in the export panel, with a non-PWA orientation option. Today only the PWA manifest carries an orientation and `keep_screen_on` does nothing on the web.
+
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
@@ -355,6 +357,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
+| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
@@ -441,6 +444,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | EVALUATED 2026-10-25 — drop-in after our passes: 276/276 converted, interface identical, 275/276 valid in Chrome; swap started | FSR2 barrier uniformity; Forward+ `--parity`; GPU timing; the runtime converter and the spec-constant re-convert path |
+| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | OPEN — requested by the user | Wake Lock API; `screen.orientation.lock()` only in fullscreen on Android; a non-PWA orientation option |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2241,6 +2245,46 @@ and a GPU-time comparison.
 
 **Decision 2026-10-25 (user): do the full swap**, patching SPIRV-Cross locally as needed (never upstreamed), until
 Forward+ is back at parity with Vulkan. The tree before it is tagged `pre-SPIR-V-Cross`.
+
+### 2.36 Web export asks for performance, a screen that stays on, and its orientation `OPEN` — requested 2026-10-25 (user)
+
+**Ask (user, 2026-10-25):** the web export template should signal that it wants performance mode, that the screen should
+stay awake, and that it prefers the orientation set in the export panel, adding a portrait/landscape export option if
+there is none.
+
+**What exists today (checked 2026-10-25):**
+- *Performance:* the WebGPU adapter is already requested with `powerPreference: 'high-performance'`
+  (`platform/web/js/engine/engine.js`, and the render thread's own adapter in `display_server_web.cpp`). Nothing else
+  is signalled. The web has no general "performance mode" API: `powerPreference` is a hint the browser may ignore (it
+  matters on dual-GPU laptops and some phones), and the Compute Pressure API only reports, it cannot request.
+- *Screen awake:* nothing. `DisplayServerWeb::screen_set_keep_on()` is an empty override and `FEATURE_KEEP_SCREEN_ON`
+  is commented out in `has_feature()`, so the project setting `display/window/energy_saving/keep_screen_on` (default
+  true) does nothing on the web. The Screen Wake Lock API (`navigator.wakeLock.request('screen')`, secure context,
+  Chrome/Edge/Safari 16.4+/Firefox 126+) does it; the lock is released whenever the page is hidden and must be
+  requested again on `visibilitychange`.
+- *Orientation:* the export option `progressive_web_app/orientation` (Any / Landscape / Portrait) exists, but it is
+  written only into the PWA manifest, so it applies only to an installed PWA. `FEATURE_ORIENTATION` is commented out
+  and `screen_set_orientation()` is not implemented, so `display/window/handheld/orientation` is ignored on the web.
+  `screen.orientation.lock()` works on Chrome for Android only in fullscreen (or an installed PWA) and rejects
+  elsewhere; desktop browsers reject it. Side bug in the same code: `CLAMP(orientation, 0, 3)` indexes a 3-entry array
+  (and `display` is clamped to 4 for a 4-entry one), so an out-of-range preset value reads past the end.
+
+**Plan:**
+1. Keep-awake: implement `screen_set_keep_on()` with the Wake Lock API in `library_godot_display.js`, re-acquire on
+   `visibilitychange`, apply the project setting at startup, report `FEATURE_KEEP_SCREEN_ON`. Fail quietly
+   (`print_verbose`) where the API is missing.
+2. Orientation: a non-PWA export option (e.g. `html/orientation`: Project Setting / Any / Landscape / Portrait,
+   default follows `display/window/handheld/orientation`), passed in `GODOT_CONFIG`. The shell calls
+   `screen.orientation.lock()` when it enters fullscreen (the only time Chrome for Android allows it) and, while the
+   device is held the other way and the lock is unavailable, may show a "rotate your device" hint. Implement
+   `screen_set_orientation()` / `FEATURE_ORIENTATION` on top of the same code. Keep the PWA option, or make it default
+   to the new one, so there is one place to set it; fix the clamp bug.
+3. Performance: keep `powerPreference: 'high-performance'`, make sure every adapter request uses it (the shells in
+   `misc/dist/html/`, the render thread, the editor), and document that the web offers no stronger signal. Check on the
+   Razr 60 whether Chrome's behaviour differs (§2.9 recipe).
+
+**Test:** the Razr 60 over adb (keep-awake: screen does not dim past the system timeout while running; orientation:
+fullscreen locks to the export setting), desktop Chrome and Firefox (no errors where the APIs are missing or reject).
 
 ---
 
