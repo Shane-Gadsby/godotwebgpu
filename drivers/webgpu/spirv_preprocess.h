@@ -50,8 +50,10 @@ struct DepthImageFixResult {
 };
 
 // Evaluate OpSpecConstantOp instructions with default values and replace
-// them with regular OpConstant instructions. Also converts OpSpecConstant*
-// to their non-specialization equivalents and strips SpecId decorations.
+// them with regular OpConstant / OpConstantComposite instructions (composite
+// operations and vector-typed operations included, evaluated on the constant
+// constituents). Also converts OpSpecConstant* to their non-specialization
+// equivalents and strips SpecId decorations.
 Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes);
 
 // True when the module declares at least one SpecId-decorated specialization
