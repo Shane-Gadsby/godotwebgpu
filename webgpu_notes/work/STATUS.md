@@ -247,7 +247,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
 | 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | in progress | worker-19 |
-| 18 | cameraSim by eye (user look, bar for 09) | in progress | worker-18 |
+| 18 | cameraSim by eye (user look, bar for 09) | merged: 5 views 0.00-0.03 from Vulkan; look posted | worker-18 (retired) |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
