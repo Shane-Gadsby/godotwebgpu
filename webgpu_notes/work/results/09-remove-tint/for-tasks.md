@@ -35,3 +35,9 @@ work/9: verified with the editor + all 8 web variants built with `dev_mode=yes` 
 shader_corpus 14/14, preprocessing 291/0 (1 static skip), driver unit tests 379/0, spec_constant_overrides 5/0
 offline, determinism OK, fuzzers build and smoke (`build_fuzzers.sh --test`, whose libFuzzer smoke args were wrong
 before and are fixed), local_ci (see SUMMARY).
+
+## Questions for the user
+
+1. Rename the pass `lower_tint_unsupported_ops()` (and the fixture `tint_crash_inputs.frag`) to a converter-neutral
+   name such as `lower_wgsl_unsupported_ops`? Choices: keep the names (default; cited across TASKS, the docs and other
+   branches, and the comments now explain them) / rename now in a follow-up task.
