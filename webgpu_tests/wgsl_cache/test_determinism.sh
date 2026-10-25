@@ -6,7 +6,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 command -v glslangValidator >/dev/null || { echo "SKIP -- glslangValidator not installed"; exit 2; }
-[[ -x "$REPO/bin/tint_convert_cli" ]] || { echo "SKIP -- bin/tint_convert_cli not built"; exit 2; }
+export TINT_CONVERT_CLI="${TINT_CONVERT_CLI:-$REPO/bin/tint_convert_cli}"
+[[ -x "$TINT_CONVERT_CLI" ]] || { echo "SKIP -- $TINT_CONVERT_CLI not built"; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 OUT=$(python3 "$REPO/drivers/webgpu/wgsl_precompile.py" "$REPO" "$TMP/a.h" 2>&1) || { echo "first run failed"; exit 1; }
 # Run from this directory on purpose: includes must not depend on the cwd. A run that drops

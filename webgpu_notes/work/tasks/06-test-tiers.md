@@ -1,8 +1,8 @@
 # 06-test-tiers: the offline test tiers run on SPIRV-Cross
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-06
+Claimed: 2026-10-25 09:45
 Needs: —
 Branch: work/6
 Results: webgpu_notes/work/results/06-test-tiers/

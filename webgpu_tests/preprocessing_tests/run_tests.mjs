@@ -48,6 +48,8 @@ function skip(msg) {
 }
 
 function findTintCli() {
+  // TINT_CONVERT_CLI points the tier at a specific converter build (e.g. bin/tint_convert_cli.tint).
+  if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
   const locations = [
     join(REPO_ROOT, "bin", "tint_convert_cli"),
     join(REPO_ROOT, "bin", "tint_convert_cli.exe"),
@@ -65,13 +67,21 @@ if (!TINT_CLI) {
   process.exit(0);
 }
 
+// Both backends must satisfy the same structural assertions, but spell WGSL differently
+// (vec4<f32> vs vec4f, 0i vs 0). Assertions are written against the long Tint spelling.
+function canon(wgsl) {
+  return wgsl
+    .replace(/\b(vec[234]|mat[234]x[234])([fiuh])\b/g, (_, t, k) => `${t}<${{ f: "f32", i: "i32", u: "u32", h: "f16" }[k]}>`)
+    .replace(/\b(\d+)i\b/g, "$1");
+}
+
 // Convert SPIR-V bytes to WGSL via tint_convert_cli.
 // Returns { wgsl, error } — wgsl is null on failure.
 function convertToWgsl(spvBytes) {
   const tmp = join(tmpdir(), `preprocess_test_${Date.now()}_${Math.random().toString(36).slice(2)}.spv`);
   try {
     writeFileSync(tmp, spvBytes);
-    const wgsl = execFileSync(TINT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 });
+    const wgsl = canon(execFileSync(TINT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -84,7 +94,7 @@ function convertToWgsl(spvBytes) {
 function convertFixture(name) {
   const spvPath = join(FIXTURES_DIR, name);
   try {
-    const wgsl = execFileSync(TINT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 });
+    const wgsl = canon(execFileSync(TINT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -810,7 +820,7 @@ console.log("\n=== Test 7: negate_position_y ===");
     // The Y-negation shows as: (*ptr).y = -((*ptr).y)
     // or similar pattern with negation of the y component.
     const hasNegY = r.wgsl.includes(".y = -(") || r.wgsl.includes(".y = -(") ||
-                    r.wgsl.includes("negate") || r.wgsl.includes(").y)");
+                    r.wgsl.includes("negate") || r.wgsl.includes(").y)") || /\.y\s*=\s*-/.test(r.wgsl);
     assert(hasNegY, "Y-negation pattern present in vertex output");
   }
 }
@@ -1587,7 +1597,7 @@ function testHoistConstantLocalArrays() {
   }
   let wgsl;
   try {
-    wgsl = execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 });
+    wgsl = canon(execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 }));
   } catch (e) {
     assert(false, `conversion failed: ${e.stderr || e.message}`);
     return;
@@ -1595,12 +1605,14 @@ function testHoistConstantLocalArrays() {
     try { unlinkSync(spvOut); } catch (_) {}
   }
 
-  const privates = [...wgsl.matchAll(/^var<private> (\w+) : (.+?) = /gm)].map((m) => m[2]);
-  assert(privates.includes("array<vec4<f32>, 8u>"), "the const vec4[8] read in a helper is a module-scope private");
-  assertEq(privates.filter((t) => t === "array<i32, 5u>").length, 1, "the const int[5] read twice in main is one private, not two");
+  // A hoisted array is a module-scope `var<private>` (Tint) or a module-scope `const` (SPIRV-Cross),
+  // which also spells array sizes without the `u` suffix.
+  const privates = [...wgsl.matchAll(/^(?:var<private>|const) (\w+) : (.+?) = /gm)].map((m) => m[2].replace(/(\d+)u>/g, "$1>"));
+  assert(privates.includes("array<vec4<f32>, 8>"), "the const vec4[8] read in a helper is a module-scope private");
+  assertEq(privates.filter((t) => t === "array<i32, 5>").length, 1, "the const int[5] read twice in main is one private, not two");
   assertEq(privates.length, 2, "nothing else was hoisted");
-  assert(/^\s+var scratch : array<vec4<f32>, 4u>;/m.test(wgsl), "an array written per element stays local");
-  assert(/^\s+var modified : array<vec4<f32>, 2u>;/m.test(wgsl), "an array overwritten after a constant initializer stays local");
+  assert(/^\s+var scratch : array<vec4<f32>, 4u?>;/m.test(wgsl), "an array written per element stays local");
+  assert(/^\s+var modified (?:: array<vec4<f32>, 2u?>;|= array<vec4<f32>, 2u?>\()/m.test(wgsl), "an array overwritten after a constant initializer stays local");
   // No whole-array constant stores remain inside functions.
   assert(!/^\s+\w+ = array<vec4<f32>, 8u>\(/m.test(wgsl), "no per-call re-initialization of the vec4[8] remains");
 }
@@ -1626,11 +1638,11 @@ function convertGlslFixture(name) {
     return null;
   }
   try {
-    const wgsl = execFileSync(TINT_CLI, [spvOut], {
+    const wgsl = canon(execFileSync(TINT_CLI, [spvOut], {
       encoding: "utf-8",
       timeout: 30000,
       env: { ...process.env, TINT_DEBUG_DUMP_PREPROCESSED: preOut },
-    });
+    }));
     return { wgsl, error: null, preprocessed: existsSync(preOut) ? readFileSync(preOut) : null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error", preprocessed: null };
@@ -1666,7 +1678,7 @@ function assertValidSpirv(bytes, label) {
 
 // WGSL bindings of every declared variable, as { name, group, binding }.
 function wgslBindings(wgsl) {
-  return [...wgsl.matchAll(/^@group\((\d+)u\) @binding\((\d+)u\) var(?:<[^>]*>)? (\w+)/gm)].map((m) => ({ group: +m[1], binding: +m[2], name: m[3] }));
+  return [...wgsl.matchAll(/^@group\((\d+)u?\) @binding\((\d+)u?\) var(?:<[^>]*>)? (\w+)/gm)].map((m) => ({ group: +m[1], binding: +m[2], name: m[3] }));
 }
 
 // The WGSL binding the driver expects for element k of an array at GLSL
@@ -1696,7 +1708,7 @@ function testLowerTintUnsupportedOps() {
   assert(/== 2139095040u/.test(r.wgsl), "isinf(float) is |bits| == 0x7f800000");
   // textureQueryLod: derivatives of the coordinate in texels, log2, clamped to the mip range.
   assert(/textureNumLevels\(tex\)/.test(r.wgsl), "textureQueryLod reads the mip count");
-  assert(/textureDimensions\(tex, 0i\)/.test(r.wgsl), "textureQueryLod reads the base level's size");
+  assert(/textureDimensions\(tex, 0\)/.test(r.wgsl), "textureQueryLod reads the base level's size");
   assert(/dpdx\(/.test(r.wgsl) && /dpdy\(/.test(r.wgsl), "textureQueryLod uses screen-space derivatives");
   assert(/log2\(max\(dot\(/.test(r.wgsl), "the lod is log2 of the larger squared footprint, halved");
   assert(/clamp\(/.test(r.wgsl), "the accessed level is clamped to the mip range");
@@ -1729,15 +1741,15 @@ function testExpandBindingArrays() {
   }
   assert(!/binding_array/.test(r.wgsl), "no binding_array type is emitted");
   // A dynamic index becomes a switch whose case k reads element k.
-  const switches = (r.wgsl.match(/switch\(/g) || []).length;
+  const switches = (r.wgsl.match(/switch\s*\(/g) || []).length;
   assert(switches >= 4, `dynamic indices became switches (found ${switches})`);
-  assert(/switch\(\(4u \+ idx\)\)/.test(r.wgsl), "the offset index lm[4 + idx] switches on 4u + idx");
+  assert(/switch\s*\(\(?4u \+ idx\)?\)/.test(r.wgsl), "the offset index lm[4 + idx] switches on 4u + idx");
   // A constant index reads its element directly, with no switch.
   const lm3 = bindings.find((x) => x.binding === arrayElementBinding(7, 3));
   assert(lm3 && new RegExp(`textureSample\\(${lm3.name}, samp, p\\.xy`).test(r.wgsl), "lm[3] reads element 3 directly");
   // The helper taking the texture was inlined, then switched over at the call site.
-  assert(/textureSampleLevel\(vox_7, samp, v_\d+, v_\d+\)/.test(r.wgsl), "the cone() helper's lookups read every element");
-  assert(/textureDimensions\(vox_7, 0i\)/.test(r.wgsl), "textureSize() is switched over too");
+  assert(/textureSampleLevel\(vox_7, samp, \w+, \w+\)/.test(r.wgsl), "the cone() helper's lookups read every element");
+  assert(/textureDimensions\(vox_7, 0\)/.test(r.wgsl), "textureSize() is switched over too");
 }
 
 // The expansion is budgeted: WebGPU only guarantees 16 sampled textures per
@@ -1756,7 +1768,7 @@ function testExpandBindingArraysBudget() {
   }
   assertValidSpirv(r.preprocessed, "budgeted module is valid SPIR-V");
   const bindings = wgslBindings(r.wgsl);
-  const sampled = (r.wgsl.match(/^@group\(\d+u\) @binding\(\d+u\) var \w+ : texture_(?!storage)/gm) || []).length;
+  const sampled = (r.wgsl.match(/^@group\(\d+u?\) @binding\(\d+u?\) var \w+ : texture_(?!storage)/gm) || []).length;
   assert(bindings.some((x) => x.binding === arrayElementBinding(1, 15)), "the first 16-element array fits (20 + 2 + 15 = 37 <= 48) and expands");
   assert(!bindings.some((x) => x.binding >= arrayElementBinding(2, 1) && x.binding <= arrayElementBinding(2, 15)), "the second does not fit (+15 = 52 > 48) and stays collapsed");
   assert(sampled <= 48, `the module stays within 48 sampled textures (${sampled})`);

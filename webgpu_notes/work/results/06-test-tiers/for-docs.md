@@ -1,0 +1,7 @@
+# For docs (task 06)
+
+- `webgpu_tests/README.md` / CLAUDE.md Testing: every offline tier that drives the converter honours `TINT_CONVERT_CLI=<path>` (preprocessing_tests, shader_corpus run_tests and validate_spirv_dump, spec_constant_overrides, wgsl_cache/test_determinism.sh, wgsl_precompile.py). Default is `bin/tint_convert_cli`; the Tint reference is `bin/tint_convert_cli.tint` (`WGSL_BACKEND=tint OUTPUT=bin/tint_convert_cli.tint ./drivers/webgpu/tint_cli/build.sh`).
+- `preprocessing_tests` assertions on WGSL text are backend-neutral (`canon()` normalises `vec4f`/`vec4<f32>` and `0i`/`0`; module arrays may be `var<private>` or `const`; `switch (` with a space).
+- Fuzzers: `./drivers/webgpu/tint_cli/fuzz/build_fuzzers.sh` (SPIRV-Cross) or `WGSL_BACKEND=tint ...` (Tint, `bin/fuzz_spirv_to_wgsl.tint`). Run: `bin/fuzz_spirv_to_wgsl -fork=2 -ignore_crashes=1 -max_total_time=60 drivers/webgpu/tint_cli/fuzz/corpus`.
+- SPIRV-Cross patch 0006 (`thirdparty/spirv-cross-wgsl/patches/0006-wgsl-16bit-norm-storage-formats.patch`): maps R16/R16Snorm/Rg16/Rg16Snorm/Rgba16/Rgba16Snorm storage image formats to r16unorm/r16snorm/rg16unorm/rg16snorm/rgba16unorm/rgba16snorm. Without it `CanvasSdfShaderRD:4,5.comp` (R16Snorm) failed to convert, a regression vs Tint. thirdparty/README.md line: "spirv_wgsl.cpp: 16-bit normalized storage image formats (patch 0006)".
+- `shader_corpus/expected_failures.json` has a `reasons` map; the failing set is identical under Tint and SPIRV-Cross (11 of 14 present in a 339-file dump; the 3 Tonemap-mobile/Vrs entries were not in the dump).

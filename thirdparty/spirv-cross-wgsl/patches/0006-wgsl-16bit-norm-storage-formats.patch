@@ -1,0 +1,25 @@
+diff --git a/thirdparty/spirv-cross-wgsl/spirv_wgsl.cpp b/thirdparty/spirv-cross-wgsl/spirv_wgsl.cpp
+index 3f4461a622..3e84a2f7b8 100644
+--- a/thirdparty/spirv-cross-wgsl/spirv_wgsl.cpp
++++ b/thirdparty/spirv-cross-wgsl/spirv_wgsl.cpp
+@@ -1056,6 +1056,20 @@ string CompilerWGSL::image_format_to_wgsl(ImageFormat fmt) const
+ 		return "rg16sint";
+ 	case ImageFormatRg16f:
+ 		return "rg16float";
++	// Local patch 0006: the 16-bit normalized storage formats (WGSL "texture-formats-tier1"). Tint spells
++	// them out, and the engine's CanvasSdf shader writes R16Snorm.
++	case ImageFormatR16:
++		return "r16unorm";
++	case ImageFormatR16Snorm:
++		return "r16snorm";
++	case ImageFormatRg16:
++		return "rg16unorm";
++	case ImageFormatRg16Snorm:
++		return "rg16snorm";
++	case ImageFormatRgba16:
++		return "rgba16unorm";
++	case ImageFormatRgba16Snorm:
++		return "rgba16snorm";
+ 	case ImageFormatRgb10A2:
+ 		return "rgb10a2unorm";
+ 	case ImageFormatRgb10a2ui:

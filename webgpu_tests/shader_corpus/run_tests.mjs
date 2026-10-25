@@ -28,6 +28,8 @@ const RESULTS_DIR = join(__dirname, 'results');
 
 // Search for tint_convert_cli in standard locations.
 function findTintCli() {
+    // TINT_CONVERT_CLI points the tier at a specific converter build (e.g. bin/tint_convert_cli.tint).
+    if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
     const candidates = [
         join(REPO_ROOT, 'bin', 'tint_convert_cli'),
         join(REPO_ROOT, 'bin', 'tint_convert_cli.exe'),
