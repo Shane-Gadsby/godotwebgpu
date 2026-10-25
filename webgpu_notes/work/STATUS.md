@@ -229,6 +229,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
+| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | queued: starts when 12 hands back the phone | worker-19 |
 | 18 | cameraSim by eye (user look, bar for 09) | in progress | worker-18 |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
