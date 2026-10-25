@@ -1,6 +1,6 @@
 # 19-web-wake-orientation: web export keeps the screen awake, asks for performance, locks orientation
 
-State: claimed
+State: blocked (phone on its PIN lock screen; code done, see results SUMMARY.md)
 Owner: worker-19
 Claimed: 2026-10-25 17:03
 Needs: phone (Razr 60), build, gpu only for desktop checks
