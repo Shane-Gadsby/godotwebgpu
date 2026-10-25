@@ -1,5 +1,17 @@
 # Status (lead-maintained)
 
+## 2026-10-25 10:15 — task 06 integrated
+
+- **06 integrated** (merge bead486f41). On the merged tree: smoke OK (276/276 valid, interface identical);
+  preprocessing_tests 291 passed / 1 skipped with both converters (32 assertions had matched Tint's spelling); driver
+  unit tests 379/0; spec_constant_overrides 8/8; shader_corpus 14/14. Every offline tier takes `TINT_CONVERT_CLI=<path>`.
+  SPIRV-Cross patch 0006 (16-bit norm storage formats; CanvasSdf had regressed). Fuzzers fixed (they were broken before
+  the swap) and ported.
+- Findings: fuzz asserts in SPIRV-Tools on malformed SPIR-V in the shared passes (both backends, low priority,
+  reproducers in results/06/fuzz_repro) → TASKS.md §2 at task 10. SPIRV-Cross's `const` arrays vs Tint's `var<private>`
+  (SSIL hoist, §2.30) → task 08 checks it first.
+- Not run anywhere yet: every render tier (GPU busy with the game).
+
 ## 2026-10-25 10:00 — task 04 integrated
 
 - **04 integrated** (merge f62806e2e3): `spec_constants_overridable()` unchanged on evidence; engine: 183 variants
@@ -43,7 +55,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 03 | runtime converter in wasm, exceptions, SCsub | open | |
 | 04 | spec constants | integrated | worker-04 (retired) |
 | 05 | real projects' shaders | open | |
-| 06 | offline test tiers | open | |
+| 06 | offline test tiers | integrated | worker-06 (retired) |
 | 07 | Forward+ parity vs Vulkan | open | lead (gpu) |
 | 08 | GPU timing | open | |
 | 09 | remove Tint | blocked on 07, 02, 03, 05, 06 | |

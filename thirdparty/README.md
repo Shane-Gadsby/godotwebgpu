@@ -1120,6 +1120,9 @@ Patches (in `patches/`, never upstreamed):
   variable and the same barrier again (the GLSL broadcast idiom) become `workgroupUniformLoad(&var)`, which is that
   exact sequence. A plain workgroup load is non-uniform to WGSL's analysis, so an early return on it before further
   barriers (FSR2's luminance pyramid, `SpdExitWorkgroup`) failed barrier uniformity. Tint does the same.
+- `0006-wgsl-16bit-norm-storage-formats.patch` — the 16-bit normalized storage image formats (`R16`, `R16Snorm`,
+  `Rg16`, `Rg16Snorm`, `Rgba16`, `Rgba16Snorm` → `r16unorm` ... `rgba16snorm`); `CanvasSdfShaderRD` writes R16Snorm and
+  failed to convert without it.
 
 
 ## spirv-headers

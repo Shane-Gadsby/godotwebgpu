@@ -21,6 +21,12 @@ per pass on the real GPU, three runs each, after checking the adapter and `nvidi
 holding VRAM). Anything slower by more than noise: find the WGSL construct responsible and propose a SPIRV-Cross
 patch (or write it).
 
+**Check first (from task 06):** SPIRV-Cross emits dynamically indexed constant arrays as module-scope
+`const _N : array<...>`, where Tint emitted the `var<private>` that `hoist_constant_local_arrays` (TASKS.md §2.30, SSIL)
+was written to produce — the pass exists because Chrome/Dawn re-materialized a function-local constant array on every
+access. Whether a module `const` indexed at run time has the same cost is unknown: measure SSIL's pass time with both
+converters, and if it regressed, make SPIRV-Cross emit `var<private>` for those arrays (a local patch).
+
 ## Verification
 
 Per-pass GPU ms table, both converters, mean ± spread, in SUMMARY.md.

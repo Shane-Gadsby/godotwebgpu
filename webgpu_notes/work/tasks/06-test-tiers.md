@@ -1,6 +1,6 @@
 # 06-test-tiers: the offline test tiers run on SPIRV-Cross
 
-State: ready-for-integration
+State: integrated (merged bead486f41; on the merged tree: smoke OK, preprocessing 291/0/1 both backends, driver_unit 379/0, spec_constant 8/8, shader_corpus 14/14)
 Owner: worker-06
 Claimed: 2026-10-25 09:45
 Needs: —
