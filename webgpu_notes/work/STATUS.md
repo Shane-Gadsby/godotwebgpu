@@ -1,5 +1,13 @@
 # Status (lead-maintained)
 
+## 2026-10-25 12:20 — second wave out: 13, 14, 16, 08
+
+- Workers now run with `model: "opus"` (Opus 5.5) on each Agent call, effort medium: the user's settings set
+  `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`, so workers 01-06 ran on Sonnet. Tasks 13/14/16/17 had been held waiting for a
+  /config change that the per-call parameter makes unnecessary.
+- Out: 13 (harden passes), 14 (spec composite fold), 16 (baked fog race, gpu), 08 (desktop timing, gpu). 08 and 16 share
+  the gpu lease. Next: 11 (Firefox), 12 (Android), 17 (FSR2 sharpness) when the GPU frees up.
+
 ## 2026-10-25 12:10 — the user's looks
 
 FSR2, SSIL/SSAO, contact shadows/SSR: match. Fog: "can't tell them apart" but wants the race fixed (task 16 stays).
