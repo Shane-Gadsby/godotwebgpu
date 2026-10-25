@@ -1,8 +1,8 @@
 # 11-firefox: Firefox (desktop) on SPIRV-Cross WGSL, works and is as fast as Tint
 
-State: open (after 07's first reading)
-Owner:
-Claimed:
+State: claimed
+Owner: worker-11
+Claimed: 2026-10-25 14:20
 Needs: gpu
 Branch: work/11
 Results: webgpu_notes/work/results/11-firefox/
