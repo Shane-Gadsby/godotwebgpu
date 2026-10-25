@@ -357,10 +357,18 @@ FfxFloat32 LoadInputDepth(FfxInt32x2 iPxPos)
 #if defined(FSR2_BIND_SRV_REACTIVE_MASK) 
 FfxFloat32 LoadReactiveMask(FfxInt32x2 iPxPos)
 {
-#if FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_CLAMP
-	return min(texelFetch(r_reactive_mask, FfxInt32x2(iPxPos), 0).r, 0.9f);
+#if FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA
+	// Godot binds its color buffer here and keeps the reactivity in its alpha.
+	// Reading .a directly rather than .r through an alpha-swizzled view gives the
+	// same value, and also works where texture views cannot swizzle (WebGPU).
+	FfxFloat32 fReactive = texelFetch(r_reactive_mask, FfxInt32x2(iPxPos), 0).a;
 #else
-	return texelFetch(r_reactive_mask, FfxInt32x2(iPxPos), 0).r;
+	FfxFloat32 fReactive = texelFetch(r_reactive_mask, FfxInt32x2(iPxPos), 0).r;
+#endif
+#if FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_CLAMP
+	return min(fReactive, 0.9f);
+#else
+	return fReactive;
 #endif
 }
 #endif

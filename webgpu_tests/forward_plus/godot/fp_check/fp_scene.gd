@@ -60,11 +60,14 @@ const FEATURES := [
 
 const SETTLE_DEFAULT := 4
 # Temporal effects pick their jitter from the frame number: volumetric fog's
-# Halton offset is frame % 16 (VolumetricFog::MAX_TEMPORAL_FRAMES), and TAA and
-# FSR2 jitter cycle the same way. Two captures of a settled temporal effect are
-# only comparable at the same phase of that cycle, so every capture is made to
-# land on a frame whose number is _phase modulo this period (_aligned()).
-const JITTER_PERIOD := 16
+# Halton offset is frame % 16 (VolumetricFog::MAX_TEMPORAL_FRAMES), TAA's jitter
+# is frame % 16, and FSR2's is frame % (8 / scale^2), 32 at the matrix's 0.5
+# scale (RendererViewport, from ffxFsr2GetJitterPhaseCount). Two captures of a
+# settled temporal effect are only comparable at the same phase of that cycle,
+# so every capture is made to land on a frame whose number is _phase modulo this
+# period (_aligned()), a multiple of all three. With 16, FSR2 captures landed on
+# phase 0 or 16 of its cycle at random on the web (0.14 vs 0.17 from native).
+const JITTER_PERIOD := 32
 # Features whose result accumulates over frames. Undershooting these produces a
 # flaky "feature does nothing" failure, which is worse than a slow test.
 const SETTLE_OVERRIDE := {

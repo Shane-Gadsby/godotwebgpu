@@ -136,11 +136,12 @@ export const FEATURES = [
   { id: 'debanding', cat: 'post', label: 'Debanding', minDelta: 0.0823 },
   { id: 'scaling_3d', cat: 'post', label: '3D resolution scaling (bilinear)', minDelta: 0.373 },
   { id: 'fsr2', cat: 'post', label: 'FSR2 upscaling', minDelta: 0.358,
-    // Native Vulkan runs FSR2's FFX_HALF (fp16) variants and its R16_SNORM
-    // lookup tables; WebGPU has neither (no shader-f16 path, no filterable
-    // 16-bit normalized format) and runs fp32 with half-float tables. Measured
-    // 0.55 mean, confined to high-frequency edges.
-    parityTol: 0.8 },
+    // Measured 0.142: one or two levels of noise on 29% of pixels, 0.24% off
+    // by more than 2. Not fp16 or the lookup tables: native Vulkan without
+    // FFX_HALF renders the same frame bit for bit, and with WebGPU's
+    // half-float tables within 0.000. It was 0.55 (and visibly softer) while FSR2 read its reactive
+    // mask through an alpha-swizzled view WebGPU cannot swizzle (task 17).
+    parityTol: 0.3 },
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },

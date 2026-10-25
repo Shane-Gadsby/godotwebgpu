@@ -847,11 +847,18 @@ if env["platform"] == "web":
             "tint_cli/main.cpp",
         )
     ]
+    # The renderer shaders include FSR 1/2 sources from thirdparty/, so a change
+    # confined to those (an amd-fsr2 patch) must re-bake the table too.
     shader_sources = [
         os.path.join(root, f)
-        for root, _, files in os.walk(env.Dir("#servers/rendering/renderer_rd/shaders").abspath)
+        for shader_dir in (
+            "#servers/rendering/renderer_rd/shaders",
+            "#thirdparty/amd-fsr",
+            "#thirdparty/amd-fsr2/shaders",
+        )
+        for root, _, files in os.walk(env.Dir(shader_dir).abspath)
         for f in files
-        if f.endswith(".glsl")
+        if f.endswith((".glsl", ".h"))
     ]
     env.Depends(precompiled, pipeline_sources + shader_sources)
 
