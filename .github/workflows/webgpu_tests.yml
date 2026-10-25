@@ -104,18 +104,18 @@ jobs:
             sudo apt-get install -y glslang-tools
           fi
 
-      # tint_convert_cli is what run_tests.mjs actually uses to validate SPIR-V → WGSL;
+      # wgsl_convert_cli is what run_tests.mjs actually uses to validate SPIR-V → WGSL;
       # without it the "validation" step silently no-ops (see run_tests.mjs's
-      # findTintCli() fallback). Building it directly via build.sh is much faster
+      # findWgslCli() fallback). Building it directly via build.sh is much faster
       # than a full engine build (see CLAUDE.md).
-      - name: Cache tint_convert_cli build
+      - name: Cache wgsl_convert_cli build
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
-      - name: Build tint_convert_cli
-        run: ./drivers/webgpu/tint_cli/build.sh
+      - name: Build wgsl_convert_cli
+        run: ./drivers/webgpu/wgsl_cli/build.sh
 
       - name: Compile GLSL fixtures to SPIR-V
         working-directory: webgpu_tests/shader_corpus
@@ -125,7 +125,7 @@ jobs:
         working-directory: webgpu_tests/shader_corpus
         run: node run_tests.mjs
 
-      # Reuses the tint_convert_cli built above. Without Playwright installed
+      # Reuses the wgsl_convert_cli built above. Without Playwright installed
       # this runs its offline assertions only and reports the browser half as
       # skipped, so it never fails the job for a missing browser.
       - name: Run specialization-constant override tests
@@ -264,16 +264,16 @@ jobs:
             sudo apt-get install -y glslang-tools
           fi
 
-      # A webgpu=yes build runs wgsl_precompile.py, which builds tint_convert_cli
-      # first -- ~570 objects of Tint and SPIRV-Tools with no incremental cache of
+      # A webgpu=yes build runs wgsl_precompile.py, which builds wgsl_convert_cli
+      # first -- ~200 objects of SPIRV-Tools and SPIRV-Cross with no incremental cache of
       # its own. Measured at 7m31s of a 50m run (08:42:41 to 08:50:12 in run
       # 36306976289), rebuilt every time because only the shader-corpus job cached
       # it. Same path and key as there, so the two jobs share one cache entry.
-      - name: Cache tint_convert_cli build
+      - name: Cache wgsl_convert_cli build
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
       - name: Build WebGPU export template
         uses: ./.github/actions/godot-build
@@ -288,11 +288,11 @@ jobs:
           cache-name: web-webgpu-test
         continue-on-error: true
 
-      - name: Upload tint_convert_cli
+      - name: Upload wgsl_convert_cli
         uses: actions/upload-artifact@v5
         with:
-          name: tint-convert-cli
-          path: bin/tint_convert_cli
+          name: wgsl-convert-cli
+          path: bin/wgsl_convert_cli
           retention-days: 7
 
       - name: Restore editor sources (removed by web template build)
@@ -528,11 +528,11 @@ jobs:
           retention-days: 7
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # SPIR-V Validation: Validate ALL engine SPIR-V through Tint
+  # SPIR-V Validation: Validate ALL engine SPIR-V through wgsl_convert_cli (SPIRV-Cross)
   # ═══════════════════════════════════════════════════════════════════════════════
   validate-spirv:
     runs-on: ${{ needs.pick-runner.outputs.runner }}
-    name: Validate Engine SPIR-V (Tint)
+    name: Validate Engine SPIR-V (SPIRV-Cross)
     needs: [pick-runner, build-webgpu]
     timeout-minutes: 10
     steps:
@@ -557,16 +557,16 @@ jobs:
           mkdir -p /tmp/spirv_dump
           tar -xzf /tmp/spirv_dump.tar.gz -C /tmp/spirv_dump
 
-      - name: Download tint_convert_cli
+      - name: Download wgsl_convert_cli
         uses: actions/download-artifact@v5
         with:
-          name: tint-convert-cli
+          name: wgsl-convert-cli
           path: bin/
 
-      - name: Validate all SPIR-V through Tint
+      - name: Validate all SPIR-V through SPIRV-Cross
         run: |
-          chmod +x bin/tint_convert_cli
-          echo "Validating engine SPIR-V files through Tint..."
+          chmod +x bin/wgsl_convert_cli
+          echo "Validating engine SPIR-V files through wgsl_convert_cli (SPIRV-Cross)..."
           node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/
 
   # ═══════════════════════════════════════════════════════════════════════════════
@@ -895,7 +895,7 @@ jobs:
             FAILED=1
           fi
           if [ "${{ needs.validate-spirv.result }}" = "failure" ]; then
-            echo "::error::Engine SPIR-V validation failed — Tint cannot convert one or more shaders"
+            echo "::error::Engine SPIR-V validation failed — SPIRV-Cross cannot convert one or more shaders"
             FAILED=1
           fi
           if [ "${{ needs.smoke-test.result }}" = "failure" ]; then

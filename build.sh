@@ -11,16 +11,16 @@
 #   - macOS:   osxcross (OSXCROSS_ROOT set, its bin/ on PATH) — not needed
 #              when already running on macOS natively
 #
-# Templates (option 2/3/10) always rebuild bin/tint_convert_cli first and
+# Templates (option 2/3/10) always rebuild bin/wgsl_convert_cli first and
 # force-delete drivers/webgpu/wgsl_precompiled.gen.h before the SCons web
 # build. Both are necessary for "latest changes" to actually reach the
 # output: wgsl_precompile.py (run by every `webgpu=yes` SCons build) shells
-# out to tint_convert_cli to precompile every built-in engine shader's WGSL,
+# out to wgsl_convert_cli to precompile every built-in engine shader's WGSL,
 # but SCons's own Depends() for the generated table it produces only names
-# wgsl_precompile.py itself — not tint_convert_cli's binary, spirv_preprocess.cpp,
-# tint_wrapper.cpp, or any vendored thirdparty/tint source — so an incremental
+# wgsl_precompile.py itself — not wgsl_convert_cli's binary, spirv_preprocess.cpp,
+# spirv_cross_wrapper.cpp, or any vendored thirdparty/spirv-cross-wgsl source — so an incremental
 # build would otherwise silently keep serving stale WGSL from whatever
-# tint_convert_cli last happened to produce.
+# wgsl_convert_cli last happened to produce.
 #
 # Usage: ./build.sh
 #
@@ -141,23 +141,23 @@ build_editor() {
 	echo -e "${GREEN}Editor -> $dest${NC}"
 
 	# The editor's shader baker (wgsl_bake_subprocess.cpp's
-	# _find_tint_convert_cli()) looks for tint_convert_cli next to the
+	# _find_wgsl_convert_cli()) looks for wgsl_convert_cli next to the
 	# RUNNING editor executable's own path, not bin/ or $PATH -- built here
 	# (host-native, safe) rather than in build_windows_editor()/
-	# build_macos_editor() below, which cross-compile: tint_cli/build.sh
+	# build_macos_editor() below, which cross-compile: wgsl_cli/build.sh
 	# picks its platform-specific sources from `uname -s` (the HOST, always
 	# Linux/macOS here, never the cross-compile target), so cross-compiling
 	# it via mingw/osxcross would silently produce a broken, wrong-OS binary
 	# rather than a working one -- not attempted.
-	build_tint_cli
-	cp bin/tint_convert_cli "$dest/"
-	echo -e "${GREEN}tint_convert_cli -> $dest${NC}"
+	build_wgsl_cli
+	cp bin/wgsl_convert_cli "$dest/"
+	echo -e "${GREEN}wgsl_convert_cli -> $dest${NC}"
 }
 
-build_tint_cli() {
-	echo -e "${BOLD}Building tint_convert_cli (native SPIR-V -> WGSL precompile tool)...${NC}"
-	./drivers/webgpu/tint_cli/build.sh
-	echo -e "${GREEN}tint_convert_cli -> bin/tint_convert_cli${NC}"
+build_wgsl_cli() {
+	echo -e "${BOLD}Building wgsl_convert_cli (native SPIR-V -> WGSL precompile tool)...${NC}"
+	./drivers/webgpu/wgsl_cli/build.sh
+	echo -e "${GREEN}wgsl_convert_cli -> bin/wgsl_convert_cli${NC}"
 }
 
 build_templates() {
@@ -168,16 +168,16 @@ build_templates() {
 	# shellcheck source=/dev/null
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 
-	# tint_convert_cli MUST be built (and current) before this: SCons's
+	# wgsl_convert_cli MUST be built (and current) before this: SCons's
 	# `webgpu=yes` build runs drivers/webgpu/wgsl_precompile.py, which shells
-	# out to bin/tint_convert_cli to precompile every built-in engine
+	# out to bin/wgsl_convert_cli to precompile every built-in engine
 	# shader's WGSL ahead of time. Then force-delete the generated table
 	# SCons produces from that: its own Depends() only names
-	# wgsl_precompile.py itself, not tint_convert_cli's binary or any of the
-	# C++/vendored-Tint sources that actually determine its output, so an
+	# wgsl_precompile.py itself, not wgsl_convert_cli's binary or any of the
+	# C++/vendored-SPIRV-Cross sources that actually determine its output, so an
 	# incremental build would otherwise silently keep serving whatever WGSL
-	# a stale tint_convert_cli produced last time.
-	build_tint_cli
+	# a stale wgsl_convert_cli produced last time.
+	build_wgsl_cli
 	if [[ -f "drivers/webgpu/wgsl_precompiled.gen.h" ]]; then
 		echo -e "${BOLD}Removing drivers/webgpu/wgsl_precompiled.gen.h to force a fresh precompile...${NC}"
 		rm -f drivers/webgpu/wgsl_precompiled.gen.h
@@ -317,12 +317,12 @@ build_windows_editor() {
 	fi
 	echo -e "${GREEN}Windows editor -> $dest${NC}"
 
-	# tint_convert_cli.exe is deliberately NOT built/copied here -- see
+	# wgsl_convert_cli.exe is deliberately NOT built/copied here -- see
 	# build_editor()'s comment on why cross-compiling it via mingw would
 	# silently produce a broken, wrong-OS binary. Shader baking will no-op
-	# gracefully (unbaked shaders still work via the runtime Tint fallback)
+	# gracefully (unbaked shaders still work via the runtime conversion)
 	# for editors built by this function until that's fixed properly (needs
-	# tint_cli/build.sh to pick platform sources from the target, not
+	# wgsl_cli/build.sh to pick its compiler and target from the target, not
 	# `uname -s`) or built natively on Windows instead.
 }
 
@@ -378,14 +378,14 @@ build_macos_editor() {
 	cp -R "$app" "$dest/"
 	echo -e "${GREEN}macOS editor -> $dest/$(basename "$app")${NC}"
 
-	# tint_convert_cli is deliberately NOT built/copied here -- see
+	# wgsl_convert_cli is deliberately NOT built/copied here -- see
 	# build_editor()'s comment on why cross-compiling it via osxcross would
-	# silently produce a broken, wrong-OS binary (tint_cli/build.sh picks
-	# platform sources from `uname -s`, i.e. Linux, not the macOS target).
+	# silently produce a broken, wrong-OS binary (wgsl_cli/build.sh picks
+	# its compiler and target from `uname -s`, i.e. Linux, not the macOS target).
 	# Shader baking will no-op gracefully (unbaked shaders still work via the
-	# runtime Tint fallback) for editors built by this function until that's
+	# runtime conversion) for editors built by this function until that's
 	# fixed properly, or built natively via build-macos.sh instead (which
-	# does build and place a real tint_convert_cli, since it runs on an
+	# does build and place a real wgsl_convert_cli, since it runs on an
 	# actual Mac).
 }
 
@@ -448,7 +448,7 @@ show_menu() {
 	echo "  Output:  builds/$VERSION/"
 	echo
 	echo "  1) Editor only ($HOST_PLATFORM)"
-	echo "  2) Templates only (web, debug + release -- also rebuilds tint_convert_cli first)"
+	echo "  2) Templates only (web, debug + release -- also rebuilds wgsl_convert_cli first)"
 	echo "  3) Editor + templates ($HOST_PLATFORM + web)"
 	echo "  4) Windows: editor only"
 	echo "  5) Windows: templates only (debug + release)"
@@ -457,7 +457,7 @@ show_menu() {
 	echo "  8) macOS: templates only (arm64)"
 	echo "  9) macOS: editor + templates"
 	echo " 10) Build ALL targets (editor + templates, all platforms)"
-	echo " 11) tint_convert_cli only (native SPIR-V -> WGSL precompile tool)"
+	echo " 11) wgsl_convert_cli only (native SPIR-V -> WGSL precompile tool)"
 	echo " 12) Clear build cache (bin/obj/ + .sconsign*.dblite)"
 	echo " 13) Quit"
 	echo
@@ -486,7 +486,7 @@ main() {
 			build_macos_templates
 			;;
 		10) build_all ;;
-		11) build_tint_cli ;;
+		11) build_wgsl_cli ;;
 		12)
 			clean_cache
 			exit 0

@@ -1,5 +1,5 @@
 {
-  "description": "Expected conversion failures: Vulkan-only shader variants the WebGPU runtime never uses. Identical set under Tint and SPIRV-Cross (verified 2026-10-25 on a 339-file dump); see reasons.",
+  "description": "Expected conversion failures: Vulkan-only shader variants the WebGPU runtime never uses (the converter is SPIRV-Cross's WGSL backend; the set was identical under Tint, verified 2026-10-25 on a 339-file dump); see reasons.",
   "updated": "2026-10-25T00:00:00.000Z",
   "expected_failures": [
     "Fsr2AccumulatePassShaderRD:2.comp.spv",
@@ -18,19 +18,19 @@
     "VrsShaderRD:3.vert.spv"
   ],
   "reasons": {
-    "Fsr2AccumulatePassShaderRD:2.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "Fsr2AccumulatePassShaderRD:3.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "Fsr2AutogenReactivePassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "Fsr2ComputeLuminancePyramidPassShaderRD:0.comp.spv": "Image atomics (OpImageTexelPointer): Tint unhandled instruction; SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
-    "Fsr2ReconstructPreviousDepthPassShaderRD:0.comp.spv": "Image atomics (OpImageTexelPointer): Tint unhandled instruction; SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
-    "Fsr2ReconstructPreviousDepthPassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "Fsr2TcrAutogenPassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "FsrUpscaleShaderRD:0.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): Tint ICE TINT_ASSERT(width()==32) or unhandled OpUConvert; SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
-    "SceneForwardClusteredShaderRD:17.frag.spv": "Image atomics (OpImageTexelPointer): Tint unhandled instruction; SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
-    "SceneForwardClusteredShaderRD:8.frag.spv": "Image atomics (OpImageTexelPointer): Tint unhandled instruction; SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
-    "TonemapMobileShaderRD:2.frag.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from the Tint era, re-check when a dump contains it",
-    "TonemapMobileShaderRD:3.frag.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from the Tint era, re-check when a dump contains it",
-    "VolumetricFogShaderRD:2.comp.spv": "Image atomics (OpImageTexelPointer): Tint unhandled instruction; SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
-    "VrsShaderRD:3.vert.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from the Tint era, re-check when a dump contains it"
+    "Fsr2AccumulatePassShaderRD:2.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "Fsr2AccumulatePassShaderRD:3.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "Fsr2AutogenReactivePassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "Fsr2ComputeLuminancePyramidPassShaderRD:0.comp.spv": "Image atomics (OpImageTexelPointer): SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
+    "Fsr2ReconstructPreviousDepthPassShaderRD:0.comp.spv": "Image atomics (OpImageTexelPointer): SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
+    "Fsr2ReconstructPreviousDepthPassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "Fsr2TcrAutogenPassShaderRD:1.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "FsrUpscaleShaderRD:0.comp.spv": "16-bit integer arithmetic (GLSL int16/uint16 FSR code): SPIRV-Cross throws '16-bit integers are not supported in WGSL'",
+    "SceneForwardClusteredShaderRD:17.frag.spv": "Image atomics (OpImageTexelPointer): SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
+    "SceneForwardClusteredShaderRD:8.frag.spv": "Image atomics (OpImageTexelPointer): SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
+    "TonemapMobileShaderRD:2.frag.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from before the SPIRV-Cross swap, re-check when a dump contains it",
+    "TonemapMobileShaderRD:3.frag.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from before the SPIRV-Cross swap, re-check when a dump contains it",
+    "VolumetricFogShaderRD:2.comp.spv": "Image atomics (OpImageTexelPointer): SPIRV-Cross throws 'Image atomics are not supported in WGSL'. Vulkan-only variant, the WebGPU runtime uses the no_image_atomics one",
+    "VrsShaderRD:3.vert.spv": "not produced by the editor dump used 2026-10-25 (Forward Mobile / VRS path not exercised); baseline kept from before the SPIRV-Cross swap, re-check when a dump contains it"
   }
 }

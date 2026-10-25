@@ -34,7 +34,7 @@
 
 // Where the WGSL bindings of a GLSL binding end up, shared by the SPIR-V
 // passes that assign them and the driver that builds bind groups for them.
-// Dependency-free so both the web driver and the native tint_convert_cli can
+// Dependency-free so both the web driver and the native wgsl_convert_cli can
 // include it.
 //
 // Every GLSL binding b becomes WGSL binding 2b (2b + 1 holds the sampler split

@@ -4,7 +4,7 @@
  *
  * The walk that produces those declarations lives in
  * drivers/webgpu/spirv_lite_reflect.cpp and is tested against real SPIR-V by
- * webgpu_tests/preprocessing_tests (Test 22, via tint_convert_cli
+ * webgpu_tests/preprocessing_tests (Test 22, via wgsl_convert_cli
  * --image-decls). What is mirrored here is the other half:
  * _pre_dce_image_info_from_decls() in rendering_device_driver_webgpu.cpp, which
  * turns those declarations into a (set << 16 | binding*2) -> {format, dim,
@@ -13,7 +13,7 @@
  *
  * The binding doubling is the part most worth pinning down. These declarations
  * are read from raw SPIR-V, so they carry the original GLSL binding number,
- * while every other populator of the same maps reads @binding(B) out of Tint's
+ * while every other populator of the same maps reads @binding(B) out of the converter's
  * output -- i.e. after split_combined_samplers() has doubled it. Keying these
  * undoubled would silently put them in a different key space, where they would
  * never be found and the BGL entry would fall back to a default format.
@@ -41,7 +41,7 @@ function spirvImageFormatToWgpu(spvFormat) {
 // Mirrors the C++: SPIR-V Dim is 0=1D, 1=2D, 2=3D, 3=Cube, and `arrayed`
 // selects the array flavor for the two dimensions that have one. A declaration
 // that resolves to nothing usable is dropped rather than inserted, so it cannot
-// shadow a later post-Tint scan that does find real evidence.
+// shadow a later WGSL text scan that does find real evidence.
 function preDceImageInfoFromDecls(decls) {
     const result = new Map();
     for (const d of decls) {
@@ -142,7 +142,7 @@ export function runTests() {
 
         it('should leave a float component type Undefined, not assert Float', () => {
             // Float is already the correct default at every consumer, and
-            // leaving this Undefined is what lets a later post-Tint scan with
+            // leaving this Undefined is what lets a later WGSL text scan with
             // real evidence win over a declaration-only guess.
             const m = preDceImageInfoFromDecls([decl(0, 0, 15, 1, 0, -1)]);
             assert.equal(m.get(0).sampleType, 'Undefined');
@@ -152,7 +152,7 @@ export function runTests() {
     describe('Image declaration mapping: unusable declarations', () => {
         it('should drop a declaration that resolves to nothing usable', () => {
             // Unknown format, unrecognized dimension, non-integer component:
-            // inserting this would shadow a post-Tint scan that does know.
+            // inserting this would shadow a WGSL text scan that does know.
             const m = preDceImageInfoFromDecls([decl(0, 0, 0, 5, 0, -1)]);
             assert.equal(m.size, 0);
         });

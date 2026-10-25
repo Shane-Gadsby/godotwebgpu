@@ -14,8 +14,8 @@ layout(set = 0, binding = 0) uniform sampler2D source;
 // always RGBA16_SFLOAT in practice). A writeonly image2D with no format
 // qualifier is legal GLSL/SPIR-V (OpTypeImage's format is Unknown, under the
 // StorageImageWriteWithoutFormat capability) but WGSL's texture_storage_2d
-// requires a concrete texel format -- Tint has nothing to infer it from and
-// rejects every textureStore call against it. See webgpu_notes/TASKS.md Task 8.3.
+// requires a concrete texel format -- the converter has nothing to infer it
+// from (Tint rejected every textureStore call against it). See webgpu_notes/TASKS.md Task 8.3.
 layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D dest;
 
 layout(push_constant, std430) uniform Params {

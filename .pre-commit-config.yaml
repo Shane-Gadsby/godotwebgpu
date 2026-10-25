@@ -127,15 +127,14 @@ repos:
         language: python
         entry: python misc/scripts/validate_includes.py
         files: \.(c|h|cpp|hpp|cc|hh|cxx|hxx|m|mm|inc)$
-        # tint_cli is a standalone native host tool built by its own build.sh
-        # (see drivers/webgpu/tint_cli/build.sh), not by the main SCons build,
+        # wgsl_cli is a standalone native host tool built by its own build.sh
+        # (see drivers/webgpu/wgsl_cli/build.sh), not by the main SCons build,
         # and its -I flags are set up for short/relative includes rather than
-        # Godot's project-rooted convention. tint_wrapper.cpp,
-        # tint_ir_transforms.{h,cpp}, spirv_preprocess.cpp, spirv_opt_passes.cpp
-        # and spirv_lite_reflect.{h,cpp} are compiled by both build.sh and the main
-        # SCons build (drivers/webgpu/SCsub) and must keep same-directory
-        # relative includes to satisfy both.
-        exclude: ^drivers/webgpu/(tint_cli/|tint_wrapper\.cpp$|tint_ir_transforms\.(h|cpp)$|spirv_preprocess\.cpp$|spirv_opt_passes\.cpp$|spirv_lite_reflect\.(h|cpp)$)
+        # Godot's project-rooted convention. spirv_preprocess.cpp,
+        # spirv_opt_passes.cpp and spirv_lite_reflect.{h,cpp} are compiled by both
+        # build.sh and the main SCons build (drivers/webgpu/SCsub) and must keep
+        # same-directory relative includes to satisfy both.
+        exclude: ^drivers/webgpu/(wgsl_cli/|spirv_preprocess\.cpp$|spirv_opt_passes\.cpp$|spirv_lite_reflect\.(h|cpp)$)
 
       - id: eslint
         name: eslint

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// SPIR-V preprocessing pass tests for the Tint-based WGSL conversion pipeline.
+// SPIR-V preprocessing pass tests for the SPIR-V -> WGSL conversion pipeline (our passes + SPIRV-Cross).
 //
-// Tests all 12 SPIR-V preprocessing passes via tint_convert_cli end-to-end.
+// Tests all 12 SPIR-V preprocessing passes via wgsl_convert_cli end-to-end.
 //
 // Usage: node run_tests.mjs
 
@@ -47,13 +47,13 @@ function skip(msg) {
   skipped++;
 }
 
-function findTintCli() {
-  // TINT_CONVERT_CLI points the tier at a specific converter build (e.g. bin/tint_convert_cli.tint).
-  if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
+function findWgslCli() {
+  // WGSL_CONVERT_CLI points the tier at a specific converter build (e.g. a patched SPIRV-Cross build).
+  if (process.env.WGSL_CONVERT_CLI) return existsSync(process.env.WGSL_CONVERT_CLI) ? process.env.WGSL_CONVERT_CLI : null;
   const locations = [
-    join(REPO_ROOT, "bin", "tint_convert_cli"),
-    join(REPO_ROOT, "bin", "tint_convert_cli.exe"),
-    join(REPO_ROOT, "drivers", "webgpu", "tint_convert_cli"),
+    join(REPO_ROOT, "bin", "wgsl_convert_cli"),
+    join(REPO_ROOT, "bin", "wgsl_convert_cli.exe"),
+    join(REPO_ROOT, "drivers", "webgpu", "wgsl_convert_cli"),
   ];
   for (const p of locations) {
     if (existsSync(p)) return p;
@@ -61,27 +61,27 @@ function findTintCli() {
   return null;
 }
 
-const TINT_CLI = findTintCli();
-if (!TINT_CLI) {
-  console.log("tint_convert_cli not found — skipping preprocessing tests");
+const CONVERT_CLI = findWgslCli();
+if (!CONVERT_CLI) {
+  console.log("wgsl_convert_cli not found — skipping preprocessing tests");
   process.exit(0);
 }
 
-// Both backends must satisfy the same structural assertions, but spell WGSL differently
-// (vec4<f32> vs vec4f, 0i vs 0). Assertions are written against the long Tint spelling.
+// Assertions are written against the long WGSL spelling (vec4<f32>, not vec4f; Tint, the converter before
+// SPIRV-Cross, wrote it that way), so the converter's output is canonicalized to it first.
 function canon(wgsl) {
   return wgsl
     .replace(/\b(vec[234]|mat[234]x[234])([fiuh])\b/g, (_, t, k) => `${t}<${{ f: "f32", i: "i32", u: "u32", h: "f16" }[k]}>`)
     .replace(/\b(\d+)i\b/g, "$1");
 }
 
-// Convert SPIR-V bytes to WGSL via tint_convert_cli.
+// Convert SPIR-V bytes to WGSL via wgsl_convert_cli.
 // Returns { wgsl, error } — wgsl is null on failure.
 function convertToWgsl(spvBytes) {
   const tmp = join(tmpdir(), `preprocess_test_${Date.now()}_${Math.random().toString(36).slice(2)}.spv`);
   try {
     writeFileSync(tmp, spvBytes);
-    const wgsl = canon(execFileSync(TINT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 }));
+    const wgsl = canon(execFileSync(CONVERT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -94,7 +94,7 @@ function convertToWgsl(spvBytes) {
 function convertFixture(name) {
   const spvPath = join(FIXTURES_DIR, name);
   try {
-    const wgsl = canon(execFileSync(TINT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 }));
+    const wgsl = canon(execFileSync(CONVERT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -421,7 +421,7 @@ console.log("\n=== Test 1: freeze_spec_constant_ops / spec_constants_overridable
   const r = convertFixture("chained_spec_ops.spv");
   assert(r.wgsl !== null, "chained_spec_ops.spv converts successfully");
   if (r.wgsl) {
-    // IAdd/IMul/BitwiseAnd/ShiftRightLogical are all operations Tint can lower
+    // IAdd/IMul/BitwiseAnd/ShiftRightLogical are all operations that lower
     // into an override expression, so the chain survives.
     assert(r.wgsl.includes("@id("), "chained ops preserved as overrides");
     assert(r.wgsl.includes("@compute"), "chained_spec_ops.spv has @compute entry point");
@@ -594,7 +594,7 @@ console.log("\n=== Test 2: rewrite_copy_logical ===");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2d: Handle-typed OpEntryPoint interface variable (vendored Tint patch 0012)
+// Test 2d: Handle-typed OpEntryPoint interface variable (Tint patch 0012, historical)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n=== Test 2d: Handle-typed OpEntryPoint interface variable ===");
 
@@ -607,10 +607,11 @@ console.log("\n=== Test 2d: Handle-typed OpEntryPoint interface variable ===");
   // (sampler/texture) variable. Originally worked around at the SPIR-V
   // preprocessing level (stripping handle ids from the interface list +
   // downgrading the module's declared version below 1.4), which in turn
-  // broke a different, genuinely 1.4-only construct (see Test 2e) -- now
-  // fixed directly in vendored Tint instead (patch 0012, `## tint` in
-  // thirdparty/README.md), so modules keep their real declared version and
-  // this preprocessing-level workaround no longer exists at all. See
+  // broke a different, genuinely 1.4-only construct (see Test 2e) -- then
+  // fixed directly in the vendored Tint (its patch 0012), and Tint has since
+  // been replaced by SPIRV-Cross, so modules keep their real declared version
+  // and this preprocessing-level workaround no longer exists at all. The test
+  // stays as a guard on the converter's handling of 1.4 interface lists. See
   // fixtures_src/handle_entry_point_interface.frag and
   // webgpu_notes/TASKS.md Task 21. Needs an explicit --target-env for the
   // same reason as the copy_logical_mismatch fixture above (SPIR-V 1.4+
@@ -648,7 +649,7 @@ console.log("\n=== Test 2e: OpSelect scalar-condition/vector-result ===");
   // real engine output -- valid there and needs no fixup at all. This test
   // exists because an earlier fix (Test 2d's original version-downgrade
   // approach) broke exactly this construct as a side effect; now that the
-  // real Handle-interface bug is fixed directly in Tint (patch 0012) and
+  // real Handle-interface bug was fixed directly in Tint (patch 0012) and
   // nothing downgrades the module's version anymore, this converts cleanly
   // with zero preprocessing help. See fixtures_src/select_scalar_condition.frag
   // and webgpu_notes/TASKS.md Task 21. Needs --target-env vulkan1.2 (real
@@ -1091,7 +1092,7 @@ console.log("\n=== Test 15: Batch mode ===");
   // 15a. Batch conversion of multiple fixtures produces valid JSON.
   const fixtures = FIXTURES.slice(0, 5).map(f => join(FIXTURES_DIR, f));
   try {
-    const output = execFileSync(TINT_CLI, ["--batch", ...fixtures], {
+    const output = execFileSync(CONVERT_CLI, ["--batch", ...fixtures], {
       encoding: "utf-8", timeout: 60000,
     });
     const result = JSON.parse(output);
@@ -1111,7 +1112,7 @@ console.log("\n=== Test 15: Batch mode ===");
   // 15b. Batch mode with all 13 fixtures.
   const fixtures = FIXTURES.map(f => join(FIXTURES_DIR, f));
   try {
-    const output = execFileSync(TINT_CLI, ["--batch", ...fixtures], {
+    const output = execFileSync(CONVERT_CLI, ["--batch", ...fixtures], {
       encoding: "utf-8", timeout: 60000,
     });
     const result = JSON.parse(output);
@@ -1171,11 +1172,11 @@ console.log("\n=== Test 16: WGSL output validation ===");
 }
 
 {
-  // 16e. diagnostic(off, derivative_uniformity) present (Tint default).
+  // 16e. diagnostic(off, derivative_uniformity) present (SPIRV-Cross adds it when implicit derivatives are used).
   const r = convertFixture("basic_fragment.spv");
   if (r.wgsl) {
     assert(r.wgsl.includes("diagnostic(off, derivative_uniformity)"),
-      "Tint adds diagnostic directive");
+      "the converter adds the diagnostic directive");
   }
 }
 
@@ -1437,13 +1438,13 @@ console.log("\n=== Test 20: fix_nonfinite_literals 64-bit ===");
     ...encodeInst(Op.FunctionEnd),
   ]);
   const r = convertToWgsl(spv);
-  // Tint may or may not support f64 — the important thing is no crash.
+  // WGSL has no f64, so conversion may fail — the important thing is no crash.
   // If it converts, verify no infinity in output.
   if (r.wgsl) {
     const lower = r.wgsl.toLowerCase();
     assert(!lower.includes("infinity"), "f64: no infinity in output");
   }
-  // If it fails, that's OK — f64 support depends on Tint capabilities.
+  // If it fails, that's OK — f64 support depends on the converter.
   assert(true, "f64 infinity: no crash");
 }
 
@@ -1522,7 +1523,7 @@ function testImageDeclReflection() {
 
   let out;
   try {
-    out = JSON.parse(execFileSync(TINT_CLI, ["--image-decls", spvOut], { encoding: "utf-8", timeout: 30000 }));
+    out = JSON.parse(execFileSync(CONVERT_CLI, ["--image-decls", spvOut], { encoding: "utf-8", timeout: 30000 }));
   } catch (e) {
     assert(false, `--image-decls failed: ${e.stderr || e.message}`);
     return;
@@ -1604,7 +1605,7 @@ function testHoistConstantLocalArrays() {
   }
   let wgsl;
   try {
-    wgsl = canon(execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 }));
+    wgsl = canon(execFileSync(CONVERT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 }));
   } catch (e) {
     assert(false, `conversion failed: ${e.stderr || e.message}`);
     return;
@@ -1631,7 +1632,7 @@ testHoistConstantLocalArrays();
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Compiles a GLSL fixture from fixtures_src/ and converts it, keeping the
-// SPIR-V the preprocessing pipeline hands Tint (TINT_DEBUG_DUMP_PREPROCESSED).
+// SPIR-V the preprocessing pipeline hands the converter (WGSL_DEBUG_DUMP_PREPROCESSED).
 // Returns { wgsl, error, preprocessed } or null when glslang is unavailable.
 function convertGlslFixture(name) {
   const src = join(__dirname, "fixtures_src", name);
@@ -1645,10 +1646,10 @@ function convertGlslFixture(name) {
     return null;
   }
   try {
-    const wgsl = canon(execFileSync(TINT_CLI, [spvOut], {
+    const wgsl = canon(execFileSync(CONVERT_CLI, [spvOut], {
       encoding: "utf-8",
       timeout: 30000,
-      env: { ...process.env, TINT_DEBUG_DUMP_PREPROCESSED: preOut },
+      env: { ...process.env, WGSL_DEBUG_DUMP_PREPROCESSED: preOut },
     }));
     return { wgsl, error: null, preprocessed: existsSync(preOut) ? readFileSync(preOut) : null };
   } catch (e) {
@@ -1659,9 +1660,9 @@ function convertGlslFixture(name) {
   }
 }
 
-// Structural validity of what Tint is given. These passes split blocks and
-// add switches and phis; a mistake there can still produce WGSL (Tint is
-// lenient) while being invalid SPIR-V, so check it directly.
+// Structural validity of what the converter is given. These passes split blocks
+// and add switches and phis; a mistake there can still produce WGSL (the
+// converter is lenient) while being invalid SPIR-V, so check it directly.
 function assertValidSpirv(bytes, label) {
   if (!bytes) {
     assert(false, `${label}: no preprocessed SPIR-V was dumped`);
@@ -1704,7 +1705,7 @@ function testLowerTintUnsupportedOps() {
   if (!r) {
     return;
   }
-  assert(r.wgsl !== null, `the fixture converts instead of crashing Tint: ${r.error && r.error.slice(0, 300)}`);
+  assert(r.wgsl !== null, `the fixture converts instead of failing: ${r.error && r.error.slice(0, 300)}`);
   if (!r.wgsl) {
     return;
   }

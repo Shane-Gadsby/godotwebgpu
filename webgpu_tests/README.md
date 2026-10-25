@@ -6,11 +6,11 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 
 | Test | What it validates | Runtime | Needs engine build? |
 |------|------------------|---------|---------------------|
-| [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
-| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs Tint CLI) |
+| [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via wgsl_convert_cli | ~1s | No (needs wgsl_convert_cli) |
+| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs wgsl_convert_cli) |
 | [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
-| [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
-| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
+| [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through wgsl_convert_cli | ~5s | Yes (editor) |
+| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs wgsl_convert_cli) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 23 scenes (demos, benchmarks, a self-checking audio suite and a braced GDScript project) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Perf Guard](perf_guard/) | WebGPU calls per frame stay within budget (command encoders, submits, `writeBuffer` calls and bytes) on the post-fx/shadows/instances/PBR scenes; adapter-independent | ~90s | Yes (pre-exported scenes) |
@@ -37,7 +37,7 @@ The WebGPU shader pipeline is:
 ```
 GLSL → SPIR-V (glslang, at editor build time)
      → spirv_preprocess::run_pipeline() (C++, at build time, export time or runtime)
-     → WGSL (Tint C++ library, linked into engine, at runtime)
+     → WGSL (SPIRV-Cross's WGSL backend, C++, linked into engine, at runtime)
      → GPU (browser's WebGPU implementation)
 ```
 
@@ -61,12 +61,12 @@ SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expa
 
 ### 1. Shader Corpus (fast, no build needed)
 
-Tests 9 hand-crafted GLSL fixtures through the Tint CLI (if available):
+Tests 9 hand-crafted GLSL fixtures through wgsl_convert_cli (if available):
 
 ```bash
 cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
-node run_tests.mjs       # SPIR-V → WGSL validation (skips gracefully if no Tint CLI)
+node run_tests.mjs       # SPIR-V → WGSL validation (skips if no wgsl_convert_cli)
 ```
 
 ### Font Rendering (needs the `font_rendering` scene exported)
@@ -168,7 +168,7 @@ bug from a fixture weakness.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 
-Validates all 300+ engine-compiled shaders through Tint offline:
+Validates all 300+ engine-compiled shaders through wgsl_convert_cli offline:
 
 ```bash
 # Build the editor (macOS example)
@@ -394,7 +394,7 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 │  ┌────────────────┐ ┌────────────┐ ┌───────────┐ ┌────────────┐ │
 │  │ validate-spirv │ │ smoke-test │ │ scene-    │ │ webrtc-    │ │
 │  │ All SPIR-V     │ │ Headless   │ │ smoketest │ │ parity     │ │
-│  │ through Tint   │ │ Chrome run │ │ 23 scenes │ │ 9 fixtures │ │
+│  │ via wgsl_cli   │ │ Chrome run │ │ 23 scenes │ │ 9 fixtures │ │
 │  │                │ │            │ │ × Chrome  │ │ in Chrome  │ │
 │  │                │ │            │ │ + Firefox │ │            │ │
 │  └────────────────┘ └────────────┘ └───────────┘ └────────────┘ │
@@ -461,7 +461,7 @@ See [test_project/README.md](test_project/README.md) for the full shader list.
 
 ## Expected Failures
 
-`shader_corpus/expected_failures.json` tracks shader variants that fail Tint validation offline but work at runtime. These are Vulkan-only variants the WebGPU path never uses:
+`shader_corpus/expected_failures.json` tracks shader variants that fail conversion offline but are never used at runtime. These are Vulkan-only variants the WebGPU path never uses:
 
 | Category | Count | Reason |
 |----------|-------|--------|
@@ -483,7 +483,7 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 
 **"No .spv files found"** — You ran with `--headless`. Use `--quit-after 10` instead (shaders need rendering to compile).
 
-**"tint_convert_cli not found"** — The shader corpus and SPIR-V dump validator use a standalone Tint CLI for offline validation. If it's not available, the tests skip gracefully — runtime Tint (linked into the engine WASM) handles all conversion.
+**"wgsl_convert_cli not found"** — The shader corpus and SPIR-V dump validator use a standalone converter (`bin/wgsl_convert_cli`, `./drivers/webgpu/wgsl_cli/build.sh`) for offline validation. If it's not available, the tests skip — the runtime converter (linked into the engine WASM) handles all conversion.
 
 **New shader failures after engine changes** — Run validation, review the new errors. If they're Vulkan-only variants, update the baseline. If they affect WebGPU runtime, fix the GLSL or SPIR-V preprocessing.
 

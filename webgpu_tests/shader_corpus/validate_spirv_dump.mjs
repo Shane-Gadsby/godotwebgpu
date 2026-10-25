@@ -1,7 +1,7 @@
 /**
  * SPIR-V Dump Validator
  *
- * Validates all .spv files in a given directory through the Tint CLI.
+ * Validates all .spv files in a given directory through wgsl_convert_cli.
  * Designed to run after `GODOT_DUMP_SPIRV=<dir>` produces SPIR-V files during
  * engine shader compilation.
  *
@@ -31,21 +31,21 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, '..', '..');
 const EXPECTED_FAILURES_PATH = join(__dirname, 'expected_failures.json');
 
-// Search for tint_convert_cli in standard locations.
-function findTintCli() {
-    // TINT_CONVERT_CLI points the tier at a specific converter build (e.g. bin/tint_convert_cli.tint).
-    if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
+// Search for wgsl_convert_cli in standard locations.
+function findWgslCli() {
+    // WGSL_CONVERT_CLI points the tier at a specific converter build (e.g. a patched SPIRV-Cross build).
+    if (process.env.WGSL_CONVERT_CLI) return existsSync(process.env.WGSL_CONVERT_CLI) ? process.env.WGSL_CONVERT_CLI : null;
     const candidates = [
-        join(REPO_ROOT, 'bin', 'tint_convert_cli'),
-        join(REPO_ROOT, 'bin', 'tint_convert_cli.exe'),
-        join(REPO_ROOT, 'drivers', 'webgpu', 'tint_convert_cli'),
+        join(REPO_ROOT, 'bin', 'wgsl_convert_cli'),
+        join(REPO_ROOT, 'bin', 'wgsl_convert_cli.exe'),
+        join(REPO_ROOT, 'drivers', 'webgpu', 'wgsl_convert_cli'),
     ];
     for (const c of candidates) {
         if (existsSync(c)) return c;
     }
     try {
-        execFileSync('which', ['tint_convert_cli'], { encoding: 'utf-8' });
-        return 'tint_convert_cli';
+        execFileSync('which', ['wgsl_convert_cli'], { encoding: 'utf-8' });
+        return 'wgsl_convert_cli';
     } catch {
         return null;
     }
@@ -63,19 +63,19 @@ function main() {
     }
 
     console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║   SPIR-V Dump Validator (Tint)                           ║');
+    console.log('║   SPIR-V Dump Validator (SPIRV-Cross)                    ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-    const tintCli = findTintCli();
-    if (!tintCli) {
-        console.log('NOTE: converter (tint_convert_cli) not found — skipping offline SPIR-V validation.');
-        console.log('      Runtime Tint (linked into the engine WASM) handles all conversion.');
-        console.log('      To enable this test, build the tint_convert_cli tool.\n');
-        console.log('PASS (skipped — no Tint CLI available)\n');
+    const convertCli = findWgslCli();
+    if (!convertCli) {
+        console.log('NOTE: converter (wgsl_convert_cli) not found — skipping offline SPIR-V validation.');
+        console.log('      The runtime converter (SPIRV-Cross, linked into the engine WASM) handles all conversion.');
+        console.log('      To enable this test, build the wgsl_convert_cli tool.\n');
+        console.log('SKIP (no wgsl_convert_cli available)\n');
         process.exit(0);
     }
 
-    console.log(`Using Tint CLI: ${tintCli}\n`);
+    console.log(`Using wgsl_convert_cli: ${convertCli}\n`);
 
     // Load expected failures baseline
     let expectedFailures = new Set();
@@ -116,7 +116,7 @@ function main() {
 
         const startTime = performance.now();
         try {
-            const wgsl = execFileSync(tintCli, [spvPath], {
+            const wgsl = execFileSync(convertCli, [spvPath], {
                 encoding: 'utf-8',
                 timeout: 30000,
             });
@@ -163,7 +163,7 @@ function main() {
     // Write report
     const report = {
         timestamp: new Date().toISOString(),
-        converter: 'tint',
+        converter: 'spirv-cross',
         spirv_directory: spvDir,
         total: spvFiles.length,
         passed,

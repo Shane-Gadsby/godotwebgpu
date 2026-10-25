@@ -32,7 +32,7 @@ runs:
             ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "$out"
             ;;
           linux)
-            chmod +x bin/godot.* bin/tint_convert_cli 2>/dev/null || true
+            chmod +x bin/godot.* bin/wgsl_convert_cli 2>/dev/null || true
             (cd bin && zip -qry "$out" . -x '*.zip')
             ;;
           windows)
@@ -65,14 +65,14 @@ runs:
             app=("$check"/*.app)
             codesign --verify --deep --strict --verbose=2 "${app[0]}"
             "${app[0]}/Contents/MacOS/Godot" --version
-            test -x "${app[0]}/Contents/MacOS/tint_convert_cli" || { echo "::error::tint_convert_cli is not executable in the bundle"; exit 1; }
+            test -x "${app[0]}/Contents/MacOS/wgsl_convert_cli" || { echo "::error::wgsl_convert_cli is not executable in the bundle"; exit 1; }
             ;;
           linux)
             unzip -q "$out" -d "$check"
             editor=("$check"/godot.linuxbsd.editor.*)
             "${editor[0]}" --version
-            if [[ -f "$check/tint_convert_cli" ]]; then
-              test -x "$check/tint_convert_cli" || { echo "::error::tint_convert_cli is not executable"; exit 1; }
+            if [[ -f "$check/wgsl_convert_cli" ]]; then
+              test -x "$check/wgsl_convert_cli" || { echo "::error::wgsl_convert_cli is not executable"; exit 1; }
             fi
             ;;
           windows)

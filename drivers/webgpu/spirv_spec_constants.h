@@ -37,12 +37,12 @@
 // WEBGPU_ENABLED || WEBGPU_SHADER_BAKER_ENABLED, native editor builds) -- see
 // webgpu_notes/TASKS.md Task 13's 2026-09-20 scoping update for the full
 // design this supports (baking recorded specialization-constant pipeline
-// variants ahead of time instead of always hitting runtime Tint).
+// variants ahead of time instead of always converting at runtime).
 //
-// Deliberately has zero dependency on SPIRV-Tools/Tint (unlike
+// Deliberately has zero dependency on SPIRV-Tools/SPIRV-Cross (unlike
 // spirv_preprocess.cpp) so it can be compiled into the native editor's
 // baker_sources list (drivers/webgpu/SCsub) without pulling in the vendored
-// Tint/SPIRV-Tools sources that WEBGPU_SHADER_BAKER_ENABLED deliberately
+// SPIRV-Cross/SPIRV-Tools sources that WEBGPU_SHADER_BAKER_ENABLED deliberately
 // keeps out of the editor (see wgsl_bake_subprocess.h's doc comment).
 
 #include "core/string/ustring.h"

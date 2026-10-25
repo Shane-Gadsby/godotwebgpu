@@ -22,10 +22,10 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     // Every declared uniform/sampler/push-constant is genuinely read below —
-    // this fixture exercises Tint pass interaction (combined sampler split +
+    // this fixture exercises pass interaction (combined sampler split +
     // push constants + depth images), and drivers/webgpu/spirv_preprocess.cpp's
     // eliminate_dead_resources pass now strips anything declared-but-unused
-    // before Tint ever sees it (see webgpu_notes/TASKS.md Task 8.7), so a
+    // before the converter ever sees it (see webgpu_notes/TASKS.md Task 8.7), so a
     // fixture that declares something it never reads no longer round-trips
     // that declaration into the WGSL output at all.
     vec4 world_pos = pc.model_matrix * vec4(v_world_pos, 1.0);

@@ -73,24 +73,24 @@ jobs:
           cache-name: linux-editor
         continue-on-error: true
 
-      - name: Cache tint_convert_cli build
+      - name: Cache wgsl_convert_cli build
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
-      # The export-time shader baker runs it from the editor's own directory. g++-12 for Tint's
-      # C++20, static libstdc++ so it runs on older distros (as linux_builds.yml).
-      - name: Build tint_convert_cli
+      # The export-time shader baker runs it from the editor's own directory. g++-12 as
+      # linux_builds.yml, static libstdc++ so it runs on older distros.
+      - name: Build wgsl_convert_cli
         env:
           CXX: g++-12
           LDFLAGS: -static-libstdc++ -static-libgcc
-        run: ./drivers/webgpu/tint_cli/build.sh
+        run: ./drivers/webgpu/wgsl_cli/build.sh
 
       - name: Prepare artifact
         run: |
           rm -rf ./bin/build_deps
-          strip bin/godot.* bin/tint_convert_cli
+          strip bin/godot.* bin/wgsl_convert_cli
 
       - name: Package editor
         uses: ./.github/actions/package-editor

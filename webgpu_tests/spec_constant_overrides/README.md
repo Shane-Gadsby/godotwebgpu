@@ -12,14 +12,14 @@ WEBGPU_REAL_GPU=1 node run_tests.mjs                 # hardware adapter, not swi
 WEBGPU_TEST_BROWSER=/path/to/chrome node run_tests.mjs
 ```
 
-Needs `bin/tint_convert_cli` (`./drivers/webgpu/tint_cli/build.sh`). Without it
+Needs `bin/wgsl_convert_cli` (`./drivers/webgpu/wgsl_cli/build.sh`). Without it
 the suite skips and passes, like `shader_corpus` does. The browser half needs
 Playwright (`npm install`) plus a WebGPU-capable browser; without one the
 offline half still runs and the run says what it skipped.
 
 ## What it asserts
 
-**Offline** (`tint_convert_cli` on `shader_corpus`'s fixtures):
+**Offline** (`wgsl_convert_cli` on `shader_corpus`'s fixtures):
 
 - `chained_spec_ops.spv`'s three specialization constants survive as
   `@id(0)`/`@id(1)`/`@id(2)` overrides, and its chained `OpSpecConstantOp`
@@ -27,8 +27,9 @@ offline half still runs and the run says what it skipped.
 - `spec_constants.spv` is still frozen to its defaults, because it builds an
   `OpSpecConstantComposite` out of one of them (`vec3(AMBIENT_STRENGTH)`), which
   has no scalar WGSL override equivalent. This is the fallback half of
-  `spirv_preprocess::spec_constants_overridable()`: get it wrong and Tint
-  raises an internal error on that module instead of converting it.
+  `spirv_preprocess::spec_constants_overridable()`: get it wrong and the
+  module fails to convert (Tint, the converter before SPIRV-Cross, raised an
+  internal error on it).
 
 **In a browser**: builds a compute pipeline from that same WGSL twice — once
 with no pipeline constants, once with real values for all three ids — and reads

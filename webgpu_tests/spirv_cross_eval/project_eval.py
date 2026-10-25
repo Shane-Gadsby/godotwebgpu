@@ -1,20 +1,27 @@
-"""Convert a project's captured stages (project_export.sh) with both converters and tally the differences.
+"""Convert a project's captured stages (project_export.sh) with one converter build, or two to compare them.
 
-Usage: python3 project_eval.py <spv_dir> <out_dir> <sx_cli> <tint_cli>
-Writes <out>/sx/<hash>.wgsl, <out>/tint/<hash>.wgsl, <out>/failures.json ({hash: {sx: err|null, tint: err|null}}),
-and prints stages / converted per backend. Then run compare_interface.py <out>/tint <out>/sx (stages both converted)
-and validate_wgsl.mjs <out>/sx.
+Usage: python3 project_eval.py <spv_dir> <out_dir> <cli> [<reference_cli>]
+Writes <out>/cli/<hash>.wgsl (and <out>/ref/<hash>.wgsl with a reference build, e.g. one with a SPIRV-Cross patch
+reverted), <out>/failures.json ({hash: {cli: err|null, ref: err|null}}), and prints stages / converted per build.
+Then run compare_interface.py <out>/ref <out>/cli (stages both converted) and validate_wgsl.mjs <out>/cli.
 """
-import json, os, subprocess, sys
 
-spv_dir, out, sx_cli, tint_cli = sys.argv[1:5]
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+spv_dir, out, cli_path = sys.argv[1:4]
+builds = [("cli", cli_path)] + ([("ref", sys.argv[4])] if len(sys.argv) > 4 else [])
 files = sorted(f for f in os.listdir(spv_dir) if f.endswith(".spv"))
-fail = {}
-for label, cli in (("sx", sx_cli), ("tint", tint_cli)):
+fail: dict[str, dict[str, str | None]] = {}
+for label, cli in builds:
     os.makedirs(os.path.join(out, label), exist_ok=True)
     ok = 0
     for i in range(0, len(files), 100):
-        chunk = [os.path.join(spv_dir, f) for f in files[i:i + 100]]
+        chunk = [os.path.join(spv_dir, f) for f in files[i : i + 100]]
         r = subprocess.run([cli, "--batch"] + chunk, capture_output=True, text=True)
         try:
             res = json.loads(r.stdout)
@@ -31,6 +38,12 @@ for label, cli in (("sx", sx_cli), ("tint", tint_cli)):
                 fail.setdefault(h, {})[label] = json.dumps(v) if v is not None else "no result (converter crashed?)"
     print(f"{label}: {len(files)} stages, {ok} converted")
 json.dump(fail, open(os.path.join(out, "failures.json"), "w"), indent=1)
-only = [h for h, v in fail.items() if v["sx"] and not v["tint"]]
-print("sx-only failures:", len(only), " tint-only failures:", len([h for h, v in fail.items() if v["tint"] and not v["sx"]]),
-      " both:", len([h for h, v in fail.items() if v["tint"] and v["sx"]]))
+if len(builds) > 1:
+    print(
+        "cli-only failures:",
+        len([h for h, v in fail.items() if v["cli"] and not v["ref"]]),
+        " ref-only failures:",
+        len([h for h, v in fail.items() if v["ref"] and not v["cli"]]),
+        " both:",
+        len([h for h, v in fail.items() if v["ref"] and v["cli"]]),
+    )

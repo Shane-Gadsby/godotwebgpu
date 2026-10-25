@@ -241,14 +241,14 @@ build_arches() {
 	done
 }
 
-step "Building tint_convert_cli (native SPIR-V -> WGSL precompile tool)..."
+step "Building wgsl_convert_cli (native SPIR-V -> WGSL precompile tool)..."
 # Built explicitly, and before the editor, so it's available to copy into
 # the editor .app bundle right after bundling below. (It would otherwise get
 # built anyway as a side effect of the web/WebGPU template build further
 # down -- wgsl_precompile.py's build_wgsl_precompiled() always invokes this
 # same script -- but that happens too late, and SKIP_WEB would skip it
 # entirely, and this is a fast, incremental script regardless.)
-./drivers/webgpu/tint_cli/build.sh
+./drivers/webgpu/wgsl_cli/build.sh
 
 step "Building editor..."
 # webgpu=yes is required (even though this isn't a web build) for the
@@ -278,12 +278,12 @@ cp -R "$app" "$dest/"
 ok "Editor -> $dest/$(basename "$app")"
 
 # The editor's shader baker (wgsl_bake_subprocess.cpp's
-# _find_tint_convert_cli()) looks for tint_convert_cli next to the RUNNING
+# _find_wgsl_convert_cli()) looks for wgsl_convert_cli next to the RUNNING
 # editor executable's own path -- for a macOS .app bundle, that's
 # Contents/MacOS/ (where platform_macos_builders.py's generate_bundle()
 # places the "Godot" binary itself), not the .app bundle's top level.
-cp bin/tint_convert_cli "$dest/$(basename "$app")/Contents/MacOS/"
-ok "tint_convert_cli -> $dest/$(basename "$app")/Contents/MacOS/"
+cp bin/wgsl_convert_cli "$dest/$(basename "$app")/Contents/MacOS/"
+ok "wgsl_convert_cli -> $dest/$(basename "$app")/Contents/MacOS/"
 
 step "Building templates (debug)..."
 build_arches template_debug

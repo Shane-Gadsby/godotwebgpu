@@ -71,7 +71,8 @@ GPU-bound scene reads as 41.5/83 (5 and 10 ticks) rather than a smooth distribut
    `mod:<shader>:<variant>:stg<stage>` (fragment = `stg1`); **one label covers every material version** of the
    shader, so the dump writes every distinct module as `#0`, `#1`, ... (lit materials are ~180 KB, unshaded ones
    ~25 KB).
-3. Edit copies. Tint mangles function names (`v_291`) but keeps parameter names, so cut by signature:
+3. Edit copies. Function names can be mangled (Tint, the converter these steps were written with, wrote `v_291`), so
+   check what the current converter keeps, then cut by signature (Tint kept parameter names):
    `N, L, V, A, light_color, ...` is `light_compute`; `idx : ptr<function, u32>` plus `omni_lights` /
    `spot_lights` / `area_lights` in the body is `light_process_omni/spot/area`; `ref_index` is
    `reflection_process`; a function returning `f32` whose first parameter is `shadow : texture_depth_2d` is a

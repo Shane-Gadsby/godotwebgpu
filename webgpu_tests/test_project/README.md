@@ -83,7 +83,7 @@ A Godot 4.6 project that programmatically creates a scene exercising **100% of R
 # Build engine with dump enabled:
 GODOT_DUMP_SPIRV=/tmp/spirv_dump godot --headless --path . --quit
 
-# Validate all dumped SPIR-V through Tint:
+# Validate all dumped SPIR-V through wgsl_convert_cli:
 node ../shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/
 ```
 

@@ -53,7 +53,7 @@ modules/glslang/          ← GLSL→SPIR-V (needs webgpu added to can_build())
 3. **Barriers:** All no-ops — WebGPU tracks hazards automatically.
 4. **Buffer mapping:** Shadow CPU buffer pattern — maintain a CPU copy, flush via `wgpuQueueWriteBuffer` on unmap.
 5. **Device init:** JS shell stores a pre-initialized `GPUDevice` in `Module["preinitializedWebGPUDevice"]`; C++ retrieves it via `EM_ASM_PTR({ return WebGPU["importJsDevice"](Module["preinitializedWebGPUDevice"]); })`. (`emscripten_webgpu_get_device()` and `html5_webgpu.h` were removed in Emscripten 5.x.)
-6. **Shader translation:** GLSL → SPIR-V (glslang) → passed directly as `WGPUShaderSourceSPIRV` (Dawn's `webgpu.h` supports SPIR-V natively; no WGSL/Tint translation step needed).
+6. **Shader translation:** GLSL → SPIR-V (glslang) → `spirv_preprocess::run_pipeline()` → WGSL (SPIRV-Cross's WGSL backend, `thirdparty/spirv-cross-wgsl`), precompiled at build time, baked at export time, or converted at runtime as a fallback; browsers accept only WGSL.
 
 ## WebGPU Constraints to Keep in Mind
 

@@ -724,7 +724,7 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	//
 	// On WebGPU that difference is the whole point of baking: a baked container
 	// carries ready-to-use WGSL, a runtime-written one carries only SPIR-V, so
-	// loading the user copy means running Tint over every shader again on the main
+	// loading the user copy means converting every shader again on the main
 	// thread. With user:// searched first, one early run that predates a working
 	// bake writes WGSL-less entries and then shadows the baked cache permanently --
 	// every later run pays full translation cost no matter how correct the bake
@@ -1601,7 +1601,7 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 	// backend (Vulkan requests 1.4) — dumping its native SPIR-V produces a
 	// version mismatch that has independently derailed three prior investigations
 	// (webgpu_notes/TASKS.md Tasks 8.6, 8.8, 9.7: feeding 1.4 SPIR-V through the
-	// 1.3-tuned preprocessing/Tint pipeline produces ~100+ generic, meaningless
+	// 1.3-tuned preprocessing/conversion pipeline produces ~100+ generic, meaningless
 	// failures). Since this dump's only real consumer is that WebGPU pipeline,
 	// recompile a second copy of the same source forced to the WebGPU driver's
 	// exact target (SHADER_SPIRV_VERSION_1_3, Vulkan-flavour GLSL 1.1) whenever
