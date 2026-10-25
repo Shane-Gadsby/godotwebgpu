@@ -65,7 +65,8 @@ collection `questions` (doc id = question id; `kind` choice | text | look, `orde
 `placeholder`, and the user's `answer`, `note`, `updated`, `told`) and `meta/board` (`message`, `updatedAt`,
 `busy_gpu`, `busy_text`). A look with no media shows as queued. Workers put a question in `for-tasks.md` under
 "Questions for the user"; only the lead writes the page. Set `busy_gpu` while a real-GPU run is going.
-The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
+The page is light-only (user, 2026-10-25). Its controls are never disabled from `user.can("data.write")` (advice only;
+a refused write decides and the page says why on screen). The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
 publishing): a raw U+2028 in a regex once blanked the co-op board.
 
 ## Shared resources (leases)
