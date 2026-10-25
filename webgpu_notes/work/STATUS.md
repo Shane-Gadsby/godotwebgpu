@@ -1,5 +1,19 @@
 # Status (lead-maintained)
 
+## 2026-10-25 11:10 — 03 and 02 merged; merged tree builds and smokes
+
+- **03 merged** (e05c777b8d): in-engine converter on SPIRV-Cross (`webgpu_wgsl_backend=spirv-cross|tint`,
+  `-fwasm-exceptions` on its TUs + link), all 8 web variants linked on its branch; release nothreads wasm 1.6% smaller
+  raw / 2.0% gzip than Tint (SPIRV-Tools stays). Booted on swiftshader only (translated=502).
+- **02 merged** (2c2ebe96a1, include-order conflict with 03 resolved): `wgsl_text_scan.{h,cpp}` replaces ~1,500 lines of
+  `strstr` scanning; found and fixed SSR downsample's `source_depth` (SPIRV-Cross's `let _N = textureLoad(...)` shape)
+  that would have got the blank depth fallback.
+- Merged tree (2c2ebe96a1): `build-linux.sh` editor + web release nothreads, 4 min, no warnings in the touched files;
+  smoke OK (276/276 valid, interface identical); `wgsl_text_scan/run_tests.sh` 276/276 both modes.
+- `bin/` now holds the editor + template from 2c2ebe96a1 (the parity run in flight uses copies of the 2026-10-23 pair).
+- ccache: build-linux.sh already exports `CCACHE_MAXSIZE=50G`; the config limit only bit SCons runs outside it (now 20 GB,
+  before 5 GB — why the cache sat full). Question on the page: match 50 GB.
+
 ## 2026-10-25 11:05 — task 05 merged
 
 - **05 merged** (5ec31c3aa4; smoke after the parity run frees the GPU). Real projects through both converters: fp_check
@@ -77,8 +91,8 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 |---|---|---|---|
 | 00 | foundation | integrated | lead |
 | 01 | FSR2 barrier uniformity (SPIRV-Cross patch) | integrated (render check in 07) | worker-01 (retired) |
-| 02 | driver WGSL text scans | open | |
-| 03 | runtime converter in wasm, exceptions, SCsub | open | |
+| 02 | driver WGSL text scans | merged, builds, smoke OK; parity pending | worker-02 (retired) |
+| 03 | runtime converter in wasm, exceptions, SCsub | merged, builds, smoke OK; GPU boot pending | worker-03 (retired) |
 | 04 | spec constants | integrated | worker-04 (retired) |
 | 05 | real projects' shaders | merged, smoke pending | worker-05 (retired) |
 | 06 | offline test tiers | integrated | worker-06 (retired) |
