@@ -1,5 +1,13 @@
 # Status (lead-maintained)
 
+## 2026-10-25 17:45 — user answers (board)
+
+- cameraSim look: **Matches** (user). The Tint-deletion bar now waits only on task 11 (Firefox timing with 0019).
+- cameraSim preset: both VRAM compression options on (user); the lead set `for_desktop`/`for_mobile` = true in the user's
+  `export_presets.cfg` (backup in the lead's scratchpad), verifying with a scratch re-export.
+- Task 19: orientation default follows the project setting; the shell enters fullscreen on the first tap on phones (export
+  option to turn it off). worker-19 told.
+
 ## 2026-10-25 17:45 — lead verification of 0019; 18 merged; 19 blocked on the phone lock
 
 - **0019 verified on the merged tree**: editor + web release template built (2:07, table re-baked), smoke OK (276/0, no
