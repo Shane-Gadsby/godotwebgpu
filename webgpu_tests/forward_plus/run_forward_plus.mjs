@@ -33,7 +33,7 @@
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_forward_plus.mjs [--browser chrome|firefox]
  *                                               [--feature <id>] [--save-dir DIR] [--list]
- *                                               [--json <path>]
+ *                                               [--json <path>] [--dir <export dir>]
  *                                               [--parity [--reference DIR] [--godot BIN] [--settle N]]
  */
 
@@ -46,12 +46,15 @@ import { fileURLToPath } from 'url';
 import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
 import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE, byId } from './features.mjs';
+import { attachAudit } from '../scene_smoketest/webgpu_audit.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // --baked runs against export_baked/ (made by `BAKE=1 ./export.sh`) and additionally asserts the
 // shader cache was actually used. The default export is unbaked (--headless skips the baker).
 const BAKED = process.argv.includes('--baked');
-const SCENE_DIR = join(__dirname, BAKED ? 'export_baked' : 'export');
+// --dir <export> runs an export kept elsewhere (an A/B of two converters' exports, work task 11).
+const DIR_ARG = process.argv.includes('--dir') ? process.argv[process.argv.indexOf('--dir') + 1] : null;
+const SCENE_DIR = DIR_ARG || join(__dirname, BAKED ? 'export_baked' : 'export');
 // The fixture builds materials in GDScript, so a few shaders legitimately translate at runtime.
 const TRANSLATED_CEILING = 80;
 
@@ -230,6 +233,7 @@ async function main() {
   }
 
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } });
+  await attachAudit(page, 'forward_plus');
   let banner = null;
   let declaredFeatures = null;
   let ready = null;

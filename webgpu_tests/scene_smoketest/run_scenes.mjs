@@ -51,6 +51,7 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSy
 import { join, extname, resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { attachAudit } from './webgpu_audit.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -440,6 +441,7 @@ async function runScenePlaywright(scene, browser, timeout) {
     const { server, url } = await startServer(exportDir, { injectScript: true, sceneInjectScript: scene.inject_script || null });
 
     const page = await browser.newPage();
+    await attachAudit(page, scene.id);
 
     const gpuErrors = [];
     const shaderErrors = [];

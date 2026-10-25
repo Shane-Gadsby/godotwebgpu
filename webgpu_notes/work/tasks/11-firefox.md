@@ -2,7 +2,7 @@
 
 State: claimed
 Owner: worker-11
-Claimed: 2026-10-25 14:20
+Claimed: 2026-10-25 14:05
 Needs: gpu
 Branch: work/11
 Results: webgpu_notes/work/results/11-firefox/

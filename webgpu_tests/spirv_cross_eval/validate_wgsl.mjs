@@ -1,4 +1,5 @@
 // Validate directories of WGSL in real Chrome WebGPU: createShaderModule + getCompilationInfo per file.
+// BROWSER=firefox validates in Playwright's Firefox instead (naga, not Tint, compiles WGSL there; work task 11).
 //
 // System Chrome, headed, Vulkan flags (CLAUDE.md, §3 trap 43): the device is requested with every optional feature
 // the driver may enable and the adapter's own maxSampledTexturesPerShaderStage, as engine.js does.
@@ -31,7 +32,8 @@ function loadPlaywright() {
 	}
 	throw new Error(`playwright not found in ${candidates.join(' or ')}/node_modules (npm ci in webgpu_tests/scene_smoketest)`);
 }
-const { chromium } = loadPlaywright();
+const { chromium, firefox } = loadPlaywright();
+const BROWSER = process.env.BROWSER || 'chrome';
 
 const dirs = process.argv.slice(2);
 if (!dirs.length) {
@@ -46,7 +48,11 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 
-const browser = await chromium.launch({
+// Firefox needs WebGPU switched on and takes none of Chrome's flags (scene_smoketest/run_scenes.mjs launchFirefox).
+const browser = BROWSER === 'firefox' ? await firefox.launch({
+	headless: false,
+	firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
+}) : await chromium.launch({
 	headless: false,
 	executablePath: '/usr/bin/google-chrome-stable',
 	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
@@ -63,7 +69,7 @@ const adapter = await page.evaluate(async () => {
 	});
 	return { vendor: a.info.vendor, architecture: a.info.architecture, fallback: a.info.isFallbackAdapter, features };
 });
-console.error(`adapter: ${JSON.stringify(adapter)}`);
+console.error(`adapter (${BROWSER}): ${JSON.stringify(adapter)}`);
 
 let anyInvalid = false;
 const results = {};
