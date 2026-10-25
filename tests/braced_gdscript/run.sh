@@ -94,7 +94,7 @@ r=$("$G" --headless --test --test-suite="*GDScript*" 2>&1 | grep "assertions:" |
 check "$r" "0 failed" "GDScript suite"
 r=$("$G" --headless --test --test-suite="*GDScript*" --use-binary-tokens 2>&1 | grep "assertions:" | grep -o "[0-9]* failed")
 check "$r" "$UPSTREAM_BINARY_FAILED_ASSERTIONS failed" "GDScript suite, binary tokens (upstream's own failures only)"
-r=$("$G" --headless --test --test-case="*CodeEdit*,*Formatter*,*Converter*,*Braced docs*,*Script editor hooks*" 2>&1 | grep "assertions:" | grep -o "[0-9]* failed")
+r=$("$G" --headless --test --test-case="*CodeEdit*,*Formatter*,*Converter*,*documentation comments*,*Script editor hooks*" 2>&1 | grep "assertions:" | grep -o "[0-9]* failed")
 check "$r" "0 failed" "CodeEdit, formatter, converter, docs, editor hooks"
 
 echo "twins: each braced feature test has a .gd twin that must print the same"
