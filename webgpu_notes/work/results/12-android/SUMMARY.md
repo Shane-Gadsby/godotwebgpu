@@ -1,9 +1,95 @@
-# Task 12: Razr 60, Chrome and Firefox for Android, SPIRV-Cross vs Tint, 2026-10-25
+# Task 12: Razr 60, Chrome for Android, SPIRV-Cross vs Tint, 2026-10-25
 
-**State: blocked (phone not attached).** `adb devices` was empty at 14:10 (lead), 14:08, 14:16, 14:27 and 14:28.
-Everything that does not need the phone is done: both export sets, a phone harness that works in either browser,
-desktop Vulkan references, and a one-command phone session (`run_phone.sh`). No phone number exists yet, so nothing
-here says anything about Android performance.
+**State: ready-for-integration.** Scope (user): Chrome for Android only; Firefox for Android out of scope, nothing
+installed. Phone: Razr 60 (Mali-G615 "valhall", Chrome 155), Forward+ (adapter reports 48 sampled textures).
+Worker-12 found and bisected the bug and wrote the fix; worker-12b measured it on the phone and ran the desktop checks.
+
+## Fog fix: SPIRV-Cross patch 0019 (no WGSL `for` statements)
+
+Before the fix, fp_check `volumetric_fog_1` on the phone with SPIRV-Cross was 12.555 mean abs diff from native Vulkan
+(Tint 0.176, desktop SPIRV-Cross 0.001). The heavy scene lost its fog the same way. Worker-12 bisected it on the device
+by swapping WGSL modules: it is the VolumetricFogProcess filter variant. SPIRV-Cross emitted
+`for (var i = -3; i <= 3; i++)` there, and on Mali that loop runs zero times. Every `loop {}` or `while` form of the same
+loop renders correctly, and so does a `for` loop counted from 0.
+
+The fix is `ControlFlowSyntax::support_for_loop`, set false for WGSL. Both `ForLoop` cases of `attempt_emit_loop_header()`
+fall back to the generic loop, so SPIRV-Cross never emits a WGSL `for` (the shape Tint always emitted). It changes
+`thirdparty/spirv-cross-wgsl/spirv_glsl.{hpp,cpp}` and `spirv_wgsl.cpp`, and is recorded as
+`patches/0019-no-for-statements.patch`. The `thirdparty/README.md` line is in `for-docs.md`, for the lead to apply.
+
+## Look on the phone (fp_check Look set, 17 configs × off/on, 640x360, against desktop Vulkan)
+
+The full table is in `phone_look_sc19.md`. **All 34 frames are identical between SPIRV-Cross+0019 and Tint (0.000).**
+- `volumetric_fog_1`: 0.176 for both (it was 12.555 before 0019). Frames are in `looks/fp_volumetric_fog_1.razr60-*`.
+- The worst frames against native are the same for both converters: fsr2_1 0.541, sdfgi_1 0.307, ssil_1 0.290 and
+  **subsurface_scattering_1 11.098**. That last one is a phone-vs-desktop difference that Tint has too, so it is not a
+  swap regression. See for-tasks.md.
+- I regenerated the native references with the current fixture (JITTER_PERIOD 32, lead's editor 14:17 build,
+  `native_ref32`). They are pixel-identical to worker-12's (no frame differs by more than 0.001), so the numbers stand.
+
+## Timing on the phone: 3 rotated runs, cool phone before every launch (battery ≤ 36 C, Mali cooling 0)
+
+GPU ms/frame comes from timestamp queries. Values are mean ± half range (median). Full table: `phone_timing_sc19.md`.
+
+| scene | renderer | GPU ms Tint | GPU ms SC+0019 | fps Tint | fps SC+0019 |
+|---|---|---|---|---|---|
+| fp (Forward+ fixture) | Forward+ | 16.9 ± 0.1 (16.9) | 16.8 ± 0.1 (16.8) | 57.8 | 57.9 |
+| heavy | Forward+ | 73.8 ± 1.6 (74.1) | **71.3 ± 0.6 (71.3)** | 13.4 | 13.9 |
+| benchmark_postfx | Forward Mobile | 23.3 ± 0.7 (22.9) | 23.2 ± 0.3 (23.3) | 32.8 | 30.9 (frame ms medians equal, 33.2 / 33.3) |
+| platformer | Forward+ | 29.6 ± 0.7 (29.2) | 28.7 ± 0.5 (29.0) | 25.5 | 25.4 |
+| stress (platformer + inject) | Forward+ | 28.8 ± 0.8 (29.3) | 28.1 ± 0.3 (28.2) | 24.2 | 25.8 |
+
+**SPIRV-Cross+0019 is as fast as Tint or faster on every scene.** Heavy is 3.4% faster, the rest are within spread. Boot
+times match except fp, which boots in 17.1 s with SC and 20.5 s with Tint; the fp export translates 97 stages at runtime
+on both sides (task 07's bake gap). Error counts are the same for both converters: heavy 3 per run, and postfx 6 per run
+from its missing `benchmark_profiler.gd` autoload, which was broken before the swap. No device loss.
+
+## Desktop checks on 0019
+
+- `smoke.sh`: SMOKE OK, 276/276 interfaces identical, 0 invalid. WGSL is 1.093x Tint's bytes (it was 1.063x without
+  0019). There are 0 `for` statements left in the output.
+  ```
+  identical interface: 276/276, mismatched: 0, missing in candidate: 0
+  WGSL bytes: reference 6287157, candidate 6870429 (1.093x)
+  validation: 276 modules, 0 invalid, 0 of them expected
+  SMOKE OK (smoke-20261025-161452-1063099)
+  ```
+- `project_eval.py` on the 2566 unique real-project stages (the union of `scratchpad/corp/*/spv`): both converters
+  convert 2566/2566. `compare_interface.py` gives identical interface 2566/2566. `validate_wgsl.mjs` in Chrome (4080 SUPER)
+  gives 2566 modules, 0 invalid. WGSL is 1.121x Tint's bytes, and 0 `for` statements remain.
+
+## Phone state
+
+`stay_on_while_plugged_in` is **restored to 0**. Leases `phone` and `gpu` are dropped. The harness leaves no engine tab
+open (each page navigates to `/__done`), and none of the user's tabs were touched.
+
+## What the lead must still run
+
+- Apply the `for-docs.md` line to `thirdparty/README.md`.
+- The web templates must be rebuilt after the merge. The phone numbers above come from worker-12's template at
+  d1e5a67476 with 0019 applied (`../godotwebgpu-12-tint`, a temporary worktree; it can be removed).
+- The Forward+ `--parity` matrix on desktop with 0019 (it changes every module's text). `smoke.sh` and the project corpus
+  are valid, but nothing on desktop has been rendered with 0019.
+
+## Risks
+
+- 0019 is broader than the bug: it removes every `for`, not only the ones counted from below zero. That matches Tint's
+  shape and measured no slower on the phone. WGSL grows by about 3%.
+- The phone shows one converter-independent Look gap, subsurface_scattering_1 at 11.1.
+
+## Files on work/12
+
+- `thirdparty/spirv-cross-wgsl/spirv_glsl.{hpp,cpp}`, `spirv_wgsl.cpp`, `patches/0019-no-for-statements.patch`.
+- `webgpu_tests/perf_guard/android/phone_bench.mjs` (worker-12's improvements: thermal gates, `--swap-wgsl`, ...) and
+  `phone_summary.mjs`.
+- `results/12-android/`: `run_phone.sh` (default configs now tint,sc19), `export_all.sh`, `phone_look_sc19.md`,
+  `phone_timing_sc19.md`, `looks/`, `for-docs.md`, `for-tasks.md`.
+- Scratch (not in git): `/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/06ad18c7-2f4b-4e67-91c1-7151308515f2/scratchpad/w12/`
+  (`exp/{tint,sc,sc19}`, `p19/{sweep,timing}`, `native_ref32`, `peval19`, `smoke19`).
+
+---
+
+# Earlier (worker-12, harness description, before the phone was attached)
 
 ## What is ready
 
@@ -72,50 +158,3 @@ Known noise in benchmark_postfx: the project's autoload `res://benchmark_profile
 `webgpu_tests/benchmark/godot/`, which costs 3 errors per launch in both configs. It was already broken before the
 swap.
 
-## What the next worker (or the lead) runs once the phone is attached
-
-```
-webgpu_notes/work/results/12-android/run_phone.sh          # takes the phone lease itself; resumable
-```
-
-(Relink `webgpu_tests/{forward_plus,scene_smoketest}/node_modules` from the lead's checkout first if the worktree is
-fresh; export_all.sh needs them, run_phone.sh does not.)
-
-What run_phone.sh does:
-1. Checks which browsers are installed on the phone.
-2. Runs one smoke launch per scene and browser, with screenshots.
-3. Runs the Forward+ Look sweep in each browser and config, against the native reference.
-4. Runs 3 timing runs: 5 scenes × browsers × 2 configs × 3 = 60 launches, ~45 s each plus cool-down. Allow ~1.5 h.
-
-After that:
-- Pick looks from `<out>/smoke/shots/` and `<out>/sweep/frames/`, and put them beside `looks/*.vulkan-desktop.png`.
-- Compare SC with Tint using the summary tables.
-- Where a scene is slower under SPIRV-Cross:
-  1. Find the pass with `gpu_time.mjs --passes` (Chrome, over CDP) on that export.
-  2. Confirm the WGSL is the cause with `--dump-wgsl` / `--replace-pair`, swapping in Tint's module.
-  3. If it is a const-array shape, try `results/08-gpu-timing/lut-var-private.candidate.patch`.
-
-## Risks / open
-
-- **Firefox for Android may not expose WebGPU.** This folder's README (written 2026-10-17) says Firefox for Android
-  had none. Release Firefox on Android has no `about:config`. If `navigator.gpu` is missing, the harness reports
-  `fatal: navigator.gpu is undefined` for both configs, and only Firefox Nightly (with `dom.webgpu.enabled`) could be
-  measured. That would be a gap in the browser, not in the swap (question in for-tasks.md).
-- The Look sweep covers 17 of fp_check's 71 configs. `--sweep all` runs every one (~30 min per browser and config).
-- Nothing has been measured on the phone yet. Task 08's desktop result is the only performance evidence so far.
-
-## What changed on work/12
-
-- `webgpu_tests/perf_guard/android/phone_bench.mjs`, `phone_summary.mjs` (new).
-- `webgpu_notes/work/results/12-android/`: this file, `run_phone.sh`, `export_all.sh`, `for-tasks.md`, `looks/`.
-- No change to the converter, the driver or any shared doc.
-
-smoke.sh (this tree):
-
-```
-identical interface: 276/276, mismatched: 0, missing in candidate: 0
-WGSL bytes: reference 6287157, candidate 6681762 (1.063x)
-/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/06ad18c7-2f4b-4e67-91c1-7151308515f2/scratchpad/w12/smoke/smoke-20261025-142712-2523502/wgsl: 276 files, 0 invalid
-validation: 276 modules, 0 invalid, 0 of them expected
-SMOKE OK (smoke-20261025-142712-2523502)
-```

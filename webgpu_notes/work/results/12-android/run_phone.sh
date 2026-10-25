@@ -15,7 +15,7 @@ $L take phone "$OWNER" 3
 STAY=$(adb shell settings get global stay_on_while_plugged_in | tr -d '\r')
 adb shell settings put global stay_on_while_plugged_in 7
 trap 'adb shell settings put global stay_on_while_plugged_in "$STAY"; $L drop phone "$OWNER"' EXIT
-CONFIGS="tint=$W/exp/tint,sc=$W/exp/sc"
+CONFIGS=${CONFIGS:-"tint=$W/exp/tint,sc19=$W/exp/sc19"}
 # Firefox for Android is out of scope (user, 2026-10-25: "I only care about Firefox for desktop"). BROWSERS=chrome,firefox to try it.
 BROWSERS=${BROWSERS:-chrome}
 echo "browsers: $BROWSERS"

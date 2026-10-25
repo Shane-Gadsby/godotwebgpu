@@ -1,7 +1,7 @@
 # 12-android: Chrome and Firefox on the Razr 60, works and is as fast as Tint
 
-State: blocked (phone not attached)
-Owner: worker-12
+State: ready-for-integration
+Owner: worker-12, worker-12b (from 16:10)
 Claimed: 2026-10-25 14:06
 Needs: phone (lease `phone`; desktop `gpu` only for desktop reference captures), the Razr 60 over adb
 Branch: work/12
