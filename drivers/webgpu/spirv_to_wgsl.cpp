@@ -35,7 +35,11 @@
 #include "core/templates/vector.h"
 #include "core/variant/variant.h"
 #include "drivers/webgpu/spirv_preprocess.h"
+#ifdef WGSL_BACKEND_TINT
 #include "drivers/webgpu/tint_wrapper.h"
+#else
+#include "drivers/webgpu/spirv_cross_wrapper.h"
+#endif
 
 #include <cstring>
 #include <vector>
@@ -50,11 +54,13 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	// Idempotent (just (re)registers a debug-printer callback), so it's safe
 	// to call from every caller (runtime driver init, export-time baker)
 	// without needing them to coordinate a single initialization point.
+#ifdef WGSL_BACKEND_TINT
 	static bool tint_initialized = false;
 	if (!tint_initialized) {
 		tint_wrapper_initialize();
 		tint_initialized = true;
 	}
+#endif
 
 	// Wrap raw bytes in a Vector for the preprocessing API.
 	Vector<uint8_t> spv;
@@ -69,7 +75,13 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 	memcpy(spirv_words.data(), spv.ptr(), spv.size());
 
 	char *error_msg = nullptr;
+#ifdef WGSL_BACKEND_TINT
+	const char *backend_name = "Tint";
 	char *out = tint_wrapper_spirv_to_wgsl(spirv_words.data(), spirv_words.size(), &error_msg);
+#else
+	const char *backend_name = "SPIRV-Cross";
+	char *out = spirv_cross_wrapper_spirv_to_wgsl(spirv_words.data(), spirv_words.size(), &error_msg);
+#endif
 	if (!out) {
 		if (error_msg) {
 			// Truncate the error message: Tint includes the full SPIR-V disassembly
@@ -79,10 +91,10 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 			if (err_str.length() > 1500) {
 				err_str = err_str.left(1500) + "... [truncated]";
 			}
-			ERR_PRINT(vformat("Tint SPIR-V→WGSL failed: %s", err_str));
+			ERR_PRINT(vformat("%s SPIR-V→WGSL failed: %s", backend_name, err_str));
 			free(error_msg);
 		} else {
-			ERR_PRINT("Tint SPIR-V→WGSL failed (unknown error)");
+			ERR_PRINT(vformat("%s SPIR-V→WGSL failed (unknown error)", backend_name));
 		}
 		return nullptr;
 	}

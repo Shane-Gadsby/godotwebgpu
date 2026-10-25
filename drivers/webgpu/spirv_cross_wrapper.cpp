@@ -73,5 +73,12 @@ char *spirv_cross_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_
 			*r_error = _malloc_copy(std::string("SPIRV-Cross: ") + e.what());
 		}
 		return nullptr;
+	} catch (...) {
+		// Not derived from std::exception (or thrown across a boundary that lost the type): still must not
+		// reach the engine, where an uncaught throw aborts the wasm instance.
+		if (r_error) {
+			*r_error = _malloc_copy("SPIRV-Cross: unknown exception");
+		}
+		return nullptr;
 	}
 }

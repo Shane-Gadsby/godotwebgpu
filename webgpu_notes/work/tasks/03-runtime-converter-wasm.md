@@ -1,7 +1,7 @@
 # 03-runtime-converter-wasm: the engine converts with SPIRV-Cross at runtime and in the export-time baker
 
-State: open
-Owner:
+State: ready-for-integration
+Owner: worker-03
 Claimed:
 Needs: build (web templates + a native editor)
 Branch: work/3
