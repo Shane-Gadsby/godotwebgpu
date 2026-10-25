@@ -15,6 +15,10 @@
   views (`texture_storage.cpp`); FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (check with a
   moving camera and sky).
 - FSR2 before/after look posted on the board.
+- **12 blocked (14:30)**: phone never attached. work/12 has `webgpu_tests/perf_guard/android/phone_bench.mjs` (no CDP, so
+  Firefox for Android too), `results/12-android/run_phone.sh` (~1.5 h), 17 desktop Vulkan references. Its exports are
+  from e99b18555e, before 17's FSR2 fix: the relaunch re-exports from the then-current tree with `export_all.sh` first.
+  Board: phone-attach, and whether to install Firefox Nightly if release Firefox for Android has no WebGPU.
 
 ## 2026-10-25 14:10 — task 08 integrated; 11 and 12 out
 
@@ -209,7 +213,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 09 | remove Tint | blocked on 11, 12, cameraSim look | |
 | 10 | docs | after 09 | lead |
 | 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
-| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | in progress (needs the phone attached) | worker-12 |
+| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | blocked: phone not attached; harness + exports ready on work/12 (run_phone.sh) | worker-12 (retired) |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
