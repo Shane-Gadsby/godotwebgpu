@@ -1695,13 +1695,13 @@ function arrayElementBinding(b, k) {
   return k === 0 ? b * 2 : 400 + b * 16 + (k - 1);
 }
 
-// lower_tint_unsupported_ops(): every input in the fixture used to abort Tint
+// lower_wgsl_unsupported_ops(): every input in the fixture used to abort Tint
 // with an internal compiler error -- in the browser, a trap that took down the
 // whole page the moment a material using isnan()/isinf()/textureQueryLod() or
 // POINT_COORD was compiled, or texture streaming was enabled.
 function testLowerTintUnsupportedOps() {
-  console.log("\n=== Test 24: lower_tint_unsupported_ops ===\n");
-  const r = convertGlslFixture("tint_crash_inputs.frag");
+  console.log("\n=== Test 24: lower_wgsl_unsupported_ops ===\n");
+  const r = convertGlslFixture("wgsl_unsupported_ops.frag");
   if (!r) {
     return;
   }

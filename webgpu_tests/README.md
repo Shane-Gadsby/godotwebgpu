@@ -44,8 +44,8 @@ GLSL → SPIR-V (glslang, at editor build time)
 `run_pipeline()` is the one ordering of the SPIR-V passes every converter uses; the full list, with what
 each pass is for, is in [`webgpu_site/TECHNICAL_REFERENCE.md`](../webgpu_site/TECHNICAL_REFERENCE.md) §4.1.
 `preprocessing_tests/` covers the passes one at a time (291 assertions; tests 24-27 cover the three passes on
-SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
-`spirv-val` on each output, from `fixtures_src/tint_crash_inputs.frag` and `binding_arrays*.{frag,comp}`).
+SPIRV-Tools' IR -- `lower_wgsl_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
+`spirv-val` on each output, from `fixtures_src/wgsl_unsupported_ops.frag` and `binding_arrays*.{frag,comp}`).
 `driver_unit_tests/test_binding_layout.mjs` checks the expanded-array binding layout against
 `drivers/webgpu/spirv_binding_layout.h` itself, and that every engine texture array fits it.
 

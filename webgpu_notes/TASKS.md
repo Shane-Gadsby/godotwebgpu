@@ -3770,7 +3770,7 @@ was needed. Arms that only make sense as parity checks (`sdfgi_camera_move`) are
 | soft / transmittance shadow reads | the fork had replaced 7 linear depth reads with NEAREST | `textureLod_linear_depth()` (gather + bilinear weights): soft shadows now exact |
 | mipmap bias (TAA/FSR's -0.5, FSR's scale bias) | WebGPU samplers have no LOD bias; silently dropped | `apply_sampler_lod_bias` pass + `SamplerLodBias` UBO (set 1, binding 40) from `MaterialStorage`; 0.003 |
 | texture arrays (VoxelGI > 1 probe, lightmaps > 1, SDFGI's read-only `src_occlusion`, particle colliders) | `flatten_binding_arrays` collapsed every array to element 0 | `expand_binding_arrays` pass, layout in `spirv_binding_layout.h`, per-stage budget (trap 30) |
-| `isnan`/`isinf`, `textureQueryLod`, `POINT_COORD`, `early_fragment_tests` in user shaders | Tint ICE — the wasm instance aborts | `lower_tint_unsupported_ops` pass |
+| `isnan`/`isinf`, `textureQueryLod`, `POINT_COORD`, `early_fragment_tests` in user shaders | Tint ICE — the wasm instance aborts | `lower_wgsl_unsupported_ops` pass |
 | FSR2 | `OpImageTexelPointer` on the reconstructed depth (Tint ICE, so the pass was skipped), wave ops in SPD | `NO_IMAGE_ATOMICS` storage-buffer form, `SPD_NO_WAVE_OPERATIONS` (`thirdparty/amd-fsr2/patches/0004-…`); 0.55 residual, §2.31 |
 | a material reading `POINT_COORD` without writing `POINT_SIZE` (drew nothing; upstream bug, D3D12 too) | `POINT_COORD` sets `uses_point_size`, so where point size is emulated the mesh is drawn as six vertices per point, but the quad expansion was behind `POINT_SIZE_USED` alone: six coincident vertices, degenerate triangles. Natively it drew 1-px points with `POINT_COORD` pinned to 0.5 | both scene `_inc.glsl` files define `POINT_SIZE_USED` when `POINT_COORD_USED` is set; new `point_coord` arm. Found by the parity run itself: no error anywhere, only an empty frame |
 | constant-alpha blending (`BLEND_FACTOR_CONSTANT_ALPHA`) | WebGPU has one RGBA blend constant and no constant-alpha factor; the alpha factors read the colour's alpha | emulated: the pipeline remembers it, `_apply_blend_constants()` broadcasts alpha into the constant |
@@ -3781,7 +3781,7 @@ Also recalibrated: `glow_map` (10.4 → 0.7) and `proximity_fade` (1.09 → 0.19
 project (the editor's own `.godot/shader_cache` from another build looked like a shipped cache) is now limited to
 export templates.
 
-**Tests added:** preprocessing tests 24-27 (`tint_crash_inputs.frag`, `binding_arrays*.{frag,comp}`, each output
+**Tests added:** preprocessing tests 24-27 (`wgsl_unsupported_ops.frag`, `binding_arrays*.{frag,comp}`, each output
 validated with `spirv-val`); `driver_unit_tests/test_binding_layout.mjs` (binding-layout invariants against the header,
 every engine texture array fits, binding 40 agrees across both scene shaders and `MaterialStorage`); the six matrix
 arms and the parity tier above; `self_test_forward_plus.mjs` covers the parity judge.
@@ -4013,8 +4013,8 @@ what the smoke check and the text-scan tier compare with; SPIRV-Cross matched 27
 interface change, regenerate (`compare_interface.py --write`, `WRITE_REFERENCE=1 run_tests.sh`) and say why in the
 commit.
 
-**Left as is, on purpose.** `lower_tint_unsupported_ops()` and `tint_crash_inputs.frag` keep their names (the
-comments explain them; renaming is the user's call). Pass rationales keep their Tint history in past tense. Browser
+**Renamed after the merge** (the user's choice): `lower_tint_unsupported_ops()` → `lower_wgsl_unsupported_ops()` and
+the fixture `tint_crash_inputs.frag` → `wgsl_unsupported_ops.frag`. Pass rationales keep their Tint history in past tense. Browser
 Tint (Chrome/Dawn compiling our WGSL) is unrelated and untouched. `spirv-headers`' broad `unified1` extraction stays
 for SPIRV-Tools; whether `spirv.hpp11` can return to the vulkan-sdk pin was not tried.
 

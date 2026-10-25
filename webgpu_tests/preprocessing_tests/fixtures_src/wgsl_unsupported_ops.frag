@@ -2,7 +2,7 @@
 // Each construct below used to make Tint's SPIR-V reader abort (an internal
 // compiler error that kills the whole wasm instance in the browser):
 // OpIsNan/OpIsInf, OpImageQueryLod, the PointCoord built-in and the
-// EarlyFragmentTests execution mode. lower_tint_unsupported_ops() rewrites them.
+// EarlyFragmentTests execution mode. lower_wgsl_unsupported_ops() rewrites them.
 layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 0) uniform texture2D tex;

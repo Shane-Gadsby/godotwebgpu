@@ -5505,7 +5505,7 @@ Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_erro
 	spv = fix_nonfinite_literals(spv);
 	// After split_combined_samplers(), so the sampled images it rewrites are
 	// already built from separate texture and sampler loads.
-	spv = run_opt_pass(spv, spirv_opt_passes::lower_tint_unsupported_ops);
+	spv = run_opt_pass(spv, spirv_opt_passes::lower_wgsl_unsupported_ops);
 	// Also needs split_combined_samplers(): it follows each sample's sampler
 	// back to its variable through a separate OpSampledImage.
 	spv = run_opt_pass(spv, spirv_opt_passes::apply_sampler_lod_bias);

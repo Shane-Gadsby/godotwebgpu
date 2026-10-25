@@ -61,7 +61,7 @@ namespace spirv_opt_passes {
 //    Without it, depth testing still happens; a fragment that would have been
 //    rejected early may additionally run its side effects (texture
 //    streaming's material feedback over-reports, it never under-reports).
-bool lower_tint_unsupported_ops(std::vector<uint32_t> &r_words);
+bool lower_wgsl_unsupported_ops(std::vector<uint32_t> &r_words);
 
 // Turns each array of textures, samplers or storage images
 // (`uniform texture3D t[N]`) into N separately bound variables, and every

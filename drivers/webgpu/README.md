@@ -103,7 +103,7 @@ passes live in `spirv_opt_passes.cpp`, because they restructure control flow:
   mip bias, so the scene shaders' render-pass samplers' bias (the viewport's
   `texture_mipmap_bias`, TAA/FSR's sharpening) is passed as data
   (`SamplerLodBias`, set 1 binding 40) and added to implicit-LOD samples.
-- **What WGSL has no form for** (`lower_tint_unsupported_ops()`, named for
+- **What WGSL has no form for** (`lower_wgsl_unsupported_ops()`, named for
   Tint, which aborted on them): `isnan`/`isinf`, `textureQueryLod`,
   `POINT_COORD` and `early_fragment_tests` used to crash the whole page from a
   material; they are rewritten into what the converter accepts.

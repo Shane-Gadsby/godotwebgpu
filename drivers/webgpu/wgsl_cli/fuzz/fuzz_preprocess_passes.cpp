@@ -98,7 +98,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	spv = spirv_preprocess::fold_ballot_bit_count(spv);
 	spv = spirv_preprocess::lower_subgroup_ops(spv);
 	spv = spirv_preprocess::fix_nonfinite_literals(spv);
-	spv = run_opt_pass(spv, spirv_opt_passes::lower_tint_unsupported_ops);
+	spv = run_opt_pass(spv, spirv_opt_passes::lower_wgsl_unsupported_ops);
 	spv = run_opt_pass(spv, spirv_opt_passes::apply_sampler_lod_bias);
 	spv = run_opt_pass(spv, spirv_opt_passes::expand_binding_arrays);
 	spv = spirv_preprocess::flatten_binding_arrays(spv);

@@ -165,7 +165,7 @@ std::vector<opt::Instruction *> instructions_with_opcode(opt::IRContext *p_ctx, 
 	return found;
 }
 
-// ---- lower_tint_unsupported_ops ----
+// ---- lower_wgsl_unsupported_ops ----
 
 bool strip_early_fragment_tests(opt::IRContext *p_ctx) {
 	std::vector<opt::Instruction *> modes;
@@ -697,7 +697,7 @@ bool find_array_var(opt::IRContext *p_ctx, opt::Instruction &p_var, ArrayVar &r_
 
 } // namespace
 
-bool lower_tint_unsupported_ops(std::vector<uint32_t> &r_words) {
+bool lower_wgsl_unsupported_ops(std::vector<uint32_t> &r_words) {
 	bool needed = false;
 	for_each_raw_instruction(r_words, [&needed](spv::Op p_op, const uint32_t *p_inst, uint32_t p_wc) {
 		needed = needed || p_op == spv::Op::OpIsNan || p_op == spv::Op::OpIsInf || p_op == spv::Op::OpImageQueryLod ||
