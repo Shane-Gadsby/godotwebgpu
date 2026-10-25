@@ -1,5 +1,19 @@
 # Status (lead-maintained)
 
+## 2026-10-25 13:00 — task 13 integrated
+
+- **13 integrated**: `run_pipeline()` validates its input (SPIRV-Tools, Vulkan 1.2) and rejects invalid modules cleanly;
+  every optimizer pass checks `check_ir_preconditions()` first; `rewrite_copy_logical` capped (a valid 1e8-element
+  OpCopyLogical took 6.2 GB / 51 s, now 8 MB); fuzzers instrument the passes (~5000 edges, all 27 passes), 10 min each
+  clean. Cost of validation: ~2.3 ms a module, CLI corpus +15%.
+- **Lead change on top (e99b18555e):** the in-engine runtime (`spirv_to_wgsl.cpp`) skips full validation — its input is
+  the engine's own glslang output, and on the web it would be pure load time against the user's performance bar. The
+  converter tool and fuzzers keep validating; size and per-pass checks stay everywhere.
+- Merged tree: editor + web release template build (1:50), smoke OK, preprocessing 291/0/1.
+- Open: `spec_op_probes.py`'s `op_FConvert_f32` probe is invalid SPIR-V, so its run_pipeline path is now rejected;
+  run `run_spec_ops.sh` (gpu) at the next lead GPU slot and fix the probe or its expected list.
+- `bin/` pair is now from e99b18555e.
+
 ## 2026-10-25 12:45 — task 14 integrated
 
 - **14 integrated**: `freeze_spec_constant_ops()` evaluates CompositeExtract / CompositeInsert / VectorShuffle and
@@ -168,7 +182,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 10 | docs | after 09 | lead |
 | 11 | Firefox desktop: works, as fast as Tint | open | |
 | 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
-| 13 | harden passes against malformed SPIR-V | open | |
+| 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |

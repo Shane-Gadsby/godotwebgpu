@@ -1,6 +1,6 @@
 # 13-harden-passes: malformed SPIR-V is rejected, never asserted on
 
-State: ready-for-integration
+State: integrated (merged; lead made full validation opt-out for the runtime path, e99b18555e; merged tree: editor + web template build, smoke OK, preprocessing 291/0/1)
 Owner: worker-13
 Claimed: 2026-10-25 12:07
 Needs: —
