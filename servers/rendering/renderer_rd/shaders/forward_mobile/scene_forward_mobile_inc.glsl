@@ -183,7 +183,7 @@ uint sc_directional_penumbra_shadow_samples() {
 #define SHADER_COUNT_MULTIPLE 2
 
 uint option_to_count(uint option, uint bound) {
-	// Single-return pattern to avoid SPIR-V phi/emit scoping issues in Tint.
+	// Single-return pattern to avoid SPIR-V phi/emit scoping issues in Tint (the WebGPU converter before SPIRV-Cross).
 	uint result = bound;
 	if (option == SHADER_COUNT_NONE) {
 		result = 0u;

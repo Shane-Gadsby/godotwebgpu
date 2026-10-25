@@ -98,18 +98,18 @@ jobs:
           cache-name: macos-editor
         continue-on-error: true
 
-      - name: Cache tint_convert_cli build
+      - name: Cache wgsl_convert_cli build
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-universal-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-universal-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
       # Universal, like the editor it ships next to; generate_bundle() copies it into
       # Contents/MacOS before signing.
-      - name: Build tint_convert_cli
+      - name: Build wgsl_convert_cli
         env:
           CXXFLAGS: -arch arm64 -arch x86_64
-        run: ./drivers/webgpu/tint_cli/build.sh
+        run: ./drivers/webgpu/wgsl_cli/build.sh
 
       # Lipos the two binaries into a universal .app and ad-hoc signs it
       # (platform_macos_builders.py's generate_bundle()); the compile is already done.

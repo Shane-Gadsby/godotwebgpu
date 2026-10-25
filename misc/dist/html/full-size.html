@@ -555,7 +555,7 @@ const engine = new Engine(GODOT_CONFIG);
 		// promise resolves, before control ever returns to JS, and therefore
 		// before the browser gets a chance to paint anything. On a cold shader
 		// cache this single call can block the main thread for many seconds
-		// (SPIR-V -> WGSL via Tint for every specialized pipeline variant the
+		// (SPIR-V -> WGSL conversion for every specialized pipeline variant the
 		// first frame needs; see webgpu_notes/TASKS.md §4.21 and Section 10
 		// of webgpu_notes/TASKS.md §4.21). No JS-side progress text
 		// or event listener can update the screen during that window -- the JS

@@ -8,7 +8,7 @@ textures, same texel read-modified-written every call
 (`average -= prev; average += new; store(history, new); store(average, average)`),
 across separate `queue.submit()`s with no explicit CPU-GPU sync — matching
 `sdfgi_integrate.glsl`'s `lightprobe_history_tex`/`lightprobe_average_tex`
-accumulation exactly, but with GLSL/Tint/Godot's renderer removed entirely.
+accumulation exactly, but with GLSL/SPIR-V conversion/Godot's renderer removed entirely.
 
 Because the real algorithm telescopes (each call's subtraction exactly
 cancels the previous call's own addition when reads see the true previous

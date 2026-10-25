@@ -1,8 +1,8 @@
-"""Dump every engine shader variant the precompiler builds, as SPIR-V and as bin/tint_convert_cli's WGSL.
+"""Dump every engine shader variant the precompiler builds, as SPIR-V and as bin/wgsl_convert_cli's WGSL.
 
 Runs drivers/webgpu/wgsl_precompile.py exactly as a web build does, with its batch converter wrapped so each
 module's SPIR-V lands in <out>/raw/<key>.spv and the converter's output in <out>/wgsl/<key>.wgsl
-(whichever backend bin/tint_convert_cli was built with). The generated header goes
+The generated header goes
 to <out>/gen.h, never into the tree. Not SCons: safe to run while a build is going, but it uses every core.
 
 Usage: python3 dump_corpus.py <repo_root> <out_dir> [glslangValidator]
@@ -29,10 +29,10 @@ def _safe(key):
     return re.sub(r"[^A-Za-z0-9_.-]", "_", key)
 
 
-def _dumping_convert(spv_files, tint_cli_path):
+def _dumping_convert(spv_files, cli_path):
     for key, path in spv_files:
         shutil.copy(path, os.path.join(out_dir, "raw", _safe(key) + ".spv"))
-    results = _convert(spv_files, tint_cli_path)
+    results = _convert(spv_files, cli_path)
     for key, wgsl in results.items():
         if isinstance(wgsl, str):
             with open(os.path.join(out_dir, "wgsl", _safe(key) + ".wgsl"), "w") as f:

@@ -64,7 +64,7 @@ Error RenderingContextDriverWebGPU::initialize() {
 	// The HTML shell pre-initializes a GPUDevice and stores it in Module.preinitializedWebGPUDevice.
 	// We use the emdawnwebgpu port's WebGPU.importJsDevice() to wrap it in a C WGPUDevice handle.
 	// Note: emdawnwebgpu is a thin JS wrapper around the browser's WebGPU API.
-	// SPIR-V is NOT supported — we use Tint (C++, linked in) for SPIR-V → WGSL
+	// SPIR-V is NOT supported — we use SPIRV-Cross (C++, linked in) for SPIR-V → WGSL
 	// conversion in shader_create_from_container() instead.
 	// Create a WGPUInstance — needed for wgpuInstanceProcessEvents() which
 	// processes async callbacks (buffer map readback, query results, etc.).

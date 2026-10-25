@@ -43,9 +43,6 @@
 #include "drivers/webgpu/spirv_preprocess.h"
 #include "drivers/webgpu/spirv_spec_constants.h"
 #include "drivers/webgpu/spirv_to_wgsl.h"
-#ifdef WGSL_BACKEND_TINT
-#include "drivers/webgpu/tint_wrapper.h"
-#endif
 #include "drivers/webgpu/wgsl_text_scan.h"
 
 #include <emscripten/emscripten.h>
@@ -100,13 +97,13 @@ static void _set_wgsl_text(char *&r_wgsl_str, const std::string &p_text) {
 }
 
 // =============================================================================
-// SPIR-V → WGSL conversion (Tint + SPIR-V preprocessing)
+// SPIR-V → WGSL conversion (SPIR-V preprocessing + SPIRV-Cross)
 // =============================================================================
 //
 // emdawnwebgpu only accepts WGSL, so every shader stage must be converted from
-// SPIR-V. Tint (C++, linked directly into the engine WASM) handles the
-// conversion. Twelve SPIR-V preprocessing passes (push constant rewriting,
-// sampler splitting, Y-flip, etc.) run before Tint's SpirvToWgsl.
+// SPIR-V. SPIRV-Cross's WGSL backend (C++, linked directly into the engine WASM)
+// handles the conversion. The SPIR-V preprocessing passes (push constant
+// rewriting, sampler splitting, Y-flip, etc.) run before it.
 //
 // Cache lives for process lifetime — the SPIR-V → WGSL mapping is independent
 // of the WebGPU device, and a single process never creates more than ~1k
@@ -171,14 +168,14 @@ struct _ContainerCreateTimer {
 //     // { baked: 412, precompiled: 3, cached: 88, translated: 0, specialized: 37 }
 //
 // `translated` is the number that matters: it counts stages this driver had to
-// run Tint on at load time *that export-time baking should have covered*, which
+// convert at load time *that export-time baking should have covered*, which
 // is exactly what baking exists to drive to zero. A non-zero value names a real
 // gap; zero means every shader arrived ready and any remaining startup cost is
 // the browser's own WGSL -> pipeline compilation, which no amount of baking on
 // our side removes.
 //
-// `specialized` is deliberately NOT part of `translated`, though both run Tint
-// at load time. It counts re-conversions forced by a specialization constant
+// `specialized` is deliberately NOT part of `translated`, though both run the
+// converter at load time. It counts re-conversions forced by a specialization constant
 // being patched into the SPIR-V (the legacy path taken only when
 // spec_constants_overridable() rejects a shader). Those bytes are produced at
 // pipeline-creation time from values the exporter never saw, so no amount of
@@ -329,7 +326,7 @@ void RenderingDeviceDriverWebGPU::_publish_frame_stats(uint32_t p_fps, uint32_t 
 }
 
 // Loading-screen signal: the JS shell (misc/dist/html/full-size.html) listens for
-// this event to know a synchronous Tint compile just ran on the main thread, since
+// this event to know a synchronous SPIR-V → WGSL conversion just ran on the main thread, since
 // that's the actual source of the multi-second startup stall the progress bar
 // otherwise gives no indication of (see webgpu_notes/TASKS.md §4.21). Fired
 // unconditionally (not gated behind WEBGPU_VERBOSE like WEBGPU_DIAG above) because
@@ -363,7 +360,7 @@ static const char *_lookup_precompiled_wgsl(uint64_t p_spv_hash) {
 	return nullptr;
 }
 
-// Run SPIR-V preprocessing passes and translate to WGSL via Tint.
+// Run SPIR-V preprocessing passes and translate to WGSL via SPIRV-Cross.
 // Returns a malloc'd null-terminated WGSL string, or nullptr on failure.
 // Shared with the export-time shader baker (rendering_shader_container_webgpu.cpp)
 // so baked WGSL is byte-identical to what this fallback would have produced.
@@ -372,7 +369,7 @@ static char *_translate_spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) 
 }
 
 // Returns a malloc'd null-terminated WGSL string (caller must free), or nullptr on
-// failure. Checks: (1) in-memory cache, (2) precompiled table, (3) Tint fallback.
+// failure. Checks: (1) in-memory cache, (2) precompiled table, (3) runtime conversion.
 //
 // p_spec_reconvert marks the caller as _create_module_with_spec_constants(), whose
 // SPIR-V was patched with specialization values at pipeline-creation time. Such a
@@ -420,7 +417,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size, bool 
 		return out;
 	}
 
-	// 3. Fall back to Tint (for specialized shaders and shaders not in the table).
+	// 3. Convert at runtime (for specialized shaders and shaders not in the table).
 	if (p_spec_reconvert) {
 		_spv_to_wgsl_spec_reconvert_hits++;
 	} else {
@@ -459,7 +456,7 @@ static char *_spv_to_wgsl_cached(const uint8_t *p_spv_ptr, int p_spv_size, bool 
 
 	WEBGPU_DIAG({
 		if ($2 <= 5 || ($2 % 50) === 0) {
-			console.log('[SHADER] WGSL stats: precompiled_hits=' + $0 + ' cache_hits=' + $1 + ' tint_misses=' + $2);
+			console.log('[SHADER] WGSL stats: precompiled_hits=' + $0 + ' cache_hits=' + $1 + ' misses=' + $2);
 		} }, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses);
 
 	return wgsl_str;
@@ -631,7 +628,7 @@ static WGPUTextureFormat _wgsl_scan_storage_format_to_wgpu(const std::string &p_
 // second, SPIR-V-level source of this same information is needed at all.
 // Covers the same format set as the string-based table (plus the signed/
 // unsigned integer variants that only arise from raw SPIR-V, never from a
-// WGSL text scan, since Tint spells those out fully in the type name it
+// WGSL text scan, since the converter spells those out fully in the type name it
 // emits, e.g. "rg8sint" already has a direct string match above).
 static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 	switch (p_spirv_format) {
@@ -723,8 +720,8 @@ static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 // eliminate_dead_resources() (Task 8.7's AggressiveDCE pass) has run.
 //
 // Why this needs to exist as a *second*, independent source of truth alongside
-// the various post-Tint WGSL-text scans elsewhere in this file (all of which,
-// unlike this one, run on the WGSL Tint emits *after* our own DCE pass has
+// the various WGSL-text scans elsewhere in this file (all of which, unlike
+// this one, run on the converter's WGSL *after* our own DCE pass has
 // already stripped anything unreachable from this stage's actual entry point):
 // a storage image can be declared in the GLSL/SPIR-V but never referenced in
 // one particular compiled shader *variant* (different variants of the same
@@ -737,10 +734,10 @@ static WGPUTextureFormat _spirv_image_format_to_wgpu(uint32_t p_spirv_format) {
 // that -- so `ss_effects.cpp`'s C++ code unconditionally builds a real
 // R8_UNORM texture uniform for this binding on every variant, and this
 // driver's BindGroupLayout-building code (driven by that same reflection,
-// not by what Tint's *output* still contains) still creates a real
+// not by what the converter's *output* still contains) still creates a real
 // `storageTexture` entry for it too. But once *our* DCE pass correctly
 // strips the binding from a variant that never reaches it, there is nothing
-// left in the WGSL for the post-Tint text scans to find a format string in --
+// left in the WGSL for the WGSL text scans to find a format string in --
 // they come up empty, and the BGL entry silently defaults to RGBA8Unorm,
 // mismatching whatever format the real texture actually is
 // ("Format (R8Unorm) of [Texture] expected to be (RGBA8Unorm)"). A texture's
@@ -776,7 +773,7 @@ struct PreDceImageInfo {
 };
 
 // Maps the raw SPIR-V operands spirv_lite_reflect reports to the WebGPU facts a
-// BindGroupLayout entry needs, keyed the way the post-Tint WGSL scans key theirs.
+// BindGroupLayout entry needs, keyed the way the WGSL text scans key theirs.
 //
 // Taking RawImageDecls rather than SPIR-V bytes is what lets the same mapping
 // serve both sources: a container that shipped its declarations baked (the
@@ -832,7 +829,7 @@ static HashMap<uint32_t, PreDceImageInfo> _pre_dce_image_info_from_decls(const V
 		// still carry the original, undoubled GLSL binding number. Every other
 		// populator of wgsl_storage_tex_format / wgsl_tex_dims keys on the
 		// final, doubled WGSL binding (it reads @binding(B) straight out of
-		// Tint's output), so this key must double it too to land in the same
+		// the converter's output), so this key must double it too to land in the same
 		// key space.
 		result[(decl.set << 16) | (decl.binding * 2)] = info;
 	}
@@ -993,11 +990,6 @@ RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
 // =============================================================================
 
 Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
-#ifdef WGSL_BACKEND_TINT
-	// Initialize Tint shader compiler (SPIR-V → WGSL).
-	tint_wrapper_initialize();
-#endif
-
 	device = context_driver->get_device();
 	queue = context_driver->get_queue();
 	ERR_FAIL_COND_V(device == nullptr, ERR_CANT_CREATE);
@@ -3111,7 +3103,7 @@ BitField<RDD::TextureUsageBits> RenderingDeviceDriverWebGPU::texture_get_usages_
 		case DATA_FORMAT_R32G32B32A32_UINT:
 		case DATA_FORMAT_R32G32B32A32_SINT:
 		// rgb10a2unorm, rgb10a2uint, rg11b10ufloat -- part of WebGPU's storage-texel
-		// format capability matrix (this build's Tint/Dawn accepts these as valid
+		// format capability matrix (the browser's WebGPU (Dawn) accepts these as valid
 		// textureStore() targets; see the "storage-format-string" handling for these
 		// three formats elsewhere in this file, e.g. _wgsl_storage_format_string_to_wgpu()
 		// from Task 9 Round 9). This switch previously omitted them, so any caller
@@ -4329,7 +4321,7 @@ void RenderingDeviceDriverWebGPU::framebuffer_free(FramebufferID p_framebuffer) 
 // =============================================================================
 
 // Helper: map Godot stage mask bits to WGPUShaderStage visibility flags.
-// After Tint processing (comparison splitting, type changes), the WGSL shader
+// After conversion (comparison splitting, type changes), the WGSL shader
 // may reference bindings in stages not predicted by the original SPIR-V reflection.
 // To avoid visibility mismatches, OR in both Vertex and Fragment for any render
 // shader that uses either stage. Compute stays separate.
@@ -4356,8 +4348,8 @@ static WGPUShaderStage _stages_to_wgpu_visibility(uint32_t p_stage_mask) {
 // kind of thing that silently drifts; see webgpu_notes/TASKS.md §4.4 (the
 // "duplicated format remapping" item) for context.
 void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *&r_wgsl_str, ShaderStage p_stage) const {
-	// p_stage is no longer used here (vertex-stage read_write demotion moved to
-	// the Tint IR level -- see the NOTE at the bottom of this function); kept in
+	// p_stage is no longer used here (vertex-stage read_write demotion moved
+	// into the converter -- see the NOTE at the bottom of this function); kept in
 	// the signature since removing it would require touching both call sites for
 	// no benefit, and a future format remap may again need to be stage-specific.
 	(void)p_stage;
@@ -4415,7 +4407,7 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 
 	// If texture-formats-tier1 is not available, remap 16-bit SNORM/UNORM storage
 	// texture format names to their float equivalents in the WGSL text.
-	// Uses String::replace() (not fixed-length memcpy) so a future Tint WGSL-writer
+	// Uses String::replace() (not fixed-length memcpy) so a future WGSL-writer
 	// spelling change can't silently corrupt output -- see Task 7.18.
 	if (!has_texture_formats_tier1 &&
 			(strstr(r_wgsl_str, "16snorm") || strstr(r_wgsl_str, "16unorm"))) {
@@ -4473,9 +4465,8 @@ void RenderingDeviceDriverWebGPU::_remap_unsupported_wgsl_storage_formats(char *
 	// 9.1/9's live-repro finding about cluster_render.glsl's genuine fragment-
 	// stage atomic<u32> storage buffer for why this must NOT apply to other
 	// stages) used to be a text-based rewrite here. It's now applied structurally
-	// at the Tint IR level instead -- see tint_ir_transforms.h's
-	// DemoteVertexStageReadWriteStorage(), run inside tint_wrapper_spirv_to_wgsl()
-	// before WGSL is even generated. See Task 7.18/Tier 1 #4 (webgpu_notes/TASKS.md).
+	// before WGSL is even generated: spirv_cross_wrapper.cpp marks the vertex
+	// stage's storage buffers NonWritable, so they come out `var<storage, read>`. See Task 7.18/Tier 1 #4 (webgpu_notes/TASKS.md).
 }
 
 RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
@@ -4497,7 +4488,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 	String error_text;
 
-	// Maps (set_index << 16 | binding) to the WGSL texture view dimension detected from Tint output.
+	// Maps (set_index << 16 | binding) to the WGSL texture view dimension detected from the WGSL.
 	// Used so SAMPLER_WITH_TEXTURE and TEXTURE BGL entries get the correct viewDimension.
 	HashMap<uint32_t, WGPUTextureViewDimension> wgsl_tex_dims;
 
@@ -4505,14 +4496,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// false if read-write (var<storage, read_write>). Used to correctly set BGL buffer type for SSBOs.
 	HashMap<uint32_t, bool> wgsl_ssbo_readonly;
 
-	// Maps (set_index << 16 | binding) → storage texture access mode detected from Tint WGSL output.
-	// Tint emits: texture_storage_2d<format, write/read/read_write>. Used for IMAGE BGL entries.
+	// Maps (set_index << 16 | binding) → storage texture access mode detected from the WGSL:
+	// texture_storage_2d<format, write/read/read_write>. Used for IMAGE BGL entries.
 	HashMap<uint32_t, WGPUStorageTextureAccess> wgsl_storage_tex_access;
 
 	// Maps (set_index << 16 | binding) → storage texture format (from WGSL scan). Used for IMAGE BGL entries.
 	HashMap<uint32_t, WGPUTextureFormat> wgsl_storage_tex_format;
 
-	// Maps (set_index << 16 | binding) → true if Tint output has var<uniform> (e.g. for texture buffers).
+	// Maps (set_index << 16 | binding) → true if the WGSL has var<uniform> (e.g. for texture buffers).
 	HashMap<uint32_t, bool> wgsl_is_uniform;
 
 	// Maps (set_index << 16 | binding) → true if the WGSL has texture_depth_* at this binding.
@@ -4527,7 +4518,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	HashMap<uint32_t, bool> wgsl_is_multisampled_texture;
 
 	// Maps (set_index << 16 | binding) → the sampled texture's component sample
-	// type, detected from Tint's texture_2d<T>/texture_3d<T>/etc. component
+	// type, detected from the WGSL's texture_2d<T>/texture_3d<T>/etc. component
 	// type T ("u32" → Uint, "i32" → Sint, else Float). Godot's GLSL uses
 	// utexture2D/itexture2D (e.g. gi.glsl's voxel_gi_buffer) for genuinely
 	// integer-sampled textures; without this, every non-depth UNIFORM_TYPE_TEXTURE
@@ -4537,14 +4528,15 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 	// layout's texture sample type (Float)") -- see webgpu_notes/TASKS.md Task 9.5.
 	HashMap<uint32_t, WGPUTextureSampleType> wgsl_tex_sample_type;
 
-	// Removed here: the whole "depth alias" mechanism. Tint splits a mixed-usage
+	// Removed here: the whole "depth alias" mechanism. Tint (the converter before
+	// SPIRV-Cross) split a mixed-usage
 	// depth texture into two globals -- Depth at binding B and a Float alias at
 	// B+1, named "*_depth_alias" -- and this file used to scan the WGSL for that
 	// name and synthesize the extra BGL entry, merged-layout entry and bind
-	// group entry it implies. It can no longer happen: Tint only emits the alias
+	// group entry it implies. It could no longer happen: Tint only emitted the alias
 	// for an *ambiguous* (depth = 2) OpTypeImage, and
 	// spirv_preprocess.cpp:2008 rewrites every depth = 2 image to depth = 1
-	// before Tint ever sees the module, so a single texture_depth_2d variable
+	// before the converter ever sees the module, so a single texture_depth_2d variable
 	// now serves both sampling modes. Confirmed as well as argued: zero
 	// occurrences of "_depth_alias" in wgsl_precompiled.gen.h and zero across
 	// all 216 baked shader containers of a real project's export. It had already
@@ -4633,8 +4625,8 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// un-preprocessed SPIR-V -- before a binding that's declared but not
 		// actually reachable from this stage's own entry point is stripped
 		// from the WGSL by eliminate_dead_resources() below, taking with it
-		// the only text the post-Tint scans further down could otherwise have
-		// read this info from. Insert-if-absent: a later, post-Tint scan
+		// the only text the WGSL scans further down could otherwise have
+		// read this info from. Insert-if-absent: a later WGSL scan
 		// finding real evidence for the same key always takes precedence over
 		// this static declaration-only guess (e.g. a read_write split's
 		// shadow companion needs the *shadow's* binding, which doesn't exist
@@ -4660,14 +4652,14 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 		// emdawnwebgpu does NOT support WGPUShaderSourceSPIRV — it's a thin wrapper
 		// around the browser's WebGPU API which only accepts WGSL.
-		// We convert SPIR-V → WGSL at runtime using Tint (C++, linked directly).
+		// We convert SPIR-V → WGSL at runtime using SPIRV-Cross (C++, linked directly).
 		// Many shader stages share SPIR-V bytes; _spv_to_wgsl_cached looks up a
-		// process-lifetime cache before invoking Tint (see helper definition).
+		// process-lifetime cache before converting (see helper definition).
 		//
 		// If this stage was already baked to WGSL at export time (see
 		// rendering_shader_container_webgpu.cpp's _set_code_from_spirv() and
 		// editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp),
-		// use that directly and skip Tint entirely. Copied into a fresh malloc'd
+		// use that directly and skip conversion entirely. Copied into a fresh malloc'd
 		// buffer (rather than handed out as-is) because the WGSL-text transform
 		// passes below own and mutate/free `wgsl_str` in place; the container's
 		// copy must stay untouched for any later shader_create_from_container() call.
@@ -4691,7 +4683,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 			// (multiview above all -- see TASKS.md §2.27), in which case the real
 			// question is why the renderer asked for that variant on a backend
 			// with no multiview; or the container is truncated. Reported either
-			// way, rather than passed to Tint as a null pointer.
+			// way, rather than passed to the converter as a null pointer.
 			error_text = vformat("WebGPU: shader container for '%s' has neither baked WGSL nor SPIR-V for stage %d. Either this variant is one WGSL cannot express (multiview, 16-bit integers, image atomics) and the export dropped it, or the container is truncated.", shader->name, (int)s.shader_stage);
 			break;
 		} else {
@@ -4713,12 +4705,12 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 		// NOTE: this used to be followed by a WGSL-text-level fallback pass
 		// unwrapping "binding_array<T, N>" (Chrome doesn't implement WGSL's
-		// `sized_binding_array` feature Tint needs to emit that type for a GLSL
+		// `sized_binding_array` feature Tint needed to emit that type for a GLSL
 		// sampler/texture array like `sampler2DArray tex[N]`). Removed as dead
 		// code (Task 9.15/Tier 1 #4 Phase 2): `spirv_preprocess::flatten_binding_arrays()`
 		// (drivers/webgpu/spirv_preprocess.cpp, one of the shared SPIR-V-level
 		// preprocessing passes both this function and _create_module_with_spec_constants()
-		// already run via _spv_to_wgsl_cached() before Tint ever sees the bytes)
+		// already run via _spv_to_wgsl_cached() before the converter ever sees the bytes)
 		// already eliminates every OpTypeArray/OpTypeRuntimeArray of a handle
 		// type at the SPIR-V level -- structurally, with proper pointer-type
 		// deduplication, not string matching -- so this WGSL-text fallback could
@@ -4828,7 +4820,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 		// Everything this stage's bind group layout needs from the converted text comes
 		// from wgsl_text_scan (drivers/webgpu/wgsl_text_scan.h): one structural read of the
 		// module-scope resource declarations, which is also what
-		// webgpu_tests/wgsl_text_scan runs over Tint's and SPIRV-Cross's output for every
+		// webgpu_tests/wgsl_text_scan runs over SPIRV-Cross's output for every
 		// engine shader. A string search here would silently find nothing in a spelling it
 		// did not expect (`@group(0)` against `@group(0u)`, `var<storage>` against
 		// `var<storage, read>`) and leave the binding on a default.
@@ -5105,7 +5097,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 
 					case RDD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 						// Combined sampler+texture split by our SPIR-V preprocessor:
-						// Sampler at binding*2+0, texture at binding*2+1 in the modified SPIR-V → matches Tint WGSL output.
+						// Sampler at binding*2+0, texture at binding*2+1 in the modified SPIR-V → matches the converted WGSL.
 						//
 						// EXCEPT for multisampled combined samplers (GLSL sampler2DMS):
 						// texelFetch-only multisampled access needs no sampler object at
@@ -5115,7 +5107,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						// places the split-out texture at binding*2 instead of *2+1. This
 						// code used to unconditionally assume sampler-at-*2/texture-at-
 						// *2+1 regardless, producing a BGL that expected a sampler at
-						// binding*2 when Tint's WGSL actually declared a
+						// binding*2 when the WGSL actually declared a
 						// texture_multisampled_2d there -- "shader (texture) doesn't
 						// match layout (sampler)". Found via a real Chrome run against
 						// resolve.glsl's MODE_RESOLVE_GI source_normal_roughness. See
@@ -5215,7 +5207,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 							entry.storageTexture.viewDimension = wgsl_tex_dims.has(k) ? wgsl_tex_dims[k] : WGPUTextureViewDimension_2D;
 
 						} else if (wgsl_is_uniform.has(k) && wgsl_is_uniform[k]) {
-							// Tint emitted var<uniform> for this binding.
+							// The converter emitted var<uniform> for this binding.
 							entry.buffer.type = WGPUBufferBindingType_Uniform;
 						} else {
 							bool is_readonly = wgsl_ssbo_readonly.has(k) ? wgsl_ssbo_readonly[k] : !u.writable;
@@ -5275,7 +5267,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						entry.binding = u.binding * 2; // Preprocessing doubles all non-combined bindings.
 						uint32_t k = ((uint32_t)set << 16) | (u.binding * 2);
 						entry.visibility = resolve_stage_visibility(k, vis);
-						// Tint may convert TBOs to var<uniform> or var<storage,read> depending on usage.
+						// The converter may turn TBOs into var<uniform> or var<storage,read> depending on usage.
 						{
 							if (wgsl_is_uniform.has(k) && wgsl_is_uniform[k]) {
 								entry.buffer.type = WGPUBufferBindingType_Uniform;
@@ -5296,7 +5288,7 @@ RDD::ShaderID RenderingDeviceDriverWebGPU::shader_create_from_container(const Re
 						entry.binding = u.binding * 2; // Preprocessing doubles all non-combined bindings.
 						uint32_t k = ((uint32_t)set << 16) | (u.binding * 2);
 						entry.visibility = resolve_stage_visibility(k, vis);
-						// Tint may convert image buffers to texture_storage_*.
+						// The converter may turn image buffers into texture_storage_*.
 						if (wgsl_storage_tex_format.has(k)) {
 							WGPUTextureFormat fmt = wgsl_storage_tex_format[k];
 							WGPUStorageTextureAccess access = wgsl_storage_tex_access.has(k)
@@ -5946,7 +5938,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 		switch (uniform.type) {
 			case UNIFORM_TYPE_SAMPLER: {
-				// Tint flattens binding arrays to single resources, so only provide
+				// Binding arrays are flattened to single resources, so only provide
 				// the first sampler. Multiple IDs at the same binding means a
 				// binding array which is reduced to 1 element.
 				if (uniform.ids.size() > 0) {
@@ -6290,7 +6282,7 @@ RDD::UniformSetID RenderingDeviceDriverWebGPU::uniform_set_create(VectorView<Bou
 
 			case UNIFORM_TYPE_TEXTURE_BUFFER:
 			case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE_BUFFER: {
-				// Tint converts texture buffers to uniform/storage buffers. Bind as buffer.
+				// Texture buffers become uniform/storage buffers in WGSL. Bind as buffer.
 				WGBuffer *buf = (WGBuffer *)(uniform.ids[0].id);
 				ERR_CONTINUE_MSG(buf == nullptr, "WebGPU: null buffer in texture buffer uniform.");
 				WGPUBindGroupEntry entry = {};
@@ -9530,7 +9522,7 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 		const HashMap<uint32_t, uint32_t> &p_rw_storage_splits) {
 	PackedByteArray patched = webgpu::patch_spirv_spec_constants(p_spirv, p_constants);
 
-	// Cached SPIR-V → WGSL via Tint (see _spv_to_wgsl_cached above). Only
+	// Cached SPIR-V → WGSL via SPIRV-Cross (see _spv_to_wgsl_cached above). Only
 	// reached for a shader spec_constants_overridable() rejected: anything it
 	// accepts keeps its constants as WGSL overrides and specializes through
 	// pipeline constants on the base module instead of coming through here.
@@ -9549,7 +9541,7 @@ WGPUShaderModule RenderingDeviceDriverWebGPU::_create_module_with_spec_constants
 	// Split read_write storage textures into write + shadow-read bindings --
 	// same transformation as shader_create_from_container()'s own copy of this
 	// pass (see its doc comment, ~line 4481, for the full rationale), but
-	// deliberately NOT a re-detection: this path re-runs Tint on a
+	// deliberately NOT a re-detection: this path re-runs the converter on a
 	// specialization-patched copy of the SPIR-V, whose surviving dead-code
 	// elimination can differ per specialization, so independently re-scanning
 	// this module's WGSL for "read_write>" and re-deriving a fresh split
@@ -9639,7 +9631,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 	// If the base shader modules were compiled with WGSL override declarations
 	// (spirv_to_wgsl_with_overrides), we can pass specialization values as
 	// pipeline constants instead of creating specialized shader modules.
-	// This eliminates all runtime SPIR-V patching and Tint conversion.
+	// This eliminates all runtime SPIR-V patching and re-conversion.
 	WGPUShaderModule vertex_module = _get_stage_module(shader, SHADER_STAGE_VERTEX);
 	WGPUShaderModule fragment_module = _get_stage_module(shader, SHADER_STAGE_FRAGMENT);
 	WGPUShaderModule specialized_vertex = nullptr;
@@ -9689,7 +9681,7 @@ RDD::PipelineID RenderingDeviceDriverWebGPU::render_pipeline_create(
 				}
 			}
 		} else {
-			// Legacy path: patch SPIR-V and create specialized modules via Tint.
+			// Legacy path: patch SPIR-V and create specialized modules by re-converting.
 			if (!shader->stage_spirv[SHADER_STAGE_VERTEX].is_empty()) {
 				specialized_vertex = _create_module_with_spec_constants(
 						shader->stage_spirv[SHADER_STAGE_VERTEX], p_specialization_constants, SHADER_STAGE_VERTEX, shader->rw_storage_splits);
@@ -10534,7 +10526,7 @@ void RenderingDeviceDriverWebGPU::_fill_compute_constants(WGShader *p_shader, co
 // them a startup stall. A couple at a time, so the shader modules they need
 // (created synchronously) are spread over many frames. A pipeline bound before
 // its result arrives takes the synchronous path as before, and the late result
-// is dropped. One whose specialization re-runs Tint (the legacy path) is left to
+// is dropped. One whose specialization re-runs the converter (the legacy path) is left to
 // first use: that conversion would run on this thread.
 static constexpr uint32_t PREWARM_START_SEGMENT = 120; // ~2 s at 60 fps: after startup.
 static constexpr uint32_t PREWARM_PER_SEGMENT = 1;

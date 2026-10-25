@@ -485,7 +485,7 @@ async function runScenePlaywright(scene, browser, timeout) {
             gpuErrors.push(text.substring(0, 200));
         }
 
-        if (text.includes('[SHADER]') || text.includes('Tint conversion') || text.includes('spirv error')) {
+        if (text.includes('[SHADER]') || text.includes('SPIR-V→WGSL') || text.includes('spirv error')) {
             shaderErrors.push(text.substring(0, 200));
         }
 

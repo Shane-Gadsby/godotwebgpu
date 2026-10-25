@@ -57,10 +57,10 @@ public:
 		// The per-shader SPIR-V payload is absent -- `code_compressed_bytes` is
 		// empty for every stage. Only set when the bake established that nothing
 		// at runtime can need it. Two ways that holds: every stage converted to
-		// WGSL successfully, so there is no Tint fallback left to run; or a stage
-		// that did not convert is one WGSL cannot express at all (multiview,
-		// sub-32-bit integers, image atomics), where a runtime Tint call would
-		// abort rather than succeed. Either way no stage needs the legacy
+		// WGSL successfully, so there is no runtime conversion left to run; or a
+		// stage that did not convert is one WGSL cannot express at all (multiview,
+		// sub-32-bit integers, image atomics), where a runtime conversion would
+		// fail rather than succeed. Either way no stage needs the legacy
 		// specialize-by-re-patching-SPIR-V path. See _set_code_from_spirv().
 		FLAG_SPIRV_OMITTED = 1 << 1,
 	};
@@ -86,7 +86,7 @@ protected:
 	//
 	// `wgsl_code` is owned text, produced in memory by _set_code_from_spirv():
 	// - Export-time bake (native editor, WEBGPU_SHADER_BAKER_ENABLED): always,
-	//   so exported .pck's ship with WGSL and the runtime driver skips Tint.
+	//   so exported .pck's ship with WGSL and the runtime driver skips conversion.
 	// - Runtime (web build, WEBGPU_ENABLED): only reached if a shader is ever
 	//   compiled from source in the browser itself (not the normal path for
 	//   exported projects, which consume pre-baked containers).
@@ -101,8 +101,8 @@ protected:
 	// baked in memory has an entry in `wgsl_code`; a stage that came off disk
 	// has one in `wgsl_view`; get_wgsl_code() reads whichever is there.
 	//
-	// An empty entry in both means "not baked" (e.g. a stage Tint could not
-	// convert at export time), and the driver falls back to translating that
+	// An empty entry in both means "not baked" (e.g. a stage the converter could
+	// not convert at export time), and the driver falls back to translating that
 	// stage's SPIR-V itself.
 	Vector<CharString> wgsl_code;
 	Vector<WGSLView> wgsl_view;
@@ -135,7 +135,8 @@ protected:
 	/// Called by set_code_from_spirv() — stores raw SPIR-V bytes per stage
 	/// (Dawn's WebGPU implementation supports WGPUShaderSourceSPIRV natively,
 	/// so SPIR-V remains a valid runtime fallback), and additionally bakes
-	/// WGSL per stage via the shared Tint pipeline (see spirv_to_wgsl.h).
+	/// WGSL per stage via the shared SPIR-V → WGSL pipeline, out of process
+	/// (bin/wgsl_convert_cli, see wgsl_bake_subprocess.h).
 	virtual bool _set_code_from_spirv(const ReflectShader &p_shader) override;
 
 	// Serialization overrides for extra header data.
@@ -163,7 +164,7 @@ public:
 
 	// Returns the baked WGSL for a shader stage index (parallel to `shaders`) as
 	// pointer + length, or false if this stage wasn't baked (caller should fall
-	// back to translating its SPIR-V with Tint).
+	// back to translating its SPIR-V itself).
 	//
 	// The text is NOT NUL-terminated: when it comes from the footer it is a
 	// window into the container bytes, where the next stage's length prefix
@@ -187,7 +188,7 @@ public:
 		uint64_t spirv_bytes = 0; // SPIR-V across every stage of them.
 		uint64_t wgsl_bytes = 0; // Baked WGSL across every stage of them.
 		uint64_t stages_baked = 0;
-		uint64_t stages_unbaked = 0; // Stages the runtime must run Tint on.
+		uint64_t stages_unbaked = 0; // Stages the runtime must convert itself.
 		double footer_parse_ms = 0.0; // Time in _from_bytes_footer_extra_data().
 	};
 	static const LoadStats &get_load_stats();
@@ -239,7 +240,7 @@ public:
 	virtual ShaderSpirvVersion get_shader_spirv_version() const override {
 		// SPIR-V 1.3 — required so glslang emits SSBOs as StorageClass::StorageBuffer
 		// (not the old-style StorageClass::Uniform + BufferBlock used in SPIR-V 1.0).
-		// Tint correctly converts StorageClass::StorageBuffer → var<storage, read/read_write>.
+		// The converter turns StorageClass::StorageBuffer into var<storage, read/read_write>.
 		// SPIR-V 1.3 requires Vulkan 1.1 client, which matches our language version.
 		return SHADER_SPIRV_VERSION_1_3;
 	}

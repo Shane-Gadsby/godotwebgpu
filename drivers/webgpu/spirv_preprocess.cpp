@@ -376,13 +376,14 @@ static bool eval_spec_op(uint32_t p_opcode, const Vector<uint64_t> &p_operands, 
 
 // ---- spec_constants_overridable ----
 
-// OpSpecConstantOp operations that Tint's SPIR-V reader can lower into a WGSL
-// override expression (tint::spirv::reader's EmitSpecConstants switch). The
-// ones it rejects outright are SConvert/UConvert (no WGSL integer types of
-// differing width), CompositeInsert/VectorShuffle (a WGSL override must be
-// scalar) and anything not in its switch at all, all of which raise a
-// TINT_ICE — so a module using one has to be frozen instead of preserved.
-static bool is_tint_overridable_spec_op(uint32_t p_opcode) {
+// OpSpecConstantOp operations that can be lowered into a WGSL override
+// expression. The set is the one Tint's SPIR-V reader (the converter before
+// SPIRV-Cross) accepted in its EmitSpecConstants switch, and SPIRV-Cross is
+// held to it so the override interface stays what the driver was built
+// against. Left out: SConvert/UConvert (no WGSL integer types of differing
+// width), CompositeInsert/VectorShuffle (a WGSL override must be scalar) and
+// anything else -- so a module using one has to be frozen instead of preserved.
+static bool is_overridable_spec_op(uint32_t p_opcode) {
 	switch ((uint16_t)p_opcode) {
 		case OP_BITWISE_AND:
 		case OP_BITWISE_OR:
@@ -449,9 +450,9 @@ static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
 	// Every id produced by an OpSpecConstant* instruction, including the
 	// derived results of OpSpecConstantOp/OpSpecConstantComposite.
 	HashSet<uint32_t> spec_derived_ids;
-	// OpSpecConstantComposite results, tracked separately: Tint only accepts
-	// one whose operands are all plain literals (it then falls back to normal
-	// constant handling), and asserts outright if it carries a SpecId.
+	// OpSpecConstantComposite results, tracked separately: only one whose
+	// operands are all plain literals is kept (it is then a normal constant),
+	// and one that carries a SpecId freezes the module (Tint asserted on it).
 	HashSet<uint32_t> spec_composite_ids;
 	HashSet<uint32_t> spec_id_targets;
 
@@ -497,7 +498,7 @@ static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
 					uint32_t result_id = read_word(data, len, pos + 2);
 					uint32_t spec_op = read_word(data, len, pos + 3);
 					spec_derived_ids.insert(result_id);
-					if (!scalar_type_ids.has(type_id) || !is_tint_overridable_spec_op(spec_op)) {
+					if (!scalar_type_ids.has(type_id) || !is_overridable_spec_op(spec_op)) {
 						result.overridable = false;
 					}
 				}
@@ -508,11 +509,11 @@ static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
 					uint32_t result_id = read_word(data, len, pos + 2);
 					spec_derived_ids.insert(result_id);
 					spec_composite_ids.insert(result_id);
-					// A composite built out of literals is fine -- Tint's reader
-					// recognizes it as a plain constant. One built out of real
+					// A composite built out of literals is fine -- the converter
+					// treats it as a plain constant. One built out of real
 					// specialization constants (GLSL's `vec3(SPEC_FLOAT)`) has no
-					// scalar WGSL override equivalent; Tint materializes it at
-					// each use site instead, which this driver has never
+					// scalar WGSL override equivalent; the converter would have to
+					// materialize it at each use site, which this driver has never
 					// exercised, so freeze those modules rather than rely on it.
 					// Constituents are declared before use, so spec_derived_ids
 					// is already complete for them here.
@@ -574,8 +575,8 @@ static SpecConstantScan scan_spec_constants(const Vector<uint8_t> &p_bytes) {
 		pos += wc;
 	}
 
-	// Tint asserts outright on an OpSpecConstantComposite that carries a SpecId
-	// of its own.
+	// An OpSpecConstantComposite that carries a SpecId of its own has no WGSL
+	// override form (Tint asserted outright on one).
 	for (const uint32_t &composite_id : spec_composite_ids) {
 		if (spec_id_targets.has(composite_id)) {
 			result.overridable = false;
@@ -971,7 +972,7 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 						// Folding to a zero of the right shape keeps the module
 						// valid, but it no longer computes what Vulkan would, so
 						// say so. fprintf rather than WARN_PRINT: this file is also
-						// compiled standalone for tint_cli (see inline_opaque_functions).
+						// compiled standalone for wgsl_cli (see inline_opaque_functions).
 						fprintf(stderr, "WebGPU: freeze_spec_constant_ops: cannot evaluate OpSpecConstantOp %u (result %%%u); frozen to zero.\n", spec_op, result_id);
 						words.clear();
 						state.next_id = next_id_before;
@@ -1223,8 +1224,8 @@ Vector<uint8_t> convert_push_constants_to_uniforms(const Vector<uint8_t> &p_byte
 // member (which Vulkan requires to carry its own distinctly-declared,
 // Offset/MatrixStride-decorated struct type) into a plain local variable of
 // the "bare" struct type used everywhere else in the shader. Tint's SPIR-V
-// reader has no OpCopyLogical support at all (only its own IR writer ever
-// emits it), so every occurrence must be eliminated before Tint sees it.
+// reader had no OpCopyLogical support at all (only its own IR writer ever
+// emitted it), so every occurrence is eliminated before the converter sees it.
 //
 // The naive fix -- swap the opcode to OpCopyObject, which requires Result
 // Type and Operand type to be the *same* id -- only works when they already
@@ -2216,8 +2217,8 @@ Vector<uint8_t> split_combined_samplers(const Vector<uint8_t> &p_bytes) {
 		}
 
 		// Rewrite OpVariable for ALL combined vars.
-		// Change type from ptr(SampledImage) to ptr(Image) so Tint's built-in
-		// SplitCombinedImageSamplerPass won't see them as combined samplers
+		// Change type from ptr(SampledImage) to ptr(Image) so the converter's
+		// own combined-sampler splitting won't see them as combined samplers
 		// and try to split them again (which would create extra bindings that
 		// don't exist in the BGL, causing "Binding doesn't exist" errors).
 		if (op == OP_VARIABLE && wc >= 4) {
@@ -2868,7 +2869,7 @@ Vector<uint8_t> strip_memory_barrier(const Vector<uint8_t> &p_bytes) {
 		}
 
 		if (op == OP_MEMORY_BARRIER) {
-			// Skip — Tint does not support OpMemoryBarrier.
+			// Skip — WGSL has no OpMemoryBarrier equivalent (see the header).
 			pos += wc;
 			continue;
 		} else {
@@ -2963,7 +2964,7 @@ Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> 
 		// wc == 6: [header, result_type, result_id, image, coord, mask] --
 		// the mask word is present but no operand word follows it. Only
 		// worth rewriting if that mask is actually non-zero (wc==6 with a
-		// zero mask is already the form Tint handles fine).
+		// zero mask is already the plain form).
 		return read_word(p_data, p_len, p_pos + 5) != 0;
 	};
 
@@ -3354,7 +3355,7 @@ Vector<uint8_t> hoist_constant_local_arrays(const Vector<uint8_t> &p_bytes) {
 		const uint32_t wc = w0 >> 16;
 		const uint16_t op = (uint16_t)(w0 & 0xFFFF);
 		if (wc == 0 || pos + wc > total_words) {
-			return p_bytes; // Malformed: leave it to Tint to report.
+			return p_bytes; // Malformed: leave it to the converter to report.
 		}
 		switch (op) {
 			case OP_ENTRY_POINT:
@@ -4034,7 +4035,7 @@ Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes) {
 			break;
 		}
 
-		// Drop the subgroup capabilities, so Tint has no reason to emit
+		// Drop the subgroup capabilities, so the converter has no reason to emit
 		// `enable subgroups` -- the whole point of the pass.
 		if (op == OP_CAPABILITY && wc == 2) {
 			uint32_t cap = read_word(data, len, pos + 1);
@@ -4216,7 +4217,7 @@ Vector<uint8_t> fold_ballot_bit_count(const Vector<uint8_t> &p_bytes) {
 		}
 
 		// `subgroupBallotExclusiveBitCount()` (OpGroupNonUniformBallotBitCount)
-		// has no case in Tint's SPIR-V reader at all -- an unconditional
+		// had no case in Tint's SPIR-V reader at all -- an unconditional
 		// TINT_UNREACHABLE() abort, the same class of hard crash as the
 		// HelperInvocation builtin handled above. cluster_render.glsl only
 		// ever uses it to elect a single "representative" thread per group
@@ -4372,8 +4373,9 @@ Vector<uint8_t> fix_nonfinite_literals(const Vector<uint8_t> &p_bytes) {
 
 // ---- flatten_binding_arrays ----
 //
-// Tint rejects OpTypeArray/OpTypeRuntimeArray of handle types (image, sampler,
-// sampled_image) regardless of array size. We must fully eliminate these array
+// The converter rejects OpTypeArray/OpTypeRuntimeArray of handle types (image,
+// sampler, sampled_image) regardless of array size (SPIRV-Cross throws, as
+// Tint did). We must fully eliminate these array
 // types from SPIR-V and replace them with scalar element types.
 //
 // Strategy: build a map of array_type_id → element_type_id, then do a
@@ -4695,7 +4697,7 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes) {
 	// (e.g. wgsl_precompile.py's plain `glslangValidator -V`, no --target-env),
 	// so it shows up for ordinary SSBOs throughout the shader corpus, not just
 	// unusual shaders — must be recognized here or these buffers silently never
-	// get inferred read-only, which Tint then rejects if used in a vertex stage.
+	// get inferred read-only, which WebGPU then rejects if used in a vertex stage.
 	HashSet<uint32_t> bufferblock_types;
 	{
 		uint32_t pos = 5;
@@ -5099,7 +5101,7 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 	// glslang integration (used at actual engine runtime) emits SPIR-V 1.4,
 	// which SPV_ENV_VULKAN_1_0's validator rejects outright -- silently
 	// falling back to unmodified, un-inlined input below and reintroducing
-	// the exact Tint ConvertUserCall crash this pass exists to prevent (see
+	// the exact Tint ConvertUserCall crash this pass was written to prevent (see
 	// webgpu_notes/TASKS.md Task 8.2). This only went unnoticed during
 	// development because glslangValidator's CLI defaults to an older SPIR-V
 	// version than Godot's own compiler settings request.
@@ -5122,11 +5124,11 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes) {
 		// Genuinely unexpected at this point (not a validation rejection --
 		// those are skipped above). Warn loudly instead of silently falling
 		// back: a silent no-op here means inlining didn't happen and the
-		// Tint crash this pass exists to prevent can resurface invisibly.
+		// Tint crash this pass was written to prevent can resurface invisibly.
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
-		// for tint_cli against shim core/templates/ headers with no error_macros.h.
+		// for wgsl_cli against shim core/templates/ headers with no error_macros.h.
 		fprintf(stderr, "WebGPU: inline_opaque_functions: SPIRV-Tools optimizer pass failed; falling back to "
-						"un-inlined SPIR-V. Texture-parameter helper functions in this shader may crash Tint.\n");
+						"un-inlined SPIR-V. Texture-parameter helper functions in this shader may fail to convert.\n");
 		return p_bytes;
 	}
 
@@ -5371,7 +5373,7 @@ Vector<uint8_t> eliminate_dead_resources(const Vector<uint8_t> &p_bytes) {
 	}
 	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
-		// for tint_cli against shim core/templates/ headers with no error_macros.h.
+		// for wgsl_cli against shim core/templates/ headers with no error_macros.h.
 		fprintf(stderr, "WebGPU: eliminate_dead_resources: SPIRV-Tools optimizer pass failed; falling back to "
 						"unmodified SPIR-V. Per-stage bind group visibility may be overly broad.\n");
 		return p_bytes;
@@ -5407,7 +5409,7 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 	// own rewrite earlier in the same block. Run AggressiveDCE right after, in
 	// the same optimizer invocation, to sweep that up: without it, the dead
 	// store still sits between the two barrier calls this pass exists to make
-	// adjacent, and Tint's uniformity analysis rejects the second barrier
+	// adjacent, and WGSL's uniformity analysis rejects the second barrier
 	// exactly as before.
 	// The second argument is remove_outputs, not spec-constant preservation --
 	// that one is an optimizer *option*, set below. It was mislabelled here;
@@ -5427,9 +5429,9 @@ Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes
 	}
 	if (!optimizer.Run(words.data(), words.size(), &result, optimizer_options)) {
 		// fprintf rather than WARN_PRINT: this file is also compiled standalone
-		// for tint_cli against shim core/templates/ headers with no error_macros.h.
+		// for wgsl_cli against shim core/templates/ headers with no error_macros.h.
 		fprintf(stderr, "WebGPU: eliminate_local_single_block_vars: SPIRV-Tools optimizer pass failed; falling back "
-						"to unmodified SPIR-V. A workgroup-shared barrier/load idiom may spuriously fail Tint's "
+						"to unmodified SPIR-V. A workgroup-shared barrier/load idiom may spuriously fail WGSL's "
 						"uniformity analysis.\n");
 		return p_bytes;
 	}
@@ -5462,7 +5464,7 @@ Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_erro
 	// reproducers), and the raw word passes were written for glslang's output,
 	// not for arbitrary words. Rejecting here is a clean conversion failure
 	// every caller already handles: the runtime reports it, the baker leaves
-	// the stage to the runtime, tint_convert_cli prints it.
+	// the stage to the runtime, wgsl_convert_cli prints it.
 	std::string error;
 	if (p_bytes.size() < 20 || (p_bytes.size() % 4) != 0) {
 		error = "not a SPIR-V module (" + std::to_string(p_bytes.size()) + " bytes)";

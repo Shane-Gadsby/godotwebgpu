@@ -1,8 +1,8 @@
 # 09-remove-tint: Tint leaves the tree
 
-State: open
+State: claimed
 Owner: worker-09
-Claimed:
+Claimed: 2026-10-25 18:45
 Needs: build
 Branch: work/9
 Results: webgpu_notes/work/results/09-remove-tint/

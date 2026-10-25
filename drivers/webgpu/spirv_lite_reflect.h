@@ -31,14 +31,14 @@
 #pragma once
 
 // Reflection over raw SPIR-V that is a plain walk of the instruction stream:
-// no SPIRV-Tools, no Tint, no preprocessing passes.
+// no SPIRV-Tools, no SPIRV-Cross, no preprocessing passes.
 //
 // Separate from spirv_preprocess.h for one reason: *who can compile it*. The
 // export-time shader baker is a native editor build, and drivers/webgpu/SCsub
-// deliberately keeps the vendored Tint/SPIRV-Tools sources out of it (see
-// wgsl_bake_subprocess.h for why -- Tint can abort() the whole editor on a
-// shader variant it does not handle, so the editor shells out to
-// bin/tint_convert_cli instead of linking Tint). spirv_preprocess.cpp needs
+// deliberately keeps the vendored SPIRV-Cross/SPIRV-Tools sources out of it (see
+// wgsl_bake_subprocess.h for why -- a converter that abort()s on a shader
+// variant it does not handle would take the whole editor down, so the editor
+// shells out to bin/wgsl_convert_cli instead of linking it). spirv_preprocess.cpp needs
 // SPIRV-Tools and so cannot go in that build, but these two functions need
 // nothing at all -- and the baker needs both, to record in each shader
 // container what the runtime would otherwise have to re-derive from the SPIR-V
@@ -46,7 +46,7 @@
 //
 // Compiled into all three places that need it: the web driver (via SCsub's
 // glob), the native editor's baker subset (via SCsub's baker_sources), and
-// tint_convert_cli (via tint_cli/build.sh).
+// wgsl_convert_cli (via wgsl_cli/build.sh).
 
 #include "core/templates/vector.h"
 
@@ -87,7 +87,7 @@ struct RawImageDecl {
 // are type-level information that survives only as long as the declaration
 // does. spirv_preprocess::eliminate_dead_resources() correctly strips a binding
 // a given stage's entry point cannot reach, and once it is gone there is
-// nothing left in that stage's WGSL for the driver's post-Tint text scans to
+// nothing left in that stage's WGSL for the driver's WGSL text scans to
 // read those facts out of. They come up empty, and the BindGroupLayout entry
 // silently defaults to the wrong format, dimension or sample type -- which Dawn
 // then rejects at bind time with an error naming a texture the shader does not

@@ -137,7 +137,7 @@ async function main() {
         const text = msg.text();
 
         // Track shader errors
-        if (text.includes('[SHADER]') || text.includes('Tint conversion') || text.includes('spirv error')) {
+        if (text.includes('[SHADER]') || text.includes('SPIR-V→WGSL') || text.includes('spirv error')) {
             shaderErrors.push(text);
             console.error(`  [SHADER ERROR] ${text}`);
         }

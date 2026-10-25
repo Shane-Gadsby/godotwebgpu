@@ -7,7 +7,7 @@
  * 2. Precompiled table binary search contract
  *
  * These tests validate the generated header format without requiring
- * a full engine build or the Tint CLI tool.
+ * a full engine build or the wgsl_convert_cli tool.
  *
  * Usage:
  *   node test_wgsl_cache.mjs
@@ -78,8 +78,8 @@ if (existsSync(GEN_HEADER)) {
 		const rawStringCount = (content.match(/R"wgsl\(/g) || []).length;
 		assert(rawStringCount === count, `Found ${rawStringCount} raw string literals matching count ${count}`);
 	} else {
-		console.log('  INFO: Header has 0 precompiled entries (Tint CLI not available during build).');
-		console.log('        This is expected — runtime Tint handles all conversion.');
+		console.log('  INFO: Header has 0 precompiled entries (wgsl_convert_cli not available during build).');
+		console.log('        This is expected — the runtime converter handles all conversion.');
 	}
 } else {
 	console.log('  SKIP: wgsl_precompiled.gen.h not found (run scons build first)');

@@ -3,7 +3,7 @@
 spirv_preprocess::spec_constants_overridable() freezes), for webgpu_notes/work/results/04-spec-constants.
 
 Each module declares scalar spec constants (ids 0..6), computes one OpSpecConstantOp from them, and writes the value
-(as u32 bits) to o.v[0]. spec_op_check.mjs converts them with `tint_convert_cli --raw` (no preprocessing, so the
+(as u32 bits) to o.v[0]. spec_op_check.mjs converts them with `wgsl_convert_cli --raw` (no preprocessing, so the
 backend's own spec-constant lowering is what is tested), builds a pipeline with the default and with alternate
 constants in Chrome, and compares against the expected values in manifest.json (computed here, 32-bit wrap).
 

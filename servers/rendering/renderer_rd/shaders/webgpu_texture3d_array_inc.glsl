@@ -3,10 +3,9 @@
 // selectable texture. GLSL's `uniform texture3D foo[8]` (an array of separate
 // opaque handles, each getting its own descriptor slot, dynamically indexed at
 // runtime via e.g. `foo[cascade_index]`) has no direct WGSL equivalent, and
-// Tint cannot even parse SPIR-V containing such an array type regardless of
-// size. This driver's SPIR-V preprocessing (`flatten_binding_arrays()`,
-// drivers/webgpu/spirv_preprocess.cpp) works around Tint's inability to parse
-// the type at all by collapsing it to a single scalar binding -- but that
+// the SPIR-V -> WGSL converter rejects SPIR-V containing such an array type
+// regardless of size. This driver's SPIR-V preprocessing (`flatten_binding_arrays()`,
+// drivers/webgpu/spirv_preprocess.cpp) works around that by collapsing it to a single scalar binding -- but that
 // silently discards the runtime index, always resolving every access to
 // whichever texture ends up bound at that one slot regardless of which array
 // element was actually requested. See Task 9.5 Round 36/37 in
@@ -23,8 +22,8 @@
 // control flow for the branch itself, rather than needing a much larger and
 // higher-risk SPIR-V-level control-flow-synthesis pass to reconstruct it
 // after the fact from the collapsed form. Verified end-to-end
-// (glslangValidator -> the full spirv_preprocess.cpp pass pipeline -> Tint ->
-// WGSL) with a standalone fixture before use here.
+// (glslangValidator -> the full spirv_preprocess.cpp pass pipeline -> the
+// converter -> WGSL) with a standalone fixture before use here.
 //
 // Uses textureLod (explicit LOD) rather than texture() so one helper serves
 // every call site in this codebase: compute shaders have no automatic

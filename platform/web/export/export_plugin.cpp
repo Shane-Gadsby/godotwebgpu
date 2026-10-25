@@ -521,19 +521,19 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 
 	// Precompiles every shader's SPIR-V to WGSL at export time (see
 	// editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp)
-	// so the exported .pck ships ready-to-use WGSL and the browser never runs
-	// Tint itself for a baked shader. Only takes effect when the project's
+	// so the exported .pck ships ready-to-use WGSL and the browser never
+	// converts a baked shader itself. Only takes effect when the project's
 	// rendering/rendering_device/driver.web setting is "webgpu"; harmless
 	// no-op otherwise. Requires the editor to have been built with
 	// `webgpu=yes` (see drivers/webgpu/README.md) so this container format
 	// is available at all — if it wasn't, export proceeds without baking and
-	// shaders fall back to the existing runtime Tint translation.
+	// shaders fall back to the existing runtime SPIR-V -> WGSL translation.
 	//
 	// Defaults on: for WebGPU the cost of *not* baking is paid by every player
 	// as a multi-second freeze on first load, which is not a sane thing to
 	// leave behind an unticked box. Turning it off is still fully supported and
 	// means exactly what it says — nothing is baked, and the running game
-	// translates its shaders in the browser through Tint on demand — which is
+	// translates its shaders in the browser on demand — which is
 	// what you want while iterating, since baking every declared variant of
 	// every shader the project uses is the slowest part of an export.
 	//
@@ -696,7 +696,7 @@ bool EditorExportPlatformWeb::has_valid_project_configuration(const Ref<EditorEx
 		// Without shader baking, every specialized (spec-constant-patched) shader
 		// variant -- lighting, shadow, and material feature combinations, which
 		// Godot's 3D pipeline uses heavily -- gets translated from SPIR-V to WGSL
-		// by Tint on the *player's* machine, synchronously on the main thread, the
+		// on the *player's* machine, synchronously on the main thread, the
 		// first time each variant is drawn. This is the dominant cause of the
 		// multi-second startup stall/jank documented in
 		// webgpu_notes/TASKS.md §4.21. Baking bakes ahead of time everything

@@ -31,24 +31,25 @@
 #pragma once
 
 // Native-editor-only (WEBGPU_SHADER_BAKER_ENABLED): bakes SPIR-V -> WGSL for
-// export-time shader baking by shelling out to bin/tint_convert_cli (in
-// batches of stages, see WgslBakeBatch below) instead of calling Tint
+// export-time shader baking by shelling out to bin/wgsl_convert_cli (in
+// batches of stages, see WgslBakeBatch below) instead of converting
 // in-process.
 //
 // This is a deliberate, load-bearing design choice, not a simplification:
-// Tint can hit an internal-compiler-error assert() on a shader variant it
-// doesn't handle and abort() the whole process. Export-time baking compiles
-// every declared shader variant (not just ones a game actually exercises at
-// runtime), so it hits this far more often than the runtime Tint fallback
-// ever does. tint_convert_cli running as a separate OS process means that
+// a pass or the converter can hit an assert() on a shader variant it doesn't
+// handle and abort() the whole process (Tint, the converter before
+// SPIRV-Cross, did exactly that). Export-time baking compiles every declared
+// shader variant (not just ones a game actually exercises at runtime), so it
+// hits this far more often than the runtime conversion ever does.
+// wgsl_convert_cli running as a separate OS process means that
 // abort() only kills the subprocess -- the editor sees a non-zero/abnormal
 // exit and simply leaves that one stage unbaked (get_wgsl_code() returns
-// nullptr for it, and the runtime driver's existing Tint fallback still
+// nullptr for it, and the runtime driver's own conversion still
 // handles it in the browser, exactly as if it had never been baked).
 //
-// Never linking Tint into the editor at all also means this file (and the
-// container class that calls it) never need spirv_preprocess.cpp,
-// tint_wrapper.cpp, or the vendored Tint/SPIRV-Tools sources compiled for
+// Never linking the converter into the editor at all also means this file
+// (and the container class that calls it) never need spirv_preprocess.cpp,
+// spirv_cross_wrapper.cpp, or the vendored SPIRV-Cross/SPIRV-Tools sources compiled for
 // linuxbsd/macos/windows -- see drivers/webgpu/SCsub.
 
 #include "core/string/ustring.h"
@@ -63,10 +64,10 @@ class Thread;
 
 namespace webgpu {
 
-// Runs bin/tint_convert_cli (located next to the running editor executable)
+// Runs bin/wgsl_convert_cli (located next to the running editor executable)
 // on p_spv_bytes and returns the resulting WGSL, or an empty string if the
-// tool is missing, the subprocess exits abnormally (including a Tint
-// internal-compiler-error abort), or conversion otherwise fails. Safe to
+// tool is missing, the subprocess exits abnormally (including an assert or
+// abort in a pass or the converter), or conversion otherwise fails. Safe to
 // call concurrently from multiple WorkerThreadPool threads (shader baking
 // runs in parallel; see ShaderBakerExportPlugin::_customize_shader_version()).
 //
@@ -79,7 +80,7 @@ namespace webgpu {
 // r_wgsl_impossible, when given, distinguishes the two reasons the result can
 // be empty, which the caller has to tell apart: `false` means the conversion
 // was attempted and did not work (so the SPIR-V is still worth shipping -- the
-// runtime can try Tint itself), while `true` means the stage uses a construct
+// runtime can try converting it itself), while `true` means the stage uses a construct
 // WGSL does not have at all, so nothing could ever convert it and the bytes are
 // dead weight. See _wgsl_unsupported_reason() for the exact set, and
 // webgpu_notes/TASKS.md §2.27 for what shipping them was costing.
@@ -92,13 +93,13 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 // Converts many SPIR-V stages at once, ahead of the per-container calls above.
 //
 // Why this exists: an export of a real project bakes ~1,500 stages, and the
-// per-stage path spawns one tint_convert_cli per stage under a process-wide
+// per-stage path spawns one wgsl_convert_cli per stage under a process-wide
 // lock, so the whole bake was a serial chain of 17 ms forks on an otherwise
 // idle 24-core machine -- 24 of an export's 27 seconds (webgpu_notes/TASKS.md
 // §4.23). Here the stages are deduplicated by content, screened against the
 // on-disk cache, written to one temp directory and handed to a handful of
-// `tint_convert_cli --batch` invocations that run concurrently, each over a
-// chunk of files. The tool's isolation of Tint (one forked child per module,
+// `wgsl_convert_cli --batch` invocations that run concurrently, each over a
+// chunk of files. The tool's isolation of the converter (one forked child per module,
 // inside a single-threaded process) is untouched, so an abort still only
 // loses that one stage. Spawning uses posix_spawn() on Unix, which does not
 // run any of this process's code in the child, so no fork-safety lock is
@@ -112,8 +113,8 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 //
 // The on-disk cache (also read by the per-stage path) lives under the
 // editor's cache directory, keyed by the SHA-256 of the stage's SPIR-V under a
-// directory named for the SHA-256 of the tint_convert_cli binary -- so a
-// rebuilt Tint invalidates everything, and nothing else does. The WGSL for a
+// directory named for the SHA-256 of the wgsl_convert_cli binary -- so a
+// rebuilt converter invalidates everything, and nothing else does. The WGSL for a
 // stage is a pure function of those two inputs, which is what makes caching
 // across engine commits sound where the engine's own shader cache (keyed on
 // GODOT_VERSION_HASH) is not. Only successful conversions are stored: a cached

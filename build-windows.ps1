@@ -173,7 +173,7 @@ if (-not $SkipInstall) {
     }
     Write-Ok "Python OK: $(python --version)"
 
-    # --- LLVM (clang++ for tint_convert_cli) -------------------------------
+    # --- LLVM (clang++ for wgsl_convert_cli) -------------------------------
 
     Write-Step "Checking for LLVM clang++..."
     if (-not (Test-Cmd "clang++") -and -not (Test-Path (Join-Path $env:ProgramFiles "LLVM\bin\clang++.exe"))) {
@@ -332,7 +332,7 @@ function Copy-BuiltExe {
     }
 }
 
-# Git for Windows' bash, not WSL's System32\bash.exe: tint_cli/build.sh picks
+# Git for Windows' bash, not WSL's System32\bash.exe: wgsl_cli/build.sh picks
 # its platform sources from `uname -s`, so it must see MINGW64 to build a
 # Windows binary.
 function Find-GitBash {
@@ -354,7 +354,7 @@ function Find-GitBash {
 }
 
 # webgpu=yes builds in the WebGPU shader baker (export-time WGSL baking + the
-# shader capture toolbar toggle), which needs tint_convert_cli.exe next to the
+# shader capture toolbar toggle), which needs wgsl_convert_cli.exe next to the
 # editor executable.
 Write-Step "Building editor (platform=windows, dev_build=yes, webgpu=yes)..."
 Invoke-Native scons platform=windows target=editor dev_build=yes webgpu=yes `
@@ -362,14 +362,14 @@ Invoke-Native scons platform=windows target=editor dev_build=yes webgpu=yes `
 Copy-BuiltExe -Pattern "godot.windows.editor.dev.x86_64*.exe" -Dest (Join-Path $OutDir "editor_windows")
 Write-Ok "Editor -> $OutDir\editor_windows"
 
-Write-Step "Building tint_convert_cli (WebGPU shader baker helper)..."
+Write-Step "Building wgsl_convert_cli (WebGPU shader baker helper)..."
 $gitBash = Find-GitBash
 if (-not $gitBash) {
-    Write-ErrAndExit "Git Bash not found (needed to run drivers/webgpu/tint_cli/build.sh). Install Git for Windows and re-run."
+    Write-ErrAndExit "Git Bash not found (needed to run drivers/webgpu/wgsl_cli/build.sh). Install Git for Windows and re-run."
 }
-Invoke-Native $gitBash drivers/webgpu/tint_cli/build.sh
-Copy-BuiltExe -Pattern "tint_convert_cli.exe" -Dest (Join-Path $OutDir "editor_windows")
-Write-Ok "tint_convert_cli -> $OutDir\editor_windows"
+Invoke-Native $gitBash drivers/webgpu/wgsl_cli/build.sh
+Copy-BuiltExe -Pattern "wgsl_convert_cli.exe" -Dest (Join-Path $OutDir "editor_windows")
+Write-Ok "wgsl_convert_cli -> $OutDir\editor_windows"
 
 Write-Step "Building export template (debug)..."
 Invoke-Native scons platform=windows target=template_debug `

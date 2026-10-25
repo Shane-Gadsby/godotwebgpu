@@ -213,7 +213,7 @@ const Engine = (function () {
 							// On WebGPU, callMain() runs the engine's first frame
 							// synchronously -- including, on a cold shader cache,
 							// potentially many seconds of main-thread SPIR-V -> WGSL
-							// Tint compilation for the frame's pipelines -- all
+							// conversion for the frame's pipelines -- all
 							// before this call returns control to JS. Dispatch an
 							// event so a custom HTML shell can show a "please wait"
 							// notice right at this point (see misc/dist/html/full-size.html
@@ -260,7 +260,7 @@ const Engine = (function () {
 				// If WebGPU rendering is requested, pre-initialize a GPUDevice
 				// before the WASM module starts (the C++ side expects it in
 				// Module.preinitializedWebGPUDevice).
-				// SPIR-V→WGSL conversion is handled by Tint, compiled directly
+				// SPIR-V→WGSL conversion is handled by SPIRV-Cross, compiled directly
 				// into the engine WASM — no separate translator module needed.
 				let webgpuReady = Promise.resolve();
 				if (me.config.renderingDriver === 'webgpu' && !me.config.preinitializedWebGPUDevice) {

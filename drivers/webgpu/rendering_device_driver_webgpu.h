@@ -267,7 +267,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	// a real, deliberate format divergence WebGPU's native resolveTarget cannot
 	// bridge at all (no view-based reinterpretation exists between 4-byte and
 	// 8-byte-per-texel formats). When formats mismatch, command_resolve_texture()
-	// falls back to a small hand-written WGSL compute shader (no GLSL/Tint
+	// falls back to a small hand-written WGSL compute shader (no GLSL/SPIR-V
 	// involved -- this never needs to vary per-project or per-shader, so there's
 	// nothing for that pipeline to buy here) that reads all 4 MSAA samples
 	// (multisampled textures are always clamped to exactly 4 on this driver --
@@ -628,7 +628,7 @@ public:
 	// SHADER
 	// -----------------------------------------------------------------------
 
-	/// Create a shader from a container (SPIR-V). Translates SPIR-V → WGSL via Tint
+	/// Create a shader from a container (SPIR-V). Translates SPIR-V → WGSL via SPIRV-Cross
 	/// at runtime, splits combined image-samplers, and remaps push constants to storage buffer.
 	virtual ShaderID shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) override final;
 	/// Get the layout hash for a shader (used for pipeline cache keying).

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# The driver's WGSL text scans (drivers/webgpu/wgsl_text_scan.*) over both converters' output for every
-# engine shader variant: what they derive must be identical for Tint and SPIRV-Cross
-# (webgpu_notes/TASKS.md §2.35).
+# The driver's WGSL text scans (drivers/webgpu/wgsl_text_scan.*) over the converter's output for every
+# engine shader variant: what they derive must match scan_reference.txt, the facts Tint's output gave when
+# SPIRV-Cross replaced it (webgpu_notes/TASKS.md §2.35; scan_reference.py says how to update it).
 #
-#   ./run_tests.sh <run_dir>     <run_dir> = a smoke.sh run (it has ref/ = Tint, wgsl/ = SPIRV-Cross)
+#   ./run_tests.sh <run_dir>     <run_dir> = a smoke.sh run (wgsl/ = the converter's output)
+#   WRITE_REFERENCE=1 ./run_tests.sh <run_dir>   rewrite scan_reference.txt from <run_dir>/wgsl
+#
+# A run directory that also has ref/ (another converter build's WGSL of the same SPIR-V, e.g. a SPIRV-Cross
+# patch reverted) is compared against it as well, file by file.
 #
 # Also runs the hand-written cases in cases/ (each file is a WGSL snippet with an expected-output file).
 set -uo pipefail
@@ -14,25 +18,45 @@ bin="$(mktemp -d)/scan_dump"
 c++ -std=c++17 -O1 -Wall -Wextra -I"$repo/drivers/webgpu" "$here/scan_dump.cpp" "$repo/drivers/webgpu/wgsl_text_scan.cpp" -o "$bin"
 
 fail=0
+facts="$(mktemp)"
+total=0
 for mode in "" "--keep-rw"; do
-	total=0 differ=0
 	for sx in "$run"/wgsl/*.wgsl; do
 		name="$(basename "$sx")"
-		tint="$run/ref/$name"
-		[[ -e "$tint" ]] || continue
 		total=$((total + 1))
-		if ! diff -q <("$bin" "$tint" $mode) <("$bin" "$sx" $mode) >/dev/null; then
-			differ=$((differ + 1))
-			if [[ $differ -le 5 ]]; then
-				echo "DIFF ($mode) $name"
-				diff <("$bin" "$tint" $mode) <("$bin" "$sx" $mode) | head -8
-			fi
-		fi
+		# "(scanned)" records a module whose scan finds nothing, so it is still compared.
+		{ echo "(scanned)"; "$bin" "$sx" $mode; } | sed "s|^|$name\t$mode\t|" >>"$facts"
 	done
-	echo "corpus${mode:+ $mode}: $total variants, $differ differ"
-	[[ "$total" -gt 200 ]] || { echo "FAIL: only $total variants compared"; fail=1; }
-	[[ "$differ" -eq 0 ]] || fail=1
 done
+echo "corpus: $total scans of $run/wgsl"
+[[ "$total" -gt 400 ]] || { echo "FAIL: only $total scans"; fail=1; }
+if [[ "${WRITE_REFERENCE:-0}" == 1 ]]; then
+	python3 -I "$here/scan_reference.py" --write "$here/scan_reference.txt" <"$facts" || fail=1
+else
+	python3 -I "$here/scan_reference.py" "$here/scan_reference.txt" <"$facts" || fail=1
+fi
+rm -f "$facts"
+
+if [[ -d "$run/ref" ]]; then
+	for mode in "" "--keep-rw"; do
+		total=0 differ=0
+		for sx in "$run"/wgsl/*.wgsl; do
+			name="$(basename "$sx")"
+			ref="$run/ref/$name"
+			[[ -e "$ref" ]] || continue
+			total=$((total + 1))
+			if ! diff -q <("$bin" "$ref" $mode) <("$bin" "$sx" $mode) >/dev/null; then
+				differ=$((differ + 1))
+				if [[ $differ -le 5 ]]; then
+					echo "DIFF ($mode) $name"
+					diff <("$bin" "$ref" $mode) <("$bin" "$sx" $mode) | head -8
+				fi
+			fi
+		done
+		echo "against ref/${mode:+ $mode}: $total variants, $differ differ"
+		[[ "$differ" -eq 0 ]] || fail=1
+	done
+fi
 
 # VALIDATE=1: also compile the rewritten SPIRV-Cross text (read_write split, read-only to sampled, depth
 # reclassification, as a device without read_write storage textures gets it) in Chrome. Needs the real GPU.

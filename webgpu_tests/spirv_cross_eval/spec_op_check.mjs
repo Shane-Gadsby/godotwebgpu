@@ -1,4 +1,4 @@
-// Runs the modules spec_op_probes.py generated (converted by `tint_convert_cli --raw`) in Chrome: builds a compute
+// Runs the modules spec_op_probes.py generated (converted by `wgsl_convert_cli --raw`) in Chrome: builds a compute
 // pipeline with the shader's default spec constants and again with the alternate ones passed as pipeline constants,
 // and compares the u32 each writes to o.v[0] with manifest.json. Prints one line per module and a summary; exit 1 on
 // any mismatch that is not listed in $EXPECT_FAIL (comma separated names).

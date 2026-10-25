@@ -57,7 +57,7 @@ char *spirv_cross_wrapper_spirv_to_wgsl(const uint32_t *p_spirv_words, size_t p_
 
 		// WebGPU forbids read_write storage buffers in the vertex stage. Godot declares some of its storage
 		// buffers writable in GLSL that every vertex shader only reads, so mark them NonWritable and the
-		// backend declares them `var<storage, read>` -- what Tint's DemoteVertexStageReadWriteStorage did.
+		// backend declares them `var<storage, read>` -- what Tint's DemoteVertexStageReadWriteStorage (the converter before SPIRV-Cross) did.
 		// glslang emits one entry point per module, so the module's stage is the entry point's.
 		if (compiler.get_execution_model() == spv::ExecutionModelVertex) {
 			spirv_cross_wgsl::ShaderResources resources = compiler.get_shader_resources();

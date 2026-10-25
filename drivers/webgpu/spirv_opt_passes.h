@@ -46,9 +46,10 @@
 // is left untouched.
 namespace spirv_opt_passes {
 
-// Rewrites constructs that Tint's SPIR-V reader aborts on (an internal
-// compiler error that takes down the whole wasm instance, not a conversion
-// error a caller could recover from) into equivalents it accepts:
+// Rewrites constructs WGSL has no direct equivalent for into ones it does.
+// Written for Tint, the converter before SPIRV-Cross, whose SPIR-V reader
+// aborted on them (taking down the whole wasm instance); the pass still runs
+// ahead of SPIRV-Cross and keeps its name:
 //  - OpIsNan / OpIsInf (GLSL isnan()/isinf(), which Godot's shading language
 //    exposes): compared on the float's bits, so a NaN is still found under
 //    fast-math compilers that fold `x != x`.

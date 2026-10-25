@@ -590,8 +590,8 @@ bool reclassify_single_component_depth_textures(std::string &r_wgsl, const std::
 	// Multisampled depth-format combined samplers (GLSL sampler2DMS bound to a real
 	// depth attachment, e.g. resolve.glsl's MODE_RESOLVE_DEPTH/MODE_RESOLVE_GI
 	// `source_depth`, read via texelFetch(...).r -- the same structural/naming
-	// shape this whole pass targets) were falling through this scan entirely: Tint's
-	// natural non-depth output for a multisampled texture is
+	// shape this whole pass targets) were falling through this scan entirely: the
+	// converter's natural non-depth output for a multisampled texture is
 	// `texture_multisampled_2d<f32>`, not `texture_2d<f32>`, so the single-string
 	// search above never matched them, and they never got reclassified to
 	// `texture_depth_multisampled_2d` (WGSL's multisampled depth type -- no `<f32>`

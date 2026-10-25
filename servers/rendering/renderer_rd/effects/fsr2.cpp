@@ -214,9 +214,9 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 
 	// The SPD global atomic counter is normally a 1x1 R32_UINT texture, updated via
 	// imageAtomicAdd/imageStore. WebGPU (and WGSL in general) has no texture-atomic
-	// concept at all -- Tint's SPIR-V reader has no handling whatsoever for the
-	// OpImageTexelPointer instruction glslang emits for any imageAtomic* call, which
-	// aborts (a WASM "unreachable" trap) rather than producing a translation error.
+	// concept at all -- the OpImageTexelPointer instruction glslang emits for any
+	// imageAtomic* call has no WGSL translation (Tint, the converter before
+	// SPIRV-Cross, aborted on it with a WASM "unreachable" trap).
 	// Godot already has an established fallback for exactly this gap (see fog.cpp /
 	// SUPPORTS_IMAGE_ATOMIC_32_BIT / NO_IMAGE_ATOMICS): reroute the single-texel
 	// atomic counter to a real storage buffer, which WGSL atomics fully support.
@@ -641,12 +641,13 @@ FSR2Effect::FSR2Effect() {
 	// only declare the FFX_HALF variant on backends that actually report
 	// SUPPORTS_HALF_FLOAT. Harmless to skip on WebGPU (capabilities.fp16Supported
 	// is always false there, so this variant is never dispatched anyway) but
-	// necessary: FFX_HALF's 16-bit int/uint types hit multiple distinct Tint
-	// SPIR-V-reader bugs (TINT_ASSERT(int_ty->width() == 32) in
+	// necessary: FFX_HALF's 16-bit int/uint types have no WGSL equivalent, and
+	// hit multiple distinct SPIR-V-reader bugs in Tint, the converter before
+	// SPIRV-Cross (TINT_ASSERT(int_ty->width() == 32) in
 	// reconstruct_previous_depth/autogen_reactive/tcr_autogen,
-	// TINT_UNIMPLEMENTED on OpUConvert in reconstruct_previous_depth) that abort
-	// the whole engine instance the moment this shader is compiled -- found via
-	// direct tint_convert_cli reproduction while re-enabling FSR2 on WebGPU
+	// TINT_UNIMPLEMENTED on OpUConvert in reconstruct_previous_depth) that aborted
+	// the whole engine instance the moment this shader was compiled -- found via
+	// direct converter-CLI reproduction while re-enabling FSR2 on WebGPU
 	// (see webgpu_notes/TASKS.md's FSR2 task).
 	Vector<String> modes_with_fp16;
 	modes_with_fp16.push_back("");
@@ -762,8 +763,8 @@ FSR2Effect::FSR2Effect() {
 
 	{
 		// Same FFX_HALF gate as modes_with_fp16 above -- the accumulate pass's own
-		// FP16 variant independently hits the TINT_ASSERT(int_ty->width() == 32)
-		// bug too, so only declare it where it'll actually be compilable.
+		// FP16 variant has the same 16-bit integers (Tint hit its
+		// TINT_ASSERT(int_ty->width() == 32) bug on it too), so only declare it where it'll actually be compilable.
 		Vector<String> accumulate_modes_with_fp16;
 		accumulate_modes_with_fp16.push_back("\n");
 		accumulate_modes_with_fp16.push_back("\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
@@ -851,9 +852,9 @@ FSR2Effect::FSR2Effect() {
 		// never use it. That's harmless on Vulkan/Metal/D3D12 (both variants are
 		// valid there), but fatal on WebGPU: `imageAtomicAdd`'s SPIR-V
 		// (`OpImageTexelPointer`) has no WGSL translation at all (WGSL only has
-		// atomics on buffers, never textures) and Tint's SPIR-V reader hard-aborts
-		// on it (TINT_UNIMPLEMENTED, a WASM `unreachable` trap that kills the whole
-		// engine instance) -- so only ever declare the image-atomics variant on
+		// atomics on buffers, never textures; Tint, the converter before
+		// SPIRV-Cross, hard-aborted on it with a WASM `unreachable` trap that
+		// killed the whole engine instance) -- so only ever declare the image-atomics variant on
 		// backends that can actually compile it.
 		//
 		// The same fallback variant also builds SPD (the single-pass downsampler

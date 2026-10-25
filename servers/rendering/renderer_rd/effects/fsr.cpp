@@ -61,8 +61,9 @@ FSR::FSR() {
 	// dead code there (never selected), but still needs to exist. MODE_FSR_UPSCALE_NORMAL's
 	// A_HALF path (thirdparty/amd-fsr/ffx_a.h) uses GLSL's 16-bit int/uint types
 	// (int16_t/uint16_t and vector forms) for its packed-precision optimization --
-	// WGSL only has 32-bit integers, so Tint's SPIR-V reader hard-crashes
-	// (TINT_ASSERT(int_ty->width() == 32)) on any backend that never actually
+	// WGSL only has 32-bit integers, so it cannot be converted at all (Tint,
+	// the WebGPU driver's converter before SPIRV-Cross, hard-crashed on it:
+	// TINT_ASSERT(int_ty->width() == 32)) on any backend that never actually
 	// executes this path but still has to compile it. So: when half-float
 	// support is absent, register the FALLBACK defines under both slots instead
 	// (harmless duplication of already-valid code; the NORMAL slot is provably

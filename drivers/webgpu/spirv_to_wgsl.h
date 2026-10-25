@@ -32,14 +32,13 @@
 
 #include <cstdint>
 
-// Shared SPIR-V → WGSL translation entry point (12 preprocessing passes +
-// Tint SpirvToWgsl). Used both by the runtime driver's Tint fallback
-// (rendering_device_driver_webgpu.cpp, WEBGPU_ENABLED, web builds) and by
-// the export-time shader baker (rendering_shader_container_webgpu.cpp,
-// WEBGPU_ENABLED || WEBGPU_SHADER_BAKER_ENABLED, native editor builds) so
-// baked containers embed the exact same WGSL a browser would otherwise
-// produce at runtime. Requires tint_wrapper_initialize() to have been
-// called once already.
+// Shared SPIR-V → WGSL translation entry point (spirv_preprocess::run_pipeline()
+// + SPIRV-Cross's WGSL backend). Used by the runtime driver for any shader
+// that was not precompiled or baked (rendering_device_driver_webgpu.cpp,
+// WEBGPU_ENABLED, web builds); the export-time shader baker runs the same
+// pipeline out of process, through bin/wgsl_convert_cli
+// (wgsl_bake_subprocess.cpp), so baked containers embed the exact same WGSL
+// a browser would otherwise produce at runtime.
 
 namespace webgpu {
 

@@ -49,12 +49,6 @@ def get_opts():
         EnumVariable(
             "use_assertions", "Use Emscripten runtime assertions", "auto", ["auto", "no", "yes", "extra"], ignorecase=2
         ),
-        EnumVariable(
-            "webgpu_wgsl_backend",
-            "SPIR-V to WGSL converter linked into webgpu=yes web templates (temporary; Tint goes away with the swap)",
-            "spirv-cross",
-            ["spirv-cross", "tint"],
-        ),
         BoolVariable("use_ubsan", "Use Emscripten undefined behavior sanitizer (UBSAN)", False),
         BoolVariable("use_asan", "Use Emscripten address sanitizer (ASAN)", False),
         BoolVariable("use_lsan", "Use Emscripten leak sanitizer (LSAN)", False),
@@ -353,9 +347,8 @@ def configure(env: "SConsEnvironment"):
         # Pass --use-port=emdawnwebgpu to both CCFLAGS (for headers) and LINKFLAGS (for JS glue).
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
         env.Append(LINKFLAGS=["--use-port=emdawnwebgpu"])
-        if env["webgpu_wgsl_backend"] == "spirv-cross":
-            # SPIRV-Cross throws on unsupported shaders; its TUs are built with wasm exceptions (drivers/webgpu/SCsub).
-            env.Append(LINKFLAGS=["-fwasm-exceptions"])
+        # SPIRV-Cross throws on unsupported shaders; its TUs are built with wasm exceptions (drivers/webgpu/SCsub).
+        env.Append(LINKFLAGS=["-fwasm-exceptions"])
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])

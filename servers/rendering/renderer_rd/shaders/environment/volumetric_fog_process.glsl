@@ -302,11 +302,11 @@ vec3 safe_normalize(vec3 v) {
 	return (length_squared > 1e-12) ? v * inversesqrt(length_squared) : vec3(0.0);
 }
 
-// Portable replacement for any(isnan(v)) || any(isinf(v)): Tint's SPIR-V
-// reader has no case for OpIsNan or OpIsInf at all (unconditional
-// TINT_UNREACHABLE() abort on either), and WGSL has no isNan/isInf builtins
-// of its own for a Tint patch to target -- so this is expressed with
-// operations Tint already handles correctly instead. `v != v` (component-wise
+// Portable replacement for any(isnan(v)) || any(isinf(v)): WGSL has no
+// isNan/isInf builtins, and Tint's SPIR-V reader (the WebGPU converter before
+// SPIRV-Cross) had no case for OpIsNan or OpIsInf at all (unconditional
+// TINT_UNREACHABLE() abort on either) -- so this is expressed with
+// operations every converter handles instead. `v != v` (component-wise
 // via notEqual(), since GLSL's != operator on vectors returns a single bool)
 // is an exact, IEEE-754-guaranteed test for NaN, not an approximation.
 // `abs(v) > FLT_MAX` is an exact test for infinity: FLT_MAX is defined as the
