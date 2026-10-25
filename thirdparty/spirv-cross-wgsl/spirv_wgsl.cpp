@@ -2548,7 +2548,32 @@ void CompilerWGSL::emit_constants_and_structs()
 			else if (c.is_used_as_lut)
 			{
 				add_resource_name(c.self);
-				statement("const ", to_name(c.self), " : ", type_to_glsl(type), " = ", constant_expression(c), ";");
+				// Local patch 0018: a lookup table is indexed at run time, and Tint (inside Chrome/Dawn) lowers a
+				// runtime index into a module-scope `const` array by materializing the whole array in a function
+				// variable at every access: SSIL's 32-entry sample table cost GPU time that way before
+				// hoist_constant_local_arrays existed (TASKS.md 2.30). A `var<private>` is initialized once per
+				// invocation. Keep `const` when the constant is also needed in a constant expression (another
+				// global's initializer or a composite constant's element), where a variable cannot appear.
+				auto needed_as_constant = [&]() -> bool
+				{
+					for (auto global : global_variables)
+					{
+						auto &other = get<SPIRVariable>(global);
+						if (other.initializer == c.self && !other.remapped_variable)
+							return true;
+					}
+					bool found = false;
+					ir.for_each_typed_id<SPIRConstant>(
+					    [&](uint32_t, const SPIRConstant &other)
+					    {
+						    for (auto sub : other.subconstants)
+							    if (sub == c.self)
+								    found = true;
+					    });
+					return found;
+				};
+				statement(needed_as_constant() ? "const " : "var<private> ", to_name(c.self), " : ", type_to_glsl(type),
+				          " = ", constant_expression(c), ";");
 				emitted = true;
 			}
 		}
