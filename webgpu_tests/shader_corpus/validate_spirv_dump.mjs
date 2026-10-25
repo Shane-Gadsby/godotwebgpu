@@ -33,6 +33,8 @@ const EXPECTED_FAILURES_PATH = join(__dirname, 'expected_failures.json');
 
 // Search for tint_convert_cli in standard locations.
 function findTintCli() {
+    // TINT_CONVERT_CLI points the tier at a specific converter build (e.g. bin/tint_convert_cli.tint).
+    if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
     const candidates = [
         join(REPO_ROOT, 'bin', 'tint_convert_cli'),
         join(REPO_ROOT, 'bin', 'tint_convert_cli.exe'),
@@ -66,7 +68,7 @@ function main() {
 
     const tintCli = findTintCli();
     if (!tintCli) {
-        console.log('NOTE: tint_convert_cli not found — skipping offline SPIR-V validation.');
+        console.log('NOTE: converter (tint_convert_cli) not found — skipping offline SPIR-V validation.');
         console.log('      Runtime Tint (linked into the engine WASM) handles all conversion.');
         console.log('      To enable this test, build the tint_convert_cli tool.\n');
         console.log('PASS (skipped — no Tint CLI available)\n');

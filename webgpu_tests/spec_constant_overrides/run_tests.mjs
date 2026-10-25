@@ -76,6 +76,7 @@ function assert(cond, msg, detail) {
 }
 
 function findTintCli() {
+    if (process.env.TINT_CONVERT_CLI) return existsSync(process.env.TINT_CONVERT_CLI) ? process.env.TINT_CONVERT_CLI : null;
     for (const name of ['tint_convert_cli', 'tint_convert_cli.exe']) {
         const p = join(REPO_ROOT, 'bin', name);
         if (existsSync(p)) return p;

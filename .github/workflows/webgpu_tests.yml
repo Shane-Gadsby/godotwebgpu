@@ -112,7 +112,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
 
       - name: Build tint_convert_cli
         run: ./drivers/webgpu/tint_cli/build.sh
@@ -273,7 +273,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
+          key: tint-cli-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/tint_cli/**') }}
 
       - name: Build WebGPU export template
         uses: ./.github/actions/godot-build

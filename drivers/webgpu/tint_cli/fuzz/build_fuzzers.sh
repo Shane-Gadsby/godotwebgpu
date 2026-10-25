@@ -8,6 +8,10 @@
 #
 # Output: bin/fuzz_preprocess_passes, bin/fuzz_split_samplers, bin/fuzz_spirv_to_wgsl
 #
+# WGSL_BACKEND=spirv-cross (default) fuzzes the SPIRV-Cross WGSL wrapper; WGSL_BACKEND=tint
+# builds fuzz_spirv_to_wgsl against Tint instead (output bin/fuzz_spirv_to_wgsl.tint). Both
+# reuse the objects tint_cli/build.sh made for that backend (it is run first if they are missing).
+#
 # If Homebrew LLVM is installed (brew install llvm), builds with libFuzzer +
 # AddressSanitizer for production fuzzing. Otherwise builds with a standalone
 # mutation driver that works with any compiler.
@@ -16,7 +20,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TINT_CLI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$TINT_CLI_DIR/../../../" && pwd)"
-BUILD_DIR="$TINT_CLI_DIR/.build"
+WGSL_BACKEND="${WGSL_BACKEND:-spirv-cross}"
+BUILD_DIR="$TINT_CLI_DIR/.build/$(uname -s | cut -d_ -f1 | tr '[:upper:]' '[:lower:]')"
+CLI_DIR="$BUILD_DIR/cli-$WGSL_BACKEND"
+S2W_OUT="fuzz_spirv_to_wgsl"
+[[ "$WGSL_BACKEND" == tint ]] && S2W_OUT="fuzz_spirv_to_wgsl.tint"
 SHIM_DIR="$TINT_CLI_DIR"
 
 # Parse args.
@@ -37,9 +45,10 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Ensure tint_cli objects are built (spirv_preprocess.o, tint_wrapper.o, etc.)
 # ─────────────────────────────────────────────────────────────────────────────
-if [[ ! -f "$BUILD_DIR/cli/spirv_preprocess.o" ]]; then
-    echo "[fuzz] Building tint_cli dependencies first..."
-    bash "$TINT_CLI_DIR/build.sh"
+if [[ ! -f "$CLI_DIR/spirv_preprocess.o" ]]; then
+    echo "[fuzz] Building tint_cli dependencies first ($WGSL_BACKEND)..."
+    WGSL_BACKEND="$WGSL_BACKEND" OUTPUT="$REPO_ROOT/bin/tint_convert_cli.fuzzdeps-$WGSL_BACKEND" bash "$TINT_CLI_DIR/build.sh"
+    rm -f "$REPO_ROOT/bin/tint_convert_cli.fuzzdeps-$WGSL_BACKEND"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,12 +149,23 @@ done < <(find "$BUILD_DIR/spirv_tools" -name '*.o' 2>/dev/null)
 TINT_OBJS=()
 while IFS= read -r obj; do
     TINT_OBJS+=("$obj")
-done < <(find "$BUILD_DIR/tint" -name '*.o' 2>/dev/null)
+done < <([[ "$WGSL_BACKEND" == tint ]] && find "$BUILD_DIR/tint" -name '*.o' 2>/dev/null)
+
+SPIRV_CROSS_OBJS=()
+while IFS= read -r obj; do
+    SPIRV_CROSS_OBJS+=("$obj")
+done < <(find "$BUILD_DIR/spirv_cross" -name '*.o' 2>/dev/null)
 
 # spirv_preprocess.o calls into spirv_lite_reflect.o and spirv_opt_passes.o,
 # and all three into SPIRV-Tools.
-PREPROCESS_OBJS=("$BUILD_DIR/cli/spirv_preprocess.o" "$BUILD_DIR/cli/spirv_lite_reflect.o" "$BUILD_DIR/cli/spirv_opt_passes.o" "${SPIRV_TOOLS_OBJS[@]}")
-TINT_WRAPPER_OBJ="$BUILD_DIR/cli/tint_wrapper.o"
+PREPROCESS_OBJS=("$CLI_DIR/spirv_preprocess.o" "$CLI_DIR/spirv_lite_reflect.o" "$CLI_DIR/spirv_opt_passes.o" "${SPIRV_TOOLS_OBJS[@]}")
+if [[ "$WGSL_BACKEND" == tint ]]; then
+    WRAPPER_OBJS=("$CLI_DIR/tint_wrapper.o" "$CLI_DIR/tint_ir_transforms.o" "${TINT_OBJS[@]}")
+    WRAPPER_FLAGS=(-std=c++20 -DWGSL_BACKEND_TINT=1 "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}")
+else
+    WRAPPER_OBJS=("$CLI_DIR/spirv_cross_wrapper.o" "${SPIRV_CROSS_OBJS[@]}")
+    WRAPPER_FLAGS=(-std=c++17)
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Compile and link fuzz targets.
@@ -191,26 +211,25 @@ $CXX -o "$REPO_ROOT/bin/fuzz_split_samplers" \
     $DRIVER_OBJ \
     $FUZZ_FLAGS -O1
 
-# --- fuzz_spirv_to_wgsl (full pipeline: preprocessing + Tint) ---
-echo "[fuzz] Building fuzz_spirv_to_wgsl..."
+# --- fuzz_spirv_to_wgsl (full pipeline: preprocessing + the selected backend) ---
+echo "[fuzz] Building $S2W_OUT ($WGSL_BACKEND)..."
 $CXX -c "$SCRIPT_DIR/fuzz_spirv_to_wgsl.cpp" \
-    -o "$BUILD_DIR/fuzz/fuzz_spirv_to_wgsl.o" \
-    -std=c++20 -O1 -g -w \
-    "${PREPROCESS_INCLUDES[@]}" "${TINT_INCLUDES[@]}" "${TINT_DEFINES[@]}" \
+    -o "$BUILD_DIR/fuzz/fuzz_spirv_to_wgsl-$WGSL_BACKEND.o" \
+    -O1 -g -w -fexceptions \
+    "${PREPROCESS_INCLUDES[@]}" "${WRAPPER_FLAGS[@]}" \
     -I"$REPO_ROOT/drivers/webgpu/" \
     $FUZZ_FLAGS
 
-$CXX -o "$REPO_ROOT/bin/fuzz_spirv_to_wgsl" \
-    "$BUILD_DIR/fuzz/fuzz_spirv_to_wgsl.o" \
+$CXX -o "$REPO_ROOT/bin/$S2W_OUT" \
+    "$BUILD_DIR/fuzz/fuzz_spirv_to_wgsl-$WGSL_BACKEND.o" \
     "${PREPROCESS_OBJS[@]}" \
-    "$TINT_WRAPPER_OBJ" \
-    "${TINT_OBJS[@]}" \
+    "${WRAPPER_OBJS[@]}" \
     $DRIVER_OBJ \
     $FUZZ_FLAGS -O1
 
 echo ""
 echo "[fuzz] Built:"
-for f in fuzz_preprocess_passes fuzz_split_samplers fuzz_spirv_to_wgsl; do
+for f in fuzz_preprocess_passes fuzz_split_samplers "$S2W_OUT"; do
     printf "  bin/%-30s %s\n" "$f" "$(du -h "$REPO_ROOT/bin/$f" | cut -f1)"
 done
 
@@ -238,7 +257,7 @@ if [[ "$SMOKE_TEST" == true ]]; then
     echo "[fuzz] Running smoke test (feed each fixture to each fuzzer)..."
     CORPUS_FILES=("$CORPUS_DIR"/*.spv)
 
-    for fuzzer in fuzz_preprocess_passes fuzz_split_samplers fuzz_spirv_to_wgsl; do
+    for fuzzer in fuzz_preprocess_passes fuzz_split_samplers "$S2W_OUT"; do
         printf "  %-30s" "$fuzzer"
         if "$REPO_ROOT/bin/$fuzzer" --iterations 0 "${CORPUS_FILES[@]}" 2>/dev/null; then
             echo "PASS"

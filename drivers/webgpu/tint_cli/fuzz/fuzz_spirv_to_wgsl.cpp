@@ -30,19 +30,25 @@
 
 // Fuzz the complete SPIR-V -> WGSL conversion pipeline.
 //
-// Exercises all 12 SPIR-V preprocessing passes followed by Tint parsing,
-// validation, and WGSL code generation.
+// Exercises the SPIR-V preprocessing passes followed by the WGSL backend:
+// SPIRV-Cross by default, Tint when built with WGSL_BACKEND_TINT.
 //
-// Tint can abort() on malformed SPIR-V (TINT_UNIMPLEMENTED, TINT_ICE).
-// Fork isolation around the Tint call prevents one crash from killing the
+// Either backend can abort() on malformed SPIR-V (Tint's TINT_ICE, SPIRV-Cross's
+// asserts and its throw-on-unsupported path escaping as std::terminate).
+// Fork isolation around the backend call prevents one crash from killing the
 // fuzzer — the same approach used by tint_convert_cli batch mode.
 // Crashes in the preprocessing passes (our code) are NOT fork-isolated
 // and will correctly terminate the fuzzer as bugs.
 
 #include "../../spirv_preprocess.h"
+#ifdef WGSL_BACKEND_TINT
 #include "../../tint_wrapper.h"
+#else
+#include "../../spirv_cross_wrapper.h"
+#endif
 
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -55,7 +61,9 @@ static bool initialized = false;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 	if (!initialized) {
+#ifdef WGSL_BACKEND_TINT
 		tint_wrapper_initialize();
+#endif
 		initialized = true;
 	}
 
@@ -81,13 +89,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 		}
 	}
 
-	// Tint conversion in a forked child — Tint may abort() on malformed SPIR-V.
+	// Backend conversion in a forked child — the backend may abort() on malformed SPIR-V.
 	size_t word_count = (size_t)spv.size() / 4;
 	const uint32_t *words = reinterpret_cast<const uint32_t *>(spv.ptr());
 
 	pid_t pid = fork();
 	if (pid == 0) {
 		// Child: suppress stdout/stderr, try conversion, exit.
+		// libFuzzer's crash handlers are inherited across fork(): without this, an abort in the
+		// backend (expected on random data) writes a crash artifact for a parent that is fine.
+		signal(SIGABRT, SIG_DFL);
+		signal(SIGSEGV, SIG_DFL);
+		signal(SIGBUS, SIG_DFL);
+		signal(SIGFPE, SIG_DFL);
+		signal(SIGILL, SIG_DFL);
+		signal(SIGTERM, SIG_DFL);
 		int devnull = open("/dev/null", O_WRONLY);
 		if (devnull >= 0) {
 			dup2(devnull, STDOUT_FILENO);
@@ -95,16 +111,20 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 			close(devnull);
 		}
 		char *error_msg = nullptr;
+#ifdef WGSL_BACKEND_TINT
 		char *wgsl = tint_wrapper_spirv_to_wgsl(words, word_count, &error_msg);
+#else
+		char *wgsl = spirv_cross_wrapper_spirv_to_wgsl(words, word_count, &error_msg);
+#endif
 		free(wgsl);
 		free(error_msg);
 		_exit(0);
 	} else if (pid > 0) {
 		int status;
 		waitpid(pid, &status, 0);
-		// Parent continues regardless — Tint crashes are expected on random data.
+		// Parent continues regardless — backend crashes are expected on random data.
 	}
-	// If fork() failed, skip Tint conversion (preprocessing was still tested).
+	// If fork() failed, skip backend conversion (preprocessing was still tested).
 
 	return 0;
 }
