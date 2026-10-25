@@ -1,5 +1,14 @@
 # Status (lead-maintained)
 
+## 2026-10-25 18:50 — 19 integrated; build-time measurement
+
+- **19 integrated**: merged tree builds (editor + web release template, 1:30), smoke OK, driver unit 379/0, fixture export
+  clean with `fullscreenOnFirstTap: true` in the shell config.
+- **Build time, Tint vs SPIRV-Cross** (lead, -j12, ccache off for the measured objects; `scratchpad/buildtime/`):
+  converter CLI clean 63 s vs 44 s (368 vs 7 converter objects; both compile SPIRV-Tools' 199). Web template, converter
+  + driver objects cold plus the precompile step, no link: 41.9 s (380 TUs) vs 10.7 s (20 TUs), ~31 s per web variant,
+  ~4 min across build-linux.sh's 8. With a warm ccache the difference is small (task 03: 121 vs 102 s relink).
+
 ## 2026-10-25 18:45 — 11 and 19 merged; the bar holds; 09 (remove Tint) out
 
 - **11 integrated** (harness only): Firefox desktop (Linux, Playwright Firefox 155, wgpu pinned to Vulkan) works on
@@ -278,7 +287,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 | 16 | baked volumetric fog "race" (capture phase) | integrated | worker-16 (retired) |
-| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | merged; lead build/smoke pending | worker-19 (retired) |
+| 19 | web export: wake lock, orientation, performance hint (TASKS §2.36, user) | integrated (lead build, smoke, unit 379/0, export) | worker-19 (retired) |
 | 18 | cameraSim by eye (user look, bar for 09) | merged: 5 views 0.00-0.03 from Vulkan; look posted | worker-18 (retired) |
 | 17 | FSR2 softer on WebGPU than native (reactive mask read red) | integrated (lead parity 71/71) | worker-17 (retired) |
 
