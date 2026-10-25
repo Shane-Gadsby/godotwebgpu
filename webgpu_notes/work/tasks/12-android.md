@@ -3,7 +3,7 @@
 State: open (after 07's first reading)
 Owner:
 Claimed:
-Needs: gpu (the phone counts as the gpu lease too), the Razr 60 over adb
+Needs: phone (lease `phone`; desktop `gpu` only for desktop reference captures), the Razr 60 over adb
 Branch: work/12
 Results: webgpu_notes/work/results/12-android/
 

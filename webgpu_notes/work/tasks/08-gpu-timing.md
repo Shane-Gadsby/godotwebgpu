@@ -1,6 +1,6 @@
 # 08-gpu-timing: does SPIRV-Cross WGSL cost GPU time?
 
-State: ready-for-integration
+State: integrated
 Owner: worker-08
 Claimed: 2026-10-25 12:05
 Needs: gpu

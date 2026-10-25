@@ -1,5 +1,17 @@
 # Status (lead-maintained)
 
+## 2026-10-25 14:10 — task 08 integrated; 11 and 12 out
+
+- **08 integrated**: desktop Chrome (4080 SUPER) GPU time, SPIRV-Cross everywhere vs Tint everywhere (a Tint-runtime
+  template built at 62a570d31f): heavy Forward+ 1.43 vs 1.47 ms/frame median, baked and unbaked; perf_guard scenes
+  (Forward Mobile) equal except benchmark_postfx +2% (0.014 ms/frame) — watch on Android. SSIL const-array: a
+  `var<private>` patch measured no effect, kept unapplied as `results/08-gpu-timing/lut-var-private.candidate.patch`.
+  Method for 11/12: `results/08-gpu-timing/compare.sh` + `summarize.mjs` (rotated order, GPU-free check per launch).
+- Trap candidates for TASKS §3 (task 10): a `webgpu_wgsl_backend=tint` template also needs `WGSL_BACKEND=tint` in the
+  environment, or it ships a SPIRV-Cross precompiled table; A/B templates must be built at the editor's exact commit.
+- The phone now has its own lease (`phone`), separate from `gpu`, so 12 can run beside 11 and 17.
+- Out: 11 (Firefox desktop, gpu), 12 (Razr 60, phone). The phone was not attached at 14:10 (`adb devices` empty).
+
 ## 2026-10-25 13:00 — task 13 integrated
 
 - **13 integrated**: `run_pipeline()` validates its input (SPIRV-Tools, Vulkan 1.2) and rejects invalid modules cleanly;
@@ -176,12 +188,12 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 04 | spec constants | integrated | worker-04 (retired) |
 | 05 | real projects' shaders | integrated | worker-05 (retired) |
 | 06 | offline test tiers | integrated | worker-06 (retired) |
-| 07 | Forward+ parity vs Vulkan | unbaked 71/71; baked 70/71 (fog race, 16) | lead |
-| 08 | GPU timing | open | |
-| 09 | remove Tint | blocked on 07, 02, 03, 05, 06 | |
+| 07 | Forward+ parity vs Vulkan | unbaked 71/71; baked 71/71 after 16; repeat at 09 | lead |
+| 08 | GPU timing (desktop Chrome) | integrated: equal or faster | worker-08 (retired) |
+| 09 | remove Tint | blocked on 11, 12, cameraSim look | |
 | 10 | docs | after 09 | lead |
-| 11 | Firefox desktop: works, as fast as Tint | open | |
-| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
+| 11 | Firefox desktop: works, as fast as Tint | in progress | worker-11 |
+| 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | in progress (needs the phone attached) | worker-12 |
 | 13 | harden passes against malformed SPIR-V | integrated | worker-13 (retired) |
 | 14 | spec-composite fold fix | integrated | worker-14 (retired) |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
