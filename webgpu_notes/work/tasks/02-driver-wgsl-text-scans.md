@@ -1,6 +1,6 @@
 # 02-driver-wgsl-text-scans: every place the driver reads WGSL text must accept SPIRV-Cross's
 
-State: claimed
+State: ready-for-integration
 Owner: worker-02
 Claimed: 2026-10-25 09:45
 Needs: build (one web template compile check at the end)
