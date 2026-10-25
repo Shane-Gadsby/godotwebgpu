@@ -43,7 +43,9 @@
 #include "drivers/webgpu/spirv_preprocess.h"
 #include "drivers/webgpu/spirv_spec_constants.h"
 #include "drivers/webgpu/spirv_to_wgsl.h"
+#ifdef WGSL_BACKEND_TINT
 #include "drivers/webgpu/tint_wrapper.h"
+#endif
 
 #include <emscripten/emscripten.h>
 #include <webgpu/webgpu.h>
@@ -1005,8 +1007,10 @@ RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
 // =============================================================================
 
 Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
+#ifdef WGSL_BACKEND_TINT
 	// Initialize Tint shader compiler (SPIR-V → WGSL).
 	tint_wrapper_initialize();
+#endif
 
 	device = context_driver->get_device();
 	queue = context_driver->get_queue();
