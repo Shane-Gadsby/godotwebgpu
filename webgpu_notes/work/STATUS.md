@@ -1,5 +1,15 @@
 # Status (lead-maintained)
 
+## 2026-10-25 12:05 — Forward+ parity: 71/71 with every shader converted by SPIRV-Cross
+
+- Pair rebuilt from 62a570d31f (editor + web release nothreads). **Unbaked export (every stage converted at runtime by
+  SPIRV-Cross): 71/71 at parity with native Vulkan.** That is also task 03's real-GPU boot check → 02, 03 integrated.
+- Baked export: 70/71. Volumetric fog flips between two exact states per run (0.046 pass / 0.082 fail) in baked
+  exports, with Tint-baked exports from before the swap too (3/9) → existing race, task 16. Bake gate (translated 97 > 80)
+  fails for every converter, pre-existing. Full table: results/07-forward-plus-parity/SUMMARY.md.
+- Frames (Vulkan beside SPIRV-Cross WebGPU) for FSR2, SSIL, SSAO, contact shadows, SSR and fog are on the hand-offs page.
+- GPU lease dropped.
+
 ## 2026-10-25 11:25 — task 07 first reading; task 15 fixed by the lead
 
 - **Task 07, old template (2026-10-23 pair), exports baked by each converter:** Tint 71/71 at parity. SPIRV-Cross 0/71,
@@ -114,12 +124,12 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 |---|---|---|---|
 | 00 | foundation | integrated | lead |
 | 01 | FSR2 barrier uniformity (SPIRV-Cross patch) | integrated (render check in 07) | worker-01 (retired) |
-| 02 | driver WGSL text scans | merged, builds, smoke OK; parity pending | worker-02 (retired) |
-| 03 | runtime converter in wasm, exceptions, SCsub | merged, builds, smoke OK; GPU boot pending | worker-03 (retired) |
+| 02 | driver WGSL text scans | integrated | worker-02 (retired) |
+| 03 | runtime converter in wasm, exceptions, SCsub | integrated | worker-03 (retired) |
 | 04 | spec constants | integrated | worker-04 (retired) |
-| 05 | real projects' shaders | merged, smoke pending | worker-05 (retired) |
+| 05 | real projects' shaders | integrated | worker-05 (retired) |
 | 06 | offline test tiers | integrated | worker-06 (retired) |
-| 07 | Forward+ parity vs Vulkan | open | lead (gpu) |
+| 07 | Forward+ parity vs Vulkan | unbaked 71/71; baked 70/71 (fog race, 16) | lead |
 | 08 | GPU timing | open | |
 | 09 | remove Tint | blocked on 07, 02, 03, 05, 06 | |
 | 10 | docs | after 09 | lead |
@@ -128,6 +138,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 13 | harden passes against malformed SPIR-V | open | |
 | 14 | spec-composite fold fix | open | |
 | 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
+| 16 | baked volumetric fog race (pre-existing) | open | |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.

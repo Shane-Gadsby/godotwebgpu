@@ -1,6 +1,6 @@
 # 03-runtime-converter-wasm: the engine converts with SPIRV-Cross at runtime and in the export-time baker
 
-State: merged e05c777b8d; same build + smoke; real-GPU boot of an unbaked export pending (lead, after the parity run)
+State: integrated (real-GPU boot: unbaked export, every stage converted at runtime by SPIRV-Cross, parity 71/71)
 Owner: worker-03
 Claimed:
 Needs: build (web templates + a native editor)

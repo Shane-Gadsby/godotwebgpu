@@ -1,6 +1,6 @@
 # 07-forward-plus-parity: Forward+ against native Vulkan with SPIRV-Cross WGSL
 
-State: open
+State: first full reading done (results/07): unbaked 71/71; baked 70/71, volumetric fog flips in baked exports with Tint too (task 16). Repeat after 16 and at task 09.
 Owner: lead
 Claimed:
 Needs: gpu

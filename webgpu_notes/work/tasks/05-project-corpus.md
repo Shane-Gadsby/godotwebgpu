@@ -1,6 +1,6 @@
 # 05-project-corpus: real projects' shaders (materials, user shaders) through SPIRV-Cross
 
-State: ready-for-integration
+State: integrated (merged 5ec31c3aa4; corpus re-run after patch 0015: 2566/2566 valid, interface identical)
 Owner: worker-05
 Claimed: 2026-10-25
 Needs: — (the existing editor bin/godot.linuxbsd.editor.x86_64 + your tint_convert_cli; Chrome compile, no lease)

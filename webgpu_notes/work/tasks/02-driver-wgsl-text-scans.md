@@ -1,6 +1,6 @@
 # 02-driver-wgsl-text-scans: every place the driver reads WGSL text must accept SPIRV-Cross's
 
-State: merged 2c2ebe96a1; web template + webgpu=yes editor build OK, smoke OK, wgsl_text_scan 276/276 both modes; integrated once task 07 parity passes on the rebuilt pair
+State: integrated (unbaked parity 71/71 on the 62a570d31f pair; SSR reflections back)
 Owner: worker-02
 Claimed: 2026-10-25 09:45
 Needs: build (one web template compile check at the end)
