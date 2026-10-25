@@ -18813,6 +18813,13 @@ bool CompilerGLSL::attempt_emit_loop_header(SPIRBlock &block, SPIRBlock::Method 
 			{
 			case SPIRBlock::ForLoop:
 			{
+				if (!control_flow.support_for_loop)
+				{
+					block.disable_block_optimization = true;
+					force_recompile();
+					begin_scope(); // We'll see an end_scope() later.
+					return false;
+				}
 				// This block may be a dominating block, so make sure we flush undeclared variables before building the for loop header.
 				flush_undeclared_variables(block);
 
@@ -18908,6 +18915,13 @@ bool CompilerGLSL::attempt_emit_loop_header(SPIRBlock &block, SPIRBlock::Method 
 			{
 			case SPIRBlock::ForLoop:
 			{
+				if (!control_flow.support_for_loop)
+				{
+					block.disable_block_optimization = true;
+					force_recompile();
+					begin_scope(); // We'll see an end_scope() later.
+					return false;
+				}
 				// Important that we do this in this order because
 				// emitting the continue block can invalidate the condition expression.
 				auto initializer = emit_for_loop_initializers(block);

@@ -16,7 +16,8 @@
 // <out>/<scene>.<browser>.<config>.<run>.json; summarize with phone_summary.mjs. A launch already on disk is not
 // measured again, so an interrupted session resumes.
 //
-// Before each launch: the phone's battery temperature must be under --max-temp (default 36 C, waits up to 10 min,
+// Before each launch: battery under --max-temp (36 C), HAL GPU sensor under --max-gpu-temp (42 C), Mali devfreq
+// cooling device at 0 (waits up to 10 min,
 // then refuses -- it never measures a hot phone, whose throttled GPU would read as a regression); the screen must
 // be on. Each launch force-stops the browser first (a cold process), and the page navigates itself to /__done
 // when it has reported, so the tab Chrome or Firefox restores on the next start holds no engine (two engines on
@@ -26,7 +27,7 @@
 // size), reads each frozen frame back with canvas.toBlob() and posts it here: <out>/frames/<browser>.<config>/
 // <id>_<0|1>.png, comparable pixel for pixel with run_forward_plus.mjs's native reference.
 import { createServer } from 'http';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from 'fs';
 import { execFileSync, spawn } from 'child_process';
 import { join, extname, resolve } from 'path';
 
@@ -39,6 +40,7 @@ const RUNS = +arg('runs', 3);
 const SETTLE = +arg('settle', 20000), MEASURE = +arg('measure', 10000);
 const PORT = +arg('port', 8099);
 const MAX_TEMP = +arg('max-temp', 36);
+const MAX_GPU_TEMP = +arg('max-gpu-temp', 42); // HAL GPU sensor, C: idle ~35, a launch ends near 60
 const LOCAL = arg('local', ''); // desktop browser binary: validate the harness without a phone
 const SHOTS = argv.includes('--shots');
 const SWEEP = arg('sweep', '');
@@ -73,8 +75,15 @@ function pkgFor(browser) {
 function phoneTemp() {
 	try { const m = /temperature: (\d+)/.exec(adb('shell', 'dumpsys', 'battery')); return m ? +m[1] / 10 : null; } catch { return null; }
 }
+// The thermal HAL's *current* GPU temperature and the Mali devfreq cooling state. Not dumpsys's "Thermal Status"
+// line: on the Razr it is a cached value that stayed at 1 (light) for 10 min with every current sensor cool.
 function thermalStatus() {
-	try { const m = /Thermal Status: (\d+)/.exec(adb('shell', 'dumpsys', 'thermalservice')); return m ? +m[1] : null; } catch { return null; }
+	try {
+		const d = adb('shell', 'dumpsys', 'thermalservice');
+		const cur = d.slice(d.indexOf('Current temperatures from HAL'));
+		const gpu = /mValue=([\d.]+), mType=1, mName=GPU/.exec(cur), mali = /CoolingDevice\{mValue=(\d+), mType=\d+, mName=devfreq-[^}]*mali/.exec(cur);
+		return { gpu: gpu ? +gpu[1] : null, mali: mali ? +mali[1] : null };
+	} catch { return { gpu: null, mali: null }; }
 }
 let displayId = null;
 function screencap(file) {
@@ -107,6 +116,24 @@ for (const k of ['log', 'warn', 'error']) { const f = console[k].bind(console); 
 window.addEventListener('error', (e) => keep('uncaught', [e.message + ' ' + (e.filename || '') + ':' + (e.lineno || '')]));
 window.addEventListener('unhandledrejection', (e) => keep('rejection', [e.reason]));
 if (!navigator.gpu) { post({ type: 'fatal', text: 'navigator.gpu is undefined (no WebGPU in this browser)', ua: navigator.userAgent }); return; }
+// --dump-wgsl <regex>: post every shader module whose label matches (one per distinct code); --swap-wgsl <dir>: replace
+// each module whose label has a saved file (<label>.wgsl, from another export's dump) with that file's code -- the
+// on-device bisection of a converter difference.
+{ const cs = GPUDevice.prototype.createShaderModule; const seen = new Set(); const re = CFG.dump ? new RegExp(CFG.dump) : null;
+	GPUDevice.prototype.createShaderModule = function (d) {
+		const l = (d && d.label) || '';
+		// One label covers every variant of a shader; the variants differ in their bindings (identical between the two
+		// converters, which smoke.sh checks), so the binding list tells them apart.
+		const b = [...new Set([...d.code.matchAll(/@(?:group\\((\\d+)u?\\)\\s*@binding\\((\\d+)u?\\)|binding\\((\\d+)u?\\)\\s*@group\\((\\d+)u?\\))/g)].map((m) => (m[1] ?? m[4]) + '.' + (m[2] ?? m[3])))].sort().join('-');
+		let hb = 2166136261; for (let i = 0; i < b.length; i++) hb = Math.imul(hb ^ b.charCodeAt(i), 16777619) >>> 0; // short: names get long
+		// Material versions of one shader share label and bindings: the n-th module created with that key is matched
+		// with the n-th of the other export (creation order is the engine's, the same for both).
+		const k0 = (l + '#' + hb.toString(16)).replace(/[^\\w:.#-]/g, '_'); const nth = (R.nth = R.nth || {})[k0] = (R.nth[k0] || 0) + 1;
+		const key = k0 + '#' + nth;
+		if (CFG.swap && CFG.swap[key] !== undefined) { R.swapped = (R.swapped || 0) + 1; d = Object.assign({}, d, { code: CFG.swap[key] }); }
+		if (re && re.test(l) && !seen.has(key)) { seen.add(key); post({ type: 'wgsl', label: key, code: d.code }); }
+		return cs.call(this, d);
+	}; }
 // GPU time per command buffer from timestamp queries: the same method as perf_guard/gpu_time.mjs without --passes.
 const PAIRS = 2048;
 const G = { on: false, used: 0, qs: null, device: null, enc: new WeakMap(), frames: 0 };
@@ -185,7 +212,7 @@ async function sweep() {
 		const b64 = blob ? btoa(Array.from(new Uint8Array(await blob.arrayBuffer()), (x) => String.fromCharCode(x)).join('')) : null;
 		await post({ type: 'frame', id, on, status: b64 ? 'ok' : 'no-blob', png: b64, canvas: canvasInfo(), errors: R.errors.splice(0) });
 	}
-	post({ type: 'sweep-done', shaders: shaderStats(), adapter: R.adapter, banner: R.banner, ua: navigator.userAgent, logs: R.logs.slice(0, 60) });
+	post({ type: 'sweep-done', swapped: R.swapped || 0, shaders: shaderStats(), adapter: R.adapter, banner: R.banner, ua: navigator.userAgent, logs: R.logs.slice(0, 60) });
 	done();
 }
 })();</script>`;
@@ -202,6 +229,7 @@ const server = createServer((q, r) => {
 			let m; try { m = JSON.parse(body); } catch { return; }
 			if (!current || m.launch !== current.cfg.launch) return; // a late report from an earlier launch
 			current.events.push(m);
+			if (m.type === 'wgsl') { const d = join(OUT, 'wgsl', current.tag || 'x'); mkdirSync(d, { recursive: true }); writeFileSync(join(d, m.label + '.wgsl'), m.code); return; }
 			if (m.type === 'error' || m.type === 'fatal') log(`    page ${m.type}: ${String(m.text).slice(0, 200)}`);
 			for (const w of current.waiters.splice(0)) w(m);
 		});
@@ -235,9 +263,10 @@ async function waitCool() {
 	if (LOCAL) return {};
 	for (let waited = 0; ; waited += 20) {
 		const temp = phoneTemp(), th = thermalStatus();
-		if (temp !== null && temp < MAX_TEMP && (th === null || th === 0)) return { temp, thermal: th };
-		if (waited >= 600) throw new Error(`phone stayed hot: ${temp} C, thermal status ${th}`);
-		log(`  waiting for the phone to cool: ${temp} C, thermal status ${th}`);
+		const gpuOk = th.gpu === null || th.gpu < MAX_GPU_TEMP, maliOk = !th.mali;
+		if (temp !== null && temp < MAX_TEMP && gpuOk && maliOk) return { temp, gpuTemp: th.gpu, maliCooling: th.mali };
+		if (waited >= 600) throw new Error(`phone stayed hot: battery ${temp} C, GPU ${th.gpu} C, Mali cooling ${th.mali}`);
+		log(`  waiting for the phone to cool: battery ${temp} C, GPU ${th.gpu} C, Mali cooling state ${th.mali}`);
 		await sleep(20000);
 	}
 }
@@ -257,6 +286,7 @@ async function launch(browser, url) {
 	const pkg = pkgFor(browser);
 	if (!pkg) throw new Error(`${browser} is not installed on the phone`);
 	adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
+	adb('shell', 'wm', 'dismiss-keyguard'); // a swipe-only lock screen would cover the browser
 	adb('shell', 'am', 'force-stop', pkg); await sleep(1500);
 	// Chrome reuses the tab associated with this application id instead of opening a new one per launch.
 	adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, '-e', 'com.android.browser.application_id', 'phone_bench', pkg);
@@ -264,11 +294,21 @@ async function launch(browser, url) {
 async function stop(browser) {
 	if (LOCAL) { if (localProc) { localProc.kill(); localProc = null; } await sleep(1000); return; }
 	await sleep(1500); // the page has navigated itself to /__done
+	if (browser === 'chrome') {
+		// Chrome opens a tab per launch and restores them all; close ours (only pages on this server) over the devtools
+		// socket so the user's tab list does not grow by one per launch. Firefox has no such socket: there they stay
+		// as blank /__done pages.
+		try {
+			adb('forward', 'tcp:9222', 'localabstract:chrome_devtools_remote');
+			const list = await (await fetch('http://127.0.0.1:9222/json/list')).json();
+			for (const t of list) if (t.type === 'page' && t.url.startsWith(`http://localhost:${PORT}/`)) await fetch(`http://127.0.0.1:9222/json/close/${t.id}`);
+		} catch (e) { log('  could not close the test tab: ' + e.message); }
+	}
 	adb('shell', 'am', 'force-stop', pkgFor(browser));
 }
 
 let launchNo = 0;
-async function measure(scene, browser, tag, root, run) {
+async function measure(scene, browser, tag, root, run, retry = true) {
 	const file = join(OUT, `${scene}.${browser}.${tag}.${run}.json`);
 	if (existsSync(file)) { const o = JSON.parse(readFileSync(file, 'utf8')); if (o.result || o.fatal) return o; }
 	const env = await waitCool();
@@ -276,9 +316,16 @@ async function measure(scene, browser, tag, root, run) {
 	const cfg = { launch: `${Date.now()}-${++launchNo}`, settle: SETTLE, measure: MEASURE, gpuTime: true };
 	current = { dir: join(root, sc.dir), cfg, inject: sc.inject || '', events: [], waiters: [] };
 	if (!existsSync(join(current.dir, 'index.html'))) throw new Error(`no export at ${current.dir}`);
-	log(`run ${run} ${scene} ${browser} ${tag} (phone ${env.temp ?? '-'} C)`);
+	log(`run ${run} ${scene} ${browser} ${tag} (battery ${env.temp ?? '-'} C, GPU ${env.gpuTemp ?? '-'} C)`);
 	await launch(browser, `http://localhost:${PORT}/index.html?l=${cfg.launch}`);
 	const boot = await next((m) => m.type === 'boot' || m.type === 'fatal', BOOT_TIMEOUT);
+	if (!boot && !current.events.length && retry) {
+		// Not one report: the page never ran (seen once on Chrome 155 right after a force-stop), not an engine failure.
+		// Kept in the log, retried once; a second silent launch is recorded as a failure.
+		log(`  no report at all from the page in ${BOOT_TIMEOUT / 1000} s; relaunching once`);
+		await stop(browser);
+		return measure(scene, browser, tag, root, run, false);
+	}
 	let res = null;
 	if (boot && boot.type === 'boot') {
 		log(`  booted in ${(boot.bootMs / 1000).toFixed(1)} s on ${boot.adapter ? boot.adapter.vendor + '/' + boot.adapter.architecture : '?'}`);
@@ -301,7 +348,10 @@ async function sweepRun(browser, tag, root, ids) {
 	const dir = join(OUT, 'frames', `${browser}.${tag}`); mkdirSync(dir, { recursive: true });
 	const env = await waitCool();
 	const cfg = { launch: `${Date.now()}-${++launchNo}`, sweep: ids, fpSettle: +arg('fp-settle', 240), readyTimeout: 180000, dpr1: true, fixedFps: true, gpuTime: false };
-	current = { dir: join(root, 'fp'), cfg, inject: '', events: [], waiters: [] };
+	if (arg('dump-wgsl')) cfg.dump = arg('dump-wgsl');
+	const swapDir = argv.flatMap((x, i) => (x === '--swap-wgsl' ? [argv[i + 1]] : []))[0];
+	if (swapDir && tag !== 'tint') { cfg.swap = {}; for (const f of readdirSync(swapDir).filter((x) => x.endsWith('.wgsl'))) cfg.swap[f.slice(0, -5)] = readFileSync(join(swapDir, f), 'utf8'); log(`  swapping ${Object.keys(cfg.swap).length} modules from ${swapDir}`); }
+	current = { dir: join(root, 'fp'), cfg, inject: '', events: [], waiters: [], tag };
 	log(`sweep ${browser} ${tag}: ${ids.length} configs (phone ${env.temp ?? '-'} C)`);
 	await launch(browser, `http://localhost:${PORT}/index.html?l=${cfg.launch}`);
 	const boot = await next((m) => m.type === 'boot' || m.type === 'fatal', BOOT_TIMEOUT);

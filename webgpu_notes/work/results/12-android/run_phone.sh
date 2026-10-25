@@ -11,9 +11,13 @@ L=/mnt/109313D2109313D2/godot-editors/godotwebgpu/webgpu_notes/work/lease.sh
 OWNER=${OWNER:-worker-12}
 adb devices | grep -qw device$ || { echo "no phone: adb devices lists none (plug the Razr 60 in, allow USB debugging)"; exit 1; }
 $L take phone "$OWNER" 3
-trap '$L drop phone "$OWNER"' EXIT
+# Keep the screen on while plugged in for the session (a 30 s screen timeout ends a launch), and put it back.
+STAY=$(adb shell settings get global stay_on_while_plugged_in | tr -d '\r')
+adb shell settings put global stay_on_while_plugged_in 7
+trap 'adb shell settings put global stay_on_while_plugged_in "$STAY"; $L drop phone "$OWNER"' EXIT
 CONFIGS="tint=$W/exp/tint,sc=$W/exp/sc"
-BROWSERS=$(adb shell pm list packages | grep -qE 'org.mozilla.(firefox|fenix|firefox_beta)$' && echo chrome,firefox || echo chrome)
+# Firefox for Android is out of scope (user, 2026-10-25: "I only care about Firefox for desktop"). BROWSERS=chrome,firefox to try it.
+BROWSERS=${BROWSERS:-chrome}
 echo "browsers: $BROWSERS"
 # 1. Does each browser work at all, and which renderer does each scene get: one launch per scene and browser, with shots.
 node "$A/phone_bench.mjs" --out "$OUT/smoke" --configs "$CONFIGS" --browsers "$BROWSERS" --runs 1 --settle 15000 --measure 5000 --shots
