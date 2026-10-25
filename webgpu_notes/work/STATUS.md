@@ -1,5 +1,16 @@
 # Status (lead-maintained)
 
+## 2026-10-25 11:05 — task 05 merged
+
+- **05 merged** (5ec31c3aa4; smoke after the parity run frees the GPU). Real projects through both converters: fp_check
+  882 stages, sewer-shift 1224, cameraSim 1318, smoketest projects 1936 (2566 unique): SPIRV-Cross converts every stage
+  Tint does, interfaces identical, 2562/2566 valid in Chrome, output 1.09-1.14x Tint's size. Harness:
+  `spirv_cross_eval/project_export.sh` + `project_eval.py`. Its patch 0005 duplicated 0006 (same 16-bit norm formats,
+  written in parallel) and was dropped at merge.
+- **New task 15**: the 4 screen-space contact shadow variants fail barrier uniformity (builtins copied to
+  `var<private>`); a Forward+ feature, so expect parity to flag contact shadows.
+- Question for the user (on the page): a MetaHuman export to add to the corpus, or skip.
+
 ## 2026-10-25 10:50 — the user's answers (hand-offs page, all twelve)
 
 - GPU: game closed, go ahead → task 07 parity running (gpu lease: lead), Tint baseline then SPIRV-Cross.
@@ -69,7 +80,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 02 | driver WGSL text scans | open | |
 | 03 | runtime converter in wasm, exceptions, SCsub | open | |
 | 04 | spec constants | integrated | worker-04 (retired) |
-| 05 | real projects' shaders | open | |
+| 05 | real projects' shaders | merged, smoke pending | worker-05 (retired) |
 | 06 | offline test tiers | integrated | worker-06 (retired) |
 | 07 | Forward+ parity vs Vulkan | open | lead (gpu) |
 | 08 | GPU timing | open | |
@@ -79,6 +90,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
 | 13 | harden passes against malformed SPIR-V | open | |
 | 14 | spec-composite fold fix | open | |
+| 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | open | |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.
