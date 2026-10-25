@@ -1,7 +1,7 @@
 # 15-sscs-uniformity: screen-space contact shadows fail WGSL barrier uniformity under SPIRV-Cross
 
-State: open
-Owner:
+State: integrated (lead, 2026-10-25: patch 0015; smoke 276/276 valid; real-project corpus 2566/2566 valid and interface-identical; render check in task 07)
+Owner: lead
 Claimed:
 Needs: — (Chrome compile; gpu lease only to see contact shadows render)
 Branch: work/15

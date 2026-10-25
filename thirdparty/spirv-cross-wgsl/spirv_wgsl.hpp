@@ -233,6 +233,9 @@ private:
 	std::string wgsl_builtin_type(BuiltIn builtin) const;
 
 	std::string get_inner_entry_point_name() const;
+	// Local patch 0015: compute builtins WGSL's uniformity analysis treats as uniform (workgroup_id,
+	// num_workgroups), as (name, type) pairs, passed to the inner entry point as parameters.
+	SmallVector<std::pair<std::string, std::string>> uniform_builtin_inputs();
 	std::string scalar_type_name(const SPIRType &type) const;
 	static std::string base_type_name(const SPIRType &type);
 	std::string address_space(StorageClass storage) const;

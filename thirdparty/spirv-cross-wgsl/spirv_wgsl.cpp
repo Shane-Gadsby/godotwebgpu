@@ -268,6 +268,28 @@ void CompilerWGSL::warn(WGSLWarning kind, const string &message)
 	warnings.push_back({ kind, message });
 }
 
+SmallVector<std::pair<std::string, std::string>> CompilerWGSL::uniform_builtin_inputs()
+{
+	SmallVector<std::pair<std::string, std::string>> result;
+	if (ir.is_library_module || get_execution_model() != ExecutionModelGLCompute)
+		return result;
+	unordered_set<uint32_t> seen;
+	ir.for_each_typed_id<SPIRVariable>(
+	    [&](uint32_t, SPIRVariable &var)
+	    {
+		    if (var.storage != StorageClassInput || !has_decoration(var.self, DecorationBuiltIn) ||
+		        !interface_variable_exists_in_entry_point(var.self))
+			    return;
+		    auto builtin = BuiltIn(get_decoration(var.self, DecorationBuiltIn));
+		    if ((builtin != BuiltInWorkgroupId && builtin != BuiltInNumWorkgroups) || !active_input_builtins.get(builtin) ||
+		        seen.count(builtin))
+			    return;
+		    seen.insert(builtin);
+		    result.push_back({ builtin_to_glsl(builtin, StorageClassInput), type_to_glsl(get_variable_data_type(var)) });
+	    });
+	return result;
+}
+
 string CompilerWGSL::get_inner_entry_point_name() const
 {
 	auto &execution = get_entry_point();
@@ -1525,6 +1547,15 @@ void CompilerWGSL::emit_function_prototype(SPIRFunction &func, const Bitset &)
 		if (var)
 			var->parameter = &arg;
 	}
+
+	// WGSL local patch 0015: the inner entry point of a compute shader takes the uniform builtins as parameters,
+	// shadowing their var<private> copies. WGSL's uniformity analysis treats every var<private> read as
+	// non-uniform, so a barrier after an early return on workgroup_id (screen-space contact shadows) failed;
+	// a parameter fed from the entry point's own builtin parameter stays uniform. Helper functions still read
+	// the private copies, which the wrapper keeps filling.
+	if (is_entry_point)
+		for (auto &b : uniform_builtin_inputs())
+			arglist.push_back(join(b.first, " : ", b.second));
 
 	decl += merge(arglist);
 	decl += ")";
@@ -3122,7 +3153,10 @@ void CompilerWGSL::emit_entry_point_wrapper()
 		}
 	}
 
-	if (!inputs.empty())
+	// Local patch 0015: compute inputs are all builtins; they are separate entry point parameters (see the call
+	// to the inner entry point below), since a struct holding a non-uniform builtin is non-uniform as a whole.
+	const bool flat_inputs = execution.model == ExecutionModelGLCompute;
+	if (!inputs.empty() && !flat_inputs)
 	{
 		statement("struct SPIRV_Cross_Input");
 		begin_scope();
@@ -3165,7 +3199,14 @@ void CompilerWGSL::emit_entry_point_wrapper()
 	}
 
 	string decl = join("fn ", get_entry_point_wrapper_name(), "(");
-	if (!inputs.empty())
+	if (flat_inputs)
+	{
+		SmallVector<string> params;
+		for (auto &m : inputs)
+			params.push_back(join(m.attributes, "stage_in_", m.name, " : ", m.wgsl_type));
+		decl += merge(params);
+	}
+	else if (!inputs.empty())
 		decl += "stage_input : SPIRV_Cross_Input";
 	decl += ")";
 	if (!outputs.empty())
@@ -3173,16 +3214,35 @@ void CompilerWGSL::emit_entry_point_wrapper()
 	statement(decl);
 	begin_scope();
 
+	SmallVector<string> inner_args;
+	auto uniform_builtins = uniform_builtin_inputs();
 	for (auto &m : inputs)
 	{
 		auto &type = get<SPIRType>(m.type_id);
-		string value = join("stage_input.", m.name);
+		string value = flat_inputs ? join("stage_in_", m.name) : join("stage_input.", m.name);
 		if (type_to_glsl(type) != m.wgsl_type)
 			value = join(type_to_glsl(type), "(", value, ")");
 		statement(m.lhs, " = ", value, ";");
 	}
+	for (auto &b : uniform_builtins)
+	{
+		// The value goes straight from the entry point parameter, never through the private copy.
+		string arg;
+		for (auto &m : inputs)
+		{
+			if (m.name != b.first)
+				continue;
+			auto &type = get<SPIRType>(m.type_id);
+			arg = join("stage_in_", m.name);
+			if (type_to_glsl(type) != m.wgsl_type)
+				arg = join(type_to_glsl(type), "(", arg, ")");
+		}
+		if (arg.empty())
+			SPIRV_CROSS_THROW(join("Uniform builtin ", b.first, " has no entry point input."));
+		inner_args.push_back(arg);
+	}
 
-	statement(get_inner_entry_point_name(), "();");
+	statement(get_inner_entry_point_name(), "(", merge(inner_args), ");");
 
 	if (!outputs.empty())
 	{

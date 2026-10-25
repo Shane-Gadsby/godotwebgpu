@@ -1,5 +1,18 @@
 # Status (lead-maintained)
 
+## 2026-10-25 11:25 — task 07 first reading; task 15 fixed by the lead
+
+- **Task 07, old template (2026-10-23 pair), exports baked by each converter:** Tint 71/71 at parity. SPIRV-Cross 0/71,
+  because the contact-shadow module (line 241, barrier uniformity) errors on every page load and the harness fails a
+  feature on any driver error. Frame by frame, 133 of 142 frames match Tint's within 0.1/255; ambient_light, fxaa and
+  contact_shadows render black; SSR loses its reflections (the old template lacks task 02's depth fix); light projector
+  (0.5) and FSR2 (0.3) differ slightly. ~97 stages per run were converted at runtime by the old template's Tint, so this
+  reading is partial either way.
+- **Task 15 done by the lead** (critical path; new workers wait for the user's /config change): patch 0015, uniform
+  compute builtins as parameters. Both reproducers valid; smoke 276/276; the real-project corpus (2566 unique stages)
+  2566/2566 valid and interface-identical (was 2562).
+- Next: re-export fp_check baked + unbaked with a pair rebuilt from this commit, `--parity` again.
+
 ## 2026-10-25 11:12 — user: ccache 50 GB; MetaHuman = cameraSim's Ava
 
 - ccache config set to 50 GB, matching build-linux.sh's `CCACHE_MAXSIZE=50G` (base_dir shared across worktrees).
@@ -114,7 +127,7 @@ tree (276/276 converted, interface identical, 275/276 valid — FSR2, task 01).
 | 12 | Android Chrome + Firefox (Razr 60): works, as fast as Tint | open | |
 | 13 | harden passes against malformed SPIR-V | open | |
 | 14 | spec-composite fold fix | open | |
-| 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | open | |
+| 15 | contact shadows barrier uniformity (SPIRV-Cross patch) | integrated (patch 0015) | lead |
 
 **GPU:** the Oblivion Remastered game was running at 09:35 (8.4 GB of 16 GB VRAM); real-GPU runs wait for it or for the
 user's go-ahead.

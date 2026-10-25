@@ -1123,6 +1123,11 @@ Patches (in `patches/`, never upstreamed):
 - `0006-wgsl-16bit-norm-storage-formats.patch` — the 16-bit normalized storage image formats (`R16`, `R16Snorm`,
   `Rg16`, `Rg16Snorm`, `Rgba16`, `Rgba16Snorm` → `r16unorm` ... `rgba16snorm`); `CanvasSdfShaderRD` writes R16Snorm and
   failed to convert without it.
+- `0015-uniform-compute-builtins-as-parameters.patch` — a compute shader's entry point takes each builtin as its own
+  parameter (no input struct), and passes `workgroup_id` / `num_workgroups` to the inner entry point as parameters that
+  shadow their `var<private>` copies. WGSL's uniformity analysis treats every `var<private>` read as non-uniform, so a
+  barrier after an early return on the workgroup id (screen-space contact shadows) failed; Tint passed builtins as
+  parameters and never hit it.
 
 
 ## spirv-headers
