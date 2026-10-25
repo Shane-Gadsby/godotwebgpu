@@ -66,7 +66,11 @@ collection `questions` (doc id = question id; `kind` choice | text | look, `orde
 `busy_gpu`, `busy_text`). A look with no media shows as queued. Workers put a question in `for-tasks.md` under
 "Questions for the user"; only the lead writes the page. Set `busy_gpu` while a real-GPU run is going.
 The page is light-only (user, 2026-10-25). Its controls are never disabled from `user.can("data.write")` (advice only;
-a refused write decides and the page says why on screen). The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
+a refused write decides and the page says why on screen). Two traps cost an hour (2026-10-25): the runtime's db records are
+frozen, so `d.data().id = ...` is silently ignored (copy with `Object.assign({}, d.data(), {id: d.id})`); and the viewer
+re-delivers unchanged snapshots, so a page that rebuilds its buttons on every delivery swallows clicks (press and release
+land on different elements). Rebuild only changed markup. Neither shows in a local stub test unless the stub freezes
+records and re-delivers. The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
 publishing): a raw U+2028 in a regex once blanked the co-op board.
 
 ## Shared resources (leases)

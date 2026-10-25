@@ -122,7 +122,7 @@ details.answered li{margin:4px 0}
 (function(){
   var $ = function(id){ return document.getElementById(id); };
   var db = null, comments = null;
-  var items = [], board = {};
+  var items = [], board = {}, lastItemsSig = '', lastBoardSig = '';
   var drafts = {};
   var timers = {};
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -190,6 +190,9 @@ details.answered li{margin:4px 0}
     return bits.length ? '<div class="meta">' + bits.join(' &middot; ') + '</div>' : '';
   }
 
+  // A region's markup is replaced only when it changed. The viewer re-delivers unchanged snapshots, and rebuilding
+  // the buttons between a press and its release swallowed every click (2026-10-25).
+  function setHtml(id, html){ var el = $(id); if(el && el.__html !== html){ el.innerHTML = html; el.__html = html; } }
   function render(){
     var f = document.activeElement, fid = f && f.tagName === 'TEXTAREA' ? f.id : '', s0 = fid ? f.selectionStart : 0, s1 = fid ? f.selectionEnd : 0;
     var live = items.filter(function(i){ return i.visible !== false; }).sort(function(a, b){ return (a.order || 0) - (b.order || 0); });
@@ -199,24 +202,24 @@ details.answered li{margin:4px 0}
       if(!open[it.kind]) return;
       if(isAnswered(it) && it.told) done.push(it); else open[it.kind].push(it);
     });
-    $('l-choice').innerHTML = open.choice.length ? open.choice.map(choiceCard).join('') : '<div class="empty">No decisions waiting.</div>';
-    $('l-text').innerHTML = open.text.length ? open.text.map(textCard).join('') : '<div class="empty">No questions waiting.</div>';
+    setHtml('l-choice', open.choice.length ? open.choice.map(choiceCard).join('') : '<div class="empty">No decisions waiting.</div>');
+    setHtml('l-text', open.text.length ? open.text.map(textCard).join('') : '<div class="empty">No questions waiting.</div>');
     var looksHtml = open.look.map(lookCard).join('');
     if(queued.length){
       looksHtml += '<div class="queued"><h3>Coming once the GPU runs</h3><ul>' + queued.map(function(q){
         return '<li>' + inline(q.title) + (q.question ? ' <span>' + inline(q.question) + '</span>' : '') + '</li>'; }).join('') + '</ul></div>';
     }
-    $('l-look').innerHTML = looksHtml || '<div class="empty">Nothing to look at yet.</div>';
+    setHtml('l-look', looksHtml || '<div class="empty">Nothing to look at yet.</div>');
     var unanswered = function(list){ return list.filter(function(i){ return !isAnswered(i); }).length; };
     $('n-choice').textContent = open.choice.length ? unanswered(open.choice) + ' of ' + open.choice.length + ' unanswered' : '';
     $('n-text').textContent = open.text.length ? unanswered(open.text) + ' of ' + open.text.length + ' unanswered' : '';
     $('n-look').textContent = (open.look.length ? unanswered(open.look) + ' to judge' : '') + (queued.length ? (open.look.length ? ', ' : '') + queued.length + ' queued' : '');
     $('answered').hidden = !done.length;
     $('answeredSum').textContent = 'Answered and sent (' + done.length + ')';
-    $('answeredList').innerHTML = done.map(function(d){ return '<li><b>' + inline(d.title) + '</b>: ' + esc(d.answer) + (d.note ? ' <span class="meta">(' + esc(d.note) + ')</span>' : '') + '</li>'; }).join('');
+    setHtml('answeredList', done.map(function(d){ return '<li><b>' + inline(d.title) + '</b>: ' + esc(d.answer) + (d.note ? ' <span class="meta">(' + esc(d.note) + ')</span>' : '') + '</li>'; }).join(''));
     var pending = live.filter(function(i){ return isAnswered(i) && !i.told; }).length;
     var totalOpen = unanswered(open.choice) + unanswered(open.text) + unanswered(open.look);
-    $('counts').innerHTML = '<span class="chip"><b>' + totalOpen + '</b> waiting on you</span><span class="chip"><b>' + pending + '</b> answered, not sent</span><span class="chip"><b>' + queued.length + '</b> looks queued</span>';
+    setHtml('counts', '<span class="chip"><b>' + totalOpen + '</b> waiting on you</span><span class="chip"><b>' + pending + '</b> answered, not sent</span><span class="chip"><b>' + queued.length + '</b> looks queued</span>');
     $('tellBtn').disabled = !comments || pending === 0;
     $('tellText').textContent = pending ? pending + ' answer' + (pending > 1 ? 's' : '') + ' saved but not yet sent to Claude.' : 'Answers save as you go. Claude also reads them at its next check.';
     $('note').hidden = !board.message;
@@ -247,7 +250,7 @@ details.answered li{margin:4px 0}
   }
 
   async function pick(id, choice){
-    var it = items.find(function(x){ return x.id === id; }); if(!it) return;
+    var it = items.find(function(x){ return x.id === id; }); if(!it){ showStatus('Not saved: that question is no longer on the page; reload it.', true); return; }
     var box = $('note-' + id);
     var before = it.answer || '';
     var data = { answer: before === choice ? '' : choice };
@@ -299,10 +302,16 @@ details.answered li{margin:4px 0}
     db = await claude.use('db');
     if(!db){ $('l-choice').innerHTML = '<div class="empty">Open this page signed in to see the questions.</div>'; $('l-text').innerHTML = ''; $('l-look').innerHTML = ''; return; }
     db.collection('questions').onSnapshot(function(snap){
-      items = snap.docs.filter(function(d){ return d.exists; }).map(function(d){ var o = d.data(); o.id = d.id; return o; });
-      render();
-    }, function(err){ $('l-choice').innerHTML = '<div class="empty">The questions could not be loaded (' + esc(err.code) + '). Reload the page.</div>'; });
-    db.doc('meta/board').onSnapshot(function(snap){ board = snap.exists ? (snap.data() || {}) : {}; render(); }, function(){ });
+      var next = snap.docs.filter(function(d){ return d.exists; }).map(function(d){ return Object.assign({}, d.data(), { id: d.id }); });  // the runtime's records are frozen: copy, never assign into them
+      var sig = JSON.stringify(next);
+      if(sig === lastItemsSig) return;
+      lastItemsSig = sig; items = next; render();
+    }, function(err){ setHtml('l-choice', '<div class="empty">The questions could not be loaded (' + esc(err.code) + '). Reload the page.</div>'); });
+    db.doc('meta/board').onSnapshot(function(snap){
+      var next = snap.exists ? (snap.data() || {}) : {}; var sig = JSON.stringify(next);
+      if(sig === lastBoardSig) return;
+      lastBoardSig = sig; board = next; render();
+    }, function(){ });
     comments = await claude.use('comments');
     render();
   }
