@@ -37,13 +37,16 @@
 		<member name="html/focus_canvas_on_start" type="bool" setter="" getter="">
 			If [code]true[/code], the canvas will be focused as soon as the application is loaded, if the browser window is already in focus.
 		</member>
+		<member name="html/fullscreen_on_first_tap" type="bool" setter="" getter="">
+			If [code]true[/code], the first tap on the canvas puts the page in fullscreen on phones and tablets (devices whose primary pointer is a touchscreen). Browsers only lock the screen orientation in fullscreen, so this is what makes [member html/orientation] apply without any code in the project. Desktop browsers are unaffected. If the player leaves fullscreen, it is not entered again.
+		</member>
 		<member name="html/head_include" type="String" setter="" getter="">
 			Additional HTML tags to include inside the [code]&lt;head&gt;[/code], such as [code]&lt;meta&gt;[/code] tags.
 			[b]Note:[/b] You do not need to add a [code]&lt;title&gt;[/code] tag, as it is automatically included based on the project's name.
 		</member>
 		<member name="html/orientation" type="int" setter="" getter="">
 			The screen orientation the exported project runs in on phones and tablets. [b]Project Setting[/b] follows [member ProjectSettings.display/window/handheld/orientation]; any other value overrides that setting in the exported project. The progressive web app manifest uses the same orientation.
-			Browsers only allow the orientation to be locked while the page is in fullscreen (or runs as an installed progressive web app), so the engine requests the lock again every time the page enters fullscreen, for example through [method DisplayServer.window_set_mode] called from an input event. Desktop browsers do not lock the orientation, and report [constant DisplayServer.FEATURE_ORIENTATION] as unsupported.
+			Browsers only allow the orientation to be locked while the page is in fullscreen (or runs as an installed progressive web app), so the engine requests the lock again every time the page enters fullscreen: on the first tap with [member html/fullscreen_on_first_tap], or through [method DisplayServer.window_set_mode] called from an input event. Desktop browsers do not lock the orientation, and report [constant DisplayServer.FEATURE_ORIENTATION] as unsupported.
 		</member>
 		<member name="loading_screen/compiling_shaders/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Default: [code]true[/code].

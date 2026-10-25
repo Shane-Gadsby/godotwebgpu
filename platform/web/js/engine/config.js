@@ -129,6 +129,17 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		focusCanvas: true,
 		/**
+		 * When enabled, the first tap on the canvas puts it in fullscreen on devices whose primary pointer is a
+		 * touchscreen (phones, tablets), from the end of the touch so the browser accepts the request. The
+		 * screen orientation lock (``display/window/handheld/orientation``) only applies in fullscreen.
+		 * Desktops are unaffected.
+		 *
+		 * @memberof EngineConfig
+		 * @type {boolean}
+		 * @default
+		 */
+		fullscreenOnFirstTap: false,
+		/**
 		 * When enabled, this will turn on experimental virtual keyboard support on mobile.
 		 *
 		 * @memberof EngineConfig
@@ -407,6 +418,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.persistentPaths = parse('persistentPaths', this.persistentPaths);
 		this.experimentalVK = parse('experimentalVK', this.experimentalVK);
 		this.focusCanvas = parse('focusCanvas', this.focusCanvas);
+		this.fullscreenOnFirstTap = parse('fullscreenOnFirstTap', this.fullscreenOnFirstTap);
 		this.serviceWorker = parse('serviceWorker', this.serviceWorker);
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
 		this.renderingDriver = parse('renderingDriver', this.renderingDriver);
@@ -514,6 +526,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'virtualKeyboard': this.experimentalVK,
 			'godotPoolSize': this.godotPoolSize,
 			'focusCanvas': this.focusCanvas,
+			'fullscreenOnFirstTap': this.fullscreenOnFirstTap,
 			'debugPort': this.debugPort,
 			'onExecute': this.onExecute,
 			'onTerminatePID': this.onTerminatePID,

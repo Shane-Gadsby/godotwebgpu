@@ -1,7 +1,8 @@
 extends Node3D
 
 # Task 19 probe: reports what the web DisplayServer says about keep-screen-on and orientation,
-# and toggles fullscreen on a tap (fullscreen is where the browser allows the orientation lock).
+# Fullscreen (where the browser allows the orientation lock) comes from the web shell's first tap
+# (html/fullscreen_on_first_tap), not from this script.
 
 const FEATURE_KEEP_SCREEN_ON := 17 # Not bound in DisplayServer's Feature enum.
 
@@ -32,15 +33,7 @@ func _process(delta: float) -> void:
 	var lines := PackedStringArray()
 	for k in info:
 		lines.append("%s: %s" % [k, info[k]])
-	label.text = "%s\nwindow %dx%d %s\nfullscreen %s\nrunning %d s\ntap to toggle fullscreen" % [
+	label.text = "%s\nwindow %dx%d %s\nfullscreen %s\nrunning %d s\ntap: fullscreen (first tap, web shell)" % [
 		"\n".join(lines), size.x, size.y, "portrait" if size.y > size.x else "landscape",
 		DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN, int(elapsed)]
 
-
-func _unhandled_input(event: InputEvent) -> void:
-	var tap: bool = (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.pressed)
-	if tap:
-		if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		else:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)

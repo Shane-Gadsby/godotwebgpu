@@ -406,10 +406,24 @@ const GodotDisplayScreen = {
 			// Any element counts: a custom shell may put a container in fullscreen, not the canvas.
 			const fullscreen_cb = function () {
 				if (GodotDisplayScreen.documentIsFullscreen()) {
+					GodotDisplayScreen.first_tap_done = true;
 					GodotDisplayScreen.applyOrientation();
 				}
 			};
 			GodotEventListeners.add(document, 'fullscreenchange', fullscreen_cb, false);
+			// Fullscreen on the first tap (export option html/fullscreen_on_first_tap), so a phone gets the
+			// whole screen and the orientation lock without game code. Requested on touchend: the end of a
+			// touch is user activation, its start is not, so Chrome refuses a request made on touchstart.
+			// Only where the primary pointer is a touchscreen; tried again on later taps until it succeeds,
+			// never again once the page has been in fullscreen (the player may have left it on purpose).
+			if (GodotConfig.fullscreen_on_first_tap && GodotDisplayScreen.hasFullscreen() && typeof window.matchMedia === 'function'
+				&& window.matchMedia('(pointer: coarse)').matches) {
+				GodotEventListeners.add(GodotConfig.canvas, 'touchend', function () {
+					if (!GodotDisplayScreen.first_tap_done && !GodotDisplayScreen.documentIsFullscreen()) {
+						GodotDisplayScreen.requestFullscreen();
+					}
+				}, false);
+			}
 			GodotOS.atexit(function (resolve, reject) {
 				GodotDisplayScreen.keep_on = false;
 				GodotDisplayScreen.releaseWakeLock();
@@ -417,6 +431,7 @@ const GodotDisplayScreen = {
 			});
 		},
 
+		first_tap_done: false,
 		keep_on: false,
 		wake_lock: null, // The WakeLockSentinel while the lock is held.
 		wake_lock_pending: false,
