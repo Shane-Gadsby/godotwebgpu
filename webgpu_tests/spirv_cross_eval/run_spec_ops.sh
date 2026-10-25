@@ -13,7 +13,9 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 out="${1:?usage: run_spec_ops.sh <scratch_dir>}"
-cli="$repo/bin/tint_convert_cli"
+# CLI=<path> runs another build (the Tint reference: CLI=bin/tint_convert_cli.tint). Its expected failures differ,
+# so pass them as OVERRIDE_EXPECT_FAIL / LEGACY_EXPECT_FAIL; the lists below are SPIRV-Cross's.
+cli="${CLI:-$repo/bin/tint_convert_cli}"
 mkdir -p "$out/raw" "$out/legacy"
 python3 "$here/spec_op_probes.py" "$out/ops"
 for spv in "$out"/ops/*.spv; do
@@ -25,13 +27,16 @@ done
 echo "== path of each module"
 "$cli" --spec-info "$out"/ops/*.spv | sed "s|$out/ops/||;s|\.spv||" | awk '{printf "%s=%s  ", $1, $2} END {print ""}'
 echo "== override path (--raw, pipeline constants)"
-# op_SMod: GLSL leaves negative operands undefined and SPIRV-Cross emits WGSL's truncated %.
-# vector_shuffle / composite_use_runtime: SPIRV-Cross loops without converging. local_array: override-sized
-# function-scope arrays are not WGSL.
-EXPECT_FAIL=op_SMod,vector_shuffle,composite_use_runtime,local_array_sized_by_spec \
+# op_SMod / frozen_SMod: GLSL leaves negative operands undefined and SPIRV-Cross emits WGSL's truncated %.
+# vector_shuffle / composite_use_runtime / nested_insert: SPIRV-Cross loops without converging. local_array:
+# override-sized function-scope arrays are not WGSL. (Tint reference, CLI=bin/tint_convert_cli.tint:
+# OVERRIDE_EXPECT_FAIL=op_SMod,frozen_SMod,op_FConvert_f32,composite_extract,vector_shuffle,composite_insert,
+# vector_iadd,vector_select,nested_insert,shared_array_sized_by_spec,local_array_sized_by_spec)
+EXPECT_FAIL="${OVERRIDE_EXPECT_FAIL-op_SMod,frozen_SMod,vector_shuffle,composite_use_runtime,nested_insert,local_array_sized_by_spec}" \
 	node "$here/spec_op_check.mjs" "$out/ops" "$out/raw"
 echo "== legacy path (patched defaults, full pipeline, no constants)"
-# composite_extract / vector_shuffle / composite_insert: freeze_spec_constant_ops() evaluates CompositeExtract and
-# friends of a spec composite to 0, with any backend (Tint gave the same); GLSL cannot produce them.
-LEGACY=1 EXPECT_FAIL=op_SMod,composite_extract,vector_shuffle,composite_insert \
+# op_SMod is overridable, so it reaches the backend unfrozen: SPIRV-Cross's truncated % again. Everything the
+# freezer folds (composites, vector ops, frozen_SRem/SMod) must compute Vulkan's value. (Tint reference:
+# LEGACY_EXPECT_FAIL=op_SMod,op_FConvert_f32 -- Tint does not lower an f32 -> f32 FConvert override.)
+LEGACY=1 EXPECT_FAIL="${LEGACY_EXPECT_FAIL-op_SMod}" \
 	node "$here/spec_op_check.mjs" "$out/ops" "$out/legacy"

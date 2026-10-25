@@ -112,6 +112,7 @@ TYPES = """
 %bool = OpTypeBool
 %float = OpTypeFloat 32
 %v3uint = OpTypeVector %uint 3
+%v3bool = OpTypeVector %bool 3
 %uint_0 = OpConstant %uint 0
 %uint_1 = OpConstant %uint 1
 %uint_2 = OpConstant %uint 2
@@ -190,6 +191,34 @@ def module_composite(kind):
             comp
             + "\n%ci = OpSpecConstantOp %v3uint CompositeInsert %A %vc 2\n%res = OpSpecConstantOp %uint CompositeExtract %ci 2"
         )
+    elif kind == "vector_iadd":
+        # component-wise integer op on spec composites (frozen: non-scalar result)
+        body = (
+            comp
+            + "\n%vd = OpSpecConstantComposite %v3uint %B %B %B"
+            + "\n%va = OpSpecConstantOp %v3uint IAdd %vc %vd\n%res = OpSpecConstantOp %uint CompositeExtract %va 0"
+        )
+    elif kind == "vector_select":
+        # component-wise Select with a bool-vector spec condition
+        body = (
+            comp
+            + "\n%vd = OpSpecConstantComposite %v3uint %B %B %B"
+            + "\n%vb = OpSpecConstantComposite %v3bool %BA %BB %BA"
+            + "\n%vs = OpSpecConstantOp %v3uint Select %vb %vc %vd\n%res = OpSpecConstantOp %uint CompositeExtract %vs 0"
+        )
+    elif kind == "nested_insert":
+        # two-level CompositeInsert into an array of vectors; the untouched element must survive
+        body = (
+            comp
+            + "\n%arr2 = OpTypeArray %v3uint %uint_2\n%ac = OpSpecConstantComposite %arr2 %vc %vc"
+            + "\n%ai = OpSpecConstantOp %arr2 CompositeInsert %B %ac 1 0"
+            + "\n%e1 = OpSpecConstantOp %uint CompositeExtract %ai 1 0\n%e0 = OpSpecConstantOp %uint CompositeExtract %ai 0 0"
+            + "\n%res = OpSpecConstantOp %uint IAdd %e1 %e0"
+        )
+    elif kind in ("frozen_SRem", "frozen_SMod"):
+        # a scalar op in a module the spec composite forces onto the frozen path
+        body = comp + f"\n%res = OpSpecConstantOp %int {kind.split('_')[1]} %SA %SB"
+        return header() + TYPES + spec_decls() + "\n" + body + "\n" + store_result("res", "int")
     elif kind == "composite_use_runtime":
         # the composite is used by runtime code, as GLSL's `vec3(F,..)` is
         body = comp + "\n"
@@ -295,6 +324,31 @@ def main():
         module_composite("composite_use_runtime"),
         expected_for(lambda v: v[0] + v[1]),
         "composite of spec scalars",
+    )
+    mods["vector_iadd"] = (
+        module_composite("vector_iadd"),
+        expected_for(lambda v: u(v[0] + v[1])),
+        "composite of spec scalars",
+    )
+    mods["vector_select"] = (
+        module_composite("vector_select"),
+        expected_for(lambda v: v[0] if v[4] else v[1]),
+        "composite of spec scalars",
+    )
+    mods["nested_insert"] = (
+        module_composite("nested_insert"),
+        expected_for(lambda v: u(v[0] + v[1])),
+        "composite of spec scalars",
+    )
+    mods["frozen_SRem"] = (
+        module_composite("frozen_SRem"),
+        expected_for(lambda v: u(v[2] - v[3] * trunc_div(v[2], v[3]))),
+        "scalar op, frozen module",
+    )
+    mods["frozen_SMod"] = (
+        module_composite("frozen_SMod"),
+        expected_for(lambda v: u(v[2] % v[3])),
+        "scalar op, frozen module",
     )
     mods["shared_array_sized_by_spec"] = (module_shared_array(), expected_for(lambda v: v[0]), "array size")
     mods["local_array_sized_by_spec"] = (module_local_array(), expected_for(lambda v: v[0]), "array size")

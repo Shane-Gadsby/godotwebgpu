@@ -62,6 +62,7 @@ static constexpr uint16_t OP_CONSTANT_TRUE = 41;
 static constexpr uint16_t OP_CONSTANT_FALSE = 42;
 static constexpr uint16_t OP_CONSTANT = 43;
 static constexpr uint16_t OP_CONSTANT_COMPOSITE = 44;
+static constexpr uint16_t OP_CONSTANT_NULL = 46;
 static constexpr uint16_t OP_SPEC_CONSTANT_TRUE = 48;
 static constexpr uint16_t OP_SPEC_CONSTANT_FALSE = 49;
 static constexpr uint16_t OP_SPEC_CONSTANT = 50;
@@ -76,7 +77,9 @@ static constexpr uint16_t OP_LOAD = 61;
 static constexpr uint16_t OP_DECORATE = 71;
 static constexpr uint16_t OP_TYPE_STRUCT = 30;
 static constexpr uint16_t OP_COMPOSITE_CONSTRUCT = 80;
+static constexpr uint16_t OP_VECTOR_SHUFFLE = 79;
 static constexpr uint16_t OP_COMPOSITE_EXTRACT = 81;
+static constexpr uint16_t OP_COMPOSITE_INSERT = 82;
 static constexpr uint16_t OP_COPY_OBJECT = 83;
 static constexpr uint16_t OP_SELECT = 169;
 static constexpr uint16_t OP_PHI = 245;
@@ -84,6 +87,7 @@ static constexpr uint16_t OP_UNDEF = 1;
 static constexpr uint16_t OP_SAMPLED_IMAGE = 86;
 static constexpr uint16_t OP_IMAGE = 100;
 static constexpr uint16_t OP_TYPE_VECTOR = 23;
+static constexpr uint16_t OP_TYPE_MATRIX = 24;
 static constexpr uint16_t OP_STORE = 62;
 static constexpr uint16_t OP_ACCESS_CHAIN = 65;
 static constexpr uint16_t OP_MEMBER_DECORATE = 72;
@@ -139,6 +143,8 @@ static constexpr uint16_t OP_DECORATION_GROUP = 73;
 
 // Arithmetic/bit opcodes that may appear as the operation of an
 // OpSpecConstantOp (used by spec_constants_overridable()).
+static constexpr uint16_t OP_UCONVERT = 113;
+static constexpr uint16_t OP_SCONVERT = 114;
 static constexpr uint16_t OP_FCONVERT = 115;
 static constexpr uint16_t OP_SNEGATE = 126;
 static constexpr uint16_t OP_IADD = 128;
@@ -218,102 +224,152 @@ static inline void append_bytes(Vector<uint8_t> &r_out, const uint8_t *p_src, in
 
 // ---- eval_spec_op ----
 
-// Evaluate a SPIR-V specialization constant operation.
-// Returns the computed value as a u64.
-static uint64_t eval_spec_op(uint32_t p_opcode, const Vector<uint64_t> &p_operands) {
+// Evaluate one scalar (or one component of a vector) SPIR-V specialization
+// constant operation on 32-bit or narrower values. The composite operations
+// (CompositeExtract/Insert, VectorShuffle) are not scalar and are handled by
+// freeze_spec_constant_ops() itself. Returns false for an operation it does
+// not know, so the caller can say so instead of silently folding to 0.
+static bool eval_spec_op(uint32_t p_opcode, const Vector<uint64_t> &p_operands, uint64_t &r_value) {
 	auto a = [&]() -> uint64_t { return p_operands.size() > 0 ? p_operands[0] : 0; };
 	auto b = [&]() -> uint64_t { return p_operands.size() > 1 ? p_operands[1] : 0; };
 	auto c = [&]() -> uint64_t { return p_operands.size() > 2 ? p_operands[2] : 0; };
+	const int32_t sa = (int32_t)(uint32_t)a();
+	const int32_t sb = (int32_t)(uint32_t)b();
 
 	switch (p_opcode) {
-		// Integer arithmetic.
-		case 126:
-			return (uint64_t)(-(int32_t)a()); // SNegate
-		case 128:
-			return a() + b(); // IAdd (wrapping)
-		case 130:
-			return a() - b(); // ISub (wrapping)
-		case 132:
-			return a() * b(); // IMul (wrapping)
-		case 134:
-			return b() != 0 ? a() / b() : 0; // UDiv
-		case 135: { // SDiv
-			int32_t d = (int32_t)b();
-			return d != 0 ? (uint64_t)((int32_t)a() / d) : 0;
+		// Integer arithmetic. Signed division by -1 is done as negation, since
+		// INT32_MIN / -1 overflows in C++ (SPIR-V wraps).
+		case OP_SNEGATE:
+			r_value = (uint64_t)(0u - (uint32_t)a());
+			return true;
+		case OP_IADD:
+			r_value = a() + b(); // Wrapping; the caller masks to the result width.
+			return true;
+		case OP_ISUB:
+			r_value = a() - b();
+			return true;
+		case OP_IMUL:
+			r_value = a() * b();
+			return true;
+		case OP_UDIV:
+			r_value = (uint32_t)b() != 0 ? (uint32_t)a() / (uint32_t)b() : 0;
+			return true;
+		case OP_SDIV:
+			if (sb == 0) {
+				r_value = 0;
+			} else if (sb == -1) {
+				r_value = (uint64_t)(0u - (uint32_t)sa);
+			} else {
+				r_value = (uint64_t)(uint32_t)(sa / sb);
+			}
+			return true;
+		case OP_UMOD:
+			r_value = (uint32_t)b() != 0 ? (uint32_t)a() % (uint32_t)b() : 0;
+			return true;
+		case OP_SREM: // Sign of the dividend: C++'s truncated %.
+			r_value = (sb == 0 || sb == -1) ? 0 : (uint64_t)(uint32_t)(sa % sb);
+			return true;
+		case OP_SMOD: { // Sign of the divisor.
+			if (sb == 0 || sb == -1) {
+				r_value = 0;
+				return true;
+			}
+			int32_t r = sa % sb;
+			if (r != 0 && ((r < 0) != (sb < 0))) {
+				r += sb;
+			}
+			r_value = (uint64_t)(uint32_t)r;
+			return true;
 		}
-		case 137:
-			return b() != 0 ? a() % b() : 0; // UMod
 
 		// Logical.
 		case OP_LOGICAL_EQUAL:
-			return (uint64_t)(a() == b()); // LogicalEqual
+			r_value = (uint64_t)((a() != 0) == (b() != 0));
+			return true;
 		case OP_LOGICAL_NOT_EQUAL:
-			return (uint64_t)(a() != b()); // LogicalNotEqual
+			r_value = (uint64_t)((a() != 0) != (b() != 0));
+			return true;
 		case OP_LOGICAL_OR:
-			return (uint64_t)((a() != 0) || (b() != 0)); // LogicalOr
+			r_value = (uint64_t)((a() != 0) || (b() != 0));
+			return true;
 		case OP_LOGICAL_AND:
-			return (uint64_t)((a() != 0) && (b() != 0)); // LogicalAnd
+			r_value = (uint64_t)((a() != 0) && (b() != 0));
+			return true;
 		case OP_LOGICAL_NOT:
-			return (uint64_t)(a() == 0); // LogicalNot
+			r_value = (uint64_t)(a() == 0);
+			return true;
 
 		// Select: condition, true_val, false_val.
 		case OP_SELECT:
-			return a() != 0 ? b() : c(); // Select
+			r_value = a() != 0 ? b() : c();
+			return true;
 
 		// Integer comparison.
 		case OP_IEQUAL:
-			return (uint64_t)(a() == b()); // IEqual
+			r_value = (uint64_t)((uint32_t)a() == (uint32_t)b());
+			return true;
 		case OP_INOT_EQUAL:
-			return (uint64_t)(a() != b()); // INotEqual
+			r_value = (uint64_t)((uint32_t)a() != (uint32_t)b());
+			return true;
 		case OP_UGREATER_THAN:
-			return (uint64_t)((uint32_t)a() > (uint32_t)b()); // UGreaterThan
+			r_value = (uint64_t)((uint32_t)a() > (uint32_t)b());
+			return true;
 		case OP_SGREATER_THAN:
-			return (uint64_t)((int32_t)a() > (int32_t)b()); // SGreaterThan
+			r_value = (uint64_t)(sa > sb);
+			return true;
 		case OP_UGREATER_THAN_EQUAL:
-			return (uint64_t)((uint32_t)a() >= (uint32_t)b()); // UGreaterThanEqual
+			r_value = (uint64_t)((uint32_t)a() >= (uint32_t)b());
+			return true;
 		case OP_SGREATER_THAN_EQUAL:
-			return (uint64_t)((int32_t)a() >= (int32_t)b()); // SGreaterThanEqual
+			r_value = (uint64_t)(sa >= sb);
+			return true;
 		case OP_ULESS_THAN:
-			return (uint64_t)((uint32_t)a() < (uint32_t)b()); // ULessThan
+			r_value = (uint64_t)((uint32_t)a() < (uint32_t)b());
+			return true;
 		case OP_SLESS_THAN:
-			return (uint64_t)((int32_t)a() < (int32_t)b()); // SLessThan
+			r_value = (uint64_t)(sa < sb);
+			return true;
 		case OP_ULESS_THAN_EQUAL:
-			return (uint64_t)((uint32_t)a() <= (uint32_t)b()); // ULessThanEqual
+			r_value = (uint64_t)((uint32_t)a() <= (uint32_t)b());
+			return true;
 		case OP_SLESS_THAN_EQUAL:
-			return (uint64_t)((int32_t)a() <= (int32_t)b()); // SLessThanEqual
+			r_value = (uint64_t)(sa <= sb);
+			return true;
 
 		// Bitwise.
-		case 194:
-			return (uint64_t)((uint32_t)a() >> ((uint32_t)b() & 31)); // ShiftRightLogical
-		case 195:
-			return (uint64_t)((int32_t)a() >> ((uint32_t)b() & 31)); // ShiftRightArithmetic
-		case 196:
-			return (uint64_t)((uint32_t)a() << ((uint32_t)b() & 31)); // ShiftLeftLogical
-		case 197:
-			return a() | b(); // BitwiseOr
-		case 198:
-			return a() ^ b(); // BitwiseXor
-		case 199:
-			return a() & b(); // BitwiseAnd
-		case 200:
-			return (uint64_t)(~(uint32_t)a()); // Not
+		case OP_SHIFT_RIGHT_LOGICAL:
+			r_value = (uint64_t)((uint32_t)a() >> ((uint32_t)b() & 31));
+			return true;
+		case OP_SHIFT_RIGHT_ARITHMETIC:
+			r_value = (uint64_t)(uint32_t)(sa >> ((uint32_t)b() & 31));
+			return true;
+		case OP_SHIFT_LEFT_LOGICAL:
+			r_value = (uint64_t)((uint32_t)a() << ((uint32_t)b() & 31));
+			return true;
+		case OP_BITWISE_OR:
+			r_value = a() | b();
+			return true;
+		case OP_BITWISE_XOR:
+			r_value = a() ^ b();
+			return true;
+		case OP_BITWISE_AND:
+			r_value = a() & b();
+			return true;
+		case OP_NOT:
+			r_value = ~a();
+			return true;
 
-		// Composite.
-		case 81:
-			return a(); // CompositeExtract (return first operand)
+		// Same-width conversions (the only ones WGSL types can express) keep the
+		// bits: UConvert/SConvert between 32-bit ints, FConvert f32 -> f32.
+		// freeze_spec_constant_ops() rejects width changes before calling this.
+		case OP_UCONVERT:
+		case OP_SCONVERT:
+		case OP_FCONVERT:
+			r_value = a();
+			return true;
 
-		// Conversion (values unchanged for const-eval of integers).
-		case 109:
-		case 110:
-		case 111:
-		case 112:
-		case 113:
-		case 114:
-			return a(); // ConvertF/S/U, UConvert, SConvert
-
-		// Default: return 0 for unhandled operations.
 		default:
-			return 0;
+			return false;
 	}
 }
 
@@ -545,6 +601,250 @@ bool spec_constants_overridable(const Vector<uint8_t> &p_bytes) {
 
 // ---- freeze_spec_constant_ops ----
 
+// The constant values freeze_spec_constant_ops() knows: scalar bits by id, and
+// the constituent ids of every constant composite, so composite operations
+// (CompositeExtract/Insert, VectorShuffle) and component-wise vector operations
+// can be evaluated on them. Before this existed, all of those folded to 0 and a
+// frozen module computed something Vulkan never would.
+struct SpecFreezeState {
+	struct TypeInfo {
+		uint16_t op = 0;
+		uint32_t width = 0; // OpTypeInt / OpTypeFloat.
+		uint32_t element_type = 0; // OpTypeVector / OpTypeMatrix / OpTypeArray.
+		uint32_t count = 0; // OpTypeVector / OpTypeMatrix.
+		Vector<uint32_t> members; // OpTypeStruct.
+	};
+	HashMap<uint32_t, TypeInfo> types;
+	HashMap<uint32_t, uint32_t> id_type;
+	HashMap<uint32_t, uint64_t> scalars;
+	HashMap<uint32_t, Vector<uint32_t>> composites;
+	uint32_t next_id = 0;
+
+	bool is_bool(uint32_t p_type) const {
+		const TypeInfo *t = types.getptr(p_type);
+		return t && t->op == OP_TYPE_BOOL;
+	}
+
+	// Scalar type of p_type: itself, or a vector's component type.
+	uint32_t scalar_type(uint32_t p_type) const {
+		const TypeInfo *t = types.getptr(p_type);
+		return (t && t->op == OP_TYPE_VECTOR) ? t->element_type : p_type;
+	}
+
+	// Type of constituent p_index of a composite of type p_type, 0 if unknown.
+	uint32_t constituent_type(uint32_t p_type, uint32_t p_index) const {
+		const TypeInfo *t = types.getptr(p_type);
+		if (!t) {
+			return 0;
+		}
+		if (t->op == OP_TYPE_STRUCT) {
+			return p_index < (uint32_t)t->members.size() ? t->members[p_index] : 0;
+		}
+		return t->element_type;
+	}
+
+	// Keeps a computed scalar to the bits its type can hold.
+	uint64_t normalize(uint32_t p_type, uint64_t p_value) const {
+		const TypeInfo *t = types.getptr(p_type);
+		if (!t || t->op == OP_TYPE_BOOL) {
+			return p_value != 0 ? 1 : 0;
+		}
+		if (t->width < 64) {
+			return p_value & ((1ull << t->width) - 1);
+		}
+		return p_value;
+	}
+
+	void emit_scalar(Vector<uint32_t> &r_words, uint32_t p_type, uint32_t p_id, uint64_t p_value) {
+		p_value = normalize(p_type, p_value);
+		if (is_bool(p_type)) {
+			r_words.push_back((3u << 16) | (p_value ? OP_CONSTANT_TRUE : OP_CONSTANT_FALSE));
+			r_words.push_back(p_type);
+			r_words.push_back(p_id);
+		} else {
+			const TypeInfo *t = types.getptr(p_type);
+			const bool wide = t && t->width > 32;
+			r_words.push_back(((wide ? 5u : 4u) << 16) | OP_CONSTANT);
+			r_words.push_back(p_type);
+			r_words.push_back(p_id);
+			r_words.push_back((uint32_t)p_value);
+			if (wide) {
+				r_words.push_back((uint32_t)(p_value >> 32));
+			}
+		}
+		id_type[p_id] = p_type;
+		scalars[p_id] = p_value;
+	}
+
+	void emit_composite(Vector<uint32_t> &r_words, uint32_t p_type, uint32_t p_id, const Vector<uint32_t> &p_constituents) {
+		r_words.push_back(((3u + (uint32_t)p_constituents.size()) << 16) | OP_CONSTANT_COMPOSITE);
+		r_words.push_back(p_type);
+		r_words.push_back(p_id);
+		for (uint32_t c : p_constituents) {
+			r_words.push_back(c);
+		}
+		id_type[p_id] = p_type;
+		composites[p_id] = p_constituents;
+	}
+
+	// Emits the value of the constant p_src (scalar or composite) again under
+	// the id p_id, which is how a CompositeExtract result is defined.
+	bool emit_copy(Vector<uint32_t> &r_words, uint32_t p_type, uint32_t p_id, uint32_t p_src) {
+		if (const uint64_t *v = scalars.getptr(p_src)) {
+			emit_scalar(r_words, p_type, p_id, *v);
+			return true;
+		}
+		if (const Vector<uint32_t> *c = composites.getptr(p_src)) {
+			emit_composite(r_words, p_type, p_id, *c);
+			return true;
+		}
+		return false;
+	}
+
+	// CompositeInsert of p_object into p_composite at p_indices[0..p_count);
+	// every enclosing composite that changes gets a new constant (p_result_id
+	// for the outermost one). Returns 0 on failure.
+	uint32_t insert(Vector<uint32_t> &r_words, uint32_t p_type, uint32_t p_composite, const uint32_t *p_indices, uint32_t p_count, uint32_t p_object, uint32_t p_result_id) {
+		const Vector<uint32_t> *src = composites.getptr(p_composite);
+		if (!src || p_count == 0 || p_indices[0] >= (uint32_t)src->size()) {
+			return 0;
+		}
+		Vector<uint32_t> constituents = *src;
+		const uint32_t index = p_indices[0];
+		if (p_count == 1) {
+			constituents.ptrw()[index] = p_object;
+		} else {
+			uint32_t inner = insert(r_words, constituent_type(p_type, index), constituents[index], p_indices + 1, p_count - 1, p_object, 0);
+			if (inner == 0) {
+				return 0;
+			}
+			constituents.ptrw()[index] = inner;
+		}
+		uint32_t id = p_result_id != 0 ? p_result_id : next_id++;
+		emit_composite(r_words, p_type, id, constituents);
+		return id;
+	}
+
+	// Value of operand p_id for component p_component of a vector operation:
+	// the component of a vector constant, or the scalar itself (a scalar
+	// Select condition, which SPIR-V 1.4 allows with vector objects).
+	bool component_value(uint32_t p_id, int p_component, uint64_t &r_value) const {
+		if (p_component >= 0) {
+			if (const Vector<uint32_t> *c = composites.getptr(p_id)) {
+				if (p_component >= c->size()) {
+					return false;
+				}
+				p_id = (*c)[p_component];
+			}
+		}
+		const uint64_t *v = scalars.getptr(p_id);
+		if (!v) {
+			return false;
+		}
+		r_value = *v;
+		return true;
+	}
+
+	// The same-width-only rule eval_spec_op() relies on for conversions.
+	bool conversion_keeps_width(uint32_t p_result_scalar_type, uint32_t p_operand_id) const {
+		const uint32_t *operand_type = id_type.getptr(p_operand_id);
+		if (!operand_type) {
+			return false;
+		}
+		const TypeInfo *rt = types.getptr(p_result_scalar_type);
+		const TypeInfo *ot = types.getptr(scalar_type(*operand_type));
+		return rt && ot && rt->width == ot->width;
+	}
+
+	// Replacement for one OpSpecConstantOp: one or more constant instructions,
+	// the last of which defines p_result_id. False if it cannot be evaluated.
+	bool evaluate(Vector<uint32_t> &r_words, uint32_t p_type, uint32_t p_result_id, uint32_t p_op, const uint32_t *p_args, uint32_t p_arg_count) {
+		switch (p_op) {
+			case OP_COMPOSITE_EXTRACT: {
+				if (p_arg_count < 2) {
+					return false;
+				}
+				uint32_t current = p_args[0];
+				for (uint32_t i = 1; i < p_arg_count; i++) {
+					const Vector<uint32_t> *c = composites.getptr(current);
+					if (!c || p_args[i] >= (uint32_t)c->size()) {
+						return false;
+					}
+					current = (*c)[p_args[i]];
+				}
+				return emit_copy(r_words, p_type, p_result_id, current);
+			}
+			case OP_COMPOSITE_INSERT: {
+				if (p_arg_count < 3) {
+					return false;
+				}
+				return insert(r_words, p_type, p_args[1], p_args + 2, p_arg_count - 2, p_args[0], p_result_id) != 0;
+			}
+			case OP_VECTOR_SHUFFLE: {
+				if (p_arg_count < 2) {
+					return false;
+				}
+				const Vector<uint32_t> *v1 = composites.getptr(p_args[0]);
+				const Vector<uint32_t> *v2 = composites.getptr(p_args[1]);
+				if (!v1 || !v2 || v1->is_empty()) {
+					return false;
+				}
+				Vector<uint32_t> constituents;
+				for (uint32_t i = 2; i < p_arg_count; i++) {
+					uint32_t sel = p_args[i];
+					if (sel == 0xFFFFFFFFu) {
+						// Undefined component: any value is correct.
+						constituents.push_back((*v1)[0]);
+					} else if (sel < (uint32_t)v1->size()) {
+						constituents.push_back((*v1)[sel]);
+					} else if (sel - (uint32_t)v1->size() < (uint32_t)v2->size()) {
+						constituents.push_back((*v2)[sel - (uint32_t)v1->size()]);
+					} else {
+						return false;
+					}
+				}
+				emit_composite(r_words, p_type, p_result_id, constituents);
+				return true;
+			}
+			default:
+				break;
+		}
+
+		const uint32_t component_type = scalar_type(p_type);
+		if ((p_op == OP_UCONVERT || p_op == OP_SCONVERT || p_op == OP_FCONVERT) &&
+				(p_arg_count < 1 || !conversion_keeps_width(component_type, p_args[0]))) {
+			return false;
+		}
+		const TypeInfo *t = types.getptr(p_type);
+		const bool vector = t && t->op == OP_TYPE_VECTOR;
+		const int components = vector ? (int)t->count : 1;
+		Vector<uint32_t> constituents;
+		for (int comp = 0; comp < components; comp++) {
+			Vector<uint64_t> operands;
+			for (uint32_t i = 0; i < p_arg_count; i++) {
+				uint64_t v;
+				if (!component_value(p_args[i], vector ? comp : -1, v)) {
+					return false;
+				}
+				operands.push_back(v);
+			}
+			uint64_t value;
+			if (!eval_spec_op(p_op, operands, value)) {
+				return false;
+			}
+			if (!vector) {
+				emit_scalar(r_words, p_type, p_result_id, value);
+				return true;
+			}
+			uint32_t id = next_id++;
+			emit_scalar(r_words, component_type, id, value);
+			constituents.push_back(id);
+		}
+		emit_composite(r_words, p_type, p_result_id, constituents);
+		return true;
+	}
+};
+
 Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 	const uint8_t *data = p_bytes.ptr();
 	const int64_t len = p_bytes.size();
@@ -554,17 +854,15 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 		return p_bytes;
 	}
 
-	// Collect type info: type_id -> true if bool type.
-	HashMap<uint32_t, bool> type_bool;
-	// Collect type info for int types: type_id -> (width, signed).
-	HashMap<uint32_t, uint32_t> type_int_width;
+	SpecFreezeState state;
+	state.next_id = read_word(data, len, 3); // Header word 3 == Bound.
+	const uint32_t original_bound = state.next_id;
 
-	// Collect constant scalar values: result_id -> value (as u64).
-	HashMap<uint32_t, uint64_t> constants;
-	// Track which IDs are bool-typed.
-	HashSet<uint32_t> bool_ids;
+	// Replacement instructions for each OpSpecConstantOp, by result id.
+	HashMap<uint32_t, Vector<uint32_t>> replacements;
 
-	// First pass: collect types and constant values.
+	// First pass: types and constant values, evaluating every OpSpecConstantOp
+	// in order (its operands are always declared before it).
 	uint32_t pos = 5;
 	while (pos < total_words) {
 		uint32_t w0 = read_word(data, len, pos);
@@ -576,19 +874,31 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 		}
 
 		switch (op) {
-			case OP_TYPE_BOOL: {
-				if (wc >= 2) {
-					uint32_t id = read_word(data, len, pos + 1);
-					type_bool.insert(id, true);
+			case OP_TYPE_BOOL:
+			case OP_TYPE_INT:
+			case OP_TYPE_FLOAT:
+			case OP_TYPE_VECTOR:
+			case OP_TYPE_MATRIX:
+			case OP_TYPE_ARRAY:
+			case OP_TYPE_STRUCT: {
+				if (wc < 2) {
+					break;
 				}
-			} break;
-
-			case OP_TYPE_INT: {
-				if (wc >= 4) {
-					uint32_t id = read_word(data, len, pos + 1);
-					uint32_t width = read_word(data, len, pos + 2);
-					type_int_width.insert(id, width);
+				SpecFreezeState::TypeInfo info;
+				info.op = op;
+				if ((op == OP_TYPE_INT || op == OP_TYPE_FLOAT) && wc >= 3) {
+					info.width = read_word(data, len, pos + 2);
+				} else if ((op == OP_TYPE_VECTOR || op == OP_TYPE_MATRIX) && wc >= 4) {
+					info.element_type = read_word(data, len, pos + 2);
+					info.count = read_word(data, len, pos + 3);
+				} else if (op == OP_TYPE_ARRAY && wc >= 3) {
+					info.element_type = read_word(data, len, pos + 2);
+				} else if (op == OP_TYPE_STRUCT) {
+					for (uint32_t i = 2; i < wc; i++) {
+						info.members.push_back(read_word(data, len, pos + i));
+					}
 				}
+				state.types.insert(read_word(data, len, pos + 1), info);
 			} break;
 
 			case OP_CONSTANT:
@@ -601,28 +911,46 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 					if (wc >= 5) {
 						val |= ((uint64_t)read_word(data, len, pos + 4) << 32);
 					}
-					constants.insert(result_id, val);
-					if (type_bool.has(type_id)) {
-						bool_ids.insert(result_id);
-					}
+					state.scalars.insert(result_id, val);
+					state.id_type.insert(result_id, type_id);
 				}
 			} break;
 
 			case OP_CONSTANT_TRUE:
-			case OP_SPEC_CONSTANT_TRUE: {
-				if (wc >= 3) {
-					uint32_t result_id = read_word(data, len, pos + 2);
-					constants.insert(result_id, 1);
-					bool_ids.insert(result_id);
-				}
-			} break;
-
+			case OP_SPEC_CONSTANT_TRUE:
 			case OP_CONSTANT_FALSE:
 			case OP_SPEC_CONSTANT_FALSE: {
 				if (wc >= 3) {
 					uint32_t result_id = read_word(data, len, pos + 2);
-					constants.insert(result_id, 0);
-					bool_ids.insert(result_id);
+					state.scalars.insert(result_id, (op == OP_CONSTANT_TRUE || op == OP_SPEC_CONSTANT_TRUE) ? 1 : 0);
+					state.id_type.insert(result_id, read_word(data, len, pos + 1));
+				}
+			} break;
+
+			case OP_CONSTANT_NULL: {
+				// Only a scalar null has a value here; a composite null is
+				// left unknown, and an operation reading it fails loudly below.
+				if (wc >= 3) {
+					uint32_t type_id = read_word(data, len, pos + 1);
+					const SpecFreezeState::TypeInfo *t = state.types.getptr(type_id);
+					if (t && (t->op == OP_TYPE_BOOL || t->op == OP_TYPE_INT || t->op == OP_TYPE_FLOAT)) {
+						uint32_t result_id = read_word(data, len, pos + 2);
+						state.scalars.insert(result_id, 0);
+						state.id_type.insert(result_id, type_id);
+					}
+				}
+			} break;
+
+			case OP_CONSTANT_COMPOSITE:
+			case OP_SPEC_CONSTANT_COMPOSITE: {
+				if (wc >= 3) {
+					uint32_t result_id = read_word(data, len, pos + 2);
+					Vector<uint32_t> constituents;
+					for (uint32_t i = 3; i < wc; i++) {
+						constituents.push_back(read_word(data, len, pos + i));
+					}
+					state.composites.insert(result_id, constituents);
+					state.id_type.insert(result_id, read_word(data, len, pos + 1));
 				}
 			} break;
 
@@ -631,19 +959,31 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 					uint32_t type_id = read_word(data, len, pos + 1);
 					uint32_t result_id = read_word(data, len, pos + 2);
 					uint32_t spec_op = read_word(data, len, pos + 3);
-
-					Vector<uint64_t> operands;
+					Vector<uint32_t> args;
 					for (uint32_t i = 4; i < wc; i++) {
-						uint32_t id = read_word(data, len, pos + i);
-						const uint64_t *val_ptr = constants.getptr(id);
-						operands.push_back(val_ptr ? *val_ptr : 0);
+						args.push_back(read_word(data, len, pos + i));
 					}
 
-					uint64_t val = eval_spec_op(spec_op, operands);
-					constants.insert(result_id, val);
-					if (type_bool.has(type_id)) {
-						bool_ids.insert(result_id);
+					Vector<uint32_t> words;
+					const uint32_t next_id_before = state.next_id;
+					if (!state.evaluate(words, type_id, result_id, spec_op, args.ptr(), (uint32_t)args.size())) {
+						// Folding to a zero of the right shape keeps the module
+						// valid, but it no longer computes what Vulkan would, so
+						// say so. fprintf rather than WARN_PRINT: this file is also
+						// compiled standalone for tint_cli (see inline_opaque_functions).
+						fprintf(stderr, "WebGPU: freeze_spec_constant_ops: cannot evaluate OpSpecConstantOp %u (result %%%u); frozen to zero.\n", spec_op, result_id);
+						words.clear();
+						state.next_id = next_id_before;
+						words.push_back((3u << 16) | OP_CONSTANT_NULL);
+						words.push_back(type_id);
+						words.push_back(result_id);
+						state.id_type[result_id] = type_id;
+						const SpecFreezeState::TypeInfo *t = state.types.getptr(type_id);
+						if (t && (t->op == OP_TYPE_BOOL || t->op == OP_TYPE_INT || t->op == OP_TYPE_FLOAT)) {
+							state.scalars[result_id] = 0;
+						}
 					}
+					replacements.insert(result_id, words);
 				}
 			} break;
 
@@ -654,13 +994,16 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 		pos += wc;
 	}
 
-	// Second pass: rewrite, replacing OpSpecConstantOp with OpConstant,
-	// and converting OpSpecConstant* to their non-specialization equivalents.
+	// Second pass: rewrite, replacing each OpSpecConstantOp with its evaluated
+	// constants and OpSpecConstant* with their non-specialization equivalents.
 	Vector<uint8_t> out;
 	out.resize(0);
 
-	// Copy header (5 words = 20 bytes).
+	// Copy header (5 words = 20 bytes), then the bound if new ids were made.
 	append_bytes(out, data, 0, 20);
+	if (state.next_id != original_bound) {
+		memcpy(out.ptrw() + 3 * 4, &state.next_id, 4);
+	}
 
 	pos = 5;
 	while (pos < total_words) {
@@ -676,42 +1019,26 @@ Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes) {
 			// Strip OpDecorate ... SpecId decorations -- not valid after freezing.
 			pos += wc;
 			continue;
-		} else if (op == OP_SPEC_CONSTANT_OP) {
-			// Replace OpSpecConstantOp with evaluated OpConstant.
-			uint32_t type_id = read_word(data, len, pos + 1);
-			uint32_t result_id = read_word(data, len, pos + 2);
-			const uint64_t *val_ptr = constants.getptr(result_id);
-			uint64_t val = val_ptr ? *val_ptr : 0;
-
-			if (bool_ids.has(result_id) || type_bool.has(type_id)) {
-				uint16_t bool_op = (val != 0) ? OP_CONSTANT_TRUE : OP_CONSTANT_FALSE;
-				push_word(out, (3u << 16) | (uint32_t)bool_op);
-				push_word(out, type_id);
-				push_word(out, result_id);
+		} else if (op == OP_SPEC_CONSTANT_OP && wc >= 4) {
+			const Vector<uint32_t> *words = replacements.getptr(read_word(data, len, pos + 2));
+			if (words) {
+				for (uint32_t w : *words) {
+					push_word(out, w);
+				}
 			} else {
-				push_word(out, (4u << 16) | (uint32_t)OP_CONSTANT);
-				push_word(out, type_id);
-				push_word(out, result_id);
-				push_word(out, (uint32_t)val);
+				append_bytes(out, data, pos * 4, wc * 4);
 			}
-		} else if (op == OP_SPEC_CONSTANT_TRUE) {
-			// Rewrite as OpConstantTrue (same layout, different opcode).
-			push_word(out, ((uint32_t)wc << 16) | (uint32_t)OP_CONSTANT_TRUE);
-			for (uint32_t i = 1; i < wc; i++) {
-				push_word(out, read_word(data, len, pos + i));
+		} else if (op == OP_SPEC_CONSTANT_TRUE || op == OP_SPEC_CONSTANT_FALSE || op == OP_SPEC_CONSTANT || op == OP_SPEC_CONSTANT_COMPOSITE) {
+			// Same layout as the non-specialization opcode.
+			uint16_t frozen_op = OP_CONSTANT_COMPOSITE;
+			if (op == OP_SPEC_CONSTANT_TRUE) {
+				frozen_op = OP_CONSTANT_TRUE;
+			} else if (op == OP_SPEC_CONSTANT_FALSE) {
+				frozen_op = OP_CONSTANT_FALSE;
+			} else if (op == OP_SPEC_CONSTANT) {
+				frozen_op = OP_CONSTANT;
 			}
-		} else if (op == OP_SPEC_CONSTANT_FALSE) {
-			push_word(out, ((uint32_t)wc << 16) | (uint32_t)OP_CONSTANT_FALSE);
-			for (uint32_t i = 1; i < wc; i++) {
-				push_word(out, read_word(data, len, pos + i));
-			}
-		} else if (op == OP_SPEC_CONSTANT) {
-			push_word(out, ((uint32_t)wc << 16) | (uint32_t)OP_CONSTANT);
-			for (uint32_t i = 1; i < wc; i++) {
-				push_word(out, read_word(data, len, pos + i));
-			}
-		} else if (op == OP_SPEC_CONSTANT_COMPOSITE) {
-			push_word(out, ((uint32_t)wc << 16) | (uint32_t)OP_CONSTANT_COMPOSITE);
+			push_word(out, ((uint32_t)wc << 16) | (uint32_t)frozen_op);
 			for (uint32_t i = 1; i < wc; i++) {
 				push_word(out, read_word(data, len, pos + i));
 			}
@@ -2980,7 +3307,6 @@ Vector<uint8_t> hoist_constant_local_arrays(const Vector<uint8_t> &p_bytes) {
 	}
 
 	const uint8_t *data = p_bytes.ptr();
-	static constexpr uint16_t OP_CONSTANT_NULL = 46;
 	static constexpr uint32_t SC_PRIVATE = 6;
 	static constexpr uint32_t SC_FUNCTION = 7;
 

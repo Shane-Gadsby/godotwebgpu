@@ -1,8 +1,8 @@
 # 14-spec-composite-fold: freeze_spec_constant_ops() evaluates composite ops instead of folding to 0
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-14
+Claimed: 2026-10-25 12:05
 Needs: — (gpu lease for the browser half of the probes)
 Branch: work/14
 Results: webgpu_notes/work/results/14-spec-composite-fold/
