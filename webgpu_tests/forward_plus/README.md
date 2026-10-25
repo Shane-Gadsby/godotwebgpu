@@ -59,8 +59,9 @@ the mode now, and each was a false failure before it existed:
 - **A fixed jitter phase.** Volumetric fog's Halton offset is the frame number
   mod 16, and a settled temporal effect still differs by phase: natively, two
   adjacent phases measure 0.07 apart. The fixture delays each config until its
-  capture frame lands on phase 0 mod 16 (`_aligned()`; `--fp-phase=N` natively
-  for triage) and prints `[FP] FRAME <n> (phase <p>)` before `READY`. Before
+  capture frame lands on phase 0 mod 32 (`_aligned()`; `--fp-phase=N` natively
+  for triage) and prints `[FP] FRAME <n> (phase <p>)` before `READY`. 32, not
+  16, because FSR2 at the matrix's 0.5 scale cycles 32 jitter phases. Before
   that, the phase depended on whether the harness's first hash change landed in
   boot frame 1 or 2, and baked exports, which boot fast enough to straddle it,
   measured fog at 0.046 or 0.082 from native at random.
