@@ -1,6 +1,6 @@
 # 09-remove-tint: Tint leaves the tree
 
-State: claimed
+State: ready-for-integration
 Owner: worker-09
 Claimed: 2026-10-25 18:45
 Needs: build
