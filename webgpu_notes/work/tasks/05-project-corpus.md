@@ -1,8 +1,8 @@
 # 05-project-corpus: real projects' shaders (materials, user shaders) through SPIRV-Cross
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-05
+Claimed: 2026-10-25
 Needs: — (the existing editor bin/godot.linuxbsd.editor.x86_64 + your tint_convert_cli; Chrome compile, no lease)
 Branch: work/5
 Results: webgpu_notes/work/results/05-project-corpus/

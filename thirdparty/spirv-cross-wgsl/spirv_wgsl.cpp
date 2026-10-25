@@ -1062,6 +1062,20 @@ string CompilerWGSL::image_format_to_wgsl(ImageFormat fmt) const
 		return "rgb10a2uint";
 	case ImageFormatR11fG11fB10f:
 		return "rg11b10ufloat";
+	// 16-bit normalized storage formats need the texture-formats-tier1 feature; Tint spells them the same way,
+	// and CanvasSdf (r16snorm) uses one.
+	case ImageFormatR16:
+		return "r16unorm";
+	case ImageFormatRg16:
+		return "rg16unorm";
+	case ImageFormatRgba16:
+		return "rgba16unorm";
+	case ImageFormatR16Snorm:
+		return "r16snorm";
+	case ImageFormatRg16Snorm:
+		return "rg16snorm";
+	case ImageFormatRgba16Snorm:
+		return "rgba16snorm";
 	default:
 		SPIRV_CROSS_THROW("Storage image format is not supported in WGSL.");
 	}
