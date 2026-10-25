@@ -32,14 +32,14 @@
  *
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_forward_plus.mjs [--browser chrome|firefox]
- *                                               [--feature <id>] [--save-dir DIR] [--list]
+ *                                               [--feature <id>] [--save-dir DIR] [--list] [--allow-stale-export]
  *                                               [--json <path>]
  *                                               [--parity [--reference DIR] [--godot BIN] [--settle N]]
  */
 
 import { createServer } from 'http';
 import { spawnSync } from 'child_process';
-import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -185,6 +185,20 @@ async function main() {
   if (!existsSync(SCENE_DIR)) {
     console.log(`  SKIP -- no export at ${SCENE_DIR} (run ${BAKED ? 'BAKE=1 ' : ''}./export.sh)`);
     process.exit(2);
+  }
+  // A stale export renders yesterday's fixture and engine and still compares cleanly against a fresh native reference:
+  // --baked once ran a three-hour-old export_baked/ after only the unbaked one had been refreshed, and failed FSR2 and
+  // volumetric fog on fixes that were already merged. Refuse an export older than what it was made from.
+  const exportPck = join(SCENE_DIR, 'index.pck');
+  const sources = [
+    process.env.GODOT_TEMPLATE_ZIP || join(__dirname, '..', '..', 'bin', 'godot.web.template_release.wasm32.nothreads.zip'),
+    process.env.GODOT_EDITOR_BIN || join(__dirname, '..', '..', 'bin', 'godot.linuxbsd.editor.x86_64'),
+    join(__dirname, 'godot', 'fp_check', 'fp_scene.gd'),
+  ].filter((f) => existsSync(f));
+  const newer = existsSync(exportPck) ? sources.filter((f) => statSync(f).mtimeMs > statSync(exportPck).mtimeMs) : sources;
+  if (newer.length && !args.includes('--allow-stale-export')) {
+    console.log(`  FAIL -- ${SCENE_DIR} is older than ${newer.join(', ')}; re-run ${BAKED ? 'BAKE=1 ' : ''}./export.sh (or pass --allow-stale-export)`);
+    process.exit(1);
   }
   const unsupported = unsupportedReason(browserName);
   if (unsupported) {
