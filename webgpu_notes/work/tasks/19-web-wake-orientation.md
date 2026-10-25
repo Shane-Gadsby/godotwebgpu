@@ -1,8 +1,8 @@
 # 19-web-wake-orientation: web export keeps the screen awake, asks for performance, locks orientation
 
-State: in progress
+State: ready-for-integration
 Owner: worker-19
-Claimed:
+Claimed: 2026-10-25 17:03
 Needs: phone (Razr 60), build, gpu only for desktop checks
 Branch: work/19
 Results: webgpu_notes/work/results/19-web-wake-orientation/

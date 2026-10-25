@@ -1,0 +1,318 @@
+{
+ "started": "2026-10-25T07:50:53.093Z",
+ "screen_off_timeout_ms": 30000,
+ "exports": {
+  "Portrait": {
+   "probe": {
+    "keep_screen_on_feature": true,
+    "keep_screen_on_setting": true,
+    "kept_on": true,
+    "orientation": 1,
+    "orientation_feature": true,
+    "orientation_setting": 1
+   },
+   "before": {
+    "type": "portrait-primary",
+    "fullscreen": false,
+    "w": 411,
+    "h": 860,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "fullscreen": {
+    "type": "portrait-primary",
+    "fullscreen": true,
+    "w": 411,
+    "h": 964,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "after": {
+    "type": "portrait-primary",
+    "fullscreen": true,
+    "w": 411,
+    "h": 964,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "console": [
+    {
+     "type": "log",
+     "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+    },
+    {
+     "type": "warning",
+     "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+    },
+    {
+     "type": "log",
+     "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+    },
+    {
+     "type": "log",
+     "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+    },
+    {
+     "type": "log",
+     "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":1,\"orientation_feature\":true,\"orientation_setting\":1}"
+    },
+    {
+     "type": "log-warning",
+     "text": "The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio"
+    }
+   ]
+  },
+  "NoFirstTap": {
+   "probe": {
+    "keep_screen_on_feature": true,
+    "keep_screen_on_setting": true,
+    "kept_on": true,
+    "orientation": 0,
+    "orientation_feature": true,
+    "orientation_setting": 0
+   },
+   "before": {
+    "type": "portrait-primary",
+    "fullscreen": false,
+    "w": 411,
+    "h": 860,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "fullscreen": {
+    "type": "portrait-primary",
+    "fullscreen": false,
+    "w": 411,
+    "h": 860,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "after": {
+    "type": "portrait-primary",
+    "fullscreen": false,
+    "w": 411,
+    "h": 860,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "console": [
+    {
+     "type": "log",
+     "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+    },
+    {
+     "type": "warning",
+     "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+    },
+    {
+     "type": "log",
+     "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+    },
+    {
+     "type": "log",
+     "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+    },
+    {
+     "type": "log",
+     "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":0,\"orientation_feature\":true,\"orientation_setting\":0}"
+    },
+    {
+     "type": "log-warning",
+     "text": "The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio"
+    }
+   ]
+  },
+  "Landscape": {
+   "probe": {
+    "keep_screen_on_feature": true,
+    "keep_screen_on_setting": true,
+    "kept_on": true,
+    "orientation": 0,
+    "orientation_feature": true,
+    "orientation_setting": 0
+   },
+   "before": {
+    "type": "portrait-primary",
+    "fullscreen": false,
+    "w": 411,
+    "h": 860,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "fullscreen": {
+    "type": "landscape-primary",
+    "fullscreen": true,
+    "w": 964,
+    "h": 411,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "after": {
+    "type": "landscape-primary",
+    "fullscreen": true,
+    "w": 964,
+    "h": 411,
+    "visibility": "visible",
+    "wakeLockApi": true
+   },
+   "console": [
+    {
+     "type": "log",
+     "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+    },
+    {
+     "type": "warning",
+     "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+    },
+    {
+     "type": "log",
+     "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+    },
+    {
+     "type": "log",
+     "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+    },
+    {
+     "type": "log",
+     "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":0,\"orientation_feature\":true,\"orientation_setting\":0}"
+    },
+    {
+     "type": "log-warning",
+     "text": "The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio"
+    }
+   ]
+  }
+ },
+ "failures": [],
+ "wake_samples": [
+  {
+   "t": 0,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 5,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 10,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 15,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 20,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 25,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 30,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 35,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 40,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 45,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 50,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 55,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  },
+  {
+   "t": 60,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 3
+  }
+ ],
+ "wake_console": [
+  {
+   "type": "log",
+   "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+  },
+  {
+   "type": "warning",
+   "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+  },
+  {
+   "type": "log",
+   "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+  },
+  {
+   "type": "log",
+   "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+  },
+  {
+   "type": "log",
+   "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":0,\"orientation_feature\":true,\"orientation_setting\":0}"
+  },
+  {
+   "type": "log-warning",
+   "text": "The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio"
+  }
+ ],
+ "after_close_samples": [
+  {
+   "t": 0,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 5,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 10,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 15,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 20,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 25,
+   "wakefulness": "Awake",
+   "keep_screen_on_windows": 2
+  },
+  {
+   "t": 30,
+   "wakefulness": "Dozing",
+   "keep_screen_on_windows": 2
+  }
+ ],
+ "finished": "2026-10-25T07:53:23.551Z"
+}

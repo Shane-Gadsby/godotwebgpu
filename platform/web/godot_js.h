@@ -146,6 +146,13 @@ extern void godot_js_display_vk_cb(void (*p_input)(const char *p_text, int p_cur
 extern void godot_js_display_vk_show(const char *p_text, int p_type, int p_start, int p_end);
 extern void godot_js_display_vk_hide();
 
+// Display keep screen on, orientation
+extern void godot_js_display_screen_init(int p_verbose);
+extern int godot_js_display_wake_lock_available();
+extern void godot_js_display_wake_lock_set(int p_enable);
+extern int godot_js_display_orientation_available();
+extern void godot_js_display_orientation_set(int p_orientation);
+
 #ifdef __cplusplus
 }
 #endif

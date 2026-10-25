@@ -250,7 +250,7 @@ const GodotDisplayCursor = {
 mergeInto(LibraryManager.library, GodotDisplayCursor);
 
 const GodotDisplayScreen = {
-	$GodotDisplayScreen__deps: ['$GodotConfig', '$GodotOS', '$GL', 'emscripten_webgl_get_current_context'],
+	$GodotDisplayScreen__deps: ['$GodotConfig', '$GodotOS', '$GodotRuntime', '$GodotEventListeners', '$GL', 'emscripten_webgl_get_current_context'],
 	$GodotDisplayScreen: {
 		desired_size: [0, 0],
 		// Pixel size of a canvas whose control was transferred to an OffscreenCanvas (the web render
@@ -376,6 +376,160 @@ const GodotDisplayScreen = {
 				return 1;
 			}
 			return 0;
+		},
+
+		/*
+		 * Screen Wake Lock (screen_set_keep_on) and orientation lock (screen_set_orientation).
+		 * Both are requests the browser may refuse for reasons that are normal, not errors: no API
+		 * (an older browser, an insecure context), a hidden page, a desktop that cannot rotate, an
+		 * orientation lock outside fullscreen. So a refusal is only reported with --verbose, and the
+		 * request is retried when the page becomes visible again or enters fullscreen.
+		 * Members of these APIs are quoted so the closure compiler (use_closure_compiler=yes) keeps
+		 * their names: its externs predate the Screen Wake Lock API.
+		 */
+		verbose: false,
+		log: function (p_msg) {
+			if (GodotDisplayScreen.verbose) {
+				GodotRuntime.print(p_msg);
+			}
+		},
+		init: function (p_verbose) {
+			GodotDisplayScreen.verbose = !!p_verbose;
+			// The browser releases a wake lock whenever the page is hidden, and never gives it back.
+			GodotEventListeners.add(document, 'visibilitychange', function () {
+				if (document.visibilityState === 'visible') {
+					GodotDisplayScreen.acquireWakeLock();
+				}
+			}, false);
+			// Chrome for Android only allows an orientation lock in fullscreen (or an installed
+			// PWA), and drops it when fullscreen ends, so it is applied again on every entry.
+			// Any element counts: a custom shell may put a container in fullscreen, not the canvas.
+			const fullscreen_cb = function () {
+				if (GodotDisplayScreen.documentIsFullscreen()) {
+					GodotDisplayScreen.first_tap_done = true;
+					GodotDisplayScreen.applyOrientation();
+				}
+			};
+			GodotEventListeners.add(document, 'fullscreenchange', fullscreen_cb, false);
+			// Fullscreen on the first tap (export option html/fullscreen_on_first_tap), so a phone gets the
+			// whole screen and the orientation lock without game code. Requested on touchend: the end of a
+			// touch is user activation, its start is not, so Chrome refuses a request made on touchstart.
+			// Only where the primary pointer is a touchscreen; tried again on later taps until it succeeds,
+			// never again once the page has been in fullscreen (the player may have left it on purpose).
+			if (GodotConfig.fullscreen_on_first_tap && GodotDisplayScreen.hasFullscreen() && typeof window.matchMedia === 'function'
+				&& window.matchMedia('(pointer: coarse)').matches) {
+				GodotEventListeners.add(GodotConfig.canvas, 'touchend', function () {
+					if (!GodotDisplayScreen.first_tap_done && !GodotDisplayScreen.documentIsFullscreen()) {
+						GodotDisplayScreen.requestFullscreen();
+					}
+				}, false);
+			}
+			GodotOS.atexit(function (resolve, reject) {
+				GodotDisplayScreen.keep_on = false;
+				GodotDisplayScreen.releaseWakeLock();
+				resolve();
+			});
+		},
+
+		first_tap_done: false,
+		keep_on: false,
+		wake_lock: null, // The WakeLockSentinel while the lock is held.
+		wake_lock_pending: false,
+		hasWakeLock: function () {
+			return typeof navigator !== 'undefined' && !!navigator['wakeLock']
+				&& typeof navigator['wakeLock']['request'] === 'function';
+		},
+		acquireWakeLock: function () {
+			const self = GodotDisplayScreen;
+			if (!self.keep_on || self.wake_lock || self.wake_lock_pending || !self.hasWakeLock()) {
+				return;
+			}
+			if (document.visibilityState !== 'visible') {
+				return; // A hidden page is refused; visibilitychange asks again.
+			}
+			self.wake_lock_pending = true;
+			navigator['wakeLock']['request']('screen').then(function (sentinel) {
+				self.wake_lock_pending = false;
+				if (!self.keep_on) { // Turned off while the request was pending.
+					sentinel['release']().catch(function () {});
+					return;
+				}
+				self.wake_lock = sentinel;
+				sentinel.addEventListener('release', function () {
+					if (self.wake_lock === sentinel) {
+						self.wake_lock = null;
+					}
+				});
+				self.log('Screen wake lock acquired.');
+			}, function (err) {
+				self.wake_lock_pending = false;
+				self.log(`Screen wake lock not granted: ${err && err.name}: ${err && err.message}`);
+			});
+		},
+		releaseWakeLock: function () {
+			const sentinel = GodotDisplayScreen.wake_lock;
+			GodotDisplayScreen.wake_lock = null;
+			if (sentinel) {
+				sentinel['release']().catch(function () {});
+			}
+		},
+		setKeepOn: function (p_enable) {
+			GodotDisplayScreen.keep_on = !!p_enable;
+			if (GodotDisplayScreen.keep_on) {
+				GodotDisplayScreen.acquireWakeLock();
+			} else {
+				GodotDisplayScreen.releaseWakeLock();
+			}
+		},
+
+		// DisplayServer::ScreenOrientation -> OrientationLockType. SCREEN_SENSOR (6) unlocks.
+		orientation_types: ['landscape-primary', 'portrait-primary', 'landscape-secondary', 'portrait-secondary', 'landscape', 'portrait'],
+		orientation: -1, // The requested ScreenOrientation, -1 before the first request.
+		hasOrientationLock: function () {
+			return typeof screen !== 'undefined' && !!screen['orientation']
+				&& typeof screen['orientation']['lock'] === 'function';
+		},
+		documentIsFullscreen: function () {
+			return !!(document.fullscreenElement || document.webkitFullscreenElement);
+		},
+		canLockOrientation: function () {
+			// Desktop browsers expose lock() but always reject it (no screen to rotate), so only a
+			// device with a touchscreen as a pointer is reported as supporting FEATURE_ORIENTATION.
+			return GodotDisplayScreen.hasOrientationLock() && typeof window.matchMedia === 'function'
+				&& window.matchMedia('(any-pointer: coarse)').matches;
+		},
+		applyOrientation: function () {
+			const self = GodotDisplayScreen;
+			if (self.orientation < 0 || !self.hasOrientationLock()) {
+				return;
+			}
+			const type = self.orientation_types[self.orientation];
+			if (!type) {
+				try {
+					screen['orientation']['unlock']();
+				} catch (e) {
+					// Nothing locked, or nothing to unlock.
+				}
+				return;
+			}
+			let promise;
+			try {
+				promise = screen['orientation']['lock'](type);
+			} catch (e) {
+				self.log(`Screen orientation lock (${type}) not available: ${e.name}: ${e.message}`);
+				return;
+			}
+			if (promise) {
+				promise.then(function () {
+					self.log(`Screen orientation locked to ${type}.`);
+				}, function (err) {
+					self.log(`Screen orientation lock (${type}) not granted${self.documentIsFullscreen() ? '' : ' outside fullscreen'}: ${err && err.name}: ${err && err.message}`);
+				});
+			}
+		},
+		setOrientation: function (p_orientation) {
+			GodotDisplayScreen.orientation = p_orientation;
+			GodotDisplayScreen.applyOrientation();
 		},
 	},
 };
@@ -840,6 +994,39 @@ const GodotDisplay = {
 	godot_js_display_tts_available__sig: 'i',
 	godot_js_display_tts_available: function () {
 		return 'speechSynthesis' in window;
+	},
+
+	/*
+	 * Keep screen on, orientation
+	 */
+	godot_js_display_screen_init__proxy: 'sync',
+	godot_js_display_screen_init__sig: 'vi',
+	godot_js_display_screen_init: function (p_verbose) {
+		GodotDisplayScreen.init(p_verbose);
+	},
+
+	godot_js_display_wake_lock_available__proxy: 'sync',
+	godot_js_display_wake_lock_available__sig: 'i',
+	godot_js_display_wake_lock_available: function () {
+		return GodotDisplayScreen.hasWakeLock() ? 1 : 0;
+	},
+
+	godot_js_display_wake_lock_set__proxy: 'sync',
+	godot_js_display_wake_lock_set__sig: 'vi',
+	godot_js_display_wake_lock_set: function (p_enable) {
+		GodotDisplayScreen.setKeepOn(p_enable);
+	},
+
+	godot_js_display_orientation_available__proxy: 'sync',
+	godot_js_display_orientation_available__sig: 'i',
+	godot_js_display_orientation_available: function () {
+		return GodotDisplayScreen.canLockOrientation() ? 1 : 0;
+	},
+
+	godot_js_display_orientation_set__proxy: 'sync',
+	godot_js_display_orientation_set__sig: 'vi',
+	godot_js_display_orientation_set: function (p_orientation) {
+		GodotDisplayScreen.setOrientation(p_orientation);
 	},
 
 	godot_js_display_vk_cb__proxy: 'sync',

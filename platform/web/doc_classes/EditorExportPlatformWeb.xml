@@ -37,9 +37,16 @@
 		<member name="html/focus_canvas_on_start" type="bool" setter="" getter="">
 			If [code]true[/code], the canvas will be focused as soon as the application is loaded, if the browser window is already in focus.
 		</member>
+		<member name="html/fullscreen_on_first_tap" type="bool" setter="" getter="">
+			If [code]true[/code], the first tap on the canvas puts the page in fullscreen on phones and tablets (devices whose primary pointer is a touchscreen). Browsers only lock the screen orientation in fullscreen, so this is what makes [member html/orientation] apply without any code in the project. Desktop browsers are unaffected. If the player leaves fullscreen, it is not entered again.
+		</member>
 		<member name="html/head_include" type="String" setter="" getter="">
 			Additional HTML tags to include inside the [code]&lt;head&gt;[/code], such as [code]&lt;meta&gt;[/code] tags.
 			[b]Note:[/b] You do not need to add a [code]&lt;title&gt;[/code] tag, as it is automatically included based on the project's name.
+		</member>
+		<member name="html/orientation" type="int" setter="" getter="">
+			The screen orientation the exported project runs in on phones and tablets. [b]Project Setting[/b] follows [member ProjectSettings.display/window/handheld/orientation]; any other value overrides that setting in the exported project. The progressive web app manifest uses the same orientation.
+			Browsers only allow the orientation to be locked while the page is in fullscreen (or runs as an installed progressive web app), so the engine requests the lock again every time the page enters fullscreen: on the first tap with [member html/fullscreen_on_first_tap], or through [method DisplayServer.window_set_mode] called from an input event. Desktop browsers do not lock the orientation, and report [constant DisplayServer.FEATURE_ORIENTATION] as unsupported.
 		</member>
 		<member name="loading_screen/compiling_shaders/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Default: [code]true[/code].
@@ -218,10 +225,7 @@
 			The page to display, should the server hosting the page not be available. This page is saved in the client's machine.
 		</member>
 		<member name="progressive_web_app/orientation" type="int" setter="" getter="">
-			The orientation to use when the web application is run through a mobile device.
-			- [b]Any:[/b] No orientation is forced.
-			- [b]Landscape:[/b] Forces a horizontal layout (wider than it is taller).
-			- [b]Portrait:[/b] Forces a vertical layout (taller than it is wider).
+			Superseded by [member html/orientation], which also sets the progressive web app manifest's orientation; this option is hidden. A preset that still sets it to [b]Landscape[/b] or [b]Portrait[/b] while [member html/orientation] is [b]Project Setting[/b] exports as Sensor Landscape or Sensor Portrait.
 		</member>
 		<member name="shader_baker/enabled" type="bool" setter="" getter="">
 			If [code]true[/code], precompiles WebGPU shaders to WGSL at export time and ships them in the exported [code].pck[/code], instead of leaving the browser to translate SPIR-V to WGSL (via Tint) at load time. Only takes effect when the project's [code]rendering/rendering_device/driver.web[/code] setting is [code]webgpu[/code]; otherwise this option is a harmless no-op. Requires the editor to have been built with WebGPU support (see [code]drivers/webgpu/README.md[/code] in the source tree) — if it wasn't, export proceeds without baking and shaders fall back to the existing runtime Tint translation.

@@ -1809,7 +1809,7 @@
 			<description>
 				Returns the [param screen]'s current orientation. See also [method screen_set_orientation]. Returns [constant SCREEN_LANDSCAPE] if [param screen] is invalid.
 				[b]Note:[/b] One of the following constants can be used as [param screen]: [constant SCREEN_OF_MAIN_WINDOW], [constant SCREEN_PRIMARY], [constant SCREEN_WITH_MOUSE_FOCUS], or [constant SCREEN_WITH_KEYBOARD_FOCUS].
-				[b]Note:[/b] This method is implemented on Android and iOS. On other platforms, this method always returns [constant SCREEN_LANDSCAPE].
+				[b]Note:[/b] This method is implemented on Android, iOS and Web. On other platforms, this method always returns [constant SCREEN_LANDSCAPE].
 			</description>
 		</method>
 		<method name="screen_get_pixel" qualifiers="const">
@@ -1892,6 +1892,7 @@
 			<param index="0" name="enable" type="bool" />
 			<description>
 				Sets whether the screen should never be turned off by the operating system's power-saving measures. See also [method screen_is_kept_on].
+				[b]Note:[/b] On Web, this uses the Screen Wake Lock API, which requires a secure context ([code]https://[/code] or [code]localhost[/code]). The browser releases the lock while the page is hidden; the engine requests it again when the page becomes visible.
 			</description>
 		</method>
 		<method name="screen_set_orientation">
@@ -1901,7 +1902,8 @@
 			<description>
 				Sets the [param screen]'s [param orientation]. See also [method screen_get_orientation].
 				[b]Note:[/b] One of the following constants can be used as [param screen]: [constant SCREEN_OF_MAIN_WINDOW], [constant SCREEN_PRIMARY], [constant SCREEN_WITH_MOUSE_FOCUS], or [constant SCREEN_WITH_KEYBOARD_FOCUS].
-				[b]Note:[/b] This method is implemented on Android and iOS.
+				[b]Note:[/b] This method is implemented on Android, iOS and Web.
+				[b]Note:[/b] On Web, browsers only lock the orientation while the page is in fullscreen (or runs as an installed progressive web app), and desktop browsers not at all. The requested orientation is applied again every time the page enters fullscreen.
 				[b]Note:[/b] On iOS, this method has no effect if [member ProjectSettings.display/window/handheld/orientation] is not set to [constant SCREEN_SENSOR].
 			</description>
 		</method>
@@ -2764,7 +2766,7 @@
 			Display server supports changing the window icon (usually displayed in the top-left corner). [b]Windows, macOS[/b]
 		</constant>
 		<constant name="FEATURE_ORIENTATION" value="15" enum="Feature">
-			Display server supports changing the screen orientation. [b]Android, iOS[/b]
+			Display server supports changing the screen orientation. [b]Android, iOS, Web[/b]
 		</constant>
 		<constant name="FEATURE_SWAP_BUFFERS" value="16" enum="Feature">
 			Display server supports V-Sync status can be changed from the default (which is forced to be enabled platforms not supporting this feature). [b]Windows, macOS, Linux (X11/Wayland)[/b]

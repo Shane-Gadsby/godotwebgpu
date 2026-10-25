@@ -189,6 +189,7 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	config["canvasResizePolicy"] = p_preset->get("html/canvas_resize_policy");
 	config["experimentalVK"] = p_preset->get("html/experimental_virtual_keyboard");
 	config["focusCanvas"] = p_preset->get("html/focus_canvas_on_start");
+	config["fullscreenOnFirstTap"] = p_preset->get("html/fullscreen_on_first_tap");
 	config["gdextensionLibs"] = libs;
 	config["executable"] = p_name;
 	if (p_preset->get("variant/thread_support") && p_preset->get("variant/separate_render_thread")) {
@@ -399,9 +400,10 @@ Error EditorExportPlatformWeb::_build_pwa(const Ref<EditorExportPreset> &p_prese
 
 	// Manifest
 	const char *modes[4] = { "fullscreen", "standalone", "minimal-ui", "browser" };
-	const char *orientations[3] = { "any", "landscape", "portrait" };
-	const int display = CLAMP(int(p_preset->get("progressive_web_app/display")), 0, 4);
-	const int orientation = CLAMP(int(p_preset->get("progressive_web_app/orientation")), 0, 3);
+	// Indexed by DisplayServerEnums::ScreenOrientation.
+	const char *orientations[7] = { "landscape-primary", "portrait-primary", "landscape-secondary", "portrait-secondary", "landscape", "portrait", "any" };
+	const int display = CLAMP(int(p_preset->get("progressive_web_app/display")), 0, 3);
+	const int orientation = CLAMP(int(_get_orientation(p_preset)), 0, 6);
 
 	Dictionary manifest;
 	manifest["name"] = proj_name;
@@ -488,6 +490,9 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/head_include", PROPERTY_HINT_MULTILINE_TEXT, "monospace,no_wrap"), ""));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/canvas_resize_policy", PROPERTY_HINT_ENUM, "None,Project,Adaptive"), 2));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/focus_canvas_on_start"), true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/fullscreen_on_first_tap"), true));
+	// Index 0 follows display/window/handheld/orientation; index N is ScreenOrientation N - 1.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/orientation", PROPERTY_HINT_ENUM, "Project Setting,Landscape,Portrait,Reverse Landscape,Reverse Portrait,Sensor Landscape,Sensor Portrait,Sensor"), 0));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
 
 	// One text field and two tickboxes per loading-screen stage; the inspector
@@ -503,6 +508,8 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "progressive_web_app/ensure_cross_origin_isolation_headers"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "progressive_web_app/offline_page", PROPERTY_HINT_FILE, "*.html"), ""));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "progressive_web_app/display", PROPERTY_HINT_ENUM, "Fullscreen,Standalone,Minimal UI,Browser"), 1));
+	// Superseded by html/orientation, which the manifest now follows; kept hidden so a preset that
+	// set it still exports the orientation it asked for (see _get_orientation()).
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "progressive_web_app/orientation", PROPERTY_HINT_ENUM, "Any,Landscape,Portrait"), 0));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "progressive_web_app/icon_144x144", PROPERTY_HINT_FILE, "*.png,*.webp,*.svg"), ""));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "progressive_web_app/icon_180x180", PROPERTY_HINT_FILE, "*.png,*.webp,*.svg"), ""));
@@ -570,7 +577,47 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 		return p_preset->get("shader_baker/enabled").operator bool();
 	}
 
+	if (p_option == "progressive_web_app/orientation") {
+		return false; // Superseded by html/orientation.
+	}
+
 	return true;
+}
+
+DisplayServerEnums::ScreenOrientation EditorExportPlatformWeb::_get_orientation(const Ref<EditorExportPreset> &p_preset, bool *r_overrides_project) const {
+	// One place sets the orientation for both the page (the engine locks it in fullscreen, through
+	// display/window/handheld/orientation) and the PWA manifest: html/orientation. A preset from
+	// before that option may only have the PWA one, which then still applies to both.
+	const int html_orientation = p_preset->get("html/orientation");
+	if (html_orientation >= 1 && html_orientation <= DisplayServerEnums::SCREEN_SENSOR + 1) {
+		if (r_overrides_project) {
+			*r_overrides_project = true;
+		}
+		return DisplayServerEnums::ScreenOrientation(html_orientation - 1);
+	}
+	const int pwa_orientation = p_preset->get("progressive_web_app/orientation"); // Any, Landscape, Portrait.
+	if (pwa_orientation == 1 || pwa_orientation == 2) {
+		if (r_overrides_project) {
+			*r_overrides_project = true;
+		}
+		return pwa_orientation == 1 ? DisplayServerEnums::SCREEN_SENSOR_LANDSCAPE : DisplayServerEnums::SCREEN_SENSOR_PORTRAIT;
+	}
+	if (r_overrides_project) {
+		*r_overrides_project = false;
+	}
+	const int project_orientation = get_project_setting(p_preset, "display/window/handheld/orientation");
+	return DisplayServerEnums::ScreenOrientation(CLAMP(project_orientation, 0, int(DisplayServerEnums::SCREEN_SENSOR)));
+}
+
+HashMap<String, Variant> EditorExportPlatformWeb::get_custom_project_settings(const Ref<EditorExportPreset> &p_preset) const {
+	HashMap<String, Variant> settings;
+	bool overrides_project = false;
+	const DisplayServerEnums::ScreenOrientation orientation = _get_orientation(p_preset, &overrides_project);
+	if (overrides_project) {
+		// The engine applies it at startup (main.cpp) through DisplayServerWeb::screen_set_orientation().
+		settings["display/window/handheld/orientation"] = int(orientation);
+	}
+	return settings;
 }
 
 String EditorExportPlatformWeb::get_name() const {

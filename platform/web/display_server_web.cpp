@@ -1243,8 +1243,11 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 			DisplayServerEnums::WINDOW_EVENT_FOCUS_IN,
 			DisplayServerEnums::WINDOW_EVENT_FOCUS_OUT);
 	godot_js_display_vk_cb(&DisplayServerWeb::vk_input_text_callback);
+	godot_js_display_screen_init(OS::get_singleton()->is_stdout_verbose());
 
 	Input::get_singleton()->set_event_dispatch_function(_dispatch_input_event);
+
+	screen_set_keep_on(GLOBAL_GET("display/window/energy_saving/keep_screen_on"));
 }
 
 #ifdef WEBGPU_ENABLED
@@ -1601,8 +1604,13 @@ bool DisplayServerWeb::has_feature(DisplayServerEnums::Feature p_feature) const 
 		//case DisplayServerEnums::FEATURE_NATIVE_DIALOG_FILE_MIME:
 		//case DisplayServerEnums::FEATURE_NATIVE_ICON:
 		//case DisplayServerEnums::FEATURE_WINDOW_TRANSPARENCY:
-		//case DisplayServerEnums::FEATURE_KEEP_SCREEN_ON:
-		//case DisplayServerEnums::FEATURE_ORIENTATION:
+		case DisplayServerEnums::FEATURE_KEEP_SCREEN_ON:
+			// The Screen Wake Lock API: absent from older browsers and from insecure contexts.
+			return godot_js_display_wake_lock_available() != 0;
+		case DisplayServerEnums::FEATURE_ORIENTATION:
+			// screen.orientation.lock() on a touch device; it only succeeds in fullscreen (or an
+			// installed PWA), which the JS side handles by locking again on entering fullscreen.
+			return godot_js_display_orientation_available() != 0;
 		case DisplayServerEnums::FEATURE_IME:
 			// IME does not work with experimental VK support.
 			return godot_js_display_vk_available() == 0;
@@ -1621,6 +1629,29 @@ void DisplayServerWeb::register_web_driver() {
 
 String DisplayServerWeb::get_name() const {
 	return "web";
+}
+
+void DisplayServerWeb::screen_set_keep_on(bool p_enable) {
+	// A request the browser may refuse or drop (hidden page): library_godot_display.js retries it
+	// on visibilitychange and reports refusals with --verbose only.
+	keep_screen_on = p_enable;
+	godot_js_display_wake_lock_set(p_enable);
+}
+
+bool DisplayServerWeb::screen_is_kept_on() const {
+	return keep_screen_on;
+}
+
+void DisplayServerWeb::screen_set_orientation(DisplayServerEnums::ScreenOrientation p_orientation, int p_screen) {
+	ERR_FAIL_INDEX(p_orientation, DisplayServerEnums::SCREEN_SENSOR + 1);
+	// The requested orientation, as on the other platforms; the lock itself only takes effect in
+	// fullscreen on browsers that allow it, and is applied again on every fullscreen entry.
+	screen_orientation = p_orientation;
+	godot_js_display_orientation_set(p_orientation);
+}
+
+DisplayServerEnums::ScreenOrientation DisplayServerWeb::screen_get_orientation(int p_screen) const {
+	return screen_orientation;
 }
 
 int DisplayServerWeb::get_screen_count() const {
