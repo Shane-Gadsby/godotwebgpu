@@ -87,6 +87,8 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
   numbers look like regressions (TASKS.md §3 "Measurement traps"). Before taking it, check `nvidia-smi`: if the
   Oblivion Remastered game or LM Studio holds most of the 16 GB, say so to the lead instead of running. Compiling WGSL
   in Chrome (`validate_wgsl.mjs`, `smoke.sh`) is not rendering and needs no lease.
+- `phone`: the Razr 60 over adb (task 12). Separate from `gpu`: the phone's GPU does not contend with the desktop's, so a
+  phone run may go beside a desktop one. Desktop reference captures for a phone task still take `gpu`.
 - `build`: any SCons run (editor or web template) in any worktree. One at a time: each saturates all 24 cores, and
   `-j24` twice over runs both slower than one after the other. `tint_convert_cli`'s `build.sh` (~30 s) needs no lease.
   Still obey CLAUDE.md inside a tree: never start SCons while another runs in the same tree (`pgrep -ax scons`).
