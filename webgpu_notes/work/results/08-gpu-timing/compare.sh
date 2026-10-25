@@ -42,6 +42,9 @@ for ((run = 1; run <= runs; run++)); do
 		for ((i = 0; i < n; i++)); do
 			c=${configs[$(((i + run - 1) % n))]}
 			tag=${c%%=*} dir=${c#*=}
+			# Resumable: a (run, scene, config) whose two logs hold results is not measured again.
+			if grep -q "GPU busy" "$out/$scene.$tag.$run.cb.log" 2>/dev/null && grep -q "GPU busy" "$out/$scene.$tag.$run.passes.log" 2>/dev/null &&
+				! grep -q CONTAMINATED "$out/$scene.$tag.$run.cb.log" "$out/$scene.$tag.$run.passes.log"; then continue; fi
 			precheck
 			echo "$(date +%T) run $run $scene $tag (load $(cut -d' ' -f1 /proc/loadavg))"
 			node "$GPU_TIME" --dir "$dir/$scene" --uncapped --settle "$SETTLE" >"$out/$scene.$tag.$run.cb.log" 2>&1 || echo "  cb FAILED"

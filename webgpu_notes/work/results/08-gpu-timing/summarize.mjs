@@ -33,13 +33,14 @@ for (const f of readdirSync(dir)) {
 	for (const a of Object.values(d.passes)) while (a.length < idx + 1) a.push(0);
 }
 const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const ms = (a, p = 2) => (a.length ? `${mean(a).toFixed(p)} ± ${((Math.max(...a) - Math.min(...a)) / 2).toFixed(p)}` : '-');
 for (const [scene, tags] of Object.entries(data)) {
 	const names = Object.keys(tags).sort();
 	console.log(`\n### ${scene}\n`);
-	console.log(`| config | runs | fps | GPU ms/frame (cb) | GPU ms/frame (sum of passes) | shader sources |`);
-	console.log(`|---|---|---|---|---|---|`);
-	for (const n of names) { const d = tags[n]; console.log(`| ${n} | ${d.fps.length} | ${ms(d.fps, 0)} | ${ms(d.busy, 3)} | ${ms(d.pbusy, 3)} | ${[...d.src].join(' / ')} |`); }
+	console.log(`| config | runs | fps | GPU ms/frame (cb) | median GPU ms/frame (cb) | GPU ms/frame (sum of passes) | median (passes) | shader sources |`);
+	console.log(`|---|---|---|---|---|---|---|---|`);
+	for (const n of names) { const d = tags[n]; console.log(`| ${n} | ${d.fps.length} | ${ms(d.fps, 0)} | ${ms(d.busy, 3)} | ${d.busy.length ? med(d.busy).toFixed(3) : '-'} | ${ms(d.pbusy, 3)} | ${d.pbusy.length ? med(d.pbusy).toFixed(3) : '-'} | ${[...d.src].join(' / ')} |`); }
 	const keys = new Set(names.flatMap((n) => Object.keys(tags[n].passes)));
 	const rows = [...keys].map((k) => ({ k, v: names.map((n) => tags[n].passes[k] || []) })).filter((r) => Math.max(...r.v.map((a) => (a.length ? mean(a) : 0))) >= MIN);
 	rows.sort((a, b) => Math.max(...b.v.map((x) => (x.length ? mean(x) : 0))) - Math.max(...a.v.map((x) => (x.length ? mean(x) : 0))));
