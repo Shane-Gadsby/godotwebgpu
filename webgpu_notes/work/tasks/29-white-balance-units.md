@@ -1,6 +1,6 @@
 # 29-white-balance-units: white balance range 2000-10000 K and tint -150..150 (user decisions)
 
-State: ready-for-integration
+State: integrated (lead: 87/87 parity unbaked and baked with work/28)
 Owner: worker-29
 Claimed: 2026-10-26 18:40
 Needs: build, gpu (the white_balance parity arm)

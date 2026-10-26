@@ -89,7 +89,7 @@ cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
 cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 
-# Forward+ feature matrix, 84 arms (needs a real GPU and a fresh ./export.sh); --parity also compares every
+# Forward+ feature matrix, 87 arms (needs a real GPU and a fresh ./export.sh); --parity also compares every
 # frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly
 # (--feature a,b runs a subset; occlusion_culling needs a template with the raycast module, the web default):
 cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity

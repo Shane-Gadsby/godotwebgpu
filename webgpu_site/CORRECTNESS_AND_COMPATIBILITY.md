@@ -152,9 +152,9 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 
 ### 2.9 Forward+ Parity with Native Vulkan
 
-**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29; 84 arms since 2026-10-26, §4.39, §4.41, §4.42)
+**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29; 87 arms since 2026-10-26, §4.39, §4.41, §4.42, §4.44)
 
-`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.3). All 84 arms pass (2026-10-26, Chrome, unbaked and baked). Most land at 0.002-0.006; SDFGI 0.027, volumetric fog 0.001, omni cube shadows 0.015, FSR2 0.142 (one or two levels of noise; it was 0.57 and visibly softer until FSR2's reactive mask stopped being read through a swizzled view WebGPU cannot swizzle, TASKS.md §3 trap 55).
+`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.3). All 87 arms pass (2026-10-26, Chrome, unbaked and baked). Most land at 0.002-0.006; SDFGI 0.027, volumetric fog 0.001, omni cube shadows 0.015, FSR2 0.142 (one or two levels of noise; it was 0.57 and visibly softer until FSR2's reactive mask stopped being read through a swizzled view WebGPU cannot swizzle, TASKS.md §3 trap 55).
 
 The 11 arms added on 2026-10-26 cover skeletal animation, particle trails, LightmapGI, FogVolume (with and without a fog shader), stencil outline and x-ray, bent normals, SMAA, compositor effects and occlusion culling, each within 0.004 of native. What stays uncovered is what WebGPU cannot have: multiview, variable-rate shading, MSAA 2x and 8x.
 
@@ -172,12 +172,14 @@ The sweep that introduced this check found five features that rendered wrongly w
 
 and, beyond those, texture arrays collapsed to element 0, four shader built-ins that crashed the page, FSR2 skipping its depth reconstruction, constant-alpha blending, depth clamp, contact shadows' border colour, and a material using `POINT_COORD` drawing nothing (an upstream bug that also affects D3D12).
 
-### 2.9b Non-Finite Colors and Depth of Field
+### 2.9b Non-Finite Colors in Post Effects
 
-The bokeh depth of field treats a non-finite scene color as black (`dof_finite()` in `bokeh_dof_inc.glsl`), so a stray
-NaN from a user shader shows as one black pixel instead of a black bokeh shape over everything within the blur radius
-(`webgpu_notes/TASKS.md` §4.41, §3 trap 70). A deliberate divergence from upstream Godot; finite frames are unchanged.
-Glow, SSR and auto exposure are not guarded.
+The bokeh depth of field, glow, auto exposure and the previous-frame copy SSR reflects treat a non-finite scene color
+as black (`finite_or_zero()` in `servers/rendering/renderer_rd/shaders/effects/finite_inc.glsl`, tested on the
+exponent bits), so a stray NaN from a user shader shows as one black pixel instead of a black bokeh shape, a glow blob,
+a smeared reflection or a blank frame (`webgpu_notes/TASKS.md` §4.41, §4.44, §3 trap 70). A deliberate divergence from
+upstream Godot (an upstream sync may conflict in `copy.glsl`, `blur_raster.glsl`, `luminance_reduce*.glsl` and
+`bokeh_dof*.glsl`); finite frames are bit-identical.
 
 ### 2.10 Audio Parity with Native
 
@@ -467,8 +469,8 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | SPIR-V preprocessing unit tests | 291 | Every pass in `run_pipeline()`, edge cases, spec constant ops; the IR passes' outputs checked with `spirv-val` |
 | Driver unit tests | 379 | Bind group layouts, format handling, pipeline state, expanded-array binding layout |
 | Shader corpus (GLSL → SPIR-V → WGSL) | 14 fixtures | End-to-end conversion + validation |
-| Forward+ feature matrix | 84 arms | Each feature off/on must change the frame, or for occlusion culling the object count drop (real GPU) |
-| Forward+ parity | 84 arms | Each frame must match a native Vulkan render of the same scene |
+| Forward+ feature matrix | 87 arms | Each feature off/on must change the frame, or for occlusion culling the object count drop (real GPU) |
+| Forward+ parity | 87 arms | Each frame must match a native Vulkan render of the same scene |
 | Engine shader corpus | ~400+ shaders | Regression baseline with `expected_failures.json` |
 | Scene smoketests | 23 scenes × 3 browsers | Chrome, Firefox, Safari (never run: no Mac) — zero GPU errors required |
 | Resource lifecycle stress tests | - | Rapid create/destroy cycles |

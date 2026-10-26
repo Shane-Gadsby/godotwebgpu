@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. The full matrix is 84 arms, 84/84 at parity unbaked and baked on the merged tree; the bake gate's ceiling went 130 → 150 (§2.39).
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. Tasks 28 (NaN guards for glow, SSR, auto exposure, §4.44) and 29 (white balance units, §4.42) followed from the user's answers. The full matrix is 87 arms; the bake gate's ceiling went 130 → 150 (§2.39).
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -2970,6 +2970,11 @@ source alpha), then the material swapped for one with the same vertex stage and 
 suspect values. Test NaN on the bits, never `isnan()`: compilers may fold it (WGSL explicitly allows that). And
 `pow(x, y)` of an interpolated value that is 0 at some vertices needs a clamp: interpolation lands at -1e-9.
 Mobile hides the whole class unless the viewport is HDR (its RGB10A2 buffer stores NaN as 0).
+Follow-up (§4.44): glow, SSR and auto exposure spread it too, and not always as black. On NVIDIA, `min(NaN, cap)`
+returns the cap, so glow turned one NaN pixel into a **bright** blob, and `notEqual(x, x)` is false for a NaN, so
+upstream's own SSR sanitize let it through; auto exposure blanked the whole frame. Measure "pixels changed", not only
+"pixels black", and test NaN on the exponent bits (`finite_inc.glsl`), which is the only test that held on every path.
+A NaN in SSR's input also persists for frames after its source is gone (seen as black bars in a NaN-free reference).
 
 71. **An importer or importer-shader change does not reach a scene that is already imported** (2026-10-26). Godot
 reimports a source only when it or its `.import` settings change, and a MetaHuman's `head.dna` never does: the
@@ -4328,14 +4333,14 @@ it, and an unproven value). Merged `0f0dfd50fe`.
 
 User request (2026-10-26): a White Balance attribute on `CameraAttributesPhysical` and `CameraAttributesPractical`, as on
 a real camera. Merged `449f085aa6`. Added on the shared base `CameraAttributes` (both inherit it, and exposure already
-lives there): `white_balance_temperature` (Kelvin, 1000–15000, default 6500) and `white_balance_tint` (-1..1, default
-0), plus `RenderingServer.camera_attributes_set_white_balance(rid, temperature, tint)`. User wiki page: Engine
+lives there): `white_balance_temperature` (Kelvin, 2000–10000, default 6500) and `white_balance_tint` (-150..150,
+default 0), plus `RenderingServer.camera_attributes_set_white_balance(rid, temperature, tint)`. User wiki page: Engine
 Additions → Camera White Balance.
 
 - **Model** (`camera_attributes_storage.cpp`): camera semantics, the temperature is the illuminant the camera is set
   for. Illuminant on the Planckian locus with the Krystek approximation `Light3D` already uses for
-  `light_temperature`, tint along the isotherm at 0.05 Duv per unit (Unreal's `WhiteTint` scale; positive = magenta
-  image, as in Lightroom), von Kries adaptation in Bradford cone space onto the same model's 6500 K / tint 0 white. So
+  `light_temperature`, tint along the isotherm at 1/3000 Duv per unit, so ±150 is ±0.05 Duv (the extent of Unreal's
+  `WhiteTint` at ±1; Lightroom-style numbers; positive = magenta image, as in Lightroom), von Kries adaptation in Bradford cone space onto the same model's 6500 K / tint 0 white. So
   the default is exactly the identity, and a light of temperature T under a white balance of T renders exactly like the
   default 6500 K light.
 - **Plumbing:** `RendererCameraAttributes::white_balance_compute_gains()` computes three cone gains on the CPU; the
@@ -4349,11 +4354,16 @@ Additions → Camera White Balance.
 - **Interface references regenerated on purpose:** the only change is override id 18 in the `tonemap_mobile` fragment
   variants (lead check: the scan reference's 1,743-line diff is renumbering; per module, only that fact is new).
 - **Verified:** default bit-identical to the pre-change editor in all three renderers on the 4080 SUPER and lavapipe
-  (0 of 57,600 pixels); 3200 / 10000 K and ±0.5 tint within 1/255 of the model in all three and on WebGPU; WebGPU
-  frames pixel-identical to native Vulkan; Forward+ arm `white_balance` (3200 K, tint 0.2); smoke 276/276 on the merge.
+  (0 of 57,600 pixels); 3200 / 10000 K and ±75 tint (±0.5 before task 29) within 1/255 of the model in all three and on WebGPU; WebGPU
+  frames pixel-identical to native Vulkan; Forward+ arm `white_balance` (3200 K, tint 30; tint 0.2 before task 29, the same frame); smoke 276/276 on the merge.
 - **Known gap:** Compatibility does not white balance a `BG_CANVAS` background (copied with exposure only).
-- **User decisions** on the hand-offs page (`wb-tint-units`, `wb-model`, `wb-range`, `look-white-balance`), shipped
-  with the defaults: -1..1 at 0.05 Duv, Planckian everywhere, 1000–15000 K.
+- **User decisions** on the hand-offs page (`wb-tint-units`, `wb-model`, `wb-range`, `look-white-balance`): first
+  shipped with the defaults (-1..1 at 0.05 Duv, Planckian everywhere, 1000–15000 K); then the user picked
+  (2026-10-26) Planckian everywhere, **2000–10000 K** and tint **-150..150** keeping the physical extent (±150 = ±0.05
+  Duv, 1/3000 Duv per unit), and judged the look "like a camera". Work task 29 (merged `add69b409d`) changed the
+  inspector hints, the clamp in `white_balance_compute_gains()`, the scale constant `WHITE_BALANCE_DUV_PER_TINT`, the
+  class docs and the Forward+ arm (tint 0.2 → 30, frame unchanged: 0 of 230,400 px). The old units were never
+  released, so nothing converts them.
 
 ### 4.43 Bake isolation: the baker's capability answers stay inside the baker (October 2026) *(work task 27)*
 
@@ -4380,6 +4390,55 @@ with the editor of the time on a scratch copy of camera-sim. Merged `756b99bf6f`
   Xvfb.
 - Note for the user: camera-sim's `project.godot` lost FSR 2 (`scaling_3d/mode=2`) at 16:56 the same day, presumably
   because of these errors; with this fix it can go back on.
+
+### 4.44 NaN guards for glow, SSR and auto exposure (October 2026) *(work task 28)*
+
+User decision 2026-10-26 (hand-offs `nan-guards`: "Guard all three now"), the follow-up §4.41 left open. Merged
+`287109ddfd`. The bokeh
+DOF's guard moved to a shared include, `servers/rendering/renderer_rd/shaders/effects/finite_inc.glsl`
+(`finite_or_zero()` / `finite_or_zero3()` / `finite_or_zero4()`, `is_non_finite*()`; distinct names because WGSL has no
+overloads), and every effect that reads the scene color now passes it through once, where it is read:
+
+- **Glow:** Forward+ `copy.glsl` `MODE_GLOW` first pass, the four `local_cache` loads per thread (inside the existing
+  `FLAG_GLOW_FIRST_PASS` branch); Mobile `blur_raster.glsl` `MODE_GLOW_GATHER`, its four samples. Later levels read
+  that output.
+- **Auto exposure:** `luminance_reduce.glsl` `READ_TEXTURE` (once per pixel) and `luminance_reduce_raster.glsl`
+  `FIRST_PASS` (once per texel read). The raster path only runs where storage is unavailable; Mobile does not
+  apply auto exposure at all (its own warning), so it is guarded but not observable there.
+- **SSR:** its input is `RB_LAST_FRAME`, made by `copy_to_rect(..., sanitize)` and `make_mipmap()`, which upstream
+  already sanitized: inf (|x| > 3e10) and NaN (`notEqual(color, color)`) to 100. **That NaN test never fired on the
+  4080** although glslang emits the correct `OpFUnordNotEqual` (the driver assumes no NaN). It is now
+  `finite_or_zero4()`: NaN counts as black, infinity is still 100 from upstream's line. The SSR shaders themselves are
+  unchanged. Side effect: every other `make_mipmap()` user (screen-texture mips for refraction/`SCREEN_TEXTURE`,
+  runtime texture mip generation) now turns a NaN into 0 instead of (in intent) 100, and actually catches it.
+- **Bokeh DOF** uses the shared helper; same code as before (`dof_finite()` is gone).
+
+Numbers (4080 SUPER, native Vulkan and WebGPU Chrome real adapter; before = base `2eca8b0cf5` built in the same tree):
+
+| Check | Before | After |
+|---|---|---|
+| `dof_nan/run.sh` Forward+ glow additive / softlight (pixels changed) | 59,791 / 6,434 (a blob at the luminance cap: NVIDIA's `min()` drops the NaN) | 4 / 4 |
+| `dof_nan/run.sh` Mobile glow additive / softlight | 1,591 / 200 | 4 / 4 |
+| `dof_nan/run.sh` SSR roughness 0 / 0.4 (black pixels) | 212 / 23,812 (the second after the first's NaN persisted) | 4 / 4 |
+| `dof_nan/run.sh` auto exposure, Forward+ (mean brightness) | 0.4001 → 0.0000, whole frame | 0.4001 → 0.4001 |
+| Tier total | 7 failures | 0 (all 24 DOF cases still pass) |
+| Matrix `glow_nan` / `ssr_nan` / `auto_exposure_nan`, native delta | 1.261 / 28.684 / 97.513 | 0.005 / 0.004 / 0.003 |
+| Same arms, WebGPU (unbaked) | FAIL 1.261 / 28.685 / 97.514 | PASS 0.005 / 0.004 / 0.003, parity ≤ 0.003 (baked too) |
+
+Finite frames bit-identical natively: `glow`, `glow_map`, `ssr`, `ssil`, `refraction`, `auto_exposure`, `dof_far`,
+`dof_near`, `dof_nan` and the off frames of the new arms, 0 differing pixels before vs after. WebGPU `--parity` on
+the 10 guarded/new arms passes unbaked and baked (translated 133, under the 150 gate). Interface references unchanged
+(smoke: 276/276 identical, 552/552 scan facts, 0 invalid).
+
+Cost: an AND, a compare and a select per component (12 ALU ops per vec4): Forward+ glow first pass 48 per thread at
+half resolution (~12 per scene pixel), Mobile gather 48 per quarter-resolution fragment, auto exposure 9 per pixel,
+the last-frame copy +4 per pixel over upstream's test. Once per frame each; well under a microsecond at 1080p on the
+4080, not separable from noise, so not measured with `gpu_time.mjs`.
+
+Tests: `webgpu_tests/dof_nan/run.sh` now covers glow (additive, softlight), SSR (roughness 0, 0.4; Forward+ only, a
+reported SKIP on Mobile) and auto exposure as well (`ONLY=dof,glow,ssr,exposure` narrows), gated also on changed
+pixels (glow ≤ 64, SSR ≤ 256) and auto exposure on mean brightness (≤ 2 %). Forward+ matrix arms `glow_nan`,
+`ssr_nan`, `auto_exposure_nan` (`maxDelta` 0.05; 87 arms).
 
 ## 5. References — retired docs
 

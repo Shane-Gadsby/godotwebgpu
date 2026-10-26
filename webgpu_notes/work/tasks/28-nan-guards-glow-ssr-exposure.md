@@ -1,6 +1,6 @@
 # 28-nan-guards-glow-ssr-exposure: guard glow, SSR and auto exposure against a non-finite pixel, as the DOF is
 
-State: ready-for-integration
+State: integrated (lead: smoke OK, NaN tier 0 failures, 87/87 parity unbaked and baked)
 Owner: worker-28
 Claimed: 2026-10-26 19:30
 Needs: build, gpu (parity)
