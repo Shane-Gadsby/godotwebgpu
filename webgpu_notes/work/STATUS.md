@@ -1,5 +1,12 @@
 # Status (lead-maintained)
 
+## 2026-10-26 — tasks 24–25 out (user requests)
+
+| task | what | owner |
+|---|---|---|
+| 24 | White Balance (temperature + tint) on CameraAttributesPhysical and CameraAttributesPractical, all three renderers and the web | worker-24 |
+| 25 | MetaHuman skin looks coarse, pores and follicles huge: find the cause, fix it in the importer/shader | worker-25 |
+
 ## 2026-10-26 — tasks 20–23 (branches `work/20`..`work/23`, no task files)
 
 | task | what | outcome |
