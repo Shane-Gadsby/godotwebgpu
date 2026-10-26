@@ -56,6 +56,7 @@ const FEATURES := [
 	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
 	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
 	"dof_far", "dof_near", "dof_nan", "auto_exposure", "white_balance", "compositor_effect",
+	"glow_nan", "ssr_nan", "auto_exposure_nan",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -80,7 +81,9 @@ const SETTLE_OVERRIDE := {
 	"occlusion_culling": 8,
 	"taa": 24,
 	"auto_exposure": 40,
+	"auto_exposure_nan": 40,
 	"ssr": 10,
+	"ssr_nan": 10,
 	"ssil": 10,
 	"gpu_particles": 40,
 	"particle_trails": 50,
@@ -124,7 +127,9 @@ var compositor_effect: CompositorEffect
 var blendshape_inst: MeshInstance3D
 var lod_inst: MeshInstance3D
 var fade_inst: MeshInstance3D
-var nan_quad: MeshInstance3D             # writes NaN into the scene color (dof_nan)
+# Where the NaN quad sits: in the sky, deep in dof_nan's far blur, about 2x2 pixels.
+const NAN_QUAD_XFORM := Transform3D(Basis(), Vector3(3.5, 4.5, -12.0))
+var nan_quad: MeshInstance3D             # writes NaN into the scene color (dof_nan and the *_nan arms)
 
 var mat_floor: StandardMaterial3D
 var mat_probe: StandardMaterial3D      # the material feature tests mutate this one
@@ -495,7 +500,7 @@ void fragment() {
 """
 	var nan_mesh := QuadMesh.new()
 	nan_mesh.size = Vector2(0.12, 0.12)
-	nan_quad = _mesh_instance(nan_mesh, nan_mat, Transform3D(Basis(), Vector3(3.5, 4.5, -12.0)))
+	nan_quad = _mesh_instance(nan_mesh, nan_mat, NAN_QUAD_XFORM)
 	nan_quad.visible = false
 
 	decal = Decal.new()
@@ -1101,6 +1106,7 @@ func _reset() -> void:
 		lightmap_gi.light_data = null
 	compositor_effect.enabled = false
 	nan_quad.visible = false
+	nan_quad.transform = NAN_QUAD_XFORM
 
 	skeleton.set_bone_pose_rotation(1, Quaternion())
 	if blendshape_inst.get_blend_shape_count() > 0:
@@ -1501,6 +1507,27 @@ func _apply(id: String, on: bool) -> bool:
 		"auto_exposure":
 			cam_attrs.auto_exposure_enabled = on
 			cam_attrs.auto_exposure_scale = 0.2
+		# The *_nan arms: the effect on both ways, "on" adds the dof_nan quad, one NaN source. Each
+		# effect reads the scene color through finite_or_zero() (finite_inc.glsl), so the frame
+		# changes by the quad's own pixels; before, glow carried it over its radius (or, where min()
+		# drops a NaN, lit a blob at the luminance cap), SSR reflected and blurred it, and auto
+		# exposure averaged it into the luminance of the whole frame (webgpu_notes/TASKS.md §3).
+		"glow_nan":
+			env.glow_enabled = true
+			env.glow_intensity = 1.6
+			env.glow_bloom = 0.5
+			env.glow_hdr_threshold = 0.6
+			nan_quad.visible = on
+		"ssr_nan":
+			# Above the floor in front of the sphere, so its mirror image is on screen in the floor.
+			env.ssr_enabled = true
+			env.ssr_max_steps = 64
+			nan_quad.transform = Transform3D(Basis().scaled(Vector3(0.3, 0.3, 0.3)), Vector3(1.6, 0.7, 2.0))
+			nan_quad.visible = on
+		"auto_exposure_nan":
+			cam_attrs.auto_exposure_enabled = true
+			cam_attrs.auto_exposure_scale = 0.2
+			nan_quad.visible = on
 		"white_balance":
 			# CameraAttributes white balance (engine addition): a tungsten setting turns the daylight-lit
 			# scene blue; the small tint exercises the off-locus path.

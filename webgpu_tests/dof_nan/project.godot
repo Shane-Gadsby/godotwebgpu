@@ -4,7 +4,7 @@ config_version=5
 [application]
 
 config/name="DOF NaN containment"
-config/description="One NaN pixel in the scene color fed through every bokeh DOF mode; see run.sh."
+config/description="One NaN pixel in the scene color fed through every bokeh DOF mode, glow, SSR and auto exposure; see run.sh."
 run/main_scene="res://dof_nan.tscn"
 config/features=PackedStringArray("4.8")
 

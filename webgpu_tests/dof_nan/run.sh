@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# One NaN pixel through every bokeh DOF mode, natively, on Forward+ (compute DOF) and Forward Mobile
-# (raster DOF): see dof_nan.gd. Needs a display and a real renderer; --headless has none.
+# One NaN pixel through every bokeh DOF mode, glow, SSR and auto exposure, natively, on Forward+
+# (compute effects) and Forward Mobile (raster effects): see dof_nan.gd. Needs a display and a real
+# renderer; --headless has none.
 #
-#   ./run.sh [editor binary] [out dir]
+#   ./run.sh [editor binary] [out dir]          ONLY=dof,glow,ssr,exposure narrows the cases
 #
-# Exit 0 when every mode keeps the NaN to the quad's own pixels.
+# Exit 0 when every case keeps the NaN to the quad's own pixels.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -20,7 +21,7 @@ for method in forward_plus mobile; do
     echo "== $method"
     log="$(mktemp)"
     "$EDITOR" --path "$HERE" --rendering-driver vulkan --rendering-method "$method" --resolution 640x360 \
-        -- --out="$OUT/$method" >"$log" 2>&1 || true
+        -- --out="$OUT/$method" ${ONLY:+--only="$ONLY"} >"$log" 2>&1 || true
     grep -E "^DOFNAN|Forward|Mobile" "$log" || true
     grep -q "^DOFNAN DONE failures=0" "$log" || status=1
     rm -f "$log"

@@ -24,6 +24,7 @@ void main() {
 #VERSION_DEFINES
 
 #include "luminance_reduce_raster_inc.glsl"
+#include "finite_inc.glsl"
 
 layout(location = 0) in vec2 uv_interp;
 /* clang-format on */
@@ -46,7 +47,13 @@ void main() {
 	highp vec3 source_color = vec3(0.0);
 	for (int i = src_pos.x; i < next_pos.x; i++) {
 		for (int j = src_pos.y; j < next_pos.y; j++) {
+#ifdef FIRST_PASS
+			// The scene color: a non-finite pixel counts as black, or the average, and with it the
+			// exposure of the whole frame, is NaN (finite_inc.glsl). Later passes read luminance.
+			source_color += finite_or_zero3(texelFetch(source_exposure, ivec2(i, j), 0).rgb);
+#else
 			source_color += texelFetch(source_exposure, ivec2(i, j), 0).rgb;
+#endif
 		}
 	}
 
