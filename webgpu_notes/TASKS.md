@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 25 is recorded in §2.33.
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. The full matrix is 84 arms, 84/84 at parity unbaked and baked on the merged tree; the bake gate's ceiling went 130 → 150 (§2.39).
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -2458,6 +2458,8 @@ time and so can never be baked; translated rose to ~117 and the gate's ceiling w
 makes the gate looser, not this item fixed: the ~97 engine stages above are still inside the 117. Fixing this item
 should bring the ceiling back down to the GDScript-built count plus a margin.
 
+*2026-10-26:* the bake gate's ceiling is 150 (`run_forward_plus.mjs` `TRANSLATED_CEILING`): 117 with the work/21 arms, 133 once work task 26's `dof_nan` arm added a GDScript-built NaN material, which the bake cannot see. A broken bake translates ~440, so the gate still catches it.
+
 ### 2.40 SDFGI differs from native in Firefox only `OPEN` *(from §4.36)*
 
 In Firefox desktop (Linux, wgpu on Vulkan) `sdfgi` and `sdfgi_camera_move` are 0.277 from native Vulkan (tolerance
@@ -2981,6 +2983,25 @@ now drops `.godot/imported` whenever the editor binary is newer than its last im
 with swizzle b = ZERO, so a custom shader that reads `.rgb * 2.0 - 1.0` gets z = -1, not the normal's z. Rebuild z from
 xy (`sqrt(1 - dot(xy, xy))`), or pass xy to `NORMAL_MAP`, which Godot completes itself. The MetaHuman skin shader had
 it (task 25); the cloth shader still does.
+
+73. **The shader baker's capability override reached the editor's own frames** (2026-10-26, user report, §4.43). A
+WebGPU export makes `RenderingDevice::has_feature()` answer as WebGPU (no image atomics, no FP16, ...) so the baked
+shaders get WebGPU's defines. The override was global and lasted the whole export, and the editor draws frames between
+the export's steps (every progress step does). So with FSR 2 on in the project, FSR 2's per-dispatch
+`has_feature(SUPPORTS_IMAGE_ATOMIC_32_BIT)` said "no" and bound storage buffers to the editor's image-atomics shaders:
+`Shader 'Fsr2ComputeLuminancePyramidPassShaderRD:0' Mismatch uniform type for binding (1), set (1). Expected 'Image',
+supplied: 'StorageBuffer'` (and the depth clip, reconstruct and lock passes), every editor frame of the export. **The
+log reads like a web runtime failure and is not one**: it sits between the export's "Shader baker:" lines, and the `:N`
+after the shader name is the variant, which proves the device: `:1` on the depth clip pass is the FFX_HALF variant,
+which only exists on an FP16 device (the Vulkan editor), and `:0` on the luminance pyramid is the image-atomics
+variant, which WebGPU never declares. `--export-release` never draws the 3D viewport, which is why no tier caught it.
+Fix: the override applies only on a thread inside `RD::ShaderBakeFeatureOverrideScope`, opened by the baker's own
+callbacks. Every other per-frame `has_feature()` (fog, GI, VRS, FP16, depth resolve) had the same exposure silently.
+Same root, found on the way: **FSR 2 built its variant list from `has_feature()` once, at construction**, so the bake
+baked the editor's flavor under cache keys the WebGPU runtime never looks up and dropped 7 stages as unconvertible (a
+baked FSR 2 export missed 7 stages in the cache: measured 7 → 0 after the fix). A capability-dependent variant must be
+a shader group with `set_group_bake_requirements()` (fog.cpp, fsr2.cpp) or refreshed by
+`add_general_defines_refresh_callback()` (fsr.cpp). `webgpu_tests/bake_isolation/run.sh` catches both.
 
 ---
 
@@ -4333,6 +4354,32 @@ Additions → Camera White Balance.
 - **Known gap:** Compatibility does not white balance a `BG_CANVAS` background (copied with exposure only).
 - **User decisions** on the hand-offs page (`wb-tint-units`, `wb-model`, `wb-range`, `look-white-balance`), shipped
   with the defaults: -1..1 at 0.05 Duv, Planckian everywhere, 1000–15000 K.
+
+### 4.43 Bake isolation: the baker's capability answers stay inside the baker (October 2026) *(work task 27)*
+
+User report (2026-10-26): exporting camera-sim for the web with FSR 2 on logged "Mismatch uniform type ... Expected
+'Image', supplied: 'StorageBuffer'" for four FSR 2 passes, over and over. Proven to be the *editor's* frames during the
+bake, not the web runtime (§3 trap 73): reproduced exactly (same four messages, same "left out 4455 shader group(s)")
+with the editor of the time on a scratch copy of camera-sim. Merged `756b99bf6f`.
+
+- `RenderingDevice::has_feature()` applies the bake's target answers only inside `RD::ShaderBakeFeatureOverrideScope`
+  (per thread; opened in `_begin_customize_resources`, `_customize_resource`, `_customize_scene`). Outside a bake it
+  costs one thread-local read. `shader_bake_feature_override_is_active()` still means "a bake is running".
+- FSR 2's capability variants became shader groups with bake requirements (four groups for depth clip, reconstruct and
+  lock: atomics × FP16; two for the luminance pyramid; FP16 groups for accumulate, autogen reactive and TCR autogen),
+  only the selected one enabled; `FSR2Effect::Device::use_image_atomics` records the answer the resources and bindings
+  follow. The WGSL of the groups WebGPU enables is byte-identical, so the precompiled table and stored references are
+  unchanged. Checked for the same split everywhere else that reads `has_feature()` (list in the task's `for-tasks.md`):
+  none.
+- Numbers: `bake_isolation/run.sh` FAIL on the old editor (4 mismatches, 7 FSR 2 stages in the editor's flavor), PASS on
+  the merge (8 editor frames drawn during the bake, 0 errors, 8/8 FSR 2 passes baked for WebGPU); fixture export FSR 2
+  cache misses 7 → 0 and stages translated at load 2 → 0; camera-sim (dlink nothreads) 64 mismatches → 0, 1275 baked,
+  0 translated in Chrome and Firefox; `--parity --feature fsr2,taa` PASS unbaked and baked (fsr2 0.142, taa 0.006, as
+  before); smoke 276/276.
+- New tier `webgpu_tests/bake_isolation/run.sh` (~1 min, Xvfb + Vulkan, no browser). CI runners may lack Vulkan under
+  Xvfb.
+- Note for the user: camera-sim's `project.godot` lost FSR 2 (`scaling_3d/mode=2`) at 16:56 the same day, presumably
+  because of these errors; with this fix it can go back on.
 
 ## 5. References — retired docs
 

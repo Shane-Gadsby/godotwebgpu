@@ -465,6 +465,16 @@ side is the Forward+ matrix's `dof_nan` arm (a `maxDelta` arm). `webgpu_tests/me
 (the groom strands with coverage forced below zero must write no NaN; lavapipe under Xvfb) and reimports whenever the
 editor is newer than its last import. TASKS.md §4.41, §3 traps 70–71.
 
+### 14. Shader-bake isolation (native, Xvfb + Vulkan, no browser)
+
+```bash
+webgpu_tests/bake_isolation/run.sh      # EDITOR_BIN / TEMPLATE override the binaries; KEEP=1 keeps the scratch dir
+```
+
+An interactive Web export from a windowed editor whose 3D viewport runs FSR 2 + TAA. Fails on any "Mismatch uniform
+type" / "Uniforms were never supplied" in the editor's own log, on an FSR 2 pass baked in the editor's flavor, or as
+inconclusive when the editor drew no frame during the bake. ~1 min. TASKS.md §4.43, §3 trap 73.
+
 ## CI Pipeline
 
 Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.

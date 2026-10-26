@@ -1,6 +1,6 @@
 # 24-white-balance: a White Balance attribute on CameraAttributesPhysical and CameraAttributesPractical
 
-State: integrated (lead: merged in ../godotwebgpu-lead, smoke OK; 84-arm parity pending; user decisions on the hand-offs page)
+State: integrated (lead: 84/84 parity unbaked and baked on the merged tree)
 Owner: worker-24
 Claimed: 2026-10-26 16:15
 Needs: build, gpu (web and parity captures)
