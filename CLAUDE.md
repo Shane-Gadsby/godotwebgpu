@@ -83,6 +83,14 @@ tests/default_folders/run.sh
 # viewport; fails on a "Mismatch uniform type" in the editor's log or an FSR 2 pass baked in the editor's flavor (~1 min):
 webgpu_tests/bake_isolation/run.sh
 
+# NaN containment: one NaN pixel through every bokeh DOF mode, glow, SSR and auto exposure, natively on Forward+ and
+# Mobile (needs a display or xvfb-run; ONLY=dof,glow,ssr,exposure narrows it); the matrix's *_nan arms are the web side:
+webgpu_tests/dof_nan/run.sh
+
+# The project manager's update check against this fork's GitHub releases (an engine unit test: needs an editor
+# built with tests=yes, which dev_mode=yes implies):
+bin/godot.linuxbsd.editor.dev.x86_64 --test --test-case="*EngineUpdateLabel*"
+
 # WebRTC web/native parity (needs the editor + a web template exported first):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 

@@ -288,6 +288,15 @@ Forward+'s advanced group is baked into the extras unless the project scan
 subsurface scattering or a motion-vector/separate-specular compositor effect, in which case it stays in the startup
 pack. Export option `shader_baker/variant_pruning` (`Disabled` / `Automatic`).
 
+**The bake answers capability queries as the target, inside the baker only.** For a WebGPU export the platform plugin
+installs the target's `has_feature()` answers (`get_target_feature_overrides()`, `shader_bake_feature_override_set()`),
+so baked shaders get WebGPU's defines and groups. `RenderingDevice::has_feature()` applies them only on a thread inside
+an `RD::ShaderBakeFeatureOverrideScope`, which `ShaderBakerExportPlugin` opens in `_begin_customize_resources`,
+`_customize_resource` and `_customize_scene`; outside it costs one thread-local read. The editor's own frames between
+export steps keep its device's answers (`webgpu_notes/TASKS.md` §4.43, §3 trap 73: before the scope, FSR 2 in the
+editor viewport logged "Mismatch uniform type" every frame of an export). FSR 2's capability variants (image atomics,
+FP16) are shader groups with bake requirements for the same reason, like fog's.
+
 **Modules and compute pipelines are created on first use.** `shader_create_from_container()` keeps each stage's final
 WGSL (`WGShader::stage_wgsl`) and `_get_stage_module()` creates the module when a pipeline first needs it;
 `compute_pipeline_create()` defers to `_ensure_compute_pipeline()` on the first `command_bind_compute_pipeline()`.
@@ -455,6 +464,8 @@ All bone data consolidated into a single GPU storage buffer:
 | Scene `_inc.glsl`: `POINT_COORD_USED` implies `POINT_SIZE_USED` | `POINT_COORD` alone makes the material draw points; with point size emulated the quad expansion was skipped and nothing drew (upstream bug, D3D12 too) |
 | FSR2 `NO_IMAGE_ATOMICS` buffer forms, `SPD_NO_WAVE_OPERATIONS` (`thirdparty/amd-fsr2/patches/0004`) | No texture atomics or subgroups in WGSL |
 | Volumetric fog's own nearest, clamped `depth_sampler` (binding 22) | Point sampler for the shadow-atlas gathers, separate from the shader's linear sampler |
+| Bokeh DOF, glow's first pass, auto exposure's first reduction and the last-frame copy SSR reads pass the scene color through `finite_or_zero*()` (`effects/finite_inc.glsl`, 2026-10-26) | One NaN pixel no longer becomes a black bokeh shape, a glow blob or a blank frame; the test is on the exponent bits because a compiler may fold `isnan()` / `x != x` (WGSL allows it, NVIDIA did); natively too, a divergence from upstream (`webgpu_notes/TASKS.md` §4.41, §4.44) |
+| Tonemap push constant carries three white-balance cone gains (2026-10-26) | Camera white balance (`webgpu_notes/TASKS.md` §4.42); the Forward+ tonemap block is now exactly 128 bytes, Vulkan's guarantee, with a `static_assert`: nothing more fits |
 
 ---
 

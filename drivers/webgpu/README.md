@@ -135,6 +135,21 @@ Three tiers, checked in order:
      never asks for. The platform plugin installs the target's answers for the
      duration of the bake (`get_target_feature_overrides()`), and every group is
      baked rather than only the ones the editor happened to enable.
+     **The answers are scoped** (2026-10-26, `webgpu_notes/TASKS.md` §4.43, §3
+     trap 73): `shader_bake_feature_override_set()` installs the map for the
+     export, but `has_feature()` consults it only on a thread inside an
+     `RD::ShaderBakeFeatureOverrideScope`, which the baker opens in its own
+     callbacks (`_begin_customize_resources`, `_customize_resource`,
+     `_customize_scene`). The editor draws frames between export steps, and
+     those keep the editor device's answers; before the scope, FSR 2 in the
+     editor's viewport bound storage buffers to its image-atomics shaders on
+     every such frame. `shader_bake_feature_override_is_active()` still means
+     "a bake for an overriding target is running", in or out of a scope. A
+     capability-dependent variant must be a shader group with
+     `set_group_bake_requirements()` (`fog.cpp`, `fsr2.cpp`) or refreshed by
+     `ShaderRD::add_general_defines_refresh_callback()` (`fsr.cpp`); a variant
+     list built from `has_feature()` once at construction bakes the editor's
+     flavor under cache keys the target never looks up.
    - **Every live shader version is baked**, not just those an exported resource
      or scene leads back to. Material versions are non-embedded, and a material
      created during the first frame — with no resource path at all — is reachable
