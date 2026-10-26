@@ -1,13 +1,14 @@
 // Serve a load-ramp export (run_ramp.sh) and run it in a headed browser until the scene prints RAMP_ALL_DONE.
 //   node ramp_browser.mjs --dir <export dir> [--browser chrome|firefox] [--query "ramps=draws&target_fps=20"]
-//                         [--timeout-s 1200] [--capped] [--size 1280x720]
+//                         [--timeout-s 1200] [--capped] [--size 1280x720] [--shots <dir>]
+// --shots saves <dir>/<ramp>.png at each ramp's third step, to check every leg draws the same content.
 // Chrome is system Chrome with the project's standard flags; uncapped by default (adds --disable-frame-rate-limit
 // --disable-gpu-vsync, Firefox layout.frame_rate=0) so frame times near the target are not quantized to vblanks.
 // Prints every console line, plus "[BENCHMARK] browser_env ..." naming the WebGPU adapter and WebGL renderer, so a
 // swiftshader/llvmpipe run is visible in the log (software=1) and summarize_ramp.py can flag it.
 // Playwright: ../scene_smoketest/node_modules, or RAMP_PLAYWRIGHT=<dir containing node_modules/playwright>.
 import { createServer } from 'http';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync, statSync, mkdirSync } from 'fs';
 import { join, extname, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
@@ -21,6 +22,7 @@ const QUERY = arg('query', '');
 const TIMEOUT_S = +arg('timeout-s', 1200);
 const UNCAPPED = !process.argv.includes('--capped');
 const [W, H] = arg('size', '1280x720').split('x').map(Number);
+const SHOTS = arg('shots', '');
 
 const pwCandidates = [process.env.RAMP_PLAYWRIGHT, join(HERE, '..', 'scene_smoketest')].filter(Boolean)
 	.map((d) => join(d, 'node_modules', 'playwright', 'index.mjs'));
@@ -57,6 +59,11 @@ page.on('console', (m) => {
 	const t = m.text();
 	console.log(t);
 	if (t.includes('RAMP_ALL_DONE')) done(true);
+	const sm = SHOTS && /^\[RAMP\] ramp=(\w+) step=2 phase=grow n=/.exec(t);
+	if (sm) {
+		mkdirSync(SHOTS, { recursive: true });
+		page.screenshot({ path: join(SHOTS, `${sm[1]}.png`) }).catch((e) => console.log('[ramp_browser] screenshot failed: ' + e.message));
+	}
 });
 page.on('pageerror', (e) => console.log('[PAGE-ERROR] ' + e.message));
 page.on('crash', () => { console.log('[PAGE-CRASH]'); done(false); });

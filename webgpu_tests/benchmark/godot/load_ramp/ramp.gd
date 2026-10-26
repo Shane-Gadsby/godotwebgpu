@@ -11,7 +11,7 @@ extends Node3D
 ##             transform sync + draw submission, i.e. a "many moving objects" game frame.
 ##   fill      one full-screen (1280x720) alpha-blended quad running a fixed 64-iteration trig loop per pixel.
 ##             Measures fragment ALU + blending; a handful of draws.
-##   lit       one PBR sphere (48x24 segments, ~2.3k triangles), lit by a fixed rig of 1 directional + 3 omni + 3 spot
+##   lit       one PBR sphere (96x48 segments, ~9.2k triangles), lit by a fixed rig of 1 directional + 3 omni + 3 spot
 ##             lights, all shadow-casting, so each sphere is drawn in the main pass and every shadow map. Mixed
 ##             vertex / shadow / shading cost.
 ##   particles one GPUParticles3D emitter of 2048 small opaque billboard particles (0.5 s lifetime, simulated every
@@ -24,21 +24,23 @@ extends Node3D
 ## Output (one line per ramp, parsed by summarize_ramp.py, and run_benchmark.sh's field() via ramp_<name>_n=):
 ##   [BENCHMARK] ramp=<name> target_fps=20 n=<N> status=converged|cap_n|cap_time|below_min fps_at_n=.. frame_ms_p50=..
 ##               cpu_ms=.. ...
+## The frame time of a window is its mean (elapsed / frames), i.e. throughput; frame_ms_p50 is printed alongside.
 ## n is the crossing interpolated in log space between the last N above the target (n_good) and the first N below it
 ## (n_bad); fps_at_n, frame_ms_p50, cpu_ms, draw_calls are the n_good measurement's.
 
 const RAMPS_ALL := ["draws", "nodes", "fill", "lit", "particles"]
 const N_START := {"draws": 256, "nodes": 256, "fill": 4, "lit": 16, "particles": 4}
-const N_CAP := {"draws": 131072, "nodes": 131072, "fill": 8192, "lit": 16384, "particles": 4096}
+const N_CAP := {"draws": 131072, "nodes": 131072, "fill": 8192, "lit": 65536, "particles": 8192}
 
 const SETTLE_S := 1.0          # discarded after every change of N
-const WINDOW_S := 2.0          # measured window: median frame interval over it...
+const WINDOW_S := 2.0          # measured window: mean frame time (elapsed / frames) over it...
 const MIN_FRAMES := 8          # ...with at least this many frames...
 const MAX_WINDOW_S := 8.0      # ...unless that takes longer than this
 const GROW := 2.0              # geometric growth factor until the target is crossed
 const BISECT_TOL := 0.04       # stop bisecting when n_bad / n_good <= 1 + this
 const MAX_BISECT := 10
 const STARTUP_WARMUP_S := 3.0  # once, before the first ramp (pipeline/shader warm-up on the web)
+const CONFIRM_SETTLE_S := 2.0  # extra settle before the window that confirms a below-target result
 
 const FILL_SHADER := """
 shader_type spatial;
@@ -234,9 +236,9 @@ func _run_ramp(ramp: String) -> void:
 	elif not good.is_empty():
 		n_est = float(good["n"])
 	var ref: Dictionary = good if not good.is_empty() else bad
-	print("[BENCHMARK] ramp=%s target_fps=%s n=%.1f status=%s n_good=%d n_bad=%d ms_good=%.3f ms_bad=%.3f fps_at_n=%.2f frame_ms_p50=%.3f cpu_ms=%.3f proc_ms=%.3f draw_calls=%d primitives=%d steps=%d elapsed_s=%.1f" % [
+	print("[BENCHMARK] ramp=%s target_fps=%s n=%.1f status=%s n_good=%d n_bad=%d ms_good=%.3f ms_bad=%.3f fps_at_n=%.2f frame_ms=%.3f frame_ms_p50=%.3f cpu_ms=%.3f proc_ms=%.3f draw_calls=%d primitives=%d steps=%d elapsed_s=%.1f" % [
 		ramp, str(_target_fps), n_est, status, int(good.get("n", 0)), int(bad.get("n", 0)), float(good.get("ms", 0.0)), float(bad.get("ms", 0.0)),
-		1000.0 / float(ref["ms"]), float(ref["ms"]), float(ref["cpu_ms"]), float(ref["proc_ms"]), int(ref["draw_calls"]), int(ref["primitives"]),
+		1000.0 / float(ref["ms"]), float(ref["ms"]), float(ref["p50"]), float(ref["cpu_ms"]), float(ref["proc_ms"]), int(ref["draw_calls"]), int(ref["primitives"]),
 		steps, _now() - t_start])
 	print("[BENCHMARK] ramp_%s_n=%.1f" % [ramp, n_est])
 	await _teardown()
@@ -248,8 +250,13 @@ func _measure_confirmed(ramp: String, n: int, phase: String, step: int, target_m
 	_apply(ramp, n)
 	var m := await _measure(true)
 	_log_step(ramp, phase, step, m, "")
+	# Native legs: RAMP_SHOTS_DIR=<dir> saves <dir>/<ramp>.png at the third step (the web runner screenshots the page).
+	var shots := OS.get_environment("RAMP_SHOTS_DIR")
+	if shots != "" and step == 2 and phase == "grow" and not OS.has_feature("web"):
+		DirAccess.make_dir_recursive_absolute(shots)
+		get_viewport().get_texture().get_image().save_png(shots.path_join(ramp + ".png"))
 	if m["ms"] > target_ms and m["ms"] < 2000.0:
-		var m2 := await _measure(false)
+		var m2 := await _measure(true, CONFIRM_SETTLE_S)
 		_log_step(ramp, phase, step, m2, "confirm")
 		if m2["ms"] <= target_ms:
 			return m2
@@ -259,8 +266,8 @@ func _measure_confirmed(ramp: String, n: int, phase: String, step: int, target_m
 
 
 func _log_step(ramp: String, phase: String, step: int, m: Dictionary, tag: String) -> void:
-	print("[RAMP] ramp=%s step=%d phase=%s%s n=%d ms_p50=%.3f fps=%.2f frames=%d cpu_ms=%.3f proc_ms=%.3f draw_calls=%d" % [
-		ramp, step, phase, ("_" + tag) if tag != "" else "", int(m["n"]), float(m["ms"]), 1000.0 / float(m["ms"]), int(m["frames"]),
+	print("[RAMP] ramp=%s step=%d phase=%s%s n=%d ms=%.3f p50=%.3f fps=%.2f frames=%d cpu_ms=%.3f proc_ms=%.3f draw_calls=%d" % [
+		ramp, step, phase, ("_" + tag) if tag != "" else "", int(m["n"]), float(m["ms"]), float(m["p50"]), 1000.0 / float(m["ms"]), int(m["frames"]),
 		float(m["cpu_ms"]), float(m["proc_ms"]), int(m["draw_calls"])])
 	_status_text = "%s %d: %.1f ms" % [phase, int(m["n"]), float(m["ms"])]
 
@@ -273,14 +280,14 @@ func _median(a: PackedFloat64Array) -> float:
 	return s[s.size() / 2]
 
 
-func _measure(settle: bool) -> Dictionary:
+func _measure(settle: bool, settle_s: float = SETTLE_S) -> Dictionary:
 	var tree := get_tree()
 	# The frame that applied the change carries the node creation stall: skip it, then settle.
 	await tree.process_frame
 	if settle:
 		var ts := _now()
 		var k := 0
-		while _now() - ts < SETTLE_S or k < 3:
+		while _now() - ts < settle_s or k < 3:
 			await tree.process_frame
 			k += 1
 	var frames := PackedFloat64Array()
@@ -304,7 +311,10 @@ func _measure(settle: bool) -> Dictionary:
 		var el := (t - t0) / 1000000.0
 		if (el >= WINDOW_S and frames.size() >= MIN_FRAMES) or el >= MAX_WINDOW_S:
 			break
-	return {"n": _n, "ms": maxf(_median(frames), 0.001), "frames": frames.size(), "cpu_ms": _median(cpu) if _measure_cpu else -1.0,
+	# Throughput, not the median interval: on the web the browser can run several frames ahead of the GPU and then
+	# block for a long one, so the median interval reads far faster than the frames actually complete.
+	var mean_ms := (last - t0) / 1000.0 / maxf(1.0, frames.size())
+	return {"n": _n, "ms": maxf(mean_ms, 0.001), "p50": _median(frames), "frames": frames.size(), "cpu_ms": _median(cpu) if _measure_cpu else -1.0,
 			"proc_ms": _median(proc), "draw_calls": dc, "primitives": prims}
 
 
@@ -322,6 +332,7 @@ func _setup(ramp: String) -> void:
 	cam.fov = 70.0
 	cam.far = 200.0
 	_root.add_child(cam)
+	# Node3D.look_at needs the node in the tree: every look_at below comes after its add_child.
 	match ramp:
 		"draws", "nodes":
 			var l := DirectionalLight3D.new()
@@ -354,13 +365,12 @@ func _setup(ramp: String) -> void:
 				o.light_energy = 1.5
 				_root.add_child(o)
 				var s := SpotLight3D.new()
-				s.position = Vector3(-12 + i * 12, 12, -6 - i * 8)
-				s.look_at(Vector3(-6 + i * 6, 0, -20), Vector3.UP)
 				s.spot_range = 50.0
 				s.spot_angle = 40.0
 				s.shadow_enabled = true
 				s.light_energy = 3.0
 				_root.add_child(s)
+				s.look_at_from_position(Vector3(-12 + i * 12, 12, -6 - i * 8), Vector3(-6 + i * 6, 0, -20), Vector3.UP)
 			var g := MeshInstance3D.new()
 			var pm := PlaneMesh.new()
 			pm.size = Vector2(80, 80)
@@ -373,8 +383,8 @@ func _setup(ramp: String) -> void:
 			var sm := SphereMesh.new()
 			sm.radius = 0.35
 			sm.height = 0.7
-			sm.radial_segments = 48
-			sm.rings = 24
+			sm.radial_segments = 96
+			sm.rings = 48
 			_shared["mesh"] = sm
 			var mats := []
 			for i in 16:

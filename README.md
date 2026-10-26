@@ -178,6 +178,7 @@ None of these is known to be broken.
 
 ## Performance
 
+<!-- perf-table:begin -->
 Measured on 15 October 2026 on Linux (RTX 4080 SUPER, 165 Hz display, Chrome). Each scene ran with the frame-rate limit
 and vsync lifted. The fps is averaged over at least 300 frames after a 6 s warm-up.
 
@@ -193,6 +194,7 @@ and vsync lifted. The fps is averaged over at least 300 frames after a 6 s warm-
 
 \* Chrome keeps WebGL at the display's refresh rate even with the limit lifted, so these figures are a floor, not WebGL's
 real speed.
+<!-- perf-table:end -->
 
 On these light scenes WebGPU reaches 25–50% of native fps. Most of the gap is wasm and the JavaScript calls into
 WebGPU, not GPU time. Moving rendering to its own thread took 82% of that work off the main thread. GPU time on a heavy

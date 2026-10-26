@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Markdown summary of load-ramp logs (run_ramp.sh): N per ramp per leg, and ratios between legs.
 
-    python3 summarize_ramp.py [--note TEXT] <logs dir or log files...>
+    python3 summarize_ramp.py [--note TEXT] <results dir (run_ramp.sh --out) | logs dir | log files...>
 
 Logs are named <leg>__r<run>.log. Every "[BENCHMARK] ramp=<name> k=v ..." line is one result. With several runs of a
 leg the table shows the median N and the spread table shows (max - min) / median.
@@ -27,7 +27,7 @@ RAMPS = [
     ("draws", "1 MeshInstance3D, own material, 12 tris (draw-call CPU)"),
     ("nodes", "draws unit + 1 GDScript transform update/frame"),
     ("fill", "1 full-screen blended quad, 64-iteration ALU shader"),
-    ("lit", "1 PBR sphere (2.3k tris) under 7 shadowed lights"),
+    ("lit", "1 PBR sphere (9.2k tris) under 7 shadowed lights"),
     ("particles", "1 GPUParticles3D emitter of 2048 particles"),
 ]
 RATIOS = [
@@ -67,32 +67,40 @@ def fmt_n(v):
     return f"{v:,.0f}" if v >= 100 else f"{v:.1f}"
 
 
-def main(argv):
-    note = ""
-    if "--note" in argv:
-        i = argv.index("--note")
-        note = argv[i + 1]
-        argv = argv[:i] + argv[i + 2:]
-    files = []
-    for a in argv:
+def read_env(path):
+    """env.txt written by run_ramp.sh: 'key: value' lines (machine, gpu, driver, browsers, tree, settings)."""
+    env = {}
+    if os.path.isfile(path):
+        with open(path) as f:
+            for line in f:
+                k, _, v = line.partition(": ")
+                if v:
+                    env[k.strip()] = v.strip()
+    return env
+
+
+def load(paths):
+    """-> (runs: leg -> [(env, browser, ramps, file)], machine env dict)."""
+    files, machine = [], {}
+    for a in paths:
+        if os.path.isdir(os.path.join(a, "logs")):
+            machine = read_env(os.path.join(a, "env.txt")) or machine
+            a = os.path.join(a, "logs")
         if os.path.isdir(a):
             files += sorted(os.path.join(a, f) for f in os.listdir(a) if f.endswith(".log"))
         else:
             files.append(a)
-    runs = {}  # leg -> list of (env, browser, ramps, file)
+    runs = {}
     for f in files:
         leg = os.path.basename(f).split("__")[0].removesuffix(".log")
         runs.setdefault(leg, []).append((*parse(f), f))
+    return runs, machine
 
-    target = "?"
-    for leg_runs in runs.values():
-        for env, _, ramps, _ in leg_runs:
-            target = env.get("target_fps", target)
-    legs = [(k, n) for k, n in LEGS if k in runs] + [(k, k) for k in runs if k not in dict(LEGS)]
 
-    # Per leg, per ramp: median N, bound marker, all values.
+def results(runs):
+    """-> {(leg, ramp): (median N, bound marker, [N per run])}."""
     res = {}
-    for leg, _ in legs:
+    for leg in runs:
         for ramp, _ in RAMPS:
             vals, marks = [], set()
             for _, _, ramps, _ in runs[leg]:
@@ -101,6 +109,41 @@ def main(argv):
                     marks.add(bound(ramps[ramp].get("status", "")))
             if vals:
                 res[(leg, ramp)] = (statistics.median(vals), "".join(sorted(m for m in marks if m)), vals)
+    return res
+
+
+def ratio_cell(res, a, b, ramp):
+    """'1.23x (+23%)' for N_a / N_b, with >= / <= when a side is a bound, '-' when either is missing."""
+    if (a, ramp) not in res or (b, ramp) not in res or res[(b, ramp)][0] <= 0:
+        return "-"
+    va, ma, _ = res[(a, ramp)]
+    vb, mb, _ = res[(b, ramp)]
+    r = va / vb
+    mark = ""
+    if ma == ">=" and mb != ">=":
+        mark = ">="
+    elif mb == ">=" and ma != ">=":
+        mark = "<="
+    elif ma or mb:
+        mark = "?"
+    return f"{mark}{r:.2f}x ({(r - 1) * 100:+.0f}%)"
+
+
+def main(argv):
+    note = ""
+    if "--note" in argv:
+        i = argv.index("--note")
+        note = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    runs, machine = load(argv)
+
+    target = "?"
+    for leg_runs in runs.values():
+        for env, _, ramps, _ in leg_runs:
+            target = env.get("target_fps", target)
+    legs = [(k, n) for k, n in LEGS if k in runs] + [(k, k) for k in runs if k not in dict(LEGS)]
+
+    res = results(runs)
 
     out = []
     out.append(f"# Load-ramp benchmark: content carried at {target} fps")
@@ -108,11 +151,18 @@ def main(argv):
     if note:
         out.append(f"**{note}**")
         out.append("")
-    out.append(f"N = the amount of content at which the frame rate falls to {target} fps (median frame time over a 2 s window "
-               "after a 1 s settle; crossing interpolated in log space between the last N above and the first N below). "
+    for k in ("date", "machine", "gpu", "os", "chrome", "firefox", "engine", "webgl", "tree", "settings", "warning", "aborted"):
+        if k in machine:
+            out.append(f"- {k}: {machine[k]}")
+    if machine:
+        out.append("")
+    out.append(f"N = the amount of content at which the frame rate falls to {target} fps (mean frame time over a 2 s window "
+               "after a 1 s settle, a below-target window confirmed by a second one; crossing interpolated in log space between the last N above and the first N below). "
                "Higher is better. `>=` = the leg hit the N/time cap without falling to the target (lower bound).")
     out.append("")
     out.append("## N per leg")
+    out.append("")
+    out.append("Median of the runs; every run's N is in the repeatability table.")
     out.append("")
     out.append("| ramp | one unit of N | " + " | ".join(n for _, n in legs) + " |")
     out.append("|---|---|" + "---:|" * len(legs))
@@ -141,27 +191,11 @@ def main(argv):
         for ramp, _ in RAMPS:
             if not any((leg, ramp) in res for leg, _ in legs):
                 continue
-            cells = []
-            for a, b, _ in ratio_rows:
-                if (a, ramp) in res and (b, ramp) in res and res[(b, ramp)][0] > 0:
-                    va, ma, _ = res[(a, ramp)]
-                    vb, mb, _ = res[(b, ramp)]
-                    r = va / vb
-                    # a lower bound on a over an exact b is a lower bound on the ratio, and so on.
-                    mark = ""
-                    if ma == ">=" and mb != ">=":
-                        mark = ">="
-                    elif mb == ">=" and ma != ">=":
-                        mark = "<="
-                    elif ma or mb:
-                        mark = "?"
-                    cells.append(f"{mark}{r:.2f}x ({(r - 1) * 100:+.0f}%)")
-                else:
-                    cells.append("-")
+            cells = [ratio_cell(res, a, b, ramp) for a, b, _ in ratio_rows]
             out.append(f"| {ramp} | " + " | ".join(cells) + " |")
         out.append("")
 
-    multi = {leg for leg, _ in legs if len(runs[leg]) > 1}
+    multi = {leg for leg, _ in legs} if any(len(runs[leg]) > 1 for leg, _ in legs) else set()
     if multi:
         out.append("## Repeatability")
         out.append("")
