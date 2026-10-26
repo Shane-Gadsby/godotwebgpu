@@ -2897,6 +2897,14 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     \"mem\" is null") and the page dies. Read the heap size from the page (`WebAssembly.Memory.buffer.byteLength`;
     `ramp_browser.mjs` captures the instance's memory export and `ramp.gd` reads it through `JavaScriptBridge`).
 
+68. **A shader cache left in the parity fixture by another engine build changes the native reference** (2026-10-26, cost
+about an hour). After a rebuild, `--parity` failed SDFGI by 7.05 in Chrome, unbaked and baked, while the web frame
+was byte-for-byte what native had rendered the day before. The native editor was reusing
+`fp_check/.godot/shader_cache` from an earlier build: five pipelines failed ("Mismatch fragment shader output mask (1)
+and framebuffer color output mask (0)") and native SDFGI picked up extra bounce light. Moving the cache aside gave 0 errors
+and SDFGI 0.027 again. `run_forward_plus.mjs` now deletes that cache before rendering the reference. Lesson: when a parity
+arm fails, compare the web frame with an older *native* frame first; the reference can be the side that moved.
+
 ---
 
 ### Measurement traps (found 2026-10-15)

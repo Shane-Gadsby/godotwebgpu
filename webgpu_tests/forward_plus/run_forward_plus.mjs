@@ -39,7 +39,7 @@
 
 import { createServer } from 'http';
 import { spawnSync } from 'child_process';
-import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync, statSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync, statSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -252,6 +252,10 @@ async function main() {
       process.exit(2);
     }
     referenceDir = mkdtempSync(join(tmpdir(), 'fp_reference_'));
+    // A shader cache left in the fixture by another engine build can hand the native renderer stale variants: on
+    // 2026-10-26 it failed five pipelines ("Mismatch fragment shader output mask") and moved native SDFGI 7 points
+    // off a web frame that was right all along (TASKS.md §3 trap 68). The reference must come from this build alone.
+    rmSync(join(__dirname, 'godot', 'fp_check', '.godot', 'shader_cache'), { recursive: true, force: true });
     const sweep = ['--path', join(__dirname, 'godot', 'fp_check'), '--rendering-driver', 'vulkan', '--resolution', `${VIEW_W}x${VIEW_H}`,
       '--fixed-fps', '60', '--', `--fp-matrix=${referenceDir}`, `--fp-settle=${settle}`];
     if (only) sweep.push(`--fp-only=${only}`);
