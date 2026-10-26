@@ -197,9 +197,15 @@ Measured on 2026-10-26: AMD Ryzen 9 7900X 12-Core Processor, 61 GB RAM, NVIDIA G
 Run-to-run spread over 10%, read these with care: WebGL 2 (stock Godot 4.7.2) particles (10%), WebGPU, Forward+ (Firefox) draws (61%), WebGPU, Forward+ (Firefox) particles (13%).
 <!-- perf-table:end -->
 
-On these light scenes WebGPU reaches 25–50% of native fps. Most of the gap is wasm and the JavaScript calls into
-WebGPU, not GPU time. Moving rendering to its own thread took 82% of that work off the main thread. GPU time on a heavy
-Forward+ scene is 1.43 ms per frame in Chrome and 3.82 ms in Firefox.
+In short:
+- **Draw calls and moving nodes:** WebGPU carries 1.2–1.6 times WebGL's load, and 45–75% of native. The gap to native
+  is CPU time: wasm, and the JavaScript calls into WebGPU.
+- **Shadowed, lit scenes:** WebGPU matches native Vulkan. The 6.4× over WebGL is mostly Forward+ against the
+  Compatibility renderer, which draws each shadowed light in an extra pass: natively, Compatibility manages a quarter of
+  Forward+'s load on that ramp.
+- **Full-screen fill and GPU particles:** WebGPU trails every other leg. Both gaps are being worked on.
+
+Threaded exports move rendering off the main thread, which then does 82% less work per frame.
 
 On a mid-range phone (Razr 60, Mali-G615), a full Forward+ scene with DOF and soft shadows runs at about 20 fps at
 1080p. Rendering at a lower internal resolution, with the project's own Android settings, brings it to 55 fps.

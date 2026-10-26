@@ -99,6 +99,11 @@ node gpu_time.mjs --dir <export> --uncapped [--passes]
 # (no hosting or launching; written for the Web Audio AudioParam writes, --fn takes any names; usage in its header):
 node tests/web_audio_profiling.mjs --tab <url-or-title-substring> --fn setVolume,_syncPlaybackRate
 
+# Load-ramp benchmark -- the source of README.md's performance table: each ramp adds content until 20 fps, on native
+# Vulkan/Compatibility, stock WebGL 4.7.2, WebGPU Mobile/Forward+ and Firefox (~63 min, needs an idle real GPU), then
+# regenerate the table between README.md's perf-table markers (never hand-edit it):
+cd webgpu_tests/benchmark && ./run_ramp.sh && python3 readme_perf_table.py results_ramp/<date> --write
+
 # Full local CI (rebuilds engine + runs everything, mirrors CI):
 ./webgpu_tests/local_ci.sh                 # rebuild + re-export + full suite
 ./webgpu_tests/local_ci.sh --quick          # shader corpus + scene smoketest only, no rebuild
