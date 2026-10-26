@@ -1,8 +1,8 @@
 # 30-update-check-fork-releases: the editor's "new version available" check looks at this fork's GitHub releases
 
-State: open
+State: ready-for-integration
 Owner: worker-30
-Claimed:
+Claimed: 2026-10-26 20:10
 Needs: build (native editor only)
 Branch: work/30
 Results: webgpu_notes/work/results/30-update-check-fork-releases/
