@@ -2394,6 +2394,11 @@ gate being red means the tier cannot catch a real baking regression. Start from 
 miss for ..." lines against the export's "Shader baker: baking ..." fingerprints (§3 traps 40, 45, 49 are the three
 earlier causes of the same symptom). Effort ~1 session, needs the GPU.
 
+**2026-10-26:** the matrix grew to 82 arms (work/21), whose new materials and shaders are built in GDScript at run
+time and so can never be baked; translated rose to ~117 and the gate's ceiling was raised to 130 to keep it green. That
+makes the gate looser, not this item fixed: the ~97 engine stages above are still inside the 117. Fixing this item
+should bring the ceiling back down to the GDScript-built count plus a margin.
+
 ### 2.40 SDFGI differs from native in Firefox only `OPEN` *(from §4.36)*
 
 In Firefox desktop (Linux, wgpu on Vulkan) `sdfgi` and `sdfgi_camera_move` are 0.277 from native Vulkan (tolerance

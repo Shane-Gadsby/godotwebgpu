@@ -121,7 +121,8 @@ A browser without WebGPU cannot run these exports. The web templates are built w
 
 The Forward+ test matrix renders each feature on WebGPU and on native Vulkan from the same fixture, then compares the
 frames. ✔ in the WebGPU column means the frames match within the matrix's tolerance (mean absolute difference 0.05 out
-of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 25 October 2026, passed 71 of 71 in Chrome. The WebGL 2
+of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 26 October 2026, passed 81 of 82 in Chrome; the one
+failure is occlusion culling, which web builds do not include. The WebGL 2
 column is the Compatibility renderer, from Godot's
 [renderer comparison](https://docs.godotengine.org/en/latest/tutorials/rendering/renderers.html).
 
@@ -140,12 +141,12 @@ column is the Compatibility renderer, from Godot's
 | SSIL | ✔ | ✘ | ✔ |
 | Reflection probes | ✔ | ✔ (2 per mesh) | ✔ |
 | Decals | ✔ | ✔ | ✔ |
-| LightmapGI | ✔ | ◐ (rendering only) | ◐ (renders; not in the matrix) |
+| LightmapGI | ✔ | ◐ (rendering only) | ✔ (rendering; bake in the editor) |
 | **Environment** | | | |
 | Ambient and sky light, procedural sky | ✔ | ✔ | ✔ |
 | Tonemapping, exposure, adjustments, color correction LUT | ✔ | ✔ | ✔ |
 | Depth fog, height fog, aerial perspective | ✔ | ✔ | ✔ |
-| Volumetric fog | ✔ | ✘ | ✔ |
+| Volumetric fog, FogVolume nodes and fog shaders | ✔ | ✘ | ✔ |
 | Glow, glow map | ✔ | ✔ | ✔ |
 | SSAO | ✔ | ✔ | ✔ |
 | SSR | ✔ | ✘ | ✔ |
@@ -158,23 +159,25 @@ column is the Compatibility renderer, from Godot's
 | Debanding | ✔ | ✘ | ✔ |
 | 3D resolution scaling | ✔ | ✔ | ✔ |
 | MSAA | ✔ | ◐ | ◐ (4x) |
-| SMAA | ✔ | ✘ | ◐ (not in the matrix) |
+| SMAA | ✔ | ✘ | ✔ |
 | **Materials** | | | |
 | Normal maps, emission, rim, clearcoat, anisotropy, backlight | ✔ | ✔ | ✔ |
 | Height maps (parallax), triplanar mapping | ✔ | ✔ | ✔ |
 | Alpha blend, scissor and hash, proximity and distance fade | ✔ | ✔ | ✔ |
 | Refraction, `DEPTH_TEXTURE` and screen textures | ✔ | ✔ | ✔ |
 | Subsurface scattering | ✔ | ✘ | ✔ |
+| Stencil modes (outline, x-ray), bent normal maps | ✔ | ✔ | ✔ |
 | Texture arrays indexed at run time | ✔ | ✔ | ✔ |
 | **Meshes and particles** | | | |
 | MultiMesh, blend shapes, mesh LOD, visibility ranges | ✔ | ✔ | ✔ |
+| Skeletal animation (GPU skinning) | ✔ | ✔ | ✔ |
+| Occlusion culling | ✔ | ✘ | ✘ (web builds have no raycast module, as in stock Godot) |
 | GPU particles, collision, attractors | ✔ | ✔ | ✔ |
-| Particle trails | ✔ | ✘ | ◐ (not in the matrix) |
-| Compositor effects | ✔ | ✘ | ◐ (compute works; not in the matrix) |
+| Particle trails | ✔ | ✘ | ✔ |
+| Compositor effects (compute) | ✔ | ✘ | ✔ |
 | Wireframe debug draw | ✔ | ✘ | ✘ (draws filled) |
 
-Also not covered by the matrix: skeletal animation, occlusion culling, FogVolume nodes, stencil modes and bent normals.
-None of these is known to be broken.
+The matrix leaves out only what WebGPU itself lacks: multiview (XR), variable rate shading, and MSAA 2x and 8x.
 
 ## Performance
 
