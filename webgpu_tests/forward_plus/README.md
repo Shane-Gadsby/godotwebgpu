@@ -81,9 +81,15 @@ parity mode, natively.
 An arm can carry `knownFail: '<why>'`: a web failure that is understood and out
 of this port's reach. It runs, reports `KNOWN` and does not fail the run; if
 it starts passing it reports `XPASS` and fails, so the marker goes with the
-bug. The one today is `occlusion_culling`: web templates are built without the
-raycast module (`platform/web/detect.py`, upstream GH-70621), so the web has
-no occlusion culler at all. The frame is right; nothing is culled.
+bug. No arm carries one today.
+
+`needsRaycast: '<why>'` marks an arm that needs the raycast module (Embree, the
+only occlusion culler): `occlusion_culling`. Web templates leave the module out
+unless built with `module_raycast_enabled=yes` (`platform/web/detect.py`,
+upstream GH-70621). The harness looks for Embree in the export's `index.wasm`
+and prints `template raycast module (occlusion culling): yes|no`; without it
+the arm becomes a `knownFail` with that reason (the frame is right, nothing is
+culled), with it a normal arm that must cull as natively (29 -> 8 objects).
 
 Natively, `--fp-only=a,b` limits the reference sweep, for triage:
 

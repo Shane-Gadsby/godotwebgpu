@@ -163,7 +163,10 @@ def get_flags():
         # and that cascade no longer fires for a `webgpu=yes` web build -- so keep saying
         # it, or drivers/SCsub tries to compile the Vulkan driver into the web template.
         "vulkan": False,
-        # Embree is heavy and requires too much memory (GH-70621).
+        # Embree is heavy and requires too much memory (GH-70621). It does build and work here
+        # (`module_raycast_enabled=yes`, or `build-linux.sh --web-raycast`): occlusion culling then
+        # works on the web, for about +1.0 MiB of wasm (+0.17 MiB brotli). Off by default until
+        # the user decides; webgpu_notes/TASKS.md 2.45 has the measurements.
         "module_raycast_enabled": False,
         # Use -Os to prioritize optimizing for reduced file size. This is
         # particularly valuable for the web platform because it directly

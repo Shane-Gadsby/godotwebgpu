@@ -29,6 +29,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 | [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
+| [Occlusion Culling Benchmark](occlusion_bench/run.mjs) | What occlusion culling costs and saves on the web: a 24x24-block city, street view (mostly occluded) and top view (nothing to cull), culling off and on — main-thread ms per frame, GPU ms, draws, objects, heap, load time. Needs a template built with `module_raycast_enabled=yes` (TASKS.md §2.45) | ~2min per export | Yes (`occlusion_bench/export.sh`; a real GPU) |
 | [Load-Ramp Benchmark](benchmark/) (`run_ramp.sh`) | How much content each leg (native Vulkan and Compatibility, stock WebGL, WebGPU Mobile and Forward+, Firefox WebGPU) carries before falling to 20 fps, per ramp (draw calls, moving nodes, fill, shadowed PBR, particles). The source of the README's performance table | ~5min per leg and run (~1 h for all six legs x 2) | Yes (editor + WebGPU template; official 4.7.2 template for WebGL; **an idle real GPU**) |
 
 ## How It Works

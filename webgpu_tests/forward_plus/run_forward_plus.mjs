@@ -236,6 +236,15 @@ async function main() {
     console.log(`  FAIL -- ${SCENE_DIR} is older than ${newer.join(', ')}; re-run ${BAKED ? 'BAKE=1 ' : ''}./export.sh (or pass --allow-stale-export)`);
     process.exit(1);
   }
+  // Arms marked `needsRaycast` need a template built with the raycast module (Embree, the only occlusion culler).
+  // Web templates leave it out unless built with module_raycast_enabled=yes (platform/web/detect.py), so such an arm is
+  // KNOWN against a template without it and a normal arm against one with it. Embree's own strings tell which.
+  const wasmPath = join(SCENE_DIR, 'index.wasm');
+  const hasRaycast = existsSync(wasmPath) && readFileSync(wasmPath).includes('Embree Ray Tracing Kernels');
+  console.log(`  template raycast module (occlusion culling): ${hasRaycast ? 'yes' : 'no'}`);
+  for (const f of FEATURES) {
+    if (f.needsRaycast && !hasRaycast) f.knownFail = f.needsRaycast;
+  }
   const unsupported = unsupportedReason(browserName);
   if (unsupported) {
     console.log(`  SKIP -- ${unsupported}`);
