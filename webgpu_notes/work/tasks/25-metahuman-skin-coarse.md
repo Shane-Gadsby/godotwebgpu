@@ -1,6 +1,6 @@
 # 25-metahuman-skin-coarse: why MetaHuman skin looks coarse, with huge pores and follicles
 
-State: ready-for-integration
+State: integrated (lead: merged editor, metahuman run.sh --shots 0 failures, tiling head 32.88 / body 111.71; WebGPU after-capture pending the gpu lease; user look pending)
 Owner: worker-25
 Claimed: 2026-10-26 15:50
 Needs: gpu (captures), build only if a fix needs an engine rebuild

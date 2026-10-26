@@ -250,6 +250,8 @@ Rules that cost time:
   `HAIR_STRANDS_ALPHA_LINE`; change the line and the constant together.
 - The shaders are baked into the imported scene, and `head.dna` never changes, so an importer or shader fix reaches an
   existing project only after a Reimport (trap 71).
+- The skin's pore normal tiles in UV space, and body UVs are 3.4x coarser than the face's: scale the tiling from the
+  mesh (`metahuman/materials/skin_detail_size`), never with a constant (§2.33). Normal maps sample blue as 0 (trap 72).
 
 ### Braced GDScript (`.gdb`)
 

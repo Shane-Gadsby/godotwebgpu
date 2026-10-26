@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41.
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 25 is recorded in §2.33.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -2102,6 +2102,21 @@ Representations (`editor/metahuman_hair.cpp`, `editor/metahuman_shaders.h`):
     eyelashes: 1574 tip vertices) interpolate coverage to about -1e-9 beside the tips, and `pow()` of that is NaN on
     NVIDIA and lavapipe. The opaque and hashed strand variants edit the shader through `HAIR_STRANDS_ALPHA_LINE`.
     Checked by `webgpu_tests/metahuman/nan_check.gd` (in `run.sh`).
+- **Skin pores, 2026-10-26 (work task 25, merged `fd53d6d657`):** the tiling pore normal was tiled at a fixed 16 repeats
+  per UV unit, so pores were ~2x too large on the face and ~7x on the body, natively too (WebGPU = Vulkan to 0.0008
+  levels).
+  - The map: `Head_DetailNormal` = `Body_DetailNormal`, a generic 1024² micro-skin tile. The export names Unreal's
+    `Micro Skin Tiling` but carries no value. Ava's body UVs are 3.4x coarser than the face's (median 1.34 against
+    0.395 m of skin per UV unit).
+  - The fix: the importer scales the tiling from each skin mesh's median UV density so one repeat covers 1.2 cm of skin
+    (`metahuman/materials/skin_detail_size`; the map's pore marks then land at ~900 per cm², and its detail below the
+    ~1 mm the 8K normal resolves). Ava: head 32.9, body 111.7. The detail fades out over the LOD 0 range (head
+    0.75–1.5 m), as Unreal turns it off from face LOD 1. Also fixed: the skin shader read the RG-compressed normals'
+    blue (0) as z (§3 trap 72). Cheek at 0.25 m: pore features 9.6 → 5.5 px; arm at 0.5 m: detail rms 1.71 → 0.70.
+  - Ruled out by measurement: the 2048 size limit (keeps 92% of the 8K normal's mm-scale slope energy), web filtering,
+    mips, `SamplerLodBias`.
+  - Open: the lips get pores (Unreal's `Micro MaskA-D` region masks are not exported); the cloth shader has the same
+    z pattern; the user's look on size and strength (hand-offs page `look-skin-pores`).
 - **Shell:** voxelized (3 mm), closed, stray pieces dropped, smoothed, surface nets, simplified to 8,000 triangles,
   flow tangents smoothed over the mesh for the anisotropic highlight.
   - It cross-fades in beyond 3 m.
@@ -2961,6 +2976,11 @@ shaders are baked into the imported scene, so after a fix in `metahuman_shaders.
 failed the new NaN check on a 10-20 import with a fixed editor (7032 NaN pixels) and passed after a fresh one. `run.sh`
 now drops `.godot/imported` whenever the editor binary is newer than its last import; a user project needs
 **Reimport** on `head.dna` (or `.godot/imported` removed) after such a change.
+
+72. **An RG-compressed normal map samples blue as 0** (2026-10-26, §2.33). Godot imports normal maps as RG (BC5 / RG8)
+with swizzle b = ZERO, so a custom shader that reads `.rgb * 2.0 - 1.0` gets z = -1, not the normal's z. Rebuild z from
+xy (`sqrt(1 - dot(xy, xy))`), or pass xy to `NORMAL_MAP`, which Godot completes itself. The MetaHuman skin shader had
+it (task 25); the cloth shader still does.
 
 ---
 
