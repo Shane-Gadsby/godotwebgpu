@@ -55,7 +55,7 @@ const FEATURES := [
 	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range", "occlusion_culling",
 	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
 	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
-	"dof_far", "dof_near", "dof_nan", "auto_exposure", "compositor_effect",
+	"dof_far", "dof_near", "dof_nan", "auto_exposure", "white_balance", "compositor_effect",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -586,7 +586,7 @@ func _build_skinned() -> void:
 	# -- the MeshInstance3D a child of its Skeleton3D -- so the skeleton's
 	# transform and the instance's agree and nothing depends on which one the
 	# renderer uses. The old strip (a sibling of the skeleton, behind the LOD
-	# sphere, in the floor's grey) moved 0.045 on native for a 2.2 rad bend.
+	# sphere, in the floor's gray) moved 0.045 on native for a 2.2 rad bend.
 	skeleton = Skeleton3D.new()
 	skeleton.transform = Transform3D(Basis(), Vector3(1.6, 0.0, 2.4))
 	add_child(skeleton)
@@ -1131,6 +1131,8 @@ func _reset() -> void:
 	cam_attrs.dof_blur_far_enabled = false
 	cam_attrs.dof_blur_near_enabled = false
 	cam_attrs.auto_exposure_enabled = false
+	cam_attrs.white_balance_temperature = 6500.0
+	cam_attrs.white_balance_tint = 0.0
 
 	var vp := get_viewport()
 	vp.msaa_3d = Viewport.MSAA_DISABLED
@@ -1499,6 +1501,11 @@ func _apply(id: String, on: bool) -> bool:
 		"auto_exposure":
 			cam_attrs.auto_exposure_enabled = on
 			cam_attrs.auto_exposure_scale = 0.2
+		"white_balance":
+			# CameraAttributes white balance (engine addition): a tungsten setting turns the daylight-lit
+			# scene blue; the small tint exercises the off-locus path.
+			cam_attrs.white_balance_temperature = 3200.0 if on else 6500.0
+			cam_attrs.white_balance_tint = 0.2 if on else 0.0
 		"compositor_effect":
 			# fp_compositor_effect.gd: a compute shader inverting part of the frame.
 			compositor_effect.enabled = on

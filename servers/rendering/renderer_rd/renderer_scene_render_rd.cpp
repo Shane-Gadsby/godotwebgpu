@@ -794,6 +794,11 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		}
 
 		tonemap.luminance_multiplier = rb->get_luminance_multiplier();
+		// White balance is a camera setting like exposure, not an effect: it applies whatever can_use_effects says.
+		if (RSG::camera_attributes->camera_attributes_uses_white_balance(p_render_data->camera_attributes)) {
+			tonemap.use_white_balance = true;
+			tonemap.white_balance_gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(p_render_data->camera_attributes);
+		}
 		tonemap.view_count = rb->get_view_count();
 
 		RID dest_fb;
@@ -1010,6 +1015,10 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	tonemap.texture_size = Vector2i(target_size.x, target_size.y);
 
 	tonemap.luminance_multiplier = rb->get_luminance_multiplier();
+	if (RSG::camera_attributes->camera_attributes_uses_white_balance(p_render_data->camera_attributes)) {
+		tonemap.use_white_balance = true;
+		tonemap.white_balance_gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(p_render_data->camera_attributes);
+	}
 	tonemap.view_count = rb->get_view_count();
 
 	if (rb->get_use_debanding() && !using_hdr) {

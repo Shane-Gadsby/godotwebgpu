@@ -485,6 +485,7 @@ private:
 			float contrast = 1.0;
 			float saturation = 1.0;
 			int32_t pad3 = 0;
+			float white_balance[4] = { 1.0, 1.0, 1.0, 0.0 }; // xyz: Bradford cone gains; w: 1.0 when enabled.
 		};
 		static_assert(sizeof(TonemapUBO) % 16 == 0, "Tonemap UBO size must be a multiple of 16 bytes");
 

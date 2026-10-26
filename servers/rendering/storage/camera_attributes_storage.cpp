@@ -188,3 +188,98 @@ uint64_t RendererCameraAttributes::camera_attributes_get_auto_exposure_version(R
 	ERR_FAIL_NULL_V(cam_attributes, 0);
 	return cam_attributes->auto_exposure_version;
 }
+
+/* White balance
+ *
+ * Camera semantics: the temperature is the illuminant the camera is set for. A light of that color comes out the
+ * way a 6500 K light does at the default setting, so 3200 K makes a tungsten-lit scene neutral and turns a
+ * daylight one blue. The model:
+ *
+ * - The illuminant's white is on the Planckian locus at the given temperature, in CIE 1960 UCS, using the same
+ *   approximation (Krystek 1985) as Light3D::light_temperature, so a light set to T under a white balance of T
+ *   renders exactly like the default 6500 K light at the default white balance.
+ * - The tint moves that white along the isotherm, perpendicular to the locus, by tint * 0.05 Duv (Unreal's
+ *   WhiteTint scale). Positive tint means the illuminant is greener than the locus, so it is removed and the
+ *   image turns magenta, as in Lightroom and most raw converters.
+ * - A von Kries adaptation in Bradford cone space (LMS) maps that white onto the model's own 6500 K / tint 0
+ *   white, which makes the default exactly the identity rather than "nearly D65". Only the three cone gains
+ *   cross to the GPU; the tonemappers apply linear sRGB -> LMS, the gains, and LMS -> linear sRGB with
+ *   constant matrices (BRADFORD * SRGB_TO_XYZ and its inverse, spelled out in tonemap.glsl, tonemap_mobile.glsl
+ *   and the Compatibility tonemap_inc.glsl), so the full 3x3 never needs push-constant space.
+ */
+
+static void _white_balance_planckian_uv(double p_temperature, double &r_u, double &r_v) {
+	const double t = p_temperature;
+	const double t2 = t * t;
+	r_u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t2) / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t2);
+	r_v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t2) / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t2);
+}
+
+// Bradford LMS of the white at the given temperature and tint, with Y = 1.
+static Vector3 _white_balance_white_lms(double p_temperature, double p_tint) {
+	double u, v;
+	_white_balance_planckian_uv(p_temperature, u, v);
+
+	if (p_tint != 0.0) {
+		// Offset along the isotherm. The locus runs toward smaller u as the temperature rises, so (dv, -du)
+		// is the normal that points to larger v, the green side.
+		double u0, v0, u1, v1;
+		_white_balance_planckian_uv(p_temperature - 1.0, u0, v0);
+		_white_balance_planckian_uv(p_temperature + 1.0, u1, v1);
+		const double du = u1 - u0;
+		const double dv = v1 - v0;
+		const double len = Math::sqrt(du * du + dv * dv);
+		if (len > 0.0) {
+			u += dv / len * p_tint * 0.05;
+			v += -du / len * p_tint * 0.05;
+		}
+	}
+
+	// CIE 1960 uv -> xy -> XYZ.
+	const double d = 2.0 * u - 8.0 * v + 4.0;
+	const double x = 3.0 * u / d;
+	const double y = MAX(2.0 * v / d, 1e-6);
+	const double X = x / y;
+	const double Y = 1.0;
+	const double Z = (1.0 - x - y) / y;
+
+	// Bradford cone response.
+	return Vector3(
+			0.8951 * X + 0.2664 * Y - 0.1614 * Z,
+			-0.7502 * X + 1.7135 * Y + 0.0367 * Z,
+			0.0389 * X - 0.0685 * Y + 1.0296 * Z);
+}
+
+Vector3 RendererCameraAttributes::white_balance_compute_gains(float p_temperature, float p_tint) {
+	const Vector3 reference = _white_balance_white_lms(6500.0, 0.0);
+	const Vector3 source = _white_balance_white_lms(CLAMP(p_temperature, 1000.0f, 15000.0f), CLAMP(p_tint, -1.0f, 1.0f));
+	return Vector3(reference.x / source.x, reference.y / source.y, reference.z / source.z);
+}
+
+void RendererCameraAttributes::camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->white_balance_temperature = p_temperature;
+	cam_attributes->white_balance_tint = p_tint;
+	// The exact default is skipped outright, so it costs nothing and leaves the output bit-identical.
+	cam_attributes->use_white_balance = p_temperature != 6500.0f || p_tint != 0.0f;
+	cam_attributes->white_balance_gains = cam_attributes->use_white_balance ? white_balance_compute_gains(p_temperature, p_tint) : Vector3(1.0, 1.0, 1.0);
+}
+
+float RendererCameraAttributes::camera_attributes_get_white_balance_temperature(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 6500.0);
+	return cam_attributes->white_balance_temperature;
+}
+
+float RendererCameraAttributes::camera_attributes_get_white_balance_tint(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->white_balance_tint;
+}
+
+Vector3 RendererCameraAttributes::camera_attributes_get_white_balance_gains(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, Vector3(1.0, 1.0, 1.0));
+	return cam_attributes->white_balance_gains;
+}

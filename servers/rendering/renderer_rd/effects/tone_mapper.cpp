@@ -162,6 +162,13 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
 	tonemap.push_constant.flags |= p_settings.use_auto_exposure ? TONEMAP_FLAG_USE_AUTO_EXPOSURE : 0;
 	tonemap.push_constant.exposure = p_settings.exposure;
+
+	if (p_settings.use_white_balance) {
+		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_WHITE_BALANCE;
+		tonemap.push_constant.white_balance[0] = p_settings.white_balance_gains.x;
+		tonemap.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
+		tonemap.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
+	}
 	tonemap.push_constant.white = p_settings.white;
 	tonemap.push_constant.auto_exposure_scale = p_settings.auto_exposure_scale;
 	tonemap.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
@@ -252,6 +259,9 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.white = p_settings.white;
 	tonemap_mobile.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap_mobile.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
+	tonemap_mobile.push_constant.white_balance[0] = p_settings.white_balance_gains.x;
+	tonemap_mobile.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
+	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -267,6 +277,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	spec_constant |= p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_8_BIT ? TONEMAP_MOBILE_FLAG_USE_8_BIT_DEBANDING : 0;
 	spec_constant |= p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_10_BIT ? TONEMAP_MOBILE_FLAG_USE_10_BIT_DEBANDING : 0;
 	spec_constant |= p_settings.convert_to_srgb ? TONEMAP_MOBILE_FLAG_CONVERT_TO_SRGB : 0;
+	spec_constant |= p_settings.use_white_balance ? TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_LINEAR ? TONEMAP_MOBILE_FLAG_TONEMAPPER_LINEAR : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_REINHARD ? TONEMAP_MOBILE_FLAG_TONEMAPPER_REINHARD : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_FILMIC ? TONEMAP_MOBILE_FLAG_TONEMAPPER_FILMIC : 0;
@@ -343,6 +354,9 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.white = p_settings.white;
 	tonemap_mobile.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap_mobile.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
+	tonemap_mobile.push_constant.white_balance[0] = p_settings.white_balance_gains.x;
+	tonemap_mobile.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
+	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -357,6 +371,7 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	//spec_constant |= p_settings.use_fxaa ? TONEMAP_MOBILE_FLAG_USE_FXAA : 0;
 	spec_constant |= p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_8_BIT ? TONEMAP_MOBILE_FLAG_USE_8_BIT_DEBANDING : 0;
 	spec_constant |= p_settings.convert_to_srgb ? TONEMAP_MOBILE_FLAG_CONVERT_TO_SRGB : 0;
+	spec_constant |= p_settings.use_white_balance ? TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_LINEAR ? TONEMAP_MOBILE_FLAG_TONEMAPPER_LINEAR : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_REINHARD ? TONEMAP_MOBILE_FLAG_TONEMAPPER_REINHARD : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_FILMIC ? TONEMAP_MOBILE_FLAG_TONEMAPPER_FILMIC : 0;

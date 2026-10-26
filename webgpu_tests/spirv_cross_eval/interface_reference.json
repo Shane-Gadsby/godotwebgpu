@@ -1,4 +1,4 @@
-{"source": "Tint (vendored, webgpu-4.8 at 7f2bf18eb2) on the 276 variants wgsl_precompile.py builds; SPIRV-Cross matched it 276/276 when Tint was removed (work task 09, 2026-10-25)",
+{"source": "Tint (vendored, webgpu-4.8 at 7f2bf18eb2) on the 276 variants wgsl_precompile.py builds; SPIRV-Cross matched it 276/276 when Tint was removed (work task 09, 2026-10-25); tonemap_mobile override 18 (use_white_balance) added by work task 24, 2026-10-26",
  "modules": {
   "servers_rendering_renderer_rd_shaders_blit.glsl_default_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [3, 120, "<storage,read>"]], "overrides": []},
   "servers_rendering_renderer_rd_shaders_blit.glsl_default_vert.wgsl": {"bindings": [[3, 120, "<storage,read>"]], "overrides": []},
@@ -162,9 +162,9 @@
   "servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_vert.wgsl": {"bindings": [], "overrides": []},
   "servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [1, 0, "sampler"], [1, 1, "texture_2d"], [2, 0, "sampler"], [2, 1, "texture_2d"], [2, 2, "sampler"], [2, 3, "texture_2d"], [3, 0, "sampler"], [3, 1, "texture_3d"], [3, 120, "<storage,read>"]], "overrides": []},
   "servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_vert.wgsl": {"bindings": [], "overrides": []},
-  "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [0, 2, "sampler"], [0, 3, "texture_2d"], [0, 4, "sampler"], [0, 5, "texture_2d"], [0, 6, "sampler"], [0, 7, "texture_2d"], [3, 120, "<storage,read>"]], "overrides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]},
+  "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [0, 2, "sampler"], [0, 3, "texture_2d"], [0, 4, "sampler"], [0, 5, "texture_2d"], [0, 6, "sampler"], [0, 7, "texture_2d"], [3, 120, "<storage,read>"]], "overrides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]},
   "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_vert.wgsl": {"bindings": [], "overrides": []},
-  "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [0, 2, "sampler"], [0, 3, "texture_2d"], [0, 4, "sampler"], [0, 5, "texture_2d"], [0, 6, "sampler"], [0, 7, "texture_3d"], [3, 120, "<storage,read>"]], "overrides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]},
+  "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [0, 2, "sampler"], [0, 3, "texture_2d"], [0, 4, "sampler"], [0, 5, "texture_2d"], [0, 6, "sampler"], [0, 7, "texture_3d"], [3, 120, "<storage,read>"]], "overrides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]},
   "servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_vert.wgsl": {"bindings": [], "overrides": []},
   "servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_frag.wgsl": {"bindings": [[0, 0, "sampler"], [0, 1, "texture_2d"], [3, 120, "<storage,read>"]], "overrides": []},
   "servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_vert.wgsl": {"bindings": [], "overrides": []},

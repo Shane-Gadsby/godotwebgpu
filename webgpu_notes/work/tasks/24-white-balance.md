@@ -1,8 +1,8 @@
 # 24-white-balance: a White Balance attribute on CameraAttributesPhysical and CameraAttributesPractical
 
-State: open
+State: ready-for-integration
 Owner: worker-24
-Claimed:
+Claimed: 2026-10-26 16:15
 Needs: build, gpu (web and parity captures)
 Branch: work/24
 Results: webgpu_notes/work/results/24-white-balance/

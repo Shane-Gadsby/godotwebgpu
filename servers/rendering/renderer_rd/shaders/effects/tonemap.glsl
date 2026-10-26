@@ -62,6 +62,7 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_USE_FXAA (1 << 4)
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
+#define FLAG_USE_WHITE_BALANCE (1 << 7)
 
 layout(push_constant, std430) uniform Params {
 	vec3 bcs;
@@ -84,10 +85,29 @@ layout(push_constant, std430) uniform Params {
 	float luminance_multiplier;
 
 	vec4 tonemapper_params;
+
+	vec3 white_balance;
+	float pad;
 }
 params;
 
 layout(location = 0) out vec4 frag_color;
+
+// CameraAttributes white balance: a von Kries adaptation in Bradford cone space. The CPU computes the
+// three cone gains (RendererCameraAttributes::white_balance_compute_gains()); these matrices are
+// BRADFORD * SRGB_TO_XYZ and its inverse, and must match the C++ constants.
+vec3 apply_white_balance(vec3 color, vec3 gains) {
+	const mat3 linear_srgb_to_lms = mat3(
+			vec3(0.422725293f, 0.055699777f, 0.021382644f),
+			vec3(0.491345324f, 0.961534051f, 0.087641868f),
+			vec3(0.027357945f, 0.023183810f, 0.980508133f));
+	const mat3 lms_to_linear_srgb = mat3(
+			vec3(2.538044517f, -0.146004058f, -0.042298510f),
+			vec3(-1.293276998f, 1.116648306f, -0.071607220f),
+			vec3(-0.040236884f, -0.022329026f, 1.022752688f));
+	// Saturated colors can leave the gamut; the tonemappers expect non-negative input.
+	return max(lms_to_linear_srgb * (gains * (linear_srgb_to_lms * color)), vec3(0.0f));
+}
 
 // Based on Reinhard's extended formula, see equation 4 in https://doi.org/cjbgrt
 vec3 tonemap_reinhard(vec3 color) {
@@ -888,6 +908,12 @@ void main() {
 		}
 	}
 
+	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
+	// pre-tonemap glow, which is scene light too.
+	if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
+		color.rgb = apply_white_balance(color.rgb, params.white_balance);
+	}
+
 	// Tonemap to lower dynamic range.
 
 	color.rgb = apply_tonemapping(color.rgb);
@@ -901,6 +927,9 @@ void main() {
 		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
+		}
+		if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
+			glow = apply_white_balance(glow, params.white_balance);
 		}
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);

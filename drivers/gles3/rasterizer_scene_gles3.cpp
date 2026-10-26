@@ -2563,6 +2563,13 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
 	}
+	if (RSG::camera_attributes->camera_attributes_uses_white_balance(render_data.camera_attributes)) {
+		const Vector3 gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(render_data.camera_attributes);
+		tonemap_ubo.white_balance[0] = gains.x;
+		tonemap_ubo.white_balance[1] = gains.y;
+		tonemap_ubo.white_balance[2] = gains.z;
+		tonemap_ubo.white_balance[3] = 1.0;
+	}
 
 	if (scene_state.tonemap_buffer == 0) {
 		// Only create if using 3D
