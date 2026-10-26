@@ -1,5 +1,8 @@
 # Braced GDScript (`.gdb`)
 
+> The user documentation is the wiki's [Braced GDScript](https://github.com/Shane-Gadsby/godotwebgpu/wiki/Braced-GDScript)
+> section. These pages are the reference it was written from, kept beside the code.
+
 Braced GDScript is GDScript written with `{ }` blocks instead of indentation, in files named `*.gdb`. It is the same
 language: the same keywords, types, classes, signals, annotations and runtime. Only the block syntax differs, plus a few
 JavaScript-style spellings (`else if`, `//` comments, `c ? a : b`, `(x) => x * 2`, `/** */` docs). Indentation carries

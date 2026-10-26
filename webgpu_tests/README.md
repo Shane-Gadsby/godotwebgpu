@@ -21,7 +21,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 82 arms | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Software Ray Tracing Probe](raytracing_probe/) | A WGSL BVH traversal agrees with a brute-force CPU trace, and how many rays per second it reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; `--software` for the correctness checks, a real GPU for numbers that mean anything) |
@@ -29,7 +29,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 | [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
-| [Occlusion Culling Benchmark](occlusion_bench/run.mjs) | What occlusion culling costs and saves on the web: a 24x24-block city, street view (mostly occluded) and top view (nothing to cull), culling off and on — main-thread ms per frame, GPU ms, draws, objects, heap, load time. Needs a template built with `module_raycast_enabled=yes` (TASKS.md §2.45) | ~2min per export | Yes (`occlusion_bench/export.sh`; a real GPU) |
+| [Occlusion Culling Benchmark](occlusion_bench/run.mjs) | What occlusion culling costs and saves on the web: a 24x24-block city, street view (mostly occluded) and top view (nothing to cull), culling off and on — main-thread ms per frame, GPU ms, draws, objects, heap, load time. Needs a template with the raycast module, in every web template by default since 2026-10-26 (TASKS.md §4.38) | ~2min per export | Yes (`occlusion_bench/export.sh`; a real GPU) |
 | [Load-Ramp Benchmark](benchmark/) (`run_ramp.sh`) | How much content each leg (native Vulkan and Compatibility, stock WebGL, WebGPU Mobile and Forward+, Firefox WebGPU) carries before falling to 20 fps, per ramp (draw calls, moving nodes, fill, shadowed PBR, particles). The source of the README's performance table | ~5min per leg and run (~1 h for all six legs x 2) | Yes (editor + WebGPU template; official 4.7.2 template for WebGL; **an idle real GPU**) |
 
 ## How It Works
@@ -134,7 +134,7 @@ avoid.
 
 ### Forward+ Feature Matrix (needs its own export, and a real GPU)
 
-The per-feature regression suite: for each of 64 Forward+ features, render the
+The per-feature regression suite: for each of 82 Forward+ arms, render the
 fixture with it off and on and assert the frame actually changed, with no driver
 errors. It exists because the failure this port keeps producing is a feature
 **silently doing nothing** — which logs nothing and looks fine unless compared
@@ -147,7 +147,20 @@ cd webgpu_tests/forward_plus
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity   # ... every frame against native Vulkan
 node run_forward_plus.mjs --list                # covered and uncovered features
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity --feature sdfgi,lightmap_gi   # a subset
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity --save-dir /tmp/fp   # keep every captured web frame
+./bake_lightmap.sh                              # re-bake lightmap_room for the lightmap_gi arm (Xvfb, no GUI)
 ```
+
+Arms added 2026-10-26 (TASKS.md §4.39): skeletal animation, particle trails, LightmapGI,
+FogVolume with and without a fog shader, stencil outline and x-ray, bent normals, SMAA,
+compositor effects and occlusion culling. `occlusion_culling` is judged on render info
+(objects drawn, 29 -> 8) rather than pixels; it needs the raycast module in the template
+(`needsRaycast`), which every web template has by default, and against one without it
+reports KNOWN. An arm marked `knownFail` reports KNOWN instead of failing, and XPASS
+(which fails) once it starts passing. Before rendering the native reference, `--parity`
+deletes `godot/fp_check/.godot/shader_cache`: a cache left by another engine build moved
+native SDFGI by 7 points once (TASKS.md §3 trap 68).
 
 The delta test only proves a feature *does something*; `--parity` proves it does
 what native Vulkan does, within a per-feature tolerance. It was what found
@@ -426,6 +439,19 @@ this tree every run, takes and drops the `gpu` lease when `webgpu_notes/work/lea
 (one `[BENCHMARK] ramp=...` result line per ramp, `[RAMP]` lines per step), `shots/` (one frame per ramp and
 leg, to check every leg draws the same thing) and `ramp_summary.md` (N per leg, ratios, each run's N and the
 spread).
+
+### 12. Occlusion Culling Benchmark (needs the editor, a web template with the raycast module, and a real GPU)
+
+```bash
+cd webgpu_tests/occlusion_bench
+./export.sh <template.zip> <out dir> [threads=no|yes]   # BAKE=1 bakes shaders (under xvfb-run)
+node run.mjs --dir <out dir> [--uncapped] [--json out.json]
+```
+
+A 24x24-block city with 20k props, each with its own material, viewed from the street (mostly occluded) and from
+above (nothing to cull), with occlusion culling off and on. Reports main-thread ms per frame (in a nothreads export,
+the whole engine frame), GPU ms, draws and objects, heap and load time; `--uncapped` paces frames to 2 in flight
+(TASKS.md §3 trap 66). Results and what they mean: TASKS.md §4.38.
 
 ## CI Pipeline
 

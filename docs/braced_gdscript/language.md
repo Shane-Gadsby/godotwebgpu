@@ -78,8 +78,8 @@ The tokenizer decides from the token before the `{`:
 | An identifier, literal, `)`, `]`, `}`, `self`, `true`, `false`, `null`, `void`, `_`, or another token that can end an expression | a block | `if ready {`, `-> void {`, `[1, 2] {`, `_ {`, `func(x) {` |
 | Anything else: `=`, `:=`, `(`, `[`, `,`, `:`, `return`, an operator | a dictionary | `var d = {`, `f({`, `return {` |
 
-So a dictionary written where a block header could end needs parentheses, for example `if x == ({}) {`. In practice
-this never comes up, because a block header never ends in a dictionary.
+So a dictionary after an operator is a dictionary even in a block header: `if d == {} {` compares with an empty
+dictionary and then opens the block. The one place the rule needs help is an arrow lambda (below).
 
 ## Comments and documentation
 
@@ -103,6 +103,7 @@ including `@param`-style tags and BBCode such as `[param x]`, is kept as written
 | `func(x): return x * 2` | `(x) => x * 2` or `x => x * 2` | The body's value is returned. Parameters take types and defaults: `(a: int, b := 1) => a + b`. |
 | `func(x):`<br>`⇥var y = x + 1`<br>`⇥return y` | `(x) => {`<br>`    var y = x + 1`<br>`    return y`<br>`}` | A block body returns only through `return`, as in a `func` lambda. |
 | `func(): print("hi")` | `() => print("hi")` | An arrow whose body is a call to a function returning nothing compiles to a block body, so it is valid. |
+| `func(x): return {"x": x}` | `(x) => ({"x": x})` | A `{` right after `=>` always opens a block body, so an arrow that returns a dictionary wraps it in parentheses. |
 
 `func` lambdas work unchanged: `func(x) { return x * 2 }`, `func named(x) { ... }`.
 

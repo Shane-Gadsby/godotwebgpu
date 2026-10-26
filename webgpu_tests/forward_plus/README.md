@@ -84,9 +84,10 @@ it starts passing it reports `XPASS` and fails, so the marker goes with the
 bug. No arm carries one today.
 
 `needsRaycast: '<why>'` marks an arm that needs the raycast module (Embree, the
-only occlusion culler): `occlusion_culling`. Web templates leave the module out
-unless built with `module_raycast_enabled=yes` (`platform/web/detect.py`,
-upstream GH-70621). The harness looks for Embree in the export's `index.wasm`
+only occlusion culler): `occlusion_culling`. Stock Godot leaves the module out of
+web templates (upstream GH-70621); this fork's include it by default since
+2026-10-26 (`platform/web/detect.py`, `build-linux.sh --no-web-raycast` to leave
+it out). The harness looks for Embree in the export's `index.wasm`
 and prints `template raycast module (occlusion culling): yes|no`; without it
 the arm becomes a `knownFail` with that reason (the frame is right, nothing is
 culled), with it a normal arm that must cull as natively (29 -> 8 objects).
