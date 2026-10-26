@@ -1,8 +1,8 @@
 # 28-nan-guards-glow-ssr-exposure: guard glow, SSR and auto exposure against a non-finite pixel, as the DOF is
 
-State: open
+State: ready-for-integration
 Owner: worker-28
-Claimed:
+Claimed: 2026-10-26 19:30
 Needs: build, gpu (parity)
 Branch: work/28
 Results: webgpu_notes/work/results/28-nan-guards-glow-ssr-exposure/

@@ -5,6 +5,7 @@
 #VERSION_DEFINES
 
 #include "../oct_inc.glsl"
+#include "finite_inc.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -104,7 +105,11 @@ void main() {
 	color += texelFetch(source_color, base_pos + ivec2(1, 1), 0);
 	color /= 4.0;
 	color = mix(color, vec4(100.0, 100.0, 100.0, 1.0), greaterThan(abs(color), vec4(3.0e+10)));
-	color = mix(color, vec4(100.0, 100.0, 100.0, 1.0), notEqual(color, color));
+	// NaN counts as black (finite_inc.glsl). Upstream mapped it to 100 with notEqual(color, color),
+	// which never fires on NVIDIA although glslang emits the unordered compare (the driver assumes
+	// no NaN), so SSR reflected and blurred it; tested on the bits it is caught everywhere.
+	// Infinity is already 100 from the line above.
+	color = finite_or_zero4(color);
 
 	imageStore(dest_buffer, pos + params.target, color);
 #endif
@@ -122,6 +127,14 @@ void main() {
 
 #ifdef MODE_GLOW
 	if (bool(params.flags & FLAG_GLOW_FIRST_PASS)) {
+		// The first pass reads the scene color. A non-finite sample counts as black here, where each
+		// is read once, or the blur below and every level after it would carry it over the whole glow
+		// radius (finite_inc.glsl). Later passes read this pass's finite output.
+		local_cache[dest_index] = finite_or_zero4(local_cache[dest_index]);
+		local_cache[dest_index + 1] = finite_or_zero4(local_cache[dest_index + 1]);
+		local_cache[dest_index + 16] = finite_or_zero4(local_cache[dest_index + 16]);
+		local_cache[dest_index + 16 + 1] = finite_or_zero4(local_cache[dest_index + 16 + 1]);
+
 		// Tonemap initial samples to reduce weight of fireflies: https://graphicrants.blogspot.com/2013/12/tone-mapping.html
 		vec3 tonemap_col = vec3(0.299, 0.587, 0.114) / max(params.glow_luminance_cap, 6.0);
 		local_cache[dest_index] /= 1.0 + dot(local_cache[dest_index].rgb, tonemap_col);
@@ -248,7 +261,8 @@ void main() {
 
 	if (bool(params.flags & FLAG_SANITIZE_INF_NAN)) {
 		color = mix(color, vec4(100.0, 100.0, 100.0, 1.0), greaterThan(abs(color), vec4(3.0e+10)));
-		color = mix(color, vec4(100.0, 100.0, 100.0, 1.0), notEqual(color, color));
+		// As in MODE_MIPMAP: NaN counts as black, tested on the bits (finite_inc.glsl).
+		color = finite_or_zero4(color);
 	}
 
 	imageStore(dest_buffer, pos + params.target, color);

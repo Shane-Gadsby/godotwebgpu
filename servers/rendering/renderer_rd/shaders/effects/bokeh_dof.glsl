@@ -147,7 +147,7 @@ void main() {
 
 	vec4 color = imageLoad(color_image, pos);
 	// Every later pass reads this image, so sanitizing here, once per pixel, covers them all.
-	color.rgb = dof_finite(color.rgb);
+	color.rgb = finite_or_zero3(color.rgb);
 	color.a = size;
 	imageStore(color_image, pos, color);
 #endif
