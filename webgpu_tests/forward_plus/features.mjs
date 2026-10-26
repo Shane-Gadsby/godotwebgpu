@@ -189,6 +189,10 @@ export const FEATURES = [
     parityTol: 0.3 },
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
+  // A 2x2 px quad writing NaN inside the far blur. The DOF passes treat a non-finite color as black,
+  // so only the quad and a faint darkening around it change; before, NaN * 0 = NaN in the bokeh filter
+  // blanked a whole hexagon (1.07 natively; 0.0013 after). Off and on both have the far blur.
+  { id: 'dof_nan', cat: 'post', label: 'Depth of field keeps a NaN pixel to itself', minDelta: 0, maxDelta: 0.05 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },
   // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's
   // conversion, a read-write storage image on the scene's colour target, the compositor callback.

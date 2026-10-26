@@ -1,0 +1,8 @@
+render_mode blend_add, depth_draw_never, cull_disabled, unshaded, shadows_disabled, fog_disabled;
+void fragment() {
+	uint b = floatBitsToUint(v_coverage);
+	bool is_nan = (b & 0x7f800000u) == 0x7f800000u;
+	float neg = (b & 0x80000000u) != 0u ? 1.0 : 0.0;
+	ALBEDO = vec3(neg * 1000.0, is_nan ? 1000.0 : 0.0, 1.0);
+	ALPHA = 1.0;
+}
