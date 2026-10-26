@@ -1,11 +1,12 @@
 # Status (lead-maintained)
 
-## 2026-10-26 evening — tasks 28–29 out (user decisions on the hand-offs page)
+## 2026-10-26 evening — tasks 28–30 out (user decisions on the hand-offs page; 30 a user request)
 
 | task | what | owner |
 |---|---|---|
 | 28 | NaN guards for glow, SSR and auto exposure (`nan-guards`: "Guard all three now") | worker-28 |
 | 29 | White balance range 2000–10000 K and tint -150..150 (`wb-range`, `wb-tint-units`) | worker-29 |
+| 30 | The editor's "new version" check looks at this fork's GitHub releases instead of godotengine.org (user request) | worker-30 |
 
 ## 2026-10-26 — tasks 24–27 out (user requests)
 
