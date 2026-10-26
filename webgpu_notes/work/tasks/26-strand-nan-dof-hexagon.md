@@ -1,6 +1,6 @@
 # 26-strand-nan-dof-hexagon: the MetaHuman strand shader writes a NaN, and the bokeh DOF spreads it into a black hexagon
 
-State: ready-for-integration
+State: integrated (lead: smoke, dof_nan, metahuman/run.sh pass; full 83-arm parity pending the gpu lease)
 Owner: worker-26
 Claimed: 2026-10-26 16:20
 Needs: build, gpu (native and web captures)

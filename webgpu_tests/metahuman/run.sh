@@ -73,7 +73,13 @@ script = ExtResource("1")
 BENCH
 
 echo "== import"
+# Godot reimports only a source that changed, and head.dna never does: an importer or shader change
+# would be tested against the scene an older editor imported. Reimport whenever the editor is newer.
+if [[ ! -f "$WORK/import.stamp" || "$EDITOR" -nt "$WORK/import.stamp" || "$(cat "$WORK/import.stamp")" != "$EDITOR" ]]; then
+    rm -rf "$PROJECT/.godot/imported"
+fi
 "$EDITOR" --headless --path "$PROJECT" --import >"$WORK/import.log" 2>&1 || true
+echo "$EDITOR" >"$WORK/import.stamp"
 grep -E "MetaHuman" "$WORK/import.log" || true
 
 echo "== verify"

@@ -85,7 +85,7 @@ cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
 cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 
-# Forward+ feature matrix, 82 arms (needs a real GPU and a fresh ./export.sh); --parity also compares every
+# Forward+ feature matrix, 83 arms (needs a real GPU and a fresh ./export.sh); --parity also compares every
 # frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly
 # (--feature a,b runs a subset; occlusion_culling needs a template with the raycast module, the web default):
 cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity
@@ -245,6 +245,11 @@ Rules that cost time:
 - Match DNA meshes to materials by mesh name: the manifest's per-mesh list is wrong past LOD 2 (§3 trap 48).
 - DNA is Y-up centimeters; grooms are (x, z, y) centimeters.
 - Hair shaders branch on `IN_SHADOW_PASS` and `abs(PROJECTION_MATRIX[1][1])` (traps 50, 51).
+- Strand shaders clamp `v_coverage` before `pow()`: lash tips have width 0 and interpolate to -1e-9 (NaN on NVIDIA,
+  which the bokeh DOF used to spread into a black hexagon, trap 70). The importer's strand variants replace
+  `HAIR_STRANDS_ALPHA_LINE`; change the line and the constant together.
+- The shaders are baked into the imported scene, and `head.dna` never changes, so an importer or shader fix reaches an
+  existing project only after a Reimport (trap 71).
 
 ### Braced GDScript (`.gdb`)
 

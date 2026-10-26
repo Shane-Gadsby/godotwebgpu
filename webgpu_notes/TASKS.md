@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–69 are the day's.
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -2098,6 +2098,10 @@ Representations (`editor/metahuman_hair.cpp`, `editor/metahuman_shaders.h`):
   - Brows and lashes are blended; the groom lashes replace the DNA cards.
   - Scalp hair is opaque: 20% of the curves at 10 points, with root darkening and an optional hashed coverage for
     projects with TAA.
+  - `ALPHA` clamps `v_coverage` before `pow()` (2026-10-26, §4.41): grooms that taper to a width of exactly 0 (Ava's
+    eyelashes: 1574 tip vertices) interpolate coverage to about -1e-9 beside the tips, and `pow()` of that is NaN on
+    NVIDIA and lavapipe. The opaque and hashed strand variants edit the shader through `HAIR_STRANDS_ALPHA_LINE`.
+    Checked by `webgpu_tests/metahuman/nan_check.gd` (in `run.sh`).
 - **Shell:** voxelized (3 mm), closed, stray pieces dropped, smoothed, surface nets, simplified to 8,000 triangles,
   flow tangents smoothed over the mesh for the anisotropic highlight.
   - It cross-fades in beyond 3 m.
@@ -2937,6 +2941,26 @@ and polls for it never runs that work. The raycast module's occlusion culler com
 so a nothreads web template with the module raycast every frame against nothing and culled nothing, with no error
 (§2.45). Any `Thread` in code that can run in a nothreads template needs a synchronous `#ifndef THREADS_ENABLED` path;
 `WorkerThreadPool` is fine (it runs tasks inline).
+
+70. **One NaN pixel becomes a black bokeh shape (NaN × 0 = NaN)** (2026-10-26, §4.41). The bokeh DOF weights every tap
+with `mix(center, sample, m)`; with `m == 0` a NaN sample still poisons the sum, so a single non-finite pixel blanks
+everything within the blur radius in the bokeh's shape (hexagon by default; 32 px with physical transitions). When a
+black shape appears, look for one NaN pixel first, and find it with a **read-back**, not a shader probe: a probe
+rewrites the expression that made the NaN, and a blended marker is buried by the layers drawn after it (92 lash layers
+at the pixel here). What worked: a `CompositorEffect` at `POST_TRANSPARENT` that scans the color image for exponent
+bits 0x7f800000 (alpha NaN too ⇒ the material's `ALPHA` was NaN, since blending can only put NaN in alpha from the
+source alpha), then the material swapped for one with the same vertex stage and an **additive** fragment that counts
+suspect values. Test NaN on the bits, never `isnan()`: compilers may fold it (WGSL explicitly allows that). And
+`pow(x, y)` of an interpolated value that is 0 at some vertices needs a clamp: interpolation lands at -1e-9.
+Mobile hides the whole class unless the viewport is HDR (its RGB10A2 buffer stores NaN as 0).
+
+71. **An importer or importer-shader change does not reach a scene that is already imported** (2026-10-26). Godot
+reimports a source only when it or its `.import` settings change, and a MetaHuman's `head.dna` never does: the
+shaders are baked into the imported scene, so after a fix in `metahuman_shaders.h` or the importer, an existing project
+(the user's camera-sim, or `webgpu_tests/metahuman/work/`) keeps rendering with the old shader. `metahuman/run.sh`
+failed the new NaN check on a 10-20 import with a fixed editor (7032 NaN pixels) and passed after a fresh one. `run.sh`
+now drops `.godot/imported` whenever the editor binary is newer than its last import; a user project needs
+**Reimport** on `head.dna` (or `.godot/imported` removed) after such a change.
 
 ---
 
@@ -4230,6 +4254,34 @@ plus `Home`, `_Sidebar` and `_Footer`. Its local clone is `/mnt/109313D2109313D2
 separate git repository (branch `master`), committed and pushed on its own: the user allows pushing the wiki; this
 repository is pushed only when the user says so. A user-visible change in those three areas updates the wiki page too.
 `docs/braced_gdscript/` stays the developer reference; facts the wiki's writer found missing there were added to it.
+
+### 4.41 MetaHuman strand NaN and the bokeh DOF black hexagon (October 2026) *(work task 26)*
+
+User report (2026-10-26): a black hexagon over Ava's face in camera-sim at exactly 4.80 m / 1.63–1.64 m, native Vulkan
+on the 4080 too, with the user's own findings (the `eyelashes_strands` mesh, the DOF's `NaN × 0`, the clamp that hides
+it, and an unproven value). Merged `0f0dfd50fe`.
+
+- **Source, proven:** Ava's eyelash groom has a width of exactly 0 at every strand tip (1574 vertices; brows and scalp
+  hair have none), so `v_coverage` is 0 there and interpolates to -1.07e-9 beside them; `pow(-1.07e-9, 0.5)` is NaN on
+  NVIDIA and lavapipe. Proven by read-back, not a probe (§3 trap 70): a read-only `CompositorEffect` before DOF found one
+  pixel, (621, 338), NaN in all four channels, so `ALPHA` was NaN, which rules out the anisotropic lighting; an additive
+  same-vertex material found the -1.07e-9 fragment there, one of 92 overlapping lash fragments.
+- **Fixes:** `HAIR_STRANDS` clamps `v_coverage` before `pow()`; the importer's opaque and hashed variants replace a
+  shared `HAIR_STRANDS_ALPHA_LINE` and print an error if it stops matching; `HAIR_SHELL`'s binormal normalize has a
+  floor. The bokeh DOF's `dof_finite()` (`bokeh_dof_inc.glsl`) counts a non-finite color as black, tested on the
+  exponent bits with a select: once per pixel in Forward+'s compute `GEN_BLUR_SIZE`, per tap in Mobile's raster passes;
+  about 4 ALU ops each, finite frames bit-identical. A deliberate divergence from upstream (an upstream sync may
+  conflict in `bokeh_dof*.glsl`).
+- **Numbers:** the user's 42-position sweep (4.70–4.90 m × 1.55–1.75 m), native: 3 failures before, 0 after; with the
+  DOF fix alone the NaN is still at the same 3 positions but no black reaches the face. WebGPU (Chrome, real adapter,
+  Forward+): 0 before and after (the NaN does not occur there).
+- **Tests:** `webgpu_tests/dof_nan/run.sh` (Forward+ compute and Mobile raster, every bokeh mode: 18/24 failed before,
+  24/24 after; lead rerun 0 failures), Forward+ matrix arm `dof_nan` (83 arms; WebGPU FAIL 1.068 → PASS 0.001, parity
+  0.003), `webgpu_tests/metahuman/nan_check.gd` in `run.sh` (lead rerun: verify and nan 0 failures, after a fresh
+  import, §3 trap 71). Smoke on the merged tree: 276 modules, 0 invalid.
+- **Open:** glow, SSR and auto-exposure would still spread a NaN; whether to guard them too is the user's call (default
+  no, until a report). The user's camera-sim needs a **Reimport** of `scenes/Ava/head.dna` for the strand clamp; the
+  DOF fix alone already prevents the hexagon.
 
 ## 5. References — retired docs
 

@@ -21,7 +21,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 82 arms | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 83 arms | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [Software Ray Tracing Probe](raytracing_probe/) | A WGSL BVH traversal agrees with a brute-force CPU trace, and how many rays per second it reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; `--software` for the correctness checks, a real GPU for numbers that mean anything) |
@@ -134,7 +134,7 @@ avoid.
 
 ### Forward+ Feature Matrix (needs its own export, and a real GPU)
 
-The per-feature regression suite: for each of 82 Forward+ arms, render the
+The per-feature regression suite: for each of 83 Forward+ arms, render the
 fixture with it off and on and assert the frame actually changed, with no driver
 errors. It exists because the failure this port keeps producing is a feature
 **silently doing nothing** — which logs nothing and looks fine unless compared
@@ -452,6 +452,18 @@ A 24x24-block city with 20k props, each with its own material, viewed from the s
 above (nothing to cull), with occlusion culling off and on. Reports main-thread ms per frame (in a nothreads export,
 the whole engine frame), GPU ms, draws and objects, heap and load time; `--uncapped` paces frames to 2 in flight
 (TASKS.md §3 trap 66). Results and what they mean: TASKS.md §4.38.
+
+### 13. DOF NaN containment (native, needs a display)
+
+```bash
+webgpu_tests/dof_nan/run.sh [editor binary] [out dir]
+```
+
+One NaN pixel through every bokeh DOF mode (box, hexagon, circle; near and far; transition and physical), on Forward+
+(compute DOF) and Forward Mobile (raster DOF). Exit 0 when every mode keeps the NaN to the quad's own pixels. The web
+side is the Forward+ matrix's `dof_nan` arm (a `maxDelta` arm). `webgpu_tests/metahuman/run.sh` also runs `nan_check.gd`
+(the groom strands with coverage forced below zero must write no NaN; lavapipe under Xvfb) and reimports whenever the
+editor is newer than its last import. TASKS.md §4.41, §3 traps 70–71.
 
 ## CI Pipeline
 
