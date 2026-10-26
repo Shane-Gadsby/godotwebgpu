@@ -1,6 +1,6 @@
 # 30-update-check-fork-releases: the editor's "new version available" check looks at this fork's GitHub releases
 
-State: claimed
+State: ready-for-integration
 Owner: worker-30
 Claimed: 2026-10-26 20:10
 Needs: build (native editor only)
