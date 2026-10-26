@@ -121,7 +121,7 @@ A browser without WebGPU cannot run these exports. The web templates are built w
 
 The Forward+ test matrix renders each feature on WebGPU and on native Vulkan from the same fixture, then compares the
 frames. ✔ in the WebGPU column means the frames match within the matrix's tolerance (mean absolute difference 0.05 out
-of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 26 October 2026, passed all 82 in Chrome. The WebGL 2
+of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 26 October 2026, passed all 87 in Chrome, unbaked and with baked shaders. The WebGL 2
 column is the Compatibility renderer, from Godot's
 [renderer comparison](https://docs.godotengine.org/en/latest/tutorials/rendering/renderers.html).
 
@@ -176,7 +176,10 @@ column is the Compatibility renderer, from Godot's
 | Compositor effects (compute) | ✔ | ✘ | ✔ |
 | Wireframe debug draw | ✔ | ✘ | ✘ (draws filled) |
 
-The matrix leaves out only what WebGPU itself lacks: multiview (XR), variable rate shading, and MSAA 2x and 8x.
+The matrix leaves out only what WebGPU itself lacks: multiview (XR), variable rate shading, and MSAA 2x and 8x. It
+also covers this fork's camera white balance, and a single NaN pixel fed through depth of field, glow, SSR and auto
+exposure: in this fork each of those effects counts a non-finite color as black, natively and on the web, where stock
+Godot spreads one bad pixel into a black bokeh shape, a glow blob or a blank frame.
 
 ## Performance
 
@@ -263,6 +266,10 @@ These work in every export, not only on the web. Full documentation is on the
   - The loading screen text can be set for each loading stage.
 - **Warnings reach the console as warnings:** `WARN_PRINT` goes to `console.warn` instead of being reported as an
   error.
+- **Shader baking leaves the editor alone:** the WebGPU capability answers a web export's shader bake uses apply only
+  inside the baker, so the editor's own viewport keeps rendering normally (FSR 2 included) while it exports.
+- **Update check against this fork's releases:** the project manager's "Update available" link checks Godot WebGPU's
+  GitHub releases instead of godotengine.org, and opens the release page.
 - **Camera white balance:** `CameraAttributes` has a color temperature in Kelvin and a green-magenta tint, with a real
   camera's meaning (3200 K makes a tungsten-lit scene neutral), in Forward+, Mobile and Compatibility, web included.
 - **MetaHuman importer** (experimental): importing `head.dna` brings in the whole character. The face rig is evaluated

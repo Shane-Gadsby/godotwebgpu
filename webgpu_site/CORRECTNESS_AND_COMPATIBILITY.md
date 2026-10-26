@@ -5,7 +5,7 @@
 | Area | Score | Verdict |
 |------|-------|---------|
 | Resource lifecycle | 9/10 | All failure paths covered; async lifetime robust |
-| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 82 matrix arms (2026-10-26, §2.9); remaining gaps are WebGPU spec limits |
+| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 87 matrix arms, unbaked and baked (2026-10-26, §2.9); remaining gaps are WebGPU spec limits |
 | Cross-browser compatibility | 9/10 | Well-scoped workarounds for Chrome/Firefox/Safari |
 | Error handling | 8/10 | Robust async patterns; deadlock prevention |
 | Code quality | 8/10 | Well-documented; defensive; some TODOs remain |

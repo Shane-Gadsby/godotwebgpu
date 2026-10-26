@@ -78,6 +78,15 @@ captured frame, writes the same to `<id>_<0|1>.info` natively, and the harness
 requires "on" to draw at least 15 fewer objects than "off", on the web and, in
 parity mode, natively.
 
+The four NaN arms (`dof_nan`, `glow_nan`, `ssr_nan`, `auto_exposure_nan`,
+2026-10-26, `webgpu_notes/TASKS.md` §4.41, §4.44) are `maxDelta` arms too:
+"on" adds a 2x2 px quad that writes NaN with the effect running both ways, and
+the frame may change by at most 0.05, because the effect must keep the NaN to
+the quad's own pixels rather than spread it into a bokeh shape, a glow blob, a
+smeared reflection or a blank frame. Their GDScript-built materials can never
+be baked, which is part of why the baked run's translated-stage ceiling is 150
+(`webgpu_notes/TASKS.md` §2.39).
+
 An arm can carry `knownFail: '<why>'`: a web failure that is understood and out
 of this port's reach. It runs, reports `KNOWN` and does not fail the run; if
 it starts passing it reports `XPASS` and fails, so the marker goes with the

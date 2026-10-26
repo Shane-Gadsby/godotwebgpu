@@ -43,9 +43,17 @@ runtime, the build-time precompile, the export-time bake and every test tier. Ti
 before. Rebuild editor, `wgsl_convert_cli` and templates together after pulling it: an older editor looks for
 `tint_convert_cli` (§3 trap 61). Browser-side Tint (Chrome/Dawn compiling our WGSL) is untouched.
 
-**2026-10-26: the Forward+ matrix has 82 arms** (§4.39; it had 71) **and is 82/82 against native Vulkan**, unbaked and
-baked, with web templates that include the raycast module (worker-22's run, §4.38). The lead's full run earlier the same
-day, before the module was in the templates, was 81/82 unbaked and baked, `occlusion_culling` KNOWN. **Occlusion
+**2026-10-26 (evening): the Forward+ matrix has 87 arms and is 87/87 against native Vulkan**, unbaked and baked, on
+the merged tree (lead, 20:24). It had 71 on 2026-10-25, 82 after §4.39 (82/82 with the raycast module in the templates,
+§4.38; 81/82 before, `occlusion_culling` KNOWN), then gained `dof_nan` (§4.41), `white_balance` (§4.42), `glow_nan`,
+`ssr_nan` and `auto_exposure_nan` (§4.44). The bake gate's ceiling is 150 translated stages (§2.39). What landed that
+day, all merged into `webgpu-4.8` and nothing pushed: **camera white balance** on `CameraAttributes` (2000–10000 K, tint
+-150..150, all three renderers and the web, §4.42); **NaN containment** in bokeh DOF, glow, SSR and auto exposure
+(`finite_inc.glsl`), and the MetaHuman strand NaN that showed it (§4.41, §4.44); **bake isolation**, the shader baker's
+WebGPU capability answers confined to the baker's own callbacks, so the editor's frames during a web export no longer
+log FSR 2 uniform mismatches and FSR 2 bakes for the target (§4.43); **MetaHuman skin pores** scaled to each mesh's UV
+density (§2.33, follow-ups §2.46); and **the editor's update check** against this fork's GitHub releases (§4.45,
+follow-ups §2.47). §3 traps 70–73 are what it cost. **Occlusion
 culling works on the web** (§4.38): the raycast module (Embree) is in every web template by default
 (`build-linux.sh --no-web-raycast` leaves it out), and the Web export option `rendering/occlusion_culling` turns it off
 per export. **The performance numbers to quote come from the load-ramp benchmark** (`webgpu_tests/benchmark/run_ramp.sh`,
@@ -57,6 +65,12 @@ the GitHub wiki** (§4.40), and the README was rewritten around it.
 
 | tier | result | when / where |
 |---|---|---|
+| Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, full 87-arm matrix on the merged tree (tasks 24–30) | **87 / 87** both; bake gate green under the 150 ceiling (§2.39) | 2026-10-26 20:24, lead |
+| `webgpu_tests/dof_nan/run.sh` (one NaN pixel through every bokeh DOF mode, glow, SSR, auto exposure; Forward+ and Mobile, native) | **0 failures** (24 DOF cases + glow, SSR, exposure; 7 failures before §4.44, 18/24 DOF before §4.41) | 2026-10-26, lead, §4.41, §4.44 |
+| `webgpu_tests/bake_isolation/run.sh` (interactive Web export from a windowed editor with FSR 2 + TAA, Xvfb + Vulkan) | **PASS**: 8 editor frames during the bake, 0 mismatch errors, 8/8 FSR 2 passes baked for WebGPU (FAIL on the old editor) | 2026-10-26, lead, §4.43 |
+| `webgpu_tests/metahuman/run.sh` with `nan_check.gd` | verify and nan **0 failures** after a fresh import (`run.sh` reimports when the editor is newer, §3 trap 71); `--shots` 0 failures with the pore fix | 2026-10-26, lead, §2.33, §4.41 |
+| `tests/editor/project_manager/test_engine_update_label.cpp` (`--test --test-case="*EngineUpdateLabel*"`) | **3 / 3** cases; merged editor compiles | 2026-10-26, lead, §4.45 |
+| converter smoke (`webgpu_notes/work/smoke.sh`) after each of tasks 24–28 | 276/276 interfaces, 552/552 scan facts, 0 invalid; only change override id 18 in `tonemap_mobile` (§4.42, regenerated on purpose) | 2026-10-26, lead |
 | Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, nothreads templates **with** the raycast module | **82 / 82**; `occlusion_culling` 29 → 8 objects, parity 0.002; scene smoketest 23 / 23 Chrome and Firefox | 2026-10-26, work/22, §4.38 |
 | Forward+ `--parity`, unbaked and `--baked`, full run on the 82-arm matrix, templates without the raycast module | **81 / 82** both, `occlusion_culling` KNOWN (no culler on the web then); bake gate green at the raised ceiling (translated ~117 ≤ 130, §2.39) | 2026-10-26, lead, §4.39 |
 | load-ramp benchmark (`run_ramp.sh`, 6 legs × 5 ramps × 2 runs, RTX 4080 SUPER, Chrome 156) | 60 / 60 ramp-runs converged; WebGPU Forward+ / WebGL: draws 1.23x, nodes 1.61x, fill 0.67x, lit 6.42x, particles 1.50x | 2026-10-26, `results_ramp/2026-10-26/`, §2.30 |
@@ -347,6 +361,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. Tasks 28 (NaN guards for glow, SSR, auto exposure, §4.44) and 29 (white balance units, §4.42) followed from the user's answers; 30 (§4.45) points the editor's update check at this fork's releases. The full matrix is 87 arms; the bake gate's ceiling went 130 → 150 (§2.39).
 
+**Added 2026-10-26 (evening):** tasks 24–30 are all merged, and the 87-arm matrix is 87/87 at parity unbaked and baked on the merged tree (§1). They left two small open items: §2.46 (MetaHuman skin follow-ups: the cloth shader's normal z, pores on the lips, the WebGPU after-capture that hung, the user's look) and §2.47 (the update check's blind spot and the two user questions it waits on). §3 traps 70–73 are tasks 25–27's.
+
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
@@ -386,20 +402,22 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 82/82 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 87/87 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported); skin-pore follow-ups in §2.46 |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
 | 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | **DONE 2026-10-25 → §4.37** — Wake Lock, `html/orientation`, fullscreen on the first tap, high-performance everywhere | a feature-tag orientation override still beats `html/orientation` |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
 | 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | OPEN — before the board retires | move `smoke.sh` into `webgpu_tests/`, wire it into `local_ci.sh`/CI; first GitHub run of the renamed CI jobs |
-| 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate (`translated <= 80`) fails; 8 scene-shader groups and a particles stage are never baked |
+| 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate passes only at a raised ceiling (150, was 80); 8 scene-shader groups and a particles stage are never baked |
 | 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
 | 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
 | 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
 | 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
 | 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
 | 2.45 | Occlusion culling on the web: the raycast module in web templates (new, 2026-10-26) | **DONE 2026-10-26 → §4.38** — on by default, Web export option `rendering/occlusion_culling` | upstream the nothreads culler fix (§3 trap 69) |
+| 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
+| 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -482,9 +500,9 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 82/82 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 87/87 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported); skin-pore follow-ups in §2.46 |
 | 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
 | 2.36 | ~~Web export: performance hint, keep screen awake, orientation~~ | **`DONE` 2026-10-25 → §4.37** | — |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call | `OPEN` — prioritized by the user 2026-10-25 | ~2–4 sessions |
@@ -496,6 +514,8 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
 | 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
 | 2.45 | ~~Occlusion culling on the web: raycast module in web templates~~ | **`DONE` 2026-10-26 → §4.38** | — |
+| 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
+| 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2116,7 +2136,8 @@ Representations (`editor/metahuman_hair.cpp`, `editor/metahuman_shaders.h`):
   - Ruled out by measurement: the 2048 size limit (keeps 92% of the 8K normal's mm-scale slope energy), web filtering,
     mips, `SamplerLodBias`.
   - Open: the lips get pores (Unreal's `Micro MaskA-D` region masks are not exported); the cloth shader has the same
-    z pattern; the user's look on size and strength (hand-offs page `look-skin-pores`).
+    z pattern; the user's look on size and strength (hand-offs page `look-skin-pores`). Tracked as §2.46, with the
+    WebGPU after-capture that hung.
 - **Shell:** voxelized (3 mm), closed, stray pieces dropped, smoothed, surface nets, simplified to 8,000 triangles,
   flow tangents smoothed over the mesh for the anisotropic highlight.
   - It cross-fades in beyond 3 m.
@@ -2448,7 +2469,7 @@ watch the first GitHub run after the swap: work/9 changed matrix keys (`wgsl-cli
 
 `run_forward_plus.mjs --baked` ends in RESULT FAIL on its bake gate (`translated <= 80`) with every converter, Tint
 before the swap included: 8 Forward+ scene-shader groups (×12 stages) and one particles stage are converted at runtime,
-because the baker never sees those versions. Parity itself is 82/82 (71/71 when this was written), so this is load time, not correctness, but the
+because the baker never sees those versions. Parity itself is 87/87 (71/71 when this was written), so this is load time, not correctness, but the
 gate being red means the tier cannot catch a real baking regression. Start from the fixture's `--verbose` "Shader cache
 miss for ..." lines against the export's "Shader baker: baking ..." fingerprints (§3 traps 40, 45, 49 are the three
 earlier causes of the same symptom). Effort ~1 session, needs the GPU.
@@ -2505,6 +2526,41 @@ once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 se
 ### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `DONE 2026-10-26` → §4.38
 
 **Closed 2026-10-26** (work task 22, merged `b13c7bee24`; default decided in `508f4ed3b2`). Moved whole to §4.38.
+
+### 2.46 MetaHuman skin follow-ups after the pore fix `OPEN` *(from §2.33, work task 25)*
+
+Task 25 (merged `fd53d6d657`) fixed the pore scale (§2.33's 2026-10-26 bullet). Left open:
+
+- **The cloth shader reads blue as z** (§3 trap 72): `modules/metahuman/editor/metahuman_shaders.h`'s cloth fragment
+  takes `texture(normal_map, UV).rgb * 2.0 - 1.0` and the same for `micro_normal_map`, so z is -1 on RG-imported
+  normal maps, as the skin shader's was. Rebuild z from xy as the skin shader now does. Natively visible too; check
+  with `webgpu_tests/metahuman/run.sh --shots` after a fresh import (§3 trap 71).
+- **The lips get pores:** Unreal masks the micro detail by region (`Micro MaskA`-`D`), which the export does not carry.
+  The SRMF alpha (black on lips and eyelids) looks like a fuzz mask and was deliberately not used. Needs a mask source.
+- **The WebGPU "after" capture never ran:** `webgpu_notes/work/results/25-metahuman-skin-coarse/capture_web.mjs` on
+  worker 25's `web_after` export hung before its first SHOT twice, even with 10 minutes. The "before" pair matched
+  Vulkan (WebGPU = Vulkan to 0.0008 levels) and the fix touches neither the renderer nor the converter, so this is a
+  missing confirmation, not a known difference. Find why the capture hangs (headed system Chrome, real adapter).
+- **The user's look** on size and strength: hand-offs page `look-skin-pores` (frames in the task's `looks/`). The
+  user's camera-sim needs a **Reimport** of `scenes/Ava/head.dna` to get the fix.
+
+Effort ~0.5 session for the cloth fix plus a GPU run; the lip masks need data the export lacks.
+
+### 2.47 Editor update check: the blind spot and two pending user questions `OPEN` *(from §4.45, work task 30)*
+
+The check against this fork's releases is done (§4.45, merged `4b4bd00e62`). Open:
+
+- **Two user decisions** on the hand-offs page, each implemented with its default: `update-newer-rule` (newer = the
+  release's `main-<sha>` commit is not the build's and was committed later; the alternative is a fork version number in
+  `version.py`, the tag and the title) and `update-repo` (default `Shane-Gadsby/godotwebgpu`). A different answer is a
+  small change in `editor/project_manager/engine_update_label.cpp` (and, for a version number, the release workflow).
+- **The blind spot of the commit-date rule:** a build from a branch committed after a release but not containing it
+  (`webgpu-4.8` before a fix that is only on `main`) is not told about that release.
+- **Coupling to the release workflow:** the check reads the commit from the release's `main-<sha>` tag and the engine
+  version from the `godot-webgpu-*-<version>` asset names; `.github/workflows/runner.yml`'s `draft-release` job must
+  keep both.
+
+Effort <0.5 session once the user has answered.
 
 ---
 

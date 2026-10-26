@@ -1,5 +1,18 @@
 # Status (lead-maintained)
 
+## 2026-10-26 late evening — docs pass for tasks 24–30 (task 31, `work/31`)
+
+Every task of the day is merged (24 `449f085aa6`, 25 `fd53d6d657`, 26 `0f0dfd50fe`, 27 `756b99bf6f`, 28 `287109ddfd`,
+29 `add69b409d`, 30 `4b4bd00e62`), and the 87-arm Forward+ matrix is **87/87 at parity unbaked and baked** on the
+merged tree (lead, 20:24). Worker-31 brought the shared docs up to that state: TASKS §1 (evening paragraph, new
+Verified rows for the 87/87 run, `dof_nan`, `bake_isolation`, `metahuman` + `nan_check.gd`, the update-label unit
+test), the §2 indexes, and two new open items, **§2.46** (MetaHuman skin follow-ups: cloth normal z, trap 72; pores on
+the lips; the WebGPU after-capture that hung twice; `look-skin-pores`) and **§2.47** (the update check's blind spot and
+the pending `update-newer-rule` / `update-repo` answers). Stale 82-arm counts fixed in README.md and
+CORRECTNESS_AND_COMPATIBILITY.md; the baker's scoped capability override documented in `drivers/webgpu/README.md` and
+TECHNICAL_REFERENCE §4.5. Details: `results/31-docs/SUMMARY.md`; wiki: nothing stale, two optional additions in
+`results/31-docs/for-wiki.md`.
+
 ## 2026-10-26 evening — tasks 28–30 out (user decisions on the hand-offs page; 30 a user request)
 
 | task | what | owner |
