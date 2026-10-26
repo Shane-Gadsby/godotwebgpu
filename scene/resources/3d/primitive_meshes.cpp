@@ -48,10 +48,16 @@
 /**
   PrimitiveMesh
 */
-void PrimitiveMesh::_update() const {
+// Builds the surface arrays on the CPU, exactly as they are handed to the rendering server.
+// Kept separate from _update() so surface_get_arrays() can rebuild them rather than read the
+// vertex buffer back off the GPU: a readback is needlessly expensive everywhere, and on WebGPU
+// it is asynchronous, so the first one returns a correctly sized block of zeros (see
+// RenderingDeviceDriverWebGPU::buffer_map()). That turned, for example, a CapsuleMesh passed to
+// a GDExtension collider into a mesh whose every vertex sat at the origin.
+Array PrimitiveMesh::_build_mesh_arrays() const {
 	Array arr;
 	if (GDVIRTUAL_CALL(_create_mesh_array, arr)) {
-		ERR_FAIL_COND_MSG(arr.size() != RSE::ARRAY_MAX, "_create_mesh_array must return an array of Mesh.ARRAY_MAX elements.");
+		ERR_FAIL_COND_V_MSG(arr.size() != RSE::ARRAY_MAX, Array(), "_create_mesh_array must return an array of Mesh.ARRAY_MAX elements.");
 	} else {
 		arr.resize(RSE::ARRAY_MAX);
 		_create_mesh_array(arr);
@@ -59,22 +65,7 @@ void PrimitiveMesh::_update() const {
 
 	Vector<Vector3> points = arr[RSE::ARRAY_VERTEX];
 
-	ERR_FAIL_COND_MSG(points.is_empty(), "_create_mesh_array must return at least a vertex array.");
-
-	aabb = AABB();
-
-	int pc = points.size();
-	ERR_FAIL_COND(pc == 0);
-	{
-		const Vector3 *r = points.ptr();
-		for (int i = 0; i < pc; i++) {
-			if (i == 0) {
-				aabb.position = r[i];
-			} else {
-				aabb.expand_to(r[i]);
-			}
-		}
-	}
+	ERR_FAIL_COND_V_MSG(points.is_empty(), Array(), "_create_mesh_array must return at least a vertex array.");
 
 	Vector<int> indices = arr[RSE::ARRAY_INDEX];
 
@@ -120,6 +111,33 @@ void PrimitiveMesh::_update() const {
 		}
 
 		arr[RSE::ARRAY_TEX_UV2] = uv2;
+	}
+
+	return arr;
+}
+
+void PrimitiveMesh::_update() const {
+	Array arr = _build_mesh_arrays();
+	if (arr.is_empty()) {
+		return; // _build_mesh_arrays() already reported why.
+	}
+
+	Vector<Vector3> points = arr[RSE::ARRAY_VERTEX];
+	Vector<int> indices = arr[RSE::ARRAY_INDEX];
+
+	aabb = AABB();
+
+	int pc = points.size();
+	ERR_FAIL_COND(pc == 0);
+	{
+		const Vector3 *r = points.ptr();
+		for (int i = 0; i < pc; i++) {
+			if (i == 0) {
+				aabb.position = r[i];
+			} else {
+				aabb.expand_to(r[i]);
+			}
+		}
 	}
 
 	array_len = pc;
@@ -174,7 +192,7 @@ Array PrimitiveMesh::surface_get_arrays(int p_surface) const {
 		_update();
 	}
 
-	return RenderingServer::get_singleton()->mesh_surface_get_arrays(mesh, 0);
+	return _build_mesh_arrays();
 }
 
 Dictionary PrimitiveMesh::surface_get_lods(int p_surface) const {

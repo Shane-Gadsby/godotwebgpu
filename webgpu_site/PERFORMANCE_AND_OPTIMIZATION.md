@@ -1,5 +1,9 @@
 # Godot WebGPU Backend — Performance & Optimization
 
+> **Current cross-platform numbers:** the load-ramp benchmark (2026-10-26, section below; `README.md`'s performance
+> table is generated from it). The older fps matrix (`benchmark/run_matrix.sh`, `webgpu_notes/TASKS.md` §2.17) could not
+> compare WebGPU with WebGL: every web column, WebGL's included, sat at the 165 Hz display cap.
+
 ## The Core Problem
 
 WebGPU on the web runs inside a browser sandbox where every GPU API call crosses an inter-process communication (IPC) boundary. The cost structure:
@@ -357,7 +361,7 @@ One day of work on a real GPU (RTX 4080 SUPER, 165 Hz, Chrome), measured before 
 
 What changed:
 
-- **SSIL constant local arrays hoisted** by a new SPIR-V pass (`hoist_constant_local_arrays`): Tint was materialising the kernel's constant arrays per invocation; the pass took SSIL's GPU time from 0.6 ms to under 0.05.
+- **SSIL constant local arrays hoisted** by a new SPIR-V pass (`hoist_constant_local_arrays`): Tint, the converter then, was materialising the kernel's constant arrays per invocation; the pass took SSIL's GPU time from 0.6 ms to under 0.05. SPIRV-Cross, the converter since October 2026, emits such arrays as module-scope `const`s instead of Tint's `var<private>`; SSIL's GPU time did not change with it, and a patch making them `var<private>` measured no different.
 - **Read-write storage textures bound as `read_write` per format** (the old check queried a WGSL language feature as a device feature and always failed): the heavy scene's GPU time 2.63 → ~1.5 ms.
 - **An upstream Godot shadow-atlas bug** (`light_storage.cpp`): when a reallocation found no slot, the light's version was never stored, so every positional shadow was redrawn every frame after any long early frame — which on the web is every frame. Heavy scene CPU −37%. Fix branch: `shadow-atlas/store-version-when-realloc-fails`.
 - **No-op uniform-set prepares skipped** on WebGPU (new `API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE`) and a 4-entry front on the bind-group rebind cache.
@@ -398,7 +402,7 @@ Against the desktop profile of the same scene (opaque 0.29 ms, DOF 0.145) both b
 
 **What matters is 3D pixel count**, almost exactly: `rendering/scaling_3d/scale` 0.75 → 30.1 fps, 0.66 with the cheap DOF/shadows → 50.1, 0.5 → 59.6 (the display cadence). FSR 1.0 upscaling undoes it (50.1 → 30.1: EASU+RCAS are 7.3 ms at 1080p output plus a 1.2 ms copy). The project now carries `.web_android` overrides (scale 0.6, bilinear, 2048 maps, filter quality 1, cheap bokeh) and runs at **55.6 fps**; `.web_ios` carries milder, untested ones. The web platform exposes `web_android` / `web_ios` feature tags, never `mobile`, so a project's `*.mobile` overrides do not apply in phones' browsers.
 
-**Bisecting the lighting pass** — the three lit materials' fragment modules were dumped from the device, edited by function signature (Tint mangles names but keeps parameter names), and substituted by exact code match; the unedited control reproduces 26.9 ms:
+**Bisecting the lighting pass** — the three lit materials' fragment modules were dumped from the device, edited by function signature (Tint, the converter then, mangled names but kept parameter names), and substituted by exact code match; the unedited control reproduces 26.9 ms:
 
 | Cut in the fragment WGSL | `:18` ms |
 |---|---:|
@@ -411,7 +415,7 @@ Against the desktop profile of the same scene (opaque 0.29 ms, DOF 0.145) both b
 | directional shadow samplers → 1.0 | 23.0 |
 | area-light and reflection-probe code returns at once | 27.2 |
 
-So the pass is BRDF + 8-tap PCF for four lights per pixel, and the cuts are super-additive (BRDF 18.5 + shadows 10.5 > 25): part of the cost is register pressure/occupancy of the whole clustered program, which the texture-latency-bound shadow taps need. Every candidate for a cost of *ours* was then checked and cleared: `:18` is the specialized colour pass (not the ubershader fallback); the override constants reach Dawn; unused feature paths are free; `OpImageGather` is translated natively; and **f16 is a null result on this GPU** — the Forward+ shader was bridged to `EXPLICIT_FP16` (Mobile's lighting include already takes `half`; Clustered's locals are float, so the bridge casts at the six lighting calls, `F0`, `blur_shadow`, `reflection_process` and the clearcoat helpers; it compiles for every optional material path and Tint emits `enable f16;`), and substituted with the device requesting `shader-f16`: 47.9 ms GPU vs a 48.7 ms f32 control. The bridge is kept as `webgpu_tests/perf_guard/android/forward_clustered_explicit_fp16_bridge.patch` for Apple GPUs, where f16 matters much more. Forward Mobile, for the record, settles at 21.6 fps here (opaque pass 34.1 ms for 4 draws — it has no depth prepass, so it shades overdraw).
+So the pass is BRDF + 8-tap PCF for four lights per pixel, and the cuts are super-additive (BRDF 18.5 + shadows 10.5 > 25): part of the cost is register pressure/occupancy of the whole clustered program, which the texture-latency-bound shadow taps need. Every candidate for a cost of *ours* was then checked and cleared: `:18` is the specialized colour pass (not the ubershader fallback); the override constants reach Dawn; unused feature paths are free; `OpImageGather` is translated natively; and **f16 is a null result on this GPU** — the Forward+ shader was bridged to `EXPLICIT_FP16` (Mobile's lighting include already takes `half`; Clustered's locals are float, so the bridge casts at the six lighting calls, `F0`, `blur_shadow`, `reflection_process` and the clearcoat helpers; it compiles for every optional material path and Tint, the converter then, emitted `enable f16;`), and substituted with the device requesting `shader-f16`: 47.9 ms GPU vs a 48.7 ms f32 control. The bridge is kept as `webgpu_tests/perf_guard/android/forward_clustered_explicit_fp16_bridge.patch` for Apple GPUs, where f16 matters much more. Forward Mobile, for the record, settles at 21.6 fps here (opaque pass 34.1 ms for 4 draws — it has no depth prepass, so it shades overdraw).
 
 Still open: a native-Vulkan number on the same phone (needs an Android SDK for an APK export) and profiling exports that use the separate render thread (its pthread worker never answers CDP evaluates; `android/worker_gpu.mjs` is the unfinished self-driving variant).
 
@@ -468,6 +472,46 @@ What remains on the critical path is main-thread CPU, about a third of it V8 com
 they run (`wasm.CompileLazy`); Chrome ships no compile hints for Wasm, and the wasm code cache did not change it on a
 repeat visit.
 
+## 2026-10-25: The Converter Swap (Tint → SPIRV-Cross), Measured on the GPU
+
+SPIRV-Cross's WGSL backend replaced Tint as the SPIR-V → WGSL converter only after it was timed against Tint-baked exports of the same tree (`webgpu_notes/TASKS.md` §4.36). GPU ms per frame, medians over at least three launches in rotated order:
+
+| Where | Scene | Tint | SPIRV-Cross |
+|---|---|---|---|
+| Chrome, RTX 4080 SUPER | heavy Forward+ | 1.47 | 1.43 |
+| Firefox (Linux, wgpu/Vulkan), RTX 4080 SUPER | heavy Forward+ | 3.88 | 3.82 |
+| Chrome, Razr 60 (Mali-G615) | Forward+ fixture | 16.9 | 16.8 |
+| | heavy | 73.8 | 71.3 |
+| | post-fx | 23.3 | 23.2 |
+| | platformer | 29.6 | 28.7 |
+| | stress | 28.8 | 28.1 |
+
+The phone numbers are with SPIRV-Cross patch `0019` (no WGSL `for`: Mali ran a negative-start counted loop zero times, a correctness fix that also made it no slower). On desktop Chrome the Forward Mobile perf_guard scenes were equal except post-fx, +2% (0.014 ms). In Firefox post-fx ran 10% more fps with SPIRV-Cross, and shadows/pbr ~1.8% fewer at ~1000 fps, CPU-side with GPU time equal. Converting is also ~5-10× faster per module, which only matters for unbaked stages: a baked export converts nothing at load.
+
+## 2026-10-26: The Load-Ramp Benchmark — How Much Each Leg Carries at 20 fps
+
+Frames per second stopped separating the renderers on a desktop GPU: in the 2026-10-15 matrix every web leg, WebGL
+included, read the 165 Hz display rate, and Chrome keeps WebGL at the display rate even with its frame-rate limit
+lifted. `webgpu_tests/benchmark/run_ramp.sh` asks a different question: each ramp adds one kind of content until the
+frame rate falls to 20 fps and reports how much it took (N), on six legs (native Vulkan Forward+, native Compatibility,
+stock WebGL 4.7.2, WebGPU Mobile, WebGPU Forward+, Firefox WebGPU). Method and fairness rules: `webgpu_tests/README.md`
+§11; WebGPU frames are paced to two in flight, as native Vulkan is, because an unpaced uncapped page queues GPU work
+faster than the GPU finishes it and reads too fast (`webgpu_notes/TASKS.md` §3 trap 66).
+
+First run (RTX 4080 SUPER, Chrome 156, 2 runs, 60 of 60 ramp-runs converged; `results_ramp/2026-10-26/ramp_summary.md`):
+
+| ramp | one unit of N | WebGPU F+ / WebGL | WebGPU F+ / native Vulkan F+ |
+|---|---|---:|---:|
+| draws | a mesh with its own material | 1.23x | 0.45x |
+| nodes | the same, moved by script every frame | 1.61x | 0.75x |
+| fill | a full-screen blended quad, 64-iteration ALU shader | 0.67x | 0.67x |
+| lit | a PBR sphere under 7 shadowed lights | 6.42x | 0.99x |
+| particles | a 2048-particle GPU emitter | 1.50x | 0.31x |
+
+Draws and nodes are the cleanest API comparison. Lit mostly measures Forward+ against the Compatibility renderer
+(native Compatibility is 0.26x native Forward+ there too). Fill and particles are open questions, listed with Firefox's
+run-to-run spread in `webgpu_notes/TASKS.md` §2.30.
+
 ## Remaining Optimization Opportunities
 
 1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile. *Measured 2026-10-17:* on a Mali-G615 phone the main thread sits at 29% while the GPU is at 90%, so trampoline savings would not change the frame rate there; a weaker CPU with a stronger GPU (or a lighter scene) would be the case for it.
@@ -478,7 +522,7 @@ repeat visit.
 
 4. **Batch size cap**: Add configurable maximum (e.g., 4096 instances) for mobile GPU scheduling.
 
-5. **Shader pre-compilation** — *done*, and since 2026-10-20 pruned and partly deferred (above): the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run Tint at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
+5. **Shader pre-compilation** — *done*, and since 2026-10-20 pruned and partly deferred (above): the export-time shader baker ships WGSL (`baked: N, translated: 0` in the console); the runtime path remains for what it misses. Original note: Run the SPIR-V → WGSL converter (then Tint) at export time and ship WGSL directly. Runtime conversion only for specialization constants that differ from defaults. Would eliminate the sometimes up to ~15s startup cost.
 
 6. **Push constant ring sizing**: Monitor peak usage and right-size the 256KB ring buffer. Add runtime warning when approaching the 1024-slot limit.
 

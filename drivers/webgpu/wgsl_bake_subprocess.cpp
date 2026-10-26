@@ -57,11 +57,11 @@ namespace webgpu {
 // Reports why a SPIR-V module can never become WGSL, or an empty string when
 // nothing rules it out up front.
 //
-// This is not a guess at what Tint happens to reject today -- all three cases
-// below are WGSL language limitations with no workaround, and Tint's SPIR-V
-// reader aborts the process on them (TINT_ASSERT / TINT_UNIMPLEMENTED) rather
-// than returning an error. Checking first means not forking a child just to
-// watch it die, and not reporting a structural impossibility as if it were a
+// This is not a guess at what the converter happens to reject today -- all
+// three cases below are WGSL language limitations with no workaround (Tint,
+// the converter before SPIRV-Cross, aborted the process on them; SPIRV-Cross
+// throws). Checking first means not forking a child just to watch it fail,
+// and not reporting a structural impossibility as if it were a
 // surprise.
 //
 // The variants that hit this are ones the WebGPU renderer never selects: the
@@ -74,10 +74,10 @@ namespace webgpu {
 // on WebGPU regardless, since what stops them is WGSL itself.
 //
 // The ViewIndex rule is deliberately specific to that one builtin, and must NOT
-// be generalized to "any BuiltIn missing from Tint's reader". This check runs on
-// *raw* SPIR-V, before spirv_preprocess, and some builtins Tint does not list
-// are rewritten away by a pass before Tint ever sees them -- HelperInvocation is
-// absent from Tint's list yet converts fine, because strip_helper_invocation_builtin()
+// be generalized to "any BuiltIn the converter does not know". This check runs on
+// *raw* SPIR-V, before spirv_preprocess, and some builtins WGSL has no
+// equivalent for are rewritten away by a pass before the converter ever sees
+// them -- HelperInvocation converts fine, because strip_helper_invocation_builtin()
 // removes it (cluster_render.glsl relies on this). A general rule would skip
 // shaders that bake perfectly well.
 static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size) {
@@ -100,15 +100,15 @@ static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size)
 		uint32_t word_count = word0 >> 16;
 		uint16_t opcode = (uint16_t)(word0 & 0xFFFF);
 		if (word_count == 0 || pos + word_count > total_words) {
-			break; // Malformed; let Tint be the one to complain about it.
+			break; // Malformed; let the converter be the one to complain about it.
 		}
 
 		if (opcode == OP_TYPE_INT && word_count >= 3) {
 			uint32_t width = 0;
 			memcpy(&width, p_spv_ptr + ((size_t)pos + 2) * 4, 4);
 			if (width != 32) {
-				// WGSL has i32/u32 and nothing narrower. Tint handles a 16-bit
-				// *float* (f16) but asserts on a 16-bit integer.
+				// WGSL has i32/u32 and nothing narrower (a 16-bit *float* is
+				// f16; a 16-bit integer has no WGSL type at all).
 				return vformat("uses %d-bit integers, and WGSL has no integer type other than 32-bit", width);
 			}
 		} else if (opcode == OP_IMAGE_TEXEL_POINTER) {
@@ -138,7 +138,7 @@ static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size)
 	return String();
 }
 
-// Resolved once per process (tint_convert_cli's location can't change while
+// Resolved once per process (wgsl_convert_cli's location can't change while
 // the editor is running); empty string means "confirmed missing", so a
 // missing tool only warns once instead of once per shader.
 //
@@ -154,13 +154,13 @@ static String _wgsl_unsupported_reason(const uint8_t *p_spv_ptr, int p_spv_size)
 // thread that arrives during that initialization blocks until it
 // completes), and the result is never written again afterward, so every
 // later call is just a safe concurrent read.
-static String _find_tint_convert_cli() {
+static String _find_wgsl_convert_cli() {
 	static const String path = [] {
 		String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
 #ifdef WINDOWS_ENABLED
-		String candidate = exe_dir.path_join("tint_convert_cli.exe");
+		String candidate = exe_dir.path_join("wgsl_convert_cli.exe");
 #else
-		String candidate = exe_dir.path_join("tint_convert_cli");
+		String candidate = exe_dir.path_join("wgsl_convert_cli");
 #endif
 		if (FileAccess::exists(candidate)) {
 			return candidate;
@@ -168,8 +168,8 @@ static String _find_tint_convert_cli() {
 		WARN_PRINT(vformat(
 				"WebGPU shader baker: '%s' not found next to the editor executable. "
 				"Shaders will be exported unbaked (still functional -- the runtime "
-				"Tint fallback in the browser handles them, just without the export-time "
-				"speedup). Build it with drivers/webgpu/tint_cli/build.sh and place it "
+				"conversion in the browser handles them, just without the export-time "
+				"speedup). Build it with drivers/webgpu/wgsl_cli/build.sh and place it "
 				"in the same directory as the editor executable to enable baking.",
 				candidate));
 		return String();
@@ -193,7 +193,7 @@ static String _spirv_key(const uint8_t *p_spv_ptr, int p_spv_size) {
 }
 
 // What one stage's bake came to. `wgsl` set: converted. `error` set: the tool
-// ran and Tint rejected or crashed on it (reported at WARN when a container
+// ran and the converter rejected or crashed on it (reported at WARN when a container
 // asks, exactly as the per-stage path always has). Neither: never recorded.
 struct PrebakedStage {
 	String wgsl;
@@ -237,13 +237,13 @@ static const String &_cache_root() {
 	return root;
 }
 
-// Per-tool subdirectory name: the hash of the tint_convert_cli binary itself.
+// Per-tool subdirectory name: the hash of the wgsl_convert_cli binary itself.
 // Every input to the conversion other than the SPIR-V (the preprocessing
-// passes, vendored Tint, their build flags) is baked into that file, so hashing
+// passes, vendored SPIRV-Cross, their build flags) is baked into that file, so hashing
 // it is the one check that catches all of them. Resolved once per process.
 static const String &_tool_cache_dir_name() {
 	static const String name = [] {
-		String tool = _find_tint_convert_cli();
+		String tool = _find_wgsl_convert_cli();
 		if (tool.is_empty()) {
 			return String();
 		}
@@ -314,7 +314,7 @@ static void _cache_write(const String &p_key, const String &p_wgsl) {
 }
 
 // Deletes entries older than CACHE_MAX_AGE_SEC and the directories that empties,
-// including whole per-tool trees left by Tint builds no longer in use. Walks
+// including whole per-tool trees left by converter builds no longer in use. Walks
 // the fixed three-level layout only; nothing recursive on unknown input.
 static void _cache_prune() {
 	const String &root = _cache_root();
@@ -355,7 +355,7 @@ static void _cache_prune() {
 
 // Debug aid: WEBGPU_BAKE_DEBUG_DUMP=<dir> copies every SPIR-V that fails to
 // bake into that directory (instead of the usual delete-after-use) for offline
-// repro with tint_convert_cli <file.spv> directly. Add
+// repro with wgsl_convert_cli <file.spv> directly. Add
 // WEBGPU_BAKE_DEBUG_DUMP_ALL=1 to dump *every* shader regardless of success --
 // needed to catch a bug that doesn't fail to bake at all (produces
 // valid-but-wrong WGSL, e.g. Task 23's dead-resource regression), where the
@@ -389,15 +389,15 @@ static void _debug_dump(const String &p_temp_path, bool p_failed) {
 		WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: couldn't write '%s'; not dumping.", dump_path));
 	} else {
 		dst->store_buffer(src->get_buffer(src->get_length()));
-		WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: wrote '%s' -- reproduce with: bin/tint_convert_cli '%s'", dump_path, dump_path));
+		WARN_PRINT(vformat("WEBGPU_BAKE_DEBUG_DUMP: wrote '%s' -- reproduce with: bin/wgsl_convert_cli '%s'", dump_path, dump_path));
 	}
 }
 
 // Reports one {"error": ...} entry from the tool, the way the per-stage path
 // always has: at WARN (not print_verbose) because this is also the only place
-// that can identify *which* shader hits a Tint bug that would otherwise crash
-// the browser at runtime just the same, and truncated because a SPIR-V
-// validation failure's message embeds Tint's full disassembly of the module.
+// that can identify *which* shader hits a converter bug that would otherwise
+// fail in the browser at runtime just the same, and truncated because an error
+// message can embed a disassembly of the module.
 static String _error_text(const Variant &p_entry) {
 	Dictionary error_dict = p_entry;
 	String error_text = error_dict.get("error", "unknown error");
@@ -408,7 +408,7 @@ static String _error_text(const Variant &p_entry) {
 	return error_text;
 }
 
-// Runs `tint_convert_cli --batch <files...>` once and returns its stdout.
+// Runs `wgsl_convert_cli --batch <files...>` once and returns its stdout.
 // p_stdout_path is where the output is captured on Unix (a file the child
 // writes directly, so there is no pipe to drain); unused on Windows.
 //
@@ -494,14 +494,13 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 		return String();
 	}
 
-	String tint_convert_cli = _find_tint_convert_cli();
-	if (tint_convert_cli.is_empty()) {
+	String wgsl_convert_cli = _find_wgsl_convert_cli();
+	if (wgsl_convert_cli.is_empty()) {
 		return String();
 	}
 
-	// Checked before spawning anything: Tint aborts on these rather than
-	// returning an error, so the alternative is forking a child per shader
-	// purely to have it crash, and then reporting a WGSL limitation at WARN as
+	// Checked before spawning anything: nothing can convert these, so the
+	// alternative is forking a child per shader purely to have it fail, and then reporting a WGSL limitation at WARN as
 	// though something had gone wrong.
 	if (String unsupported = _wgsl_unsupported_reason(p_spv_ptr, p_spv_size); !unsupported.is_empty()) {
 		print_verbose(vformat("WebGPU shader baker: not baking one shader stage%s -- it %s. The WebGPU renderer does not use this variant.", _context_suffix(p_context), unsupported));
@@ -523,7 +522,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 			if (!prebaked->wgsl.is_empty()) {
 				return prebaked->wgsl;
 			}
-			WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (tint_convert_cli: %s).", _context_suffix(p_context), prebaked->error));
+			WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (wgsl_convert_cli: %s).", _context_suffix(p_context), prebaked->error));
 			return String();
 		}
 	}
@@ -549,13 +548,13 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	}
 
 	// --batch (not single-file mode), even for this one file: single-file
-	// mode calls Tint directly with no isolation of its OWN process, so a
-	// Tint internal-compiler-error abort() can dump partial/garbled
+	// mode converts directly with no isolation of its OWN process, so an
+	// abort() in a pass or the converter can dump partial/garbled
 	// diagnostic bytes straight to stdout/stderr -- which OS::execute()
 	// then tries to UTF-8-decode, flooding the log with "Unicode parsing
 	// error" spam (confirmed in practice). --batch mode already forks each
 	// file's conversion into its own child with stdout/stderr redirected to
-	// /dev/null (see tint_cli/main.cpp's convert_isolated()), so a crash
+	// /dev/null (see wgsl_cli/main.cpp's convert_isolated()), so a crash
 	// only ever surfaces here as a clean, well-formed JSON error string.
 	List<String> args;
 	args.push_back("--batch");
@@ -579,7 +578,7 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 		// costs nothing in the normal case.
 		static Mutex subprocess_mutex;
 		MutexLock lock(subprocess_mutex);
-		err = OS::get_singleton()->execute(tint_convert_cli, args, &output, &exit_code, false);
+		err = OS::get_singleton()->execute(wgsl_convert_cli, args, &output, &exit_code, false);
 	}
 
 	bool this_failed = err != OK || exit_code != 0;
@@ -590,11 +589,11 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 	DirAccess::remove_absolute(temp_path);
 
 	if (this_failed) {
-		WARN_PRINT(vformat("WebGPU shader baker: tint_convert_cli itself failed to run (exit %d); leaving this shader unbaked%s.", exit_code, _context_suffix(p_context)));
+		WARN_PRINT(vformat("WebGPU shader baker: wgsl_convert_cli itself failed to run (exit %d); leaving this shader unbaked%s.", exit_code, _context_suffix(p_context)));
 		return String();
 	}
 	if (result.is_empty()) {
-		WARN_PRINT(vformat("WebGPU shader baker: couldn't parse tint_convert_cli's JSON output; leaving this shader unbaked%s.", _context_suffix(p_context)));
+		WARN_PRINT(vformat("WebGPU shader baker: couldn't parse wgsl_convert_cli's JSON output; leaving this shader unbaked%s.", _context_suffix(p_context)));
 		return String();
 	}
 	if (entry.get_type() == Variant::STRING) {
@@ -603,11 +602,11 @@ String bake_wgsl_via_subprocess(const uint8_t *p_spv_ptr, int p_spv_size, bool *
 		return wgsl;
 	}
 
-	// {"error": "..."} -- expected on a shader variant Tint can't handle
-	// (including an internal-compiler-error abort in the isolated child);
+	// {"error": "..."} -- expected on a shader variant the converter can't handle
+	// (including an abort in the isolated child);
 	// not an error in the export itself, just a shader left to the runtime
 	// fallback.
-	WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (tint_convert_cli: %s).", _context_suffix(p_context), _error_text(entry)));
+	WARN_PRINT(vformat("WebGPU shader baker: leaving one shader stage unbaked%s (wgsl_convert_cli: %s).", _context_suffix(p_context), _error_text(entry)));
 	return String();
 }
 
@@ -664,7 +663,7 @@ void WgslBakeBatch::start() {
 	if (entries.is_empty()) {
 		return;
 	}
-	tool_path = _find_tint_convert_cli();
+	tool_path = _find_wgsl_convert_cli();
 	if (tool_path.is_empty()) {
 		return; // Already warned; every stage ships unbaked, as before.
 	}
@@ -764,10 +763,10 @@ void WgslBakeBatch::_run_chunk(uint32_t p_chunk_index) {
 	Variant parsed = (ran && exit_code == 0) ? JSON::parse_string(output) : Variant();
 	Dictionary result = parsed;
 	if (!ran || exit_code != 0 || result.is_empty()) {
-		// The tool itself, not Tint: leave these stages unrecorded so the
+		// The tool itself, not the converter: leave these stages unrecorded so the
 		// per-stage path retries each on its own and reports what it sees.
 		tool_failure_count.fetch_add(1);
-		WARN_PRINT(vformat("WebGPU shader baker: a tint_convert_cli batch of %d stages %s; those stages will be retried one at a time.", chunk.size(), ran ? vformat("exited with code %d", exit_code) : String("could not be started")));
+		WARN_PRINT(vformat("WebGPU shader baker: a wgsl_convert_cli batch of %d stages %s; those stages will be retried one at a time.", chunk.size(), ran ? vformat("exited with code %d", exit_code) : String("could not be started")));
 		done.fetch_add(chunk.size());
 		return;
 	}
@@ -812,7 +811,7 @@ void WgslBakeBatch::finish() {
 	_cache_prune();
 
 	const double seconds = double(OS::get_singleton()->get_ticks_usec() - started_usec) / 1000000.0;
-	print_verbose(vformat("WebGPU shader baker: %d stages -> %d unique to convert (%d duplicates, %d unconvertible, %d from the WGSL cache); %d converted, %d rejected by Tint, %d tool failures, %d batches in %.2f s%s.",
+	print_verbose(vformat("WebGPU shader baker: %d stages -> %d unique to convert (%d duplicates, %d unconvertible, %d from the WGSL cache); %d converted, %d rejected by the converter, %d tool failures, %d batches in %.2f s%s.",
 			stage_count, (int)entries.size(), duplicate_count, impossible_count, cache_hit_count,
 			baked_count.load(), failed_count.load(), tool_failure_count.load(), (int)chunks.size(), seconds,
 			cancelled.load() ? String(" (cancelled)") : String()));

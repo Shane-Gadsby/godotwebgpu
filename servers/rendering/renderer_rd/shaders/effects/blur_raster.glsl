@@ -37,6 +37,7 @@ void main() {
 #VERSION_DEFINES
 
 #include "blur_raster_inc.glsl"
+#include "finite_inc.glsl"
 
 layout(location = 0) in vec2 uv_interp;
 /* clang-format on */
@@ -186,11 +187,14 @@ void main() {
 	block_pos = clamp(block_pos, vec2(0.0), end);
 
 	// We skipped a level, so gather 16 closest samples now.
+	// This is the pass that reads the scene color: a non-finite sample counts as black, or the
+	// levels after it would carry it over the whole glow radius (finite_inc.glsl). Each sample
+	// covers its own four texels, so every scene pixel is still tested once.
 
-	vec4 color = textureLod(source_color, (block_pos + vec2(1.0, 1.0)) * blur.source_pixel_size, 0.0);
-	color += textureLod(source_color, (block_pos + vec2(1.0, 3.0)) * blur.source_pixel_size, 0.0);
-	color += textureLod(source_color, (block_pos + vec2(3.0, 1.0)) * blur.source_pixel_size, 0.0);
-	color += textureLod(source_color, (block_pos + vec2(3.0, 3.0)) * blur.source_pixel_size, 0.0);
+	vec4 color = finite_or_zero4(textureLod(source_color, (block_pos + vec2(1.0, 1.0)) * blur.source_pixel_size, 0.0));
+	color += finite_or_zero4(textureLod(source_color, (block_pos + vec2(1.0, 3.0)) * blur.source_pixel_size, 0.0));
+	color += finite_or_zero4(textureLod(source_color, (block_pos + vec2(3.0, 1.0)) * blur.source_pixel_size, 0.0));
+	color += finite_or_zero4(textureLod(source_color, (block_pos + vec2(3.0, 3.0)) * blur.source_pixel_size, 0.0));
 	frag_color = color * 0.25;
 
 	// Apply strength a second time since it usually gets added at each level.

@@ -102,6 +102,11 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 		return false;
 	}
 
+	// The target capability override installed below applies inside this scope
+	// only; each later baker callback opens its own. Between them the editor draws
+	// frames with its own device's answers (RenderingDevice::ShaderBakeFeatureOverrideScope).
+	RD::ShaderBakeFeatureOverrideScope override_scope;
+
 	if (!_initialize_container_format(p_platform, get_export_preset())) {
 		return false;
 	}
@@ -418,6 +423,7 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 }
 
 Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &p_resource, const String &p_path) {
+	RD::ShaderBakeFeatureOverrideScope override_scope;
 	RendererRD::MaterialStorage *singleton = RendererRD::MaterialStorage::get_singleton();
 	DEV_ASSERT(singleton != nullptr);
 
@@ -450,6 +456,7 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 }
 
 Node *ShaderBakerExportPlugin::_customize_scene(Node *p_root, const String &p_path) {
+	RD::ShaderBakeFeatureOverrideScope override_scope;
 	LocalVector<Node *> nodes_to_visit;
 	nodes_to_visit.push_back(p_root);
 	while (!nodes_to_visit.is_empty()) {

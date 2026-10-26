@@ -51,6 +51,8 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, readdirSy
 import { join, extname, resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { attachAudit } from './webgpu_audit.mjs';
+import { FIREFOX_WEBGPU_PREFS } from './firefox_prefs.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -440,6 +442,7 @@ async function runScenePlaywright(scene, browser, timeout) {
     const { server, url } = await startServer(exportDir, { injectScript: true, sceneInjectScript: scene.inject_script || null });
 
     const page = await browser.newPage();
+    await attachAudit(page, scene.id);
 
     const gpuErrors = [];
     const shaderErrors = [];
@@ -482,7 +485,7 @@ async function runScenePlaywright(scene, browser, timeout) {
             gpuErrors.push(text.substring(0, 200));
         }
 
-        if (text.includes('[SHADER]') || text.includes('Tint conversion') || text.includes('spirv error')) {
+        if (text.includes('[SHADER]') || text.includes('SPIR-V→WGSL') || text.includes('spirv error')) {
             shaderErrors.push(text.substring(0, 200));
         }
 
@@ -863,10 +866,7 @@ async function launchFirefox() {
     const isCI = !!process.env.CI;
     const browser = await pw.firefox.launch({
         headless: isCI,
-        firefoxUserPrefs: {
-            'dom.webgpu.enabled': true,
-            'gfx.webgpu.force-enabled': true,
-        },
+        firefoxUserPrefs: FIREFOX_WEBGPU_PREFS,
     });
     return { browser, name: 'firefox', type: 'playwright' };
 }

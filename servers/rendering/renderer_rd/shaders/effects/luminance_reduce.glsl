@@ -4,6 +4,8 @@
 
 #VERSION_DEFINES
 
+#include "finite_inc.glsl"
+
 #define BLOCK_SIZE 8
 
 layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) in;
@@ -43,7 +45,10 @@ void main() {
 
 	if (any(lessThan(pos, params.source_size))) {
 #ifdef READ_TEXTURE
-		vec3 v = texelFetch(source_texture, pos, 0).rgb;
+		// The scene color: a non-finite pixel counts as black, or the sums below would make the
+		// average, and with it the exposure of the whole frame (and of every frame after it, through
+		// the previous luminance), NaN (finite_inc.glsl).
+		vec3 v = finite_or_zero3(texelFetch(source_texture, pos, 0).rgb);
 		tmp_data[t] = max(v.r, max(v.g, v.b));
 #else
 		tmp_data[t] = imageLoad(source_luminance, pos).r;

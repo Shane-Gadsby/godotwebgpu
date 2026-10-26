@@ -1,0 +1,22 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="DOF NaN containment"
+config/description="One NaN pixel in the scene color fed through every bokeh DOF mode, glow, SSR and auto exposure; see run.sh."
+run/main_scene="res://dof_nan.tscn"
+config/features=PackedStringArray("4.8")
+
+[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=360
+window/stretch/mode="disabled"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+anti_aliasing/quality/msaa_3d=0
+anti_aliasing/quality/screen_space_aa=0
+anti_aliasing/quality/use_taa=false

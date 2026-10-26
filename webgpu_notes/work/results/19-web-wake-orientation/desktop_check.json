@@ -1,0 +1,124 @@
+{
+ "chrome": {
+  "console": [
+   {
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   },
+   {
+    "type": "log",
+    "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+   },
+   {
+    "type": "log",
+    "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+   },
+   {
+    "type": "log",
+    "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+   },
+   {
+    "type": "log",
+    "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":0,\"orientation_feature\":false,\"orientation_setting\":0}"
+   }
+  ],
+  "browser": {
+   "version": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+   "wakeLockApi": true,
+   "orientationLockApi": true,
+   "coarse": false,
+   "adapter": "nvidia lovelace"
+  },
+  "probe": {
+   "keep_screen_on_feature": true,
+   "keep_screen_on_setting": true,
+   "kept_on": true,
+   "orientation": 0,
+   "orientation_feature": false,
+   "orientation_setting": 0
+  },
+  "after_click": {
+   "fullscreen": false,
+   "type": "landscape-primary"
+  },
+  "after_second_click": {
+   "fullscreen": false
+  },
+  "expected": {
+   "keep_screen_on_feature": true,
+   "orientation_feature": false
+  },
+  "has_feature_matches": true,
+  "errors_or_warnings": [
+   {
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   }
+  ]
+ },
+ "firefox": {
+  "console": [
+   {
+    "type": "warning",
+    "text": "[JavaScript Warning: \"The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead.\"]"
+   },
+   {
+    "type": "log",
+    "text": "Godot Engine v4.8.dev.custom_build.f3892dfe0 (2026-10-25 07:18:59 UTC) - https://godotengine.org"
+   },
+   {
+    "type": "warning",
+    "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+   },
+   {
+    "type": "log",
+    "text": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device"
+   },
+   {
+    "type": "log",
+    "text": "Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support."
+   },
+   {
+    "type": "log",
+    "text": "WAKE_ORIENT_PROBE {\"keep_screen_on_feature\":true,\"keep_screen_on_setting\":true,\"kept_on\":true,\"orientation\":0,\"orientation_feature\":false,\"orientation_setting\":0}"
+   }
+  ],
+  "browser": {
+   "version": "Mozilla/5.0 (X11; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0",
+   "wakeLockApi": true,
+   "orientationLockApi": true,
+   "coarse": false,
+   "adapter": " "
+  },
+  "probe": {
+   "keep_screen_on_feature": true,
+   "keep_screen_on_setting": true,
+   "kept_on": true,
+   "orientation": 0,
+   "orientation_feature": false,
+   "orientation_setting": 0
+  },
+  "after_click": {
+   "fullscreen": false,
+   "type": "landscape-primary"
+  },
+  "after_second_click": {
+   "fullscreen": false
+  },
+  "expected": {
+   "keep_screen_on_feature": true,
+   "orientation_feature": false
+  },
+  "has_feature_matches": true,
+  "errors_or_warnings": [
+   {
+    "type": "warning",
+    "text": "[JavaScript Warning: \"The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead.\"]"
+   },
+   {
+    "type": "warning",
+    "text": "WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1405)"
+   }
+  ]
+ }
+}

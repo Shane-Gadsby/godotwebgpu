@@ -30,10 +30,12 @@
 
 #include "spirv_opt_passes.h"
 
+#include "source/opcode.h"
 #include "source/opt/build_module.h"
 #include "source/opt/ir_builder.h"
 #include "source/opt/ir_context.h"
 #include "source/util/string_utils.h"
+#include "spirv-tools/libspirv.hpp"
 #include "spirv_binding_layout.h"
 
 #include <memory>
@@ -74,7 +76,7 @@ void for_each_raw_instruction(const std::vector<uint32_t> &p_words, F p_fn) {
 }
 
 std::unique_ptr<opt::IRContext> build(const std::vector<uint32_t> &p_words) {
-	if (p_words.size() < 5) {
+	if (p_words.size() < 5 || !check_ir_preconditions(p_words.data(), p_words.size())) {
 		return nullptr;
 	}
 	return BuildModule(SPV_ENV_VULKAN_1_2, [](spv_message_level_t, const char *, const spv_position_t &, const char *) {}, p_words.data(), p_words.size());
@@ -163,7 +165,7 @@ std::vector<opt::Instruction *> instructions_with_opcode(opt::IRContext *p_ctx, 
 	return found;
 }
 
-// ---- lower_tint_unsupported_ops ----
+// ---- lower_wgsl_unsupported_ops ----
 
 bool strip_early_fragment_tests(opt::IRContext *p_ctx) {
 	std::vector<opt::Instruction *> modes;
@@ -695,7 +697,7 @@ bool find_array_var(opt::IRContext *p_ctx, opt::Instruction &p_var, ArrayVar &r_
 
 } // namespace
 
-bool lower_tint_unsupported_ops(std::vector<uint32_t> &r_words) {
+bool lower_wgsl_unsupported_ops(std::vector<uint32_t> &r_words) {
 	bool needed = false;
 	for_each_raw_instruction(r_words, [&needed](spv::Op p_op, const uint32_t *p_inst, uint32_t p_wc) {
 		needed = needed || p_op == spv::Op::OpIsNan || p_op == spv::Op::OpIsInf || p_op == spv::Op::OpImageQueryLod ||
@@ -965,6 +967,194 @@ bool apply_sampler_lod_bias(std::vector<uint32_t> &r_words) {
 	}
 	emit(c, r_words);
 	return true;
+}
+
+bool validate_module(const uint32_t *p_words, size_t p_word_count, std::string *r_error) {
+	if (p_words == nullptr || p_word_count < 5) {
+		if (r_error) {
+			*r_error = "not a SPIR-V module (shorter than its header)";
+		}
+		return false;
+	}
+	SpirvTools tools(SPV_ENV_VULKAN_1_2);
+	std::string first_error;
+	tools.SetMessageConsumer([&first_error](spv_message_level_t p_level, const char *, const spv_position_t &p_position, const char *p_message) {
+		if (first_error.empty() && p_level <= SPV_MSG_ERROR) {
+			first_error = std::string(p_message) + " (word " + std::to_string(p_position.index) + ")";
+		}
+	});
+	if (tools.Validate(p_words, p_word_count, ValidatorOptions())) {
+		return true;
+	}
+	if (r_error) {
+		*r_error = first_error.empty() ? std::string("rejected by the SPIR-V validator") : first_error;
+		// The validator appends the offending instruction's disassembly on
+		// lines of its own; callers log this as one line.
+		std::string one_line;
+		for (char c : *r_error) {
+			if (c == '\n') {
+				c = ' ';
+			}
+			if (c != ' ' || (!one_line.empty() && one_line.back() != ' ')) {
+				one_line += c;
+			}
+		}
+		*r_error = one_line;
+	}
+	return false;
+}
+
+namespace {
+
+struct PreconditionScan {
+	uint32_t bound = 0;
+	// Result id -> opcode, for every instruction with a result.
+	std::unordered_map<uint32_t, uint16_t> defs;
+	// Every id operand, checked against defs once the whole module is seen
+	// (SPIR-V allows forward references: decorations, names, OpPhi, calls).
+	std::vector<uint32_t> uses;
+	// Ids that must be an OpFunction: OpEntryPoint's and OpFunctionCall's.
+	std::vector<uint32_t> functions_needed;
+	bool in_function = false;
+	bool in_block = false;
+	std::string error;
+};
+
+// IRContext hands out no id at or past 0x3FFFFF (its default max id bound,
+// also the validator's): TakeNextId() returns 0 instead, which no pass here
+// checks, and a variable with result id 0 is a use of an undefined id the next
+// analysis asserts on. Half of that leaves every pass room for the ids it adds.
+constexpr uint32_t MAX_ID_BOUND = 0x3FFFFF / 2;
+
+spv_result_t precondition_header(void *p_user, spv_endianness_t, uint32_t, uint32_t, uint32_t, uint32_t p_bound, uint32_t) {
+	PreconditionScan &scan = *static_cast<PreconditionScan *>(p_user);
+	scan.bound = p_bound;
+	if (p_bound > MAX_ID_BOUND) {
+		scan.error = "id bound " + std::to_string(p_bound) + " is over " + std::to_string(MAX_ID_BOUND);
+		return SPV_ERROR_INVALID_BINARY;
+	}
+	return SPV_SUCCESS;
+}
+
+spv_result_t precondition_instruction(void *p_user, const spv_parsed_instruction_t *p_inst) {
+	PreconditionScan &scan = *static_cast<PreconditionScan *>(p_user);
+	const spv::Op op = (spv::Op)p_inst->opcode;
+	auto fail = [&scan, op](const std::string &p_what) {
+		scan.error = p_what + " (at an Op" + spvOpcodeString(op) + ")";
+		return SPV_ERROR_INVALID_BINARY;
+	};
+
+	if (p_inst->result_id != 0) {
+		if (p_inst->result_id >= scan.bound) {
+			return fail("result id " + std::to_string(p_inst->result_id) + " is not below the header's bound " + std::to_string(scan.bound));
+		}
+		if (!scan.defs.emplace(p_inst->result_id, p_inst->opcode).second) {
+			return fail("result id " + std::to_string(p_inst->result_id) + " is defined twice");
+		}
+	}
+	for (uint16_t i = 0; i < p_inst->num_operands; i++) {
+		const spv_parsed_operand_t &operand = p_inst->operands[i];
+		switch (operand.type) {
+			case SPV_OPERAND_TYPE_ID:
+			case SPV_OPERAND_TYPE_TYPE_ID:
+			case SPV_OPERAND_TYPE_MEMORY_SEMANTICS_ID:
+			case SPV_OPERAND_TYPE_SCOPE_ID:
+				scan.uses.push_back(p_inst->words[operand.offset]);
+				break;
+			default:
+				break;
+		}
+	}
+
+	switch (op) {
+		case spv::Op::OpEntryPoint:
+			if (p_inst->num_words < 3) {
+				return fail("truncated instruction");
+			}
+			scan.functions_needed.push_back(p_inst->words[2]);
+			break;
+		case spv::Op::OpFunctionCall:
+			if (p_inst->num_words < 4) {
+				return fail("truncated instruction");
+			}
+			scan.functions_needed.push_back(p_inst->words[3]);
+			break;
+		case spv::Op::OpFunction:
+			if (scan.in_function) {
+				return fail("function inside a function");
+			}
+			scan.in_function = true;
+			break;
+		case spv::Op::OpFunctionEnd:
+			if (!scan.in_function) {
+				return fail("OpFunctionEnd outside a function");
+			}
+			if (scan.in_block) {
+				return fail("basic block without a terminator");
+			}
+			scan.in_function = false;
+			break;
+		case spv::Op::OpLabel:
+			if (!scan.in_function) {
+				return fail("OpLabel outside a function");
+			}
+			if (scan.in_block) {
+				return fail("basic block without a terminator");
+			}
+			scan.in_block = true;
+			break;
+		default:
+			if (spvOpcodeIsBlockTerminator(op)) {
+				if (!scan.in_block) {
+					return fail("terminator outside a basic block");
+				}
+				scan.in_block = false;
+			}
+			break;
+	}
+	return SPV_SUCCESS;
+}
+
+} // namespace
+
+bool check_ir_preconditions(const uint32_t *p_words, size_t p_word_count, std::string *r_error) {
+	if (p_words == nullptr || p_word_count < 5) {
+		if (r_error) {
+			*r_error = "not a SPIR-V module (shorter than its header)";
+		}
+		return false;
+	}
+	PreconditionScan scan;
+	spv_context context = spvContextCreate(SPV_ENV_VULKAN_1_2);
+	spv_diagnostic diagnostic = nullptr;
+	const spv_result_t result = spvBinaryParse(context, &scan, p_words, p_word_count, precondition_header, precondition_instruction, &diagnostic);
+	if (result != SPV_SUCCESS && scan.error.empty()) {
+		scan.error = diagnostic && diagnostic->error ? diagnostic->error : "unparsable instruction stream";
+	}
+	spvDiagnosticDestroy(diagnostic);
+	spvContextDestroy(context);
+
+	if (scan.error.empty() && scan.in_function) {
+		scan.error = "function without OpFunctionEnd";
+	}
+	for (size_t i = 0; scan.error.empty() && i < scan.uses.size(); i++) {
+		if (!scan.defs.count(scan.uses[i])) {
+			scan.error = "id " + std::to_string(scan.uses[i]) + " is used but never defined";
+		}
+	}
+	for (size_t i = 0; scan.error.empty() && i < scan.functions_needed.size(); i++) {
+		auto def = scan.defs.find(scan.functions_needed[i]);
+		if (def == scan.defs.end() || def->second != (uint16_t)spv::Op::OpFunction) {
+			scan.error = "id " + std::to_string(scan.functions_needed[i]) + " is called or used as an entry point but is not a function";
+		}
+	}
+	if (scan.error.empty()) {
+		return true;
+	}
+	if (r_error) {
+		*r_error = scan.error;
+	}
+	return false;
 }
 
 } // namespace spirv_opt_passes

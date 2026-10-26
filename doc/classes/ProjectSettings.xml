@@ -2699,40 +2699,41 @@
 		</member>
 		<member name="physics/3d/run_on_separate_thread" type="bool" setter="" getter="" default="false">
 			If [code]true[/code], the 3D physics server runs on a separate thread, making better use of multi-core CPUs. If [code]false[/code], the 3D physics server runs on the main thread. Running the physics server on a separate thread can increase performance, but restricts API access to only physics process.
+			[b]Note:[/b] GodotPhysics3D, Jolt Physics and Box3D Physics all honor this setting. It has no effect in builds without thread support, such as a web export with thread support turned off.
 			[b]Note:[/b] When [member physics/3d/physics_engine] is set to [code]Jolt Physics[/code], enabling this setting will prevent the 3D physics server from being able to provide any context when reporting errors and warnings, and will instead always refer to nodes as [code]&lt;unknown&gt;[/code].
 		</member>
 		<member name="physics/3d/sleep_threshold_angular" type="float" setter="" getter="" default="0.13962634">
 			Threshold angular velocity under which a 3D physics body will be considered inactive. See [constant PhysicsServer3D.SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/sleep_threshold_linear" type="float" setter="" getter="" default="0.1">
 			Threshold linear velocity under which a 3D physics body will be considered inactive. See [constant PhysicsServer3D.SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/solver/contact_max_allowed_penetration" type="float" setter="" getter="" default="0.01">
 			Maximum distance a shape can penetrate another shape before it is considered a collision. See [constant PhysicsServer3D.SPACE_PARAM_CONTACT_MAX_ALLOWED_PENETRATION].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/solver/contact_max_separation" type="float" setter="" getter="" default="0.05">
 			Maximum distance a shape can be from another before they are considered separated and the contact is discarded. See [constant PhysicsServer3D.SPACE_PARAM_CONTACT_MAX_SEPARATION].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/solver/contact_recycle_radius" type="float" setter="" getter="" default="0.01">
 			Maximum distance a pair of bodies has to move before their collision status has to be recalculated. See [constant PhysicsServer3D.SPACE_PARAM_CONTACT_RECYCLE_RADIUS].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/solver/default_contact_bias" type="float" setter="" getter="" default="0.8">
 			Default solver bias for all physics contacts. Defines how much bodies react to enforce contact separation. See [constant PhysicsServer3D.SPACE_PARAM_CONTACT_DEFAULT_BIAS].
 			Individual shapes can have a specific bias value (see [member Shape3D.custom_solver_bias]).
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/solver/solver_iterations" type="int" setter="" getter="" default="16">
 			Number of solver iterations for all contacts and constraints. The greater the number of iterations, the more accurate the collisions will be. However, a greater number of iterations requires more CPU power, which can decrease performance. See [constant PhysicsServer3D.SPACE_PARAM_SOLVER_ITERATIONS].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/3d/time_before_sleep" type="float" setter="" getter="" default="0.5">
 			Time (in seconds) of inactivity before which a 3D physics body will put to sleep. See [constant PhysicsServer3D.SPACE_PARAM_BODY_TIME_TO_SLEEP].
-			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics.
+			[b]Note:[/b] This project setting is only effective when using GodotPhysics3D. It has no effect when using Jolt Physics or Box3D Physics.
 		</member>
 		<member name="physics/box3d_physics_3d/collisions/cylinder_hull_sides" type="int" setter="" getter="" default="32">
 			The number of sides of the prism that Box3D uses in place of a [CylinderShape3D], as Box3D has no cylinder primitive. The prism lies inside the true cylinder, so its rounded surface is very slightly smaller.

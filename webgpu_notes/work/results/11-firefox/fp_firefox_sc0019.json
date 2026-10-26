@@ -1,0 +1,544 @@
+{
+  "banner": "WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device",
+  "results": [
+    {
+      "id": "ambient_light",
+      "cat": "environment",
+      "label": "Ambient light (constant colour)",
+      "ok": true,
+      "why": "delta 37.909; native diff off 0.000 on 0.002"
+    },
+    {
+      "id": "reflected_light",
+      "cat": "environment",
+      "label": "Reflected light from sky",
+      "ok": true,
+      "why": "delta 12.080; native diff off 0.000 on 0.003"
+    },
+    {
+      "id": "sky",
+      "cat": "environment",
+      "label": "Sky background (procedural)",
+      "ok": true,
+      "why": "delta 44.520; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "tonemap",
+      "cat": "environment",
+      "label": "Tonemapping (ACES vs linear)",
+      "ok": true,
+      "why": "delta 22.051; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "tonemap_exposure",
+      "cat": "environment",
+      "label": "Tonemap exposure",
+      "ok": true,
+      "why": "delta 46.358; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "adjustments",
+      "cat": "environment",
+      "label": "Adjustments (brightness/contrast/saturation)",
+      "ok": true,
+      "why": "delta 61.485; native diff off 0.002 on 0.006"
+    },
+    {
+      "id": "color_correction",
+      "cat": "environment",
+      "label": "Colour correction LUT",
+      "ok": true,
+      "why": "delta 25.249; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "fog",
+      "cat": "environment",
+      "label": "Depth fog",
+      "ok": true,
+      "why": "delta 57.278; native diff off 0.002 on 0.001"
+    },
+    {
+      "id": "fog_height",
+      "cat": "environment",
+      "label": "Height fog",
+      "ok": true,
+      "why": "delta 37.658; native diff off 0.002 on 0.001"
+    },
+    {
+      "id": "fog_aerial_perspective",
+      "cat": "environment",
+      "label": "Fog aerial perspective",
+      "ok": true,
+      "why": "delta 2.692; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "volumetric_fog",
+      "cat": "environment",
+      "label": "Volumetric fog",
+      "ok": true,
+      "why": "delta 43.822; native diff off 0.002 on 0.001"
+    },
+    {
+      "id": "glow",
+      "cat": "environment",
+      "label": "Glow / bloom",
+      "ok": true,
+      "why": "delta 43.175; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "glow_map",
+      "cat": "environment",
+      "label": "Glow map",
+      "ok": true,
+      "why": "delta 2.122; native diff off 0.003 on 0.002"
+    },
+    {
+      "id": "ssr",
+      "cat": "environment",
+      "label": "Screen-space reflections",
+      "ok": true,
+      "why": "delta 1.182; native diff off 0.003 on 0.006"
+    },
+    {
+      "id": "ssao",
+      "cat": "environment",
+      "label": "Screen-space ambient occlusion",
+      "ok": true,
+      "why": "delta 1.672; native diff off 0.002 on 0.012"
+    },
+    {
+      "id": "ssil",
+      "cat": "environment",
+      "label": "Screen-space indirect lighting",
+      "ok": true,
+      "why": "delta 1.744; native diff off 0.002 on 0.005"
+    },
+    {
+      "id": "sdfgi",
+      "cat": "environment",
+      "label": "SDFGI",
+      "ok": false,
+      "why": "delta 35.456; differs from native by 0.277 (off 0.002, on 0.277) > 0.08"
+    },
+    {
+      "id": "sdfgi_camera_move",
+      "cat": "environment",
+      "label": "SDFGI after the camera moves away and back",
+      "ok": false,
+      "why": "parity only; differs from native by 0.277 (off 0.277, on 0.277) > 0.08"
+    },
+    {
+      "id": "directional_light",
+      "cat": "lighting",
+      "label": "Directional light",
+      "ok": true,
+      "why": "delta 33.037; native diff off 0.004 on 0.002"
+    },
+    {
+      "id": "directional_shadow",
+      "cat": "lighting",
+      "label": "Directional shadow",
+      "ok": true,
+      "why": "delta 1.894; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "directional_shadow_splits",
+      "cat": "lighting",
+      "label": "Directional shadow splits (CSM)",
+      "ok": true,
+      "why": "delta 0.617; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "omni_light",
+      "cat": "lighting",
+      "label": "Omni light",
+      "ok": true,
+      "why": "delta 13.028; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "omni_shadow",
+      "cat": "lighting",
+      "label": "Omni shadow (dual paraboloid)",
+      "ok": true,
+      "why": "delta 0.647; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "omni_shadow_cube",
+      "cat": "lighting",
+      "label": "Omni shadow (cube)",
+      "ok": true,
+      "why": "delta 0.658; native diff off 0.002 on 0.015"
+    },
+    {
+      "id": "spot_light",
+      "cat": "lighting",
+      "label": "Spot light",
+      "ok": true,
+      "why": "delta 3.853; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "spot_shadow",
+      "cat": "lighting",
+      "label": "Spot shadow",
+      "ok": true,
+      "why": "delta 1.269; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "light_projector",
+      "cat": "lighting",
+      "label": "Light projector texture",
+      "ok": true,
+      "why": "delta 3.365; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "soft_shadows",
+      "cat": "lighting",
+      "label": "Soft shadows (PCSS)",
+      "ok": true,
+      "why": "delta 2.012; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "shadow_blur",
+      "cat": "lighting",
+      "label": "Shadow blur",
+      "ok": true,
+      "why": "delta 5.044; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "contact_shadows",
+      "cat": "lighting",
+      "label": "Screen-space contact shadows (4.8)",
+      "ok": true,
+      "why": "delta 0.103; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "light_negative",
+      "cat": "lighting",
+      "label": "Negative light",
+      "ok": true,
+      "why": "delta 34.690; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "light_specular",
+      "cat": "lighting",
+      "label": "Light specular contribution",
+      "ok": true,
+      "why": "delta 0.419; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "reflection_probe",
+      "cat": "gi",
+      "label": "Reflection probe",
+      "ok": true,
+      "why": "delta 12.569; native diff off 0.003 on 0.002"
+    },
+    {
+      "id": "voxel_gi",
+      "cat": "gi",
+      "label": "VoxelGI",
+      "ok": true,
+      "why": "delta 7.780; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "decal",
+      "cat": "gi",
+      "label": "Decal",
+      "ok": true,
+      "why": "delta 1.354; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "normal_map",
+      "cat": "material",
+      "label": "Normal map",
+      "ok": true,
+      "why": "delta 1.780; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "emission",
+      "cat": "material",
+      "label": "Emission",
+      "ok": true,
+      "why": "delta 3.379; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "rim",
+      "cat": "material",
+      "label": "Rim lighting",
+      "ok": true,
+      "why": "delta 0.223; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "clearcoat",
+      "cat": "material",
+      "label": "Clearcoat",
+      "ok": true,
+      "why": "delta 0.221; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "anisotropy",
+      "cat": "material",
+      "label": "Anisotropy",
+      "ok": true,
+      "why": "delta 0.366; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "subsurface_scattering",
+      "cat": "material",
+      "label": "Subsurface scattering",
+      "ok": true,
+      "why": "delta 0.680; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "backlight",
+      "cat": "material",
+      "label": "Backlight",
+      "ok": true,
+      "why": "delta 0.488; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "refraction",
+      "cat": "material",
+      "label": "Refraction",
+      "ok": true,
+      "why": "delta 0.450; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "heightmap",
+      "cat": "material",
+      "label": "Heightmap / parallax",
+      "ok": true,
+      "why": "delta 1.796; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "triplanar",
+      "cat": "material",
+      "label": "Triplanar mapping",
+      "ok": true,
+      "why": "delta 1.674; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "transparency",
+      "cat": "material",
+      "label": "Alpha blending",
+      "ok": true,
+      "why": "delta 3.824; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "alpha_scissor",
+      "cat": "material",
+      "label": "Alpha scissor",
+      "ok": true,
+      "why": "delta 3.455; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "alpha_hash",
+      "cat": "material",
+      "label": "Alpha hash",
+      "ok": true,
+      "why": "delta 3.039; native diff off 0.003 on 0.003"
+    },
+    {
+      "id": "proximity_fade",
+      "cat": "material",
+      "label": "Proximity fade",
+      "ok": true,
+      "why": "delta 0.565; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "distance_fade",
+      "cat": "material",
+      "label": "Distance fade",
+      "ok": true,
+      "why": "delta 1.188; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "depth_texture",
+      "cat": "material",
+      "label": "DEPTH_TEXTURE in a material",
+      "ok": true,
+      "why": "delta 4.201; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "mipmap_bias",
+      "cat": "material",
+      "label": "Mipmap LOD bias (texture_mipmap_bias)",
+      "ok": true,
+      "why": "delta 0.444; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "texture_array",
+      "cat": "material",
+      "label": "Texture array indexed at runtime",
+      "ok": true,
+      "why": "delta 3.594; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "shader_builtins",
+      "cat": "material",
+      "label": "isnan/isinf/textureQueryLod in a material",
+      "ok": true,
+      "why": "delta 0.841; native diff off 0.002 on 0.004"
+    },
+    {
+      "id": "point_coord",
+      "cat": "material",
+      "label": "POINT_COORD without POINT_SIZE (drawn as points)",
+      "ok": true,
+      "why": "delta 0.894; native diff off 0.020 on 0.020"
+    },
+    {
+      "id": "multimesh",
+      "cat": "mesh",
+      "label": "MultiMesh instancing",
+      "ok": true,
+      "why": "delta 5.309; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "blend_shapes",
+      "cat": "mesh",
+      "label": "Blend shapes",
+      "ok": true,
+      "why": "delta 2.586; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "mesh_lod",
+      "cat": "mesh",
+      "label": "Mesh LOD",
+      "ok": true,
+      "why": "delta 1.505; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "visibility_range",
+      "cat": "mesh",
+      "label": "Visibility range",
+      "ok": true,
+      "why": "delta 2.185; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "gpu_particles",
+      "cat": "particles",
+      "label": "GPU particles",
+      "ok": true,
+      "why": "delta 10.501; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "particle_collision",
+      "cat": "particles",
+      "label": "Particle collision",
+      "ok": true,
+      "why": "delta 12.967; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "particle_attractor",
+      "cat": "particles",
+      "label": "Particle attractor",
+      "ok": true,
+      "why": "delta 18.165; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "msaa",
+      "cat": "post",
+      "label": "MSAA 4x",
+      "ok": true,
+      "why": "delta 0.207; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "taa",
+      "cat": "post",
+      "label": "TAA",
+      "ok": true,
+      "why": "delta 0.542; native diff off 0.002 on 0.006"
+    },
+    {
+      "id": "fxaa",
+      "cat": "post",
+      "label": "FXAA",
+      "ok": true,
+      "why": "delta 0.348; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "debanding",
+      "cat": "post",
+      "label": "Debanding",
+      "ok": true,
+      "why": "delta 0.248; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "scaling_3d",
+      "cat": "post",
+      "label": "3D resolution scaling (bilinear)",
+      "ok": true,
+      "why": "delta 1.388; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "fsr2",
+      "cat": "post",
+      "label": "FSR2 upscaling",
+      "ok": true,
+      "why": "delta 1.580; native diff off 0.002 on 0.142"
+    },
+    {
+      "id": "dof_far",
+      "cat": "post",
+      "label": "Depth of field (far)",
+      "ok": true,
+      "why": "delta 8.124; native diff off 0.002 on 0.003"
+    },
+    {
+      "id": "dof_near",
+      "cat": "post",
+      "label": "Depth of field (near)",
+      "ok": true,
+      "why": "delta 1.844; native diff off 0.002 on 0.002"
+    },
+    {
+      "id": "auto_exposure",
+      "cat": "post",
+      "label": "Auto exposure",
+      "ok": true,
+      "why": "delta 35.715; native diff off 0.002 on 0.003"
+    }
+  ],
+  "uncovered": [
+    {
+      "id": "skeletal_animation",
+      "why": "the fixture builds a two-bone skinned strip procedurally, but its skin binding does not actually deform -- a 2.2 rad pose change moves only 0.045 mean delta on native Vulkan, which is indistinguishable from skinning being broken. The GPU skinning path is a real Forward+ feature and this SHOULD be covered; the fixture needs a working skin (or a committed skinned mesh) first."
+    },
+    {
+      "id": "particle_trails",
+      "why": "GPUParticles3D.trail_enabled produces no measurable change in this fixture on native Vulkan (0.000), so there is nothing to assert against. Needs a draw pass and transform_align set up for trails before it can be covered."
+    },
+    {
+      "id": "lightmap_gi",
+      "why": "needs an editor-baked lightmap; cannot be produced at runtime from GDScript, so it cannot be driven by this fixture. Needs a separate fixture with committed bake data."
+    },
+    {
+      "id": "occlusion_culling",
+      "why": "needs baked occluders and is a visibility optimization, not a rendering path -- a correct result is pixel-identical, so an A/B delta check cannot see it. Needs a draw-call-count assertion instead."
+    },
+    {
+      "id": "multiview_xr",
+      "why": "WebGPU has no multiview; the driver reports SUPPORTS_MULTIVIEW false and the renderer takes the single-view path. Nothing to compare."
+    },
+    {
+      "id": "vrs",
+      "why": "WebGPU has no variable shading rate; SUPPORTS_ATTACHMENT_VRS is false by design."
+    },
+    {
+      "id": "compositor_effects",
+      "why": "CompositorEffect runs user-supplied RD code; there is no engine behavior to assert, only the user callback."
+    },
+    {
+      "id": "volumetric_fog_volumes",
+      "why": "FogVolume nodes with custom fog shaders -- a distinct path from environment volumetric fog, and not yet exercised. Should be added."
+    },
+    {
+      "id": "stencil",
+      "why": "BaseMaterial3D.stencil_mode -- added recently upstream and not yet exercised. Should be added."
+    },
+    {
+      "id": "bent_normal",
+      "why": "BaseMaterial3D.bent_normal_enabled -- added recently upstream and not yet exercised. Should be added."
+    }
+  ]
+}

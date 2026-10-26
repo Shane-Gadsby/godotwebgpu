@@ -149,6 +149,12 @@ public:
 	struct Device {
 		Pass passes[FFX_FSR2_PASS_COUNT];
 		FfxDeviceCapabilities capabilities;
+		// SUPPORTS_IMAGE_ATOMIC_32_BIT, read once when the effect is created. Decides
+		// both which shader groups FSR2Effect enables and whether
+		// create_resource_rd() makes the atomically updated resources images or
+		// storage buffers, so the two must come from the same answer, never from
+		// a second has_feature() query made later.
+		bool use_image_atomics = true;
 		RID point_clamp_sampler;
 		RID linear_clamp_sampler;
 	};
@@ -159,6 +165,7 @@ public:
 		RID color;
 		RID depth;
 		RID velocity;
+		// Read as reactivity from its alpha channel (FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA).
 		RID reactive;
 		RID exposure;
 		RID output;

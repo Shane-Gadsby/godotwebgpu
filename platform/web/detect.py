@@ -163,8 +163,11 @@ def get_flags():
         # and that cascade no longer fires for a `webgpu=yes` web build -- so keep saying
         # it, or drivers/SCsub tries to compile the Vulkan driver into the web template.
         "vulkan": False,
-        # Embree is heavy and requires too much memory (GH-70621).
-        "module_raycast_enabled": False,
+        # Upstream leaves Embree out of web builds (GH-70621, size and memory). This fork includes it, so
+        # occlusion culling works on the web: about +1.0 MiB of wasm (+0.17 MiB brotli), no measured heap or
+        # load-time cost (webgpu_notes/TASKS.md 2.45). The Web export option rendering/occlusion_culling turns
+        # culling off per export; `module_raycast_enabled=no` (build-linux.sh --no-web-raycast) leaves it out.
+        "module_raycast_enabled": True,
         # Use -Os to prioritize optimizing for reduced file size. This is
         # particularly valuable for the web platform because it directly
         # decreases download time.
@@ -347,6 +350,8 @@ def configure(env: "SConsEnvironment"):
         # Pass --use-port=emdawnwebgpu to both CCFLAGS (for headers) and LINKFLAGS (for JS glue).
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
         env.Append(LINKFLAGS=["--use-port=emdawnwebgpu"])
+        # SPIRV-Cross throws on unsupported shaders; its TUs are built with wasm exceptions (drivers/webgpu/SCsub).
+        env.Append(LINKFLAGS=["-fwasm-exceptions"])
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])

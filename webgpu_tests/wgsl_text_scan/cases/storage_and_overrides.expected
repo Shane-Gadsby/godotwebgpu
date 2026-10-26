@@ -1,0 +1,9 @@
+OVERRIDE id=0 override_kw=1 used=1
+OVERRIDE id=1 override_kw=1 used=1
+OVERRIDE id=2 override_kw=1 used=0
+ROCONV 0/1 fmt=r32float
+RWSPLIT 0/2 shadow=3 fmt=rgba16float
+VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
+VAR 0/1 tex dim=2 depth=0 ms=0 sample=1
+VAR 0/2 tex dim=4 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+VAR 0/3 tex dim=4 depth=0 ms=0 sample=1

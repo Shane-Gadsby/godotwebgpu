@@ -23,11 +23,11 @@ jobs:
             cache-name: macos-editor
             target: editor
             # webgpu=yes: builds in the WebGPU shader baker (export-time WGSL
-            # baking + the shader capture toolbar toggle); see tint-cli below.
+            # baking + the shader capture toolbar toggle); see wgsl-cli below.
             scons-flags: webgpu=yes
-            # The baker runs tint_convert_cli from the editor's own directory;
+            # The baker runs wgsl_convert_cli from the editor's own directory;
             # generate_bundle() copies it into the .app's Contents/MacOS.
-            tint-cli: true
+            wgsl-cli: true
 
           - name: Template (target=template_release + template_debug)
             cache-name: macos-template
@@ -141,19 +141,19 @@ jobs:
           ./bin/godot.macos.${{ matrix.target }}.arm64 --help
           ./bin/godot.macos.${{ matrix.target }}.arm64 --test --force-colors
 
-      - name: Cache tint_convert_cli build
-        if: matrix.tint-cli
+      - name: Cache wgsl_convert_cli build
+        if: matrix.wgsl-cli
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-universal-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-universal-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
       # Universal, like the editor it ships next to.
-      - name: Build tint_convert_cli
-        if: matrix.tint-cli
+      - name: Build wgsl_convert_cli
+        if: matrix.wgsl-cli
         env:
           CXXFLAGS: -arch arm64 -arch x86_64
-        run: ./drivers/webgpu/tint_cli/build.sh
+        run: ./drivers/webgpu/wgsl_cli/build.sh
 
       # Assembles a real .app bundle (editor) or a macos_template.app zipped
       # as godot_macos*.zip (template, containing both debug+release Godot

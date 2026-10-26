@@ -6,11 +6,11 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 
 | Test | What it validates | Runtime | Needs engine build? |
 |------|------------------|---------|---------------------|
-| [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via Tint CLI | ~1s | No (needs Tint CLI) |
-| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs Tint CLI) |
+| [Shader Corpus](shader_corpus/) | SPIR-V → WGSL conversion via wgsl_convert_cli | ~1s | No (needs wgsl_convert_cli) |
+| [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs wgsl_convert_cli) |
 | [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
-| [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through Tint | ~5s | Yes (editor) |
-| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs Tint CLI) |
+| [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through wgsl_convert_cli | ~5s | Yes (editor) |
+| [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs wgsl_convert_cli) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 23 scenes (demos, benchmarks, a self-checking audio suite and a braced GDScript project) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
 | [Perf Guard](perf_guard/) | WebGPU calls per frame stay within budget (command encoders, submits, `writeBuffer` calls and bytes) on the post-fx/shadows/instances/PBR scenes; adapter-independent | ~90s | Yes (pre-exported scenes) |
@@ -21,13 +21,19 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 71 of them | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 87 arms | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
+| [DOF NaN Containment](dof_nan/) (`run.sh`) | One NaN pixel stays one pixel through every bokeh DOF mode, glow, SSR and auto exposure, natively on Forward+ and Mobile (§13) | a few minutes | Yes (native editor; a display or `xvfb-run`) |
+| [Shader-Bake Isolation](bake_isolation/) (`run.sh`) | A Web export's shader bake leaves the editor's own frames alone and bakes FSR 2 for WebGPU (§14) | ~1min | Yes (native editor + web template; Xvfb + Vulkan) |
+| [MetaHuman Importer](metahuman/) (`run.sh`) | A MetaHuman export imports, rigs and renders; groom strands write no NaN (`nan_check.gd`); `--shots` renders frames ([README](metahuman/README.md)) | minutes | Yes (native editor; a MetaHuman export of your own) |
+| [Software Ray Tracing Probe](raytracing_probe/) | A WGSL BVH traversal agrees with a brute-force CPU trace, and how many rays per second it reaches on the adapter (primary, shadow, incoherent bounce) — the ceiling for any ray or path tracing on WebGPU, which has no hardware RT; feeds TASKS.md §2.34 | ~60s | No (standalone; `--software` for the correctness checks, a real GPU for numbers that mean anything) |
 | [Android Profiling](perf_guard/android/) | What a WebGPU export does on a real phone over USB — fps/frame-time per export variant, GPU timestamp queries per pass, WGSL dump/substitute for shader bisection | ~75s/variant | No (profiles any existing export; needs an Android phone with USB debugging) |
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 | [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
+| [Occlusion Culling Benchmark](occlusion_bench/run.mjs) | What occlusion culling costs and saves on the web: a 24x24-block city, street view (mostly occluded) and top view (nothing to cull), culling off and on — main-thread ms per frame, GPU ms, draws, objects, heap, load time. Needs a template with the raycast module, in every web template by default since 2026-10-26 (TASKS.md §4.38) | ~2min per export | Yes (`occlusion_bench/export.sh`; a real GPU) |
+| [Load-Ramp Benchmark](benchmark/) (`run_ramp.sh`) | How much content each leg (native Vulkan and Compatibility, stock WebGL, WebGPU Mobile and Forward+, Firefox WebGPU) carries before falling to 20 fps, per ramp (draw calls, moving nodes, fill, shadowed PBR, particles). The source of the README's performance table | ~5min per leg and run (~1 h for all six legs x 2) | Yes (editor + WebGPU template; official 4.7.2 template for WebGL; **an idle real GPU**) |
 
 ## How It Works
 
@@ -36,15 +42,15 @@ The WebGPU shader pipeline is:
 ```
 GLSL → SPIR-V (glslang, at editor build time)
      → spirv_preprocess::run_pipeline() (C++, at build time, export time or runtime)
-     → WGSL (Tint C++ library, linked into engine, at runtime)
+     → WGSL (SPIRV-Cross's WGSL backend, C++, linked into engine, at runtime)
      → GPU (browser's WebGPU implementation)
 ```
 
 `run_pipeline()` is the one ordering of the SPIR-V passes every converter uses; the full list, with what
 each pass is for, is in [`webgpu_site/TECHNICAL_REFERENCE.md`](../webgpu_site/TECHNICAL_REFERENCE.md) §4.1.
 `preprocessing_tests/` covers the passes one at a time (291 assertions; tests 24-27 cover the three passes on
-SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
-`spirv-val` on each output, from `fixtures_src/tint_crash_inputs.frag` and `binding_arrays*.{frag,comp}`).
+SPIRV-Tools' IR -- `lower_wgsl_unsupported_ops`, `apply_sampler_lod_bias`, `expand_binding_arrays` -- and run
+`spirv-val` on each output, from `fixtures_src/wgsl_unsupported_ops.frag` and `binding_arrays*.{frag,comp}`).
 `driver_unit_tests/test_binding_layout.mjs` checks the expanded-array binding layout against
 `drivers/webgpu/spirv_binding_layout.h` itself, and that every engine texture array fits it.
 
@@ -60,12 +66,12 @@ SPIRV-Tools' IR -- `lower_tint_unsupported_ops`, `apply_sampler_lod_bias`, `expa
 
 ### 1. Shader Corpus (fast, no build needed)
 
-Tests 9 hand-crafted GLSL fixtures through the Tint CLI (if available):
+Tests 9 hand-crafted GLSL fixtures through wgsl_convert_cli (if available):
 
 ```bash
 cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
-node run_tests.mjs       # SPIR-V → WGSL validation (skips gracefully if no Tint CLI)
+node run_tests.mjs       # SPIR-V → WGSL validation (skips if no wgsl_convert_cli)
 ```
 
 ### Font Rendering (needs the `font_rendering` scene exported)
@@ -131,7 +137,7 @@ avoid.
 
 ### Forward+ Feature Matrix (needs its own export, and a real GPU)
 
-The per-feature regression suite: for each of 64 Forward+ features, render the
+The per-feature regression suite: for each of 87 Forward+ arms, render the
 fixture with it off and on and assert the frame actually changed, with no driver
 errors. It exists because the failure this port keeps producing is a feature
 **silently doing nothing** — which logs nothing and looks fine unless compared
@@ -144,7 +150,20 @@ cd webgpu_tests/forward_plus
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs     # the matrix
 WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity   # ... every frame against native Vulkan
 node run_forward_plus.mjs --list                # covered and uncovered features
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity --feature sdfgi,lightmap_gi   # a subset
+WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity --save-dir /tmp/fp   # keep every captured web frame
+./bake_lightmap.sh                              # re-bake lightmap_room for the lightmap_gi arm (Xvfb, no GUI)
 ```
+
+Arms added 2026-10-26 (TASKS.md §4.39): skeletal animation, particle trails, LightmapGI,
+FogVolume with and without a fog shader, stencil outline and x-ray, bent normals, SMAA,
+compositor effects and occlusion culling. `occlusion_culling` is judged on render info
+(objects drawn, 29 -> 8) rather than pixels; it needs the raycast module in the template
+(`needsRaycast`), which every web template has by default, and against one without it
+reports KNOWN. An arm marked `knownFail` reports KNOWN instead of failing, and XPASS
+(which fails) once it starts passing. Before rendering the native reference, `--parity`
+deletes `godot/fp_check/.godot/shader_cache`: a cache left by another engine build moved
+native SDFGI by 7 points once (TASKS.md §3 trap 68).
 
 The delta test only proves a feature *does something*; `--parity` proves it does
 what native Vulkan does, within a per-feature tolerance. It was what found
@@ -167,7 +186,7 @@ bug from a fixture weakness.
 
 ### 2. SPIR-V Dump Validation (requires editor build)
 
-Validates all 300+ engine-compiled shaders through Tint offline:
+Validates all 300+ engine-compiled shaders through wgsl_convert_cli offline:
 
 ```bash
 # Build the editor (macOS example)
@@ -340,6 +359,127 @@ with `variant/separate_render_thread=false`: with the separate render thread the
 pthread worker that never answers `Runtime.evaluate`, so the page-side tools see nothing. First results and the
 traps are in `webgpu_notes/TASKS.md` §2.9 and §3; the directory's README has the full recipe.
 
+### 10. Software Ray Tracing Probe (standalone; a real GPU for meaningful numbers)
+
+```bash
+cd webgpu_tests/raytracing_probe
+node run_probe.mjs                     # system Chrome, headed, 1080p, 100k and 1M triangles; results/latest.json
+node run_probe.mjs --software          # swiftshader at 320x180: the correctness checks only, exit 0/1
+node run_probe.mjs --url-only --port 8099   # serve only: a browser you already have up
+node run_probe_phone.mjs --shot phone.png   # the Razr 60 over USB: adb reverse + CDP, result read back, its tab closed
+```
+
+A CPU-built binned-SAH BVH over a procedural scene, traversed by a compute shader with a per-thread stack:
+primary camera rays, any-hit shadow rays to a point light and cosine-weighted bounce rays from each hit,
+each timed with GPU timestamp queries. A grid of primary rays is re-traced on the CPU by brute force and must
+agree with the GPU; hit, occlusion and bounce fractions must be the fixed camera's; the BVH depth must fit the
+traversal stack — exit 1 on any failure, 2 if a real-GPU run landed on the fallback adapter. Prints Mrays/s per
+kernel, the adapter's limits and features, BVH build time and traversal steps, and draws the result so a wrong
+traversal is visible. The directory's README explains how to read the numbers and the phone recipe; the
+investigation they feed is `webgpu_notes/TASKS.md` §2.34, and §1 "Experiments in flight" says what to run next.
+
+### 11. Load-Ramp Benchmark (needs the editor, the WebGPU template, and an idle real GPU)
+
+```bash
+cd webgpu_tests/benchmark
+./run_ramp.sh                                   # every leg, every ramp, 2 runs -> results_ramp/<date>/ (~1 h)
+./run_ramp.sh --legs webgpu_fp,webgl --ramps draws --repeat 1   # narrow it while iterating
+python3 readme_perf_table.py results_ramp/<date>            # print the README performance table
+python3 readme_perf_table.py results_ramp/<date> --write    # replace it between the perf-table markers in README.md
+```
+
+Each ramp grows one kind of content until the frame rate falls to the target (`--target-fps`, default 20), and
+reports how much content that took: N. Comparing N across legs gives "WebGPU Forward+ carried 1.5x the draw-call
+load of WebGL at 20 fps". The fps matrix (`run_matrix.sh`) cannot give that, because Chrome holds WebGL at the
+display rate even with the frame-rate limit lifted (TASKS.md §2.17). One unit of N:
+
+| ramp | one unit of N | what it loads |
+|---|---|---|
+| `draws` | a MeshInstance3D (12-triangle box) with its own StandardMaterial3D, static | per-draw CPU submission |
+| `nodes` | the `draws` unit plus one GDScript `rotate_y` per frame | script + transform sync + submission |
+| `fill` | a full-screen 1280x720 alpha-blended quad, 64-iteration trig loop per pixel | fragment ALU and blending |
+| `lit` | a PBR sphere (~9.2k triangles) under 1 directional + 3 omni + 3 spot lights, all shadowed | vertex, shadow passes, shading |
+| `particles` | a GPUParticles3D emitter of 2048 billboard particles, simulated every frame | particle simulation + vertices |
+
+Legs: `native_vulkan_fp`, `native_compat` (OpenGL; separates "WebGL" from "the Compatibility renderer"), `webgl`
+(the official 4.7.2 template exported by the official 4.7.x editor: a 4.8 pck will not load in it), `webgpu_mobile`,
+`webgpu_fp`, and `firefox_webgpu_fp` (Playwright's Firefox, if installed). Every leg runs headed at 1280x720 with
+the frame-rate cap lifted (`--capped` keeps it). Content is placed with a fixed seed under a fixed camera, from the
+same scene (`benchmark/godot/load_ramp/`, which also parses in Godot 4.7).
+
+Control loop (`ramp.gd`): N doubles while the frame time is far below the target, then grows by what the last
+window predicts (x1.25 margin, at least x1.15) so no step lands far past it, and bisects (geometric midpoints) to
+within 4% once it has a point either side. Every change of N is followed by a 1 s settle; the frame time is the
+mean (elapsed / frames) over a 2 s window, and a below-target window must be confirmed by a second one after a
+further 2 s, so a single hitch cannot end a ramp. The crossing is interpolated in log space. A ramp that hits its
+N cap or `--max-s` (180 s) reports a lower bound (`>=`).
+
+Fairness rules that cost a run to learn (2026-10-26):
+
+- **Every ramp runs in its own process / browser.** Overshooting fill by 4x left Chrome's GPU process with a
+  backlog that slowed every later window to ~150 ms whatever N was, and the next ramp inherited it (it read as a
+  "cliff at 32 spheres" in `lit`); one run lost the device and kept "measuring" a dead one at 0.2 ms a frame. Now
+  `ramp_browser.mjs` and the native loop start each ramp fresh, and a watchdog (no `[RAMP]` line for 90 s, a page
+  error or crash, a lost device, an out-of-memory error, a failed screenshot, the ramp's time budget) closes it,
+  logs `[BENCHMARK] ramp_failed ramp=<r> reason=<why>` and moves on: the summary reports that run as the last N
+  measured above the target, marked `(failed)`.
+- **WebGPU frames are paced to 2 in flight** (`GPUQueue.onSubmittedWorkDone`, injected by `ramp_browser.mjs`;
+  `--no-pace` to compare), as native Vulkan is. With the frame-rate limit lifted Chrome otherwise lets the page
+  queue GPU work faster than the GPU finishes it: the frame time reads too fast while the queue grows (unpaced, fill
+  "carried" twice native Vulkan's layers; paced, 0.67x). WebGL needs no pacing: the browser throttles it.
+- **Memory budget.** The web heap is 2 GB (Emscripten's default for a nothreads build; the official template has
+  the same), and running out of it kills the page. A ramp never grows past what its measured memory predicts will
+  fit in `--mem-mb` (1400 MB): on the web that is the wasm heap's size, read from the page (`OS.get_static_memory_usage()`
+  is 0 in release templates); natively Godot's tracked static memory. A ramp stopped there reports `status=mem_cap`,
+  shown as `(mem)`: memory-limited, not a frame-rate crossing. The draws ramp, the most memory-hungry, uses ~780 MB of
+  heap at 44k units on WebGPU.
+
+The script checks its prerequisites (binaries, the official template, Playwright, a display) and that the GPU
+is idle (no other process over 1 GB, utilization at most 25%) before it starts and before every leg; it stops
+rather than record a contaminated leg (`--force` overrides, and says so in the summary). It exports fresh from
+this tree every run, takes and drops the `gpu` lease when `webgpu_notes/work/lease.sh` exists, and writes
+`results_ramp/<date>/`: `env.txt` (machine, GPU and driver, browser and engine versions), `logs/<leg>__r<k>.log`
+(one `[BENCHMARK] ramp=...` result line per ramp, `[RAMP]` lines per step), `shots/` (one frame per ramp and
+leg, to check every leg draws the same thing) and `ramp_summary.md` (N per leg, ratios, each run's N and the
+spread).
+
+### 12. Occlusion Culling Benchmark (needs the editor, a web template with the raycast module, and a real GPU)
+
+```bash
+cd webgpu_tests/occlusion_bench
+./export.sh <template.zip> <out dir> [threads=no|yes]   # BAKE=1 bakes shaders (under xvfb-run)
+node run.mjs --dir <out dir> [--uncapped] [--json out.json]
+```
+
+A 24x24-block city with 20k props, each with its own material, viewed from the street (mostly occluded) and from
+above (nothing to cull), with occlusion culling off and on. Reports main-thread ms per frame (in a nothreads export,
+the whole engine frame), GPU ms, draws and objects, heap and load time; `--uncapped` paces frames to 2 in flight
+(TASKS.md §3 trap 66). Results and what they mean: TASKS.md §4.38.
+
+### 13. DOF NaN containment (native, needs a display)
+
+```bash
+webgpu_tests/dof_nan/run.sh [editor binary] [out dir]
+```
+
+One NaN pixel through every bokeh DOF mode (box, hexagon, circle; near and far; transition and physical), glow
+(additive, softlight), SSR (Forward+ only; a reported SKIP on Mobile) and auto exposure, on Forward+ and Forward
+Mobile; `ONLY=dof,glow,ssr,exposure` narrows it. Exit 0 when every case keeps the NaN to the quad's own pixels (glow
+and SSR are also gated on changed pixels, auto exposure on mean brightness). The web side is the Forward+ matrix's
+`dof_nan`, `glow_nan`, `ssr_nan` and `auto_exposure_nan` arms (`maxDelta` arms). `webgpu_tests/metahuman/run.sh` also runs `nan_check.gd`
+(the groom strands with coverage forced below zero must write no NaN; lavapipe under Xvfb) and reimports whenever the
+editor is newer than its last import. TASKS.md §4.41, §4.44, §3 traps 70–71.
+
+### 14. Shader-bake isolation (native, Xvfb + Vulkan, no browser)
+
+```bash
+webgpu_tests/bake_isolation/run.sh      # EDITOR_BIN / TEMPLATE override the binaries; KEEP=1 keeps the scratch dir
+```
+
+An interactive Web export from a windowed editor whose 3D viewport runs FSR 2 + TAA. Fails on any "Mismatch uniform
+type" / "Uniforms were never supplied" in the editor's own log, on an FSR 2 pass baked in the editor's flavor, or as
+inconclusive when the editor drew no frame during the bake. ~1 min. TASKS.md §4.43, §3 trap 73.
+
 ## CI Pipeline
 
 Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.
@@ -374,7 +514,7 @@ Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.
 │  ┌────────────────┐ ┌────────────┐ ┌───────────┐ ┌────────────┐ │
 │  │ validate-spirv │ │ smoke-test │ │ scene-    │ │ webrtc-    │ │
 │  │ All SPIR-V     │ │ Headless   │ │ smoketest │ │ parity     │ │
-│  │ through Tint   │ │ Chrome run │ │ 23 scenes │ │ 9 fixtures │ │
+│  │ via wgsl_cli   │ │ Chrome run │ │ 23 scenes │ │ 9 fixtures │ │
 │  │                │ │            │ │ × Chrome  │ │ in Chrome  │ │
 │  │                │ │            │ │ + Firefox │ │            │ │
 │  └────────────────┘ └────────────┘ └───────────┘ └────────────┘ │
@@ -441,7 +581,7 @@ See [test_project/README.md](test_project/README.md) for the full shader list.
 
 ## Expected Failures
 
-`shader_corpus/expected_failures.json` tracks shader variants that fail Tint validation offline but work at runtime. These are Vulkan-only variants the WebGPU path never uses:
+`shader_corpus/expected_failures.json` tracks shader variants that fail conversion offline but are never used at runtime. These are Vulkan-only variants the WebGPU path never uses:
 
 | Category | Count | Reason |
 |----------|-------|--------|
@@ -463,7 +603,7 @@ node webgpu_tests/shader_corpus/validate_spirv_dump.mjs /tmp/spirv_dump/ --updat
 
 **"No .spv files found"** — You ran with `--headless`. Use `--quit-after 10` instead (shaders need rendering to compile).
 
-**"tint_convert_cli not found"** — The shader corpus and SPIR-V dump validator use a standalone Tint CLI for offline validation. If it's not available, the tests skip gracefully — runtime Tint (linked into the engine WASM) handles all conversion.
+**"wgsl_convert_cli not found"** — The shader corpus and SPIR-V dump validator use a standalone converter (`bin/wgsl_convert_cli`, `./drivers/webgpu/wgsl_cli/build.sh`) for offline validation. If it's not available, the tests skip — the runtime converter (linked into the engine WASM) handles all conversion.
 
 **New shader failures after engine changes** — Run validation, review the new errors. If they're Vulkan-only variants, update the baseline. If they affect WebGPU runtime, fix the GLSL or SPIR-V preprocessing.
 

@@ -105,8 +105,8 @@ float get_blur_size(float depth) {
 
 vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 	dir *= pixel_size;
-	vec4 color = texture(source_color, uv);
-	color.a = texture(source_weight, uv).r;
+	// The raster path has no pass that rewrites the scene color, so each read is sanitized.
+	vec4 color = vec4(finite_or_zero3(texture(source_color, uv).rgb), texture(source_weight, uv).r);
 
 	vec4 accum = color;
 	float total = 1.0;
@@ -125,8 +125,7 @@ vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 		vec2 suv = uv + dir * radius;
 		radius = abs(radius);
 
-		vec4 sample_color = texture(source_color, suv);
-		sample_color.a = texture(source_weight, suv).r;
+		vec4 sample_color = vec4(finite_or_zero3(texture(source_color, suv).rgb), texture(source_weight, suv).r);
 		float limit;
 
 		if (sample_color.a < color.a) {
@@ -221,6 +220,7 @@ void main() {
 
 	vec4 color = texture(source_color, uv);
 	float alpha = color.a; // retain this
+	color.rgb = finite_or_zero3(color.rgb);
 	color.a = texture(source_weight, uv).r;
 
 	vec4 color_accum = color;
@@ -230,8 +230,7 @@ void main() {
 	for (float ang = 0.0; radius < params.blur_size; ang += GOLDEN_ANGLE) {
 		vec2 uv_adj = uv + vec2(cos(ang), sin(ang)) * pixel_size * radius;
 
-		vec4 sample_color = texture(source_color, uv_adj);
-		sample_color.a = texture(source_weight, uv_adj).r;
+		vec4 sample_color = vec4(finite_or_zero3(texture(source_color, uv_adj).rgb), texture(source_weight, uv_adj).r);
 
 		float limit = abs(sample_color.a);
 		if (sample_color.a > color.a) {

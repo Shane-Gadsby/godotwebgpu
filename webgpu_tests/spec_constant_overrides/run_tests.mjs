@@ -5,7 +5,7 @@
  * pipeline constants instead of re-patching and re-converting its SPIR-V for
  * every value combination (webgpu_notes/TASKS.md Task 25):
  *
- *   1. Offline half — run a spec-constant fixture through tint_convert_cli and
+ *   1. Offline half — run a spec-constant fixture through wgsl_convert_cli and
  *      assert its constants survive as `@id(N) override` declarations, and that
  *      a fixture whose constants *cannot* be overrides is still frozen (the
  *      guard in spirv_preprocess::spec_constants_overridable()).
@@ -34,6 +34,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -75,19 +76,20 @@ function assert(cond, msg, detail) {
     }
 }
 
-function findTintCli() {
-    for (const name of ['tint_convert_cli', 'tint_convert_cli.exe']) {
+function findWgslCli() {
+    if (process.env.WGSL_CONVERT_CLI) return existsSync(process.env.WGSL_CONVERT_CLI) ? process.env.WGSL_CONVERT_CLI : null;
+    for (const name of ['wgsl_convert_cli', 'wgsl_convert_cli.exe']) {
         const p = join(REPO_ROOT, 'bin', name);
         if (existsSync(p)) return p;
     }
     return null;
 }
 
-function convert(tintCli, fixture) {
+function convert(convertCli, fixture) {
     const spv = join(FIXTURES_DIR, fixture);
     if (!existsSync(spv)) return { error: `fixture not found: ${spv}` };
     try {
-        return { wgsl: execFileSync(tintCli, [spv], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 }) };
+        return { wgsl: execFileSync(convertCli, [spv], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 }) };
     } catch (e) {
         return { error: String(e.stderr || e.message) };
     }
@@ -119,7 +121,13 @@ async function runOnGpu(wgsl) {
     try {
         ({ chromium } = await import('playwright'));
     } catch {
-        return { skipped: 'playwright is not installed (npm install)' };
+        // Worktrees and fresh checkouts have no node_modules of their own; the scene smoketest's install is the one
+        // every other tier shares.
+        try {
+            ({ chromium } = createRequire(join(REPO_ROOT, 'webgpu_tests', 'scene_smoketest', 'package.json'))('playwright'));
+        } catch {
+            return { skipped: 'playwright is not installed (npm install)' };
+        }
     }
 
     // Explicit args rather than Playwright's defaults, which inject
@@ -176,17 +184,17 @@ async function main() {
     console.log('║   Specialization-Constant Override Test                  ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-    const tintCli = findTintCli();
-    if (!tintCli) {
-        console.log('NOTE: bin/tint_convert_cli not found — build it with');
-        console.log('      ./drivers/webgpu/tint_cli/build.sh\n');
-        console.log('PASS (skipped — no Tint CLI available)\n');
+    const convertCli = findWgslCli();
+    if (!convertCli) {
+        console.log('NOTE: bin/wgsl_convert_cli not found — build it with');
+        console.log('      ./drivers/webgpu/wgsl_cli/build.sh\n');
+        console.log('SKIP (no wgsl_convert_cli available)\n');
         process.exit(0);
     }
-    console.log(`Using Tint CLI: ${tintCli}\n`);
+    console.log(`Using wgsl_convert_cli: ${convertCli}\n`);
 
     console.log('Offline: SPIR-V → WGSL');
-    const chained = convert(tintCli, 'chained_spec_ops.spv');
+    const chained = convert(convertCli, 'chained_spec_ops.spv');
     assert(chained.wgsl !== undefined, 'chained_spec_ops.spv converts', chained.error);
 
     let wgsl = null;
@@ -199,8 +207,8 @@ async function main() {
     }
 
     // The guard's other half: a module that cannot use overrides must still be
-    // frozen, or Tint raises an internal error on it.
-    const specConstants = convert(tintCli, 'spec_constants.spv');
+    // frozen, or the converter fails on it (Tint raised an internal error).
+    const specConstants = convert(convertCli, 'spec_constants.spv');
     assert(specConstants.wgsl !== undefined, 'spec_constants.spv converts', specConstants.error);
     if (specConstants.wgsl) {
         assert(!specConstants.wgsl.includes('@id('),

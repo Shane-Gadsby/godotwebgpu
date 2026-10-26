@@ -42,7 +42,7 @@ SDFGI corrupted by camera movement, contact shadows smeared along the screen
 edge, every cube omni shadow missing, and the samplers' mip LOD bias ignored.
 See `webgpu_notes/TASKS.md` §4.29.
 
-Getting a comparable frame out of both backends took three things, all part of
+Getting a comparable frame out of both backends took four things, all part of
 the mode now, and each was a false failure before it existed:
 
 - **A fixed timestep** (`--fixed-fps 60` on both sides; the harness adds it to
@@ -56,10 +56,50 @@ the mode now, and each was a false failure before it existed:
   on the frame it reports `READY` for, because the harness's screenshot is
   asynchronous and otherwise lands some frames later — enough to move every
   particle and every TAA/FSR2 jitter sample.
+- **A fixed jitter phase.** Volumetric fog's Halton offset is the frame number
+  mod 16, and a settled temporal effect still differs by phase: natively, two
+  adjacent phases measure 0.07 apart. The fixture delays each config until its
+  capture frame lands on phase 0 mod 32 (`_aligned()`; `--fp-phase=N` natively
+  for triage) and prints `[FP] FRAME <n> (phase <p>)` before `READY`. 32, not
+  16, because FSR2 at the matrix's 0.5 scale cycles 32 jitter phases. Before
+  that, the phase depended on whether the harness's first hash change landed in
+  boot frame 1 or 2, and baked exports, which boot fast enough to straddle it,
+  measured fog at 0.046 or 0.082 from native at random.
 
 Arms marked `parityOnly` in `features.mjs` exist for this mode alone: their
 correct "on" frame equals the "off" frame (`sdfgi_camera_move` flies the camera
 away and back; SDFGI must end up exactly where it started).
+
+Occlusion culling's correct "on" frame also equals its "off" frame, but there
+the point is what was *not* drawn. Its arm sets `maxDelta` (the frame must not
+change) and `infoDrop: { objects: 15 }`: the fixture prints `[FP] INFO
+objects=.. primitives=.. draws=..` (`Viewport.get_render_info`) for every
+captured frame, writes the same to `<id>_<0|1>.info` natively, and the harness
+requires "on" to draw at least 15 fewer objects than "off", on the web and, in
+parity mode, natively.
+
+The four NaN arms (`dof_nan`, `glow_nan`, `ssr_nan`, `auto_exposure_nan`,
+2026-10-26, `webgpu_notes/TASKS.md` §4.41, §4.44) are `maxDelta` arms too:
+"on" adds a 2x2 px quad that writes NaN with the effect running both ways, and
+the frame may change by at most 0.05, because the effect must keep the NaN to
+the quad's own pixels rather than spread it into a bokeh shape, a glow blob, a
+smeared reflection or a blank frame. Their GDScript-built materials can never
+be baked, which is part of why the baked run's translated-stage ceiling is 150
+(`webgpu_notes/TASKS.md` §2.39).
+
+An arm can carry `knownFail: '<why>'`: a web failure that is understood and out
+of this port's reach. It runs, reports `KNOWN` and does not fail the run; if
+it starts passing it reports `XPASS` and fails, so the marker goes with the
+bug. No arm carries one today.
+
+`needsRaycast: '<why>'` marks an arm that needs the raycast module (Embree, the
+only occlusion culler): `occlusion_culling`. Stock Godot leaves the module out of
+web templates (upstream GH-70621); this fork's include it by default since
+2026-10-26 (`platform/web/detect.py`, `build-linux.sh --no-web-raycast` to leave
+it out). The harness looks for Embree in the export's `index.wasm`
+and prints `template raycast module (occlusion culling): yes|no`; without it
+the arm becomes a `knownFail` with that reason (the frame is right, nothing is
+culled), with it a normal arm that must cull as natively (29 -> 8 objects).
 
 Natively, `--fp-only=a,b` limits the reference sweep, for triage:
 
@@ -121,11 +161,8 @@ two edits that cannot drift apart:
 
 `UNCOVERED` is the honest escape hatch, not a dumping ground: each entry must
 say *why*, and anything whose reason stops being true belongs in the matrix.
-It currently holds LightmapGI (needs editor-baked data), occlusion culling (a
-correct result is pixel-identical, so an A/B delta cannot see it — it needs a
-draw-call assertion instead), multiview and VRS (absent from WebGPU by design),
-CompositorEffect (no engine behavior to assert), and three that genuinely
-should be added: FogVolume nodes, stencil, and bent normals.
+It holds only what WebGPU cannot have: multiview, VRS, and MSAA 2x/8x (the
+spec allows 1 and 4 samples).
 
 ### On upstream syncs
 
@@ -189,7 +226,16 @@ pinned with a fixed seed and fixed step so their A/B is reproducible.
 Everything is built procedurally in GDScript rather than committed as a `.tscn`
 with binary resources — a skinned mesh, blend shapes, a MultiMesh and a
 generated LOD chain cannot be expressed in text otherwise, and binary fixtures
-rot silently across upstream syncs.
+rot silently across upstream syncs. The exceptions are what a shipped project
+gets from the editor rather than at run time: the LOD mesh (`make_lod_mesh.gd`),
+VoxelGI's data (`make_bake_assets.gd`) and the lightmap. `lightmap_room.tscn` is
+a small room parked at x = -60, baked by `./bake_lightmap.sh`: `LightmapGI.bake()`
+is not exposed to scripts and the lightmapper needs a GPU, so the script runs
+the editor under Xvfb with Vulkan on a scratch copy of the project, with a
+throwaway plugin that presses the 3D toolbar's own "Bake Lightmaps" button,
+and copies back `lightmap_room.{tscn,lmbake,exr,exr.import}` (about 150 KB).
+Re-run it after changing the room. The compositor arm's effect lives in
+`fp_compositor_effect.gd`.
 
 If a feature fails *with driver errors*, the harness reloads the page before
 continuing: a broken texture leaves its uniform sets invalid and keeps erroring

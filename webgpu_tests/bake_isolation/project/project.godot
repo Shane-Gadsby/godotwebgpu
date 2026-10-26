@@ -1,0 +1,18 @@
+; Shader-bake isolation fixture: FSR 2 and TAA from the project settings, so the
+; editor's own 3D viewport runs FSR 2 while the export's shader baker answers
+; capability queries as WebGPU. See ../run.sh.
+config_version=5
+
+[application]
+config/name="bake_isolation"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.8", "Forward Plus")
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/bake_isolation/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="forward_plus"
+scaling_3d/mode=2
+scaling_3d/scale=0.85
+anti_aliasing/quality/use_taa=true

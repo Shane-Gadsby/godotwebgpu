@@ -1064,8 +1064,8 @@ public:
 		// binding. True on Vulkan (VkDescriptorSetLayoutBinding::descriptorCount > 1),
 		// Metal (argument buffers/array textures), and D3D12 (descriptor ranges).
 		// False on WebGPU: core WebGPU has no descriptor-array equivalent at all, and
-		// Tint cannot even parse SPIR-V containing such an array type regardless of
-		// size -- callers on this driver must bind each array element as its own
+		// the SPIR-V -> WGSL converter rejects SPIR-V containing such an array type
+		// regardless of size -- callers on this driver must bind each array element as its own
 		// separate, individually-numbered uniform instead (see
 		// webgpu_texture3d_array_inc.glsl in the shader source and gi.cpp's SDFGI
 		// cascade-texture bindings for the one real user of this today). See

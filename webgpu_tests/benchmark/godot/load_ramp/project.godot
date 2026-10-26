@@ -1,0 +1,24 @@
+; Engine configuration file.
+; Load-ramp benchmark (webgpu_tests/benchmark/run_ramp.sh). Must stay loadable by the official Godot 4.7 editor too
+; (the WebGL leg exports with it), so no 4.8-only settings or syntax.
+config_version=5
+
+[application]
+
+config/name="Benchmark: load ramp"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.6")
+run/delta_smoothing=false
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/resizable=false
+window/vsync/vsync_mode=0
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.web="forward_plus"
+lights_and_shadows/positional_shadow/atlas_size=4096

@@ -1332,6 +1332,7 @@
 			- [b]Check Newest Stable[/b] will check for the newest available stable version.
 			- [b]Check Newest Patch[/b] will check for the latest available stable version, but only within the same minor version. E.g. if your version is [code]4.3.stable[/code], you will be notified about [code]4.3.1.stable[/code], but not [code]4.4.stable[/code].
 			All update modes will ignore builds with different major versions (e.g. Godot 4 -&gt; Godot 5).
+			[b]Note:[/b] Godot WebGPU checks its own GitHub releases instead of Godot's: a published release is offered when it was built from a later commit than the running editor. Prereleases count as previews, and a release's engine version (from its file names) decides the major and minor version.
 		</member>
 		<member name="network/connection/network_mode" type="int" setter="" getter="">
 			Determines whether online features, such as the Asset Store or update checks, are enabled in the editor. If this is a privacy concern, disabling these online features prevents the editor from making HTTP requests to the Godot website or third-party platforms hosting assets from the Asset Store.

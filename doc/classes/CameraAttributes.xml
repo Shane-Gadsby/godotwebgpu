@@ -4,8 +4,8 @@
 		Parent class for camera settings.
 	</brief_description>
 	<description>
-		Controls camera-specific attributes such as depth of field and exposure override.
-		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
+		Controls camera-specific attributes such as depth of field, exposure override and white balance.
+		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, white balance, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
 		See also [Environment] for general 3D environment settings.
 		This is a pure virtual class that is inherited by [CameraAttributesPhysical] and [CameraAttributesPractical].
 	</description>
@@ -29,6 +29,14 @@
 			Sensitivity of camera sensors, measured in ISO. A higher sensitivity results in a brighter image.
 			If [member auto_exposure_enabled] is [code]true[/code], this can be used as a method of exposure compensation, doubling the value will increase the exposure value (measured in EV100) by 1 stop.
 			[b]Note:[/b] Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+		</member>
+		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
+			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
+			The illuminant is taken on the Planckian locus with the same approximation [member Light3D.light_temperature] uses, so a light set to a given temperature renders neutral under a white balance of the same temperature. The adaptation is a von Kries transform in Bradford cone space, applied in linear scene-referred color after exposure and before tonemapping.
+			[b]Note:[/b] Unlike [member exposure_sensitivity], this works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled, in every rendering method.
+		</member>
+		<member name="white_balance_tint" type="float" setter="set_white_balance_tint" getter="get_white_balance_tint" default="0.0">
+			Green-magenta correction of the white balance, from [code]-150.0[/code] to [code]150.0[/code]. It moves the assumed illuminant perpendicular to the Planckian locus by [code]1/3000[/code] Duv per unit, so the full range is [code]0.05[/code] Duv either way: a positive value compensates for a green illuminant and turns the image magenta, a negative value compensates for a magenta one and turns it green, as the tint slider of most raw converters does.
 		</member>
 	</members>
 </class>

@@ -4,11 +4,11 @@
 
 ### 1. What is godot-webgpu?
 
-A complete WebGPU rendering backend for Godot Engine 4.6.2 that enables Godot games to run in the browser using the modern WebGPU API instead of the legacy WebGL. It implements Godot's `RenderingDeviceDriver` interface — the same abstraction used by the Vulkan, Metal, and D3D12 backends — targeting the browser's WebGPU API via Emscripten's emdawnwebgpu port.
+A complete WebGPU rendering backend for Godot Engine (4.8 since October 2026; it started on 4.6.2) that enables Godot games to run in the browser using the modern WebGPU API instead of the legacy WebGL. It implements Godot's `RenderingDeviceDriver` interface — the same abstraction used by the Vulkan, Metal, and D3D12 backends — targeting the browser's WebGPU API via Emscripten's emdawnwebgpu port.
 
 ### 2. Which Godot renderer does it use?
 
-The **Forward Mobile** renderer. This is Godot's lighter-weight 3D renderer designed for mobile GPUs, which maps well to WebGPU's single-queue, limited-feature-set model. The Forward Clustered renderer (Godot's desktop-class renderer) is not supported and is saved for a future update.
+**Forward+ (Clustered)**, Godot's desktop-class renderer, since the 4.8 port (October 2026). It is measured feature by feature against native Vulkan: 87 arms, all at parity (`webgpu_notes/TASKS.md` §4.39, §4.41, §4.42, §4.44). Godot falls back to **Forward Mobile** on its own when the adapter offers fewer than 48 sampled textures per shader stage, which includes software adapters such as swiftshader; real desktop GPUs and the Mali phone in Q20 run Forward+. Earlier versions of this fork (Godot 4.6.2) supported Forward Mobile only.
 
 ### 3. What browsers are supported?
 
@@ -28,12 +28,12 @@ The `dlink_enabled=yes` flag enables Emscripten dynamic linking, which produces 
 
 Requirements:
 - Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
-- No Rust toolchain needed (Tint C++ translator is compiled directly into the engine)
+- No Rust toolchain needed (SPIRV-Cross's C++ WGSL backend is compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
 
 ### 5. Do I need to modify my Godot project to use WebGPU?
 
-Almost nothing. Existing Godot 4.6 projects targeting the Mobile renderer will generally work without modification — shaders, materials, and scenes carry over as-is.
+Almost nothing. Existing Godot 4.8 projects targeting Forward+ or Mobile will generally work without modification — shaders, materials, and scenes carry over as-is.
 
 The one exception is **GPU readback**. Any code that reads data back from the GPU — including `RenderingDevice.texture_get_data()`, `Image.get_image()`, or compute shader result retrieval — must be adapted. On native backends (Vulkan, Metal, D3D12), these calls are synchronous and return data immediately. On WebGPU, the underlying `buffer.mapAsync()` is asynchronous and cannot resolve while C++ holds the WASM call stack, so the first call returns `null`/empty data. You must poll across frames until the result is available:
 
@@ -52,7 +52,7 @@ This 1+ frame latency applies to any GPU→CPU data transfer. If your project ne
 
 The empty first result is the designed behavior, not an error, so the engine only notes it at `--verbose` level (add `--verbose` to `GODOT_CONFIG['args']` in the exported HTML to see it). If you are looking at a console from a build before 2026-10-17, it appeared as a `WARNING` -- which on web was logged with `console.error()` -- and it meant nothing more than that a readback had been started.
 
-The only other user-visible difference is setting `rendering/renderer/rendering_method.web` to `mobile` or `forward_plus` (which maps to `mobile` on web) in project settings.
+The only other user-visible difference is setting `rendering/renderer/rendering_method.web` to `forward_plus` or `mobile` (both render through WebGPU and need the WebGPU export templates; `gl_compatibility` uses WebGL 2) in project settings.
 
 ### 6. Why WebGPU instead of WebGL 2?
 
@@ -64,7 +64,9 @@ WebGPU provides an asynchronous GPU API, which prevents the frame-stalling pipel
 
 ### 7. How does WebGPU performance compare to native?
 
-On desktop browsers with the optimizations enabled, WebGPU achieves **close to parity with native Vulkan/Metal** for typical Forward Mobile scenes — around 1.4x native frame times. The benchmark journey:
+The current measurement is the load-ramp benchmark (2026-10-26, `webgpu_tests/benchmark/run_ramp.sh`, `README.md`'s performance table): each leg adds one kind of content until it falls to 20 fps. On an RTX 4080 SUPER in Chrome, WebGPU Forward+ carries 0.45x native Vulkan's draw calls, 0.75x its moving nodes, 0.67x its full-screen fill, 0.99x its shadowed PBR spheres and 0.31x its particle emitters; against stock WebGL it carries 1.23x the draw calls, 1.61x the moving nodes and 1.50x the particle emitters, but 0.67x the fill (`webgpu_notes/TASKS.md` §2.30 lists the open questions). Earlier fps comparisons with WebGL were held at the display's refresh rate and could not separate the two.
+
+The history, measured on Forward Mobile scenes before the Forward+ port, where the problem was call overhead:
 - Initial unoptimized: 3.25x slower than native
 - After all optimizations: ~1.4x native
 
@@ -86,7 +88,7 @@ A layered optimization stack that reduces IPC message count:
 
 ### 10. What's the startup time?
 
-That 15-second figure was from before export-time baking, when ~383 SPIR-V stages were converted to WGSL by Tint in the browser at every load. Now the editor bakes WGSL into the export (`shader_baker/enabled`), and a baked export converts nothing at load.
+That 15-second figure was from before export-time baking, when ~383 SPIR-V stages were converted to WGSL in the browser at every load (by Tint then; SPIRV-Cross since October 2026). Now the editor bakes WGSL into the export (`shader_baker/enabled`), and a baked export converts nothing at load.
 
 Three later changes cut what remains (`webgpu_notes/TASKS.md` §2.27, §2.18, §2.4):
 
@@ -131,27 +133,27 @@ This design means push constant updates cost zero additional IPC — they're bat
 Godot compiles GLSL → SPIR-V at engine build time (via glslang). At runtime in the browser:
 
 1. SPIR-V bytecode is loaded from the shader container
-2. `spirv_preprocess::run_pipeline()` runs a fixed chain of C++ passes (`spirv_preprocess.cpp`, plus three on SPIRV-Tools' IR in `spirv_opt_passes.cpp`) that transform the SPIR-V for WebGPU compatibility: push constant rewrite, combined sampler split, Y-negation, texture-array expansion, the sampler mipmap bias, lowering of `isnan`/`isinf`/`textureQueryLod` that Tint cannot read, readonly inference, and more. The full order is in `TECHNICAL_REFERENCE.md` §4.1
-3. Tint (Google's Dawn/Chrome SPIR-V→WGSL compiler, compiled directly into the engine WASM) parses the preprocessed SPIR-V and generates WGSL
+2. `spirv_preprocess::run_pipeline()` runs a fixed chain of C++ passes (`spirv_preprocess.cpp`, plus three on SPIRV-Tools' IR in `spirv_opt_passes.cpp`) that transform the SPIR-V for WebGPU compatibility: push constant rewrite, combined sampler split, Y-negation, texture-array expansion, the sampler mipmap bias, lowering of `isnan`/`isinf`/`textureQueryLod`, which WGSL has no direct form for, readonly inference, and more. The full order is in `TECHNICAL_REFERENCE.md` §4.1
+3. SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, compiled directly into the engine WASM) parses the preprocessed SPIR-V and generates WGSL
 4. Post-processing fixes browser-specific issues (f32::MAX literals, f16 stripping, derivative uniformity)
 5. C++ applies format remapping
 6. `wgpuDeviceCreateShaderModule` creates the GPU shader
 
 Results are cached by 64-bit SPIR-V hash — identical stages are never converted twice.
 
-### 15. Why Tint instead of Naga? Why vendor and patch it?
+### 15. Why SPIRV-Cross? Why vendor and patch it?
 
-Tint is Google's SPIR-V→WGSL compiler from the Dawn/Chrome project — it's literally what Chrome uses for WebGPU shader compilation. We chose Tint over the previous Naga (Rust) approach because:
-- **C++ only** — matches Godot's build system (no Rust/wasm-pack dependency)
-- **Compiled directly into the engine WASM** — no separate sidecar binary to load
-- **Far fewer patches** — 6 patches covering 8 files (3 logical groups) vs Naga's 42 patched files
-- **BSD 3-Clause license** — compatible with Godot's licensing
+The converter changed twice. Naga (Rust, prebuilt WASM, 42 patched files) went in May 2026 for Tint, Google's SPIR-V→WGSL compiler from Dawn: C++ only, no Rust toolchain, compiled straight into the engine. In October 2026 Tint gave way to SPIRV-Cross's WGSL backend ([Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), Apache-2.0/MIT), measured on everything before Tint was deleted (`webgpu_notes/TASKS.md` §4.36):
+- **Drop-in after our passes** — all 276 engine variants convert, with bindings, binding kinds and override ids identical to Tint's
+- **Faster and smaller** — ~5-10× faster per module; the converter CLI builds clean in 44 s instead of 63 s, a web template variant compiles ~31 s less; ~204k lines of vendored source deleted (1.8 MB vendored instead of Tint's 9.1 MB). The WGSL text is 6-9% larger, but the baked `index.shaders.pck` gzips 17% smaller (3.70 vs 4.43 MB)
+- **Same image, same speed** — Forward+ 71/71 at parity with native Vulkan (every arm the matrix had then; 87/87 since), the user's cameraSim project indistinguishable from Vulkan, desktop Chrome, Firefox and the Razr 60 phone as fast or faster on the GPU
+- **Already a dependency** — the engine vendors SPIRV-Cross for Metal; the WGSL fork is a second copy in its own namespace (`spirv_cross_wgsl`) so both link into one macOS editor
 
-Six small patches to vendored Tint handle Godot-specific requirements:
-1. UBO layout relaxation (Godot uses C++ struct packing, not std140/std430)
-2. Spec constant size mismatches (Godot's specialization constants change struct sizes at runtime) — 5 files
-3. Point size tolerance (accept non-constant `gl_PointSize` stores)
-4. Vendoring (replace `absl::from_chars` with `std::from_chars`)
+Four small local patches, never upstreamed (`thirdparty/README.md`):
+1. `0001` the barrier/load/barrier broadcast idiom as `workgroupUniformLoad` (FSR2 barrier uniformity)
+2. `0006` 16-bit normalized storage formats (`CanvasSdfShaderRD`)
+3. `0015` uniform compute builtins passed as parameters (contact shadows barrier uniformity)
+4. `0019` no WGSL `for` statements (a Mali-G615 driver ran a negative-start `for` zero times)
 
 ### 16. How does the WebGPU device get created?
 
@@ -160,7 +162,7 @@ JavaScript creates the device **before** WASM loads (since device creation is as
 2. Requests a device with all supported optional features and maximum limits
 3. Passes the device into the Emscripten module config
 4. C++ imports it via `WebGPU.importJsDevice()`
-5. Tint is already compiled into the engine WASM — no separate shader converter to load
+5. The SPIR-V → WGSL converter is already compiled into the engine WASM — no separate shader converter to load
 
 ### 17. Why a single 7733-line implementation file?
 
@@ -172,9 +174,9 @@ This matches the Vulkan driver's structure — `rendering_device_driver_vulkan.c
 
 ### 18. What rendering features work on WebGPU vs native?
 
-**Fully working**: Forward+ (Clustered) on adapters with 48+ sampled textures per stage, which includes the RTX 4080 desktop this was measured on and the Mali phone in Q20, and Forward Mobile otherwise. Forward+ is measured feature by feature against native Vulkan (`webgpu_tests/forward_plus --parity`, 71 features, all within tolerance): lights and shadows including omni cube shadows, SDFGI, VoxelGI, reflection probes, SSR/SSAO/SSIL, volumetric fog, glow, DOF, TAA/FXAA/MSAA/FSR2, `DEPTH_TEXTURE`, refraction, decals, particles, runtime-indexed texture arrays (lightmap and VoxelGI arrays use the same expansion but have no dedicated test). Plus 2D Canvas, skeleton animation, instance batching and texture compression (BC/ETC2/ASTC if the GPU supports it).
+**Fully working**: Forward+ (Clustered) on adapters with 48+ sampled textures per stage, which includes the RTX 4080 desktop this was measured on and the Mali phone in Q20, and Forward Mobile otherwise. Forward+ is measured feature by feature against native Vulkan (`webgpu_tests/forward_plus --parity`, 87 arms, all within tolerance): lights and shadows including omni cube shadows, SDFGI, VoxelGI, reflection probes, SSR/SSAO/SSIL, volumetric fog, glow, DOF, TAA/FXAA/MSAA/FSR2, `DEPTH_TEXTURE`, refraction, decals, particles and particle trails, LightmapGI, FogVolume, stencil, bent normals, SMAA, compositor effects, camera white balance, a NaN pixel through DOF, glow, SSR and auto exposure, occlusion culling (this fork's web templates include the raycast module stock Godot leaves out, `webgpu_notes/TASKS.md` §4.38), runtime-indexed texture arrays (lightmap and VoxelGI arrays use the same expansion but have no dedicated test). Plus 2D Canvas, skeleton animation, instance batching and texture compression (BC/ETC2/ASTC if the GPU supports it).
 
-**Limited/degraded**: texture readback (async 1-frame delay), storage textures (format promoted), MSAA 2x/8x (run as 4x), SDFGI (no image atomics: a plain read-modify-write, 0.025 mean diff from native), FSR2 (fp16 resolve: edge-only differences), no sampler border colour, no wireframe. The full list is `webgpu_notes/TASKS.md` §2.31.
+**Limited/degraded**: texture readback (async 1-frame delay), storage textures (format promoted), MSAA 2x/8x (run as 4x), SDFGI (no image atomics: a plain read-modify-write, 0.025 mean diff from native), FSR2 (0.142 mean diff from native: one or two levels of noise), no sampler border colour, no wireframe. The full list is `webgpu_notes/TASKS.md` §2.31.
 
 **Not available**: Subpass-based post-processing, multiview/VR, VRS, tessellation, geometry shaders, subgroups, half-float math, texture component swizzle (emulated on CPU for L8/LA8; monochrome font atlases are rasterized straight to RGBA8 instead, so they need no conversion), 3-component texture formats (RGB8/RGBH/RGBF gain an alpha channel at load).
 
@@ -272,7 +274,7 @@ The 1-frame latency is acceptable for viewport capture, profiling, and compute r
 
 ### 27. How is the combined-sampler splitting implemented?
 
-At the SPIR-V binary level (before Tint parsing), the most complex preprocessing pass (~500 lines of C++):
+At the SPIR-V binary level (before conversion), the most complex preprocessing pass (~500 lines of C++):
 
 1. Identifies all `OpVariable` with `OpTypeSampledImage` pointer type
 2. For each combined variable at binding N:
@@ -299,7 +301,7 @@ New methods include: `buffer_create_with_data`, `buffer_initiate_async_map`, `bu
 ### 29. What would need to change for upstream Godot acceptance?
 
 1. **RFC for API traits**: The 10 new trait enums need formal review by Godot rendering team
-2. **Upstream Tint patches**: Submit the 6 patches to the Dawn/Tint project (patches 5 & 6 are arguably Tint bugs)
+2. **Vendored converter**: a second SPIRV-Cross (the WGSL fork, beside Metal's) with four local patches; by the project's rule the patches are not offered upstream, so upstream Godot would vendor the fork as patched here or wait for the WGSL backend to land in KhronosGroup/SPIRV-Cross
 4. **Reduce WGSL text manipulation**: Move remaining string-level transforms into SPIR-V preprocessing where possible
 5. **CI infrastructure**: Headless Chrome/Firefox WebGPU testing
 6. **Shared constants**: Single source of truth for magic numbers (binding 120, ring size, alignment)
@@ -336,7 +338,7 @@ Currently, there is no automated test suite for the WebGPU backend. Correctness 
 - Manual testing across Chrome, Firefox, and Safari
 - Stress test scenes (20k instances, 32 lights, 60k shared-material objects)
 - The browser's own WebGPU validation layer (catches spec violations)
-- Tint's built-in SPIR-V and WGSL validation passes
+- SPIRV-Tools' validator on `run_pipeline()`'s input, and the browser's WGSL compiler on the output
 - Performance counter monitoring for unexpected behavior
 
 For upstream, we'd need:

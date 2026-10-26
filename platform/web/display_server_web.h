@@ -153,6 +153,8 @@ private:
 	int key_event_pos = 0;
 
 	bool swap_cancel_ok = false;
+	bool keep_screen_on = false;
+	DisplayServerEnums::ScreenOrientation screen_orientation = DisplayServerEnums::SCREEN_LANDSCAPE;
 	NativeMenu *native_menu = nullptr;
 
 	int gamepad_count = 0;
@@ -270,7 +272,10 @@ public:
 	virtual int screen_get_dpi(int p_screen = DisplayServerEnums::SCREEN_OF_MAIN_WINDOW) const override;
 	virtual float screen_get_scale(int p_screen = DisplayServerEnums::SCREEN_OF_MAIN_WINDOW) const override;
 	virtual float screen_get_refresh_rate(int p_screen = DisplayServerEnums::SCREEN_OF_MAIN_WINDOW) const override;
-	virtual void screen_set_keep_on(bool p_enable) override {}
+	virtual void screen_set_keep_on(bool p_enable) override;
+	virtual bool screen_is_kept_on() const override;
+	virtual void screen_set_orientation(DisplayServerEnums::ScreenOrientation p_orientation, int p_screen = DisplayServerEnums::SCREEN_OF_MAIN_WINDOW) override;
+	virtual DisplayServerEnums::ScreenOrientation screen_get_orientation(int p_screen = DisplayServerEnums::SCREEN_OF_MAIN_WINDOW) const override;
 
 	virtual void virtual_keyboard_show(const String &p_existing_text, const Rect2 &p_screen_rect = Rect2(), DisplayServerEnums::VirtualKeyboardType p_type = DisplayServerEnums::KEYBOARD_TYPE_DEFAULT, int p_max_input_length = -1, int p_cursor_start = -1, int p_cursor_end = -1) override;
 	virtual void virtual_keyboard_hide() override;

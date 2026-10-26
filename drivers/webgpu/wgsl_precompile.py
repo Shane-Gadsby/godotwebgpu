@@ -6,12 +6,12 @@ During `scons platform=web webgpu=yes`, this module:
 2. Enumerates all enabled variant defines for each shader class
 3. Assembles complete GLSL (raw source + defines + driver defines)
 4. Compiles each variant via glslangValidator → SPIR-V
-5. Converts each SPIR-V via Tint (native CLI tool) → WGSL
+5. Converts each SPIR-V via SPIRV-Cross (native CLI tool, wgsl_convert_cli) → WGSL
 6. Computes MurmurHash3 hash of each SPIR-V (same algorithm as C++ runtime)
 7. Generates wgsl_precompiled.gen.h with an embedded hash→WGSL lookup table
 
 At runtime, _spv_to_wgsl_cached() checks the precompiled table before
-falling back to Tint (compiled into the engine). This eliminates runtime
+converting at runtime (SPIRV-Cross, compiled into the engine). This eliminates runtime
 SPIR-V → WGSL conversion for ubershaders on every page load.
 """
 
@@ -285,19 +285,20 @@ GENERAL_DEFINES_FSR2 = (
 # Texture blit defines (texture_storage.cpp's _tex_blit_shader_initialize()).
 GENERAL_DEFINES_TEX_BLIT = "\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n#define MAX_GLOBAL_SHADER_UNIFORMS 256\n"
 
-# FSR2 declares two independent capability axes, and this script always
-# precompiles for the WebGPU driver, where both are false:
-#   RD::SUPPORTS_HALF_FLOAT        -> no FFX_HALF variant is ever declared.
+# FSR2 declares two independent capability axes, one shader group per answer
+# (fsr2.cpp), and this script always precompiles for the WebGPU driver, where
+# both are false, so only those groups are ever enabled:
+#   RD::SUPPORTS_HALF_FLOAT        -> the FFX_HALF groups are never enabled.
 #     Its 16-bit integer types cannot be expressed in WGSL at all (WGSL has
-#     f16 but no integer narrower than 32 bits), so Tint aborts on them --
+#     f16 but no integer narrower than 32 bits), so no converter can take them --
 #     see webgpu_notes/TASKS.md Task 26.
-#   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS variant is the
-#     one declared, for the four passes that have the axis at all: the
+#   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS group is the
+#     one enabled, for the four passes that have the axis at all: the
 #     luminance pyramid (SPD's counter) and the three that touch the
 #     reconstructed previous depth (reconstruct, depth clip, lock), which keep
 #     those resources in storage buffers instead. WGSL has no texture atomics,
 #     so the image-atomics variant cannot be translated either.
-# Only the variants the WebGPU renderer actually declares are listed below.
+# Only the variants the WebGPU renderer actually enables are listed below.
 FSR2_NO_IMAGE_ATOMICS = "\n#define NO_IMAGE_ATOMICS 1\n"
 # The luminance pyramid's fallback variant also builds SPD without wave
 # operations (fsr2.cpp explains why); it must match that mode string exactly
@@ -305,7 +306,7 @@ FSR2_NO_IMAGE_ATOMICS = "\n#define NO_IMAGE_ATOMICS 1\n"
 FSR2_LUMINANCE_PYRAMID_FALLBACK = "\n#define NO_IMAGE_ATOMICS 1\n#define SPD_NO_WAVE_OPERATIONS 1\n"
 
 # Optional 4th element of a registry entry. False means "compile and convert
-# this shader on every build, so a Tint regression in it still fails the build,
+# this shader on every build, so a converter regression in it still fails the build,
 # but keep its WGSL out of the generated table".
 #
 # Worth it for exactly one shader today: scene_forward_clustered.glsl's variants
@@ -499,7 +500,7 @@ SHADER_REGISTRY = [
     # No "subpass"/"subpass_1d_lut" variants: tone_mapper.cpp disables
     # TONEMAP_MOBILE_MODE_SUBPASS* under `#ifdef WEB_ENABLED` ("WebGPU does not
     # support input attachments / subpass reads") — they are never actually
-    # compiled by the engine on this platform, and Tint correctly can't convert
+    # compiled by the engine on this platform, and no converter can convert
     # their `input_attachment` textureLoad (WGSL has no subpass-input concept).
     # Precompiling them here only produced two permanent, meaningless failures.
     ("servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl",
@@ -762,8 +763,8 @@ SHADER_REGISTRY = [
     # No bare "default" (no-mode) variant here: gi.cpp's SdfgiDebugProbesShaderRD
     # only ever registers MODE_PROBES/MODE_VISIBILITY (+ optional USE_MULTIVIEW)
     # combos (gi.cpp:3796-3799) — a shader with neither define set never writes
-    # gl_Position in either branch, which Tint correctly rejects ("position must
-    # be declared for vertex entry point output"). Testing real, reachable
+    # gl_Position in either branch, which a WGSL converter rightly rejects
+    # (Tint: "position must be declared for vertex entry point output"). Testing real, reachable
     # variants instead, matching every other MODE_-based entry in this registry.
     ("servers/rendering/renderer_rd/shaders/environment/sdfgi_debug_probes.glsl",
      GENERAL_DEFINES_SDFGI_DEBUG, [
@@ -806,7 +807,7 @@ SHADER_REGISTRY = [
 
     # ── FSR2 ────────────────────────────────────────────────────────
     # One entry per pass, carrying only the variants the WebGPU renderer
-    # declares -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
+    # enables -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
     # axes and why the others cannot be translated at all.
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_depth_clip_pass.glsl",
      GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
@@ -864,7 +865,7 @@ def compile_glsl_to_spirv(glsl_source, stage, glslang_path="glslangValidator"):
                 # (RenderingShaderContainerWebGPU::get_shader_spirv_version(),
                 # vulkan1.1 == spirv1.3) instead of glslangValidator's bare -V
                 # default (vulkan1.0 == spirv1.0). Without this, the ahead-of-time
-                # precompiled cache and the runtime Tint-fallback path compiled
+                # precompiled cache and the runtime conversion path compiled
                 # structurally different SPIR-V for the same GLSL (legacy
                 # Uniform+BufferBlock SSBO encoding vs modern StorageBuffer) --
                 # see Task 8.6/8.8/9.7/9.9 for why 1.3 is the driver's real target,
@@ -909,7 +910,7 @@ def job_count():
     """How many conversions/compilations to run at once.
 
     Both halves of this script are subprocess fan-outs (glslangValidator per
-    shader variant, tint_convert_cli per SPIR-V module), so they scale with
+    shader variant, wgsl_convert_cli per SPIR-V module), so they scale with
     core count rather than with the GIL. Overridable with WGSL_PRECOMPILE_JOBS
     because this runs as a SCons builder action, which can mean sharing the
     machine with the rest of a parallel `scons -jN` engine build.
@@ -920,35 +921,35 @@ def job_count():
     return os.cpu_count() or 4
 
 
-def _convert_spirv_chunk(paths, tint_cli_path):
-    """Run one `tint_convert_cli --batch` over `paths`; returns its JSON dict."""
+def _convert_spirv_chunk(paths, cli_path):
+    """Run one `wgsl_convert_cli --batch` over `paths`; returns its JSON dict."""
     try:
         result = subprocess.run(
-            [tint_cli_path, "--batch"] + paths,
+            [cli_path, "--batch"] + paths,
             capture_output=True,
             text=True,
             timeout=120,
         )
     except FileNotFoundError:
-        print(f"[WGSL Precompile] ERROR: Tint CLI not found at: {tint_cli_path}", file=sys.stderr)
+        print(f"[WGSL Precompile] ERROR: wgsl_convert_cli not found at: {cli_path}", file=sys.stderr)
         sys.exit(1)
     except subprocess.TimeoutExpired:
-        print(f"Tint batch conversion timed out after 120s ({len(paths)} modules)", file=sys.stderr)
+        print(f"wgsl_convert_cli batch conversion timed out after 120s ({len(paths)} modules)", file=sys.stderr)
         return {}
 
     if result.returncode != 0:
-        print(f"Tint batch conversion failed: {result.stderr}", file=sys.stderr)
+        print(f"wgsl_convert_cli batch conversion failed: {result.stderr}", file=sys.stderr)
         return {}
 
     return json.loads(result.stdout)
 
 
-def convert_spirv_batch(spv_files, tint_cli_path):
-    """Convert multiple SPIR-V files to WGSL using the Tint CLI tool.
+def convert_spirv_batch(spv_files, cli_path):
+    """Convert multiple SPIR-V files to WGSL using the wgsl_convert_cli tool.
 
     Args:
         spv_files: List of (key, spv_path) tuples.
-        tint_cli_path: Path to tint_convert_cli binary.
+        cli_path: Path to wgsl_convert_cli binary.
 
     Returns:
         Dict mapping key to WGSL string (or None on failure).
@@ -959,8 +960,8 @@ def convert_spirv_batch(spv_files, tint_cli_path):
     paths = [p for _, p in spv_files]
 
     # `--batch` forks one child per module and waits for it before starting the
-    # next (process isolation so a Tint internal-compiler-error abort can't take
-    # the batch down -- see tint_cli/main.cpp's convert_isolated()), so a single
+    # next (process isolation so an abort in a pass or the converter can't take
+    # the batch down -- see wgsl_cli/main.cpp's convert_isolated()), so a single
     # invocation is strictly serial no matter how many cores are free. Split the
     # module list across several invocations instead; round-robin so a chunk
     # full of expensive shaders can't become the long pole. Result merging is
@@ -969,17 +970,17 @@ def convert_spirv_batch(spv_files, tint_cli_path):
     chunks = [paths[i::jobs] for i in range(min(jobs, len(paths)))]
     results = {}
     if len(chunks) <= 1:
-        results = _convert_spirv_chunk(paths, tint_cli_path)
+        results = _convert_spirv_chunk(paths, cli_path)
     else:
         with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
-            for chunk_result in pool.map(lambda c: _convert_spirv_chunk(c, tint_cli_path), chunks):
+            for chunk_result in pool.map(lambda c: _convert_spirv_chunk(c, cli_path), chunks):
                 results.update(chunk_result)
 
     output = {}
     for key, path in spv_files:
         val = results.get(path)
         if isinstance(val, dict) and "error" in val:
-            print(f"  Tint error for {key}: {val['error']}", file=sys.stderr)
+            print(f"  Conversion error for {key}: {val['error']}", file=sys.stderr)
             output[key] = None
         else:
             output[key] = val
@@ -1000,7 +1001,7 @@ def generate_precompiled_header(entries, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("// Auto-generated by wgsl_precompile.py — do not edit.\n")
         f.write("// Contains pre-compiled SPIR-V → WGSL translations for ubershaders.\n")
-        f.write("// Checked at runtime before falling back to Tint.\n")
+        f.write("// Checked at runtime before the driver converts a module itself.\n")
         f.write("#pragma once\n\n")
         f.write("#include <cstdint>\n\n")
         f.write("struct WgslPrecompiledEntry {\n")
@@ -1044,11 +1045,14 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     global _INCLUDE_ROOT
     _INCLUDE_ROOT = os.path.abspath(repo_root)
 
-    # Find the tint_convert_cli binary (built by build.sh → bin/tint_convert_cli).
-    tint_cli = os.path.join(repo_root, "bin", "tint_convert_cli" + (".exe" if os.name == "nt" else ""))
-    if not os.path.isfile(tint_cli):
-        print("[WGSL Precompile] ERROR: bin/tint_convert_cli not found.", file=sys.stderr)
-        print("[WGSL Precompile] Run: ./drivers/webgpu/tint_cli/build.sh", file=sys.stderr)
+    # Find the wgsl_convert_cli binary (built by build.sh → bin/wgsl_convert_cli).
+    # WGSL_CONVERT_CLI selects another converter build (A/B runs, a patched SPIRV-Cross).
+    wgsl_cli = os.environ.get("WGSL_CONVERT_CLI") or os.path.join(
+        repo_root, "bin", "wgsl_convert_cli" + (".exe" if os.name == "nt" else "")
+    )
+    if not os.path.isfile(wgsl_cli):
+        print("[WGSL Precompile] ERROR: bin/wgsl_convert_cli not found.", file=sys.stderr)
+        print("[WGSL Precompile] Run: ./drivers/webgpu/wgsl_cli/build.sh", file=sys.stderr)
         sys.exit(1)
 
     # Every shader variant is compiled by shelling out to glslangValidator, so a
@@ -1058,7 +1062,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     # neither is fatal the build went on to ship a template with an empty
     # wgsl_precompiled.gen.h: every shader translated at runtime instead, roughly a
     # 5x slower start, with nothing saying why. Fail here instead, the same way a
-    # missing tint_convert_cli already does.
+    # missing wgsl_convert_cli already does.
     if shutil.which(glslang_path) is None and not os.path.isfile(glslang_path):
         print(f"[WGSL Precompile] ERROR: glslangValidator not found (looked for '{glslang_path}').", file=sys.stderr)
         print("[WGSL Precompile] Every shader would fail to compile and the template would", file=sys.stderr)
@@ -1073,7 +1077,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     failed_convert = 0
     entries = []  # (spv_hash, wgsl)
 
-    # Collect all SPIR-V files for batch Tint conversion.
+    # Collect all SPIR-V files for batch conversion.
     spv_batch = []  # (key, spv_path)
     spv_data = {}  # key → spv_bytes
     validate_only_keys = set()  # keys converted for validation but not embedded
@@ -1087,7 +1091,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
 
     for entry in SHADER_REGISTRY:
         # A 4th element, when present, is `embed`: False means "compile and
-        # convert this, so a Tint regression in it still fails the build, but
+        # convert this, so a converter regression in it still fails the build, but
         # keep its WGSL out of the generated table". See EMBED_NONE.
         glsl_rel, general_defines, variants = entry[0], entry[1], entry[2]
         embed = entry[3] if len(entry) > 3 else True
@@ -1142,7 +1146,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
             failed_compile += 1
             continue
 
-        # Save SPIR-V for batch Tint conversion.
+        # Save SPIR-V for batch conversion.
         spv_path = os.path.join(tempfile.gettempdir(), f"wgsl_pre_{hash(key) & 0xFFFFFFFF:08x}.spv")
         with open(spv_path, "wb") as f:
             f.write(spv_bytes)
@@ -1154,7 +1158,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     # Batch convert all SPIR-V to WGSL.
     if spv_batch:
         print(f"[WGSL Precompile] Converting {len(spv_batch)} SPIR-V modules to WGSL...")
-        wgsl_results = convert_spirv_batch(spv_batch, tint_cli)
+        wgsl_results = convert_spirv_batch(spv_batch, wgsl_cli)
 
         for key, spv_path in spv_batch:
             wgsl = wgsl_results.get(key)
@@ -1188,7 +1192,7 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
     generate_precompiled_header(entries, output_path)
 
     print(
-        f"[WGSL Precompile] Results: {compiled} compiled, {failed_compile} glsl failures, {failed_convert} tint failures"
+        f"[WGSL Precompile] Results: {compiled} compiled, {failed_compile} glsl failures, {failed_convert} conversion failures"
     )
     print(f"[WGSL Precompile] Unique entries: {len(entries)} (from {total} total modules)")
     if validate_only_keys:
@@ -1209,31 +1213,31 @@ def precompile_wgsl(repo_root, output_path, glslang_path="glslangValidator"):
 def build_wgsl_precompiled(target, source, env):
     """scons builder action for WGSL precompilation.
 
-    Builds the tint_convert_cli host tool (if needed), then runs the full
+    Builds the wgsl_convert_cli host tool (if needed), then runs the full
     GLSL → SPIR-V → WGSL precompilation pipeline to generate
     wgsl_precompiled.gen.h.
     """
     output = str(target[0])
     repo_root = str(env.Dir("#"))
 
-    # Build tint_convert_cli (native host tool) via build.sh.
-    build_script = os.path.join(repo_root, "drivers", "webgpu", "tint_cli", "build.sh")
+    # Build wgsl_convert_cli (native host tool) via build.sh.
+    build_script = os.path.join(repo_root, "drivers", "webgpu", "wgsl_cli", "build.sh")
     if not os.path.isfile(build_script):
-        print("[WGSL Precompile] ERROR: tint_cli/build.sh not found", file=sys.stderr)
+        print("[WGSL Precompile] ERROR: wgsl_cli/build.sh not found", file=sys.stderr)
         sys.exit(1)
 
-    print("[WGSL Precompile] Building tint_convert_cli...")
+    print("[WGSL Precompile] Building wgsl_convert_cli...")
     result = subprocess.run(
         ["bash", build_script],
         cwd=repo_root,
-        # This compiles SPIRV-Tools + Tint from scratch (~570 objects) with no
+        # This compiles SPIRV-Tools + SPIRV-Cross from scratch (~200 objects) with no
         # incremental cache of its own (unlike the main SCons build). 600s was
         # enough on an idle machine but not on a CI runner where this competes
         # for CPU with the rest of the parallel `scons -jN` engine build.
         timeout=1800,
     )
     if result.returncode != 0:
-        print("[WGSL Precompile] ERROR: tint_convert_cli build failed", file=sys.stderr)
+        print("[WGSL Precompile] ERROR: wgsl_convert_cli build failed", file=sys.stderr)
         sys.exit(1)
 
     glslang = env.get("GLSLANG", "glslangValidator")

@@ -36,7 +36,7 @@ function wgslDeclaresOverride(wgsl) {
 function spirvNeeded(stages) {
     for (const stage of stages) {
         if (!stage.wgsl) {
-            return true; // No WGSL: the runtime has to run Tint on the bytes.
+            return true; // No WGSL: the runtime has to convert the bytes.
         }
         if (stage.hasSpecConstants && !wgslDeclaresOverride(stage.wgsl)) {
             return true; // Legacy specialization path re-patches the SPIR-V.
@@ -117,12 +117,12 @@ export function runTests() {
         });
 
         it('should keep the SPIR-V when a stage failed to bake', () => {
-            // That stage still needs the runtime Tint fallback.
+            // That stage still needs the runtime conversion.
             assert.equal(spirvNeeded([stage('fn main() {}'), stage(null)]), true);
         });
 
         it('should keep the SPIR-V when a stage was frozen to its defaults', () => {
-            // Declares spec constants but Tint emitted no override to set them
+            // Declares spec constants but the converter emitted no override to set them
             // through, so pipeline creation takes the legacy re-patch path.
             assert.equal(spirvNeeded([stage('fn main() {}', true)]), true);
         });

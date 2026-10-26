@@ -36,14 +36,14 @@
 # cross-compiling Windows/macOS targets -- see build.sh (options 4-9) for
 # that.
 #
-# Build order matters here: tint_convert_cli (a separate, non-SCons native
-# build -- see drivers/webgpu/tint_cli/build.sh) is built BEFORE the web/
+# Build order matters here: wgsl_convert_cli (a separate, non-SCons native
+# build -- see drivers/webgpu/wgsl_cli/build.sh) is built BEFORE the web/
 # WebGPU template matrix, because drivers/webgpu/wgsl_precompile.py (which
 # SCons runs as part of every `webgpu=yes` web build) shells out to it to
 # precompile every built-in engine shader's WGSL ahead of time. SCons has no
 # visibility into that dependency on its own, so drivers/webgpu/SCsub
-# fingerprints it (every vendored Tint/SPIRV-Tools and tint_cli source's
-# size+mtime, bin/tint_convert_cli's hash, glslangValidator's version) and
+# fingerprints it (every vendored SPIRV-Cross/SPIRV-Tools and wgsl_cli source's
+# size+mtime, bin/wgsl_convert_cli's hash, glslangValidator's version) and
 # re-bakes the table whenever any of it moves. That keeps the editor's baker and
 # every template's baked WGSL in step without this script having to delete the
 # generated header on every run, which is what it used to do (--force-shader-rebake
@@ -54,7 +54,7 @@
 # ~33,000 compiles, and nothing short of building fewer variants (or several at
 # once in separate trees) changes that number. What this script does trim:
 #   - the WGSL bake is skipped when the shader pipeline hasn't changed (it used
-#     to be forced every run), and runs glslangValidator and tint_convert_cli
+#     to be forced every run), and runs glslangValidator and wgsl_convert_cli
 #     across all cores when it does (~33s -> ~3s for 274 modules).
 #   - apt/pip/AccessKit/emsdk are checked before being re-run, so a warm machine
 #     spends seconds in setup rather than minutes. Note that this means `emsdk
@@ -114,12 +114,13 @@ NC='\033[0m'
 
 SKIP_INSTALL=0
 SKIP_WEB=0
-SKIP_TINT_CLI=0
+SKIP_WGSL_CLI=0
 SKIP_NATIVE_TEMPLATES=0
 FORCE_SHADER_REBAKE=0
 SKIP_EDITOR_PLUGINS=0
 PLUGINS_ONLY=0
 GDSCRIPT_BRACES="yes"
+WEB_RAYCAST="yes"
 USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
@@ -146,11 +147,16 @@ Usage: ./build-linux.sh [options]
                             skipped automatically when already up to date).
   --skip-web                Editor + native templates only.
   --skip-native-templates   Skip the Linux export templates (editor + web only).
-  --skip-tint-cli           Don't rebuild bin/tint_convert_cli.
+  --skip-wgsl-cli           Don't rebuild bin/wgsl_convert_cli (--skip-tint-cli,
+                            its name before the Tint removal, still works).
   --no-gdscript-braces      Build the standard editor and templates, without
                             braced GDScript (.gdb) support (gdscript_braces=no;
                             it is on by default). Also skips the editor plugins,
                             which need a braced editor.
+  --no-web-raycast          Build the web templates without the raycast module
+                            (Embree: occlusion culling), module_raycast_enabled=no,
+                            as upstream (GH-70621). On by default (TASKS.md 2.45);
+                            --web-raycast is accepted and does nothing.
   --skip-editor-plugins     Don't build the Rider plugin or the VS Code .vsix.
   --plugins-only            Build ONLY the Rider plugin and the VS Code .vsix
                             (no prerequisites, no SCons, no templates); safe
@@ -190,8 +196,8 @@ while [[ $# -gt 0 ]]; do
 			SKIP_NATIVE_TEMPLATES=1
 			shift
 			;;
-		--skip-tint-cli)
-			SKIP_TINT_CLI=1
+		--skip-wgsl-cli | --skip-tint-cli)
+			SKIP_WGSL_CLI=1
 			shift
 			;;
 		--force-shader-rebake)
@@ -200,6 +206,14 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--no-gdscript-braces)
 			GDSCRIPT_BRACES="no"
+			shift
+			;;
+		--web-raycast)
+			WEB_RAYCAST="yes"
+			shift
+			;;
+		--no-web-raycast)
+			WEB_RAYCAST="no"
 			shift
 			;;
 		--skip-editor-plugins)
@@ -856,26 +870,26 @@ else
 	warn "Skipping the Linux export templates (--skip-native-templates)."
 fi
 
-if [[ "$SKIP_TINT_CLI" -eq 0 ]]; then
-	step "Building tint_convert_cli (native SPIR-V -> WGSL precompile tool)..."
-	./drivers/webgpu/tint_cli/build.sh
-	ok "tint_convert_cli -> bin/tint_convert_cli"
+if [[ "$SKIP_WGSL_CLI" -eq 0 ]]; then
+	step "Building wgsl_convert_cli (native SPIR-V -> WGSL precompile tool)..."
+	./drivers/webgpu/wgsl_cli/build.sh
+	ok "wgsl_convert_cli -> bin/wgsl_convert_cli"
 
 	# The editor's shader baker (wgsl_bake_subprocess.cpp's
-	# _find_tint_convert_cli()) looks for tint_convert_cli in the same
+	# _find_wgsl_convert_cli()) looks for wgsl_convert_cli in the same
 	# directory as the RUNNING editor executable's own path -- not bin/, and
 	# not $PATH. It's silently a no-op (shaders just export unbaked) if it's
 	# missing there, so it must be copied alongside every place the editor
 	# binary itself gets copied, not just left in bin/.
-	cp bin/tint_convert_cli "$OUT_DIR/editor/"
-	ok "tint_convert_cli -> $OUT_DIR/editor"
+	cp bin/wgsl_convert_cli "$OUT_DIR/editor/"
+	ok "wgsl_convert_cli -> $OUT_DIR/editor"
 	if [[ -d "$EDITORS_DIR" ]]; then
-		cp bin/tint_convert_cli "$EDITORS_DIR/"
-		ok "tint_convert_cli -> $EDITORS_DIR"
+		cp bin/wgsl_convert_cli "$EDITORS_DIR/"
+		ok "wgsl_convert_cli -> $EDITORS_DIR"
 	fi
 else
-	warn "Skipping tint_convert_cli build (--skip-tint-cli) -- any web build below will embed"
-	warn "whatever WGSL bin/tint_convert_cli last produced, which may be stale."
+	warn "Skipping wgsl_convert_cli build (--skip-wgsl-cli) -- any web build below will embed"
+	warn "whatever WGSL bin/wgsl_convert_cli last produced, which may be stale."
 fi
 
 if [[ "$SKIP_WEB" -eq 0 ]]; then
@@ -898,10 +912,10 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	fi
 
 	# wgsl_precompiled.gen.h (drivers/webgpu/SCsub) is generated by shelling out
-	# to bin/tint_convert_cli, and SCons cannot see most of what decides its
+	# to bin/wgsl_convert_cli, and SCons cannot see most of what decides its
 	# contents: the binary itself (built inside the action, not by SCons) and the
-	# vendored thirdparty/tint + spirv-tools sources behind it. A change to any
-	# of those (e.g. a Tint patch, see webgpu_notes/TASKS.md §4.16) silently NOT
+	# vendored thirdparty/spirv-cross-wgsl + spirv-tools sources behind it. A change
+	# to any of those (e.g. a SPIRV-Cross patch) silently NOT
 	# regenerating the table would bake stale WGSL into every built-in engine
 	# shader class. This script used to force that by deleting the header on
 	# every run; drivers/webgpu/SCsub now fingerprints all of it (size+mtime of
@@ -937,7 +951,7 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 
 				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
 				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
-					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" -j"$JOBS"
+					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" module_raycast_enabled="$WEB_RAYCAST" -j"$JOBS"
 
 				scons_zip="bin/godot.web.${target}.wasm32"
 				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"

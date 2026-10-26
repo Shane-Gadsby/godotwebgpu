@@ -35,10 +35,10 @@
 #include "servers/rendering/rendering_device.h"
 
 // Unlike the Vulkan/Metal/D3D12 platforms, this container format also bakes
-// WGSL (via Tint) into every shader it stores — see
+// WGSL (via bin/wgsl_convert_cli) into every shader it stores — see
 // RenderingShaderContainerWebGPU::_set_code_from_spirv() in
-// drivers/webgpu/rendering_shader_container_webgpu.cpp. That requires Tint,
-// which this file only sees compiled in when the native editor was itself
+// drivers/webgpu/rendering_shader_container_webgpu.cpp. That requires the
+// baker half of drivers/webgpu, which this file only sees compiled in when the native editor was itself
 // built with `webgpu=yes` (WEBGPU_SHADER_BAKER_ENABLED; see
 // drivers/webgpu/SCsub and editor_node.cpp's registration of this platform).
 
@@ -76,7 +76,7 @@ void ShaderBakerExportPluginPlatformWebGPU::get_target_feature_overrides(HashMap
 }
 
 // The WGSL bake, batched: every stage of every variant goes through a few
-// concurrent tint_convert_cli runs before any container is built, and the
+// concurrent wgsl_convert_cli runs before any container is built, and the
 // containers then find their WGSL ready (webgpu::bake_wgsl_via_subprocess()
 // reads the batch's results first). See WgslBakeBatch for why.
 class ShaderBakerStageBatchWebGPU : public ShaderBakerStageBatch {

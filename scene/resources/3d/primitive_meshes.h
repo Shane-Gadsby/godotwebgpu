@@ -61,6 +61,7 @@ private:
 
 	// make sure we do an update after we've finished constructing our object
 	mutable bool pending_request = true;
+	Array _build_mesh_arrays() const;
 	void _update() const;
 
 protected:

@@ -32,28 +32,36 @@
  *
  * Usage:
  *   WEBGPU_REAL_GPU=1 node run_forward_plus.mjs [--browser chrome|firefox]
- *                                               [--feature <id>] [--save-dir DIR] [--list]
- *                                               [--json <path>]
+ *                                               [--feature <id>[,<id>...]] [--save-dir DIR] [--list] [--allow-stale-export]
+ *                                               [--json <path>] [--dir <export dir>]
  *                                               [--parity [--reference DIR] [--godot BIN] [--settle N]]
  */
 
 import { createServer } from 'http';
 import { spawnSync } from 'child_process';
-import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, mkdtempSync, statSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import pw from 'playwright';
 import { decodePng } from '../screenshot_comparison/png.mjs';
 import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE, byId } from './features.mjs';
+import { attachAudit } from '../scene_smoketest/webgpu_audit.mjs';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // --baked runs against export_baked/ (made by `BAKE=1 ./export.sh`) and additionally asserts the
 // shader cache was actually used. The default export is unbaked (--headless skips the baker).
 const BAKED = process.argv.includes('--baked');
-const SCENE_DIR = join(__dirname, BAKED ? 'export_baked' : 'export');
-// The fixture builds materials in GDScript, so a few shaders legitimately translate at runtime.
-const TRANSLATED_CEILING = 80;
+// --dir <export> runs an export kept elsewhere (an A/B of two converters' exports, work task 11).
+const DIR_ARG = process.argv.includes('--dir') ? process.argv[process.argv.indexOf('--dir') + 1] : null;
+const SCENE_DIR = DIR_ARG || join(__dirname, BAKED ? 'export_baked' : 'export');
+// The fixture builds materials in GDScript, so a few shaders legitimately translate at runtime. Measured 117 at boot
+// once the work/21 arms added their own GDScript-built shaders (14 scene-shader materials x 8 groups, the trail
+// ribbon's and skinned strip's among them, plus a fog shader, a trail process material and the compositor's compute
+// shader); it was under 80 before. 133 once work task 26's dof_nan arm added its GDScript-built NaN material
+// (2026-10-26). A broken bake translates the ~440 baked shaders too, far past this.
+const TRANSLATED_CEILING = 150;
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm',
@@ -78,16 +86,45 @@ export function meanAbsDiff(a, b) {
   return sum / (n * 3);
 }
 
+/** Parse a fixture render-info line ("objects=8 primitives=13238 draws=7") into numbers. */
+export function parseInfo(text) {
+  if (!text) return null;
+  const out = {};
+  for (const m of text.matchAll(/(\w+)=(\d+)/g)) out[m[1]] = Number(m[2]);
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * A feature's infoDrop check: "on" must draw at least N fewer of each key than
+ * "off". Returns null when the feature has none, else { ok, why }.
+ */
+export function judgeInfo(feature, infoOff, infoOn, side = '') {
+  if (!feature.infoDrop) return null;
+  if (!infoOff || !infoOn) return { ok: false, why: `no render info${side}` };
+  const parts = [];
+  for (const [k, n] of Object.entries(feature.infoDrop)) {
+    const drop = (infoOff[k] ?? 0) - (infoOn[k] ?? 0);
+    parts.push(`${k} ${infoOff[k]}->${infoOn[k]}`);
+    if (!(drop >= n)) return { ok: false, why: `${k} ${infoOff[k]} -> ${infoOn[k]}${side}: dropped ${drop}, need >= ${n}` };
+  }
+  return { ok: true, why: parts.join(' ') + side };
+}
+
 /** Decide one feature's result from its measured delta and any errors seen. */
-export function judge(feature, delta, errors) {
+export function judge(feature, delta, errors, infoOff = null, infoOn = null) {
   if (errors.length) {
     return { ok: false, why: `${errors.length} error(s): ${errors[0].slice(0, 120)}` };
   }
   if (delta === null) return { ok: false, why: 'frame size changed between off and on' };
+  if (feature.maxDelta !== undefined && delta > feature.maxDelta) {
+    return { ok: false, why: `delta ${delta.toFixed(3)} > allowed ${feature.maxDelta} -- the frame must not change` };
+  }
   if (delta < feature.minDelta) {
     return { ok: false, why: `delta ${delta.toFixed(3)} < required ${feature.minDelta} -- feature appears to do nothing` };
   }
-  return { ok: true, why: `delta ${delta.toFixed(3)}` };
+  const info = judgeInfo(feature, infoOff, infoOn);
+  if (info && !info.ok) return info;
+  return { ok: true, why: `delta ${delta.toFixed(3)}${info ? '; ' + info.why : ''}` };
 }
 
 /**
@@ -142,7 +179,7 @@ async function launchBrowser(name) {
   if (name === 'firefox') {
     return pw.firefox.launch({
       headless: !!process.env.CI,
-      firefoxUserPrefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.force-enabled': true },
+      firefoxUserPrefs: FIREFOX_WEBGPU_PREFS,
     });
   }
   return null;
@@ -186,6 +223,29 @@ async function main() {
     console.log(`  SKIP -- no export at ${SCENE_DIR} (run ${BAKED ? 'BAKE=1 ' : ''}./export.sh)`);
     process.exit(2);
   }
+  // A stale export renders yesterday's fixture and engine and still compares cleanly against a fresh native reference:
+  // --baked once ran a three-hour-old export_baked/ after only the unbaked one had been refreshed, and failed FSR2 and
+  // volumetric fog on fixes that were already merged. Refuse an export older than what it was made from.
+  const exportPck = join(SCENE_DIR, 'index.pck');
+  const sources = [
+    process.env.GODOT_TEMPLATE_ZIP || join(__dirname, '..', '..', 'bin', 'godot.web.template_release.wasm32.nothreads.zip'),
+    process.env.GODOT_EDITOR_BIN || join(__dirname, '..', '..', 'bin', 'godot.linuxbsd.editor.x86_64'),
+    join(__dirname, 'godot', 'fp_check', 'fp_scene.gd'),
+  ].filter((f) => existsSync(f));
+  const newer = existsSync(exportPck) ? sources.filter((f) => statSync(f).mtimeMs > statSync(exportPck).mtimeMs) : sources;
+  if (newer.length && !args.includes('--allow-stale-export')) {
+    console.log(`  FAIL -- ${SCENE_DIR} is older than ${newer.join(', ')}; re-run ${BAKED ? 'BAKE=1 ' : ''}./export.sh (or pass --allow-stale-export)`);
+    process.exit(1);
+  }
+  // Arms marked `needsRaycast` need a template built with the raycast module (Embree, the only occlusion culler).
+  // Web templates leave it out unless built with module_raycast_enabled=yes (platform/web/detect.py), so such an arm is
+  // KNOWN against a template without it and a normal arm against one with it. Embree's own strings tell which.
+  const wasmPath = join(SCENE_DIR, 'index.wasm');
+  const hasRaycast = existsSync(wasmPath) && readFileSync(wasmPath).includes('Embree Ray Tracing Kernels');
+  console.log(`  template raycast module (occlusion culling): ${hasRaycast ? 'yes' : 'no'}`);
+  for (const f of FEATURES) {
+    if (f.needsRaycast && !hasRaycast) f.knownFail = f.needsRaycast;
+  }
   const unsupported = unsupportedReason(browserName);
   if (unsupported) {
     console.log(`  SKIP -- ${unsupported}`);
@@ -202,6 +262,10 @@ async function main() {
       process.exit(2);
     }
     referenceDir = mkdtempSync(join(tmpdir(), 'fp_reference_'));
+    // A shader cache left in the fixture by another engine build can hand the native renderer stale variants: on
+    // 2026-10-26 it failed five pipelines ("Mismatch fragment shader output mask") and moved native SDFGI 7 points
+    // off a web frame that was right all along (TASKS.md §3 trap 68). The reference must come from this build alone.
+    rmSync(join(__dirname, 'godot', 'fp_check', '.godot', 'shader_cache'), { recursive: true, force: true });
     const sweep = ['--path', join(__dirname, 'godot', 'fp_check'), '--rendering-driver', 'vulkan', '--resolution', `${VIEW_W}x${VIEW_H}`,
       '--fixed-fps', '60', '--', `--fp-matrix=${referenceDir}`, `--fp-settle=${settle}`];
     if (only) sweep.push(`--fp-only=${only}`);
@@ -230,10 +294,12 @@ async function main() {
   }
 
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } });
+  await attachAudit(page, 'forward_plus');
   let banner = null;
   let declaredFeatures = null;
   let ready = null;
   let unknown = null;
+  let info = null;
   let errors = [];
   let cacheMismatch = false;
   page.on('console', (m) => {
@@ -241,6 +307,7 @@ async function main() {
     if (echoConsole) console.log(`    [${m.type()}] ${t}`);
     if (!banner && /WebGPU .* - Forward/.test(t)) banner = t;
     if (t.startsWith('[FP] FEATURES ')) declaredFeatures = t.slice('[FP] FEATURES '.length).trim().split(',');
+    if (t.startsWith('[FP] INFO ')) info = parseInfo(t.slice('[FP] INFO '.length));
     if (t.startsWith('[FP] READY ')) ready = t.slice('[FP] READY '.length).trim();
     if (t.startsWith('[FP] UNKNOWN ')) unknown = t.slice('[FP] UNKNOWN '.length).trim();
     if (/none of it matches what this build asks for/.test(t)) cacheMismatch = true;
@@ -299,7 +366,8 @@ async function main() {
 
     // A parity-only arm's correct "on" frame equals its "off" frame, so the
     // delta test has nothing to measure on it.
-    const wanted = (only ? FEATURES.filter((f) => f.id === only) : FEATURES).filter((f) => parity || !f.parityOnly);
+    const onlyIds = only ? only.split(',') : null; // --feature a,b runs several
+    const wanted = (onlyIds ? FEATURES.filter((f) => onlyIds.includes(f.id)) : FEATURES).filter((f) => parity || !f.parityOnly);
     if (only && wanted.length === 0) {
       console.log(`  FAIL -- unknown feature "${only}" (use --list)`);
       process.exitCode = 1;
@@ -307,7 +375,7 @@ async function main() {
     }
 
     const shoot = async (id, on) => {
-      ready = null; unknown = null;
+      ready = null; unknown = null; info = null;
       await page.evaluate(([i, o, n]) => { window.location.hash = n ? `fp=${i}:${o}:${n}` : `fp=${i}:${o}`; }, [id, on ? 1 : 0, parity ? settle : 0]);
       // A parity settle (and sdfgi_camera_move's flight) runs well past 45 s on a slow device.
       const deadline = Date.now() + (parity ? 120000 : 45000);
@@ -317,7 +385,7 @@ async function main() {
       const canvas = await page.locator('canvas').first();
       const buf = await canvas.screenshot();
       if (saveDir) { mkdirSync(saveDir, { recursive: true }); writeFileSync(`${saveDir}/${id}_${on ? 1 : 0}.png`, buf); }
-      return { png: decodePng(buf) };
+      return { png: decodePng(buf), info };
     };
 
     let lastCat = null;
@@ -327,13 +395,14 @@ async function main() {
       const off = await shoot(f.id, false);
       const on = await shoot(f.id, true);
       let verdict;
+      let nativeInfo = null;
       if (off.unknown || on.unknown) {
         verdict = { ok: false, why: 'fixture does not implement this feature' };
       } else if (off.timeout || on.timeout) {
         verdict = { ok: false, why: 'fixture never signaled READY within 45s' };
       } else {
         verdict = f.parityOnly ? { ok: !errors.length, why: errors.length ? `${errors.length} error(s): ${errors[0].slice(0, 120)}` : 'parity only' }
-          : judge(f, meanAbsDiff(off.png, on.png), errors);
+          : judge(f, meanAbsDiff(off.png, on.png), errors, off.info, on.info);
         if (parity && verdict.ok) {
           const ref = (o) => {
             const p = join(referenceDir, `${f.id}_${o}.png`);
@@ -343,10 +412,33 @@ async function main() {
           const pv = judgeParity(f, rOff ? meanAbsDiff(off.png, rOff) : null, rOn ? meanAbsDiff(on.png, rOn) : null);
           verdict = { ok: pv.ok, why: `${verdict.why}; ${pv.why}` };
         }
+        if (parity) {
+          // The native side must show the same drop, or the fixture no longer exercises the feature.
+          // Checked even when the web side failed, so a knownFail arm cannot hide a broken fixture.
+          const refInfo = (o) => {
+            const p = join(referenceDir, `${f.id}_${o}.info`);
+            return existsSync(p) ? parseInfo(readFileSync(p, 'utf8')) : null;
+          };
+          nativeInfo = judgeInfo(f, refInfo(0), refInfo(1), ' (native)');
+          if (nativeInfo) verdict = { ok: verdict.ok && nativeInfo.ok, why: `${verdict.why}; ${nativeInfo.why}` };
+        }
       }
-      results.push({ id: f.id, cat: f.cat, label: f.label, ok: verdict.ok, why: verdict.why });
-      console.log(`    ${verdict.ok ? 'PASS' : 'FAIL'}  ${f.id.padEnd(28)} ${verdict.why}`);
-      if (!verdict.ok) exitCode = 1;
+      // knownFail: a documented failure (features.mjs says why) reports KNOWN and does not fail the run, as long as the
+      // native side still does what the arm needs. If it starts passing, that is reported and fails the run, so the
+      // marker gets removed rather than outliving the bug.
+      let status = verdict.ok ? 'PASS' : 'FAIL';
+      if (f.knownFail) {
+        if (verdict.ok) {
+          status = 'XPASS';
+          verdict = { ok: false, why: `${verdict.why} -- marked knownFail but passes; remove the marker` };
+        } else if (!(nativeInfo && !nativeInfo.ok)) {
+          status = 'KNOWN';
+          verdict = { ...verdict, why: `${verdict.why} [known: ${f.knownFail.slice(0, 90)}]` };
+        }
+      }
+      results.push({ id: f.id, cat: f.cat, label: f.label, ok: verdict.ok, known: status === 'KNOWN', why: verdict.why });
+      console.log(`    ${status.padEnd(5)} ${f.id.padEnd(28)} ${verdict.why}`);
+      if (status === 'FAIL' || status === 'XPASS') exitCode = 1;
 
       // A feature that fails with driver errors usually keeps failing every
       // frame afterwards -- a broken texture leaves its uniform sets invalid --
@@ -367,7 +459,8 @@ async function main() {
   }
 
   const passed = results.filter((r) => r.ok).length;
-  console.log(`\n  ${passed}/${results.length} features pass`);
+  const known = results.filter((r) => r.known);
+  console.log(`\n  ${passed}/${results.length} features pass${known.length ? `, ${known.length} known failure(s): ${known.map((r) => r.id).join(', ')}` : ''}`);
   if (UNCOVERED.length) {
     console.log(`  ${UNCOVERED.length} Forward+ features are documented as not covered (--list to see them)`);
   }

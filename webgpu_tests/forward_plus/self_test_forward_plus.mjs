@@ -14,7 +14,7 @@
  * Usage: node self_test_forward_plus.mjs
  */
 
-import { meanAbsDiff, judge, judgeParity, withFixedFps } from './run_forward_plus.mjs';
+import { meanAbsDiff, judge, judgeParity, judgeInfo, parseInfo, withFixedFps } from './run_forward_plus.mjs';
 import { FEATURES, UNCOVERED, CATEGORIES, PARITY_TOLERANCE } from './features.mjs';
 
 let failed = 0;
@@ -59,6 +59,19 @@ check('an "off" frame off by more than the tolerance fails too', !judgeParity(pf
 check('a missing reference fails rather than passing', !judgeParity(pf, null, 0).ok);
 check('a feature tolerance replaces the default', judgeParity({ id: 'q', parityTol: 1.0 }, 0.5, 0.5).ok);
 
+// --- render-info arms (occlusion culling: same frame, fewer objects) ---
+const occ = { id: 'o', minDelta: 0, maxDelta: 0.02, infoDrop: { objects: 15 } };
+const i29 = parseInfo('objects=29 primitives=13490 draws=9'), i8 = parseInfo('objects=8 primitives=9026 draws=7');
+check('render info parses', i29 && i29.objects === 29 && i29.draws === 9);
+check('an unchanged frame with fewer objects passes', judge(occ, 0, [], i29, i8).ok);
+check('the same object count fails', !judge(occ, 0, [], i29, i29).ok,
+  'occlusion culling that culls nothing must not pass as "frame unchanged"');
+check('a changed frame fails even with fewer objects', !judge(occ, 0.5, [], i29, i8).ok,
+  'culling something visible is a bug, not an optimization');
+check('missing render info fails', !judge(occ, 0, [], null, i8).ok);
+check('a feature without infoDrop has no info verdict', judgeInfo({ id: 'n' }, i29, i8) === null);
+check('the native side is named in its verdict', judgeInfo(occ, i29, i29, ' (native)').why.includes('native'));
+
 // --- withFixedFps ---
 check('an empty argument list gets the fixed timestep', withFixedFps('{"args":[],"x":1}') === '{"args":["--fixed-fps","60"],"x":1}');
 check('existing arguments are kept', withFixedFps('"args":["--verbose"]') === '"args":["--fixed-fps","60","--verbose"]');
@@ -79,12 +92,16 @@ check('every feature has a known category',
 // the exact failure this whole tier exists to prevent.
 // Parity-only arms are exempt: the delta test never runs on them, and their
 // correct result is "no change".
-const slack = FEATURES.filter((f) => !f.parityOnly && !(f.minDelta > 0));
+// So are render-info arms, whose correct frame is unchanged: they are judged on
+// the counts they report, and must also bound the frame change from above.
+const slack = FEATURES.filter((f) => !f.parityOnly && !(f.minDelta > 0) && !(f.infoDrop && f.maxDelta !== undefined));
 check('no feature has a zero threshold', slack.length === 0, slack.map((f) => f.id).join(', '));
 // A parity tolerance at or above a feature's own effect would let the effect
 // vanish entirely and still pass.
 const loose = FEATURES.filter((f) => f.parityTol !== undefined && !f.parityOnly && f.parityTol >= f.minDelta * 3);
 check('no parity tolerance swallows its feature', loose.length === 0, loose.map((f) => f.id).join(', '));
+check('every knownFail gives a reason',
+  FEATURES.every((f) => f.knownFail === undefined || (typeof f.knownFail === 'string' && f.knownFail.length > 20)));
 check('every feature has a label', FEATURES.every((f) => f.label && f.label.length > 2));
 
 console.log(`\n  ${FEATURES.length} features covered, ${UNCOVERED.length} documented as uncovered`);

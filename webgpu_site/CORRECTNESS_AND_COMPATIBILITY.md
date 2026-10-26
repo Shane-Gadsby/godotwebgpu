@@ -5,7 +5,7 @@
 | Area | Score | Verdict |
 |------|-------|---------|
 | Resource lifecycle | 9/10 | All failure paths covered; async lifetime robust |
-| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 71 matrix features (2026-10-17, §2.9); remaining gaps are WebGPU spec limits |
+| Rendering correctness | 9/10 | Forward+ matches native Vulkan on all 87 matrix arms, unbaked and baked (2026-10-26, §2.9); remaining gaps are WebGPU spec limits |
 | Cross-browser compatibility | 9/10 | Well-scoped workarounds for Chrome/Firefox/Safari |
 | Error handling | 8/10 | Robust async patterns; deadlock prevention |
 | Code quality | 8/10 | Well-documented; defensive; some TODOs remain |
@@ -152,9 +152,13 @@ Active encoder state (NONE/RENDER/COMPUTE) managed with `end_active_encoder()` c
 
 ### 2.9 Forward+ Parity with Native Vulkan
 
-**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29)
+**Status: Correct, measured** (2026-10-17, `webgpu_notes/TASKS.md` §4.29; 87 arms since 2026-10-26, §4.39, §4.41, §4.42, §4.44)
 
-`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.8 for its fp16 resolve). All 71 arms pass. Most land at 0.002-0.006; SDFGI 0.025, volumetric fog 0.046, omni cube shadows 0.015, FSR2 0.57 (edge-only).
+`webgpu_tests/forward_plus/run_forward_plus.mjs --parity` renders every feature of the Forward+ matrix off and on, natively on Vulkan and in Chrome on WebGPU, at a fixed 60 fps with a 240-frame settle and a frozen capture frame, and fails any frame whose mean absolute difference from native exceeds 0.05 (0-255 scale; SDFGI 0.08 for its atomics, FSR2 0.3). All 87 arms pass (2026-10-26, Chrome, unbaked and baked). Most land at 0.002-0.006; SDFGI 0.027, volumetric fog 0.001, omni cube shadows 0.015, FSR2 0.142 (one or two levels of noise; it was 0.57 and visibly softer until FSR2's reactive mask stopped being read through a swizzled view WebGPU cannot swizzle, TASKS.md §3 trap 55).
+
+The 11 arms added on 2026-10-26 cover skeletal animation, particle trails, LightmapGI, FogVolume (with and without a fog shader), stencil outline and x-ray, bent normals, SMAA, compositor effects and occlusion culling, each within 0.004 of native. What stays uncovered is what WebGPU cannot have: multiview, variable-rate shading, MSAA 2x and 8x.
+
+**Occlusion culling works on the web** (2026-10-26, TASKS.md §4.38). Stock Godot builds its web templates without the raycast module (Embree), so no web export culls occluded objects; this fork's web templates include it by default (+0.23 MiB gzipped wasm), and the matrix's `occlusion_culling` arm draws 29 -> 8 objects as native does. The fork also fixed a stock bug that kept the culler from ever committing its scene in a `threads=no` build. The Web export option `rendering/occlusion_culling` turns it off for one export.
 
 The sweep that introduced this check found five features that rendered wrongly while passing the older "does the frame change" test -- the reason the parity mode exists:
 
@@ -167,6 +171,15 @@ The sweep that introduced this check found five features that rendered wrongly w
 | Mipmap bias (TAA, FSR) | dropped | WebGPU samplers have no LOD bias |
 
 and, beyond those, texture arrays collapsed to element 0, four shader built-ins that crashed the page, FSR2 skipping its depth reconstruction, constant-alpha blending, depth clamp, contact shadows' border colour, and a material using `POINT_COORD` drawing nothing (an upstream bug that also affects D3D12).
+
+### 2.9b Non-Finite Colors in Post Effects
+
+The bokeh depth of field, glow, auto exposure and the previous-frame copy SSR reflects treat a non-finite scene color
+as black (`finite_or_zero()` in `servers/rendering/renderer_rd/shaders/effects/finite_inc.glsl`, tested on the
+exponent bits), so a stray NaN from a user shader shows as one black pixel instead of a black bokeh shape, a glow blob,
+a smeared reflection or a blank frame (`webgpu_notes/TASKS.md` §4.41, §4.44, §3 trap 70). A deliberate divergence from
+upstream Godot (an upstream sync may conflict in `copy.glsl`, `blur_raster.glsl`, `luminance_reduce*.glsl` and
+`bokeh_dof*.glsl`); finite frames are bit-identical.
 
 ### 2.10 Audio Parity with Native
 
@@ -246,7 +259,7 @@ Untested on phones: Adreno (the §3.3 fallbacks), Safari/iOS.
 | No texture component swizzle | Convert L8/LA8 to RGBA8 on CPU; monochrome font atlases rasterized as RGBA8 up front |
 | No 3-component texture formats | RGB8/RGBH/RGBF expanded to RGBA8 on CPU, once per texture at load |
 | No push constants | 256KB ring buffer emulation |
-| No combined image-samplers | SPIR-V-level split before Tint |
+| No combined image-samplers | SPIR-V-level split before conversion |
 | No subpasses | Flatten to separate render passes |
 | 256-byte row alignment for copies | Applied in all buffer↔texture operations |
 
@@ -316,18 +329,18 @@ All `WGPUSurfaceGetCurrentTextureStatus` values handled:
 
 ---
 
-## 5. Tint Patch Correctness
+## 5. SPIRV-Cross Patch Correctness
 
-Six patches covering 8 files in vendored Tint. Assessment by logical group:
+SPIR-V → WGSL is SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, Ludicon/spirv-cross-wgsl) since October 2026; Tint, the converter before it, and its six patches are gone (`webgpu_notes/TASKS.md` §4.36). Four local patches (the WGSL backend, plus one hook in `spirv_glsl.*` for `0019`), recorded in `thirdparty/spirv-cross-wgsl/patches/` and `thirdparty/README.md`, never upstreamed (a project rule):
 
-| Patch Group | Files | Risk Level | Correctness |
-|-------------|-------|-----------|-------------|
-| UBO layout relaxation | 1 | Low | Uses spirv-tools' official `SetSkipBlockLayout` API — one line, always necessary |
-| Spec constant size mismatches | 5 | Low | Capability-gated guards following Tint's own patterns — clean, well-scoped |
-| Point size tolerance | 1 | Low | Accepts non-constant stores to a value Tint strips anyway — arguably a Tint bug |
-| Vendoring (abseil removal) | 1 | None | Mechanical `absl::from_chars` → `std::from_chars` — zero behavioral difference |
+| Patch | Fixes | Risk Level | Correctness |
+|-------|-------|-----------|-------------|
+| `0001` workgroup uniform load | FSR2 luminance pyramid failed barrier uniformity | Low | Rewrites only the exact barrier / workgroup load / barrier sequence, which is what `workgroupUniformLoad` is defined as |
+| `0006` 16-bit norm storage formats | `CanvasSdfShaderRD` (R16Snorm) did not convert | None | Table entries for six formats WGSL names (`r16unorm` ... `rgba16snorm`); the driver still remaps formats the device lacks |
+| `0015` uniform compute builtins as parameters | Screen-space contact shadows failed barrier uniformity | Low | `workgroup_id` / `num_workgroups` reach the inner entry point as parameters shadowing their `var<private>` copies; same values, now visibly uniform |
+| `0019` no `for` statements | Volumetric fog lost its density on Mali-G615 / Chrome (a `for` starting at -3 ran zero times) | Low | Every loop takes the backend's generic `loop { if (!c) { break; } ... }` form, the shape Tint always emitted |
 
-**Divergence risk**: Low overall. All patches are localized (3 logical groups), follow Tint's own coding patterns, and are straightforward to reapply on Tint upgrades. This is a dramatic improvement over the previous naga approach which required 42 patched files across many subsystems.
+**Divergence risk**: Low. Each patch is 25-125 lines and is reapplied by hand when the vendored fork is updated. What guards the interface: `webgpu_tests/spirv_cross_eval/interface_reference.json` (bindings, kinds and override ids of every engine variant, as Tint emitted them) and `webgpu_tests/wgsl_text_scan/scan_reference.txt` are compared on every smoke run, and Forward+ is judged against native Vulkan (`run_forward_plus.mjs --parity`, 71/71 after the swap).
 
 ---
 
@@ -349,6 +362,11 @@ Six patches covering 8 files in vendored Tint. Assessment by logical group:
 - Sample playback (the web default for audio) cannot run bus effects (reverb, EQ, capture, spectrum...) or stream:
   a sound is decoded whole on its first play. Players that need either set `playback_type` to Stream, the native
   mixer. Both gaps are warned about at export and at runtime; options to close them: `webgpu_notes/TASKS.md` §2.32
+- Web exports keep the screen on (Screen Wake Lock, `display/window/energy_saving/keep_screen_on`, secure context
+  required). On phones and tablets the first tap puts the page in fullscreen (`html/fullscreen_on_first_tap`, on by
+  default), where the browser locks the orientation chosen by the `html/orientation` export option (default: the
+  `display/window/handheld/orientation` project setting). Desktop browsers cannot lock orientation, report
+  `FEATURE_ORIENTATION` as unsupported, and are not put in fullscreen by a tap
 - Canvas selector hardcoded to `#canvas` (standard for Godot web exports)
 - No device-loss recovery (log only, page reload required)
 - Shader startup: ~15s for first-time conversion of ~383 stages
@@ -436,7 +454,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 ## 8. Testing Coverage Assessment
 
 ### What's Tested (In Practice)
-- Full Forward Mobile renderer path (3D scenes with shadows, animation, lighting)
+- Full Forward+ (Clustered) renderer path on real GPUs, and Forward Mobile where the adapter has fewer than 48 sampled textures per stage
 - 2D Canvas rendering
 - Multiple browsers (Chrome, Firefox, Safari)
 - Adreno GPU format fallbacks
@@ -451,16 +469,16 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 | SPIR-V preprocessing unit tests | 291 | Every pass in `run_pipeline()`, edge cases, spec constant ops; the IR passes' outputs checked with `spirv-val` |
 | Driver unit tests | 379 | Bind group layouts, format handling, pipeline state, expanded-array binding layout |
 | Shader corpus (GLSL → SPIR-V → WGSL) | 14 fixtures | End-to-end conversion + validation |
-| Forward+ feature matrix | 71 features | Each feature off/on must change the frame (real GPU) |
-| Forward+ parity | 71 features | Each frame must match a native Vulkan render of the same scene |
+| Forward+ feature matrix | 87 arms | Each feature off/on must change the frame, or for occlusion culling the object count drop (real GPU) |
+| Forward+ parity | 87 arms | Each frame must match a native Vulkan render of the same scene |
 | Engine shader corpus | ~400+ shaders | Regression baseline with `expected_failures.json` |
-| Scene smoketests | 21 scenes × 3 browsers | Chrome, Firefox, Safari (never run: no Mac) — zero GPU errors required |
+| Scene smoketests | 23 scenes × 3 browsers | Chrome, Firefox, Safari (never run: no Mac) — zero GPU errors required |
 | Resource lifecycle stress tests | - | Rapid create/destroy cycles |
 | Screenshot comparison | Chrome + Firefox | Pixel-level regression detection |
 | C++ fuzz targets | 3 targets | `fuzz_preprocess_passes`, `fuzz_split_samplers`, `fuzz_spirv_to_wgsl` |
 
 ### Remaining Gaps
-- Edge cases of the Tint patches rely on Godot's built-in shader corpus
+- Edge cases of the SPIRV-Cross patches rely on Godot's built-in shader corpus and the real-project corpus (`webgpu_tests/spirv_cross_eval/project_export.sh`, 2566 stages)
 - Fuzz targets use standalone mutation driver (libFuzzer not available with Apple clang)
 
 ---
@@ -469,7 +487,7 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 ### Input Validation
 - SPIR-V input is engine-generated (not user-supplied in typical use)
-- Tint validates the SPIR-V before WGSL generation
+- `run_pipeline()` validates its SPIR-V input with SPIRV-Tools before any pass runs (the engine's own runtime conversions skip it: their input is the engine's glslang output), and rejects a malformed module cleanly instead of asserting
 - WebGPU API performs its own validation layer (browser-side)
 
 ### Memory Safety
@@ -487,6 +505,6 @@ Both expansions happen on every WebGPU device without exception, so the engine r
 
 ## 10. Conclusion
 
-The godot-webgpu backend is **production-ready** for its target use case: running Godot 4.6 games in the browser with the Forward Mobile renderer. All critical rendering paths work correctly, resource lifecycle is properly managed, and cross-browser compatibility is handled through well-scoped, spec-compliant workarounds.
+The godot-webgpu backend is **production-ready** for its target use case: running Godot 4.8 games in the browser with the Forward+ (Clustered) renderer, at parity with native Vulkan on every feature WebGPU can express, and Forward Mobile on adapters too small for it. All critical rendering paths work correctly, resource lifecycle is properly managed, and cross-browser compatibility is handled through well-scoped, spec-compliant workarounds.
 
 The known limitations (mid-pass clear, indirect count, the WebGPU spec gaps in §6, shader startup time) are acceptable for an initial public release and clearly documented. No critical bugs were found during this comprehensive review.

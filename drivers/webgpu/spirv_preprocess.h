@@ -33,7 +33,17 @@
 #include "core/templates/vector.h"
 
 #include <cstdint>
+#include <string>
 
+// A note on "Tint" below: these passes were written in front of Tint, the
+// SPIR-V -> WGSL converter this driver used until it was replaced by
+// SPIRV-Cross's WGSL backend (webgpu_notes/TASKS.md §2.35) and deleted from
+// the tree. Many passes say which Tint bug or gap they were added for; that is
+// their history. They all still run in front of SPIRV-Cross, whose output for
+// every engine variant was checked to have the same bindings and override ids
+// as Tint's -- so a pass whose rationale is a Tint bug is not dead just because
+// that bug is gone, and removing one needs that check (smoke.sh) and a parity
+// run, not only the reason here.
 namespace spirv_preprocess {
 
 // Result struct for fix_depth2_images, which returns both the modified
@@ -50,8 +60,10 @@ struct DepthImageFixResult {
 };
 
 // Evaluate OpSpecConstantOp instructions with default values and replace
-// them with regular OpConstant instructions. Also converts OpSpecConstant*
-// to their non-specialization equivalents and strips SpecId decorations.
+// them with regular OpConstant / OpConstantComposite instructions (composite
+// operations and vector-typed operations included, evaluated on the constant
+// constituents). Also converts OpSpecConstant* to their non-specialization
+// equivalents and strips SpecId decorations.
 Vector<uint8_t> freeze_spec_constant_ops(const Vector<uint8_t> &p_bytes);
 
 // True when the module declares at least one SpecId-decorated specialization
@@ -96,35 +108,36 @@ DepthImageFixResult fix_depth2_images(const Vector<uint8_t> &p_bytes);
 // Compensates for the difference between Vulkan's Y-down NDC (which
 // Godot's GLSL shaders target) and WebGPU's Y-up NDC.
 // Without this, all rendered content appears flipped vertically.
-// Tint has no built-in coordinate space adjustment option, so this
-// is done as a SPIR-V preprocessing pass instead.
+// The converter has no built-in coordinate space adjustment option (Tint had
+// none either), so this is done as a SPIR-V preprocessing pass instead.
 Vector<uint8_t> negate_position_y(const Vector<uint8_t> &p_bytes);
 
-// Strip OpDecorate/OpMemberDecorate for decorations unsupported by Tint:
+// Strip OpDecorate/OpMemberDecorate for decorations WGSL has no use for (and
+// Tint's reader rejected):
 // Restrict (19) — memory hint from glslang, no WGSL equivalent.
 // InputAttachmentIndex (43) — Vulkan subpass inputs, no WebGPU equivalent.
 // Volatile (21) — GLSL's `volatile buffer`/`volatile image` qualifier (used by
 // e.g. volumetric_fog.glsl's froxel accumulation buffers/images, read/written
 // via atomics from many invocations without an explicit barrier). WGSL has no
 // concept of a per-variable "always re-read, never cache" hint at all; Tint's
-// SPIR-V reader hard-crashes on it (TINT_UNIMPLEMENTED unhandled decoration
+// SPIR-V reader hard-crashed on it (TINT_UNIMPLEMENTED unhandled decoration
 // 21) regardless of whether the decorated variable is ever actually used --
-// see webgpu_notes/TASKS.md Task 9.5. Safe to drop like Restrict: Tint's own
-// codegen never performs the kind of value-caching/reordering optimization
-// this decoration exists to suppress, so removing the hint doesn't change
-// Tint's output, only whether its reader accepts the module at all.
+// see webgpu_notes/TASKS.md Task 9.5. Safe to drop like Restrict: the
+// converter's codegen never performs the kind of value-caching/reordering
+// optimization this decoration exists to suppress, so removing the hint
+// doesn't change its output, only whether the module is accepted at all.
 Vector<uint8_t> strip_unsupported_decorations(const Vector<uint8_t> &p_bytes);
 
-// Replace OpMemoryBarrier with OpNop. Tint does not support
+// Replace OpMemoryBarrier with OpNop. Tint did not support
 // OpMemoryBarrier (SPIR-V 225); WGSL has no direct equivalent.
 // workgroupBarrier() (from OpControlBarrier) covers synchronization.
 Vector<uint8_t> strip_memory_barrier(const Vector<uint8_t> &p_bytes);
 
 // Drop OpImageWrite's optional Image Operands word (and any operand words
 // it introduces), rewriting it back to its bare 3-operand form (image,
-// coord, texel). Tint's SPIR-V reader unconditionally asserts the Image
-// Operands mask is zero for OpImageWrite (see EmitImageWrite in
-// lang/spirv/reader/parser/parser.cc) and abort()s otherwise -- even for a
+// coord, texel). Tint's SPIR-V reader unconditionally asserted the Image
+// Operands mask is zero for OpImageWrite (EmitImageWrite in its
+// lang/spirv/reader/parser/parser.cc) and abort()ed otherwise -- even for a
 // flag-only bit like SignExtend/ZeroExtend that adds no extra operand
 // words. glslang can emit a non-zero mask when writing to an integer
 // storage image format (imageStore() to e.g. an r32i/r32ui image); those
@@ -136,9 +149,9 @@ Vector<uint8_t> strip_image_write_operands(const Vector<uint8_t> &p_bytes);
 // carries no actual data (i.e. the instruction's word count shows the mask
 // word itself but nothing after it) -- e.g. a flag-only combination like
 // SignExtend/ZeroExtend, which unlike Lod/Bias/ConstOffset/etc. needs no
-// following operand word at all. Tint's SPIR-V reader unconditionally reads
-// one more operand whenever this mask is non-zero (see EmitImageFetchOrRead
-// in lang/spirv/reader/parser/parser.cc), regardless of whether the mask
+// following operand word at all. Tint's SPIR-V reader unconditionally read
+// one more operand whenever this mask is non-zero (EmitImageFetchOrRead
+// in its lang/spirv/reader/parser/parser.cc), regardless of whether the mask
 // actually calls for one; on a flag-only mask, that operand doesn't exist
 // and SPIRV-Tools' own out-of-bounds Instruction::GetOperand() assert fires,
 // crashing the whole process (confirmed against a real project's SDF/jump-
@@ -148,7 +161,7 @@ Vector<uint8_t> strip_image_write_operands(const Vector<uint8_t> &p_bytes);
 // type already carries its own signedness in WGSL). Only ever touches the
 // exact "mask present, zero extra words" shape; any mask that legitimately
 // carries operand data (Lod, Bias, ConstOffset, ...) is left untouched, since
-// Tint's existing single-extra-word handling is correct for those.
+// the converter's single-extra-word handling is correct for those.
 Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> &p_bytes);
 
 // Rewrites a Function-storage OpVariable that has BOTH an array-typed
@@ -161,15 +174,15 @@ Vector<uint8_t> strip_image_fetch_read_flag_only_operands(const Vector<uint8_t> 
 // variable is explicitly stored to).
 //
 // This exact combination -- an initialized local array, later accessed with
-// a non-constant (loop-variable) index -- crashes Tint's own internal
+// a non-constant (loop-variable) index -- crashed Tint's own internal
 // SPIR-V lowering (confirmed against a real project's SDF/jump-flood-style
 // compute shader: `spirv-tools/source/opt/instruction.h`'s
 // `GetOperand()` operand-index-out-of-bounds assert, reached from inside
 // Tint's reader, not from any pass in this file). The rewritten form -- no
 // initializer, explicit stores -- is semantically identical (the stores run
 // unconditionally before any other code in the block, exactly matching an
-// initializer's own execute-before-everything-else semantics) and Tint
-// reads it without issue.
+// initializer's own execute-before-everything-else semantics) and the
+// converter reads it without issue.
 Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes);
 
 // Move every Function-scope array variable that only ever holds one constant
@@ -179,7 +192,8 @@ Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes);
 // emit a Function-scope "indexable" variable plus an OpStore of the whole
 // constant right before *every* access, so a helper that reads one entry per
 // call re-initializes the entire array per call. Native drivers fold that
-// away; after the SPIR-V -> WGSL -> SPIR-V round trip through Tint and Dawn,
+// away; after the SPIR-V -> WGSL -> SPIR-V round trip through the converter
+// and Dawn's own Tint,
 // NVIDIA does not, and the array is rebuilt in scratch memory each time. In
 // SSIL (32 x vec4 sample pattern, one read per tap) that was ~0.55 ms of the
 // pass's ~0.6 ms per frame on an RTX 4080; as a Private variable with an
@@ -196,28 +210,30 @@ Vector<uint8_t> split_initialized_local_arrays(const Vector<uint8_t> &p_bytes);
 Vector<uint8_t> hoist_constant_local_arrays(const Vector<uint8_t> &p_bytes);
 
 // Replace non-finite (infinity, NaN) float constants with FLT_MAX/MIN.
-// Tint asserts std::isfinite on all float literal values.
+// WGSL has no non-finite literals (Tint asserted std::isfinite on all of them;
+// SPIRV-Cross warns and emits a substitute of its own).
 Vector<uint8_t> fix_nonfinite_literals(const Vector<uint8_t> &p_bytes);
 
 // Unwrap arrays of handle types (images, samplers, sampled images)
-// into single variables. Tint does not support arrays of handle types.
+// into single variables. WGSL (as Chrome implements it) has no arrays of
+// handle types, and SPIRV-Cross refuses them.
 // Rewrites pointer types, removes access chains, and updates loads.
 Vector<uint8_t> flatten_binding_arrays(const Vector<uint8_t> &p_bytes);
 
 // Infer read-only storage buffers by analyzing write operations.
 // Adds OpDecorate NonWritable to StorageBuffer variables that are never
 // written to (no OpStore, OpAtomicStore, OpCopyMemory, etc.). This allows
-// Tint to emit var<storage, read> instead of var<storage, read_write>.
+// the converter to emit var<storage, read> instead of var<storage, read_write>.
 Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes);
 
 // Inline every call to a function whose parameter or return type is an
 // opaque type (Image, Sampler, or SampledImage) using SPIRV-Tools' own
 // CreateInlineOpaquePass(), rather than a hand-rolled SPIR-V rewrite.
 //
-// Works around a real bug in Tint's SPIR-V reader: when a texture is
+// Worked around a real bug in Tint's SPIR-V reader: when a texture is
 // forwarded through a helper function that itself has multiple call
-// sites, Tint's ConvertUserCall (thirdparty/tint/.../lower/texture.cc)
-// can leave the *original*, un-forked function body reachable -- a
+// sites, Tint's ConvertUserCall (its spirv/reader/lower/texture.cc)
+// could leave the *original*, un-forked function body reachable -- a
 // second call site's argument-resolution chain isn't always discovered
 // independently of the first, so the original is never destroyed, and
 // its still-unresolved texture-typed FunctionParam later crashes Tint
@@ -227,8 +243,8 @@ Vector<uint8_t> infer_readonly_storage(const Vector<uint8_t> &p_bytes);
 // Tint directly, which turned out to require Tint's destroy-check to
 // reason transitively about caller liveness -- bigger, riskier surgery
 // on code every shader compile depends on). Removing texture-parameter
-// helper functions before Tint ever sees them sidesteps the whole bug
-// class instead.
+// helper functions before the converter ever sees them sidesteps the whole
+// bug class instead.
 //
 // Must run before any pass that restructures texture/sampler bindings
 // (e.g. split_combined_samplers) so those passes only ever see the
@@ -244,7 +260,7 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 // down to direct SSA value reuse (the load's result id is just replaced by
 // the stored value id).
 //
-// Needed for Tint's WGSL writer to recognize the
+// Was needed for Tint's WGSL writer to recognize the
 // "OpControlBarrier; OpLoad var<workgroup>; OpControlBarrier" shape it
 // rewrites into the uniformity-analysis-safe `workgroupUniformLoad`
 // builtin (see wgsl/writer/raise/raise.cc's ReplaceWorkgroupBarrier): that
@@ -259,25 +275,32 @@ Vector<uint8_t> inline_opaque_functions(const Vector<uint8_t> &p_bytes);
 //
 // Applied late in the pipeline (after every pass that could still
 // introduce or restructure such a variable) so it sees the final shape
-// Tint will actually receive.
+// the converter will actually receive.
 Vector<uint8_t> eliminate_local_single_block_vars(const Vector<uint8_t> &p_bytes);
 
 // The whole preprocessing pipeline, in order: what every SPIR-V module goes
-// through before Tint sees it. The single definition of that order -- the
-// runtime driver, the export-time baker (via tint_convert_cli) and the
+// through before SPIRV-Cross sees it. The single definition of that order -- the
+// runtime driver, the export-time baker (via wgsl_convert_cli) and the
 // build-time precompile all call this, so they cannot disagree.
-Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes);
+//
+// The input is validated first (spirv_opt_passes::validate_module()). A module
+// the validator rejects is not converted: the result is empty and *r_error (if
+// given) says why. Callers must treat an empty result as a failed conversion.
+// p_validate_input = false skips that full validation (the size check and each
+// optimizer pass's own precondition check stay): for input the engine compiled
+// itself with glslang moments before, where it would only add load time.
+Vector<uint8_t> run_pipeline(const Vector<uint8_t> &p_bytes, std::string *r_error = nullptr, bool p_validate_input = true);
 
 // Strip OpDecorate NonReadable from StorageBuffer-class variables (leaves
 // it untouched on images/textures, where WGSL's write-only storage
-// texture mode is valid and Tint handles it fine).
+// texture mode is valid).
 //
 // GLSL's `writeonly buffer` qualifier (used e.g. by skeleton.glsl's
 // dst_vertices and particles_copy.glsl's Transforms output buffers) makes
 // glslang emit NonReadable on the SPIR-V variable. Tint's WGSL writer then
-// tries to emit `var<storage, write>` for it -- but WGSL storage buffers
+// tried to emit `var<storage, write>` for it -- but WGSL storage buffers
 // only support `read` or `read_write`, never a write-only access mode
-// (unlike storage textures). This produces a hard Tint error: "vars in
+// (unlike storage textures). This produced a hard Tint error: "vars in
 // the 'storage' address space must have access 'read' or 'read-write'".
 // Since WGSL can't express write-only buffers at all, the only fix is to
 // stop asking for it -- treat these buffers as read_write in the
@@ -290,11 +313,11 @@ Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_byte
 // constant, drops its declaration/decoration, and removes it from the
 // entry point's interface list.
 //
-// WGSL has no equivalent to this builtin at all -- not a Tint coverage
+// WGSL has no equivalent to this builtin at all -- not a converter coverage
 // gap, a genuine language limitation (confirmed by grepping Tint's SPIR-V
 // reader: the only HelperInvocation-adjacent mention anywhere in its
 // codebase is an unrelated comment about `discard`/OpDemoteToHelperInvocation).
-// Any shader using it hard-crashes Tint's reader (TINT_UNIMPLEMENTED) the
+// Any shader using it hard-crashed Tint's reader (TINT_UNIMPLEMENTED) the
 // moment it processes the entry point's interface, regardless of whether
 // the loaded value is actually used afterward. See webgpu_notes/TASKS.md
 // Task 9.1 for why folding to `false` (rather than `true`) is safe for
@@ -307,7 +330,7 @@ Vector<uint8_t> strip_writeonly_storage_decoration(const Vector<uint8_t> &p_byte
 Vector<uint8_t> strip_helper_invocation_builtin(const Vector<uint8_t> &p_bytes);
 
 // Fold OpGroupNonUniformBallotBitCount to a constant zero. Tint's SPIR-V
-// reader has no case for this instruction at all (unconditional
+// reader had no case for this instruction at all (unconditional
 // TINT_UNREACHABLE() abort) -- GLSL's subgroupBallotExclusiveBitCount(),
 // used by cluster_render.glsl (Forward+ light-cluster building) purely to
 // elect one "representative" thread per group of invocations targeting
@@ -358,10 +381,10 @@ Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes);
 // SPIR-V 1.4+ OpEntryPoint's interface list) by downgrading every module's
 // declared version below 1.4, which in turn broke an unrelated, genuinely
 // 1.4-only construct (OpSelect's scalar-condition/vector-result form) that
-// needed its own compensating pass. Both are gone: the actual bug is now
-// fixed directly in vendored Tint (patch 0012, `## tint` in
-// thirdparty/README.md) by skipping that phony reference specifically for
-// Handle-typed interface variables, so modules now keep whatever SPIR-V
+// needed its own compensating pass. Both went when the bug was fixed in the
+// vendored Tint (its patch 0012) by skipping that phony reference specifically
+// for Handle-typed interface variables, and Tint has since been replaced by
+// SPIRV-Cross, which has no such bug; modules keep whatever SPIR-V
 // version they actually arrive at (1.4, matching what Godot's own glslang
 // integration emits) instead of being downgraded and then patched back up
 // pass-by-pass. See webgpu_notes/TASKS.md Task 21.
@@ -376,7 +399,7 @@ Vector<uint8_t> lower_subgroup_ops(const Vector<uint8_t> &p_bytes);
 // the vertex-stage SPIR-V module -- the declaration is textually
 // unconditional in the shared header, even though the vertex entry point's
 // code never touches it. Left un-eliminated, that declaration survives
-// unchanged all the way to Tint's WGSL output, making the driver's
+// unchanged all the way to the converter's WGSL output, making the driver's
 // per-stage WGSL scan (wgsl_binding_stages in
 // rendering_device_driver_webgpu.cpp) see it as "used by this stage" and
 // mark its WGPUBindGroupLayoutEntry visible to that stage -- overcounting

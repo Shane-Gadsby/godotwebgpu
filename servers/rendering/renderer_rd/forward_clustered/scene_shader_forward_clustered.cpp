@@ -693,8 +693,8 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		// (scene_forward_clustered.glsl, guarded by this same NO_IMAGE_ATOMICS
 		// define) needs the buffer-based fallback on any backend without real
 		// image-atomics support -- WGSL has no image-atomics concept at all
-		// (OpImageTexelPointer is entirely unhandled by Tint's SPIR-V reader,
-		// a hard TINT_UNIMPLEMENTED abort), matching this driver's own
+		// (OpImageTexelPointer has no WGSL translation; Tint, the converter
+		// before SPIRV-Cross, hard-aborted on it), matching this driver's own
 		// has_feature(SUPPORTS_IMAGE_ATOMIC_32_BIT) → false. fog.cpp's
 		// volumetric_fog.glsl already handles this exact situation correctly
 		// (registers separate shader groups per no_atomics state, selected via

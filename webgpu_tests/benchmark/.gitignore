@@ -1,1 +1,6 @@
 exports/
+# Load-ramp results: the logs are the evidence behind the README table (the repo-wide [Ll]ogs/ rule would drop them);
+# the per-ramp screenshots are tens of MB per run and stay local.
+!results_ramp/*/logs/
+!results_ramp/*/logs/*.log
+results_ramp/*/shots/

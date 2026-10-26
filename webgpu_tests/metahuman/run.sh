@@ -5,7 +5,8 @@
 #
 # Builds a throwaway project from the export, imports it with the editor, and runs verify.gd:
 # skeleton, one shared skin, LOD ranges, eyes on their joints, the face rig moving the jaw and the
-# body rig's correctives following an elbow bend. --shots also renders shots/ (offscreen, lavapipe
+# body rig's correctives following an elbow bend; then nan_check.gd renders the groom strands with
+# their coverage forced below zero and checks the scene color holds no NaN. --shots also renders shots/ (offscreen, lavapipe
 # under Xvfb, so no window opens). --export exports bench.tscn for the web with the WebGPU template,
 # for perf_guard's gpu_time.mjs / api_profile.mjs. No export ships in the repo: MetaHumans are not
 # ours to redistribute.
@@ -46,7 +47,7 @@ if [[ ! -f "$PROJECT/MH/head.dna" ]]; then
     cp -r "$SOURCE"/. "$PROJECT/MH/"
 fi
 
-cp "$HERE/verify.gd" "$HERE/shot.gd" "$HERE/bench.gd" "$PROJECT/"
+cp "$HERE/verify.gd" "$HERE/shot.gd" "$HERE/bench.gd" "$HERE/nan_check.gd" "$HERE/nan_probe.gd" "$PROJECT/"
 sed -i 's#res://Ava/#res://MH/#g' "$PROJECT"/*.gd
 cat > "$PROJECT/project.godot" <<'PROJECT_GODOT'
 config_version=5
@@ -72,12 +73,25 @@ script = ExtResource("1")
 BENCH
 
 echo "== import"
+# Godot reimports only a source that changed, and head.dna never does: an importer or shader change
+# would be tested against the scene an older editor imported. Reimport whenever the editor is newer.
+if [[ ! -f "$WORK/import.stamp" || "$EDITOR" -nt "$WORK/import.stamp" || "$(cat "$WORK/import.stamp")" != "$EDITOR" ]]; then
+    rm -rf "$PROJECT/.godot/imported"
+fi
 "$EDITOR" --headless --path "$PROJECT" --import >"$WORK/import.log" 2>&1 || true
+echo "$EDITOR" >"$WORK/import.stamp"
 grep -E "MetaHuman" "$WORK/import.log" || true
 
 echo "== verify"
 "$EDITOR" --headless --path "$PROJECT" -s verify.gd 2>&1 | grep -E "^(PASS|FAIL|DONE)" | tee "$WORK/verify.log"
 grep -q "DONE failures=0" "$WORK/verify.log"
+
+echo "== nan"
+# Strands whose coverage dips below zero must write no NaN (nan_check.gd). Rendered offscreen on
+# lavapipe under Xvfb like the shots; it computes NaN for pow() of a negative as NVIDIA does.
+VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a \
+    "$EDITOR" --path "$PROJECT" --rendering-driver vulkan -s nan_check.gd 2>&1 | grep -E "^(PASS|FAIL|INFO|SKIP|DONE)" | tee "$WORK/nan.log"
+grep -q "DONE failures=0" "$WORK/nan.log"
 
 if [[ "$SHOTS" == 1 ]]; then
     echo "== shots"

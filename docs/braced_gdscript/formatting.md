@@ -91,33 +91,47 @@ Use it for `.gdb` files too if your team reads both kinds of file.
 ## `.editorconfig`
 
 The formatter reads [`.editorconfig`](https://editorconfig.org) files from the script's folder upwards, to the first
-one with `root = true`. Settings there override the preset. Put one at the project root:
+one with `root = true`. Settings there override the preset. Comments go on their own lines: as in the EditorConfig format, a `#` after a
+value is part of the value, and the setting is then ignored. Put one at the project root:
 
 ```ini
 root = true
 
 [*.{gd,gdb}]
-indent_style = space            # tab | space
+# tab | space
+indent_style = space
 indent_size = 4
 end_of_line = lf
 insert_final_newline = true
 
 [*.gdb]
-gdscript_preset = js                    # godot | js
-gdscript_operator_style = symbols       # keep | words | symbols
-gdscript_comment_style = slashes        # keep | hash | slashes
-gdscript_elif_style = else_if           # keep | elif | else_if
-gdscript_spaces_in_braces = true        # { "a": 1 } rather than {"a": 1}
-gdscript_paren_continuation = 1         # extra levels inside ( )
-gdscript_bracket_continuation = 1       # extra levels inside [ ] and { } literals
+# godot | js
+gdscript_preset = js
+# keep | words | symbols
+gdscript_operator_style = symbols
+# keep | hash | slashes
+gdscript_comment_style = slashes
+# keep | elif | else_if
+gdscript_elif_style = else_if
+# { "a": 1 } rather than {"a": 1}
+gdscript_spaces_in_braces = true
+# extra levels inside ( )
+gdscript_paren_continuation = 1
+# extra levels inside [ ] and { } literals
+gdscript_bracket_continuation = 1
 gdscript_blank_lines_around_members = 1
 gdscript_max_blank_lines = 1
-gdscript_trailing_commas = all          # keep | literals | all
-gdscript_align_assignments = false      # line up the = of consecutive var/const lines
-gdscript_align_comments = false         # line up trailing comments
+# keep | literals | all
+gdscript_trailing_commas = all
+# line up the = of consecutive var/const lines
+gdscript_align_assignments = false
+# line up trailing comments
+gdscript_align_comments = false
 gdscript_align_dictionary_values = false
-gdscript_align_match_branches = false   # line up one-line match branch bodies
-max_line_length = 100                   # off: never wrap
+# line up one-line match branch bodies
+gdscript_align_match_branches = false
+# off: never wrap
+max_line_length = 100
 ```
 
 Standard keys: `indent_style`, `indent_size`, `tab_width`, `end_of_line`, `insert_final_newline`, `max_line_length`.
@@ -146,8 +160,9 @@ godot --headless --gdscript-format --stdin --stdin-path player.gdb --range 10:24
 ```
 
 `--stdin-path` names the file the text belongs to: its extension picks `.gd` or `.gdb` rules and its folder picks the
-`.editorconfig`. `--indent-style` and `--indent-size` override `.editorconfig`, which is how editors pass their own
-indentation setting. `--range <first>:<last>` (repeatable) formats only those lines, as editors do for a selection;
+`.editorconfig`; without it, standard input is formatted with `.gd` rules. `--indent-style` and `--indent-size` override `.editorconfig`, which is how editors pass their own
+indentation setting. `--range <first>:<last>` (repeatable) formats only those lines, as editors do for a selection,
+and applies only with `--stdin` (files named on the command line are always formatted whole);
 it refuses when that would leave a `.gd` file's indentation inconsistent. The exit status is 1 when a file has an
 error, or with `--check` when one would change.
 
@@ -156,7 +171,8 @@ running and send it requests on standard input: each request and each response i
 a JSON object, then the object. A request is `{"id", "path", "text", "mode", "ranges", "indent_style", "indent_size",
 "preset", "keep_lines"}`, all but `text` optional, with `mode` one of `format` (the default), `to-gd`, `to-gdb` (convert;
 `keep_lines` as `--keep-lines`) and `version`. `ranges` is a list of `[first, last]` line pairs, as `--range`. The
-answer is `{"id", "ok": true, "text"}` or `{"id", "ok": false, "line", "message"}`, in well under a millisecond; for
+answer is `{"id", "ok": true, "text"}` (plus `"note"` when the formatter fell back to formatting without trailing
+commas, alignment or wrapping, as above) or `{"id", "ok": false, "line", "message"}`, in well under a millisecond; for
 `version`, `text` is the syntax version below. The server exits when its input closes.
 
 ### Syntax version

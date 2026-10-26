@@ -8,7 +8,27 @@ layout(std140) uniform TonemapData { //ubo:0
 	float contrast;
 	float saturation;
 	int pad3;
+	vec4 white_balance; // CameraAttributes white balance: xyz = Bradford cone gains, w > 0.0 when enabled.
 };
+
+// A von Kries adaptation in Bradford cone space. The CPU computes the three cone gains
+// (RendererCameraAttributes::white_balance_compute_gains()); these matrices are BRADFORD * SRGB_TO_XYZ and its
+// inverse, and must match the C++ constants. Applied with the exposure, in linear scene-referred color.
+vec3 apply_white_balance(vec3 color) {
+	if (white_balance.w <= 0.0) {
+		return color;
+	}
+	const mat3 linear_srgb_to_lms = mat3(
+			vec3(0.422725293, 0.055699777, 0.021382644),
+			vec3(0.491345324, 0.961534051, 0.087641868),
+			vec3(0.027357945, 0.023183810, 0.980508133));
+	const mat3 lms_to_linear_srgb = mat3(
+			vec3(2.538044517, -0.146004058, -0.042298510),
+			vec3(-1.293276998, 1.116648306, -0.071607220),
+			vec3(-0.040236884, -0.022329026, 1.022752688));
+	// Saturated colors can leave the gamut; the tonemappers expect non-negative input.
+	return max(lms_to_linear_srgb * (white_balance.xyz * (linear_srgb_to_lms * color)), vec3(0.0));
+}
 
 // This approximation expects non-negative input; negative input is undefined behavior.
 vec3 linear_to_srgb(vec3 color) {

@@ -45,8 +45,14 @@ uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, re
 uniform sampler2D srmf_map : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D scatter_map : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D detail_normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform float detail_normal_tiling = 16.0;
+// Repeats of the pore map per UV unit. The importer sets it from the mesh's UV density so one repeat
+// covers the same skin area on every mesh (the body's UVs are ~3.4x coarser than the face's).
+uniform float detail_normal_tiling = 32.0;
 uniform float detail_normal_strength : hint_range(0.0, 1.0) = 0.5;
+// View depth (m) over which the pore detail fades out. Unreal drops it past the face's LOD 0; the
+// importer sets these from the mesh's LOD 0 range.
+uniform float detail_fade_begin = 0.75;
+uniform float detail_fade_end = 1.5;
 uniform float specular_scale : hint_range(0.0, 2.0) = 1.0;
 uniform float roughness_scale : hint_range(0.0, 2.0) = 1.0;
 uniform float subsurface_strength : hint_range(0.0, 1.0) = 1.0;
@@ -54,10 +60,14 @@ uniform float subsurface_strength : hint_range(0.0, 1.0) = 1.0;
 void fragment() {
 	vec4 srmf = texture(srmf_map, UV);
 	ALBEDO = texture(base_color_map, UV).rgb;
-	// Whiteout blend of the tiling pore normal over the baked one, in tangent space.
-	vec3 base_n = texture(normal_map, UV).rgb * 2.0 - 1.0;
-	vec3 detail_n = texture(detail_normal_map, UV * detail_normal_tiling).rgb * 2.0 - 1.0;
-	vec3 n = normalize(vec3(base_n.xy + detail_n.xy * detail_normal_strength, base_n.z));
+	// Whiteout blend of the tiling pore normal over the baked one, in tangent space. Both maps are
+	// RG-compressed (blue samples as 0), so z is rebuilt from xy.
+	vec2 base_xy = texture(normal_map, UV).rg * 2.0 - 1.0;
+	vec2 detail_xy = texture(detail_normal_map, UV * detail_normal_tiling).rg * 2.0 - 1.0;
+	detail_xy *= detail_normal_strength * (1.0 - smoothstep(detail_fade_begin, detail_fade_end, -VERTEX.z));
+	float base_z = sqrt(max(0.0, 1.0 - dot(base_xy, base_xy)));
+	float detail_z = sqrt(max(0.0, 1.0 - dot(detail_xy, detail_xy)));
+	vec3 n = normalize(vec3(base_xy + detail_xy, base_z * detail_z));
 	NORMAL_MAP = n * 0.5 + 0.5;
 	ROUGHNESS = clamp(srmf.g * roughness_scale, 0.0, 1.0);
 	SPECULAR = clamp(srmf.r * specular_scale, 0.0, 1.0);
@@ -298,9 +308,17 @@ void fragment() {
 	ROUGHNESS = roughness;
 	SPECULAR = specular;
 	ANISOTROPY = 0.6;
-	ALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
+	// clamp() before pow(): grooms taper to a width of exactly 0 at the tip (Ava's eyelashes do), so
+	// v_coverage is 0 at those vertices and interpolates to about -1e-9 at some pixels beside them.
+	// pow() of a negative is undefined; NVIDIA computes NaN, and one NaN pixel turns into a black
+	// hexagon the size of the DOF blur (webgpu_notes/TASKS.md §3).
+	ALPHA = pow(clamp(v_coverage, 0.0, 1.0), coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
 }
 )";
+
+// The strand shader's ALPHA line, which the importer's opaque and hashed variants of HAIR_STRANDS
+// replace; it must match the line above character for character.
+inline constexpr const char *HAIR_STRANDS_ALPHA_LINE = "\tALPHA = pow(clamp(v_coverage, 0.0, 1.0), coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n";
 
 // A groom baked to one opaque mesh (MetaHumanHair::build_shell): TANGENT follows the strands, which
 // Godot's anisotropic GGX stretches the highlight along; a fine noise across the flow draws strands.
@@ -361,7 +379,9 @@ void vertex() {
 void fragment() {
 	// The across-the-strands coordinate is taken per fragment: per vertex it changes by many strands
 	// across a triangle and interpolates into a maze.
-	float across = dot(v_position, normalize(v_binormal)) * strand_frequency;
+	// Not normalize(): a vertex whose TANGENT runs along its NORMAL has no binormal, and normalize() of a
+	// zero vector is NaN, which an opaque pass writes straight into the color buffer.
+	float across = dot(v_position, v_binormal * inversesqrt(max(dot(v_binormal, v_binormal), 1e-20))) * strand_frequency;
 	// Fade the fine strands out where they get finer than a pixel or two; they alias into a maze.
 	float fine_detail = clamp(1.5 - fwidth(across), 0.0, 1.0);
 	float fine = mix(0.5, strand_noise(across), fine_detail);

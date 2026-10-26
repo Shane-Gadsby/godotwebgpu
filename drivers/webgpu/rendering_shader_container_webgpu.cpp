@@ -38,8 +38,10 @@
 
 #include "core/os/os.h"
 #include "drivers/webgpu/spirv_lite_reflect.h"
+#include "drivers/webgpu/wgsl_text_scan.h"
 
 #include <cstring>
+#include <string>
 
 // =========================================================================
 // SPIR-V Storage + WGSL Precompilation
@@ -53,15 +55,15 @@
 // WGSL is additionally precompiled here (native editor only,
 // WEBGPU_SHADER_BAKER_ENABLED -- see
 // editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp)
-// by shelling out to bin/tint_convert_cli per stage (wgsl_bake_subprocess.h),
-// NOT by calling Tint in-process. Tint can abort() with an internal-compiler-
-// error on a shader variant it doesn't handle, and export-time baking
-// compiles every declared variant (not just ones a game actually exercises
-// at runtime) -- confirmed in practice: baking this way took down the whole
-// editor process on a real project's shader. Running Tint in a subprocess
+// by shelling out to bin/wgsl_convert_cli (wgsl_bake_subprocess.h), NOT by
+// converting in-process. A pass or the converter can abort() on a shader
+// variant it doesn't handle (Tint, the converter before SPIRV-Cross, did:
+// baking in-process took down the whole editor on a real project's shader),
+// and export-time baking compiles every declared variant (not just ones a
+// game actually exercises at runtime). Running the conversion in a subprocess
 // means that abort() only kills the subprocess; a failed stage is simply
 // left unbaked here (get_wgsl_code() returns nullptr for it) and the
-// runtime driver's own Tint fallback (which already handles that case)
+// runtime driver's own conversion (which already handles that case)
 // takes over in the browser exactly as if this file had never baked it.
 //
 // A plain WEBGPU_ENABLED build (the web runtime itself) never reaches this
@@ -69,7 +71,7 @@
 // only SPIR-V storage happens, unchanged from before baking existed. The
 // runtime path (shader_create_from_container() in
 // rendering_device_driver_webgpu.cpp) has its own independent, already-
-// isolated-by-being-in-the-browser Tint fallback for that case.
+// isolated-by-being-in-the-browser conversion for that case.
 //
 // Push constant handling:
 //   Godot's push constants are emulated via a uniform buffer at a fixed
@@ -78,38 +80,24 @@
 //   to create the pipeline layout and bind the ring buffer at draw time.
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
-// True when this WGSL text declares at least one `@id(N)` override, i.e. Tint
-// kept the module's specialization constants as something a pipeline can set
+// True when this WGSL text declares at least one `@id(N)` override, i.e. the
+// converter kept the module's specialization constants as something a pipeline can set
 // through WebGPU's own pipeline constants.
 //
-// Must stay the same test the runtime driver makes on the same text --
-// shader_create_from_container()'s `@id(` scan in
-// rendering_device_driver_webgpu.cpp, which is the authority, since what it
-// decides is what actually happens. The two agree because the test is
-// structural (`@id(`, digits, `)`) and because none of the driver's WGSL text
-// passes that run before its scan touch an `@id(...)` declaration. They do
+// Must stay the same test the runtime driver makes on the same text. It is the
+// same code now: both call wgsl_text_scan::scan_overrides(), which the driver's
+// shader_create_from_container() runs after its WGSL text passes. None of those
+// passes touch an `@id(...)` declaration. They do
 // rewrite texture declarations, textureLoad call sites and storage-texture
 // splits, so this is worth stating rather than assuming.
 //
 // Being *stricter* than the driver is harmless here (the container keeps its
 // SPIR-V unnecessarily); being looser would drop bytes the driver then needs.
 static bool _wgsl_declares_override(const CharString &p_wgsl) {
-	const char *p = p_wgsl.get_data();
-	if (p == nullptr) {
+	if (p_wgsl.get_data() == nullptr) {
 		return false;
 	}
-	while ((p = strstr(p, "@id(")) != nullptr) {
-		p += 4;
-		bool has_digits = false;
-		while (*p >= '0' && *p <= '9') {
-			p++;
-			has_digits = true;
-		}
-		if (has_digits && *p == ')') {
-			return true;
-		}
-	}
-	return false;
+	return !wgsl_text_scan::scan_overrides(std::string(p_wgsl.get_data())).empty();
 }
 
 // WEBGPU_BAKE_KEEP_SPIRV=1 makes the bake ship the SPIR-V even where nothing at
@@ -159,7 +147,7 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 		shaders.write[i].code_compressed_bytes = spirv_bytes;
 
 #ifdef WEBGPU_SHADER_BAKER_ENABLED
-		// Precompile to WGSL via a tint_convert_cli subprocess. On failure,
+		// Precompile to WGSL via a wgsl_convert_cli subprocess. On failure,
 		// leave wgsl_code[i] empty — the runtime driver falls back to
 		// translating from SPIR-V itself.
 		bool wgsl_impossible = false;
@@ -190,8 +178,8 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 	//
 	// The runtime driver reads a stage's SPIR-V for exactly four things, and
 	// three of them are now covered: the pre-DCE image declarations and the
-	// "declares specialization constants" bit are baked above, and the Tint
-	// fallback is moot for a stage whose WGSL is already here. The fourth is the
+	// "declares specialization constants" bit are baked above, and the runtime
+	// conversion is moot for a stage whose WGSL is already here. The fourth is the
 	// legacy specialization path -- re-patching the SPIR-V with constant values
 	// and re-converting it -- which the driver takes for a shader that declares
 	// specialization constants but whose WGSL carries no `@id(N) override` to
@@ -209,16 +197,17 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 			// is right for only one of them.
 			//
 			// A conversion that was attempted and failed leaves the bytes as the
-			// runtime's one remaining option: it can run Tint itself, possibly
+			// runtime's one remaining option: it can convert them itself, possibly
 			// succeeding where a subprocess with a different build or a transient
 			// failure did not.
 			//
 			// A stage that _wgsl_unsupported_reason() screened out is the other
 			// case, and there the bytes are not a fallback at all. WGSL has no
 			// multiview, no sub-32-bit integer and no image atomics, so nothing
-			// downstream can convert that stage -- the runtime's Tint call would
-			// hit the same wall, by aborting, which in wasm takes the process
-			// with it. The only consumer of those bytes is therefore a crash,
+			// downstream can convert that stage -- the runtime's conversion would
+			// hit the same wall (Tint, the converter before SPIRV-Cross, did so
+			// by aborting, which in wasm takes the process with it). Those
+			// bytes have no consumer that can use them,
 			// and they are not small: the multiview variants of the clustered
 			// scene shader were 90.3 MB of one demo project's 150 MB pck
 			// (TASKS.md §2.27). Drop them. If such a variant is somehow
@@ -226,7 +215,7 @@ bool RenderingShaderContainerWebGPU::_set_code_from_spirv(const ReflectShader &p
 			// instead -- which it already did, since the combination used to be
 			// reachable only through a corrupt container.
 			if (!stage_wgsl_impossible[i]) {
-				spirv_needed = true; // No WGSL: the runtime must run Tint on the bytes.
+				spirv_needed = true; // No WGSL: the runtime must convert the bytes.
 				break;
 			}
 			continue;

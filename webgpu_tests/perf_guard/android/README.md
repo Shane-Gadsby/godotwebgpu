@@ -71,7 +71,8 @@ GPU-bound scene reads as 41.5/83 (5 and 10 ticks) rather than a smooth distribut
    `mod:<shader>:<variant>:stg<stage>` (fragment = `stg1`); **one label covers every material version** of the
    shader, so the dump writes every distinct module as `#0`, `#1`, ... (lit materials are ~180 KB, unshaded ones
    ~25 KB).
-3. Edit copies. Tint mangles function names (`v_291`) but keeps parameter names, so cut by signature:
+3. Edit copies. Function names can be mangled (Tint, the converter these steps were written with, wrote `v_291`), so
+   check what the current converter keeps, then cut by signature (Tint kept parameter names):
    `N, L, V, A, light_color, ...` is `light_compute`; `idx : ptr<function, u32>` plus `omni_lights` /
    `spot_lights` / `area_lights` in the body is `light_process_omni/spot/area`; `ref_index` is
    `reflection_process`; a function returning `f32` whose first parameter is `shadow : texture_depth_2d` is a
@@ -103,4 +104,10 @@ it was a null result (47.9 vs 48.7 ms); it is kept for Apple GPUs.
 - Unbaked exports translate shaders at runtime; give them enough settle (the Forward Mobile export needed more than
   25 s, and its first matrix row was wrong because of it). Check `shader sources: baked N, translated M` in the
   `gpu_time.mjs` output.
-- Everything here assumes Chrome's devtools socket; Firefox for Android has no WebGPU yet.
+- Everything above assumes Chrome's devtools socket. `phone_bench.mjs` does not: it injects its measurement script
+  into the served page, which reports back over `fetch()`, and starts the browser with a plain VIEW intent, so it
+  also runs Firefox for Android (A/B frame and GPU time of two export sets, and Forward+ parity frames with
+  `--sweep`; usage in its header, summaries with `phone_summary.mjs`). It never closes the user's tabs, unlike the
+  older scripts here, which close every tab but their own. It sets `keepalive` only on reports under 60 KB: a keepalive
+  body is capped at 64 KB and the fetch rejects above it (TASKS.md §3 trap 59). The "Firefox for Android has no
+  WebGPU" note dates from 2026-10-17 and was not re-checked (Firefox for Android is out of the swap's scope).

@@ -48,7 +48,7 @@ tokenizer does. Exported `.gdb` files are written as `.gdbc` (D9); `canonicalize
 `format_code_for_path()` (Auto Indent), `can_reformat_code()` / `reformat_code()` (Reformat Code),
 `get_source_extensions()`, `get_new_script_extension()` and `adapt_template_for_path()`. `ScriptTextEditor`,
 `ScriptCreateDialog`, `CodeEdit` (`auto_unindent_closing_brackets`) and the highlighter call them. The FileSystem
-dock's convert actions are `editor/gdscript_braced_conversion.{h,cpp}`.
+dock's convert actions are `modules/gdscript/editor/gdscript_braced_conversion.{h,cpp}`.
 
 **Formatter (D12).** `GDScriptFormatter` (`gdscript_formatter.{h,cpp}`) is the only implementation of formatting
 rules; the editor, `--gdscript-format`, the language server (`textDocument/formatting`) and the IDE plugins all call
@@ -71,7 +71,7 @@ Every change to upstream files carries a `// GDB` comment. `grep -rn "// GDB" --
 them: about 110 lines in 39 files, mostly in `modules/gdscript/` (tokenizer, parser, analyzer, resource format,
 language server, tests), plus `main/main.cpp` (CLI), `editor/script/` (script editor, create dialog),
 `editor/docks/filesystem_dock.*` (public `rename_file()`), `scene/gui/code_edit.*` and `core/object/editor_language.h`.
-New files are `gdscript_tokenizer_braces.cpp`, `gdscript_formatter.{h,cpp}`, `editor/gdscript_braced_conversion.*`,
+New files are `gdscript_tokenizer_braces.cpp`, `gdscript_formatter.{h,cpp}`, `modules/gdscript/editor/gdscript_braced_conversion.*`,
 the tests below and this folder. `gdscript_braces=no` (`modules/gdscript/config.py`) builds without brace mode.
 
 ## Versions, builds and CI
@@ -101,7 +101,7 @@ the tree-sitter grammar checks that its committed parser is generated from `gram
 | Brace errors | `braces/errors/` (`.textonly.gdb`: text mode only, binary tokens report it differently) | same |
 | Error line numbers at run time | `braces/runtime/` | same |
 | Language server | `lsp/braced.gdb`, `test_lsp.h` `[braced]` | `--test --test-case="*[braced]*"` |
-| Formatter, converter, docs, editor hooks | `tests/test_gdscript_formatter.h` | `--test --test-case="*Formatter*,*Converter*,*Braced docs*,*Script editor hooks*"` |
+| Formatter, converter, docs, editor hooks | `tests/test_gdscript_formatter.h` | `--test --test-case="*Formatter*,*Converter*,*documentation comments*,*Script editor hooks*"` |
 | `CodeEdit` unindent | `tests/scene/test_code_edit.cpp` | `--test --test-case="*CodeEdit*"` |
 | Fuzzing (tokenizer, parser, formatter, converter on mangled files) | `tests/test_gdscript_braces_fuzz.h` | `--test --test-case="*mangled input*"`, `GDB_FUZZ_ITERATIONS`/`GDB_FUZZ_SEED`; `GDB_FUZZ_DUMP=<file>` writes each input before it runs (a crash leaves it behind), `GDB_FUZZ_FAILURES=<folder>` keeps failing inputs |
 | A braced project, natively and in a web export (`.gdbc`) | `webgpu_tests/braced_gdscript/` | `run.sh`, and the web scene smoketest |

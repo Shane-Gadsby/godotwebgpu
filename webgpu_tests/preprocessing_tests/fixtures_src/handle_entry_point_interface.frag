@@ -5,8 +5,8 @@
 // (not compile_fixtures.sh's default env) specifically to get SPIR-V 1.4+,
 // the version whose broader OpEntryPoint interface-list rule (every
 // module-scope variable an entry point uses must be listed, not just
-// Input/Output) triggers a real Tint SPIR-V reader bug: Tint emits an
-// invalid `_ = &(var);` "phony" reference for every listed interface id
+// Input/Output) triggered a real SPIR-V reader bug in Tint (the converter
+// before SPIRV-Cross): it emitted an invalid `_ = &(var);` "phony" reference for every listed interface id
 // regardless of storage class, which is illegal WGSL for a Handle-address-
 // space (sampler/texture) variable. See run_tests.mjs's
 // "strip_handle_vars_from_entry_point_interface" test.

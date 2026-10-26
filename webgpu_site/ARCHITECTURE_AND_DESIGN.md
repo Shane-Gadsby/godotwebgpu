@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-The Godot WebGPU backend is a complete implementation of Godot's `RenderingDeviceDriver` interface targeting the browser's WebGPU API. It enables Godot 4.6 games to run in the browser with the Forward Mobile renderer at performance parity with native builds, despite WebGPU's fundamentally different execution model.
+The Godot WebGPU backend is a complete implementation of Godot's `RenderingDeviceDriver` interface targeting the browser's WebGPU API. It enables Godot 4.8 games to run in the browser with the Forward+ (Clustered) renderer, at parity with native Vulkan on every Forward+ feature WebGPU can express (82 matrix arms, `webgpu_notes/TASKS.md` §4.39), despite WebGPU's fundamentally different execution model. Adapters with fewer than 48 sampled textures per stage fall back to Forward Mobile, the renderer this backend first shipped with on Godot 4.6.2.
 
-The implementation spans ~11,000 lines of driver-specific code across 8 files under `drivers/webgpu/`, plus ~3,000 lines of C++ SPIR-V preprocessing and Tint (Google's Dawn/Chrome shader compiler) linked directly into the engine WASM, ~1,200 lines of rendering server modifications, and ~400 lines of platform/web integration. It achieves functional parity with the Mobile renderer path while working within WebGPU's constraints: no push constants, no combined image-samplers, async-only buffer mapping, no explicit barriers, and limited format support.
+The implementation spans ~11,000 lines of driver-specific code across 8 files under `drivers/webgpu/`, plus ~6,000 lines of C++ SPIR-V preprocessing and SPIRV-Cross's WGSL backend (vendored and patched locally) linked directly into the engine WASM, ~1,200 lines of rendering server modifications, and ~400 lines of platform/web integration. It achieves functional parity with the Mobile renderer path while working within WebGPU's constraints: no push constants, no combined image-samplers, async-only buffer mapping, no explicit barriers, and limited format support.
 
 ---
 
@@ -14,7 +14,7 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 
 ```
 +---------------------------------------------------------------------+
-|                     Godot Engine 4.6.2                               |
+|                     Godot Engine 4.8                                 |
 |                                                                       |
 |   +---------------------------------------------------------------+  |
 |   |          RenderingDevice (Abstract Interface)                  |  |
@@ -50,7 +50,7 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 |   +---------------------------+  | - 12 SPIR-V binary passes    |    |
 |   | webgpu_objects.h          |  | - Push constant rewrite      |    |
 |   | - WGBuffer, WGTexture     |  | - Combined sampler split     |    |
-|   | - WGShader, WGPipeline    |  | + Tint (SPIR-V → WGSL)      |    |
+|   | - WGShader, WGPipeline    |  | + SPIRV-Cross (SPIR-V→WGSL) |    |
 |   | - WGCommandBuffer         |  +------------------------------+    |
 |   +---------------------------+                                      |
 |                                  +------------------------------+    |
@@ -78,9 +78,10 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 | Object Wrappers | `webgpu_objects.h` | 430 | GPU object wrapper structs |
 | Shader Container | `rendering_shader_container_webgpu.h/cpp` | ~210 | SPIR-V storage + push constant metadata |
 | SPIR-V Preprocessing | `spirv_preprocess.cpp/h` | ~5,100 | Binary-level SPIR-V rewriting passes, and `run_pipeline()`, the one pass order every converter uses |
-| SPIR-V IR passes | `spirv_opt_passes.cpp/h`, `spirv_binding_layout.h` | ~1,150 | Passes on SPIRV-Tools' optimizer IR: texture-array expansion, sampler LOD bias, lowering of ops Tint aborts on; the expanded-array binding layout shared with the driver |
-| Tint Wrapper | `tint_wrapper.cpp/h` | ~80 | C-compatible isolation layer for Tint (C++20) |
-| Tint (vendored) | `thirdparty/tint/` | (vendored, 811 files) | Google's Dawn/Chrome SPIR-V → WGSL compiler |
+| SPIR-V IR passes | `spirv_opt_passes.cpp/h`, `spirv_binding_layout.h` | ~1,150 | Passes on SPIRV-Tools' optimizer IR: texture-array expansion, sampler LOD bias, lowering of ops WGSL has no direct form for; the expanded-array binding layout shared with the driver |
+| Converter wrapper | `spirv_cross_wrapper.cpp/h`, `spirv_to_wgsl.cpp/h` | ~180 | Runs SPIRV-Cross's WGSL backend on preprocessed SPIR-V (the only code built with wasm exceptions; a throw becomes a failed conversion); `spirv_to_wgsl` is the runtime entry point |
+| WGSL text scans | `wgsl_text_scan.cpp/h` | ~1,430 | Everything the driver reads out of the converted WGSL (bind-group layout facts, override ids) and its text rewrites, parsed structurally |
+| SPIRV-Cross WGSL (vendored) | `thirdparty/spirv-cross-wgsl/` | (vendored, 34 files, 1.8 MB) | Ludicon/spirv-cross-wgsl: SPIRV-Cross plus a WGSL backend, four local patches |
 | Renderer Integration | `servers/rendering/` (42 files) | ~1,224 | API traits, format promotion, batching |
 | Platform/Web | `platform/web/` (7 files) | ~388 | JS engine glue, build config |
 | **Total new code** | | **~12,600** | |
@@ -105,12 +106,12 @@ With the separate render thread (the default for thread-enabled exports, `varian
 
 ### 2.2 Runtime SPIR-V to WGSL Conversion
 
-**Decision**: Store raw SPIR-V in shader containers. At runtime, preprocess with 12 C++ binary-level passes and convert to WGSL using Tint (compiled directly into the engine WASM). Cache results keyed by 64-bit hash.
+**Decision**: Store raw SPIR-V in shader containers. At runtime, preprocess with `run_pipeline()`'s C++ passes and convert to WGSL with SPIRV-Cross's WGSL backend (compiled directly into the engine WASM). Cache results keyed by 64-bit hash.
 
 **Why**:
 - emdawnwebgpu only accepts WGSL, not SPIR-V
 - Build-time conversion would lose runtime specialization constant support
-- Tint is Google's own SPIR-V→WGSL compiler (same as Chrome uses), C++, BSD-licensed
+- SPIRV-Cross's WGSL backend (Ludicon/spirv-cross-wgsl) is C++, Apache-2.0/MIT, and small (1.8 MB vendored). It replaced Tint in October 2026 (`webgpu_notes/TASKS.md` §4.36): after our passes it converts all 276 engine variants with bindings and override ids identical to Tint's, about 5-10× faster per module; its WGSL is 6-9% larger but the baked `index.shaders.pck` compresses 17% smaller (3.70 vs 4.43 MB gzip). Forward+ stayed at parity with native Vulkan (71/71), and the Razr 60 and Firefox run as fast or faster. The swap deleted ~204k lines of vendored source
 - Caching prevents redundant conversions (~40ms/shader)
 
 **Trade-off**: ~15s startup cost for first-time conversion of ~383 unique shader stages. Acceptable for initial release; pre-compilation at export time is a future optimization.
@@ -143,9 +144,9 @@ CPU Shadow Buffer (256KB):
 
 ### 2.4 Combined Image-Sampler Splitting
 
-**Decision**: At the SPIR-V binary level (before Tint parsing), split combined image-sampler variables into separate image and sampler variables with doubled binding indices.
+**Decision**: At the SPIR-V binary level (before conversion), split combined image-sampler variables into separate image and sampler variables with doubled binding indices.
 
-**Why**: WebGPU/WGSL does not support combined image-samplers. Godot's GLSL shaders use `sampler2D` (combined). The SPIR-V must present separate image and sampler variables for Tint to generate valid WGSL.
+**Why**: WebGPU/WGSL does not support combined image-samplers. Godot's GLSL shaders use `sampler2D` (combined). The SPIR-V must present separate image and sampler variables for the converter to generate valid WGSL.
 
 **Binding convention**: Original binding N → sampler at N*2, image at N*2+1. All other bindings are also doubled to avoid collision.
 
@@ -205,7 +206,7 @@ All traits default to 0 in the base class — non-WebGPU backends are unaffected
 | Push constants | Native | Emulated (ring buffer) | Emulated (ring buffer) |
 | Subpasses | Native | Flattened | Flattened |
 | Barriers | Explicit, complex | Tracked implicitly | No-op |
-| Shader format | SPIR-V native | SPIR-V → MSL (SPIRV-Cross) | SPIR-V → WGSL (Tint) |
+| Shader format | SPIR-V native | SPIR-V → MSL (SPIRV-Cross) | SPIR-V → WGSL (SPIRV-Cross) |
 | Combined samplers | Native | Split at shader level | Split at SPIR-V level |
 | Multi-draw indirect | Native | Emulated (loop) | Emulated (loop) |
 | Buffer mapping | Synchronous | Synchronous | Shadow buffer (async) |
@@ -239,12 +240,12 @@ SPIR-V 1.3 bytecode (stored in shader container)
         - inline opaque functions; freeze spec constants unless all can be overrides
         - SPIR-V 1.4+/1.6 rewrites, push constants -> storage buffer (group 3, binding 120)
         - split combined samplers (texture 2b, sampler 2b+1), depth=2 fix, Y-flip
-        - strip what Tint's reader rejects (decorations, barriers, operand masks,
+        - strip what the converter rejects (decorations, barriers, operand masks,
           helper invocations, subgroup ops, Inf/NaN literals, initialized local arrays)
         - IR passes: lower isnan/isinf/textureQueryLod/PointCoord, apply sampler LOD bias,
           expand texture arrays (budgeted per stage)
         - collapse remaining arrays, read-only SSBO inference, dead-resource removal
-    | Tint (SPIR-V -> WGSL, compiled into engine WASM)
+    | SPIRV-Cross WGSL backend (SPIR-V -> WGSL, compiled into engine WASM)
     | Return WGSL string
     | C++ WGSL post-processing:
         - Format remapping (r8/rg8/r16/rg16 -> 32-bit equivalents)
@@ -253,14 +254,14 @@ SPIR-V 1.3 bytecode (stored in shader container)
     | wgpuDeviceCreateShaderModule
 ```
 
-### Tint Patches (6 patches covering 8 files, 3 logical groups)
+### SPIRV-Cross Patches (4 patches, in `spirv_wgsl.*` and one in `spirv_glsl.*`, never upstreamed)
 
-1. **UBO layout relaxation** (1 file): `SetSkipBlockLayout(true)` — Godot's UBO layout uses C++ struct packing, not std140/std430
-2. **Spec constant size mismatches** (5 files): Godot's specialization constants change effective struct/array sizes at runtime. Patches add a `kAllowStructMemberSizeMismatch` capability to the IR validator, gate decompose_strided_array padding, and suppress invalid `@size` attributes
-3. **Point size tolerance** (1 file): Accept non-constant `point_size` stores — Godot passes through `gl_PointSize` from input to output, Tint strips it anyway
-4. **Vendoring** (1 file): Replace `absl::from_chars` with `std::from_chars` — Godot doesn't ship Abseil
+1. **`0001` workgroup uniform load**: the GLSL broadcast idiom (barrier, load of a workgroup variable, barrier) becomes `workgroupUniformLoad(&var)`, so an early return on it passes WGSL's barrier-uniformity analysis (FSR2's luminance pyramid)
+2. **`0006` 16-bit normalized storage formats**: `R16`/`Rg16`/`Rgba16` and their Snorm forms map to `r16unorm` ... `rgba16snorm` (`CanvasSdfShaderRD`)
+3. **`0015` uniform compute builtins as parameters**: `workgroup_id` / `num_workgroups` reach the inner entry point as parameters instead of `var<private>` reads, which WGSL treats as non-uniform (screen-space contact shadows)
+4. **`0019` no `for` statements**: every loop is emitted as `loop { if (!c) { break; } ... }`; Mali-G615 / Chrome ran `for (var i = -3; i <= 3; i++)` zero times (volumetric fog on the Razr 60)
 
-Compared to the previous naga approach (42 patched Rust files across many subsystems), Tint requires only 8 files in 3 logical groups, making upgrades straightforward.
+The history: naga (42 patched Rust files) until May 2026, then Tint (6 patches over 8 files, ~9 MB vendored) until October 2026, then SPIRV-Cross. The list and rationale live in `thirdparty/README.md`.
 
 ---
 
@@ -344,7 +345,7 @@ options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
 ### Build System
 
 - SCons with `webgpu=yes` flag, `--use-port=emdawnwebgpu` for Emscripten
-- Tint and SPIRV-Tools compiled directly into the engine WASM (no separate sidecar binary)
+- SPIRV-Cross's WGSL backend and SPIRV-Tools compiled directly into the engine WASM (no separate sidecar binary); the SPIRV-Cross TUs alone get `-fwasm-exceptions`
 - No Rust toolchain needed — all C++ dependencies built with SCons
 - Standard Godot build dependencies only (SCons, Python, C++ compiler, Emscripten)
 
@@ -370,6 +371,9 @@ options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
 - Sampler LOD bias: applied in the shader from a uniform, implicit-LOD samples only
 - Constant-alpha blend factors: emulated through the single RGBA blend constant
 
+### Different from stock Godot's web export
+- Occlusion culling: stock web templates leave out the raycast module (Embree), so nothing is culled; this fork's include it by default (+0.23 MiB gzipped wasm) and fix the culler's scene commit in `threads=no` builds. The Web export option `rendering/occlusion_culling` turns it off per export (`webgpu_notes/TASKS.md` §4.38)
+
 ### Stubs / TODOs
 - `command_resolve_texture`: unimplemented (MSAA resolve via render pass only)
 - `command_render_clear_attachments`: mid-pass clears silently ignored
@@ -383,8 +387,8 @@ options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
 ### What Would Need to Change for Mainline Godot
 
 1. **Base driver interface**: 10 new ApiTrait enums and ~9 new virtual methods affect all backends (have safe no-op defaults, but need review)
-2. **Vendored Tint + SPIRV-Tools**: ~16 MB of vendored source. Upstream would want to evaluate vendoring strategy (extraction script provided)
-3. **Tint patches**: 6 patches covering 8 files — upstream may want these submitted to Dawn/Tint project
+2. **Vendored SPIRV-Cross WGSL + SPIRV-Tools**: ~9 MB of vendored source (1.8 + 6.9 MB), and a second SPIRV-Cross beside Metal's (its own namespace). Upstream would want to evaluate vendoring strategy
+3. **SPIRV-Cross patches**: 4 small local patches to the WGSL backend; by decision they are not offered upstream
 4. **Test infrastructure**: Need headless Chrome/Firefox WebGPU for CI
 5. **Shared constants**: Magic numbers (binding 120, ring size 256KB) should be in one shared header
 
@@ -407,8 +411,8 @@ options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
 - **Consistent patterns**: Object lifecycle, error handling, and async safety are uniform throughout
 
 ### Concerns
-- **Tint patch maintenance**: 6 patches covering 8 files (3 logical groups). Low complexity, but must be maintained across Tint upgrades
-- **Vendored dependency size**: Tint (~9.1 MB) + SPIRV-Tools (~6.8 MB) = ~16 MB of vendored source
+- **SPIRV-Cross patch maintenance**: 4 local patches (`spirv_wgsl.*`, one touching `spirv_glsl.*`), 25-125 lines each; must be reapplied when the fork is updated. The backend has one upstream author and started in October 2026
+- **Vendored dependency size**: SPIRV-Cross WGSL (~1.8 MB) + SPIRV-Tools (~6.9 MB) = ~9 MB of vendored source (Tint's 9.1 MB is gone)
 - **Single developer knowledge**: No co-authors visible in commit history (bus factor risk)
 
 ### Overall Grade: B+

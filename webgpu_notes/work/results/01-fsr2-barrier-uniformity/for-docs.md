@@ -1,0 +1,2 @@
+thirdparty/README.md line for spirv-cross-wgsl patches:
+- `patches/0001-workgroup-uniform-load.patch`: a workgroup `OpControlBarrier`, `OpLoad` of a scalar/vector workgroup variable, the same barrier again (the GLSL broadcast idiom) is emitted as `workgroupUniformLoad(&var)` (it is that exact sequence, so semantics are unchanged). A plain load of a workgroup variable is non-uniform to WGSL's analysis, so an early return on it before further barriers (FSR2 luminance pyramid, `SpdExitWorkgroup`) failed Chrome's barrier-uniformity check. Same transform Tint applies.

@@ -6,6 +6,13 @@ on:
         description: A list of changed files, pre-filtered for parsing by clangd-tidy.
         required: true
         type: string
+      jobs:
+        description: >-
+          Which builds to run: "release" (the builds that ship or test something the release ships),
+          "sanitizers" (the ASan/UBSan/TSan dev editors, which ship nothing), or "all".
+        required: false
+        default: all
+        type: string
   workflow_dispatch:
 
 # Global Settings
@@ -23,6 +30,7 @@ env:
 
 jobs:
   build-linux:
+    if: inputs.jobs != 'sanitizers'
     # Stay one LTS before latest to increase portability of Linux artifacts.
     runs-on: ubuntu-22.04
     name: ${{ matrix.name }}
@@ -35,13 +43,13 @@ jobs:
             cache-name: linux-editor
             target: editor
             # webgpu=yes: builds in the WebGPU shader baker (export-time WGSL
-            # baking + the shader capture toolbar toggle); see tint-cli below.
+            # baking + the shader capture toolbar toggle); see wgsl-cli below.
             scons-flags: compiledb=yes webgpu=yes
             bin: ./bin/godot.linuxbsd.editor.x86_64
             artifact: true
-            # The baker runs tint_convert_cli from the editor's own directory,
+            # The baker runs wgsl_convert_cli from the editor's own directory,
             # so it ships in the editor artifact.
-            tint-cli: true
+            wgsl-cli: true
             # Braced GDScript (.gdb): twins, formatter corpus, property test.
             braced-test: true
 
@@ -72,53 +80,15 @@ jobs:
             godot-cpp: true
             clangd-tidy: true
 
-          - name: Editor with doubles and GCC sanitizers (target=editor, dev_build=yes, scu_build=yes, precision=double, use_asan=yes, use_ubsan=yes, linker=lld)
-            cache-name: linux-editor-double-sanitizers
+          # Ships in the release as its own editor zip, for projects built with precision=double (large worlds).
+          # Its templates are not built: a double project needs templates of its own (`precision=double`).
+          - name: Editor with doubles (target=editor, precision=double)
+            cache-name: linux-editor-double
             target: editor
-            # Debug symbols disabled as they're huge on this build and we hit the 14 GB limit for runners.
-            # linker=lld, not mold: this fork's extra static content (Tint, SPIR-V-Tools, Box3D, the WebGPU
-            # driver) pushes this scu_build+double+asan+ubsan binary's .eh_frame past what mold's PC32
-            # relocations can address ("relocation ... out of range"); lld handles binaries this large.
-            scons-flags: >-
-              dev_build=yes
-              scu_build=yes
-              debug_symbols=no
-              precision=double
-              use_asan=yes
-              use_ubsan=yes
-              linker=lld
-            bin: ./bin/godot.linuxbsd.editor.dev.double.x86_64.san
-            install-mold: true
-            proj-test: true
-            free-space: true
-
-          - name: Editor with clang sanitizers (target=editor, dev_build=yes, use_asan=yes, use_ubsan=yes, use_llvm=yes, linker=lld)
-            cache-name: linux-editor-llvm-sanitizers
-            target: editor
-            scons-flags: >-
-              dev_build=yes
-              use_asan=yes
-              use_ubsan=yes
-              use_llvm=yes
-              linker=lld
-            bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
-            # Test our oldest supported SCons/Python versions on one arbitrary editor build.
-            legacy-scons: true
-            free-space: true
-
-          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld, gdscript_braces=no)
-            cache-name: linux-editor-thread-sanitizer
-            target: editor
-            # gdscript_braces=no: keeps a build without braced GDScript compiling and passing its tests. This build
-            # ships nothing, so nothing loses .gdb support.
-            scons-flags: >-
-              dev_build=yes
-              use_tsan=yes
-              use_llvm=yes
-              linker=lld
-              gdscript_braces=no
-            bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
-            free-space: true
+            scons-flags: precision=double webgpu=yes
+            bin: ./bin/godot.linuxbsd.editor.double.x86_64
+            artifact: true
+            wgsl-cli: true
 
           - name: Template w/ Mono, release (target=template_release)
             cache-name: linux-template-mono
@@ -150,7 +120,7 @@ jobs:
             bin: ./bin/godot.linuxbsd.template_release.x86_64
             artifact: true
 
-    steps:
+    steps: &linux-build-steps
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -245,21 +215,21 @@ jobs:
           scons-flags: target=template_debug dev_build=yes verbose=yes
           godot-cpp-branch: ${{ env.GODOT_CPP_BRANCH }}
 
-      - name: Cache tint_convert_cli build
-        if: matrix.tint-cli
+      - name: Cache wgsl_convert_cli build
+        if: matrix.wgsl-cli
         uses: actions/cache@v6
         with:
-          path: drivers/webgpu/tint_cli/.build
-          key: tint-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/tint/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/tint_wrapper.*', 'drivers/webgpu/tint_ir_transforms.*', 'drivers/webgpu/tint_cli/**') }}
+          path: drivers/webgpu/wgsl_cli/.build
+          key: wgsl-cli-editor-${{ runner.os }}-${{ hashFiles('thirdparty/spirv-cross-wgsl/**', 'thirdparty/spirv-tools/**', 'thirdparty/spirv-headers/**', 'drivers/webgpu/spirv_preprocess.*', 'drivers/webgpu/spirv_opt_passes.*', 'drivers/webgpu/spirv_lite_reflect.*', 'drivers/webgpu/spirv_cross_wrapper.*', 'drivers/webgpu/wgsl_cli/**') }}
 
-      # g++-12 (preinstalled) rather than 22.04's default GCC 11 for Tint's C++20;
+      # g++-12 (preinstalled) rather than 22.04's default GCC 11 (the tool needed C++20 until Tint left);
       # static libstdc++ keeps the shipped binary runnable on older distros.
-      - name: Build tint_convert_cli
-        if: matrix.tint-cli
+      - name: Build wgsl_convert_cli
+        if: matrix.wgsl-cli
         env:
           CXX: g++-12
           LDFLAGS: -static-libstdc++ -static-libgcc
-        run: ./drivers/webgpu/tint_cli/build.sh
+        run: ./drivers/webgpu/wgsl_cli/build.sh
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
@@ -284,8 +254,8 @@ jobs:
           rm -rf ./bin/build_deps
           strip bin/godot.*
           chmod +x bin/godot.*
-          if [ -f bin/tint_convert_cli ]; then
-            strip bin/tint_convert_cli
+          if [ -f bin/wgsl_convert_cli ]; then
+            strip bin/wgsl_convert_cli
           fi
 
       # An editor goes up as a zip made here: upload-artifact drops Unix
@@ -363,3 +333,64 @@ jobs:
         if: matrix.proj-conv
         with:
           bin: ${{ matrix.bin }}
+
+  # The sanitizer builds, apart so that the release (runner.yml) does not wait for them: they ship nothing, and the
+  # GCC one alone took over an hour. Same steps as build-linux.
+  sanitizers-linux:
+    if: inputs.jobs != 'release'
+    runs-on: ubuntu-22.04
+    name: ${{ matrix.name }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Editor with doubles and GCC sanitizers (target=editor, dev_build=yes, scu_build=yes, precision=double, use_asan=yes, use_ubsan=yes, linker=lld)
+            cache-name: linux-editor-double-sanitizers
+            target: editor
+            # Debug symbols disabled as they're huge on this build and we hit the 14 GB limit for runners.
+            # linker=lld, not mold: this fork's extra static content (SPIR-V-Tools, Box3D, the WebGPU
+            # driver) pushes this scu_build+double+asan+ubsan binary's .eh_frame past what mold's PC32
+            # relocations can address ("relocation ... out of range"); lld handles binaries this large.
+            scons-flags: >-
+              dev_build=yes
+              scu_build=yes
+              debug_symbols=no
+              precision=double
+              use_asan=yes
+              use_ubsan=yes
+              linker=lld
+            bin: ./bin/godot.linuxbsd.editor.dev.double.x86_64.san
+            install-mold: true
+            proj-test: true
+            free-space: true
+
+          - name: Editor with clang sanitizers (target=editor, dev_build=yes, use_asan=yes, use_ubsan=yes, use_llvm=yes, linker=lld)
+            cache-name: linux-editor-llvm-sanitizers
+            target: editor
+            scons-flags: >-
+              dev_build=yes
+              use_asan=yes
+              use_ubsan=yes
+              use_llvm=yes
+              linker=lld
+            bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
+            # Test our oldest supported SCons/Python versions on one arbitrary editor build.
+            legacy-scons: true
+            free-space: true
+
+          - name: Editor with ThreadSanitizer (target=editor, dev_build=yes, use_tsan=yes, use_llvm=yes, linker=lld, gdscript_braces=no)
+            cache-name: linux-editor-thread-sanitizer
+            target: editor
+            # gdscript_braces=no: keeps a build without braced GDScript compiling and passing its tests. This build
+            # ships nothing, so nothing loses .gdb support.
+            scons-flags: >-
+              dev_build=yes
+              use_tsan=yes
+              use_llvm=yes
+              linker=lld
+              gdscript_braces=no
+            bin: ./bin/godot.linuxbsd.editor.dev.x86_64.llvm.san
+            free-space: true
+
+    steps: *linux-build-steps

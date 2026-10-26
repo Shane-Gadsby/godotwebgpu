@@ -1921,10 +1921,10 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	switch (rb->get_scaling_3d_mode()) {
 		case RSE::VIEWPORT_SCALING_3D_MODE_FSR2:
 			// FSR2's auto-exposure/luminance-pyramid pass used to trip a WGSL
-			// uniformity-analysis false positive in this engine's vendored Tint on
+			// uniformity-analysis false positive in Tint (the WebGPU converter before SPIRV-Cross) on
 			// backends lacking native image atomics (the last-active-workgroup exit
 			// check reads a workgroup-shared atomic-counter mirror through a
-			// barrier, a pattern Tint's SPIR-V reader only recognizes as safe when
+			// barrier, a pattern Tint's SPIR-V reader only recognized as safe when
 			// it appears as a literal instruction triple within one function) --
 			// that's now fixed (ffx_spd.h's SpdExitWorkgroup + the
 			// eliminate_local_single_block_vars preprocessing pass), along with a
@@ -2655,7 +2655,12 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 				params.color = rb->get_internal_texture(v);
 				params.depth = rb->get_depth_texture(v);
 				params.velocity = rb->get_velocity_buffer(false, v);
-				params.reactive = rb->get_internal_texture_reactive(v);
+				// FSR2 reads the reactivity from the color buffer's alpha itself
+				// (FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA). The alpha-only
+				// swizzled view get_internal_texture_reactive() returns cannot be
+				// used: WebGPU has no texture view swizzle, so it read red, and
+				// the scene's own color made every pixel reactive.
+				params.reactive = rb->get_internal_texture(v);
 				params.exposure = exposure;
 				params.output = rb->get_upscaled_texture(v);
 				params.z_near = p_render_data->scene_data->z_near;

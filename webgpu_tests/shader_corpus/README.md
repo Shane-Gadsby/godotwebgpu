@@ -46,4 +46,4 @@ node run_tests.mjs
 
 - **glslangValidator** — For compiling GLSL fixtures to SPIR-V (`brew install glslang`)
 - **Node.js 18+** — For running the test harness
-- **tint_convert_cli** — Standalone Tint CLI (optional; tests skip gracefully if not available)
+- **wgsl_convert_cli** — Standalone SPIR-V → WGSL converter, our passes + SPIRV-Cross (optional; tests skip if not available)

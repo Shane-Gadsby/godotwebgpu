@@ -36,6 +36,7 @@
 #include "editor/editor_string_names.h"
 #include "editor/export/editor_export_platform.h"
 #include "main/splash.gen.h"
+#include "servers/display/display_server_enums.h"
 
 class ImageTexture;
 
@@ -118,6 +119,7 @@ class EditorExportPlatformWeb : public EditorExportPlatform {
 	static Error _save_pack_file_split_textures(const Ref<EditorExportPreset> &p_preset, void *p_userdata, const SaveFileInfo &p_info, const Vector<uint8_t> &p_data);
 	Error _save_texture_packs(const String &p_base_path, Dictionary &r_texture_packs);
 	bool _uses_texture_packs(const Ref<EditorExportPreset> &p_preset) const;
+	DisplayServerEnums::ScreenOrientation _get_orientation(const Ref<EditorExportPreset> &p_preset, bool *r_overrides_project = nullptr) const;
 
 	Error _export_project(const Ref<EditorExportPreset> &p_preset, int p_debug_flags);
 	Error _launch_browser(const String &p_bind_host, uint16_t p_bind_port, bool p_use_tls);
@@ -129,6 +131,7 @@ public:
 
 	virtual void get_export_options(List<ExportOption> *r_options) const override;
 	virtual bool get_export_option_visibility(const EditorExportPreset *p_preset, const String &p_option) const override;
+	virtual HashMap<String, Variant> get_custom_project_settings(const Ref<EditorExportPreset> &p_preset) const override;
 
 	virtual String get_name() const override;
 	virtual String get_os_name() const override;

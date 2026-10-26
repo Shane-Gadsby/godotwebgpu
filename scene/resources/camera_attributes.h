@@ -54,6 +54,10 @@ protected:
 	float auto_exposure_scale = 0.4;
 	virtual void _update_auto_exposure() {}
 
+	float white_balance_temperature = 6500.0; // In Kelvin.
+	float white_balance_tint = 0.0;
+	void _update_white_balance();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -69,6 +73,11 @@ public:
 	float get_auto_exposure_speed() const;
 	void set_auto_exposure_scale(float p_auto_exposure_scale);
 	float get_auto_exposure_scale() const;
+
+	void set_white_balance_temperature(float p_temperature);
+	float get_white_balance_temperature() const;
+	void set_white_balance_tint(float p_tint);
+	float get_white_balance_tint() const;
 
 	CameraAttributes();
 	~CameraAttributes();

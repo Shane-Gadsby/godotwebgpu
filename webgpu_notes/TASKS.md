@@ -35,10 +35,55 @@ end to end (the smoketest's `audio_parity` scene). Bus effects and streaming are
 are warned about at export and at runtime, and the ways to close them are §2.32 (deferred by decision). The editor's
 lists all take drag-and-drop the same way since §4.31.
 
+**The SPIR-V → WGSL converter is SPIRV-Cross** as of §4.36 (2026-10-25): SPIRV-Cross's WGSL backend
+(`thirdparty/spirv-cross-wgsl`, four local patches, never upstreamed) after the same `run_pipeline()` passes, in the
+runtime, the build-time precompile, the export-time bake and every test tier. Tint is deleted (`thirdparty/tint`,
+`tint_wrapper.*`); the host tool is `bin/wgsl_convert_cli` (`drivers/webgpu/wgsl_cli/`). Forward+ parity stayed 71/71
+(every arm the matrix had then), and desktop Chrome, Firefox and Chrome for Android are as fast or faster. The tag `pre-SPIR-V-Cross` marks the tree
+before. Rebuild editor, `wgsl_convert_cli` and templates together after pulling it: an older editor looks for
+`tint_convert_cli` (§3 trap 61). Browser-side Tint (Chrome/Dawn compiling our WGSL) is untouched.
+
+**2026-10-26 (evening): the Forward+ matrix has 87 arms and is 87/87 against native Vulkan**, unbaked and baked, on
+the merged tree (lead, 20:24). It had 71 on 2026-10-25, 82 after §4.39 (82/82 with the raycast module in the templates,
+§4.38; 81/82 before, `occlusion_culling` KNOWN), then gained `dof_nan` (§4.41), `white_balance` (§4.42), `glow_nan`,
+`ssr_nan` and `auto_exposure_nan` (§4.44). The bake gate's ceiling is 150 translated stages (§2.39). What landed that
+day, all merged into `webgpu-4.8` and nothing pushed: **camera white balance** on `CameraAttributes` (2000–10000 K, tint
+-150..150, all three renderers and the web, §4.42); **NaN containment** in bokeh DOF, glow, SSR and auto exposure
+(`finite_inc.glsl`), and the MetaHuman strand NaN that showed it (§4.41, §4.44); **bake isolation**, the shader baker's
+WebGPU capability answers confined to the baker's own callbacks, so the editor's frames during a web export no longer
+log FSR 2 uniform mismatches and FSR 2 bakes for the target (§4.43); **MetaHuman skin pores** scaled to each mesh's UV
+density (§2.33, follow-ups §2.46); and **the editor's update check** against this fork's GitHub releases (§4.45,
+follow-ups §2.47). §3 traps 70–73 are what it cost. **Occlusion
+culling works on the web** (§4.38): the raycast module (Embree) is in every web template by default
+(`build-linux.sh --no-web-raycast` leaves it out), and the Web export option `rendering/occlusion_culling` turns it off
+per export. **The performance numbers to quote come from the load-ramp benchmark** (`webgpu_tests/benchmark/run_ramp.sh`,
+`webgpu_tests/README.md` §11; first results at the end of §2.30 and in `results_ramp/2026-10-26/ramp_summary.md`):
+`README.md`'s performance table is generated from it, and §2.17's fps matrix is superseded. **User documentation lives in
+the GitHub wiki** (§4.40), and the README was rewritten around it.
+
 ### Verified tiers
 
 | tier | result | when / where |
 |---|---|---|
+| Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, full 87-arm matrix on the merged tree (tasks 24–30) | **87 / 87** both; bake gate green under the 150 ceiling (§2.39) | 2026-10-26 20:24, lead |
+| `webgpu_tests/dof_nan/run.sh` (one NaN pixel through every bokeh DOF mode, glow, SSR, auto exposure; Forward+ and Mobile, native) | **0 failures** (24 DOF cases + glow, SSR, exposure; 7 failures before §4.44, 18/24 DOF before §4.41) | 2026-10-26, lead, §4.41, §4.44 |
+| `webgpu_tests/bake_isolation/run.sh` (interactive Web export from a windowed editor with FSR 2 + TAA, Xvfb + Vulkan) | **PASS**: 8 editor frames during the bake, 0 mismatch errors, 8/8 FSR 2 passes baked for WebGPU (FAIL on the old editor) | 2026-10-26, lead, §4.43 |
+| `webgpu_tests/metahuman/run.sh` with `nan_check.gd` | verify and nan **0 failures** after a fresh import (`run.sh` reimports when the editor is newer, §3 trap 71); `--shots` 0 failures with the pore fix | 2026-10-26, lead, §2.33, §4.41 |
+| `tests/editor/project_manager/test_engine_update_label.cpp` (`--test --test-case="*EngineUpdateLabel*"`) | **3 / 3** cases; merged editor compiles | 2026-10-26, lead, §4.45 |
+| converter smoke (`webgpu_notes/work/smoke.sh`) after each of tasks 24–28 | 276/276 interfaces, 552/552 scan facts, 0 invalid; only change override id 18 in `tonemap_mobile` (§4.42, regenerated on purpose) | 2026-10-26, lead |
+| Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, nothreads templates **with** the raycast module | **82 / 82**; `occlusion_culling` 29 → 8 objects, parity 0.002; scene smoketest 23 / 23 Chrome and Firefox | 2026-10-26, work/22, §4.38 |
+| Forward+ `--parity`, unbaked and `--baked`, full run on the 82-arm matrix, templates without the raycast module | **81 / 82** both, `occlusion_culling` KNOWN (no culler on the web then); bake gate green at the raised ceiling (translated ~117 ≤ 130, §2.39) | 2026-10-26, lead, §4.39 |
+| load-ramp benchmark (`run_ramp.sh`, 6 legs × 5 ramps × 2 runs, RTX 4080 SUPER, Chrome 156) | 60 / 60 ramp-runs converged; WebGPU Forward+ / WebGL: draws 1.23x, nodes 1.61x, fill 0.67x, lit 6.42x, particles 1.50x | 2026-10-26, `results_ramp/2026-10-26/`, §2.30 |
+| Forward+ `--parity --baked`, real GPU, Chrome, after SPIRV-Cross patch 0019 | **71 / 71** (fsr2 0.142, volumetric_fog 0.001, taa 0.006); RESULT FAIL only on the pre-existing bake gate (translated 97 > 80, §2.39) | 2026-10-25, merged swap tree, §4.36 |
+| Forward+ `--parity`, unbaked (every stage converted at runtime by SPIRV-Cross) | **71 / 71** | 2026-10-25, `62a570d31f` pair, §4.36 |
+| Firefox desktop (Linux, wgpu on Vulkan): Forward+ `--parity`, smoketest, naga | **69 / 71** with SPIRV-Cross *and* Tint (SDFGI 0.277, Firefox-only, §2.40); smoketest **23 / 23**; naga 276/276 engine variants, 2564/2566 project stages | 2026-10-25, §4.36 |
+| Chrome for Android (Razr 60): GPU ms/frame, Tint vs SPIRV-Cross+0019; fp_check Look set | fp 16.9 / 16.8, heavy 73.8 / 71.3, postfx 23.3 / 23.2, platformer 29.6 / 28.7, stress 28.8 / 28.1; 34 frames identical to Tint's | 2026-10-25, §4.36 |
+| user's `cameraSim` (Ava MetaHuman), 5 views, SPIRV-Cross baked vs native Vulkan | MAD **0.00–0.03**, same as Tint-baked and as run-to-run noise; `baked 1570 / translated 0`; user: "Matches" | 2026-10-25, §4.36 |
+| swap removal branch (work/9): editor + all 8 web variants `dev_mode=yes`; offline tiers | builds clean, 276 compiled / 0 failures; interface 276/276 and scan facts 552/552 against the stored references; shader_corpus 14/14, preprocessing 291/0/1, driver unit 379/0, fuzzers smoke PASS; `local_ci.sh --dev-mode --no-safari` 28 / 1 / 5 (web audio e2e nothreads, environmental: the 2026-10-23 export fails the same way) | 2026-10-25, §4.36 |
+| `raytracing_probe --software` (swiftshader, 320×180, 18 k and 190 k triangles) | **12 / 12 checks**: GPU BVH traversal = CPU brute force on 66/66 sampled primary rays per scene (max \|Δt\| 1.4e-5), hit / occlusion / bounce fractions as the fixed camera predicts, depth 21 within the 48-entry stack. Throughput numbers from this adapter mean nothing | 2026-10-23, §2.34 |
+| `local_ci.sh --dev-mode --no-safari --bake`, real GPU, on `e0b5115389` (PrimitiveMesh change included) | **partial, stopped by request**: werror editor + both nothreads templates built, shader corpus, every unit tier (379 / 291 / overrides / precompile / self-tests / audio 40) PASS, all re-exports PASS, **scene smoketest Chrome 22 / 22 PASS**; stopped during the Firefox smoketest — Forward+ matrix, parity, perf guard, WebRTC, lifecycle, screenshots, baked fixture **not run** | 2026-10-23, §1 "Experiments in flight" |
+| `raytracing_probe` on the Razr 60 (`run_probe_phone.mjs`, Mali-G615, 1280×720, 93 k triangles, 10 dispatches) | **6 / 6 checks**, 32/32 rays = brute force; **primary 45 Mrays/s, shadow 40, incoherent bounce 19**; 1 spp primary+shadow+bounce 64.6 ms — RT is desktop-only | 2026-10-23, §2.34 |
+| `raytracing_probe` on the real GPU (RTX 4080 SUPER, 1920×1080, 93 k and 945 k triangles, 20 dispatches) | **12 / 12 checks**, 66/66 rays = brute force per scene; **primary 5.3 / 3.7 Grays/s, shadow 5.4 / 3.8, incoherent bounce 2.3 / 1.9**; 1 spp primary+shadow+bounce 1.17 / 1.55 ms; timestamps = wall clock − 50–100 µs; GPU idle (4 %) during the run | 2026-10-23, §2.34 |
 | web audio sample driver vs native, offline (`webgpu_tests/web_audio/run_tests.mjs`) | **40 / 40**: loop modes sample-identical to `AudioStreamPlaybackWAV`, ramps/fades, bus rules, positions, 3D high shelf within 1 dB | 2026-10-18, §4.30 |
 | web audio end to end, native vs nothreads (no COOP/COEP) and threads (`run_e2e.mjs`) | `[AUDIO-CHECK] PASS` on both, every boolean equal to native, each limitation warning exactly once on web and none natively | 2026-10-18, §4.30 |
 | scene smoketest with `audio_parity` (real GPU) | **22 / 22 Chrome**; `audio_parity` also passes on Firefox | 2026-10-18 |
@@ -90,6 +135,22 @@ Reference numbers: the user's project cold-loads with a **~1.0 s** stall (was ~9
 Over a **20 Mbit/s** link with gzip, a baked export of `3d/platformer` reaches its first frame in
 **12.9 s** (was 25.7 s before §2.27's SPIR-V drop; the unbaked export takes 17.7 s), pck 65.4 MB / 11.2 MB
 gzipped — see §2.27 and §4.15 before optimizing anything CPU-side for load time.
+
+### Experiments in flight — 2026-10-23 (read this first next session)
+
+Two things were started and deliberately not finished; each has everything it needs to be picked up without
+re-deriving anything. Both commits are local on `webgpu-4.8` (`127ce9a34c`, `d64e8a2602` and this doc); nothing pushed.
+
+| experiment | state | how to run it | what the result decides |
+|---|---|---|---|
+| **PrimitiveMesh arrays rebuilt on the CPU** (§3 trap 54, `127ce9a34c`) | committed. **Partly verified 2026-10-23** by `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --no-safari --bake`: the dev-mode (`werror`) editor and both web templates built clean, every unit tier passed, every scene re-exported, and the **scene smoketest passed 22/22 on Chrome on the real GPU** (the first real-scene run of the change). **Stopped by request during the Firefox smoketest**; the Forward+ matrix, parity, perf guard, WebRTC, lifecycle, screenshots and the baked fixture did not run. `bin/` now holds dev-mode builds of `e0b5115389`; the smoketest exports match them. | Same command, when wanted: `pgrep -ax scons` (idle), then `WEBGPU_REAL_GPU=1 ./webgpu_tests/local_ci.sh --dev-mode --no-safari --bake` (~1 h; `--no-rebuild` reuses the 2026-10-23 builds and exports, which are from `e0b5115389` + docs-only commits, so they are current). Then re-export `/mnt/109313D2109313D2/godot-game-dev/webgpu-test` from `bin/godot.linuxbsd.editor.x86_64` and load it: the TressFX collider's `mesh has no extent` must be gone. | green → done, record it in §4. A regression could only come from a `surface_get_arrays()` caller that relied on the quantized readback values. Worth a sweep for other synchronous readbacks in driver-agnostic code (trap 54's general lesson). |
+| **Ray / path tracing on Forward+** (§2.34) | investigation written; probe `webgpu_tests/raytracing_probe/` written, self-checking, **measured on both devices 2026-10-23**. Desktop (RTX 4080 SUPER, 1080p): **1.9–2.3 Grays/s incoherent, 3.7–5.3 Grays/s coherent**, 1 spp primary + shadow + bounce = 1.2–1.6 ms — the gate for full-resolution RT shadows/AO was 600 Mrays/s. Phone (Razr 60, Mali-G615, 720p): **19 Mrays/s incoherent, 40–45 coherent**, 1 spp = 65 ms — a hundred times less. Traversal matched brute force on every sampled ray on both. | Desktop: `cd webgpu_tests/raytracing_probe && node run_probe.mjs --shot probe.png` on an idle GPU (`nvidia-smi`). Phone on USB: `node run_probe_phone.mjs --shot phone.png --display 4627039422300187648` (serves, `adb reverse`, opens the tab through CDP, reads the result, closes only its tab). Both exit 0/1 on the checks. | **Decided: build Tier A as a desktop-class opt-in** (§2.34 step 2 — RT AO writing the SSAO texture, then RT shadows through `sscs_buffer`, behind a project setting, default off, disabled on mobile-class adapters). Nothing left to measure before starting. |
+
+How to talk about them: `webgpu_site/RAY_TRACING_DESIGN.md` is the design (and §7 there is the full path tracer, saved for
+later); §2.34 holds the research trail and measurements (why software-only, upstream's RT API and who uses it, the four tiers,
+the shared acceleration-structure layer, WebGPU's constraints, the budget arithmetic); `webgpu_tests/raytracing_probe/README.md`
+says what each kernel stands for and how to read Mrays/s; §3 trap 54 is the readback lesson behind the first experiment.
+The probe's `--software` run is a correctness test with an exit code and could join `local_ci.sh`; it is not wired in yet.
 
 ### What is built right now — snapshot 2026-10-16 (end of the render-thread day), HEAD after `2c3544102e`
 
@@ -273,7 +334,7 @@ node capture_errors.mjs exports/<scene> [--browser firefox] [--wait 25000]  # fu
 
 # SPIR-V / WGSL investigation
 GODOT_DUMP_SPIRV=/tmp/spv ./bin/godot.linuxbsd.editor.x86_64 --path <proj> --quit-after 120
-TINT_DEBUG_DUMP_PREPROCESSED=/tmp/out.spv ./bin/tint_convert_cli <file.spv>
+WGSL_DEBUG_DUMP_PREPROCESSED=/tmp/out.spv ./bin/wgsl_convert_cli <file.spv>   # --spec-info, --raw: see CLAUDE.md
 WGSL_DEBUG_DUMP=<substring> drivers/webgpu/wgsl_precompile.py   # dumps raw SPIR-V to /tmp/wgsl_debug_dump/
 ```
 
@@ -287,6 +348,20 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 ## 2. Outstanding work — most to least critical
 
 **Added 2026-10-17 (§4.29):** Forward+ now matches native Vulkan on every matrix feature; the sweep's follow-ups are at the end of §2.31 (omni cube shadow cost not re-measured, `POINT_COORD` bug to report upstream). Judge any renderer change with `run_forward_plus.mjs --parity`.
+
+**Added 2026-10-23:** §2.34 opens the ray / path tracing investigation. WebGPU has no hardware ray tracing and none is scheduled, so it is a software (compute-shader BVH) design; the first step was a measurement, `webgpu_tests/raytracing_probe/`: on the 4080 SUPER a WGSL BVH traversal does 1.9–2.3 Grays/s incoherent and 3.7–5.3 Grays/s coherent at 1080p, 3–4× over the gate for full-resolution RT shadows/AO — so Tier A (RT AO through the SSAO texture, then RT shadows) is the next thing to build. The Razr 60 does 19 Mrays/s incoherent (100× less): RT is a desktop feature, off on mobile.
+
+**Added 2026-10-25:** §2.35 evaluates [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl), a SPIRV-Cross fork with a WGSL backend, as a replacement for Tint. Fed our preprocessed SPIR-V it emits all 276 engine variants with the same bindings and override ids as Tint, 275 pass Chrome's compiler (FSR2's luminance pyramid fails a barrier-uniformity check), and it converts about 10× faster. Not yet checked for rendering parity. The swap was started right after (tag `pre-SPIR-V-Cross` marks the tree before it).
+
+**Added 2026-10-25 (evening):** §2.37 (replay each render pass from one JS call) and §2.21 (the four deferred emdawnwebgpu features) are prioritized by the user, after alternatives to emdawnwebgpu (juj's wasm_webgpu, Rust wgpu, Emscripten's removed `USE_WEBGPU`) were evaluated and none was better: the glue is 8–10% of main-thread CPU, and emdawnwebgpu's `webgpu.h` is the API native Dawn shares.
+
+**Added 2026-10-25 (later):** §2.36, requested by the user: the web export should keep the screen awake (Wake Lock), ask for high performance, and lock to the orientation set in the export panel, with a non-PWA orientation option. Today only the PWA manifest carries an orientation and `keep_screen_on` does nothing on the web.
+
+**Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
+
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. Tasks 28 (NaN guards for glow, SSR, auto exposure, §4.44) and 29 (white balance units, §4.42) followed from the user's answers; 30 (§4.45) points the editor's update check at this fork's releases. The full matrix is 87 arms; the bake gate's ceiling went 130 → 150 (§2.39).
+
+**Added 2026-10-26 (evening):** tasks 24–30 are all merged, and the 87-arm matrix is 87/87 at parity unbaked and baked on the merged tree (§1). They left two small open items: §2.46 (MetaHuman skin follow-ups: the cloth shader's normal z, pores on the lips, the WebGPU after-capture that hung, the user's look) and §2.47 (the update check's blind spot and the two user questions it waits on). §3 traps 70–73 are tasks 25–27's.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -327,16 +402,29 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 87/87 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported); skin-pore follow-ups in §2.46 |
+| 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
+| 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | **DONE 2026-10-25 → §4.37** — Wake Lock, `html/orientation`, fullscreen on the first tap, high-performance everywhere | a feature-tag orientation override still beats `html/orientation` |
+| 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
+| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | OPEN — before the board retires | move `smoke.sh` into `webgpu_tests/`, wire it into `local_ci.sh`/CI; first GitHub run of the renamed CI jobs |
+| 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate passes only at a raised ceiling (150, was 80); 8 scene-shader groups and a particles stage are never baked |
+| 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
+| 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
+| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
+| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
+| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
+| 2.45 | Occlusion culling on the web: the raycast module in web templates (new, 2026-10-26) | **DONE 2026-10-26 → §4.38** — on by default, Web export option `rendering/occlusion_culling` | upstream the nothreads culler fix (§3 trap 69) |
+| 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
+| 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
 | 2.18 | texture compression export option | **DONE 2026-10-20** — per-family texture packs, the browser fetches only the one it samples | Safari/iOS and an Android device run |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
-| 2.21 | deferred emdawnwebgpu features | OPEN | — |
+| 2.21 | deferred emdawnwebgpu features | OPEN — prioritized by the user 2026-10-25 | — |
 | 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders | OPEN (`precision=double` builds) | — |
 | 2.24 | upstream the driver | OPEN, human | — |
@@ -402,19 +490,32 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
 | 2.18 | Texture compression as an export option: per-family texture packs | `DONE` 2026-10-20 | device runs (Safari/iOS, Android) |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
-| 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` | ~1 session each |
+| 2.21 | Deferred emdawnwebgpu feature adoption (4 items) | `OPEN` — prioritized by the user 2026-10-25 | ~1 session each |
 | 2.22 ✔ | small perf items | DONE 2026-10-15 (INITIAL_MEMORY: 0.1 ms of grows, not a lever; serve-compressed documented) | side-module size is module-level only |
 | 2.23 | Box3D remainders: `precision=double` checked; gaps deliberate | `OPEN` — checked 2026-10-14 | open-ended gaps only |
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 87/87 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
-| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
+| 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported); skin-pore follow-ups in §2.46 |
+| 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
+| 2.36 | ~~Web export: performance hint, keep screen awake, orientation~~ | **`DONE` 2026-10-25 → §4.37** | — |
+| 2.37 | Record each render pass in wasm memory, replay in one JS call | `OPEN` — prioritized by the user 2026-10-25 | ~2–4 sessions |
+| 2.38 | Converter smoke check and stored references out of the work board | `OPEN` | ~0.5 session |
+| 2.39 | Baked Forward+ fixture converts ~97 stages at load (bake gate) | `OPEN` — pre-existing | ~1 session, needs the GPU |
+| 2.40 | SDFGI differs from native in Firefox only (0.277) | `OPEN` | ~1 session, needs the GPU and Firefox |
+| 2.41 | Subsurface scattering on the Razr 60, 11.1 from desktop Vulkan | `OPEN` — pre-existing | ~1 session, needs the phone |
+| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `OPEN` | ~0.5 session, needs the GPU |
+| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
+| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
+| 2.45 | ~~Occlusion culling on the web: raycast module in web templates~~ | **`DONE` 2026-10-26 → §4.38** | — |
+| 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
+| 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1360,6 +1461,11 @@ Six named gaps, each roughly a session, in rough value order:
 
 ### 2.17 Forward+ benchmark leg and the README's numbers `DONE 2026-10-15` — measured capped and uncapped; post-fx gap fixed *(old Task 9.16)*
 
+**Superseded 2026-10-26 as the source of the README's numbers** by the load-ramp benchmark (`benchmark/run_ramp.sh`,
+`webgpu_tests/README.md` §11, first results at the end of §2.30): it reports how much content each leg carries at 20 fps,
+so the display cap that flattened every web column below no longer hides the difference. The README's table is generated
+from it (`readme_perf_table.py`). The matrix below is kept as measured; its WebGL column was display-capped throughout.
+
 **Done 2026-10-15.** `benchmark/run_matrix.sh` runs the 7 README scenes on four legs — native Vulkan Forward+,
 WebGL (official 4.7.1 editor + 4.7.2 template; a 4.8 pck will not load in a 4.7 template), WebGPU/Forward Mobile and
 WebGPU/Forward+ (`BENCH_RENDERER`, confirmed from the console banner) — and writes `benchmark/results/matrix.tsv`
@@ -1687,9 +1793,27 @@ disable_path_overrides=no` (release templates refuse `--path` otherwise) run on 
 2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a
    material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
 3. **Normal/roughness depth pre-pass** (used with SSAO/SSIL/SSR/SDFGI) still draws per element with each material's own shader; not batchable by variant (see §2.17).
-4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165).
+4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165). The WebGL half is done 2026-10-26 by the load-ramp benchmark below; the frame-time guards are still open.
 5. ~~**Threading** — §2.5, after 1-2 are re-measured.~~ Done 2026-10-16: §2.5 closed, separate render thread is the default.
 **Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
+
+**Load-ramp benchmark, 2026-10-26 (work task 20) — the WebGL comparison item 4 asked for.** `benchmark/run_ramp.sh`
+grows one kind of content per ramp until the frame rate falls to 20 fps and reports how much it took (N), so WebGL's
+display cap stops mattering; `readme_perf_table.py --write` turns a result into the README's performance table.
+Method, legs and the fairness rules in `webgpu_tests/README.md` §11; traps 66-67. First measurement
+(`results_ramp/2026-10-26/`, RTX 4080 SUPER, Chrome 156, 2 runs, all 60 ramp-runs converged, spread <= 6.5% outside
+Firefox): WebGPU Forward+ carries **1.23x WebGL's draw calls, 1.61x its moving nodes, 1.50x its particle emitters, 6.4x
+its shadowed PBR spheres, but only 0.67x its full-screen fill**; against native Vulkan Forward+ it is 0.45x (draws),
+0.75x (nodes), 0.67x (fill), 0.99x (lit), 0.31x (particles). Open questions, in order:
+1. **Fill is 0.67x on WebGPU while WebGL and both native renderers agree at 1,076 layers.** Native Vulkan Forward+ uses
+   the same RGBA16F target, so suspect the generated WGSL for the fill shader's loop (SPIRV-Cross output, precision)
+   or the pacing; compare `ramp_browser.mjs --no-pace` and `gpu_time.mjs --passes` on the fill export.
+2. **Particles 0.31x native** (2,091 vs 6,661 emitters): per-emitter compute dispatch cost on WebGPU? Profile with
+   `api_profile.mjs`.
+3. **Lit 6.4x WebGL is mostly the Compatibility renderer, not the API**: native Compatibility is also 0.26x native
+   Forward+ there (it draws every shadowed light as another pass and does not instance), so quote it as Forward+ vs
+   Compatibility. Draws and nodes are the cleanest WebGPU-vs-WebGL API comparison.
+4. **Firefox** draws varied 13,967 / 26,153 between runs (61%): needs 3+ runs before quoting.
 
 ### 2.18 Texture compression as an export option `DONE 2026-10-20` — per-family texture packs *(old Task 39)*
 
@@ -1734,6 +1858,12 @@ flip**: it changes which variants the engine generates, the baker's `get_target_
 has to agree, and §4.16's catalog of benign bake failures needs re-checking. Real upside on mobile.
 
 ### 2.21 Deferred emdawnwebgpu feature adoption `OPEN` *(old `emsdk-upgrade.md` Phase 5)*
+
+**Prioritized by the user 2026-10-25** (with §2.37), after an evaluation of emdawnwebgpu's alternatives found none
+better: these are capabilities emdawnwebgpu already gives us. Context from the converter swap (§2.35): SPIRV-Cross patch
+0006 already emits 16-bit norm *storage* formats where the device has them, and Firefox's naga rejects CanvasSdf's
+`r16snorm` storage texture without `STORAGE_TEXTURE_16BIT_NORM_FORMATS` (the driver remaps it, §4.14) — item 2 must keep
+that runtime fallback. Firefox fails `sdfgi` parity with both converters (task 11, 2026-10-25); check item 1 against it.
 
 Four items deferred during the Emscripten 4.0.11 → 6.0.9 upgrade (§4.21), each independently
 landable — and each to be landed and verified *separately*, because a regression from one must never
@@ -1988,6 +2118,26 @@ Representations (`editor/metahuman_hair.cpp`, `editor/metahuman_shaders.h`):
   - Brows and lashes are blended; the groom lashes replace the DNA cards.
   - Scalp hair is opaque: 20% of the curves at 10 points, with root darkening and an optional hashed coverage for
     projects with TAA.
+  - `ALPHA` clamps `v_coverage` before `pow()` (2026-10-26, §4.41): grooms that taper to a width of exactly 0 (Ava's
+    eyelashes: 1574 tip vertices) interpolate coverage to about -1e-9 beside the tips, and `pow()` of that is NaN on
+    NVIDIA and lavapipe. The opaque and hashed strand variants edit the shader through `HAIR_STRANDS_ALPHA_LINE`.
+    Checked by `webgpu_tests/metahuman/nan_check.gd` (in `run.sh`).
+- **Skin pores, 2026-10-26 (work task 25, merged `fd53d6d657`):** the tiling pore normal was tiled at a fixed 16 repeats
+  per UV unit, so pores were ~2x too large on the face and ~7x on the body, natively too (WebGPU = Vulkan to 0.0008
+  levels).
+  - The map: `Head_DetailNormal` = `Body_DetailNormal`, a generic 1024² micro-skin tile. The export names Unreal's
+    `Micro Skin Tiling` but carries no value. Ava's body UVs are 3.4x coarser than the face's (median 1.34 against
+    0.395 m of skin per UV unit).
+  - The fix: the importer scales the tiling from each skin mesh's median UV density so one repeat covers 1.2 cm of skin
+    (`metahuman/materials/skin_detail_size`; the map's pore marks then land at ~900 per cm², and its detail below the
+    ~1 mm the 8K normal resolves). Ava: head 32.9, body 111.7. The detail fades out over the LOD 0 range (head
+    0.75–1.5 m), as Unreal turns it off from face LOD 1. Also fixed: the skin shader read the RG-compressed normals'
+    blue (0) as z (§3 trap 72). Cheek at 0.25 m: pore features 9.6 → 5.5 px; arm at 0.5 m: detail rms 1.71 → 0.70.
+  - Ruled out by measurement: the 2048 size limit (keeps 92% of the 8K normal's mm-scale slope energy), web filtering,
+    mips, `SamplerLodBias`.
+  - Open: the lips get pores (Unreal's `Micro MaskA-D` region masks are not exported); the cloth shader has the same
+    z pattern; the user's look on size and strength (hand-offs page `look-skin-pores`). Tracked as §2.46, with the
+    WebGPU after-capture that hung.
 - **Shell:** voxelized (3 mm), closed, stray pieces dropped, smoothed, surface nets, simplified to 8,000 triangles,
   flow tangents smoothed over the mesh for the anisotropic highlight.
   - It cross-fades in beyond 3 m.
@@ -2015,6 +2165,402 @@ Measured (RTX 4080 SUPER, Chrome, 1920x1080 page, Ava at LOD 0, face, arms and h
 
 New §3 entries: 49 (shader define order), 50 (a projection with negative [1][1]), 51 (camera-facing geometry in a
 shadow pass), 52 (a step-size-dependent rest pose).
+
+### 2.34 Ray and path tracing on WebGPU Forward+ `MEASURED 2026-10-23` — software-only by necessity; desktop passes the gate 3–4×, the phone is 100× slower: desktop-only feature, Tier A next
+
+**Design document: `webgpu_site/RAY_TRACING_DESIGN.md`** — the full design (acceleration-structure layer, traversal include, shading at a hit without bindless, lights, frame integration, denoising, platform gating, the tiers with costs and acceptance tests) and **the full path tracer, designed and saved for later consideration** (its §7: wavefront scheduler, BSDFs, NEE, Movie Maker integration, projected cost). This entry keeps the research trail, the measurements and the status.
+
+**The constraint that shapes everything: WebGPU has no hardware ray tracing, and none is coming soon.** The spec issue
+([gpuweb #535](https://github.com/gpuweb/gpuweb/issues/535)) sits at "Milestone 4+" with no date; the Chrome lead's position
+(Oct 2025) is that Dawn has nothing, that it cannot come through browser extensions, and that bindless resources are a
+prerequisite that is itself years out. WGSL has no `rayQuery`, no acceleration-structure binding type, no RT pipeline
+stages. So on this target "ray tracing" can only mean **compute-shader traversal of an acceleration structure we build
+ourselves, in storage buffers** — the same thing Unity's TrueTrace, WebRTX and every WebGPU path-tracer demo do. That is
+not only a limitation: the same code runs on Metal and D3D12 (where upstream has no RT implementation either) and on
+GPUs without RT cores, so a software path is the only one that makes an RT feature available on every Godot backend.
+
+**Upstream state (the 4.8 base of this branch).** `RenderingDevice` has a full hardware RT API since PR #99119 (merged
+2026-01-27, fixes in #122051 / #123093 through Oct 2026): `blas_create` / `tlas_create` /
+`acceleration_structure_instance_write`, `command_build_blas` / `command_build_tlas`, RT pipelines with raygen / miss /
+closest-hit / any-hit / intersection stages, shader binding tables, `raytracing_list_*`, two feature bits
+(`SUPPORTS_RAYTRACING_PIPELINE`, `SUPPORTS_RAY_QUERY`). **Only Vulkan implements it, and no Godot renderer uses it**: a
+grep of `servers/`, `modules/` and `scene/` finds the API's only client to be `ShaderRD`'s stage plumbing. Open upstream
+items: BLAS refit/compaction missing, the ray-query flag cannot be enabled at device creation, push constants arrive as
+zeros in raygen on NVIDIA. Around it: NVIDIA's `nvidia-pt-dlss` fork (GDC 2026) replaces rasterization with full path
+tracing plus DLSS Ray Reconstruction, NVIDIA Vulkan only; a student project did hybrid RT reflections through an RT
+pipeline from a Forward+ depth/normal reconstruction; Calinou's assessment is that without bindless, RT shadows and AO are
+feasible in Godot and reflections/GI are not yet. **This driver** returns `false` for both feature bits and every RT entry
+point is an `ERR_FAIL` stub (`rendering_device_driver_webgpu.cpp:3676`), which `RenderingDevice` guards against anyway.
+
+**What the engine already has that is software ray tracing**, i.e. prior art inside this tree:
+
+| what | where | shape | on web? |
+|---|---|---|---|
+| lightmapper | `modules/lightmapper_rd/lm_compute.glsl` `trace_ray()` | uniform grid (`grid` texture → cluster list → clusters of `CLUSTER_SIZE` triangles with cluster AABBs), CPU-built in `_create_acceleration_structures()`; closest-hit and any-hit; hit albedo/emission from a UV2 atlas `texture2DArray` — its answer to "materials at the hit point without bindless" | **no**: editor-only module (`config.py`: `env.editor_build`), so not in the template, not in the precompile list, not in the corpus |
+| SDFGI | `environment/gi.cpp`, `sdfgi_*.glsl` | ray-marching a signed distance field in cascades | yes, at parity (§4.29) |
+| VoxelGI | `voxel_gi*.glsl` | cone tracing a voxel octree | yes, at parity |
+| contact shadows | `_process_sscs` → `sscs_buffer` (set 1 binding 37), `min()`ed into the directional shadow term in `scene_forward_clustered.glsl:2655` | screen-space depth ray march | yes |
+
+So GI by ray marching exists; what does not exist anywhere in the runtime is **triangle-accurate ray tracing**.
+
+**What is feasible, in order of value per effort.** Every tier shares one acceleration-structure layer (below).
+
+- **Tier A — RT shadows and RT AO (geometry only).** Needs no material at the hit, except alpha-tested surfaces
+  (treat as opaque first; an alpha-mask atlas later). Integration is small: a compute pass in `_pre_opaque_render` after
+  the depth prepass, which already produces depth and `normal_roughness` for SSAO/SSIL/SSR. **RT AO writes the SSAO
+  texture** (`RB_SCOPE_SSAO`/`RB_FINAL`, sampled as `ao_buffer` set 1 binding 27) — zero change to the scene shader.
+  **RT directional shadows write a screen-space mask** consumed exactly where `sscs_buffer` is today (one more
+  `min()` into `shadow`, or a replacement for the shadow-map lookup when the mask covers the pixel); omni/spot RT shadows
+  are the same mask with a layer per light, like `sscs_index`. Soft shadows: N rays toward the light's disc with a
+  temporal blue-noise sequence and the TAA/temporal reprojection the renderer already has. Value: pixel-exact contact
+  without PCF/bias artifacts, no shadow-atlas passes for the lights that use it (6 passes per omni light today, §2.31
+  follow-up 1).
+- **Tier B — RT reflections replacing SSR** (post-opaque, writes `RB_SCOPE_SSR`, sampled as `ssr_buffer` binding 35).
+  Needs shading at the hit: the realistic answer is a hybrid — reproject the hit into the current frame's color where it is
+  on screen (what SSR does), and otherwise a coarse surface cache (lightmap/UV2 atlas as the lightmapper does, or
+  reflection-probe/SDFGI radiance at the hit) rather than evaluating materials. Scope: large; the cache is most of it.
+- **Tier C — path-traced GI** (1 spp ReSTIR-GI style, denoised, as an alternative to SDFGI). Research-grade: the denoiser
+  (SVGF or a temporal/spatial pair) is more work than the tracing. The probe decides whether even 1 spp fits.
+- **Tier D — a progressive reference path tracer** (Movie Maker / stills, no frame budget). A *generic* Godot path tracer
+  is a bindless problem — every material is its own shader, which a compute kernel cannot evaluate at a hit. The feasible
+  subset is StandardMaterial3D-like materials with their textures in an atlas or in texture arrays within the 48-per-stage
+  budget (§2.31). Honest scope: a reference mode for standard materials, not for arbitrary shader code.
+
+**The acceleration-structure layer (shared):**
+
+- **BLAS per mesh surface**, a binned-SAH BVH2 (BVH4 / compressed wide BVH later if the probe shows traversal-bound)
+  built on the CPU: `MeshStorage` keeps the CPU `SurfaceData` (`mesh_get_surface()`), so positions are there without a
+  readback (the readback would be §3 trap 54 all over again). Build cost: the JS probe builds 190 k triangles in 200 ms;
+  C++ is several times faster and it can run on a worker in threaded builds; better still, **bake at export** next to the
+  WGSL (`ShaderBakerExportPlugin` pattern, §4.23) and ship the trees in the pack.
+- **TLAS per frame** over the culled `RenderGeometryInstance` list (transform, BLAS id, flags/mask, material id), CPU-built
+  (thousands of instances, well under a millisecond) and uploaded as a storage buffer; two-level traversal in GLSL
+  (instance → object-space ray → BLAS). MultiMesh/particles are instances; their transform buffers are already storage.
+- **Skinned / blend-shaped meshes:** `skeleton.glsl` already writes skinned vertices to a storage-usage vertex buffer per
+  frame; a compute refit (leaf AABBs from the skinned vertices, then bottom-up by level) keeps the BLAS valid. Rebuild
+  small ones outright.
+- **Where it lives:** a driver-agnostic `RendererRD` effect (next to `environment/gi.*` and `effects/ss_effects.*`) with a
+  shared `rt_trace_inc.glsl`, so it also runs natively (and so the Forward+ parity harness can compare web against
+  native — RT features have no native Vulkan *reference* otherwise; their truth is a many-spp brute-force render of the
+  same fixture). **Rejected for now:** implementing upstream's acceleration-structure API inside the WebGPU driver and
+  lowering GLSL `rayQueryEXT` to a traversal in a SPIR-V pass. It would let future upstream ray-query shaders run
+  unchanged, but Tint has no ray-query ops, so it is a DXR-fallback-layer-sized project — and upstream has no such
+  shaders yet. Revisit if they appear.
+- **WebGPU-specific constraints, all survivable:** no bindless → one node buffer and one triangle buffer for the whole
+  scene (Chrome exposes the adapter's `maxStorageBufferBindingSize`, which `engine.js` already requests; swiftshader
+  reports 1 GiB, the default is 128 MiB); 10 storage buffers per stage on Chrome; no 64-bit atomics (no LBVH Morton
+  sorts with 64-bit keys — use 32-bit or the CPU); subgroups are available (Chrome 134+) for compaction later; a
+  `array<u32, 48>` function-scope traversal stack and the data-dependent loop compile and run through Tint (probe); the
+  output textures must be storage-capable formats, which the SSAO path already handles for `R8_UNORM`.
+
+**Budget arithmetic** (to fill in with the real-GPU probe): 1080p is 2.07 M pixels, so a kernel at *N* Mrays/s costs
+2074 / *N* ms. A 60 fps frame has 16.7 ms and a hybrid effect can take 3–5 ms of it, so a full-resolution one-ray-per-pixel
+effect needs **400–700 Mrays/s** of its ray type, a half-resolution one with temporal accumulation a quarter of that. Rough
+expectation for a well-written BVH2 in WGSL on the 4080 SUPER: hundreds of Mrays/s to low Grays/s coherent, a few hundred
+Mrays/s incoherent (software traversal is typically 4–8× behind the RT cores). Mobile (Razr 60, Adreno) will be one to two
+orders of magnitude lower, which is why any RT feature is a per-project opt-in with a quality ladder, never a default.
+
+**The probe — `webgpu_tests/raytracing_probe/` (`node run_probe.mjs`, README there).** Standalone page: deterministic
+procedural scene (ground + tessellated spheres and boxes to a requested triangle count), binned-SAH BVH2 in JavaScript,
+one WGSL compute shader with `primary` (coherent, closest hit), `shadow` (to a point light, any hit) and `bounce`
+(cosine hemisphere from each hit, closest hit) entry points, each timed over 20 dispatches with GPU timestamp queries;
+prints Mrays/s, hit fractions, traversal steps, BVH build time and depth, the adapter's features and the limits that bound
+a software tracer, and draws the result so a broken traversal is visible. **It is also a correctness test**: a grid of 66
+primary rays is re-traced on the CPU by brute force over every triangle in double precision and must agree with the GPU
+traversal (it does, to 1.4e-5), the hit, occlusion and bounce-hit fractions must be the ones the fixed camera gives, and
+the BVH depth must fit the 48-entry stack; the runner exits 0/1 on the checks and 2 when a real-GPU run landed on the
+fallback adapter. It launches the system Chrome headed with the real-GPU flags (§3 "Measurement traps"); `--software`
+runs swiftshader at 320×180, which proves the kernels and nothing about hardware; `--url-only --port 8099` serves it for
+a browser you already have up or for the phone (`adb reverse tcp:8099 tcp:8099`, then the printed `http://localhost:8099/...`
+URL in Chrome on the Razr 60; the result is on the page itself).
+
+| run | adapter | triangles | BVH build | primary | shadow | bounce | 1 spp frame |
+|---|---|---|---|---|---|---|---|
+| 2026-10-23, `--software`, 320×180, 12/12 checks | swiftshader (fallback) | 18 k | 37 ms | 6.0 Mrays/s, 11.7 steps | 3.8 Mrays/s, 26 % occluded | 2.9 Mrays/s, 23 % hit | 31 ms |
+| 2026-10-23, `--software`, 640×360, 66/66 rays = brute force | swiftshader | 190 k, depth 21 | 200 ms | 3.9 Mrays/s, 15.4 steps | 3.0 Mrays/s | 2.1 Mrays/s, 21 steps | 172 ms |
+| **2026-10-23, real GPU, 1920×1080, 20 dispatches, 12/12 checks** | **RTX 4080 SUPER** (Chrome/Dawn/Vulkan; subgroups 32, `shader-f16`, 16 storage buffers/stage, 2 GiB binding) | 93 k, depth 20, 6 MB | 101 ms (JS) | **0.39 ms, 5.3 Grays/s**, 14.4 steps | **0.24 ms, 5.4 Grays/s** (1.27 M rays), 25 % occluded | **0.54 ms, 2.3 Grays/s**, 30 % hit, 19.4 steps | **1.17 ms** |
+| same | same | 945 k, depth 23, 60 MB | 749 ms (JS) | **0.55 ms, 3.7 Grays/s**, 16.9 steps | **0.33 ms, 3.8 Grays/s** | **0.67 ms, 1.9 Grays/s**, 35 % hit, 23.8 steps | **1.55 ms** |
+| **2026-10-23, Razr 60, 1280×720, 10 dispatches, 6/6 checks** | **Mali-G615 MC2** (Chrome 155, `arm / valhall`; subgroups 16, `shader-f16`, 16 storage buffers/stage), screen on, tab in front | 93 k, depth 20 | 177 ms (JS) | **20.7 ms, 45 Mrays/s**, 14.4 steps | **14.3 ms, 40 Mrays/s** (0.57 M rays), 25 % occluded | **29.6 ms, 19 Mrays/s**, 30 % hit | **64.6 ms** |
+
+The software rows prove the kernels and the picture (correct spheres, boxes, blocked shadow rays, sky), nothing about
+hardware. **The desktop rows are the decision**: GPU timestamps and wall clock agree to within the 50–100 µs submit
+overhead, the traversal matched brute force on every sampled ray, and the GPU was idle (4 %) during the run. The gate below
+asked for 300 Mrays/s incoherent for half-resolution Tier A and 600 for full resolution; the 4080 SUPER delivers **1.9–2.3
+Grays/s incoherent** and **3.7–5.3 Grays/s coherent**, so one full-resolution primary + shadow + bounce sample per pixel
+costs 1.2–1.6 ms of a 16.7 ms frame. **The phone is a different world: 19 Mrays/s incoherent, 40–45 coherent, a hundred
+times less** — one 720p bounce ray per pixel is 30 ms on its own, and even quarter-resolution AO (230 k rays) would be
+12 ms, so no RT effect fits a mobile frame on this class of GPU. The traversal was correct on both (every sampled ray
+matched brute force), so the gap is hardware, not a translation problem. Read the desktop rows with three discounts: the scene is geometry only (no material fetch, no alpha
+test, no TLAS instance transform — expect ~1.5× for a two-level traversal); it is cache-friendly (60 MB of BVH and triangles
+sits in the AD103's 64 MB L2, a game scene with textures in flight will miss more — expect 2–3× in a real frame); and the
+guess above ("a few hundred Mrays/s incoherent") was 5–10× too pessimistic, which says the WGSL→SPIR-V→NVIDIA path adds
+no measurable penalty to a plain stack traversal. Even with every discount, **Tier A fits at full resolution on this class
+of GPU with room for several rays per pixel, and Tier C's *tracing* at 1 spp fits (the denoiser is then the cost).**
+The phone row settles the defaults: **RT is a desktop-class feature — a per-project opt-in that the engine turns off (or
+falls back to SSAO/shadow maps) when the adapter is mobile-class**, which the adapter info the shell already reads
+(`arm`/`qualcomm` vendors) or a first-frame throughput check can decide at startup.
+
+**Next steps, in order:**
+1. **Measure.** **Done 2026-10-23 on both.** Desktop: the gate (≥ 300 Mrays/s incoherent for half-resolution Tier A,
+   ≥ 600 for full) is passed 3–4× over. Phone (`node run_probe_phone.mjs`, which drives the device's Chrome over adb +
+   CDP): 19 Mrays/s incoherent, far under the ~100 that would have allowed a mobile mode — RT stays desktop-only.
+2. **If viable, prototype Tier A engine-side**, behind a project setting (`rendering/raytracing/*`, default off): RT AO
+   first (writes the SSAO texture, no scene-shader change, so the existing SSAO fixture in the Forward+ matrix exercises
+   it), then directional RT shadows through the `sscs_buffer` path. BLAS at load from the CPU surface data, TLAS per frame,
+   skinned meshes excluded until refit exists. Truth for tests: a many-spp render of the same fixture, not native Vulkan.
+3. **BVH infrastructure proper**: export-time bake, GPU refit, BVH4 if traversal-bound.
+4. Tiers B–D only on the numbers from step 1.
+
+Effort: Tier A prototype 2–3 weeks, of which the acceleration-structure layer is about one; Tier B another 2–3; Tier C
+open-ended; Tier D 2 weeks for the standard-material subset once the layer exists.
+
+### 2.35 SPIRV-Cross's WGSL backend instead of Tint `DONE 2026-10-25` → §4.36 — swapped; Tint deleted
+
+**Closed 2026-10-25.** The swap ran as tasks 00–19 on a work board (`webgpu_notes/work/`, retired with it) and ended
+with Tint deleted; results, numbers and what each task changed are in §4.36, follow-ups in §2.38–2.44. The
+evaluation below is kept as written, since it is what the decision was made on.
+
+
+**What it is.** [Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl) (Ignacio Castaño) is
+KhronosGroup/SPIRV-Cross plus one backend, `spirv_wgsl.{hpp,cpp}` (4,640 lines, `CompilerWGSL : CompilerGLSL`), on a
+`wgsl` branch that merges upstream automatically. First commit 2026-10-02; one author; 165 reference shaders under
+`shaders-wgsl/`, its output checked with Tint in its CI; Apache-2.0 OR MIT. It emits spec constants as `@id(N) override`,
+splits combined image samplers (sampler at `binding + 16`, or Tint's layout with `--wgsl-resolve-binding-conflicts`),
+turns push-constant blocks into a uniform buffer at a chosen group/binding, adds `diagnostic(off, derivative_uniformity)`
+when implicit derivatives are used, and has a warning channel for lossy translations (non-finite constants, depth compare
+at non-zero LOD, bias outside fragment, weak compare-exchange, ignored builtins such as `gl_PointSize`). It throws on what
+WGSL cannot express: arrays of textures/samplers/buffers, 16-bit integers, geometry/tessellation, image atomics, etc.
+**We already vendor SPIRV-Cross** (`thirdparty/spirv-cross`, for Metal), so adopting it is the WGSL files plus a version
+bump, not a new dependency.
+
+**Measured 2026-10-25 on the 276 variants `wgsl_precompile.py` builds** (81 shader files; `webgpu_tests/spirv_cross_eval/`,
+`./run.sh <out> <spirv-cross>` reproduces all of it; Chrome on the 4080 SUPER, every optional feature enabled):
+
+| | Tint (current) | spirv-cross, raw glslang SPIR-V | spirv-cross after `run_pipeline()` |
+|---|---|---|---|
+| converted | 276/276 | 195/276 — 79 "Arrays of textures and samplers are not supported", 1 subgroup op, 1 storage format | **276/276** |
+| valid in Chrome | 276/276 | 107/195 — 86 duplicate bindings (combined-sampler split at the default offset) | **275/276** |
+| bindings + kinds + override ids equal to Tint's | — | — | **276/276** |
+| WGSL bytes, all variants | 6,287,157 | — | 6,686,228 (+6%) |
+| biggest variant (Forward+ color uber, lightmap+motion+sepspec frag, 288 KB SPIR-V) | 0.43 s | — | 0.035 s |
+| whole corpus, one process per module | 8.8 s | — | 1.7 s |
+
+- **It replaces Tint, not our passes.** Raw glslang output fails on exactly what `spirv_preprocess` exists for
+  (texture arrays → `expand_binding_arrays`); after the passes it accepts everything, and the interface comparison is
+  what makes it a drop-in: the driver's bind-group layouts and pipeline constants come out the same.
+- **The one invalid shader** is `effects/fsr2/fsr2_compute_luminance_pyramid_pass.glsl` (`no_image_atomics`, comp):
+  "`workgroupBarrier` must only be called from uniform control flow", reached through `SpdDownsampleNextFour` from
+  `SpdDownsample`. Barrier uniformity has no diagnostic switch; Tint's structurization of the same SPIR-V passes, so the
+  difference is in how SPIRV-Cross emits that control flow.
+- **The Tint times include running our passes a second time** on already-preprocessed input; `perf` is not permitted
+  on this machine (`perf_event_paranoid=4`), so the Tint-only share was not separated. The ~10× is an upper bound.
+  It matters less than it looks: baked exports translate nothing at runtime (`baked 747 / translated 0`, §4.23), and the
+  cold export's whole Tint stage is 1.8 s of 7.8 s.
+- **Size is estimated, not measured.** Tint is 11.5 MB of 202.5 MB of web-template objects (5.6%); natively its objects
+  are 18.5 MB against ~4.2 MB for SPIRV-Cross core + GLSL + WGSL. The web wasm has no name section, so the saving in
+  `godot.wasm` is unknown until a template is built without Tint. Tint is also 384 translation units in every one of the
+  eight web variants `build-linux.sh` builds.
+- **Validation is not parity.** Nothing above renders anything. Tint's WGSL is what `run_forward_plus.mjs --parity`
+  (71/71, §4.29) has been judged on.
+
+**Value, in order.** (1) A fallback when Tint aborts (`TINT_UNIMPLEMENTED` on `sewer-shift`, §4.27) — cheap, the library is
+already here. (2) A second converter in `shader_corpus`: the interface comparison catches Tint and pass regressions.
+(3) A full replacement: smaller wasm, shorter web builds, no Tint patches to carry — only behind Forward+ `--parity`
+and a GPU-time comparison.
+
+**Decision 2026-10-25 (user): do the full swap**, patching SPIRV-Cross locally as needed (never upstreamed), until
+Forward+ is back at parity with Vulkan. The tree before it is tagged `pre-SPIR-V-Cross`.
+
+### 2.36 Web export asks for performance, a screen that stays on, and its orientation `DONE 2026-10-25` → §4.37
+
+**Closed 2026-10-25** (work task 19, merged `6d8a3e6dc0`): Wake Lock, `html/orientation`, fullscreen on the first tap,
+high-performance on every adapter request. What was built and how it was checked: §4.37. The request and the survey
+below are as written before the work.
+
+
+**Ask (user, 2026-10-25):** the web export template should signal that it wants performance mode, that the screen should
+stay awake, and that it prefers the orientation set in the export panel, adding a portrait/landscape export option if
+there is none.
+
+**What exists today (checked 2026-10-25):**
+- *Performance:* the WebGPU adapter is already requested with `powerPreference: 'high-performance'`
+  (`platform/web/js/engine/engine.js`, and the render thread's own adapter in `display_server_web.cpp`). Nothing else
+  is signaled. The web has no general "performance mode" API: `powerPreference` is a hint the browser may ignore (it
+  matters on dual-GPU laptops and some phones), and the Compute Pressure API only reports, it cannot request.
+- *Screen awake:* nothing. `DisplayServerWeb::screen_set_keep_on()` is an empty override and `FEATURE_KEEP_SCREEN_ON`
+  is commented out in `has_feature()`, so the project setting `display/window/energy_saving/keep_screen_on` (default
+  true) does nothing on the web. The Screen Wake Lock API (`navigator.wakeLock.request('screen')`, secure context,
+  Chrome/Edge/Safari 16.4+/Firefox 126+) does it; the lock is released whenever the page is hidden and must be
+  requested again on `visibilitychange`.
+- *Orientation:* the export option `progressive_web_app/orientation` (Any / Landscape / Portrait) exists, but it is
+  written only into the PWA manifest, so it applies only to an installed PWA. `FEATURE_ORIENTATION` is commented out
+  and `screen_set_orientation()` is not implemented, so `display/window/handheld/orientation` is ignored on the web.
+  `screen.orientation.lock()` works on Chrome for Android only in fullscreen (or an installed PWA) and rejects
+  elsewhere; desktop browsers reject it. Side bug in the same code: `CLAMP(orientation, 0, 3)` indexes a 3-entry array
+  (and `display` is clamped to 4 for a 4-entry one), so an out-of-range preset value reads past the end.
+
+**Plan:**
+1. Keep-awake: implement `screen_set_keep_on()` with the Wake Lock API in `library_godot_display.js`, re-acquire on
+   `visibilitychange`, apply the project setting at startup, report `FEATURE_KEEP_SCREEN_ON`. Fail quietly
+   (`print_verbose`) where the API is missing.
+2. Orientation: a non-PWA export option (e.g. `html/orientation`: Project Setting / Any / Landscape / Portrait,
+   default follows `display/window/handheld/orientation`), passed in `GODOT_CONFIG`. The shell calls
+   `screen.orientation.lock()` when it enters fullscreen (the only time Chrome for Android allows it) and, while the
+   device is held the other way and the lock is unavailable, may show a "rotate your device" hint. Implement
+   `screen_set_orientation()` / `FEATURE_ORIENTATION` on top of the same code. Keep the PWA option, or make it default
+   to the new one, so there is one place to set it; fix the clamp bug.
+3. Performance: keep `powerPreference: 'high-performance'`, make sure every adapter request uses it (the shells in
+   `misc/dist/html/`, the render thread, the editor), and document that the web offers no stronger signal. Check on the
+   Razr 60 whether Chrome's behavior differs (§2.9 recipe).
+
+**Test:** the Razr 60 over adb (keep-awake: screen does not dim past the system timeout while running; orientation:
+fullscreen locks to the export setting), desktop Chrome and Firefox (no errors where the APIs are missing or reject).
+
+### 2.37 Record each render pass in wasm memory, replay it in one JS call `OPEN` — prioritized by the user 2026-10-25
+
+**Why.** Every WebGPU call from the driver is a wasm→JS crossing into emdawnwebgpu's glue (one `getJsObject` table
+lookup, then the browser method). Measured 2026-10-16 (§2.30, `cpu_steady.mjs` capped, heavy_i / 3D platformer): main
+thread 1.99 / 1.31 ms per frame, of which engine wasm 60% / 54%, browser WebGPU methods 21% / 12%, **Emscripten glue
+0.19 / 0.10 ms (10% / 8%)**. A faster glue table was tried and lost (§2.30 option 3), and replacing emdawnwebgpu with
+another binding (juj's wasm_webgpu, evaluated 2026-10-25) keeps the same per-call shape while giving up the `webgpu.h`
+API native Dawn shares, so the remaining lever at this layer is fewer crossings: record a render pass's commands
+(`setPipeline`, `setBindGroup`, `setVertexBuffer`, `setIndexBuffer`, `draw*`, `setViewport`, `setScissorRect`, ...) into
+a flat buffer in wasm memory and replay the whole pass from one JS function with direct references to the GPU objects.
+Ceiling on desktop heavy_i: ~0.15 ms/frame (~7% of main-thread CPU); on phones each crossing costs several times more
+(the May 2026 IPC arc measured crossings at 20–45% of mobile frame time before the per-call optimizations), so the Razr
+60 is where it should pay most and where it must be measured.
+
+**Prior design.** `webgpu_notes/COMMAND_STREAM_RECORDER_PERF_OPTIM.md` (read it with
+`git show bb79e0122f^:webgpu_notes/COMMAND_STREAM_RECORDER_PERF_OPTIM.md`), Approach 2 "Godot-level JS batch replay",
+designed 2026-05-04 and not built because the per-call work of §4.21 closed the gap first. The same doc weighs render
+bundles, indirect draws and custom bindings; the decision then was command buffering only.
+
+**Plan.**
+1. Measure first on the current tree: `cpu_steady.mjs` on heavy_i and the platformer (desktop, capped) and the Razr 60
+   (§2.9 recipe), glue and WebGPU-method self time per frame, so the result has a baseline.
+2. Recorder in `rendering_device_driver_webgpu.cpp`: render-pass commands append fixed-size records to a per-pass wasm
+   buffer; `command_end_render_pass()` (and any command that must not be reordered against it) flushes with one
+   `EM_JS` call. The JS side resolves handles once per object through emdawnwebgpu's table (or a parallel array the
+   driver fills at object creation), and calls the `GPURenderPassEncoder` methods in a tight loop. Compute passes
+   second, only if the measurement says they matter.
+3. Keep the direct path behind a switch for A/B and as a fallback; the recorder must be bit-identical in output
+   (Forward+ `--parity`, the scene smoketest and `perf_guard` budgets unchanged) and no slower anywhere.
+4. The render thread (§2.5) has its own device and encoders: the replay runs on whichever thread owns the pass.
+
+**Done when** the Razr 60 and desktop numbers show the main-thread saving, parity is unchanged, and `perf_guard` passes.
+Effort: ~2–4 sessions.
+
+### 2.38 Converter smoke check and stored references out of the work board `OPEN` *(from §4.36)*
+
+The one check that the converter still produces what the driver expects without rendering anything is
+`webgpu_notes/work/smoke.sh`: it builds `wgsl_convert_cli`, converts every engine variant `wgsl_precompile.py` builds,
+compares bindings, kinds and override ids with `webgpu_tests/spirv_cross_eval/interface_reference.json`, runs
+`webgpu_tests/wgsl_text_scan/run_tests.sh` against `scan_reference.txt`, and compiles every module in Chrome. It lives in
+the swap's work board, which is being retired, and `wgsl_text_scan/run_tests.sh` takes a smoke run directory as input,
+so the text-scan tier has no producer outside the board. Nothing in `local_ci.sh` or CI runs either.
+
+**Do:** move `smoke.sh` and `smoke_expected_invalid.txt` to `webgpu_tests/spirv_cross_eval/` (or a `converter_smoke/`
+tier), drop its board-only parts (leases), point `compare_interface.py`'s and `run_tests.sh`'s comments and the
+CLAUDE.md Testing block at it, and add it to `local_ci.sh --quick` (no GPU: Chrome compiles WGSL on any adapter). Also
+watch the first GitHub run after the swap: work/9 changed matrix keys (`wgsl-cli`), the artifact name
+(`wgsl-convert-cli`) and the cache keys of every workflow without a CI run (§4.36). Effort ~0.5 session.
+
+### 2.39 The baked Forward+ fixture still converts ~97 stages at load `OPEN` — pre-existing, every converter *(from §4.36)*
+
+`run_forward_plus.mjs --baked` ends in RESULT FAIL on its bake gate (`translated <= 80`) with every converter, Tint
+before the swap included: 8 Forward+ scene-shader groups (×12 stages) and one particles stage are converted at runtime,
+because the baker never sees those versions. Parity itself is 87/87 (71/71 when this was written), so this is load time, not correctness, but the
+gate being red means the tier cannot catch a real baking regression. Start from the fixture's `--verbose` "Shader cache
+miss for ..." lines against the export's "Shader baker: baking ..." fingerprints (§3 traps 40, 45, 49 are the three
+earlier causes of the same symptom). Effort ~1 session, needs the GPU.
+
+**2026-10-26:** the matrix grew to 82 arms (work/21), whose new materials and shaders are built in GDScript at run
+time and so can never be baked; translated rose to ~117 and the gate's ceiling was raised to 130 to keep it green. That
+makes the gate looser, not this item fixed: the ~97 engine stages above are still inside the 117. Fixing this item
+should bring the ceiling back down to the GDScript-built count plus a margin.
+
+*2026-10-26:* the bake gate's ceiling is 150 (`run_forward_plus.mjs` `TRANSLATED_CEILING`): 117 with the work/21 arms, 133 once work task 26's `dof_nan` arm added a GDScript-built NaN material, which the bake cannot see. A broken bake translates ~440, so the gate still catches it.
+
+### 2.40 SDFGI differs from native in Firefox only `OPEN` *(from §4.36)*
+
+In Firefox desktop (Linux, wgpu on Vulkan) `sdfgi` and `sdfgi_camera_move` are 0.277 from native Vulkan (tolerance
+0.08), with Tint-converted and SPIRV-Cross-converted exports alike; Chrome passes the same exports. The difference is
+subtle by eye. Frames: `webgpu_notes/work/results/11-firefox/sdfgi_frames/` (in git history once the board is gone).
+Some SDFGI pass behaves differently on Firefox/wgpu — bisect by swapping single modules' WGSL
+(`gpu_time.mjs --replace-wgsl`, if it runs under `--browser firefox`) or by disabling SDFGI's passes one at a time, and compare with naga's
+own translation of the module. Effort ~1 session, needs the GPU and Firefox (`scene_smoketest/firefox_prefs.mjs`).
+
+### 2.41 Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan `OPEN` — pre-existing *(from §4.36, §2.9)*
+
+fp_check's `subsurface_scattering_1` on the phone (Mali-G615, Chrome) is 11.1 mean abs diff from desktop Vulkan with
+both Tint and SPIRV-Cross, while desktop WebGPU passes; every other look matches. Not the swap. Compare with an Android
+Vulkan render if one can be made, then bisect on device by swapping WGSL modules (`phone_bench.mjs --swap-wgsl`, the
+method that found patch 0019's zero-trip loop, §3 trap 58). Effort ~1 session, needs the phone lease.
+
+### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `OPEN` *(from §4.36)*
+
+With `--verbose`, every frame logs `'Fsr2AccumulatePassShaderRD:1' set 1 binding 5: a 320x180 depth texture is bound
+where the shader declares a float texture`: FSR2's accumulate pass reads `r_input_depth` as a float texture, so the
+driver substitutes the blank fallback (§3 trap 29). It is read only to derive motion vectors where there are none
+(`GODOT_DERIVE_INVALID_MOTION_VECTORS`, i.e. the sky), and a fallback reading 0 is the sky's reversed-Z depth, so the
+fixture shows nothing. `SceneForwardClusteredShaderRD` set 1 binding 24 logs the same (a 4x4 depth texture; it is §2.31's
+"trace the 4x4 depth placeholder message"). Check FSR2 with the camera moving and the sky in view; if it differs, make
+the binding a depth texture by name (`*_depth*`) or teach the reclassifier its use. Effort ~0.5 session, needs the GPU.
+
+### 2.43 Audit swizzled texture views `OPEN` *(from §4.36, §3 trap 55)*
+
+WebGPU texture views have no component swizzle, and `RenderingDeviceDriverWebGPU` stores a view's swizzle without
+applying it, with no warning. FSR2's reactive mask was such a view and read the wrong channel for months (amd-fsr2 patch
+0005). Find every other non-identity swizzle that reaches the driver: `texture_storage.cpp` builds views from
+`ret_format.swizzle_*` for image formats such as L8/LA8 (some are already converted to RGBA up front, §3 trap 17), and
+`RenderSceneBuffersRD`'s `alpha_only_view` exists for MetalFX. For each, either convert the data, do the swizzle in the
+shader, or have the driver warn once when it drops one. Effort ~0.5–1 session.
+
+### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `OPEN` *(from §4.36)*
+
+`webgpu_tests/spirv_cross_eval/spec_op_probes.py` builds `op_FConvert_f32` as an FConvert to the same width, which the
+validator rejects ("Expected component type of Value to be different"). Since `run_pipeline()` validates its input
+(§4.36), the probe's legacy (frozen) path is rejected, so `run_spec_ops.sh` should report it as a new failure. Run it
+once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 session.
+
+### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `DONE 2026-10-26` → §4.38
+
+**Closed 2026-10-26** (work task 22, merged `b13c7bee24`; default decided in `508f4ed3b2`). Moved whole to §4.38.
+
+### 2.46 MetaHuman skin follow-ups after the pore fix `OPEN` *(from §2.33, work task 25)*
+
+Task 25 (merged `fd53d6d657`) fixed the pore scale (§2.33's 2026-10-26 bullet). Left open:
+
+- **The cloth shader reads blue as z** (§3 trap 72): `modules/metahuman/editor/metahuman_shaders.h`'s cloth fragment
+  takes `texture(normal_map, UV).rgb * 2.0 - 1.0` and the same for `micro_normal_map`, so z is -1 on RG-imported
+  normal maps, as the skin shader's was. Rebuild z from xy as the skin shader now does. Natively visible too; check
+  with `webgpu_tests/metahuman/run.sh --shots` after a fresh import (§3 trap 71).
+- **The lips get pores:** Unreal masks the micro detail by region (`Micro MaskA`-`D`), which the export does not carry.
+  The SRMF alpha (black on lips and eyelids) looks like a fuzz mask and was deliberately not used. Needs a mask source.
+- **The WebGPU "after" capture never ran:** `webgpu_notes/work/results/25-metahuman-skin-coarse/capture_web.mjs` on
+  worker 25's `web_after` export hung before its first SHOT twice, even with 10 minutes. The "before" pair matched
+  Vulkan (WebGPU = Vulkan to 0.0008 levels) and the fix touches neither the renderer nor the converter, so this is a
+  missing confirmation, not a known difference. Find why the capture hangs (headed system Chrome, real adapter).
+- **The user's look** on size and strength: hand-offs page `look-skin-pores` (frames in the task's `looks/`). The
+  user's camera-sim needs a **Reimport** of `scenes/Ava/head.dna` to get the fix.
+
+Effort ~0.5 session for the cloth fix plus a GPU run; the lip masks need data the export lacks.
+
+### 2.47 Editor update check: the blind spot and two pending user questions `OPEN` *(from §4.45, work task 30)*
+
+The check against this fork's releases is done (§4.45, merged `4b4bd00e62`). Open:
+
+- **Two user decisions** on the hand-offs page, each implemented with its default: `update-newer-rule` (newer = the
+  release's `main-<sha>` commit is not the build's and was committed later; the alternative is a fork version number in
+  `version.py`, the tag and the title) and `update-repo` (default `Shane-Gadsby/godotwebgpu`). A different answer is a
+  small change in `editor/project_manager/engine_update_label.cpp` (and, for a version number, the release workflow).
+- **The blind spot of the commit-date rule:** a build from a branch committed after a release but not containing it
+  (`webgpu-4.8` before a fix that is only on `main`) is not told about that release.
+- **Coupling to the release workflow:** the check reads the commit from the release's `main-<sha>` tag and the engine
+  version from the `godot-webgpu-*-<version>` asset names; `.github/workflows/runner.yml`'s `draft-release` job must
+  keep both.
+
+Effort <0.5 session once the user has answered.
 
 ---
 
@@ -2083,15 +2629,16 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
 **Shaders and the conversion pipeline**
 
 8. **Trace against the *preprocessed* SPIR-V, not glslang's output.** They are different modules;
-   designing against the wrong one cost a full implementation. `TINT_DEBUG_DUMP_PREPROCESSED`.
-9. **WGSL captured from the engine is not Tint's output** — it has already been through the driver's
-   own text passes. `tint_convert_cli` on the same SPIR-V is. Diffing the two is a two-minute check
+   designing against the wrong one cost a full implementation. `WGSL_DEBUG_DUMP_PREPROCESSED` on `wgsl_convert_cli`.
+9. **WGSL captured from the engine is not the converter's output** — it has already been through the driver's
+   own text passes. `wgsl_convert_cli` on the same SPIR-V is (it was Tint's when this was found). Diffing the two is a two-minute check
    and it is what finally attributed the depth-promotion bug correctly.
-10. **`tint_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
-   the child's output to `/dev/null` so one Tint ICE cannot kill the batch. Run it single-file,
+10. **`wgsl_convert_cli --batch` hides its own crash diagnostics** — it forks per shader and redirects
+   the child's output to `/dev/null` so one converter abort cannot kill the batch. Run it single-file,
    un-forked, to see the real abort.
-11. **When a new shader fails Tint conversion**, the fix is almost always a new/extended SPIR-V
-    preprocessing pass or a vendored Tint patch — not a WGSL-writer change.
+11. **When a new shader fails conversion**, the fix is almost always a new/extended SPIR-V
+    preprocessing pass or a SPIRV-Cross patch (`thirdparty/spirv-cross-wgsl/patches/`, never upstreamed) — not a
+    WGSL text rewrite. It was a Tint patch before §4.36.
 
 **Merges and upstream**
 
@@ -2129,11 +2676,12 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     scons target — the name must carry the full variant suffix (e.g.
     `….wasm32.nothreads.o`). No full web build needed.
 20. **`wgsl_precompiled.gen.h` used to depend only on `wgsl_precompile.py`** (fixed 2026-10-16). A change to a
-    preprocessing pass or an engine `.glsl` rebuilt `tint_convert_cli` and the runtime path, but the precompiled engine
+    preprocessing pass or an engine `.glsl` rebuilt the converter tool and the runtime path, but the precompiled engine
     shaders kept the old WGSL — the header was a day old after a pass change, with nothing saying so. `drivers/webgpu/SCsub`
     now lists the pass sources and `servers/rendering/renderer_rd/shaders/**/*.glsl`, and since 2026-10-17 (§4.22) a
-    fingerprint `Value` over every vendored Tint/SPIRV-Tools/`tint_cli` source, `bin/tint_convert_cli` itself and
-    glslang's version, so a Tint patch re-bakes on its own; `./build-linux.sh --force-shader-rebake` deletes the header
+    fingerprint `Value` over every vendored converter/SPIRV-Tools/CLI source (today SPIRV-Cross and `wgsl_cli`),
+    `bin/wgsl_convert_cli` itself and glslang's version, so a converter patch re-bakes on its own (since 2026-10-25
+    the FSR 1/2 shader sources under `thirdparty/amd-fsr{,2}` too: an amd-fsr2 patch alone left the table stale); `./build-linux.sh --force-shader-rebake` deletes the header
     when you want to be certain. Check with `ls -la drivers/webgpu/wgsl_precompiled.gen.h` and the
     `[WGSL Precompile] Results:` line in the build log.
 21. **The browser main thread cannot wait, and a worker must not re-schedule itself with a timer** (§2.5, 2026-10-16). A
@@ -2279,7 +2827,9 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `GODOT_VERSION_HASH`, which is the git HEAD at build time, so committing between two builds makes the second one miss
     the whole baked cache (`baked: 0`) and an A/B "measures" Tint. For a before/after of a driver change, build the editor
     and both templates at one HEAD (apply/revert the change as a working-tree diff), export once, and swap only
-    `index.wasm`/`index.js` between runs.
+    `index.wasm`/`index.js` between runs. The converter A/B of §4.36 hit the same thing from the other side: a
+    template built from another commit than the editor that bakes for it loads `baked: 0`, so build every A/B
+    template from a detached worktree at the editor's exact commit.
 39. **A software adapter runs Forward Mobile, so a Forward+ startup cannot be measured there as-is** (2026-10-20).
     swiftshader reports 16 sampled textures per stage. To exercise Forward+'s shader loading and pipeline creation in a
     GPU-less container, build a scratch template with the `textures_per_stage < 48` fallback in
@@ -2361,6 +2911,158 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     `env -u DISPLAY VK_ICD_FILENAMES=.../lvp_icd.json`. Separately, `click_to_start` clicked once, which could land
     before Godot listened for it (`audio_parity`'s intermittent Chrome failures): it now clicks every 2 s until the
     checks are in.
+54. **`PrimitiveMesh::surface_get_arrays()` read the mesh back off the GPU, so on web it returned zeros**
+    (2026-10-21, fixed). A `CapsuleMesh` handed to a GDExtension collider (TressFX-Godot's `TressFXCollisionMesh`)
+    failed in a web export with `mesh has no extent` — its own `verts.is_empty()` check had passed, so the arrays came
+    back the right *size* with every vertex at the origin. `PrimitiveMesh` threw away the arrays it generated in
+    `_update()` and re-read them through `RenderingServer::mesh_surface_get_arrays()`; on WebGPU a readback is
+    asynchronous, and a first one returns the zero-filled shadow buffer (`RenderingDeviceDriverWebGPU::buffer_map()`,
+    documented in §2.13 — it is `print_verbose`, so nothing in the console connects the zeros to the readback unless
+    the export runs with `--verbose`). The fix is `_build_mesh_arrays()`, shared by `_update()` and
+    `surface_get_arrays()`: the arrays are rebuilt on the CPU from `_create_mesh_array()`, which is correct on every
+    backend, drops a pointless GPU round trip, and no longer loses the quantization the vertex format applies. The
+    general lesson: **any driver-agnostic engine code that reads a GPU resource back synchronously is wrong on
+    WebGPU** — if the data was on the CPU a moment earlier, recompute it instead. Worth sweeping for other callers.
+
+55. **A WebGPU texture view cannot swizzle, and the driver drops a swizzle silently** (2026-10-25). `RD::texture_create_shared()`
+    with a `TextureView` whose `swizzle_*` is not identity creates a plain view: WebGPU has no component swizzle, and
+    `RenderingDeviceDriverWebGPU` stores the swizzle without applying it ("WebGPU has no texture component swizzle").
+    No error, no warning. FSR2's reactive mask was such a view (`get_internal_texture_reactive()`, alpha broadcast to
+    RGBA), so FSR2 read the scene's red channel as reactivity, every lit pixel was reactive, and the output was soft:
+    0.55 from native, Laplacian sharpness 0.83× native — which had been accepted as "FSR2 is a little softer on web".
+    amd-fsr2 patch 0005 reads `.a` itself; sharpness is now 1.000× native. Anything that relies on a swizzled view needs
+    the swizzle in the shader (§2.43 audits the rest). Metal honors swizzles, so `get_internal_texture_reactive()` stays
+    for MetalFX.
+56. **A parity capture must land on a fixed temporal-jitter phase, and FSR2 at scale 0.5 has 32 of them** (2026-10-25).
+    Volumetric fog (Halton, `frame % 16`), TAA and FSR2 jitter by frame number, and a settled temporal effect still
+    differs by phase: native Vulkan measures 0.045–0.082 against itself one or two phases apart. The Forward+ fixture's
+    capture phase depended on whether the harness's first hash change landed in boot frame 1 or 2; baked exports boot
+    fast enough to straddle it, so fog "flipped between two exact states" (0.046 / 0.082) and was reported as a race in
+    the baked path. `fp_scene.gd` now aligns every capture to phase 0 (`--fp-phase=N` to triage, `[FP] FRAME n (phase p)`
+    logged). The period is `JITTER_PERIOD` 32, not 16: FSR2's phase count is `8 / scale²`, so aligning mod 16 left the
+    FSR2 arm on one of two phases at random. Lesson: when a result takes exactly two values, print the frame number first.
+    Native `--reference` directories saved before this are invalid.
+57. **A stale `export_baked/` gives false parity FAILs** (2026-10-25). `run_forward_plus.mjs --baked` reads
+    `forward_plus/export_baked/`, which only `BAKE=1 ./export.sh` refreshes; a plain `./export.sh` after a rebuild leaves
+    it hours old. A lead run failed FSR2 (0.578) and volumetric fog (0.071) that way, on a tree that passes. The harness
+    now refuses an export older than its template, the editor or `fp_scene.gd` (`--allow-stale-export` overrides).
+58. **Mali-G615 / Chrome 155 ran a WGSL `for (var i = -3; i <= 3; i++)` zero times** (2026-10-25, cost ~2 h).
+    Volumetric fog's filter pass lost its density on the Razr 60 only (12.6 from native); the same loop written as
+    `loop`/`while`, or counted from 0, is correct, and desktop shows nothing. SPIRV-Cross emitted `for` where Tint never
+    had; patch 0019 makes it emit only `loop { if (!c) { break; } ... }`. A phone-only look bug is bisected on device by
+    swapping single modules' WGSL (`phone_bench.mjs --swap-wgsl`), not by reading the WGSL.
+59. **A `fetch(..., { keepalive: true })` body is capped at 64 KB** (2026-10-25). Above it the fetch rejects — silently
+    if the rejection is caught — so a page script that reported its frames that way lost every frame. `phone_bench.mjs`
+    sets `keepalive` only below 60 KB.
+60. **Firefox hides `GPUAdapterInfo`** (2026-10-25). vendor and architecture are empty, so a Firefox number cannot prove
+    from inside the page that it ran on the real GPU (trap 1, trap 43). `perf_guard/frame_time.mjs` logs the browser's
+    row in `nvidia-smi`'s process table instead (C+G, ~1.6 GB). Firefox does expose `timestamp-query`, so
+    `gpu_time.mjs --browser firefox` works. Linux Firefox also needs wgpu pinned to Vulkan
+    (`scene_smoketest/firefox_prefs.mjs`, `dom.webgpu.wgpu-backend`).
+61. **An editor built before the converter rename cannot bake** (2026-10-25). The editor runs `wgsl_convert_cli` from its
+    own directory (`wgsl_bake_subprocess.cpp`); an editor from before work/9 looks for `tint_convert_cli`, and a new
+    editor beside only a stale `tint_convert_cli` finds nothing either. The export warns once ("not found next to the
+    editor executable") and ships every shader unbaked: it works, and loads slowly (`baked: 0`). Rebuild editor, tool
+    and templates together, and update anything that copies the tool by name (CI artifacts, older scripts).
+62. **`git -C <repo> worktree add <relative path>` resolves the path against `<repo>`, not the shell's directory**
+    (2026-10-25). A worker briefly created its worktree *inside* the lead's checkout that way. Always pass an absolute
+    path.
+63. **Chrome refuses fullscreen requested on a touch press** (2026-10-25). `requestFullscreen()` needs user activation,
+    and a touch gives it on `touchend`, not `touchstart`. Godot delivers `InputEventScreenTouch` with `pressed = true`
+    from touchstart, so `window_set_mode(WINDOW_MODE_FULLSCREEN)` on a press fails silently on the first tap and "works"
+    on the second (the first tap's activation is still live). Request it on the release; the export's own
+    `html/fullscreen_on_first_tap` does (§4.37).
+64. **A scan of generated WGSL that finds nothing does not fail** (2026-10-25). The driver reads binding facts out of the
+    converter's text; when the text's shape changes, the scan just misses and the binding silently gets a default.
+    SPIRV-Cross keeps a sampled texture in `let _27 = textureLoad(depth_tex, ...)` and swizzles at each use, where Tint
+    swizzled the call, so the depth reclassifier would have left SSR's `source_depth` a float texture with the blank
+    fallback (trap 29) — the kind of bug only the parity matrix finds by eye. Every such read now goes through
+    `wgsl_text_scan.{h,cpp}` (structural, with cases in `webgpu_tests/wgsl_text_scan/cases/`), checked against
+    `scan_reference.txt` for every engine variant.
+65. **SPIRV-Tools' optimizer asserts on invalid SPIR-V, and a structural pre-check is not enough** (2026-10-25, cost about
+    an hour). Ids, function references and block terminators look like all the IR loader needs, and a scan for them
+    stopped the first three fuzzer asserts; the fuzzer then found AggressiveDCE asserting on an `OpLoad` from a
+    non-pointer, and `expand_binding_arrays` getting result id 0 once the id bound neared IRContext's 0x3FFFFF limit
+    (`TakeNextId()` returns 0, unchecked). Only the validator rules out type errors: `run_pipeline()` validates untrusted
+    input; `check_ir_preconditions()` is only a guard against our own passes' bugs. The fuzzers had been blind too —
+    linked against uninstrumented pass objects, ~200 coverage edges instead of ~5,000 — so a clean fuzz run said nothing
+    until §4.36.
+66. **With the frame-rate limit lifted, Chrome lets a WebGPU page queue GPU work faster than the GPU finishes it**
+    (2026-10-26, cost a full benchmark run). rAF keeps firing while the GPU falls behind, so a window's frame time reads
+    too fast as the queue grows (load-ramp fill "carried" 2x native Vulkan's layers), and the backlog then slows every
+    later window to ~150 ms whatever the load is, into the next scene on the same page (it looked like a 100x "cliff at
+    32 spheres"). A GPU-bound WebGPU measurement with `--disable-frame-rate-limit` must bound frames in flight:
+    `benchmark/ramp_browser.mjs` gates each rAF on the `onSubmittedWorkDone()` of the frame before last (2 in flight, as
+    native Vulkan). Paced, fill read 0.67x native. WebGL is throttled by the browser and needs nothing. Also: one scene
+    per page load, and treat a lost device as the end of the run (a lost device "renders" at 0.2 ms a frame).
+67. **`OS.get_static_memory_usage()` is 0 in release web templates** (2026-10-26): memory tracking is a debug-build
+    feature, so a script budgeting against the 2 GB web heap sees nothing until `alloc_static` fails ("Parameter
+    \"mem\" is null") and the page dies. Read the heap size from the page (`WebAssembly.Memory.buffer.byteLength`;
+    `ramp_browser.mjs` captures the instance's memory export and `ramp.gd` reads it through `JavaScriptBridge`).
+
+68. **A shader cache left in the parity fixture by another engine build changes the native reference** (2026-10-26, cost
+about an hour). After a rebuild, `--parity` failed SDFGI by 7.05 in Chrome, unbaked and baked, while the web frame
+was within 0.03 of what native had rendered the day before. The native editor was reusing
+`fp_check/.godot/shader_cache` from an earlier build: five pipelines failed ("Mismatch fragment shader output mask (1)
+and framebuffer color output mask (0)") and native SDFGI picked up extra bounce light. Moving the cache aside gave 0 errors
+and SDFGI 0.027 again. `run_forward_plus.mjs` now deletes that cache before rendering the reference. Lesson: when a parity
+arm fails, compare the web frame with an older *native* frame first; the reference can be the side that moved.
+
+69. **In a `threads=no` build `Thread::start()` does nothing, silently** (2026-10-26). `core/os/thread.h`'s no-threads
+`Thread` is a stub: `start()` returns at once and `is_started()` stays false, so code that hands work to a `Thread`
+and polls for it never runs that work. The raycast module's occlusion culler committed its Embree scene that way,
+so a nothreads web template with the module raycast every frame against nothing and culled nothing, with no error
+(§2.45). Any `Thread` in code that can run in a nothreads template needs a synchronous `#ifndef THREADS_ENABLED` path;
+`WorkerThreadPool` is fine (it runs tasks inline).
+
+70. **One NaN pixel becomes a black bokeh shape (NaN × 0 = NaN)** (2026-10-26, §4.41). The bokeh DOF weights every tap
+with `mix(center, sample, m)`; with `m == 0` a NaN sample still poisons the sum, so a single non-finite pixel blanks
+everything within the blur radius in the bokeh's shape (hexagon by default; 32 px with physical transitions). When a
+black shape appears, look for one NaN pixel first, and find it with a **read-back**, not a shader probe: a probe
+rewrites the expression that made the NaN, and a blended marker is buried by the layers drawn after it (92 lash layers
+at the pixel here). What worked: a `CompositorEffect` at `POST_TRANSPARENT` that scans the color image for exponent
+bits 0x7f800000 (alpha NaN too ⇒ the material's `ALPHA` was NaN, since blending can only put NaN in alpha from the
+source alpha), then the material swapped for one with the same vertex stage and an **additive** fragment that counts
+suspect values. Test NaN on the bits, never `isnan()`: compilers may fold it (WGSL explicitly allows that). And
+`pow(x, y)` of an interpolated value that is 0 at some vertices needs a clamp: interpolation lands at -1e-9.
+Mobile hides the whole class unless the viewport is HDR (its RGB10A2 buffer stores NaN as 0).
+Follow-up (§4.44): glow, SSR and auto exposure spread it too, and not always as black. On NVIDIA, `min(NaN, cap)`
+returns the cap, so glow turned one NaN pixel into a **bright** blob, and `notEqual(x, x)` is false for a NaN, so
+upstream's own SSR sanitize let it through; auto exposure blanked the whole frame. Measure "pixels changed", not only
+"pixels black", and test NaN on the exponent bits (`finite_inc.glsl`), which is the only test that held on every path.
+A NaN in SSR's input also persists for frames after its source is gone (seen as black bars in a NaN-free reference).
+
+71. **An importer or importer-shader change does not reach a scene that is already imported** (2026-10-26). Godot
+reimports a source only when it or its `.import` settings change, and a MetaHuman's `head.dna` never does: the
+shaders are baked into the imported scene, so after a fix in `metahuman_shaders.h` or the importer, an existing project
+(the user's camera-sim, or `webgpu_tests/metahuman/work/`) keeps rendering with the old shader. `metahuman/run.sh`
+failed the new NaN check on a 10-20 import with a fixed editor (7032 NaN pixels) and passed after a fresh one. `run.sh`
+now drops `.godot/imported` whenever the editor binary is newer than its last import; a user project needs
+**Reimport** on `head.dna` (or `.godot/imported` removed) after such a change.
+
+72. **An RG-compressed normal map samples blue as 0** (2026-10-26, §2.33). Godot imports normal maps as RG (BC5 / RG8)
+with swizzle b = ZERO, so a custom shader that reads `.rgb * 2.0 - 1.0` gets z = -1, not the normal's z. Rebuild z from
+xy (`sqrt(1 - dot(xy, xy))`), or pass xy to `NORMAL_MAP`, which Godot completes itself. The MetaHuman skin shader had
+it (task 25); the cloth shader still does.
+
+73. **The shader baker's capability override reached the editor's own frames** (2026-10-26, user report, §4.43). A
+WebGPU export makes `RenderingDevice::has_feature()` answer as WebGPU (no image atomics, no FP16, ...) so the baked
+shaders get WebGPU's defines. The override was global and lasted the whole export, and the editor draws frames between
+the export's steps (every progress step does). So with FSR 2 on in the project, FSR 2's per-dispatch
+`has_feature(SUPPORTS_IMAGE_ATOMIC_32_BIT)` said "no" and bound storage buffers to the editor's image-atomics shaders:
+`Shader 'Fsr2ComputeLuminancePyramidPassShaderRD:0' Mismatch uniform type for binding (1), set (1). Expected 'Image',
+supplied: 'StorageBuffer'` (and the depth clip, reconstruct and lock passes), every editor frame of the export. **The
+log reads like a web runtime failure and is not one**: it sits between the export's "Shader baker:" lines, and the `:N`
+after the shader name is the variant, which proves the device: `:1` on the depth clip pass is the FFX_HALF variant,
+which only exists on an FP16 device (the Vulkan editor), and `:0` on the luminance pyramid is the image-atomics
+variant, which WebGPU never declares. `--export-release` never draws the 3D viewport, which is why no tier caught it.
+Fix: the override applies only on a thread inside `RD::ShaderBakeFeatureOverrideScope`, opened by the baker's own
+callbacks. Every other per-frame `has_feature()` (fog, GI, VRS, FP16, depth resolve) had the same exposure silently.
+Same root, found on the way: **FSR 2 built its variant list from `has_feature()` once, at construction**, so the bake
+baked the editor's flavor under cache keys the WebGPU runtime never looks up and dropped 7 stages as unconvertible (a
+baked FSR 2 export missed 7 stages in the cache: measured 7 → 0 after the fix). A capability-dependent variant must be
+a shader group with `set_group_bake_requirements()` (fog.cpp, fsr2.cpp) or refreshed by
+`add_general_defines_refresh_callback()` (fsr.cpp). `webgpu_tests/bake_isolation/run.sh` catches both.
 
 ---
 
@@ -2379,6 +3081,9 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
   fog do not scale with it. Native per-section GPU time for comparison: run the project with `--gpu-profile`.
 - **`api_profile.mjs` inflates the frame** (it wraps every GPU method with two `performance.now()` calls); read its fps as a
   lower bound and take fps from `gpu_time.mjs` or the engine's `godotWebGPUFrameStats` instead.
+- **Sub-0.06 ms passes move ±0.01 ms between launches of the same export, and about 1 launch in 10 runs in a slow GPU
+  state (half the fps)** (2026-10-25, §4.36's GPU A/B). Use at least 3 launches with the order rotated, read medians, and
+  confirm a per-pass gap by swapping the WGSL (`gpu_time.mjs --replace-wgsl`) before blaming a converter or a change.
 - **Stale exports**: `scene_smoketest/run_scenes.mjs --export-only` needs `GODOT_EDITOR_BIN` and `GODOT_TEMPLATE_ZIP` or it exports
   nothing (default is the macOS editor); an editor without `webgpu=yes` bakes nothing; a commit after the build mismatches the
   baked cache. Check `baked > 0` and the template/editor version before trusting a number.
@@ -2724,8 +3429,11 @@ measure.
 
 ### 4.16 The Tint / SPIR-V arc
 
-The pipeline is `GLSL → SPIR-V (glslang) → 12 binary-rewriting passes → WGSL (Tint, linked in) → GPU`,
-with Tint vendored under `thirdparty/tint` (patches tracked in `thirdparty/README.md`).
+*Superseded 2026-10-25: Tint was replaced by SPIRV-Cross and deleted (§4.36). This entry is the history of the Tint
+years; its pass and patch numbers refer to that tree (tag `pre-SPIR-V-Cross`).*
+
+The pipeline was `GLSL → SPIR-V (glslang) → 12 binary-rewriting passes → WGSL (Tint, linked in) → GPU`,
+with Tint vendored under `thirdparty/tint` (its patches were listed in `thirdparty/README.md`).
 
 - **naga → Tint (May 2026)**: replaced the 1.1 MB prebuilt Rust/WASM naga blob with Google's Tint
   (C++20, BSD-3) specifically to make an upstream PR possible — Godot has no Rust dependency and no
@@ -3264,7 +3972,7 @@ was needed. Arms that only make sense as parity checks (`sdfgi_camera_move`) are
 | soft / transmittance shadow reads | the fork had replaced 7 linear depth reads with NEAREST | `textureLod_linear_depth()` (gather + bilinear weights): soft shadows now exact |
 | mipmap bias (TAA/FSR's -0.5, FSR's scale bias) | WebGPU samplers have no LOD bias; silently dropped | `apply_sampler_lod_bias` pass + `SamplerLodBias` UBO (set 1, binding 40) from `MaterialStorage`; 0.003 |
 | texture arrays (VoxelGI > 1 probe, lightmaps > 1, SDFGI's read-only `src_occlusion`, particle colliders) | `flatten_binding_arrays` collapsed every array to element 0 | `expand_binding_arrays` pass, layout in `spirv_binding_layout.h`, per-stage budget (trap 30) |
-| `isnan`/`isinf`, `textureQueryLod`, `POINT_COORD`, `early_fragment_tests` in user shaders | Tint ICE — the wasm instance aborts | `lower_tint_unsupported_ops` pass |
+| `isnan`/`isinf`, `textureQueryLod`, `POINT_COORD`, `early_fragment_tests` in user shaders | Tint ICE — the wasm instance aborts | `lower_wgsl_unsupported_ops` pass |
 | FSR2 | `OpImageTexelPointer` on the reconstructed depth (Tint ICE, so the pass was skipped), wave ops in SPD | `NO_IMAGE_ATOMICS` storage-buffer form, `SPD_NO_WAVE_OPERATIONS` (`thirdparty/amd-fsr2/patches/0004-…`); 0.55 residual, §2.31 |
 | a material reading `POINT_COORD` without writing `POINT_SIZE` (drew nothing; upstream bug, D3D12 too) | `POINT_COORD` sets `uses_point_size`, so where point size is emulated the mesh is drawn as six vertices per point, but the quad expansion was behind `POINT_SIZE_USED` alone: six coincident vertices, degenerate triangles. Natively it drew 1-px points with `POINT_COORD` pinned to 0.5 | both scene `_inc.glsl` files define `POINT_SIZE_USED` when `POINT_COORD_USED` is set; new `point_coord` arm. Found by the parity run itself: no error anywhere, only an empty frame |
 | constant-alpha blending (`BLEND_FACTOR_CONSTANT_ALPHA`) | WebGPU has one RGBA blend constant and no constant-alpha factor; the alpha factors read the colour's alpha | emulated: the pipeline remembers it, `_apply_blend_constants()` broadcasts alpha into the constant |
@@ -3275,7 +3983,7 @@ Also recalibrated: `glow_map` (10.4 → 0.7) and `proximity_fade` (1.09 → 0.19
 project (the editor's own `.godot/shader_cache` from another build looked like a shipped cache) is now limited to
 export templates.
 
-**Tests added:** preprocessing tests 24-27 (`tint_crash_inputs.frag`, `binding_arrays*.{frag,comp}`, each output
+**Tests added:** preprocessing tests 24-27 (`wgsl_unsupported_ops.frag`, `binding_arrays*.{frag,comp}`, each output
 validated with `spirv-val`); `driver_unit_tests/test_binding_layout.mjs` (binding-layout invariants against the header,
 every engine texture array fits, binding 40 agrees across both scene shaders and `MaterialStorage`); the six matrix
 arms and the parity tier above; `self_test_forward_plus.mjs` covers the parity judge.
@@ -3431,6 +4139,395 @@ entries cannot be filtered by `exclude`, and an `if:` on every step of three wor
 flags in step with the release jobs. Only the Linux half of `package-editor` was run locally (a zip of non-executable
 files comes out `-rwxrwxr-x` and the unpacked editor starts); the macOS and Windows halves first run on GitHub.
 
+### 4.36 Tint → SPIRV-Cross: the converter swap (October 2026) *(was §2.35; work tasks 00–19)*
+
+**What changed.** SPIRV-Cross's WGSL backend ([Ludicon/spirv-cross-wgsl](https://github.com/Ludicon/spirv-cross-wgsl),
+vendored as `thirdparty/spirv-cross-wgsl`, its own namespace beside Metal's `thirdparty/spirv-cross`) now does every
+SPIR-V → WGSL conversion after the unchanged `run_pipeline()` passes: the runtime (`spirv_to_wgsl.cpp` →
+`spirv_cross_wrapper.cpp`), `wgsl_precompile.py`, the export-time bake and every test tier. Tint is deleted
+(`thirdparty/tint`, 830 files; `tint_wrapper.*`, `tint_ir_transforms.*`; the temporary `webgpu_wgsl_backend` SCons
+option), ~204k lines in all. The host tool is `bin/wgsl_convert_cli`, built by `drivers/webgpu/wgsl_cli/build.sh` (C++17
+now, ~210 objects instead of ~570); `WGSL_DEBUG_DUMP_PREPROCESSED`, `WGSL_CONVERT_CLI` and `--skip-wgsl-cli` replace the
+`TINT_*` names and `--skip-tint-cli` (the old env var and flag still work for one release). The tag `pre-SPIR-V-Cross`
+marks the tree before; the user's decision and the evaluation it was made on are §2.35. It ran 2026-10-25 as one lead
+and parallel workers on a work board (`webgpu_notes/work/`, retired afterwards; its `results/` are in git history).
+
+**The bar** (user, 2026-10-25): Forward+ at parity with native Vulkan, no test tier worse than at `pre-SPIR-V-Cross`,
+cameraSim by eye, and Firefox desktop and Chrome for Android working *and as fast as with Tint or faster*. Every part
+held:
+
+| check | Tint | SPIRV-Cross |
+|---|---|---|
+| Forward+ `--parity`, Chrome desktop (4080 SUPER) | 71/71 baked | **71/71** unbaked (every stage converted at runtime) and baked; fsr2 0.142, fog 0.001 |
+| Firefox desktop (Linux, wgpu/Vulkan): parity, smoketest, naga | 69/71, 23/23 | **69/71, 23/23** — the same two SDFGI arms, 0.277, Firefox-only (§2.40); naga 276/276 engine variants, 2564/2566 project stages on both |
+| cameraSim (Ava MetaHuman), 5 views vs native Vulkan | MAD 0.00–0.03 | **MAD 0.00–0.03** — run-to-run noise; user: "Matches"; `baked 1570 / translated 0` |
+| desktop Chrome GPU, heavy Forward+, median ms/frame | 1.47 | **1.43**; perf_guard scenes equal, benchmark_postfx +0.014 ms (+2%) |
+| Firefox desktop GPU, heavy, ms/frame | 3.88 | **3.82**; postfx +10% fps; shadows/pbr ~1.8% fewer fps at ~1000 fps, CPU-side, GPU equal |
+| Razr 60 (Mali-G615, Chrome 155) GPU ms/frame: fp / heavy / postfx / platformer / stress | 16.9 / 73.8 / 23.3 / 29.6 / 28.8 | **16.8 / 71.3 / 23.2 / 28.7 / 28.1** with patch 0019; fp_check Look set (34 frames) identical to Tint's |
+| fp_check `index.shaders.pck` raw / gzip -9 | 29.6 / 4.43 MB | 34.8 / **3.70 MB** (−17% compressed) |
+| release nothreads wasm | — | −1.6% raw, −2.0% gzip (SPIRV-Tools stays) |
+| converter CLI, clean build (-j12) | 63 s | **44 s** (368 → 7 converter objects; both compile SPIRV-Tools' 199) |
+| web template: converter + driver objects cold + precompile, no link | 41.9 s, 380 TUs | **10.7 s, 20 TUs** — ~31 s per variant, ~4 min over `build-linux.sh`'s 8 (small with a warm ccache: 121 vs 102 s relink) |
+
+Firefox for Android was ruled out of scope by the user. Every engine variant converts per module several times faster
+(§2.35's table; the bake was never converter-bound, §3 trap 26).
+
+**What it took, by task** (each merged as `Merge work/<n>`, `git log --first-parent pre-SPIR-V-Cross..`):
+- *00* foundation: vendored backend, `spirv_cross_wrapper`, the CLI building either converter, `smoke.sh`.
+- *01, 15, 06, 12* — the four SPIRV-Cross patches (`thirdparty/README.md`): **0001** barrier/load/barrier on a workgroup
+  variable → `workgroupUniformLoad` (FSR2's luminance pyramid failed barrier uniformity); **0015** uniform compute builtins
+  reach the inner entry point as parameters, not `var<private>` (screen-space contact shadows failed it the same way);
+  **0006** 16-bit norm storage formats (CanvasSdf's r16snorm); **0019** never emit WGSL `for` (§3 trap 58).
+- *02* the driver's WGSL reads moved into `wgsl_text_scan.{h,cpp}` (~1,500 lines of `strstr` replaced); found SSR's
+  `source_depth` that SPIRV-Cross's output shape would have sent to the blank fallback (§3 trap 64).
+- *03* the in-engine converter on SPIRV-Cross: `-fwasm-exceptions` on its translation units and the link only, the
+  rest of the engine stays `-fno-exceptions`; a throw is a failed conversion. All 8 web variants link.
+- *04, 14* specialization constants: `spec_constants_overridable()` unchanged on evidence (93 of 276 variants keep 216
+  overrides, none frozen); `wgsl_convert_cli --spec-info`/`--raw`, `run_spec_ops.sh`; `freeze_spec_constant_ops()` now
+  evaluates CompositeExtract/Insert, VectorShuffle and vector ops on constant composites and SRem/SMod (it folded them
+  to 0, with Tint too), and warns with `OpConstantNull` where it cannot.
+- *05* real projects: fp_check, sewer-shift, cameraSim and the smoketest projects, 2,566 unique stages, all converted
+  with Tint-identical interfaces, output 1.09–1.14× Tint's size (`spirv_cross_eval/project_export.sh`, `project_eval.py`).
+- *06* every offline tier on the converter of choice (backend-neutral assertions); the fuzzers, broken before the swap,
+  fixed and ported.
+- *07, 16* Forward+ parity; the baked "fog race" was the capture landing on two jitter phases (§3 trap 56).
+- *08, 11, 12* GPU timing on desktop Chrome, Firefox and the Razr 60 (rotated launch order, ≥3 launches, medians;
+  `perf_guard/frame_time.mjs`, `phone_bench.mjs`, `firefox_prefs.mjs`, `WEBGPU_AUDIT=<file.jsonl>`). A `var<private>`
+  candidate for SPIRV-Cross's module-scope `const` arrays (SSIL, §2.30) measured no different and was not applied.
+- *13* `run_pipeline()` validates its input (SPIRV-Tools, Vulkan 1.2, ~2.3 ms a module) and rejects malformed SPIR-V
+  instead of asserting; every optimizer pass runs `check_ir_preconditions()` first; `rewrite_copy_logical` capped (a
+  valid 1e8-element copy took 6.2 GB / 51 s); fuzzers instrument the passes (~5,000 edges, all 27 passes, 10 min each
+  clean). The lead made full validation opt-out for the engine's runtime (`e99b18555e`): its input is glslang's, and on
+  the web it would be pure load time (§3 trap 65).
+- *17* FSR2's softness on WebGPU was a dropped view swizzle (amd-fsr2 patch 0005, §3 trap 55); `drivers/webgpu/SCsub`
+  now also fingerprints the FSR 1/2 shader sources; `run_forward_plus.mjs` refuses a stale export (§3 trap 57).
+- *18* cameraSim by eye (above). *19* is §4.37, done on the same board.
+- *09* Tint removed, the CLI renamed, CI keys/artifacts renamed (`wgsl-cli`, `wgsl-convert-cli`; not yet run on GitHub,
+  §2.38). Verified with the editor and all 8 web variants built `dev_mode=yes`, smoke 276/276 against the stored
+  references, shader_corpus 14/14, preprocessing 291/0/1, driver unit 379/0, spec_constant_overrides 5/0 offline,
+  determinism, fuzzers, `local_ci.sh --dev-mode --no-safari` 28/1/5 (the one failure, web audio e2e nothreads in a
+  headless page, fails identically on a 2026-10-23 Tint-era export).
+
+**Interface references.** With no Tint to compare against, `webgpu_tests/spirv_cross_eval/interface_reference.json`
+(bindings, kinds and override ids of the 276 engine variants, as Tint emitted them at `7f2bf18eb2`) and
+`webgpu_tests/wgsl_text_scan/scan_reference.txt` (the driver's text-scan facts for the same variants, both modes) are
+what the smoke check and the text-scan tier compare with; SPIRV-Cross matched 276/276 and 552/552. After a deliberate
+interface change, regenerate (`compare_interface.py --write`, `WRITE_REFERENCE=1 run_tests.sh`) and say why in the
+commit.
+
+**Renamed after the merge** (the user's choice): `lower_tint_unsupported_ops()` → `lower_wgsl_unsupported_ops()` and
+the fixture `tint_crash_inputs.frag` → `wgsl_unsupported_ops.frag`. Pass rationales keep their Tint history in past tense. Browser
+Tint (Chrome/Dawn compiling our WGSL) is unrelated and untouched. `spirv-headers`' broad `unified1` extraction stays
+for SPIRV-Tools; whether `spirv.hpp11` can return to the vulkan-sdk pin was not tried.
+
+### 4.37 Web export: a screen that stays on, its orientation, fullscreen on the first tap (October 2026) *(was §2.36; work task 19)*
+
+Asked for (user, 2026-10-25): signal performance, keep the screen awake, lock the export panel's orientation. Merged
+`6d8a3e6dc0`.
+- *Screen awake:* `DisplayServerWeb::screen_set_keep_on()` takes a Screen Wake Lock and re-requests it on every
+  `visibilitychange` to visible (the browser drops it when the page is hidden); the constructor applies
+  `display/window/energy_saving/keep_screen_on` as X11/Wayland/Windows do; released at exit. `FEATURE_KEEP_SCREEN_ON`
+  is true where `navigator.wakeLock` exists (not in insecure contexts).
+- *Orientation:* `screen_set_orientation()` / `screen_get_orientation()` map to `screen.orientation.lock()`, requested
+  at once and on every fullscreen entry, since Chrome for Android allows it only in fullscreen. `FEATURE_ORIENTATION`
+  needs `lock()` **and** `(any-pointer: coarse)`: desktop browsers have `lock()` and always reject it. Export option
+  `html/orientation` (default Project Setting): any other value is written into the exported `project.binary` as
+  `display/window/handheld/orientation` (`get_custom_project_settings()`, as iOS does) — no `GODOT_CONFIG` key, so
+  custom shells get it too. The PWA manifest follows the same value; `progressive_web_app/orientation` is hidden and
+  honored only for old presets. The manifest's `display` clamp read past its array; fixed.
+- *Fullscreen on the first tap* (user decision): `html/fullscreen_on_first_tap`, default on (Engine config
+  `fullscreenOnFirstTap`, default off for hand-written shells). Where the **primary** pointer is coarse, the canvas
+  enters fullscreen on the first tap's `touchend` (§3 trap 63), retried until it succeeds and never again once the
+  page has been fullscreen; entering it fires the orientation lock. Desktops, touchscreen laptops included, are
+  unaffected.
+- *Performance:* every adapter request already asked for `powerPreference: 'high-performance'` except the worker
+  capability probe in `engine.js`, which now does. The web has no stronger signal (`powerPreference` is a hint; the
+  Compute Pressure API only observes).
+- Refusals (no API, hidden page, lock outside fullscreen, desktop) print only with `--verbose`, never as warnings.
+
+**Behavior change:** a project that never set `display/window/handheld/orientation` has the default, Landscape, so on
+a phone the export now locks landscape when it enters fullscreen and an installed PWA's manifest says
+`landscape-primary` instead of `any` — what native Android does with the same project. Set Sensor for free rotation.
+**Known edge:** a feature-tag override (`display/window/handheld/orientation.web_android`) still beats
+`html/orientation` at run time, because the export writes the base key only.
+
+**Verified:** Razr 60, Chrome 155: first tap → fullscreen and `landscape-primary` / `portrait-primary` as exported,
+with the option off a tap stays windowed; screen awake 60 s untouched against a 30 s system timeout, dozing 30 s after
+the tab closed. Desktop Chrome and Firefox: no errors, features reported unsupported where expected. Lead: editor +
+release template built, smoke OK, driver unit 379/0, fixture export clean with `fullscreenOnFirstTap: true`.
+
+### 4.38 Occlusion culling on the web: the raycast module (Embree) in web templates (October 2026) *(was §2.45; work task 22)*
+
+Merged `b13c7bee24` (work/22: `10fe02ea56`), default decided in `508f4ed3b2`. The text below is §2.45 as it stood when
+it closed; only its last line (what is still open) was updated.
+
+**Decision (user, 2026-10-26):** on by default in every web template (`module_raycast_enabled` defaults to yes in
+`platform/web/detect.py`; `build-linux.sh --no-web-raycast` leaves it out), with a Web export option
+`rendering/occlusion_culling` (default on). Off overrides `rendering/occlusion_culling/use_occlusion_culling` to false
+for that export, so it saves the per-frame cost; it cannot shrink the download, since presets share one template. A
+script that sets `Viewport.use_occlusion_culling` itself still enables culling (the fixture and occlusion_bench both do,
+so neither can test the option). Checked with a minimal project that relies on the project setting: option on, 0 of 20
+occluded boxes drawn; off, 20 of 20. The measurements below are from before the decision.
+
+Web templates leave out the raycast module, as stock Godot does (`platform/web/detect.py`, upstream GH-70621: memory
+and binary size), so the web had no occlusion culler and the Forward+ matrix's `occlusion_culling` arm was KNOWN
+(29 -> 29 objects); `features.mjs` now marks it `needsRaycast`, KNOWN only against a template without the module. It is a build option, not a port problem: `module_raycast_enabled=yes` (or
+`build-linux.sh --web-raycast`) builds Embree under Emscripten 6.0.9 with no Embree patch (its SCsub already passes
+`-msimd128` and the SSE defines on web, and patch 0003 already reads the thread count from the browser).
+
+**One engine fix was needed, and it is an upstream bug**: `RaycastOcclusionCull::Scenario::update()` commits the
+Embree scene on a `Thread`, and in a `threads=no` build `Thread::start()` is an empty stub, so the scene was never
+committed nor swapped in and nothing was ever culled. Fixed by committing synchronously without `THREADS_ENABLED`
+(`modules/raycast/raycast_occlusion_cull.cpp`; §3 trap 69). Embree itself gets `threads=1` on the web
+(`get_processor_count()` is capped at 2), so it never spawns pthreads of its own.
+
+Measured (RTX 4080 SUPER, Chrome, release templates built at one commit, only the module differing):
+
+| | nothreads | threads |
+|---|---|---|
+| .wasm raw / gzip / brotli | +1.00 / +0.23 / +0.17 MiB (40.99 -> 41.99 raw) | +1.03 / +0.24 / +0.17 MiB |
+| heap at startup and with 576 occluders active | no change (138 / 166 MB, heavy scene 286 / 412 MB) | no change |
+| load to first `_ready` (5 loads each) | 5186 vs 5186 ms | — |
+| matrix arm | 29 -> 8, parity 0.002, as native; 82/82 `--parity` and `--parity --baked` | (fixture exports nothreads) |
+| scene smoketest | 23/23 Chrome, 23/23 Firefox | — |
+
+`webgpu_tests/occlusion_bench/` (24x24-block city, 20k props with their own materials, uncapped, main-thread ms per
+frame in a nothreads export = the whole engine frame):
+
+| view | culling off | on (default 900 rays) | on, `rays=4096` |
+|---|---|---|---|
+| street (mostly occluded): ms / objects / fps | 7.85 / 6229 / 107 | 5.00 / 3334 / 147 | 3.03 / 1381 / 147 (off run: 8.87) |
+| top (nothing to cull): ms | 19.0 | 21.1 (+2.1) | 21.7 (+1.7) |
+
+The occlusion buffer is `rays per thread x WorkerThreadPool threads`, clamped to at least one ray per 32x32 px: a
+nothreads export gets 900 rays (40x22 at 1280x720) where a 24-thread desktop gets 12 288, so it culls less than native
+(street 6229 -> 3334 here, native 2329 -> 257 in the light scene) but costs less. A threaded export renders on its own
+thread (§2.5); there the render thread's measured CPU time went 7.44 -> 2.36 ms on the street and 9.94 -> 10.54 ms on
+top. The cost when nothing is occluded is the per-instance HZ test, ~0.1 us per object in frustum. GPU time was not the
+limit in any case on this card (street 0.81 -> 0.35 ms).
+
+Open: upstreaming the nothreads fix (stock Godot has the same bug; §3 trap 69).
+
+### 4.39 Forward+ matrix to 82 arms (October 2026) *(work task 21)*
+
+Merged `4f39eb0e58` (work/21: `fa048a8f22`). Eleven arms were added to `webgpu_tests/forward_plus/` (71 → 82), and
+`UNCOVERED` shrank to what WebGPU cannot have: `multiview_xr`, `vrs`, `msaa_2x_8x`. New arms, native Vulkan delta
+(every one within 0.004 of native under `--parity` on Chrome and Firefox alike; `lightmap_gi` off-frame 0.018):
+
+| arm | native delta | what it renders |
+|---|---:|---|
+| `skeletal_animation` | 1.995 | the skin deforms (mesh now under its `Skeleton3D`) |
+| `particle_trails` | 7.247 | own `GPUParticles3D`, `RibbonTrailMesh`, billboard Y to velocity |
+| `lightmap_gi` | 12.62 | `lightmap_room.tscn`, baked by `bake_lightmap.sh` (the editor's Bake Lightmaps pressed by a throwaway plugin under Xvfb) |
+| `fog_volume` / `fog_volume_shader` | 5.17 / 5.67 | `FogVolume`, with and without a fog shader |
+| `stencil_outline` / `stencil_xray` | 0.957 / 3.70 | the stencil material modes |
+| `bent_normal` | 0.675 | bent normal map |
+| `smaa` | 0.243 | SMAA |
+| `compositor_effect` | 20.95 | `fp_compositor_effect.gd`, GLSL compute on the colour buffer, compiled at run time |
+| `occlusion_culling` | render info | an `ArrayOccluder3D` wall with 20 boxes behind it; native 29 → 8 objects, frame identical |
+
+Harness additions: render-info counts per frame (`[FP] INFO` on the web, `<id>_<o>.info` natively) and the arm keys
+`maxDelta` and `infoDrop`, so an arm can be judged on what was drawn rather than on pixels; `knownFail` (a documented
+failure reports KNOWN, and one that starts passing reports XPASS and fails the run); `needsRaycast` (KNOWN only against
+a template whose wasm lacks Embree, a normal arm otherwise, §4.38); `--feature a,b` runs a subset. Because the new
+materials and shaders are built in GDScript at run time and can never be baked, the baked run's translated-stage
+ceiling went 80 → 130 (measured 117); §2.39 has why that is looser, not fixed.
+
+Results: 81/82 on the lead's full run 2026-10-26, unbaked and baked, with `occlusion_culling` KNOWN (web templates had
+no culler); **82/82** unbaked and baked once the raycast module was in the templates (§4.38). The same day the parity
+fixture's stale native shader cache was found to move native SDFGI by 7 points; `run_forward_plus.mjs` now deletes
+`fp_check/.godot/shader_cache` before rendering the native reference (`8acda4dfa9`, §3 trap 68).
+
+### 4.40 README rewritten, and the GitHub wiki (October 2026)
+
+`README.md` was rewritten (`6b82ff35aa`, then `bb3745b71f`, `33955ddabf`, `508f4ed3b2`): what the fork does and how,
+browser support, a native / WebGL / WebGPU compatibility table, rendering features, performance, web audio, engine
+additions, Box3D, braced GDScript, building, testing, and links into the wiki. Its performance table sits between the
+`<!-- perf-table:begin -->` / `<!-- perf-table:end -->` markers and is generated by
+`webgpu_tests/benchmark/readme_perf_table.py --write` from a `run_ramp.sh` result: never hand-edit it, re-run the
+benchmark and regenerate.
+
+The wiki, https://github.com/Shane-Gadsby/godotwebgpu/wiki, is the user documentation: **Braced GDScript** (7 pages:
+overview, language, formatting and conversion, editors, mixing and exporting, FAQ, internals), **Box3D Physics** (6:
+overview, project settings, feature support, differences from Jolt, web and threading, internals) and **Engine
+Additions** (12: overview, editor default folders, drag and drop onto lists, script editor input, web export options,
+shader baking, threaded rendering on the web, web platform, web audio, MetaHuman importer, building, notable fixes),
+plus `Home`, `_Sidebar` and `_Footer`. Its local clone is `/mnt/109313D2109313D2/godot-editors/godotwebgpu.wiki`, a
+separate git repository (branch `master`), committed and pushed on its own: the user allows pushing the wiki; this
+repository is pushed only when the user says so. A user-visible change in those three areas updates the wiki page too.
+`docs/braced_gdscript/` stays the developer reference; facts the wiki's writer found missing there were added to it.
+
+### 4.41 MetaHuman strand NaN and the bokeh DOF black hexagon (October 2026) *(work task 26)*
+
+User report (2026-10-26): a black hexagon over Ava's face in camera-sim at exactly 4.80 m / 1.63–1.64 m, native Vulkan
+on the 4080 too, with the user's own findings (the `eyelashes_strands` mesh, the DOF's `NaN × 0`, the clamp that hides
+it, and an unproven value). Merged `0f0dfd50fe`.
+
+- **Source, proven:** Ava's eyelash groom has a width of exactly 0 at every strand tip (1574 vertices; brows and scalp
+  hair have none), so `v_coverage` is 0 there and interpolates to -1.07e-9 beside them; `pow(-1.07e-9, 0.5)` is NaN on
+  NVIDIA and lavapipe. Proven by read-back, not a probe (§3 trap 70): a read-only `CompositorEffect` before DOF found one
+  pixel, (621, 338), NaN in all four channels, so `ALPHA` was NaN, which rules out the anisotropic lighting; an additive
+  same-vertex material found the -1.07e-9 fragment there, one of 92 overlapping lash fragments.
+- **Fixes:** `HAIR_STRANDS` clamps `v_coverage` before `pow()`; the importer's opaque and hashed variants replace a
+  shared `HAIR_STRANDS_ALPHA_LINE` and print an error if it stops matching; `HAIR_SHELL`'s binormal normalize has a
+  floor. The bokeh DOF's `dof_finite()` (`bokeh_dof_inc.glsl`) counts a non-finite color as black, tested on the
+  exponent bits with a select: once per pixel in Forward+'s compute `GEN_BLUR_SIZE`, per tap in Mobile's raster passes;
+  about 4 ALU ops each, finite frames bit-identical. A deliberate divergence from upstream (an upstream sync may
+  conflict in `bokeh_dof*.glsl`).
+- **Numbers:** the user's 42-position sweep (4.70–4.90 m × 1.55–1.75 m), native: 3 failures before, 0 after; with the
+  DOF fix alone the NaN is still at the same 3 positions but no black reaches the face. WebGPU (Chrome, real adapter,
+  Forward+): 0 before and after (the NaN does not occur there).
+- **Tests:** `webgpu_tests/dof_nan/run.sh` (Forward+ compute and Mobile raster, every bokeh mode: 18/24 failed before,
+  24/24 after; lead rerun 0 failures), Forward+ matrix arm `dof_nan` (84 arms with §4.42's; WebGPU FAIL 1.068 → PASS 0.001, parity
+  0.003), `webgpu_tests/metahuman/nan_check.gd` in `run.sh` (lead rerun: verify and nan 0 failures, after a fresh
+  import, §3 trap 71). Smoke on the merged tree: 276 modules, 0 invalid.
+- **Open:** glow, SSR and auto-exposure would still spread a NaN; whether to guard them too is the user's call (default
+  no, until a report). The user's camera-sim needs a **Reimport** of `scenes/Ava/head.dna` for the strand clamp; the
+  DOF fix alone already prevents the hexagon.
+
+### 4.42 Camera white balance on CameraAttributes (October 2026) *(work task 24)*
+
+User request (2026-10-26): a White Balance attribute on `CameraAttributesPhysical` and `CameraAttributesPractical`, as on
+a real camera. Merged `449f085aa6`. Added on the shared base `CameraAttributes` (both inherit it, and exposure already
+lives there): `white_balance_temperature` (Kelvin, 2000–10000, default 6500) and `white_balance_tint` (-150..150,
+default 0), plus `RenderingServer.camera_attributes_set_white_balance(rid, temperature, tint)`. User wiki page: Engine
+Additions → Camera White Balance.
+
+- **Model** (`camera_attributes_storage.cpp`): camera semantics, the temperature is the illuminant the camera is set
+  for. Illuminant on the Planckian locus with the Krystek approximation `Light3D` already uses for
+  `light_temperature`, tint along the isotherm at 1/3000 Duv per unit, so ±150 is ±0.05 Duv (the extent of Unreal's
+  `WhiteTint` at ±1; Lightroom-style numbers; positive = magenta image, as in Lightroom), von Kries adaptation in Bradford cone space onto the same model's 6500 K / tint 0 white. So
+  the default is exactly the identity, and a light of temperature T under a white balance of T renders exactly like the
+  default 6500 K light.
+- **Plumbing:** `RendererCameraAttributes::white_balance_compute_gains()` computes three cone gains on the CPU; the
+  shaders apply linear sRGB → LMS, the gains, LMS → linear sRGB with constant matrices, so only 12 bytes cross. Forced
+  by the Forward+ tonemap push constant, 112 bytes against Vulkan's 128-byte guarantee: a 3x3 does not fit, the gains
+  do (**now exactly 128, no headroom**, with a `static_assert`). Applied in linear scene-referred color after exposure,
+  FXAA and pre-tonemap glow, before tonemapping; the softlight glow is balanced on its own. Skipped at exactly 6500 K /
+  0: Forward+ push-constant flag bit 7; Mobile spec constant 18 `use_white_balance` (`TONEMAP_MOBILE_ADRENO_BUG` moved
+  to bit 19); Compatibility a `vec4` in the Tonemap UBO behind a uniform branch, at both exposure sites in `scene.glsl`
+  and in `sky.glsl`.
+- **Interface references regenerated on purpose:** the only change is override id 18 in the `tonemap_mobile` fragment
+  variants (lead check: the scan reference's 1,743-line diff is renumbering; per module, only that fact is new).
+- **Verified:** default bit-identical to the pre-change editor in all three renderers on the 4080 SUPER and lavapipe
+  (0 of 57,600 pixels); 3200 / 10000 K and ±75 tint (±0.5 before task 29) within 1/255 of the model in all three and on WebGPU; WebGPU
+  frames pixel-identical to native Vulkan; Forward+ arm `white_balance` (3200 K, tint 30; tint 0.2 before task 29, the same frame); smoke 276/276 on the merge.
+- **Known gap:** Compatibility does not white balance a `BG_CANVAS` background (copied with exposure only).
+- **User decisions** on the hand-offs page (`wb-tint-units`, `wb-model`, `wb-range`, `look-white-balance`): first
+  shipped with the defaults (-1..1 at 0.05 Duv, Planckian everywhere, 1000–15000 K); then the user picked
+  (2026-10-26) Planckian everywhere, **2000–10000 K** and tint **-150..150** keeping the physical extent (±150 = ±0.05
+  Duv, 1/3000 Duv per unit), and judged the look "like a camera". Work task 29 (merged `add69b409d`) changed the
+  inspector hints, the clamp in `white_balance_compute_gains()`, the scale constant `WHITE_BALANCE_DUV_PER_TINT`, the
+  class docs and the Forward+ arm (tint 0.2 → 30, frame unchanged: 0 of 230,400 px). The old units were never
+  released, so nothing converts them.
+
+### 4.43 Bake isolation: the baker's capability answers stay inside the baker (October 2026) *(work task 27)*
+
+User report (2026-10-26): exporting camera-sim for the web with FSR 2 on logged "Mismatch uniform type ... Expected
+'Image', supplied: 'StorageBuffer'" for four FSR 2 passes, over and over. Proven to be the *editor's* frames during the
+bake, not the web runtime (§3 trap 73): reproduced exactly (same four messages, same "left out 4455 shader group(s)")
+with the editor of the time on a scratch copy of camera-sim. Merged `756b99bf6f`.
+
+- `RenderingDevice::has_feature()` applies the bake's target answers only inside `RD::ShaderBakeFeatureOverrideScope`
+  (per thread; opened in `_begin_customize_resources`, `_customize_resource`, `_customize_scene`). Outside a bake it
+  costs one thread-local read. `shader_bake_feature_override_is_active()` still means "a bake is running".
+- FSR 2's capability variants became shader groups with bake requirements (four groups for depth clip, reconstruct and
+  lock: atomics × FP16; two for the luminance pyramid; FP16 groups for accumulate, autogen reactive and TCR autogen),
+  only the selected one enabled; `FSR2Effect::Device::use_image_atomics` records the answer the resources and bindings
+  follow. The WGSL of the groups WebGPU enables is byte-identical, so the precompiled table and stored references are
+  unchanged. Checked for the same split everywhere else that reads `has_feature()` (list in the task's `for-tasks.md`):
+  none.
+- Numbers: `bake_isolation/run.sh` FAIL on the old editor (4 mismatches, 7 FSR 2 stages in the editor's flavor), PASS on
+  the merge (8 editor frames drawn during the bake, 0 errors, 8/8 FSR 2 passes baked for WebGPU); fixture export FSR 2
+  cache misses 7 → 0 and stages translated at load 2 → 0; camera-sim (dlink nothreads) 64 mismatches → 0, 1275 baked,
+  0 translated in Chrome and Firefox; `--parity --feature fsr2,taa` PASS unbaked and baked (fsr2 0.142, taa 0.006, as
+  before); smoke 276/276.
+- New tier `webgpu_tests/bake_isolation/run.sh` (~1 min, Xvfb + Vulkan, no browser). CI runners may lack Vulkan under
+  Xvfb.
+- Note for the user: camera-sim's `project.godot` lost FSR 2 (`scaling_3d/mode=2`) at 16:56 the same day, presumably
+  because of these errors; with this fix it can go back on.
+
+### 4.44 NaN guards for glow, SSR and auto exposure (October 2026) *(work task 28)*
+
+User decision 2026-10-26 (hand-offs `nan-guards`: "Guard all three now"), the follow-up §4.41 left open. Merged
+`287109ddfd`. The bokeh
+DOF's guard moved to a shared include, `servers/rendering/renderer_rd/shaders/effects/finite_inc.glsl`
+(`finite_or_zero()` / `finite_or_zero3()` / `finite_or_zero4()`, `is_non_finite*()`; distinct names because WGSL has no
+overloads), and every effect that reads the scene color now passes it through once, where it is read:
+
+- **Glow:** Forward+ `copy.glsl` `MODE_GLOW` first pass, the four `local_cache` loads per thread (inside the existing
+  `FLAG_GLOW_FIRST_PASS` branch); Mobile `blur_raster.glsl` `MODE_GLOW_GATHER`, its four samples. Later levels read
+  that output.
+- **Auto exposure:** `luminance_reduce.glsl` `READ_TEXTURE` (once per pixel) and `luminance_reduce_raster.glsl`
+  `FIRST_PASS` (once per texel read). The raster path only runs where storage is unavailable; Mobile does not
+  apply auto exposure at all (its own warning), so it is guarded but not observable there.
+- **SSR:** its input is `RB_LAST_FRAME`, made by `copy_to_rect(..., sanitize)` and `make_mipmap()`, which upstream
+  already sanitized: inf (|x| > 3e10) and NaN (`notEqual(color, color)`) to 100. **That NaN test never fired on the
+  4080** although glslang emits the correct `OpFUnordNotEqual` (the driver assumes no NaN). It is now
+  `finite_or_zero4()`: NaN counts as black, infinity is still 100 from upstream's line. The SSR shaders themselves are
+  unchanged. Side effect: every other `make_mipmap()` user (screen-texture mips for refraction/`SCREEN_TEXTURE`,
+  runtime texture mip generation) now turns a NaN into 0 instead of (in intent) 100, and actually catches it.
+- **Bokeh DOF** uses the shared helper; same code as before (`dof_finite()` is gone).
+
+Numbers (4080 SUPER, native Vulkan and WebGPU Chrome real adapter; before = base `2eca8b0cf5` built in the same tree):
+
+| Check | Before | After |
+|---|---|---|
+| `dof_nan/run.sh` Forward+ glow additive / softlight (pixels changed) | 59,791 / 6,434 (a blob at the luminance cap: NVIDIA's `min()` drops the NaN) | 4 / 4 |
+| `dof_nan/run.sh` Mobile glow additive / softlight | 1,591 / 200 | 4 / 4 |
+| `dof_nan/run.sh` SSR roughness 0 / 0.4 (black pixels) | 212 / 23,812 (the second after the first's NaN persisted) | 4 / 4 |
+| `dof_nan/run.sh` auto exposure, Forward+ (mean brightness) | 0.4001 → 0.0000, whole frame | 0.4001 → 0.4001 |
+| Tier total | 7 failures | 0 (all 24 DOF cases still pass) |
+| Matrix `glow_nan` / `ssr_nan` / `auto_exposure_nan`, native delta | 1.261 / 28.684 / 97.513 | 0.005 / 0.004 / 0.003 |
+| Same arms, WebGPU (unbaked) | FAIL 1.261 / 28.685 / 97.514 | PASS 0.005 / 0.004 / 0.003, parity ≤ 0.003 (baked too) |
+
+Finite frames bit-identical natively: `glow`, `glow_map`, `ssr`, `ssil`, `refraction`, `auto_exposure`, `dof_far`,
+`dof_near`, `dof_nan` and the off frames of the new arms, 0 differing pixels before vs after. WebGPU `--parity` on
+the 10 guarded/new arms passes unbaked and baked (translated 133, under the 150 gate). Interface references unchanged
+(smoke: 276/276 identical, 552/552 scan facts, 0 invalid).
+
+Cost: an AND, a compare and a select per component (12 ALU ops per vec4): Forward+ glow first pass 48 per thread at
+half resolution (~12 per scene pixel), Mobile gather 48 per quarter-resolution fragment, auto exposure 9 per pixel,
+the last-frame copy +4 per pixel over upstream's test. Once per frame each; well under a microsecond at 1080p on the
+4080, not separable from noise, so not measured with `gpu_time.mjs`.
+
+Tests: `webgpu_tests/dof_nan/run.sh` now covers glow (additive, softlight), SSR (roughness 0, 0.4; Forward+ only, a
+reported SKIP on Mobile) and auto exposure as well (`ONLY=dof,glow,ssr,exposure` narrows), gated also on changed
+pixels (glow ≤ 64, SSR ≤ 256) and auto exposure on mean brightness (≤ 2 %). Forward+ matrix arms `glow_nan`,
+`ssr_nan`, `auto_exposure_nan` (`maxDelta` 0.05; 87 arms).
+
+### 4.45 The editor's update check looks at this fork's releases (October 2026) *(work task 30)*
+
+User request (2026-10-26): "Check my fork's releases for the 'new version' checks". Merged `4b4bd00e62`.
+
+`EngineUpdateLabel` (`editor/project_manager/engine_update_label.{h,cpp}`, the project manager's "Update available"
+link) asked `godotengine.org/versions.json` and compared stock Godot's versions with 4.8.dev, which told this fork's
+users about the wrong product. It now asks `api.github.com/repos/Shane-Gadsby/godotwebgpu/releases`
+(`EngineUpdateLabel::FORK_RELEASES_REPO`; an empty string restores upstream's check, whose code is left intact).
+Every change is tagged `// WebGPU fork`. User decisions pending on the hand-offs page (`update-newer-rule`, default
+commit date, implemented; `update-repo`, default `Shane-Gadsby/godotwebgpu`).
+
+- **Which release:** published releases only (drafts never; the unauthenticated API does not list them anyway).
+  Prereleases only under *Check Newest Preview* (and *Auto* on a non-stable build, which this fork always is: 4.8.dev).
+  The engine version is read from the release's asset names (`godot-webgpu-export-templates-<v>.tpz`,
+  `godot-webgpu-editor-<v>-<os>.zip`): another major version is never offered, *Check Newest Patch* keeps the minor
+  version, a release whose assets name none is not filtered. Newest by `published_at`.
+- **Newer how:** the release's commit comes from its `main-<sha>` tag (or a full SHA in `target_commitish`). If it is
+  the build's own `GODOT_VERSION_HASH`, the build is up to date. Otherwise a second request
+  (`/repos/.../commits/<sha>`) gets the release commit's committer date, which is compared with
+  `GODOT_VERSION_TIMESTAMP` (the build commit's committer date, `methods.py`): later = update available. An unknown
+  time (a build without git) never reports an update. Chosen because releases carry no machine-readable fork version
+  (it is only in the hand-written title) and the binary has none, so a version compare would need `version.py`, the
+  release workflow and the naming habit to change; the commit date needs nothing new and is right for every case
+  that matters (older build: told; the release's own build: not told; a later webgpu-4.8 build: not told). Its one
+  blind spot: a build from a branch committed after the release but not containing it (webgpu-4.8 before a fix
+  only on `main`) is not told. Two requests per check against GitHub's 60/hour unauthenticated limit.
+- **The label** shows the release title without the "Godot WebGPU " prefix ("Update available: 4.8.dev 1.5.1 - OSX
+  fix.") and opens the release's GitHub page. Network mode, offline label, error/retry, settings are unchanged.
+- **Testing:** `tests/editor/project_manager/test_engine_update_label.cpp` (3 cases, `--test --test-case="*EngineUpdateLabel*"`).
+  A dev build (`DEV_ENABLED`) reads `GODOT_UPDATE_CHECK_AS=<hash>:<commit UNIX time>` to pose as another build
+  against the live API, so the label's states can be seen without building an old commit; release editors ignore it.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
@@ -3468,5 +4565,5 @@ git show <commit>^:webgpu_notes/HANDOFF.md                # read a file as it wa
 `drivers/webgpu/README.md` (driver-local notes), `webgpu_tests/README.md` (how to run every tier),
 `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` (how to test a reported bug against a
 real project), `webgpu_tests/forward_plus/README.md` (the add-a-feature rule), `misc/emsdk_patches/`
-(the toolchain patches and how to add a third), `thirdparty/README.md` (vendored Tint patches), and
+(the toolchain patches and how to add a third), `thirdparty/README.md` (the vendored SPIRV-Cross and amd-fsr2 patches), and
 `webgpu_site/{ARCHITECTURE_AND_DESIGN,TECHNICAL_REFERENCE,PERFORMANCE_AND_OPTIMIZATION,CORRECTNESS_AND_COMPATIBILITY,FAQ}.md`.

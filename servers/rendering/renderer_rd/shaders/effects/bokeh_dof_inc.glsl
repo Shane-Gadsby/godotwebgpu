@@ -40,3 +40,8 @@ float hash12n(vec2 p) {
 	p += dot(p.yx, p.xy + vec2(21.5351, 14.3137));
 	return fract(p.x * p.y * 95.4307);
 }
+
+// The filters weight each sample with mix(color, sample, m), and NaN * 0 is still NaN, so one
+// non-finite scene color would blank every pixel within the blur radius, in the bokeh shape. They
+// read the scene color through finite_or_zero3() (finite_inc.glsl), which counts it as black.
+#include "finite_inc.glsl"

@@ -99,8 +99,9 @@ def configure(env: "SConsEnvironment"):
 
     # webgpu=yes on a native editor build doesn't build the actual WebGPU
     # RenderingDeviceDriver (that only exists for platform=web, see
-    # WEBGPU_ENABLED); it builds just enough of drivers/webgpu/ (Tint +
-    # RenderingShaderContainerWebGPU) to bake WGSL into shader containers at
+    # WEBGPU_ENABLED); it builds just enough of drivers/webgpu/
+    # (RenderingShaderContainerWebGPU and the helper that runs
+    # bin/wgsl_convert_cli) to bake WGSL into shader containers at
     # web-export time. See drivers/webgpu/SCsub and
     # editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.cpp.
     if env["webgpu"] and env.editor_build:

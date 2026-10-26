@@ -34,10 +34,11 @@
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 #include "core/variant/variant.h"
+#include "drivers/webgpu/spirv_cross_wrapper.h"
 #include "drivers/webgpu/spirv_preprocess.h"
-#include "drivers/webgpu/tint_wrapper.h"
 
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace webgpu {
@@ -47,42 +48,42 @@ char *spirv_to_wgsl(const uint8_t *p_spv_ptr, int p_spv_size) {
 		return nullptr;
 	}
 
-	// Idempotent (just (re)registers a debug-printer callback), so it's safe
-	// to call from every caller (runtime driver init, export-time baker)
-	// without needing them to coordinate a single initialization point.
-	static bool tint_initialized = false;
-	if (!tint_initialized) {
-		tint_wrapper_initialize();
-		tint_initialized = true;
-	}
-
 	// Wrap raw bytes in a Vector for the preprocessing API.
 	Vector<uint8_t> spv;
 	spv.resize(p_spv_size);
 	memcpy(spv.ptrw(), p_spv_ptr, p_spv_size);
 
-	spv = spirv_preprocess::run_pipeline(spv);
+	std::string pipeline_error;
+	// No full validation here: this is the engine's own glslang output (or a baked container's SPIR-V the export
+	// already converted), and on the web every millisecond lands on load time -- ~2 ms a module natively, several
+	// hundred modules on an unbaked load. wgsl_convert_cli, which bakes whatever a project's shaders compile to,
+	// validates (TASKS.md §2.35, work task 13).
+	spv = spirv_preprocess::run_pipeline(spv, &pipeline_error, false);
+	if (spv.is_empty()) {
+		ERR_PRINT(vformat("SPIR-V→WGSL failed: %s", String::utf8(pipeline_error.c_str())));
+		return nullptr;
+	}
 
-	// Convert to uint32_t words for Tint.
+	// Convert to uint32_t words for SPIRV-Cross.
 	int word_count = spv.size() / 4;
 	std::vector<uint32_t> spirv_words(word_count);
 	memcpy(spirv_words.data(), spv.ptr(), spv.size());
 
 	char *error_msg = nullptr;
-	char *out = tint_wrapper_spirv_to_wgsl(spirv_words.data(), spirv_words.size(), &error_msg);
+	char *out = spirv_cross_wrapper_spirv_to_wgsl(spirv_words.data(), spirv_words.size(), &error_msg);
 	if (!out) {
 		if (error_msg) {
-			// Truncate the error message: Tint includes the full SPIR-V disassembly
+			// Truncate the error message: one can embed a SPIR-V disassembly,
 			// which floods the console/log. Keep first 1500 chars for diagnostics.
 			String err_str = String::utf8(error_msg);
 			err_str = err_str.replace("\n", " | ");
 			if (err_str.length() > 1500) {
 				err_str = err_str.left(1500) + "... [truncated]";
 			}
-			ERR_PRINT(vformat("Tint SPIR-V→WGSL failed: %s", err_str));
+			ERR_PRINT(vformat("SPIRV-Cross SPIR-V→WGSL failed: %s", err_str));
 			free(error_msg);
 		} else {
-			ERR_PRINT("Tint SPIR-V→WGSL failed (unknown error)");
+			ERR_PRINT("SPIRV-Cross SPIR-V→WGSL failed (unknown error)");
 		}
 		return nullptr;
 	}

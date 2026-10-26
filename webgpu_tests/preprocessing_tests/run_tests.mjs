@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// SPIR-V preprocessing pass tests for the Tint-based WGSL conversion pipeline.
+// SPIR-V preprocessing pass tests for the SPIR-V -> WGSL conversion pipeline (our passes + SPIRV-Cross).
 //
-// Tests all 12 SPIR-V preprocessing passes via tint_convert_cli end-to-end.
+// Tests all 12 SPIR-V preprocessing passes via wgsl_convert_cli end-to-end.
 //
 // Usage: node run_tests.mjs
 
@@ -47,11 +47,13 @@ function skip(msg) {
   skipped++;
 }
 
-function findTintCli() {
+function findWgslCli() {
+  // WGSL_CONVERT_CLI points the tier at a specific converter build (e.g. a patched SPIRV-Cross build).
+  if (process.env.WGSL_CONVERT_CLI) return existsSync(process.env.WGSL_CONVERT_CLI) ? process.env.WGSL_CONVERT_CLI : null;
   const locations = [
-    join(REPO_ROOT, "bin", "tint_convert_cli"),
-    join(REPO_ROOT, "bin", "tint_convert_cli.exe"),
-    join(REPO_ROOT, "drivers", "webgpu", "tint_convert_cli"),
+    join(REPO_ROOT, "bin", "wgsl_convert_cli"),
+    join(REPO_ROOT, "bin", "wgsl_convert_cli.exe"),
+    join(REPO_ROOT, "drivers", "webgpu", "wgsl_convert_cli"),
   ];
   for (const p of locations) {
     if (existsSync(p)) return p;
@@ -59,19 +61,27 @@ function findTintCli() {
   return null;
 }
 
-const TINT_CLI = findTintCli();
-if (!TINT_CLI) {
-  console.log("tint_convert_cli not found — skipping preprocessing tests");
+const CONVERT_CLI = findWgslCli();
+if (!CONVERT_CLI) {
+  console.log("wgsl_convert_cli not found — skipping preprocessing tests");
   process.exit(0);
 }
 
-// Convert SPIR-V bytes to WGSL via tint_convert_cli.
+// Assertions are written against the long WGSL spelling (vec4<f32>, not vec4f; Tint, the converter before
+// SPIRV-Cross, wrote it that way), so the converter's output is canonicalized to it first.
+function canon(wgsl) {
+  return wgsl
+    .replace(/\b(vec[234]|mat[234]x[234])([fiuh])\b/g, (_, t, k) => `${t}<${{ f: "f32", i: "i32", u: "u32", h: "f16" }[k]}>`)
+    .replace(/\b(\d+)i\b/g, "$1");
+}
+
+// Convert SPIR-V bytes to WGSL via wgsl_convert_cli.
 // Returns { wgsl, error } — wgsl is null on failure.
 function convertToWgsl(spvBytes) {
   const tmp = join(tmpdir(), `preprocess_test_${Date.now()}_${Math.random().toString(36).slice(2)}.spv`);
   try {
     writeFileSync(tmp, spvBytes);
-    const wgsl = execFileSync(TINT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 });
+    const wgsl = canon(execFileSync(CONVERT_CLI, [tmp], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -84,7 +94,7 @@ function convertToWgsl(spvBytes) {
 function convertFixture(name) {
   const spvPath = join(FIXTURES_DIR, name);
   try {
-    const wgsl = execFileSync(TINT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 });
+    const wgsl = canon(execFileSync(CONVERT_CLI, [spvPath], { encoding: "utf-8", timeout: 30000 }));
     return { wgsl, error: null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error" };
@@ -218,8 +228,11 @@ function buildMinimalVertexShader() {
 
 // Build a minimal fragment shader with OpTerminateInvocation.
 function buildFragmentWithTerminateInvocation() {
+  // OpTerminateInvocation needs SPV_KHR_terminate_invocation below SPIR-V 1.6;
+  // without it the module is invalid and run_pipeline() rejects it unconverted.
   return buildSpirv(10, [
     ...encodeInst(Op.Capability, 1), // Shader
+    ...encodeInst(10, ...encodeString("SPV_KHR_terminate_invocation")), // OpExtension
     ...encodeInst(Op.MemoryModel, 0, 1),
     ...encodeEntryPoint(ExecModel.Fragment, 5, "main"),
     ...encodeInst(Op.ExecutionMode, 5, 7), // OriginUpperLeft
@@ -262,7 +275,10 @@ function buildComputeWithPushConstants() {
   // eliminate_dead_resources (spirv_preprocess.cpp) correctly strips it --
   // same as it would for any real shader that reads a push constant and
   // never uses the result. See webgpu_notes/TASKS.md Task 8.7.
-  return buildSpirv(17, [
+  //
+  // SPIR-V 1.3: the StorageBuffer storage class is core from 1.3 (an extension
+  // before), and run_pipeline() rejects an invalid module unconverted.
+  return buildSpirvV13(17, [
     ...encodeInst(Op.Capability, 1),
     ...encodeInst(Op.MemoryModel, 0, 1),
     ...encodeEntryPoint(ExecModel.GLCompute, 7, "main"),
@@ -405,7 +421,7 @@ console.log("\n=== Test 1: freeze_spec_constant_ops / spec_constants_overridable
   const r = convertFixture("chained_spec_ops.spv");
   assert(r.wgsl !== null, "chained_spec_ops.spv converts successfully");
   if (r.wgsl) {
-    // IAdd/IMul/BitwiseAnd/ShiftRightLogical are all operations Tint can lower
+    // IAdd/IMul/BitwiseAnd/ShiftRightLogical are all operations that lower
     // into an override expression, so the chain survives.
     assert(r.wgsl.includes("@id("), "chained ops preserved as overrides");
     assert(r.wgsl.includes("@compute"), "chained_spec_ops.spv has @compute entry point");
@@ -512,18 +528,18 @@ console.log("\n=== Test 1: freeze_spec_constant_ops / spec_constants_overridable
 }
 
 {
-  // 1k. An OpSpecConstantOp whose operation Tint's SPIR-V reader has no
-  // override lowering for (here OpCopyLogical, which is not in its
-  // EmitSpecConstants switch at all) forces the freeze. Without the guard Tint
-  // raises a TINT_ICE and conversion fails outright, so "converts successfully"
-  // is the real assertion here.
+  // 1k. An OpSpecConstantOp whose operation is not allowed in one (here
+  // OpCopyLogical, which Tint's SPIR-V reader also had no override lowering
+  // for and raised a TINT_ICE on) is invalid SPIR-V. run_pipeline() validates
+  // its input, so it is rejected with the validator's message before any pass
+  // or the backend sees it.
   const spv = buildComputeWithSpecConstants([
     encodeInst(Op.SpecConstantOp, 3, 6, 400, 4), // 400 = OpCopyLogical
   ]);
   const r = convertToWgsl(spv);
-  assert(r.wgsl !== null, "unsupported spec op converts successfully (frozen, not ICEd)");
-  if (r.wgsl) {
-    assert(!r.wgsl.includes("override"), "unsupported spec op forces freeze");
+  assert(r.wgsl === null, "invalid spec op is rejected, not converted");
+  if (r.wgsl === null) {
+    assert(/invalid SPIR-V, not converted: .*SpecConstantOp/.test(r.error), "rejection names the invalid OpSpecConstantOp");
   }
 }
 
@@ -578,7 +594,7 @@ console.log("\n=== Test 2: rewrite_copy_logical ===");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2d: Handle-typed OpEntryPoint interface variable (vendored Tint patch 0012)
+// Test 2d: Handle-typed OpEntryPoint interface variable (Tint patch 0012, historical)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n=== Test 2d: Handle-typed OpEntryPoint interface variable ===");
 
@@ -591,10 +607,11 @@ console.log("\n=== Test 2d: Handle-typed OpEntryPoint interface variable ===");
   // (sampler/texture) variable. Originally worked around at the SPIR-V
   // preprocessing level (stripping handle ids from the interface list +
   // downgrading the module's declared version below 1.4), which in turn
-  // broke a different, genuinely 1.4-only construct (see Test 2e) -- now
-  // fixed directly in vendored Tint instead (patch 0012, `## tint` in
-  // thirdparty/README.md), so modules keep their real declared version and
-  // this preprocessing-level workaround no longer exists at all. See
+  // broke a different, genuinely 1.4-only construct (see Test 2e) -- then
+  // fixed directly in the vendored Tint (its patch 0012), and Tint has since
+  // been replaced by SPIRV-Cross, so modules keep their real declared version
+  // and this preprocessing-level workaround no longer exists at all. The test
+  // stays as a guard on the converter's handling of 1.4 interface lists. See
   // fixtures_src/handle_entry_point_interface.frag and
   // webgpu_notes/TASKS.md Task 21. Needs an explicit --target-env for the
   // same reason as the copy_logical_mismatch fixture above (SPIR-V 1.4+
@@ -632,7 +649,7 @@ console.log("\n=== Test 2e: OpSelect scalar-condition/vector-result ===");
   // real engine output -- valid there and needs no fixup at all. This test
   // exists because an earlier fix (Test 2d's original version-downgrade
   // approach) broke exactly this construct as a side effect; now that the
-  // real Handle-interface bug is fixed directly in Tint (patch 0012) and
+  // real Handle-interface bug was fixed directly in Tint (patch 0012) and
   // nothing downgrades the module's version anymore, this converts cleanly
   // with zero preprocessing help. See fixtures_src/select_scalar_condition.frag
   // and webgpu_notes/TASKS.md Task 21. Needs --target-env vulkan1.2 (real
@@ -810,7 +827,7 @@ console.log("\n=== Test 7: negate_position_y ===");
     // The Y-negation shows as: (*ptr).y = -((*ptr).y)
     // or similar pattern with negation of the y component.
     const hasNegY = r.wgsl.includes(".y = -(") || r.wgsl.includes(".y = -(") ||
-                    r.wgsl.includes("negate") || r.wgsl.includes(").y)");
+                    r.wgsl.includes("negate") || r.wgsl.includes(").y)") || /\.y\s*=\s*-/.test(r.wgsl);
     assert(hasNegY, "Y-negation pattern present in vertex output");
   }
 }
@@ -1075,7 +1092,7 @@ console.log("\n=== Test 15: Batch mode ===");
   // 15a. Batch conversion of multiple fixtures produces valid JSON.
   const fixtures = FIXTURES.slice(0, 5).map(f => join(FIXTURES_DIR, f));
   try {
-    const output = execFileSync(TINT_CLI, ["--batch", ...fixtures], {
+    const output = execFileSync(CONVERT_CLI, ["--batch", ...fixtures], {
       encoding: "utf-8", timeout: 60000,
     });
     const result = JSON.parse(output);
@@ -1095,7 +1112,7 @@ console.log("\n=== Test 15: Batch mode ===");
   // 15b. Batch mode with all 13 fixtures.
   const fixtures = FIXTURES.map(f => join(FIXTURES_DIR, f));
   try {
-    const output = execFileSync(TINT_CLI, ["--batch", ...fixtures], {
+    const output = execFileSync(CONVERT_CLI, ["--batch", ...fixtures], {
       encoding: "utf-8", timeout: 60000,
     });
     const result = JSON.parse(output);
@@ -1155,11 +1172,11 @@ console.log("\n=== Test 16: WGSL output validation ===");
 }
 
 {
-  // 16e. diagnostic(off, derivative_uniformity) present (Tint default).
+  // 16e. diagnostic(off, derivative_uniformity) present (SPIRV-Cross adds it when implicit derivatives are used).
   const r = convertFixture("basic_fragment.spv");
   if (r.wgsl) {
     assert(r.wgsl.includes("diagnostic(off, derivative_uniformity)"),
-      "Tint adds diagnostic directive");
+      "the converter adds the diagnostic directive");
   }
 }
 
@@ -1214,12 +1231,13 @@ console.log("\n=== Test 17: negate_position_y struct member Position ===");
 console.log("\n=== Test 18: Additional spec constant operations ===");
 
 {
-  // 18a. UDiv (opcode 134): 20 / 10 = 2
+  // 18a. SDiv (opcode 135): 20 / 10 = 2. (UDiv needs an unsigned result type,
+  // and these constants are signed: the validator rejects that module.)
   const spv = buildComputeWithSpecConstants([
-    encodeInst(Op.SpecConstantOp, 3, 6, 134, 5, 4), // UDiv(20, 10) = 2
+    encodeInst(Op.SpecConstantOp, 3, 6, 135, 5, 4), // SDiv(20, 10) = 2
   ]);
   const r = convertToWgsl(spv);
-  assert(r.wgsl !== null, "OpSpecConstantOp UDiv converts");
+  assert(r.wgsl !== null, "OpSpecConstantOp SDiv converts");
 }
 
 {
@@ -1420,13 +1438,13 @@ console.log("\n=== Test 20: fix_nonfinite_literals 64-bit ===");
     ...encodeInst(Op.FunctionEnd),
   ]);
   const r = convertToWgsl(spv);
-  // Tint may or may not support f64 — the important thing is no crash.
+  // WGSL has no f64, so conversion may fail — the important thing is no crash.
   // If it converts, verify no infinity in output.
   if (r.wgsl) {
     const lower = r.wgsl.toLowerCase();
     assert(!lower.includes("infinity"), "f64: no infinity in output");
   }
-  // If it fails, that's OK — f64 support depends on Tint capabilities.
+  // If it fails, that's OK — f64 support depends on the converter.
   assert(true, "f64 infinity: no crash");
 }
 
@@ -1505,7 +1523,7 @@ function testImageDeclReflection() {
 
   let out;
   try {
-    out = JSON.parse(execFileSync(TINT_CLI, ["--image-decls", spvOut], { encoding: "utf-8", timeout: 30000 }));
+    out = JSON.parse(execFileSync(CONVERT_CLI, ["--image-decls", spvOut], { encoding: "utf-8", timeout: 30000 }));
   } catch (e) {
     assert(false, `--image-decls failed: ${e.stderr || e.message}`);
     return;
@@ -1587,7 +1605,7 @@ function testHoistConstantLocalArrays() {
   }
   let wgsl;
   try {
-    wgsl = execFileSync(TINT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 });
+    wgsl = canon(execFileSync(CONVERT_CLI, [spvOut], { encoding: "utf-8", timeout: 30000 }));
   } catch (e) {
     assert(false, `conversion failed: ${e.stderr || e.message}`);
     return;
@@ -1595,12 +1613,14 @@ function testHoistConstantLocalArrays() {
     try { unlinkSync(spvOut); } catch (_) {}
   }
 
-  const privates = [...wgsl.matchAll(/^var<private> (\w+) : (.+?) = /gm)].map((m) => m[2]);
-  assert(privates.includes("array<vec4<f32>, 8u>"), "the const vec4[8] read in a helper is a module-scope private");
-  assertEq(privates.filter((t) => t === "array<i32, 5u>").length, 1, "the const int[5] read twice in main is one private, not two");
+  // A hoisted array is a module-scope `var<private>` (Tint) or a module-scope `const` (SPIRV-Cross),
+  // which also spells array sizes without the `u` suffix.
+  const privates = [...wgsl.matchAll(/^(?:var<private>|const) (\w+) : (.+?) = /gm)].map((m) => m[2].replace(/(\d+)u>/g, "$1>"));
+  assert(privates.includes("array<vec4<f32>, 8>"), "the const vec4[8] read in a helper is a module-scope private");
+  assertEq(privates.filter((t) => t === "array<i32, 5>").length, 1, "the const int[5] read twice in main is one private, not two");
   assertEq(privates.length, 2, "nothing else was hoisted");
-  assert(/^\s+var scratch : array<vec4<f32>, 4u>;/m.test(wgsl), "an array written per element stays local");
-  assert(/^\s+var modified : array<vec4<f32>, 2u>;/m.test(wgsl), "an array overwritten after a constant initializer stays local");
+  assert(/^\s+var scratch : array<vec4<f32>, 4u?>;/m.test(wgsl), "an array written per element stays local");
+  assert(/^\s+var modified (?:: array<vec4<f32>, 2u?>;|= array<vec4<f32>, 2u?>\()/m.test(wgsl), "an array overwritten after a constant initializer stays local");
   // No whole-array constant stores remain inside functions.
   assert(!/^\s+\w+ = array<vec4<f32>, 8u>\(/m.test(wgsl), "no per-call re-initialization of the vec4[8] remains");
 }
@@ -1612,7 +1632,7 @@ testHoistConstantLocalArrays();
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Compiles a GLSL fixture from fixtures_src/ and converts it, keeping the
-// SPIR-V the preprocessing pipeline hands Tint (TINT_DEBUG_DUMP_PREPROCESSED).
+// SPIR-V the preprocessing pipeline hands the converter (WGSL_DEBUG_DUMP_PREPROCESSED).
 // Returns { wgsl, error, preprocessed } or null when glslang is unavailable.
 function convertGlslFixture(name) {
   const src = join(__dirname, "fixtures_src", name);
@@ -1626,11 +1646,11 @@ function convertGlslFixture(name) {
     return null;
   }
   try {
-    const wgsl = execFileSync(TINT_CLI, [spvOut], {
+    const wgsl = canon(execFileSync(CONVERT_CLI, [spvOut], {
       encoding: "utf-8",
       timeout: 30000,
-      env: { ...process.env, TINT_DEBUG_DUMP_PREPROCESSED: preOut },
-    });
+      env: { ...process.env, WGSL_DEBUG_DUMP_PREPROCESSED: preOut },
+    }));
     return { wgsl, error: null, preprocessed: existsSync(preOut) ? readFileSync(preOut) : null };
   } catch (e) {
     return { wgsl: null, error: e.stderr || e.message || "unknown error", preprocessed: null };
@@ -1640,9 +1660,9 @@ function convertGlslFixture(name) {
   }
 }
 
-// Structural validity of what Tint is given. These passes split blocks and
-// add switches and phis; a mistake there can still produce WGSL (Tint is
-// lenient) while being invalid SPIR-V, so check it directly.
+// Structural validity of what the converter is given. These passes split blocks
+// and add switches and phis; a mistake there can still produce WGSL (the
+// converter is lenient) while being invalid SPIR-V, so check it directly.
 function assertValidSpirv(bytes, label) {
   if (!bytes) {
     assert(false, `${label}: no preprocessed SPIR-V was dumped`);
@@ -1666,7 +1686,7 @@ function assertValidSpirv(bytes, label) {
 
 // WGSL bindings of every declared variable, as { name, group, binding }.
 function wgslBindings(wgsl) {
-  return [...wgsl.matchAll(/^@group\((\d+)u\) @binding\((\d+)u\) var(?:<[^>]*>)? (\w+)/gm)].map((m) => ({ group: +m[1], binding: +m[2], name: m[3] }));
+  return [...wgsl.matchAll(/^@group\((\d+)u?\) @binding\((\d+)u?\) var(?:<[^>]*>)? (\w+)/gm)].map((m) => ({ group: +m[1], binding: +m[2], name: m[3] }));
 }
 
 // The WGSL binding the driver expects for element k of an array at GLSL
@@ -1675,17 +1695,17 @@ function arrayElementBinding(b, k) {
   return k === 0 ? b * 2 : 400 + b * 16 + (k - 1);
 }
 
-// lower_tint_unsupported_ops(): every input in the fixture used to abort Tint
+// lower_wgsl_unsupported_ops(): every input in the fixture used to abort Tint
 // with an internal compiler error -- in the browser, a trap that took down the
 // whole page the moment a material using isnan()/isinf()/textureQueryLod() or
 // POINT_COORD was compiled, or texture streaming was enabled.
 function testLowerTintUnsupportedOps() {
-  console.log("\n=== Test 24: lower_tint_unsupported_ops ===\n");
-  const r = convertGlslFixture("tint_crash_inputs.frag");
+  console.log("\n=== Test 24: lower_wgsl_unsupported_ops ===\n");
+  const r = convertGlslFixture("wgsl_unsupported_ops.frag");
   if (!r) {
     return;
   }
-  assert(r.wgsl !== null, `the fixture converts instead of crashing Tint: ${r.error && r.error.slice(0, 300)}`);
+  assert(r.wgsl !== null, `the fixture converts instead of failing: ${r.error && r.error.slice(0, 300)}`);
   if (!r.wgsl) {
     return;
   }
@@ -1696,7 +1716,7 @@ function testLowerTintUnsupportedOps() {
   assert(/== 2139095040u/.test(r.wgsl), "isinf(float) is |bits| == 0x7f800000");
   // textureQueryLod: derivatives of the coordinate in texels, log2, clamped to the mip range.
   assert(/textureNumLevels\(tex\)/.test(r.wgsl), "textureQueryLod reads the mip count");
-  assert(/textureDimensions\(tex, 0i\)/.test(r.wgsl), "textureQueryLod reads the base level's size");
+  assert(/textureDimensions\(tex, 0\)/.test(r.wgsl), "textureQueryLod reads the base level's size");
   assert(/dpdx\(/.test(r.wgsl) && /dpdy\(/.test(r.wgsl), "textureQueryLod uses screen-space derivatives");
   assert(/log2\(max\(dot\(/.test(r.wgsl), "the lod is log2 of the larger squared footprint, halved");
   assert(/clamp\(/.test(r.wgsl), "the accessed level is clamped to the mip range");
@@ -1729,15 +1749,15 @@ function testExpandBindingArrays() {
   }
   assert(!/binding_array/.test(r.wgsl), "no binding_array type is emitted");
   // A dynamic index becomes a switch whose case k reads element k.
-  const switches = (r.wgsl.match(/switch\(/g) || []).length;
+  const switches = (r.wgsl.match(/switch\s*\(/g) || []).length;
   assert(switches >= 4, `dynamic indices became switches (found ${switches})`);
-  assert(/switch\(\(4u \+ idx\)\)/.test(r.wgsl), "the offset index lm[4 + idx] switches on 4u + idx");
+  assert(/switch\s*\(\(?4u \+ idx\)?\)/.test(r.wgsl), "the offset index lm[4 + idx] switches on 4u + idx");
   // A constant index reads its element directly, with no switch.
   const lm3 = bindings.find((x) => x.binding === arrayElementBinding(7, 3));
   assert(lm3 && new RegExp(`textureSample\\(${lm3.name}, samp, p\\.xy`).test(r.wgsl), "lm[3] reads element 3 directly");
   // The helper taking the texture was inlined, then switched over at the call site.
-  assert(/textureSampleLevel\(vox_7, samp, v_\d+, v_\d+\)/.test(r.wgsl), "the cone() helper's lookups read every element");
-  assert(/textureDimensions\(vox_7, 0i\)/.test(r.wgsl), "textureSize() is switched over too");
+  assert(/textureSampleLevel\(vox_7, samp, \w+, \w+\)/.test(r.wgsl), "the cone() helper's lookups read every element");
+  assert(/textureDimensions\(vox_7, 0\)/.test(r.wgsl), "textureSize() is switched over too");
 }
 
 // The expansion is budgeted: WebGPU only guarantees 16 sampled textures per
@@ -1756,7 +1776,7 @@ function testExpandBindingArraysBudget() {
   }
   assertValidSpirv(r.preprocessed, "budgeted module is valid SPIR-V");
   const bindings = wgslBindings(r.wgsl);
-  const sampled = (r.wgsl.match(/^@group\(\d+u\) @binding\(\d+u\) var \w+ : texture_(?!storage)/gm) || []).length;
+  const sampled = (r.wgsl.match(/^@group\(\d+u?\) @binding\(\d+u?\) var \w+ : texture_(?!storage)/gm) || []).length;
   assert(bindings.some((x) => x.binding === arrayElementBinding(1, 15)), "the first 16-element array fits (20 + 2 + 15 = 37 <= 48) and expands");
   assert(!bindings.some((x) => x.binding >= arrayElementBinding(2, 1) && x.binding <= arrayElementBinding(2, 15)), "the second does not fit (+15 = 52 > 48) and stays collapsed");
   assert(sampled <= 48, `the module stays within 48 sampled textures (${sampled})`);
