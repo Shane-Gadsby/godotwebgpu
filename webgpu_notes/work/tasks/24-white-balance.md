@@ -1,6 +1,6 @@
 # 24-white-balance: a White Balance attribute on CameraAttributesPhysical and CameraAttributesPractical
 
-State: claimed
+State: ready-for-integration
 Owner: worker-24
 Claimed: 2026-10-26 16:15
 Needs: build, gpu (web and parity captures)
