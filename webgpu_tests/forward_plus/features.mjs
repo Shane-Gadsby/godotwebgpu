@@ -32,6 +32,25 @@
  *   parityTol: N       -- a larger tolerance for a feature whose WebGPU frame
  *                         legitimately differs, with the reason next to it.
  *                         Never raise one to make a regression pass.
+ *
+ * Two more serve an arm whose correct result is the same picture (occlusion
+ * culling: fewer objects drawn, nothing visible changes):
+ *   maxDelta: N        -- the off/on frames must differ by at most this much;
+ *                         replaces the minDelta floor.
+ *   infoDrop: {key: N} -- the fixture reports what each captured frame drew
+ *                         (`[FP] INFO objects=.. primitives=.. draws=..`, from
+ *                         Viewport.get_render_info; `<id>_<0|1>.info` natively),
+ *                         and "on" must draw at least N fewer of each key than
+ *                         "off". Checked on the web, and in parity mode on the
+ *                         native reference too, so a fixture that stopped
+ *                         occluding anything fails instead of passing as "same".
+ *
+ *   knownFail: 'why'   -- a failure on the web that is understood and out of
+ *                         this port's reach, with the reason. The arm still runs
+ *                         and reports KNOWN without failing the run; a native
+ *                         side that no longer does what the arm needs still
+ *                         fails, and an arm that starts passing reports XPASS
+ *                         and fails, so the marker is removed with the bug.
  */
 
 // Default parity tolerance: well above what identical work measures across the
@@ -62,6 +81,8 @@ export const FEATURES = [
   { id: 'fog_height', cat: 'environment', label: 'Height fog', minDelta: 17.2 },
   { id: 'fog_aerial_perspective', cat: 'environment', label: 'Fog aerial perspective', minDelta: 0.896 },
   { id: 'volumetric_fog', cat: 'environment', label: 'Volumetric fog', minDelta: 14.4 },
+  { id: 'fog_volume', cat: 'environment', label: 'FogVolume nodes (box and ellipsoid, FogMaterial)', minDelta: 1.72 },
+  { id: 'fog_volume_shader', cat: 'environment', label: 'FogVolume with a custom fog shader', minDelta: 1.89 },
   { id: 'glow', cat: 'environment', label: 'Glow / bloom', minDelta: 14.4 },
   { id: 'glow_map', cat: 'environment', label: 'Glow map', minDelta: 0.7 },
   { id: 'ssr', cat: 'environment', label: 'Screen-space reflections', minDelta: 0.394 },
@@ -95,6 +116,9 @@ export const FEATURES = [
   { id: 'reflection_probe', cat: 'gi', label: 'Reflection probe', minDelta: 4.39 },
   { id: 'voxel_gi', cat: 'gi', label: 'VoxelGI', minDelta: 2.58 },
   { id: 'decal', cat: 'gi', label: 'Decal', minDelta: 0.447 },
+  // A committed bake (lightmap_room.*, bake_lightmap.sh); the room's light is static, so "on" takes its direct light too
+  // from the lightmap.
+  { id: 'lightmap_gi', cat: 'gi', label: 'LightmapGI (baked, static light)', minDelta: 4.21 },
 
   // ---- materials ----
   { id: 'normal_map', cat: 'material', label: 'Normal map', minDelta: 0.623 },
@@ -117,22 +141,35 @@ export const FEATURES = [
   { id: 'texture_array', cat: 'material', label: 'Texture array indexed at runtime', minDelta: 1.2 },
   { id: 'shader_builtins', cat: 'material', label: 'isnan/isinf/textureQueryLod in a material', minDelta: 0.028 },
   { id: 'point_coord', cat: 'material', label: 'POINT_COORD without POINT_SIZE (drawn as points)', minDelta: 0.01 },
+  { id: 'stencil_outline', cat: 'material', label: 'Stencil outline (BaseMaterial3D stencil_mode)', minDelta: 0.319 },
+  { id: 'stencil_xray', cat: 'material', label: 'Stencil x-ray (BaseMaterial3D stencil_mode)', minDelta: 1.23 },
+  { id: 'bent_normal', cat: 'material', label: 'Bent normal map', minDelta: 0.225 },
 
   // ---- mesh pipeline ----
   { id: 'multimesh', cat: 'mesh', label: 'MultiMesh instancing', minDelta: 1.72 },
+  { id: 'skeletal_animation', cat: 'mesh', label: 'Skeletal animation (GPU skinning)', minDelta: 0.665 },
   { id: 'blend_shapes', cat: 'mesh', label: 'Blend shapes', minDelta: 0.861 },
   { id: 'mesh_lod', cat: 'mesh', label: 'Mesh LOD', minDelta: 0.504 },
   { id: 'visibility_range', cat: 'mesh', label: 'Visibility range', minDelta: 0.734 },
+  // Correct result: the same frame, fewer objects. Natively 29 -> 8 objects (20 boxes and the probe sphere behind the
+  // wall), the frames identical to 0.000.
+  { id: 'occlusion_culling', cat: 'mesh', label: 'Occlusion culling (OccluderInstance3D)', minDelta: 0, maxDelta: 0.02,
+    infoDrop: { objects: 15 },
+    knownFail: 'web templates are built without the raycast module (platform/web/detect.py, module_raycast_enabled False, ' +
+      'upstream GH-70621: Embree is too heavy for wasm), so there is no occlusion culler on the web at all, in stock ' +
+      'Godot either: the frame is right, nothing is culled (29 objects off and on). Not a WebGPU defect.' },
 
   // ---- particles ----
   { id: 'gpu_particles', cat: 'particles', label: 'GPU particles', minDelta: 3.14 },
   { id: 'particle_collision', cat: 'particles', label: 'Particle collision', minDelta: 3.02 },
   { id: 'particle_attractor', cat: 'particles', label: 'Particle attractor', minDelta: 3.22 },
+  { id: 'particle_trails', cat: 'particles', label: 'Particle trails (RibbonTrailMesh)', minDelta: 2.42 },
 
   // ---- post-processing, AA and scaling ----
   { id: 'msaa', cat: 'post', label: 'MSAA 4x', minDelta: 0.0673 },
   { id: 'taa', cat: 'post', label: 'TAA', minDelta: 0.15 },
   { id: 'fxaa', cat: 'post', label: 'FXAA', minDelta: 0.0812 },
+  { id: 'smaa', cat: 'post', label: 'SMAA', minDelta: 0.081 },
   { id: 'debanding', cat: 'post', label: 'Debanding', minDelta: 0.0823 },
   { id: 'scaling_3d', cat: 'post', label: '3D resolution scaling (bilinear)', minDelta: 0.373 },
   { id: 'fsr2', cat: 'post', label: 'FSR2 upscaling', minDelta: 0.358,
@@ -145,6 +182,9 @@ export const FEATURES = [
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },
+  // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's
+  // conversion, a read-write storage image on the scene's colour target, the compositor callback.
+  { id: 'compositor_effect', cat: 'post', label: 'CompositorEffect (compute shader on the colour buffer)', minDelta: 6.98 },
 ];
 
 /**
@@ -157,16 +197,9 @@ export const FEATURES = [
  * place to park work.
  */
 export const UNCOVERED = [
-  { id: 'skeletal_animation', why: 'the fixture builds a two-bone skinned strip procedurally, but its skin binding does not actually deform -- a 2.2 rad pose change moves only 0.045 mean delta on native Vulkan, which is indistinguishable from skinning being broken. The GPU skinning path is a real Forward+ feature and this SHOULD be covered; the fixture needs a working skin (or a committed skinned mesh) first.' },
-  { id: 'particle_trails', why: 'GPUParticles3D.trail_enabled produces no measurable change in this fixture on native Vulkan (0.000), so there is nothing to assert against. Needs a draw pass and transform_align set up for trails before it can be covered.' },
-  { id: 'lightmap_gi', why: 'needs an editor-baked lightmap; cannot be produced at runtime from GDScript, so it cannot be driven by this fixture. Needs a separate fixture with committed bake data.' },
-  { id: 'occlusion_culling', why: 'needs baked occluders and is a visibility optimization, not a rendering path -- a correct result is pixel-identical, so an A/B delta check cannot see it. Needs a draw-call-count assertion instead.' },
   { id: 'multiview_xr', why: 'WebGPU has no multiview; the driver reports SUPPORTS_MULTIVIEW false and the renderer takes the single-view path. Nothing to compare.' },
   { id: 'vrs', why: 'WebGPU has no variable shading rate; SUPPORTS_ATTACHMENT_VRS is false by design.' },
-  { id: 'compositor_effects', why: 'CompositorEffect runs user-supplied RD code; there is no engine behavior to assert, only the user callback.' },
-  { id: 'volumetric_fog_volumes', why: 'FogVolume nodes with custom fog shaders -- a distinct path from environment volumetric fog, and not yet exercised. Should be added.' },
-  { id: 'stencil', why: 'BaseMaterial3D.stencil_mode -- added recently upstream and not yet exercised. Should be added.' },
-  { id: 'bent_normal', why: 'BaseMaterial3D.bent_normal_enabled -- added recently upstream and not yet exercised. Should be added.' },
+  { id: 'msaa_2x_8x', why: 'WebGPU allows only 1 and 4 samples per pixel; MSAA 2x and 8x cannot exist on it (the msaa arm covers 4x).' },
 ];
 
 export const byId = Object.fromEntries(FEATURES.map((f) => [f.id, f]));

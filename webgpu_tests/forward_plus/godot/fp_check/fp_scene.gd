@@ -27,7 +27,9 @@ extends Node3D
 ## Everything is built procedurally. That is deliberate: a .tscn with baked
 ## resources cannot express a skinned mesh, blend shapes or a MultiMesh without
 ## binary assets, and binary fixtures are the kind of thing that rots silently
-## across upstream syncs.
+## across upstream syncs. The exceptions are editor products a shipped project
+## loads rather than builds: lod_sphere.res, voxel_gi_data.res and the baked
+## lightmap_room (bake_lightmap.sh).
 
 ## Every feature this fixture can drive, published at boot as
 ##   [FP] FEATURES a,b,c
@@ -48,14 +50,12 @@ const FEATURES := [
 	"subsurface_scattering", "backlight", "refraction", "heightmap", "triplanar",
 	"transparency", "alpha_scissor", "alpha_hash", "proximity_fade", "distance_fade",
 	"depth_texture", "mipmap_bias", "texture_array", "shader_builtins", "point_coord",
-	# skeletal_animation and particle_trails have _apply() arms below but are
-	# deliberately NOT listed: the fixture cannot drive either to a measurable
-	# result yet, so they live in features.mjs's UNCOVERED list instead. Put
-	# them back here the moment the fixture can actually move them.
-	"multimesh", "blend_shapes", "mesh_lod", "visibility_range",
-	"gpu_particles", "particle_collision", "particle_attractor",
-	"msaa", "taa", "fxaa", "debanding", "scaling_3d", "fsr2",
-	"dof_far", "dof_near", "auto_exposure",
+	"stencil_outline", "stencil_xray", "bent_normal",
+	"fog_volume", "fog_volume_shader", "lightmap_gi",
+	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range", "occlusion_culling",
+	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
+	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
+	"dof_far", "dof_near", "auto_exposure", "compositor_effect",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -73,6 +73,11 @@ const JITTER_PERIOD := 32
 const SETTLE_OVERRIDE := {
 	"sdfgi": 45,
 	"volumetric_fog": 30,
+	"fog_volume": 30,
+	"fog_volume_shader": 30,
+	"lightmap_gi": 12,
+	# The occlusion buffer is rasterized from the previous frame's camera.
+	"occlusion_culling": 8,
 	"taa": 24,
 	"auto_exposure": 40,
 	"ssr": 10,
@@ -106,6 +111,16 @@ var particle_attractor: GPUParticlesAttractorSphere3D
 var multimesh_inst: MultiMeshInstance3D
 var skinned: MeshInstance3D
 var skeleton: Skeleton3D
+var trail_particles: GPUParticles3D
+var fog_box: FogVolume
+var fog_ellipsoid: FogVolume
+var fog_shaded: FogVolume
+var lightmap_room: Node3D
+var lightmap_gi: LightmapGI
+var occ_wall: MeshInstance3D
+var occluder: OccluderInstance3D
+var occluded := []                     # the MeshInstance3Ds hidden behind occ_wall
+var compositor_effect: CompositorEffect
 var blendshape_inst: MeshInstance3D
 var lod_inst: MeshInstance3D
 var fade_inst: MeshInstance3D
@@ -120,6 +135,7 @@ var tex_checker_mips: ImageTexture
 var tex_normal: ImageTexture
 var tex_gradient: ImageTexture
 var tex_lut: ImageTexture
+var tex_bent: ImageTexture
 
 var probe_mi: MeshInstance3D           # wears mat_probe unless a test swaps in a ShaderMaterial
 var mat_depth: ShaderMaterial
@@ -220,11 +236,16 @@ func _run_native_matrix(dir: String) -> void:
 			for i in settle - 1:
 				await get_tree().process_frame
 			# Freeze at the same point the web side does (see _process()).
-			particles.speed_scale = 0.0
+			_freeze_particles()
 			await RenderingServer.frame_post_draw
 			print("[FP] FRAME %d (phase %d)" % [Engine.get_frames_drawn(), posmod(Engine.get_frames_drawn(), JITTER_PERIOD)])
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%d.png" % [dir, id, 1 if on else 0])
+			# What the frame drew, for arms whose correct result is pixel-identical
+			# (occlusion_culling); run_forward_plus.mjs compares it with the web's.
+			var f := FileAccess.open("%s/%s_%d.info" % [dir, id, 1 if on else 0], FileAccess.WRITE)
+			f.store_line(_render_info())
+			f.close()
 		print("[FP] NATIVE %s" % id)
 	print("[FP] NATIVE-DONE %d" % FEATURES.size())
 	get_tree().quit()
@@ -287,6 +308,17 @@ func _build_textures() -> void:
 		var t := float(x) / 255.0
 		limg.set_pixel(x, 0, Color(pow(t, 0.6), t, pow(t, 1.6)))
 	tex_lut = ImageTexture.create_from_image(limg)
+
+	# Bent normal map: bands bent hard up and down, so the ambient light a pixel
+	# gathers comes from a visibly different part of the sky (blue top, brown
+	# ground).
+	var bimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var by := sin(float(y) * 0.4) * 0.9
+			var bz := sqrt(maxf(1.0 - by * by, 0.0))
+			bimg.set_pixel(x, y, Color(0.5, by * 0.5 + 0.5, bz * 0.5 + 0.5))
+	tex_bent = ImageTexture.create_from_image(bimg)
 
 
 func _build_environment() -> void:
@@ -474,6 +506,11 @@ func _build_extras() -> void:
 
 	_build_skinned()
 	_build_blendshape()
+	_build_trails()
+	_build_fog_volumes()
+	_build_occlusion()
+	_build_lightmap()
+	_build_compositor()
 
 	particles = GPUParticles3D.new()
 	var pmat := ParticleProcessMaterial.new()
@@ -526,12 +563,15 @@ func _build_extras() -> void:
 
 
 func _build_skinned() -> void:
-	# A two-bone strip, bent by posing bone 1. Tests the GPU skinning path:
-	# without it the mesh renders in rest pose and the A/B frame is identical.
+	# A two-bone strip, bent by posing bone 1. Tests the GPU skinning path
+	# (the skeleton compute pass): without it the strip renders in rest pose and
+	# the A/B frame is identical. Laid out the way an imported skinned model is
+	# -- the MeshInstance3D a child of its Skeleton3D -- so the skeleton's
+	# transform and the instance's agree and nothing depends on which one the
+	# renderer uses. The old strip (a sibling of the skeleton, behind the LOD
+	# sphere, in the floor's grey) moved 0.045 on native for a 2.2 rad bend.
 	skeleton = Skeleton3D.new()
-	# A skinned MeshInstance3D is rendered in its skeleton's space and ignores
-	# its own transform, so this is what actually places the strip on screen.
-	skeleton.transform = Transform3D(Basis(), Vector3(-4.6, 0.0, 1.2))
+	skeleton.transform = Transform3D(Basis(), Vector3(1.6, 0.0, 2.4))
 	add_child(skeleton)
 	skeleton.add_bone("root")
 	skeleton.set_bone_rest(0, Transform3D())
@@ -540,33 +580,180 @@ func _build_skinned() -> void:
 	skeleton.set_bone_rest(1, Transform3D(Basis(), Vector3(0, 1.2, 0)))
 	skeleton.reset_bone_poses()
 
-	var segs := 8
+	var segs := 12
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for i in segs:
 		var y0 := float(i) / float(segs) * 2.4
 		var y1 := float(i + 1) / float(segs) * 2.4
-		# Clockwise: Godot front-faces are clockwise, and a counter-clockwise
-		# strip here is back-face culled without any error at all.
-		for s in [[-0.3, y0], [0.3, y1], [0.3, y0], [-0.3, y0], [-0.3, y1], [0.3, y1]]:
+		for s in [[-0.4, y0], [0.4, y1], [0.4, y0], [-0.4, y0], [-0.4, y1], [0.4, y1]]:
 			var y: float = s[1]
-			var w: float = clampf(y / 2.4, 0.0, 1.0)
-			st.set_bones([0, 1, 0, 0])
-			st.set_weights([1.0 - w, w, 0.0, 0.0])
+			# Rigid below the joint, blending across it, rigid above: a hinge.
+			var w: float = clampf((y - 0.9) / 0.6, 0.0, 1.0)
+			st.set_bones(PackedInt32Array([0, 1, 0, 0]))
+			st.set_weights(PackedFloat32Array([1.0 - w, w, 0.0, 0.0]))
 			st.set_normal(Vector3(0, 0, 1))
 			st.add_vertex(Vector3(s[0], y, 0))
-	st.index()
 	var mesh := st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.95, 0.45, 0.15)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	skinned = MeshInstance3D.new()
 	skinned.mesh = mesh
-	skinned.material_override = mat_floor
+	skinned.material_override = mat
 	skinned.visible = false
-	add_child(skinned)
-	skinned.skeleton = skinned.get_path_to(skeleton)
+	skeleton.add_child(skinned)
+	skinned.skeleton = NodePath("..")
 	var sk := Skin.new()
 	sk.add_bind(0, Transform3D())
 	sk.add_bind(1, Transform3D(Basis(), Vector3(0, -1.2, 0)))
 	skinned.skin = sk
+
+
+func _build_trails() -> void:
+	# Particle trails: each particle drags a RibbonTrailMesh skinned along its
+	# recent path (the trail bones the particles shader writes), aligned with
+	# TRANSFORM_ALIGN_Z_BILLBOARD_Y_TO_VELOCITY as ribbons need. Its own node,
+	# because trails need a trail draw pass and use_particle_trails on the
+	# material, which the matrix's sphere particles do not have. Off is the same
+	# ribbons with trail_enabled false, drawn rigid.
+	trail_particles = GPUParticles3D.new()
+	var pmat := ParticleProcessMaterial.new()
+	pmat.direction = Vector3(1, 1.4, 0)
+	pmat.spread = 30.0
+	pmat.initial_velocity_min = 3.0
+	pmat.initial_velocity_max = 4.5
+	pmat.gravity = Vector3(0, -5.0, 0)
+	trail_particles.process_material = pmat
+	var ribbon := RibbonTrailMesh.new()
+	ribbon.size = 0.18
+	ribbon.sections = 8
+	ribbon.section_length = 0.1
+	var tmat := StandardMaterial3D.new()
+	tmat.use_particle_trails = true
+	tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	tmat.albedo_color = Color(0.3, 0.9, 1.0)
+	ribbon.material = tmat
+	trail_particles.draw_pass_1 = ribbon
+	trail_particles.transform_align = GPUParticles3D.TRANSFORM_ALIGN_Z_BILLBOARD_Y_TO_VELOCITY
+	trail_particles.amount = 24
+	trail_particles.lifetime = 1.2
+	trail_particles.trail_lifetime = 0.5
+	trail_particles.use_fixed_seed = true
+	trail_particles.seed = 20261026
+	trail_particles.fixed_fps = 30
+	trail_particles.interpolate = false
+	trail_particles.preprocess = 0.4
+	trail_particles.transform = Transform3D(Basis(), Vector3(-2.6, 0.3, 2.2))
+	trail_particles.visible = false
+	trail_particles.emitting = false
+	add_child(trail_particles)
+
+
+func _build_fog_volumes() -> void:
+	# FogVolume nodes add density to the volumetric fog froxels by shape, with a
+	# built-in FogMaterial or a user `shader_type fog` shader. The arms run with
+	# the environment's own fog density at 0, so all the fog is the volumes'.
+	var fm := FogMaterial.new()
+	fm.density = 1.2
+	fm.albedo = Color(1.0, 0.7, 0.45)
+	fm.emission = Color(0.15, 0.06, 0.02)
+	fog_box = FogVolume.new()
+	fog_box.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+	fog_box.size = Vector3(1.6, 2.6, 1.6)
+	fog_box.material = fm
+	fog_box.transform = Transform3D(Basis(), Vector3(-1.9, 1.3, 1.6))
+	fog_box.visible = false
+	add_child(fog_box)
+	fog_ellipsoid = FogVolume.new()
+	fog_ellipsoid.shape = RenderingServer.FOG_VOLUME_SHAPE_ELLIPSOID
+	fog_ellipsoid.size = Vector3(2.2, 1.8, 2.2)
+	fog_ellipsoid.material = fm
+	fog_ellipsoid.transform = Transform3D(Basis(), Vector3(1.9, 1.4, 1.6))
+	fog_ellipsoid.visible = false
+	add_child(fog_ellipsoid)
+
+	var fs := Shader.new()
+	fs.code = """shader_type fog;
+uniform vec3 tint = vec3(0.3, 0.6, 1.0);
+void fog() {
+	float bands = step(0.5, fract(WORLD_POSITION.x * 1.2 + WORLD_POSITION.y * 0.8));
+	DENSITY = 1.5 * bands * clamp(1.0 - length(UVW - 0.5) * 1.4, 0.0, 1.0);
+	ALBEDO = tint;
+	EMISSION = tint * 0.25;
+}
+"""
+	var fsm := ShaderMaterial.new()
+	fsm.shader = fs
+	fog_shaded = FogVolume.new()
+	fog_shaded.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+	fog_shaded.size = Vector3(4.0, 2.4, 1.6)
+	fog_shaded.material = fsm
+	fog_shaded.transform = Transform3D(Basis(), Vector3(0.0, 1.2, 2.2))
+	fog_shaded.visible = false
+	add_child(fog_shaded)
+
+
+func _build_occlusion() -> void:
+	# An opaque wall with a matching occluder, and small boxes behind it. With
+	# occlusion culling the boxes (and the probe sphere, also behind it) are
+	# culled before they are drawn; the picture must not change at all. The
+	# occluder is an ArrayOccluder3D built from the wall's own triangles, which
+	# is what baking an OccluderInstance3D produces. The wall is also the
+	# obstacle the stencil_xray arm sees through.
+	var wall_mesh := BoxMesh.new()
+	wall_mesh.size = Vector3(2.8, 2.8, 0.1)
+	var wall_mat := StandardMaterial3D.new()
+	wall_mat.albedo_color = Color(0.55, 0.5, 0.45)
+	wall_mat.roughness = 0.8
+	var xform := Transform3D(Basis(), Vector3(0, 1.4, 4.0))
+	occ_wall = _mesh_instance(wall_mesh, wall_mat, xform)
+	occ_wall.visible = false
+	var arrays := wall_mesh.get_mesh_arrays()
+	var occ := ArrayOccluder3D.new()
+	occ.set_arrays(arrays[Mesh.ARRAY_VERTEX], arrays[Mesh.ARRAY_INDEX])
+	occluder = OccluderInstance3D.new()
+	occluder.occluder = occ
+	occluder.transform = xform
+	occluder.visible = false
+	add_child(occluder)
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.2, 0.2, 0.2)
+	for ix in 5:
+		for iy in 4:
+			var b := _mesh_instance(bm, wall_mat,
+				Transform3D(Basis(), Vector3(-0.8 + ix * 0.4, 0.6 + iy * 0.45, 2.8)))
+			# Their shadows would land in view, beside the wall.
+			b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			b.visible = false
+			occluded.append(b)
+
+
+func _build_lightmap() -> void:
+	# A small room baked with LightmapGI (bake_lightmap.sh regenerates the bake;
+	# the editor's own Bake Lightmaps action, scripted). Its light is static, so
+	# with the lightmap its direct light and two bounces come from the baked
+	# texture, and without it the same light is computed in real time. Parked
+	# far from the main scene and hidden unless the arm is running.
+	var room_scene: PackedScene = load("res://lightmap_room.tscn")
+	lightmap_room = room_scene.instantiate() if room_scene else Node3D.new()
+	lightmap_room.position = Vector3(-60, 0, 0)
+	lightmap_room.visible = false
+	add_child(lightmap_room)
+	lightmap_gi = lightmap_room.get_node_or_null("LightmapGI")
+	var data: LightmapGIData = lightmap_gi.light_data if lightmap_gi else null
+	print("[FP] LIGHTMAP %s" % ("baked" if data and not data.lightmap_textures.is_empty() else "MISSING -- lightmap_gi cannot pass"))
+	if lightmap_gi:
+		lightmap_gi.set_meta("baked", data)
+		lightmap_gi.light_data = null
+
+
+func _build_compositor() -> void:
+	compositor_effect = load("res://fp_compositor_effect.gd").new()
+	var comp := Compositor.new()
+	comp.compositor_effects = [compositor_effect]
+	cam.compositor = comp
 
 
 func _build_blendshape() -> void:
@@ -742,11 +929,29 @@ func _process(_delta: float) -> void:
 		_settle -= 1
 		if _settle == 0:
 			# Freeze this frame for the harness (see the protocol note above).
-			particles.speed_scale = 0.0
+			_freeze_particles()
 			RenderingServer.frame_post_draw.connect(func(): RenderingServer.render_loop_enabled = false, CONNECT_ONE_SHOT)
 			print("[FP] FRAME %d (phase %d)" % [Engine.get_frames_drawn(), posmod(Engine.get_frames_drawn(), JITTER_PERIOD)])
+			# The previous frame drew this config too (every settle is >= 2).
+			print("[FP] INFO %s" % _render_info())
 			print("[FP] READY %s %d" % [_pending_id, 1 if _pending_on else 0])
 			_settle = -1
+
+
+func _freeze_particles() -> void:
+	particles.speed_scale = 0.0
+	trail_particles.speed_scale = 0.0
+
+
+## What the main viewport's last frame drew: "objects=N primitives=N draws=N".
+## Occlusion culling's correct result is the same picture with fewer objects, so
+## that arm is judged on these counts (and on its frame being unchanged).
+func _render_info() -> String:
+	var vp := get_viewport()
+	return "objects=%d primitives=%d draws=%d" % [
+		vp.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE, Viewport.RENDER_INFO_OBJECTS_IN_FRAME),
+		vp.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME),
+		vp.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME)]
 
 
 ## Whether a config applied in this frame's process step and settled for
@@ -859,12 +1064,25 @@ func _reset() -> void:
 	blendshape_inst.visible = false
 	particles.visible = false
 	particles.emitting = false
-	particles.trail_enabled = false
-	particles.trail_lifetime = 0.3
 	particles.speed_scale = 1.0
 	particle_collider.visible = false
 	particle_attractor.visible = false
+	trail_particles.visible = false
+	trail_particles.emitting = false
+	trail_particles.trail_enabled = false
+	trail_particles.speed_scale = 1.0
 	get_node("Glass").visible = false
+	fog_box.visible = false
+	fog_ellipsoid.visible = false
+	fog_shaded.visible = false
+	occ_wall.visible = false
+	occluder.visible = false
+	for b: MeshInstance3D in occluded:
+		b.visible = false
+	lightmap_room.visible = false
+	if lightmap_gi and lightmap_gi.light_data:
+		lightmap_gi.light_data = null
+	compositor_effect.enabled = false
 
 	skeleton.set_bone_pose_rotation(1, Quaternion())
 	if blendshape_inst.get_blend_shape_count() > 0:
@@ -905,6 +1123,7 @@ func _reset() -> void:
 	vp.scaling_3d_scale = 1.0
 	vp.mesh_lod_threshold = 1.0
 	vp.texture_mipmap_bias = 0.0
+	vp.use_occlusion_culling = false
 
 
 ## Apply one feature. Returns false for an unrecognized id so the harness can
@@ -949,6 +1168,23 @@ func _apply(id: String, on: bool) -> bool:
 			env.fog_enabled = on
 			env.fog_density = 0.02
 			env.fog_aerial_perspective = 1.0
+		"fog_volume":
+			# Box and ellipsoid FogVolumes with a FogMaterial; the environment's
+			# own density is 0, so without the volumes there is no fog at all.
+			env.volumetric_fog_enabled = true
+			env.volumetric_fog_density = 0.0
+			fog_box.visible = on
+			fog_ellipsoid.visible = on
+		"fog_volume_shader":
+			# A FogVolume with a user `shader_type fog` material.
+			env.volumetric_fog_enabled = true
+			env.volumetric_fog_density = 0.0
+			fog_shaded.visible = on
+		"lightmap_gi":
+			lightmap_room.visible = true
+			if on and lightmap_gi:
+				lightmap_gi.light_data = lightmap_gi.get_meta("baked")
+			cam.transform = Transform3D(Basis(), Vector3(-60, 1.7, 4.6)).looking_at(Vector3(-60, 1.0, -1.0), Vector3.UP)
 		"volumetric_fog":
 			env.volumetric_fog_enabled = on
 			env.volumetric_fog_density = 0.12
@@ -1140,13 +1376,37 @@ func _apply(id: String, on: bool) -> bool:
 		"point_coord":
 			probe_mi.material_override = mat_points
 			mat_points.set_shader_parameter("use_coord", on)
+		"stencil_outline":
+			# BaseMaterial3D's outline preset: a stencil-tested, grown second pass
+			# drawn only where the probe did not write the stencil.
+			mat_probe.stencil_mode = BaseMaterial3D.STENCIL_MODE_OUTLINE if on else BaseMaterial3D.STENCIL_MODE_DISABLED
+			mat_probe.stencil_color = Color(1.0, 0.55, 0.1)
+			mat_probe.stencil_outline_thickness = 0.12
+		"stencil_xray":
+			# The x-ray preset: the probe, hidden behind occ_wall, is drawn
+			# through it where the wall's depth fails it.
+			occ_wall.visible = true
+			mat_probe.stencil_mode = BaseMaterial3D.STENCIL_MODE_XRAY if on else BaseMaterial3D.STENCIL_MODE_DISABLED
+			mat_probe.stencil_color = Color(0.2, 0.8, 1.0)
+		"bent_normal":
+			# Bent normals steer the indirect (here: sky ambient) light and the
+			# specular occlusion, not direct light, so the sun is off and the
+			# ambient up: the probe is lit by the sky alone, and bending its
+			# normals up or down picks the blue top or the brown ground.
+			dir_light.visible = false
+			env.ambient_light_energy = 3.0
+			mat_probe.albedo_texture = null
+			mat_probe.albedo_color = Color(0.9, 0.9, 0.9)
+			mat_probe.roughness = 1.0
+			mat_probe.bent_normal_enabled = on
+			mat_probe.bent_normal_texture = tex_bent
 
 		# ---- mesh pipeline ----
 		"multimesh":
 			multimesh_inst.visible = on
 		"skeletal_animation":
 			skinned.visible = true
-			skeleton.set_bone_pose_rotation(1, Quaternion(Vector3(0, 0, 1), 2.2) if on else Quaternion())
+			skeleton.set_bone_pose_rotation(1, Quaternion(Vector3(0, 0, 1), 1.3) if on else Quaternion())
 		"blend_shapes":
 			blendshape_inst.visible = true
 			blendshape_inst.set_blend_shape_value(0, 1.0 if on else 0.0)
@@ -1154,6 +1414,14 @@ func _apply(id: String, on: bool) -> bool:
 			vp.mesh_lod_threshold = 64.0 if on else 0.0
 		"visibility_range":
 			fade_inst.visibility_range_end = 2.0 if on else 0.0
+		"occlusion_culling":
+			# Judged on the viewport's object count, not on the frame: the
+			# correct frame is the same with and without (features.mjs maxDelta).
+			occ_wall.visible = true
+			occluder.visible = true
+			for b: MeshInstance3D in occluded:
+				b.visible = true
+			vp.use_occlusion_culling = on
 
 		# ---- particles ----
 		"gpu_particles":
@@ -1168,10 +1436,9 @@ func _apply(id: String, on: bool) -> bool:
 			particles.emitting = true
 			particle_attractor.visible = on
 		"particle_trails":
-			particles.visible = true
-			particles.emitting = true
-			particles.trail_enabled = on
-			particles.trail_lifetime = 0.6
+			trail_particles.visible = true
+			trail_particles.emitting = true
+			trail_particles.trail_enabled = on
 
 		# ---- post / AA / scaling ----
 		"msaa":
@@ -1180,6 +1447,9 @@ func _apply(id: String, on: bool) -> bool:
 			vp.use_taa = on
 		"fxaa":
 			vp.screen_space_aa = (Viewport.SCREEN_SPACE_AA_FXAA if on
+				else Viewport.SCREEN_SPACE_AA_DISABLED)
+		"smaa":
+			vp.screen_space_aa = (Viewport.SCREEN_SPACE_AA_SMAA if on
 				else Viewport.SCREEN_SPACE_AA_DISABLED)
 		"debanding":
 			vp.use_debanding = on
@@ -1202,6 +1472,9 @@ func _apply(id: String, on: bool) -> bool:
 		"auto_exposure":
 			cam_attrs.auto_exposure_enabled = on
 			cam_attrs.auto_exposure_scale = 0.2
+		"compositor_effect":
+			# fp_compositor_effect.gd: a compute shader inverting part of the frame.
+			compositor_effect.enabled = on
 		_:
 			return false
 	return true
