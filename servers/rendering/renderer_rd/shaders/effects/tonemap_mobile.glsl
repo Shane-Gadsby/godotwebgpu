@@ -78,6 +78,23 @@ layout(constant_id = 14) const bool glow_mode_screen = false;
 layout(constant_id = 15) const bool glow_mode_softlight = false;
 layout(constant_id = 16) const bool glow_mode_replace = false;
 layout(constant_id = 17) const bool glow_mode_mix = false;
+layout(constant_id = 18) const bool use_white_balance = false;
+
+// CameraAttributes white balance: a von Kries adaptation in Bradford cone space. The CPU computes the
+// three cone gains (RendererCameraAttributes::white_balance_compute_gains()); these matrices are
+// BRADFORD * SRGB_TO_XYZ and its inverse, and must match the C++ constants.
+vec3 apply_white_balance(vec3 color, vec3 gains) {
+	const mat3 linear_srgb_to_lms = mat3(
+			vec3(0.422725293f, 0.055699777f, 0.021382644f),
+			vec3(0.491345324f, 0.961534051f, 0.087641868f),
+			vec3(0.027357945f, 0.023183810f, 0.980508133f));
+	const mat3 lms_to_linear_srgb = mat3(
+			vec3(2.538044517f, -0.146004058f, -0.042298510f),
+			vec3(-1.293276998f, 1.116648306f, -0.071607220f),
+			vec3(-0.040236884f, -0.022329026f, 1.022752688f));
+	// Saturated colors can leave the gamut; the tonemappers expect non-negative input.
+	return max(lms_to_linear_srgb * (gains * (linear_srgb_to_lms * color)), vec3(0.0f));
+}
 
 layout(push_constant, std430) uniform Params {
 	vec3 bcs;
@@ -94,7 +111,7 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 
 	float output_max_value;
-	float pad[3];
+	float white_balance[3];
 }
 params;
 
@@ -764,6 +781,12 @@ void main() {
 	}
 #endif
 
+	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
+	// pre-tonemap glow, which is scene light too.
+	if (use_white_balance) {
+		color.rgb = apply_white_balance(color.rgb, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
+	}
+
 	// Tonemap to lower dynamic range.
 
 	color.rgb = apply_tonemapping(color.rgb);
@@ -778,6 +801,9 @@ void main() {
 		vec3 glow = gather_glow() * params.glow_intensity;
 		if (use_glow_map) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
+		}
+		if (use_white_balance) {
+			glow = apply_white_balance(glow, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
 		}
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);

@@ -2993,6 +2993,7 @@ void main() {
 
 	// Tonemap before writing as we are writing to an sRGB framebuffer
 	frag_color.rgb *= exposure;
+	frag_color.rgb = apply_white_balance(frag_color.rgb);
 #ifdef APPLY_TONEMAPPING
 	frag_color.rgb = apply_tonemapping(frag_color.rgb);
 #endif
@@ -3267,6 +3268,7 @@ void main() {
 
 	// Tonemap before writing as we are writing to an sRGB framebuffer
 	additive_light_color *= exposure;
+	additive_light_color = apply_white_balance(additive_light_color);
 #ifdef APPLY_TONEMAPPING
 	additive_light_color = apply_tonemapping(additive_light_color);
 #endif

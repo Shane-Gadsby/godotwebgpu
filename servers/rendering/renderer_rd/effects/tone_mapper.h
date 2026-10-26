@@ -75,6 +75,7 @@ private:
 		TONEMAP_FLAG_USE_FXAA = (1 << 4),
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 6),
+		TONEMAP_FLAG_USE_WHITE_BALANCE = (1 << 7),
 	};
 
 	enum FlagsMobile {
@@ -98,7 +99,8 @@ private:
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_SOFTLIGHT = (1 << 15),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_REPLACE = (1 << 16),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_MIX = (1 << 17),
-		TONEMAP_MOBILE_ADRENO_BUG = (1 << 18), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
+		TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE = (1 << 18),
+		TONEMAP_MOBILE_ADRENO_BUG = (1 << 19), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
 	};
 
 	struct TonemapPushConstant {
@@ -122,7 +124,13 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
+
+		// CameraAttributes white balance: Bradford cone-space gains, used with TONEMAP_FLAG_USE_WHITE_BALANCE.
+		// This brings the block to 128 bytes, the most Vulkan guarantees for push constants.
+		float white_balance[3]; //  12 - 124
+		float pad; //  4 - 128
 	};
+	static_assert(sizeof(TonemapPushConstant) <= 128, "The tonemap push constant must fit the 128 bytes every Vulkan device supports.");
 
 	struct TonemapPushConstantMobile {
 		float bcs[3]; // 12 - 12
@@ -138,7 +146,7 @@ private:
 
 		float tonemapper_params[4]; //  16 - 64
 		float output_max_value; //  4 - 68
-		float pad[3]; //  12 - 80
+		float white_balance[3]; //  12 - 80 (with TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE)
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -184,6 +192,9 @@ public:
 		float auto_exposure_scale = 0.5;
 		RID exposure_texture;
 		float luminance_multiplier = 1.0;
+
+		bool use_white_balance = false;
+		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0);
 
 		bool use_bcs = false;
 		float brightness = 1.0;

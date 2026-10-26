@@ -190,6 +190,9 @@ export const FEATURES = [
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },
+  // CameraAttributes white balance, an engine addition (3200 K, tint 0.2 against the 6500 K default). Native
+  // lavapipe measured 48.1 (2026-10-26), floor at a third of it.
+  { id: 'white_balance', cat: 'post', label: 'White balance (CameraAttributes)', minDelta: 16.0 },
   // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's
   // conversion, a read-write storage image on the scene's colour target, the compositor callback.
   { id: 'compositor_effect', cat: 'post', label: 'CompositorEffect (compute shader on the colour buffer)', minDelta: 6.98 },

@@ -272,6 +272,7 @@ void main() {
 #endif // DISABLE_FOG
 
 	color *= exposure;
+	color = apply_white_balance(color);
 #ifdef APPLY_TONEMAPPING
 	color = apply_tonemapping(color);
 #endif

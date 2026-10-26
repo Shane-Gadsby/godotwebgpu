@@ -94,6 +94,30 @@ float CameraAttributes::get_auto_exposure_scale() const {
 	return auto_exposure_scale;
 }
 
+void CameraAttributes::set_white_balance_temperature(float p_temperature) {
+	white_balance_temperature = p_temperature;
+	_update_white_balance();
+	emit_changed();
+}
+
+float CameraAttributes::get_white_balance_temperature() const {
+	return white_balance_temperature;
+}
+
+void CameraAttributes::set_white_balance_tint(float p_tint) {
+	white_balance_tint = p_tint;
+	_update_white_balance();
+	emit_changed();
+}
+
+float CameraAttributes::get_white_balance_tint() const {
+	return white_balance_tint;
+}
+
+void CameraAttributes::_update_white_balance() {
+	RS::get_singleton()->camera_attributes_set_white_balance(camera_attributes, white_balance_temperature, white_balance_tint);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -126,6 +150,11 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_scale", "exposure_grey"), &CameraAttributes::set_auto_exposure_scale);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_scale"), &CameraAttributes::get_auto_exposure_scale);
 
+	ClassDB::bind_method(D_METHOD("set_white_balance_temperature", "temperature"), &CameraAttributes::set_white_balance_temperature);
+	ClassDB::bind_method(D_METHOD("get_white_balance_temperature"), &CameraAttributes::get_white_balance_temperature);
+	ClassDB::bind_method(D_METHOD("set_white_balance_tint", "tint"), &CameraAttributes::set_white_balance_tint);
+	ClassDB::bind_method(D_METHOD("get_white_balance_tint"), &CameraAttributes::get_white_balance_tint);
+
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_multiplier", PROPERTY_HINT_RANGE, "0.0,8.0,0.001,or_greater"), "set_exposure_multiplier", "get_exposure_multiplier");
@@ -134,6 +163,10 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_auto_exposure_enabled", "is_auto_exposure_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scale", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_scale", "get_auto_exposure_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_speed", "get_auto_exposure_speed");
+
+	ADD_GROUP("White Balance", "white_balance_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_tint", PROPERTY_HINT_RANGE, "-1,1,0.001"), "set_white_balance_tint", "get_white_balance_tint");
 }
 
 CameraAttributes::CameraAttributes() {

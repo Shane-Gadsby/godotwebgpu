@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/vector3.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
 
@@ -56,6 +57,12 @@ private:
 		float dof_blur_near_distance = 2;
 		float dof_blur_near_transition = 1;
 		float dof_blur_amount = 0.1;
+
+		// White balance. The defaults are neutral: the tonemapper skips it entirely then.
+		float white_balance_temperature = 6500.0; // In Kelvin.
+		float white_balance_tint = 0.0;
+		bool use_white_balance = false;
+		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0); // Cone-space (Bradford LMS) gains.
 	};
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
@@ -110,6 +117,19 @@ public:
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 
 		return cam_attributes && cam_attributes->use_auto_exposure;
+	}
+
+	void camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint);
+	float camera_attributes_get_white_balance_temperature(RID p_camera_attributes);
+	float camera_attributes_get_white_balance_tint(RID p_camera_attributes);
+	// The von Kries gains the tonemappers apply in Bradford cone space (see the .cpp for the model).
+	Vector3 camera_attributes_get_white_balance_gains(RID p_camera_attributes);
+	static Vector3 white_balance_compute_gains(float p_temperature, float p_tint);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_white_balance(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+
+		return cam_attributes && cam_attributes->use_white_balance;
 	}
 
 	_FORCE_INLINE_ RSE::DOFBlurQuality camera_attributes_get_dof_blur_quality() {
