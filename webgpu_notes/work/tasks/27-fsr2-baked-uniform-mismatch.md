@@ -1,6 +1,6 @@
 # 27-fsr2-baked-uniform-mismatch: FSR 2 on a web export fails with "Mismatch uniform type ... Expected 'Image', supplied: 'StorageBuffer'"
 
-State: claimed
+State: ready-for-integration
 Owner: worker-27
 Claimed: 2026-10-26 16:45
 Needs: build, gpu (web captures, parity)
