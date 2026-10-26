@@ -92,7 +92,7 @@ Median over launches, min..max in brackets; 3 launches per config (6 for benchma
 
 ## What changed on work/11 (harness only, no engine or converter change)
 - `webgpu_tests/scene_smoketest/webgpu_audit.{js,mjs}`: `WEBGPU_AUDIT=<file.jsonl>` records every module's
-  `getCompilationInfo()` errors and every pipeline's validation error, labelled; hooked into `run_scenes.mjs`,
+  `getCompilationInfo()` errors and every pipeline's validation error, labeled; hooked into `run_scenes.mjs`,
   `run_forward_plus.mjs` and `frame_time.mjs`.
 - `webgpu_tests/scene_smoketest/firefox_prefs.mjs`: one set of Firefox prefs for every runner.
 - `webgpu_tests/perf_guard/frame_time.mjs` (new), `gpu_time.mjs --browser firefox`, `run_forward_plus.mjs --dir`,

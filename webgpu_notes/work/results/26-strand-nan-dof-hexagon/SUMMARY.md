@@ -29,7 +29,7 @@ NVIDIA (and on lavapipe). The leading theory was right in substance; the evidenc
 
 Other MetaHuman shaders checked for the pattern: no other `pow()` of an interpolated value; `HAIR_SHELL`'s
 `normalize(v_binormal)` is NaN for a zero binormal (TANGENT along NORMAL) in an opaque pass, now guarded. `SKIN` and
-`CLOTH` `normalize(vec3(base_n.xy + ..., base_n.z))` could only be zero for an exactly cancelling normal-map texel
+`CLOTH` `normalize(vec3(base_n.xy + ..., base_n.z))` could only be zero for an exactly canceling normal-map texel
 (not reachable with 8-bit maps); left alone (task 25 owns SKIN), noted for the lead.
 
 ## What changed

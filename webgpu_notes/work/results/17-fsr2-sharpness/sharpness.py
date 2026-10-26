@@ -6,7 +6,9 @@ usage: sharpness.py REF_DIR WEB_DIR [ids...]   (files are <id>_<0|1>.png)
 lap  = standard deviation of the 3x3 (4-neighbour) Laplacian of the luma, higher = more edge detail.
 diff = mean |web - ref| over RGB, 0..255 (the harness's meanAbsDiff).
 """
+
 import sys
+
 import numpy as np
 from PIL import Image
 
@@ -17,8 +19,8 @@ def load(p):
 
 def lap(img):
     y = img @ np.array([0.299, 0.587, 0.114])
-    l = -4 * y[1:-1, 1:-1] + y[:-2, 1:-1] + y[2:, 1:-1] + y[1:-1, :-2] + y[1:-1, 2:]
-    return float(l.std())
+    lap_img = -4 * y[1:-1, 1:-1] + y[:-2, 1:-1] + y[2:, 1:-1] + y[1:-1, :-2] + y[1:-1, 2:]
+    return float(lap_img.std())
 
 
 ref, web = sys.argv[1], sys.argv[2]

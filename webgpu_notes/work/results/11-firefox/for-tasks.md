@@ -22,7 +22,7 @@
 - Harness (CLAUDE.md "Testing" candidates):
   `BROWSER=firefox node validate_wgsl.mjs <dirs>` (naga validation without rendering, no lease);
   `WEBGPU_AUDIT=<file.jsonl>` on `run_scenes.mjs` / `run_forward_plus.mjs` / `frame_time.mjs` (every
-  getCompilationInfo error and pipeline error, labelled);
+  getCompilationInfo error and pipeline error, labeled);
   `run_forward_plus.mjs --dir <export>`;
   `gpu_time.mjs --browser firefox`;
   `perf_guard/frame_time.mjs` (rAF frame time, any browser, uncapped);

@@ -15,7 +15,7 @@ State: ready-for-integration (branch work/19; worktree ../godotwebgpu-19)
 - `platform/web/export/export_plugin.{h,cpp}`: `html/orientation` (Project Setting / the 7 ScreenOrientations; default
   Project Setting) — explicit values override `display/window/handheld/orientation` in the exported project.binary
   (`get_custom_project_settings()`, as iOS does), which main.cpp applies at startup; the PWA manifest follows the same
-  orientation; `progressive_web_app/orientation` hidden, honoured for old presets. `html/fullscreen_on_first_tap`
+  orientation; `progressive_web_app/orientation` hidden, honored for old presets. `html/fullscreen_on_first_tap`
   (default on) → `fullscreenOnFirstTap` (config.js + GodotConfig; Engine API default off so hand-written shells are
   unchanged). Manifest `display` CLAMP read past its 4-entry array: fixed.
 - `engine.js`: the worker capability probe's `requestAdapter()` also asks for `high-performance`; every other adapter
@@ -58,10 +58,10 @@ State: ready-for-integration (branch work/19; worktree ../godotwebgpu-19)
 - No orientation-lock or wake-lock messages in either (refusals are verbose-only, as intended).
 
 ## Risks
-- Default behaviour changes (both as the user decided 2026-10-25): phones now go fullscreen on the first tap, and
+- Default behavior changes (both as the user decided 2026-10-25): phones now go fullscreen on the first tap, and
   projects left at the default `handheld/orientation` (Landscape) then lock landscape, like native Android; their PWA
   manifest says `landscape-primary` instead of `any`. `html/fullscreen_on_first_tap` off / orientation Sensor restore
-  the old behaviour.
+  the old behavior.
 - A feature-tag override of `handheld/orientation` (e.g. `.web_android`) still beats `html/orientation` at run time.
 - The first-tap listener is on the canvas: a shell overlay that swallows touches before the canvas would stop it (the
   stock shells have none once loaded).

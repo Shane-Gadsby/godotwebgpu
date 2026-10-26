@@ -14,7 +14,7 @@ State: ready-for-integration, branch work/9 (two commits on webgpu-4.8 @ 7f2bf18
   build-windows.ps1, all CI workflows (cache keys now hash spirv-cross-wgsl + all pass sources; matrix key
   `wgsl-cli`; artifact `wgsl-convert-cli`), `.github/actions/package-editor`, `.pre-commit-config.yaml` exclude,
   test tiers (`WGSL_CONVERT_CLI`, `findWgslCli`). `WGSL_DEBUG_DUMP_PREPROCESSED` replaces
-  `TINT_DEBUG_DUMP_PREPROCESSED`, which `wgsl_cli/main.cpp` still honours (alias, one release). build-linux.sh:
+  `TINT_DEBUG_DUMP_PREPROCESSED`, which `wgsl_cli/main.cpp` still honors (alias, one release). build-linux.sh:
   `--skip-wgsl-cli`, `--skip-tint-cli` kept as an alias. The CLI is C++17 now, 211 objects instead of 573.
 - **smoke.sh** (my call): the interface comparison stays, against stored references made from Tint's output at
   7f2bf18eb2 with a Tint CLI built from the base tree in my scratchpad: `webgpu_tests/spirv_cross_eval/

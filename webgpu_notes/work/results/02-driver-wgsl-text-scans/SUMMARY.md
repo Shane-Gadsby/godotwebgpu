@@ -70,5 +70,5 @@ itself compiles clean with `-Wall -Wextra` natively, and pre-commit (clang-forma
 ## Risks
 
 - Unit is std-only (see for-tasks.md question). Web size impact is small.
-- Behaviour for Tint output was moved, not re-derived; the corpus test compares Tint to SPIRV-Cross, not new code to the old
+- Behavior for Tint output was moved, not re-derived; the corpus test compares Tint to SPIRV-Cross, not new code to the old
   driver code, so a transcription slip that affects both backends equally would not show. Task 07's parity run covers that.

@@ -36,4 +36,3 @@ func _process(delta: float) -> void:
 	label.text = "%s\nwindow %dx%d %s\nfullscreen %s\nrunning %d s\ntap: fullscreen (first tap, web shell)" % [
 		"\n".join(lines), size.x, size.y, "portrait" if size.y > size.x else "landscape",
 		DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN, int(elapsed)]
-

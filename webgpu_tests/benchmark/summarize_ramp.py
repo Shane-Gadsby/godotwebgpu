@@ -10,6 +10,7 @@ Ratio definition: a/b = N_a / N_b, the content leg a carried at the target fps r
 "a carried 3.2 times b's load at 20 fps". A value marked >= is a lower bound (the leg hit the N or time cap before
 falling to the target); <= marks a leg that was below the target even at N = 1.
 """
+
 import os
 import re
 import statistics
@@ -55,7 +56,7 @@ def parse(path):
             i = line.find("[BENCHMARK] ")
             if i < 0:
                 continue
-            body = line[i + 12:].strip()
+            body = line[i + 12 :].strip()
             if body.startswith("ramp_env "):
                 env = dict(KV.findall(body))
             elif body.startswith("browser_env "):
@@ -136,8 +137,12 @@ def results(runs):
                     marks.add(bound(ramps[ramp].get("status", "")))
                     tags.add(tag(ramps[ramp].get("status", "")))
             if vals:
-                res[(leg, ramp)] = (statistics.median(vals), "".join(sorted(m for m in marks if m)), vals,
-                                    "".join(sorted(t for t in tags if t)))
+                res[(leg, ramp)] = (
+                    statistics.median(vals),
+                    "".join(sorted(m for m in marks if m)),
+                    vals,
+                    "".join(sorted(t for t in tags if t)),
+                )
     return res
 
 
@@ -169,7 +174,7 @@ def main(argv):
     if "--note" in argv:
         i = argv.index("--note")
         note = argv[i + 1]
-        argv = argv[:i] + argv[i + 2:]
+        argv = argv[:i] + argv[i + 2 :]
     runs, machine = load(argv)
 
     target = "?"
@@ -186,17 +191,32 @@ def main(argv):
     if note:
         out.append(f"**{note}**")
         out.append("")
-    for k in ("date", "machine", "gpu", "os", "chrome", "firefox", "engine", "webgl", "tree", "settings", "warning", "aborted"):
+    for k in (
+        "date",
+        "machine",
+        "gpu",
+        "os",
+        "chrome",
+        "firefox",
+        "engine",
+        "webgl",
+        "tree",
+        "settings",
+        "warning",
+        "aborted",
+    ):
         if k in machine:
             out.append(f"- {k}: {machine[k]}")
     if machine:
         out.append("")
-    out.append(f"N = the amount of content at which the frame rate falls to {target} fps (mean frame time over a 2 s window "
-               "after a 1 s settle, a below-target window confirmed by a second one; crossing interpolated in log space between the last N above and the first N below). "
-               "Higher is better. `>=` = a lower bound: the leg hit the N or time cap without falling to the target. "
-               "`(mem)` = stopped by the memory budget (mem_mb, the web heap is 2 GB): memory-limited, not a frame-rate "
-               "crossing. `(failed)` = the run died (device lost, crash, stall; reason in the per-run table): the last N "
-               "measured above the target.")
+    out.append(
+        f"N = the amount of content at which the frame rate falls to {target} fps (mean frame time over a 2 s window "
+        "after a 1 s settle, a below-target window confirmed by a second one; crossing interpolated in log space between the last N above and the first N below). "
+        "Higher is better. `>=` = a lower bound: the leg hit the N or time cap without falling to the target. "
+        "`(mem)` = stopped by the memory budget (mem_mb, the web heap is 2 GB): memory-limited, not a frame-rate "
+        "crossing. `(failed)` = the run died (device lost, crash, stall; reason in the per-run table): the last N "
+        "measured above the target."
+    )
     out.append("")
     out.append("## N per leg")
     out.append("")
@@ -220,8 +240,10 @@ def main(argv):
     if ratio_rows:
         out.append("## Ratios")
         out.append("")
-        out.append("a / b = N_a / N_b: \"WebGPU F+ / WebGL = 3.20x (+220%)\" means WebGPU Forward+ carried 3.2 times the "
-                   f"load WebGL did at {target} fps on that ramp.")
+        out.append(
+            'a / b = N_a / N_b: "WebGPU F+ / WebGL = 3.20x (+220%)" means WebGPU Forward+ carried 3.2 times the '
+            f"load WebGL did at {target} fps on that ramp."
+        )
         out.append("")
         out.append("| ramp | " + " | ".join(name for _, _, name in ratio_rows) + " |")
         out.append("|---|" + "---:|" * len(ratio_rows))
@@ -252,7 +274,9 @@ def main(argv):
                         if ramp in ramps:
                             st = ramps[ramp].get("status", "")
                             per_run.append(fmt_n(float(ramps[ramp]["n"])) + ("" if st == "converged" else f" ({st})"))
-                    out.append(f"| {name} | {ramp} | {len(vals)} | {', '.join(per_run)} | {cell(res, leg, ramp)} | {sp:.1f}% |")
+                    out.append(
+                        f"| {name} | {ramp} | {len(vals)} | {', '.join(per_run)} | {cell(res, leg, ramp)} | {sp:.1f}% |"
+                    )
         out.append("")
 
     out.append("## Legs")
@@ -260,8 +284,14 @@ def main(argv):
     out.append("| leg | engine | renderer reported | driver | viewport | GPU | browser |")
     out.append("|---|---|---|---|---|---|---|")
     warnings = []
-    expect = {"native_vulkan_fp": "forward_plus", "native_compat": "gl_compatibility", "webgl": "gl_compatibility",
-              "webgpu_mobile": "mobile", "webgpu_fp": "forward_plus", "firefox_webgpu_fp": "forward_plus"}
+    expect = {
+        "native_vulkan_fp": "forward_plus",
+        "native_compat": "gl_compatibility",
+        "webgl": "gl_compatibility",
+        "webgpu_mobile": "mobile",
+        "webgpu_fp": "forward_plus",
+        "firefox_webgpu_fp": "forward_plus",
+    }
     for leg, name in legs:
         env, br, _, _ = runs[leg][0]
         gpu = env.get("adapter", "")
@@ -270,8 +300,10 @@ def main(argv):
         elif br.get("webgl_renderer"):
             gpu = br["webgl_renderer"]
         brs = f"{br.get('browser', '')} uncapped={br.get('uncapped', '')} canvas={br.get('canvas', '')}" if br else "-"
-        out.append(f"| {name} | {env.get('engine', '?')} | {env.get('method', '?')} | {env.get('driver', '?')} | "
-                   f"{env.get('viewport', '?')} | {gpu.replace('_', ' ')[:60]} | {brs} |")
+        out.append(
+            f"| {name} | {env.get('engine', '?')} | {env.get('method', '?')} | {env.get('driver', '?')} | "
+            f"{env.get('viewport', '?')} | {gpu.replace('_', ' ')[:60]} | {brs} |"
+        )
         if not env:
             warnings.append(f"{name}: no ramp_env line (did the engine start?)")
         if env and env.get("method") != expect.get(leg, env.get("method")):

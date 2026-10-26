@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Task 18: side-by-side PNGs (native left, WebGPU right, labelled, <= 1600 px wide) and per-view mean absolute
+# Task 18: side-by-side PNGs (native left, WebGPU right, labeled, <= 1600 px wide) and per-view mean absolute
 # difference (0-255, RGB, whole frame and the 3D-only region right of the UI panel).
 #   pair.py <native_dir> <web_dir> <out_dir> <label_right> [views...]
 # Prints one TSV row per view: view, MAD whole, MAD 3D region, % pixels differing by > 16 in any channel.
@@ -27,7 +27,9 @@ for v in views:
     B = np.asarray(b, dtype=np.int16)
     d = np.abs(A - B)
     x0 = int(A.shape[1] * 0.22)  # the camera panel covers the left ~21% of the frame
-    print(f"{v}\t{d.mean():.2f}\t{d[:, x0:].mean():.2f}\t{(d.max(axis=2) > 16).mean() * 100:.2f}\t{a.size[0]}x{a.size[1]}")
+    print(
+        f"{v}\t{d.mean():.2f}\t{d[:, x0:].mean():.2f}\t{(d.max(axis=2) > 16).mean() * 100:.2f}\t{a.size[0]}x{a.size[1]}"
+    )
     w = 800
     h = round(a.size[1] * w / a.size[0])
     canvas = Image.new("RGB", (2 * w, h + 34), (20, 20, 20))

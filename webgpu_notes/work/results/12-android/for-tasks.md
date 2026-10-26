@@ -17,4 +17,3 @@
   The README's "Firefox for Android has no WebGPU yet" line dates from 2026-10-17; re-check when the phone is back.
 - Trap candidate (cost 10 min): a `fetch(..., { keepalive: true })` body is capped at 64 KB and the fetch rejects
   above it, silently if caught. A page script that reports frames that way loses every frame.
-

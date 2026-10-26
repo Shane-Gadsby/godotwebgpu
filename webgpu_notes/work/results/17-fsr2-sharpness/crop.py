@@ -3,7 +3,9 @@
 
 usage: crop.py NATIVE.png WEB.png OUT.png [x y w h]   (default: the checker sphere and the arch)
 """
+
 import sys
+
 from PIL import Image
 
 nat, web, out = sys.argv[1:4]

@@ -2,7 +2,7 @@
 
 Harness (new, `webgpu_tests/spirv_cross_eval/`): `project_export.sh <name> <project> <scratch>` copies the project, imports
 it, exports it with the lead's editor + nothreads release template under xvfb (Vulkan, for baking) in a
-`systemd-run` scope (MemoryMax=8G), with `WEBGPU_BAKE_CACHE=0` and a copy of the editor whose neighbouring
+`systemd-run` scope (MemoryMax=8G), with `WEBGPU_BAKE_CACHE=0` and a copy of the editor whose neighboring
 `tint_convert_cli` is a wrapper that saves each `.spv` it is handed, then runs the real converter. `project_eval.py` converts
 the captured stages with both backends (`--batch`); `compare_interface.py` and `validate_wgsl.mjs` do the rest.
 The editor exports stages through the real baker, so what is captured is exactly what an export bakes (stages declined by

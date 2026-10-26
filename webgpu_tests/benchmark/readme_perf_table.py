@@ -6,6 +6,7 @@
 Prints the Markdown by default. --write replaces the text between `<!-- perf-table:begin -->` and
 `<!-- perf-table:end -->` in README.md (the repo root's, or --readme) and leaves everything outside the markers alone.
 """
+
 import os
 import re
 import sys
@@ -46,18 +47,28 @@ def table(result_dir):
     when = env.get("date", "?").split(" ")[0]
     gpu = env.get("gpu", "?").split(",")[0]
     driver = env.get("gpu", "").rpartition("driver ")[2]
-    out.append(f"Measured on {when}: {env.get('machine', '?').split(', ', 1)[-1]}, {gpu} (driver {driver}), "
-               f"{env.get('os', 'Linux').split(',')[0]}, {env.get('chrome', 'Chrome')}"
-               + (f", {env['firefox'].split(' (')[0].replace('Playwright Firefox build', 'Playwright Firefox')}" if "firefox_webgpu_fp" in runs and env.get("firefox") else "")
-               + f"; engine {env.get('engine', '?').split(' ')[0]}, WebGL from the official Godot "
-               f"{(re.search(r'\d+\.\d+(?:\.\d+)?', env.get('webgl', '')) or re.search('.*', '4.7.2')).group(0)} template.")
+    webgl_match = re.search(r"\d+\.\d+(?:\.\d+)?", env.get("webgl", ""))
+    webgl_version = webgl_match.group(0) if webgl_match else "4.7.2"
+    out.append(
+        f"Measured on {when}: {env.get('machine', '?').split(', ', 1)[-1]}, {gpu} (driver {driver}), "
+        f"{env.get('os', 'Linux').split(',')[0]}, {env.get('chrome', 'Chrome')}"
+        + (
+            f", {env['firefox'].split(' (')[0].replace('Playwright Firefox build', 'Playwright Firefox')}"
+            if "firefox_webgpu_fp" in runs and env.get("firefox")
+            else ""
+        )
+        + f"; engine {env.get('engine', '?').split(' ')[0]}, WebGL from the official Godot "
+        f"{webgl_version} template."
+    )
     out.append("")
-    out.append(f"**Method:** each ramp adds one kind of content until the frame rate falls to {target} fps, at 1280x720 "
-               "with the frame-rate cap lifted, and the table gives how much content that took (higher is better; median "
-               f"of {nruns} runs). \"1.50x (+50%)\" means WebGPU Forward+ carried 1.5 times the other leg's load at "
-               f"{target} fps. `>=` marks a lower bound: the leg hit a cap first; `(mem)` means the cap was the 2 GB web heap's "
-               "memory budget, i.e. memory-limited rather than slowed to the target. "
-               "Source: `webgpu_tests/benchmark/run_ramp.sh` (one unit of N per ramp is in `webgpu_tests/README.md`).")
+    out.append(
+        f"**Method:** each ramp adds one kind of content until the frame rate falls to {target} fps, at 1280x720 "
+        "with the frame-rate cap lifted, and the table gives how much content that took (higher is better; median "
+        f'of {nruns} runs). "1.50x (+50%)" means WebGPU Forward+ carried 1.5 times the other leg\'s load at '
+        f"{target} fps. `>=` marks a lower bound: the leg hit a cap first; `(mem)` means the cap was the 2 GB web heap's "
+        "memory budget, i.e. memory-limited rather than slowed to the target. "
+        "Source: `webgpu_tests/benchmark/run_ramp.sh` (one unit of N per ramp is in `webgpu_tests/README.md`)."
+    )
     out.append("")
     out.append("| Content ramped | " + " | ".join(n for _, n in cols) + " | WebGPU vs WebGL | WebGPU vs native |")
     out.append("| --- | " + " | ".join("---:" for _ in cols) + " | ---: | ---: |")
@@ -70,8 +81,10 @@ def table(result_dir):
                 cells.append(cell(res, k, ramp))
             else:
                 cells.append("-")
-        out.append(f"| {ROW_NAMES[ramp]} | " + " | ".join(cells) + f" | {ratio_cell(res, 'webgpu_fp', 'webgl', ramp)} | "
-                   f"{ratio_cell(res, 'webgpu_fp', 'native_vulkan_fp', ramp)} |")
+        out.append(
+            f"| {ROW_NAMES[ramp]} | " + " | ".join(cells) + f" | {ratio_cell(res, 'webgpu_fp', 'webgl', ramp)} | "
+            f"{ratio_cell(res, 'webgpu_fp', 'native_vulkan_fp', ramp)} |"
+        )
     noisy = []
     for k, n in cols:
         for ramp, _ in RAMPS:
@@ -93,7 +106,7 @@ def main(argv):
     if "--readme" in argv:
         i = argv.index("--readme")
         readme = argv[i + 1]
-        argv = argv[:i] + argv[i + 2:]
+        argv = argv[:i] + argv[i + 2 :]
     if len(argv) != 1:
         print(__doc__)
         return 1
