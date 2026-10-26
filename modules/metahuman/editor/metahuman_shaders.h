@@ -45,8 +45,14 @@ uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, re
 uniform sampler2D srmf_map : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D scatter_map : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D detail_normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform float detail_normal_tiling = 16.0;
+// Repeats of the pore map per UV unit. The importer sets it from the mesh's UV density so one repeat
+// covers the same skin area on every mesh (the body's UVs are ~3.4x coarser than the face's).
+uniform float detail_normal_tiling = 32.0;
 uniform float detail_normal_strength : hint_range(0.0, 1.0) = 0.5;
+// View depth (m) over which the pore detail fades out. Unreal drops it past the face's LOD 0; the
+// importer sets these from the mesh's LOD 0 range.
+uniform float detail_fade_begin = 0.75;
+uniform float detail_fade_end = 1.5;
 uniform float specular_scale : hint_range(0.0, 2.0) = 1.0;
 uniform float roughness_scale : hint_range(0.0, 2.0) = 1.0;
 uniform float subsurface_strength : hint_range(0.0, 1.0) = 1.0;
@@ -54,10 +60,14 @@ uniform float subsurface_strength : hint_range(0.0, 1.0) = 1.0;
 void fragment() {
 	vec4 srmf = texture(srmf_map, UV);
 	ALBEDO = texture(base_color_map, UV).rgb;
-	// Whiteout blend of the tiling pore normal over the baked one, in tangent space.
-	vec3 base_n = texture(normal_map, UV).rgb * 2.0 - 1.0;
-	vec3 detail_n = texture(detail_normal_map, UV * detail_normal_tiling).rgb * 2.0 - 1.0;
-	vec3 n = normalize(vec3(base_n.xy + detail_n.xy * detail_normal_strength, base_n.z));
+	// Whiteout blend of the tiling pore normal over the baked one, in tangent space. Both maps are
+	// RG-compressed (blue samples as 0), so z is rebuilt from xy.
+	vec2 base_xy = texture(normal_map, UV).rg * 2.0 - 1.0;
+	vec2 detail_xy = texture(detail_normal_map, UV * detail_normal_tiling).rg * 2.0 - 1.0;
+	detail_xy *= detail_normal_strength * (1.0 - smoothstep(detail_fade_begin, detail_fade_end, -VERTEX.z));
+	float base_z = sqrt(max(0.0, 1.0 - dot(base_xy, base_xy)));
+	float detail_z = sqrt(max(0.0, 1.0 - dot(detail_xy, detail_xy)));
+	vec3 n = normalize(vec3(base_xy + detail_xy, base_z * detail_z));
 	NORMAL_MAP = n * 0.5 + 0.5;
 	ROUGHNESS = clamp(srmf.g * roughness_scale, 0.0, 1.0);
 	SPECULAR = clamp(srmf.r * specular_scale, 0.0, 1.0);
