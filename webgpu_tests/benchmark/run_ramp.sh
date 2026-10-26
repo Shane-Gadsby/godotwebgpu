@@ -13,6 +13,8 @@
 #   --repeat K        runs per leg (default 2); the summary shows every run, the median and the spread
 #   --target-fps F    default 20
 #   --max-s S         time cap per ramp, default 180 (a leg that cannot reach the target reports the cap as a bound)
+#   --mem-mb M        static-memory budget per ramp, default 1400 (the web heap is 2 GB); a ramp that stops there
+#                     reports status=mem_cap: memory-limited, not a frame-rate crossing
 #   --out DIR         default results_ramp/<YYYY-MM-DD>[-k]/ (logs/, shots/, env.txt, ramp_summary.md)
 #   --note TEXT       line put in the summary's header
 #   --capped          keep the display cap (default lifts it: Chrome --disable-frame-rate-limit --disable-gpu-vsync,
@@ -41,6 +43,7 @@ LEGS=""
 RAMPS="all"
 TARGET=20
 MAX_S=180
+MEM_MB=1400
 REPEAT=2
 OUT=""
 NOTE=""
@@ -53,13 +56,14 @@ while [[ $# -gt 0 ]]; do
 		--ramps) RAMPS="$2"; shift 2 ;;
 		--target-fps) TARGET="$2"; shift 2 ;;
 		--max-s) MAX_S="$2"; shift 2 ;;
+		--mem-mb) MEM_MB="$2"; shift 2 ;;
 		--repeat) REPEAT="$2"; shift 2 ;;
 		--out) OUT="$2"; shift 2 ;;
 		--note) NOTE="$2"; shift 2 ;;
 		--no-export) EXPORT=0; shift ;;
 		--capped) CAPPED=1; shift ;;
 		--force) FORCE=1; shift ;;
-		-h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,32p' "$0"; exit 0 ;;
 		*) echo "unknown option $1 (--help)"; exit 1 ;;
 	esac
 done
@@ -163,14 +167,16 @@ mkdir -p "$EXP"
 	echo "engine: $("$EDITOR" --version 2>/dev/null | tail -1) (native legs, WebGPU export)"
 	has_leg webgl && echo "webgl: official $(basename "$(dirname "$WEBGL_ZIP")") template, exported with $("$WEBGL_EDITOR" --version 2>/dev/null | tail -1)"
 	echo "tree: $(git -C "$REPO" rev-parse --short HEAD)$(git -C "$REPO" diff --quiet HEAD -- 2>/dev/null || echo ' (dirty)') $(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
-	echo "settings: target_fps=$TARGET max_s=$MAX_S repeat=$REPEAT capped=$CAPPED legs=$LEGS ramps=$RAMPS"
+	echo "settings: target_fps=$TARGET max_s=$MAX_S mem_mb=$MEM_MB repeat=$REPEAT capped=$CAPPED legs=$LEGS ramps=$RAMPS"
 	[[ -n "$GPU_NOTE" ]] && echo "warning: $GPU_NOTE"
 } >"$OUT/env.txt"
 cat "$OUT/env.txt"
 
-NRAMPS=5
-[[ "$RAMPS" != "all" ]] && NRAMPS=$(tr ',' '\n' <<<"$RAMPS" | grep -c .)
-TIMEOUT_S=$(( NRAMPS * (MAX_S + 60) + 120 ))
+RAMP_LIST="$RAMPS"
+[[ "$RAMPS" == "all" ]] && RAMP_LIST="draws,nodes,fill,lit,particles"
+IFS=',' read -r -a RAMP_ARR <<<"$RAMP_LIST"
+RAMP_TIMEOUT_S=$(( MAX_S + 150 ))                       # per ramp process (native); the browser runner has its own watchdog
+WEB_TIMEOUT_S=$(( ${#RAMP_ARR[@]} * (MAX_S + 200) + 60 ))  # backstop for the whole browser runner
 
 # --- Export ----------------------------------------------------------------------------------------------------------
 # Fresh copy of the project per leg, so the 4.7 and 4.8 editors never share a .godot/ import cache.
@@ -227,8 +233,7 @@ if [[ $EXPORT == 1 ]]; then
 fi
 
 # --- Run -------------------------------------------------------------------------------------------------------------
-QUERY="ramps=$RAMPS&target_fps=$TARGET&max_s=$MAX_S"
-UARGS=(-- "--ramps=$RAMPS" "--target-fps=$TARGET" "--max-s=$MAX_S")
+WEB_ARGS=(--ramps "$RAMP_LIST" --target-fps "$TARGET" --max-s "$MAX_S" --mem-mb "$MEM_MB")
 VSYNC=()
 BROWSER_FLAGS=()
 [[ $CAPPED == 1 ]] && { VSYNC=(--vsync-mode enabled); BROWSER_FLAGS=(--capped); }   # the project itself has vsync off
@@ -237,11 +242,19 @@ T_ALL=$(date +%s)
 ABORT=""
 for ((r = 1; r <= REPEAT; r++)); do
 	for leg in "${LEG_ARR[@]}"; do
-		# Between legs nothing of ours runs: anything on the GPU now is someone else's, and would skew this leg.
-		if [[ $FORCE == 0 ]] && msg=$(gpu_busy); then
-			ABORT="stopped before $leg run $r: $msg"
-			echo "run_ramp: $ABORT"
-			break 2
+		# Between legs nothing of ours runs: anything on the GPU now is someone else's, and would skew this leg. The
+		# previous leg's browser keeps the GPU busy for a few seconds after it closes, so allow it ~30 s to settle.
+		if [[ $FORCE == 0 ]]; then
+			busy=""
+			for _ in 1 2 3 4 5 6; do
+				busy=$(gpu_busy) || { busy=""; break; }
+				sleep 3
+			done
+			if [[ -n "$busy" ]]; then
+				ABORT="stopped before $leg run $r: $busy (for 30 s)"
+				echo "run_ramp: $ABORT"
+				break 2
+			fi
 		fi
 		log="$OUT/logs/${leg}__r${r}.log"
 		t0=$(date +%s)
@@ -253,16 +266,25 @@ for ((r = 1; r <= REPEAT; r++)); do
 					if [[ $leg == native_vulkan_fp ]]; then RA=(--rendering-driver vulkan --rendering-method forward_plus)
 					else RA=(--rendering-driver opengl3 --rendering-method gl_compatibility); fi
 					"$EDITOR" --headless --path "$proj" --import >/dev/null 2>&1 || true
-					RAMP_SHOTS_DIR="$OUT/shots/${leg}__r$r" timeout "$TIMEOUT_S" "$EDITOR" "${RA[@]}" --resolution 1280x720 "${VSYNC[@]}" --path "$proj" "${UARGS[@]}" 2>&1
+					# One process per ramp, as the browser runner does: a crash or hang costs that ramp only.
+					for ramp in "${RAMP_ARR[@]}"; do
+						rlog="$(mktemp)"
+						RAMP_SHOTS_DIR="$OUT/shots/${leg}__r$r" timeout -k 10 "$RAMP_TIMEOUT_S" "$EDITOR" "${RA[@]}" --resolution 1280x720 "${VSYNC[@]}" \
+							--path "$proj" -- "--ramps=$ramp" "--target-fps=$TARGET" "--max-s=$MAX_S" "--mem-mb=$MEM_MB" >"$rlog" 2>&1
+						rc=$?
+						cat "$rlog"
+						grep -q "^\[BENCHMARK\] ramp=$ramp " "$rlog" || echo "[BENCHMARK] ramp_failed ramp=$ramp reason=$([[ $rc == 124 ]] && echo timeout || echo exit_$rc)"
+						rm -f "$rlog"
+					done
 					;;
 				webgl|webgpu_mobile|webgpu_fp)
-					RAMP_PLAYWRIGHT="$PW_DIR" node "$HERE/ramp_browser.mjs" --dir "$EXP/$leg" --browser chrome --query "$QUERY" --timeout-s "$TIMEOUT_S" --shots "$OUT/shots/${leg}__r$r" "${BROWSER_FLAGS[@]}" 2>&1 ;;
+					RAMP_PLAYWRIGHT="$PW_DIR" timeout -k 30 "$WEB_TIMEOUT_S" node "$HERE/ramp_browser.mjs" --dir "$EXP/$leg" --browser chrome "${WEB_ARGS[@]}" --shots "$OUT/shots/${leg}__r$r" "${BROWSER_FLAGS[@]}" 2>&1 ;;
 				firefox_webgpu_fp)
-					RAMP_PLAYWRIGHT="$PW_DIR" node "$HERE/ramp_browser.mjs" --dir "$EXP/webgpu_fp" --browser firefox --query "$QUERY" --timeout-s "$TIMEOUT_S" --shots "$OUT/shots/${leg}__r$r" "${BROWSER_FLAGS[@]}" 2>&1 ;;
+					RAMP_PLAYWRIGHT="$PW_DIR" timeout -k 30 "$WEB_TIMEOUT_S" node "$HERE/ramp_browser.mjs" --dir "$EXP/webgpu_fp" --browser firefox "${WEB_ARGS[@]}" --shots "$OUT/shots/${leg}__r$r" "${BROWSER_FLAGS[@]}" 2>&1 ;;
 			esac
 		} >"$log" 2>&1
 		echo "$leg run $r: $(( $(date +%s) - t0 )) s -> $log"
-		grep -E '^\[BENCHMARK\] ramp=' "$log" | sed 's/^\[BENCHMARK\] /    /' | cut -c1-110
+		grep -E '^\[BENCHMARK\] ramp(=|_failed)' "$log" | sed 's/^\[BENCHMARK\] /    /' | cut -c1-110
 	done
 done
 echo "total $(( $(date +%s) - T_ALL )) s"

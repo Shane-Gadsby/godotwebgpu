@@ -42,9 +42,16 @@ KV = re.compile(r"(\w+)=(\S+)")
 
 
 def parse(path):
-    env, browser, ramps = {}, {}, {}
+    """-> (ramp_env, browser_env, {ramp: result fields}). A ramp that died ("ramp_failed", from ramp_browser.mjs or
+    run_ramp.sh) gets n = the largest N its [RAMP] steps measured at or above the target fps, status failed_<reason>."""
+    env, browser, ramps, steps, failed = {}, {}, {}, {}, {}
     with open(path, errors="replace") as f:
         for line in f:
+            if line.startswith("[RAMP] "):
+                d = dict(KV.findall(line))
+                if "ramp" in d and "n" in d and "ms" in d:
+                    steps.setdefault(d["ramp"], []).append((int(d["n"]), float(d["ms"])))
+                continue
             i = line.find("[BENCHMARK] ")
             if i < 0:
                 continue
@@ -56,11 +63,31 @@ def parse(path):
             elif body.startswith("ramp="):
                 d = dict(KV.findall(body))
                 ramps[d["ramp"]] = d
+            elif body.startswith("ramp_failed "):
+                d = dict(KV.findall(body))
+                failed[d["ramp"]] = d.get("reason", "unknown")
+    target_ms = 1000.0 / float(env.get("target_fps", 20))
+    for ramp, reason in failed.items():
+        if ramp in ramps:
+            continue
+        good = [n for n, ms in steps.get(ramp, []) if ms <= target_ms]
+        ramps[ramp] = {"ramp": ramp, "n": str(max(good) if good else 0), "status": f"failed_{reason}"}
     return env, browser, ramps
 
 
 def bound(status):
+    if status.startswith("failed_") or status == "mem_cap":
+        return ">="
     return {"cap_n": ">=", "cap_time": ">=", "below_min": "<="}.get(status, "")
+
+
+def tag(status):
+    """Short marker for a result that is not a frame-rate crossing."""
+    if status == "mem_cap":
+        return " (mem)"
+    if status.startswith("failed_"):
+        return " (failed)"
+    return ""
 
 
 def fmt_n(v):
@@ -102,22 +129,30 @@ def results(runs):
     res = {}
     for leg in runs:
         for ramp, _ in RAMPS:
-            vals, marks = [], set()
+            vals, marks, tags = [], set(), set()
             for _, _, ramps, _ in runs[leg]:
                 if ramp in ramps:
                     vals.append(float(ramps[ramp]["n"]))
                     marks.add(bound(ramps[ramp].get("status", "")))
+                    tags.add(tag(ramps[ramp].get("status", "")))
             if vals:
-                res[(leg, ramp)] = (statistics.median(vals), "".join(sorted(m for m in marks if m)), vals)
+                res[(leg, ramp)] = (statistics.median(vals), "".join(sorted(m for m in marks if m)), vals,
+                                    "".join(sorted(t for t in tags if t)))
     return res
+
+
+def cell(res, leg, ramp):
+    """'>=12,345 (mem)': median N with its bound marker and tag."""
+    v, m, _, t = res[(leg, ramp)]
+    return f"{m}{fmt_n(v)}{t}"
 
 
 def ratio_cell(res, a, b, ramp):
     """'1.23x (+23%)' for N_a / N_b, with >= / <= when a side is a bound, '-' when either is missing."""
     if (a, ramp) not in res or (b, ramp) not in res or res[(b, ramp)][0] <= 0:
         return "-"
-    va, ma, _ = res[(a, ramp)]
-    vb, mb, _ = res[(b, ramp)]
+    va, ma = res[(a, ramp)][:2]
+    vb, mb = res[(b, ramp)][:2]
     r = va / vb
     mark = ""
     if ma == ">=" and mb != ">=":
@@ -158,7 +193,10 @@ def main(argv):
         out.append("")
     out.append(f"N = the amount of content at which the frame rate falls to {target} fps (mean frame time over a 2 s window "
                "after a 1 s settle, a below-target window confirmed by a second one; crossing interpolated in log space between the last N above and the first N below). "
-               "Higher is better. `>=` = the leg hit the N/time cap without falling to the target (lower bound).")
+               "Higher is better. `>=` = a lower bound: the leg hit the N or time cap without falling to the target. "
+               "`(mem)` = stopped by the memory budget (mem_mb, the web heap is 2 GB): memory-limited, not a frame-rate "
+               "crossing. `(failed)` = the run died (device lost, crash, stall; reason in the per-run table): the last N "
+               "measured above the target.")
     out.append("")
     out.append("## N per leg")
     out.append("")
@@ -172,8 +210,7 @@ def main(argv):
         cells = []
         for leg, _ in legs:
             if (leg, ramp) in res:
-                v, m, _ = res[(leg, ramp)]
-                cells.append(f"{m}{fmt_n(v)}")
+                cells.append(cell(res, leg, ramp))
             else:
                 cells.append("-")
         out.append(f"| {ramp} | {unit} | " + " | ".join(cells) + " |")
@@ -199,16 +236,23 @@ def main(argv):
     if multi:
         out.append("## Repeatability")
         out.append("")
-        out.append("| leg | ramp | runs | N values | spread (max-min)/median |")
-        out.append("|---|---|---:|---|---:|")
+        out.append("Every run's N (with its status when it is not a frame-rate crossing), the median, and the spread.")
+        out.append("")
+        out.append("| leg | ramp | runs | N per run | median | spread (max-min)/median |")
+        out.append("|---|---|---:|---|---:|---:|")
         for leg, name in legs:
             if leg not in multi:
                 continue
             for ramp, _ in RAMPS:
                 if (leg, ramp) in res:
-                    v, _, vals = res[(leg, ramp)]
+                    v, _, vals = res[(leg, ramp)][:3]
                     sp = (max(vals) - min(vals)) / v * 100 if v else 0
-                    out.append(f"| {name} | {ramp} | {len(vals)} | {', '.join(fmt_n(x) for x in vals)} | {sp:.1f}% |")
+                    per_run = []
+                    for _, _, ramps, f in runs[leg]:
+                        if ramp in ramps:
+                            st = ramps[ramp].get("status", "")
+                            per_run.append(fmt_n(float(ramps[ramp]["n"])) + ("" if st == "converged" else f" ({st})"))
+                    out.append(f"| {name} | {ramp} | {len(vals)} | {', '.join(per_run)} | {cell(res, leg, ramp)} | {sp:.1f}% |")
         out.append("")
 
     out.append("## Legs")

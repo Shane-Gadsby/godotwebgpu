@@ -11,7 +11,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_ramp import RAMPS, fmt_n, load, ratio_cell, results  # noqa: E402
+from summarize_ramp import RAMPS, cell, load, ratio_cell, results  # noqa: E402
 
 BEGIN = "<!-- perf-table:begin -->"
 END = "<!-- perf-table:end -->"
@@ -49,12 +49,14 @@ def table(result_dir):
     out.append(f"Measured on {when}: {env.get('machine', '?').split(', ', 1)[-1]}, {gpu} (driver {driver}), "
                f"{env.get('os', 'Linux').split(',')[0]}, {env.get('chrome', 'Chrome')}"
                + (f", {env['firefox'].split(' (')[0].replace('Playwright Firefox build', 'Playwright Firefox')}" if "firefox_webgpu_fp" in runs and env.get("firefox") else "")
-               + f"; engine {env.get('tree', '?').split(' ')[0]}.")
+               + f"; engine {env.get('engine', '?').split(' ')[0]}, WebGL from the official Godot "
+               f"{(re.search(r'\d+\.\d+(?:\.\d+)?', env.get('webgl', '')) or re.search('.*', '4.7.2')).group(0)} template.")
     out.append("")
     out.append(f"**Method:** each ramp adds one kind of content until the frame rate falls to {target} fps, at 1280x720 "
                "with the frame-rate cap lifted, and the table gives how much content that took (higher is better; median "
                f"of {nruns} runs). \"1.50x (+50%)\" means WebGPU Forward+ carried 1.5 times the other leg's load at "
-               f"{target} fps. `>=` marks a leg that hit the cap first. "
+               f"{target} fps. `>=` marks a lower bound: the leg hit a cap first; `(mem)` means the cap was the 2 GB web heap's "
+               "memory budget, i.e. memory-limited rather than slowed to the target. "
                "Source: `webgpu_tests/benchmark/run_ramp.sh` (one unit of N per ramp is in `webgpu_tests/README.md`).")
     out.append("")
     out.append("| Content ramped | " + " | ".join(n for _, n in cols) + " | WebGPU vs WebGL | WebGPU vs native |")
@@ -65,12 +67,22 @@ def table(result_dir):
         cells = []
         for k, _ in cols:
             if (k, ramp) in res:
-                v, m, _ = res[(k, ramp)]
-                cells.append(f"{m}{fmt_n(v)}")
+                cells.append(cell(res, k, ramp))
             else:
                 cells.append("-")
         out.append(f"| {ROW_NAMES[ramp]} | " + " | ".join(cells) + f" | {ratio_cell(res, 'webgpu_fp', 'webgl', ramp)} | "
                    f"{ratio_cell(res, 'webgpu_fp', 'native_vulkan_fp', ramp)} |")
+    noisy = []
+    for k, n in cols:
+        for ramp, _ in RAMPS:
+            if (k, ramp) in res and len(res[(k, ramp)][2]) > 1 and res[(k, ramp)][0] > 0:
+                vals = res[(k, ramp)][2]
+                sp = (max(vals) - min(vals)) / res[(k, ramp)][0] * 100
+                if sp > 10:
+                    noisy.append(f"{n} {ramp} ({sp:.0f}%)")
+    if noisy:
+        out.append("")
+        out.append("Run-to-run spread over 10%, read these with care: " + ", ".join(noisy) + ".")
     return "\n".join(out)
 
 

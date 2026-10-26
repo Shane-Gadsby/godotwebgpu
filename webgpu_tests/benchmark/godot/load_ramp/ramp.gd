@@ -22,11 +22,18 @@ extends Node3D
 ## with a fixed seed and the camera is fixed, so every leg draws the same frames.
 ##
 ## Output (one line per ramp, parsed by summarize_ramp.py, and run_benchmark.sh's field() via ramp_<name>_n=):
-##   [BENCHMARK] ramp=<name> target_fps=20 n=<N> status=converged|cap_n|cap_time|below_min fps_at_n=.. frame_ms_p50=..
+##   [BENCHMARK] ramp=<name> target_fps=20 n=<N> status=converged|cap_n|cap_time|mem_cap|below_min fps_at_n=.. frame_ms_p50=..
 ##               cpu_ms=.. ...
 ## The frame time of a window is its mean (elapsed / frames), i.e. throughput; frame_ms_p50 is printed alongside.
 ## n is the crossing interpolated in log space between the last N above the target (n_good) and the first N below it
 ## (n_bad); fps_at_n, frame_ms_p50, cpu_ms, draw_calls are the n_good measurement's.
+##
+## Growth: N doubles while far from the target, and near it grows by what the last window predicts (x1.25 margin, at
+## least x1.15), so no step lands far past the target: a web leg asked for 6x its capacity queued GPU work for
+## seconds, and the backlog poisoned the next measurements. Memory: the web heap is 2 GB (Emscripten's default for a
+## nothreads build, the official template's too), so N never grows past what the measured memory (the wasm heap
+## size on the web, see _mem_bytes) predicts will fit in mem_mb (default 1400 MB); a ramp stopped there reports status=mem_cap, n =
+## the last N above the target: "carried this much before memory ran out", not a frame-rate crossing.
 
 const RAMPS_ALL := ["draws", "nodes", "fill", "lit", "particles"]
 const N_START := {"draws": 256, "nodes": 256, "fill": 4, "lit": 16, "particles": 4}
@@ -36,7 +43,9 @@ const SETTLE_S := 1.0          # discarded after every change of N
 const WINDOW_S := 2.0          # measured window: mean frame time (elapsed / frames) over it...
 const MIN_FRAMES := 8          # ...with at least this many frames...
 const MAX_WINDOW_S := 8.0      # ...unless that takes longer than this
-const GROW := 2.0              # geometric growth factor until the target is crossed
+const GROW := 2.0              # largest growth factor per step (used while far below the target frame time)
+const GROW_MIN := 1.15         # smallest growth factor per step near the target
+const MEM_MB_DEFAULT := 1400.0 # static-memory budget, all legs (web heap max is 2048 MB)
 const BISECT_TOL := 0.04       # stop bisecting when n_bad / n_good <= 1 + this
 const MAX_BISECT := 10
 const STARTUP_WARMUP_S := 3.0  # once, before the first ramp (pipeline/shader warm-up on the web)
@@ -63,6 +72,7 @@ void fragment() {
 
 var _target_fps := 20.0
 var _max_s := 180.0
+var _mem_budget := MEM_MB_DEFAULT * 1048576.0
 var _ramps: Array = []
 var _rng := RandomNumberGenerator.new()
 var _root: Node3D
@@ -129,6 +139,8 @@ func _parse_settings() -> void:
 					opts[p[0]] = p[1].uri_decode()
 	if opts.has("target_fps"):
 		_target_fps = maxf(1.0, float(opts["target_fps"]))
+	if opts.has("mem_mb"):
+		_mem_budget = maxf(64.0, float(opts["mem_mb"])) * 1048576.0
 	if opts.has("max_s"):
 		_max_s = maxf(10.0, float(opts["max_s"]))
 	if opts.has("ramps") and String(opts["ramps"]) != "" and String(opts["ramps"]) != "all":
@@ -183,7 +195,8 @@ func _run_ramp(ramp: String) -> void:
 	var bad := {}
 	var status := "converged"
 	var n: int = N_START[ramp]
-	# Grow geometrically until the target is crossed (or shrink if even the start point is below it).
+	var mem0 := _mem_bytes()
+	# Grow until the target is crossed (or shrink if even the start point is below it).
 	while true:
 		if _now() - t_start > _max_s:
 			status = "cap_time"
@@ -197,7 +210,17 @@ func _run_ramp(ramp: String) -> void:
 			if n >= cap:
 				status = "cap_n"
 				break
-			n = mini(cap, int(ceil(n * GROW)))
+			var f := clampf(1.25 * target_ms / maxf(float(m["ms"]), 0.001), GROW_MIN, GROW)
+			var nn := mini(cap, maxi(n + 1, int(ceil(n * f))))
+			# Memory: extrapolate the static memory per unit measured so far; never grow past the budget.
+			var mem := float(m["mem"])
+			var per_unit := maxf((mem - mem0) / float(n), 1.0)
+			if mem + per_unit * float(nn - n) > _mem_budget:
+				nn = n + int((_mem_budget - mem) / per_unit)
+				if nn <= int(n * 1.02):
+					status = "mem_cap"
+					break
+			n = nn
 		else:
 			bad = m
 			if not good.is_empty():
@@ -236,10 +259,10 @@ func _run_ramp(ramp: String) -> void:
 	elif not good.is_empty():
 		n_est = float(good["n"])
 	var ref: Dictionary = good if not good.is_empty() else bad
-	print("[BENCHMARK] ramp=%s target_fps=%s n=%.1f status=%s n_good=%d n_bad=%d ms_good=%.3f ms_bad=%.3f fps_at_n=%.2f frame_ms=%.3f frame_ms_p50=%.3f cpu_ms=%.3f proc_ms=%.3f draw_calls=%d primitives=%d steps=%d elapsed_s=%.1f" % [
+	print("[BENCHMARK] ramp=%s target_fps=%s n=%.1f status=%s n_good=%d n_bad=%d ms_good=%.3f ms_bad=%.3f fps_at_n=%.2f frame_ms=%.3f frame_ms_p50=%.3f cpu_ms=%.3f proc_ms=%.3f draw_calls=%d primitives=%d mem_mb=%.0f mem_budget_mb=%.0f steps=%d elapsed_s=%.1f" % [
 		ramp, str(_target_fps), n_est, status, int(good.get("n", 0)), int(bad.get("n", 0)), float(good.get("ms", 0.0)), float(bad.get("ms", 0.0)),
 		1000.0 / float(ref["ms"]), float(ref["ms"]), float(ref["p50"]), float(ref["cpu_ms"]), float(ref["proc_ms"]), int(ref["draw_calls"]), int(ref["primitives"]),
-		steps, _now() - t_start])
+		float(ref["mem"]) / 1048576.0, _mem_budget / 1048576.0, steps, _now() - t_start])
 	print("[BENCHMARK] ramp_%s_n=%.1f" % [ramp, n_est])
 	await _teardown()
 
@@ -255,7 +278,7 @@ func _measure_confirmed(ramp: String, n: int, phase: String, step: int, target_m
 	if shots != "" and step == 2 and phase == "grow" and not OS.has_feature("web"):
 		DirAccess.make_dir_recursive_absolute(shots)
 		get_viewport().get_texture().get_image().save_png(shots.path_join(ramp + ".png"))
-	if m["ms"] > target_ms and m["ms"] < 2000.0:
+	if m["ms"] > target_ms and m["ms"] < 3.0 * target_ms:
 		var m2 := await _measure(true, CONFIRM_SETTLE_S)
 		_log_step(ramp, phase, step, m2, "confirm")
 		if m2["ms"] <= target_ms:
@@ -266,10 +289,21 @@ func _measure_confirmed(ramp: String, n: int, phase: String, step: int, target_m
 
 
 func _log_step(ramp: String, phase: String, step: int, m: Dictionary, tag: String) -> void:
-	print("[RAMP] ramp=%s step=%d phase=%s%s n=%d ms=%.3f p50=%.3f fps=%.2f frames=%d cpu_ms=%.3f proc_ms=%.3f draw_calls=%d" % [
+	print("[RAMP] ramp=%s step=%d phase=%s%s n=%d ms=%.3f p50=%.3f fps=%.2f frames=%d cpu_ms=%.3f proc_ms=%.3f draw_calls=%d mem_mb=%.0f" % [
 		ramp, step, phase, ("_" + tag) if tag != "" else "", int(m["n"]), float(m["ms"]), float(m["p50"]), 1000.0 / float(m["ms"]), int(m["frames"]),
-		float(m["cpu_ms"]), float(m["proc_ms"]), int(m["draw_calls"])])
+		float(m["cpu_ms"]), float(m["proc_ms"]), int(m["draw_calls"]), float(m["mem"]) / 1048576.0])
 	_status_text = "%s %d: %.1f ms" % [phase, int(m["n"]), float(m["ms"])]
+
+
+## Memory the budget is checked against: on the web the wasm heap's size (what runs into the 2 GB limit), which
+## ramp_browser.mjs exposes as window.__rampHeapBytes(); natively, and if the page does not provide it, Godot's tracked
+## static memory (0 in release templates, hence the heap on the web).
+func _mem_bytes() -> float:
+	if OS.has_feature("web") and Engine.has_singleton("JavaScriptBridge"):
+		var v = Engine.get_singleton("JavaScriptBridge").eval("window.__rampHeapBytes ? window.__rampHeapBytes() : 0", true)
+		if (typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT) and float(v) > 0.0:
+			return float(v)
+	return float(OS.get_static_memory_usage())
 
 
 func _median(a: PackedFloat64Array) -> float:
@@ -315,7 +349,7 @@ func _measure(settle: bool, settle_s: float = SETTLE_S) -> Dictionary:
 	# block for a long one, so the median interval reads far faster than the frames actually complete.
 	var mean_ms := (last - t0) / 1000.0 / maxf(1.0, frames.size())
 	return {"n": _n, "ms": maxf(mean_ms, 0.001), "p50": _median(frames), "frames": frames.size(), "cpu_ms": _median(cpu) if _measure_cpu else -1.0,
-			"proc_ms": _median(proc), "draw_calls": dc, "primitives": prims}
+			"proc_ms": _median(proc), "draw_calls": dc, "primitives": prims, "mem": _mem_bytes()}
 
 
 # --- Content ---------------------------------------------------------------------------------------------------------

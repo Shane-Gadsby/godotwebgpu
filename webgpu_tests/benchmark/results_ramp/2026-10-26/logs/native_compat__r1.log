@@ -1,0 +1,126 @@
+[BENCHMARK] leg=native_compat run=1 date=2026-10-26T11:56:50+10:00 git=41abb75ee7
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 615.71.09 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=gl_compatibility driver=opengl3 os=Linux web=false viewport=1280x720 target_fps=20.0 ramps=draws max_s=180 adapter=NVIDIA_NVIDIA_GeForce_RTX_4080_SUPER
+[RAMP] ramp=draws step=0 phase=grow n=256 ms=0.358 p50=0.358 fps=2790.11 frames=5581 cpu_ms=0.219 proc_ms=0.974 draw_calls=257 mem_mb=58
+[RAMP] ramp=draws step=1 phase=grow n=512 ms=0.525 p50=0.524 fps=1904.97 frames=3810 cpu_ms=0.385 proc_ms=0.685 draw_calls=513 mem_mb=61
+[RAMP] ramp=draws step=2 phase=grow n=1024 ms=0.983 p50=0.958 fps=1017.27 frames=2035 cpu_ms=0.803 proc_ms=1.486 draw_calls=1025 mem_mb=68
+[RAMP] ramp=draws step=3 phase=grow n=2048 ms=1.674 p50=1.640 fps=597.45 frames=1196 cpu_ms=1.483 proc_ms=2.543 draw_calls=2049 mem_mb=79
+[RAMP] ramp=draws step=4 phase=grow n=4096 ms=3.105 p50=3.050 fps=322.11 frames=645 cpu_ms=2.882 proc_ms=5.553 draw_calls=4097 mem_mb=103
+[RAMP] ramp=draws step=5 phase=grow n=8192 ms=6.173 p50=5.946 fps=161.99 frames=324 cpu_ms=5.759 proc_ms=8.851 draw_calls=8193 mem_mb=154
+[RAMP] ramp=draws step=6 phase=grow n=16384 ms=14.088 p50=13.881 fps=70.98 frames=142 cpu_ms=13.614 proc_ms=19.543 draw_calls=16385 mem_mb=254
+[RAMP] ramp=draws step=7 phase=grow n=32768 ms=35.171 p50=34.945 fps=28.43 frames=57 cpu_ms=34.638 proc_ms=37.074 draw_calls=32769 mem_mb=455
+[RAMP] ramp=draws step=8 phase=grow n=58230 ms=66.292 p50=66.060 fps=15.08 frames=31 cpu_ms=65.750 proc_ms=67.725 draw_calls=58231 mem_mb=768
+[RAMP] ramp=draws step=8 phase=grow_confirm n=58230 ms=67.536 p50=66.682 fps=14.81 frames=30 cpu_ms=66.302 proc_ms=76.813 draw_calls=58231 mem_mb=768
+[RAMP] ramp=draws step=9 phase=bisect n=43682 ms=48.687 p50=48.488 fps=20.54 frames=42 cpu_ms=48.252 proc_ms=52.560 draw_calls=43683 mem_mb=768
+[RAMP] ramp=draws step=10 phase=bisect n=50434 ms=57.285 p50=57.056 fps=17.46 frames=35 cpu_ms=56.686 proc_ms=60.990 draw_calls=50435 mem_mb=768
+[RAMP] ramp=draws step=10 phase=bisect_confirm n=50434 ms=57.147 p50=56.967 fps=17.50 frames=35 cpu_ms=56.663 proc_ms=59.575 draw_calls=50435 mem_mb=768
+[RAMP] ramp=draws step=11 phase=bisect n=46937 ms=53.611 p50=52.773 fps=18.65 frames=38 cpu_ms=52.485 proc_ms=58.897 draw_calls=46938 mem_mb=768
+[RAMP] ramp=draws step=11 phase=bisect_confirm n=46937 ms=52.393 p50=52.282 fps=19.09 frames=39 cpu_ms=51.947 proc_ms=53.484 draw_calls=46938 mem_mb=768
+[RAMP] ramp=draws step=12 phase=bisect n=45280 ms=50.552 p50=50.358 fps=19.78 frames=40 cpu_ms=49.965 proc_ms=53.765 draw_calls=45281 mem_mb=768
+[RAMP] ramp=draws step=12 phase=bisect_confirm n=45280 ms=50.493 p50=50.383 fps=19.80 frames=40 cpu_ms=50.082 proc_ms=51.480 draw_calls=45281 mem_mb=768
+[BENCHMARK] ramp=draws target_fps=20.0 n=44843.8 status=converged n_good=43682 n_bad=45280 ms_good=48.687 ms_bad=50.493 fps_at_n=20.54 frame_ms=48.687 frame_ms_p50=48.488 cpu_ms=48.252 proc_ms=52.560 draw_calls=43683 primitives=524266 mem_mb=768 mem_budget_mb=1400 steps=13 elapsed_s=57.8
+[BENCHMARK] ramp_draws_n=44843.8
+[BENCHMARK] RAMP_ALL_DONE
+[BENCHMARK] ================================================
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 615.71.09 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=gl_compatibility driver=opengl3 os=Linux web=false viewport=1280x720 target_fps=20.0 ramps=nodes max_s=180 adapter=NVIDIA_NVIDIA_GeForce_RTX_4080_SUPER
+[RAMP] ramp=nodes step=0 phase=grow n=256 ms=0.424 p50=0.418 fps=2356.07 frames=4713 cpu_ms=0.219 proc_ms=0.527 draw_calls=257 mem_mb=58
+[RAMP] ramp=nodes step=1 phase=grow n=512 ms=0.675 p50=0.667 fps=1480.84 frames=2962 cpu_ms=0.388 proc_ms=1.058 draw_calls=513 mem_mb=61
+[RAMP] ramp=nodes step=2 phase=grow n=1024 ms=1.297 p50=1.238 fps=770.93 frames=1542 cpu_ms=0.798 proc_ms=2.017 draw_calls=1025 mem_mb=68
+[RAMP] ramp=nodes step=3 phase=grow n=2048 ms=2.238 p50=2.193 fps=446.92 frames=894 cpu_ms=1.477 proc_ms=3.704 draw_calls=2049 mem_mb=79
+[RAMP] ramp=nodes step=4 phase=grow n=4096 ms=4.529 p50=4.359 fps=220.80 frames=442 cpu_ms=2.934 proc_ms=6.916 draw_calls=4097 mem_mb=103
+[RAMP] ramp=nodes step=5 phase=grow n=8192 ms=11.472 p50=11.122 fps=87.17 frames=175 cpu_ms=6.788 proc_ms=13.205 draw_calls=8193 mem_mb=154
+[RAMP] ramp=nodes step=6 phase=grow n=16384 ms=27.572 p50=27.213 fps=36.27 frames=73 cpu_ms=16.662 proc_ms=34.387 draw_calls=16385 mem_mb=254
+[RAMP] ramp=nodes step=7 phase=grow n=32768 ms=55.379 p50=55.231 fps=18.06 frames=37 cpu_ms=36.362 proc_ms=56.748 draw_calls=32769 mem_mb=455
+[RAMP] ramp=nodes step=7 phase=grow_confirm n=32768 ms=55.245 p50=55.031 fps=18.10 frames=37 cpu_ms=36.227 proc_ms=56.285 draw_calls=32769 mem_mb=455
+[RAMP] ramp=nodes step=8 phase=bisect n=23170 ms=39.408 p50=39.267 fps=25.38 frames=51 cpu_ms=24.848 proc_ms=40.340 draw_calls=23171 mem_mb=455
+[RAMP] ramp=nodes step=9 phase=bisect n=27554 ms=46.925 p50=46.555 fps=21.31 frames=43 cpu_ms=30.124 proc_ms=48.102 draw_calls=27555 mem_mb=455
+[RAMP] ramp=nodes step=10 phase=bisect n=30048 ms=51.048 p50=50.941 fps=19.59 frames=40 cpu_ms=33.356 proc_ms=52.150 draw_calls=30049 mem_mb=455
+[RAMP] ramp=nodes step=10 phase=bisect_confirm n=30048 ms=51.175 p50=51.177 fps=19.54 frames=40 cpu_ms=33.530 proc_ms=52.621 draw_calls=30049 mem_mb=455
+[RAMP] ramp=nodes step=11 phase=bisect n=28774 ms=49.132 p50=49.165 fps=20.35 frames=41 cpu_ms=31.841 proc_ms=52.307 draw_calls=28775 mem_mb=455
+[RAMP] ramp=nodes step=12 phase=bisect n=29404 ms=49.725 p50=49.622 fps=20.11 frames=41 cpu_ms=32.330 proc_ms=50.748 draw_calls=29405 mem_mb=455
+[BENCHMARK] ramp=nodes target_fps=20.0 n=29538.1 status=converged n_good=29404 n_bad=30048 ms_good=49.725 ms_bad=51.048 fps_at_n=20.11 frame_ms=49.725 frame_ms_p50=49.622 cpu_ms=32.330 proc_ms=50.748 draw_calls=29405 primitives=352934 mem_mb=455 mem_budget_mb=1400 steps=13 elapsed_s=49.1
+[BENCHMARK] ramp_nodes_n=29538.1
+[BENCHMARK] RAMP_ALL_DONE
+[BENCHMARK] ================================================
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 615.71.09 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=gl_compatibility driver=opengl3 os=Linux web=false viewport=1280x720 target_fps=20.0 ramps=fill max_s=180 adapter=NVIDIA_NVIDIA_GeForce_RTX_4080_SUPER
+[RAMP] ramp=fill step=0 phase=grow n=4 ms=0.303 p50=0.262 fps=3301.08 frames=6603 cpu_ms=0.051 proc_ms=1.168 draw_calls=5 mem_mb=55
+[RAMP] ramp=fill step=1 phase=grow n=8 ms=0.497 p50=0.440 fps=2011.12 frames=4023 cpu_ms=0.052 proc_ms=0.840 draw_calls=9 mem_mb=55
+[RAMP] ramp=fill step=2 phase=grow n=16 ms=0.884 p50=0.879 fps=1130.82 frames=2262 cpu_ms=0.055 proc_ms=1.683 draw_calls=17 mem_mb=55
+[RAMP] ramp=fill step=3 phase=grow n=32 ms=1.702 p50=1.713 fps=587.62 frames=1176 cpu_ms=0.061 proc_ms=2.449 draw_calls=33 mem_mb=55
+[RAMP] ramp=fill step=4 phase=grow n=64 ms=3.207 p50=3.206 fps=311.81 frames=624 cpu_ms=0.070 proc_ms=3.886 draw_calls=65 mem_mb=55
+[RAMP] ramp=fill step=5 phase=grow n=128 ms=6.176 p50=6.171 fps=161.91 frames=324 cpu_ms=0.085 proc_ms=6.905 draw_calls=129 mem_mb=56
+[RAMP] ramp=fill step=6 phase=grow n=256 ms=12.092 p50=12.092 fps=82.70 frames=166 cpu_ms=0.119 proc_ms=12.745 draw_calls=257 mem_mb=57
+[RAMP] ramp=fill step=7 phase=grow n=512 ms=23.926 p50=23.906 fps=41.80 frames=84 cpu_ms=0.178 proc_ms=24.475 draw_calls=513 mem_mb=59
+[RAMP] ramp=fill step=8 phase=grow n=1024 ms=47.553 p50=47.503 fps=21.03 frames=43 cpu_ms=0.374 proc_ms=48.109 draw_calls=1025 mem_mb=63
+[RAMP] ramp=fill step=9 phase=grow n=1346 ms=62.602 p50=62.548 fps=15.97 frames=32 cpu_ms=0.470 proc_ms=63.196 draw_calls=1347 mem_mb=66
+[RAMP] ramp=fill step=9 phase=grow_confirm n=1346 ms=62.645 p50=62.600 fps=15.96 frames=32 cpu_ms=0.458 proc_ms=63.289 draw_calls=1347 mem_mb=66
+[RAMP] ramp=fill step=10 phase=bisect n=1174 ms=54.542 p50=54.454 fps=18.33 frames=37 cpu_ms=0.468 proc_ms=55.075 draw_calls=1175 mem_mb=66
+[RAMP] ramp=fill step=10 phase=bisect_confirm n=1174 ms=54.564 p50=54.496 fps=18.33 frames=37 cpu_ms=0.512 proc_ms=55.195 draw_calls=1175 mem_mb=66
+[RAMP] ramp=fill step=11 phase=bisect n=1096 ms=50.944 p50=50.917 fps=19.63 frames=40 cpu_ms=0.411 proc_ms=51.419 draw_calls=1097 mem_mb=66
+[RAMP] ramp=fill step=11 phase=bisect_confirm n=1096 ms=50.976 p50=50.963 fps=19.62 frames=40 cpu_ms=0.396 proc_ms=51.803 draw_calls=1097 mem_mb=66
+[RAMP] ramp=fill step=12 phase=bisect n=1059 ms=49.272 p50=49.219 fps=20.30 frames=41 cpu_ms=0.390 proc_ms=49.783 draw_calls=1060 mem_mb=66
+[BENCHMARK] ramp=fill target_fps=20.0 n=1075.1 status=converged n_good=1059 n_bad=1096 ms_good=49.272 ms_bad=50.944 fps_at_n=20.30 frame_ms=49.272 frame_ms_p50=49.219 cpu_ms=0.390 proc_ms=49.783 draw_calls=1060 primitives=2196 mem_mb=66 mem_budget_mb=1400 steps=13 elapsed_s=52.5
+[BENCHMARK] ramp_fill_n=1075.1
+[BENCHMARK] RAMP_ALL_DONE
+[BENCHMARK] ================================================
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 615.71.09 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=gl_compatibility driver=opengl3 os=Linux web=false viewport=1280x720 target_fps=20.0 ramps=lit max_s=180 adapter=NVIDIA_NVIDIA_GeForce_RTX_4080_SUPER
+[RAMP] ramp=lit step=0 phase=grow n=16 ms=0.376 p50=0.364 fps=2658.68 frames=5318 cpu_ms=0.219 proc_ms=1.066 draw_calls=163 mem_mb=57
+[RAMP] ramp=lit step=1 phase=grow n=32 ms=0.487 p50=0.478 fps=2053.85 frames=4108 cpu_ms=0.335 proc_ms=0.986 draw_calls=313 mem_mb=57
+[RAMP] ramp=lit step=2 phase=grow n=64 ms=0.712 p50=0.710 fps=1404.37 frames=2809 cpu_ms=0.565 proc_ms=1.107 draw_calls=608 mem_mb=57
+[RAMP] ramp=lit step=3 phase=grow n=128 ms=1.173 p50=1.165 fps=852.50 frames=1706 cpu_ms=1.021 proc_ms=1.689 draw_calls=1203 mem_mb=57
+[RAMP] ramp=lit step=4 phase=grow n=256 ms=2.096 p50=2.091 fps=477.03 frames=955 cpu_ms=1.941 proc_ms=2.471 draw_calls=2389 mem_mb=58
+[RAMP] ramp=lit step=5 phase=grow n=512 ms=3.940 p50=3.931 fps=253.78 frames=508 cpu_ms=3.775 proc_ms=4.154 draw_calls=4769 mem_mb=59
+[RAMP] ramp=lit step=6 phase=grow n=1024 ms=7.726 p50=7.691 fps=129.43 frames=259 cpu_ms=7.523 proc_ms=8.503 draw_calls=9539 mem_mb=65
+[RAMP] ramp=lit step=7 phase=grow n=2048 ms=15.032 p50=15.010 fps=66.52 frames=134 cpu_ms=14.827 proc_ms=15.615 draw_calls=19038 mem_mb=71
+[RAMP] ramp=lit step=8 phase=grow n=4096 ms=29.678 p50=29.667 fps=33.70 frames=68 cpu_ms=29.452 proc_ms=30.740 draw_calls=38046 mem_mb=86
+[RAMP] ramp=lit step=9 phase=grow n=8192 ms=58.928 p50=58.881 fps=16.97 frames=34 cpu_ms=58.479 proc_ms=59.918 draw_calls=76072 mem_mb=113
+[RAMP] ramp=lit step=9 phase=grow_confirm n=8192 ms=58.863 p50=58.740 fps=16.99 frames=34 cpu_ms=58.467 proc_ms=59.184 draw_calls=76072 mem_mb=113
+[RAMP] ramp=lit step=10 phase=bisect n=5793 ms=42.155 p50=41.749 fps=23.72 frames=48 cpu_ms=41.462 proc_ms=48.565 draw_calls=53795 mem_mb=113
+[RAMP] ramp=lit step=11 phase=bisect n=6889 ms=50.038 p50=49.930 fps=19.98 frames=40 cpu_ms=49.668 proc_ms=52.176 draw_calls=63964 mem_mb=113
+[RAMP] ramp=lit step=11 phase=bisect_confirm n=6889 ms=49.874 p50=49.888 fps=20.05 frames=41 cpu_ms=49.628 proc_ms=50.149 draw_calls=63964 mem_mb=113
+[RAMP] ramp=lit step=12 phase=bisect n=7512 ms=54.222 p50=54.068 fps=18.44 frames=37 cpu_ms=53.786 proc_ms=54.885 draw_calls=69758 mem_mb=113
+[RAMP] ramp=lit step=12 phase=bisect_confirm n=7512 ms=54.181 p50=54.189 fps=18.46 frames=37 cpu_ms=53.938 proc_ms=54.678 draw_calls=69758 mem_mb=113
+[RAMP] ramp=lit step=13 phase=bisect n=7194 ms=51.668 p50=51.557 fps=19.35 frames=39 cpu_ms=51.320 proc_ms=52.658 draw_calls=66797 mem_mb=113
+[RAMP] ramp=lit step=13 phase=bisect_confirm n=7194 ms=51.710 p50=51.639 fps=19.34 frames=39 cpu_ms=51.400 proc_ms=52.069 draw_calls=66797 mem_mb=113
+[RAMP] ramp=lit step=14 phase=bisect n=7040 ms=50.670 p50=50.633 fps=19.74 frames=40 cpu_ms=50.394 proc_ms=52.138 draw_calls=65368 mem_mb=113
+[RAMP] ramp=lit step=14 phase=bisect_confirm n=7040 ms=50.699 p50=50.682 fps=19.72 frames=40 cpu_ms=50.469 proc_ms=51.018 draw_calls=65368 mem_mb=113
+[BENCHMARK] ramp=lit target_fps=20.0 n=6912.9 status=converged n_good=6889 n_bad=7040 ms_good=49.874 ms_bad=50.670 fps_at_n=20.05 frame_ms=49.874 frame_ms_p50=49.888 cpu_ms=49.628 proc_ms=50.149 draw_calls=63964 primitives=212790232 mem_mb=113 mem_budget_mb=1400 steps=15 elapsed_s=67.0
+[BENCHMARK] ramp_lit_n=6912.9
+[BENCHMARK] RAMP_ALL_DONE
+[BENCHMARK] ================================================
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 615.71.09 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=gl_compatibility driver=opengl3 os=Linux web=false viewport=1280x720 target_fps=20.0 ramps=particles max_s=180 adapter=NVIDIA_NVIDIA_GeForce_RTX_4080_SUPER
+[RAMP] ramp=particles step=0 phase=grow n=4 ms=0.265 p50=0.224 fps=3772.92 frames=7547 cpu_ms=0.055 proc_ms=0.899 draw_calls=5 mem_mb=56
+[RAMP] ramp=particles step=1 phase=grow n=8 ms=0.396 p50=0.344 fps=2522.12 frames=5045 cpu_ms=0.059 proc_ms=1.053 draw_calls=9 mem_mb=56
+[RAMP] ramp=particles step=2 phase=grow n=16 ms=0.693 p50=0.712 fps=1442.98 frames=2886 cpu_ms=0.066 proc_ms=1.402 draw_calls=17 mem_mb=56
+[RAMP] ramp=particles step=3 phase=grow n=32 ms=1.290 p50=1.257 fps=775.03 frames=1551 cpu_ms=0.080 proc_ms=1.991 draw_calls=33 mem_mb=56
+[RAMP] ramp=particles step=4 phase=grow n=64 ms=2.404 p50=2.383 fps=415.92 frames=832 cpu_ms=0.108 proc_ms=3.149 draw_calls=65 mem_mb=56
+[RAMP] ramp=particles step=5 phase=grow n=128 ms=4.666 p50=4.660 fps=214.30 frames=429 cpu_ms=0.159 proc_ms=5.563 draw_calls=129 mem_mb=56
+[RAMP] ramp=particles step=6 phase=grow n=256 ms=9.242 p50=9.150 fps=108.20 frames=217 cpu_ms=0.275 proc_ms=10.841 draw_calls=257 mem_mb=57
+[RAMP] ramp=particles step=7 phase=grow n=512 ms=17.997 p50=18.018 fps=55.56 frames=112 cpu_ms=0.517 proc_ms=19.464 draw_calls=513 mem_mb=58
+[RAMP] ramp=particles step=8 phase=grow n=1024 ms=35.016 p50=35.010 fps=28.56 frames=58 cpu_ms=1.511 proc_ms=36.160 draw_calls=1025 mem_mb=62
+[RAMP] ramp=particles step=9 phase=grow n=1828 ms=67.601 p50=67.952 fps=14.79 frames=30 cpu_ms=3.329 proc_ms=74.316 draw_calls=1829 mem_mb=66
+[RAMP] ramp=particles step=9 phase=grow_confirm n=1828 ms=62.506 p50=62.165 fps=16.00 frames=32 cpu_ms=3.036 proc_ms=65.144 draw_calls=1829 mem_mb=66
+[RAMP] ramp=particles step=10 phase=bisect n=1368 ms=46.578 p50=46.499 fps=21.47 frames=43 cpu_ms=2.330 proc_ms=47.075 draw_calls=1369 mem_mb=66
+[RAMP] ramp=particles step=11 phase=bisect n=1581 ms=54.141 p50=53.919 fps=18.47 frames=37 cpu_ms=2.567 proc_ms=55.101 draw_calls=1582 mem_mb=66
+[RAMP] ramp=particles step=11 phase=bisect_confirm n=1581 ms=53.771 p50=53.805 fps=18.60 frames=38 cpu_ms=2.625 proc_ms=55.061 draw_calls=1582 mem_mb=66
+[RAMP] ramp=particles step=12 phase=bisect n=1471 ms=50.623 p50=50.513 fps=19.75 frames=40 cpu_ms=2.475 proc_ms=52.909 draw_calls=1472 mem_mb=66
+[RAMP] ramp=particles step=12 phase=bisect_confirm n=1471 ms=50.309 p50=50.179 fps=19.88 frames=40 cpu_ms=2.397 proc_ms=53.031 draw_calls=1472 mem_mb=66
+[RAMP] ramp=particles step=13 phase=bisect n=1419 ms=48.444 p50=48.249 fps=20.64 frames=42 cpu_ms=2.287 proc_ms=50.631 draw_calls=1420 mem_mb=66
+[BENCHMARK] ramp=particles target_fps=20.0 n=1462.4 status=converged n_good=1419 n_bad=1471 ms_good=48.444 ms_bad=50.309 fps_at_n=20.64 frame_ms=48.444 frame_ms_p50=48.249 cpu_ms=2.287 proc_ms=50.631 draw_calls=1420 primitives=5812314 mem_mb=66 mem_budget_mb=1400 steps=14 elapsed_s=55.4
+[BENCHMARK] ramp_particles_n=1462.4
+[BENCHMARK] RAMP_ALL_DONE
+[BENCHMARK] ================================================

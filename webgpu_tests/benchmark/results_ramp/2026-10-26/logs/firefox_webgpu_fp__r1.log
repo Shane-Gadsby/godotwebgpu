@@ -1,0 +1,155 @@
+[BENCHMARK] leg=firefox_webgpu_fp run=1 date=2026-10-26T12:17:40+10:00 git=41abb75ee7
+[JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1397)
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=draws max_s=180 adapter=Unknown_WebGPU_Device
+[JavaScript Warning: "An AudioContext was prevented from starting automatically. It must be created or resumed after a user gesture on the page." {file: "http://127.0.0.1:44959/index.js" line: 1}]
+[BENCHMARK] browser_env browser=firefox uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=?/?/ webgl_renderer=NVIDIA_GeForce_GTX_980,_or_similar
+[JavaScript Warning: "WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER." {file: "debugger eval code line 311 > eval" line: 5}]
+[RAMP] ramp=draws step=0 phase=grow n=256 ms=3.938 p50=3.660 fps=253.95 frames=508 cpu_ms=-1.000 proc_ms=4.960 draw_calls=257 mem_mb=138
+[RAMP] ramp=draws step=1 phase=grow n=512 ms=5.580 p50=5.280 fps=179.20 frames=359 cpu_ms=-1.000 proc_ms=5.620 draw_calls=513 mem_mb=138
+[RAMP] ramp=draws step=2 phase=grow n=1024 ms=7.341 p50=7.180 fps=136.22 frames=273 cpu_ms=-1.000 proc_ms=7.400 draw_calls=1025 mem_mb=138
+[RAMP] ramp=draws step=3 phase=grow n=2048 ms=11.365 p50=11.460 fps=87.99 frames=177 cpu_ms=-1.000 proc_ms=12.140 draw_calls=2049 mem_mb=166
+[RAMP] ramp=draws step=4 phase=grow n=4096 ms=19.405 p50=20.480 fps=51.53 frames=104 cpu_ms=-1.000 proc_ms=20.740 draw_calls=4097 mem_mb=199
+[RAMP] ramp=draws step=5 phase=grow n=8192 ms=36.517 p50=40.140 fps=27.38 frames=55 cpu_ms=-1.000 proc_ms=37.980 draw_calls=8193 mem_mb=238
+[RAMP] ramp=draws step=6 phase=grow n=14021 ms=54.371 p50=64.140 fps=18.39 frames=38 cpu_ms=-1.000 proc_ms=34.860 draw_calls=14022 mem_mb=344
+[RAMP] ramp=draws step=6 phase=grow_confirm n=14021 ms=53.164 p50=66.700 fps=18.81 frames=38 cpu_ms=-1.000 proc_ms=51.940 draw_calls=14022 mem_mb=344
+[RAMP] ramp=draws step=7 phase=bisect n=10717 ms=30.383 p50=30.820 fps=32.91 frames=66 cpu_ms=-1.000 proc_ms=23.100 draw_calls=10718 mem_mb=344
+[RAMP] ramp=draws step=8 phase=bisect n=12258 ms=33.141 p50=35.800 fps=30.17 frames=61 cpu_ms=-1.000 proc_ms=19.280 draw_calls=12259 mem_mb=344
+[RAMP] ramp=draws step=9 phase=bisect n=13110 ms=34.507 p50=37.180 fps=28.98 frames=59 cpu_ms=-1.000 proc_ms=17.460 draw_calls=13111 mem_mb=344
+[RAMP] ramp=draws step=10 phase=bisect n=13558 ms=31.174 p50=33.080 fps=32.08 frames=65 cpu_ms=-1.000 proc_ms=16.840 draw_calls=13559 mem_mb=344
+[BENCHMARK] ramp=draws target_fps=20.0 n=13967.0 status=converged n_good=13558 n_bad=14021 ms_good=31.174 ms_bad=53.164 fps_at_n=32.08 frame_ms=31.174 frame_ms_p50=33.080 cpu_ms=-1.000 proc_ms=16.840 draw_calls=13559 primitives=162782 mem_mb=344 mem_budget_mb=1400 steps=11 elapsed_s=39.9
+[BENCHMARK] ramp_draws_n=13967.0
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] draws: done in 47 s
+[BENCHMARK] ================================================
+[JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1397)
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=nodes max_s=180 adapter=Unknown_WebGPU_Device
+[JavaScript Warning: "An AudioContext was prevented from starting automatically. It must be created or resumed after a user gesture on the page." {file: "http://127.0.0.1:44959/index.js" line: 1}]
+[BENCHMARK] browser_env browser=firefox uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=?/?/ webgl_renderer=NVIDIA_GeForce_GTX_980,_or_similar
+[JavaScript Warning: "WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER." {file: "debugger eval code line 311 > eval" line: 5}]
+[RAMP] ramp=nodes step=0 phase=grow n=256 ms=1.445 p50=1.380 fps=691.85 frames=1384 cpu_ms=-1.000 proc_ms=1.540 draw_calls=257 mem_mb=138
+[RAMP] ramp=nodes step=1 phase=grow n=512 ms=2.122 p50=2.020 fps=471.34 frames=943 cpu_ms=-1.000 proc_ms=7.860 draw_calls=513 mem_mb=138
+[RAMP] ramp=nodes step=2 phase=grow n=1024 ms=3.163 p50=3.100 fps=316.11 frames=633 cpu_ms=-1.000 proc_ms=3.080 draw_calls=1025 mem_mb=138
+[RAMP] ramp=nodes step=3 phase=grow n=2048 ms=4.775 p50=4.700 fps=209.40 frames=419 cpu_ms=-1.000 proc_ms=4.660 draw_calls=2049 mem_mb=166
+[RAMP] ramp=nodes step=4 phase=grow n=4096 ms=11.188 p50=11.200 fps=89.38 frames=179 cpu_ms=-1.000 proc_ms=9.280 draw_calls=4097 mem_mb=199
+[RAMP] ramp=nodes step=5 phase=grow n=8192 ms=23.522 p50=25.500 fps=42.51 frames=86 cpu_ms=-1.000 proc_ms=16.500 draw_calls=8193 mem_mb=238
+[RAMP] ramp=nodes step=6 phase=grow n=16384 ms=43.355 p50=47.960 fps=23.07 frames=47 cpu_ms=-1.000 proc_ms=30.800 draw_calls=16385 mem_mb=344
+[RAMP] ramp=nodes step=7 phase=grow n=23620 ms=54.899 p50=44.460 fps=18.22 frames=37 cpu_ms=-1.000 proc_ms=46.500 draw_calls=23621 mem_mb=495
+[RAMP] ramp=nodes step=7 phase=grow_confirm n=23620 ms=56.199 p50=68.760 fps=17.79 frames=36 cpu_ms=-1.000 proc_ms=45.500 draw_calls=23621 mem_mb=495
+[RAMP] ramp=nodes step=8 phase=bisect n=19672 ms=49.227 p50=57.340 fps=20.31 frames=41 cpu_ms=-1.000 proc_ms=38.480 draw_calls=19673 mem_mb=495
+[RAMP] ramp=nodes step=9 phase=bisect n=21556 ms=51.303 p50=40.020 fps=19.49 frames=39 cpu_ms=-1.000 proc_ms=39.780 draw_calls=21557 mem_mb=495
+[RAMP] ramp=nodes step=9 phase=bisect_confirm n=21556 ms=50.337 p50=62.640 fps=19.87 frames=40 cpu_ms=-1.000 proc_ms=38.560 draw_calls=21557 mem_mb=495
+[RAMP] ramp=nodes step=10 phase=bisect n=20592 ms=49.933 p50=60.020 fps=20.03 frames=41 cpu_ms=-1.000 proc_ms=37.400 draw_calls=20593 mem_mb=495
+[RAMP] ramp=nodes step=11 phase=bisect n=21068 ms=50.464 p50=60.660 fps=19.82 frames=40 cpu_ms=-1.000 proc_ms=39.940 draw_calls=21069 mem_mb=495
+[RAMP] ramp=nodes step=11 phase=bisect_confirm n=21068 ms=50.503 p50=60.880 fps=19.80 frames=40 cpu_ms=-1.000 proc_ms=38.540 draw_calls=21069 mem_mb=495
+[BENCHMARK] ramp=nodes target_fps=20.0 n=20652.0 status=converged n_good=20592 n_bad=21068 ms_good=49.933 ms_bad=50.464 fps_at_n=20.03 frame_ms=49.933 frame_ms_p50=60.020 cpu_ms=-1.000 proc_ms=37.400 draw_calls=20593 primitives=247190 mem_mb=495 mem_budget_mb=1400 steps=12 elapsed_s=50.9
+[BENCHMARK] ramp_nodes_n=20652.0
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] nodes: done in 58 s
+[BENCHMARK] ================================================
+[JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1397)
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=fill max_s=180 adapter=Unknown_WebGPU_Device
+[JavaScript Warning: "An AudioContext was prevented from starting automatically. It must be created or resumed after a user gesture on the page." {file: "http://127.0.0.1:44959/index.js" line: 1}]
+[BENCHMARK] browser_env browser=firefox uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=?/?/ webgl_renderer=NVIDIA_GeForce_GTX_980,_or_similar
+[JavaScript Warning: "WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER." {file: "debugger eval code line 311 > eval" line: 5}]
+[RAMP] ramp=fill step=0 phase=grow n=4 ms=1.183 p50=1.120 fps=845.59 frames=1692 cpu_ms=-1.000 proc_ms=1.260 draw_calls=5 mem_mb=138
+[RAMP] ramp=fill step=1 phase=grow n=8 ms=1.399 p50=1.340 fps=714.95 frames=1430 cpu_ms=-1.000 proc_ms=0.620 draw_calls=9 mem_mb=138
+[RAMP] ramp=fill step=2 phase=grow n=16 ms=2.113 p50=2.040 fps=473.20 frames=947 cpu_ms=-1.000 proc_ms=0.640 draw_calls=17 mem_mb=138
+[RAMP] ramp=fill step=3 phase=grow n=32 ms=3.138 p50=3.080 fps=318.67 frames=638 cpu_ms=-1.000 proc_ms=0.700 draw_calls=33 mem_mb=138
+[RAMP] ramp=fill step=4 phase=grow n=64 ms=5.340 p50=5.280 fps=187.25 frames=375 cpu_ms=-1.000 proc_ms=0.900 draw_calls=65 mem_mb=138
+[RAMP] ramp=fill step=5 phase=grow n=128 ms=10.033 p50=9.700 fps=99.67 frames=200 cpu_ms=-1.000 proc_ms=1.160 draw_calls=129 mem_mb=138
+[RAMP] ramp=fill step=6 phase=grow n=256 ms=18.826 p50=18.700 fps=53.12 frames=107 cpu_ms=-1.000 proc_ms=0.940 draw_calls=257 mem_mb=138
+[RAMP] ramp=fill step=7 phase=grow n=512 ms=36.326 p50=36.660 fps=27.53 frames=56 cpu_ms=-1.000 proc_ms=1.660 draw_calls=513 mem_mb=138
+[RAMP] ramp=fill step=8 phase=grow n=881 ms=64.125 p50=121.540 fps=15.59 frames=32 cpu_ms=-1.000 proc_ms=1.880 draw_calls=882 mem_mb=138
+[RAMP] ramp=fill step=8 phase=grow_confirm n=881 ms=63.932 p50=62.920 fps=15.64 frames=33 cpu_ms=-1.000 proc_ms=1.680 draw_calls=882 mem_mb=138
+[RAMP] ramp=fill step=9 phase=bisect n=672 ms=49.129 p50=48.500 fps=20.35 frames=41 cpu_ms=-1.000 proc_ms=1.680 draw_calls=673 mem_mb=138
+[RAMP] ramp=fill step=10 phase=bisect n=769 ms=56.141 p50=106.760 fps=17.81 frames=36 cpu_ms=-1.000 proc_ms=1.780 draw_calls=770 mem_mb=138
+[RAMP] ramp=fill step=10 phase=bisect_confirm n=769 ms=56.007 p50=54.960 fps=17.85 frames=37 cpu_ms=-1.000 proc_ms=1.780 draw_calls=770 mem_mb=138
+[RAMP] ramp=fill step=11 phase=bisect n=719 ms=52.344 p50=100.240 fps=19.10 frames=39 cpu_ms=-1.000 proc_ms=1.720 draw_calls=720 mem_mb=138
+[RAMP] ramp=fill step=11 phase=bisect_confirm n=719 ms=52.233 p50=51.100 fps=19.14 frames=39 cpu_ms=-1.000 proc_ms=1.660 draw_calls=720 mem_mb=138
+[RAMP] ramp=fill step=12 phase=bisect n=695 ms=50.733 p50=50.040 fps=19.71 frames=40 cpu_ms=-1.000 proc_ms=1.660 draw_calls=696 mem_mb=138
+[RAMP] ramp=fill step=12 phase=bisect_confirm n=695 ms=50.673 p50=49.960 fps=19.73 frames=40 cpu_ms=-1.000 proc_ms=1.840 draw_calls=696 mem_mb=138
+[BENCHMARK] ramp=fill target_fps=20.0 n=685.0 status=converged n_good=672 n_bad=695 ms_good=49.129 ms_bad=50.673 fps_at_n=20.35 frame_ms=49.129 frame_ms_p50=48.500 cpu_ms=-1.000 proc_ms=1.680 draw_calls=673 primitives=1414 mem_mb=138 mem_budget_mb=1400 steps=13 elapsed_s=56.6
+[BENCHMARK] ramp_fill_n=685.0
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] fill: done in 64 s
+[BENCHMARK] ================================================
+[JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1397)
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=lit max_s=180 adapter=Unknown_WebGPU_Device
+[JavaScript Warning: "An AudioContext was prevented from starting automatically. It must be created or resumed after a user gesture on the page." {file: "http://127.0.0.1:44959/index.js" line: 1}]
+[BENCHMARK] browser_env browser=firefox uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=?/?/ webgl_renderer=NVIDIA_GeForce_GTX_980,_or_similar
+[JavaScript Warning: "WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER." {file: "debugger eval code line 311 > eval" line: 5}]
+[RAMP] ramp=lit step=0 phase=grow n=16 ms=3.856 p50=3.460 fps=259.36 frames=519 cpu_ms=-1.000 proc_ms=4.360 draw_calls=25 mem_mb=138
+[RAMP] ramp=lit step=1 phase=grow n=32 ms=4.231 p50=3.940 fps=236.36 frames=473 cpu_ms=-1.000 proc_ms=4.880 draw_calls=35 mem_mb=138
+[RAMP] ramp=lit step=2 phase=grow n=64 ms=4.378 p50=4.080 fps=228.44 frames=457 cpu_ms=-1.000 proc_ms=4.600 draw_calls=41 mem_mb=138
+[RAMP] ramp=lit step=3 phase=grow n=128 ms=4.096 p50=3.840 fps=244.13 frames=489 cpu_ms=-1.000 proc_ms=4.960 draw_calls=47 mem_mb=138
+[RAMP] ramp=lit step=4 phase=grow n=256 ms=4.652 p50=4.480 fps=214.95 frames=430 cpu_ms=-1.000 proc_ms=5.040 draw_calls=51 mem_mb=138
+[RAMP] ramp=lit step=5 phase=grow n=512 ms=4.200 p50=4.200 fps=238.10 frames=477 cpu_ms=-1.000 proc_ms=2.240 draw_calls=54 mem_mb=138
+[RAMP] ramp=lit step=6 phase=grow n=1024 ms=5.700 p50=5.860 fps=175.43 frames=351 cpu_ms=-1.000 proc_ms=3.200 draw_calls=57 mem_mb=166
+[RAMP] ramp=lit step=7 phase=grow n=2048 ms=8.307 p50=8.420 fps=120.38 frames=241 cpu_ms=-1.000 proc_ms=4.880 draw_calls=57 mem_mb=166
+[RAMP] ramp=lit step=8 phase=grow n=4096 ms=13.554 p50=13.920 fps=73.78 frames=148 cpu_ms=-1.000 proc_ms=5.760 draw_calls=57 mem_mb=238
+[RAMP] ramp=lit step=9 phase=grow n=8192 ms=22.754 p50=23.860 fps=43.95 frames=88 cpu_ms=-1.000 proc_ms=9.920 draw_calls=57 mem_mb=344
+[RAMP] ramp=lit step=10 phase=grow n=16384 ms=40.944 p50=44.940 fps=24.42 frames=50 cpu_ms=-1.000 proc_ms=15.420 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=11 phase=grow n=25010 ms=60.652 p50=97.940 fps=16.49 frames=33 cpu_ms=-1.000 proc_ms=20.640 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=11 phase=grow_confirm n=25010 ms=59.188 p50=97.780 fps=16.90 frames=34 cpu_ms=-1.000 proc_ms=23.200 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=12 phase=bisect n=20243 ms=49.538 p50=55.100 fps=20.19 frames=41 cpu_ms=-1.000 proc_ms=19.720 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=13 phase=bisect n=22501 ms=54.328 p50=88.240 fps=18.41 frames=37 cpu_ms=-1.000 proc_ms=18.740 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=13 phase=bisect_confirm n=22501 ms=53.205 p50=88.020 fps=18.80 frames=38 cpu_ms=-1.000 proc_ms=17.940 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=14 phase=bisect n=21342 ms=50.352 p50=83.780 fps=19.86 frames=40 cpu_ms=-1.000 proc_ms=20.020 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=14 phase=bisect_confirm n=21342 ms=50.197 p50=84.000 fps=19.92 frames=40 cpu_ms=-1.000 proc_ms=17.160 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=15 phase=bisect n=20785 ms=49.278 p50=56.140 fps=20.29 frames=41 cpu_ms=-1.000 proc_ms=16.760 draw_calls=57 mem_mb=495
+[BENCHMARK] ramp=lit target_fps=20.0 n=21222.5 status=converged n_good=20785 n_bad=21342 ms_good=49.278 ms_bad=50.197 fps_at_n=20.29 frame_ms=49.278 frame_ms_p50=56.140 cpu_ms=-1.000 proc_ms=16.760 draw_calls=57 primitives=641682140 mem_mb=495 mem_budget_mb=1400 steps=16 elapsed_s=62.0
+[BENCHMARK] ramp_lit_n=21222.5
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] lit: done in 71 s
+[BENCHMARK] ================================================
+[JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1397)
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=particles max_s=180 adapter=Unknown_WebGPU_Device
+[JavaScript Warning: "An AudioContext was prevented from starting automatically. It must be created or resumed after a user gesture on the page." {file: "http://127.0.0.1:44959/index.js" line: 1}]
+[BENCHMARK] browser_env browser=firefox uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=?/?/ webgl_renderer=NVIDIA_GeForce_GTX_980,_or_similar
+[JavaScript Warning: "WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER." {file: "debugger eval code line 311 > eval" line: 5}]
+[RAMP] ramp=particles step=0 phase=grow n=4 ms=1.208 p50=1.120 fps=827.71 frames=1656 cpu_ms=-1.000 proc_ms=1.460 draw_calls=5 mem_mb=138
+[RAMP] ramp=particles step=1 phase=grow n=8 ms=1.413 p50=1.340 fps=707.86 frames=1416 cpu_ms=-1.000 proc_ms=1.620 draw_calls=9 mem_mb=138
+[RAMP] ramp=particles step=2 phase=grow n=16 ms=1.867 p50=1.780 fps=535.65 frames=1072 cpu_ms=-1.000 proc_ms=0.860 draw_calls=17 mem_mb=138
+[RAMP] ramp=particles step=3 phase=grow n=32 ms=2.894 p50=2.800 fps=345.51 frames=692 cpu_ms=-1.000 proc_ms=1.340 draw_calls=33 mem_mb=138
+[RAMP] ramp=particles step=4 phase=grow n=64 ms=5.161 p50=5.100 fps=193.75 frames=388 cpu_ms=-1.000 proc_ms=1.900 draw_calls=65 mem_mb=138
+[RAMP] ramp=particles step=5 phase=grow n=128 ms=11.122 p50=11.320 fps=89.91 frames=180 cpu_ms=-1.000 proc_ms=3.060 draw_calls=129 mem_mb=138
+[RAMP] ramp=particles step=6 phase=grow n=256 ms=20.001 p50=20.180 fps=50.00 frames=101 cpu_ms=-1.000 proc_ms=4.640 draw_calls=257 mem_mb=138
+[RAMP] ramp=particles step=7 phase=grow n=512 ms=39.223 p50=42.060 fps=25.50 frames=51 cpu_ms=-1.000 proc_ms=8.800 draw_calls=513 mem_mb=166
+[RAMP] ramp=particles step=8 phase=grow n=816 ms=62.936 p50=103.860 fps=15.89 frames=33 cpu_ms=-1.000 proc_ms=13.260 draw_calls=817 mem_mb=166
+[RAMP] ramp=particles step=8 phase=grow_confirm n=816 ms=63.327 p50=103.220 fps=15.79 frames=33 cpu_ms=-1.000 proc_ms=13.500 draw_calls=817 mem_mb=166
+[RAMP] ramp=particles step=9 phase=bisect n=646 ms=50.267 p50=54.840 fps=19.89 frames=40 cpu_ms=-1.000 proc_ms=14.240 draw_calls=647 mem_mb=166
+[RAMP] ramp=particles step=9 phase=bisect_confirm n=646 ms=50.057 p50=54.240 fps=19.98 frames=40 cpu_ms=-1.000 proc_ms=10.400 draw_calls=647 mem_mb=166
+[RAMP] ramp=particles step=10 phase=bisect n=575 ms=46.879 p50=49.900 fps=21.33 frames=43 cpu_ms=-1.000 proc_ms=10.420 draw_calls=576 mem_mb=166
+[RAMP] ramp=particles step=11 phase=bisect n=609 ms=47.943 p50=51.780 fps=20.86 frames=43 cpu_ms=-1.000 proc_ms=10.460 draw_calls=610 mem_mb=166
+[RAMP] ramp=particles step=12 phase=bisect n=627 ms=48.970 p50=53.440 fps=20.42 frames=41 cpu_ms=-1.000 proc_ms=10.940 draw_calls=628 mem_mb=166
+[BENCHMARK] ramp=particles target_fps=20.0 n=645.0 status=converged n_good=627 n_bad=646 ms_good=48.970 ms_bad=50.057 fps_at_n=20.42 frame_ms=48.970 frame_ms_p50=53.440 cpu_ms=-1.000 proc_ms=10.940 draw_calls=628 primitives=2568278 mem_mb=166 mem_budget_mb=1400 steps=13 elapsed_s=48.7
+[BENCHMARK] ramp_particles_n=645.0
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] particles: done in 56 s
+[BENCHMARK] ================================================
+[BENCHMARK] RAMP_ALL_DONE

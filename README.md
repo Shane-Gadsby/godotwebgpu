@@ -179,21 +179,19 @@ None of these is known to be broken.
 ## Performance
 
 <!-- perf-table:begin -->
-Measured on 15 October 2026 on Linux (RTX 4080 SUPER, 165 Hz display, Chrome). Each scene ran with the frame-rate limit
-and vsync lifted. The fps is averaged over at least 300 frames after a 6 s warm-up.
+Measured on 2026-10-26: AMD Ryzen 9 7900X 12-Core Processor, 61 GB RAM, NVIDIA GeForce RTX 4080 SUPER (driver 615.71.09), Zorin OS 18.1, Google Chrome 156.0.8078.47, Playwright Firefox 1555; engine 4.8.dev.custom_build.0bffec3bb, WebGL from the official Godot 4.7.2 template.
 
-| Scene | Native (Vulkan) | WebGL 2 (stock Godot) | WebGPU, Mobile | WebGPU, Forward+ |
-| --- | ---: | ---: | ---: | ---: |
-| Sprites | 1962 | 165 * | 1043 | 1031 |
-| PBR sphere | 3350 | 165 * | 996 | 901 |
-| Cubes and lights | 2873 | 160 * | 849 | 825 |
-| GPU particles | 3664 | 160 * | 1008 | 981 |
-| Skeletal animation | 2704 | 165 * | 946 | 869 |
-| SSAO and bloom | 866 | 161 * | 583 | 414 |
-| Shadows | 3086 | 160 * | 883 | 851 |
+**Method:** each ramp adds one kind of content until the frame rate falls to 20 fps, at 1280x720 with the frame-rate cap lifted, and the table gives how much content that took (higher is better; median of 2 runs). "1.50x (+50%)" means WebGPU Forward+ carried 1.5 times the other leg's load at 20 fps. `>=` marks a lower bound: the leg hit a cap first; `(mem)` means the cap was the 2 GB web heap's memory budget, i.e. memory-limited rather than slowed to the target. Source: `webgpu_tests/benchmark/run_ramp.sh` (one unit of N per ramp is in `webgpu_tests/README.md`).
 
-\* Chrome keeps WebGL at the display's refresh rate even with the limit lifted, so these figures are a floor, not WebGL's
-real speed.
+| Content ramped | Native (Vulkan) | Native (Compatibility) | WebGL 2 (stock Godot 4.7.2) | WebGPU, Mobile | WebGPU, Forward+ | WebGPU, Forward+ (Firefox) | WebGPU vs WebGL | WebGPU vs native |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Draw calls (a mesh with its own material) | 77,258 | 44,702 | 28,206 | 37,172 | 34,554 | 20,060 | 1.23x (+23%) | 0.45x (-55%) |
+| Moving nodes (draw + GDScript update) | 42,964 | 28,981 | 19,937 | 34,489 | 32,115 | 20,908 | 1.61x (+61%) | 0.75x (-25%) |
+| Full-screen shader layers (fill) | 1,076 | 1,076 | 1,077 | 759 | 717 | 687 | 0.67x (-33%) | 0.67x (-33%) |
+| PBR spheres under 7 shadowed lights | 26,981 | 6,944 | 4,140 | 33,339 | 26,598 | 21,262 | 6.42x (+542%) | 0.99x (-1%) |
+| GPU particle emitters (2048 each) | 6,661 | 1,483 | 1,391 | 2,201 | 2,091 | 606 | 1.50x (+50%) | 0.31x (-69%) |
+
+Run-to-run spread over 10%, read these with care: WebGL 2 (stock Godot 4.7.2) particles (10%), WebGPU, Forward+ (Firefox) draws (61%), WebGPU, Forward+ (Firefox) particles (13%).
 <!-- perf-table:end -->
 
 On these light scenes WebGPU reaches 25–50% of native fps. Most of the gap is wasm and the JavaScript calls into

@@ -1,0 +1,139 @@
+[BENCHMARK] leg=webgpu_fp run=2 date=2026-10-26T12:43:31+10:00 git=41abb75ee7
+Failed to load resource: the server responded with a status of 404 (Not Found)
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=draws max_s=180 adapter=Unknown_WebGPU_Device
+[BENCHMARK] browser_env browser=chrome uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=nvidia/lovelace/ webgl_renderer=ANGLE_(NVIDIA_Corporation,_NVIDIA_GeForce_RTX_4080_SUPER/PCIe/SSE2,_OpenGL_4.5.0)
+[RAMP] ramp=draws step=0 phase=grow n=256 ms=6.106 p50=1.460 fps=163.78 frames=329 cpu_ms=-1.000 proc_ms=0.660 draw_calls=257 mem_mb=138
+[RAMP] ramp=draws step=1 phase=grow n=512 ms=6.139 p50=2.085 fps=162.89 frames=326 cpu_ms=-1.000 proc_ms=0.835 draw_calls=513 mem_mb=138
+[RAMP] ramp=draws step=2 phase=grow n=1024 ms=6.062 p50=6.065 fps=164.96 frames=330 cpu_ms=-1.000 proc_ms=1.180 draw_calls=1025 mem_mb=138
+[RAMP] ramp=draws step=3 phase=grow n=2048 ms=6.779 p50=3.420 fps=147.51 frames=296 cpu_ms=-1.000 proc_ms=2.445 draw_calls=2049 mem_mb=166
+[RAMP] ramp=draws step=4 phase=grow n=4096 ms=6.047 p50=5.875 fps=165.37 frames=331 cpu_ms=-1.000 proc_ms=4.610 draw_calls=4097 mem_mb=199
+[RAMP] ramp=draws step=5 phase=grow n=8192 ms=10.243 p50=10.215 fps=97.63 frames=196 cpu_ms=-1.000 proc_ms=8.835 draw_calls=8193 mem_mb=238
+[RAMP] ramp=draws step=6 phase=grow n=16384 ms=21.191 p50=21.135 fps=47.19 frames=95 cpu_ms=-1.000 proc_ms=21.285 draw_calls=16385 mem_mb=344
+[RAMP] ramp=draws step=7 phase=grow n=32768 ms=47.683 p50=47.700 fps=20.97 frames=42 cpu_ms=-1.000 proc_ms=32.745 draw_calls=32769 mem_mb=591
+[RAMP] ramp=draws step=8 phase=grow n=42951 ms=64.138 p50=64.020 fps=15.59 frames=32 cpu_ms=-1.000 proc_ms=43.545 draw_calls=42952 mem_mb=797
+[RAMP] ramp=draws step=8 phase=grow_confirm n=42951 ms=64.157 p50=64.190 fps=15.59 frames=32 cpu_ms=-1.000 proc_ms=37.965 draw_calls=42952 mem_mb=797
+[RAMP] ramp=draws step=9 phase=bisect n=37516 ms=56.934 p50=56.585 fps=17.56 frames=36 cpu_ms=-1.000 proc_ms=33.815 draw_calls=37517 mem_mb=797
+[RAMP] ramp=draws step=9 phase=bisect_confirm n=37516 ms=56.926 p50=56.700 fps=17.57 frames=36 cpu_ms=-1.000 proc_ms=31.180 draw_calls=37517 mem_mb=797
+[RAMP] ramp=draws step=10 phase=bisect n=35062 ms=53.486 p50=53.510 fps=18.70 frames=38 cpu_ms=-1.000 proc_ms=36.840 draw_calls=35063 mem_mb=797
+[RAMP] ramp=draws step=10 phase=bisect_confirm n=35062 ms=53.373 p50=53.510 fps=18.74 frames=38 cpu_ms=-1.000 proc_ms=32.250 draw_calls=35063 mem_mb=797
+[RAMP] ramp=draws step=11 phase=bisect n=33896 ms=47.819 p50=47.730 fps=20.91 frames=42 cpu_ms=-1.000 proc_ms=35.255 draw_calls=33897 mem_mb=797
+[BENCHMARK] ramp=draws target_fps=20.0 n=34364.5 status=converged n_good=33896 n_bad=35062 ms_good=47.819 ms_bad=53.373 fps_at_n=20.91 frame_ms=47.819 frame_ms_p50=47.730 cpu_ms=-1.000 proc_ms=35.255 draw_calls=33897 primitives=406838 mem_mb=797 mem_budget_mb=1400 steps=12 elapsed_s=51.4
+[BENCHMARK] ramp_draws_n=34364.5
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] draws: done in 59 s
+[BENCHMARK] ================================================
+Failed to load resource: the server responded with a status of 404 (Not Found)
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=nodes max_s=180 adapter=Unknown_WebGPU_Device
+[BENCHMARK] browser_env browser=chrome uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=nvidia/lovelace/ webgl_renderer=ANGLE_(NVIDIA_Corporation,_NVIDIA_GeForce_RTX_4080_SUPER/PCIe/SSE2,_OpenGL_4.5.0)
+[RAMP] ramp=nodes step=0 phase=grow n=256 ms=6.179 p50=1.520 fps=161.85 frames=326 cpu_ms=-1.000 proc_ms=0.880 draw_calls=257 mem_mb=138
+[RAMP] ramp=nodes step=1 phase=grow n=512 ms=6.266 p50=2.155 fps=159.60 frames=320 cpu_ms=-1.000 proc_ms=1.445 draw_calls=513 mem_mb=138
+[RAMP] ramp=nodes step=2 phase=grow n=1024 ms=6.097 p50=6.060 fps=164.01 frames=329 cpu_ms=-1.000 proc_ms=1.625 draw_calls=1025 mem_mb=138
+[RAMP] ramp=nodes step=3 phase=grow n=2048 ms=7.403 p50=3.165 fps=135.08 frames=272 cpu_ms=-1.000 proc_ms=3.750 draw_calls=2049 mem_mb=166
+[RAMP] ramp=nodes step=4 phase=grow n=4096 ms=6.058 p50=6.085 fps=165.08 frames=331 cpu_ms=-1.000 proc_ms=7.525 draw_calls=4097 mem_mb=199
+[RAMP] ramp=nodes step=5 phase=grow n=8192 ms=11.942 p50=11.840 fps=83.74 frames=168 cpu_ms=-1.000 proc_ms=13.360 draw_calls=8193 mem_mb=238
+[RAMP] ramp=nodes step=6 phase=grow n=16384 ms=26.492 p50=25.550 fps=37.75 frames=76 cpu_ms=-1.000 proc_ms=28.495 draw_calls=16385 mem_mb=344
+[RAMP] ramp=nodes step=7 phase=grow n=32768 ms=53.031 p50=53.020 fps=18.86 frames=38 cpu_ms=-1.000 proc_ms=48.475 draw_calls=32769 mem_mb=591
+[RAMP] ramp=nodes step=7 phase=grow_confirm n=32768 ms=52.842 p50=53.080 fps=18.92 frames=38 cpu_ms=-1.000 proc_ms=48.775 draw_calls=32769 mem_mb=591
+[RAMP] ramp=nodes step=8 phase=bisect n=23170 ms=34.560 p50=33.640 fps=28.93 frames=58 cpu_ms=-1.000 proc_ms=33.930 draw_calls=23171 mem_mb=591
+[RAMP] ramp=nodes step=9 phase=bisect n=27554 ms=43.206 p50=43.435 fps=23.15 frames=47 cpu_ms=-1.000 proc_ms=42.445 draw_calls=27555 mem_mb=591
+[RAMP] ramp=nodes step=10 phase=bisect n=30048 ms=48.436 p50=47.200 fps=20.65 frames=42 cpu_ms=-1.000 proc_ms=42.850 draw_calls=30049 mem_mb=591
+[RAMP] ramp=nodes step=11 phase=bisect n=31379 ms=50.661 p50=50.115 fps=19.74 frames=40 cpu_ms=-1.000 proc_ms=48.255 draw_calls=31380 mem_mb=591
+[RAMP] ramp=nodes step=11 phase=bisect_confirm n=31379 ms=50.312 p50=50.380 fps=19.88 frames=40 cpu_ms=-1.000 proc_ms=45.300 draw_calls=31380 mem_mb=591
+[RAMP] ramp=nodes step=12 phase=bisect n=30706 ms=49.169 p50=49.360 fps=20.34 frames=41 cpu_ms=-1.000 proc_ms=45.645 draw_calls=30707 mem_mb=591
+[BENCHMARK] ramp=nodes target_fps=20.0 n=31195.3 status=converged n_good=30706 n_bad=31379 ms_good=49.169 ms_bad=50.312 fps_at_n=20.34 frame_ms=49.169 frame_ms_p50=49.360 cpu_ms=-1.000 proc_ms=45.645 draw_calls=30707 primitives=368558 mem_mb=591 mem_budget_mb=1400 steps=13 elapsed_s=49.9
+[BENCHMARK] ramp_nodes_n=31195.3
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] nodes: done in 57 s
+[BENCHMARK] ================================================
+Failed to load resource: the server responded with a status of 404 (Not Found)
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=fill max_s=180 adapter=Unknown_WebGPU_Device
+[BENCHMARK] browser_env browser=chrome uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=nvidia/lovelace/ webgl_renderer=ANGLE_(NVIDIA_Corporation,_NVIDIA_GeForce_RTX_4080_SUPER/PCIe/SSE2,_OpenGL_4.5.0)
+[RAMP] ramp=fill step=0 phase=grow n=4 ms=6.082 p50=6.060 fps=164.43 frames=329 cpu_ms=-1.000 proc_ms=1.915 draw_calls=5 mem_mb=138
+[RAMP] ramp=fill step=1 phase=grow n=8 ms=6.101 p50=6.060 fps=163.91 frames=328 cpu_ms=-1.000 proc_ms=0.940 draw_calls=9 mem_mb=138
+[RAMP] ramp=fill step=2 phase=grow n=16 ms=6.062 p50=6.060 fps=164.95 frames=330 cpu_ms=-1.000 proc_ms=0.380 draw_calls=17 mem_mb=138
+[RAMP] ramp=fill step=3 phase=grow n=32 ms=6.043 p50=4.480 fps=165.47 frames=332 cpu_ms=-1.000 proc_ms=0.950 draw_calls=33 mem_mb=138
+[RAMP] ramp=fill step=4 phase=grow n=64 ms=6.092 p50=5.630 fps=164.15 frames=329 cpu_ms=-1.000 proc_ms=0.855 draw_calls=65 mem_mb=138
+[RAMP] ramp=fill step=5 phase=grow n=128 ms=9.016 p50=9.060 fps=110.92 frames=222 cpu_ms=-1.000 proc_ms=0.490 draw_calls=129 mem_mb=138
+[RAMP] ramp=fill step=6 phase=grow n=256 ms=17.750 p50=17.530 fps=56.34 frames=113 cpu_ms=-1.000 proc_ms=0.865 draw_calls=257 mem_mb=138
+[RAMP] ramp=fill step=7 phase=grow n=512 ms=35.247 p50=35.185 fps=28.37 frames=57 cpu_ms=-1.000 proc_ms=0.810 draw_calls=513 mem_mb=138
+[RAMP] ramp=fill step=8 phase=grow n=908 ms=62.463 p50=62.375 fps=16.01 frames=33 cpu_ms=-1.000 proc_ms=1.275 draw_calls=909 mem_mb=138
+[RAMP] ramp=fill step=8 phase=grow_confirm n=908 ms=62.608 p50=62.680 fps=15.97 frames=32 cpu_ms=-1.000 proc_ms=1.095 draw_calls=909 mem_mb=138
+[RAMP] ramp=fill step=9 phase=bisect n=682 ms=47.116 p50=47.050 fps=21.22 frames=43 cpu_ms=-1.000 proc_ms=1.075 draw_calls=683 mem_mb=138
+[RAMP] ramp=fill step=10 phase=bisect n=787 ms=54.295 p50=54.225 fps=18.42 frames=37 cpu_ms=-1.000 proc_ms=1.130 draw_calls=788 mem_mb=138
+[RAMP] ramp=fill step=10 phase=bisect_confirm n=787 ms=54.238 p50=54.570 fps=18.44 frames=37 cpu_ms=-1.000 proc_ms=1.200 draw_calls=788 mem_mb=138
+[RAMP] ramp=fill step=11 phase=bisect n=733 ms=50.552 p50=50.530 fps=19.78 frames=40 cpu_ms=-1.000 proc_ms=1.220 draw_calls=734 mem_mb=138
+[RAMP] ramp=fill step=11 phase=bisect_confirm n=733 ms=50.773 p50=50.460 fps=19.70 frames=40 cpu_ms=-1.000 proc_ms=1.015 draw_calls=734 mem_mb=138
+[RAMP] ramp=fill step=12 phase=bisect n=707 ms=49.686 p50=48.545 fps=20.13 frames=41 cpu_ms=-1.000 proc_ms=0.795 draw_calls=708 mem_mb=138
+[BENCHMARK] ramp=fill target_fps=20.0 n=716.4 status=converged n_good=707 n_bad=733 ms_good=49.686 ms_bad=50.552 fps_at_n=20.13 frame_ms=49.686 frame_ms_p50=48.545 cpu_ms=-1.000 proc_ms=0.795 draw_calls=708 primitives=1490 mem_mb=138 mem_budget_mb=1400 steps=13 elapsed_s=52.8
+[BENCHMARK] ramp_fill_n=716.4
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] fill: done in 60 s
+[BENCHMARK] ================================================
+Failed to load resource: the server responded with a status of 404 (Not Found)
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=lit max_s=180 adapter=Unknown_WebGPU_Device
+[BENCHMARK] browser_env browser=chrome uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=nvidia/lovelace/ webgl_renderer=ANGLE_(NVIDIA_Corporation,_NVIDIA_GeForce_RTX_4080_SUPER/PCIe/SSE2,_OpenGL_4.5.0)
+[RAMP] ramp=lit step=0 phase=grow n=16 ms=6.045 p50=1.255 fps=165.43 frames=332 cpu_ms=-1.000 proc_ms=0.840 draw_calls=25 mem_mb=138
+[RAMP] ramp=lit step=1 phase=grow n=32 ms=6.013 p50=2.035 fps=166.31 frames=335 cpu_ms=-1.000 proc_ms=0.850 draw_calls=35 mem_mb=138
+[RAMP] ramp=lit step=2 phase=grow n=64 ms=6.052 p50=4.795 fps=165.23 frames=331 cpu_ms=-1.000 proc_ms=1.005 draw_calls=41 mem_mb=138
+[RAMP] ramp=lit step=3 phase=grow n=128 ms=6.053 p50=4.865 fps=165.21 frames=331 cpu_ms=-1.000 proc_ms=1.020 draw_calls=47 mem_mb=138
+[RAMP] ramp=lit step=4 phase=grow n=256 ms=6.122 p50=2.630 fps=163.33 frames=329 cpu_ms=-1.000 proc_ms=0.755 draw_calls=51 mem_mb=138
+[RAMP] ramp=lit step=5 phase=grow n=512 ms=6.233 p50=4.915 fps=160.43 frames=322 cpu_ms=-1.000 proc_ms=0.895 draw_calls=54 mem_mb=138
+[RAMP] ramp=lit step=6 phase=grow n=1024 ms=6.062 p50=6.065 fps=164.95 frames=330 cpu_ms=-1.000 proc_ms=1.400 draw_calls=57 mem_mb=166
+[RAMP] ramp=lit step=7 phase=grow n=2048 ms=6.062 p50=6.060 fps=164.96 frames=330 cpu_ms=-1.000 proc_ms=2.630 draw_calls=57 mem_mb=166
+[RAMP] ramp=lit step=8 phase=grow n=4096 ms=8.468 p50=8.345 fps=118.09 frames=237 cpu_ms=-1.000 proc_ms=4.065 draw_calls=57 mem_mb=238
+[RAMP] ramp=lit step=9 phase=grow n=8192 ms=16.050 p50=16.095 fps=62.30 frames=125 cpu_ms=-1.000 proc_ms=9.060 draw_calls=57 mem_mb=344
+[RAMP] ramp=lit step=10 phase=grow n=16384 ms=31.971 p50=31.905 fps=31.28 frames=63 cpu_ms=-1.000 proc_ms=10.725 draw_calls=57 mem_mb=495
+[RAMP] ramp=lit step=11 phase=grow n=32030 ms=60.057 p50=59.940 fps=16.65 frames=34 cpu_ms=-1.000 proc_ms=18.005 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=11 phase=grow_confirm n=32030 ms=60.078 p50=60.140 fps=16.65 frames=34 cpu_ms=-1.000 proc_ms=16.305 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=12 phase=bisect n=22908 ms=43.222 p50=43.295 fps=23.14 frames=47 cpu_ms=-1.000 proc_ms=15.215 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=13 phase=bisect n=27088 ms=50.967 p50=50.900 fps=19.62 frames=40 cpu_ms=-1.000 proc_ms=13.855 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=13 phase=bisect_confirm n=27088 ms=50.982 p50=50.920 fps=19.61 frames=40 cpu_ms=-1.000 proc_ms=14.290 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=14 phase=bisect n=24910 ms=46.943 p50=46.835 fps=21.30 frames=43 cpu_ms=-1.000 proc_ms=14.090 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=15 phase=bisect n=25976 ms=48.898 p50=48.915 fps=20.45 frames=41 cpu_ms=-1.000 proc_ms=13.815 draw_calls=57 mem_mb=838
+[RAMP] ramp=lit step=16 phase=bisect n=26526 ms=49.962 p50=49.885 fps=20.02 frames=41 cpu_ms=-1.000 proc_ms=13.985 draw_calls=57 mem_mb=838
+[BENCHMARK] ramp=lit target_fps=20.0 n=26547.5 status=converged n_good=26526 n_bad=27088 ms_good=49.962 ms_bad=50.967 fps_at_n=20.02 frame_ms=49.962 frame_ms_p50=49.885 cpu_ms=-1.000 proc_ms=13.985 draw_calls=57 primitives=818891228 mem_mb=838 mem_budget_mb=1400 steps=17 elapsed_s=61.1
+[BENCHMARK] ramp_lit_n=26547.5
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] lit: done in 69 s
+[BENCHMARK] ================================================
+Failed to load resource: the server responded with a status of 404 (Not Found)
+Godot Engine v4.8.dev.custom_build.0bffec3bb (2026-10-25 10:56:32 UTC) - https://godotengine.org
+WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+Build configuration: Emscripten 6.0.9, single-threaded, no GDExtension support.
+[BENCHMARK] ramp_env engine=4.8-dev_(custom_build) method=forward_plus driver=webgpu os=Web web=true viewport=1280x720 target_fps=20.0 ramps=particles max_s=180 adapter=Unknown_WebGPU_Device
+[BENCHMARK] browser_env browser=chrome uncapped=1 paced=1 canvas=1280x720 dpr=1 software=0 webgpu_adapter=nvidia/lovelace/ webgl_renderer=ANGLE_(NVIDIA_Corporation,_NVIDIA_GeForce_RTX_4080_SUPER/PCIe/SSE2,_OpenGL_4.5.0)
+[RAMP] ramp=particles step=0 phase=grow n=4 ms=6.127 p50=6.060 fps=163.20 frames=328 cpu_ms=-1.000 proc_ms=0.980 draw_calls=5 mem_mb=138
+[RAMP] ramp=particles step=1 phase=grow n=8 ms=5.976 p50=1.650 fps=167.32 frames=335 cpu_ms=-1.000 proc_ms=1.025 draw_calls=9 mem_mb=138
+[RAMP] ramp=particles step=2 phase=grow n=16 ms=6.059 p50=2.200 fps=165.05 frames=332 cpu_ms=-1.000 proc_ms=0.650 draw_calls=17 mem_mb=138
+[RAMP] ramp=particles step=3 phase=grow n=32 ms=6.145 p50=3.225 fps=162.74 frames=326 cpu_ms=-1.000 proc_ms=0.990 draw_calls=33 mem_mb=138
+[RAMP] ramp=particles step=4 phase=grow n=64 ms=6.081 p50=6.060 fps=164.43 frames=329 cpu_ms=-1.000 proc_ms=1.320 draw_calls=65 mem_mb=138
+[RAMP] ramp=particles step=5 phase=grow n=128 ms=6.702 p50=4.750 fps=149.21 frames=299 cpu_ms=-1.000 proc_ms=2.235 draw_calls=129 mem_mb=138
+[RAMP] ramp=particles step=6 phase=grow n=256 ms=6.217 p50=6.040 fps=160.85 frames=322 cpu_ms=-1.000 proc_ms=3.590 draw_calls=257 mem_mb=138
+[RAMP] ramp=particles step=7 phase=grow n=512 ms=11.086 p50=10.190 fps=90.21 frames=181 cpu_ms=-1.000 proc_ms=8.025 draw_calls=513 mem_mb=166
+[RAMP] ramp=particles step=8 phase=grow n=1024 ms=22.889 p50=26.960 fps=43.69 frames=88 cpu_ms=-1.000 proc_ms=41.530 draw_calls=1025 mem_mb=199
+[RAMP] ramp=particles step=9 phase=grow n=2048 ms=48.061 p50=59.495 fps=20.81 frames=42 cpu_ms=-1.000 proc_ms=49.755 draw_calls=2049 mem_mb=238
+[RAMP] ramp=particles step=10 phase=grow n=2664 ms=58.212 p50=59.410 fps=17.18 frames=35 cpu_ms=-1.000 proc_ms=83.390 draw_calls=2665 mem_mb=286
+[RAMP] ramp=particles step=10 phase=grow_confirm n=2664 ms=58.113 p50=60.460 fps=17.21 frames=35 cpu_ms=-1.000 proc_ms=54.445 draw_calls=2665 mem_mb=286
+[RAMP] ramp=particles step=11 phase=bisect n=2336 ms=58.192 p50=59.370 fps=17.18 frames=35 cpu_ms=-1.000 proc_ms=88.020 draw_calls=2337 mem_mb=286
+[RAMP] ramp=particles step=11 phase=bisect_confirm n=2336 ms=54.960 p50=52.255 fps=18.20 frames=37 cpu_ms=-1.000 proc_ms=51.405 draw_calls=2337 mem_mb=286
+[RAMP] ramp=particles step=12 phase=bisect n=2187 ms=52.817 p50=55.045 fps=18.93 frames=38 cpu_ms=-1.000 proc_ms=49.750 draw_calls=2188 mem_mb=286
+[RAMP] ramp=particles step=12 phase=bisect_confirm n=2187 ms=56.976 p50=60.410 fps=17.55 frames=36 cpu_ms=-1.000 proc_ms=87.590 draw_calls=2188 mem_mb=286
+[RAMP] ramp=particles step=13 phase=bisect n=2116 ms=49.411 p50=57.135 fps=20.24 frames=41 cpu_ms=-1.000 proc_ms=50.120 draw_calls=2117 mem_mb=286
+[BENCHMARK] ramp=particles target_fps=20.0 n=2128.4 status=converged n_good=2116 n_bad=2187 ms_good=49.411 ms_bad=52.817 fps_at_n=20.24 frame_ms=49.411 frame_ms_p50=57.135 cpu_ms=-1.000 proc_ms=50.120 draw_calls=2117 primitives=8667226 mem_mb=286 mem_budget_mb=1400 steps=14 elapsed_s=57.1
+[BENCHMARK] ramp_particles_n=2128.4
+[BENCHMARK] RAMP_ALL_DONE
+[ramp_browser] particles: done in 64 s
+[BENCHMARK] ================================================
+[BENCHMARK] RAMP_ALL_DONE

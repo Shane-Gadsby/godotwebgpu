@@ -1755,6 +1755,24 @@ disable_path_overrides=no` (release templates refuse `--path` otherwise) run on 
 5. ~~**Threading** — §2.5, after 1-2 are re-measured.~~ Done 2026-10-16: §2.5 closed, separate render thread is the default.
 **Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
 
+**Load-ramp benchmark, 2026-10-26 (work task 20) — the WebGL comparison item 4 asked for.** `benchmark/run_ramp.sh`
+grows one kind of content per ramp until the frame rate falls to 20 fps and reports how much it took (N), so WebGL's
+display cap stops mattering; `readme_perf_table.py --write` turns a result into the README's performance table.
+Method, legs and the fairness rules in `webgpu_tests/README.md` §11; traps 66-67. First measurement
+(`results_ramp/2026-10-26/`, RTX 4080 SUPER, Chrome 156, 2 runs, all 60 ramp-runs converged, spread <= 6.5% outside
+Firefox): WebGPU Forward+ carries **1.23x WebGL's draw calls, 1.61x its moving nodes, 1.50x its particle emitters, 6.4x
+its shadowed PBR spheres, but only 0.67x its full-screen fill**; against native Vulkan Forward+ it is 0.45x (draws),
+0.75x (nodes), 0.67x (fill), 0.99x (lit), 0.31x (particles). Open questions, in order:
+1. **Fill is 0.67x on WebGPU while WebGL and both native renderers agree at 1,076 layers.** Native Vulkan Forward+ uses
+   the same RGBA16F target, so suspect the generated WGSL for the fill shader's loop (SPIRV-Cross output, precision)
+   or the pacing; compare `ramp_browser.mjs --no-pace` and `gpu_time.mjs --passes` on the fill export.
+2. **Particles 0.31x native** (2,091 vs 6,661 emitters): per-emitter compute dispatch cost on WebGPU? Profile with
+   `api_profile.mjs`.
+3. **Lit 6.4x WebGL is mostly the Compatibility renderer, not the API**: native Compatibility is also 0.26x native
+   Forward+ there (it draws every shadowed light as another pass and does not instance), so quote it as Forward+ vs
+   Compatibility. Draws and nodes are the cleanest WebGPU-vs-WebGL API comparison.
+4. **Firefox** draws varied 13,967 / 26,153 between runs (61%): needs 3+ runs before quoting.
+
 ### 2.18 Texture compression as an export option `DONE 2026-10-20` — per-family texture packs *(old Task 39)*
 
 Desktop is settled: BC formats work in both browsers, BC1 equals uncompressed at RMSE 0.0006. The export
@@ -2861,6 +2879,18 @@ inserted into its group and the rest shift. If you insert one, re-check the refe
     input; `check_ir_preconditions()` is only a guard against our own passes' bugs. The fuzzers had been blind too —
     linked against uninstrumented pass objects, ~200 coverage edges instead of ~5,000 — so a clean fuzz run said nothing
     until §4.36.
+66. **With the frame-rate limit lifted, Chrome lets a WebGPU page queue GPU work faster than the GPU finishes it**
+    (2026-10-26, cost a full benchmark run). rAF keeps firing while the GPU falls behind, so a window's frame time reads
+    too fast as the queue grows (load-ramp fill "carried" 2x native Vulkan's layers), and the backlog then slows every
+    later window to ~150 ms whatever the load is, into the next scene on the same page (it looked like a 100x "cliff at
+    32 spheres"). A GPU-bound WebGPU measurement with `--disable-frame-rate-limit` must bound frames in flight:
+    `benchmark/ramp_browser.mjs` gates each rAF on the `onSubmittedWorkDone()` of the frame before last (2 in flight, as
+    native Vulkan). Paced, fill read 0.67x native. WebGL is throttled by the browser and needs nothing. Also: one scene
+    per page load, and treat a lost device as the end of the run (a lost device "renders" at 0.2 ms a frame).
+67. **`OS.get_static_memory_usage()` is 0 in release web templates** (2026-10-26): memory tracking is a debug-build
+    feature, so a script budgeting against the 2 GB web heap sees nothing until `alloc_static` fails ("Parameter
+    \"mem\" is null") and the page dies. Read the heap size from the page (`WebAssembly.Memory.buffer.byteLength`;
+    `ramp_browser.mjs` captures the instance's memory export and `ramp.gd` reads it through `JavaScriptBridge`).
 
 ---
 
