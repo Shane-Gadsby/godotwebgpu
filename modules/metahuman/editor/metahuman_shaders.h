@@ -298,9 +298,17 @@ void fragment() {
 	ROUGHNESS = roughness;
 	SPECULAR = specular;
 	ANISOTROPY = 0.6;
-	ALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
+	// clamp() before pow(): grooms taper to a width of exactly 0 at the tip (Ava's eyelashes do), so
+	// v_coverage is 0 at those vertices and interpolates to about -1e-9 at some pixels beside them.
+	// pow() of a negative is undefined; NVIDIA computes NaN, and one NaN pixel turns into a black
+	// hexagon the size of the DOF blur (webgpu_notes/TASKS.md §3).
+	ALPHA = pow(clamp(v_coverage, 0.0, 1.0), coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));
 }
 )";
+
+// The strand shader's ALPHA line, which the importer's opaque and hashed variants of HAIR_STRANDS
+// replace; it must match the line above character for character.
+inline constexpr const char *HAIR_STRANDS_ALPHA_LINE = "\tALPHA = pow(clamp(v_coverage, 0.0, 1.0), coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n";
 
 // A groom baked to one opaque mesh (MetaHumanHair::build_shell): TANGENT follows the strands, which
 // Godot's anisotropic GGX stretches the highlight along; a fine noise across the flow draws strands.
@@ -361,7 +369,9 @@ void vertex() {
 void fragment() {
 	// The across-the-strands coordinate is taken per fragment: per vertex it changes by many strands
 	// across a triangle and interpolates into a maze.
-	float across = dot(v_position, normalize(v_binormal)) * strand_frequency;
+	// Not normalize(): a vertex whose TANGENT runs along its NORMAL has no binormal, and normalize() of a
+	// zero vector is NaN, which an opaque pass writes straight into the color buffer.
+	float across = dot(v_position, v_binormal * inversesqrt(max(dot(v_binormal, v_binormal), 1e-20))) * strand_frequency;
 	// Fade the fine strands out where they get finer than a pixel or two; they alias into a maze.
 	float fine_detail = clamp(1.5 - fwidth(across), 0.0, 1.0);
 	float fine = mix(0.5, strand_noise(across), fine_detail);

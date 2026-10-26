@@ -55,7 +55,7 @@ const FEATURES := [
 	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range", "occlusion_culling",
 	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
 	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
-	"dof_far", "dof_near", "auto_exposure", "compositor_effect",
+	"dof_far", "dof_near", "dof_nan", "auto_exposure", "compositor_effect",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -124,6 +124,7 @@ var compositor_effect: CompositorEffect
 var blendshape_inst: MeshInstance3D
 var lod_inst: MeshInstance3D
 var fade_inst: MeshInstance3D
+var nan_quad: MeshInstance3D             # writes NaN into the scene color (dof_nan)
 
 var mat_floor: StandardMaterial3D
 var mat_probe: StandardMaterial3D      # the material feature tests mutate this one
@@ -481,6 +482,22 @@ func _build_gi() -> void:
 
 
 func _build_extras() -> void:
+	# dof_nan: a quad of about 2x2 pixels in the far blur that writes NaN. The NaN comes from a
+	# uniform's bits at run time: no compiler can fold it, and WGSL forbids a NaN constant expression.
+	var nan_mat := ShaderMaterial.new()
+	nan_mat.shader = Shader.new()
+	nan_mat.shader.code = """shader_type spatial;
+render_mode unshaded, cull_disabled;
+uniform uint nan_bits = 2143289344u;
+void fragment() {
+	ALBEDO = vec3(uintBitsToFloat(nan_bits));
+}
+"""
+	var nan_mesh := QuadMesh.new()
+	nan_mesh.size = Vector2(0.12, 0.12)
+	nan_quad = _mesh_instance(nan_mesh, nan_mat, Transform3D(Basis(), Vector3(3.5, 4.5, -12.0)))
+	nan_quad.visible = false
+
 	decal = Decal.new()
 	decal.size = Vector3(4, 3, 4)
 	decal.texture_albedo = tex_gradient
@@ -1083,6 +1100,7 @@ func _reset() -> void:
 	if lightmap_gi and lightmap_gi.light_data:
 		lightmap_gi.light_data = null
 	compositor_effect.enabled = false
+	nan_quad.visible = false
 
 	skeleton.set_bone_pose_rotation(1, Quaternion())
 	if blendshape_inst.get_blend_shape_count() > 0:
@@ -1469,6 +1487,15 @@ func _apply(id: String, on: bool) -> bool:
 			cam_attrs.dof_blur_near_distance = 6.0
 			cam_attrs.dof_blur_near_transition = 1.0
 			cam_attrs.dof_blur_amount = 0.3
+		"dof_nan":
+			# The far blur both ways; "on" adds one NaN source in it. The DOF passes must keep it to
+			# the quad's own pixels: before they treated a non-finite color as black, NaN * 0 = NaN in
+			# the filter spread it over the whole bokeh hexagon (webgpu_notes/TASKS.md §3).
+			cam_attrs.dof_blur_far_enabled = true
+			cam_attrs.dof_blur_far_distance = 6.0
+			cam_attrs.dof_blur_far_transition = 1.0
+			cam_attrs.dof_blur_amount = 0.3
+			nan_quad.visible = on
 		"auto_exposure":
 			cam_attrs.auto_exposure_enabled = on
 			cam_attrs.auto_exposure_scale = 0.2

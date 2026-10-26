@@ -1,0 +1,7 @@
+render_mode blend_add, depth_draw_never, cull_disabled, unshaded, shadows_disabled, fog_disabled;
+void fragment() {
+	uint b = floatBitsToUint(v_coverage);
+	bool neg = v_coverage < 0.0;
+	ALBEDO = vec3(neg ? 2000.0 + log2(-v_coverage) * 10.0 : 0.0, b == 0x80000000u ? 1000.0 : 0.0, neg ? 1000.0 + v_t * 100.0 : 0.0);
+	ALPHA = 1.0;
+}

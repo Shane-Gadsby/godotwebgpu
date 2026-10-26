@@ -267,15 +267,20 @@ Ref<Shader> _shader(Context &p_ctx, const String &p_kind) {
 		code = String(MetaHumanShaders::HAIR_STRANDS)
 					   .replace("render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;",
 							   "render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx;")
-					   .replace("\tALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n", "");
+					   .replace(MetaHumanShaders::HAIR_STRANDS_ALPHA_LINE, "");
 	} else if (p_kind == "hair_strands_hashed") {
 		// As above, but hashed alpha drops sub-pixel strands by their coverage, so fine flyaways thin out
 		// instead of drawing as solid 2 px wires. Grainy unless the project uses TAA.
 		code = String(MetaHumanShaders::HAIR_STRANDS)
 					   .replace("render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;",
 							   "render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert_wrap, specular_schlick_ggx;")
-					   .replace("\tALPHA = pow(v_coverage, coverage_exponent) * opacity * (1.0 - 0.6 * smoothstep(0.7, 1.0, v_t));\n",
-							   "\tALPHA = pow(v_coverage, coverage_exponent);\n\tALPHA_HASH_SCALE = 1.0;\n");
+					   .replace(MetaHumanShaders::HAIR_STRANDS_ALPHA_LINE,
+							   "\tALPHA = pow(clamp(v_coverage, 0.0, 1.0), coverage_exponent);\n\tALPHA_HASH_SCALE = 1.0;\n");
+	}
+	// The variants above edit HAIR_STRANDS by text; a replace that stops matching would ship the
+	// blended shader under another name without a word.
+	if (p_kind.begins_with("hair_strands_") && !String(MetaHumanShaders::HAIR_STRANDS).contains(MetaHumanShaders::HAIR_STRANDS_ALPHA_LINE)) {
+		ERR_PRINT("MetaHuman: HAIR_STRANDS_ALPHA_LINE no longer matches HAIR_STRANDS, so the " + p_kind + " shader is the blended one.");
 	}
 	Ref<Shader> shader;
 	if (!code.is_empty()) {

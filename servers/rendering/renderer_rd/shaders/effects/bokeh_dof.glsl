@@ -146,6 +146,8 @@ void main() {
 	float size = get_blur_size(depth);
 
 	vec4 color = imageLoad(color_image, pos);
+	// Every later pass reads this image, so sanitizing here, once per pixel, covers them all.
+	color.rgb = dof_finite(color.rgb);
 	color.a = size;
 	imageStore(color_image, pos, color);
 #endif

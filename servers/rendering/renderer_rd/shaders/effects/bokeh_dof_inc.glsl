@@ -40,3 +40,12 @@ float hash12n(vec2 p) {
 	p += dot(p.yx, p.xy + vec2(21.5351, 14.3137));
 	return fract(p.x * p.y * 95.4307);
 }
+
+// One NaN or infinity in the scene color (a single bad fragment) would otherwise cover the whole
+// blur radius: the filters weight each sample with mix(color, sample, m), and NaN * 0 is still NaN,
+// so every pixel within reach of it goes black, in the bokeh shape. Non-finite colors count as black.
+// Tested on the bits: compilers may assume floats are finite and fold isnan()/isinf() away (WGSL
+// lets them), and the select passes every finite value through unchanged.
+vec3 dof_finite(vec3 c) {
+	return mix(c, vec3(0.0), equal(floatBitsToUint(c) & uvec3(0x7f800000u), uvec3(0x7f800000u)));
+}
