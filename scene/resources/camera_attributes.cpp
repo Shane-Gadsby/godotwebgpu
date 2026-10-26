@@ -165,8 +165,8 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_speed", "get_auto_exposure_speed");
 
 	ADD_GROUP("White Balance", "white_balance_");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_tint", PROPERTY_HINT_RANGE, "-1,1,0.001"), "set_white_balance_tint", "get_white_balance_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "2000,10000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_tint", PROPERTY_HINT_RANGE, "-150,150,1"), "set_white_balance_tint", "get_white_balance_tint");
 }
 
 CameraAttributes::CameraAttributes() {

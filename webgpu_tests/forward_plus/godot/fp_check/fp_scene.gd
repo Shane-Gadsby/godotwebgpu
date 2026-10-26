@@ -1532,7 +1532,7 @@ func _apply(id: String, on: bool) -> bool:
 			# CameraAttributes white balance (engine addition): a tungsten setting turns the daylight-lit
 			# scene blue; the small tint exercises the off-locus path.
 			cam_attrs.white_balance_temperature = 3200.0 if on else 6500.0
-			cam_attrs.white_balance_tint = 0.2 if on else 0.0
+			cam_attrs.white_balance_tint = 30.0 if on else 0.0
 		"compositor_effect":
 			# fp_compositor_effect.gd: a compute shader inverting part of the frame.
 			compositor_effect.enabled = on

@@ -198,15 +198,19 @@ uint64_t RendererCameraAttributes::camera_attributes_get_auto_exposure_version(R
  * - The illuminant's white is on the Planckian locus at the given temperature, in CIE 1960 UCS, using the same
  *   approximation (Krystek 1985) as Light3D::light_temperature, so a light set to T under a white balance of T
  *   renders exactly like the default 6500 K light at the default white balance.
- * - The tint moves that white along the isotherm, perpendicular to the locus, by tint * 0.05 Duv (Unreal's
- *   WhiteTint scale). Positive tint means the illuminant is greener than the locus, so it is removed and the
- *   image turns magenta, as in Lightroom and most raw converters.
+ * - The tint moves that white along the isotherm, perpendicular to the locus, by 1/3000 Duv per unit, so the
+ *   -150..150 range (Lightroom-style numbers) spans +-0.05 Duv, the extent of Unreal's WhiteTint at +-1.
+ *   Positive tint means the illuminant is greener than the locus, so it is removed and the image turns
+ *   magenta, as in Lightroom and most raw converters.
  * - A von Kries adaptation in Bradford cone space (LMS) maps that white onto the model's own 6500 K / tint 0
  *   white, which makes the default exactly the identity rather than "nearly D65". Only the three cone gains
  *   cross to the GPU; the tonemappers apply linear sRGB -> LMS, the gains, and LMS -> linear sRGB with
  *   constant matrices (BRADFORD * SRGB_TO_XYZ and its inverse, spelled out in tonemap.glsl, tonemap_mobile.glsl
  *   and the Compatibility tonemap_inc.glsl), so the full 3x3 never needs push-constant space.
  */
+
+// Duv per unit of tint: +-150 is +-0.05 Duv.
+static constexpr double WHITE_BALANCE_DUV_PER_TINT = 0.05 / 150.0;
 
 static void _white_balance_planckian_uv(double p_temperature, double &r_u, double &r_v) {
 	const double t = p_temperature;
@@ -230,8 +234,9 @@ static Vector3 _white_balance_white_lms(double p_temperature, double p_tint) {
 		const double dv = v1 - v0;
 		const double len = Math::sqrt(du * du + dv * dv);
 		if (len > 0.0) {
-			u += dv / len * p_tint * 0.05;
-			v += -du / len * p_tint * 0.05;
+			const double duv = p_tint * WHITE_BALANCE_DUV_PER_TINT;
+			u += dv / len * duv;
+			v += -du / len * duv;
 		}
 	}
 
@@ -252,7 +257,7 @@ static Vector3 _white_balance_white_lms(double p_temperature, double p_tint) {
 
 Vector3 RendererCameraAttributes::white_balance_compute_gains(float p_temperature, float p_tint) {
 	const Vector3 reference = _white_balance_white_lms(6500.0, 0.0);
-	const Vector3 source = _white_balance_white_lms(CLAMP(p_temperature, 1000.0f, 15000.0f), CLAMP(p_tint, -1.0f, 1.0f));
+	const Vector3 source = _white_balance_white_lms(CLAMP(p_temperature, 2000.0f, 10000.0f), CLAMP(p_tint, -150.0f, 150.0f));
 	return Vector3(reference.x / source.x, reference.y / source.y, reference.z / source.z);
 }
 
