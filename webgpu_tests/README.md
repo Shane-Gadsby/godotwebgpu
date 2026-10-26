@@ -29,6 +29,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Startup Phases](startup_phases/) | Where a real export's load time actually goes, phase by phase | ~60s/run | No (profiles any existing export) |
 | [WebRTC Parity](webrtc_parity/) | WebRTC behaves the same in a web export as it does on desktop — 9 fixtures x 3 export variants x Chrome/Firefox | ~12min (one browser) | Yes (editor + web template) |
 | [WebRTC Congestion](webrtc_congestion/) | What WebRTC does when the link is the bottleneck — two processes either side of a `netem`-shaped link. Found F9 and F10 | ~15min (full sweep) | Yes (editor + web template) |
+| [Load-Ramp Benchmark](benchmark/) (`run_ramp.sh`) | How much content each leg (native Vulkan and Compatibility, stock WebGL, WebGPU Mobile and Forward+, Firefox WebGPU) carries before falling to 20 fps, per ramp (draw calls, moving nodes, fill, shadowed PBR, particles). The source of the README's performance table | ~5min per leg and run (~1 h for all six legs x 2) | Yes (editor + WebGPU template; official 4.7.2 template for WebGL; **an idle real GPU**) |
 
 ## How It Works
 
@@ -359,6 +360,71 @@ traversal stack — exit 1 on any failure, 2 if a real-GPU run landed on the fal
 kernel, the adapter's limits and features, BVH build time and traversal steps, and draws the result so a wrong
 traversal is visible. The directory's README explains how to read the numbers and the phone recipe; the
 investigation they feed is `webgpu_notes/TASKS.md` §2.34, and §1 "Experiments in flight" says what to run next.
+
+### 11. Load-Ramp Benchmark (needs the editor, the WebGPU template, and an idle real GPU)
+
+```bash
+cd webgpu_tests/benchmark
+./run_ramp.sh                                   # every leg, every ramp, 2 runs -> results_ramp/<date>/ (~1 h)
+./run_ramp.sh --legs webgpu_fp,webgl --ramps draws --repeat 1   # narrow it while iterating
+python3 readme_perf_table.py results_ramp/<date>            # print the README performance table
+python3 readme_perf_table.py results_ramp/<date> --write    # replace it between the perf-table markers in README.md
+```
+
+Each ramp grows one kind of content until the frame rate falls to the target (`--target-fps`, default 20), and
+reports how much content that took: N. Comparing N across legs gives "WebGPU Forward+ carried 1.5x the draw-call
+load of WebGL at 20 fps". The fps matrix (`run_matrix.sh`) cannot give that, because Chrome holds WebGL at the
+display rate even with the frame-rate limit lifted (TASKS.md §2.17). One unit of N:
+
+| ramp | one unit of N | what it loads |
+|---|---|---|
+| `draws` | a MeshInstance3D (12-triangle box) with its own StandardMaterial3D, static | per-draw CPU submission |
+| `nodes` | the `draws` unit plus one GDScript `rotate_y` per frame | script + transform sync + submission |
+| `fill` | a full-screen 1280x720 alpha-blended quad, 64-iteration trig loop per pixel | fragment ALU and blending |
+| `lit` | a PBR sphere (~9.2k triangles) under 1 directional + 3 omni + 3 spot lights, all shadowed | vertex, shadow passes, shading |
+| `particles` | a GPUParticles3D emitter of 2048 billboard particles, simulated every frame | particle simulation + vertices |
+
+Legs: `native_vulkan_fp`, `native_compat` (OpenGL; separates "WebGL" from "the Compatibility renderer"), `webgl`
+(the official 4.7.2 template exported by the official 4.7.x editor: a 4.8 pck will not load in it), `webgpu_mobile`,
+`webgpu_fp`, and `firefox_webgpu_fp` (Playwright's Firefox, if installed). Every leg runs headed at 1280x720 with
+the frame-rate cap lifted (`--capped` keeps it). Content is placed with a fixed seed under a fixed camera, from the
+same scene (`benchmark/godot/load_ramp/`, which also parses in Godot 4.7).
+
+Control loop (`ramp.gd`): N doubles while the frame time is far below the target, then grows by what the last
+window predicts (x1.25 margin, at least x1.15) so no step lands far past it, and bisects (geometric midpoints) to
+within 4% once it has a point either side. Every change of N is followed by a 1 s settle; the frame time is the
+mean (elapsed / frames) over a 2 s window, and a below-target window must be confirmed by a second one after a
+further 2 s, so a single hitch cannot end a ramp. The crossing is interpolated in log space. A ramp that hits its
+N cap or `--max-s` (180 s) reports a lower bound (`>=`).
+
+Fairness rules that cost a run to learn (2026-10-26):
+
+- **Every ramp runs in its own process / browser.** Overshooting fill by 4x left Chrome's GPU process with a
+  backlog that slowed every later window to ~150 ms whatever N was, and the next ramp inherited it (it read as a
+  "cliff at 32 spheres" in `lit`); one run lost the device and kept "measuring" a dead one at 0.2 ms a frame. Now
+  `ramp_browser.mjs` and the native loop start each ramp fresh, and a watchdog (no `[RAMP]` line for 90 s, a page
+  error or crash, a lost device, an out-of-memory error, a failed screenshot, the ramp's time budget) closes it,
+  logs `[BENCHMARK] ramp_failed ramp=<r> reason=<why>` and moves on: the summary reports that run as the last N
+  measured above the target, marked `(failed)`.
+- **WebGPU frames are paced to 2 in flight** (`GPUQueue.onSubmittedWorkDone`, injected by `ramp_browser.mjs`;
+  `--no-pace` to compare), as native Vulkan is. With the frame-rate limit lifted Chrome otherwise lets the page
+  queue GPU work faster than the GPU finishes it: the frame time reads too fast while the queue grows (unpaced, fill
+  "carried" twice native Vulkan's layers; paced, 0.67x). WebGL needs no pacing: the browser throttles it.
+- **Memory budget.** The web heap is 2 GB (Emscripten's default for a nothreads build; the official template has
+  the same), and running out of it kills the page. A ramp never grows past what its measured memory predicts will
+  fit in `--mem-mb` (1400 MB): on the web that is the wasm heap's size, read from the page (`OS.get_static_memory_usage()`
+  is 0 in release templates); natively Godot's tracked static memory. A ramp stopped there reports `status=mem_cap`,
+  shown as `(mem)`: memory-limited, not a frame-rate crossing. The draws ramp, the most memory-hungry, uses ~780 MB of
+  heap at 44k units on WebGPU.
+
+The script checks its prerequisites (binaries, the official template, Playwright, a display) and that the GPU
+is idle (no other process over 1 GB, utilization at most 25%) before it starts and before every leg; it stops
+rather than record a contaminated leg (`--force` overrides, and says so in the summary). It exports fresh from
+this tree every run, takes and drops the `gpu` lease when `webgpu_notes/work/lease.sh` exists, and writes
+`results_ramp/<date>/`: `env.txt` (machine, GPU and driver, browser and engine versions), `logs/<leg>__r<k>.log`
+(one `[BENCHMARK] ramp=...` result line per ramp, `[RAMP]` lines per step), `shots/` (one frame per ramp and
+leg, to check every leg draws the same thing) and `ramp_summary.md` (N per leg, ratios, each run's N and the
+spread).
 
 ## CI Pipeline
 
