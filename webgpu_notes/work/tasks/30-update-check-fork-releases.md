@@ -1,6 +1,6 @@
 # 30-update-check-fork-releases: the editor's "new version available" check looks at this fork's GitHub releases
 
-State: ready-for-integration
+State: integrated (lead: unit tests 8/8 matching *Update*, merged editor compiles; user decisions on the hand-offs page)
 Owner: worker-30
 Claimed: 2026-10-26 20:10
 Needs: build (native editor only)

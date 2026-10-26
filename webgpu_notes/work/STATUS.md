@@ -6,7 +6,7 @@
 |---|---|---|
 | 28 | NaN guards for glow, SSR and auto exposure (`nan-guards`: "Guard all three now") | worker-28 (retired); **merged `287109ddfd`**: `finite_inc.glsl` shared with the DOF; glow 59,791 → 4 px, SSR 212 → 4, auto exposure no longer blanks the frame; 3 new arms (87); lead: smoke OK, NaN tier 0 failures, **87/87 parity unbaked and baked**; TASKS §4.44 |
 | 29 | White balance range 2000–10000 K and tint -150..150 (`wb-range`, `wb-tint-units`) | worker-29 (retired); **merged `add69b409d`**: ±150 = old ±1 (0.05 Duv), arm tint 30 renders the old frame (0 px); lead: in the 87/87 run; TASKS §4.42 |
-| 30 | The editor's "new version" check looks at this fork's GitHub releases instead of godotengine.org (user request) | worker-30 |
+| 30 | The editor's "new version" check looks at this fork's GitHub releases instead of godotengine.org (user request) | worker-30 (retired); **merged `4b4bd00e62`**: newer = later commit date of the release's `main-<sha>`; live check screenshots in results; lead: unit tests pass, merged editor compiles; TASKS §4.45; questions `update-newer-rule`, `update-repo` on the hand-offs page |
 
 ## 2026-10-26 — tasks 24–27 out (user requests)
 

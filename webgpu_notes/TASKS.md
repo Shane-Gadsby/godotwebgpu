@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. Tasks 28 (NaN guards for glow, SSR, auto exposure, §4.44) and 29 (white balance units, §4.42) followed from the user's answers. The full matrix is 87 arms; the bake gate's ceiling went 130 → 150 (§2.39).
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 27 as §4.43, 25 is recorded in §2.33. Tasks 28 (NaN guards for glow, SSR, auto exposure, §4.44) and 29 (white balance units, §4.42) followed from the user's answers; 30 (§4.45) points the editor's update check at this fork's releases. The full matrix is 87 arms; the bake gate's ceiling went 130 → 150 (§2.39).
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -4439,6 +4439,38 @@ Tests: `webgpu_tests/dof_nan/run.sh` now covers glow (additive, softlight), SSR 
 reported SKIP on Mobile) and auto exposure as well (`ONLY=dof,glow,ssr,exposure` narrows), gated also on changed
 pixels (glow ≤ 64, SSR ≤ 256) and auto exposure on mean brightness (≤ 2 %). Forward+ matrix arms `glow_nan`,
 `ssr_nan`, `auto_exposure_nan` (`maxDelta` 0.05; 87 arms).
+
+### 4.45 The editor's update check looks at this fork's releases (October 2026) *(work task 30)*
+
+User request (2026-10-26): "Check my fork's releases for the 'new version' checks". Merged `4b4bd00e62`.
+
+`EngineUpdateLabel` (`editor/project_manager/engine_update_label.{h,cpp}`, the project manager's "Update available"
+link) asked `godotengine.org/versions.json` and compared stock Godot's versions with 4.8.dev, which told this fork's
+users about the wrong product. It now asks `api.github.com/repos/Shane-Gadsby/godotwebgpu/releases`
+(`EngineUpdateLabel::FORK_RELEASES_REPO`; an empty string restores upstream's check, whose code is left intact).
+Every change is tagged `// WebGPU fork`. User decisions pending on the hand-offs page (`update-newer-rule`, default
+commit date, implemented; `update-repo`, default `Shane-Gadsby/godotwebgpu`).
+
+- **Which release:** published releases only (drafts never; the unauthenticated API does not list them anyway).
+  Prereleases only under *Check Newest Preview* (and *Auto* on a non-stable build, which this fork always is: 4.8.dev).
+  The engine version is read from the release's asset names (`godot-webgpu-export-templates-<v>.tpz`,
+  `godot-webgpu-editor-<v>-<os>.zip`): another major version is never offered, *Check Newest Patch* keeps the minor
+  version, a release whose assets name none is not filtered. Newest by `published_at`.
+- **Newer how:** the release's commit comes from its `main-<sha>` tag (or a full SHA in `target_commitish`). If it is
+  the build's own `GODOT_VERSION_HASH`, the build is up to date. Otherwise a second request
+  (`/repos/.../commits/<sha>`) gets the release commit's committer date, which is compared with
+  `GODOT_VERSION_TIMESTAMP` (the build commit's committer date, `methods.py`): later = update available. An unknown
+  time (a build without git) never reports an update. Chosen because releases carry no machine-readable fork version
+  (it is only in the hand-written title) and the binary has none, so a version compare would need `version.py`, the
+  release workflow and the naming habit to change; the commit date needs nothing new and is right for every case
+  that matters (older build: told; the release's own build: not told; a later webgpu-4.8 build: not told). Its one
+  blind spot: a build from a branch committed after the release but not containing it (webgpu-4.8 before a fix
+  only on `main`) is not told. Two requests per check against GitHub's 60/hour unauthenticated limit.
+- **The label** shows the release title without the "Godot WebGPU " prefix ("Update available: 4.8.dev 1.5.1 - OSX
+  fix.") and opens the release's GitHub page. Network mode, offline label, error/retry, settings are unchanged.
+- **Testing:** `tests/editor/project_manager/test_engine_update_label.cpp` (3 cases, `--test --test-case="*EngineUpdateLabel*"`).
+  A dev build (`DEV_ENABLED`) reads `GODOT_UPDATE_CHECK_AS=<hash>:<commit UNIX time>` to pose as another build
+  against the live API, so the label's states can be seen without building an old commit; release editors ignore it.
 
 ## 5. References — retired docs
 
