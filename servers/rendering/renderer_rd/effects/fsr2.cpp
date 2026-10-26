@@ -211,6 +211,8 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 	RenderingDevice *rd = RD::get_singleton();
 	FSR2Context::Scratch &scratch = *reinterpret_cast<FSR2Context::Scratch *>(p_backend_interface->scratchBuffer);
 	FfxResourceDescription res_desc = p_create_resource_description->resourceDescription;
+	// The answer the shader groups were chosen with, not a fresh has_feature().
+	const bool use_image_atomics = reinterpret_cast<const FSR2Effect::Device *>(scratch.device)->use_image_atomics;
 
 	// The SPD global atomic counter is normally a 1x1 R32_UINT texture, updated via
 	// imageAtomicAdd/imageStore. WebGPU (and WGSL in general) has no texture-atomic
@@ -221,7 +223,7 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 	// SUPPORTS_IMAGE_ATOMIC_32_BIT / NO_IMAGE_ATOMICS): reroute the single-texel
 	// atomic counter to a real storage buffer, which WGSL atomics fully support.
 	// See webgpu_notes/TASKS.md Task 9.5 Round 14.
-	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT && !rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT && !use_image_atomics) {
 		Vector<uint8_t> buf_init;
 		buf_init.resize(sizeof(uint32_t));
 		if (p_create_resource_description->initDataSize >= sizeof(uint32_t)) {
@@ -245,7 +247,7 @@ static FfxErrorCode create_resource_rd(FfxFsr2Interface *p_backend_interface, co
 	// one uint per pixel of the maximum render size, which is what the
 	// NO_IMAGE_ATOMICS shader variants declare. Starts zeroed like a texture;
 	// the lock pass resets it every frame.
-	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH && !rd->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT)) {
+	if (p_create_resource_description->id == FFX_FSR2_RESOURCE_IDENTIFIER_RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH && !use_image_atomics) {
 		RID buffer = rd->storage_buffer_create(sizeof(uint32_t) * MAX(res_desc.width, 1u) * MAX(res_desc.height, 1u));
 		ERR_FAIL_COND_V(buffer.is_null(), FFX_ERROR_BACKEND_API_ERROR);
 
@@ -474,8 +476,12 @@ static FfxErrorCode execute_gpu_job_compute_rd(FSR2Context::Scratch &p_scratch, 
 	compute_uniforms.clear();
 
 	// Resources create_resource_rd() made buffers of on a device without
-	// image atomics; they are bound as buffers whether read or written.
-	const bool image_atomics = RD::get_singleton()->has_feature(RD::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+	// image atomics; they are bound as buffers whether read or written. Asked of
+	// the effect, not of has_feature(): while the shader baker runs, the editor's
+	// device answers as the export target, and this used to bind buffers to the
+	// editor's image-atomics shaders ("Mismatch uniform type ... Expected
+	// 'Image', supplied: 'StorageBuffer'") for as long as the bake lasted.
+	const bool image_atomics = reinterpret_cast<const FSR2Effect::Device *>(p_scratch.device)->use_image_atomics;
 	auto is_buffer_resource = [&](uint32_t p_internal_index) {
 		const uint32_t id = p_scratch.resources.ids[p_internal_index];
 		return !image_atomics && (id == FFX_FSR2_RESOURCE_IDENTIFIER_SPD_ATOMIC_COUNT || id == FFX_FSR2_RESOURCE_IDENTIFIER_RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH);
@@ -632,39 +638,64 @@ FSR2Effect::FSR2Effect() {
 			"\n#define FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA 1\n"
 			"\n#define FFX_FSR2_OPTION_GODOT_DERIVE_INVALID_MOTION_VECTORS 1\n";
 
+	// Capability variants are shader *groups*, one per answer, and only the
+	// group this device selects is enabled (and so compiled). Never variant text
+	// or a variant count that depends on has_feature(): the shader baker runs in
+	// the editor, on the editor's device, so FSR 2 built its variants from the
+	// editor's answers (image atomics, FP16) and baked them under cache keys the
+	// WebGPU runtime never looks up -- every web export compiled FSR 2 from GLSL
+	// when it was first used. With a group per capability set, the text and
+	// therefore the cache key of each group are the same on every device, the
+	// baker bakes every group and drops the ones the target cannot select by their
+	// requirements (ShaderRD::set_group_bake_requirements(), as fog.cpp does), and
+	// a backend never compiles a group it cannot use.
+	//
+	// That last part matters on WebGPU: FFX_HALF's 16-bit int/uint types have no
+	// WGSL equivalent (and hit several SPIR-V-reader bugs in Tint, the converter
+	// before SPIRV-Cross, that aborted the whole engine instance), and
+	// imageAtomic*'s OpImageTexelPointer has no WGSL translation at all.
+	const bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
+	device.use_image_atomics = use_image_atomics;
+
 	Vector<String> modes_single;
 	modes_single.push_back("");
 
-	// As with modes_atomic_fallback below (SUPPORTS_IMAGE_ATOMIC_32_BIT):
-	// ShaderRD compiles every declared mode variant at shader-initialization
-	// time regardless of which one pass.shader_variant actually dispatches, so
-	// only declare the FFX_HALF variant on backends that actually report
-	// SUPPORTS_HALF_FLOAT. Harmless to skip on WebGPU (capabilities.fp16Supported
-	// is always false there, so this variant is never dispatched anyway) but
-	// necessary: FFX_HALF's 16-bit int/uint types have no WGSL equivalent, and
-	// hit multiple distinct SPIR-V-reader bugs in Tint, the converter before
-	// SPIRV-Cross (TINT_ASSERT(int_ty->width() == 32) in
-	// reconstruct_previous_depth/autogen_reactive/tcr_autogen,
-	// TINT_UNIMPLEMENTED on OpUConvert in reconstruct_previous_depth) that aborted
-	// the whole engine instance the moment this shader was compiled -- found via
-	// direct converter-CLI reproduction while re-enabling FSR2 on WebGPU
-	// (see webgpu_notes/TASKS.md's FSR2 task).
-	Vector<String> modes_with_fp16;
-	modes_with_fp16.push_back("");
-	if (capabilities.fp16Supported) {
-		modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
-	}
+	// Passes whose only capability axis is FP16.
+	enum {
+		FP16_GROUP_FP32,
+		FP16_GROUP_FP16,
+	};
+	const int fp16_group = capabilities.fp16Supported ? FP16_GROUP_FP16 : FP16_GROUP_FP32;
+	Vector<ShaderRD::VariantDefine> modes_with_fp16;
+	modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP32, "", fp16_group == FP16_GROUP_FP32));
+	modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP16, "\n#define FFX_HALF 1\n", fp16_group == FP16_GROUP_FP16));
+	auto set_fp16_group_requirements = [](ShaderRD *p_shader) {
+		p_shader->set_group_bake_requirements(FP16_GROUP_FP16, ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT);
+	};
 
 	// The reconstructed previous depth is scattered with image atomics. Without
 	// them (WebGPU) it lives in a storage buffer instead (create_resource_rd()),
 	// and every pass touching it -- reconstruct, depth clip and lock -- needs the
-	// NO_IMAGE_ATOMICS declarations of it (ffx_fsr2_callbacks_glsl.h).
-	const bool use_image_atomics = RD::get_singleton()->has_feature(RD::Features::SUPPORTS_IMAGE_ATOMIC_32_BIT);
-	const String atomics_define = use_image_atomics ? "" : "\n#define NO_IMAGE_ATOMICS 1\n";
-	Vector<String> modes_with_fp16_atomics;
-	for (const String &mode : modes_with_fp16) {
-		modes_with_fp16_atomics.push_back(atomics_define + mode);
-	}
+	// NO_IMAGE_ATOMICS declarations of it (ffx_fsr2_callbacks_glsl.h). One group
+	// and one variant per (atomics, FP16) pair; variant index == group index.
+	enum {
+		ATOMICS_GROUP_FP32,
+		ATOMICS_GROUP_FP16,
+		NO_ATOMICS_GROUP_FP32,
+		NO_ATOMICS_GROUP_FP16,
+	};
+	const int atomics_fp16_group = (use_image_atomics ? ATOMICS_GROUP_FP32 : NO_ATOMICS_GROUP_FP32) + (capabilities.fp16Supported ? 1 : 0);
+	Vector<ShaderRD::VariantDefine> modes_with_fp16_atomics;
+	modes_with_fp16_atomics.push_back(ShaderRD::VariantDefine(ATOMICS_GROUP_FP32, "", atomics_fp16_group == ATOMICS_GROUP_FP32));
+	modes_with_fp16_atomics.push_back(ShaderRD::VariantDefine(ATOMICS_GROUP_FP16, "\n#define FFX_HALF 1\n", atomics_fp16_group == ATOMICS_GROUP_FP16));
+	modes_with_fp16_atomics.push_back(ShaderRD::VariantDefine(NO_ATOMICS_GROUP_FP32, "\n#define NO_IMAGE_ATOMICS 1\n", atomics_fp16_group == NO_ATOMICS_GROUP_FP32));
+	modes_with_fp16_atomics.push_back(ShaderRD::VariantDefine(NO_ATOMICS_GROUP_FP16, "\n#define NO_IMAGE_ATOMICS 1\n\n#define FFX_HALF 1\n", atomics_fp16_group == NO_ATOMICS_GROUP_FP16));
+	auto set_atomics_group_requirements = [](ShaderRD *p_shader) {
+		p_shader->set_group_bake_requirements(ATOMICS_GROUP_FP32, ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS);
+		p_shader->set_group_bake_requirements(ATOMICS_GROUP_FP16, ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT);
+		p_shader->set_group_bake_requirements(NO_ATOMICS_GROUP_FP32, ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS);
+		p_shader->set_group_bake_requirements(NO_ATOMICS_GROUP_FP16, ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS | ShaderRD::GROUP_BAKE_REQUIRES_HALF_FLOAT);
+	};
 
 	// Since Godot currently lacks a shader reflection mechanism to persist the name of the bindings in the shader cache and
 	// there's also no mechanism to compile the shaders offline, the bindings are created manually by looking at the GLSL
@@ -678,8 +709,9 @@ FSR2Effect::FSR2Effect() {
 		Pass &pass = device.passes[FFX_FSR2_PASS_DEPTH_CLIP];
 		pass.shader = &shaders.depth_clip;
 		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
+		set_atomics_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
+		pass.shader_variant = atomics_fp16_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_reconstructed_previous_nearest_depth" },
@@ -714,8 +746,9 @@ FSR2Effect::FSR2Effect() {
 		// min/max: on an image normally, on the buffer form of the resource
 		// under NO_IMAGE_ATOMICS (see modes_with_fp16_atomics above).
 		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
+		set_atomics_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
+		pass.shader_variant = atomics_fp16_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_motion_vectors" },
@@ -744,8 +777,9 @@ FSR2Effect::FSR2Effect() {
 		Pass &pass = device.passes[FFX_FSR2_PASS_LOCK];
 		pass.shader = &shaders.lock;
 		pass.shader->initialize(modes_with_fp16_atomics, general_defines);
+		set_atomics_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
+		pass.shader_variant = atomics_fp16_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_lock_input_luma" }
@@ -762,24 +796,23 @@ FSR2Effect::FSR2Effect() {
 	}
 
 	{
-		// Same FFX_HALF gate as modes_with_fp16 above -- the accumulate pass's own
-		// FP16 variant has the same 16-bit integers (Tint hit its
-		// TINT_ASSERT(int_ty->width() == 32) bug on it too), so only declare it where it'll actually be compilable.
-		Vector<String> accumulate_modes_with_fp16;
-		accumulate_modes_with_fp16.push_back("\n");
-		accumulate_modes_with_fp16.push_back("\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
-		if (capabilities.fp16Supported) {
-			accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n");
-			accumulate_modes_with_fp16.push_back("\n#define FFX_HALF 1\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n");
-		}
-
+		// FP16 is a group here too (see modes_with_fp16 above), with the
+		// sharpening option as a second variant in each.
 		// Workaround: Disable FP16 path for the accumulate pass on NVIDIA due to reduced occupancy and high VRAM throughput.
 		const bool fp16_path_supported = RD::get_singleton()->get_device_vendor_name() != "NVIDIA";
+		const int accumulate_group = capabilities.fp16Supported && fp16_path_supported ? FP16_GROUP_FP16 : FP16_GROUP_FP32;
+		Vector<ShaderRD::VariantDefine> accumulate_modes_with_fp16;
+		accumulate_modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP32, "\n", accumulate_group == FP16_GROUP_FP32));
+		accumulate_modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP32, "\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n", accumulate_group == FP16_GROUP_FP32));
+		accumulate_modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP16, "\n#define FFX_HALF 1\n", accumulate_group == FP16_GROUP_FP16));
+		accumulate_modes_with_fp16.push_back(ShaderRD::VariantDefine(FP16_GROUP_FP16, "\n#define FFX_HALF 1\n#define FFX_FSR2_OPTION_APPLY_SHARPENING 1\n", accumulate_group == FP16_GROUP_FP16));
+
 		Pass &pass = device.passes[FFX_FSR2_PASS_ACCUMULATE];
 		pass.shader = &shaders.accumulate;
 		pass.shader->initialize(accumulate_modes_with_fp16, general_defines);
+		set_fp16_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported && fp16_path_supported ? 2 : 0;
+		pass.shader_variant = accumulate_group == FP16_GROUP_FP16 ? 2 : 0;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_exposure" },
@@ -845,17 +878,8 @@ FSR2Effect::FSR2Effect() {
 		// comment on that counter's declaration in ffx_fsr2_callbacks_glsl.h and
 		// webgpu_notes/TASKS.md's FSR2 task.
 		//
-		// ShaderRD compiles every declared mode variant at shader-initialization
-		// time (all of them, regardless of which one pass.shader_variant actually
-		// dispatches) -- so declaring both variants unconditionally means the
-		// image-atomics one always gets compiled too, even on a backend that will
-		// never use it. That's harmless on Vulkan/Metal/D3D12 (both variants are
-		// valid there), but fatal on WebGPU: `imageAtomicAdd`'s SPIR-V
-		// (`OpImageTexelPointer`) has no WGSL translation at all (WGSL only has
-		// atomics on buffers, never textures; Tint, the converter before
-		// SPIRV-Cross, hard-aborted on it with a WASM `unreachable` trap that
-		// killed the whole engine instance) -- so only ever declare the image-atomics variant on
-		// backends that can actually compile it.
+		// One group per answer (see modes_with_fp16_atomics above), so a backend
+		// without image atomics never compiles the image-atomics variant.
 		//
 		// The same fallback variant also builds SPD (the single-pass downsampler
 		// this pass is) without wave operations. Its quad shuffles survive
@@ -863,14 +887,19 @@ FSR2Effect::FSR2Effect() {
 		// feature, so without this the pass could not be created at all on
 		// Firefox or on any adapter that lacks it; the shared-memory path SPD
 		// provides instead averages the same quads.
-		Vector<String> modes_atomic_fallback;
-		if (use_image_atomics) {
-			modes_atomic_fallback.push_back("");
-		}
-		modes_atomic_fallback.push_back("\n#define NO_IMAGE_ATOMICS 1\n#define SPD_NO_WAVE_OPERATIONS 1\n");
+		enum {
+			LUMINANCE_GROUP_ATOMICS,
+			LUMINANCE_GROUP_NO_ATOMICS,
+		};
+		const int luminance_group = use_image_atomics ? LUMINANCE_GROUP_ATOMICS : LUMINANCE_GROUP_NO_ATOMICS;
+		Vector<ShaderRD::VariantDefine> modes_atomic_fallback;
+		modes_atomic_fallback.push_back(ShaderRD::VariantDefine(LUMINANCE_GROUP_ATOMICS, "", luminance_group == LUMINANCE_GROUP_ATOMICS));
+		modes_atomic_fallback.push_back(ShaderRD::VariantDefine(LUMINANCE_GROUP_NO_ATOMICS, "\n#define NO_IMAGE_ATOMICS 1\n#define SPD_NO_WAVE_OPERATIONS 1\n", luminance_group == LUMINANCE_GROUP_NO_ATOMICS));
 		pass.shader->initialize(modes_atomic_fallback, general_defines);
+		pass.shader->set_group_bake_requirements(LUMINANCE_GROUP_ATOMICS, ShaderRD::GROUP_BAKE_REQUIRES_IMAGE_ATOMICS);
+		pass.shader->set_group_bake_requirements(LUMINANCE_GROUP_NO_ATOMICS, ShaderRD::GROUP_BAKE_REQUIRES_NO_IMAGE_ATOMICS);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = use_image_atomics ? 0 : (modes_atomic_fallback.size() - 1);
+		pass.shader_variant = luminance_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_color_jittered" }
@@ -893,8 +922,9 @@ FSR2Effect::FSR2Effect() {
 		Pass &pass = device.passes[FFX_FSR2_PASS_GENERATE_REACTIVE];
 		pass.shader = &shaders.autogen_reactive;
 		pass.shader->initialize(modes_with_fp16, general_defines);
+		set_fp16_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
+		pass.shader_variant = fp16_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_opaque_only" },
@@ -915,8 +945,9 @@ FSR2Effect::FSR2Effect() {
 		Pass &pass = device.passes[FFX_FSR2_PASS_TCR_AUTOGENERATE];
 		pass.shader = &shaders.tcr_autogen;
 		pass.shader->initialize(modes_with_fp16, general_defines);
+		set_fp16_group_requirements(pass.shader);
 		pass.shader_version = pass.shader->version_create();
-		pass.shader_variant = capabilities.fp16Supported ? 1 : 0;
+		pass.shader_variant = fp16_group;
 
 		pass.sampled_bindings = {
 			FfxResourceBinding{ 0, 0, L"r_input_opaque_only" },

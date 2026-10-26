@@ -1075,9 +1075,26 @@ public:
 	// the bake and clears them afterwards. Targets that supply no overrides are
 	// completely unaffected, which is why enabling this changes nothing for the
 	// Vulkan/Metal/D3D12 bakers unless they opt in.
+	//
+	// The answers apply only to queries made inside a ShaderBakeFeatureOverrideScope,
+	// on the thread that opened it. The bake spans the whole export, and the editor
+	// keeps drawing frames between the baker's callbacks (every export progress
+	// step does), on the main thread or on its render thread. Before the scope
+	// existed those frames ran the editor's own renderer with the target's answers:
+	// FSR 2 bound storage buffers to the editor's image-atomics shaders ("Mismatch
+	// uniform type ... Expected 'Image', supplied: 'StorageBuffer'") for as long
+	// as an export with FSR 2 lasted, and every other per-frame has_feature() check
+	// (fog, GI, VRS, FP16) answered as WebGPU too.
 	void shader_bake_feature_override_set(const HashMap<int, bool> &p_overrides);
 	void shader_bake_feature_override_clear();
+	// True from set() to clear(), in or out of a scope: whether a bake for a
+	// target that supplied overrides is running at all.
 	bool shader_bake_feature_override_is_active() const { return !bake_feature_overrides.is_empty(); }
+
+	struct ShaderBakeFeatureOverrideScope {
+		ShaderBakeFeatureOverrideScope();
+		~ShaderBakeFeatureOverrideScope();
+	};
 
 	Vector<uint8_t> shader_compile_spirv_from_source(ShaderStage p_stage, const String &p_source_code, ShaderLanguage p_language = SHADER_LANGUAGE_GLSL, String *r_error = nullptr, bool p_allow_cache = true);
 	Vector<uint8_t> shader_compile_binary_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name = "");
