@@ -61,6 +61,12 @@ per export. **The performance numbers to quote come from the load-ramp benchmark
 `README.md`'s performance table is generated from it, and §2.17's fps matrix is superseded. **User documentation lives in
 the GitHub wiki** (§4.40), and the README was rewritten around it.
 
+**2026-10-26 (night): `main` is green on GitHub with all of the above.** `webgpu-4.8` was merged into `main` as #20,
+#21 and #22 (pushed at the user's request, for this CI fix only); 🔗 GHA on the #22 merge passed every job, the three
+sanitizer editors included, and drafted release `main-41def1729690f515f19130b4a4dc099b80c80416`. #20 failed static checks on
+files the work board had committed, and #21 failed the GCC sanitizer editor's link because SCU never compiled the
+update-check test (§4.46, §3 traps 74 and 75).
+
 ### Verified tiers
 
 | tier | result | when / where |
@@ -70,6 +76,7 @@ the GitHub wiki** (§4.40), and the README was rewritten around it.
 | `webgpu_tests/bake_isolation/run.sh` (interactive Web export from a windowed editor with FSR 2 + TAA, Xvfb + Vulkan) | **PASS**: 8 editor frames during the bake, 0 mismatch errors, 8/8 FSR 2 passes baked for WebGPU (FAIL on the old editor) | 2026-10-26, lead, §4.43 |
 | `webgpu_tests/metahuman/run.sh` with `nan_check.gd` | verify and nan **0 failures** after a fresh import (`run.sh` reimports when the editor is newer, §3 trap 71); `--shots` 0 failures with the pore fix | 2026-10-26, lead, §2.33, §4.41 |
 | `tests/editor/project_manager/test_engine_update_label.cpp` (`--test --test-case="*EngineUpdateLabel*"`) | **3 / 3** cases; merged editor compiles | 2026-10-26, lead, §4.45 |
+| 🔗 GHA on `main` (static checks, every platform's editors and templates, the 8 web templates, Linux sanitizer editors, editor plugins, draft release) | **all green** on the #22 merge, run 40321431357 | 2026-10-26, GitHub, §4.46 |
 | converter smoke (`webgpu_notes/work/smoke.sh`) after each of tasks 24–28 | 276/276 interfaces, 552/552 scan facts, 0 invalid; only change override id 18 in `tonemap_mobile` (§4.42, regenerated on purpose) | 2026-10-26, lead |
 | Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, nothreads templates **with** the raycast module | **82 / 82**; `occlusion_culling` 29 → 8 objects, parity 0.002; scene smoketest 23 / 23 Chrome and Firefox | 2026-10-26, work/22, §4.38 |
 | Forward+ `--parity`, unbaked and `--baked`, full run on the 82-arm matrix, templates without the raycast module | **81 / 82** both, `occlusion_culling` KNOWN (no culler on the web then); bake gate green at the raised ceiling (translated ~117 ≤ 130, §2.39) | 2026-10-26, lead, §4.39 |
@@ -3064,6 +3071,22 @@ baked FSR 2 export missed 7 stages in the cache: measured 7 → 0 after the fix)
 a shader group with `set_group_bake_requirements()` (fog.cpp, fsr2.cpp) or refreshed by
 `add_general_defines_refresh_callback()` (fsr.cpp). `webgpu_tests/bake_isolation/run.sh` catches both.
 
+74. **An SCU build compiles only the test folders `scu_builders.py` names** (2026-10-26, §4.46). `tests/SCsub` globs
+every `tests/**/*.cpp` into `force_link.gen.h`, but with `scu_build=yes` it compiles only `tests/.scu/*.cpp`, which
+`scu_builders.py` generates from a hand-written folder list. A test in a new folder (`tests/editor/project_manager/`,
+§4.45) is then referenced and never built: `ld.lld: error: undefined hidden symbol:
+ForceLink::force_link_test_engine_update_label()`. Only CI's GCC sanitizer editor builds `scu_build=yes`, an hour into
+the run, so every local build and every other CI job passed. A new folder under `tests/` goes into that list
+(`"/editor/project_manager"` beside `"/core/variant"`).
+
+75. **Main's static checks run on the merge's whole diff, not only on code** (2026-10-26, §4.46). `static_checks.yml`
+runs `prek --from-ref <the previous main>` over every file the merge brings, so a work board's notes, result JSON and
+helper scripts (`webgpu_notes/work/`) are checked like engine code: shebang scripts must be executable, ruff targets
+Python 3.9 (no backslash inside an f-string expression, which 3.12 allows), codespell wants US spellings, file-format
+wants final newlines and no trailing space. #20 failed this in 1m44s and none of its builds ran. Check before a PR
+with `pre-commit run --from-ref origin/main --to-ref HEAD`, **with the fixes staged**: pre-commit stashes unstaged
+changes and checks the committed text, so an unstaged fix looks as if it did nothing.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -4527,6 +4550,26 @@ commit date, implemented; `update-repo`, default `Shane-Gadsby/godotwebgpu`).
 - **Testing:** `tests/editor/project_manager/test_engine_update_label.cpp` (3 cases, `--test --test-case="*EngineUpdateLabel*"`).
   A dev build (`DEV_ENABLED`) reads `GODOT_UPDATE_CHECK_AS=<hash>:<commit UNIX time>` to pose as another build
   against the live API, so the label's states can be seen without building an old commit; release editors ignore it.
+
+### 4.46 CI: `main` green after the 2026-10-26 merges (October 2026)
+
+Asked for (user, 2026-10-26): find why PRs to `main` fail and fix everything until it passes, pushing `webgpu-4.8` and
+merging to `main` directly, with the 🧪 WebGPU Tests runs those PRs start cancelled to save runner time.
+
+- **#20's merge, 📊 Static checks failed** (run 40311774904), so no build ran. Fixed in #21 (`efa411b92a`): six
+  shebang scripts made executable; ruff in `webgpu_tests/benchmark/readme_perf_table.py` (a regex with backslashes
+  inside an f-string expression, moved into a variable, same output) and `sharpness.py` (variable `l`), plus ruff
+  format; codespell and file-format fixes in `webgpu_notes/work/`; clang-format of
+  `webgpu_texture3d_array_inc.glsl` (macro continuation spacing only). §3 trap 75.
+- **#21's merge, the GCC sanitizer editor failed to link** (run 40315006599; every other job green): the SCU build
+  never compiled `tests/editor/project_manager/test_engine_update_label.cpp`. Fixed in #22 (`f11d75f5d4`) by adding
+  `"/editor/project_manager"` to the tests unit in `scu_builders.py`. §3 trap 74.
+- **#22's merge: all green** (run 40321431357), release drafted as `main-41def1729690f515f19130b4a4dc099b80c80416`.
+  The #21 run drafted `main-7509fee2ab8bd18b08a07075771712d621ad9fa9` too, since `draft-release` does not wait for the
+  sanitizer editors (#20's design); its artifacts are the same.
+- The 🧪 WebGPU Tests runs for #20 (a repeat), #21 and #22 were cancelled by request; the last complete one passed on
+  #20 earlier the same day. Neither fix changes anything that workflow exercises (formatting, a benchmark
+  report script, the SCU folder list).
 
 ## 5. References — retired docs
 
