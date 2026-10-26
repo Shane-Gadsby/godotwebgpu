@@ -263,6 +263,8 @@ These work in every export, not only on the web. Full documentation is on the
   - The loading screen text can be set for each loading stage.
 - **Warnings reach the console as warnings:** `WARN_PRINT` goes to `console.warn` instead of being reported as an
   error.
+- **Camera white balance:** `CameraAttributes` has a color temperature in Kelvin and a green-magenta tint, with a real
+  camera's meaning (3200 K makes a tungsten-lit scene neutral), in Forward+, Mobile and Compatibility, web included.
 - **MetaHuman importer** (experimental): importing `head.dna` brings in the whole character. The face rig is evaluated
   by OpenRigLogic, and clothing and hair grooms come with it.
 

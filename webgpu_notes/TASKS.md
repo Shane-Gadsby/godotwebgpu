@@ -345,7 +345,7 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
-**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 25 is recorded in §2.33.
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–71 are the day's. Work tasks 24–27 (white balance, MetaHuman skin, the strand NaN / DOF hexagon, FSR 2's uniform mismatch on web exports) went out the same day; 26 closed as §4.41, 24 as §4.42, 25 is recorded in §2.33.
 
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
@@ -4296,12 +4296,43 @@ it, and an unproven value). Merged `0f0dfd50fe`.
   DOF fix alone the NaN is still at the same 3 positions but no black reaches the face. WebGPU (Chrome, real adapter,
   Forward+): 0 before and after (the NaN does not occur there).
 - **Tests:** `webgpu_tests/dof_nan/run.sh` (Forward+ compute and Mobile raster, every bokeh mode: 18/24 failed before,
-  24/24 after; lead rerun 0 failures), Forward+ matrix arm `dof_nan` (83 arms; WebGPU FAIL 1.068 → PASS 0.001, parity
+  24/24 after; lead rerun 0 failures), Forward+ matrix arm `dof_nan` (84 arms with §4.42's; WebGPU FAIL 1.068 → PASS 0.001, parity
   0.003), `webgpu_tests/metahuman/nan_check.gd` in `run.sh` (lead rerun: verify and nan 0 failures, after a fresh
   import, §3 trap 71). Smoke on the merged tree: 276 modules, 0 invalid.
 - **Open:** glow, SSR and auto-exposure would still spread a NaN; whether to guard them too is the user's call (default
   no, until a report). The user's camera-sim needs a **Reimport** of `scenes/Ava/head.dna` for the strand clamp; the
   DOF fix alone already prevents the hexagon.
+
+### 4.42 Camera white balance on CameraAttributes (October 2026) *(work task 24)*
+
+User request (2026-10-26): a White Balance attribute on `CameraAttributesPhysical` and `CameraAttributesPractical`, as on
+a real camera. Merged `449f085aa6`. Added on the shared base `CameraAttributes` (both inherit it, and exposure already
+lives there): `white_balance_temperature` (Kelvin, 1000–15000, default 6500) and `white_balance_tint` (-1..1, default
+0), plus `RenderingServer.camera_attributes_set_white_balance(rid, temperature, tint)`. User wiki page: Engine
+Additions → Camera White Balance.
+
+- **Model** (`camera_attributes_storage.cpp`): camera semantics, the temperature is the illuminant the camera is set
+  for. Illuminant on the Planckian locus with the Krystek approximation `Light3D` already uses for
+  `light_temperature`, tint along the isotherm at 0.05 Duv per unit (Unreal's `WhiteTint` scale; positive = magenta
+  image, as in Lightroom), von Kries adaptation in Bradford cone space onto the same model's 6500 K / tint 0 white. So
+  the default is exactly the identity, and a light of temperature T under a white balance of T renders exactly like the
+  default 6500 K light.
+- **Plumbing:** `RendererCameraAttributes::white_balance_compute_gains()` computes three cone gains on the CPU; the
+  shaders apply linear sRGB → LMS, the gains, LMS → linear sRGB with constant matrices, so only 12 bytes cross. Forced
+  by the Forward+ tonemap push constant, 112 bytes against Vulkan's 128-byte guarantee: a 3x3 does not fit, the gains
+  do (**now exactly 128, no headroom**, with a `static_assert`). Applied in linear scene-referred color after exposure,
+  FXAA and pre-tonemap glow, before tonemapping; the softlight glow is balanced on its own. Skipped at exactly 6500 K /
+  0: Forward+ push-constant flag bit 7; Mobile spec constant 18 `use_white_balance` (`TONEMAP_MOBILE_ADRENO_BUG` moved
+  to bit 19); Compatibility a `vec4` in the Tonemap UBO behind a uniform branch, at both exposure sites in `scene.glsl`
+  and in `sky.glsl`.
+- **Interface references regenerated on purpose:** the only change is override id 18 in the `tonemap_mobile` fragment
+  variants (lead check: the scan reference's 1,743-line diff is renumbering; per module, only that fact is new).
+- **Verified:** default bit-identical to the pre-change editor in all three renderers on the 4080 SUPER and lavapipe
+  (0 of 57,600 pixels); 3200 / 10000 K and ±0.5 tint within 1/255 of the model in all three and on WebGPU; WebGPU
+  frames pixel-identical to native Vulkan; Forward+ arm `white_balance` (3200 K, tint 0.2); smoke 276/276 on the merge.
+- **Known gap:** Compatibility does not white balance a `BG_CANVAS` background (copied with exposure only).
+- **User decisions** on the hand-offs page (`wb-tint-units`, `wb-model`, `wb-range`, `look-white-balance`), shipped
+  with the defaults: -1..1 at 0.05 Duv, Planckian everywhere, 1000–15000 K.
 
 ## 5. References — retired docs
 

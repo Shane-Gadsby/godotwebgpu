@@ -4,7 +4,7 @@
 
 | task | what | owner |
 |---|---|---|
-| 24 | White Balance (temperature + tint) on CameraAttributesPhysical and CameraAttributesPractical, all three renderers and the web | worker-24 |
+| 24 | White Balance (temperature + tint) on CameraAttributesPhysical and CameraAttributesPractical, all three renderers and the web | worker-24 (retired); **merged `449f085aa6`** (fp_scene.gd conflict with 26: both arms kept, 84); lead smoke OK, scan-reference diff checked (only override 18); TASKS §4.42; 84-arm parity pending |
 | 25 | MetaHuman skin looks coarse, pores and follicles huge: find the cause, fix it in the importer/shader | worker-25 (retired); **merged `fd53d6d657`**: pore map tiled 16x per UV unit on every mesh, now scaled to UV density (1.2 cm); lead: merged editor (`../godotwebgpu-lead`), metahuman --shots 0 failures; TASKS §2.33, trap 72; WebGPU after-capture and user look pending |
 | 26 | MetaHuman strand shader writes a NaN (camera-sim, 4.80 m / 1.63 m), bokeh DOF spreads it into a black hexagon: fix the source and make DOF NaN-proof | worker-26 (retired); **merged `0f0dfd50fe`**: zero-width lash tips, `pow()` of -1e-9; lead smoke OK, dof_nan 0 failures, metahuman verify + nan 0 failures after a fresh import (trap 71: `run.sh` now reimports when the editor is newer); TASKS §4.41, traps 70–71; full 83-arm parity pending |
 | 27 | FSR 2 on a web export: "Mismatch uniform type ... Expected 'Image', supplied: 'StorageBuffer'" every frame, FSR 2 draws nothing | worker-27 |
