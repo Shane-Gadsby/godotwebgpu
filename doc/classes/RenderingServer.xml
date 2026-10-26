@@ -117,7 +117,7 @@
 			<param index="1" name="temperature" type="float" />
 			<param index="2" name="tint" type="float" />
 			<description>
-				Sets the white balance of the camera attributes: [param temperature] is the color temperature in Kelvin the camera is balanced for and [param tint] the green-magenta correction from [code]-1.0[/code] to [code]1.0[/code]. These parameters take on the same meaning as [member CameraAttributes.white_balance_temperature] and [member CameraAttributes.white_balance_tint]. [code]6500.0[/code] and [code]0.0[/code] disable white balance.
+				Sets the white balance of the camera attributes: [param temperature] is the color temperature in Kelvin the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code], and [param tint] the green-magenta correction from [code]-150.0[/code] to [code]150.0[/code]. Values outside these ranges are clamped. These parameters take on the same meaning as [member CameraAttributes.white_balance_temperature] and [member CameraAttributes.white_balance_tint]. [code]6500.0[/code] and [code]0.0[/code] disable white balance.
 			</description>
 		</method>
 		<method name="camera_create">

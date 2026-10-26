@@ -194,7 +194,7 @@ export const FEATURES = [
   // blanked a whole hexagon (1.07 natively; 0.0013 after). Off and on both have the far blur.
   { id: 'dof_nan', cat: 'post', label: 'Depth of field keeps a NaN pixel to itself', minDelta: 0, maxDelta: 0.05 },
   { id: 'auto_exposure', cat: 'post', label: 'Auto exposure', minDelta: 11.6 },
-  // CameraAttributes white balance, an engine addition (3200 K, tint 0.2 against the 6500 K default). Native
+  // CameraAttributes white balance, an engine addition (3200 K, tint 30 against the 6500 K default). Native
   // lavapipe measured 48.1 (2026-10-26), floor at a third of it.
   { id: 'white_balance', cat: 'post', label: 'White balance (CameraAttributes)', minDelta: 16.0 },
   // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's

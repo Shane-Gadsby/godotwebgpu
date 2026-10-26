@@ -1,10 +1,11 @@
 extends Node3D
-## White balance check: a grey card (albedo 0.5) under a white directional light, linear tonemap, no ambient.
-## Prints "[WB] <temp> <tint> r g b" (0-255, centre of the card) for each setting and saves the frames.
+## White balance check: a gray card (albedo 0.5) under a white directional light, linear tonemap, no ambient.
+## Prints "[WB] <temp> <tint> r g b" (0-255, center of the card) for each setting and saves the frames.
 ## Left half of the frame: the card. Right half: an emissive patch of linear (1, 0.5, 0.25) to show a
 ## saturated colour through the same transform.
 
-const SETTINGS := [[6500.0, 0.0], [3200.0, 0.0], [10000.0, 0.0], [6500.0, 0.5], [6500.0, -0.5]]
+# Tint is -150..150 at 1/3000 Duv per unit (task 29); 75 is the old 0.5, 30 the old 0.2 of the Forward+ arm.
+const SETTINGS := [[6500.0, 0.0], [3200.0, 0.0], [10000.0, 0.0], [6500.0, 75.0], [6500.0, -75.0], [3200.0, 30.0]]
 var attrs: CameraAttributesPractical
 var out_dir := ""
 
