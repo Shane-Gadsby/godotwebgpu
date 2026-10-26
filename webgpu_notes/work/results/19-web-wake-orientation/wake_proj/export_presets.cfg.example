@@ -104,4 +104,3 @@ html/canvas_resize_policy=2
 html/orientation=1
 html/fullscreen_on_first_tap=false
 progressive_web_app/enabled=false
-

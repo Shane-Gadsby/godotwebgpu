@@ -29,7 +29,7 @@ into the scene:
   scene offers that exercise different effects (look at the scene and its scripts to find them). If the scene is
   animated or interactive, hold the camera/time fixed the way LIVE_REPRO_METHODOLOGY describes, or capture at a fixed
   frame number on both sides; say in SUMMARY how the pairs were aligned.
-- Each pair as one side-by-side PNG (native left, WebGPU right, labelled), max ~1600 px wide, in
+- Each pair as one side-by-side PNG (native left, WebGPU right, labeled), max ~1600 px wide, in
   `results/18-camerasim-look/looks/`.
 - Also record per view the mean absolute difference, the web console's errors/warnings (and the shader stats line:
   baked / translated), and the export's load time.

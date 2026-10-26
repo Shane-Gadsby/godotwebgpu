@@ -6,7 +6,7 @@
 the `webgpu_wgsl_backend` SCons option and the `WGSL_BACKEND` build.sh switch are gone; SPIRV-Cross's WGSL backend is
 the only SPIR-V → WGSL converter (runtime, precompile, export bake, tests). The host tool is `bin/wgsl_convert_cli`,
 built by `drivers/webgpu/wgsl_cli/build.sh` (C++17 now, ~210 objects instead of ~570; Tint objects were 2/3 of a cold
-CLI build). `WGSL_DEBUG_DUMP_PREPROCESSED` replaces `TINT_DEBUG_DUMP_PREPROCESSED` (old name honoured for one release),
+CLI build). `WGSL_DEBUG_DUMP_PREPROCESSED` replaces `TINT_DEBUG_DUMP_PREPROCESSED` (old name honored for one release),
 `WGSL_CONVERT_CLI` replaces `TINT_CONVERT_CLI` in the tiers, `--skip-wgsl-cli` replaces `--skip-tint-cli` in
 build-linux.sh (old flag still accepted). The web templates did not change size: since the swap started the default
 backend was already SPIRV-Cross, so no Tint was linked into them; the saving is build time (384 Tint TUs per variant

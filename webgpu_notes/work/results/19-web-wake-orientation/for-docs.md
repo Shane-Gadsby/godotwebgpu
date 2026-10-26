@@ -18,7 +18,7 @@
   Sensor Landscape / Sensor Portrait / Sensor), default Project Setting. Anything else is written into the exported
   `project.binary` as `display/window/handheld/orientation` (`get_custom_project_settings()`, as iOS does), so the
   engine applies it — no GODOT_CONFIG key, works with custom shells. The PWA manifest follows the same resolved
-  orientation; `progressive_web_app/orientation` is hidden and only honoured for old presets (Landscape/Portrait →
+  orientation; `progressive_web_app/orientation` is hidden and only honored for old presets (Landscape/Portrait →
   Sensor Landscape/Portrait) while `html/orientation` is Project Setting. The manifest's `display` CLAMP read past
   its 4-entry array (clamped to 4) and is fixed (0..3).
 - *Performance:* every adapter request already asked for `powerPreference: 'high-performance'` except the
@@ -27,7 +27,7 @@
 - All refusals (no API, hidden page, lock outside fullscreen, desktop) are silent unless `--verbose`, where they are
   printed with the browser's reason (`GodotRuntime.print`), never `console.error`/`warn`.
 
-**Behaviour change to note:** a project that never set `display/window/handheld/orientation` gets the default,
+**Behavior change to note:** a project that never set `display/window/handheld/orientation` gets the default,
 Landscape, so on a phone the export now locks to landscape when it enters fullscreen, and an installed PWA's manifest
 says `landscape-primary` instead of `any`. That is what native Android does with the same project; set the project
 setting (or `html/orientation`) to Sensor for the old free rotation.

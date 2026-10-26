@@ -31,7 +31,7 @@ for task 12, since Android runs Forward Mobile. No patch from this task (see "SS
   Before every launch it checks: no SCons, load, VRAM, GPU utilization, and no Oblivion/LM Studio in nvidia-smi.
   A failed check makes it wait. A game that starts mid-launch marks that log CONTAMINATED, and the summarizer drops it.
   The script resumes where it stopped. **`summarize.mjs <out>`** prints mean ± half range plus the median.
-  `gpu_time.mjs` now prints the adapter, so a log taken on swiftshader is recognisable.
+  `gpu_time.mjs` now prints the adapter, so a log taken on swiftshader is recognizable.
   For Firefox/Android: the gpu_time.mjs launch is Chromium/Playwright only, so tasks 11/12 need their own launcher
   (raw CDP for the Razr). The rotation, the prechecks and the log format carry over.
 - Runs: 3 per config per scene (heavy baked: 5), one session 13:00 to 13:55. Adapter `nvidia/lovelace RTX 4080

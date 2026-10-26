@@ -36,9 +36,9 @@ Not part of the converter swap; run on the same board. An engine addition, so it
 ## Verification
 
 - Native editor builds (`dev_build=yes`; also `local_ci.sh --dev-mode`'s warning flags on the changed files).
-- A scratch scene with a neutral grey card and a white light: 6500 K bit-identical to before the change; 3200 K and
+- A scratch scene with a neutral gray card and a white light: 6500 K bit-identical to before the change; 3200 K and
   10000 K move the card's RGB the way the chosen model predicts (numbers in SUMMARY.md); the same on Vulkan Forward+,
   Mobile, Compatibility and the WebGPU export.
-- `run_forward_plus.mjs --parity --feature white_balance` (and a few neighbours) passes under the `gpu` lease;
+- `run_forward_plus.mjs --parity --feature white_balance` (and a few neighbors) passes under the `gpu` lease;
   `webgpu_notes/work/smoke.sh` passes.
 - Frame pairs (3200 / 6500 / 10000 K, native beside WebGPU) in `results/24-white-balance/looks/` for the hand-offs page.

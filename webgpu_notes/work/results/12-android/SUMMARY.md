@@ -157,4 +157,3 @@ both sides.
 Known noise in benchmark_postfx: the project's autoload `res://benchmark_profiler.gd` is missing from
 `webgpu_tests/benchmark/godot/`, which costs 3 errors per launch in both configs. It was already broken before the
 swap.
-

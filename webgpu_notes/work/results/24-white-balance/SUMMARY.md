@@ -55,7 +55,7 @@ State: ready-for-integration (branch `work/24`, worker-24, 2026-10-26)
 - **Forward+ matrix**
   - `run_forward_plus.mjs --parity` full run: **83/83 PASS**, unbaked. `white_balance` delta 48.141, native diff
     off 0.002 / on 0.004.
-  - Neighbours run baked and unbaked (tonemap, tonemap_exposure, adjustments, glow, fxaa, debanding, auto_exposure,
+  - Neighbors run baked and unbaked (tonemap, tonemap_exposure, adjustments, glow, fxaa, debanding, auto_exposure,
     white_balance): 8/8 PASS each. The baked run used 442 baked shaders.
 - **smoke.sh**:
   ```
