@@ -70,6 +70,21 @@ Arms marked `parityOnly` in `features.mjs` exist for this mode alone: their
 correct "on" frame equals the "off" frame (`sdfgi_camera_move` flies the camera
 away and back; SDFGI must end up exactly where it started).
 
+Occlusion culling's correct "on" frame also equals its "off" frame, but there
+the point is what was *not* drawn. Its arm sets `maxDelta` (the frame must not
+change) and `infoDrop: { objects: 15 }`: the fixture prints `[FP] INFO
+objects=.. primitives=.. draws=..` (`Viewport.get_render_info`) for every
+captured frame, writes the same to `<id>_<0|1>.info` natively, and the harness
+requires "on" to draw at least 15 fewer objects than "off", on the web and, in
+parity mode, natively.
+
+An arm can carry `knownFail: '<why>'`: a web failure that is understood and out
+of this port's reach. It runs, reports `KNOWN` and does not fail the run; if
+it starts passing it reports `XPASS` and fails, so the marker goes with the
+bug. The one today is `occlusion_culling`: web templates are built without the
+raycast module (`platform/web/detect.py`, upstream GH-70621), so the web has
+no occlusion culler at all. The frame is right; nothing is culled.
+
 Natively, `--fp-only=a,b` limits the reference sweep, for triage:
 
 ```bash
@@ -130,11 +145,8 @@ two edits that cannot drift apart:
 
 `UNCOVERED` is the honest escape hatch, not a dumping ground: each entry must
 say *why*, and anything whose reason stops being true belongs in the matrix.
-It currently holds LightmapGI (needs editor-baked data), occlusion culling (a
-correct result is pixel-identical, so an A/B delta cannot see it — it needs a
-draw-call assertion instead), multiview and VRS (absent from WebGPU by design),
-CompositorEffect (no engine behavior to assert), and three that genuinely
-should be added: FogVolume nodes, stencil, and bent normals.
+It holds only what WebGPU cannot have: multiview, VRS, and MSAA 2x/8x (the
+spec allows 1 and 4 samples).
 
 ### On upstream syncs
 
@@ -198,7 +210,16 @@ pinned with a fixed seed and fixed step so their A/B is reproducible.
 Everything is built procedurally in GDScript rather than committed as a `.tscn`
 with binary resources — a skinned mesh, blend shapes, a MultiMesh and a
 generated LOD chain cannot be expressed in text otherwise, and binary fixtures
-rot silently across upstream syncs.
+rot silently across upstream syncs. The exceptions are what a shipped project
+gets from the editor rather than at run time: the LOD mesh (`make_lod_mesh.gd`),
+VoxelGI's data (`make_bake_assets.gd`) and the lightmap. `lightmap_room.tscn` is
+a small room parked at x = -60, baked by `./bake_lightmap.sh`: `LightmapGI.bake()`
+is not exposed to scripts and the lightmapper needs a GPU, so the script runs
+the editor under Xvfb with Vulkan on a scratch copy of the project, with a
+throwaway plugin that presses the 3D toolbar's own "Bake Lightmaps" button,
+and copies back `lightmap_room.{tscn,lmbake,exr,exr.import}` (about 150 KB).
+Re-run it after changing the room. The compositor arm's effect lives in
+`fp_compositor_effect.gd`.
 
 If a feature fails *with driver errors*, the harness reloads the page before
 continuing: a broken texture leaves its uniform sets invalid and keeps erroring
