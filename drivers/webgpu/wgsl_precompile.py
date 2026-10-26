@@ -285,19 +285,20 @@ GENERAL_DEFINES_FSR2 = (
 # Texture blit defines (texture_storage.cpp's _tex_blit_shader_initialize()).
 GENERAL_DEFINES_TEX_BLIT = "\n#define SAMPLERS_BINDING_FIRST_INDEX 4\n#define MAX_GLOBAL_SHADER_UNIFORMS 256\n"
 
-# FSR2 declares two independent capability axes, and this script always
-# precompiles for the WebGPU driver, where both are false:
-#   RD::SUPPORTS_HALF_FLOAT        -> no FFX_HALF variant is ever declared.
+# FSR2 declares two independent capability axes, one shader group per answer
+# (fsr2.cpp), and this script always precompiles for the WebGPU driver, where
+# both are false, so only those groups are ever enabled:
+#   RD::SUPPORTS_HALF_FLOAT        -> the FFX_HALF groups are never enabled.
 #     Its 16-bit integer types cannot be expressed in WGSL at all (WGSL has
 #     f16 but no integer narrower than 32 bits), so no converter can take them --
 #     see webgpu_notes/TASKS.md Task 26.
-#   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS variant is the
-#     one declared, for the four passes that have the axis at all: the
+#   RD::SUPPORTS_IMAGE_ATOMIC_32_BIT -> the NO_IMAGE_ATOMICS group is the
+#     one enabled, for the four passes that have the axis at all: the
 #     luminance pyramid (SPD's counter) and the three that touch the
 #     reconstructed previous depth (reconstruct, depth clip, lock), which keep
 #     those resources in storage buffers instead. WGSL has no texture atomics,
 #     so the image-atomics variant cannot be translated either.
-# Only the variants the WebGPU renderer actually declares are listed below.
+# Only the variants the WebGPU renderer actually enables are listed below.
 FSR2_NO_IMAGE_ATOMICS = "\n#define NO_IMAGE_ATOMICS 1\n"
 # The luminance pyramid's fallback variant also builds SPD without wave
 # operations (fsr2.cpp explains why); it must match that mode string exactly
@@ -806,7 +807,7 @@ SHADER_REGISTRY = [
 
     # ── FSR2 ────────────────────────────────────────────────────────
     # One entry per pass, carrying only the variants the WebGPU renderer
-    # declares -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
+    # enables -- see FSR2_NO_IMAGE_ATOMICS' comment for the two capability
     # axes and why the others cannot be translated at all.
     ("servers/rendering/renderer_rd/shaders/effects/fsr2/fsr2_depth_clip_pass.glsl",
      GENERAL_DEFINES_FSR2, [("no_image_atomics", FSR2_NO_IMAGE_ATOMICS, [COMP])]),
