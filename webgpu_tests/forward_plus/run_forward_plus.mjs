@@ -59,8 +59,9 @@ const SCENE_DIR = DIR_ARG || join(__dirname, BAKED ? 'export_baked' : 'export');
 // The fixture builds materials in GDScript, so a few shaders legitimately translate at runtime. Measured 117 at boot
 // once the work/21 arms added their own GDScript-built shaders (14 scene-shader materials x 8 groups, the trail
 // ribbon's and skinned strip's among them, plus a fog shader, a trail process material and the compositor's compute
-// shader); it was under 80 before. A broken bake translates the ~440 baked shaders too, far past this.
-const TRANSLATED_CEILING = 130;
+// shader); it was under 80 before. 133 once work task 26's dof_nan arm added its GDScript-built NaN material
+// (2026-10-26). A broken bake translates the ~440 baked shaders too, far past this.
+const TRANSLATED_CEILING = 150;
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm',
