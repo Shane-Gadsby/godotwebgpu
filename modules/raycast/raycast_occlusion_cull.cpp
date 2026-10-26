@@ -474,7 +474,14 @@ void RaycastOcclusionCull::Scenario::update() {
 
 	dirty = false;
 	commit_done = false;
+#ifdef THREADS_ENABLED
 	commit_thread->start(&Scenario::_commit_scene, this);
+#else
+	// Without threads, Thread::start() does nothing and is_started() stays false, so the scene was never committed
+	// nor swapped in, and nothing was ever culled (web nothreads templates). Commit here and use it at once.
+	_commit_scene(this);
+	current_scene_idx = next_scene_idx;
+#endif
 }
 
 void RaycastOcclusionCull::Scenario::_raycast(uint32_t p_idx, const RaycastThreadData *p_raycast_data) const {

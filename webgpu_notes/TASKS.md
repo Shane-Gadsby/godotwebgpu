@@ -2459,6 +2459,47 @@ validator rejects ("Expected component type of Value to be different"). Since `r
 (§4.36), the probe's legacy (frozen) path is rejected, so `run_spec_ops.sh` should report it as a new failure. Run it
 once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 session.
 
+### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `MEASURED 2026-10-26` — works; default left to the user
+
+Web templates leave out the raycast module, as stock Godot does (`platform/web/detect.py`, upstream GH-70621: memory
+and binary size), so the web had no occlusion culler and the Forward+ matrix's `occlusion_culling` arm was KNOWN
+(29 -> 29 objects); `features.mjs` now marks it `needsRaycast`, KNOWN only against a template without the module. It is a build option, not a port problem: `module_raycast_enabled=yes` (or
+`build-linux.sh --web-raycast`) builds Embree under Emscripten 6.0.9 with no Embree patch (its SCsub already passes
+`-msimd128` and the SSE defines on web, and patch 0003 already reads the thread count from the browser).
+
+**One engine fix was needed, and it is an upstream bug**: `RaycastOcclusionCull::Scenario::update()` commits the
+Embree scene on a `Thread`, and in a `threads=no` build `Thread::start()` is an empty stub, so the scene was never
+committed nor swapped in and nothing was ever culled. Fixed by committing synchronously without `THREADS_ENABLED`
+(`modules/raycast/raycast_occlusion_cull.cpp`; §3 trap 69). Embree itself gets `threads=1` on the web
+(`get_processor_count()` is capped at 2), so it never spawns pthreads of its own.
+
+Measured (RTX 4080 SUPER, Chrome, release templates built at one commit, only the module differing):
+
+| | nothreads | threads |
+|---|---|---|
+| .wasm raw / gzip / brotli | +1.00 / +0.23 / +0.17 MiB (40.99 -> 41.99 raw) | +1.03 / +0.24 / +0.17 MiB |
+| heap at startup and with 576 occluders active | no change (138 / 166 MB, heavy scene 286 / 412 MB) | no change |
+| load to first `_ready` (5 loads each) | 5186 vs 5186 ms | — |
+| matrix arm | 29 -> 8, parity 0.002, as native; 82/82 `--parity` and `--parity --baked` | (fixture exports nothreads) |
+| scene smoketest | 23/23 Chrome, 23/23 Firefox | — |
+
+`webgpu_tests/occlusion_bench/` (24x24-block city, 20k props with their own materials, uncapped, main-thread ms per
+frame in a nothreads export = the whole engine frame):
+
+| view | culling off | on (default 900 rays) | on, `rays=4096` |
+|---|---|---|---|
+| street (mostly occluded): ms / objects / fps | 7.85 / 6229 / 107 | 5.00 / 3334 / 147 | 3.03 / 1381 / 147 (off run: 8.87) |
+| top (nothing to cull): ms | 19.0 | 21.1 (+2.1) | 21.7 (+1.7) |
+
+The occlusion buffer is `rays per thread x WorkerThreadPool threads`, clamped to at least one ray per 32x32 px: a
+nothreads export gets 900 rays (40x22 at 1280x720) where a 24-thread desktop gets 12 288, so it culls less than native
+(street 6229 -> 3334 here, native 2329 -> 257 in the light scene) but costs less. A threaded export renders on its own
+thread (§2.5); there the render thread's measured CPU time went 7.44 -> 2.36 ms on the street and 9.94 -> 10.54 ms on
+top. The cost when nothing is occluded is the per-instance HZ test, ~0.1 us per object in frustum. GPU time was not the
+limit in any case on this card (street 0.81 -> 0.35 ms).
+
+Open: the user's decision on the default (on, off, or opt-in); upstreaming the nothreads fix.
+
 ---
 
 ## 3. Traps and lessons — read before debugging
@@ -2904,6 +2945,13 @@ was byte-for-byte what native had rendered the day before. The native editor was
 and framebuffer color output mask (0)") and native SDFGI picked up extra bounce light. Moving the cache aside gave 0 errors
 and SDFGI 0.027 again. `run_forward_plus.mjs` now deletes that cache before rendering the reference. Lesson: when a parity
 arm fails, compare the web frame with an older *native* frame first; the reference can be the side that moved.
+
+69. **In a `threads=no` build `Thread::start()` does nothing, silently** (2026-10-26). `core/os/thread.h`'s no-threads
+`Thread` is a stub: `start()` returns at once and `is_started()` stays false, so code that hands work to a `Thread`
+and polls for it never runs that work. The raycast module's occlusion culler committed its Embree scene that way,
+so a nothreads web template with the module raycast every frame against nothing and culled nothing, with no error
+(§2.45). Any `Thread` in code that can run in a nothreads template needs a synchronous `#ifndef THREADS_ENABLED` path;
+`WorkerThreadPool` is fine (it runs tasks inline).
 
 ---
 

@@ -120,6 +120,7 @@ FORCE_SHADER_REBAKE=0
 SKIP_EDITOR_PLUGINS=0
 PLUGINS_ONLY=0
 GDSCRIPT_BRACES="yes"
+WEB_RAYCAST="no"
 USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
@@ -152,6 +153,10 @@ Usage: ./build-linux.sh [options]
                             braced GDScript (.gdb) support (gdscript_braces=no;
                             it is on by default). Also skips the editor plugins,
                             which need a braced editor.
+  --web-raycast             Build the web templates with the raycast module
+                            (Embree: occlusion culling), module_raycast_enabled=yes.
+                            Off by default on the web, as upstream (GH-70621):
+                            it costs download size and heap (TASKS.md 2.45).
   --skip-editor-plugins     Don't build the Rider plugin or the VS Code .vsix.
   --plugins-only            Build ONLY the Rider plugin and the VS Code .vsix
                             (no prerequisites, no SCons, no templates); safe
@@ -201,6 +206,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--no-gdscript-braces)
 			GDSCRIPT_BRACES="no"
+			shift
+			;;
+		--web-raycast)
+			WEB_RAYCAST="yes"
 			shift
 			;;
 		--skip-editor-plugins)
@@ -938,7 +947,7 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 
 				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
 				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
-					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" -j"$JOBS"
+					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" module_raycast_enabled="$WEB_RAYCAST" -j"$JOBS"
 
 				scons_zip="bin/godot.web.${target}.wasm32"
 				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"

@@ -51,6 +51,11 @@
  *                         side that no longer does what the arm needs still
  *                         fails, and an arm that starts passing reports XPASS
  *                         and fails, so the marker is removed with the bug.
+ *
+ *   needsRaycast: 'why' -- the arm needs the raycast module (occlusion culling).
+ *                         Against a template built without it (the web
+ *                         default), run_forward_plus.mjs turns this into
+ *                         knownFail; against one built with it, a normal arm.
  */
 
 // Default parity tolerance: well above what identical work measures across the
@@ -155,9 +160,12 @@ export const FEATURES = [
   // wall), the frames identical to 0.000.
   { id: 'occlusion_culling', cat: 'mesh', label: 'Occlusion culling (OccluderInstance3D)', minDelta: 0, maxDelta: 0.02,
     infoDrop: { objects: 15 },
-    knownFail: 'web templates are built without the raycast module (platform/web/detect.py, module_raycast_enabled False, ' +
-      'upstream GH-70621: Embree is too heavy for wasm), so there is no occlusion culler on the web at all, in stock ' +
-      'Godot either: the frame is right, nothing is culled (29 objects off and on). Not a WebGPU defect.' },
+    // A web template has an occlusion culler only when built with module_raycast_enabled=yes (Embree; off by default in
+    // platform/web/detect.py, as upstream: GH-70621). Against one built without it this arm is KNOWN with this reason
+    // (run_forward_plus.mjs checks the export's wasm), against one built with it a normal arm: 29 -> 8, as natively.
+    needsRaycast: 'this web template was built without the raycast module (module_raycast_enabled=no, the web ' +
+      'default in platform/web/detect.py, upstream GH-70621), so there is no occlusion culler: the frame is right, ' +
+      'nothing is culled (29 objects off and on). Build the template with module_raycast_enabled=yes.' },
 
   // ---- particles ----
   { id: 'gpu_particles', cat: 'particles', label: 'GPU particles', minDelta: 3.14 },
