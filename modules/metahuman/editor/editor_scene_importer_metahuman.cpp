@@ -587,6 +587,52 @@ HashMap<int, MeshInfo> _mesh_infos(Context &p_ctx, const String &p_role) {
 	return infos;
 }
 
+// Scales the skin's tiling pore normal to the mesh. The map repeats in UV space, and the body's UVs
+// cover ~3.4x more skin per unit than the face's (Ava: median 1.34 against 0.40 m per UV unit), so a
+// fixed tiling gave the body pores 3.4x the face's size. One repeat covers
+// `metahuman/materials/skin_detail_size` of skin (1.2 cm: the map's ~1,300 pore marks per repeat then
+// land at ~900 per cm², the face's follicle density, and its detail sits below the ~1 mm the baked 8K
+// normal resolves; webgpu_notes/work/results/25-metahuman-skin-coarse). The median per-triangle
+// density is used, so the densely triangulated face, not the scalp or neck, sets the size.
+// The detail also fades out at the end of LOD 0, as Unreal turns it off from face LOD 1.
+void _fit_skin_detail(Context &p_ctx, const Ref<Material> &p_material, const Array &p_arrays, float p_lod0_end) {
+	const Ref<ShaderMaterial> material = p_material;
+	if (material.is_null()) {
+		return;
+	}
+	const PackedVector3Array vertices = p_arrays[Mesh::ARRAY_VERTEX];
+	const PackedVector2Array uvs = p_arrays[Mesh::ARRAY_TEX_UV];
+	const PackedInt32Array indices = p_arrays[Mesh::ARRAY_INDEX];
+	if (uvs.size() != vertices.size()) {
+		return;
+	}
+	LocalVector<float> densities;
+	densities.reserve(indices.size() / 3);
+	for (int i = 0; i + 2 < indices.size(); i += 3) {
+		const int a = indices[i], b = indices[i + 1], c = indices[i + 2];
+		const float area = (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a]).length();
+		const float uv_area = Math::abs((uvs[b] - uvs[a]).cross(uvs[c] - uvs[a]));
+		if (area > 0.0f && uv_area > 1e-12f) {
+			densities.push_back(Math::sqrt(area / uv_area));
+		}
+	}
+	if (densities.is_empty()) {
+		return;
+	}
+	densities.sort();
+	const float meters_per_uv = densities[densities.size() / 2];
+	const float detail_size = MAX(0.001f, p_ctx.option("metahuman/materials/skin_detail_size", 0.012f));
+	material->set_shader_parameter("detail_normal_tiling", meters_per_uv / detail_size);
+	if (p_lod0_end > 0.0f) {
+		material->set_shader_parameter("detail_fade_begin", p_lod0_end * 0.5f);
+		material->set_shader_parameter("detail_fade_end", p_lod0_end);
+	} else {
+		// A single LOD: no switch to fade at.
+		material->set_shader_parameter("detail_fade_begin", 1e5f);
+		material->set_shader_parameter("detail_fade_end", 2e5f);
+	}
+}
+
 void _add_dna_meshes(Context &p_ctx, const LoadedDNA &p_dna, const String &p_role, const float *p_default_distances, int p_default_distance_count, int p_max_lods) {
 	const dna::BinaryStreamReader *r = p_dna.reader.get();
 	const HashMap<int, MeshInfo> infos = _mesh_infos(p_ctx, p_role);
@@ -630,6 +676,9 @@ void _add_dna_meshes(Context &p_ctx, const LoadedDNA &p_dna, const String &p_rol
 			}
 			const String material_id = info.material_id.is_empty() ? dna_name : info.material_id;
 			const Ref<Material> material = _material(p_ctx, material_id, dna_name.trim_suffix("_mesh"));
+			if (lod == 0 && (info.material_type == "head" || info.material_type == "body")) {
+				_fit_skin_detail(p_ctx, material, arrays, end);
+			}
 
 			Ref<ImporterMesh> mesh;
 			mesh.instantiate();
@@ -1336,6 +1385,7 @@ void EditorSceneFormatImporterMetaHuman::get_import_options(const String &p_path
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/lods/body_lod_count", PROPERTY_HINT_RANGE, "1,4,1"), 4));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/lods/distance_scale", PROPERTY_HINT_RANGE, "0.1,10,0.01"), 1.0));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::BOOL, "metahuman/materials/subsurface_scattering"), true));
+	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/materials/skin_detail_size", PROPERTY_HINT_RANGE, "0.002,0.05,0.0005,suffix:m"), 0.012));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp", PROPERTY_HINT_ENUM, "None,Shell,Strands"), SCALP_STRANDS));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::FLOAT, "metahuman/hair/scalp_strand_fraction", PROPERTY_HINT_RANGE, "0.02,1,0.01"), 0.2));
 	r_options->push_back(ResourceImporter::ImportOption(PropertyInfo(Variant::INT, "metahuman/hair/scalp_strand_points", PROPERTY_HINT_RANGE, "4,64,1"), 10));
