@@ -485,6 +485,10 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	// downloading both. See _save_texture_packs().
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "vram_texture_compression/separate_packs"), true));
 
+	// Web templates include the raycast module (Embree), so occlusion culling works as natively. Off turns the
+	// project's occlusion culling off for this export only, saving its per-frame cost; see get_custom_project_settings().
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "rendering/occlusion_culling"), true));
+
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/export_icon"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/custom_html_shell", PROPERTY_HINT_FILE, "*.html"), ""));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/head_include", PROPERTY_HINT_MULTILINE_TEXT, "monospace,no_wrap"), ""));
@@ -616,6 +620,9 @@ HashMap<String, Variant> EditorExportPlatformWeb::get_custom_project_settings(co
 	if (overrides_project) {
 		// The engine applies it at startup (main.cpp) through DisplayServerWeb::screen_set_orientation().
 		settings["display/window/handheld/orientation"] = int(orientation);
+	}
+	if (!bool(p_preset->get("rendering/occlusion_culling"))) {
+		settings["rendering/occlusion_culling/use_occlusion_culling"] = false;
 	}
 	return settings;
 }

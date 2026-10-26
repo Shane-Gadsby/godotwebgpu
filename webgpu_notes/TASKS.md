@@ -2459,7 +2459,15 @@ validator rejects ("Expected component type of Value to be different"). Since `r
 (§4.36), the probe's legacy (frozen) path is rejected, so `run_spec_ops.sh` should report it as a new failure. Run it
 once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 session.
 
-### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `MEASURED 2026-10-26` — works; default left to the user
+### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `DONE 2026-10-26` — on by default, with an export tickbox
+
+**Decision (user, 2026-10-26):** on by default in every web template (`module_raycast_enabled` defaults to yes in
+`platform/web/detect.py`; `build-linux.sh --no-web-raycast` leaves it out), with a Web export option
+`rendering/occlusion_culling` (default on). Off overrides `rendering/occlusion_culling/use_occlusion_culling` to false
+for that export, so it saves the per-frame cost; it cannot shrink the download, since presets share one template. A
+script that sets `Viewport.use_occlusion_culling` itself still enables culling (the fixture and occlusion_bench both do,
+so neither can test the option). Checked with a minimal project that relies on the project setting: option on, 0 of 20
+occluded boxes drawn; off, 20 of 20. The measurements below are from before the decision.
 
 Web templates leave out the raycast module, as stock Godot does (`platform/web/detect.py`, upstream GH-70621: memory
 and binary size), so the web had no occlusion culler and the Forward+ matrix's `occlusion_culling` arm was KNOWN

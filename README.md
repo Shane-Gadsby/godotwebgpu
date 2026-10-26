@@ -121,8 +121,7 @@ A browser without WebGPU cannot run these exports. The web templates are built w
 
 The Forward+ test matrix renders each feature on WebGPU and on native Vulkan from the same fixture, then compares the
 frames. ✔ in the WebGPU column means the frames match within the matrix's tolerance (mean absolute difference 0.05 out
-of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 26 October 2026, passed 81 of 82 in Chrome; the one
-failure is occlusion culling, which web builds do not include. The WebGL 2
+of 255, 0.08 for SDFGI, 0.3 for FSR 2). The latest run, on 26 October 2026, passed all 82 in Chrome. The WebGL 2
 column is the Compatibility renderer, from Godot's
 [renderer comparison](https://docs.godotengine.org/en/latest/tutorials/rendering/renderers.html).
 
@@ -171,7 +170,7 @@ column is the Compatibility renderer, from Godot's
 | **Meshes and particles** | | | |
 | MultiMesh, blend shapes, mesh LOD, visibility ranges | ✔ | ✔ | ✔ |
 | Skeletal animation (GPU skinning) | ✔ | ✔ | ✔ |
-| Occlusion culling | ✔ | ✘ | ✘ (web builds have no raycast module, as in stock Godot) |
+| Occlusion culling | ✔ | ✘ | ✔ |
 | GPU particles, collision, attractors | ✔ | ✔ | ✔ |
 | Particle trails | ✔ | ✘ | ✔ |
 | Compositor effects (compute) | ✔ | ✘ | ✔ |
@@ -257,6 +256,8 @@ These work in every export, not only on the web. Full documentation is on the
 - **Web export options:**
   - `html/orientation` locks portrait or landscape.
   - `html/fullscreen_on_first_tap` switches phones to fullscreen on the first tap.
+  - `rendering/occlusion_culling` turns occlusion culling off for an export. Unlike stock Godot, the web templates
+    include Embree, so occluders cull on the web.
   - The project's `keep_screen_on` setting holds a screen wake lock.
   - Every adapter request asks for the high-performance GPU.
   - The loading screen text can be set for each loading stage.

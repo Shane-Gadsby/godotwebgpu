@@ -120,7 +120,7 @@ FORCE_SHADER_REBAKE=0
 SKIP_EDITOR_PLUGINS=0
 PLUGINS_ONLY=0
 GDSCRIPT_BRACES="yes"
-WEB_RAYCAST="no"
+WEB_RAYCAST="yes"
 USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
@@ -153,10 +153,10 @@ Usage: ./build-linux.sh [options]
                             braced GDScript (.gdb) support (gdscript_braces=no;
                             it is on by default). Also skips the editor plugins,
                             which need a braced editor.
-  --web-raycast             Build the web templates with the raycast module
-                            (Embree: occlusion culling), module_raycast_enabled=yes.
-                            Off by default on the web, as upstream (GH-70621):
-                            it costs download size and heap (TASKS.md 2.45).
+  --no-web-raycast          Build the web templates without the raycast module
+                            (Embree: occlusion culling), module_raycast_enabled=no,
+                            as upstream (GH-70621). On by default (TASKS.md 2.45);
+                            --web-raycast is accepted and does nothing.
   --skip-editor-plugins     Don't build the Rider plugin or the VS Code .vsix.
   --plugins-only            Build ONLY the Rider plugin and the VS Code .vsix
                             (no prerequisites, no SCons, no templates); safe
@@ -210,6 +210,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--web-raycast)
 			WEB_RAYCAST="yes"
+			shift
+			;;
+		--no-web-raycast)
+			WEB_RAYCAST="no"
 			shift
 			;;
 		--skip-editor-plugins)
