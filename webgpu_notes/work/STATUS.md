@@ -1,5 +1,17 @@
 # Status (lead-maintained)
 
+## 2026-10-26 — tasks 20–23 (branches `work/20`..`work/23`, no task files)
+
+| task | what | outcome |
+|---|---|---|
+| 20 | load-ramp benchmark (`benchmark/run_ramp.sh`, README perf table generator) | merged `086327c7f2`; measured on all six legs, 60/60 ramp-runs converged (`results_ramp/2026-10-26/`); traps 66–67, TASKS §2.30 |
+| 21 | Forward+ matrix 71 → 82 arms (LightmapGI via `bake_lightmap.sh`, trails, skinning, FogVolume, stencil, bent normals, SMAA, compositor, occlusion culling) | merged `4f39eb0e58`; lead full run 81/82 unbaked and baked (occlusion culling KNOWN, no culler on web); TASKS §4.39 |
+| 22 | occlusion culling on the web: raycast module (Embree) in web templates, nothreads culler fix, `occlusion_bench` | merged `b13c7bee24`; 82/82 unbaked and baked, smoketest 23/23 Chrome and Firefox; on by default with the export option `rendering/occlusion_culling` (`508f4ed3b2`); TASKS §4.38, trap 69 |
+| 23 | the day's docs: TASKS §1/§2/§4.38–4.40, CLAUDE.md (wiki), webgpu_site, webgpu_tests/README.md, docs/braced_gdscript, ProjectSettings.xml | this commit on `work/23` |
+
+Also today, by the lead: README rewritten (`6b82ff35aa`) and the GitHub wiki published (separate repo, local clone
+`../godotwebgpu.wiki`); trap 68 (stale native shader cache in the parity fixture, `8acda4dfa9`).
+
 ## 2026-10-25 20:45 — 09 and 10 integrated; Tint is gone
 
 - **09 merged** (d3cf5ff893): thirdparty/tint and every Tint path deleted, `tint_convert_cli` → `wgsl_convert_cli`.

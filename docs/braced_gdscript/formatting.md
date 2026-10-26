@@ -160,8 +160,9 @@ godot --headless --gdscript-format --stdin --stdin-path player.gdb --range 10:24
 ```
 
 `--stdin-path` names the file the text belongs to: its extension picks `.gd` or `.gdb` rules and its folder picks the
-`.editorconfig`. `--indent-style` and `--indent-size` override `.editorconfig`, which is how editors pass their own
-indentation setting. `--range <first>:<last>` (repeatable) formats only those lines, as editors do for a selection;
+`.editorconfig`; without it, standard input is formatted with `.gd` rules. `--indent-style` and `--indent-size` override `.editorconfig`, which is how editors pass their own
+indentation setting. `--range <first>:<last>` (repeatable) formats only those lines, as editors do for a selection,
+and applies only with `--stdin` (files named on the command line are always formatted whole);
 it refuses when that would leave a `.gd` file's indentation inconsistent. The exit status is 1 when a file has an
 error, or with `--check` when one would change.
 
@@ -170,7 +171,8 @@ running and send it requests on standard input: each request and each response i
 a JSON object, then the object. A request is `{"id", "path", "text", "mode", "ranges", "indent_style", "indent_size",
 "preset", "keep_lines"}`, all but `text` optional, with `mode` one of `format` (the default), `to-gd`, `to-gdb` (convert;
 `keep_lines` as `--keep-lines`) and `version`. `ranges` is a list of `[first, last]` line pairs, as `--range`. The
-answer is `{"id", "ok": true, "text"}` or `{"id", "ok": false, "line", "message"}`, in well under a millisecond; for
+answer is `{"id", "ok": true, "text"}` (plus `"note"` when the formatter fell back to formatting without trailing
+commas, alignment or wrapping, as above) or `{"id", "ok": false, "line", "message"}`, in well under a millisecond; for
 `version`, `text` is the syntax version below. The server exits when its input closes.
 
 ### Syntax version

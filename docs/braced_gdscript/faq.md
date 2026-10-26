@@ -12,7 +12,8 @@
 
 From a terminal, `godot --headless --gdscript-convert <to-gdb|to-gd> <files or folders>` writes each converted
 file next to its original. `--replace` removes the originals (and moves their `.uid` files), `--keep-lines` keeps every
-statement on the line it was on (handy for reviewing a diff), and `--stdin [--stdin-path <path>]` converts standard
+statement on the line it was on (handy for reviewing a diff), `--preset godot|js` picks the style the result is laid
+out in, and `--stdin [--stdin-path <path>]` converts standard
 input to standard output. Unlike the editor action, it does not rewrite paths in scenes, resources or other scripts.
 
 You can convert a few scripts at a time; `.gd` and `.gdb` mix freely. To go back, Convert to GDScript (.gd) writes

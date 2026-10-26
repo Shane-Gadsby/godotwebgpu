@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The Godot WebGPU backend is a complete implementation of Godot's `RenderingDeviceDriver` interface targeting the browser's WebGPU API. It enables Godot 4.6 games to run in the browser with the Forward Mobile renderer at performance parity with native builds, despite WebGPU's fundamentally different execution model.
+The Godot WebGPU backend is a complete implementation of Godot's `RenderingDeviceDriver` interface targeting the browser's WebGPU API. It enables Godot 4.8 games to run in the browser with the Forward+ (Clustered) renderer, at parity with native Vulkan on every Forward+ feature WebGPU can express (82 matrix arms, `webgpu_notes/TASKS.md` §4.39), despite WebGPU's fundamentally different execution model. Adapters with fewer than 48 sampled textures per stage fall back to Forward Mobile, the renderer this backend first shipped with on Godot 4.6.2.
 
 The implementation spans ~11,000 lines of driver-specific code across 8 files under `drivers/webgpu/`, plus ~6,000 lines of C++ SPIR-V preprocessing and SPIRV-Cross's WGSL backend (vendored and patched locally) linked directly into the engine WASM, ~1,200 lines of rendering server modifications, and ~400 lines of platform/web integration. It achieves functional parity with the Mobile renderer path while working within WebGPU's constraints: no push constants, no combined image-samplers, async-only buffer mapping, no explicit barriers, and limited format support.
 
@@ -14,7 +14,7 @@ The implementation spans ~11,000 lines of driver-specific code across 8 files un
 
 ```
 +---------------------------------------------------------------------+
-|                     Godot Engine 4.6.2                               |
+|                     Godot Engine 4.8                                 |
 |                                                                       |
 |   +---------------------------------------------------------------+  |
 |   |          RenderingDevice (Abstract Interface)                  |  |
@@ -370,6 +370,9 @@ options are `webgpu_notes/TASKS.md` §4.30 and §2.32.
 - Texture arrays: expanded to one binding per element (multiple lightmaps, VoxelGI probes, particle colliders work). Arrays past a stage's texture budget (Chrome reports exactly the 48 sampled textures Forward+ needs) stay collapsed to element 0, with a one-time warning
 - Sampler LOD bias: applied in the shader from a uniform, implicit-LOD samples only
 - Constant-alpha blend factors: emulated through the single RGBA blend constant
+
+### Different from stock Godot's web export
+- Occlusion culling: stock web templates leave out the raycast module (Embree), so nothing is culled; this fork's include it by default (+0.23 MiB gzipped wasm) and fix the culler's scene commit in `threads=no` builds. The Web export option `rendering/occlusion_culling` turns it off per export (`webgpu_notes/TASKS.md` §4.38)
 
 ### Stubs / TODOs
 - `command_resolve_texture`: unimplemented (MSAA resolve via render pass only)

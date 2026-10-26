@@ -85,8 +85,9 @@ cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
 cd webgpu_tests/webrtc_congestion && ./export.sh && ./sweep.sh
 
-# Forward+ feature matrix (needs a real GPU and a fresh ./export.sh); --parity also compares every
-# frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly:
+# Forward+ feature matrix, 82 arms (needs a real GPU and a fresh ./export.sh); --parity also compares every
+# frame against a native Vulkan render of the fixture -- the check that catches a feature rendering wrongly
+# (--feature a,b runs a subset; occlusion_culling needs a template with the raycast module, the web default):
 cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forward_plus.mjs --parity
 
 # Per-frame WebGPU call/byte budgets on the scene smoketest exports (needs a fresh export first, see TASKS.md §3):
@@ -270,6 +271,7 @@ upstream change to these files is tagged `// GDB`. Rules that cost time:
 - `webgpu_site/ARCHITECTURE_AND_DESIGN.md`, `TECHNICAL_REFERENCE.md`, `PERFORMANCE_AND_OPTIMIZATION.md`, `CORRECTNESS_AND_COMPATIBILITY.md` — in-depth docs on the areas their names suggest.
 - `webgpu_site/RAY_TRACING_DESIGN.md` — ray and path tracing on WebGPU Forward+: software BVH traversal by necessity (WebGPU has no hardware RT), the hybrid tiers (RT AO and shadows first, desktop-class opt-in, off on mobile), and the full path tracer saved for later (§7). Measured by `webgpu_tests/raytracing_probe/` (desktop 1.9–2.3 Grays/s incoherent, Razr 60 19 Mrays/s); status in `webgpu_notes/TASKS.md` §2.34.
 - `drivers/webgpu/README.md` — driver-local notes.
+- **The wiki**, https://github.com/Shane-Gadsby/godotwebgpu/wiki — the user documentation: Braced GDScript (7 pages), Box3D Physics (6), Engine Additions (12). Local clone `/mnt/109313D2109313D2/godot-editors/godotwebgpu.wiki`, a separate git repo (branch `master`) pushed on its own; the user allows pushing it, unlike this repo. User-facing docs for those three areas go there; `docs/braced_gdscript/` stays the developer reference. `README.md` links into it.
 - `webgpu_tests/screenshot_comparison/LIVE_REPRO_METHODOLOGY.md` — how to test a specific reported bug against a real Godot project (not this repo's own fixtures): scratch-copy setup, native-Vulkan screen-recording capture, WebGPU screenshot/console capture via Playwright, export-freshness verification, and reading numeric data back out of the engine for non-visual comparisons. Use this before improvising a one-off repro script.
 
 ## Godot Coding Conventions

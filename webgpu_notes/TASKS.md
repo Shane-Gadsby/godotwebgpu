@@ -38,15 +38,28 @@ lists all take drag-and-drop the same way since §4.31.
 **The SPIR-V → WGSL converter is SPIRV-Cross** as of §4.36 (2026-10-25): SPIRV-Cross's WGSL backend
 (`thirdparty/spirv-cross-wgsl`, four local patches, never upstreamed) after the same `run_pipeline()` passes, in the
 runtime, the build-time precompile, the export-time bake and every test tier. Tint is deleted (`thirdparty/tint`,
-`tint_wrapper.*`); the host tool is `bin/wgsl_convert_cli` (`drivers/webgpu/wgsl_cli/`). Forward+ parity stayed 71/71,
-and desktop Chrome, Firefox and Chrome for Android are as fast or faster. The tag `pre-SPIR-V-Cross` marks the tree
+`tint_wrapper.*`); the host tool is `bin/wgsl_convert_cli` (`drivers/webgpu/wgsl_cli/`). Forward+ parity stayed 71/71
+(every arm the matrix had then), and desktop Chrome, Firefox and Chrome for Android are as fast or faster. The tag `pre-SPIR-V-Cross` marks the tree
 before. Rebuild editor, `wgsl_convert_cli` and templates together after pulling it: an older editor looks for
 `tint_convert_cli` (§3 trap 61). Browser-side Tint (Chrome/Dawn compiling our WGSL) is untouched.
+
+**2026-10-26: the Forward+ matrix has 82 arms** (§4.39; it had 71) **and is 82/82 against native Vulkan**, unbaked and
+baked, with web templates that include the raycast module (worker-22's run, §4.38). The lead's full run earlier the same
+day, before the module was in the templates, was 81/82 unbaked and baked, `occlusion_culling` KNOWN. **Occlusion
+culling works on the web** (§4.38): the raycast module (Embree) is in every web template by default
+(`build-linux.sh --no-web-raycast` leaves it out), and the Web export option `rendering/occlusion_culling` turns it off
+per export. **The performance numbers to quote come from the load-ramp benchmark** (`webgpu_tests/benchmark/run_ramp.sh`,
+`webgpu_tests/README.md` §11; first results at the end of §2.30 and in `results_ramp/2026-10-26/ramp_summary.md`):
+`README.md`'s performance table is generated from it, and §2.17's fps matrix is superseded. **User documentation lives in
+the GitHub wiki** (§4.40), and the README was rewritten around it.
 
 ### Verified tiers
 
 | tier | result | when / where |
 |---|---|---|
+| Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, nothreads templates **with** the raycast module | **82 / 82**; `occlusion_culling` 29 → 8 objects, parity 0.002; scene smoketest 23 / 23 Chrome and Firefox | 2026-10-26, work/22, §4.38 |
+| Forward+ `--parity`, unbaked and `--baked`, full run on the 82-arm matrix, templates without the raycast module | **81 / 82** both, `occlusion_culling` KNOWN (no culler on the web then); bake gate green at the raised ceiling (translated ~117 ≤ 130, §2.39) | 2026-10-26, lead, §4.39 |
+| load-ramp benchmark (`run_ramp.sh`, 6 legs × 5 ramps × 2 runs, RTX 4080 SUPER, Chrome 156) | 60 / 60 ramp-runs converged; WebGPU Forward+ / WebGL: draws 1.23x, nodes 1.61x, fill 0.67x, lit 6.42x, particles 1.50x | 2026-10-26, `results_ramp/2026-10-26/`, §2.30 |
 | Forward+ `--parity --baked`, real GPU, Chrome, after SPIRV-Cross patch 0019 | **71 / 71** (fsr2 0.142, volumetric_fog 0.001, taa 0.006); RESULT FAIL only on the pre-existing bake gate (translated 97 > 80, §2.39) | 2026-10-25, merged swap tree, §4.36 |
 | Forward+ `--parity`, unbaked (every stage converted at runtime by SPIRV-Cross) | **71 / 71** | 2026-10-25, `62a570d31f` pair, §4.36 |
 | Firefox desktop (Linux, wgpu on Vulkan): Forward+ `--parity`, smoketest, naga | **69 / 71** with SPIRV-Cross *and* Tint (SDFGI 0.277, Firefox-only, §2.40); smoketest **23 / 23**; naga 276/276 engine variants, 2564/2566 project stages | 2026-10-25, §4.36 |
@@ -332,6 +345,8 @@ results were measured on). Playwright cannot drive the user's own Firefox build.
 
 **Added 2026-10-25 (night):** the Tint → SPIRV-Cross swap is done (§2.35 → §4.36), and so is §2.36 (→ §4.37). The swap left seven small items, none of them a regression it caused: §2.38 (move the converter smoke check out of the work board before it retires), §2.39 (the baked fixture's 97 runtime stages), §2.40 (Firefox-only SDFGI gap), §2.41 (SSS on the phone), §2.42 (FSR2's blank depth fallback), §2.43 (swizzled views), §2.44 (an invalid spec-constant probe). §3 traps 55–65 are what the swap cost.
 
+**Added 2026-10-26:** §2.45 (occlusion culling on the web) opened and closed the same day (→ §4.38). The Forward+ matrix grew to 82 arms (§4.39), the README was rewritten and the wiki published (§4.40), and the load-ramp benchmark (end of §2.30) replaced §2.17's fps matrix as the performance source; its four open questions (fill 0.67x, particles 0.31x native, how to quote lit, Firefox spread) are listed there. §3 traps 66–69 are the day's.
+
 **Pick up here (written 2026-10-16, end of the render-thread day).** Nothing is broken. In rough value order, all non-human:
 1. **§2.5 follow-ups** — `perf_guard`/`cpu_steady` cannot see the render thread (attach the CDP profiler to the worker, as the scratch `thrprof.mjs` did); the uncapped-fps artifact; decide whether Separate should become the default for threaded exports (needs more real projects, a long soak, and Safari/mobile which have never run). **§2.30** is mostly done: what is left is the JS marshaling path and command batching, both small or a redesign.
 2. **§2.16** remaining test gaps (regression corpus, error-path, async readback tests).
@@ -371,7 +386,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.28 | compute lists share one encoder | FIXED (end hook) | optional per-bind bookkeeping cleanup (the backstop is still needed within a list) |
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.30 ✔ | unbottleneck the CPU (new) | OPEN, mostly done — 2026-10-16: SSIL hoist pass, read-write storage textures, upstream shadow-atlas bug (heavy CPU −37%), prepare-for-use trait, Web Audio writes, PR #123996; heavy GPU 3.40 → 1.46 ms, 229 → 292 fps; engine wasm CPU is flat (per-function comparison, `-O2`/LTO no gain) | the JS marshaling path (~0.5 ms/frame ceiling 0.02-0.05 ms), batching a pass's commands into one JS call (driver redesign) |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 82/82 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
@@ -384,9 +399,10 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
 | 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
 | 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
+| 2.45 | Occlusion culling on the web: the raycast module in web templates (new, 2026-10-26) | **DONE 2026-10-26 → §4.38** — on by default, Web export option `rendering/occlusion_culling` | upstream the nothreads culler fix (§3 trap 69) |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
 | 2.18 | texture compression export option | **DONE 2026-10-20** — per-family texture packs, the browser fetches only the one it samples | Safari/iOS and an Android device run |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | OPEN | — |
@@ -456,7 +472,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.29 ✔ | baked export as a test tier | DONE 2026-10-15 (matrix, smoketest, WebRTC legs; deltas re-baselined) | `ambient_light` bimodal on unbaked, not chased |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
-| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | uncapped WebGL needs another harness |
+| 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
 | 2.18 | Texture compression as an export option: per-family texture packs | `DONE` 2026-10-20 | device runs (Safari/iOS, Android) |
 | 2.19 ✔ | interleaved-build stale object | OPEN (not reproduced on 4.8, 2026-10-15) | wait for a recurrence; capture `--debug=explain` |
 | 2.20 | `SUPPORTS_HALF_FLOAT` experiment | `OPEN` | 1-2 sessions, needs real GPU |
@@ -466,7 +482,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.24 | Upstream contribution of the driver | `OPEN` | **human** |
 | 2.25 | Side project: Node dedicated-server backend | not started | weeks, **human-scoped** |
 | 2.26 ✔ | Braced GDScript (`.gdb`) + editor plugins | DONE 2026-10-18 — 1.0, merged into `webgpu-4.8` (tag `gdb-1.0`); §4.33 | hand tests in Rider and the editor |
-| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 71/71 otherwise | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
+| 2.31 | Forward+ gaps WebGPU cannot close (new, 2026-10-17) | OPEN, spec-limited — parity 82/82 otherwise (2026-10-26) | re-measure omni cube shadow cost, report the `POINT_COORD` bug upstream, trace the 4x4 depth placeholder message, a lightmap/VoxelGI array test |
 | 2.32 | Sample playback's remaining gaps: bus effects, streaming (new, 2026-10-18) | OPEN, deferred by decision — warned about at export and at runtime | pick an approach (auto-route to Stream, Web Audio effect equivalents, or both); options and trade-offs in §2.32 |
 | 2.33 | MetaHuman importer: DNA rig, clothing, hair (new, 2026-10-20) | DONE 2026-10-20 — rig, clothing, groom strands, baked shell, guide simulation; Ava with dynamic hair 1.52 ms/frame uncapped in WebGPU, 0.43 ms GPU | measure on an M1; wrinkle masks (not exported) |
 | 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
@@ -479,6 +495,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `OPEN` | ~0.5 session, needs the GPU |
 | 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
 | 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
+| 2.45 | ~~Occlusion culling on the web: raycast module in web templates~~ | **`DONE` 2026-10-26 → §4.38** | — |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -1424,6 +1441,11 @@ Six named gaps, each roughly a session, in rough value order:
 
 ### 2.17 Forward+ benchmark leg and the README's numbers `DONE 2026-10-15` — measured capped and uncapped; post-fx gap fixed *(old Task 9.16)*
 
+**Superseded 2026-10-26 as the source of the README's numbers** by the load-ramp benchmark (`benchmark/run_ramp.sh`,
+`webgpu_tests/README.md` §11, first results at the end of §2.30): it reports how much content each leg carries at 20 fps,
+so the display cap that flattened every web column below no longer hides the difference. The README's table is generated
+from it (`readme_perf_table.py`). The matrix below is kept as measured; its WebGL column was display-capped throughout.
+
 **Done 2026-10-15.** `benchmark/run_matrix.sh` runs the 7 README scenes on four legs — native Vulkan Forward+,
 WebGL (official 4.7.1 editor + 4.7.2 template; a 4.8 pck will not load in a 4.7 template), WebGPU/Forward Mobile and
 WebGPU/Forward+ (`BENCH_RENDERER`, confirmed from the console banner) — and writes `benchmark/results/matrix.tsv`
@@ -1751,7 +1773,7 @@ disable_path_overrides=no` (release templates refuse `--path` otherwise) run on 
 2. **Remaining per-draw calls on the heavy scene**: ~550 `drawIndexed` and ~1100 `setBindGroup` (one material set per draw in a unique-material scene). Ideas: skip rebinding a
    material/uniform set that did not change (bind-group skips are 0 here — check whether the tracker compares sets, not just slots); batch same-material runs.
 3. **Normal/roughness depth pre-pass** (used with SSAO/SSIL/SSR/SDFGI) still draws per element with each material's own shader; not batchable by variant (see §2.17).
-4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165).
+4. **Frame-time guards** in `perf_guard` (it only guards call counts and bytes today) and an **uncapped WebGL leg** (needs another harness; Chrome's GL present path stays at ~165). The WebGL half is done 2026-10-26 by the load-ramp benchmark below; the frame-time guards are still open.
 5. ~~**Threading** — §2.5, after 1-2 are re-measured.~~ Done 2026-10-16: §2.5 closed, separate render thread is the default.
 **Not worth repeating:** engine `-O2`/`optimize=speed`; global INITIAL_MEMORY; depth-list copying; assuming a slow-looking `writeBuffer` is a copy (it is usually the main thread waiting on the GPU process).
 
@@ -2407,7 +2429,7 @@ watch the first GitHub run after the swap: work/9 changed matrix keys (`wgsl-cli
 
 `run_forward_plus.mjs --baked` ends in RESULT FAIL on its bake gate (`translated <= 80`) with every converter, Tint
 before the swap included: 8 Forward+ scene-shader groups (×12 stages) and one particles stage are converted at runtime,
-because the baker never sees those versions. Parity itself is 71/71, so this is load time, not correctness, but the
+because the baker never sees those versions. Parity itself is 82/82 (71/71 when this was written), so this is load time, not correctness, but the
 gate being red means the tier cannot catch a real baking regression. Start from the fixture's `--verbose` "Shader cache
 miss for ..." lines against the export's "Shader baker: baking ..." fingerprints (§3 traps 40, 45, 49 are the three
 earlier causes of the same symptom). Effort ~1 session, needs the GPU.
@@ -2459,54 +2481,9 @@ validator rejects ("Expected component type of Value to be different"). Since `r
 (§4.36), the probe's legacy (frozen) path is rejected, so `run_spec_ops.sh` should report it as a new failure. Run it
 once (needs the GPU), then drop the probe or list it as expected. Effort <0.5 session.
 
-### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `DONE 2026-10-26` — on by default, with an export tickbox
+### 2.45 Occlusion culling on the web: the raycast module (Embree) in web templates `DONE 2026-10-26` → §4.38
 
-**Decision (user, 2026-10-26):** on by default in every web template (`module_raycast_enabled` defaults to yes in
-`platform/web/detect.py`; `build-linux.sh --no-web-raycast` leaves it out), with a Web export option
-`rendering/occlusion_culling` (default on). Off overrides `rendering/occlusion_culling/use_occlusion_culling` to false
-for that export, so it saves the per-frame cost; it cannot shrink the download, since presets share one template. A
-script that sets `Viewport.use_occlusion_culling` itself still enables culling (the fixture and occlusion_bench both do,
-so neither can test the option). Checked with a minimal project that relies on the project setting: option on, 0 of 20
-occluded boxes drawn; off, 20 of 20. The measurements below are from before the decision.
-
-Web templates leave out the raycast module, as stock Godot does (`platform/web/detect.py`, upstream GH-70621: memory
-and binary size), so the web had no occlusion culler and the Forward+ matrix's `occlusion_culling` arm was KNOWN
-(29 -> 29 objects); `features.mjs` now marks it `needsRaycast`, KNOWN only against a template without the module. It is a build option, not a port problem: `module_raycast_enabled=yes` (or
-`build-linux.sh --web-raycast`) builds Embree under Emscripten 6.0.9 with no Embree patch (its SCsub already passes
-`-msimd128` and the SSE defines on web, and patch 0003 already reads the thread count from the browser).
-
-**One engine fix was needed, and it is an upstream bug**: `RaycastOcclusionCull::Scenario::update()` commits the
-Embree scene on a `Thread`, and in a `threads=no` build `Thread::start()` is an empty stub, so the scene was never
-committed nor swapped in and nothing was ever culled. Fixed by committing synchronously without `THREADS_ENABLED`
-(`modules/raycast/raycast_occlusion_cull.cpp`; §3 trap 69). Embree itself gets `threads=1` on the web
-(`get_processor_count()` is capped at 2), so it never spawns pthreads of its own.
-
-Measured (RTX 4080 SUPER, Chrome, release templates built at one commit, only the module differing):
-
-| | nothreads | threads |
-|---|---|---|
-| .wasm raw / gzip / brotli | +1.00 / +0.23 / +0.17 MiB (40.99 -> 41.99 raw) | +1.03 / +0.24 / +0.17 MiB |
-| heap at startup and with 576 occluders active | no change (138 / 166 MB, heavy scene 286 / 412 MB) | no change |
-| load to first `_ready` (5 loads each) | 5186 vs 5186 ms | — |
-| matrix arm | 29 -> 8, parity 0.002, as native; 82/82 `--parity` and `--parity --baked` | (fixture exports nothreads) |
-| scene smoketest | 23/23 Chrome, 23/23 Firefox | — |
-
-`webgpu_tests/occlusion_bench/` (24x24-block city, 20k props with their own materials, uncapped, main-thread ms per
-frame in a nothreads export = the whole engine frame):
-
-| view | culling off | on (default 900 rays) | on, `rays=4096` |
-|---|---|---|---|
-| street (mostly occluded): ms / objects / fps | 7.85 / 6229 / 107 | 5.00 / 3334 / 147 | 3.03 / 1381 / 147 (off run: 8.87) |
-| top (nothing to cull): ms | 19.0 | 21.1 (+2.1) | 21.7 (+1.7) |
-
-The occlusion buffer is `rays per thread x WorkerThreadPool threads`, clamped to at least one ray per 32x32 px: a
-nothreads export gets 900 rays (40x22 at 1280x720) where a 24-thread desktop gets 12 288, so it culls less than native
-(street 6229 -> 3334 here, native 2329 -> 257 in the light scene) but costs less. A threaded export renders on its own
-thread (§2.5); there the render thread's measured CPU time went 7.44 -> 2.36 ms on the street and 9.94 -> 10.54 ms on
-top. The cost when nothing is occluded is the per-instance HZ test, ~0.1 us per object in frustum. GPU time was not the
-limit in any case on this card (street 0.81 -> 0.35 ms).
-
-Open: the user's decision on the default (on, off, or opt-in); upstreaming the nothreads fix.
+**Closed 2026-10-26** (work task 22, merged `b13c7bee24`; default decided in `508f4ed3b2`). Moved whole to §4.38.
 
 ---
 
@@ -4152,6 +4129,107 @@ a phone the export now locks landscape when it enters fullscreen and an installe
 with the option off a tap stays windowed; screen awake 60 s untouched against a 30 s system timeout, dozing 30 s after
 the tab closed. Desktop Chrome and Firefox: no errors, features reported unsupported where expected. Lead: editor +
 release template built, smoke OK, driver unit 379/0, fixture export clean with `fullscreenOnFirstTap: true`.
+
+### 4.38 Occlusion culling on the web: the raycast module (Embree) in web templates (October 2026) *(was §2.45; work task 22)*
+
+Merged `b13c7bee24` (work/22: `10fe02ea56`), default decided in `508f4ed3b2`. The text below is §2.45 as it stood when
+it closed; only its last line (what is still open) was updated.
+
+**Decision (user, 2026-10-26):** on by default in every web template (`module_raycast_enabled` defaults to yes in
+`platform/web/detect.py`; `build-linux.sh --no-web-raycast` leaves it out), with a Web export option
+`rendering/occlusion_culling` (default on). Off overrides `rendering/occlusion_culling/use_occlusion_culling` to false
+for that export, so it saves the per-frame cost; it cannot shrink the download, since presets share one template. A
+script that sets `Viewport.use_occlusion_culling` itself still enables culling (the fixture and occlusion_bench both do,
+so neither can test the option). Checked with a minimal project that relies on the project setting: option on, 0 of 20
+occluded boxes drawn; off, 20 of 20. The measurements below are from before the decision.
+
+Web templates leave out the raycast module, as stock Godot does (`platform/web/detect.py`, upstream GH-70621: memory
+and binary size), so the web had no occlusion culler and the Forward+ matrix's `occlusion_culling` arm was KNOWN
+(29 -> 29 objects); `features.mjs` now marks it `needsRaycast`, KNOWN only against a template without the module. It is a build option, not a port problem: `module_raycast_enabled=yes` (or
+`build-linux.sh --web-raycast`) builds Embree under Emscripten 6.0.9 with no Embree patch (its SCsub already passes
+`-msimd128` and the SSE defines on web, and patch 0003 already reads the thread count from the browser).
+
+**One engine fix was needed, and it is an upstream bug**: `RaycastOcclusionCull::Scenario::update()` commits the
+Embree scene on a `Thread`, and in a `threads=no` build `Thread::start()` is an empty stub, so the scene was never
+committed nor swapped in and nothing was ever culled. Fixed by committing synchronously without `THREADS_ENABLED`
+(`modules/raycast/raycast_occlusion_cull.cpp`; §3 trap 69). Embree itself gets `threads=1` on the web
+(`get_processor_count()` is capped at 2), so it never spawns pthreads of its own.
+
+Measured (RTX 4080 SUPER, Chrome, release templates built at one commit, only the module differing):
+
+| | nothreads | threads |
+|---|---|---|
+| .wasm raw / gzip / brotli | +1.00 / +0.23 / +0.17 MiB (40.99 -> 41.99 raw) | +1.03 / +0.24 / +0.17 MiB |
+| heap at startup and with 576 occluders active | no change (138 / 166 MB, heavy scene 286 / 412 MB) | no change |
+| load to first `_ready` (5 loads each) | 5186 vs 5186 ms | — |
+| matrix arm | 29 -> 8, parity 0.002, as native; 82/82 `--parity` and `--parity --baked` | (fixture exports nothreads) |
+| scene smoketest | 23/23 Chrome, 23/23 Firefox | — |
+
+`webgpu_tests/occlusion_bench/` (24x24-block city, 20k props with their own materials, uncapped, main-thread ms per
+frame in a nothreads export = the whole engine frame):
+
+| view | culling off | on (default 900 rays) | on, `rays=4096` |
+|---|---|---|---|
+| street (mostly occluded): ms / objects / fps | 7.85 / 6229 / 107 | 5.00 / 3334 / 147 | 3.03 / 1381 / 147 (off run: 8.87) |
+| top (nothing to cull): ms | 19.0 | 21.1 (+2.1) | 21.7 (+1.7) |
+
+The occlusion buffer is `rays per thread x WorkerThreadPool threads`, clamped to at least one ray per 32x32 px: a
+nothreads export gets 900 rays (40x22 at 1280x720) where a 24-thread desktop gets 12 288, so it culls less than native
+(street 6229 -> 3334 here, native 2329 -> 257 in the light scene) but costs less. A threaded export renders on its own
+thread (§2.5); there the render thread's measured CPU time went 7.44 -> 2.36 ms on the street and 9.94 -> 10.54 ms on
+top. The cost when nothing is occluded is the per-instance HZ test, ~0.1 us per object in frustum. GPU time was not the
+limit in any case on this card (street 0.81 -> 0.35 ms).
+
+Open: upstreaming the nothreads fix (stock Godot has the same bug; §3 trap 69).
+
+### 4.39 Forward+ matrix to 82 arms (October 2026) *(work task 21)*
+
+Merged `4f39eb0e58` (work/21: `fa048a8f22`). Eleven arms were added to `webgpu_tests/forward_plus/` (71 → 82), and
+`UNCOVERED` shrank to what WebGPU cannot have: `multiview_xr`, `vrs`, `msaa_2x_8x`. New arms, native Vulkan delta
+(every one within 0.004 of native under `--parity` on Chrome and Firefox alike; `lightmap_gi` off-frame 0.018):
+
+| arm | native delta | what it renders |
+|---|---:|---|
+| `skeletal_animation` | 1.995 | the skin deforms (mesh now under its `Skeleton3D`) |
+| `particle_trails` | 7.247 | own `GPUParticles3D`, `RibbonTrailMesh`, billboard Y to velocity |
+| `lightmap_gi` | 12.62 | `lightmap_room.tscn`, baked by `bake_lightmap.sh` (the editor's Bake Lightmaps pressed by a throwaway plugin under Xvfb) |
+| `fog_volume` / `fog_volume_shader` | 5.17 / 5.67 | `FogVolume`, with and without a fog shader |
+| `stencil_outline` / `stencil_xray` | 0.957 / 3.70 | the stencil material modes |
+| `bent_normal` | 0.675 | bent normal map |
+| `smaa` | 0.243 | SMAA |
+| `compositor_effect` | 20.95 | `fp_compositor_effect.gd`, GLSL compute on the colour buffer, compiled at run time |
+| `occlusion_culling` | render info | an `ArrayOccluder3D` wall with 20 boxes behind it; native 29 → 8 objects, frame identical |
+
+Harness additions: render-info counts per frame (`[FP] INFO` on the web, `<id>_<o>.info` natively) and the arm keys
+`maxDelta` and `infoDrop`, so an arm can be judged on what was drawn rather than on pixels; `knownFail` (a documented
+failure reports KNOWN, and one that starts passing reports XPASS and fails the run); `needsRaycast` (KNOWN only against
+a template whose wasm lacks Embree, a normal arm otherwise, §4.38); `--feature a,b` runs a subset. Because the new
+materials and shaders are built in GDScript at run time and can never be baked, the baked run's translated-stage
+ceiling went 80 → 130 (measured 117); §2.39 has why that is looser, not fixed.
+
+Results: 81/82 on the lead's full run 2026-10-26, unbaked and baked, with `occlusion_culling` KNOWN (web templates had
+no culler); **82/82** unbaked and baked once the raycast module was in the templates (§4.38). The same day the parity
+fixture's stale native shader cache was found to move native SDFGI by 7 points; `run_forward_plus.mjs` now deletes
+`fp_check/.godot/shader_cache` before rendering the native reference (`8acda4dfa9`, §3 trap 68).
+
+### 4.40 README rewritten, and the GitHub wiki (October 2026)
+
+`README.md` was rewritten (`6b82ff35aa`, then `bb3745b71f`, `33955ddabf`, `508f4ed3b2`): what the fork does and how,
+browser support, a native / WebGL / WebGPU compatibility table, rendering features, performance, web audio, engine
+additions, Box3D, braced GDScript, building, testing, and links into the wiki. Its performance table sits between the
+`<!-- perf-table:begin -->` / `<!-- perf-table:end -->` markers and is generated by
+`webgpu_tests/benchmark/readme_perf_table.py --write` from a `run_ramp.sh` result: never hand-edit it, re-run the
+benchmark and regenerate.
+
+The wiki, https://github.com/Shane-Gadsby/godotwebgpu/wiki, is the user documentation: **Braced GDScript** (7 pages:
+overview, language, formatting and conversion, editors, mixing and exporting, FAQ, internals), **Box3D Physics** (6:
+overview, project settings, feature support, differences from Jolt, web and threading, internals) and **Engine
+Additions** (12: overview, editor default folders, drag and drop onto lists, script editor input, web export options,
+shader baking, threaded rendering on the web, web platform, web audio, MetaHuman importer, building, notable fixes),
+plus `Home`, `_Sidebar` and `_Footer`. Its local clone is `/mnt/109313D2109313D2/godot-editors/godotwebgpu.wiki`, a
+separate git repository (branch `master`), committed and pushed on its own: the user allows pushing the wiki; this
+repository is pushed only when the user says so. A user-visible change in those three areas updates the wiki page too.
+`docs/braced_gdscript/` stays the developer reference; facts the wiki's writer found missing there were added to it.
 
 ## 5. References — retired docs
 

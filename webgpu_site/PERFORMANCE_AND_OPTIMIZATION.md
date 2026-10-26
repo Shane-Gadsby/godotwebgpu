@@ -1,5 +1,9 @@
 # Godot WebGPU Backend — Performance & Optimization
 
+> **Current cross-platform numbers:** the load-ramp benchmark (2026-10-26, section below; `README.md`'s performance
+> table is generated from it). The older fps matrix (`benchmark/run_matrix.sh`, `webgpu_notes/TASKS.md` §2.17) could not
+> compare WebGPU with WebGL: every web column, WebGL's included, sat at the 165 Hz display cap.
+
 ## The Core Problem
 
 WebGPU on the web runs inside a browser sandbox where every GPU API call crosses an inter-process communication (IPC) boundary. The cost structure:
@@ -483,6 +487,30 @@ SPIRV-Cross's WGSL backend replaced Tint as the SPIR-V → WGSL converter only a
 | | stress | 28.8 | 28.1 |
 
 The phone numbers are with SPIRV-Cross patch `0019` (no WGSL `for`: Mali ran a negative-start counted loop zero times, a correctness fix that also made it no slower). On desktop Chrome the Forward Mobile perf_guard scenes were equal except post-fx, +2% (0.014 ms). In Firefox post-fx ran 10% more fps with SPIRV-Cross, and shadows/pbr ~1.8% fewer at ~1000 fps, CPU-side with GPU time equal. Converting is also ~5-10× faster per module, which only matters for unbaked stages: a baked export converts nothing at load.
+
+## 2026-10-26: The Load-Ramp Benchmark — How Much Each Leg Carries at 20 fps
+
+Frames per second stopped separating the renderers on a desktop GPU: in the 2026-10-15 matrix every web leg, WebGL
+included, read the 165 Hz display rate, and Chrome keeps WebGL at the display rate even with its frame-rate limit
+lifted. `webgpu_tests/benchmark/run_ramp.sh` asks a different question: each ramp adds one kind of content until the
+frame rate falls to 20 fps and reports how much it took (N), on six legs (native Vulkan Forward+, native Compatibility,
+stock WebGL 4.7.2, WebGPU Mobile, WebGPU Forward+, Firefox WebGPU). Method and fairness rules: `webgpu_tests/README.md`
+§11; WebGPU frames are paced to two in flight, as native Vulkan is, because an unpaced uncapped page queues GPU work
+faster than the GPU finishes it and reads too fast (`webgpu_notes/TASKS.md` §3 trap 66).
+
+First run (RTX 4080 SUPER, Chrome 156, 2 runs, 60 of 60 ramp-runs converged; `results_ramp/2026-10-26/ramp_summary.md`):
+
+| ramp | one unit of N | WebGPU F+ / WebGL | WebGPU F+ / native Vulkan F+ |
+|---|---|---:|---:|
+| draws | a mesh with its own material | 1.23x | 0.45x |
+| nodes | the same, moved by script every frame | 1.61x | 0.75x |
+| fill | a full-screen blended quad, 64-iteration ALU shader | 0.67x | 0.67x |
+| lit | a PBR sphere under 7 shadowed lights | 6.42x | 0.99x |
+| particles | a 2048-particle GPU emitter | 1.50x | 0.31x |
+
+Draws and nodes are the cleanest API comparison. Lit mostly measures Forward+ against the Compatibility renderer
+(native Compatibility is 0.26x native Forward+ there too). Fill and particles are open questions, listed with Firefox's
+run-to-run spread in `webgpu_notes/TASKS.md` §2.30.
 
 ## Remaining Optimization Opportunities
 
