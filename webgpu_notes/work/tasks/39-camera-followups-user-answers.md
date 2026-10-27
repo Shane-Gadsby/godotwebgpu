@@ -26,10 +26,21 @@ tasks 34, 37 and 38 (all merged: TASKS.md §4.49-4.51):
    default false); the running game always shakes when shake is on. Autofocus is unchanged (it still runs in the
    editor). Class docs.
 
+4. **Handheld shake presets** (user request, 2026-10-28): a `shake_preset` enum on Camera3D whose choices fill out
+   every shake setting for you (amplitudes and frequencies per axis, breathing, stabilization, focal-length scaling),
+   with **Custom** for hand-tuned values. Picking a preset writes the values; editing any shake value afterwards
+   switches the preset to Custom (and the inspector reflects it). A handful of good, distinct presets, e.g. Handheld
+   (steady stills grip), Handheld walking, Shoulder rig, Gimbal / stabilizer, Tripod in wind, Vehicle mount,
+   Action / running; your call on the exact list. Ground each preset's numbers where possible (physiological hand
+   tremor around 8-12 Hz with tiny amplitude, body sway around 0.5-2 Hz, walking cadence around 1.8-2 Hz for vertical
+   bob, measured camera-shake studies or IS test standards such as CIPA DC-011) and cite the source in a comment; say
+   where a value is a look choice. The default stays as today (preset Custom with today's default values, shake off),
+   so existing scenes are unchanged. Document each preset in the class reference and in for-docs.md (a table).
+
 ## Verification
 
 Defaults: pixel-identical to the pre-change editor in the three renderers (zebras off), and with zebras on and default
 colors identical to before. Zebra colors: the stripe pixels take the chosen colors (numeric check). Tick boxes: in an
 editor-hint run (`--editor -s` or a windowed editor under Xvfb, as tasks 37/38 did) motion blur / shake are absent
-unticked and present ticked; in a game run they are present either way. Task 38's `tests/run.sh` still passes. Smoke.
+unticked and present ticked; in a game run they are present either way. Presets: choosing each writes the documented values, and the measured shake (task 38's spectrum/RMS analysis) matches them; editing a value flips the preset to Custom. Task 38's `tests/run.sh` still passes. Smoke.
 for-docs.md: the changed paragraphs for the wiki.
