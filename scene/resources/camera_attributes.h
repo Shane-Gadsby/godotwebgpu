@@ -32,6 +32,7 @@
 
 #include "core/io/resource.h"
 #include "core/templates/rid.h"
+#include "scene/resources/texture.h"
 
 class CameraAttributes : public Resource {
 	GDCLASS(CameraAttributes, Resource);
@@ -41,6 +42,17 @@ public:
 		GRAIN_TYPE_FILM,
 		GRAIN_TYPE_FILM_MONOCHROME,
 		GRAIN_TYPE_DIGITAL,
+	};
+
+	enum LUTInput {
+		LUT_INPUT_DISPLAY,
+		LUT_INPUT_ARRI_LOGC3,
+		LUT_INPUT_SONY_SLOG3,
+		LUT_INPUT_PANASONIC_VLOG,
+		LUT_INPUT_CANON_LOG3,
+		LUT_INPUT_RED_LOG3G10,
+		LUT_INPUT_ACESCCT,
+		LUT_INPUT_MAX,
 	};
 
 private:
@@ -71,6 +83,12 @@ protected:
 	float grain_size = 1.0;
 	void _update_grain();
 
+	bool lut_enabled = false;
+	Ref<Texture3D> lut_texture;
+	LUTInput lut_input = LUT_INPUT_DISPLAY;
+	float lut_strength = 1.0;
+	void _update_lut();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -100,6 +118,15 @@ public:
 	float get_grain_intensity() const;
 	void set_grain_size(float p_size);
 	float get_grain_size() const;
+
+	void set_lut_enabled(bool p_enabled);
+	bool is_lut_enabled() const;
+	void set_lut_texture(const Ref<Texture3D> &p_texture);
+	Ref<Texture3D> get_lut_texture() const;
+	void set_lut_input(LUTInput p_input);
+	LUTInput get_lut_input() const;
+	void set_lut_strength(float p_strength);
+	float get_lut_strength() const;
 
 	CameraAttributes();
 	~CameraAttributes();
@@ -211,3 +238,4 @@ public:
 };
 
 VARIANT_ENUM_CAST(CameraAttributes::GrainType);
+VARIANT_ENUM_CAST(CameraAttributes::LUTInput);

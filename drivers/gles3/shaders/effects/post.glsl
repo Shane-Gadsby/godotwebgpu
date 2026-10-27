@@ -10,6 +10,7 @@ USE_LUMINANCE_MULTIPLIER = false
 USE_BCS = false
 USE_COLOR_CORRECTION = false
 USE_1D_LUT = false
+USE_CAMERA_LUT = false
 USE_SSAO_ABYSS = false
 USE_SSAO_LOW = false
 USE_SSAO_MED = false
@@ -37,6 +38,11 @@ void main() {
 
 #include "../tonemap_inc.glsl"
 #include "camera_grain_inc.glsl"
+
+#ifdef USE_CAMERA_LUT
+uniform sampler3D camera_lut; // texunit:4
+#include "camera_lut_inc.glsl"
+#endif
 
 #ifdef USE_MULTIVIEW
 uniform sampler2DArray source_color; // texunit:0
@@ -170,7 +176,13 @@ void main() {
 		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, grain, 1.0, uint(view));
 	}
 
+#ifdef USE_CAMERA_LUT
+	color.rgb = apply_camera_tonemapping(color.rgb, camera_lut_params);
+	// The camera's display LUT: the camera's look, before the Environment's adjustments grade it.
+	color.rgb = apply_camera_display_lut(color.rgb, camera_lut_params);
+#else
 	color.rgb = apply_tonemapping(color.rgb);
+#endif
 
 #ifdef USE_BCS
 	// Apply brightness:

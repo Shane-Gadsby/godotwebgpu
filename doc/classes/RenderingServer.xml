@@ -123,6 +123,17 @@
 				Sets the grain of the camera attributes: whether it is enabled, its [param type], [param intensity] and [param size] multipliers, and the ISO [param sensitivity] of the film or sensor. These parameters take on the same meaning as [member CameraAttributes.grain_enabled], [member CameraAttributes.grain_type], [member CameraAttributes.grain_intensity], [member CameraAttributes.grain_size] and [member CameraAttributes.exposure_sensitivity].
 			</description>
 		</method>
+		<method name="camera_attributes_set_lut">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="texture" type="RID" />
+			<param index="3" name="input" type="int" enum="RenderingServer.CameraAttributesLUTInput" />
+			<param index="4" name="strength" type="float" />
+			<description>
+				Sets the LUT of the camera attributes: whether it is enabled, the 3D [param texture] (a [Texture3D]'s RID), what the LUT expects as its [param input], and its [param strength]. These parameters take on the same meaning as [member CameraAttributes.lut_enabled], [member CameraAttributes.lut_texture], [member CameraAttributes.lut_input] and [member CameraAttributes.lut_strength].
+			</description>
+		</method>
 		<method name="camera_attributes_set_white_balance">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -6017,6 +6028,30 @@
 		</constant>
 		<constant name="CAMERA_ATTRIBUTES_GRAIN_DIGITAL" value="2" enum="CameraAttributesGrainType">
 			Digital sensor noise. See [constant CameraAttributes.GRAIN_TYPE_DIGITAL].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY" value="0" enum="CameraAttributesLUTInput">
+			A display LUT. See [constant CameraAttributes.LUT_INPUT_DISPLAY].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_ARRI_LOGC3" value="1" enum="CameraAttributesLUTInput">
+			ARRI LogC3 / ARRI Wide Gamut 3. See [constant CameraAttributes.LUT_INPUT_ARRI_LOGC3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_SONY_SLOG3" value="2" enum="CameraAttributesLUTInput">
+			Sony S-Log3 / S-Gamut3.Cine. See [constant CameraAttributes.LUT_INPUT_SONY_SLOG3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_PANASONIC_VLOG" value="3" enum="CameraAttributesLUTInput">
+			Panasonic V-Log / V-Gamut. See [constant CameraAttributes.LUT_INPUT_PANASONIC_VLOG].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_CANON_LOG3" value="4" enum="CameraAttributesLUTInput">
+			Canon Log 3 / Cinema Gamut. See [constant CameraAttributes.LUT_INPUT_CANON_LOG3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_RED_LOG3G10" value="5" enum="CameraAttributesLUTInput">
+			RED Log3G10 / REDWideGamutRGB. See [constant CameraAttributes.LUT_INPUT_RED_LOG3G10].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_ACESCCT" value="6" enum="CameraAttributesLUTInput">
+			ACEScct / AP1. See [constant CameraAttributes.LUT_INPUT_ACESCCT].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_MAX" value="7" enum="CameraAttributesLUTInput">
+			Represents the size of the [enum CameraAttributesLUTInput] enum.
 		</constant>
 		<constant name="INSTANCE_NONE" value="0" enum="InstanceType">
 			The instance does not have a type.

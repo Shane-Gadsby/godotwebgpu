@@ -931,6 +931,7 @@ public:
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)
 	FUNC6(camera_attributes_set_grain, RID, bool, RSE::CameraAttributesGrainType, float, float, float)
+	FUNC5(camera_attributes_set_lut, RID, bool, RID, RSE::CameraAttributesLUTInput, float)
 
 	/* SCENARIO API */
 

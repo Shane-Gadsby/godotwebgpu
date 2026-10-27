@@ -76,6 +76,8 @@ private:
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 6),
 		TONEMAP_FLAG_USE_WHITE_BALANCE = (1 << 7),
+		// Bits 8-23 hold the packed CameraAttributes LUT parameters.
+		TONEMAP_FLAG_CAMERA_LUT_SHIFT = 8,
 	};
 
 	enum FlagsMobile {
@@ -150,7 +152,8 @@ private:
 		float white_balance[3]; //  12 - 80 (with TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE)
 
 		uint32_t grain; //  4 - 84 (packed, 0 when off)
-		float pad[3]; //  12 - 96
+		uint32_t camera_lut; //  4 - 88 (packed, 0 when off)
+		float pad[2]; //  8 - 96
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -201,6 +204,9 @@ public:
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0);
 
 		uint32_t grain = 0; // Packed CameraAttributes grain for this pass's output size and frame; 0 when off.
+
+		uint32_t camera_lut = 0; // Packed CameraAttributes LUT parameters; 0 when off.
+		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
 		bool use_bcs = false;
 		float brightness = 1.0;

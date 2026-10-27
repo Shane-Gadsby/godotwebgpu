@@ -165,6 +165,52 @@ void CameraAttributes::_update_grain() {
 	RS::get_singleton()->camera_attributes_set_grain(camera_attributes, grain_enabled, RSE::CameraAttributesGrainType(grain_type), grain_intensity, grain_size, exposure_sensitivity);
 }
 
+void CameraAttributes::set_lut_enabled(bool p_enabled) {
+	lut_enabled = p_enabled;
+	_update_lut();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_lut_enabled() const {
+	return lut_enabled;
+}
+
+void CameraAttributes::set_lut_texture(const Ref<Texture3D> &p_texture) {
+	lut_texture = p_texture;
+	_update_lut();
+	emit_changed();
+}
+
+Ref<Texture3D> CameraAttributes::get_lut_texture() const {
+	return lut_texture;
+}
+
+void CameraAttributes::set_lut_input(LUTInput p_input) {
+	ERR_FAIL_INDEX(p_input, LUT_INPUT_MAX);
+	lut_input = p_input;
+	_update_lut();
+	emit_changed();
+}
+
+CameraAttributes::LUTInput CameraAttributes::get_lut_input() const {
+	return lut_input;
+}
+
+void CameraAttributes::set_lut_strength(float p_strength) {
+	lut_strength = CLAMP(p_strength, 0.0f, 1.0f);
+	_update_lut();
+	emit_changed();
+}
+
+float CameraAttributes::get_lut_strength() const {
+	return lut_strength;
+}
+
+void CameraAttributes::_update_lut() {
+	RS::get_singleton()->camera_attributes_set_lut(camera_attributes, lut_enabled, lut_texture.is_valid() ? lut_texture->get_rid() : RID(), RSE::CameraAttributesLUTInput(lut_input), lut_strength);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -185,6 +231,11 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	}
 
 	if (p_property.name.begins_with("grain_") && p_property.name != "grain_enabled" && !grain_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("lut_") && p_property.name != "lut_enabled" && !lut_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -217,6 +268,15 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_grain_size", "size"), &CameraAttributes::set_grain_size);
 	ClassDB::bind_method(D_METHOD("get_grain_size"), &CameraAttributes::get_grain_size);
 
+	ClassDB::bind_method(D_METHOD("set_lut_enabled", "enabled"), &CameraAttributes::set_lut_enabled);
+	ClassDB::bind_method(D_METHOD("is_lut_enabled"), &CameraAttributes::is_lut_enabled);
+	ClassDB::bind_method(D_METHOD("set_lut_texture", "texture"), &CameraAttributes::set_lut_texture);
+	ClassDB::bind_method(D_METHOD("get_lut_texture"), &CameraAttributes::get_lut_texture);
+	ClassDB::bind_method(D_METHOD("set_lut_input", "input"), &CameraAttributes::set_lut_input);
+	ClassDB::bind_method(D_METHOD("get_lut_input"), &CameraAttributes::get_lut_input);
+	ClassDB::bind_method(D_METHOD("set_lut_strength", "strength"), &CameraAttributes::set_lut_strength);
+	ClassDB::bind_method(D_METHOD("get_lut_strength"), &CameraAttributes::get_lut_strength);
+
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_multiplier", PROPERTY_HINT_RANGE, "0.0,8.0,0.001,or_greater"), "set_exposure_multiplier", "get_exposure_multiplier");
@@ -236,9 +296,24 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_intensity", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_grain_intensity", "get_grain_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_size", PROPERTY_HINT_RANGE, "0.25,4,0.01,or_greater"), "set_grain_size", "get_grain_size");
 
+	ADD_GROUP("LUT", "lut_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "lut_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_lut_enabled", "is_lut_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "lut_texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture3D"), "set_lut_texture", "get_lut_texture");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "lut_input", PROPERTY_HINT_ENUM, "Display (sRGB),ARRI LogC3 (AWG3),Sony S-Log3 (S-Gamut3.Cine),Panasonic V-Log (V-Gamut),Canon Log 3 (Cinema Gamut),RED Log3G10 (REDWideGamutRGB),ACEScct (AP1)"), "set_lut_input", "get_lut_input");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lut_strength", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_lut_strength", "get_lut_strength");
+
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_DIGITAL);
+
+	BIND_ENUM_CONSTANT(LUT_INPUT_DISPLAY);
+	BIND_ENUM_CONSTANT(LUT_INPUT_ARRI_LOGC3);
+	BIND_ENUM_CONSTANT(LUT_INPUT_SONY_SLOG3);
+	BIND_ENUM_CONSTANT(LUT_INPUT_PANASONIC_VLOG);
+	BIND_ENUM_CONSTANT(LUT_INPUT_CANON_LOG3);
+	BIND_ENUM_CONSTANT(LUT_INPUT_RED_LOG3G10);
+	BIND_ENUM_CONSTANT(LUT_INPUT_ACESCCT);
+	BIND_ENUM_CONSTANT(LUT_INPUT_MAX);
 }
 
 CameraAttributes::CameraAttributes() {

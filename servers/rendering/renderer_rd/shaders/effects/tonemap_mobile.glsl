@@ -59,6 +59,7 @@ layout(set = 0, binding = 3) uniform sampler2D source_color_correction;
 #else
 layout(set = 0, binding = 3) uniform sampler3D source_color_correction;
 #endif
+layout(set = 0, binding = 4) uniform sampler3D camera_lut;
 
 layout(constant_id = 0) const bool use_bcs = false;
 layout(constant_id = 1) const bool use_glow = false;
@@ -116,7 +117,8 @@ layout(push_constant, std430) uniform Params {
 	float white_balance[3];
 
 	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
-	float pad[3];
+	uint camera_lut; // CameraAttributes LUT, packed (camera_lut_inc.glsl); 0 when off.
+	float pad[2];
 }
 params;
 
@@ -356,6 +358,8 @@ vec3 apply_color_correction(vec3 color) {
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif
+
+#include "camera_lut_inc.glsl"
 
 #ifndef SUBPASS
 
@@ -804,7 +808,7 @@ void main() {
 
 	// Tonemap to lower dynamic range.
 
-	color.rgb = apply_tonemapping(color.rgb);
+	color.rgb = apply_camera_tonemapping(color.rgb, params.camera_lut);
 
 #ifndef SUBPASS
 	// Post-tonemap glow.
@@ -820,10 +824,13 @@ void main() {
 		if (use_white_balance) {
 			glow = apply_white_balance(glow, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
 		}
-		glow = apply_tonemapping(glow);
+		glow = apply_camera_tonemapping(glow, params.camera_lut);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
 #endif
+
+	// The camera's display LUT: the camera's look, before the Environment's adjustments grade it.
+	color.rgb = apply_camera_display_lut(color.rgb, params.camera_lut);
 
 	// Additional effects.
 

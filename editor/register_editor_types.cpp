@@ -63,6 +63,7 @@
 #include "editor/import/resource_importer_bitmask.h"
 #include "editor/import/resource_importer_bmfont.h"
 #include "editor/import/resource_importer_csv_translation.h"
+#include "editor/import/resource_importer_cube_lut.h"
 #include "editor/import/resource_importer_dynamic_font.h"
 #include "editor/import/resource_importer_image.h"
 #include "editor/import/resource_importer_imagefont.h"
@@ -213,6 +214,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterBMFont);
 	GDREGISTER_CLASS(ResourceImporterCSVTranslation);
 	GDREGISTER_CLASS(ResourceImporterDynamicFont);
+	GDREGISTER_CLASS(ResourceImporterCubeLUT);
 	GDREGISTER_CLASS(ResourceImporterImage);
 	GDREGISTER_CLASS(ResourceImporterImageFont);
 	GDREGISTER_CLASS(ResourceImporterSVG);

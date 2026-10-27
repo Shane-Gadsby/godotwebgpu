@@ -2424,6 +2424,19 @@ void RasterizerSceneGLES3::_render_shadow_pass(RID p_light, RID p_shadow_atlas, 
 	glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
 }
 
+// The GL texture of the camera attributes' LUT, or 0 when there is none or it is not a 3D texture.
+GLuint RasterizerSceneGLES3::_get_camera_lut_texture(RID p_camera_attributes) const {
+	if (RSG::camera_attributes->camera_attributes_get_lut_packed(p_camera_attributes) == 0) {
+		return 0;
+	}
+	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
+	const GLES3::Texture *texture = texture_storage->get_texture(RSG::camera_attributes->camera_attributes_get_lut_texture(p_camera_attributes));
+	if (!texture || texture->type != GLES3::Texture::TYPE_3D) {
+		return 0;
+	}
+	return texture->tex_id;
+}
+
 void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_buffers, const CameraData *p_camera_data, const CameraData *p_prev_camera_data, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RID> &p_lights, const PagedArray<RID> &p_reflection_probes, const PagedArray<RID> &p_voxel_gi_instances, const PagedArray<RID> &p_decals, const PagedArray<RID> &p_lightmaps, const PagedArray<RID> &p_fog_volumes, RID p_environment, RID p_camera_attributes, RID p_compositor, RID p_shadow_atlas, RID p_occluder_debug_tex, RID p_reflection_atlas, RID p_reflection_probe, int p_reflection_probe_pass, float p_screen_mesh_lod_threshold, const RenderShadowData *p_render_shadows, int p_render_shadow_count, const RenderSDFGIData *p_render_sdfgi_regions, int p_render_sdfgi_region_count, float p_window_output_max_value, const RenderSDFGIUpdateData *p_sdfgi_update_data, RenderingServerTypes::RenderInfo *r_render_info) {
 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
@@ -2464,9 +2477,11 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		}
 	}
 
-	// Grain is drawn by the post pass, at the output resolution.
-	const bool use_grain = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
-	if (use_grain) {
+	// Grain is drawn by the post pass, at the output resolution, and the camera LUT is applied there.
+	const bool use_camera_effects = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
+	const bool use_grain = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
+	const bool use_camera_lut = use_camera_effects && _get_camera_lut_texture(p_camera_attributes) != 0;
+	if (use_grain || use_camera_lut) {
 		apply_environment_effects_in_post = true;
 	}
 
@@ -2578,6 +2593,9 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	}
 	if (use_grain) {
 		tonemap_ubo.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(render_data.camera_attributes, rb->get_target_size().y, RSG::rasterizer->get_frame_number());
+	}
+	if (use_camera_lut) {
+		tonemap_ubo.camera_lut = RSG::camera_attributes->camera_attributes_get_lut_packed(render_data.camera_attributes);
 	}
 
 	if (scene_state.tonemap_buffer == 0) {
@@ -3114,6 +3132,20 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 				glTexParameteri(texture_target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 			}
 		}
+	}
+
+	// The camera LUT (render_scene() forced this pass for it). Debug draw modes and reflection probes do not get here
+	// with one: render_scene() leaves it out of the Tonemap UBO for them.
+	const GLuint camera_lut_texture = get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED ? _get_camera_lut_texture(p_render_data->camera_attributes) : 0;
+	if (camera_lut_texture != 0) {
+		bcs_spec_constants |= PostShaderGLES3::USE_CAMERA_LUT;
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_3D, camera_lut_texture);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	}
 
 	if (view_count == 1) {

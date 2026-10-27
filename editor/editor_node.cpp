@@ -101,6 +101,7 @@
 #include "editor/import/resource_importer_bitmask.h"
 #include "editor/import/resource_importer_bmfont.h"
 #include "editor/import/resource_importer_csv_translation.h"
+#include "editor/import/resource_importer_cube_lut.h"
 #include "editor/import/resource_importer_dynamic_font.h"
 #include "editor/import/resource_importer_image.h"
 #include "editor/import/resource_importer_imagefont.h"
@@ -8736,6 +8737,10 @@ EditorNode::EditorNode() {
 		Ref<ResourceImporterImage> import_image;
 		import_image.instantiate();
 		ResourceFormatImporter::get_singleton()->add_importer(import_image);
+
+		Ref<ResourceImporterCubeLUT> import_cube_lut;
+		import_cube_lut.instantiate();
+		ResourceFormatImporter::get_singleton()->add_importer(import_cube_lut);
 
 		Ref<ResourceImporterSVG> import_svg;
 		import_svg.instantiate();

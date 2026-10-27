@@ -54,6 +54,7 @@ layout(set = 3, binding = 0) uniform sampler2D source_color_correction;
 #else
 layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #endif
+layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 
 #define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
@@ -63,6 +64,8 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
 #define FLAG_USE_WHITE_BALANCE (1 << 7)
+// Bits 8-23: the packed CameraAttributes LUT parameters (camera_lut_inc.glsl).
+#define CAMERA_LUT_PARAMS (params.flags >> 8u)
 
 #include "camera_grain_inc.glsl"
 
@@ -487,6 +490,8 @@ vec3 apply_color_correction(vec3 color) {
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif
+
+#include "camera_lut_inc.glsl"
 
 // FXAA 3.11 compact, Ported from https://github.com/kosua20/Rendu/blob/master/resources/common/shaders/screens/fxaa.frag
 ///////////////////////////////////////////////////////////////////////////////////
@@ -930,7 +935,7 @@ void main() {
 
 	// Tonemap to lower dynamic range.
 
-	color.rgb = apply_tonemapping(color.rgb);
+	color.rgb = apply_camera_tonemapping(color.rgb, CAMERA_LUT_PARAMS);
 
 	// Post-tonemap glow.
 
@@ -945,9 +950,12 @@ void main() {
 		if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
 			glow = apply_white_balance(glow, params.white_balance);
 		}
-		glow = apply_tonemapping(glow);
+		glow = apply_camera_tonemapping(glow, CAMERA_LUT_PARAMS);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
+
+	// The camera's display LUT: the camera's look, before the Environment's adjustments grade it.
+	color.rgb = apply_camera_display_lut(color.rgb, CAMERA_LUT_PARAMS);
 
 	// Additional effects.
 

@@ -476,6 +476,25 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
+// The CameraAttributes LUT for a tonemap pass. The texture is always bound, so it falls back to the default 3D
+// texture, and the LUT stays off unless the camera's texture is a real 3D texture.
+static void _setup_camera_lut(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_camera_attributes, bool p_can_use_effects) {
+	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
+	r_tonemap.camera_lut_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+	if (!p_can_use_effects) {
+		return;
+	}
+	const uint32_t packed = RSG::camera_attributes->camera_attributes_get_lut_packed(p_camera_attributes);
+	if (packed == 0) {
+		return;
+	}
+	const RID rd_texture = texture_storage->texture_get_rd_texture(RSG::camera_attributes->camera_attributes_get_lut_texture(p_camera_attributes));
+	if (rd_texture.is_valid() && RD::get_singleton()->texture_get_format(rd_texture).texture_type == RD::TEXTURE_TYPE_3D) {
+		r_tonemap.camera_lut = packed;
+		r_tonemap.camera_lut_texture = rd_texture;
+	}
+}
+
 void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -831,6 +850,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		if (can_use_effects) {
 			tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, tonemap.dest_texture_size.y, RSG::rasterizer->get_frame_number());
 		}
+		_setup_camera_lut(tonemap, p_render_data->camera_attributes, can_use_effects);
 
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
 		if (rb->get_use_debanding() && !using_hdr) {
@@ -1028,6 +1048,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	if (can_use_effects) {
 		tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, target_size.y, RSG::rasterizer->get_frame_number());
 	}
+	_setup_camera_lut(tonemap, p_render_data->camera_attributes, can_use_effects);
 	tonemap.view_count = rb->get_view_count();
 
 	if (rb->get_use_debanding() && !using_hdr) {

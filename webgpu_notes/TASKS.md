@@ -4628,6 +4628,45 @@ inspector while grain is on even without physical light units. `RenderingServer.
   loses a little deep-shadow detail compared with its inline path (the same as glow, SSAO or adjustments); Mobile and
   Compatibility have no auto exposure, so no auto-ISO noise there. The seed repeats every 256 frames.
 
+### 4.48 Camera LUTs on CameraAttributes, and a .cube importer (October 2026)
+
+User request (2026-10-28): camera LUTs as a physical and practical camera attribute. Decisions (Hand-offs board
+`lut-input`, `lut-cube-import`, `lut-with-env`): both display and camera-log inputs, selectable; a `.cube` importer;
+with an Environment LUT too, both apply, camera first. On the shared base `CameraAttributes`: `lut_enabled`,
+`lut_texture` (Texture3D), `lut_input` (`LUT_INPUT_DISPLAY` default, `_ARRI_LOGC3`, `_SONY_SLOG3`, `_PANASONIC_VLOG`,
+`_CANON_LOG3`, `_RED_LOG3G10`, `_ACESCCT`), `lut_strength`; `RenderingServer.camera_attributes_set_lut()`.
+
+- **Model** (`camera_lut_inc.glsl`): a display LUT takes the tonemapped image sRGB-encoded, after tonemapping and
+  post-tonemap glow, before the Environment's adjustments and color correction. A log input converts scene-linear
+  Rec.709 to the camera's gamut and log curve (code values over 0-1, full range) and the LUT replaces the tonemapper,
+  for the scene and the softlight glow alike. LUTs are sampled at texel centers (input 0 and 1 on the first and last
+  entries, as .cube defines them; the Environment's own LUT path does not). Gamut matrices come from colour-science
+  0.4.6 (Bradford to the ACES white for ACEScct); all six curves were checked against its encodings (exact; Canon Log 3
+  is v1.2: the v1 coefficients are 0.12 off). Strength blends with the tonemapped image in sRGB-encoded values.
+- **Plumbing:** Forward+ packs enable, input and strength into push-constant `flags` bits 8-23 (the push constant has
+  no room left) and binds the LUT at set 3 binding 1; Mobile a `uint` in the former padding and set 0 binding 4;
+  Compatibility a `uint` in the Tonemap UBO, `USE_CAMERA_LUT` in `effects/post.glsl` on texture unit 4, and the LUT
+  forces the post pass. The renderers bind the default 3D texture when there is no LUT and only enable it for a real
+  3D texture. **Interface references regenerated on purpose:** the only change is the new sampler + `texture_3d`
+  pair in the four `tonemap` and two `tonemap_mobile` fragment variants (scan reference diff is additions plus
+  renumbering).
+- **`.cube` importer** (`ResourceImporterCubeLUT`, `editor/import/resource_importer_cube_lut.cpp`): 3D, 1D, and a
+  1D shaper followed by a 3D table; `DOMAIN_MIN/MAX`, Resolve's `LUT_1D/3D_INPUT_RANGE`. A 3D table over 0-1 is kept
+  exactly; anything else is evaluated on a grid (max(3D size, 33), 65 for 1D). Written straight to a
+  `CompressedTexture3D` file, uncompressed RGBA half floats: a first version saved an `ImageTexture3D`, which saves by
+  reading its data back from the RenderingServer, so a `--headless` import wrote an empty texture, and three files
+  imported on worker threads hung the import. Unit tests in `tests/editor/import/` (folder added to the SCU tests
+  unit, trap 74); not run here (needs a `tests=yes` editor).
+- **Verified:** an identity LUT under each log input shows the encoding itself, compared with colour-science on a
+  7-hue x 12-stop grid; display inverts (3D and 1D) against 1 - sRGB. Forward+ native (4080 SUPER, Vulkan): all
+  within 0.61/255. Mobile: within 2.6/255 up to scene value 1.44; above ~2.0 its RGB10A2 scene buffer clips before the
+  LUT, so log LUTs lose the brightest highlights on Mobile. Compatibility (llvmpipe), against its own post-pass
+  baseline: log within 2.4/255, display within 5/255 (its approximate sRGB encode, shared with its Environment LUT).
+  WebGPU Forward+ in Chrome (lovelace, 48 textures): pixel-identical to native Vulkan in every case. Smoke after the
+  reference regeneration: 276/276, 552/552, 0 invalid.
+- **Known limits:** display LUTs are SDR (HDR output clips at 1.0); LUT output is treated as sRGB, not BT.1886;
+  the Mobile highlight clip above; `.cube` files with both tables and `DOMAIN_*` apply the domain to the 1D table.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

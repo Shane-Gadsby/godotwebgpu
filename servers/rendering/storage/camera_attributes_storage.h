@@ -70,6 +70,12 @@ private:
 		float grain_intensity = 1.0;
 		float grain_size = 1.0;
 		float grain_sensitivity = 100.0; // In ISO.
+
+		// LUT. Off by default. The texture is a Texture3D's RID, resolved by the renderers.
+		bool lut_enabled = false;
+		RID lut_texture;
+		RSE::CameraAttributesLUTInput lut_input = RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY;
+		float lut_strength = 1.0;
 	};
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
@@ -143,6 +149,16 @@ public:
 	// The grain parameters for a tonemap pass whose output is p_output_height pixels tall, packed the way
 	// camera_grain_inc.glsl reads them, or 0 when there is no grain (see the .cpp for the model).
 	uint32_t camera_attributes_get_grain_packed(RID p_camera_attributes, int p_output_height, uint64_t p_frame);
+
+	void camera_attributes_set_lut(RID p_camera_attributes, bool p_enable, RID p_texture, RSE::CameraAttributesLUTInput p_input, float p_strength);
+	RID camera_attributes_get_lut_texture(RID p_camera_attributes);
+	// The LUT parameters packed the way camera_lut_inc.glsl reads them, or 0 when there is no LUT. The renderer
+	// still has to check that the texture resolves to a 3D texture.
+	uint32_t camera_attributes_get_lut_packed(RID p_camera_attributes);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_lut(RID p_camera_attributes) {
+		return camera_attributes_get_lut_packed(p_camera_attributes) != 0;
+	}
 
 	_FORCE_INLINE_ bool camera_attributes_uses_grain(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

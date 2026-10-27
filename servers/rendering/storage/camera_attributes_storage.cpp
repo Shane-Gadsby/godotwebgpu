@@ -378,3 +378,38 @@ uint32_t RendererCameraAttributes::camera_attributes_get_grain_packed(RID p_came
 	packed |= uint32_t(p_frame & 0xFF) << 24;
 	return packed;
 }
+
+/* LUT
+ *
+ * A look-up table the camera applies, either to its display image or, for a camera log encoding, in place of the
+ * tonemapper; camera_lut_inc.glsl applies it and documents both. Only the input space and the strength cross as
+ * parameters; the encodings and gamut matrices are constants in the shader.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_lut(RID p_camera_attributes, bool p_enable, RID p_texture, RSE::CameraAttributesLUTInput p_input, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	ERR_FAIL_INDEX((int)p_input, (int)RSE::CAMERA_ATTRIBUTES_LUT_INPUT_MAX);
+	cam_attributes->lut_enabled = p_enable;
+	cam_attributes->lut_texture = p_texture;
+	cam_attributes->lut_input = p_input;
+	cam_attributes->lut_strength = CLAMP(p_strength, 0.0f, 1.0f);
+}
+
+RID RendererCameraAttributes::camera_attributes_get_lut_texture(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, RID());
+	return cam_attributes->lut_texture;
+}
+
+uint32_t RendererCameraAttributes::camera_attributes_get_lut_packed(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || !cam_attributes->lut_enabled || cam_attributes->lut_texture.is_null() || cam_attributes->lut_strength <= 0.0f) {
+		return 0;
+	}
+	// Bit layout: see camera_lut_inc.glsl.
+	uint32_t packed = 1;
+	packed |= uint32_t(cam_attributes->lut_input) << 1;
+	packed |= uint32_t(Math::round(cam_attributes->lut_strength * 255.0f)) << 8;
+	return packed;
+}

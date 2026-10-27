@@ -3213,6 +3213,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_white_balance", "camera_attributes", "temperature", "tint"), &RenderingServer::camera_attributes_set_white_balance);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_grain", "camera_attributes", "enable", "type", "intensity", "size", "sensitivity"), &RenderingServer::camera_attributes_set_grain);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lut", "camera_attributes", "enable", "texture", "input", "strength"), &RenderingServer::camera_attributes_set_lut);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
@@ -3226,6 +3227,15 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_DIGITAL);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_ARRI_LOGC3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_SONY_SLOG3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_PANASONIC_VLOG);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_CANON_LOG3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_RED_LOG3G10);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_ACESCCT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_MAX);
 
 	/* SCENARIO */
 

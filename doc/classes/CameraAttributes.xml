@@ -4,8 +4,8 @@
 		Parent class for camera settings.
 	</brief_description>
 	<description>
-		Controls camera-specific attributes such as depth of field, exposure override, white balance and grain.
-		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, white balance, grain, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
+		Controls camera-specific attributes such as depth of field, exposure override, white balance, grain and the camera's LUT.
+		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, white balance, grain, LUT, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
 		See also [Environment] for general 3D environment settings.
 		This is a pure virtual class that is inherited by [CameraAttributesPhysical] and [CameraAttributesPractical].
 	</description>
@@ -45,6 +45,19 @@
 		<member name="grain_type" type="int" setter="set_grain_type" getter="get_grain_type" enum="CameraAttributes.GrainType" default="0">
 			The kind of grain or noise to simulate. See [enum GrainType] for options.
 		</member>
+		<member name="lut_enabled" type="bool" setter="set_lut_enabled" getter="is_lut_enabled" default="false">
+			If [code]true[/code], the camera applies [member lut_texture], a look-up table, the way a camera applies a LUT to its monitoring or recorded image. It is applied before the [Environment]'s adjustments, so [member Environment.adjustment_color_correction] grades the result.
+			[b]Note:[/b] Not applied in the viewport's debug draw modes or in reflection probes. In the Compatibility rendering method, enabling a LUT enables the post-processing pass.
+		</member>
+		<member name="lut_input" type="int" setter="set_lut_input" getter="get_lut_input" enum="CameraAttributes.LUTInput" default="0">
+			What the LUT expects as its input. [constant LUT_INPUT_DISPLAY] is for creative or "look" LUTs made for Rec.709/sRGB images. The camera log encodings are for LUTs made for that camera's log footage, such as the manufacturer's "log to Rec.709" LUTs: the scene is converted to that camera's gamut and log curve, the LUT turns it into the displayed image, and [member Environment.tonemap_mode] is not used. Set exposure so middle gray is where the camera expects it, as you would on set. See [enum LUTInput] for options.
+		</member>
+		<member name="lut_strength" type="float" setter="set_lut_strength" getter="get_lut_strength" default="1.0">
+			How much of the LUT's result is used, from [code]0.0[/code] (none) to [code]1.0[/code]. Blends between the image without the LUT (for a log input, the [Environment]'s tonemapper) and the LUT's output, in sRGB-encoded values as grading tools do.
+		</member>
+		<member name="lut_texture" type="Texture3D" setter="set_lut_texture" getter="get_lut_texture">
+			The look-up table, a [Texture3D] indexed by red (width), green (height) and blue (depth), whose texel centers hold the output for inputs evenly spaced from [code]0.0[/code] to [code]1.0[/code]. Adobe/Resolve [code].cube[/code] files (3D, 1D, or a 1D shaper followed by a 3D table) are imported as such a texture automatically.
+		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
 			The illuminant is taken on the Planckian locus with the same approximation [member Light3D.light_temperature] uses, so a light set to a given temperature renders neutral under a white balance of the same temperature. The adaptation is a von Kries transform in Bradford cone space, applied in linear scene-referred color after exposure and before tonemapping.
@@ -63,6 +76,30 @@
 		</constant>
 		<constant name="GRAIN_TYPE_DIGITAL" value="2" enum="GrainType">
 			Digital sensor noise from a full-frame sensor with 6 µm photosites: photon shot noise, which grows with the square root of the light captured, plus read noise, which dominates the shadows, per Bayer color channel. As on a real camera, it is invisible at low ISO and shows from about ISO 1600. With [member auto_exposure_enabled], auto exposure acts as sensor gain (auto ISO): a dark scene brightened by auto exposure gets noisier.
+		</constant>
+		<constant name="LUT_INPUT_DISPLAY" value="0" enum="LUTInput">
+			The LUT takes the tonemapped image, sRGB-encoded, and returns an sRGB-encoded image. Applied after tonemapping and glow. The LUT's range is SDR: with HDR output, brighter values are clipped to [code]1.0[/code].
+		</constant>
+		<constant name="LUT_INPUT_ARRI_LOGC3" value="1" enum="LUTInput">
+			ARRI LogC3 (EI 800) in ARRI Wide Gamut 3: for LUTs made for ALEXA footage.
+		</constant>
+		<constant name="LUT_INPUT_SONY_SLOG3" value="2" enum="LUTInput">
+			Sony S-Log3 in S-Gamut3.Cine.
+		</constant>
+		<constant name="LUT_INPUT_PANASONIC_VLOG" value="3" enum="LUTInput">
+			Panasonic V-Log in V-Gamut.
+		</constant>
+		<constant name="LUT_INPUT_CANON_LOG3" value="4" enum="LUTInput">
+			Canon Log 3 (version 1.2) in Cinema Gamut.
+		</constant>
+		<constant name="LUT_INPUT_RED_LOG3G10" value="5" enum="LUTInput">
+			RED Log3G10 in REDWideGamutRGB.
+		</constant>
+		<constant name="LUT_INPUT_ACESCCT" value="6" enum="LUTInput">
+			ACEScct in ACES AP1 primaries, adapted from D65 with Bradford.
+		</constant>
+		<constant name="LUT_INPUT_MAX" value="7" enum="LUTInput">
+			Represents the size of the [enum LUTInput] enum.
 		</constant>
 	</constants>
 </class>

@@ -487,7 +487,7 @@ private:
 			int32_t pad3 = 0;
 			float white_balance[4] = { 1.0, 1.0, 1.0, 0.0 }; // xyz: Bradford cone gains; w: 1.0 when enabled.
 			uint32_t grain = 0; // Packed CameraAttributes grain (RendererCameraAttributes::camera_attributes_get_grain_packed()).
-			int32_t pad4 = 0;
+			uint32_t camera_lut = 0; // Packed CameraAttributes LUT (RendererCameraAttributes::camera_attributes_get_lut_packed()).
 			int32_t pad5 = 0;
 			int32_t pad6 = 0;
 		};
@@ -766,6 +766,7 @@ private:
 	void _render_shadows(const RenderDataGLES3 *p_render_data, const Size2i &p_viewport_size = Size2i(1, 1));
 	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
 	void _render_post_processing(const RenderDataGLES3 *p_render_data);
+	GLuint _get_camera_lut_texture(RID p_camera_attributes) const;
 
 	template <PassMode p_pass_mode>
 	_FORCE_INLINE_ void _render_list_template(RenderListParameters *p_params, const RenderDataGLES3 *p_render_data, uint32_t p_from_element, uint32_t p_to_element, bool p_alpha_pass = false);
