@@ -32,7 +32,9 @@
 
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/rendering_server_globals.h"
 
 using namespace RendererRD;
 
@@ -112,9 +114,50 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 			}
 		}
 	}
+
+	const CameraEffectsUBO zero;
+	default_camera_effects_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(CameraEffectsUBO), Span<uint8_t>((const uint8_t *)&zero, sizeof(CameraEffectsUBO)));
+}
+
+void CameraEffectsBufferRD::free_data() {
+	if (buffer.is_valid()) {
+		RD::get_singleton()->free_rid(buffer);
+		buffer = RID();
+	}
+}
+
+CameraEffectsBufferRD::~CameraEffectsBufferRD() {
+	free_data();
+}
+
+RID ToneMapper::get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context) {
+	CameraEffectsUBO ubo;
+	if (p_render_buffers.is_null() || !RSG::camera_attributes->camera_attributes_fill_effects_buffer(p_camera_attributes, p_context, ubo)) {
+		return default_camera_effects_buffer;
+	}
+
+	static const StringName camera_effects_name = SNAME("camera_effects");
+	Ref<CameraEffectsBufferRD> data;
+	if (p_render_buffers->has_custom_data(camera_effects_name)) {
+		data = p_render_buffers->get_custom_data(camera_effects_name);
+	} else {
+		data.instantiate();
+		p_render_buffers->set_custom_data(camera_effects_name, data);
+	}
+	if (data->buffer.is_null()) {
+		data->buffer = RD::get_singleton()->uniform_buffer_create(sizeof(CameraEffectsUBO), Span<uint8_t>((const uint8_t *)&ubo, sizeof(CameraEffectsUBO)));
+		data->contents = ubo;
+	} else if (memcmp(&data->contents, &ubo, sizeof(CameraEffectsUBO)) != 0) {
+		RD::get_singleton()->buffer_update(data->buffer, 0, sizeof(CameraEffectsUBO), &ubo);
+		data->contents = ubo;
+	}
+	return data->buffer;
 }
 
 ToneMapper::~ToneMapper() {
+	if (default_camera_effects_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(default_camera_effects_buffer);
+	}
 	if (using_mobile_version) {
 		tonemap_mobile.shader.version_free(tonemap_mobile.shader_version);
 	} else {
@@ -223,6 +266,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
 
 	RD::Uniform u_camera_lut(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_settings.camera_lut_texture }));
+	RD::Uniform u_camera_effects(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, p_settings.camera_effects_buffer.is_valid() ? p_settings.camera_effects_buffer : default_camera_effects_buffer);
 
 	RID shader = tonemap.shader.version_get_shader(tonemap.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
@@ -230,7 +274,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer);
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass()));
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color), 0);
-	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 1, u_exposure_texture), 1);
+	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 1, u_exposure_texture, u_camera_effects), 1);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 2, u_glow_texture, u_glow_map), 2);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_color_correction_texture, u_camera_lut), 3);
 
@@ -327,13 +371,14 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
 
 	RD::Uniform u_camera_lut(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.camera_lut_texture }));
+	RD::Uniform u_camera_effects(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 5, p_settings.camera_effects_buffer.is_valid() ? p_settings.camera_effects_buffer : default_camera_effects_buffer);
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer);
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap_mobile.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass(), spec_constant));
-	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_camera_lut), 0);
+	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_camera_lut, u_camera_effects), 0);
 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &tonemap_mobile.push_constant, sizeof(TonemapPushConstantMobile));
 	RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);
 	RD::get_singleton()->draw_list_end();
@@ -426,12 +471,13 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
 
 	RD::Uniform u_camera_lut(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.camera_lut_texture }));
+	RD::Uniform u_camera_effects(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 5, p_settings.camera_effects_buffer.is_valid() ? p_settings.camera_effects_buffer : default_camera_effects_buffer);
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::get_singleton()->draw_list_bind_render_pipeline(p_subpass_draw_list, tonemap_mobile.pipelines[mode].get_render_pipeline(RD::INVALID_ID, p_dst_format_id, false, RD::get_singleton()->draw_list_get_current_pass(), spec_constant));
-	RD::get_singleton()->draw_list_bind_uniform_set(p_subpass_draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_camera_lut), 0);
+	RD::get_singleton()->draw_list_bind_uniform_set(p_subpass_draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_camera_lut, u_camera_effects), 0);
 	RD::get_singleton()->draw_list_set_push_constant(p_subpass_draw_list, &tonemap_mobile.push_constant, sizeof(TonemapPushConstantMobile));
 	RD::get_singleton()->draw_list_draw(p_subpass_draw_list, false, 1u, 3u);
 }

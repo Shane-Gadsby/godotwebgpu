@@ -2481,7 +2481,9 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	const bool use_camera_effects = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
 	const bool use_grain = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
 	const bool use_camera_lut = use_camera_effects && _get_camera_lut_texture(p_camera_attributes) != 0;
-	if (use_grain || use_camera_lut) {
+	// The lens optics of the CameraEffects buffer resample the image, which only the post pass can do.
+	const bool use_camera_effects_buffer = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_camera_attributes);
+	if (use_grain || use_camera_lut || use_camera_effects_buffer) {
 		apply_environment_effects_in_post = true;
 	}
 
@@ -3146,6 +3148,27 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	}
+
+	// The CameraEffects buffer (lens optics), for the pass that reads internal_size and writes target_size.
+	if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED && RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_render_data->camera_attributes)) {
+		CameraEffectsContext camera_effects_context;
+		camera_effects_context.source_size = internal_size;
+		camera_effects_context.output_size = target_size;
+		camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+		CameraEffectsUBO camera_effects_ubo;
+		if (RSG::camera_attributes->camera_attributes_fill_effects_buffer(p_render_data->camera_attributes, camera_effects_context, camera_effects_ubo)) {
+			if (scene_state.camera_effects_buffer == 0) {
+				glGenBuffers(1, &scene_state.camera_effects_buffer);
+				glBindBufferBase(GL_UNIFORM_BUFFER, CAMERA_EFFECTS_UNIFORM_LOCATION, scene_state.camera_effects_buffer);
+				GLES3::Utilities::get_singleton()->buffer_allocate_data(GL_UNIFORM_BUFFER, scene_state.camera_effects_buffer, sizeof(CameraEffectsUBO), &camera_effects_ubo, GL_STREAM_DRAW, "CameraEffects UBO");
+			} else {
+				glBindBufferBase(GL_UNIFORM_BUFFER, CAMERA_EFFECTS_UNIFORM_LOCATION, scene_state.camera_effects_buffer);
+				glBufferData(GL_UNIFORM_BUFFER, sizeof(CameraEffectsUBO), &camera_effects_ubo, GL_STREAM_DRAW);
+			}
+			glBindBuffer(GL_UNIFORM_BUFFER, 0);
+			bcs_spec_constants |= PostShaderGLES3::USE_CAMERA_EFFECTS;
+		}
 	}
 
 	if (view_count == 1) {
@@ -4996,6 +5019,9 @@ RasterizerSceneGLES3::~RasterizerSceneGLES3() {
 		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.prev_multiview_buffer);
 	}
 
+	if (scene_state.camera_effects_buffer != 0) {
+		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.camera_effects_buffer);
+	}
 	if (scene_state.tonemap_buffer != 0) {
 		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.tonemap_buffer);
 	}

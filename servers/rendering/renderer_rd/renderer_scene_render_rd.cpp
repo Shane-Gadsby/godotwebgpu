@@ -852,6 +852,15 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		}
 		_setup_camera_lut(tonemap, p_render_data->camera_attributes, can_use_effects);
 
+		// The CameraEffects uniform buffer (lens optics), updated here because the tonemap pass's draw list cannot.
+		if (can_use_effects) {
+			CameraEffectsContext camera_effects_context;
+			camera_effects_context.source_size = color_size;
+			camera_effects_context.output_size = tonemap.dest_texture_size;
+			camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
+		}
+
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
 		if (rb->get_use_debanding() && !using_hdr) {
 			if (use_smaa) {

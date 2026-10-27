@@ -292,8 +292,9 @@ Vector3 RendererCameraAttributes::camera_attributes_get_white_balance_gains(RID 
 /* Grain
  *
  * Film grain and digital sensor noise from the camera's ISO, worked out per tonemap pass so the image looks equally
- * grainy at any output resolution. Both models put the frame on the 36x24 mm format CameraAttributesPhysical uses
- * for its field of view, so an output pixel covers 24 mm / height of it.
+ * grainy at any output resolution. Both models put the frame on the sensor CameraAttributesPhysical uses for its
+ * field of view (36x24 mm unless its sensor format says otherwise), so an output pixel covers sensor height / height
+ * of it.
  *
  * Resolution: noise that is finer than a pixel averages out inside it, and Selwyn's law (the RMS fluctuation times
  * the square root of the measuring area is constant) says by how much. The shader is given the grain's own
@@ -344,7 +345,9 @@ uint32_t RendererCameraAttributes::camera_attributes_get_grain_packed(RID p_came
 	}
 
 	const double iso_ratio = cam_attributes->grain_sensitivity / 100.0;
-	const double pixel_um = 24000.0 / p_output_height; // The output pixel's footprint on a 24 mm tall frame.
+	// The output pixel's footprint on the frame: CameraAttributesPhysical's sensor height (24 mm unless its sensor
+	// format says otherwise, and always for CameraAttributesPractical).
+	const double pixel_um = cam_attributes->sensor_size.y * 1000.0 / p_output_height;
 
 	double cell_um; // Grain cell size on the frame at grain_size 1.
 	double amplitude_a;
@@ -412,4 +415,301 @@ uint32_t RendererCameraAttributes::camera_attributes_get_lut_packed(RID p_camera
 	packed |= uint32_t(cam_attributes->lut_input) << 1;
 	packed |= uint32_t(Math::round(cam_attributes->lut_strength * 255.0f)) << 8;
 	return packed;
+}
+
+/* Lens optics
+ *
+ * Everything that happens to the light between the scene and the sensor: geometric distortion, lateral chromatic
+ * aberration, diffraction and vignetting. The tonemap pass applies them first, to scene-referred light, before white
+ * balance, grain and the tone curve (camera_lens_inc.glsl; the Compatibility renderer's post pass has a copy). The
+ * parameters cross in the lens region of the CameraEffects uniform buffer, worked out here per pass because most of
+ * them depend on the frame's aspect and resolution.
+ *
+ * Coordinates: the shader works in frame positions q, centered, scaled so the output frame's corner is at |q| = 1
+ * (lens[0].xy is the half extent per axis). With CameraAttributesPhysical the frame is the sensor: its height maps to
+ * the output height (Camera3D keeps the vertical field of view), or for an anamorphic lens its desqueezed width maps to
+ * the output width. Everything spatial is therefore relative to the frame, so it looks the same at any resolution.
+ */
+
+// Relative radial displacement at the frame corner of a typical rectilinear lens, as a function of the tangent of the
+// corner's field angle. A look choice fitted to the range of published lens tests of full-frame primes and zooms
+// (lenstip.com, DxOMark, opticallimits.com): about -5% (barrel) at 14 mm, -1.7% at 24 mm, -0.7% at 35 mm, near 0
+// around 50-60 mm and a slight pincushion (+0.1-0.3%) on short telephotos. Real lenses scatter widely around it.
+double RendererCameraAttributes::lens_typical_corner_distortion(double p_tan_corner) {
+	return 0.003 - 0.025 * p_tan_corner * p_tan_corner;
+}
+
+// Brown-Conrady radial distortion with a separate pair of coefficients per axis (equal for a spherical lens), from the
+// undistorted frame position to the distorted one: x_d = x (1 + k1 r^2 + k2 r^4), r measured in frame units.
+static void _lens_distort(double p_x, double p_y, const double p_k[4], double &r_x, double &r_y) {
+	const double r2 = p_x * p_x + p_y * p_y;
+	r_x = p_x * (1.0 + p_k[0] * r2 + p_k[1] * r2 * r2);
+	r_y = p_y * (1.0 + p_k[2] * r2 + p_k[3] * r2 * r2);
+}
+
+// The largest zoom-in factor's inverse (<= 1) that keeps every output pixel inside the rendered frame: the frame's
+// border, distorted, is the edge of the image; the biggest output rectangle of the frame's shape inside it touches
+// it where its boundary is closest to the center in the rectangle's own metric.
+static double _lens_distortion_crop(double p_half_x, double p_half_y, const double p_k[4]) {
+	double crop = 1.0;
+	const int steps = 64;
+	for (int edge = 0; edge < 4; edge++) {
+		for (int i = 0; i <= steps; i++) {
+			const double t = -1.0 + 2.0 * i / steps;
+			double x = edge < 2 ? t * p_half_x : (edge == 2 ? -p_half_x : p_half_x);
+			double y = edge < 2 ? (edge == 0 ? -p_half_y : p_half_y) : t * p_half_y;
+			double dx, dy;
+			_lens_distort(x, y, p_k, dx, dy);
+			crop = MIN(crop, MAX(Math::abs(dx) / p_half_x, Math::abs(dy) / p_half_y));
+		}
+	}
+	return MAX(crop, 0.05);
+}
+
+// Diffraction kernel: 5x5 bilinear taps at multiples of a spacing h per axis, weighted by a Gaussian sampled at the
+// taps (exp(-k^2 / 2), normalized; camera_lens_inc.glsl has the same constants). A tap at a fractional texel offset
+// blends two texels, which adds variance of its own, so h is solved for the kernel's actual variance.
+static constexpr double LENS_DIFFRACTION_WEIGHTS[3] = { 0.402619947, 0.244201342, 0.054488685 };
+
+static double _lens_diffraction_variance(double p_spacing) {
+	double variance = 0.0;
+	for (int k = -2; k <= 2; k++) {
+		const double offset = Math::abs(k) * p_spacing;
+		const double frac = offset - Math::floor(offset);
+		variance += LENS_DIFFRACTION_WEIGHTS[Math::abs(k)] * (offset * offset + frac * (1.0 - frac));
+	}
+	return variance;
+}
+
+static double _lens_diffraction_spacing(double p_sigma_texels) {
+	// The variance grows monotonically with the spacing (the bilinear term has a slope of at least 1 - 2 frac).
+	double lo = 0.0;
+	double hi = 2.0 * p_sigma_texels + 2.0;
+	const double target = p_sigma_texels * p_sigma_texels;
+	for (int i = 0; i < 48; i++) {
+		const double mid = 0.5 * (lo + hi);
+		if (_lens_diffraction_variance(mid) < target) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
+void RendererCameraAttributes::camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->sensor_size = Vector2(MAX(p_sensor_size.x, 0.1f), MAX(p_sensor_size.y, 0.1f));
+	cam_attributes->lens_focal_length = MAX(p_focal_length, 0.0f);
+	cam_attributes->lens_fov_focal_length = MAX(p_fov_focal_length, 0.0f);
+	cam_attributes->lens_focus_distance = MAX(p_focus_distance, 0.0f);
+	cam_attributes->lens_f_number = MAX(p_f_number, 0.1f);
+	cam_attributes->lens_max_f_number = MAX(p_max_f_number, 0.1f);
+	cam_attributes->lens_anamorphic_squeeze = CLAMP(p_anamorphic_squeeze, 1.0f, 4.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->vignetting_enabled = p_enable;
+	cam_attributes->vignetting_strength = MAX(p_strength, 0.0f);
+	cam_attributes->vignetting_falloff = MAX(p_falloff, 0.1f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->distortion_enabled = p_enable;
+	cam_attributes->distortion_automatic = p_automatic;
+	// Past these the mapping folds over inside the frame.
+	cam_attributes->distortion_k1 = CLAMP(p_k1, -0.5f, 0.5f);
+	cam_attributes->distortion_k2 = CLAMP(p_k2, -0.5f, 0.5f);
+	cam_attributes->distortion_auto_crop = p_auto_crop;
+}
+
+void RendererCameraAttributes::camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->chromatic_aberration_enabled = p_enable;
+	cam_attributes->chromatic_aberration_strength = CLAMP(p_strength, -100.0f, 100.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->diffraction_enabled = p_enable;
+	cam_attributes->diffraction_strength = MAX(p_strength, 0.0f);
+}
+
+// The lens effects the attributes ask for, before the per-pass work (which can still drop diffraction too small to
+// matter). Anything here makes the renderers use the CameraEffects buffer.
+uint32_t RendererCameraAttributes::_lens_requested_bits(const CameraAttributes &p_attributes) {
+	const bool physical = p_attributes.lens_focal_length > 0.0f;
+	uint32_t bits = 0;
+	if (p_attributes.distortion_enabled && ((p_attributes.distortion_automatic && physical) || p_attributes.distortion_k1 != 0.0f || p_attributes.distortion_k2 != 0.0f)) {
+		bits |= LENS_DISTORTION;
+	}
+	if (p_attributes.chromatic_aberration_enabled && p_attributes.chromatic_aberration_strength != 0.0f) {
+		bits |= LENS_CHROMATIC_ABERRATION;
+	}
+	if (p_attributes.diffraction_enabled && physical && p_attributes.diffraction_strength > 0.0f) {
+		bits |= LENS_DIFFRACTION;
+	}
+	if (p_attributes.vignetting_enabled && p_attributes.vignetting_strength > 0.0f) {
+		bits |= physical ? LENS_VIGNETTING_PHYSICAL : LENS_VIGNETTING_PRACTICAL;
+	}
+	return bits;
+}
+
+void RendererCameraAttributes::_fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	uint32_t bits = _lens_requested_bits(p_attributes);
+	const bool physical = p_attributes.lens_focal_length > 0.0f;
+	if (bits == 0 && !physical) {
+		return;
+	}
+	const Size2i size = p_context.source_size.x > 0 && p_context.source_size.y > 0 ? p_context.source_size : p_context.output_size;
+	if (size.x <= 0 || size.y <= 0) {
+		return;
+	}
+
+	// The frame on the sensor, in millimeters, desqueezed horizontally. Without a physical lens only its shape matters.
+	const double aspect = double(size.x) / double(size.y);
+	const double sensor_w = p_attributes.sensor_size.x;
+	const double sensor_h = p_attributes.sensor_size.y;
+	const double squeeze = physical ? p_attributes.lens_anamorphic_squeeze : 1.0;
+	double frame_w, frame_h;
+	if (squeeze != 1.0) {
+		frame_w = squeeze * sensor_w; // Camera3D keeps the horizontal field of view for an anamorphic lens.
+		frame_h = frame_w / aspect;
+	} else {
+		frame_h = sensor_h;
+		frame_w = aspect * frame_h;
+	}
+	const double frame_radius = 0.5 * Math::sqrt(frame_w * frame_w + frame_h * frame_h);
+	const double half_x = 0.5 * frame_w / frame_radius;
+	const double half_y = 0.5 * frame_h / frame_radius;
+	// The sensor's own half diagonal in the same desqueezed millimeters.
+	const double sensor_radius = 0.5 * Math::sqrt(squeeze * sensor_w * squeeze * sensor_w + sensor_h * sensor_h);
+	const double focal = p_attributes.lens_fov_focal_length > 0.0f ? p_attributes.lens_fov_focal_length : p_attributes.lens_focal_length;
+
+	// Distortion coefficients per axis, in frame units.
+	double k[4] = { 0.0, 0.0, 0.0, 0.0 };
+	if (bits & LENS_DISTORTION) {
+		if (p_attributes.distortion_automatic && physical) {
+			// The typical lens's corner distortion as a k1 at the sensor's corner, rescaled to the frame's. An
+			// anamorphic lens covers its wider horizontal field like a spherical lens of focal length f / squeeze, so
+			// the horizontal axis takes that lens's (stronger) distortion.
+			const double scale = (frame_radius / sensor_radius) * (frame_radius / sensor_radius);
+			const double tan_corner = sensor_radius / focal;
+			k[0] = lens_typical_corner_distortion(tan_corner * squeeze) * scale;
+			k[2] = lens_typical_corner_distortion(tan_corner) * scale;
+		} else {
+			k[0] = k[2] = p_attributes.distortion_k1;
+			k[1] = k[3] = p_attributes.distortion_k2;
+		}
+	}
+	const double crop = (bits & LENS_DISTORTION) && p_attributes.distortion_auto_crop ? _lens_distortion_crop(half_x, half_y, k) : 1.0;
+
+	r_ubo.lens[0][0] = half_x;
+	r_ubo.lens[0][1] = half_y;
+	r_ubo.lens[0][2] = crop;
+	r_ubo.lens[0][3] = squeeze;
+	r_ubo.lens[1][0] = k[0];
+	r_ubo.lens[1][1] = k[1];
+	r_ubo.lens[1][2] = k[2];
+	r_ubo.lens[1][3] = k[3];
+
+	if (bits & LENS_CHROMATIC_ABERRATION) {
+		// Lateral color: each channel's image is magnified slightly differently, so fringes grow linearly toward the
+		// edges. Strength 1 spreads red and blue by 0.1% of the distance from the center, Imatest's boundary between
+		// "minor" and "moderate" lateral CA (imatest.com, "Chromatic aberration"); red is the larger image, as in an
+		// undercorrected lens. Lateral color comes from the chief ray, so unlike longitudinal color it does not change
+		// with the aperture (Smith, Modern Optical Engineering, 4th ed., ch. 5).
+		const double delta = 0.0005 * p_attributes.chromatic_aberration_strength;
+		r_ubo.lens[2][0] = 1.0 / (1.0 + delta); // Red: sampled closer to the center, so it lands farther out.
+		r_ubo.lens[2][1] = 1.0 / (1.0 - delta); // Blue.
+	}
+
+	if (bits & LENS_VIGNETTING_PHYSICAL) {
+		// Natural vignetting, the cos^4 law: illuminance falls with cos^4 of the field angle (Kingslake, Lenses in
+		// Photography; Ray, Applied Photographic Optics, 3rd ed., section 6.3). tan^2 of the angle at frame
+		// position q is |q|^2 (frame radius / focal length)^2, with the focal length that sets the field of view.
+		// Optical (mechanical) vignetting: the rear of the lens barrel clips the aperture's image for off-axis
+		// points, so only the overlap of two circles passes ("cat's eye"). The pupil is modeled at the barrel's size
+		// wide open and offset by half its radius at the sensor's corner, so the corner loses about 0.55 stop wide
+		// open and nothing from two stops down, the range lens tests report for fast lenses (Ray, section 6.3: optical
+		// vignetting "is usually eliminated by stopping down two or three stops").
+		const double max_f = MIN(p_attributes.lens_max_f_number, p_attributes.lens_f_number);
+		r_ubo.lens[3][0] = p_attributes.vignetting_strength;
+		r_ubo.lens[3][1] = (frame_radius / focal) * (frame_radius / focal);
+		r_ubo.lens[3][2] = 0.5 * frame_radius / sensor_radius;
+		r_ubo.lens[3][3] = max_f / p_attributes.lens_f_number;
+	}
+	if (bits & LENS_VIGNETTING_PRACTICAL) {
+		// Without a physical lens: strength stops of darkening at the frame's corner, growing as |q|^falloff.
+		r_ubo.lens[4][0] = p_attributes.vignetting_strength;
+		r_ubo.lens[4][1] = p_attributes.vignetting_falloff;
+	}
+
+	if (bits & LENS_DIFFRACTION) {
+		// The Airy disk of a circular aperture has its first dark ring at 1.22 lambda N (diameter 2.44 lambda N; Born
+		// & Wolf, Principles of Optics, 8.5.2); its best-fitting Gaussian has sigma = 0.42 lambda N (Zhang, Zerubia
+		// and Olivo-Marin, Applied Optics 46(10), 2007). N is the working f-number, N (1 + m) at magnification m
+		// (thin lens, pupil magnification 1), so it grows at close focus. lambda = 550 nm, the peak of photopic
+		// vision. The kernel is in source texels: an output pixel covers frame height / height of the sensor, so the
+		// blur stays the same fraction of the frame at any resolution. An anamorphic lens stretches it horizontally.
+		const double u = MAX(p_attributes.lens_focus_distance * 1000.0, p_attributes.lens_focal_length + 1.0);
+		const double magnification = p_attributes.lens_focal_length / (u - p_attributes.lens_focal_length);
+		const double working_f = p_attributes.lens_f_number * (1.0 + magnification);
+		const double sigma_mm = 0.42 * 550e-6 * working_f * p_attributes.diffraction_strength;
+		const double texel_mm = frame_h / size.y;
+		const double sigma_x = sigma_mm * squeeze / texel_mm;
+		const double sigma_y = sigma_mm / texel_mm;
+		if (MAX(sigma_x, sigma_y) < 0.05) {
+			bits &= ~LENS_DIFFRACTION; // Far below a texel: nothing to see, so skip the 25 taps.
+		} else {
+			r_ubo.lens[5][0] = _lens_diffraction_spacing(sigma_x) / size.x;
+			r_ubo.lens[5][1] = _lens_diffraction_spacing(sigma_y) / size.y;
+			r_ubo.lens[5][2] = sigma_x;
+			r_ubo.lens[5][3] = sigma_y;
+		}
+	}
+
+	// The physical lens for effects that shape light by it (task 35's oval bokeh and starbursts read the squeeze in
+	// lens[0].w and these).
+	if (physical) {
+		r_ubo.lens[6][0] = sensor_w;
+		r_ubo.lens[6][1] = sensor_h;
+		r_ubo.lens[6][2] = focal;
+		r_ubo.lens[6][3] = p_attributes.lens_f_number;
+	}
+	r_ubo.lens[7][0] = 1.0 / size.x;
+	r_ubo.lens[7][1] = 1.0 / size.y;
+
+	r_ubo.header[0] = bits;
+}
+
+// Lens flare, veiling glare and diffusion filters (task 35) fill glare[] and header[1] here.
+void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+}
+
+// Exposure automation (task 36) fills exposure[] and header[2] here.
+void RendererCameraAttributes::_fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+}
+
+bool RendererCameraAttributes::camera_attributes_fill_effects_buffer(RID p_camera_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	r_ubo = CameraEffectsUBO();
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return false;
+	}
+	_fill_effects_lens(*cam_attributes, p_context, r_ubo);
+	_fill_effects_glare(*cam_attributes, p_context, r_ubo);
+	_fill_effects_exposure(*cam_attributes, p_context, r_ubo);
+	if ((r_ubo.header[0] | r_ubo.header[1] | r_ubo.header[2] | r_ubo.header[3]) == 0) {
+		r_ubo = CameraEffectsUBO(); // The physical lens fills some regions regardless; nothing reads them.
+		return false;
+	}
+	return true;
 }

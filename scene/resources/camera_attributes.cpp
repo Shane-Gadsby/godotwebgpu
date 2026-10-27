@@ -211,6 +211,125 @@ void CameraAttributes::_update_lut() {
 	RS::get_singleton()->camera_attributes_set_lut(camera_attributes, lut_enabled, lut_texture.is_valid() ? lut_texture->get_rid() : RID(), RSE::CameraAttributesLUTInput(lut_input), lut_strength);
 }
 
+// Lens optics: the effects themselves are described in RendererCameraAttributes (camera_attributes_storage.cpp) and
+// camera_lens_inc.glsl.
+
+void CameraAttributes::set_vignetting_enabled(bool p_enabled) {
+	vignetting_enabled = p_enabled;
+	_update_vignetting();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_vignetting_enabled() const {
+	return vignetting_enabled;
+}
+
+void CameraAttributes::set_vignetting_strength(float p_strength) {
+	vignetting_strength = MAX(p_strength, 0.0f);
+	_update_vignetting();
+	emit_changed();
+}
+
+float CameraAttributes::get_vignetting_strength() const {
+	return vignetting_strength;
+}
+
+void CameraAttributes::set_vignetting_falloff(float p_falloff) {
+	vignetting_falloff = MAX(p_falloff, 0.1f);
+	_update_vignetting();
+	emit_changed();
+}
+
+float CameraAttributes::get_vignetting_falloff() const {
+	return vignetting_falloff;
+}
+
+void CameraAttributes::_update_vignetting() {
+	RS::get_singleton()->camera_attributes_set_vignetting(camera_attributes, vignetting_enabled, vignetting_strength, vignetting_falloff);
+}
+
+void CameraAttributes::set_distortion_enabled(bool p_enabled) {
+	distortion_enabled = p_enabled;
+	_update_distortion();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_distortion_enabled() const {
+	return distortion_enabled;
+}
+
+void CameraAttributes::set_distortion_automatic(bool p_automatic) {
+	distortion_automatic = p_automatic;
+	_update_distortion();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_distortion_automatic() const {
+	return distortion_automatic;
+}
+
+void CameraAttributes::set_distortion_k1(float p_k1) {
+	distortion_k1 = CLAMP(p_k1, -0.5f, 0.5f);
+	_update_distortion();
+	emit_changed();
+}
+
+float CameraAttributes::get_distortion_k1() const {
+	return distortion_k1;
+}
+
+void CameraAttributes::set_distortion_k2(float p_k2) {
+	distortion_k2 = CLAMP(p_k2, -0.5f, 0.5f);
+	_update_distortion();
+	emit_changed();
+}
+
+float CameraAttributes::get_distortion_k2() const {
+	return distortion_k2;
+}
+
+void CameraAttributes::set_distortion_auto_crop(bool p_auto_crop) {
+	distortion_auto_crop = p_auto_crop;
+	_update_distortion();
+	emit_changed();
+}
+
+bool CameraAttributes::is_distortion_auto_crop() const {
+	return distortion_auto_crop;
+}
+
+void CameraAttributes::_update_distortion() {
+	RS::get_singleton()->camera_attributes_set_lens_distortion(camera_attributes, distortion_enabled, distortion_automatic, distortion_k1, distortion_k2, distortion_auto_crop);
+}
+
+void CameraAttributes::set_chromatic_aberration_enabled(bool p_enabled) {
+	chromatic_aberration_enabled = p_enabled;
+	_update_chromatic_aberration();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_chromatic_aberration_enabled() const {
+	return chromatic_aberration_enabled;
+}
+
+void CameraAttributes::set_chromatic_aberration_strength(float p_strength) {
+	chromatic_aberration_strength = p_strength;
+	_update_chromatic_aberration();
+	emit_changed();
+}
+
+float CameraAttributes::get_chromatic_aberration_strength() const {
+	return chromatic_aberration_strength;
+}
+
+void CameraAttributes::_update_chromatic_aberration() {
+	RS::get_singleton()->camera_attributes_set_chromatic_aberration(camera_attributes, chromatic_aberration_enabled, chromatic_aberration_strength);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -236,6 +355,13 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	}
 
 	if (p_property.name.begins_with("lut_") && p_property.name != "lut_enabled" && !lut_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if ((p_property.name.begins_with("vignetting_") && p_property.name != "vignetting_enabled" && !vignetting_enabled) ||
+			(p_property.name.begins_with("distortion_") && p_property.name != "distortion_enabled" && !distortion_enabled) ||
+			(p_property.name.begins_with("chromatic_aberration_") && p_property.name != "chromatic_aberration_enabled" && !chromatic_aberration_enabled)) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -296,11 +422,50 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_intensity", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_grain_intensity", "get_grain_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_size", PROPERTY_HINT_RANGE, "0.25,4,0.01,or_greater"), "set_grain_size", "get_grain_size");
 
+	ClassDB::bind_method(D_METHOD("set_vignetting_enabled", "enabled"), &CameraAttributes::set_vignetting_enabled);
+	ClassDB::bind_method(D_METHOD("is_vignetting_enabled"), &CameraAttributes::is_vignetting_enabled);
+	ClassDB::bind_method(D_METHOD("set_vignetting_strength", "strength"), &CameraAttributes::set_vignetting_strength);
+	ClassDB::bind_method(D_METHOD("get_vignetting_strength"), &CameraAttributes::get_vignetting_strength);
+	ClassDB::bind_method(D_METHOD("set_vignetting_falloff", "falloff"), &CameraAttributes::set_vignetting_falloff);
+	ClassDB::bind_method(D_METHOD("get_vignetting_falloff"), &CameraAttributes::get_vignetting_falloff);
+
+	ClassDB::bind_method(D_METHOD("set_distortion_enabled", "enabled"), &CameraAttributes::set_distortion_enabled);
+	ClassDB::bind_method(D_METHOD("is_distortion_enabled"), &CameraAttributes::is_distortion_enabled);
+	ClassDB::bind_method(D_METHOD("set_distortion_automatic", "automatic"), &CameraAttributes::set_distortion_automatic);
+	ClassDB::bind_method(D_METHOD("is_distortion_automatic"), &CameraAttributes::is_distortion_automatic);
+	ClassDB::bind_method(D_METHOD("set_distortion_k1", "k1"), &CameraAttributes::set_distortion_k1);
+	ClassDB::bind_method(D_METHOD("get_distortion_k1"), &CameraAttributes::get_distortion_k1);
+	ClassDB::bind_method(D_METHOD("set_distortion_k2", "k2"), &CameraAttributes::set_distortion_k2);
+	ClassDB::bind_method(D_METHOD("get_distortion_k2"), &CameraAttributes::get_distortion_k2);
+	ClassDB::bind_method(D_METHOD("set_distortion_auto_crop", "auto_crop"), &CameraAttributes::set_distortion_auto_crop);
+	ClassDB::bind_method(D_METHOD("is_distortion_auto_crop"), &CameraAttributes::is_distortion_auto_crop);
+
+	ClassDB::bind_method(D_METHOD("set_chromatic_aberration_enabled", "enabled"), &CameraAttributes::set_chromatic_aberration_enabled);
+	ClassDB::bind_method(D_METHOD("is_chromatic_aberration_enabled"), &CameraAttributes::is_chromatic_aberration_enabled);
+	ClassDB::bind_method(D_METHOD("set_chromatic_aberration_strength", "strength"), &CameraAttributes::set_chromatic_aberration_strength);
+	ClassDB::bind_method(D_METHOD("get_chromatic_aberration_strength"), &CameraAttributes::get_chromatic_aberration_strength);
+
 	ADD_GROUP("LUT", "lut_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "lut_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_lut_enabled", "is_lut_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "lut_texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture3D"), "set_lut_texture", "get_lut_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "lut_input", PROPERTY_HINT_ENUM, "Display (sRGB),ARRI LogC3 (AWG3),Sony S-Log3 (S-Gamut3.Cine),Panasonic V-Log (V-Gamut),Canon Log 3 (Cinema Gamut),RED Log3G10 (REDWideGamutRGB),ACEScct (AP1)"), "set_lut_input", "get_lut_input");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lut_strength", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_lut_strength", "get_lut_strength");
+
+	ADD_GROUP("Vignetting", "vignetting_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "vignetting_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_vignetting_enabled", "is_vignetting_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vignetting_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_vignetting_strength", "get_vignetting_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vignetting_falloff", PROPERTY_HINT_RANGE, "0.1,8,0.01"), "set_vignetting_falloff", "get_vignetting_falloff");
+
+	ADD_GROUP("Distortion", "distortion_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "distortion_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_distortion_enabled", "is_distortion_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "distortion_automatic"), "set_distortion_automatic", "is_distortion_automatic");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "distortion_k1", PROPERTY_HINT_RANGE, "-0.5,0.5,0.001"), "set_distortion_k1", "get_distortion_k1");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "distortion_k2", PROPERTY_HINT_RANGE, "-0.5,0.5,0.001"), "set_distortion_k2", "get_distortion_k2");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "distortion_auto_crop"), "set_distortion_auto_crop", "is_distortion_auto_crop");
+
+	ADD_GROUP("Chromatic Aberration", "chromatic_aberration_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "chromatic_aberration_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_chromatic_aberration_enabled", "is_chromatic_aberration_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "chromatic_aberration_strength", PROPERTY_HINT_RANGE, "-10,10,0.01,or_greater,or_less"), "set_chromatic_aberration_strength", "get_chromatic_aberration_strength");
 
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);
@@ -446,6 +611,10 @@ void CameraAttributesPractical::_validate_property(PropertyInfo &p_property) con
 			(p_property.name != "dof_blur_near_enabled" && !dof_blur_near_enabled && p_property.name.begins_with("dof_blur_near_"))) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	}
+	// Automatic distortion needs a focal length.
+	if (p_property.name == "distortion_automatic") {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
 }
 
 void CameraAttributesPractical::_bind_methods() {
@@ -504,6 +673,7 @@ void CameraAttributesPhysical::set_aperture(float p_aperture) {
 	exposure_aperture = p_aperture;
 	_update_exposure();
 	_update_frustum();
+	_update_lens(); // Optical vignetting and diffraction follow the aperture.
 }
 
 float CameraAttributesPhysical::get_aperture() const {
@@ -522,6 +692,7 @@ float CameraAttributesPhysical::get_shutter_speed() const {
 void CameraAttributesPhysical::set_focal_length(float p_focal_length) {
 	frustum_focal_length = p_focal_length;
 	_update_frustum();
+	_update_lens();
 	emit_changed();
 }
 
@@ -532,6 +703,10 @@ float CameraAttributesPhysical::get_focal_length() const {
 void CameraAttributesPhysical::set_focus_distance(float p_focus_distance) {
 	frustum_focus_distance = p_focus_distance;
 	_update_frustum();
+	_update_lens();
+	if (lens_focus_breathing != 0.0f) {
+		emit_changed(); // Focus breathing changes the field of view.
+	}
 }
 
 float CameraAttributesPhysical::get_focus_distance() const {
@@ -562,12 +737,37 @@ real_t CameraAttributesPhysical::get_fov() const {
 	return frustum_fov;
 }
 
+bool CameraAttributesPhysical::is_fov_horizontal() const {
+	return lens_anamorphic_squeeze != 1.0f;
+}
+
+// Focus breathing: the field of view a lens shows changes as it focuses. A lens that focuses by moving as a whole
+// ("unit focusing", most classic stills primes) sits at the image distance v = f u / (u - f) from the sensor, so it
+// frames like a lens of focal length v: f + f^2 / (u - f) (thin lens). lens_focus_breathing scales that extra length:
+// 1 is unit focusing, 0 a cine lens built not to breathe, negative values an internal-focusing lens whose field of
+// view widens at close focus (common in modern zooms).
+float CameraAttributesPhysical::_get_fov_focal_length() const {
+	if (lens_focus_breathing == 0.0f) {
+		return frustum_focal_length;
+	}
+	const float u = MAX(frustum_focus_distance * 1000.0f, frustum_focal_length + 1.0f); // In mm, as in _update_frustum().
+	return MAX(frustum_focal_length + lens_focus_breathing * frustum_focal_length * frustum_focal_length / (u - frustum_focal_length), 0.1f);
+}
+
 void CameraAttributesPhysical::_update_frustum() {
 	//https://en.wikipedia.org/wiki/Circle_of_confusion#Circle_of_confusion_diameter_limit_based_on_d/1500
-	Vector2i sensor_size = Vector2i(36, 24); // Matches high-end DSLR, could be made variable if there is demand.
-	float CoC = sensor_size.length() / 1500.0;
+	// The diagonal in double precision, as the former integer 36x24 mm constant was, so a full-frame sensor gives the
+	// same circle of confusion to the bit.
+	float CoC = Math::sqrt(double(sensor_size.x) * double(sensor_size.x) + double(sensor_size.y) * double(sensor_size.y)) / 1500.0;
 
-	frustum_fov = Math::rad_to_deg(2 * std::atan(sensor_size.height / (2 * frustum_focal_length)));
+	// Camera3D keeps the vertical field of view the sensor height gives, or for an anamorphic lens the horizontal one
+	// of its desqueezed width: the squeeze widens the horizontal field by its factor at the same focal length.
+	const float fov_focal_length = _get_fov_focal_length();
+	if (is_fov_horizontal()) {
+		frustum_fov = Math::rad_to_deg(2 * std::atan(lens_anamorphic_squeeze * sensor_size.width / (2 * fov_focal_length)));
+	} else {
+		frustum_fov = Math::rad_to_deg(2 * std::atan(sensor_size.height / (2 * fov_focal_length)));
+	}
 
 	// Based on https://en.wikipedia.org/wiki/Depth_of_field.
 	float u = MAX(frustum_focus_distance * 1000.0, frustum_focal_length + 1.0); // Focus distance expressed in mm and clamped to at least 1 mm away from lens.
@@ -602,8 +802,149 @@ void CameraAttributesPhysical::_update_frustum() {
 }
 
 float CameraAttributesPhysical::calculate_exposure_normalization() const {
-	const float e = (exposure_aperture * exposure_aperture) * exposure_shutter_speed * (100.0 / exposure_sensitivity);
+	float e = (exposure_aperture * exposure_aperture) * exposure_shutter_speed * (100.0 / exposure_sensitivity);
+	// An ND filter and the lens's transmission loss (the gap between its T-stop and f-stop) both take light away
+	// before the sensor, one stop halving it. Skipped at 0 so the default stays bit-identical.
+	const float light_loss_stops = exposure_nd_filter + lens_transmission_loss;
+	if (light_loss_stops != 0.0f) {
+		e *= std::exp2(light_loss_stops);
+	}
 	return 1.0 / (e * 1.2);
+}
+
+Vector2 CameraAttributesPhysical::get_sensor_format_size(SensorFormat p_format) {
+	// Image area in millimeters. Full frame: 135 film. APS-C: Nikon/Sony/Fujifilm DX-size (Canon's is 22.3x14.9).
+	// Super 35: ARRI ALEXA open gate's 3:4-ish Super 35 (24.89x18.66, the 4-perf Super 35 film gate). Micro Four
+	// Thirds: the standard's 17.3x13. Medium format: the 44x33 "crop" medium format of Fujifilm GFX and Hasselblad X.
+	// 1-inch: the 13.2x8.8 type of most premium compacts. (Manufacturer specifications.)
+	switch (p_format) {
+		case SENSOR_FORMAT_APS_C:
+			return Vector2(23.6, 15.6);
+		case SENSOR_FORMAT_SUPER_35:
+			return Vector2(24.89, 18.66);
+		case SENSOR_FORMAT_MICRO_FOUR_THIRDS:
+			return Vector2(17.3, 13.0);
+		case SENSOR_FORMAT_MEDIUM_FORMAT:
+			return Vector2(44.0, 33.0);
+		case SENSOR_FORMAT_ONE_INCH:
+			return Vector2(13.2, 8.8);
+		default:
+			return Vector2(36.0, 24.0);
+	}
+}
+
+void CameraAttributesPhysical::set_sensor_format(SensorFormat p_format) {
+	ERR_FAIL_INDEX(p_format, SENSOR_FORMAT_MAX);
+	sensor_format = p_format;
+	if (sensor_format != SENSOR_FORMAT_CUSTOM) {
+		sensor_size = get_sensor_format_size(sensor_format);
+	}
+	_update_frustum();
+	_update_lens();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+CameraAttributesPhysical::SensorFormat CameraAttributesPhysical::get_sensor_format() const {
+	return sensor_format;
+}
+
+void CameraAttributesPhysical::set_sensor_size(const Vector2 &p_size) {
+	sensor_size = Vector2(MAX(p_size.x, 1.0f), MAX(p_size.y, 1.0f));
+	// A size other than the preset's makes the format custom; the preset's own size (as a scene stores it after the
+	// format) keeps the format.
+	if (sensor_format != SENSOR_FORMAT_CUSTOM && sensor_size != get_sensor_format_size(sensor_format)) {
+		sensor_format = SENSOR_FORMAT_CUSTOM;
+		notify_property_list_changed();
+	}
+	_update_frustum();
+	_update_lens();
+	emit_changed();
+}
+
+Vector2 CameraAttributesPhysical::get_sensor_size() const {
+	return sensor_size;
+}
+
+void CameraAttributesPhysical::set_lens_max_aperture(float p_aperture) {
+	lens_max_aperture = MAX(p_aperture, 0.5f);
+	_update_lens();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_lens_max_aperture() const {
+	return lens_max_aperture;
+}
+
+void CameraAttributesPhysical::set_lens_transmission_loss(float p_stops) {
+	lens_transmission_loss = MAX(p_stops, 0.0f);
+	_update_exposure();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_lens_transmission_loss() const {
+	return lens_transmission_loss;
+}
+
+void CameraAttributesPhysical::set_lens_anamorphic_squeeze(float p_squeeze) {
+	lens_anamorphic_squeeze = CLAMP(p_squeeze, 1.0f, 4.0f);
+	_update_frustum();
+	_update_lens();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_lens_anamorphic_squeeze() const {
+	return lens_anamorphic_squeeze;
+}
+
+void CameraAttributesPhysical::set_lens_focus_breathing(float p_amount) {
+	lens_focus_breathing = p_amount;
+	_update_frustum();
+	_update_lens();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_lens_focus_breathing() const {
+	return lens_focus_breathing;
+}
+
+void CameraAttributesPhysical::set_exposure_nd_filter(float p_stops) {
+	exposure_nd_filter = MAX(p_stops, 0.0f);
+	_update_exposure();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_exposure_nd_filter() const {
+	return exposure_nd_filter;
+}
+
+void CameraAttributesPhysical::set_diffraction_enabled(bool p_enabled) {
+	diffraction_enabled = p_enabled;
+	_update_diffraction();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributesPhysical::is_diffraction_enabled() const {
+	return diffraction_enabled;
+}
+
+void CameraAttributesPhysical::set_diffraction_strength(float p_strength) {
+	diffraction_strength = MAX(p_strength, 0.0f);
+	_update_diffraction();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_diffraction_strength() const {
+	return diffraction_strength;
+}
+
+void CameraAttributesPhysical::_update_lens() {
+	RS::get_singleton()->camera_attributes_set_lens(get_rid(), sensor_size, frustum_focal_length, _get_fov_focal_length(), frustum_focus_distance, exposure_aperture, lens_max_aperture, lens_anamorphic_squeeze);
+}
+
+void CameraAttributesPhysical::_update_diffraction() {
+	RS::get_singleton()->camera_attributes_set_diffraction(get_rid(), diffraction_enabled, diffraction_strength);
 }
 
 void CameraAttributesPhysical::set_auto_exposure_min_exposure_value(float p_min) {
@@ -639,7 +980,17 @@ void CameraAttributesPhysical::_validate_property(PropertyInfo &property) const 
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
-	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (property.name == "exposure_aperture" || property.name == "exposure_shutter_speed")) {
+	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (property.name == "exposure_aperture" || property.name == "exposure_shutter_speed" || property.name == "exposure_nd_filter")) {
+		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+	}
+	// The physical vignetting has no free falloff, and automatic distortion has no coefficients to set.
+	if (property.name == "vignetting_falloff" || ((property.name == "distortion_k1" || property.name == "distortion_k2") && distortion_automatic)) {
+		property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
+	if (property.name == "sensor_size" && sensor_format != SENSOR_FORMAT_CUSTOM) {
+		property.usage |= PROPERTY_USAGE_READ_ONLY;
+	}
+	if (property.name == "diffraction_strength" && !diffraction_enabled) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
 }
@@ -665,6 +1016,45 @@ void CameraAttributesPhysical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_min_exposure_value", "exposure_value_min"), &CameraAttributesPhysical::set_auto_exposure_min_exposure_value);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_min_exposure_value"), &CameraAttributesPhysical::get_auto_exposure_min_exposure_value);
 
+	ClassDB::bind_method(D_METHOD("is_fov_horizontal"), &CameraAttributesPhysical::is_fov_horizontal);
+
+	ClassDB::bind_method(D_METHOD("set_sensor_format", "format"), &CameraAttributesPhysical::set_sensor_format);
+	ClassDB::bind_method(D_METHOD("get_sensor_format"), &CameraAttributesPhysical::get_sensor_format);
+	ClassDB::bind_method(D_METHOD("set_sensor_size", "size"), &CameraAttributesPhysical::set_sensor_size);
+	ClassDB::bind_method(D_METHOD("get_sensor_size"), &CameraAttributesPhysical::get_sensor_size);
+	ClassDB::bind_static_method("CameraAttributesPhysical", D_METHOD("get_sensor_format_size", "format"), &CameraAttributesPhysical::get_sensor_format_size);
+
+	ClassDB::bind_method(D_METHOD("set_lens_max_aperture", "aperture"), &CameraAttributesPhysical::set_lens_max_aperture);
+	ClassDB::bind_method(D_METHOD("get_lens_max_aperture"), &CameraAttributesPhysical::get_lens_max_aperture);
+	ClassDB::bind_method(D_METHOD("set_lens_transmission_loss", "stops"), &CameraAttributesPhysical::set_lens_transmission_loss);
+	ClassDB::bind_method(D_METHOD("get_lens_transmission_loss"), &CameraAttributesPhysical::get_lens_transmission_loss);
+	ClassDB::bind_method(D_METHOD("set_lens_anamorphic_squeeze", "squeeze"), &CameraAttributesPhysical::set_lens_anamorphic_squeeze);
+	ClassDB::bind_method(D_METHOD("get_lens_anamorphic_squeeze"), &CameraAttributesPhysical::get_lens_anamorphic_squeeze);
+	ClassDB::bind_method(D_METHOD("set_lens_focus_breathing", "amount"), &CameraAttributesPhysical::set_lens_focus_breathing);
+	ClassDB::bind_method(D_METHOD("get_lens_focus_breathing"), &CameraAttributesPhysical::get_lens_focus_breathing);
+
+	ClassDB::bind_method(D_METHOD("set_exposure_nd_filter", "stops"), &CameraAttributesPhysical::set_exposure_nd_filter);
+	ClassDB::bind_method(D_METHOD("get_exposure_nd_filter"), &CameraAttributesPhysical::get_exposure_nd_filter);
+
+	ClassDB::bind_method(D_METHOD("set_diffraction_enabled", "enabled"), &CameraAttributesPhysical::set_diffraction_enabled);
+	ClassDB::bind_method(D_METHOD("is_diffraction_enabled"), &CameraAttributesPhysical::is_diffraction_enabled);
+	ClassDB::bind_method(D_METHOD("set_diffraction_strength", "strength"), &CameraAttributesPhysical::set_diffraction_strength);
+	ClassDB::bind_method(D_METHOD("get_diffraction_strength"), &CameraAttributesPhysical::get_diffraction_strength);
+
+	ADD_GROUP("Sensor", "sensor_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "sensor_format", PROPERTY_HINT_ENUM, "Full Frame (36x24 mm),APS-C (23.6x15.6 mm),Super 35 (24.89x18.66 mm),Micro Four Thirds (17.3x13 mm),Medium Format (44x33 mm),1-inch (13.2x8.8 mm),Custom"), "set_sensor_format", "get_sensor_format");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "sensor_size", PROPERTY_HINT_NONE, "suffix:mm"), "set_sensor_size", "get_sensor_size");
+
+	ADD_GROUP("Lens", "lens_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_max_aperture", PROPERTY_HINT_RANGE, "0.5,32.0,0.01,exp,suffix:f-stop"), "set_lens_max_aperture", "get_lens_max_aperture");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_transmission_loss", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater,suffix:stops"), "set_lens_transmission_loss", "get_lens_transmission_loss");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_anamorphic_squeeze", PROPERTY_HINT_RANGE, "1,2,0.01,or_greater"), "set_lens_anamorphic_squeeze", "get_lens_anamorphic_squeeze");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_focus_breathing", PROPERTY_HINT_RANGE, "-1,1,0.01,or_greater,or_less"), "set_lens_focus_breathing", "get_lens_focus_breathing");
+
+	ADD_GROUP("Diffraction", "diffraction_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffraction_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_diffraction_enabled", "is_diffraction_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "diffraction_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_diffraction_strength", "get_diffraction_strength");
+
 	ADD_GROUP("Frustum", "frustum_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_focus_distance", PROPERTY_HINT_RANGE, "0.01,4000.0,0.01,suffix:m"), "set_focus_distance", "get_focus_distance");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_focal_length", PROPERTY_HINT_RANGE, "1.0,800.0,0.01,exp,suffix:mm"), "set_focal_length", "get_focal_length");
@@ -674,15 +1064,26 @@ void CameraAttributesPhysical::_bind_methods() {
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_aperture", PROPERTY_HINT_RANGE, "0.5,64.0,0.01,exp,suffix:f-stop"), "set_aperture", "get_aperture");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_shutter_speed", PROPERTY_HINT_RANGE, "0.1,8000.0,0.001,suffix:1/s"), "set_shutter_speed", "get_shutter_speed");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_nd_filter", PROPERTY_HINT_RANGE, "0,10,0.1,or_greater,suffix:stops"), "set_exposure_nd_filter", "get_exposure_nd_filter");
 
 	ADD_GROUP("Auto Exposure", "auto_exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_min_exposure_value", PROPERTY_HINT_RANGE, "-16.0,16.0,0.01,or_greater,suffix:EV100"), "set_auto_exposure_min_exposure_value", "get_auto_exposure_min_exposure_value");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_max_exposure_value", PROPERTY_HINT_RANGE, "-16.0,16.0,0.01,or_greater,suffix:EV100"), "set_auto_exposure_max_exposure_value", "get_auto_exposure_max_exposure_value");
+
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_FULL_FRAME);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_APS_C);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_SUPER_35);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_MICRO_FOUR_THIRDS);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_MEDIUM_FORMAT);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_ONE_INCH);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_CUSTOM);
+	BIND_ENUM_CONSTANT(SENSOR_FORMAT_MAX);
 }
 
 CameraAttributesPhysical::CameraAttributesPhysical() {
 	_update_exposure();
 	_update_frustum();
+	_update_lens();
 	set_auto_exposure_min_exposure_value(-8);
 	set_auto_exposure_max_exposure_value(10); // Use a wide range by default to feel more like a real camera.
 	notify_property_list_changed();

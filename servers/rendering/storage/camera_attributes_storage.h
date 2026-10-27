@@ -30,11 +30,49 @@
 
 #pragma once
 
+#include "core/math/vector2.h"
+#include "core/math/vector2i.h"
 #include "core/math/vector3.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
 
+// The CameraEffects uniform buffer of the tonemap pass, for CameraAttributes effects whose parameters do not fit the
+// push constant (the Forward+ one is full at 128 bytes). std140; the shaders declare the same layout in
+// servers/rendering/renderer_rd/shaders/effects/camera_effects_inc.glsl and its Compatibility copy, so keep the three in
+// step. Each region belongs to one group of effects, and its header word says which of them run:
+// - header[0], lens[8]: lens optics (camera_lens_inc.glsl): distortion, chromatic aberration, diffraction, vignetting.
+// - header[1], glare[6]: reserved for lens flare, veiling glare and diffusion filters (task 35).
+// - header[2], exposure[2]: reserved for exposure automation (task 36).
+// - header[3], reserved[15]: free; grow a region into it rather than reordering.
+// An all-zero header means no effect runs.
+struct CameraEffectsUBO {
+	uint32_t header[4] = {};
+	float lens[8][4] = {};
+	float glare[6][4] = {};
+	float exposure[2][4] = {};
+	float reserved[15][4] = {};
+};
+static_assert(sizeof(CameraEffectsUBO) == 512, "CameraEffectsUBO must match the 512-byte std140 block in camera_effects_inc.glsl.");
+
+// What a tonemap pass knows about itself when it fills the buffer. Effects that need more (the Environment for glare,
+// the previous frame for exposure) add members here rather than parameters to the fill function.
+struct CameraEffectsContext {
+	Size2i source_size; // The texture the pass reads, in pixels: lens resampling works in its texels.
+	Size2i output_size; // The pixels the pass writes.
+	uint64_t frame = 0;
+};
+
 class RendererCameraAttributes {
+public:
+	// Bits of CameraEffectsUBO::header[0]; camera_lens_inc.glsl has the same values.
+	enum LensBits : uint32_t {
+		LENS_DISTORTION = 1,
+		LENS_CHROMATIC_ABERRATION = 2,
+		LENS_DIFFRACTION = 4,
+		LENS_VIGNETTING_PHYSICAL = 8,
+		LENS_VIGNETTING_PRACTICAL = 16,
+	};
+
 private:
 	static RendererCameraAttributes *singleton;
 
@@ -76,7 +114,34 @@ private:
 		RID lut_texture;
 		RSE::CameraAttributesLUTInput lut_input = RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY;
 		float lut_strength = 1.0;
+
+		// Lens optics. The physical lens comes from CameraAttributesPhysical; a focal length of 0 means there is
+		// none (CameraAttributesPractical), and only the frame-relative effects apply.
+		Vector2 sensor_size = Vector2(36.0, 24.0); // In millimeters.
+		float lens_focal_length = 0.0; // Nominal, in millimeters.
+		float lens_fov_focal_length = 0.0; // The one that sets the field of view, with focus breathing.
+		float lens_focus_distance = 10.0; // In meters.
+		float lens_f_number = 16.0;
+		float lens_max_f_number = 1.8;
+		float lens_anamorphic_squeeze = 1.0;
+		bool vignetting_enabled = false;
+		float vignetting_strength = 1.0;
+		float vignetting_falloff = 2.0;
+		bool distortion_enabled = false;
+		bool distortion_automatic = false;
+		float distortion_k1 = 0.0;
+		float distortion_k2 = 0.0;
+		bool distortion_auto_crop = true;
+		bool chromatic_aberration_enabled = false;
+		float chromatic_aberration_strength = 1.0;
+		bool diffraction_enabled = false;
+		float diffraction_strength = 1.0;
 	};
+
+	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
+	static void _fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
 	RSE::DOFBokehShape dof_blur_bokeh_shape = RSE::DOF_BOKEH_HEXAGON;
@@ -165,6 +230,27 @@ public:
 
 		return cam_attributes && cam_attributes->grain_enabled && cam_attributes->grain_intensity > 0.0f;
 	}
+
+	/* Lens optics */
+
+	void camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze);
+	void camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff);
+	void camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop);
+	void camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength);
+	// The typical corner distortion of a rectilinear lens whose frame corner is at p_tan_corner (tangent of the field
+	// angle), as a relative radial displacement (negative = barrel). See the .cpp for the source.
+	static double lens_typical_corner_distortion(double p_tan_corner);
+
+	/* CameraEffects uniform buffer */
+
+	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return cam_attributes && _lens_requested_bits(*cam_attributes) != 0;
+	}
+	// Fills the buffer for one tonemap pass. Returns false, with the buffer all zeros, when no effect uses it: the
+	// renderers then bind a shared zero buffer, and the output is bit-identical to having no buffer at all.
+	bool camera_attributes_fill_effects_buffer(RID p_camera_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 
 	_FORCE_INLINE_ RSE::DOFBlurQuality camera_attributes_get_dof_blur_quality() {
 		return dof_blur_quality;

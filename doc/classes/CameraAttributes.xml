@@ -22,6 +22,29 @@
 		<member name="auto_exposure_speed" type="float" setter="set_auto_exposure_speed" getter="get_auto_exposure_speed" default="0.5">
 			The speed of the auto exposure effect. Affects the time needed for the camera to perform auto exposure.
 		</member>
+		<member name="chromatic_aberration_enabled" type="bool" setter="set_chromatic_aberration_enabled" getter="is_chromatic_aberration_enabled" default="false">
+			If [code]true[/code], the lens images each color at a slightly different size (lateral chromatic aberration), so edges get red and blue/cyan fringes that grow toward the frame's edges.
+			[b]Note:[/b] Lateral chromatic aberration does not depend on the aperture on a real lens, so stopping down does not reduce it here either. In the Compatibility renderer it makes the scene go through the post-processing pass.
+		</member>
+		<member name="chromatic_aberration_strength" type="float" setter="set_chromatic_aberration_strength" getter="get_chromatic_aberration_strength" default="1.0">
+			The size difference between the colors. At [code]1.0[/code] red and blue are spread by 0.1% of the distance from the center, a moderate amount for a real lens (about one pixel at the corners of a 1080p image). Negative values swap the colors' order.
+		</member>
+		<member name="distortion_auto_crop" type="bool" setter="set_distortion_auto_crop" getter="is_distortion_auto_crop" default="true">
+			If [code]true[/code], barrel distortion zooms in just enough that no border from outside the rendered image shows, as cameras do when they correct their lenses. If [code]false[/code], what lies outside the rendered image is black.
+		</member>
+		<member name="distortion_automatic" type="bool" setter="set_distortion_automatic" getter="is_distortion_automatic" default="true">
+			If [code]true[/code], [CameraAttributesPhysical] takes the distortion of a typical rectilinear lens of its focal length and sensor (about 5% barrel at 14 mm on full frame, 2% at 24 mm, none around 50-60 mm, a slight pincushion on short telephotos) instead of [member distortion_k1] and [member distortion_k2]. An anamorphic lens ([member CameraAttributesPhysical.lens_anamorphic_squeeze]) distorts more horizontally. Not used by [CameraAttributesPractical].
+		</member>
+		<member name="distortion_enabled" type="bool" setter="set_distortion_enabled" getter="is_distortion_enabled" default="false">
+			If [code]true[/code], the lens bends straight lines: barrel distortion bows them outward (typical of wide-angle lenses), pincushion distortion inward (typical of telephoto lenses). The image is resampled by the tonemap pass, glow included.
+			[b]Note:[/b] Effects that run before tonemapping (depth of field, screen-space reflections, SMAA's input) see the undistorted image, as they would on a real camera's sensor data, apart from FXAA, which follows the distortion. In the Compatibility renderer it makes the scene go through the post-processing pass.
+		</member>
+		<member name="distortion_k1" type="float" setter="set_distortion_k1" getter="get_distortion_k1" default="0.0">
+			The first radial coefficient of the Brown-Conrady model, which moves a point at distance [code]r[/code] from the center (1 at the frame's corners) to [code]r * (1 + k1 * r² + k2 * r⁴)[/code]. Negative values give barrel distortion, positive values pincushion: [code]-0.05[/code] pulls the corners 5% toward the center.
+		</member>
+		<member name="distortion_k2" type="float" setter="set_distortion_k2" getter="get_distortion_k2" default="0.0">
+			The second radial coefficient of the Brown-Conrady model (see [member distortion_k1]), which acts mostly near the corners. Opposite signs of [member distortion_k1] and [member distortion_k2] give the "mustache" distortion of some wide-angle lenses.
+		</member>
 		<member name="exposure_multiplier" type="float" setter="set_exposure_multiplier" getter="get_exposure_multiplier" default="1.0">
 			Multiplier for the exposure amount. A higher value results in a brighter image.
 		</member>
@@ -57,6 +80,16 @@
 		</member>
 		<member name="lut_texture" type="Texture3D" setter="set_lut_texture" getter="get_lut_texture">
 			The look-up table, a [Texture3D] indexed by red (width), green (height) and blue (depth), whose texel centers hold the output for inputs evenly spaced from [code]0.0[/code] to [code]1.0[/code]. Adobe/Resolve [code].cube[/code] files (3D, 1D, or a 1D shaper followed by a 3D table) are imported as such a texture automatically.
+		</member>
+		<member name="vignetting_enabled" type="bool" setter="set_vignetting_enabled" getter="is_vignetting_enabled" default="false">
+			If [code]true[/code], the lens darkens the image toward the frame's edges. With [CameraAttributesPhysical] the darkening follows the lens: natural vignetting, the cos⁴ law of the field angle from [member CameraAttributesPhysical.frustum_focal_length] and the sensor, plus optical vignetting, where the lens barrel clips the aperture off-axis, which is strongest wide open (at [member CameraAttributesPhysical.lens_max_aperture]) and gone two stops down. With [CameraAttributesPractical] it is a free curve set by [member vignetting_strength] and [member vignetting_falloff].
+			[b]Note:[/b] Vignetting is applied by the tonemap pass to scene light before white balance, grain and tonemapping, in all renderers. In the Compatibility renderer it makes the scene go through the post-processing pass.
+		</member>
+		<member name="vignetting_falloff" type="float" setter="set_vignetting_falloff" getter="get_vignetting_falloff" default="2.0">
+			How the darkening of [CameraAttributesPractical] grows from the center: it is [member vignetting_strength] stops times the distance from the center (1 at the corners) raised to this power. Higher values keep the center bright and darken only the corners. Not used by [CameraAttributesPhysical], whose falloff comes from the lens.
+		</member>
+		<member name="vignetting_strength" type="float" setter="set_vignetting_strength" getter="get_vignetting_strength" default="1.0">
+			With [CameraAttributesPhysical], scales the lens's own vignetting in stops: [code]1.0[/code] is the physical amount, [code]2.0[/code] doubles the darkening in stops, [code]0.0[/code] removes it. With [CameraAttributesPractical], the darkening at the frame's corners in stops.
 		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
