@@ -1,0 +1,29 @@
+PASS RMS pitch  0.29951 (set 0.3)
+PASS spectrum pitch: log-centroid at set frequency, energy within f/2..2f  centroid 2.014 Hz (set 2.0), in band 99.9%
+PASS RMS yaw  0.20015 (set 0.2)
+PASS spectrum yaw: log-centroid at set frequency, energy within f/2..2f  centroid 3.004 Hz (set 3.0), in band 99.9%
+PASS RMS roll  0.099492 (set 0.1)
+PASS spectrum roll: log-centroid at set frequency, energy within f/2..2f  centroid 1.494 Hz (set 1.5), in band 99.8%
+PASS RMS x  0.0019944 (set 0.002)
+PASS spectrum x: log-centroid at set frequency, energy within f/2..2f  centroid 0.999 Hz (set 1.0), in band 99.8%
+PASS RMS y  0.00099842 (set 0.001)
+PASS spectrum y: log-centroid at set frequency, energy within f/2..2f  centroid 1.491 Hz (set 1.5), in band 99.9%
+PASS RMS z  0.0030061 (set 0.003)
+PASS spectrum z: log-centroid at set frequency, energy within f/2..2f  centroid 4.003 Hz (set 4.0), in band 100.0%
+PASS IS 0.5: pitch band amplitude ratio  0.5194 (model 0.5194)
+PASS IS 0.5: yaw band amplitude ratio  0.5093 (model 0.5093, 1-s = 0.50)
+PASS IS 0.5: roll band amplitude ratio  0.5328 (model 0.5329)
+PASS IS 0.5: x band amplitude ratio  0.5637 (model 0.5636)
+PASS IS 0.5: y band amplitude ratio  0.5332 (model 0.5331)
+PASS IS 0.5: z band amplitude ratio  0.5052 (model 0.5052, 1-s = 0.50)
+PASS IS 0.9: pitch band amplitude ratio  0.1370 (model 0.1370)
+PASS IS 0.9: yaw band amplitude ratio  0.1173 (model 0.1173, 1-s = 0.10)
+PASS IS 0.9: roll band amplitude ratio  0.1634 (model 0.1635)
+PASS IS 0.9: x band amplitude ratio  0.2227 (model 0.2225)
+PASS IS 0.9: y band amplitude ratio  0.1637 (model 0.1637)
+PASS IS 0.9: z band amplitude ratio  0.1096 (model 0.1096, 1-s = 0.10)
+PASS breathing RMS / peak  rms 0.1382 deg (0.15), peak 0.275 Hz (0.25)
+PASS breathing alone leaves other axes still  
+PASS scale_with_focal_length off: angular shake x FOV/27 deg  ratio 0.5000 at half the reference FOV
+PASS scale_with_focal_length off: position unchanged  1.000000
+ANALYSIS DONE, failures: 0

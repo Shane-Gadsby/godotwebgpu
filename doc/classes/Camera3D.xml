@@ -10,11 +10,23 @@
 		<link title="Third Person Shooter (TPS) Demo">https://godotengine.org/asset-library/asset/2710</link>
 	</tutorials>
 	<methods>
+		<method name="autofocus_trigger">
+			<return type="void" />
+			<description>
+				Starts a single autofocus (like half-pressing a shutter button) when [member autofocus_mode] is [constant AUTOFOCUS_MODE_SINGLE]: measures the distance once, from [member autofocus_target] or [member autofocus_points], and drives the lens there. Emits [signal focus_acquired] when focus is reached, or [signal focus_failed] right away if nothing was measured. Does nothing in the other modes.
+			</description>
+		</method>
 		<method name="clear_current">
 			<return type="void" />
 			<param index="0" name="enable_next" type="bool" default="true" />
 			<description>
 				If this is the current camera, remove it from being current. If [param enable_next] is [code]true[/code], request to make the next camera current, if any.
+			</description>
+		</method>
+		<method name="get_autofocus_distance" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the distance in meters the autofocus lens is currently focused at, which may differ from the measured subject distance while the lens is moving.
 			</description>
 		</method>
 		<method name="get_camera_projection" qualifiers="const">
@@ -52,6 +64,18 @@
 			<return type="RID" />
 			<description>
 				Returns the RID of a pyramid shape encompassing the camera's view frustum, ignoring the camera's near plane. The tip of the pyramid represents the position of the camera.
+			</description>
+		</method>
+		<method name="get_shake_offset" qualifiers="const">
+			<return type="Transform3D" />
+			<description>
+				Returns the handheld shake offset applied this frame, in the camera's own frame of reference (identity when [member shake_enabled] is [code]false[/code]). The rendered camera transform, also returned by [method get_camera_transform], is the node's global transform multiplied by this offset; the node's own [member Node3D.transform] never includes it.
+			</description>
+		</method>
+		<method name="is_autofocus_acquired" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the autofocus has reached its subject (see [signal focus_acquired]).
 			</description>
 		</method>
 		<method name="is_position_behind" qualifiers="const">
@@ -160,6 +184,27 @@
 		<member name="attributes" type="CameraAttributes" setter="set_attributes" getter="get_attributes">
 			The [CameraAttributes] to use for this camera.
 		</member>
+		<member name="autofocus_collision_mask" type="int" setter="set_autofocus_collision_mask" getter="get_autofocus_collision_mask" default="1">
+			The physics layers the autofocus rays of [member autofocus_points] can hit. Use it to keep glass, triggers or the player's own body from taking focus.
+		</member>
+		<member name="autofocus_hunting" type="float" setter="set_autofocus_hunting" getter="get_autofocus_hunting" default="0.0">
+			The fraction by which the lens overshoots its target before settling, the back-and-forth "hunting" of contrast-detect autofocus. [code]0.0[/code] approaches the target smoothly without overshoot, as phase-detect autofocus does. The envelope of the motion still decays with [member autofocus_time_constant].
+		</member>
+		<member name="autofocus_mode" type="int" setter="set_autofocus_mode" getter="get_autofocus_mode" enum="Camera3D.AutofocusMode" default="0">
+			How the camera focuses. In [constant AUTOFOCUS_MODE_SINGLE] and [constant AUTOFOCUS_MODE_CONTINUOUS] the camera drives the focus of its [member attributes]: [member CameraAttributesPhysical.frustum_focus_distance], or for [CameraAttributesPractical] the near and far blur distances and transitions, which are moved together around the focus distance keeping the width of the in-focus band constant in diopters (1 / distance), as a real lens's depth of field does. With only far blur enabled, the in-focus band is taken to be centered at half the far distance; with only near blur, the far limit is at infinity.
+			Autofocus runs in the editor too, so the camera preview shows the result. Saving the scene stores the values you set, not the ones autofocus wrote; editing them while autofocus runs makes them the new starting point. Switching back to [constant AUTOFOCUS_MODE_MANUAL] leaves the focus where autofocus put it.
+			[b]Note:[/b] Autofocus writes to the attributes resource. A resource shared by several cameras is focused by all of them; give each autofocusing camera its own resource (for example with [member Resource.resource_local_to_scene]).
+			[b]Note:[/b] Ray-cast measurement ([member autofocus_points]) uses the direct space state from the main thread, so it does not work with [member ProjectSettings.physics/3d/run_on_separate_thread] enabled; [member autofocus_target] works in all cases.
+		</member>
+		<member name="autofocus_points" type="PackedVector2Array" setter="set_autofocus_points" getter="get_autofocus_points" default="PackedVector2Array(0.5, 0.5)">
+			Normalized screen points (0 to 1, [code]Vector2(0.5, 0.5)[/code] is the center, Y down) where autofocus measures distance with a physics ray cast, like a phase-detect or laser rangefinder sensor. With several points, the nearest hit wins (closest-subject priority of zone autofocus). Used when [member autofocus_target] is empty or does not point to a [Node3D].
+		</member>
+		<member name="autofocus_target" type="NodePath" setter="set_autofocus_target" getter="get_autofocus_target" default="NodePath(&quot;&quot;)">
+			A [Node3D] the autofocus tracks: its distance along the camera's optical axis is the focus distance. Takes priority over [member autofocus_points].
+		</member>
+		<member name="autofocus_time_constant" type="float" setter="set_autofocus_time_constant" getter="get_autofocus_time_constant" default="0.1">
+			How fast the focus moves, in seconds: the remaining focus error, measured in diopters (1 / distance), falls by a factor of [code]e[/code] (to 37%) every time constant, so focus is 95% of the way after three time constants whatever the frame rate. A focus motor's travel is close to linear in diopters, which is why a focus change from 1 m to 2 m takes as long as one from 2 m to infinity.
+		</member>
 		<member name="compositor" type="Compositor" setter="set_compositor" getter="get_compositor">
 			The [Compositor] to use for this camera.
 		</member>
@@ -207,6 +252,36 @@
 		<member name="projection" type="int" setter="set_projection" getter="get_projection" enum="Camera3D.ProjectionType" default="0">
 			The camera's projection mode. In [constant PROJECTION_PERSPECTIVE] mode, objects' Z distance from the camera's local space scales their perceived size.
 		</member>
+		<member name="shake_breathing_amplitude" type="float" setter="set_shake_breathing_amplitude" getter="get_shake_breathing_amplitude" default="0.15">
+			RMS amplitude of the slow pitch sway from the operator's breathing, in degrees.
+		</member>
+		<member name="shake_breathing_frequency" type="float" setter="set_shake_breathing_frequency" getter="get_shake_breathing_frequency" default="0.25">
+			Frequency of the breathing sway, in hertz. People at rest breathe 12 to 20 times a minute (0.2 to 0.33 Hz).
+		</member>
+		<member name="shake_enabled" type="bool" setter="set_shake_enabled" getter="is_shake_enabled" default="false">
+			If [code]true[/code], the camera moves as if held by hand: procedural rotation and position noise, plus breathing sway, applied as an offset on top of the node's transform. The node's own [member Node3D.transform] and [member Node3D.global_transform] are not changed, so gameplay code keeps working; [method get_camera_transform] and the projection methods such as [method project_ray_normal] include the offset, so picking matches what is rendered. The motion is deterministic for a given [member shake_seed] and frame times, and runs in the editor's camera preview too.
+		</member>
+		<member name="shake_position_amplitude" type="Vector3" setter="set_shake_position_amplitude" getter="get_shake_position_amplitude" default="Vector3(0.002, 0.002, 0.001)">
+			RMS amplitude of the position shake along the camera's local X, Y and Z axes, in meters.
+		</member>
+		<member name="shake_position_frequency" type="Vector3" setter="set_shake_position_frequency" getter="get_shake_position_frequency" default="Vector3(1.5, 1.5, 1.5)">
+			Center frequency of the position shake per local axis, in hertz. Each axis's motion is band-limited noise spread over two octaves around it (half to twice the frequency).
+		</member>
+		<member name="shake_rotation_amplitude" type="Vector3" setter="set_shake_rotation_amplitude" getter="get_shake_rotation_amplitude" default="Vector3(0.3, 0.3, 0.15)">
+			RMS amplitude of the rotation shake around the camera's local X (pitch), Y (yaw) and Z (roll) axes, in degrees.
+		</member>
+		<member name="shake_rotation_frequency" type="Vector3" setter="set_shake_rotation_frequency" getter="get_shake_rotation_frequency" default="Vector3(2, 2, 1.5)">
+			Center frequency of the rotation shake per axis, in hertz. Each axis's motion is band-limited noise spread over two octaves around it (half to twice the frequency). Hand and arm sway concentrate below about 5 Hz; the defaults are a camera held in two hands while standing.
+		</member>
+		<member name="shake_scale_with_focal_length" type="bool" setter="set_shake_scale_with_focal_length" getter="is_shake_scale_with_focal_length" default="true">
+			If [code]true[/code], the rotation amplitudes are angles, so a longer lens (smaller [member fov]) shows more shake in the frame, as with a real camera. If [code]false[/code], the amplitudes are as seen through a 50 mm lens on a full-frame sensor (a vertical field of view of 27 degrees) and scale with [member fov], so the shake keeps its size on screen while zooming. Position shake is not affected.
+		</member>
+		<member name="shake_seed" type="int" setter="set_shake_seed" getter="get_shake_seed" default="0">
+			Seed of the shake noise. Cameras with the same seed and settings shake identically.
+		</member>
+		<member name="shake_stabilization" type="float" setter="set_shake_stabilization" getter="get_shake_stabilization" default="0.0">
+			Strength of the image stabilization, from [code]0.0[/code] (none) to [code]1.0[/code]. Like optical or sensor-shift stabilization, it removes that fraction of the shake above about 0.5 Hz (the high-pass cutoff stabilizers use so as not to fight intentional pans) and progressively less below it, so slow breathing sway mostly remains.
+		</member>
 		<member name="size" type="float" setter="set_size" getter="get_size" default="1.0">
 			The camera's size in meters measured as the diameter of the width or height, depending on [member keep_aspect]. Only applicable in orthogonal and frustum modes.
 		</member>
@@ -214,6 +289,19 @@
 			The vertical (Y) offset of the camera viewport.
 		</member>
 	</members>
+	<signals>
+		<signal name="focus_acquired">
+			<param index="0" name="distance" type="float" />
+			<description>
+				Emitted when the autofocus reaches its subject: the focus error is within a quarter of the depth of field (computed from the aperture and focal length of [CameraAttributesPhysical], or from the in-focus band of [CameraAttributesPractical]). [param distance] is the lens's focus distance in meters at that moment. In continuous mode, it is emitted again after focus was lost and reached anew.
+			</description>
+		</signal>
+		<signal name="focus_failed">
+			<description>
+				Emitted when the autofocus finds nothing to focus on: [method autofocus_trigger] measured nothing, or continuous autofocus lost its subject. The focus stays where it was.
+			</description>
+		</signal>
+	</signals>
 	<constants>
 		<constant name="PROJECTION_PERSPECTIVE" value="0" enum="ProjectionType">
 			Perspective projection. Objects on the screen becomes smaller when they are far away.
@@ -238,6 +326,15 @@
 		</constant>
 		<constant name="DOPPLER_TRACKING_PHYSICS_STEP" value="2" enum="DopplerTracking">
 			Simulate [url=https://en.wikipedia.org/wiki/Doppler_effect]Doppler effect[/url] by tracking positions of objects that are changed in [code]_physics_process[/code]. Changes in the relative velocity of this camera compared to those objects affect how audio is perceived (changing the audio's [member AudioStreamPlayer3D.pitch_scale]).
+		</constant>
+		<constant name="AUTOFOCUS_MODE_MANUAL" value="0" enum="AutofocusMode">
+			Autofocus is off; the focus is whatever the [member attributes] say.
+		</constant>
+		<constant name="AUTOFOCUS_MODE_SINGLE" value="1" enum="AutofocusMode">
+			Single autofocus (AF-S): focuses once each time [method autofocus_trigger] is called, then holds that focus.
+		</constant>
+		<constant name="AUTOFOCUS_MODE_CONTINUOUS" value="2" enum="AutofocusMode">
+			Continuous autofocus (AF-C): measures every frame and keeps the subject in focus.
 		</constant>
 	</constants>
 </class>

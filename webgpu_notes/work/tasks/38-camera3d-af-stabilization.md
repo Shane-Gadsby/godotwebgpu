@@ -1,8 +1,8 @@
 # 38-camera3d-af-stabilization: autofocus and stabilization / handheld shake on Camera3D
 
-State: open
+State: ready-for-integration
 Owner: worker-38
-Claimed:
+Claimed: 2026-10-28 08:18
 Needs: build
 Branch: work/38
 Results: webgpu_notes/work/results/38-camera3d-af-stabilization/

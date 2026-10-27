@@ -1,0 +1,30 @@
+PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007388763
+PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.3679)
+PASS AF first-order: 95% within 3 tau + one frame  t95 0.6000 s (3 tau = 0.6)
+PASS AF final distance  2.0001 m
+PASS AF focus_acquired emitted once, within DOF/4  [[178, 2.39300775527954]] (tolerance 0.0930 D, error 0.0821 D)
+PASS AF is_autofocus_acquired  
+PASS AF-C follows target to 5 m  4.9959 m
+PASS AF-C re-acquires (2 signals)  2
+PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
+PASS AF user edit becomes baseline  7.0000
+PASS AF hunting 0.1: overshoot fraction  measured 0.0999
+PASS AF hunting 0.1: settles  2.0000 m
+PASS AF hunting 0.3: overshoot fraction  measured 0.2983
+PASS AF hunting 0.3: settles  2.0000 m
+PASS AF hunting 0.5: overshoot fraction  measured 0.4962
+PASS AF hunting 0.5: settles  2.0000 m
+PASS AF-S idle before trigger  10.0000
+PASS AF-S focuses after trigger  2.0001 m, signals 1
+PASS AF-S stays locked on the triggered distance when target moves  2.0000 (target now 6 m)
+PASS AF-S re-trigger refocuses  5.9995, signals 2
+PASS AF ray (center point) hits wall at 3.5 m  3.5000
+PASS AF nearest of points -> post at 1.5 m  1.5000
+PASS AF collision mask ignores layer 2  3.5000
+PASS AF miss: holds focus, focus_failed once  3.5000, failed 1
+PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) near_tr 0.2451 (0.2451) far_tr 0.0543 (0.0543)
+PASS AF Practical distance  1.0000
+PASS AF Practical far focus  near 2.2222 far 20.0000
+PASS AF Practical beyond hyperfocal  far 100000.0
+PASS AF Practical pre-save restores all four  
+AF TESTS DONE, failures: 0
