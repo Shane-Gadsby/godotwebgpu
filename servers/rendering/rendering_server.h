@@ -739,6 +739,13 @@ public:
 	virtual void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) = 0;
 	virtual void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) = 0;
 
+	/* Lens optics */
+	virtual void camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze) = 0;
+	virtual void camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff) = 0;
+	virtual void camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop) = 0;
+	virtual void camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+
 	/* SCENARIO API */
 
 	virtual RID scenario_create() = 0;

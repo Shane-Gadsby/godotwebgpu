@@ -11,6 +11,7 @@ USE_BCS = false
 USE_COLOR_CORRECTION = false
 USE_1D_LUT = false
 USE_CAMERA_LUT = false
+USE_CAMERA_EFFECTS = false
 USE_SSAO_ABYSS = false
 USE_SSAO_LOW = false
 USE_SSAO_MED = false
@@ -52,6 +53,38 @@ uniform sampler2D source_color; // texunit:0
 
 uniform float view;
 uniform float luminance_multiplier;
+
+#ifdef USE_CAMERA_EFFECTS
+#include "camera_effects_inc.glsl"
+
+// The lens resamples linear light; the pass's source is sRGB-encoded (and scaled by the luminance multiplier).
+vec4 camera_lens_fetch_linear(vec2 p_uv) {
+#ifdef USE_MULTIVIEW
+	vec4 c = textureLod(source_color, vec3(p_uv, view), 0.0);
+#else
+	vec4 c = textureLod(source_color, p_uv, 0.0);
+#endif
+#ifdef USE_LUMINANCE_MULTIPLIER
+	c = c / luminance_multiplier;
+#endif
+	return vec4(srgb_to_linear(c.rgb), c.a);
+}
+#define CAMERA_LENS_FETCH(m_uv) camera_lens_fetch_linear(m_uv)
+
+// The exact inverse of srgb_to_linear() (Newton's method on its cubic, which rises monotonically), so the lens's linear
+// result comes back unchanged when the pass decodes it below. linear_to_srgb() is a different approximation: the round
+// trip through it is off by up to 7/255 near black.
+vec3 camera_lens_encode(vec3 p_linear) {
+	vec3 y = linear_to_srgb(max(p_linear, vec3(0.0)));
+	for (int i = 0; i < 5; i++) { // From the worst start (near black), 4 steps reach 2e-5, 5 reach 1e-8.
+		vec3 f = y * (y * (y * 0.305306011 + 0.682171111) + 0.012522878) - p_linear;
+		vec3 df = y * (y * 0.915918033 + 1.364342222) + 0.012522878;
+		y -= f / df;
+	}
+	return y;
+}
+#include "camera_lens_inc.glsl"
+#endif
 
 #ifdef USE_GLOW
 uniform sampler2D glow_color; // texunit:1
@@ -136,13 +169,25 @@ void main() {
 	color = color / luminance_multiplier;
 #endif
 
+	vec2 lens_uv = uv_interp;
+#ifdef USE_CAMERA_EFFECTS
+	// CameraAttributes lens optics (camera_lens_inc.glsl): the image as the lens forms it on the sensor. The lens works
+	// in linear light; the result goes back to the encoding the rest of this pass expects. Glow reads where the lens
+	// takes this pixel from.
+	uint lens_bits = camera_effects.header.x;
+	if ((lens_bits & CAMERA_LENS_RESAMPLE) != 0u) {
+		vec4 lens_color = camera_lens_sample(uv_interp, lens_uv);
+		color = vec4(camera_lens_encode(lens_color.rgb), lens_color.a);
+	}
+#endif
+
 #ifdef USE_GLOW
 	// Glow blending is performed before srgb_to_linear because
 	// the glow texture was created from a nonlinear sRGB-encoded
 	// scene, so it only makes sense to add this glow to an equally
 	// nonlinear sRGB-encoded scene.
 
-	vec4 glow = get_glow_color(uv_interp) * glow_intensity;
+	vec4 glow = get_glow_color(lens_uv) * glow_intensity;
 
 	// Glow always uses the screen blend mode in the Compatibility renderer:
 
@@ -169,6 +214,13 @@ void main() {
 #if defined(USE_SOME_SSAO)
 	// Putting SSAO after the conversion to linear color, though it might be better before the glow.
 	color.rgb *= s4ao(uv_interp); // The USE_SSAO_X controls the number of samples.
+#endif
+
+#ifdef USE_CAMERA_EFFECTS
+	// Vignetting: the lens passes less light toward the frame's edges, glow included.
+	if ((lens_bits & CAMERA_LENS_VIGNETTING) != 0u) {
+		color.rgb *= camera_lens_vignetting(uv_interp);
+	}
 #endif
 
 	// Grain, in scene-referred light before the tone curve. Compatibility has no auto exposure.

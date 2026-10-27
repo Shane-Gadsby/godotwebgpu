@@ -1,0 +1,37 @@
+# Native renders: editor at work/33 (Compatibility from the final build), xvfb, RTX 4080 SUPER (Vulkan); web: Chrome, WebGPU Forward+, nvidia/lovelace, 48 sampled textures
+## forward_plus
+vignette vig_f24_n1.4 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0142; corner measured 0.1560 expected 0.1552
+vignette vig_f24_n5.6 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0118; corner measured 0.2416 expected 0.2406
+vignette practical (1.5 stops, falloff 3; 720p): max |measured-expected| 0.0142; corner measured 0.3590 expected 0.3546
+distortion dots_barrel (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 0.9200, max err 0.035 px, mean 0.017 px (dots moved up to 34.0 px)
+distortion dots_barrel_nocrop (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.061 px, mean 0.019 px (dots moved up to 32.3 px)
+distortion dots_pin (k1 0.08, k2 0.0) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.034 px, mean 0.012 px (dots moved up to 28.6 px)
+CA strength 5 ca_1080: red-blue spread / radius 0.005000 (expected 0.005000), max spread 3.787 px, max err 0.007 px
+CA strength 5 ca_540: red-blue spread / radius 0.005001 (expected 0.005000), max spread 1.892 px, max err 0.006 px
+diffraction edge_off (M43, f/64): ESF 10-90% 0.800 px -> sigma 0.312 px (expected 0.0000)
+diffraction edge_f64 (M43, f/64): ESF 10-90% 6.293 px -> sigma 2.455 px (expected 2.4650)
+diffraction edge_f64_1080 (M43, f/64): ESF 10-90% 3.279 px -> sigma 1.279 px (expected 1.2325)
+## mobile
+vignette vig_f24_n1.4 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0058; corner measured 0.1560 expected 0.1552
+vignette vig_f24_n5.6 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0118; corner measured 0.2416 expected 0.2406
+vignette practical (1.5 stops, falloff 3): max |measured-expected| 0.0108; corner measured 0.3590 expected 0.3542
+distortion dots_barrel (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 0.9200, max err 0.036 px, mean 0.017 px (dots moved up to 34.0 px)
+distortion dots_barrel_nocrop (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.061 px, mean 0.019 px (dots moved up to 32.3 px)
+distortion dots_pin (k1 0.08, k2 0.0) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.034 px, mean 0.012 px (dots moved up to 28.6 px)
+CA strength 5 ca_1080: red-blue spread / radius 0.005000 (expected 0.005000), max spread 3.785 px, max err 0.007 px
+CA strength 5 ca_540: red-blue spread / radius 0.005004 (expected 0.005000), max spread 1.892 px, max err 0.006 px
+diffraction edge_off (M43, f/64): ESF 10-90% 0.800 px -> sigma 0.312 px (expected 0.0000)
+diffraction edge_f64 (M43, f/64): ESF 10-90% 6.293 px -> sigma 2.455 px (expected 2.4650)
+diffraction edge_f64_1080 (M43, f/64): ESF 10-90% 3.279 px -> sigma 1.279 px (expected 1.2325)
+## gl_compatibility
+vignette vig_f24_n1.4 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0062; corner measured 0.1534 expected 0.1552
+vignette vig_f24_n5.6 (1080p, 24 mm FF, max f/1.4) vs cos^4 x pupil overlap: max |measured-expected| 0.0039; corner measured 0.2375 expected 0.2406
+vignette practical (1.5 stops, falloff 3): max |measured-expected| 0.0085; corner measured 0.3529 expected 0.3542
+distortion dots_barrel (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 0.9200, max err 0.119 px, mean 0.057 px (dots moved up to 34.0 px)
+distortion dots_barrel_nocrop (k1 -0.1, k2 0.02) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.124 px, mean 0.039 px (dots moved up to 32.3 px)
+distortion dots_pin (k1 0.08, k2 0.0) vs Brown-Conrady of the undistorted dots: 135 dots, crop 1.0000, max err 0.094 px, mean 0.048 px (dots moved up to 28.6 px)
+CA strength 5 ca_1080: red-blue spread / radius 0.005018 (expected 0.005000), max spread 3.797 px, max err 0.025 px
+CA strength 5 ca_540: red-blue spread / radius 0.005024 (expected 0.005000), max spread 1.938 px, max err 0.063 px
+diffraction edge_off (M43, f/64): ESF 10-90% 0.800 px -> sigma 0.312 px (expected 0.0000)
+diffraction edge_f64 (M43, f/64): ESF 10-90% 6.006 px -> sigma 2.343 px (expected 2.4650)
+diffraction edge_f64_1080 (M43, f/64): ESF 10-90% 3.337 px -> sigma 1.302 px (expected 1.2325)

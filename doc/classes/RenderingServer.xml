@@ -63,6 +63,24 @@
 				Sets the parameters to use with the auto-exposure effect. These parameters take on the same meaning as their counterparts in [CameraAttributes] and [CameraAttributesPractical].
 			</description>
 		</method>
+		<method name="camera_attributes_set_chromatic_aberration">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the lateral chromatic aberration of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.chromatic_aberration_enabled] and [member CameraAttributes.chromatic_aberration_strength].
+			</description>
+		</method>
+		<method name="camera_attributes_set_diffraction">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the diffraction softening of the camera attributes. The parameters take on the same meaning as [member CameraAttributesPhysical.diffraction_enabled] and [member CameraAttributesPhysical.diffraction_strength]; it needs a physical lens ([method camera_attributes_set_lens]).
+			</description>
+		</method>
 		<method name="camera_attributes_set_dof_blur">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -123,6 +141,32 @@
 				Sets the grain of the camera attributes: whether it is enabled, its [param type], [param intensity] and [param size] multipliers, and the ISO [param sensitivity] of the film or sensor. These parameters take on the same meaning as [member CameraAttributes.grain_enabled], [member CameraAttributes.grain_type], [member CameraAttributes.grain_intensity], [member CameraAttributes.grain_size] and [member CameraAttributes.exposure_sensitivity].
 			</description>
 		</method>
+		<method name="camera_attributes_set_lens">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="sensor_size" type="Vector2" />
+			<param index="2" name="focal_length" type="float" />
+			<param index="3" name="fov_focal_length" type="float" />
+			<param index="4" name="focus_distance" type="float" />
+			<param index="5" name="f_number" type="float" />
+			<param index="6" name="max_f_number" type="float" />
+			<param index="7" name="anamorphic_squeeze" type="float" />
+			<description>
+				Sets the physical lens of the camera attributes, which the lens effects derive from: the [param sensor_size] in millimeters, the [param focal_length] and the one that sets the field of view with focus breathing ([param fov_focal_length]), both in millimeters, the [param focus_distance] in meters, the [param f_number], the lens's [param max_f_number] and its [param anamorphic_squeeze]. A [param focal_length] of 0 means no physical lens. [CameraAttributesPhysical] sets this itself.
+			</description>
+		</method>
+		<method name="camera_attributes_set_lens_distortion">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="automatic" type="bool" />
+			<param index="3" name="k1" type="float" />
+			<param index="4" name="k2" type="float" />
+			<param index="5" name="auto_crop" type="bool" />
+			<description>
+				Sets the lens distortion of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.distortion_enabled], [member CameraAttributes.distortion_automatic], [member CameraAttributes.distortion_k1], [member CameraAttributes.distortion_k2] and [member CameraAttributes.distortion_auto_crop].
+			</description>
+		</method>
 		<method name="camera_attributes_set_lut">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -181,6 +225,16 @@
 			<param index="2" name="readout_time" type="float" />
 			<description>
 				Sets the rolling shutter of the camera attributes: whether it is enabled and the sensor's [param readout_time] in milliseconds. See [member CameraAttributes.rolling_shutter_enabled] and [member CameraAttributes.rolling_shutter_readout_time].
+			</description>
+		</method>
+		<method name="camera_attributes_set_vignetting">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="falloff" type="float" />
+			<description>
+				Sets the vignetting of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.vignetting_enabled], [member CameraAttributes.vignetting_strength] and [member CameraAttributes.vignetting_falloff].
 			</description>
 		</method>
 		<method name="camera_attributes_set_white_balance">

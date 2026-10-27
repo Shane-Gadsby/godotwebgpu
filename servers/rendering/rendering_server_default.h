@@ -942,6 +942,13 @@ public:
 	FUNC6(camera_attributes_set_motion_blur, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_rolling_shutter, RID, bool, float)
 
+	/* Lens optics */
+	FUNC8(camera_attributes_set_lens, RID, const Vector2 &, float, float, float, float, float, float)
+	FUNC4(camera_attributes_set_vignetting, RID, bool, float, float)
+	FUNC6(camera_attributes_set_lens_distortion, RID, bool, bool, float, float, bool)
+	FUNC3(camera_attributes_set_chromatic_aberration, RID, bool, float)
+	FUNC3(camera_attributes_set_diffraction, RID, bool, float)
+
 	/* SCENARIO API */
 
 #undef server_name

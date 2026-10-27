@@ -3231,6 +3231,13 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
 
+	/* Lens optics */
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens", "camera_attributes", "sensor_size", "focal_length", "fov_focal_length", "focus_distance", "f_number", "max_f_number", "anamorphic_squeeze"), &RenderingServer::camera_attributes_set_lens);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_vignetting", "camera_attributes", "enable", "strength", "falloff"), &RenderingServer::camera_attributes_set_vignetting);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens_distortion", "camera_attributes", "enable", "automatic", "k1", "k2", "auto_crop"), &RenderingServer::camera_attributes_set_lens_distortion);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_diffraction", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_diffraction);
+
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_CIRCLE);

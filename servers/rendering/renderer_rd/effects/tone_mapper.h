@@ -33,8 +33,26 @@
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl.gen.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_buffer_custom_data_rd.h"
+#include "servers/rendering/storage/camera_attributes_storage.h"
+
+class RenderSceneBuffersRD;
 
 namespace RendererRD {
+
+// A viewport's own CameraEffects uniform buffer (camera_effects_inc.glsl). Each viewport has one, so several viewports
+// in a frame never share a buffer whose contents change between their tonemap passes.
+class CameraEffectsBufferRD : public RenderBufferCustomDataRD {
+	GDCLASS(CameraEffectsBufferRD, RenderBufferCustomDataRD);
+
+public:
+	RID buffer;
+	CameraEffectsUBO contents; // What the buffer holds, to skip uploads when nothing changed.
+
+	virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
+	virtual void free_data() override;
+	~CameraEffectsBufferRD();
+};
 
 class ToneMapper {
 private:
@@ -174,6 +192,8 @@ private:
 		PipelineCacheRD pipelines[TONEMAP_MOBILE_MODE_MAX];
 	} tonemap_mobile;
 
+	RID default_camera_effects_buffer; // All zeros: no CameraEffects effect runs.
+
 public:
 	ToneMapper(bool p_use_mobile_version);
 	~ToneMapper();
@@ -208,6 +228,8 @@ public:
 		uint32_t camera_lut = 0; // Packed CameraAttributes LUT parameters; 0 when off.
 		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
+		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+
 		bool use_bcs = false;
 		float brightness = 1.0;
 		float contrast = 1.0;
@@ -231,6 +253,11 @@ public:
 
 		bool convert_to_srgb = false;
 	};
+
+	// The CameraEffects uniform buffer for a tonemap pass of these render buffers: their own, updated to the camera
+	// attributes' current parameters, or the shared all-zero buffer when no effect uses it. Call it before the pass's
+	// draw list begins (buffers cannot be updated inside one).
+	RID get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context);
 
 	void tonemapper(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);
 	void tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);

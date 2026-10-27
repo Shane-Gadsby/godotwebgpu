@@ -111,6 +111,23 @@ protected:
 	// The exposure time motion blur uses, in seconds, or 0 to use the shutter angle.
 	virtual float _get_motion_blur_shutter_time() const { return 0.0; }
 
+	// Lens optics. CameraAttributesPhysical adds the physical lens they are derived from.
+	bool vignetting_enabled = false;
+	float vignetting_strength = 1.0;
+	float vignetting_falloff = 2.0; // CameraAttributesPractical only.
+	void _update_vignetting();
+
+	bool distortion_enabled = false;
+	bool distortion_automatic = true; // CameraAttributesPhysical only.
+	float distortion_k1 = 0.0;
+	float distortion_k2 = 0.0;
+	bool distortion_auto_crop = true;
+	void _update_distortion();
+
+	bool chromatic_aberration_enabled = false;
+	float chromatic_aberration_strength = 1.0;
+	void _update_chromatic_aberration();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -180,6 +197,29 @@ public:
 	void set_rolling_shutter_readout_time(float p_time);
 	float get_rolling_shutter_readout_time() const;
 
+	void set_vignetting_enabled(bool p_enabled);
+	bool is_vignetting_enabled() const;
+	void set_vignetting_strength(float p_strength);
+	float get_vignetting_strength() const;
+	void set_vignetting_falloff(float p_falloff);
+	float get_vignetting_falloff() const;
+
+	void set_distortion_enabled(bool p_enabled);
+	bool is_distortion_enabled() const;
+	void set_distortion_automatic(bool p_automatic);
+	bool is_distortion_automatic() const;
+	void set_distortion_k1(float p_k1);
+	float get_distortion_k1() const;
+	void set_distortion_k2(float p_k2);
+	float get_distortion_k2() const;
+	void set_distortion_auto_crop(bool p_auto_crop);
+	bool is_distortion_auto_crop() const;
+
+	void set_chromatic_aberration_enabled(bool p_enabled);
+	bool is_chromatic_aberration_enabled() const;
+	void set_chromatic_aberration_strength(float p_strength);
+	float get_chromatic_aberration_strength() const;
+
 	CameraAttributes();
 	~CameraAttributes();
 };
@@ -238,7 +278,35 @@ public:
 class CameraAttributesPhysical : public CameraAttributes {
 	GDCLASS(CameraAttributesPhysical, CameraAttributes);
 
+public:
+	enum SensorFormat {
+		SENSOR_FORMAT_FULL_FRAME,
+		SENSOR_FORMAT_APS_C,
+		SENSOR_FORMAT_SUPER_35,
+		SENSOR_FORMAT_MICRO_FOUR_THIRDS,
+		SENSOR_FORMAT_MEDIUM_FORMAT,
+		SENSOR_FORMAT_ONE_INCH,
+		SENSOR_FORMAT_CUSTOM,
+		SENSOR_FORMAT_MAX,
+	};
+
+	static Vector2 get_sensor_format_size(SensorFormat p_format);
+
 private:
+	// Sensor and lens.
+	SensorFormat sensor_format = SENSOR_FORMAT_FULL_FRAME;
+	Vector2 sensor_size = Vector2(36.0, 24.0); // In millimeters.
+	float lens_max_aperture = 1.8; // In f-stops.
+	float lens_transmission_loss = 0.0; // In stops: the T-stop is the f-stop times 2^(loss / 2).
+	float lens_anamorphic_squeeze = 1.0;
+	float lens_focus_breathing = 0.0;
+	float exposure_nd_filter = 0.0; // In stops.
+	bool diffraction_enabled = false;
+	float diffraction_strength = 1.0;
+	float _get_fov_focal_length() const;
+	void _update_lens();
+	void _update_diffraction();
+
 	// Exposure
 	float exposure_aperture = 16.0; // In f-stops;
 	float exposure_shutter_speed = 100.0; // In 1 / seconds;
@@ -283,6 +351,30 @@ public:
 	real_t get_far() const;
 
 	real_t get_fov() const;
+	// True when get_fov() is the horizontal field of view (an anamorphic lens), false when it is the vertical one.
+	bool is_fov_horizontal() const;
+
+	void set_sensor_format(SensorFormat p_format);
+	SensorFormat get_sensor_format() const;
+	void set_sensor_size(const Vector2 &p_size);
+	Vector2 get_sensor_size() const;
+
+	void set_lens_max_aperture(float p_aperture);
+	float get_lens_max_aperture() const;
+	void set_lens_transmission_loss(float p_stops);
+	float get_lens_transmission_loss() const;
+	void set_lens_anamorphic_squeeze(float p_squeeze);
+	float get_lens_anamorphic_squeeze() const;
+	void set_lens_focus_breathing(float p_amount);
+	float get_lens_focus_breathing() const;
+
+	void set_exposure_nd_filter(float p_stops);
+	float get_exposure_nd_filter() const;
+
+	void set_diffraction_enabled(bool p_enabled);
+	bool is_diffraction_enabled() const;
+	void set_diffraction_strength(float p_strength);
+	float get_diffraction_strength() const;
 
 	void set_auto_exposure_min_exposure_value(float p_min);
 	float get_auto_exposure_min_exposure_value() const;
@@ -297,3 +389,4 @@ public:
 
 VARIANT_ENUM_CAST(CameraAttributes::GrainType);
 VARIANT_ENUM_CAST(CameraAttributes::LUTInput);
+VARIANT_ENUM_CAST(CameraAttributesPhysical::SensorFormat);

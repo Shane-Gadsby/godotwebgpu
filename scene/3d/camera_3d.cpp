@@ -690,7 +690,12 @@ void Camera3D::_attributes_changed() {
 	fov = physical_attributes->get_fov();
 	_near = physical_attributes->get_near();
 	_far = physical_attributes->get_far();
-	keep_aspect = KEEP_HEIGHT;
+	// The field of view is the sensor's vertical one, or the horizontal one for an anamorphic lens.
+	const KeepAspect physical_keep_aspect = physical_attributes->is_fov_horizontal() ? KEEP_WIDTH : KEEP_HEIGHT;
+	if (keep_aspect != physical_keep_aspect) {
+		keep_aspect = physical_keep_aspect;
+		RenderingServer::get_singleton()->camera_set_use_vertical_aspect(camera, keep_aspect == KEEP_WIDTH);
+	}
 	_update_camera_mode();
 }
 

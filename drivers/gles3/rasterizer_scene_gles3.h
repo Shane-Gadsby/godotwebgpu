@@ -81,6 +81,10 @@ enum SceneUniformLocation {
 	SCENE_DECAL_DATA,
 };
 
+// The post pass's CameraEffects buffer (effects/camera_effects_inc.glsl): past every scene, sky and canvas binding, so
+// nothing else ever rebinds it.
+static constexpr GLuint CAMERA_EFFECTS_UNIFORM_LOCATION = 16;
+
 enum SkyUniformLocation {
 	SKY_TONEMAP_UNIFORM_LOCATION,
 	SKY_GLOBALS_UNIFORM_LOCATION,
@@ -503,6 +507,7 @@ private:
 		GLuint multiview_buffer = 0;
 		GLuint prev_multiview_buffer = 0;
 		GLuint tonemap_buffer = 0;
+		GLuint camera_effects_buffer = 0; // CameraEffectsUBO, for the post pass (effects/camera_effects_inc.glsl).
 
 		int prev_data_state = 0; // 0 = Motion vectors not used, 1 = use data (first frame only), 2 = use previous data
 

@@ -56,6 +56,19 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #endif
 layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 
+// CameraAttributes effects with more parameters than the push constant holds: next to the exposure texture, as set 3
+// is shared with push-constant emulation on WebGPU.
+#define CAMERA_EFFECTS_SET 1
+#define CAMERA_EFFECTS_BINDING 1
+#include "camera_effects_inc.glsl"
+
+#ifdef USE_MULTIVIEW
+#define CAMERA_LENS_FETCH(m_uv) textureLod(source_color, vec3(m_uv, ViewIndex), 0.0)
+#else
+#define CAMERA_LENS_FETCH(m_uv) textureLod(source_color, m_uv, 0.0)
+#endif
+#include "camera_lens_inc.glsl"
+
 #define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
 #define FLAG_USE_AUTO_EXPOSURE (1 << 2)
@@ -565,7 +578,7 @@ float rgb2luma(vec3 rgb) {
 	return sqrt(dot(rgb, vec3(0.299, 0.587, 0.114)));
 }
 
-vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
+vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp, out vec2 r_final_uv) {
 	const float EDGE_THRESHOLD_MIN = 0.0312;
 	const float EDGE_THRESHOLD_MAX = 0.125;
 	const int ITERATIONS = 12;
@@ -585,6 +598,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 	float lumaRange = lumaMax - lumaMin;
 
 	if (lumaRange < max(EDGE_THRESHOLD_MIN, lumaMax * EDGE_THRESHOLD_MAX)) {
+		r_final_uv = uv_interp;
 		return color;
 	}
 
@@ -712,6 +726,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 		finalUv.x += finalOffset * stepLength;
 	}
 
+	r_final_uv = finalUv.xy; // Where FXAA moved the read; the lens follows it (camera_lens_inc.glsl).
 	vec3 finalColor = textureLod(source_color, finalUv, 0.0).xyz * exposure * params.luminance_multiplier;
 	return finalColor;
 
@@ -729,6 +744,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 	float lumaRange = lumaMax - lumaMin;
 
 	if (lumaRange < max(EDGE_THRESHOLD_MIN, lumaMax * EDGE_THRESHOLD_MAX)) {
+		r_final_uv = uv_interp;
 		return color;
 	}
 
@@ -856,6 +872,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 		finalUv.x += finalOffset * stepLength;
 	}
 
+	r_final_uv = finalUv.xy; // Where FXAA moved the read; the lens follows it (camera_lens_inc.glsl).
 	vec3 finalColor = textureLod(source_color, finalUv, 0.0).xyz * exposure * params.luminance_multiplier;
 	return finalColor;
 
@@ -884,6 +901,13 @@ void main() {
 #else
 	vec4 color = textureLod(source_color, uv_interp, 0.0f);
 #endif
+	// CameraAttributes lens optics (camera_lens_inc.glsl): the image as the lens forms it on the sensor, before
+	// anything the camera does to it. Glow and FXAA read the source where the lens takes this pixel from.
+	uint lens_bits = camera_effects.header.x;
+	vec2 lens_uv = uv_interp;
+	if ((lens_bits & CAMERA_LENS_RESAMPLE) != 0u) {
+		color = camera_lens_sample(uv_interp, lens_uv);
+	}
 	color.rgb *= params.luminance_multiplier;
 
 	// Exposure
@@ -901,11 +925,18 @@ void main() {
 	// Single-pass FXAA and pre-tonemap glow.
 	if (bool(params.flags & FLAG_USE_FXAA)) {
 		// FXAA must be performed before glow to preserve the "bleed" effect of glow.
-		color.rgb = do_fxaa(color.rgb, exposure, uv_interp);
+		vec2 fxaa_uv;
+		color.rgb = do_fxaa(color.rgb, exposure, lens_uv, fxaa_uv);
+		if ((lens_bits & (CAMERA_LENS_CHROMATIC_ABERRATION | CAMERA_LENS_DIFFRACTION)) != 0u && fxaa_uv != lens_uv) {
+			// FXAA blends across an edge by moving its read; move the lens's read the same way, so the edge keeps
+			// its color fringes and diffraction blur.
+			vec2 unused_uv;
+			color.rgb = camera_lens_sample(uv_interp + (fxaa_uv - lens_uv), unused_uv).rgb * exposure * params.luminance_multiplier;
+		}
 	}
 
 	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {
-		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
+		vec3 glow = gather_glow(source_glow, lens_uv) * params.glow_intensity;
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
@@ -915,6 +946,11 @@ void main() {
 		} else {
 			color.rgb = apply_glow(color.rgb, glow, params.white);
 		}
+	}
+
+	// Vignetting: the lens passes less light toward the frame's edges, glow included (it is scene light here).
+	if ((lens_bits & CAMERA_LENS_VIGNETTING) != 0u) {
+		color.rgb *= camera_lens_vignetting(uv_interp);
 	}
 
 	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
@@ -943,7 +979,7 @@ void main() {
 		// Apply soft light after tonemapping to mitigate the issue of discontinuity
 		// at 1.0 and higher. This makes the issue only appear with HDR output that
 		// can exceed a 1.0 output value.
-		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
+		vec3 glow = gather_glow(source_glow, lens_uv) * params.glow_intensity;
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
