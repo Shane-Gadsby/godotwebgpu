@@ -3064,6 +3064,18 @@ baked FSR 2 export missed 7 stages in the cache: measured 7 → 0 after the fix)
 a shader group with `set_group_bake_requirements()` (fog.cpp, fsr2.cpp) or refreshed by
 `add_general_defines_refresh_callback()` (fsr.cpp). `webgpu_tests/bake_isolation/run.sh` catches both.
 
+74. **An `EM_ASM` body must not name anything of Emscripten's** (2026-10-27, user report). Closure (CI's
+`use_closure_compiler=yes`, so every release template) renames the runtime and library objects (`$WebGPU`,
+`UTF8ToString`, `stringToNewUTF8`, `_free`, `wasmTable`, `GodotConfig`) and their unquoted properties. A regular
+template failed `RenderingContextDriverWebGPU::initialize()` with `M.importJsDevice is not a function`: the EM_ASM got the
+renamed object but read `WebGPU["importJsDevice"]` by its old property name. A dlink template's EM_ASM bodies live in
+the side module and are `eval`'d at load time, outside the renamed glue: `WebGPU is not defined` without threads,
+`stringToNewUTF8 is not defined` (render thread prestart) with them. Local builds skip closure, and `local_ci.sh` only
+compiles the dlink template, so no tier caught any of it. Such JavaScript goes in a JS library function, whose `__deps`
+are renamed with it (`platform/web/js/libs/library_godot_webgpu.js`: device import, shader stats, the render thread's
+device and yield; `godot_js_os_startup_mark()`). An EM_ASM may use `Module['...']`, `globalThis`, browser APIs and its
+`$N` arguments. Only the opt-in `WEBGPU_VERBOSE` diagnostics still break the rule.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
