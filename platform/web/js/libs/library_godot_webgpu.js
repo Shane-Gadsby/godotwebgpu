@@ -60,8 +60,8 @@ const GodotWebGPU = {
 	godot_webgpu_shader_stats_publish__proxy: 'async',
 	godot_webgpu_shader_stats_publish__sig: 'viiiiipdiddddd',
 	godot_webgpu_shader_stats_publish: function (p_baked, p_precompiled, p_cached, p_translated, p_specialized, p_names,
-			p_container_create_ms, p_container_create_calls, p_container_stage_loop_ms,
-			p_containers, p_spirv_bytes, p_wgsl_bytes, p_footer_parse_ms) {
+		p_container_create_ms, p_container_create_calls, p_container_stage_loop_ms,
+		p_containers, p_spirv_bytes, p_wgsl_bytes, p_footer_parse_ms) {
 		const names = GodotRuntime.parseString(p_names);
 		GodotRuntime.free(p_names);
 		globalThis['godotWebGPUShaderStats'] = {
@@ -90,7 +90,8 @@ const GodotWebGPU = {
 		const d = Module['preinitializedWebGPUDevice'];
 		const limits = {};
 		if (d) {
-			for (const k in d.limits) {
+			// GPUSupportedLimits' members are getters on its prototype, which for-in reaches and Object.keys() does not.
+			for (const k in d.limits) { // eslint-disable-line guard-for-in
 				limits[k] = d.limits[k];
 			}
 		}
@@ -119,19 +120,19 @@ const GodotWebGPU = {
 				if (info.reason === 'destroyed') {
 					return; // Our own device.destroy() at shutdown (_render_thread_shutdown).
 				}
-				console.error(`[Godot] WebGPU device lost on the render thread (reason: ${info.reason}): ${info.message}`);
+				console.error(`[Godot] WebGPU device lost on the render thread (reason: ${info.reason}): ${info.message}`); // eslint-disable-line no-console
 				globalThis['GODOT_WEBGPU_DEVICE_LOST'] = true;
 			});
 			device.addEventListener('uncapturederror', (event) => {
 				const error = event.error;
 				const kind = (error && error.constructor && error.constructor.name) || 'UnknownError';
-				console.error(`[Godot] WebGPU uncaptured error: ${kind}: ${error && error.message ? error.message : String(error)}`);
+				console.error(`[Godot] WebGPU uncaptured error: ${kind}: ${error && error.message ? error.message : String(error)}`); // eslint-disable-line no-console
 			});
 			// This worker's own Module: RenderingContextDriverWebGPU::initialize() imports it from here.
 			Module['preinitializedWebGPUDevice'] = device;
 			ready(1);
 		})().catch((e) => {
-			console.error(`[Godot] WebGPU: the render thread could not create its device: ${e}`);
+			console.error(`[Godot] WebGPU: the render thread could not create its device: ${e}`); // eslint-disable-line no-console
 			ready(0);
 		});
 	},
@@ -146,7 +147,8 @@ const GodotWebGPU = {
 			const channel = new MessageChannel();
 			const wake = GodotRuntime.get_func(p_wake);
 			channel.port1.onmessage = () => wake(0);
-			port = globalThis['godotRenderThreadYield'] = channel.port2;
+			port = channel.port2;
+			globalThis['godotRenderThreadYield'] = port;
 		}
 		port.postMessage(0);
 	},
