@@ -103,5 +103,5 @@ Limits:
   Soft Light glow is added after tonemapping and is not vignetted.
 - Diffraction costs 25 texture reads per pixel (75 with chromatic aberration) while it is visible, and nothing when it
   is far below a pixel.
-- In Compatibility the lens resamples the sRGB-encoded scene buffer through a linear conversion; values round-trip
-  through the renderer's fast sRGB approximation (an error well below 1/255).
+- In Compatibility the lens resamples the renderer's sRGB-encoded scene buffer, whose bilinear filtering blends encoded
+  values, so the diffraction blur measures about 5% narrower there than in Forward+ and Mobile.
