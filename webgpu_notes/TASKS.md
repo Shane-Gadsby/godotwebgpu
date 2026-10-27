@@ -3134,6 +3134,11 @@ particle-animation material, say) has no shader yet and nothing is baked for it.
 three (`ShaderBakerExportPlugin::_flush_material_changes()`), before its embedded-material snapshot and before each
 material lookup. A new class that defers its shader the same way must be added there.
 
+78. **`--fixed-fps N` does not give a constant delta, and a `-s` script's `await process_frame` runs before nodes
+process** (2026-10-28, work task 38). With N different from the physics ticks per second the process delta alternates
+(144 fps gives ~1/120 and ~1/150). A convergence or timing test must integrate the deltas the node actually used (record
+them from a node with a higher `process_priority`), never assume k/N.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -4691,6 +4696,25 @@ with an Environment LUT too, both apply, camera first. On the shared base `Camer
   reference regeneration: 276/276, 552/552, 0 invalid.
 - **Known limits:** display LUTs are SDR (HDR output clips at 1.0); LUT output is treated as sRGB, not BT.1886;
   the Mobile highlight clip above; `.cube` files with both tables and `DOMAIN_*` apply the domain to the 1D table.
+
+### 4.49 Camera3D autofocus and handheld shake (October 2026) *(work task 38, camera batch)*
+
+Camera realism batch (work board `camera-batch.md`, tasks 33-38). Scene side only (`scene/3d/camera_3d.*`, no renderer
+change), merged `c2d0987359`. **Autofocus:** Manual / Single (`autofocus_trigger()`) / Continuous, on a tracked Node3D
+or the nearest physics-ray hit of normalized screen points (collision mask); a servo in diopters with a time constant
+(exact per-frame solution, frame-rate independent) and optional hunting overshoot; drives
+`CameraAttributesPhysical.frustum_focus_distance`, or moves CameraAttributesPractical's near/far distances and
+transitions keeping the band's diopter width; signals `focus_acquired` / `focus_failed`; runs in the editor preview,
+with editor-save hooks that store the user's value. **Handheld shake:** seeded band-limited sinusoid sums per axis
+(rotation, position, breathing) with exact RMS and spectrum; stabilization removes the set fraction above ~0.5 Hz
+(first-order high-pass per partial); optional focal-length-referenced amplitudes; applied in
+`_get_adjusted_camera_transform` so `transform` is untouched while `get_camera_transform()` and picking include it.
+Verified (lead, merged tree): `results/38-camera3d-af-stabilization/tests/run.sh` OK at 30/60/144 fps (AF error after
+one time constant 0.3679 = e^-1; shake RMS within 0.6%, spectrum within 0.7%, IS model within 0.0002), the windowed
+editor check, and shake-off renders pixel-identical to the pre-merge editor in Forward+, Mobile and Compatibility; smoke
+276/276, 552/552. Limits: AF writes into the attributes resource (cameras sharing it share focus); ray points not with
+`physics/3d/run_on_separate_thread`; shake with physics interpolation untested. User question `shake-in-editor` on the
+hand-offs page (default: shake runs in the editor preview too). §3 trap 78.
 
 ## 5. References — retired docs
 

@@ -9,7 +9,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 33 | lens optics: sensor format, vignetting, distortion, CA, anamorphic, ND/T-stops, diffraction, breathing; **CameraEffects UBO** | 1 | worker-33 |
 | 34 | motion blur from the shutter, rolling shutter | 1 | worker-34 |
 | 37 | in-camera NR + sharpening (CameraAttributes); monitoring overlays + Visible in Output (Camera3D) | 1 | worker-37 |
-| 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 |
+| 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 (retired); **merged `c2d0987359`**, verified on the merged tree, smoke OK; TASKS §4.49; question `shake-in-editor` on the hand-offs page |
 | 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | — |
 | 36 | AE metering modes, auto white balance | 2 | — |
 

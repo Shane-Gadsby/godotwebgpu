@@ -1,6 +1,6 @@
 # 38-camera3d-af-stabilization: autofocus and stabilization / handheld shake on Camera3D
 
-State: ready-for-integration
+State: integrated (lead: merged c2d0987359; tests/run.sh OK on the merged tree incl. pixel identity in all three renderers; smoke OK)
 Owner: worker-38
 Claimed: 2026-10-28 08:18
 Needs: build
