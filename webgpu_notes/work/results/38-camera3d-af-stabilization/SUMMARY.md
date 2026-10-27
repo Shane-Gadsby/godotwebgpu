@@ -34,7 +34,7 @@ With both features off, Camera3D does no extra work (internal process not enable
 ## Verification (numbers)
 
 `tests/run.sh <editor> [scratch]` reproduces all of it (`BASE=<pre-change editor>` adds pixel identity); last run:
-`TASK 38 VERIFY: OK`, log in `out/run_sh.log`, per-test output in `out/`.
+`TASK 38 VERIFY: OK`, log in `out/run_sh.txt`, per-test output in `out/`.
 
 - AF first-order convergence (Physical, 10 m -> 2 m tracked node, tau 0.2 s), using the deltas the camera actually
   integrated: error / e0 at t = tau **0.3679** (e^-1) at 30, 60 and 144 fps; max deviation from e0 exp(-t/tau) over all

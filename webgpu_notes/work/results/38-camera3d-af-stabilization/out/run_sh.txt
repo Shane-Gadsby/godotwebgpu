@@ -1,0 +1,139 @@
+== AF at 30 fps
+PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007226433
+PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.3679)
+PASS AF first-order: 95% within 3 tau + one frame  t95 0.6250 s (3 tau = 0.6)
+PASS AF final distance  2.0001 m
+PASS AF focus_acquired emitted once, within DOF/4  [[176, 2.37397003173828]] (tolerance 0.0930 D, error 0.0788 D)
+PASS AF is_autofocus_acquired  
+PASS AF-C follows target to 5 m  4.9959 m
+PASS AF-C re-acquires (2 signals)  2
+PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
+PASS AF user edit becomes baseline  7.0000
+PASS AF hunting 0.1: overshoot fraction  measured 0.0999
+PASS AF hunting 0.1: settles  2.0000 m
+PASS AF hunting 0.3: overshoot fraction  measured 0.2983
+PASS AF hunting 0.3: settles  2.0000 m
+PASS AF hunting 0.5: overshoot fraction  measured 0.4962
+PASS AF hunting 0.5: settles  2.0000 m
+PASS AF-S idle before trigger  10.0000
+PASS AF-S focuses after trigger  2.0001 m, signals 1
+PASS AF-S stays locked on the triggered distance when target moves  2.0000 (target now 6 m)
+PASS AF-S re-trigger refocuses  5.9995, signals 2
+PASS AF ray (center point) hits wall at 3.5 m  3.5000
+PASS AF nearest of points -> post at 1.5 m  1.5000
+PASS AF collision mask ignores layer 2  3.5000
+PASS AF miss: holds focus, focus_failed once  3.5000, failed 1
+PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) near_tr 0.2451 (0.2451) far_tr 0.0543 (0.0543)
+PASS AF Practical distance  1.0000
+PASS AF Practical far focus  near 2.2222 far 20.0000
+PASS AF Practical beyond hyperfocal  far 100000.0
+PASS AF Practical pre-save restores all four  
+AF TESTS DONE, failures: 0
+== AF at 60 fps
+PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007388763
+PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.3679)
+PASS AF first-order: 95% within 3 tau + one frame  t95 0.6000 s (3 tau = 0.6)
+PASS AF final distance  2.0001 m
+PASS AF focus_acquired emitted once, within DOF/4  [[180, 2.39300775527954]] (tolerance 0.0930 D, error 0.0821 D)
+PASS AF is_autofocus_acquired  
+PASS AF-C follows target to 5 m  4.9959 m
+PASS AF-C re-acquires (2 signals)  2
+PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
+PASS AF user edit becomes baseline  7.0000
+PASS AF hunting 0.1: overshoot fraction  measured 0.0999
+PASS AF hunting 0.1: settles  2.0000 m
+PASS AF hunting 0.3: overshoot fraction  measured 0.2983
+PASS AF hunting 0.3: settles  2.0000 m
+PASS AF hunting 0.5: overshoot fraction  measured 0.4962
+PASS AF hunting 0.5: settles  2.0000 m
+PASS AF-S idle before trigger  10.0000
+PASS AF-S focuses after trigger  2.0001 m, signals 1
+PASS AF-S stays locked on the triggered distance when target moves  2.0000 (target now 6 m)
+PASS AF-S re-trigger refocuses  5.9995, signals 2
+PASS AF ray (center point) hits wall at 3.5 m  3.5000
+PASS AF nearest of points -> post at 1.5 m  1.5000
+PASS AF collision mask ignores layer 2  3.5000
+PASS AF miss: holds focus, focus_failed once  3.5000, failed 1
+PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) near_tr 0.2451 (0.2451) far_tr 0.0543 (0.0543)
+PASS AF Practical distance  1.0000
+PASS AF Practical far focus  near 2.2222 far 20.0000
+PASS AF Practical beyond hyperfocal  far 100000.0
+PASS AF Practical pre-save restores all four  
+AF TESTS DONE, failures: 0
+== AF at 144 fps
+PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007400387
+PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.3679)
+PASS AF first-order: 95% within 3 tau + one frame  t95 0.6042 s (3 tau = 0.6)
+PASS AF final distance  2.0001 m
+PASS AF focus_acquired emitted once, within DOF/4  [[175, 2.43827533721924]] (tolerance 0.0930 D, error 0.0899 D)
+PASS AF is_autofocus_acquired  
+PASS AF-C follows target to 5 m  4.9959 m
+PASS AF-C re-acquires (2 signals)  2
+PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
+PASS AF user edit becomes baseline  7.0000
+PASS AF hunting 0.1: overshoot fraction  measured 0.1000
+PASS AF hunting 0.1: settles  2.0000 m
+PASS AF hunting 0.3: overshoot fraction  measured 0.2999
+PASS AF hunting 0.3: settles  2.0000 m
+PASS AF hunting 0.5: overshoot fraction  measured 0.5000
+PASS AF hunting 0.5: settles  2.0000 m
+PASS AF-S idle before trigger  10.0000
+PASS AF-S focuses after trigger  2.0001 m, signals 1
+PASS AF-S stays locked on the triggered distance when target moves  2.0000 (target now 6 m)
+PASS AF-S re-trigger refocuses  5.9995, signals 2
+PASS AF ray (center point) hits wall at 3.5 m  3.5000
+PASS AF nearest of points -> post at 1.5 m  1.5000
+PASS AF collision mask ignores layer 2  3.5000
+PASS AF miss: holds focus, focus_failed once  3.5000, failed 1
+PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) near_tr 0.2451 (0.2451) far_tr 0.0543 (0.0543)
+PASS AF Practical distance  1.0000
+PASS AF Practical far focus  near 2.2222 far 20.0000
+PASS AF Practical beyond hyperfocal  far 100000.0
+PASS AF Practical pre-save restores all four  
+AF TESTS DONE, failures: 0
+== shake
+PASS Shake: node transform untouched over 7200 frames  
+PASS Shake: get_camera_transform() == global_transform * get_shake_offset()  
+PASS Shake: same seed identical  
+PASS Shake: other seed differs  
+PASS Shake: disabling restores the plain transform  
+SHAKE TESTS DONE, failures: 0
+PASS RMS pitch  0.29951 (set 0.3)
+PASS spectrum pitch: log-centroid at set frequency, energy within f/2..2f  centroid 2.014 Hz (set 2.0), in band 99.9%
+PASS RMS yaw  0.20015 (set 0.2)
+PASS spectrum yaw: log-centroid at set frequency, energy within f/2..2f  centroid 3.004 Hz (set 3.0), in band 99.9%
+PASS RMS roll  0.099492 (set 0.1)
+PASS spectrum roll: log-centroid at set frequency, energy within f/2..2f  centroid 1.494 Hz (set 1.5), in band 99.8%
+PASS RMS x  0.0019944 (set 0.002)
+PASS spectrum x: log-centroid at set frequency, energy within f/2..2f  centroid 0.999 Hz (set 1.0), in band 99.8%
+PASS RMS y  0.00099842 (set 0.001)
+PASS spectrum y: log-centroid at set frequency, energy within f/2..2f  centroid 1.491 Hz (set 1.5), in band 99.9%
+PASS RMS z  0.0030061 (set 0.003)
+PASS spectrum z: log-centroid at set frequency, energy within f/2..2f  centroid 4.003 Hz (set 4.0), in band 100.0%
+PASS IS 0.5: pitch band amplitude ratio  0.5194 (model 0.5194)
+PASS IS 0.5: yaw band amplitude ratio  0.5093 (model 0.5093, 1-s = 0.50)
+PASS IS 0.5: roll band amplitude ratio  0.5328 (model 0.5329)
+PASS IS 0.5: x band amplitude ratio  0.5637 (model 0.5636)
+PASS IS 0.5: y band amplitude ratio  0.5332 (model 0.5331)
+PASS IS 0.5: z band amplitude ratio  0.5052 (model 0.5052, 1-s = 0.50)
+PASS IS 0.9: pitch band amplitude ratio  0.1370 (model 0.1370)
+PASS IS 0.9: yaw band amplitude ratio  0.1173 (model 0.1173, 1-s = 0.10)
+PASS IS 0.9: roll band amplitude ratio  0.1634 (model 0.1635)
+PASS IS 0.9: x band amplitude ratio  0.2227 (model 0.2225)
+PASS IS 0.9: y band amplitude ratio  0.1637 (model 0.1637)
+PASS IS 0.9: z band amplitude ratio  0.1096 (model 0.1096, 1-s = 0.10)
+PASS breathing RMS / peak  rms 0.1382 deg (0.15), peak 0.275 Hz (0.25)
+PASS breathing alone leaves other axes still  
+PASS scale_with_focal_length off: angular shake x FOV/27 deg  ratio 0.5000 at half the reference FOV
+PASS scale_with_focal_length off: position unchanged  1.000000
+ANALYSIS DONE, failures: 0
+== editor (Xvfb)
+PASS editor: AF-C focused the edited camera at 1.9998 m (target 2)
+PASS editor: shake offset changed over frames (196 distinct values)
+PASS editor: node transform untouched
+PASS editor: saved scene keeps the user's focus distance (10 m)
+PASS editor: autofocus value re-applied after save (1.9999)
+PASS forward_plus shake-off pixel identity, max diff 0
+PASS mobile shake-off pixel identity, max diff 0
+PASS gl_compatibility shake-off pixel identity, max diff 0
+TASK 38 VERIFY: OK
