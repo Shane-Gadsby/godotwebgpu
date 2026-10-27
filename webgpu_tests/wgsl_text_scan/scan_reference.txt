@@ -530,6 +530,14 @@ M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.w
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl 0,34,139,145,165,423
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl --keep-rw 0,34,139,145,165,423
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl 0,139,145,166,423
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl --keep-rw 0,139,145,166,423
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl 0,166
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl --keep-rw 0,166
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl 0,34,139,145,419,423
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl --keep-rw 0,34,139,145,419,423
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl 0,34,139,145,418,423

@@ -83,6 +83,17 @@ protected:
 	float grain_size = 1.0;
 	void _update_grain();
 
+	// Camera finish: in-camera noise reduction and sharpening, after tonemapping.
+	bool noise_reduction_enabled = false;
+	float noise_reduction_strength = 1.0;
+	bool noise_reduction_chroma_only = false;
+	void _update_noise_reduction();
+	bool sharpening_enabled = false;
+	float sharpening_amount = 0.5;
+	float sharpening_radius = 1.0;
+	float sharpening_halo = 0.25;
+	void _update_sharpening();
+
 	bool lut_enabled = false;
 	Ref<Texture3D> lut_texture;
 	LUTInput lut_input = LUT_INPUT_DISPLAY;
@@ -118,6 +129,22 @@ public:
 	float get_grain_intensity() const;
 	void set_grain_size(float p_size);
 	float get_grain_size() const;
+
+	void set_noise_reduction_enabled(bool p_enabled);
+	bool is_noise_reduction_enabled() const;
+	void set_noise_reduction_strength(float p_strength);
+	float get_noise_reduction_strength() const;
+	void set_noise_reduction_chroma_only(bool p_chroma_only);
+	bool is_noise_reduction_chroma_only() const;
+
+	void set_sharpening_enabled(bool p_enabled);
+	bool is_sharpening_enabled() const;
+	void set_sharpening_amount(float p_amount);
+	float get_sharpening_amount() const;
+	void set_sharpening_radius(float p_radius);
+	float get_sharpening_radius() const;
+	void set_sharpening_halo(float p_halo);
+	float get_sharpening_halo() const;
 
 	void set_lut_enabled(bool p_enabled);
 	bool is_lut_enabled() const;

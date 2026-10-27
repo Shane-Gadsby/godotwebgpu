@@ -178,6 +178,47 @@ void RendererSceneCull::camera_set_use_vertical_aspect(RID p_camera, bool p_enab
 	camera->vaspect = p_enable;
 }
 
+/* Camera monitoring
+ *
+ * Camera3D decides what reaches here: its overlays are only sent in the editor unless Visible in Output is on, so a
+ * running game with the overlays editor-only never sends them and the finish pass never runs for them.
+ */
+
+void RendererSceneCull::camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->monitoring.zebras = p_enable;
+	camera->monitoring.zebras_level = p_level;
+	camera->monitoring.zebras_second = p_second_enable;
+	camera->monitoring.zebras_second_level = p_second_level;
+}
+
+void RendererSceneCull::camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->monitoring.focus_peaking = p_enable;
+	camera->monitoring.focus_peaking_color = p_color;
+	camera->monitoring.focus_peaking_sensitivity = CLAMP(p_sensitivity, 0.0f, 1.0f);
+}
+
+void RendererSceneCull::camera_set_monitoring_false_color(RID p_camera, bool p_enable) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->monitoring.false_color = p_enable;
+}
+
+void RendererSceneCull::camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	ERR_FAIL_INDEX((int)p_mode, 2);
+	ERR_FAIL_INDEX((int)p_position, 4);
+	camera->monitoring.histogram = p_enable;
+	camera->monitoring.histogram_mode = p_mode;
+	camera->monitoring.histogram_position = p_position;
+	camera->monitoring.histogram_size = CLAMP(p_size, 0.05f, 1.0f);
+	camera->monitoring.histogram_opacity = CLAMP(p_opacity, 0.0f, 1.0f);
+}
+
 bool RendererSceneCull::is_camera(RID p_camera) const {
 	return camera_owner.owns(p_camera);
 }
@@ -2790,6 +2831,7 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 	} else {
 		ERR_FAIL_MSG("Unsupported camera setup.");
 	}
+	camera_data.monitoring = camera->monitoring;
 
 	RID environment = _render_get_environment(p_camera, p_scenario);
 	RID compositor = _render_get_compositor(p_camera, p_scenario);

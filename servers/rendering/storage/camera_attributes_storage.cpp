@@ -413,3 +413,69 @@ uint32_t RendererCameraAttributes::camera_attributes_get_lut_packed(RID p_camera
 	packed |= uint32_t(Math::round(cam_attributes->lut_strength * 255.0f)) << 8;
 	return packed;
 }
+
+/* Camera finish
+ *
+ * In-camera noise reduction and sharpening, which a camera applies to its processed (display-encoded) image before
+ * recording it. The camera finish pass runs them after tonemapping, at the output resolution, on Y'CbCr with Rec. 709
+ * coefficients (ITU-R BT.709-6, table 3), which is how video cameras process the image.
+ *
+ * Both are defined relative to the frame, not to pixels, so they look the same at every output resolution: their
+ * sizes are given in pixels of a 1080-line frame and scaled by the output height here.
+ *
+ * Noise reduction is a bilateral filter (Tomasi and Manduchi, "Bilateral Filtering for Gray and Color Images",
+ * ICCV 1998): a Gaussian in space times a Gaussian in value, so fluctuations much smaller than the range sigma are
+ * averaged away while steps much larger than it are kept. Strength scales both kernels, as a camera's NR levels do:
+ * at strength 1 the range sigma is 0.04 of full scale (about 10 8-bit code values, above the noise of the digital
+ * grain model at ISO 6400 in 1080p, see SUMMARY of task 37) and the spatial sigma 1.5 pixels of a 1080-line frame; at
+ * strength 4 fine texture of up to 0.16 of full scale is smeared over 3 pixels, the waxy look of a phone at high ISO.
+ * Those two numbers are a look choice. Chroma is filtered with twice the luma's range sigma, because cameras reduce
+ * chroma noise harder than luma noise (the eye's chroma acuity is lower); chroma-only leaves luma untouched.
+ *
+ * Sharpening is an unsharp mask on luma (Y' + amount * (Y' - G_sigma * Y'), added equally to R'G'B' so no color
+ * fringes appear), with the sigma given as the radius in pixels of a 1080-line frame. Halo control limits the result
+ * to the range of the 3x3 neighborhood widened by halo times that range, the clamp AMD's contrast adaptive sharpening
+ * uses to avoid ringing (FidelityFX CAS, Lottes 2019): 0 allows no overshoot at all, 1 a full neighborhood range.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_noise_reduction(RID p_camera_attributes, bool p_enable, float p_strength, bool p_chroma_only) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->noise_reduction_enabled = p_enable;
+	cam_attributes->noise_reduction_strength = MAX(p_strength, 0.0f);
+	cam_attributes->noise_reduction_chroma_only = p_chroma_only;
+}
+
+void RendererCameraAttributes::camera_attributes_set_sharpening(RID p_camera_attributes, bool p_enable, float p_amount, float p_radius, float p_halo) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->sharpening_enabled = p_enable;
+	cam_attributes->sharpening_amount = MAX(p_amount, 0.0f);
+	cam_attributes->sharpening_radius = MAX(p_radius, 0.01f);
+	cam_attributes->sharpening_halo = MAX(p_halo, 0.0f);
+}
+
+RendererCameraAttributes::CameraFinishSettings RendererCameraAttributes::camera_attributes_get_finish(RID p_camera_attributes, int p_output_height) {
+	CameraFinishSettings settings;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || p_output_height <= 0) {
+		return settings;
+	}
+	const float px_per_1080 = p_output_height / 1080.0f;
+
+	if (cam_attributes->noise_reduction_enabled && cam_attributes->noise_reduction_strength > 0.0f) {
+		const float strength = cam_attributes->noise_reduction_strength;
+		settings.noise_reduction = true;
+		settings.nr_range_sigma = 0.04f * strength;
+		settings.nr_spatial_sigma_px = (1.0f + 0.5f * strength) * px_per_1080;
+		settings.nr_chroma_only = cam_attributes->noise_reduction_chroma_only;
+	}
+
+	if (cam_attributes->sharpening_enabled && cam_attributes->sharpening_amount > 0.0f) {
+		settings.sharpening = true;
+		settings.sharpen_amount = cam_attributes->sharpening_amount;
+		settings.sharpen_sigma_px = cam_attributes->sharpening_radius * px_per_1080;
+		settings.sharpen_halo = cam_attributes->sharpening_halo;
+	}
+	return settings;
+}

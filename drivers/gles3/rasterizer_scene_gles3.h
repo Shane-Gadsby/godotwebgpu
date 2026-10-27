@@ -36,6 +36,7 @@
 #include "core/templates/paged_allocator.h"
 #include "core/templates/rid_owner.h"
 #include "core/templates/self_list.h"
+#include "drivers/gles3/effects/camera_finish.h"
 #include "drivers/gles3/storage/light_storage.h"
 #include "drivers/gles3/storage/material_storage.h"
 #include "servers/rendering/renderer_scene_render.h"
@@ -776,6 +777,8 @@ private:
 protected:
 	double time;
 	double time_step = 0;
+
+	GLES3::CameraFinish *camera_finish = nullptr; // CameraAttributes NR/sharpening, Camera3D monitoring overlays.
 
 	bool screen_space_roughness_limiter = false;
 	float screen_space_roughness_limiter_amount = 0.25;

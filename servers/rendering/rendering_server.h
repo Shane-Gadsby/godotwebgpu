@@ -546,6 +546,12 @@ public:
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor) = 0;
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable) = 0;
 
+	// Monitoring overlays (Camera3D's Monitoring group), drawn over this camera's image by the camera finish pass.
+	virtual void camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level) = 0;
+	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
+	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
+
 	/* VIEWPORT API */
 
 	virtual RID viewport_create() = 0;
@@ -725,6 +731,8 @@ public:
 	virtual void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization) = 0;
 	virtual void camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) = 0;
 	virtual void camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint) = 0;
+	virtual void camera_attributes_set_noise_reduction(RID p_camera_attributes, bool p_enable, float p_strength, bool p_chroma_only) = 0;
+	virtual void camera_attributes_set_sharpening(RID p_camera_attributes, bool p_enable, float p_amount, float p_radius, float p_halo) = 0;
 	virtual void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity) = 0;
 	virtual void camera_attributes_set_lut(RID p_camera_attributes, bool p_enable, RID p_texture, RSE::CameraAttributesLUTInput p_input, float p_strength) = 0;
 
@@ -1173,6 +1181,8 @@ VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSDFGIYScale, RenderingServer::EnvironmentS
 VARIANT_ENUM_CAST_EXT(RSE::SubSurfaceScatteringQuality, RenderingServer::SubSurfaceScatteringQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBlurQuality, RenderingServer::DOFBlurQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBokehShape, RenderingServer::DOFBokehShape);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramMode, RenderingServer::CameraMonitoringHistogramMode);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::CameraMonitoringHistogramPosition);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
 VARIANT_ENUM_CAST_EXT(RSE::ShadowQuality, RenderingServer::ShadowQuality);

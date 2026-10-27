@@ -596,6 +596,18 @@ SHADER_REGISTRY = [
         ("rg", "\n#define SPLIT_RG\n", [VERT, FRAG]),
     ]),
 
+    # ── Camera finish (CameraAttributes NR/sharpening, Camera3D monitoring) ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_finish.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("default", "\n", [VERT, FRAG]),
+    ]),
+
+    ("servers/rendering/renderer_rd/shaders/effects/camera_histogram.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("count", "\n", [COMP]),
+        ("max", "\n#define MODE_MAX\n", [COMP]),
+    ]),
+
     # ── Motion Vectors ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/motion_vectors.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),

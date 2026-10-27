@@ -134,6 +134,27 @@
 				Sets the LUT of the camera attributes: whether it is enabled, the 3D [param texture] (a [Texture3D]'s RID), what the LUT expects as its [param input], and its [param strength]. These parameters take on the same meaning as [member CameraAttributes.lut_enabled], [member CameraAttributes.lut_texture], [member CameraAttributes.lut_input] and [member CameraAttributes.lut_strength].
 			</description>
 		</method>
+		<method name="camera_attributes_set_noise_reduction">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="chroma_only" type="bool" />
+			<description>
+				Sets the in-camera noise reduction of the [param camera_attributes]. See [member CameraAttributes.noise_reduction_enabled], [member CameraAttributes.noise_reduction_strength] and [member CameraAttributes.noise_reduction_chroma_only].
+			</description>
+		</method>
+		<method name="camera_attributes_set_sharpening">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="amount" type="float" />
+			<param index="3" name="radius" type="float" />
+			<param index="4" name="halo" type="float" />
+			<description>
+				Sets the in-camera sharpening of the [param camera_attributes]. [param radius] is in pixels of a 1080-line frame. See [member CameraAttributes.sharpening_enabled], [member CameraAttributes.sharpening_amount], [member CameraAttributes.sharpening_radius] and [member CameraAttributes.sharpening_halo].
+			</description>
+		</method>
 		<method name="camera_attributes_set_white_balance">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -192,6 +213,47 @@
 			<param index="4" name="z_far" type="float" />
 			<description>
 				Sets camera to use frustum projection. This mode allows adjusting the [param offset] argument to create "tilted frustum" effects.
+			</description>
+		</method>
+		<method name="camera_set_monitoring_false_color">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				Sets whether the camera's image is replaced by a false color exposure map. See [member Camera3D.monitoring_false_color_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_focus_peaking">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="color" type="Color" />
+			<param index="3" name="sensitivity" type="float" />
+			<description>
+				Sets the focus peaking drawn over the camera's image. See [member Camera3D.monitoring_focus_peaking_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_histogram">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="mode" type="int" enum="RenderingServer.CameraMonitoringHistogramMode" />
+			<param index="3" name="position" type="int" enum="RenderingServer.CameraMonitoringHistogramPosition" />
+			<param index="4" name="size" type="float" />
+			<param index="5" name="opacity" type="float" />
+			<description>
+				Sets the histogram drawn over the camera's image. [param size] is its width as a fraction of the image width. See [member Camera3D.monitoring_histogram_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_zebras">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="level" type="float" />
+			<param index="3" name="second_enable" type="bool" />
+			<param index="4" name="second_level" type="float" />
+			<description>
+				Sets the zebras drawn over the camera's image: stripes over video levels at or above [param level] (in IRE) and, with [param second_enable], over a ±5 IRE window around [param second_level]. Unlike [member Camera3D.monitoring_visible_in_output], this always draws them. See [member Camera3D.monitoring_zebras_enabled].
 			</description>
 		</method>
 		<method name="camera_set_orthogonal">
@@ -5448,6 +5510,24 @@
 		</constant>
 		<constant name="FOG_VOLUME_SHAPE_MAX" value="5" enum="FogVolumeShape">
 			Represents the size of the [enum FogVolumeShape] enum.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_LUMA" value="0" enum="CameraMonitoringHistogramMode">
+			The monitoring histogram shows Rec. 709 luma.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_RGB" value="1" enum="CameraMonitoringHistogramMode">
+			The monitoring histogram shows the red, green and blue channels overlaid.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_TOP_LEFT" value="0" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the top left corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_TOP_RIGHT" value="1" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the top right corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT" value="2" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the bottom left corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the bottom right corner.
 		</constant>
 		<constant name="VIEWPORT_SCALING_3D_MODE_BILINEAR" value="0" enum="ViewportScaling3DMode">
 			Use bilinear scaling for the viewport's 3D buffer. The amount of scaling can be set using [member Viewport.scaling_3d_scale]. Values less than [code]1.0[/code] will result in undersampling while values greater than [code]1.0[/code] will result in supersampling. A value of [code]1.0[/code] disables scaling.

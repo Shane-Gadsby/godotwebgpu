@@ -58,6 +58,30 @@
 		<member name="lut_texture" type="Texture3D" setter="set_lut_texture" getter="get_lut_texture">
 			The look-up table, a [Texture3D] indexed by red (width), green (height) and blue (depth), whose texel centers hold the output for inputs evenly spaced from [code]0.0[/code] to [code]1.0[/code]. Adobe/Resolve [code].cube[/code] files (3D, 1D, or a 1D shaper followed by a 3D table) are imported as such a texture automatically.
 		</member>
+		<member name="noise_reduction_chroma_only" type="bool" setter="set_noise_reduction_chroma_only" getter="is_noise_reduction_chroma_only" default="false">
+			If [code]true[/code], [member noise_reduction_enabled] reduces only color noise and leaves luma untouched, keeping texture while removing the colored speckle of high-ISO digital noise.
+		</member>
+		<member name="noise_reduction_enabled" type="bool" setter="set_noise_reduction_enabled" getter="is_noise_reduction_enabled" default="false">
+			If [code]true[/code], the camera reduces noise in its image as a camera does before recording: an edge-preserving (bilateral) filter on the display-encoded Y'CbCr image after tonemapping, so it acts on [member grain_enabled]'s grain and digital noise like on any other fine texture. Small fluctuations are averaged away while steps much larger than them, edges, are kept. Color noise is reduced twice as hard as luma noise, as cameras do.
+			Its size is defined relative to the frame, so it looks the same at every resolution. It is not applied in reflection probes or the viewport's debug draw modes.
+			[b]Note:[/b] Only applied for single-view rendering, not in XR.
+		</member>
+		<member name="noise_reduction_strength" type="float" setter="set_noise_reduction_strength" getter="get_noise_reduction_strength" default="1.0">
+			How hard [member noise_reduction_enabled] smooths. At [code]1.0[/code], fluctuations up to about 4% of full scale (10 8-bit code values) are averaged over about 1.5 pixels of a 1080-line frame; both grow with the strength, so at [code]4.0[/code] fine texture smears over 3 pixels, the waxy look of strong in-camera noise reduction.
+		</member>
+		<member name="sharpening_amount" type="float" setter="set_sharpening_amount" getter="get_sharpening_amount" default="0.5">
+			How much contrast [member sharpening_enabled] adds at edges: the difference between the image and its blurred copy is added this many times.
+		</member>
+		<member name="sharpening_enabled" type="bool" setter="set_sharpening_enabled" getter="is_sharpening_enabled" default="false">
+			If [code]true[/code], the camera sharpens its image after tonemapping (and after [member noise_reduction_enabled]): an unsharp mask on luma, so no color fringes appear, with the ringing limit of AMD's contrast adaptive sharpening controlled by [member sharpening_halo]. It is not applied in reflection probes or the viewport's debug draw modes.
+			[b]Note:[/b] Only applied for single-view rendering, not in XR.
+		</member>
+		<member name="sharpening_halo" type="float" setter="set_sharpening_halo" getter="get_sharpening_halo" default="0.25">
+			How far [member sharpening_enabled] may push an edge past the range of its 3×3 neighborhood, as a fraction of that range. [code]0.0[/code] allows no overshoot and no halos at all, [code]1.0[/code] about what a plain unsharp mask gives.
+		</member>
+		<member name="sharpening_radius" type="float" setter="set_sharpening_radius" getter="get_sharpening_radius" default="1.0">
+			The radius (Gaussian sigma) of [member sharpening_enabled]'s blur, in pixels of a 1080-line frame. It is scaled with the output resolution, so sharpening looks the same at every resolution. Small radii sharpen fine detail; large ones raise local contrast.
+		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
 			The illuminant is taken on the Planckian locus with the same approximation [member Light3D.light_temperature] uses, so a light set to a given temperature renders neutral under a white balance of the same temperature. The adaptation is a von Kries transform in Bradford cone space, applied in linear scene-referred color after exposure and before tonemapping.

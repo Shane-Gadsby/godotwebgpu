@@ -150,6 +150,17 @@ void Camera3D::_validate_property(PropertyInfo &p_property) const {
 		}
 	}
 
+	// A monitoring overlay's settings show while it is on.
+	if (p_property.name.begins_with("monitoring_")) {
+		if ((p_property.name.begins_with("monitoring_zebras_level") && !monitoring_zebras_enabled) ||
+				(p_property.name == "monitoring_zebras_second_level" && !monitoring_zebras_second_enabled) ||
+				(p_property.name.begins_with("monitoring_focus_peaking_") && p_property.name != "monitoring_focus_peaking_enabled" && !monitoring_focus_peaking_enabled) ||
+				(p_property.name.begins_with("monitoring_histogram_") && p_property.name != "monitoring_histogram_enabled" && !monitoring_histogram_enabled)) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
+		return;
+	}
+
 	if (attributes.is_valid()) {
 		const CameraAttributesPhysical *physical_attributes = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
 		if (physical_attributes) {
@@ -685,6 +696,60 @@ Camera3D::DopplerTracking Camera3D::get_doppler_tracking() const {
 	return doppler_tracking;
 }
 
+/* Monitoring
+ *
+ * The overlays a camera's monitor draws over its image. They are sent to the RenderingServer only where they should
+ * show: always in the editor (the 3D viewport's camera preview and the Camera3D inspector preview both render through
+ * this camera), and in a running game only with Visible in Output. Otherwise the server is told they are off, so the
+ * finish pass does not run for them at all.
+ */
+
+void Camera3D::_update_monitoring() {
+	const bool show = monitoring_visible_in_output || Engine::get_singleton()->is_editor_hint();
+	RenderingServer *rs = RenderingServer::get_singleton();
+	rs->camera_set_monitoring_zebras(camera, show && monitoring_zebras_enabled, monitoring_zebras_level, show && monitoring_zebras_second_enabled, monitoring_zebras_second_level);
+	rs->camera_set_monitoring_focus_peaking(camera, show && monitoring_focus_peaking_enabled, monitoring_focus_peaking_color, monitoring_focus_peaking_sensitivity);
+	rs->camera_set_monitoring_false_color(camera, show && monitoring_false_color_enabled);
+	rs->camera_set_monitoring_histogram(camera, show && monitoring_histogram_enabled, RSE::CameraMonitoringHistogramMode(monitoring_histogram_mode), RSE::CameraMonitoringHistogramPosition(monitoring_histogram_position), monitoring_histogram_size, monitoring_histogram_opacity);
+}
+
+#define MONITORING_ACCESSORS(m_type, m_set, m_get, m_member, m_list_changed, m_value) \
+	void Camera3D::m_set(m_type p_value) { \
+		m_member = m_value; \
+		_update_monitoring(); \
+		if (m_list_changed) { \
+			notify_property_list_changed(); \
+		} \
+	} \
+	m_type Camera3D::m_get() const { \
+		return m_member; \
+	}
+
+MONITORING_ACCESSORS(bool, set_monitoring_visible_in_output, is_monitoring_visible_in_output, monitoring_visible_in_output, false, p_value)
+MONITORING_ACCESSORS(bool, set_monitoring_zebras_enabled, is_monitoring_zebras_enabled, monitoring_zebras_enabled, true, p_value)
+MONITORING_ACCESSORS(float, set_monitoring_zebras_level, get_monitoring_zebras_level, monitoring_zebras_level, false, CLAMP(p_value, 0.0f, 110.0f))
+MONITORING_ACCESSORS(bool, set_monitoring_zebras_second_enabled, is_monitoring_zebras_second_enabled, monitoring_zebras_second_enabled, true, p_value)
+MONITORING_ACCESSORS(float, set_monitoring_zebras_second_level, get_monitoring_zebras_second_level, monitoring_zebras_second_level, false, CLAMP(p_value, 0.0f, 110.0f))
+MONITORING_ACCESSORS(bool, set_monitoring_focus_peaking_enabled, is_monitoring_focus_peaking_enabled, monitoring_focus_peaking_enabled, true, p_value)
+MONITORING_ACCESSORS(float, set_monitoring_focus_peaking_sensitivity, get_monitoring_focus_peaking_sensitivity, monitoring_focus_peaking_sensitivity, false, CLAMP(p_value, 0.0f, 1.0f))
+MONITORING_ACCESSORS(bool, set_monitoring_false_color_enabled, is_monitoring_false_color_enabled, monitoring_false_color_enabled, false, p_value)
+MONITORING_ACCESSORS(bool, set_monitoring_histogram_enabled, is_monitoring_histogram_enabled, monitoring_histogram_enabled, true, p_value)
+MONITORING_ACCESSORS(Camera3D::MonitoringHistogramMode, set_monitoring_histogram_mode, get_monitoring_histogram_mode, monitoring_histogram_mode, false, p_value)
+MONITORING_ACCESSORS(Camera3D::MonitoringHistogramPosition, set_monitoring_histogram_position, get_monitoring_histogram_position, monitoring_histogram_position, false, p_value)
+MONITORING_ACCESSORS(float, set_monitoring_histogram_size, get_monitoring_histogram_size, monitoring_histogram_size, false, CLAMP(p_value, 0.05f, 1.0f))
+MONITORING_ACCESSORS(float, set_monitoring_histogram_opacity, get_monitoring_histogram_opacity, monitoring_histogram_opacity, false, CLAMP(p_value, 0.0f, 1.0f))
+
+#undef MONITORING_ACCESSORS
+
+void Camera3D::set_monitoring_focus_peaking_color(const Color &p_color) {
+	monitoring_focus_peaking_color = p_color;
+	_update_monitoring();
+}
+
+Color Camera3D::get_monitoring_focus_peaking_color() const {
+	return monitoring_focus_peaking_color;
+}
+
 void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("project_ray_normal", "screen_point"), &Camera3D::project_ray_normal);
 	ClassDB::bind_method(D_METHOD("project_local_ray_normal", "screen_point"), &Camera3D::project_local_ray_normal);
@@ -741,6 +806,35 @@ void Camera3D::_bind_methods() {
 
 	//ClassDB::bind_method(D_METHOD("_camera_make_current"),&Camera::_camera_make_current );
 
+	ClassDB::bind_method(D_METHOD("set_monitoring_visible_in_output", "visible"), &Camera3D::set_monitoring_visible_in_output);
+	ClassDB::bind_method(D_METHOD("is_monitoring_visible_in_output"), &Camera3D::is_monitoring_visible_in_output);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_enabled", "enabled"), &Camera3D::set_monitoring_zebras_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_zebras_enabled"), &Camera3D::is_monitoring_zebras_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_level", "level"), &Camera3D::set_monitoring_zebras_level);
+	ClassDB::bind_method(D_METHOD("get_monitoring_zebras_level"), &Camera3D::get_monitoring_zebras_level);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_second_enabled", "enabled"), &Camera3D::set_monitoring_zebras_second_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_zebras_second_enabled"), &Camera3D::is_monitoring_zebras_second_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_second_level", "level"), &Camera3D::set_monitoring_zebras_second_level);
+	ClassDB::bind_method(D_METHOD("get_monitoring_zebras_second_level"), &Camera3D::get_monitoring_zebras_second_level);
+	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_enabled", "enabled"), &Camera3D::set_monitoring_focus_peaking_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_focus_peaking_enabled"), &Camera3D::is_monitoring_focus_peaking_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_color", "color"), &Camera3D::set_monitoring_focus_peaking_color);
+	ClassDB::bind_method(D_METHOD("get_monitoring_focus_peaking_color"), &Camera3D::get_monitoring_focus_peaking_color);
+	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_sensitivity", "sensitivity"), &Camera3D::set_monitoring_focus_peaking_sensitivity);
+	ClassDB::bind_method(D_METHOD("get_monitoring_focus_peaking_sensitivity"), &Camera3D::get_monitoring_focus_peaking_sensitivity);
+	ClassDB::bind_method(D_METHOD("set_monitoring_false_color_enabled", "enabled"), &Camera3D::set_monitoring_false_color_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_false_color_enabled"), &Camera3D::is_monitoring_false_color_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_enabled", "enabled"), &Camera3D::set_monitoring_histogram_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_histogram_enabled"), &Camera3D::is_monitoring_histogram_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_mode", "mode"), &Camera3D::set_monitoring_histogram_mode);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_mode"), &Camera3D::get_monitoring_histogram_mode);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_position", "position"), &Camera3D::set_monitoring_histogram_position);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_position"), &Camera3D::get_monitoring_histogram_position);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_size", "size"), &Camera3D::set_monitoring_histogram_size);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_size"), &Camera3D::get_monitoring_histogram_size);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_opacity", "opacity"), &Camera3D::set_monitoring_histogram_opacity);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_opacity"), &Camera3D::get_monitoring_histogram_opacity);
+
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "keep_aspect", PROPERTY_HINT_ENUM, "Keep Width,Keep Height"), "set_keep_aspect_mode", "get_keep_aspect_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "environment", PROPERTY_HINT_RESOURCE_TYPE, Environment::get_class_static()), "set_environment", "get_environment");
@@ -757,6 +851,26 @@ void Camera3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "near", PROPERTY_HINT_RANGE, "0.001,10,0.001,or_greater,exp,suffix:m"), "set_near", "get_near");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "far", PROPERTY_HINT_RANGE, "0.01,4000,0.01,or_greater,exp,suffix:m"), "set_far", "get_far");
 
+	ADD_GROUP("Monitoring", "monitoring_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_visible_in_output"), "set_monitoring_visible_in_output", "is_monitoring_visible_in_output");
+	ADD_SUBGROUP("Zebras", "monitoring_zebras_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_zebras_enabled"), "set_monitoring_zebras_enabled", "is_monitoring_zebras_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_zebras_level", PROPERTY_HINT_RANGE, "0,109,0.5,suffix:IRE"), "set_monitoring_zebras_level", "get_monitoring_zebras_level");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_zebras_second_enabled"), "set_monitoring_zebras_second_enabled", "is_monitoring_zebras_second_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_zebras_second_level", PROPERTY_HINT_RANGE, "0,109,0.5,suffix:IRE"), "set_monitoring_zebras_second_level", "get_monitoring_zebras_second_level");
+	ADD_SUBGROUP("Focus Peaking", "monitoring_focus_peaking_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_focus_peaking_enabled"), "set_monitoring_focus_peaking_enabled", "is_monitoring_focus_peaking_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "monitoring_focus_peaking_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_monitoring_focus_peaking_color", "get_monitoring_focus_peaking_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_focus_peaking_sensitivity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_monitoring_focus_peaking_sensitivity", "get_monitoring_focus_peaking_sensitivity");
+	ADD_SUBGROUP("False Color", "monitoring_false_color_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_false_color_enabled"), "set_monitoring_false_color_enabled", "is_monitoring_false_color_enabled");
+	ADD_SUBGROUP("Histogram", "monitoring_histogram_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_histogram_enabled"), "set_monitoring_histogram_enabled", "is_monitoring_histogram_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "monitoring_histogram_mode", PROPERTY_HINT_ENUM, "Luma,RGB"), "set_monitoring_histogram_mode", "get_monitoring_histogram_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "monitoring_histogram_position", PROPERTY_HINT_ENUM, "Top Left,Top Right,Bottom Left,Bottom Right"), "set_monitoring_histogram_position", "get_monitoring_histogram_position");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_histogram_size", PROPERTY_HINT_RANGE, "0.05,1,0.01"), "set_monitoring_histogram_size", "get_monitoring_histogram_size");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_histogram_opacity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_monitoring_histogram_opacity", "get_monitoring_histogram_opacity");
+
 	BIND_ENUM_CONSTANT(PROJECTION_PERSPECTIVE);
 	BIND_ENUM_CONSTANT(PROJECTION_ORTHOGONAL);
 	BIND_ENUM_CONSTANT(PROJECTION_FRUSTUM);
@@ -767,6 +881,13 @@ void Camera3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_DISABLED);
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_IDLE_STEP);
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_PHYSICS_STEP);
+
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_LUMA);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_RGB);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_TOP_LEFT);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_TOP_RIGHT);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_BOTTOM_LEFT);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_BOTTOM_RIGHT);
 }
 
 real_t Camera3D::get_fov() const {
