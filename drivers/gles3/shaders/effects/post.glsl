@@ -70,6 +70,19 @@ vec4 camera_lens_fetch_linear(vec2 p_uv) {
 	return vec4(srgb_to_linear(c.rgb), c.a);
 }
 #define CAMERA_LENS_FETCH(m_uv) camera_lens_fetch_linear(m_uv)
+
+// The exact inverse of srgb_to_linear() (Newton's method on its cubic, which rises monotonically), so the lens's linear
+// result comes back unchanged when the pass decodes it below. linear_to_srgb() is a different approximation: the round
+// trip through it is off by up to 7/255 near black.
+vec3 camera_lens_encode(vec3 p_linear) {
+	vec3 y = linear_to_srgb(max(p_linear, vec3(0.0)));
+	for (int i = 0; i < 5; i++) { // From the worst start (near black), 4 steps reach 2e-5, 5 reach 1e-8.
+		vec3 f = y * (y * (y * 0.305306011 + 0.682171111) + 0.012522878) - p_linear;
+		vec3 df = y * (y * 0.915918033 + 1.364342222) + 0.012522878;
+		y -= f / df;
+	}
+	return y;
+}
 #include "camera_lens_inc.glsl"
 #endif
 
@@ -164,7 +177,7 @@ void main() {
 	uint lens_bits = camera_effects.header.x;
 	if ((lens_bits & CAMERA_LENS_RESAMPLE) != 0u) {
 		vec4 lens_color = camera_lens_sample(uv_interp, lens_uv);
-		color = vec4(linear_to_srgb(lens_color.rgb), lens_color.a);
+		color = vec4(camera_lens_encode(lens_color.rgb), lens_color.a);
 	}
 #endif
 
