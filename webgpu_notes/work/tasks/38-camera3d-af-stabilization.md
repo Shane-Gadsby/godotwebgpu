@@ -1,6 +1,6 @@
 # 38-camera3d-af-stabilization: autofocus and stabilization / handheld shake on Camera3D
 
-State: claimed
+State: ready-for-integration
 Owner: worker-38
 Claimed: 2026-10-28 08:18
 Needs: build

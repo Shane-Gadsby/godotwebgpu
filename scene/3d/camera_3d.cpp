@@ -32,10 +32,12 @@
 
 #include "core/config/engine.h"
 #include "core/math/projection.h"
+#include "core/math/random_pcg.h"
 #include "core/math/transform_interpolator.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/main/viewport.h"
+#include "scene/resources/3d/world_3d.h"
 #include "servers/rendering/rendering_server.h"
 
 #ifndef PHYSICS_3D_DISABLED
@@ -190,7 +192,8 @@ void Camera3D::set_desired_process_modes(bool p_process_internal, bool p_physics
 }
 
 void Camera3D::_update_process_mode() {
-	set_process_internal(_desired_process_internal);
+	// Autofocus and handheld shake run per frame; with both off, a camera costs nothing more than before.
+	set_process_internal(_desired_process_internal || shake_enabled || autofocus_mode != AUTOFOCUS_MODE_MANUAL);
 	set_physics_process_internal(_desired_physics_process_internal);
 }
 
@@ -202,6 +205,7 @@ void Camera3D::_notification(int p_what) {
 			// therefore making it impossible to subclasses to access it
 			viewport = get_viewport();
 			ERR_FAIL_NULL(viewport);
+			af_initialized = false;
 
 			bool first_camera = viewport->_camera_3d_add(this);
 			if (current || first_camera) {
@@ -264,6 +268,32 @@ void Camera3D::_notification(int p_what) {
 			}
 			_update_process_mode();
 		} break;
+
+		case NOTIFICATION_INTERNAL_PROCESS: {
+			const double delta = get_process_delta_time();
+			// Shake first, so autofocus measures through the lens where it points this frame.
+			if (shake_enabled) {
+				_shake_process(delta);
+			}
+			if (autofocus_mode != AUTOFOCUS_MODE_MANUAL) {
+				_autofocus_process(delta);
+			}
+		} break;
+
+#ifdef TOOLS_ENABLED
+		// Autofocus writes the focus distance into the attributes resource every frame, also in the editor preview.
+		// Saving must store the user's own value, not wherever the lens happened to be.
+		case NOTIFICATION_EDITOR_PRE_SAVE: {
+			if (af_wrote && autofocus_mode != AUTOFOCUS_MODE_MANUAL) {
+				_autofocus_restore_baseline();
+			}
+		} break;
+		case NOTIFICATION_EDITOR_POST_SAVE: {
+			if (af_wrote && autofocus_mode != AUTOFOCUS_MODE_MANUAL && af_initialized) {
+				_autofocus_apply(1.0 / MAX(af_diopters, 1e-5));
+			}
+		} break;
+#endif
 	}
 }
 
@@ -271,6 +301,10 @@ Transform3D Camera3D::_get_adjusted_camera_transform(const Transform3D &p_xform)
 	Transform3D tr = p_xform.orthonormalized();
 	tr.origin += tr.basis.get_column(1) * v_offset;
 	tr.origin += tr.basis.get_column(0) * h_offset;
+	if (shake_enabled) {
+		// The shake is an offset in the camera's own frame on top of the node's transform, which stays untouched.
+		tr = tr * shake_offset;
+	}
 	return tr;
 }
 
@@ -602,6 +636,14 @@ Ref<Environment> Camera3D::get_environment() const {
 }
 
 void Camera3D::set_attributes(const Ref<CameraAttributes> &p_attributes) {
+	if (attributes != p_attributes) {
+		if (af_wrote && Engine::get_singleton()->is_editor_hint() && autofocus_mode != AUTOFOCUS_MODE_MANUAL) {
+			// Leave the resource being replaced as the user set it.
+			_autofocus_restore_baseline();
+		}
+		af_initialized = false;
+		af_wrote = false;
+	}
 	if (attributes.is_valid()) {
 		CameraAttributesPhysical *physical_attributes = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
 		if (physical_attributes) {
@@ -767,6 +809,75 @@ void Camera3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_DISABLED);
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_IDLE_STEP);
 	BIND_ENUM_CONSTANT(DOPPLER_TRACKING_PHYSICS_STEP);
+
+	/* Autofocus */
+
+	ClassDB::bind_method(D_METHOD("set_autofocus_mode", "mode"), &Camera3D::set_autofocus_mode);
+	ClassDB::bind_method(D_METHOD("get_autofocus_mode"), &Camera3D::get_autofocus_mode);
+	ClassDB::bind_method(D_METHOD("set_autofocus_target", "target"), &Camera3D::set_autofocus_target);
+	ClassDB::bind_method(D_METHOD("get_autofocus_target"), &Camera3D::get_autofocus_target);
+	ClassDB::bind_method(D_METHOD("set_autofocus_points", "points"), &Camera3D::set_autofocus_points);
+	ClassDB::bind_method(D_METHOD("get_autofocus_points"), &Camera3D::get_autofocus_points);
+	ClassDB::bind_method(D_METHOD("set_autofocus_collision_mask", "mask"), &Camera3D::set_autofocus_collision_mask);
+	ClassDB::bind_method(D_METHOD("get_autofocus_collision_mask"), &Camera3D::get_autofocus_collision_mask);
+	ClassDB::bind_method(D_METHOD("set_autofocus_time_constant", "seconds"), &Camera3D::set_autofocus_time_constant);
+	ClassDB::bind_method(D_METHOD("get_autofocus_time_constant"), &Camera3D::get_autofocus_time_constant);
+	ClassDB::bind_method(D_METHOD("set_autofocus_hunting", "overshoot"), &Camera3D::set_autofocus_hunting);
+	ClassDB::bind_method(D_METHOD("get_autofocus_hunting"), &Camera3D::get_autofocus_hunting);
+	ClassDB::bind_method(D_METHOD("autofocus_trigger"), &Camera3D::autofocus_trigger);
+	ClassDB::bind_method(D_METHOD("get_autofocus_distance"), &Camera3D::get_autofocus_distance);
+	ClassDB::bind_method(D_METHOD("is_autofocus_acquired"), &Camera3D::is_autofocus_acquired);
+
+	ADD_GROUP("Autofocus", "autofocus_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "autofocus_mode", PROPERTY_HINT_ENUM, "Manual,Single,Continuous"), "set_autofocus_mode", "get_autofocus_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "autofocus_target", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Node3D"), "set_autofocus_target", "get_autofocus_target");
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR2_ARRAY, "autofocus_points"), "set_autofocus_points", "get_autofocus_points");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "autofocus_collision_mask", PROPERTY_HINT_LAYERS_3D_PHYSICS), "set_autofocus_collision_mask", "get_autofocus_collision_mask");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "autofocus_time_constant", PROPERTY_HINT_RANGE, "0.001,2,0.001,or_greater,suffix:s"), "set_autofocus_time_constant", "get_autofocus_time_constant");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "autofocus_hunting", PROPERTY_HINT_RANGE, "0,0.9,0.01"), "set_autofocus_hunting", "get_autofocus_hunting");
+
+	ADD_SIGNAL(MethodInfo("focus_acquired", PropertyInfo(Variant::FLOAT, "distance")));
+	ADD_SIGNAL(MethodInfo("focus_failed"));
+
+	BIND_ENUM_CONSTANT(AUTOFOCUS_MODE_MANUAL);
+	BIND_ENUM_CONSTANT(AUTOFOCUS_MODE_SINGLE);
+	BIND_ENUM_CONSTANT(AUTOFOCUS_MODE_CONTINUOUS);
+
+	/* Handheld shake */
+
+	ClassDB::bind_method(D_METHOD("set_shake_enabled", "enabled"), &Camera3D::set_shake_enabled);
+	ClassDB::bind_method(D_METHOD("is_shake_enabled"), &Camera3D::is_shake_enabled);
+	ClassDB::bind_method(D_METHOD("set_shake_seed", "seed"), &Camera3D::set_shake_seed);
+	ClassDB::bind_method(D_METHOD("get_shake_seed"), &Camera3D::get_shake_seed);
+	ClassDB::bind_method(D_METHOD("set_shake_rotation_amplitude", "degrees"), &Camera3D::set_shake_rotation_amplitude);
+	ClassDB::bind_method(D_METHOD("get_shake_rotation_amplitude"), &Camera3D::get_shake_rotation_amplitude);
+	ClassDB::bind_method(D_METHOD("set_shake_rotation_frequency", "hz"), &Camera3D::set_shake_rotation_frequency);
+	ClassDB::bind_method(D_METHOD("get_shake_rotation_frequency"), &Camera3D::get_shake_rotation_frequency);
+	ClassDB::bind_method(D_METHOD("set_shake_position_amplitude", "meters"), &Camera3D::set_shake_position_amplitude);
+	ClassDB::bind_method(D_METHOD("get_shake_position_amplitude"), &Camera3D::get_shake_position_amplitude);
+	ClassDB::bind_method(D_METHOD("set_shake_position_frequency", "hz"), &Camera3D::set_shake_position_frequency);
+	ClassDB::bind_method(D_METHOD("get_shake_position_frequency"), &Camera3D::get_shake_position_frequency);
+	ClassDB::bind_method(D_METHOD("set_shake_breathing_amplitude", "degrees"), &Camera3D::set_shake_breathing_amplitude);
+	ClassDB::bind_method(D_METHOD("get_shake_breathing_amplitude"), &Camera3D::get_shake_breathing_amplitude);
+	ClassDB::bind_method(D_METHOD("set_shake_breathing_frequency", "hz"), &Camera3D::set_shake_breathing_frequency);
+	ClassDB::bind_method(D_METHOD("get_shake_breathing_frequency"), &Camera3D::get_shake_breathing_frequency);
+	ClassDB::bind_method(D_METHOD("set_shake_stabilization", "strength"), &Camera3D::set_shake_stabilization);
+	ClassDB::bind_method(D_METHOD("get_shake_stabilization"), &Camera3D::get_shake_stabilization);
+	ClassDB::bind_method(D_METHOD("set_shake_scale_with_focal_length", "enabled"), &Camera3D::set_shake_scale_with_focal_length);
+	ClassDB::bind_method(D_METHOD("is_shake_scale_with_focal_length"), &Camera3D::is_shake_scale_with_focal_length);
+	ClassDB::bind_method(D_METHOD("get_shake_offset"), &Camera3D::get_shake_offset);
+
+	ADD_GROUP("Handheld Shake", "shake_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shake_enabled"), "set_shake_enabled", "is_shake_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shake_seed"), "set_shake_seed", "get_shake_seed");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_rotation_amplitude", PROPERTY_HINT_RANGE, "0,5,0.001,or_greater,degrees"), "set_shake_rotation_amplitude", "get_shake_rotation_amplitude");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_rotation_frequency", PROPERTY_HINT_RANGE, "0,20,0.01,or_greater,suffix:Hz"), "set_shake_rotation_frequency", "get_shake_rotation_frequency");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_position_amplitude", PROPERTY_HINT_RANGE, "0,0.1,0.0001,or_greater,suffix:m"), "set_shake_position_amplitude", "get_shake_position_amplitude");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_position_frequency", PROPERTY_HINT_RANGE, "0,20,0.01,or_greater,suffix:Hz"), "set_shake_position_frequency", "get_shake_position_frequency");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shake_breathing_amplitude", PROPERTY_HINT_RANGE, "0,5,0.001,or_greater,degrees"), "set_shake_breathing_amplitude", "get_shake_breathing_amplitude");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shake_breathing_frequency", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater,suffix:Hz"), "set_shake_breathing_frequency", "get_shake_breathing_frequency");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shake_stabilization", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_shake_stabilization", "get_shake_stabilization");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shake_scale_with_focal_length"), "set_shake_scale_with_focal_length", "is_shake_scale_with_focal_length");
 }
 
 real_t Camera3D::get_fov() const {
@@ -927,12 +1038,573 @@ RID Camera3D::get_pyramid_shape_rid() {
 }
 #endif // PHYSICS_3D_DISABLED
 
+/* Autofocus */
+
+// The servo, the acquisition test and the Practical depth-of-field mapping all work in diopters (1 / distance in
+// meters). Two facts make that the natural space: a lens's focusing travel is close to linear in diopters (thin lens:
+// image distance v = 1 / (1/f - 1/u), so dv ~ f^2 d(1/u) for u >> f), and the depth of field around the focus distance u
+// is close to symmetric and constant in diopters, 1/near = 1/u + 1/H and 1/far = 1/u - 1/H with H the hyperfocal
+// distance (https://en.wikipedia.org/wiki/Depth_of_field#Hyperfocal_distance, valid for u >> f).
+
+static constexpr double AF_MIN_DISTANCE = 0.01; // Meters. Closer than any lens focuses; keeps 1/d finite.
+static constexpr double AF_MAX_DISTANCE = 1.0e5; // Meters. "Infinity" for a distance written to a resource.
+
+void Camera3D::_autofocus_capture_baseline() {
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	if (physical) {
+		af_base_focus_distance = physical->get_focus_distance();
+		af_written[0] = af_base_focus_distance;
+	} else if (practical) {
+		af_base_near = practical->get_dof_blur_near_distance();
+		af_base_far = practical->get_dof_blur_far_distance();
+		af_base_near_transition = practical->get_dof_blur_near_transition();
+		af_base_far_transition = practical->get_dof_blur_far_transition();
+		af_written[0] = af_base_near;
+		af_written[1] = af_base_far;
+		af_written[2] = af_base_near_transition;
+		af_written[3] = af_base_far_transition;
+	}
+}
+
+bool Camera3D::_autofocus_baseline_changed() const {
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	if (physical) {
+		return physical->get_focus_distance() != af_written[0];
+	} else if (practical) {
+		return practical->get_dof_blur_near_distance() != af_written[0] || practical->get_dof_blur_far_distance() != af_written[1] ||
+				practical->get_dof_blur_near_transition() != af_written[2] || practical->get_dof_blur_far_transition() != af_written[3];
+	}
+	return false;
+}
+
+// The baseline's in-focus band for CameraAttributesPractical, as a center and half width in diopters. Practical has no
+// focus distance; the band between the near and far blur distances stands for the depth of field of a lens focused at
+// its diopter midpoint. Returns false when neither blur is enabled (nothing to move).
+static bool _af_practical_band(const CameraAttributesPractical *p_practical, double p_near, double p_far, double &r_center, double &r_half) {
+	const bool use_near = p_practical->is_dof_blur_near_enabled();
+	const bool use_far = p_practical->is_dof_blur_far_enabled();
+	const double near_d = 1.0 / MAX((double)p_near, AF_MIN_DISTANCE);
+	const double far_d = 1.0 / MAX((double)p_far, AF_MIN_DISTANCE);
+	if (use_near && use_far) {
+		r_center = 0.5 * (near_d + far_d);
+		r_half = 0.5 * Math::abs(near_d - far_d);
+	} else if (use_near) {
+		// Far limit at infinity: the hyperfocal case, focused at twice the near limit.
+		r_center = 0.5 * near_d;
+		r_half = 0.5 * near_d;
+	} else if (use_far) {
+		// No near limit to pair with; take the focus at half the far distance (a convention, see the class docs).
+		r_center = 2.0 * far_d;
+		r_half = far_d;
+	} else {
+		return false;
+	}
+	return true;
+}
+
+void Camera3D::_autofocus_reset() {
+	af_initialized = true;
+	af_velocity = 0.0;
+	af_has_target = false;
+	af_single_running = false;
+	af_acquired = false;
+	af_wrote = false;
+
+	double distance = 10.0; // Without attributes, start where CameraAttributesPhysical's default focus distance is.
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	_autofocus_capture_baseline();
+	if (physical) {
+		distance = af_base_focus_distance;
+	} else if (practical) {
+		double center, half;
+		if (_af_practical_band(practical, af_base_near, af_base_far, center, half)) {
+			distance = 1.0 / MAX(center, 1e-5);
+		}
+	}
+	af_diopters = 1.0 / CLAMP(distance, AF_MIN_DISTANCE, AF_MAX_DISTANCE);
+	af_target_diopters = af_diopters;
+}
+
+double Camera3D::_autofocus_tolerance() const {
+	// Focus counts as acquired once the error is within a quarter of the depth of field's half width, so the subject
+	// sits well inside the sharp zone, not on its edge (a look choice; real AF systems quote accuracy as a fraction of
+	// the depth of focus). The floor keeps a deep depth of field from making acquisition meaningless.
+	double half_width = 0.02;
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	if (physical) {
+		// Same circle of confusion as CameraAttributesPhysical::_update_frustum() (36x24 mm sensor, diagonal / 1500).
+		const double coc = Math::sqrt(36.0 * 36.0 + 24.0 * 24.0) / 1500.0;
+		const double f = physical->get_focal_length();
+		const double hyperfocal_m = (f + f * f / (MAX((double)physical->get_aperture(), 0.1) * coc)) / 1000.0;
+		half_width = 1.0 / hyperfocal_m;
+	} else if (practical) {
+		double center, half;
+		if (_af_practical_band(practical, af_base_near, af_base_far, center, half)) {
+			half_width = half;
+		}
+	}
+	return MIN(MAX(0.25 * half_width, 1e-4), 0.25);
+}
+
+bool Camera3D::_autofocus_measure(double &r_diopters) const {
+	if (!is_inside_tree()) {
+		return false;
+	}
+	const Transform3D xform = get_camera_transform();
+	const Vector3 forward = -xform.basis.get_column(2).normalized();
+
+	// A tracked node: its distance along the optical axis (the plane of focus is perpendicular to it).
+	if (!autofocus_target.is_empty()) {
+		const Node3D *target = Object::cast_to<Node3D>(get_node_or_null(autofocus_target));
+		if (target) {
+			const double depth = forward.dot(target->get_global_position() - xform.origin);
+			if (depth <= 0.0) {
+				return false;
+			}
+			r_diopters = 1.0 / CLAMP(depth, AF_MIN_DISTANCE, AF_MAX_DISTANCE);
+			return true;
+		}
+	}
+
+#ifndef PHYSICS_3D_DISABLED
+	// Screen points: a ray per point, like a laser or phase-detect sensor measuring distance; the nearest hit wins
+	// (closest-subject priority of zone AF).
+	Ref<World3D> world = get_world_3d();
+	if (world.is_null() || autofocus_points.is_empty()) {
+		return false;
+	}
+	PhysicsDirectSpaceState3D *space = PhysicsServer3D::get_singleton()->space_get_direct_state(world->get_space());
+	ERR_FAIL_NULL_V(space, false);
+
+	const Projection inverse = _get_camera_projection(_near).inverse();
+	double nearest = Math::INF;
+	for (const Vector2 &point : autofocus_points) {
+		// Normalized (0..1, y down) to clip space, then unprojected to the near and far planes: correct for every
+		// projection mode, frustum offset included.
+		const Vector2 ndc(point.x * 2.0 - 1.0, 1.0 - point.y * 2.0);
+		PS3DT::RayParameters ray;
+		ray.from = xform.xform(inverse.xform(Vector3(ndc.x, ndc.y, -1.0)));
+		ray.to = xform.xform(inverse.xform(Vector3(ndc.x, ndc.y, 1.0)));
+		ray.collision_mask = autofocus_collision_mask;
+		PS3DT::RayResult hit;
+		if (space->intersect_ray(ray, hit)) {
+			const double depth = forward.dot(hit.position - xform.origin);
+			if (depth > 0.0) {
+				nearest = MIN(nearest, depth);
+			}
+		}
+	}
+	if (nearest == Math::INF) {
+		return false;
+	}
+	r_diopters = 1.0 / CLAMP(nearest, AF_MIN_DISTANCE, AF_MAX_DISTANCE);
+	return true;
+#else
+	return false;
+#endif // PHYSICS_3D_DISABLED
+}
+
+void Camera3D::_autofocus_restore_baseline() {
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	if (physical) {
+		physical->set_focus_distance(af_base_focus_distance);
+	} else if (practical) {
+		practical->set_dof_blur_near_distance(af_base_near);
+		practical->set_dof_blur_far_distance(af_base_far);
+		practical->set_dof_blur_near_transition(af_base_near_transition);
+		practical->set_dof_blur_far_transition(af_base_far_transition);
+	}
+}
+
+void Camera3D::_autofocus_apply(double p_distance) {
+	CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+	CameraAttributesPractical *practical = Object::cast_to<CameraAttributesPractical>(attributes.ptr());
+	const double distance = CLAMP(p_distance, AF_MIN_DISTANCE, AF_MAX_DISTANCE);
+	if (physical) {
+		const float value = distance;
+		if (physical->get_focus_distance() != value) {
+			physical->set_focus_distance(value);
+		}
+		af_written[0] = value;
+		af_wrote = true;
+	} else if (practical) {
+		double center, half;
+		if (!_af_practical_band(practical, af_base_near, af_base_far, center, half)) {
+			return;
+		}
+		// Move the band to the new focus keeping its width in diopters, as a real lens's depth of field does at a fixed
+		// aperture and focal length. The transitions keep their diopter widths too.
+		const double c = 1.0 / distance;
+		float near = af_base_near, far = af_base_far;
+		float near_transition = af_base_near_transition, far_transition = af_base_far_transition;
+		if (practical->is_dof_blur_far_enabled()) {
+			const double far_d = c - half;
+			far = far_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / far_d : AF_MAX_DISTANCE;
+			if (af_base_far_transition > 0.0) {
+				const double end_d = far_d - (1.0 / af_base_far - 1.0 / (af_base_far + af_base_far_transition));
+				far_transition = end_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / end_d - far : AF_MAX_DISTANCE;
+			}
+		}
+		if (practical->is_dof_blur_near_enabled()) {
+			const double near_d = c + half;
+			near = 1.0 / near_d;
+			if (af_base_near_transition > 0.0 && af_base_near_transition < af_base_near) {
+				const double width_d = 1.0 / (af_base_near - af_base_near_transition) - 1.0 / af_base_near;
+				near_transition = near - 1.0 / (near_d + width_d);
+			}
+		}
+		if (practical->get_dof_blur_near_distance() != near) {
+			practical->set_dof_blur_near_distance(near);
+		}
+		if (practical->get_dof_blur_far_distance() != far) {
+			practical->set_dof_blur_far_distance(far);
+		}
+		if (practical->get_dof_blur_near_transition() != near_transition) {
+			practical->set_dof_blur_near_transition(near_transition);
+		}
+		if (practical->get_dof_blur_far_transition() != far_transition) {
+			practical->set_dof_blur_far_transition(far_transition);
+		}
+		af_written[0] = near;
+		af_written[1] = far;
+		af_written[2] = near_transition;
+		af_written[3] = far_transition;
+		af_wrote = true;
+	}
+}
+
+void Camera3D::_autofocus_process(double p_delta) {
+	if (!af_initialized) {
+		_autofocus_reset();
+	}
+	if (af_wrote && _autofocus_baseline_changed()) {
+		// The user changed the resource while autofocus runs (inspector or script): that becomes the new manual
+		// setting, and the lens starts from it, as turning a focus ring under AF-C does.
+		_autofocus_reset();
+	}
+
+	if (autofocus_mode == AUTOFOCUS_MODE_CONTINUOUS) {
+		double measured;
+		if (_autofocus_measure(measured)) {
+			af_target_diopters = measured;
+			af_has_target = true;
+		} else {
+			if (af_has_target) {
+				emit_signal(SNAME("focus_failed"));
+			}
+			// Nothing to focus on: hold the lens where it is, as AF-C does.
+			af_has_target = false;
+			af_acquired = false;
+			af_target_diopters = af_diopters;
+			af_velocity = 0.0;
+		}
+	}
+
+	const bool driving = (autofocus_mode == AUTOFOCUS_MODE_CONTINUOUS && af_has_target) || (autofocus_mode == AUTOFOCUS_MODE_SINGLE && af_single_running);
+	if (driving && p_delta > 0.0) {
+		const double tau = MAX((double)autofocus_time_constant, 1e-4);
+		const double error = af_diopters - af_target_diopters;
+		if (autofocus_hunting <= 0.0) {
+			// First-order servo, solved exactly over the frame: frame-rate independent, error falls by 1/e every tau.
+			const double next_error = error * Math::exp(-p_delta / tau);
+			af_velocity = (next_error - error) / p_delta;
+			af_diopters = af_target_diopters + next_error;
+		} else {
+			// Underdamped second-order servo, the overshoot-and-settle of contrast-detect hunting (a look model: CDAF
+			// sweeps past the contrast peak and comes back). The damping ratio gives the requested overshoot
+			// fraction, OS = exp(-pi zeta / sqrt(1 - zeta^2)); the natural frequency keeps the envelope's time constant
+			// 1 / (zeta omega) equal to tau, so the setting means the same in both servos. Solved exactly over the frame.
+			const double log_os = Math::log(CLAMP((double)autofocus_hunting, 1e-4, 0.95));
+			const double zeta = -log_os / Math::sqrt(Math::PI * Math::PI + log_os * log_os);
+			const double sigma = 1.0 / tau;
+			const double omega_d = sigma / zeta * Math::sqrt(1.0 - zeta * zeta);
+			const double a = error;
+			const double b = (af_velocity + sigma * error) / omega_d;
+			const double decay = Math::exp(-sigma * p_delta);
+			const double c = Math::cos(omega_d * p_delta);
+			const double s = Math::sin(omega_d * p_delta);
+			af_diopters = af_target_diopters + decay * (a * c + b * s);
+			af_velocity = decay * (af_velocity * c - (sigma * b + omega_d * a) * s);
+		}
+	}
+
+	if (driving) {
+		const double tolerance = _autofocus_tolerance();
+		const double error = Math::abs(af_diopters - af_target_diopters);
+		// Settled: inside the tolerance and not about to leave it (matters for the hunting servo's overshoot).
+		const bool settled = error < tolerance && Math::abs(af_velocity) * autofocus_time_constant < tolerance;
+		if (!af_acquired && settled) {
+			// AF-S locks on the distance it measured when triggered; the lens still finishes its travel to it.
+			af_acquired = true;
+			emit_signal(SNAME("focus_acquired"), get_autofocus_distance());
+		} else if (af_acquired && error > 2.0 * tolerance) {
+			af_acquired = false; // Hysteresis, so a subject near the threshold does not re-emit every frame.
+		}
+	}
+
+	_autofocus_apply(1.0 / MAX(af_diopters, 1e-5));
+}
+
+void Camera3D::autofocus_trigger() {
+	ERR_FAIL_COND_MSG(!is_inside_tree(), "Camera is not inside the scene tree.");
+	if (autofocus_mode != AUTOFOCUS_MODE_SINGLE) {
+		return; // Continuous keeps focusing on its own; manual never does.
+	}
+	if (!af_initialized) {
+		_autofocus_reset();
+	}
+	double measured;
+	if (_autofocus_measure(measured)) {
+		af_target_diopters = measured;
+		af_has_target = true;
+		af_single_running = true;
+		af_acquired = false;
+	} else {
+		af_single_running = false;
+		af_acquired = false;
+		emit_signal(SNAME("focus_failed"));
+	}
+}
+
+real_t Camera3D::get_autofocus_distance() const {
+	if (!af_initialized) {
+		CameraAttributesPhysical *physical = Object::cast_to<CameraAttributesPhysical>(attributes.ptr());
+		return physical ? physical->get_focus_distance() : 10.0;
+	}
+	return 1.0 / MAX(af_diopters, 1.0 / AF_MAX_DISTANCE);
+}
+
+bool Camera3D::is_autofocus_acquired() const {
+	return af_acquired;
+}
+
+void Camera3D::set_autofocus_mode(AutofocusMode p_mode) {
+	ERR_FAIL_INDEX((int)p_mode, 3);
+	if (autofocus_mode == p_mode) {
+		return;
+	}
+	if (autofocus_mode == AUTOFOCUS_MODE_MANUAL) {
+		af_initialized = false; // Start from the resource's current (manual) setting.
+	}
+	// Switching to manual leaves the lens where autofocus put it, as on a camera.
+	autofocus_mode = p_mode;
+	af_single_running = false;
+	af_acquired = false;
+	_update_process_mode();
+}
+
+Camera3D::AutofocusMode Camera3D::get_autofocus_mode() const {
+	return autofocus_mode;
+}
+
+void Camera3D::set_autofocus_target(const NodePath &p_target) {
+	autofocus_target = p_target;
+}
+
+NodePath Camera3D::get_autofocus_target() const {
+	return autofocus_target;
+}
+
+void Camera3D::set_autofocus_points(const PackedVector2Array &p_points) {
+	autofocus_points = p_points;
+}
+
+PackedVector2Array Camera3D::get_autofocus_points() const {
+	return autofocus_points;
+}
+
+void Camera3D::set_autofocus_collision_mask(uint32_t p_mask) {
+	autofocus_collision_mask = p_mask;
+}
+
+uint32_t Camera3D::get_autofocus_collision_mask() const {
+	return autofocus_collision_mask;
+}
+
+void Camera3D::set_autofocus_time_constant(real_t p_seconds) {
+	autofocus_time_constant = MAX(p_seconds, (real_t)0.001);
+}
+
+real_t Camera3D::get_autofocus_time_constant() const {
+	return autofocus_time_constant;
+}
+
+void Camera3D::set_autofocus_hunting(real_t p_overshoot) {
+	autofocus_hunting = CLAMP(p_overshoot, (real_t)0.0, (real_t)0.9);
+}
+
+real_t Camera3D::get_autofocus_hunting() const {
+	return autofocus_hunting;
+}
+
+/* Handheld shake */
+
+// Each axis is a sum of sinusoids with seeded random frequencies spread log-uniformly over two octaves around the axis
+// frequency (f/2 to 2f; breathing, a narrow +-0.3 octave) and seeded random phases: band-limited noise with an exact
+// RMS (sinusoids of different frequencies are orthogonal, so RMS = sqrt(sum a_i^2 / 2)), deterministic for a seed, and
+// frame-rate independent. Phases are advanced, not computed from absolute time, so changing a frequency does not jump.
+//
+// Default amplitudes and frequencies are a look choice for a camera held in two hands while standing, within measured
+// ranges: hand and arm sway concentrate below ~5 Hz while physiological tremor (8-12 Hz) is far smaller, which is why
+// image stabilization tests use hand-shake waveforms with most energy between ~1 and ~10 Hz (CIPA DC-011); resting
+// breathing is 12-20 breaths per minute (0.2-0.33 Hz).
+
+static constexpr double SHAKE_STABILIZATION_CUTOFF = 0.5; // Hz. Gyro high-pass of the stabilizer, see _shake_process().
+static constexpr double SHAKE_REFERENCE_FOV = 26.9915; // Degrees. Vertical FOV of a 50 mm lens on 36x24 mm: 2 atan(12 / 50).
+
+void Camera3D::_shake_seed_partials() {
+	RandomPCG rng(hash_murmur3_one_32((uint32_t)shake_seed));
+	for (int axis = 0; axis < SHAKE_AXES; axis++) {
+		const double spread = axis == SHAKE_AXES - 1 ? 0.3 : 1.0; // Octaves each side of the axis frequency.
+		for (int i = 0; i < SHAKE_PARTIALS; i++) {
+			// Stratified: one partial per slice of the band, jittered within it, so a seed never leaves gaps.
+			const double u = (i + rng.randf()) / SHAKE_PARTIALS;
+			shake_multiplier[axis][i] = Math::pow(2.0, spread * (2.0 * u - 1.0));
+			shake_phase[axis][i] = rng.randf() * Math::TAU;
+		}
+	}
+}
+
+void Camera3D::_shake_process(double p_delta) {
+	const Vector3 rot_amp = shake_rotation_amplitude;
+	const double amplitude[SHAKE_AXES] = { rot_amp.x, rot_amp.y, rot_amp.z, shake_position_amplitude.x, shake_position_amplitude.y, shake_position_amplitude.z, shake_breathing_amplitude };
+	const double frequency[SHAKE_AXES] = { shake_rotation_frequency.x, shake_rotation_frequency.y, shake_rotation_frequency.z, shake_position_frequency.x, shake_position_frequency.y, shake_position_frequency.z, shake_breathing_frequency };
+	const double partial_scale = Math::sqrt(2.0 / SHAKE_PARTIALS); // Per-partial amplitude for a total RMS of 1.
+
+	double value[SHAKE_AXES];
+	for (int axis = 0; axis < SHAKE_AXES; axis++) {
+		double sum = 0.0;
+		for (int i = 0; i < SHAKE_PARTIALS; i++) {
+			const double f = frequency[axis] * shake_multiplier[axis][i];
+			shake_phase[axis][i] = Math::fmod(shake_phase[axis][i] + Math::TAU * f * p_delta, Math::TAU);
+			// Optical and sensor-shift stabilizers integrate a gyro signal that is high-pass filtered (a cutoff of a
+			// few tenths of a hertz) so they do not fight intentional pans: they cancel the stabilization strength of
+			// the motion above the cutoff and progressively less below it. First-order high-pass magnitude.
+			const double high_pass = f / Math::sqrt(f * f + SHAKE_STABILIZATION_CUTOFF * SHAKE_STABILIZATION_CUTOFF);
+			const double gain = 1.0 - shake_stabilization * high_pass;
+			sum += gain * Math::sin(shake_phase[axis][i]);
+		}
+		value[axis] = sum * partial_scale * amplitude[axis];
+	}
+
+	double rotation_scale = 1.0;
+	if (!shake_scale_with_focal_length && mode == PROJECTION_PERSPECTIVE) {
+		// The hand's angular motion does not depend on the lens, so in degrees a long lens shows more shake in the
+		// frame by itself (physically right, the default). Off: the amplitudes are as seen through a 50 mm full-frame
+		// lens and scale with the field of view, so the shake keeps its size on screen while zooming.
+		rotation_scale = fov / SHAKE_REFERENCE_FOV;
+	}
+	const Vector3 euler = Vector3(value[0] + value[6], value[1], value[2]) * Math::deg_to_rad(rotation_scale);
+	shake_offset = Transform3D(Basis::from_euler(euler), Vector3(value[3], value[4], value[5]));
+
+	if (is_inside_tree()) {
+		RenderingServer::get_singleton()->camera_set_transform(camera, get_camera_transform());
+	}
+}
+
+void Camera3D::set_shake_enabled(bool p_enabled) {
+	if (shake_enabled == p_enabled) {
+		return;
+	}
+	shake_enabled = p_enabled;
+	shake_offset = Transform3D();
+	_update_process_mode();
+	_update_camera();
+}
+
+bool Camera3D::is_shake_enabled() const {
+	return shake_enabled;
+}
+
+void Camera3D::set_shake_seed(int p_seed) {
+	shake_seed = p_seed;
+	_shake_seed_partials();
+}
+
+int Camera3D::get_shake_seed() const {
+	return shake_seed;
+}
+
+void Camera3D::set_shake_rotation_amplitude(const Vector3 &p_degrees) {
+	shake_rotation_amplitude = p_degrees;
+}
+
+Vector3 Camera3D::get_shake_rotation_amplitude() const {
+	return shake_rotation_amplitude;
+}
+
+void Camera3D::set_shake_rotation_frequency(const Vector3 &p_hz) {
+	shake_rotation_frequency = p_hz;
+}
+
+Vector3 Camera3D::get_shake_rotation_frequency() const {
+	return shake_rotation_frequency;
+}
+
+void Camera3D::set_shake_position_amplitude(const Vector3 &p_meters) {
+	shake_position_amplitude = p_meters;
+}
+
+Vector3 Camera3D::get_shake_position_amplitude() const {
+	return shake_position_amplitude;
+}
+
+void Camera3D::set_shake_position_frequency(const Vector3 &p_hz) {
+	shake_position_frequency = p_hz;
+}
+
+Vector3 Camera3D::get_shake_position_frequency() const {
+	return shake_position_frequency;
+}
+
+void Camera3D::set_shake_breathing_amplitude(real_t p_degrees) {
+	shake_breathing_amplitude = p_degrees;
+}
+
+real_t Camera3D::get_shake_breathing_amplitude() const {
+	return shake_breathing_amplitude;
+}
+
+void Camera3D::set_shake_breathing_frequency(real_t p_hz) {
+	shake_breathing_frequency = p_hz;
+}
+
+real_t Camera3D::get_shake_breathing_frequency() const {
+	return shake_breathing_frequency;
+}
+
+void Camera3D::set_shake_stabilization(real_t p_strength) {
+	shake_stabilization = CLAMP(p_strength, (real_t)0.0, (real_t)1.0);
+}
+
+real_t Camera3D::get_shake_stabilization() const {
+	return shake_stabilization;
+}
+
+void Camera3D::set_shake_scale_with_focal_length(bool p_enabled) {
+	shake_scale_with_focal_length = p_enabled;
+}
+
+bool Camera3D::is_shake_scale_with_focal_length() const {
+	return shake_scale_with_focal_length;
+}
+
+Transform3D Camera3D::get_shake_offset() const {
+	return shake_enabled ? shake_offset : Transform3D();
+}
+
 Camera3D::Camera3D() {
 	camera = RenderingServer::get_singleton()->camera_create();
 	set_perspective(75.0, 0.05, 4000.0);
 	RenderingServer::get_singleton()->camera_set_cull_mask(camera, layers);
 	//active=false;
 	velocity_tracker.instantiate();
+	_shake_seed_partials();
 	set_notify_transform(true);
 	set_disable_scale(true);
 }

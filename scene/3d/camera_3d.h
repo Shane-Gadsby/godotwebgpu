@@ -58,6 +58,12 @@ public:
 		DOPPLER_TRACKING_PHYSICS_STEP
 	};
 
+	enum AutofocusMode {
+		AUTOFOCUS_MODE_MANUAL,
+		AUTOFOCUS_MODE_SINGLE,
+		AUTOFOCUS_MODE_CONTINUOUS,
+	};
+
 private:
 	bool force_change = false;
 	bool current = false;
@@ -105,6 +111,64 @@ private:
 	bool _desired_physics_process_internal = false;
 
 	void _update_process_mode();
+
+	/* Autofocus */
+
+	AutofocusMode autofocus_mode = AUTOFOCUS_MODE_MANUAL;
+	NodePath autofocus_target;
+	PackedVector2Array autofocus_points = { Vector2(0.5, 0.5) };
+	uint32_t autofocus_collision_mask = 1;
+	real_t autofocus_time_constant = 0.1; // Seconds.
+	real_t autofocus_hunting = 0.0; // Overshoot fraction.
+
+	// Lens state, in diopters (1 / meters): a focus motor's travel is close to linear in diopters, and depth of field
+	// is close to constant in diopters, so the servo and the acquisition tolerance both live in that space.
+	double af_diopters = 0.0;
+	double af_velocity = 0.0; // Diopters per second, for the underdamped (hunting) servo.
+	double af_target_diopters = 0.0;
+	bool af_initialized = false;
+	bool af_has_target = false;
+	bool af_single_running = false;
+	bool af_acquired = false;
+
+	// What the attributes resource held before autofocus wrote to it (restored around editor saves), and what was last
+	// written (a difference means the user edited the resource meanwhile, which becomes the new baseline).
+	bool af_wrote = false;
+	float af_base_focus_distance = 10.0; // CameraAttributesPhysical.
+	float af_base_near = 2.0, af_base_far = 10.0, af_base_near_transition = 1.0, af_base_far_transition = 5.0; // Practical.
+	float af_written[4] = {};
+
+	void _autofocus_reset();
+	void _autofocus_capture_baseline();
+	bool _autofocus_baseline_changed() const;
+	bool _autofocus_measure(double &r_diopters) const;
+	void _autofocus_apply(double p_distance);
+	void _autofocus_restore_baseline();
+	double _autofocus_tolerance() const;
+	void _autofocus_process(double p_delta);
+
+	/* Handheld shake */
+
+	static constexpr int SHAKE_AXES = 7; // Rotation x, y, z; position x, y, z; breathing.
+	static constexpr int SHAKE_PARTIALS = 12; // Sinusoids per axis.
+	bool shake_enabled = false;
+	int shake_seed = 0;
+	Vector3 shake_rotation_amplitude = Vector3(0.3, 0.3, 0.15); // Degrees RMS.
+	Vector3 shake_rotation_frequency = Vector3(2.0, 2.0, 1.5); // Hz.
+	Vector3 shake_position_amplitude = Vector3(0.002, 0.002, 0.001); // Meters RMS.
+	Vector3 shake_position_frequency = Vector3(1.5, 1.5, 1.5); // Hz.
+	real_t shake_breathing_amplitude = 0.15; // Degrees RMS (pitch).
+	real_t shake_breathing_frequency = 0.25; // Hz.
+	real_t shake_stabilization = 0.0;
+	bool shake_scale_with_focal_length = true;
+
+	double shake_phase[SHAKE_AXES][SHAKE_PARTIALS] = {};
+	float shake_multiplier[SHAKE_AXES][SHAKE_PARTIALS] = {};
+	Transform3D shake_offset;
+
+	void _shake_seed_partials();
+	void _shake_process(double p_delta);
+	void _lens_process_changed();
 
 protected:
 	// Use from derived classes to set process modes instead of setting directly.
@@ -207,6 +271,44 @@ public:
 
 	Vector3 get_doppler_tracked_velocity() const;
 
+	void set_autofocus_mode(AutofocusMode p_mode);
+	AutofocusMode get_autofocus_mode() const;
+	void set_autofocus_target(const NodePath &p_target);
+	NodePath get_autofocus_target() const;
+	void set_autofocus_points(const PackedVector2Array &p_points);
+	PackedVector2Array get_autofocus_points() const;
+	void set_autofocus_collision_mask(uint32_t p_mask);
+	uint32_t get_autofocus_collision_mask() const;
+	void set_autofocus_time_constant(real_t p_seconds);
+	real_t get_autofocus_time_constant() const;
+	void set_autofocus_hunting(real_t p_overshoot);
+	real_t get_autofocus_hunting() const;
+	void autofocus_trigger();
+	real_t get_autofocus_distance() const;
+	bool is_autofocus_acquired() const;
+
+	void set_shake_enabled(bool p_enabled);
+	bool is_shake_enabled() const;
+	void set_shake_seed(int p_seed);
+	int get_shake_seed() const;
+	void set_shake_rotation_amplitude(const Vector3 &p_degrees);
+	Vector3 get_shake_rotation_amplitude() const;
+	void set_shake_rotation_frequency(const Vector3 &p_hz);
+	Vector3 get_shake_rotation_frequency() const;
+	void set_shake_position_amplitude(const Vector3 &p_meters);
+	Vector3 get_shake_position_amplitude() const;
+	void set_shake_position_frequency(const Vector3 &p_hz);
+	Vector3 get_shake_position_frequency() const;
+	void set_shake_breathing_amplitude(real_t p_degrees);
+	real_t get_shake_breathing_amplitude() const;
+	void set_shake_breathing_frequency(real_t p_hz);
+	real_t get_shake_breathing_frequency() const;
+	void set_shake_stabilization(real_t p_strength);
+	real_t get_shake_stabilization() const;
+	void set_shake_scale_with_focal_length(bool p_enabled);
+	bool is_shake_scale_with_focal_length() const;
+	Transform3D get_shake_offset() const;
+
 #ifndef PHYSICS_3D_DISABLED
 	RID get_pyramid_shape_rid();
 #endif // PHYSICS_3D_DISABLED
@@ -218,3 +320,4 @@ public:
 VARIANT_ENUM_CAST(Camera3D::ProjectionType);
 VARIANT_ENUM_CAST(Camera3D::KeepAspect);
 VARIANT_ENUM_CAST(Camera3D::DopplerTracking);
+VARIANT_ENUM_CAST(Camera3D::AutofocusMode);
