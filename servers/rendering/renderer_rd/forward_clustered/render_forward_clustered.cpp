@@ -1957,6 +1957,9 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	bool using_upscaling = scale_type != SCALE_NONE;
 
+	// Camera motion blur and rolling shutter read the velocity buffer (RendererSceneRenderRD's post-process).
+	bool using_shutter_motion = rb_data.is_valid() && RSG::camera_attributes->camera_attributes_uses_shutter_motion(p_render_data->camera_attributes);
+
 	// check if we need motion vectors
 	bool motion_vectors_required;
 	if (using_debug_mvs) {
@@ -1966,6 +1969,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	} else if (!is_reflection_probe && using_taa) {
 		motion_vectors_required = true;
 	} else if (!is_reflection_probe && using_upscaling) {
+		motion_vectors_required = true;
+	} else if (!is_reflection_probe && using_shutter_motion) {
 		motion_vectors_required = true;
 	} else {
 		motion_vectors_required = false;
@@ -2606,7 +2611,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	RD::get_singleton()->draw_command_begin_label("Resolve");
 
 	if (rb_data.is_valid() && use_msaa) {
-		bool resolve_velocity_buffer = (using_taa || using_upscaling || ce_needs_motion_vectors) && rb->has_velocity_buffer(true);
+		bool resolve_velocity_buffer = (using_taa || using_upscaling || ce_needs_motion_vectors || using_shutter_motion) && rb->has_velocity_buffer(true);
 		for (uint32_t v = 0; v < rb->get_view_count(); v++) {
 			RD::get_singleton()->texture_resolve_multisample(rb->get_color_msaa(v), rb->get_internal_texture(v));
 			resolve_effects->resolve_depth(rb->get_depth_msaa(v), rb->get_depth_texture(v), rb->get_internal_size(), texture_multisamples[msaa]);

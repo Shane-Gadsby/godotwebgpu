@@ -530,6 +530,16 @@ M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.w
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl 0,34,139,145,164,214,223,233,237,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl --keep-rw 0,34,139,145,164,214,223,233,237,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl 0,139,145,169,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl --keep-rw 0,139,145,169,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl 0,2,139,146,164,214,228,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl --keep-rw 0,2,139,146,164,214,228,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl 0,139,145,164,214,228,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl --keep-rw 0,139,145,164,214,228,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl 0,139,145,169,423
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl --keep-rw 0,139,145,169,423
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl 0,34,139,145,419,423
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl --keep-rw 0,34,139,145,419,423
 M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl 0,34,139,145,418,423

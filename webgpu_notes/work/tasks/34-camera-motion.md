@@ -1,8 +1,8 @@
 # 34-camera-motion: motion blur from the shutter, rolling shutter
 
-State: open
+State: claimed
 Owner: worker-34
-Claimed:
+Claimed: 2026-10-28 08:21
 Needs: build, gpu
 Branch: work/34
 Results: webgpu_notes/work/results/34-camera-motion/

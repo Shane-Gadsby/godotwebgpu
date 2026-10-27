@@ -76,11 +76,21 @@ private:
 		RID lut_texture;
 		RSE::CameraAttributesLUTInput lut_input = RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY;
 		float lut_strength = 1.0;
+
+		// Motion blur and rolling shutter. Off by default; the renderer skips their pass then.
+		bool motion_blur_enabled = false;
+		float motion_blur_shutter_angle = 180.0; // In degrees.
+		float motion_blur_shutter_time = 0.0; // In seconds; when positive, it is used instead of the angle.
+		float motion_blur_strength = 1.0;
+		float motion_blur_max_length = 0.05; // Fraction of the frame height.
+		bool rolling_shutter_enabled = false;
+		float rolling_shutter_readout_time = 20.0; // In milliseconds.
 	};
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
 	RSE::DOFBokehShape dof_blur_bokeh_shape = RSE::DOF_BOKEH_HEXAGON;
 	bool dof_blur_use_jitter = false;
+	RSE::CameraAttributesMotionBlurQuality motion_blur_quality = RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM;
 	static uint64_t auto_exposure_counter;
 
 	mutable RID_Owner<CameraAttributes, true> camera_attributes_owner;
@@ -158,6 +168,29 @@ public:
 
 	_FORCE_INLINE_ bool camera_attributes_uses_lut(RID p_camera_attributes) {
 		return camera_attributes_get_lut_packed(p_camera_attributes) != 0;
+	}
+
+	/* Motion blur and rolling shutter */
+
+	// What a frame's shutter does with the motion recorded in the velocity buffer (see the .cpp for the model). All
+	// three are multiples of one frame's motion, so the renderer only scales the velocity it reads.
+	struct ShutterMotion {
+		float blur_scale = 0.0; // Blur length per unit of a frame's motion: exposure time / frame time * strength.
+		float max_length = 0.0; // Longest blur, as a fraction of the frame height.
+		float rolling_shutter = 0.0; // Readout time from the top row to the bottom one, in frames.
+	};
+
+	void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality);
+	void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length);
+	void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time);
+	ShutterMotion camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time);
+	// Samples along the blur per pixel, from ProjectSettings rendering/camera/motion_blur/motion_blur_quality.
+	uint32_t camera_attributes_get_motion_blur_sample_count() const;
+
+	_FORCE_INLINE_ bool camera_attributes_uses_shutter_motion(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+
+		return cam_attributes && ((cam_attributes->motion_blur_enabled && cam_attributes->motion_blur_strength > 0.0f && cam_attributes->motion_blur_max_length > 0.0f) || (cam_attributes->rolling_shutter_enabled && cam_attributes->rolling_shutter_readout_time > 0.0f));
 	}
 
 	_FORCE_INLINE_ bool camera_attributes_uses_grain(RID p_camera_attributes) {

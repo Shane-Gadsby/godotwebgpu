@@ -211,6 +211,76 @@ void CameraAttributes::_update_lut() {
 	RS::get_singleton()->camera_attributes_set_lut(camera_attributes, lut_enabled, lut_texture.is_valid() ? lut_texture->get_rid() : RID(), RSE::CameraAttributesLUTInput(lut_input), lut_strength);
 }
 
+void CameraAttributes::set_motion_blur_enabled(bool p_enabled) {
+	motion_blur_enabled = p_enabled;
+	_update_motion_blur();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_motion_blur_enabled() const {
+	return motion_blur_enabled;
+}
+
+void CameraAttributes::set_motion_blur_shutter_angle(float p_angle) {
+	motion_blur_shutter_angle = p_angle;
+	_update_motion_blur();
+	emit_changed();
+}
+
+float CameraAttributes::get_motion_blur_shutter_angle() const {
+	return motion_blur_shutter_angle;
+}
+
+void CameraAttributes::set_motion_blur_strength(float p_strength) {
+	motion_blur_strength = p_strength;
+	_update_motion_blur();
+	emit_changed();
+}
+
+float CameraAttributes::get_motion_blur_strength() const {
+	return motion_blur_strength;
+}
+
+void CameraAttributes::set_motion_blur_max_length(float p_length) {
+	motion_blur_max_length = p_length;
+	_update_motion_blur();
+	emit_changed();
+}
+
+float CameraAttributes::get_motion_blur_max_length() const {
+	return motion_blur_max_length;
+}
+
+void CameraAttributes::_update_motion_blur() {
+	RS::get_singleton()->camera_attributes_set_motion_blur(camera_attributes, motion_blur_enabled, motion_blur_shutter_angle, _get_motion_blur_shutter_time(), motion_blur_strength, motion_blur_max_length);
+}
+
+void CameraAttributes::set_rolling_shutter_enabled(bool p_enabled) {
+	rolling_shutter_enabled = p_enabled;
+	_update_rolling_shutter();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_rolling_shutter_enabled() const {
+	return rolling_shutter_enabled;
+}
+
+void CameraAttributes::set_rolling_shutter_readout_time(float p_time) {
+	rolling_shutter_readout_time = p_time;
+	_update_rolling_shutter();
+	emit_changed();
+}
+
+float CameraAttributes::get_rolling_shutter_readout_time() const {
+	return rolling_shutter_readout_time;
+}
+
+void CameraAttributes::_update_rolling_shutter() {
+	RS::get_singleton()->camera_attributes_set_rolling_shutter(camera_attributes, rolling_shutter_enabled, rolling_shutter_readout_time);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -236,6 +306,16 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	}
 
 	if (p_property.name.begins_with("lut_") && p_property.name != "lut_enabled" && !lut_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("motion_blur_") && p_property.name != "motion_blur_enabled" && !motion_blur_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("rolling_shutter_") && p_property.name != "rolling_shutter_enabled" && !rolling_shutter_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -277,6 +357,20 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_lut_strength", "strength"), &CameraAttributes::set_lut_strength);
 	ClassDB::bind_method(D_METHOD("get_lut_strength"), &CameraAttributes::get_lut_strength);
 
+	ClassDB::bind_method(D_METHOD("set_motion_blur_enabled", "enabled"), &CameraAttributes::set_motion_blur_enabled);
+	ClassDB::bind_method(D_METHOD("is_motion_blur_enabled"), &CameraAttributes::is_motion_blur_enabled);
+	ClassDB::bind_method(D_METHOD("set_motion_blur_shutter_angle", "angle"), &CameraAttributes::set_motion_blur_shutter_angle);
+	ClassDB::bind_method(D_METHOD("get_motion_blur_shutter_angle"), &CameraAttributes::get_motion_blur_shutter_angle);
+	ClassDB::bind_method(D_METHOD("set_motion_blur_strength", "strength"), &CameraAttributes::set_motion_blur_strength);
+	ClassDB::bind_method(D_METHOD("get_motion_blur_strength"), &CameraAttributes::get_motion_blur_strength);
+	ClassDB::bind_method(D_METHOD("set_motion_blur_max_length", "length"), &CameraAttributes::set_motion_blur_max_length);
+	ClassDB::bind_method(D_METHOD("get_motion_blur_max_length"), &CameraAttributes::get_motion_blur_max_length);
+
+	ClassDB::bind_method(D_METHOD("set_rolling_shutter_enabled", "enabled"), &CameraAttributes::set_rolling_shutter_enabled);
+	ClassDB::bind_method(D_METHOD("is_rolling_shutter_enabled"), &CameraAttributes::is_rolling_shutter_enabled);
+	ClassDB::bind_method(D_METHOD("set_rolling_shutter_readout_time", "time"), &CameraAttributes::set_rolling_shutter_readout_time);
+	ClassDB::bind_method(D_METHOD("get_rolling_shutter_readout_time"), &CameraAttributes::get_rolling_shutter_readout_time);
+
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_multiplier", PROPERTY_HINT_RANGE, "0.0,8.0,0.001,or_greater"), "set_exposure_multiplier", "get_exposure_multiplier");
@@ -301,6 +395,16 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "lut_texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture3D"), "set_lut_texture", "get_lut_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "lut_input", PROPERTY_HINT_ENUM, "Display (sRGB),ARRI LogC3 (AWG3),Sony S-Log3 (S-Gamut3.Cine),Panasonic V-Log (V-Gamut),Canon Log 3 (Cinema Gamut),RED Log3G10 (REDWideGamutRGB),ACEScct (AP1)"), "set_lut_input", "get_lut_input");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lut_strength", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_lut_strength", "get_lut_strength");
+
+	ADD_GROUP("Motion Blur", "motion_blur_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_motion_blur_enabled", "is_motion_blur_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_shutter_angle", PROPERTY_HINT_RANGE, "1,360,0.1,degrees"), "set_motion_blur_shutter_angle", "get_motion_blur_shutter_angle");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_motion_blur_strength", "get_motion_blur_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_max_length", PROPERTY_HINT_RANGE, "0.001,0.25,0.001,or_greater"), "set_motion_blur_max_length", "get_motion_blur_max_length");
+
+	ADD_GROUP("Rolling Shutter", "rolling_shutter_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rolling_shutter_enabled", "is_rolling_shutter_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rolling_shutter_readout_time", PROPERTY_HINT_RANGE, "0,50,0.1,or_greater,suffix:ms"), "set_rolling_shutter_readout_time", "get_rolling_shutter_readout_time");
 
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);
@@ -513,10 +617,26 @@ float CameraAttributesPhysical::get_aperture() const {
 void CameraAttributesPhysical::set_shutter_speed(float p_shutter_speed) {
 	exposure_shutter_speed = p_shutter_speed;
 	_update_exposure();
+	_update_motion_blur(); // The exposure time sets the length of the blur.
 }
 
 float CameraAttributesPhysical::get_shutter_speed() const {
 	return exposure_shutter_speed;
+}
+
+void CameraAttributesPhysical::set_motion_blur_use_shutter_speed(bool p_enable) {
+	motion_blur_use_shutter_speed = p_enable;
+	_update_motion_blur();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributesPhysical::is_motion_blur_using_shutter_speed() const {
+	return motion_blur_use_shutter_speed;
+}
+
+float CameraAttributesPhysical::_get_motion_blur_shutter_time() const {
+	return motion_blur_use_shutter_speed && exposure_shutter_speed > 0.0f ? 1.0f / exposure_shutter_speed : 0.0f;
 }
 
 void CameraAttributesPhysical::set_focal_length(float p_focal_length) {
@@ -639,7 +759,12 @@ void CameraAttributesPhysical::_validate_property(PropertyInfo &property) const 
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
-	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (property.name == "exposure_aperture" || property.name == "exposure_shutter_speed")) {
+	// The shutter speed sets the motion blur's exposure time too, so it shows whenever that uses it.
+	const bool shutter_speed_blurs = motion_blur_enabled && motion_blur_use_shutter_speed;
+	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (property.name == "exposure_aperture" || (property.name == "exposure_shutter_speed" && !shutter_speed_blurs))) {
+		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+	}
+	if (property.name == "motion_blur_shutter_angle" && motion_blur_use_shutter_speed) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
 }
@@ -649,6 +774,8 @@ void CameraAttributesPhysical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_aperture"), &CameraAttributesPhysical::get_aperture);
 	ClassDB::bind_method(D_METHOD("set_shutter_speed", "shutter_speed"), &CameraAttributesPhysical::set_shutter_speed);
 	ClassDB::bind_method(D_METHOD("get_shutter_speed"), &CameraAttributesPhysical::get_shutter_speed);
+	ClassDB::bind_method(D_METHOD("set_motion_blur_use_shutter_speed", "enable"), &CameraAttributesPhysical::set_motion_blur_use_shutter_speed);
+	ClassDB::bind_method(D_METHOD("is_motion_blur_using_shutter_speed"), &CameraAttributesPhysical::is_motion_blur_using_shutter_speed);
 
 	ClassDB::bind_method(D_METHOD("set_focal_length", "focal_length"), &CameraAttributesPhysical::set_focal_length);
 	ClassDB::bind_method(D_METHOD("get_focal_length"), &CameraAttributesPhysical::get_focal_length);
@@ -678,11 +805,15 @@ void CameraAttributesPhysical::_bind_methods() {
 	ADD_GROUP("Auto Exposure", "auto_exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_min_exposure_value", PROPERTY_HINT_RANGE, "-16.0,16.0,0.01,or_greater,suffix:EV100"), "set_auto_exposure_min_exposure_value", "get_auto_exposure_min_exposure_value");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_max_exposure_value", PROPERTY_HINT_RANGE, "-16.0,16.0,0.01,or_greater,suffix:EV100"), "set_auto_exposure_max_exposure_value", "get_auto_exposure_max_exposure_value");
+
+	ADD_GROUP("Motion Blur", "motion_blur_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_use_shutter_speed"), "set_motion_blur_use_shutter_speed", "is_motion_blur_using_shutter_speed");
 }
 
 CameraAttributesPhysical::CameraAttributesPhysical() {
 	_update_exposure();
 	_update_frustum();
+	_update_motion_blur(); // The base constructor cannot reach _get_motion_blur_shutter_time()'s override.
 	set_auto_exposure_min_exposure_value(-8);
 	set_auto_exposure_max_exposure_value(10); // Use a wide range by default to feel more like a real camera.
 	notify_property_list_changed();

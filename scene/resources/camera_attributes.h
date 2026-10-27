@@ -89,6 +89,17 @@ protected:
 	float lut_strength = 1.0;
 	void _update_lut();
 
+	bool motion_blur_enabled = false;
+	float motion_blur_shutter_angle = 180.0; // In degrees.
+	float motion_blur_strength = 1.0;
+	float motion_blur_max_length = 0.05; // Fraction of the frame height.
+	bool rolling_shutter_enabled = false;
+	float rolling_shutter_readout_time = 20.0; // In milliseconds.
+	void _update_motion_blur();
+	void _update_rolling_shutter();
+	// The exposure time motion blur uses, in seconds, or 0 to use the shutter angle.
+	virtual float _get_motion_blur_shutter_time() const { return 0.0; }
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -127,6 +138,20 @@ public:
 	LUTInput get_lut_input() const;
 	void set_lut_strength(float p_strength);
 	float get_lut_strength() const;
+
+	void set_motion_blur_enabled(bool p_enabled);
+	bool is_motion_blur_enabled() const;
+	void set_motion_blur_shutter_angle(float p_angle);
+	float get_motion_blur_shutter_angle() const;
+	void set_motion_blur_strength(float p_strength);
+	float get_motion_blur_strength() const;
+	void set_motion_blur_max_length(float p_length);
+	float get_motion_blur_max_length() const;
+
+	void set_rolling_shutter_enabled(bool p_enabled);
+	bool is_rolling_shutter_enabled() const;
+	void set_rolling_shutter_readout_time(float p_time);
+	float get_rolling_shutter_readout_time() const;
 
 	CameraAttributes();
 	~CameraAttributes();
@@ -191,6 +216,9 @@ private:
 	float exposure_aperture = 16.0; // In f-stops;
 	float exposure_shutter_speed = 100.0; // In 1 / seconds;
 
+	bool motion_blur_use_shutter_speed = true;
+	virtual float _get_motion_blur_shutter_time() const override;
+
 	// Camera properties.
 	float frustum_focal_length = 35.0; // In millimeters.
 	float frustum_focus_distance = 10.0; // In Meters.
@@ -211,6 +239,9 @@ public:
 
 	void set_shutter_speed(float p_shutter_speed);
 	float get_shutter_speed() const;
+
+	void set_motion_blur_use_shutter_speed(bool p_enable);
+	bool is_motion_blur_using_shutter_speed() const;
 
 	void set_focal_length(float p_focal_length);
 	float get_focal_length() const;

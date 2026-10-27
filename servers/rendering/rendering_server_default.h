@@ -932,6 +932,9 @@ public:
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)
 	FUNC6(camera_attributes_set_grain, RID, bool, RSE::CameraAttributesGrainType, float, float, float)
 	FUNC5(camera_attributes_set_lut, RID, bool, RID, RSE::CameraAttributesLUTInput, float)
+	FUNC1(camera_attributes_set_motion_blur_quality, RSE::CameraAttributesMotionBlurQuality)
+	FUNC6(camera_attributes_set_motion_blur, RID, bool, float, float, float, float)
+	FUNC3(camera_attributes_set_rolling_shutter, RID, bool, float)
 
 	/* SCENARIO API */
 

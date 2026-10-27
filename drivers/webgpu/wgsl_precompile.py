@@ -602,6 +602,16 @@ SHADER_REGISTRY = [
     ("servers/rendering/renderer_rd/shaders/effects/motion_vectors_store.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
 
+    # ── Camera Motion Blur (CameraMotionBlur, camera_motion_blur.cpp) ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_motion_blur.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("prep", "\n#define MODE_PREP\n", [COMP]),
+        ("prep_resolved_depth", "\n#define MODE_PREP_RESOLVED_DEPTH\n", [COMP]),
+        ("tile_max", "\n#define MODE_TILE_MAX\n", [COMP]),
+        ("neighbor_max", "\n#define MODE_NEIGHBOR_MAX\n", [COMP]),
+        ("gather", "\n#define MODE_GATHER\n", [COMP]),
+    ]),
+
     # ── Shadow Frustum ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/shadow_frustum.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
