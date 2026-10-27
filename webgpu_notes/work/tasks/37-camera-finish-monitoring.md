@@ -1,6 +1,6 @@
 # 37-camera-finish-monitoring: in-camera noise reduction and sharpening; monitoring overlays on Camera3D
 
-State: claimed
+State: ready-for-integration
 Owner: worker-37
 Claimed: 2026-10-28 (worker-37)
 Needs: build, gpu

@@ -144,7 +144,7 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 	if (monitoring.false_color) {
 		flags |= 32;
 	}
-	const uint64_t specialization = linear_input ? CameraFinishShaderGLES3::LINEAR_INPUT : 0;
+	const uint64_t specialization = linear_input ? uint64_t(CameraFinishShaderGLES3::LINEAR_INPUT) : uint64_t(0);
 
 	int current = 0;
 	for (uint32_t i = 0; i < passes.size(); i++) {
