@@ -1,6 +1,6 @@
 # 34-camera-motion: motion blur from the shutter, rolling shutter
 
-State: claimed
+State: ready-for-integration
 Owner: worker-34
 Claimed: 2026-10-28 08:21
 Needs: build, gpu
