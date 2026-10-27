@@ -1,8 +1,8 @@
 # 33-camera-lens-optics: sensor format, vignetting, distortion, chromatic aberration, anamorphic, ND/T-stops, diffraction, breathing; the CameraEffects UBO
 
-State: open
+State: claimed
 Owner: worker-33
-Claimed:
+Claimed: 2026-10-28 08:19
 Needs: build, gpu
 Branch: work/33
 Results: webgpu_notes/work/results/33-camera-lens-optics/
