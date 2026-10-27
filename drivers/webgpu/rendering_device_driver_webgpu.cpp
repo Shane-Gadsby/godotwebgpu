@@ -56,6 +56,13 @@
 #include <utility>
 #include <vector>
 
+extern "C" {
+// platform/web/js/libs/library_godot_webgpu.js
+extern void godot_webgpu_shader_stats_publish(uint32_t p_baked, uint32_t p_precompiled, uint32_t p_cached, uint32_t p_translated, uint32_t p_specialized, char *p_names,
+		double p_container_create_ms, uint32_t p_container_create_calls, double p_container_stage_loop_ms,
+		double p_containers, double p_spirv_bytes, double p_wgsl_bytes, double p_footer_parse_ms);
+}
+
 // Define WEBGPU_VERBOSE to enable diagnostic console.log prints in the browser.
 // These are disabled by default for production builds.
 // #define WEBGPU_VERBOSE
@@ -213,39 +220,16 @@ static void _publish_shader_stats() {
 	// two payloads every container carries they came from (see
 	// RenderingShaderContainerWebGPU::LoadStats). Counted on the container side,
 	// so it covers containers this driver never got as far as creating a module
-	// for. Passed as doubles because EM_ASM has no 64-bit integer argument type
-	// and these run to tens of millions -- exact to 2^53, which is far past any
+	// for. Passed as doubles because a JS library function gets no 64-bit integer
+	// argument without BigInt, and these run to tens of millions -- exact to 2^53, which is far past any
 	// plausible total.
 	const RenderingShaderContainerWebGPU::LoadStats &load_stats = RenderingShaderContainerWebGPU::get_load_stats();
 
-	// Built field by field rather than as one object literal: EM_ASM stringifies
-	// its first macro argument, so a comma anywhere at the top level of the body
-	// is a macro argument separator and the rest gets compiled as C++ instead.
-	// String.fromCharCode(10) rather than a '\n' literal for the same reason the
-	// body avoids commas: it keeps the stringified body free of escapes whose
-	// survival through the preprocessor would have to be reasoned about.
 	// On the main thread even when rendering runs on its own thread: pages and test harnesses read
 	// these from the page's globalThis, not a worker's (TASKS.md 2.5). Asynchronous, so the names go
 	// over as a heap copy the main thread frees; without threads this runs inline.
 	char *names_copy = strdup(joined_utf8.get_data());
-	MAIN_THREAD_ASYNC_EM_ASM({
-		var stats = {};
-		stats.baked = $0;
-		stats.precompiled = $1;
-		stats.cached = $2;
-		stats.translated = $3;
-		stats.specialized = $4;
-		var names = UTF8ToString($5);
-		_free($5);
-		stats.translatedShaders = names.length ? names.split(String.fromCharCode(10)) : [];
-		stats.containerCreateMs = $6;
-		stats.containerCreateCalls = $7;
-		stats.containerStageLoopMs = $8;
-		stats.containersParsed = $9;
-		stats.spirvBytes = $10;
-		stats.wgslBytes = $11;
-		stats.footerParseMs = $12;
-		globalThis.godotWebGPUShaderStats = stats; }, _wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, names_copy, _container_create_ms, _container_create_calls, _container_stage_loop_ms, (double)load_stats.containers, (double)load_stats.spirv_bytes, (double)load_stats.wgsl_bytes, load_stats.footer_parse_ms);
+	godot_webgpu_shader_stats_publish(_wgsl_baked_container_hits, _spv_to_wgsl_precompiled_hits, _spv_to_wgsl_cache_hits, _spv_to_wgsl_cache_misses, _spv_to_wgsl_spec_reconvert_hits, names_copy, _container_create_ms, _container_create_calls, _container_stage_loop_ms, (double)load_stats.containers, (double)load_stats.spirv_bytes, (double)load_stats.wgsl_bytes, load_stats.footer_parse_ms);
 }
 
 // What happened to the compute pipelines compute_pipeline_create() deferred,

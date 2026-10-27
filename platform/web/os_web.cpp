@@ -125,14 +125,7 @@ void OS_Web::benchmark_end_measure(const String &p_context, const String &p_what
 	if (!is_use_benchmark_set()) {
 		return;
 	}
-	EM_ASM({
-		var marks = window.godotStartupMarks;
-		if (!marks) {
-			marks = [];
-			window.godotStartupMarks = marks;
-		}
-		var endMs = performance.now();
-		marks.push({ name: UTF8ToString($0), durationMs : $1, endMs : endMs, startMs : endMs - $1 }); }, key_utf8.get_data(), duration_ms);
+	godot_js_os_startup_mark(key_utf8.get_data(), duration_ms);
 }
 
 // Lifecycle

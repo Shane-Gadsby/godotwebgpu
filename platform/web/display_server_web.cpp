@@ -1294,6 +1294,15 @@ Error DisplayServerWeb::_create_webgpu_rendering_device(const Size2i &p_size, Di
 }
 
 #ifdef THREADS_ENABLED
+extern "C" {
+// platform/web/js/libs/library_godot_webgpu.js. JavaScript that names Emscripten's own functions
+// lives there, not in EM_ASM: a closure-compiled dlink template cannot see them from one (TASKS.md
+// §3 trap 74).
+extern char *godot_webgpu_render_thread_prestart();
+extern void godot_webgpu_render_thread_request_device(const char *p_desc, void (*p_ready)());
+extern void godot_webgpu_render_thread_yield(void (*p_wake)(void *));
+}
+
 // The web render thread (TASKS.md 2.5). RenderingServerDefault::init() calls
 // _render_thread_start() instead of starting its WorkerThreadPool pump, because that pump blocks
 // forever and a web worker that never returns to its event loop never presents its canvas, never
@@ -1320,21 +1329,9 @@ char render_thread_canvas[256];
 
 void DisplayServerWeb::render_thread_prestart() {
 	// The features and limits engine.js chose for the main thread's device, so the render thread's
-	// matches it.
-	char *desc = (char *)EM_ASM_PTR({
-		const d = Module['preinitializedWebGPUDevice'];
-		const limits = {};
-		if (d) {
-			for (const k in d.limits) {
-				limits[k] = d.limits[k];
-			}
-		}
-		const json = JSON.stringify({ features : d ? Array.from(d.features) : [], limits : limits });
-		return stringToNewUTF8(json);
-	});
-	// Emscripten resolves "#canvas" through Module['canvas'], which Godot's module never sets;
-	// point it at the canvas the JS shell configured so either selector form finds it.
-	EM_ASM({ Module['canvas'] = GodotConfig.canvas; });
+	// matches it. Also points Module['canvas'], through which Emscripten resolves "#canvas" and which
+	// Godot's module never sets, at the canvas the JS shell configured, so either selector form finds it.
+	char *desc = godot_webgpu_render_thread_prestart();
 	godot_js_config_canvas_id_get(render_thread_canvas, sizeof(render_thread_canvas));
 
 	pthread_attr_t attr;
@@ -1406,38 +1403,7 @@ void DisplayServerWeb::_render_thread_start(RenderingServerDefault *p_server) {
 void *DisplayServerWeb::_render_thread_main(void *p_userdata) {
 	// Ask for a device with the features and limits of the one engine.js created on the main thread,
 	// then continue in _render_thread_device_ready() on this thread once it exists.
-	EM_ASM({
-		const desc = JSON.parse(UTF8ToString($0));
-		const ready = wasmTable.get($1);
-		(async () => {
-			const adapter = await navigator.gpu.requestAdapter({ powerPreference : 'high-performance' });
-			const features = desc.features.filter((f) => adapter.features.has(f));
-			const limits = {};
-			for (const k in desc.limits) {
-				if (adapter.limits[k] !== undefined) {
-					limits[k] = desc.limits[k];
-				}
-			}
-			const device = await adapter.requestDevice({ requiredFeatures : features, requiredLimits : limits });
-			device.lost.then((info) => {
-				if (info.reason === 'destroyed') {
-					return; // Our own device.destroy() at shutdown (_render_thread_shutdown).
-				}
-				console.error(`[Godot] WebGPU device lost on the render thread (reason: ${info.reason}): ${info.message}`);
-				globalThis['GODOT_WEBGPU_DEVICE_LOST'] = true;
-			});
-			device.addEventListener('uncapturederror', (event) => {
-				const err = event.error;
-				const kind = (err && err.constructor && err.constructor.name) || 'UnknownError';
-				console.error(`[Godot] WebGPU uncaptured error: ${kind}: ${err && err.message ? err.message : String(err)}`);
-			});
-			// This worker's own Module: RenderingContextDriverWebGPU::initialize() imports it from here.
-			Module['preinitializedWebGPUDevice'] = device;
-			ready(1);
-		})().catch((e) => {
-			console.error('[Godot] WebGPU: the render thread could not create its device: ' + e);
-			ready(0);
-		}); }, p_userdata, &DisplayServerWeb::_render_thread_device_ready);
+	godot_webgpu_render_thread_request_device((const char *)p_userdata, &DisplayServerWeb::_render_thread_device_ready);
 	free(p_userdata);
 	// Keep this worker alive on its event loop; the rest happens in callbacks on this thread.
 	emscripten_exit_with_live_runtime();
@@ -1464,15 +1430,7 @@ void DisplayServerWeb::_render_thread_yield() {
 	// Returns to the event loop and comes back through _render_thread_wake() as a new task: the frame
 	// just drawn presents and WebGPU's callbacks run in between. A MessageChannel message, not a
 	// timer: Chrome clamps nested setTimeout(0) to 4 ms, which emscripten_async_call() would hit.
-	EM_ASM({
-		let port = globalThis['godotRenderThreadYield'];
-		if (!port) {
-			const channel = new MessageChannel();
-			const wake = wasmTable.get($0);
-			channel.port1.onmessage = () => wake(0);
-			port = globalThis['godotRenderThreadYield'] = channel.port2;
-		}
-		port.postMessage(0); }, &DisplayServerWeb::_render_thread_wake);
+	godot_webgpu_render_thread_yield(&DisplayServerWeb::_render_thread_wake);
 }
 
 void DisplayServerWeb::_render_thread_wake(void *p_userdata) {

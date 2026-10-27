@@ -38,6 +38,11 @@
 // Device is now created from C++ using the emdawnwebgpu port's Dawn API.
 #include <emscripten/emscripten.h>
 
+extern "C" {
+// platform/web/js/libs/library_godot_webgpu.js
+extern WGPUDevice godot_webgpu_import_device(WGPUInstance p_instance);
+}
+
 RenderingContextDriverWebGPU::RenderingContextDriverWebGPU() {
 }
 
@@ -82,12 +87,8 @@ Error RenderingContextDriverWebGPU::initialize() {
 	// wgpuInstanceProcessEvents() below actually polls, and Dawn's internal
 	// EventManager can assert when polling an instance whose registration
 	// doesn't match what the device expects. See webgpu_notes/TASKS.md Task 11.
-	device = (WGPUDevice)(uintptr_t)EM_ASM_PTR({
-		var d = Module["preinitializedWebGPUDevice"];
-		if (!d) {
-			return 0;
-		}
-		return WebGPU["importJsDevice"](d, $0); }, instance);
+	// Through a JS library function, not EM_ASM: see library_godot_webgpu.js.
+	device = godot_webgpu_import_device(instance);
 	ERR_FAIL_COND_V_MSG(device == nullptr, ERR_CANT_CREATE, "WebGPU: Failed to get pre-initialized device. Ensure JS shell calls navigator.gpu.requestDevice() before WASM.");
 
 	queue = wgpuDeviceGetQueue(device);

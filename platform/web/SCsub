@@ -61,6 +61,8 @@ sys_env.AddJSPost([
     "js/patches/patch_em_gl.js",
 ])
 
+if env["webgpu"]:
+    sys_env.AddJSLibraries(["js/libs/library_godot_webgpu.js"])
 if env["javascript_eval"]:
     sys_env.AddJSLibraries(["js/libs/library_godot_javascript_singleton.js"])
 if env["target"] == "editor":
