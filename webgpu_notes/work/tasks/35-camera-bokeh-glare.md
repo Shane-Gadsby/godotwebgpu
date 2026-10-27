@@ -1,6 +1,6 @@
 # 35-camera-bokeh-glare: aperture blades, cat's eye, tilt-shift, starburst, halation; lens flare, veiling glare, diffusion filters
 
-State: open (wave 2: starts after task 33 is integrated; branch from webgpu-4.8 at that point)
+State: open (task 33 integrated at 779120b64e: branch from webgpu-4.8; the CameraEffects UBO and its extension recipe are in results/33-camera-lens-optics/SUMMARY.md and TASKS §4.52)
 Owner: worker-35
 Claimed:
 Needs: build, gpu, task 33 (the CameraEffects UBO glare region)

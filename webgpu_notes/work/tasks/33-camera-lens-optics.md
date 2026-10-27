@@ -1,6 +1,6 @@
 # 33-camera-lens-optics: sensor format, vignetting, distortion, chromatic aberration, anamorphic, ND/T-stops, diffraction, breathing; the CameraEffects UBO
 
-State: ready-for-integration
+State: integrated (lead: merged 779120b64e; defaults 9/9 identical and optics numbers reproduced on the merged tree; smoke OK after reference regeneration)
 Owner: worker-33
 Claimed: 2026-10-28 08:19
 Needs: build, gpu

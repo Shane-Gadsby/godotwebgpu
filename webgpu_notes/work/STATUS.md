@@ -6,12 +6,12 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 
 | task | what | wave | owner |
 |---|---|---|---|
-| 33 | lens optics: sensor format, vignetting, distortion, CA, anamorphic, ND/T-stops, diffraction, breathing; **CameraEffects UBO** | 1 | worker-33 |
+| 33 | lens optics: sensor format, vignetting, distortion, CA, anamorphic, ND/T-stops, diffraction, breathing; **CameraEffects UBO** | 1 | worker-33 (retired); **merged `779120b64e`**, verified, TASKS §4.52; questions `breathing-default`, `ca-aperture` |
 | 34 | motion blur from the shutter, rolling shutter | 1 | worker-34 (retired); **merged `4a96bd2ae6`**, verified, TASKS §4.51; question `motion-blur-editor` |
 | 37 | in-camera NR + sharpening (CameraAttributes); monitoring overlays + Visible in Output (Camera3D) | 1 | worker-37 (retired); **merged `ffda7ef1d3`**, verified, TASKS §4.50; questions `zebra-colors`, `zebra2-window`, `peaking-source` |
 | 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 (retired); **merged `c2d0987359`**, verified on the merged tree, smoke OK; TASKS §4.49; question `shake-in-editor` on the hand-offs page |
-| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | — |
-| 36 | AE metering modes, auto white balance | 2 | — |
+| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | worker-35 |
+| 36 | AE metering modes, auto white balance | 2 | worker-36 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 

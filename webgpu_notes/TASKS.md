@@ -4757,6 +4757,32 @@ off bit-identical in all three renderers (lead, merged tree). Trap for measuring
 frame, and a capture whose exposure spans the wrap measures short (frames=60 at 1/50 s read 0.82). Question
 `motion-blur-editor` on the hand-offs page (default: the editor viewport blurs too).
 
+### 4.52 CameraAttributes lens optics and the CameraEffects uniform buffer (October 2026) *(work task 33, camera batch)*
+
+Merged `779120b64e` (conflicts with 34/37 resolved by applying task 33's diff onto the merged side and checking it adds
+and removes exactly task 33's lines). Sensor formats (replacing the hard-coded 36x24; grain now uses the sensor
+height), physical vignetting (cos⁴ + pupil overlap; practical strength/falloff), Brown-Conrady distortion (automatic per
+focal length, auto-crop), lateral chromatic aberration, anamorphic squeeze (Camera3D keeps the horizontal FOV), ND
+filters and T-stops, Airy diffraction softening and focus breathing; Forward+, Mobile, Compatibility and WebGPU.
+- **CameraEffects uniform buffer** (`camera_effects_inc.glsl`, `CameraEffectsUBO` in `camera_attributes_storage.h`):
+  std140, 512 bytes: `uvec4 header` (x lens bits, y glare bits, z exposure-automation bits, w free), `vec4 lens[8]`,
+  `glare[6]` (task 35), `exposure[2]` (task 36), `reserved[15]`. Forward+ tonemap set 1 binding 1, Mobile set 0 binding
+  5, Compatibility UBO binding 16 behind `USE_CAMERA_EFFECTS`. Filled per pass by
+  `RendererCameraAttributes::camera_attributes_fill_effects_buffer()` (`_fill_effects_lens/_glare/_exposure`), owned
+  per viewport (`CameraEffectsBufferRD`), uploaded only when it changes; a shared all-zero buffer when nothing is on;
+  Mobile skips the subpass and Compatibility forces the post pass when in use. **New users of it add their bits to
+  `camera_attributes_uses_effects_buffer()`.**
+- Order in the pass: lens resample (distortion, CA, diffraction) at the first read, FXAA following the lens, glow read
+  where the lens maps the pixel, vignetting after pre-tonemap glow, then white balance, grain, tonemapping, LUT.
+- Fixed on the way: Compatibility's fast-sRGB round trip was off by up to 6.8/255 near black (exact inverse now).
+- **Verified (lead, merged tree):** defaults pixel-identical to the pre-merge editor in 9/9 renders (3 attribute kinds x
+  3 renderers); vignetting vs cos⁴ x pupil overlap within ~0.01; distortion dots within 0.035 px of Brown-Conrady
+  (0.12 px Compatibility) over displacements up to 34 px; CA spread/radius 0.00500 at 540p and 1080p; Airy sigma
+  2.455 px vs 2.465 at 4K (Compatibility ~5% narrower, documented). Worker: FOV for all 7 formats within 2e-6°, WebGPU
+  pixel-identical to native on 8 cases. Interface reference: the UBO in the six tonemap fragment variants only.
+- Not tested: ND/T-stop on screen, MSAA, XR, scaled viewports. Follow-ups: a Forward+ matrix arm `lens_optics`;
+  longitudinal CA in the DOF pass. Questions `breathing-default`, `ca-aperture` on the hand-offs page.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
