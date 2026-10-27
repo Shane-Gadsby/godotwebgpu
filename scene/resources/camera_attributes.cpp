@@ -165,6 +165,88 @@ void CameraAttributes::_update_grain() {
 	RS::get_singleton()->camera_attributes_set_grain(camera_attributes, grain_enabled, RSE::CameraAttributesGrainType(grain_type), grain_intensity, grain_size, exposure_sensitivity);
 }
 
+/* Camera finish (see RendererCameraAttributes for the models) */
+
+void CameraAttributes::set_noise_reduction_enabled(bool p_enabled) {
+	noise_reduction_enabled = p_enabled;
+	_update_noise_reduction();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_noise_reduction_enabled() const {
+	return noise_reduction_enabled;
+}
+
+void CameraAttributes::set_noise_reduction_strength(float p_strength) {
+	noise_reduction_strength = MAX(p_strength, 0.0f);
+	_update_noise_reduction();
+	emit_changed();
+}
+
+float CameraAttributes::get_noise_reduction_strength() const {
+	return noise_reduction_strength;
+}
+
+void CameraAttributes::set_noise_reduction_chroma_only(bool p_chroma_only) {
+	noise_reduction_chroma_only = p_chroma_only;
+	_update_noise_reduction();
+	emit_changed();
+}
+
+bool CameraAttributes::is_noise_reduction_chroma_only() const {
+	return noise_reduction_chroma_only;
+}
+
+void CameraAttributes::_update_noise_reduction() {
+	RS::get_singleton()->camera_attributes_set_noise_reduction(camera_attributes, noise_reduction_enabled, noise_reduction_strength, noise_reduction_chroma_only);
+}
+
+void CameraAttributes::set_sharpening_enabled(bool p_enabled) {
+	sharpening_enabled = p_enabled;
+	_update_sharpening();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_sharpening_enabled() const {
+	return sharpening_enabled;
+}
+
+void CameraAttributes::set_sharpening_amount(float p_amount) {
+	sharpening_amount = MAX(p_amount, 0.0f);
+	_update_sharpening();
+	emit_changed();
+}
+
+float CameraAttributes::get_sharpening_amount() const {
+	return sharpening_amount;
+}
+
+void CameraAttributes::set_sharpening_radius(float p_radius) {
+	sharpening_radius = MAX(p_radius, 0.01f);
+	_update_sharpening();
+	emit_changed();
+}
+
+float CameraAttributes::get_sharpening_radius() const {
+	return sharpening_radius;
+}
+
+void CameraAttributes::set_sharpening_halo(float p_halo) {
+	sharpening_halo = MAX(p_halo, 0.0f);
+	_update_sharpening();
+	emit_changed();
+}
+
+float CameraAttributes::get_sharpening_halo() const {
+	return sharpening_halo;
+}
+
+void CameraAttributes::_update_sharpening() {
+	RS::get_singleton()->camera_attributes_set_sharpening(camera_attributes, sharpening_enabled, sharpening_amount, sharpening_radius, sharpening_halo);
+}
+
 void CameraAttributes::set_lut_enabled(bool p_enabled) {
 	lut_enabled = p_enabled;
 	_update_lut();
@@ -235,6 +317,16 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 		return;
 	}
 
+	if (p_property.name.begins_with("noise_reduction_") && p_property.name != "noise_reduction_enabled" && !noise_reduction_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("sharpening_") && p_property.name != "sharpening_enabled" && !sharpening_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
 	if (p_property.name.begins_with("lut_") && p_property.name != "lut_enabled" && !lut_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
@@ -268,6 +360,22 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_grain_size", "size"), &CameraAttributes::set_grain_size);
 	ClassDB::bind_method(D_METHOD("get_grain_size"), &CameraAttributes::get_grain_size);
 
+	ClassDB::bind_method(D_METHOD("set_noise_reduction_enabled", "enabled"), &CameraAttributes::set_noise_reduction_enabled);
+	ClassDB::bind_method(D_METHOD("is_noise_reduction_enabled"), &CameraAttributes::is_noise_reduction_enabled);
+	ClassDB::bind_method(D_METHOD("set_noise_reduction_strength", "strength"), &CameraAttributes::set_noise_reduction_strength);
+	ClassDB::bind_method(D_METHOD("get_noise_reduction_strength"), &CameraAttributes::get_noise_reduction_strength);
+	ClassDB::bind_method(D_METHOD("set_noise_reduction_chroma_only", "chroma_only"), &CameraAttributes::set_noise_reduction_chroma_only);
+	ClassDB::bind_method(D_METHOD("is_noise_reduction_chroma_only"), &CameraAttributes::is_noise_reduction_chroma_only);
+
+	ClassDB::bind_method(D_METHOD("set_sharpening_enabled", "enabled"), &CameraAttributes::set_sharpening_enabled);
+	ClassDB::bind_method(D_METHOD("is_sharpening_enabled"), &CameraAttributes::is_sharpening_enabled);
+	ClassDB::bind_method(D_METHOD("set_sharpening_amount", "amount"), &CameraAttributes::set_sharpening_amount);
+	ClassDB::bind_method(D_METHOD("get_sharpening_amount"), &CameraAttributes::get_sharpening_amount);
+	ClassDB::bind_method(D_METHOD("set_sharpening_radius", "radius"), &CameraAttributes::set_sharpening_radius);
+	ClassDB::bind_method(D_METHOD("get_sharpening_radius"), &CameraAttributes::get_sharpening_radius);
+	ClassDB::bind_method(D_METHOD("set_sharpening_halo", "halo"), &CameraAttributes::set_sharpening_halo);
+	ClassDB::bind_method(D_METHOD("get_sharpening_halo"), &CameraAttributes::get_sharpening_halo);
+
 	ClassDB::bind_method(D_METHOD("set_lut_enabled", "enabled"), &CameraAttributes::set_lut_enabled);
 	ClassDB::bind_method(D_METHOD("is_lut_enabled"), &CameraAttributes::is_lut_enabled);
 	ClassDB::bind_method(D_METHOD("set_lut_texture", "texture"), &CameraAttributes::set_lut_texture);
@@ -295,6 +403,17 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "grain_type", PROPERTY_HINT_ENUM, "Film,Film Monochrome,Digital"), "set_grain_type", "get_grain_type");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_intensity", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_grain_intensity", "get_grain_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_size", PROPERTY_HINT_RANGE, "0.25,4,0.01,or_greater"), "set_grain_size", "get_grain_size");
+
+	ADD_GROUP("Noise Reduction", "noise_reduction_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "noise_reduction_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_noise_reduction_enabled", "is_noise_reduction_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "noise_reduction_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_noise_reduction_strength", "get_noise_reduction_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "noise_reduction_chroma_only"), "set_noise_reduction_chroma_only", "is_noise_reduction_chroma_only");
+
+	ADD_GROUP("Sharpening", "sharpening_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "sharpening_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_sharpening_enabled", "is_sharpening_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sharpening_amount", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_sharpening_amount", "get_sharpening_amount");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sharpening_radius", PROPERTY_HINT_RANGE, "0.25,8,0.01,or_greater,suffix:px at 1080p"), "set_sharpening_radius", "get_sharpening_radius");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sharpening_halo", PROPERTY_HINT_RANGE, "0,1,0.01,or_greater"), "set_sharpening_halo", "get_sharpening_halo");
 
 	ADD_GROUP("LUT", "lut_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "lut_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_lut_enabled", "is_lut_enabled");

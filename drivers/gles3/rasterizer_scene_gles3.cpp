@@ -3044,6 +3044,19 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	if (!is_reflection_probe) {
 		_render_post_processing(&render_data);
 
+		// The camera finish pass: last, on the finished 3D image (GLES3::CameraFinish).
+		if (rb.is_valid()) {
+			GLES3::CameraFinish::Settings finish;
+			if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+				finish.camera = RSG::camera_attributes->camera_attributes_get_finish(render_data.camera_attributes, rb->get_target_size().y);
+			}
+			finish.monitoring = p_camera_data->monitoring;
+			finish.time = time;
+			if (GLES3::CameraFinish::is_active(finish)) {
+				camera_finish->process(rb->render_target, finish);
+			}
+		}
+
 		texture_storage->render_target_disable_clear_request(rb->render_target);
 	}
 
@@ -4706,6 +4719,7 @@ void RasterizerSceneGLES3::material_set_use_debanding(bool p_enable) {
 
 RasterizerSceneGLES3::RasterizerSceneGLES3() {
 	singleton = this;
+	camera_finish = memnew(GLES3::CameraFinish);
 
 	GLES3::MaterialStorage *material_storage = GLES3::MaterialStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
@@ -4935,6 +4949,7 @@ void sky() {
 }
 
 RasterizerSceneGLES3::~RasterizerSceneGLES3() {
+	memdelete(camera_finish);
 	if (ltc.lut1_texture.is_valid()) {
 		RS::get_singleton()->free_rid(ltc.lut1_texture);
 	}

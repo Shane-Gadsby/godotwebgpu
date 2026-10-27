@@ -64,6 +64,18 @@ public:
 		AUTOFOCUS_MODE_CONTINUOUS,
 	};
 
+	enum MonitoringHistogramMode {
+		MONITORING_HISTOGRAM_LUMA,
+		MONITORING_HISTOGRAM_RGB,
+	};
+
+	enum MonitoringHistogramPosition {
+		MONITORING_HISTOGRAM_TOP_LEFT,
+		MONITORING_HISTOGRAM_TOP_RIGHT,
+		MONITORING_HISTOGRAM_BOTTOM_LEFT,
+		MONITORING_HISTOGRAM_BOTTOM_RIGHT,
+	};
+
 private:
 	bool force_change = false;
 	bool current = false;
@@ -98,6 +110,22 @@ private:
 	void _update_audio_listener_state();
 	TypedArray<Plane> _get_frustum() const;
 
+	// Monitoring overlays, drawn over this camera's image by the renderer's camera finish pass.
+	bool monitoring_visible_in_output = false;
+	bool monitoring_zebras_enabled = false;
+	float monitoring_zebras_level = 95.0;
+	bool monitoring_zebras_second_enabled = false;
+	float monitoring_zebras_second_level = 70.0;
+	bool monitoring_focus_peaking_enabled = false;
+	Color monitoring_focus_peaking_color = Color(1.0, 0.0, 0.0);
+	float monitoring_focus_peaking_sensitivity = 0.5;
+	bool monitoring_false_color_enabled = false;
+	bool monitoring_histogram_enabled = false;
+	MonitoringHistogramMode monitoring_histogram_mode = MONITORING_HISTOGRAM_LUMA;
+	MonitoringHistogramPosition monitoring_histogram_position = MONITORING_HISTOGRAM_BOTTOM_RIGHT;
+	float monitoring_histogram_size = 0.25;
+	float monitoring_histogram_opacity = 0.75;
+	void _update_monitoring();
 	DopplerTracking doppler_tracking = DOPPLER_TRACKING_DISABLED;
 	Ref<VelocityTracker3D> velocity_tracker;
 
@@ -257,6 +285,35 @@ public:
 	void set_compositor(const Ref<Compositor> &p_compositor);
 	Ref<Compositor> get_compositor() const;
 
+	void set_monitoring_visible_in_output(bool p_visible);
+	bool is_monitoring_visible_in_output() const;
+	void set_monitoring_zebras_enabled(bool p_enabled);
+	bool is_monitoring_zebras_enabled() const;
+	void set_monitoring_zebras_level(float p_level);
+	float get_monitoring_zebras_level() const;
+	void set_monitoring_zebras_second_enabled(bool p_enabled);
+	bool is_monitoring_zebras_second_enabled() const;
+	void set_monitoring_zebras_second_level(float p_level);
+	float get_monitoring_zebras_second_level() const;
+	void set_monitoring_focus_peaking_enabled(bool p_enabled);
+	bool is_monitoring_focus_peaking_enabled() const;
+	void set_monitoring_focus_peaking_color(const Color &p_color);
+	Color get_monitoring_focus_peaking_color() const;
+	void set_monitoring_focus_peaking_sensitivity(float p_sensitivity);
+	float get_monitoring_focus_peaking_sensitivity() const;
+	void set_monitoring_false_color_enabled(bool p_enabled);
+	bool is_monitoring_false_color_enabled() const;
+	void set_monitoring_histogram_enabled(bool p_enabled);
+	bool is_monitoring_histogram_enabled() const;
+	void set_monitoring_histogram_mode(MonitoringHistogramMode p_mode);
+	MonitoringHistogramMode get_monitoring_histogram_mode() const;
+	void set_monitoring_histogram_position(MonitoringHistogramPosition p_position);
+	MonitoringHistogramPosition get_monitoring_histogram_position() const;
+	void set_monitoring_histogram_size(float p_size);
+	float get_monitoring_histogram_size() const;
+	void set_monitoring_histogram_opacity(float p_opacity);
+	float get_monitoring_histogram_opacity() const;
+
 	void set_keep_aspect_mode(KeepAspect p_aspect);
 	KeepAspect get_keep_aspect_mode() const;
 
@@ -321,3 +378,5 @@ VARIANT_ENUM_CAST(Camera3D::ProjectionType);
 VARIANT_ENUM_CAST(Camera3D::KeepAspect);
 VARIANT_ENUM_CAST(Camera3D::DopplerTracking);
 VARIANT_ENUM_CAST(Camera3D::AutofocusMode);
+VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramMode);
+VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramPosition);

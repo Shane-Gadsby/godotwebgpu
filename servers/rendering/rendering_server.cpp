@@ -2867,6 +2867,17 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_set_camera_attributes", "camera", "effects"), &RenderingServer::camera_set_camera_attributes);
 	ClassDB::bind_method(D_METHOD("camera_set_compositor", "camera", "compositor"), &RenderingServer::camera_set_compositor);
 	ClassDB::bind_method(D_METHOD("camera_set_use_vertical_aspect", "camera", "enable"), &RenderingServer::camera_set_use_vertical_aspect);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_zebras", "camera", "enable", "level", "second_enable", "second_level"), &RenderingServer::camera_set_monitoring_zebras);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_focus_peaking", "camera", "enable", "color", "sensitivity"), &RenderingServer::camera_set_monitoring_focus_peaking);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_false_color", "camera", "enable"), &RenderingServer::camera_set_monitoring_false_color);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram", "camera", "enable", "mode", "position", "size", "opacity"), &RenderingServer::camera_set_monitoring_histogram);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_LUMA);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_RGB);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_TOP_LEFT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_TOP_RIGHT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT);
 
 	/* VIEWPORT */
 
@@ -3212,6 +3223,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_exposure", "camera_attributes", "multiplier", "normalization"), &RenderingServer::camera_attributes_set_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_white_balance", "camera_attributes", "temperature", "tint"), &RenderingServer::camera_attributes_set_white_balance);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_noise_reduction", "camera_attributes", "enable", "strength", "chroma_only"), &RenderingServer::camera_attributes_set_noise_reduction);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_sharpening", "camera_attributes", "enable", "amount", "radius", "halo"), &RenderingServer::camera_attributes_set_sharpening);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_grain", "camera_attributes", "enable", "type", "intensity", "size", "sensitivity"), &RenderingServer::camera_attributes_set_grain);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_lut", "camera_attributes", "enable", "texture", "input", "strength"), &RenderingServer::camera_attributes_set_lut);
 

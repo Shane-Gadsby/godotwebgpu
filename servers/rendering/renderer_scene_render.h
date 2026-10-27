@@ -302,6 +302,25 @@ public:
 		uint32_t positional_light_count;
 	};
 
+	// Camera3D's monitoring overlays, as RendererSceneCull's camera holds them; drawn by the camera finish pass.
+	struct CameraMonitoring {
+		bool zebras = false;
+		float zebras_level = 95.0; // IRE %.
+		bool zebras_second = false;
+		float zebras_second_level = 70.0; // IRE %, the center of a +-5 IRE window.
+		bool focus_peaking = false;
+		Color focus_peaking_color = Color(1.0, 0.0, 0.0);
+		float focus_peaking_sensitivity = 0.5;
+		bool false_color = false;
+		bool histogram = false;
+		RSE::CameraMonitoringHistogramMode histogram_mode = RSE::CAMERA_MONITORING_HISTOGRAM_LUMA;
+		RSE::CameraMonitoringHistogramPosition histogram_position = RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT;
+		float histogram_size = 0.25; // Width as a fraction of the frame width.
+		float histogram_opacity = 0.75;
+
+		bool is_active() const { return zebras || zebras_second || focus_peaking || false_color || histogram; }
+	};
+
 	struct CameraData {
 		// flags
 		uint32_t view_count;
@@ -317,6 +336,7 @@ public:
 		Projection view_projection[RendererSceneRender::MAX_RENDER_VIEWS];
 		Vector2 taa_jitter;
 		float taa_frame_count = 0.0f;
+		CameraMonitoring monitoring; // Only RendererSceneCull::render_camera() sets it: probes and the like have none.
 
 		void set_camera(const Transform3D p_transform, const Projection p_projection, bool p_is_orthogonal, bool p_vaspect, const Vector2 &p_taa_jitter = Vector2(), float p_taa_frame_count = 0.0f, uint32_t p_visible_layers = 0xFFFFFFFF);
 		void set_multiview_camera(const Transform3D &p_transform, const LocalVector<Transform3D> &p_offsets, const LocalVector<Projection> &p_projection, bool p_is_orthogonal, bool p_vaspect, uint32_t p_visible_layers = 0xFFFFFFFF);

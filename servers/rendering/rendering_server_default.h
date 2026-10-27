@@ -731,6 +731,10 @@ public:
 	FUNC2(camera_set_camera_attributes, RID, RID)
 	FUNC2(camera_set_compositor, RID, RID)
 	FUNC2(camera_set_use_vertical_aspect, RID, bool)
+	FUNC5(camera_set_monitoring_zebras, RID, bool, float, bool, float)
+	FUNC4(camera_set_monitoring_focus_peaking, RID, bool, const Color &, float)
+	FUNC2(camera_set_monitoring_false_color, RID, bool)
+	FUNC6(camera_set_monitoring_histogram, RID, bool, RSE::CameraMonitoringHistogramMode, RSE::CameraMonitoringHistogramPosition, float, float)
 
 	/* OCCLUDER */
 	FUNCRIDSPLIT(occluder)
@@ -930,6 +934,8 @@ public:
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)
+	FUNC4(camera_attributes_set_noise_reduction, RID, bool, float, bool)
+	FUNC5(camera_attributes_set_sharpening, RID, bool, float, float, float)
 	FUNC6(camera_attributes_set_grain, RID, bool, RSE::CameraAttributesGrainType, float, float, float)
 	FUNC5(camera_attributes_set_lut, RID, bool, RID, RSE::CameraAttributesLUTInput, float)
 

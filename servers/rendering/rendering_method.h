@@ -61,6 +61,10 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_attributes) = 0;
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor) = 0;
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level) = 0;
+	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
+	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
 	virtual bool is_camera(RID p_camera) const = 0;
 
 	virtual RID occluder_allocate() = 0;

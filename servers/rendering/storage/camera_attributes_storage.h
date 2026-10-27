@@ -64,6 +64,16 @@ private:
 		bool use_white_balance = false;
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0); // Cone-space (Bradford LMS) gains.
 
+		// Camera finish: in-camera noise reduction and sharpening, applied after tonemapping by the camera finish
+		// pass. Off by default; the pass is skipped entirely then.
+		bool noise_reduction_enabled = false;
+		float noise_reduction_strength = 1.0;
+		bool noise_reduction_chroma_only = false;
+		bool sharpening_enabled = false;
+		float sharpening_amount = 0.5;
+		float sharpening_radius = 1.0; // In pixels of a 1080-line frame.
+		float sharpening_halo = 0.25;
+
 		// Grain. Off by default; the tonemappers skip it entirely then.
 		bool grain_enabled = false;
 		RSE::CameraAttributesGrainType grain_type = RSE::CAMERA_ATTRIBUTES_GRAIN_FILM;
@@ -144,6 +154,26 @@ public:
 
 		return cam_attributes && cam_attributes->use_white_balance;
 	}
+
+	/* Camera finish */
+
+	struct CameraFinishSettings {
+		// Noise reduction: a bilateral filter in display-encoded Y'CbCr (see the .cpp).
+		bool noise_reduction = false;
+		float nr_spatial_sigma_px = 0.0; // Gaussian sigma of the spatial kernel, in output pixels.
+		float nr_range_sigma = 0.0; // Gaussian sigma of the range kernel on Y', in display code values (0-1).
+		bool nr_chroma_only = false;
+		// Sharpening: an unsharp mask with a halo limit.
+		bool sharpening = false;
+		float sharpen_amount = 0.0;
+		float sharpen_sigma_px = 0.0; // Gaussian sigma of the blur that is subtracted, in output pixels.
+		float sharpen_halo = 1.0; // Allowed overshoot past the 3x3 neighborhood's range, as a fraction of it.
+	};
+
+	void camera_attributes_set_noise_reduction(RID p_camera_attributes, bool p_enable, float p_strength, bool p_chroma_only);
+	void camera_attributes_set_sharpening(RID p_camera_attributes, bool p_enable, float p_amount, float p_radius, float p_halo);
+	// What the camera finish pass does for an output p_output_height pixels tall; all off when it has nothing to do.
+	CameraFinishSettings camera_attributes_get_finish(RID p_camera_attributes, int p_output_height);
 
 	void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity);
 	// The grain parameters for a tonemap pass whose output is p_output_height pixels tall, packed the way

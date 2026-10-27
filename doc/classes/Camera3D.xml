@@ -246,6 +246,51 @@
 		<member name="keep_aspect" type="int" setter="set_keep_aspect_mode" getter="get_keep_aspect_mode" enum="Camera3D.KeepAspect" default="1">
 			The axis to lock during [member fov]/[member size] adjustments. Can be either [constant KEEP_WIDTH] or [constant KEEP_HEIGHT].
 		</member>
+		<member name="monitoring_false_color_enabled" type="bool" setter="set_monitoring_false_color_enabled" getter="is_monitoring_false_color_enabled" default="false">
+			If [code]true[/code], the image is replaced by an exposure map using the ARRI ALEXA false color bands on the video level (IRE): purple below 2.5 (black clipping), blue from 2.5 to 4, green from 38 to 42 (18% middle gray), pink from 52 to 56 (one stop over middle gray, typical light skin), yellow from 97 to 99 and red from 99 (white clipping). Everything else is shown in gray at its own luma. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_focus_peaking_color" type="Color" setter="set_monitoring_focus_peaking_color" getter="get_monitoring_focus_peaking_color" default="Color(1, 0, 0, 1)">
+			The color [member monitoring_focus_peaking_enabled] paints in-focus edges with.
+		</member>
+		<member name="monitoring_focus_peaking_enabled" type="bool" setter="set_monitoring_focus_peaking_enabled" getter="is_monitoring_focus_peaking_enabled" default="false">
+			If [code]true[/code], edges that are in focus are painted in [member monitoring_focus_peaking_color]. Edges are found from the gradient of the display image's luma (a Sobel operator): detail in focus has steep gradients, and defocus (depth of field) spreads them out. Low-contrast surfaces show no peaking even when in focus, as on a camera. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_focus_peaking_sensitivity" type="float" setter="set_monitoring_focus_peaking_sensitivity" getter="get_monitoring_focus_peaking_sensitivity" default="0.5">
+			How weak an edge still counts as in focus for [member monitoring_focus_peaking_enabled], from [code]0.0[/code] (only the strongest edges, a luma step of 40% within a pixel) to [code]1.0[/code] (edges of 3%).
+		</member>
+		<member name="monitoring_histogram_enabled" type="bool" setter="set_monitoring_histogram_enabled" getter="is_monitoring_histogram_enabled" default="false">
+			If [code]true[/code], a histogram of the frame (256 bins, one per 8-bit code value of the display image) is counted on the GPU every frame and drawn in a corner of the image, its bars scaled to the tallest bin. This overlay follows [member monitoring_visible_in_output].
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods, which have compute shaders, not Compatibility.
+		</member>
+		<member name="monitoring_histogram_mode" type="int" setter="set_monitoring_histogram_mode" getter="get_monitoring_histogram_mode" enum="Camera3D.MonitoringHistogramMode" default="0">
+			Whether [member monitoring_histogram_enabled] shows the luma histogram or the red, green and blue ones overlaid.
+		</member>
+		<member name="monitoring_histogram_opacity" type="float" setter="set_monitoring_histogram_opacity" getter="get_monitoring_histogram_opacity" default="0.75">
+			The opacity of the histogram over the image.
+		</member>
+		<member name="monitoring_histogram_position" type="int" setter="set_monitoring_histogram_position" getter="get_monitoring_histogram_position" enum="Camera3D.MonitoringHistogramPosition" default="3">
+			The corner of the image [member monitoring_histogram_enabled] draws the histogram in. It is inset from the corner by 3% of the image height.
+		</member>
+		<member name="monitoring_histogram_size" type="float" setter="set_monitoring_histogram_size" getter="get_monitoring_histogram_size" default="0.25">
+			The width of the histogram as a fraction of the image width. Its height is half its width.
+		</member>
+		<member name="monitoring_visible_in_output" type="bool" setter="set_monitoring_visible_in_output" getter="is_monitoring_visible_in_output" default="false">
+			If [code]false[/code], the monitoring overlays ([member monitoring_zebras_enabled], [member monitoring_focus_peaking_enabled], [member monitoring_false_color_enabled], [member monitoring_histogram_enabled]) are only drawn in the editor, where the editor renders through this camera: the 3D viewport's camera preview and the Camera3D inspector preview. A running project then draws none of them and does no work for them. If [code]true[/code], they are also drawn in the running project.
+			The overlays are drawn over the finished 3D image, after tonemapping and [CameraAttributes]' noise reduction and sharpening, and under any 2D drawn on top of the viewport.
+			[b]Note:[/b] The overlays are only drawn for single-view rendering, not in XR.
+		</member>
+		<member name="monitoring_zebras_enabled" type="bool" setter="set_monitoring_zebras_enabled" getter="is_monitoring_zebras_enabled" default="false">
+			If [code]true[/code], diagonal black stripes, crawling as on a camera's monitor, are drawn over the parts of the image whose video level is at or above [member monitoring_zebras_level]. The video level is the Rec. 709 luma of the display-encoded image, in IRE (percent of full range). This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_zebras_level" type="float" setter="set_monitoring_zebras_level" getter="get_monitoring_zebras_level" default="95.0">
+			The video level, in IRE (percent of full-range Rec. 709 luma), at and above which [member monitoring_zebras_enabled] draws its stripes. The default of 95 marks highlights about to clip.
+		</member>
+		<member name="monitoring_zebras_second_enabled" type="bool" setter="set_monitoring_zebras_second_enabled" getter="is_monitoring_zebras_second_enabled" default="false">
+			If [code]true[/code], a second zebra of white stripes, running the other way, is drawn over the parts of the image within ±5 IRE of [member monitoring_zebras_second_level], the window cameras offer for judging skin exposure. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_zebras_second_level" type="float" setter="set_monitoring_zebras_second_level" getter="get_monitoring_zebras_second_level" default="70.0">
+			The center, in IRE, of the ±5 IRE window [member monitoring_zebras_second_enabled] marks. The default of 70 is a common skin-tone exposure target.
+		</member>
 		<member name="near" type="float" setter="set_near" getter="get_near" default="0.05">
 			The distance to the near culling boundary for this camera relative to its local Z axis. Lower values allow the camera to see objects more up close to its origin, at the cost of lower precision across the [i]entire[/i] range. Values lower than the default can lead to increased Z-fighting.
 		</member>
@@ -335,6 +380,24 @@
 		</constant>
 		<constant name="AUTOFOCUS_MODE_CONTINUOUS" value="2" enum="AutofocusMode">
 			Continuous autofocus (AF-C): measures every frame and keeps the subject in focus.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_LUMA" value="0" enum="MonitoringHistogramMode">
+			The histogram shows Rec. 709 luma.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_RGB" value="1" enum="MonitoringHistogramMode">
+			The histogram shows the red, green and blue channels overlaid.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_TOP_LEFT" value="0" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the top left corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_TOP_RIGHT" value="1" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the top right corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_BOTTOM_LEFT" value="2" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the bottom left corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the bottom right corner.
 		</constant>
 	</constants>
 </class>

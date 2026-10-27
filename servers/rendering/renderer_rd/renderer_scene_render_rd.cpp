@@ -1579,6 +1579,20 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 
 	//calls _pre_opaque_render between depth pre-pass and opaque pass
 	_render_scene(&render_data, clear_color);
+
+	// The camera finish pass: what the camera does to its image after tonemapping, and what its monitor draws over
+	// it. Last of all, so nothing reads the overlays back; it returns at once when nothing in it is on.
+	if (p_reflection_probe.is_null() && camera_finish) {
+		RendererRD::CameraFinish::Settings finish;
+		if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+			finish.camera = RSG::camera_attributes->camera_attributes_get_finish(render_data.camera_attributes, rb->get_target_size().y);
+		}
+		finish.monitoring = p_camera_data->monitoring;
+		finish.time = time;
+		if (RendererRD::CameraFinish::is_active(finish)) {
+			camera_finish->process(rb, finish);
+		}
+	}
 }
 
 void RendererSceneRenderRD::render_material(const Transform3D &p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region) {
@@ -1961,6 +1975,7 @@ void RendererSceneRenderRD::init() {
 	debug_effects = memnew(RendererRD::DebugEffects);
 	luminance = memnew(RendererRD::Luminance(!can_use_storage));
 	smaa = memnew(RendererRD::SMAA);
+	camera_finish = memnew(RendererRD::CameraFinish);
 	tone_mapper = memnew(RendererRD::ToneMapper(!can_use_storage));
 	if (can_use_vrs) {
 		vrs = memnew(RendererRD::VRS);
@@ -1982,6 +1997,7 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	memdelete(debug_effects);
 	memdelete(luminance);
 	memdelete(smaa);
+	memdelete(camera_finish);
 	memdelete(tone_mapper);
 	memdelete(vrs);
 	memdelete(fsr);
