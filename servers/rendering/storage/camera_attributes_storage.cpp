@@ -479,3 +479,82 @@ RendererCameraAttributes::CameraFinishSettings RendererCameraAttributes::camera_
 	}
 	return settings;
 }
+
+/* Motion blur and rolling shutter
+ *
+ * Both come from when the sensor records light, and both are worked out from the motion of the last frame, which the
+ * velocity buffer holds per pixel (Forward+ renders it for TAA; the renderer turns it on for these too). A frame's
+ * motion covers one frame time, so everything here is a multiple of it.
+ *
+ * Motion blur: the shutter is open for the exposure time, so a point moving at constant speed is smeared over speed x
+ * exposure time. Measured in frames of motion that is exposure time / frame time: a 1/50 s shutter at 60 fps smears
+ * 1.2 frames' worth, 1/2000 s 0.03. The exposure time is CameraAttributesPhysical's shutter speed, or a shutter angle:
+ * the film-camera convention, where a rotary shutter open for angle / 360 of each frame (180 degrees is the cinema
+ * standard, so the blur is half a frame's motion at any frame rate). The exposure is centered on the frame's time,
+ * so the blur extends half each way, which is how a frame's moment is defined for a film camera.
+ *
+ * Rolling shutter: a CMOS sensor read out row by row exposes each row later than the one above it, the readout time
+ * apart from top to bottom (typically 5-30 ms on stills and video cameras, 0 for a global shutter). The renderer
+ * shows each row as it was readout x (row / height - 0.5) away from the frame's time, centered so that the middle
+ * row is unchanged.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality) {
+	ERR_FAIL_INDEX((int)p_quality, 3);
+	motion_blur_quality = p_quality;
+}
+
+void RendererCameraAttributes::camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->motion_blur_enabled = p_enable;
+	cam_attributes->motion_blur_shutter_angle = CLAMP(p_shutter_angle, 0.0f, 360.0f);
+	cam_attributes->motion_blur_shutter_time = MAX(p_shutter_time, 0.0f);
+	cam_attributes->motion_blur_strength = MAX(p_strength, 0.0f);
+	cam_attributes->motion_blur_max_length = CLAMP(p_max_length, 0.0f, 1.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->rolling_shutter_enabled = p_enable;
+	cam_attributes->rolling_shutter_readout_time = MAX(p_readout_time, 0.0f);
+}
+
+RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time) {
+	ShutterMotion motion;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return motion;
+	}
+	// The frame time is the step the frame's motion was simulated over. A stopped clock (time scale 0) has no motion to
+	// measure against; take 60 fps so a camera moved while the game is frozen still blurs as a camera would.
+	const double frame_time = p_frame_time > 1e-6 ? p_frame_time : 1.0 / 60.0;
+
+	if (cam_attributes->motion_blur_enabled && cam_attributes->motion_blur_max_length > 0.0f) {
+		double exposure_frames;
+		if (cam_attributes->motion_blur_shutter_time > 0.0f) {
+			exposure_frames = cam_attributes->motion_blur_shutter_time / frame_time;
+		} else {
+			exposure_frames = cam_attributes->motion_blur_shutter_angle / 360.0;
+		}
+		motion.blur_scale = exposure_frames * cam_attributes->motion_blur_strength;
+		motion.max_length = cam_attributes->motion_blur_max_length;
+	}
+	if (cam_attributes->rolling_shutter_enabled) {
+		motion.rolling_shutter = cam_attributes->rolling_shutter_readout_time * 0.001 / frame_time;
+	}
+	return motion;
+}
+
+uint32_t RendererCameraAttributes::camera_attributes_get_motion_blur_sample_count() const {
+	// Taps along the blur per pixel. McGuire et al. (2012) use 15 with per-pixel jitter; Medium is about that.
+	switch (motion_blur_quality) {
+		case RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_LOW:
+			return 8;
+		case RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH:
+			return 32;
+		default:
+			return 16;
+	}
+}

@@ -1,0 +1,6 @@
+{"file": "blur_s20.png", "size": [1280, 720], "expected_L_px": 36.0, "fit_L_px": 36.0, "fit_L_over_expected": 1.0, "fit_amplitude": 1.0002, "fit_rms": 0.00033, "rms_with_expected_L": 0.00033, "L_over_H": 0.05}
+{"file": "blur_s20_msaa.png", "size": [1280, 720], "expected_L_px": 36.0, "fit_L_px": 35.94, "fit_L_over_expected": 0.9983, "fit_amplitude": 1.0002, "fit_rms": 0.0003, "rms_with_expected_L": 0.00033, "L_over_H": 0.04992}
+{"file": "native_blur_s20.png", "size": [1280, 720], "expected_L_px": 36.0, "fit_L_px": 35.98, "fit_L_over_expected": 0.9994, "fit_amplitude": 1.0002, "fit_rms": 0.00037, "rms_with_expected_L": 0.00037, "L_over_H": 0.04997}
+{"bar_offset_px": 66.5, "file": "rolling.png", "size": [1280, 720], "rows": 676, "x_top_minus_bottom_px": 37.878, "expected_px": 37.838, "ratio": 1.0011, "line_fit_resid_rms_px": 0.031, "skew_angle_deg": 3.011, "shift_over_H": 0.05261}
+{"bar_offset_px": -158.5, "file": "sky.png", "size": [1280, 720], "rows": 676, "x_top_minus_bottom_px": 39.694, "expected_px": 39.829, "ratio": 0.9966, "line_fit_resid_rms_px": 0.027, "skew_angle_deg": 3.156, "shift_over_H": 0.05513}
+{"bar_offset_px": 115.0, "file": "sky_msaa.png", "size": [1280, 720], "rows": 676, "x_top_minus_bottom_px": 38.76, "expected_px": 38.685, "ratio": 1.002, "line_fit_resid_rms_px": 0.028, "skew_angle_deg": 3.081, "shift_over_H": 0.05383}

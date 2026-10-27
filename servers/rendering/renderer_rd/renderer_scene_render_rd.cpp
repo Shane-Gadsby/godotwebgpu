@@ -600,6 +600,44 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		RD::get_singleton()->draw_command_end_label();
 	}
 
+	// Camera motion blur and rolling shutter, in scene-linear light after DOF (the lens forms the image the shutter
+	// then records) and before auto exposure and glow, which see the blurred frame as a camera's metering would.
+	// Forward+ only: it needs the velocity buffer, which render_forward_clustered.cpp renders whenever this is on.
+	if (can_use_effects && can_use_storage && RSG::camera_attributes->camera_attributes_uses_shutter_motion(p_render_data->camera_attributes) && rb->has_velocity_buffer(false)) {
+		RENDER_TIMESTAMP("Camera Motion Blur");
+
+		if (!camera_motion_blur) {
+			camera_motion_blur = memnew(RendererRD::CameraMotionBlur);
+		}
+
+		const RendererCameraAttributes::ShutterMotion shutter = RSG::camera_attributes->camera_attributes_get_shutter_motion(p_render_data->camera_attributes, time_step);
+
+		RendererRD::CameraMotionBlur::Parameters params;
+		params.color_size = color_size;
+		params.depth_is_resolved = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
+		params.orthogonal = p_render_data->scene_data->cam_orthogonal;
+		params.blur_scale = shutter.blur_scale;
+		params.max_length = shutter.max_length;
+		params.rolling_shutter = shutter.rolling_shutter;
+		params.sample_count = RSG::camera_attributes->camera_attributes_get_motion_blur_sample_count();
+		params.frame = RSG::rasterizer->get_frame_number();
+
+		Projection correction;
+		correction.set_depth_correction(true, true, false);
+		const Projection &prev_proj = p_render_data->scene_data->prev_cam_projection;
+		const Projection &cur_proj = p_render_data->scene_data->cam_projection;
+		params.reprojection = (correction * prev_proj) * p_render_data->scene_data->prev_cam_transform.affine_inverse() * p_render_data->scene_data->cam_transform * (correction * cur_proj).inverse();
+
+		for (uint32_t i = 0; i < rb->get_view_count(); i++) {
+			params.color = use_upscaled_texture ? rb->get_upscaled_texture(i) : rb->get_internal_texture(i);
+			params.depth = rb->get_depth_texture(i);
+			params.velocity = rb->get_velocity_buffer(false, i);
+			params.z_near = p_render_data->scene_data->view_projection[i].get_z_near();
+			params.z_far = p_render_data->scene_data->view_projection[i].get_z_far();
+			camera_motion_blur->process(rb, i, params);
+		}
+	}
+
 	float auto_exposure_scale = 1.0;
 
 	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes)) {
@@ -1912,6 +1950,7 @@ void RendererSceneRenderRD::init() {
 
 	RSG::camera_attributes->camera_attributes_set_dof_blur_bokeh_shape(RSE::DOFBokehShape(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_shape"))));
 	RSG::camera_attributes->camera_attributes_set_dof_blur_quality(RSE::DOFBlurQuality(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_quality"))), GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_use_jitter"));
+	RSG::camera_attributes->camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality(int(GLOBAL_GET("rendering/camera/motion_blur/motion_blur_quality"))));
 	use_physical_light_units = GLOBAL_GET("rendering/lights_and_shadows/use_physical_light_units");
 
 	screen_space_roughness_limiter = GLOBAL_GET("rendering/anti_aliasing/screen_space_roughness_limiter/enabled");
@@ -1993,6 +2032,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	memdelete(forward_id_storage);
 
 	memdelete(bokeh_dof);
+	if (camera_motion_blur) {
+		memdelete(camera_motion_blur);
+	}
 	memdelete(copy_effects);
 	memdelete(debug_effects);
 	memdelete(luminance);

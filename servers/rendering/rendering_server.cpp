@@ -3227,6 +3227,9 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_sharpening", "camera_attributes", "enable", "amount", "radius", "halo"), &RenderingServer::camera_attributes_set_sharpening);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_grain", "camera_attributes", "enable", "type", "intensity", "size", "sensitivity"), &RenderingServer::camera_attributes_set_grain);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_lut", "camera_attributes", "enable", "texture", "input", "strength"), &RenderingServer::camera_attributes_set_lut);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur_quality", "quality"), &RenderingServer::camera_attributes_set_motion_blur_quality);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
@@ -3249,6 +3252,10 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_RED_LOG3G10);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_ACESCCT);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_LOW);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH);
 
 	/* SCENARIO */
 
@@ -3782,6 +3789,7 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_shape", PROPERTY_HINT_ENUM, "Box (Fast),Hexagon (Average),Circle (Slowest)"), 1);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_quality", PROPERTY_HINT_ENUM, "Very Low (Fastest),Low (Fast),Medium (Average),High (Slow)"), 1);
 	GLOBAL_DEF("rendering/camera/depth_of_field/depth_of_field_use_jitter", false);
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/motion_blur/motion_blur_quality", PROPERTY_HINT_ENUM, "Low (Fast),Medium (Average),High (Slow)"), 1);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssao/quality", PROPERTY_HINT_ENUM, "Very Low (Fast),Low (Fast),Medium (Average),High (Slow),Ultra (Custom)"), 2);
 	GLOBAL_DEF("rendering/environment/ssao/half_size", true);

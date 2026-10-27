@@ -82,6 +82,29 @@
 		<member name="sharpening_radius" type="float" setter="set_sharpening_radius" getter="get_sharpening_radius" default="1.0">
 			The radius (Gaussian sigma) of [member sharpening_enabled]'s blur, in pixels of a 1080-line frame. It is scaled with the output resolution, so sharpening looks the same at every resolution. Small radii sharpen fine detail; large ones raise local contrast.
 		</member>
+		<member name="motion_blur_enabled" type="bool" setter="set_motion_blur_enabled" getter="is_motion_blur_enabled" default="false">
+			If [code]true[/code], the camera blurs what moves across the frame while its shutter is open. The length of the blur is the distance something travels on screen during the exposure: the exposure time is [member motion_blur_shutter_angle] of each frame, or the shutter speed of [CameraAttributesPhysical] (see [member CameraAttributesPhysical.motion_blur_use_shutter_speed]). Both the camera's own motion (pans, dollies) and objects moving in the scene blur, each by its own speed; the sky blurs with the camera's rotation.
+			The blur is reconstructed from the frame and its motion vectors (McGuire et al. 2012, with the tap weights of Jimenez 2014), in linear scene light after depth of field and before auto exposure, glow and tonemapping. It extends half the blur each way from where things are at the frame's time, as with a shutter centered on it. Its length is measured in fractions of the frame, so it looks the same at every resolution. Quality is set by [member ProjectSettings.rendering/camera/motion_blur/motion_blur_quality].
+			[b]Note:[/b] Only supported in the Forward+ rendering method, which renders the motion vectors it needs (enabling motion blur turns them on, as TAA does). Mobile and Compatibility ignore it.
+			[b]Note:[/b] Like every screen-space motion blur, it only knows what the frame shows: transparent objects blur with whatever is behind them, a pixel blurs along the dominant motion of its neighborhood, and content a moving object uncovers is estimated from the pixels around it.
+		</member>
+		<member name="motion_blur_max_length" type="float" setter="set_motion_blur_max_length" getter="get_motion_blur_max_length" default="0.05">
+			The longest blur allowed, as a fraction of the frame height. Blur that would be longer (very fast motion, a camera cut or a teleport) is shortened to this length. Larger values cost more: the reconstruction works in tiles this size.
+		</member>
+		<member name="motion_blur_shutter_angle" type="float" setter="set_motion_blur_shutter_angle" getter="get_motion_blur_shutter_angle" default="180.0">
+			The fraction of each frame the shutter is open, as the angle of a film camera's rotary shutter: [code]360[/code] is the whole frame, [code]180[/code] (the default, the cinema standard) half of it, so something moving 100 pixels per frame is blurred over 50 pixels at any frame rate. Smaller angles give the crisp, staccato motion of action and sports footage.
+			[b]Note:[/b] [CameraAttributesPhysical] uses its shutter speed instead unless [member CameraAttributesPhysical.motion_blur_use_shutter_speed] is [code]false[/code].
+		</member>
+		<member name="motion_blur_strength" type="float" setter="set_motion_blur_strength" getter="get_motion_blur_strength" default="1.0">
+			Multiplier for the blur length. At [code]1.0[/code], the blur is the one the exposure time gives.
+		</member>
+		<member name="rolling_shutter_enabled" type="bool" setter="set_rolling_shutter_enabled" getter="is_rolling_shutter_enabled" default="false">
+			If [code]true[/code], the frame is exposed row by row, as by a CMOS sensor read out from top to bottom over [member rolling_shutter_readout_time]: each row shows the scene a little later than the row above it. A fast pan leans vertical lines (the top of the frame lags behind the bottom), and fast moving objects skew. The middle row shows the frame's time, so the frame stays centered. With [member motion_blur_enabled], each row is blurred around its own time.
+			[b]Note:[/b] Only supported in the Forward+ rendering method. It is reconstructed from the frame and its motion vectors, so it cannot show what the frame does not: where a moving object uncovers the background, the nearest pixels are repeated.
+		</member>
+		<member name="rolling_shutter_readout_time" type="float" setter="set_rolling_shutter_readout_time" getter="get_rolling_shutter_readout_time" default="20.0">
+			The time the sensor takes to read the frame from the top row to the bottom one, in milliseconds. Stills and video cameras with CMOS sensors typically take 5 to 30 milliseconds; phone cameras are at the slow end and sensors with fast readout at the short end. A global shutter reads every row at once ([code]0[/code]).
+		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
 			The illuminant is taken on the Planckian locus with the same approximation [member Light3D.light_temperature] uses, so a light set to a given temperature renders neutral under a white balance of the same temperature. The adaptation is a von Kries transform in Bradford cone space, applied in linear scene-referred color after exposure and before tonemapping.

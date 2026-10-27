@@ -34,7 +34,7 @@
 		</member>
 		<member name="exposure_shutter_speed" type="float" setter="set_shutter_speed" getter="get_shutter_speed" default="100.0">
 			Time for shutter to open and close, evaluated as [code]1 / shutter_speed[/code] seconds. A higher value will allow less light (leading to a darker image), while a lower value will allow more light (leading to a brighter image).
-			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled. It also sets the length of [member CameraAttributes.motion_blur_enabled] (see [member motion_blur_use_shutter_speed]), with or without physical light units, and is shown in the inspector whenever it does.
 		</member>
 		<member name="frustum_far" type="float" setter="set_far" getter="get_far" default="4000.0">
 			Override value for [member Camera3D.far]. Used internally when calculating depth of field. When attached to a [Camera3D] as its [member Camera3D.attributes], it will override the [member Camera3D.far] property.
@@ -47,6 +47,9 @@
 		</member>
 		<member name="frustum_near" type="float" setter="set_near" getter="get_near" default="0.05">
 			Override value for [member Camera3D.near]. Used internally when calculating depth of field. When attached to a [Camera3D] as its [member Camera3D.attributes], it will override the [member Camera3D.near] property.
+		</member>
+		<member name="motion_blur_use_shutter_speed" type="bool" setter="set_motion_blur_use_shutter_speed" getter="is_motion_blur_using_shutter_speed" default="true">
+			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.motion_blur_shutter_angle] sets the exposure time as a fraction of each frame instead.
 		</member>
 	</members>
 </class>

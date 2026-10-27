@@ -1,0 +1,8 @@
+{"file": "b720_p180.png", "size": [1280, 720], "expected_L_px": 18.0, "fit_L_px": 17.98, "fit_L_over_expected": 0.9989, "fit_amplitude": 1.0, "fit_rms": 0.00026, "rms_with_expected_L": 0.00026, "L_over_H": 0.02497}
+{"file": "b720_s50.png", "size": [1280, 720], "expected_L_px": 43.2, "fit_L_px": 43.08, "fit_L_over_expected": 0.9972, "fit_amplitude": 1.0002, "fit_rms": 0.00041, "rms_with_expected_L": 0.00046, "L_over_H": 0.05983}
+{"file": "b720_s2000.png", "size": [1280, 720], "expected_L_px": 1.08, "fit_L_px": 1.04, "fit_L_over_expected": 0.963, "fit_amplitude": 1.0, "fit_rms": 5e-05, "rms_with_expected_L": 0.00096, "L_over_H": 0.00144}
+{"file": "b1080_p180.png", "size": [1920, 1080], "expected_L_px": 27.0, "fit_L_px": 27.0, "fit_L_over_expected": 1.0, "fit_amplitude": 1.0001, "fit_rms": 0.00027, "rms_with_expected_L": 0.00027, "L_over_H": 0.025}
+{"file": "b1080_s50.png", "size": [1920, 1080], "expected_L_px": 64.8, "fit_L_px": 64.78, "fit_L_over_expected": 0.9997, "fit_amplitude": 1.0002, "fit_rms": 0.00042, "rms_with_expected_L": 0.00042, "L_over_H": 0.05998}
+{"file": "b1080_s2000.png", "size": [1920, 1080], "expected_L_px": 1.62, "fit_L_px": 1.46, "fit_L_over_expected": 0.9012, "fit_amplitude": 1.0, "fit_rms": 9e-05, "rms_with_expected_L": 0.00163, "L_over_H": 0.00135}
+{"file": "b720_msaa.png", "size": [1280, 720], "expected_L_px": 43.2, "fit_L_px": 43.08, "fit_L_over_expected": 0.9972, "fit_amplitude": 1.0002, "fit_rms": 0.00041, "rms_with_expected_L": 0.00046, "L_over_H": 0.05983}
+{"file": "b720_taa.png", "size": [1280, 720], "expected_L_px": 43.2, "fit_L_px": 42.54, "fit_L_over_expected": 0.9847, "fit_amplitude": 1.0027, "fit_rms": 0.01012, "rms_with_expected_L": 0.01018, "L_over_H": 0.05908}
