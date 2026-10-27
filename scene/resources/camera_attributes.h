@@ -36,6 +36,13 @@
 class CameraAttributes : public Resource {
 	GDCLASS(CameraAttributes, Resource);
 
+public:
+	enum GrainType {
+		GRAIN_TYPE_FILM,
+		GRAIN_TYPE_FILM_MONOCHROME,
+		GRAIN_TYPE_DIGITAL,
+	};
+
 private:
 	RID camera_attributes;
 
@@ -58,6 +65,12 @@ protected:
 	float white_balance_tint = 0.0;
 	void _update_white_balance();
 
+	bool grain_enabled = false;
+	GrainType grain_type = GRAIN_TYPE_FILM;
+	float grain_intensity = 1.0;
+	float grain_size = 1.0;
+	void _update_grain();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -78,6 +91,15 @@ public:
 	float get_white_balance_temperature() const;
 	void set_white_balance_tint(float p_tint);
 	float get_white_balance_tint() const;
+
+	void set_grain_enabled(bool p_enabled);
+	bool is_grain_enabled() const;
+	void set_grain_type(GrainType p_type);
+	GrainType get_grain_type() const;
+	void set_grain_intensity(float p_intensity);
+	float get_grain_intensity() const;
+	void set_grain_size(float p_size);
+	float get_grain_size() const;
 
 	CameraAttributes();
 	~CameraAttributes();
@@ -187,3 +209,5 @@ public:
 	CameraAttributesPhysical();
 	~CameraAttributesPhysical();
 };
+
+VARIANT_ENUM_CAST(CameraAttributes::GrainType);

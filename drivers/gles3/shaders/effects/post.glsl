@@ -36,6 +36,7 @@ void main() {
 #define APPLY_TONEMAPPING
 
 #include "../tonemap_inc.glsl"
+#include "camera_grain_inc.glsl"
 
 #ifdef USE_MULTIVIEW
 uniform sampler2DArray source_color; // texunit:0
@@ -163,6 +164,11 @@ void main() {
 	// Putting SSAO after the conversion to linear color, though it might be better before the glow.
 	color.rgb *= s4ao(uv_interp); // The USE_SSAO_X controls the number of samples.
 #endif
+
+	// Grain, in scene-referred light before the tone curve. Compatibility has no auto exposure.
+	if (grain != 0u) {
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, grain, 1.0, uint(view));
+	}
 
 	color.rgb = apply_tonemapping(color.rgb);
 

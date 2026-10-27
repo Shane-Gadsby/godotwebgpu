@@ -128,7 +128,8 @@ private:
 		// CameraAttributes white balance: Bradford cone-space gains, used with TONEMAP_FLAG_USE_WHITE_BALANCE.
 		// This brings the block to 128 bytes, the most Vulkan guarantees for push constants.
 		float white_balance[3]; //  12 - 124
-		float pad; //  4 - 128
+		// CameraAttributes grain, packed (RendererCameraAttributes::camera_attributes_get_grain_packed()); 0 when off.
+		uint32_t grain; //  4 - 128
 	};
 	static_assert(sizeof(TonemapPushConstant) <= 128, "The tonemap push constant must fit the 128 bytes every Vulkan device supports.");
 
@@ -147,6 +148,9 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float output_max_value; //  4 - 68
 		float white_balance[3]; //  12 - 80 (with TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE)
+
+		uint32_t grain; //  4 - 84 (packed, 0 when off)
+		float pad[3]; //  12 - 96
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -195,6 +199,8 @@ public:
 
 		bool use_white_balance = false;
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0);
+
+		uint32_t grain = 0; // Packed CameraAttributes grain for this pass's output size and frame; 0 when off.
 
 		bool use_bcs = false;
 		float brightness = 1.0;

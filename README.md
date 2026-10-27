@@ -272,6 +272,9 @@ These work in every export, not only on the web. Full documentation is on the
   GitHub releases instead of godotengine.org, and opens the release page.
 - **Camera white balance:** `CameraAttributes` has a color temperature in Kelvin and a green-magenta tint, with a real
   camera's meaning (3200 K makes a tungsten-lit scene neutral), in Forward+, Mobile and Compatibility, web included.
+- **Camera grain:** `CameraAttributes` can add color film, black-and-white film or digital sensor noise, modeled from
+  the camera's ISO (Kodak's published film granularity; photon shot and read noise of a full-frame sensor) and scaled
+  by Selwyn's law so it looks the same at every resolution, with intensity and size controls, in every renderer.
 - **MetaHuman importer** (experimental): importing `head.dna` brings in the whole character. The face rig is evaluated
   by OpenRigLogic, and clothing and hair grooms come with it.
 

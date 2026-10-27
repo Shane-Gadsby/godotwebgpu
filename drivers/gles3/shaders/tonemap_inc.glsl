@@ -9,6 +9,10 @@ layout(std140) uniform TonemapData { //ubo:0
 	float saturation;
 	int pad3;
 	vec4 white_balance; // CameraAttributes white balance: xyz = Bradford cone gains, w > 0.0 when enabled.
+	uint grain; // CameraAttributes grain, packed (effects/camera_grain_inc.glsl); 0 when off. Applied in post.
+	int pad4;
+	int pad5;
+	int pad6;
 };
 
 // A von Kries adaptation in Bradford cone space. The CPU computes the three cone gains

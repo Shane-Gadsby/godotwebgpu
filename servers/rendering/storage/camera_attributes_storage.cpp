@@ -288,3 +288,93 @@ Vector3 RendererCameraAttributes::camera_attributes_get_white_balance_gains(RID 
 	ERR_FAIL_NULL_V(cam_attributes, Vector3(1.0, 1.0, 1.0));
 	return cam_attributes->white_balance_gains;
 }
+
+/* Grain
+ *
+ * Film grain and digital sensor noise from the camera's ISO, worked out per tonemap pass so the image looks equally
+ * grainy at any output resolution. Both models put the frame on the 36x24 mm format CameraAttributesPhysical uses
+ * for its field of view, so an output pixel covers 24 mm / height of it.
+ *
+ * Resolution: noise that is finer than a pixel averages out inside it, and Selwyn's law (the RMS fluctuation times
+ * the square root of the measuring area is constant) says by how much. The shader is given the grain's own
+ * amplitude and the size of one grain "cell" in output pixels: cells smaller than a pixel give white noise scaled
+ * by the cell size, larger ones give cellular noise, one value per grain at full amplitude. Lower
+ * resolutions therefore show weaker but proportionally coarser noise per pixel, which the eye reads as the same
+ * grain. grain_size scales the cell while keeping each cell's amplitude, so larger grain is also more visible.
+ *
+ * Film: Kodak's diffuse RMS granularity (density fluctuation x 1000, read through a 48 um aperture) runs 8 for
+ * ISO 100 emulsions, 10-11 for ISO 400 and 18 for ISO 3200 (T-Max 100, 400 and P3200; Portra 400 is 11), which
+ * fits 8 * (ISO / 100)^0.23. That is the granularity at a density of 1, near middle gray on a negative; the shader
+ * grows it with the square root of the local density. Grain clumps are taken as 6 um at ISO 100, growing with
+ * (ISO / 100)^0.4 (faster emulsions have larger crystals). A density fluctuation becomes a fluctuation of log
+ * exposure through the negative's gamma of 0.6, so the shader applies it as an exposure change in stops before
+ * the tonemapper, which plays the print and compresses it in the highlights.
+ *
+ * Digital: a full-frame sensor with 6 um photosites (24 MP) holding 1400 electrons per um^2 at ISO 100 (50,000
+ * per photosite, a typical full well), halved per doubling of ISO. Scene value 1.0 is taken as saturation, which
+ * is what the saturation-based exposure normalization of CameraAttributesPhysical produces. Shot noise is the
+ * square root of the electron count; read noise is 1.5 electrons before the ISO gain plus 8 electrons after it,
+ * referred to the input, so it dominates the shadows at low ISO and fades at high ISO as on real sensors. The
+ * shader adds the noise in linear light per Bayer channel. At ISO 100 and 1080p this is far below anything
+ * visible, as it is on a real camera; it shows from about ISO 1600, or with grain_intensity.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	ERR_FAIL_INDEX((int)p_type, 3);
+	cam_attributes->grain_enabled = p_enable;
+	cam_attributes->grain_type = p_type;
+	cam_attributes->grain_intensity = MAX(p_intensity, 0.0f);
+	cam_attributes->grain_size = MAX(p_size, 0.01f);
+	cam_attributes->grain_sensitivity = MAX(p_sensitivity, 0.1f);
+}
+
+// Quantizes log2(p_value) over [p_lo, p_hi] into p_bits bits.
+static uint32_t _grain_encode_log2(double p_value, int p_bits, double p_lo, double p_hi) {
+	const uint32_t max_value = (1u << p_bits) - 1u;
+	const double t = (Math::log2(MAX(p_value, 1e-30)) - p_lo) / (p_hi - p_lo);
+	return (uint32_t)Math::round(CLAMP(t, 0.0, 1.0) * max_value);
+}
+
+uint32_t RendererCameraAttributes::camera_attributes_get_grain_packed(RID p_camera_attributes, int p_output_height, uint64_t p_frame) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || !cam_attributes->grain_enabled || cam_attributes->grain_intensity <= 0.0f || p_output_height <= 0) {
+		return 0;
+	}
+
+	const double iso_ratio = cam_attributes->grain_sensitivity / 100.0;
+	const double pixel_um = 24000.0 / p_output_height; // The output pixel's footprint on a 24 mm tall frame.
+
+	double cell_um; // Grain cell size on the frame at grain_size 1.
+	double amplitude_a;
+	double amplitude_b = 0.0;
+	uint32_t type;
+	if (cam_attributes->grain_type == RSE::CAMERA_ATTRIBUTES_GRAIN_DIGITAL) {
+		cell_um = 6.0;
+		const double full_well = 1400.0 * cell_um * cell_um / iso_ratio; // Electrons at saturation.
+		const double read_noise = Math::sqrt(1.5 * 1.5 + (8.0 / iso_ratio) * (8.0 / iso_ratio)); // Electrons.
+		amplitude_a = 1.0 / Math::sqrt(full_well); // Shot noise at signal 1.0 (saturation).
+		amplitude_b = read_noise / full_well;
+		type = 3;
+	} else {
+		cell_um = 6.0 * Math::pow(iso_ratio, 0.4);
+		// Granularity at the 48 um aperture, converted to the grain cell's own area by Selwyn's law, then from
+		// density to stops of exposure through the negative's gamma: 0.6 * log10(2) density per stop.
+		const double granularity = 0.008 * Math::pow(iso_ratio, 0.23);
+		const double aperture_side_um = Math::sqrt(Math::PI) * 24.0; // The 48 um circle's area as a square.
+		amplitude_a = granularity * aperture_side_um / cell_um / (0.6 * Math::log(2.0) / Math::log(10.0));
+		type = cam_attributes->grain_type == RSE::CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME ? 2 : 1;
+	}
+	amplitude_a *= cam_attributes->grain_intensity;
+	amplitude_b *= cam_attributes->grain_intensity;
+	const double cell_px = cell_um * cam_attributes->grain_size / pixel_um;
+
+	// Bit layout: see camera_grain_inc.glsl.
+	uint32_t packed = type;
+	packed |= _grain_encode_log2(cell_px, 7, -8.0, 5.0) << 2;
+	packed |= _grain_encode_log2(amplitude_a, 8, -16.0, 4.0) << 9;
+	packed |= _grain_encode_log2(amplitude_b, 7, -16.0, 4.0) << 17;
+	packed |= uint32_t(p_frame & 0xFF) << 24;
+	return packed;
+}

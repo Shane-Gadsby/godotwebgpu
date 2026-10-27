@@ -3212,6 +3212,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_exposure", "camera_attributes", "multiplier", "normalization"), &RenderingServer::camera_attributes_set_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_white_balance", "camera_attributes", "temperature", "tint"), &RenderingServer::camera_attributes_set_white_balance);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_grain", "camera_attributes", "enable", "type", "intensity", "size", "sensitivity"), &RenderingServer::camera_attributes_set_grain);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
@@ -3221,6 +3222,10 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_LOW);
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_HIGH);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_DIGITAL);
 
 	/* SCENARIO */
 

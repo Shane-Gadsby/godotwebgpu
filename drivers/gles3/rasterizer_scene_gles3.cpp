@@ -2464,6 +2464,12 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		}
 	}
 
+	// Grain is drawn by the post pass, at the output resolution.
+	const bool use_grain = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
+	if (use_grain) {
+		apply_environment_effects_in_post = true;
+	}
+
 	// Assign render data
 	// Use the format from rendererRD
 	RenderDataGLES3 render_data;
@@ -2569,6 +2575,9 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.white_balance[1] = gains.y;
 		tonemap_ubo.white_balance[2] = gains.z;
 		tonemap_ubo.white_balance[3] = 1.0;
+	}
+	if (use_grain) {
+		tonemap_ubo.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(render_data.camera_attributes, rb->get_target_size().y, RSG::rasterizer->get_frame_number());
 	}
 
 	if (scene_state.tonemap_buffer == 0) {

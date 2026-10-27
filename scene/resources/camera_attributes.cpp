@@ -49,6 +49,7 @@ float CameraAttributes::get_exposure_multiplier() const {
 void CameraAttributes::set_exposure_sensitivity(float p_sensitivity) {
 	exposure_sensitivity = p_sensitivity;
 	_update_exposure();
+	_update_grain(); // Faster film and higher sensor gain are grainier.
 	emit_changed();
 }
 
@@ -118,6 +119,52 @@ void CameraAttributes::_update_white_balance() {
 	RS::get_singleton()->camera_attributes_set_white_balance(camera_attributes, white_balance_temperature, white_balance_tint);
 }
 
+void CameraAttributes::set_grain_enabled(bool p_enabled) {
+	grain_enabled = p_enabled;
+	_update_grain();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_grain_enabled() const {
+	return grain_enabled;
+}
+
+void CameraAttributes::set_grain_type(GrainType p_type) {
+	ERR_FAIL_INDEX(p_type, 3);
+	grain_type = p_type;
+	_update_grain();
+	emit_changed();
+}
+
+CameraAttributes::GrainType CameraAttributes::get_grain_type() const {
+	return grain_type;
+}
+
+void CameraAttributes::set_grain_intensity(float p_intensity) {
+	grain_intensity = p_intensity;
+	_update_grain();
+	emit_changed();
+}
+
+float CameraAttributes::get_grain_intensity() const {
+	return grain_intensity;
+}
+
+void CameraAttributes::set_grain_size(float p_size) {
+	grain_size = p_size;
+	_update_grain();
+	emit_changed();
+}
+
+float CameraAttributes::get_grain_size() const {
+	return grain_size;
+}
+
+void CameraAttributes::_update_grain() {
+	RS::get_singleton()->camera_attributes_set_grain(camera_attributes, grain_enabled, RSE::CameraAttributesGrainType(grain_type), grain_intensity, grain_size, exposure_sensitivity);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -126,12 +173,18 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
-	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && p_property.name == "exposure_sensitivity") {
+	// The sensitivity sets the grain's ISO too, so it shows whenever grain is on.
+	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && !grain_enabled && p_property.name == "exposure_sensitivity") {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
 
 	if (p_property.name.begins_with("auto_exposure_") && p_property.name != "auto_exposure_enabled" && !auto_exposure_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("grain_") && p_property.name != "grain_enabled" && !grain_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -155,6 +208,15 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_white_balance_tint", "tint"), &CameraAttributes::set_white_balance_tint);
 	ClassDB::bind_method(D_METHOD("get_white_balance_tint"), &CameraAttributes::get_white_balance_tint);
 
+	ClassDB::bind_method(D_METHOD("set_grain_enabled", "enabled"), &CameraAttributes::set_grain_enabled);
+	ClassDB::bind_method(D_METHOD("is_grain_enabled"), &CameraAttributes::is_grain_enabled);
+	ClassDB::bind_method(D_METHOD("set_grain_type", "type"), &CameraAttributes::set_grain_type);
+	ClassDB::bind_method(D_METHOD("get_grain_type"), &CameraAttributes::get_grain_type);
+	ClassDB::bind_method(D_METHOD("set_grain_intensity", "intensity"), &CameraAttributes::set_grain_intensity);
+	ClassDB::bind_method(D_METHOD("get_grain_intensity"), &CameraAttributes::get_grain_intensity);
+	ClassDB::bind_method(D_METHOD("set_grain_size", "size"), &CameraAttributes::set_grain_size);
+	ClassDB::bind_method(D_METHOD("get_grain_size"), &CameraAttributes::get_grain_size);
+
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_multiplier", PROPERTY_HINT_RANGE, "0.0,8.0,0.001,or_greater"), "set_exposure_multiplier", "get_exposure_multiplier");
@@ -167,6 +229,16 @@ void CameraAttributes::_bind_methods() {
 	ADD_GROUP("White Balance", "white_balance_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "2000,10000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_tint", PROPERTY_HINT_RANGE, "-150,150,1"), "set_white_balance_tint", "get_white_balance_tint");
+
+	ADD_GROUP("Grain", "grain_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "grain_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_grain_enabled", "is_grain_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "grain_type", PROPERTY_HINT_ENUM, "Film,Film Monochrome,Digital"), "set_grain_type", "get_grain_type");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_intensity", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_grain_intensity", "get_grain_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grain_size", PROPERTY_HINT_RANGE, "0.25,4,0.01,or_greater"), "set_grain_size", "get_grain_size");
+
+	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
+	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);
+	BIND_ENUM_CONSTANT(GRAIN_TYPE_DIGITAL);
 }
 
 CameraAttributes::CameraAttributes() {

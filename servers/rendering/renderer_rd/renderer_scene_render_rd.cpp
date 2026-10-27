@@ -826,6 +826,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.bilinear_filtering = scale_mode != RSE::VIEWPORT_SCALING_3D_MODE_NEAREST;
 		}
 
+		// Grain is a camera setting too, but noise has no place in the debug draw modes. It is sized for the pixels
+		// this pass writes.
+		if (can_use_effects) {
+			tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, tonemap.dest_texture_size.y, RSG::rasterizer->get_frame_number());
+		}
+
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
 		if (rb->get_use_debanding() && !using_hdr) {
 			if (use_smaa) {
@@ -1018,6 +1024,9 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	if (RSG::camera_attributes->camera_attributes_uses_white_balance(p_render_data->camera_attributes)) {
 		tonemap.use_white_balance = true;
 		tonemap.white_balance_gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(p_render_data->camera_attributes);
+	}
+	if (can_use_effects) {
+		tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, target_size.y, RSG::rasterizer->get_frame_number());
 	}
 	tonemap.view_count = rb->get_view_count();
 

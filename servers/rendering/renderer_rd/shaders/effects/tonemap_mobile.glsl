@@ -80,6 +80,8 @@ layout(constant_id = 16) const bool glow_mode_replace = false;
 layout(constant_id = 17) const bool glow_mode_mix = false;
 layout(constant_id = 18) const bool use_white_balance = false;
 
+#include "camera_grain_inc.glsl"
+
 // CameraAttributes white balance: a von Kries adaptation in Bradford cone space. The CPU computes the
 // three cone gains (RendererCameraAttributes::white_balance_compute_gains()); these matrices are
 // BRADFORD * SRGB_TO_XYZ and its inverse, and must match the C++ constants.
@@ -112,6 +114,9 @@ layout(push_constant, std430) uniform Params {
 
 	float output_max_value;
 	float white_balance[3];
+
+	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
+	float pad[3];
 }
 params;
 
@@ -785,6 +790,16 @@ void main() {
 	// pre-tonemap glow, which is scene light too.
 	if (use_white_balance) {
 		color.rgb = apply_white_balance(color.rgb, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
+	}
+
+	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
+	// camera's tone curve. The mobile tonemapper has no auto exposure.
+	if (params.grain != 0u) {
+#ifdef USE_MULTIVIEW
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, 1.0, uint(ViewIndex));
+#else
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, 1.0, 0u);
+#endif
 	}
 
 	// Tonemap to lower dynamic range.

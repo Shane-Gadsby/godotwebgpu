@@ -725,6 +725,7 @@ public:
 	virtual void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization) = 0;
 	virtual void camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) = 0;
 	virtual void camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint) = 0;
+	virtual void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity) = 0;
 
 	/* SCENARIO API */
 
@@ -1171,6 +1172,7 @@ VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSDFGIYScale, RenderingServer::EnvironmentS
 VARIANT_ENUM_CAST_EXT(RSE::SubSurfaceScatteringQuality, RenderingServer::SubSurfaceScatteringQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBlurQuality, RenderingServer::DOFBlurQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBokehShape, RenderingServer::DOFBokehShape);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::ShadowQuality, RenderingServer::ShadowQuality);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceType, RenderingServer::InstanceType);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceFlags, RenderingServer::InstanceFlags);

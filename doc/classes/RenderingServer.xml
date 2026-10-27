@@ -111,6 +111,18 @@
 				[/codeblock]
 			</description>
 		</method>
+		<method name="camera_attributes_set_grain">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="type" type="int" enum="RenderingServer.CameraAttributesGrainType" />
+			<param index="3" name="intensity" type="float" />
+			<param index="4" name="size" type="float" />
+			<param index="5" name="sensitivity" type="float" />
+			<description>
+				Sets the grain of the camera attributes: whether it is enabled, its [param type], [param intensity] and [param size] multipliers, and the ISO [param sensitivity] of the film or sensor. These parameters take on the same meaning as [member CameraAttributes.grain_enabled], [member CameraAttributes.grain_type], [member CameraAttributes.grain_intensity], [member CameraAttributes.grain_size] and [member CameraAttributes.exposure_sensitivity].
+			</description>
+		</method>
 		<method name="camera_attributes_set_white_balance">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -5996,6 +6008,15 @@
 		</constant>
 		<constant name="DOF_BLUR_QUALITY_HIGH" value="3" enum="DOFBlurQuality">
 			Highest quality DOF blur. Results in the smoothest looking blur by taking the most samples, but is also significantly slower.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_FILM" value="0" enum="CameraAttributesGrainType">
+			Color negative film grain. See [constant CameraAttributes.GRAIN_TYPE_FILM].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME" value="1" enum="CameraAttributesGrainType">
+			Black-and-white film grain. See [constant CameraAttributes.GRAIN_TYPE_FILM_MONOCHROME].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_DIGITAL" value="2" enum="CameraAttributesGrainType">
+			Digital sensor noise. See [constant CameraAttributes.GRAIN_TYPE_DIGITAL].
 		</constant>
 		<constant name="INSTANCE_NONE" value="0" enum="InstanceType">
 			The instance does not have a type.

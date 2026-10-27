@@ -169,6 +169,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 		tonemap.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
 		tonemap.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
 	}
+	tonemap.push_constant.grain = p_settings.grain;
 	tonemap.push_constant.white = p_settings.white;
 	tonemap.push_constant.auto_exposure_scale = p_settings.auto_exposure_scale;
 	tonemap.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
@@ -262,6 +263,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.white_balance[0] = p_settings.white_balance_gains.x;
 	tonemap_mobile.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
 	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
+	tonemap_mobile.push_constant.grain = p_settings.grain;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -357,6 +359,7 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.white_balance[0] = p_settings.white_balance_gains.x;
 	tonemap_mobile.push_constant.white_balance[1] = p_settings.white_balance_gains.y;
 	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
+	tonemap_mobile.push_constant.grain = p_settings.grain;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];

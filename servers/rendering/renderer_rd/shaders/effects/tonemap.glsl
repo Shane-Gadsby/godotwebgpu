@@ -64,6 +64,8 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
 #define FLAG_USE_WHITE_BALANCE (1 << 7)
 
+#include "camera_grain_inc.glsl"
+
 layout(push_constant, std430) uniform Params {
 	vec3 bcs;
 	uint flags;
@@ -87,7 +89,7 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 
 	vec3 white_balance;
-	float pad;
+	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
 }
 params;
 
@@ -882,9 +884,11 @@ void main() {
 	// Exposure
 
 	float exposure = params.exposure;
+	float auto_exposure_gain = 1.0;
 
 	if (bool(params.flags & FLAG_USE_AUTO_EXPOSURE)) {
-		exposure *= 1.0 / (texelFetch(source_auto_exposure, ivec2(0, 0), 0).r * params.luminance_multiplier / params.auto_exposure_scale);
+		auto_exposure_gain = 1.0 / (texelFetch(source_auto_exposure, ivec2(0, 0), 0).r * params.luminance_multiplier / params.auto_exposure_scale);
+		exposure *= auto_exposure_gain;
 	}
 
 	color.rgb *= exposure;
@@ -912,6 +916,16 @@ void main() {
 	// pre-tonemap glow, which is scene light too.
 	if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
 		color.rgb = apply_white_balance(color.rgb, params.white_balance);
+	}
+
+	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
+	// camera's tone curve.
+	if (params.grain != 0u) {
+#ifdef USE_MULTIVIEW
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, auto_exposure_gain, uint(ViewIndex));
+#else
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, auto_exposure_gain, 0u);
+#endif
 	}
 
 	// Tonemap to lower dynamic range.

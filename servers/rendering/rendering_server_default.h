@@ -930,6 +930,7 @@ public:
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)
+	FUNC6(camera_attributes_set_grain, RID, bool, RSE::CameraAttributesGrainType, float, float, float)
 
 	/* SCENARIO API */
 

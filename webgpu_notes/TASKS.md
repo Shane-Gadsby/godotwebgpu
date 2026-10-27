@@ -4571,6 +4571,41 @@ merging to `main` directly, with the 🧪 WebGPU Tests runs those PRs start canc
   #20 earlier the same day. Neither fix changes anything that workflow exercises (formatting, a benchmark
   report script, the SCU folder list).
 
+### 4.47 Camera grain on CameraAttributes (October 2026)
+
+User request (2026-10-28): noise grain as a practical and physical camera attribute, realistic, correct at every game
+resolution, with a strength control and a type selector defaulting to the most realistic type. On the shared base
+`CameraAttributes`: `grain_enabled` (off by default), `grain_type` (`GRAIN_TYPE_FILM` default, `_FILM_MONOCHROME`,
+`_DIGITAL`), `grain_intensity` and `grain_size` multipliers; the ISO is `exposure_sensitivity`, now shown in the
+inspector while grain is on even without physical light units. `RenderingServer.camera_attributes_set_grain()`.
+
+- **Model** (`camera_attributes_storage.cpp`, comment block above `camera_attributes_set_grain()`): a 36x24 mm frame
+  as in `CameraAttributesPhysical`. Film: Kodak diffuse RMS granularity fitted as `8 * (ISO/100)^0.23` (T-Max
+  100/400/P3200, Portra 400), sqrt(density) growth around D = 1 at middle gray, 6 um clumps growing with
+  `(ISO/100)^0.4`, density noise applied as stops of exposure through the negative's gamma 0.6 *before* the tonemapper
+  (the tonemapper plays the print); color film is 65% shared + 35% per-layer noise (a look choice, documented as
+  such). Digital: 6 um photosites, 1400 e-/um² at ISO 100, scene 1.0 = saturation, shot + read noise (1.5 e- pre-gain,
+  8 e- post-gain), Bayer weights 2 / sqrt(2) / 2, auto exposure treated as gain (auto ISO).
+- **Resolution:** Selwyn's law. The shader gets the grain's own amplitude and its cell size in output pixels: cells
+  below a pixel give white noise scaled by the cell size, larger ones cellular noise (nearest of a 3x3 jittered
+  lattice). A first version interpolated a lattice and renormalized per pixel; that made per-pixel variance exact but
+  inflated low-frequency power ~30% once cells passed a pixel, i.e. a 4K image looked grainier than a 1080p one.
+  Measured after the fix (numpy port and native renders box-downsampled to a common grid): within ~10% from 360p to
+  2160p, and 720p vs 1440p->720p within a few percent per luminance band in all three renderers.
+- **Plumbing:** one packed `uint` (type, log cell size, two log amplitudes, 8-bit frame seed from
+  `get_frame_number()`; layout in `camera_grain_inc.glsl`), because the Forward+ tonemap push constant was exactly 128
+  bytes after §4.42: it takes the former `pad`. Mobile push constant 80 -> 96 bytes; Compatibility a `uint` in the
+  Tonemap UBO, applied in `effects/post.glsl` (a copy of the include in `drivers/gles3/shaders/effects/`), and grain
+  forces the post pass. Zero means off: a uniform branch, no new flags, spec constants or variants, so the interface
+  references are unchanged (smoke 276/276, 552/552, 0 invalid). Not drawn in debug draw modes or reflection probes.
+- **Verified:** native Forward+ (4080 SUPER, Vulkan), Mobile and Compatibility (llvmpipe) on a -7..+5 stop ramp and a lit
+  scene; WebGPU Forward+ in Chrome (lovelace, 48 textures) matches native per band within 0.02 code values with a
+  pixel-identical no-grain baseline. No Forward+ matrix arm: the grain is random per frame, so the parity check cannot
+  compare it.
+- **Known limits:** with FSR 1 or SMAA the grain is drawn at the 3D resolution and upscaled; Compatibility's post pass
+  loses a little deep-shadow detail compared with its inline path (the same as glow, SSAO or adjustments); Mobile and
+  Compatibility have no auto exposure, so no auto-ISO noise there. The seed repeats every 256 frames.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

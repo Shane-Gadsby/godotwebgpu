@@ -4,8 +4,8 @@
 		Parent class for camera settings.
 	</brief_description>
 	<description>
-		Controls camera-specific attributes such as depth of field, exposure override and white balance.
-		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, white balance, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
+		Controls camera-specific attributes such as depth of field, exposure override, white balance and grain.
+		When used in a [WorldEnvironment] it provides default settings for exposure, auto-exposure, white balance, grain, and depth of field that will be used by all cameras without their own [CameraAttributes], including the editor camera. When used in a [Camera3D] it will override any [CameraAttributes] set in the [WorldEnvironment]. When used in [VoxelGI] or [LightmapGI], only the exposure settings will be used.
 		See also [Environment] for general 3D environment settings.
 		This is a pure virtual class that is inherited by [CameraAttributesPhysical] and [CameraAttributesPractical].
 	</description>
@@ -28,7 +28,22 @@
 		<member name="exposure_sensitivity" type="float" setter="set_exposure_sensitivity" getter="get_exposure_sensitivity" default="100.0">
 			Sensitivity of camera sensors, measured in ISO. A higher sensitivity results in a brighter image.
 			If [member auto_exposure_enabled] is [code]true[/code], this can be used as a method of exposure compensation, doubling the value will increase the exposure value (measured in EV100) by 1 stop.
-			[b]Note:[/b] Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+			The sensitivity also sets the film speed or sensor gain of [member grain_enabled]: higher values give coarser, stronger grain or noise.
+			[b]Note:[/b] Exposure is only affected when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled. Otherwise, this property only affects grain, and is only shown in the inspector while grain is enabled.
+		</member>
+		<member name="grain_enabled" type="bool" setter="set_grain_enabled" getter="is_grain_enabled" default="false">
+			If [code]true[/code], the camera adds film grain or digital sensor noise, depending on [member grain_type], modeled on a 36×24 mm frame at the ISO given by [member exposure_sensitivity]. The grain is sized and scaled for the resolution it is drawn at, following Selwyn's law: a lower resolution shows weaker, coarser noise per pixel, so the image looks equally grainy at any resolution. A new grain pattern is drawn every frame.
+			Grain is applied in linear scene-referred color after exposure and white balance, before tonemapping, so the tonemapper compresses it in the highlights as a print or a camera's tone curve does. It is not drawn in reflection probes or the viewport's debug draw modes.
+			[b]Note:[/b] When 3D resolution scaling uses FSR 1.0 or SMAA is enabled, the grain is drawn at the 3D resolution and upscaled with the image. In the Compatibility rendering method, enabling grain enables the post-processing pass.
+		</member>
+		<member name="grain_intensity" type="float" setter="set_grain_intensity" getter="get_grain_intensity" default="1.0">
+			Multiplier for the grain's amplitude. At [code]1.0[/code], the amount is the one modeled for the film or sensor at [member exposure_sensitivity]. [code]0.0[/code] disables grain.
+		</member>
+		<member name="grain_size" type="float" setter="set_grain_size" getter="get_grain_size" default="1.0">
+			Multiplier for the size of the grain (or of the noise's structure for [constant GRAIN_TYPE_DIGITAL]). Each grain keeps its contrast, so larger grain is also more visible. At [code]1.0[/code], the size is the one modeled for the film or sensor at [member exposure_sensitivity].
+		</member>
+		<member name="grain_type" type="int" setter="set_grain_type" getter="get_grain_type" enum="CameraAttributes.GrainType" default="0">
+			The kind of grain or noise to simulate. See [enum GrainType] for options.
 		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
@@ -39,4 +54,15 @@
 			Green-magenta correction of the white balance, from [code]-150.0[/code] to [code]150.0[/code]. It moves the assumed illuminant perpendicular to the Planckian locus by [code]1/3000[/code] Duv per unit, so the full range is [code]0.05[/code] Duv either way: a positive value compensates for a green illuminant and turns the image magenta, a negative value compensates for a magenta one and turns it green, as the tint slider of most raw converters does.
 		</member>
 	</members>
+	<constants>
+		<constant name="GRAIN_TYPE_FILM" value="0" enum="GrainType">
+			Color negative film grain. Its granularity follows Kodak's published RMS granularity across film speeds (8 at ISO 100, about 11 at ISO 400, 18 at ISO 3200) and grows with the square root of the negative's density, so the grain is strongest in the midtones and fades in deep shadows and, once tonemapped, in the highlights. Each dye layer grains partly on its own, giving the grain a little color. This is the most realistic option for a filmic look.
+		</constant>
+		<constant name="GRAIN_TYPE_FILM_MONOCHROME" value="1" enum="GrainType">
+			Black-and-white film grain: the same model as [constant GRAIN_TYPE_FILM], driven by luminance, with no color in the grain.
+		</constant>
+		<constant name="GRAIN_TYPE_DIGITAL" value="2" enum="GrainType">
+			Digital sensor noise from a full-frame sensor with 6 µm photosites: photon shot noise, which grows with the square root of the light captured, plus read noise, which dominates the shadows, per Bayer color channel. As on a real camera, it is invisible at low ISO and shows from about ISO 1600. With [member auto_exposure_enabled], auto exposure acts as sensor gain (auto ISO): a dark scene brightened by auto exposure gets noisier.
+		</constant>
+	</constants>
 </class>

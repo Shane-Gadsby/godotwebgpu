@@ -63,6 +63,13 @@ private:
 		float white_balance_tint = 0.0;
 		bool use_white_balance = false;
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0); // Cone-space (Bradford LMS) gains.
+
+		// Grain. Off by default; the tonemappers skip it entirely then.
+		bool grain_enabled = false;
+		RSE::CameraAttributesGrainType grain_type = RSE::CAMERA_ATTRIBUTES_GRAIN_FILM;
+		float grain_intensity = 1.0;
+		float grain_size = 1.0;
+		float grain_sensitivity = 100.0; // In ISO.
 	};
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
@@ -130,6 +137,17 @@ public:
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 
 		return cam_attributes && cam_attributes->use_white_balance;
+	}
+
+	void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity);
+	// The grain parameters for a tonemap pass whose output is p_output_height pixels tall, packed the way
+	// camera_grain_inc.glsl reads them, or 0 when there is no grain (see the .cpp for the model).
+	uint32_t camera_attributes_get_grain_packed(RID p_camera_attributes, int p_output_height, uint64_t p_frame);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_grain(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+
+		return cam_attributes && cam_attributes->grain_enabled && cam_attributes->grain_intensity > 0.0f;
 	}
 
 	_FORCE_INLINE_ RSE::DOFBlurQuality camera_attributes_get_dof_blur_quality() {
