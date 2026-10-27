@@ -3087,6 +3087,28 @@ wants final newlines and no trailing space. #20 failed this in 1m44s and none of
 with `pre-commit run --from-ref origin/main --to-ref HEAD`, **with the fixes staged**: pre-commit stashes unstaged
 changes and checks the committed text, so an unstaged fix looks as if it did nothing.
 
+76. **An `EM_ASM` body must not name anything of Emscripten's** (2026-10-27, user report). Closure (CI's
+`use_closure_compiler=yes`, so every release template) renames the runtime and library objects (`$WebGPU`,
+`UTF8ToString`, `stringToNewUTF8`, `_free`, `wasmTable`, `GodotConfig`) and their unquoted properties. A regular
+template failed `RenderingContextDriverWebGPU::initialize()` with `M.importJsDevice is not a function`: the EM_ASM got the
+renamed object but read `WebGPU["importJsDevice"]` by its old property name. A dlink template's EM_ASM bodies live in
+the side module and are `eval`'d at load time, outside the renamed glue: `WebGPU is not defined` without threads,
+`stringToNewUTF8 is not defined` (render thread prestart) with them. Local builds skip closure, and `local_ci.sh` only
+compiles the dlink template, so no tier caught any of it. Such JavaScript goes in a JS library function, whose `__deps`
+are renamed with it (`platform/web/js/libs/library_godot_webgpu.js`: device import, shader stats, the render thread's
+device and yield; `godot_js_os_startup_mark()`). An EM_ASM may use `Module['...']`, `globalThis`, browser APIs and its
+`$N` arguments. Only the opt-in `WEBGPU_VERBOSE` diagnostics still break the rule.
+
+77. **`CanvasItemMaterial` and `ParticleProcessMaterial` build their shader on an idle frame too** (2026-10-27, user
+report). Task 32 made the shader baker call `BaseMaterial3D::flush_changes()` before reading a material's shader, but
+the other two classes queue the same way (`register_scene_types.cpp` registers all three as idle callbacks) and were
+never flushed. No frame ticks during an export, so a `CanvasItemMaterial` the export loads fresh (a `GPUParticles2D`'s
+particle-animation material, say) has no shader yet and nothing is baked for it. The tell is one whole
+`CanvasShaderRD` version in `translatedShaders`: `CanvasShaderRD:0`, `:1`, `:2` and `:4` once each, with `:3` and
+`:5` as `cached` hits (the `USE_POINT_SIZE` variants compile to the same SPIR-V as 2 and 4). The baker now flushes all
+three (`ShaderBakerExportPlugin::_flush_material_changes()`), before its embedded-material snapshot and before each
+material lookup. A new class that defers its shader the same way must be added there.
+
 ---
 
 ### Measurement traps (found 2026-10-15)

@@ -61,6 +61,8 @@ extern int godot_js_os_has_feature(const char *p_ftr);
 // real progress through the startup rather than stopping at "download complete".
 // See `OS_Web::benchmark_end_measure()` and webgpu_notes/TASKS.md Task 14.
 extern void godot_js_os_startup_progress(const char *p_name, double p_duration_ms);
+// Appends a completed startup phase to `window.godotStartupMarks` (`--benchmark` only).
+extern void godot_js_os_startup_mark(const char *p_name, double p_duration_ms);
 // Prints one engine warning on the page's warning channel (`console.warn()` by default).
 // Everything the engine writes to stderr reaches the console as an error, so warnings --
 // which are not faults -- need a channel of their own. See `WebLogger` in `os_web.cpp`.

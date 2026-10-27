@@ -42,7 +42,9 @@
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/sprite_3d.h"
 #include "scene/3d/visual_instance_3d.h"
+#include "scene/resources/canvas_item_material.h"
 #include "scene/resources/material.h"
+#include "scene/resources/particle_process_material.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/rendering_shader_container.h"
@@ -196,7 +198,9 @@ bool ShaderBakerExportPlugin::_begin_customize_resources(const Ref<EditorExportP
 
 	ShaderRD::shaders_embedded_set_unlock();
 
-	// Include all shaders created by embedded materials.
+	// Include all shaders created by embedded materials, after building the ones
+	// still queued for an idle frame.
+	_flush_material_changes();
 	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
 	material_storage->shader_embedded_set_lock();
 	const HashSet<RID> &rid_set = material_storage->shader_embedded_set_get();
@@ -422,6 +426,12 @@ void ShaderBakerExportPlugin::_end_customize_resources() {
 	_cleanup_container_format();
 }
 
+void ShaderBakerExportPlugin::_flush_material_changes() {
+	BaseMaterial3D::flush_changes();
+	CanvasItemMaterial::flush_changes();
+	ParticleProcessMaterial::flush_changes();
+}
+
 Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &p_resource, const String &p_path) {
 	RD::ShaderBakeFeatureOverrideScope override_scope;
 	RendererRD::MaterialStorage *singleton = RendererRD::MaterialStorage::get_singleton();
@@ -429,16 +439,17 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 
 	Ref<Material> material = p_resource;
 	if (material.is_valid()) {
-		// BaseMaterial3D does not build its shader when the material is loaded: it
-		// queues itself onto BaseMaterial3D::dirty_materials and waits for
-		// flush_changes(), which is a SceneTree idle callback
-		// (register_scene_types.cpp). No frame ticks during an export, so without
-		// this a freshly-loaded material has no shader data yet and the lookup
-		// below finds nothing to bake -- silently, since there is no error to
-		// report. Static and idempotent: it drains every queued material at once,
-		// so calling it per material is cheap after the first.
-		// See webgpu_notes/TASKS.md Task 32.
-		BaseMaterial3D::flush_changes();
+		// BaseMaterial3D, CanvasItemMaterial and ParticleProcessMaterial do not
+		// build their shader when the material is loaded: each queues itself onto
+		// its class's dirty_materials and waits for flush_changes(), a SceneTree
+		// idle callback (register_scene_types.cpp). No frame ticks during an export,
+		// so without this a freshly-loaded material has no shader data yet and the
+		// lookup below finds nothing to bake -- silently, since there is no error
+		// to report. Static and idempotent: each drains every queued material of
+		// its class at once, so calling them per material is cheap after the first.
+		// See webgpu_notes/TASKS.md Task 32 (BaseMaterial3D) and §3 trap 77
+		// (CanvasItemMaterial: a GPUParticles2D's particle animation material).
+		_flush_material_changes();
 
 		RID material_rid = material->get_rid();
 		if (material_rid.is_valid()) {

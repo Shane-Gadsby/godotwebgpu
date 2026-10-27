@@ -25,6 +25,7 @@ const emscriptenGlobals = {
 	'Module': true,
 	'UTF8ToString': true,
 	'UTF8Decoder': true,
+	'WebGPU': true,
 	'_emscripten_webgl_get_current_context': true,
 	'_free': true,
 	'_malloc': true,

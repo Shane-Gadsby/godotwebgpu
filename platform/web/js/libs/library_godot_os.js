@@ -307,6 +307,19 @@ const GodotOS = {
 		GodotConfig.on_startup_progress(GodotRuntime.parseString(p_name), p_duration_ms);
 	},
 
+	// Appends a completed phase to `window.godotStartupMarks`, which the startup profiler reads.
+	godot_js_os_startup_mark__proxy: 'sync',
+	godot_js_os_startup_mark__sig: 'vid',
+	godot_js_os_startup_mark: function (p_name, p_duration_ms) {
+		let marks = window['godotStartupMarks'];
+		if (!marks) {
+			marks = [];
+			window['godotStartupMarks'] = marks;
+		}
+		const end_ms = performance.now();
+		marks.push({ 'name': GodotRuntime.parseString(p_name), 'durationMs': p_duration_ms, 'endMs': end_ms, 'startMs': end_ms - p_duration_ms });
+	},
+
 	// Warnings are the one thing the engine writes that is not a fault, so they go to
 	// their own channel instead of stderr -- Emscripten routes stderr through `printErr`,
 	// which every shell logs with `console.error()`. Not proxied to the main thread: a
