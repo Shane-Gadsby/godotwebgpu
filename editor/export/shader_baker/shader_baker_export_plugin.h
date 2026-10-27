@@ -207,6 +207,10 @@ protected:
 	// be diagnosed by comparing what the baker enumerated against what the runtime
 	// asks for. See webgpu_notes/TASKS.md Task 32.
 	virtual void _customize_shader_version(ShaderRD *p_shader, RID p_version, const String &p_origin = String());
+	// Builds the shaders of every material that queued its shader for the next idle
+	// frame (BaseMaterial3D, CanvasItemMaterial, ParticleProcessMaterial), which
+	// never comes during an export.
+	static void _flush_material_changes();
 	void _process_work_item(WorkItem p_work_item);
 	// The second half of _process_work_item(): the container for one compiled
 	// variant, stored into shader_work_results.
