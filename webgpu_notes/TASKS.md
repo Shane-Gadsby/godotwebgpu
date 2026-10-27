@@ -3076,6 +3076,16 @@ are renamed with it (`platform/web/js/libs/library_godot_webgpu.js`: device impo
 device and yield; `godot_js_os_startup_mark()`). An EM_ASM may use `Module['...']`, `globalThis`, browser APIs and its
 `$N` arguments. Only the opt-in `WEBGPU_VERBOSE` diagnostics still break the rule.
 
+75. **`CanvasItemMaterial` and `ParticleProcessMaterial` build their shader on an idle frame too** (2026-10-27, user
+report). Task 32 made the shader baker call `BaseMaterial3D::flush_changes()` before reading a material's shader, but
+the other two classes queue the same way (`register_scene_types.cpp` registers all three as idle callbacks) and were
+never flushed. No frame ticks during an export, so a `CanvasItemMaterial` the export loads fresh (a `GPUParticles2D`'s
+particle-animation material, say) has no shader yet and nothing is baked for it. The tell is one whole
+`CanvasShaderRD` version in `translatedShaders`: `CanvasShaderRD:0`, `:1`, `:2` and `:4` once each, with `:3` and
+`:5` as `cached` hits (the `USE_POINT_SIZE` variants compile to the same SPIR-V as 2 and 4). The baker now flushes all
+three (`ShaderBakerExportPlugin::_flush_material_changes()`), before its embedded-material snapshot and before each
+material lookup. A new class that defers its shader the same way must be added there.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
