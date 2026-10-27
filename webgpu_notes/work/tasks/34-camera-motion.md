@@ -1,6 +1,6 @@
 # 34-camera-motion: motion blur from the shutter, rolling shutter
 
-State: ready-for-integration
+State: integrated (lead: merged 4a96bd2ae6; blur/skew reproduced and off bit-identical on the merged tree; smoke OK after reference regeneration)
 Owner: worker-34
 Claimed: 2026-10-28 08:21
 Needs: build, gpu

@@ -4716,6 +4716,47 @@ editor check, and shake-off renders pixel-identical to the pre-merge editor in F
 `physics/3d/run_on_separate_thread`; shake with physics interpolation untested. User question `shake-in-editor` on the
 hand-offs page (default: shake runs in the editor preview too). §3 trap 78.
 
+### 4.50 Camera finish pass: in-camera noise reduction and sharpening; Camera3D monitoring overlays (October 2026) *(work task 37, camera batch)*
+
+Merged `ffda7ef1d3`. A **camera finish pass** after the 3D image is complete (after tonemapping, FSR/SMAA, debug draw and
+compositor effects), at output resolution, before 2D; skipped entirely when nothing in it is on.
+- **CameraAttributes:** `noise_reduction_{enabled,strength,chroma_only}` (bilateral on display Y'CbCr, Tomasi-Manduchi
+  1998; chroma range sigma 2x luma's) and `sharpening_{enabled,amount,radius,halo}` (unsharp mask on luma, radius in
+  pixels of a 1080-line frame, halo = CAS-style clamp to the 3x3 range). Model in `camera_attributes_storage.cpp`
+  ("Camera finish").
+- **Camera3D, Monitoring group:** `monitoring_visible_in_output`, zebras (95 IRE; optional second zebra as a ±5 IRE
+  window at 70), focus peaking (Sobel on display luma), false color (ARRI ALEXA bands), histogram (luma/RGB, 256 bins,
+  GPU compute). Sent to the server only in the editor or with Visible in Output, so a game with editor-only overlays
+  runs nothing; `CameraData::monitoring` carries them to the renderer.
+- RD `effects/camera_finish.*`, `camera_finish.glsl` + `camera_histogram.glsl`; Compatibility `GLES3::CameraFinish`
+  (everything but the histogram: no compute). Single-view only (XR skipped).
+- **Verified (lead, merged tree, all three renderers):** default 0 px vs the pre-merge editor; zebra coverage = fraction
+  above level (0.0470/0.0469); false color 100% of pixels on the band table; histogram bars exact vs a CPU histogram
+  (Forward+, Mobile); peaking IoU 1.0 vs CPU Sobel (0.997 Compatibility, which has no DOF); NR at ISO 6400 luma sigma
+  5.6 -> 1.95 at strength 1, chroma-only leaves luma; sharpening overshoot within 0.6/255 at 1080p, halo width doubles at
+  2160p (peak ~10% under a dense Gaussian there: taps stride 2 px, documented); Visible in Output off = 0 px in a game
+  run, overlays drawn in an editor run. Worker: WebGPU pixel-identical to native except the animated zebra phase.
+- Not yet: a by-eye check in the real editor (Preview check box, inspector preview); questions `zebra-colors`,
+  `zebra2-window`, `peaking-source` on the hand-offs page (defaults built).
+
+### 4.51 Camera motion blur from the shutter, and rolling shutter (October 2026) *(work task 34, camera batch)*
+
+Merged `4a96bd2ae6`. CameraAttributes `motion_blur_*` (enabled, shutter_angle 180°, strength, max_length 0.05 of frame
+height) and `rolling_shutter_*` (enabled, readout_time 20 ms); `CameraAttributesPhysical.motion_blur_use_shutter_speed`
+(default on) takes the exposure time from `exposure_shutter_speed`. ProjectSettings
+`rendering/camera/motion_blur/motion_blur_quality` (8/16/32 taps). Blur = motion per frame x exposure time / frame
+time; rolling shutter shows row y at readout x (y/H - 0.5). Pass `effects/camera_motion_blur.*` (own push constant):
+prep (velocity + depth; the sky gets camera motion from depth) -> tile max -> neighbor max -> gather (rolling shutter by
+fixed-point iteration, then McGuire et al. 2012's reconstruction with Jimenez 2014's weights). After DOF, before auto
+exposure and glow; Forward+ turns motion vectors on (and resolves them under MSAA) whenever it is on. **Forward+ only**
+(desktop and web); Mobile and Compatibility ignore it (documented). Two fixes to McGuire's published filter, found by
+measuring: its weights stepped a moving edge (0.39 -> 0.87 instead of a ramp through 0.5) and its tap spacing shortened
+every blur to S/(S+1). Verified: blur length within 0.3% of speed x exposure at 720p/1080p (worker; lead reproduced
+0.9997 at 1080p 1/50 s), skew within 1.1% geometry / 0.5% sky (lead: sky 0.995), WebGPU 1.000 at 165 Hz, MSAA 0.998;
+off bit-identical in all three renderers (lead, merged tree). Trap for measuring it: the test square wraps around the
+frame, and a capture whose exposure spans the wrap measures short (frames=60 at 1/50 s read 0.82). Question
+`motion-blur-editor` on the hand-offs page (default: the editor viewport blurs too).
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
