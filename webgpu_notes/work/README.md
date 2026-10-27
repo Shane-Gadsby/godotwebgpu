@@ -92,10 +92,6 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
 - `build`: any SCons run (editor or web template) in any worktree. One at a time: each saturates all 24 cores, and
   `-j24` twice over runs both slower than one after the other. `tint_convert_cli`'s `build.sh` (~30 s) needs no lease.
   Still obey CLAUDE.md inside a tree: never start SCons while another runs in the same tree (`pgrep -ax scons`).
-- **Memory: the machine is shared with the user's Oblivion co-op work** (the game, ~9 GB, and a Ghidra bridge capped at
-  14 GB run while we build; an OOM can take the user's IDE down with it). Every SCons run goes in a capped scope with
-  fewer jobs: `systemd-run --user --scope -p MemoryMax=14G -p MemorySwapMax=0 scons ... -j12`. Check `free -g` first: with
-  less than 18 GB available, wait and say so in your report instead of building.
 
 ## Rules
 

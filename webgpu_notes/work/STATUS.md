@@ -1,5 +1,20 @@
 # Status (lead-maintained)
 
+## 2026-10-28 — camera realism batch (tasks 33-38; user request after grain §4.47 and LUTs §4.48)
+
+Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 needs task 33's CameraEffects UBO.
+
+| task | what | wave | owner |
+|---|---|---|---|
+| 33 | lens optics: sensor format, vignetting, distortion, CA, anamorphic, ND/T-stops, diffraction, breathing; **CameraEffects UBO** | 1 | worker-33 |
+| 34 | motion blur from the shutter, rolling shutter | 1 | worker-34 |
+| 37 | in-camera NR + sharpening (CameraAttributes); monitoring overlays + Visible in Output (Camera3D) | 1 | worker-37 |
+| 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 |
+| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | — |
+| 36 | AE metering modes, auto white balance | 2 | — |
+
+When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
+
 ## 2026-10-26 late evening — docs pass for tasks 24–30 (task 31, `work/31`)
 
 Every task of the day is merged (24 `449f085aa6`, 25 `fd53d6d657`, 26 `0f0dfd50fe`, 27 `756b99bf6f`, 28 `287109ddfd`,
