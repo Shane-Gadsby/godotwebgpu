@@ -1,6 +1,6 @@
 # 60-web-swizzle-answers: user answers on task 58's two questions
 
-State: claimed
+State: ready-for-integration
 Owner: worker-60
 Claimed: 2026-10-28
 Needs: build, gpu
