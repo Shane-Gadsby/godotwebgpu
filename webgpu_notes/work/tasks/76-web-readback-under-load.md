@@ -1,6 +1,6 @@
 # 76-web-readback-under-load: async readback every frame on WebGPU; float readback 11x dark
 
-State: ready-for-integration
+State: integrated (TASKS §4.88)
 Owner: worker-76
 Claimed: 2026-10-28 23:33
 Needs: build, browser

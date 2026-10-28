@@ -1,6 +1,6 @@
 # 69-preload-text-opacity-font
 
-State: ready-for-integration
+State: integrated (TASKS §4.87)
 Owner: worker-69
 Claimed: 2026-10-28
 Needs: build, browser

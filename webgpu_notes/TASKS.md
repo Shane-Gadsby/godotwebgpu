@@ -3362,6 +3362,15 @@ Y' x 255 sits within ~1e-3 of a .5 tie round differently in GPU float32 (FMA) an
 chart; R'/G'/B' exact). Compare luma within a few pixels, the channels exactly. (Task 62 also hit trap 102's staging
 reuse; its own guard was dropped at merge in favour of task 66's.)
 
+104. **An asynchronous readback must never flush for staging room** (2026-10-29, work task 76). Upstream's
+`texture_get_data_async()` flushed and stalled when the download ring was full and dropped the regions copied before
+the flush (the request is pushed only after its last region). Natively that needs a read over 128 MB; on WebGPU the
+ring was 16 MB, so a 1920x1080 RGBA16F read lost ~88% of itself (looked like an HDR/sRGB bug, 11x dark), and the flush
+left mapping blocks in the ring ("used in submit while pending map"). When a web readback looks dark or a validation
+error repeats once per read, compare the read's size with the download ring first. Count validation messages in every
+web tier (a runner matching only `/ERROR|error/` missed them for weeks); `results/76-web-readback-under-load/tools/`
+has a JS-side GPU buffer tracer that names the misusing submit without a rebuild.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5531,6 +5540,35 @@ and web template_release 0 warnings; the bench reproduces (exposure +284.7% → 
 0.0079 → 0.0029, TAA 0.0039 → 0.0021; Mobile never flashed); no-change runs identical before and after (Forward+ FSR 2,
 Forward+ auto exposure, Mobile). Web readback problems hit while measuring (pending-map errors, 11x-dark float
 readback) are work task 76. Questions `fsr2-context-sizing`, `ssil-scale-change`.
+
+### 4.87 Start screen download line: full opacity, font family and size (October 2026) *(work task 69; user answers on task 61)*
+
+The download line under the Start button is drawn at full opacity, so `preload_text/color` shows exactly as picked;
+its default is `#c4c4c4`, what `#e0e0e0` at 85% gave over the default boot splash (`#242424`), and the shadow's alpha
+0.6 → 0.51 (the old opacity faded it too). The shells keep `opacity: 0.999` only to keep Chrome's grayscale text
+antialiasing (fully opaque text gets colour fringes of up to 75 levels; `will-change` moved the text). New
+`preload_text/font_family` (the shells' Noto Sans list) and `font_size` (CSS px, default 14.4 = the old 0.9rem), shown
+while `preload_progress` is on, in `GODOT_CONFIG.startButton.preloadText`, both default shells, `config.js` and the
+class docs. The default line is not pixel-identical to the old one: up to 5 levels on 200-600 glyph-edge pixels in
+Chrome, 2 in Firefox (antialiasing depends on the text colour; question `preload-text-near-identical`). Worker: 22/22
+runs (11 scenarios, Chrome and Firefox); chosen colours appear exactly; DejaVu Serif 32 px applies in both shells and an
+iframe. Lead (merged tree with 76): dev_mode editor, web debug and release 0 warnings; default, old-colour and styled
+start screens pass in Chrome and Firefox. Questions `preload-text-*`.
+
+### 4.88 WebGPU async readback under load (October 2026) *(work task 76; found by task 74)*
+
+Both bugs task 74 hit had one cause (§3 trap 104): WebGPU's 16 MB staging cap also applied to downloads, so a
+1920x1080 RGBA16F read (73 blocks of 256 KB against a 64-block ring) made `texture_get_data_async()` /
+`buffer_get_data_async()` flush and stall mid-request, losing the regions copied before the flush (the 11x-dark float
+readback) and leaving mapping blocks in the ring (the "used in submit while pending map" errors, then a failed map and
+a stopped main loop). Task 62's dropped guard (§4.83) would not have fixed it. Fix (`servers/rendering/rendering_device.*`):
+an async download never flushes for room (`_download_staging_overflow_block()` takes a block past the limit), the
+download ring keeps the project's `max_size_mb` (128 MB; the driver cap applies to uploads only; 600 per-frame reads
+17.8 s → 4.6 s in Chrome), and a guard on the `STALL_PREVIOUS` path. `webgpu_tests/async_readback/` gained four `load_*`
+checks (600 frames of 1080p HDR reads, bursts of 4, luminance against native 0.27155, a float probe above 1) and fails
+on WebGPU validation messages. Worker: 60/60 natively and in Chrome and Firefox with both templates, 0 validation
+messages, web luminance 0.271551. Lead (merged tree with 69): 60/60 natively, in Chrome and Firefox, debug and release,
+0 validation messages. Question `web-download-staging-cap` (keep 128 MB).
 
 ## 5. References — retired docs
 
