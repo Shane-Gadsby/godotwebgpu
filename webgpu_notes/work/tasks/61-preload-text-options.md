@@ -1,6 +1,6 @@
 # 61-preload-text-options: the start screen's download text, configurable
 
-State: ready-for-integration
+State: integrated (TASKS §4.77)
 Owner: worker-61
 Claimed: 2026-10-28 18:10
 Needs: build (editor + web template), browser (Chrome and Firefox)

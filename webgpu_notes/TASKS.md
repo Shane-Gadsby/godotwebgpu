@@ -3319,6 +3319,11 @@ user's `build-linux.sh` stopped at `PaniniProjection` undeclared in the web rele
 template after merging (the work board's README now says so), and never put a header the code needs into a debug-only
 include block.
 
+96. **"Downloading..." is on screen for one frame only** (2026-10-28, work task 61): the export writes `fileSizes` into
+the config, so the `Preloader` has its total before any header arrives and the line jumps to "Downloading 0%". A test
+that waits to see the unknown-size message fails; gate the server rather than throttle it, and strip `fileSizes` to
+test that message.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5315,6 +5320,34 @@ or `any` accepts another real adapter, never the fallback one); lead: off Linux 
 native backend (the Vulkan launch is unchanged on Linux), and `local_ci.sh` passes `any` unless one is named, so the tier
 runs on a Mac. Verified from both paths: 311 compiled, interfaces 311/311, scan facts 622/622, 311 valid in Chrome,
 ~10 s. The GitHub half of the old §2.38 is §2.54.
+
+### 4.76 Opaque viewports write alpha 1 and Texture2DRD over R8/RG8 is R8/RG8 on the web (October 2026) *(work task 60; user answers `opaque-subviewport-alpha-web`, `texture2drd-r8-web`)*
+
+The two differences task 58's swizzle audit left (§4.73), closed the way the user picked and gated on a new driver
+trait, **`RDD::API_TRAIT_TEXTURE_VIEW_SWIZZLE`** (default 1, WebGPU 0; `RD::supports_texture_view_swizzle()`, cached by
+TextureStorage), not `#ifdef`; task 58's `#ifndef WEBGPU_ENABLED` around the opaque view swizzle uses it too.
+(1) A `Texture2DRD` (and `TextureLayeredRD`, `Texture3DRD`) over an R8 / RG8 RD texture is described and drawn as R8 /
+RG8 on the web, so `get_image()`, `texture_get_format()` and the picture agree; the swizzle warning no longer fires
+for it; class-doc notes. (2) An opaque viewport's final target gets alpha 1 on the web: the tonemap pass (Forward+ flag
+bit 25, Mobile's `pad` as `opaque_alpha`), the render target's clears, and a 2D canvas draw list that drew an add / sub
+/ mul / disabled-blend batch ends with one alpha-only full-target draw (`CopyEffects::set_alpha_one_in_drawlist()`).
+Worker: native 0 px against the pre-change editor (3 renderers, plus MSAA + HDR 2D); web vs native viewport cells
+230/255 → 0 in Chrome and Firefox, Forward+ and Mobile; matrix arms 9/9 unbaked and baked. Lead (merged tree with 61):
+dev_mode editor, web template_debug and template_release 0 warnings; viewport cells 0-5 web vs native max 0 in Chrome
+and Firefox; the RD textures report formats 2 / 3 (R8 / RG8) on the web and 0 / 1 (L8 / LA8) natively; smoke OK;
+tonemap, tonemap_custom, glow, local_exposure, fxaa, smaa, scaling_3d, msaa, image_formats 9/9 at parity.
+
+### 4.77 Start screen download text configurable (October 2026) *(work task 61; user request)*
+
+`html/start_button/preload_text/`: `downloading` + `downloading_text` ("Downloading..."), `progress` + `progress_text`
+("Downloading {percent}%", every `{percent}` replaced, text without one shown as typed), `ready` + `ready_text`
+("Ready"), `color` (`#e0e0e0`, the shells' old CSS colour). Shown only while `enabled`, `preload` and
+`preload_progress` are on, each text only while its switch is. Passed as `GODOT_CONFIG.startButton.preloadText` ("" =
+switched off); both default shells use `textContent` and fall back to the old wording when a key is missing; a message
+switched off leaves the line empty at the same height. Worker: 34/34 browser runs (17 scenarios, Chrome and Firefox,
+cross-origin iframe, webgpu-full-size shell); defaults 0 px against the previous shells in 24 comparisons; visibility
+checked with task 51's addon. Lead (merged tree with 60): default, edited, no-`{percent}` and all-off pass in Chrome
+and Firefox. Questions `preload-text-opacity`, `preload-text-font`. §3 trap 96. Not done: the windowed export dialog by hand.
 
 ## 5. References — retired docs
 
