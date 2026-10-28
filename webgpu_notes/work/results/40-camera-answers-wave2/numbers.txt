@@ -1,0 +1,104 @@
+== metering (analyze_meter40.py m_base m_new)
+res        case                     reference    measured  error EV
+1920x1080  Average, before (base)    0.977812    0.978138   +0.0005   (reference: upstream's reduction modeled)
+1920x1080  Average, after            1.027632    1.027990   +0.0005   (reference: whole-frame mean)
+1920x1080    change                                         +0.0717   exposure moves -0.0717 EV; base vs the true mean -0.0712 EV
+1920x1080  log avg                   0.065293    0.065316   +0.0005   (arithmetic 1.027632: log meters -3.976 EV)
+1920x1080  log center                0.110643    0.110681   +0.0005   (arithmetic 0.468853: log meters -2.083 EV)
+1920x1080  log spot                  0.173249    0.173308   +0.0005   (arithmetic 0.175468: log meters -0.018 EV)
+1920x1080  log spot (0.75,0.3)       5.858422    5.860337   +0.0005   (arithmetic 5.911691: log meters -0.013 EV)
+1920x1080  hl99                      4.337500    4.342041   +0.0015
+1920x1080  loghl99                   4.337500    4.342041   +0.0015
+1280x720   Average, before (base)    1.277501    1.277904   +0.0005   (reference: upstream's reduction modeled)
+1280x720   Average, after            1.021141    1.021481   +0.0005   (reference: whole-frame mean)
+1280x720     change                                         -0.3231   exposure moves +0.3231 EV; base vs the true mean +0.3236 EV
+1280x720   log avg                   0.065253    0.065276   +0.0005   (arithmetic 1.021141: log meters -3.968 EV)
+1280x720   log center                0.110631    0.110669   +0.0005   (arithmetic 0.466977: log meters -2.078 EV)
+1280x720   log spot                  0.173242    0.173299   +0.0005   (arithmetic 0.175462: log meters -0.018 EV)
+1280x720   log spot (0.75,0.3)       5.858439    5.860422   +0.0005   (arithmetic 5.911748: log meters -0.013 EV)
+1280x720   hl99                      4.334375    4.334626   +0.0001
+1280x720   loghl99                   4.334375    4.334626   +0.0001
+
+== halation, HDR (analyze_halo.py)
+halation_forward_plus,mobile_hq_r0.5.log
+halation_forward_plus,mobile_hq_r1.0.log
+halation_forward_plus,mobile_hq_r16.0.log
+1280x720
+forward_plus  std radius x 0.5: sigma_fit   3.95 px (model   1.68, ratio 2.352), f 0.953 (0.95), sigma_tail   4.16 px (disc 2.1 px)
+forward_plus  std radius x 1.0: sigma_fit   3.95 px (model   3.36, ratio 1.176), f 0.953 (0.95), sigma_tail   4.16 px (disc 2.1 px)
+forward_plus  std radius x 2.0: sigma_fit   6.40 px (model   6.72, ratio 0.952), f 0.938 (0.95), sigma_tail   6.79 px (disc 2.1 px)
+forward_plus  std radius x 4.0: sigma_fit  13.37 px (model  13.44, ratio 0.995), f 0.948 (0.95), sigma_tail  13.47 px (disc 2.1 px)
+forward_plus  std radius x16.0: sigma_fit  54.40 px (model  53.76, ratio 1.012), f 0.950 (0.95), sigma_tail  54.17 px (disc 2.1 px)
+forward_plus  HQ  radius x 0.5: sigma_fit   1.91 px (model   1.68, ratio 1.138), f 0.962 (0.95), sigma_tail   2.14 px (disc 2.1 px)
+forward_plus  HQ  radius x 1.0: sigma_fit   3.38 px (model   3.36, ratio 1.005), f 0.910 (0.95), sigma_tail   3.98 px (disc 2.1 px)
+forward_plus  HQ  radius x 2.0: sigma_fit   6.79 px (model   6.72, ratio 1.011), f 0.942 (0.95), sigma_tail   7.05 px (disc 2.1 px)
+forward_plus  HQ  radius x 4.0: sigma_fit  13.56 px (model  13.44, ratio 1.009), f 0.948 (0.95), sigma_tail  13.63 px (disc 2.1 px)
+forward_plus  HQ  radius x16.0: sigma_fit  54.44 px (model  53.76, ratio 1.013), f 0.950 (0.95), sigma_tail  54.21 px (disc 2.1 px)
+mobile        std radius x 0.5: sigma_fit   2.49 px (model   1.68, ratio 1.480), f 1.008 (0.95), sigma_tail   2.65 px (disc 2.1 px)
+mobile        std radius x 1.0: sigma_fit   2.70 px (model   3.36, ratio 0.804), f 0.993 (0.95), sigma_tail   2.95 px (disc 2.1 px)
+mobile        std radius x 2.0: sigma_fit   5.85 px (model   6.72, ratio 0.870), f 0.963 (0.95), sigma_tail   6.14 px (disc 2.1 px)
+mobile        std radius x 4.0: sigma_fit  11.36 px (model  13.44, ratio 0.846), f 0.950 (0.95), sigma_tail  11.76 px (disc 2.1 px)
+mobile        std radius x16.0: sigma_fit  45.77 px (model  53.76, ratio 0.851), f 0.950 (0.95), sigma_tail  50.38 px (disc 2.1 px)
+1920x1080
+forward_plus  std radius x 0.5: sigma_fit   4.01 px (model   2.52, ratio 1.590), f 0.958 (0.95), sigma_tail   4.32 px (disc 2.9 px)
+forward_plus  std radius x 1.0: sigma_fit   4.01 px (model   5.04, ratio 0.795), f 0.958 (0.95), sigma_tail   4.32 px (disc 2.9 px)
+forward_plus  std radius x 2.0: sigma_fit   8.85 px (model  10.08, ratio 0.878), f 0.951 (0.95), sigma_tail   9.08 px (disc 2.9 px)
+forward_plus  std radius x 4.0: sigma_fit  18.08 px (model  20.16, ratio 0.897), f 0.950 (0.95), sigma_tail  18.36 px (disc 2.9 px)
+forward_plus  std radius x16.0: sigma_fit  73.20 px (model  80.64, ratio 0.908), f 0.950 (0.95), sigma_tail  74.17 px (disc 2.9 px)
+forward_plus  HQ  radius x 0.5: sigma_fit   1.91 px (model   2.52, ratio 0.757), f 0.955 (0.95), sigma_tail   2.33 px (disc 2.9 px)
+forward_plus  HQ  radius x 1.0: sigma_fit   4.38 px (model   5.04, ratio 0.869), f 0.956 (0.95), sigma_tail   4.66 px (disc 2.9 px)
+forward_plus  HQ  radius x 2.0: sigma_fit   9.02 px (model  10.08, ratio 0.895), f 0.951 (0.95), sigma_tail   9.24 px (disc 2.9 px)
+forward_plus  HQ  radius x 4.0: sigma_fit  18.17 px (model  20.16, ratio 0.901), f 0.950 (0.95), sigma_tail  18.44 px (disc 2.9 px)
+forward_plus  HQ  radius x16.0: sigma_fit  73.24 px (model  80.64, ratio 0.908), f 0.950 (0.95), sigma_tail  74.18 px (disc 2.9 px)
+mobile        std radius x 0.5: sigma_fit   2.26 px (model   2.52, ratio 0.898), f 0.986 (0.95), sigma_tail   2.44 px (disc 2.9 px)
+mobile        std radius x 1.0: sigma_fit   5.01 px (model   5.04, ratio 0.995), f 0.959 (0.95), sigma_tail   5.42 px (disc 2.9 px)
+mobile        std radius x 2.0: sigma_fit  10.94 px (model  10.08, ratio 1.086), f 0.951 (0.95), sigma_tail  13.02 px (disc 2.9 px)
+mobile        std radius x 4.0: sigma_fit  23.29 px (model  20.16, ratio 1.155), f 0.950 (0.95), sigma_tail  31.36 px (disc 2.9 px)
+mobile        std radius x16.0: sigma_fit  86.82 px (model  80.64, ratio 1.077), f 0.950 (0.95), sigma_tail  98.64 px (disc 2.9 px)
+
+
+== defaults, base vs new (ident_cmp.py)
+awb_ae_forward_plus.12.png             max  23  differing px  742272  mean lum  96.839 -> 106.658
+awb_ae_gl_compatibility.12.png         max   0  differing px       0  mean lum 107.227 -> 107.227
+awb_ae_mobile.12.png                   max   0  differing px       0  mean lum 107.152 -> 107.152
+def_ae_forward_plus.12.png             max  24  differing px  921600  mean lum 134.582 -> 151.276
+def_ae_gl_compatibility.12.png         max   0  differing px       0  mean lum 113.080 -> 113.080
+def_ae_mobile.12.png                   max   0  differing px       0  mean lum 116.534 -> 116.534
+def_none_forward_plus.12.png           max   0  differing px       0  mean lum 116.855 -> 116.855
+def_none_gl_compatibility.12.png       max   0  differing px       0  mean lum 113.080 -> 113.080
+def_none_mobile.12.png                 max   0  differing px       0  mean lum 116.534 -> 116.534
+def_phys_forward_plus.12.png           max   0  differing px       0  mean lum 125.960 -> 125.960
+def_phys_gl_compatibility.12.png       max   0  differing px       0  mean lum 124.528 -> 124.528
+def_phys_mobile.12.png                 max   0  differing px       0  mean lum 125.354 -> 125.354
+def_prac_forward_plus.12.png           max   0  differing px       0  mean lum 116.855 -> 116.855
+def_prac_gl_compatibility.12.png       max   0  differing px       0  mean lum 113.080 -> 113.080
+def_prac_mobile.12.png                 max   0  differing px       0  mean lum 116.534 -> 116.534
+def_wb_forward_plus.12.png             max   0  differing px       0  mean lum 120.875 -> 120.875
+def_wb_gl_compatibility.12.png         max   0  differing px       0  mean lum 117.024 -> 117.024
+def_wb_mobile.12.png                   max   0  differing px       0  mean lum 120.620 -> 120.620
+new_forward_plus_none.png              max   0  differing px       0  mean lum 193.460 -> 193.460
+new_forward_plus_physical.png          max   0  differing px       0  mean lum 196.311 -> 196.311
+new_forward_plus_practical.png         max   0  differing px       0  mean lum 193.460 -> 193.460
+new_gl_compatibility_none.png          max   0  differing px       0  mean lum 199.880 -> 199.880
+new_gl_compatibility_physical.png      max   0  differing px       0  mean lum 201.966 -> 201.966
+new_gl_compatibility_practical.png     max   0  differing px       0  mean lum 199.880 -> 199.880
+new_mobile_none.png                    max   0  differing px       0  mean lum 192.758 -> 192.758
+new_mobile_physical.png                max   0  differing px       0  mean lum 195.342 -> 195.342
+new_mobile_practical.png               max   0  differing px       0  mean lum 192.758 -> 192.758
+
+== web vs native (compare_web.py)
+case            max    mean    px>2  gray card (AWB) native / web
+default_ae        1  0.0000       0
+halo_hq_r0.5    185  0.0066     160
+halo_hq_r1      185  0.0169     829
+halo_hq_r4      185  0.0724    6228
+halo_point      185  0.0014      20
+halo_r1         185  0.0185     636
+meter_avg         0  0.0000       0
+meter_logavg      0  0.0000       0
+meter_logcenter    0  0.0000       0
+meter_logspotwin    0  0.0000       0
+meter_ref         0  0.0000       0
+star_20          19  0.0473    5823
+star_default     19  0.0473    5823
+GPU_JOB_DONE
