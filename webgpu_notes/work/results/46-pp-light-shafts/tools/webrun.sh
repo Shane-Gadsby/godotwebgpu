@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+S=<scratch>
+cd $S
+node $S/shoot.mjs $S/web $S/webout6  "fall_off=scene=none&sx=0&sy=0&sun=0.7"  "fall_on_d2=scene=none&sx=0&sy=0&sun=0.7&shafts=1&thr=0.5&decay=2"  "fall_on_d4=scene=none&sx=0&sy=0&sun=0.7&shafts=1&thr=0.5&decay=4"  "bars_off=scene=bars&sun=0&halo=0.7"  "bars_on=scene=bars&sun=0&halo=0.7&shafts=1&thr=0.5&decay=1.5"  "behind_on=scene=bars&sun=0.7&behind=1&shafts=1&thr=0.5"  "behind_off=scene=bars&sun=0.7&behind=1"  "look_0=scene=bars&lit=1&light_energy=1.5&glow=1&sun=6&halo=1.5&thr=1.5&decay=2&intensity=0.6&tint=ffe0b0&sx=0.1&sy=0.47"  "look_1=scene=bars&lit=1&light_energy=1.5&glow=1&sun=6&halo=1.5&thr=1.5&decay=2&intensity=0.6&tint=ffe0b0&sx=0.1&sy=0.47&shafts=1"  "time_off=scene=bars&lit=1&light_energy=2&sun=3&halo=1&thr=1&frames=620&timing=1"  "time_on=scene=bars&lit=1&light_energy=2&sun=3&halo=1&thr=1&frames=620&timing=1&shafts=1"
