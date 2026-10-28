@@ -1,8 +1,8 @@
 # 82-audio-parity-late-timers
 
-State: open
-Owner:
-Claimed:
+State: claimed
+Owner: worker-82
+Claimed: 2026-10-29
 Needs: build (only if a template is rebuilt), browser
 Branch: work/82
 Results: webgpu_notes/work/results/82-audio-parity-late-timers/
