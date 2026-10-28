@@ -1,0 +1,15 @@
+config_version=5
+
+[application]
+
+config/name="w64 light temperature"
+run/main_scene="res://main.tscn"
+
+[display]
+
+window/size/viewport_width=320
+window/size/viewport_height=240
+
+[rendering]
+
+viewport/hdr_2d=true
