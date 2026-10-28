@@ -1,8 +1,8 @@
 # 80-dynres-remember-and-step
 
-State: open
+State: ready-for-integration
 Owner: worker-80
-Claimed:
+Claimed: 2026-10-29 06:58
 Needs: build, gpu, browser
 Branch: work/80
 Results: webgpu_notes/work/results/80-dynres-remember-and-step/

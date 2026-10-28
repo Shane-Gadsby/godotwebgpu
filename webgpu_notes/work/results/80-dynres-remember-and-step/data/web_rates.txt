@@ -1,0 +1,4 @@
+chrome_gpu_default.json #1 start_scale=1 final=1.00 STABLE source=GPU_TIME | 15-45s: 0 changes = 0.0/min; 60-90s: 0 changes = 0.0/min | changes at [[4.4, 0.8], [45.3, 0.85], [45.8, 0.9], [46.2, 0.95], [46.7, 1]] | states {'ADJUSTING': '4%', 'STABLE': '95%', 'STARTING': '1%'}
+chrome_cpu_default.json #1 start_scale=1 final=1.00 CPU_LIMITED source=GPU_TIME | 15-60s: 0 changes = 0.0/min | changes at [] | states {'ADJUSTING': '2%', 'CPU_LIMITED': '94%', 'STARTING': '4%'}
+chrome_gpu_step010.json #1 start_scale=1 final=1.00 STABLE source=GPU_TIME | 15-45s: 0 changes = 0.0/min; 60-90s: 0 changes = 0.0/min | changes at [[4.4, 0.8], [45.3, 0.9], [45.8, 1]] | states {'ADJUSTING': '3%', 'STABLE': '96%', 'STARTING': '1%'}
+chrome_gpu_step020.json #1 start_scale=1 final=1.00 STABLE source=GPU_TIME | 15-45s: 0 changes = 0.0/min; 60-90s: 0 changes = 0.0/min | changes at [[4.4, 0.8], [45.2, 1]] | states {'ADJUSTING': '2%', 'STABLE': '97%', 'STARTING': '1%'}
