@@ -34,6 +34,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 58 | small web correctness items: TASKS §2.44 (invalid probe), §2.43 (swizzled views), §2.42 (FSR2 depth fallback) | 7 | worker-58 (retired); **merged `57ec6ca0da`**, verified, TASKS §4.72-4.74, trap 94; matrix 103/103 unbaked and baked |
 | 59 | converter smoke check moved out of the work board into webgpu_tests (TASKS §2.38) | 7 | worker-59 (retired); **merged `0cdd26d3a9`**, verified, TASKS §4.75, CI half §2.54 |
 | 60 | user answers on 58: Texture2DRD over R8/RG8 reported as R8/RG8 on the web; opaque viewports write alpha 1 on the web | 7 | worker-60 |
+| 61 | start screen download text: each message switchable and editable, text colour (user request) | 7 | worker-61 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 

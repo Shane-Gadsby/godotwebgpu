@@ -98,6 +98,10 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
 - **Verification is the bottleneck, and merging is not progress** (co-op lesson 1). A task is `integrated` only after
   the lead ran its verification on the merged tree. The merge rate is capped by the verification rate.
 - **Smoke after every merge, not per batch**: `webgpu_notes/work/smoke.sh` on the merged tree before the next merge.
+- **Compile a release template too** (lead, after every merge batch; workers, before `ready-for-integration`): the dev
+  editor and `template_debug` both define `DEBUG_ENABLED`, so code that only compiles with it passes every check here and
+  breaks the user's `template_release` build (§3 trap 95). `scons platform=web target=template_release dlink_enabled=no
+  webgpu=yes opengl3=no threads=no gdscript_braces=yes module_raycast_enabled=yes` is enough.
 - **Run `webgpu_notes/work/smoke.sh <scratch_dir>` before you set `ready-for-integration`** and paste its last lines into
   SUMMARY.md. It forwards to `webgpu_tests/converter_smoke/run.sh`: builds `wgsl_convert_cli` from your tree, converts
   every engine variant `wgsl_precompile.py` builds, compares bindings, override ids and the driver's text-scan facts with
