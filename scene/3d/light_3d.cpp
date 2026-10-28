@@ -126,8 +126,12 @@ uint32_t Light3D::get_cull_mask() const {
 
 void Light3D::set_color(const Color &p_color) {
 	color = p_color;
+	_update_light_color();
+}
 
-	if (GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+// Sends light_color, tinted by light_temperature where that applies, to the RenderingServer.
+void Light3D::_update_light_color() {
+	if (_uses_temperature()) {
 		Color combined = color.srgb_to_linear();
 		combined *= correlated_color.srgb_to_linear();
 		RS::get_singleton()->light_set_color(light, combined.linear_to_srgb());
@@ -257,18 +261,45 @@ static Color _color_from_temperature(float p_temperature) {
 	return ColorTemperature::normalize(ColorTemperature::planckian_linear_srgb(p_temperature), Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL).linear_to_srgb();
 }
 
+// light_temperature tints the light with physical light units (always, as it always has) and, with or without them,
+// when light_temperature_enabled is on.
+bool Light3D::_uses_temperature() const {
+	return temperature_enabled || GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units");
+}
+
+void Light3D::_update_temperature() {
+	if (temperature_enabled) {
+		// Constant luminance (Rec. 709 Y = 1), so a change of temperature never changes the light's brightness.
+		// Channels may exceed 1 and are not clamped: light colors are linear HDR. sRGB-encoded like light_color.
+		correlated_color = Color::from_temperature(temperature, Color::TEMPERATURE_NORMALIZATION_LUMINANCE).linear_to_srgb();
+	} else if (GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+		// Brightest channel 1: what physical light units have always used, kept so existing scenes don't change.
+		correlated_color = _color_from_temperature(temperature);
+	} else {
+		correlated_color = Color(1.0, 1.0, 1.0);
+	}
+	_update_light_color();
+}
+
 void Light3D::set_temperature(const float p_temperature) {
 	temperature = p_temperature;
-	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+	if (!_uses_temperature()) {
 		return;
 	}
-	correlated_color = _color_from_temperature(temperature);
+	_update_temperature();
+}
 
-	Color combined = color.srgb_to_linear() * correlated_color.srgb_to_linear();
+void Light3D::set_temperature_enabled(bool p_enabled) {
+	if (temperature_enabled == p_enabled) {
+		return;
+	}
+	temperature_enabled = p_enabled;
+	_update_temperature();
+	notify_property_list_changed();
+}
 
-	RS::get_singleton()->light_set_color(light, combined.linear_to_srgb());
-	// The gizmo color depends on the light color, so update it.
-	update_gizmos();
+bool Light3D::is_temperature_enabled() const {
+	return temperature_enabled;
 }
 
 Color Light3D::get_correlated_color() const {
@@ -330,7 +361,7 @@ void Light3D::_validate_property(PropertyInfo &p_property) const {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	} else if (get_light_type() == RSE::LIGHT_DIRECTIONAL && p_property.name == "light_intensity_lumens") {
 		p_property.usage = PROPERTY_USAGE_NONE;
-	} else if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (p_property.name == "light_intensity_lumens" || p_property.name == "light_intensity_lux" || p_property.name == "light_temperature")) {
+	} else if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (p_property.name == "light_intensity_lumens" || p_property.name == "light_intensity_lux" || (p_property.name == "light_temperature" && !temperature_enabled))) {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	} else if (get_light_type() == RSE::LIGHT_AREA && p_property.name == "light_projector") {
 		p_property.usage = PROPERTY_USAGE_NONE;
@@ -388,11 +419,14 @@ void Light3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_temperature", "temperature"), &Light3D::set_temperature);
 	ClassDB::bind_method(D_METHOD("get_temperature"), &Light3D::get_temperature);
+	ClassDB::bind_method(D_METHOD("set_temperature_enabled", "enabled"), &Light3D::set_temperature_enabled);
+	ClassDB::bind_method(D_METHOD("is_temperature_enabled"), &Light3D::is_temperature_enabled);
 	ClassDB::bind_method(D_METHOD("get_correlated_color"), &Light3D::get_correlated_color);
 
 	ADD_GROUP("Light", "light_");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_intensity_lumens", PROPERTY_HINT_RANGE, "0,100000.0,0.01,or_greater,suffix:lm"), "set_param", "get_param", PARAM_INTENSITY);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_intensity_lux", PROPERTY_HINT_RANGE, "0,150000.0,0.01,or_greater,suffix:lx"), "set_param", "get_param", PARAM_INTENSITY);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_temperature_enabled"), "set_temperature_enabled", "is_temperature_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "light_temperature", PROPERTY_HINT_RANGE, "1000,15000.0,1.0,suffix:k"), "set_temperature", "get_temperature");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "light_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_color", "get_color");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_energy", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_ENERGY);

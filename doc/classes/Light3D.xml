@@ -15,7 +15,8 @@
 		<method name="get_correlated_color" qualifiers="const">
 			<return type="Color" />
 			<description>
-				Returns the [Color] of an idealized blackbody at the given [member light_temperature]. This value is calculated internally based on the [member light_temperature]. This [Color] is multiplied by [member light_color] before being sent to the [RenderingServer].
+				Returns the [Color] of an idealized blackbody at the given [member light_temperature], sRGB-encoded like [member light_color]. This value is calculated internally based on the [member light_temperature]. This [Color] is multiplied by [member light_color] (in linear space) before being sent to the [RenderingServer].
+				With [member light_temperature_enabled], it is [code]Color.from_temperature(light_temperature).linear_to_srgb()[/code]: luminance [code]1.0[/code] in linear space, so channels may exceed [code]1.0[/code]. Otherwise, with [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units], it is normalized to its brightest channel ([constant Color.TEMPERATURE_NORMALIZATION_MAX_CHANNEL]). Otherwise it is white, since [member light_temperature] does not apply.
 			</description>
 		</method>
 		<method name="get_param" qualifiers="const">
@@ -105,6 +106,13 @@
 		<member name="light_temperature" type="float" setter="set_temperature" getter="get_temperature">
 			Sets the color temperature of the light source, measured in Kelvin. This is used to calculate a correlated color temperature which tints the [member light_color].
 			The sun on a cloudy day is approximately 6500 Kelvin, on a clear day it is between 5500 to 6000 Kelvin, and on a clear day at sunrise or sunset it ranges to around 1850 Kelvin.
+			It applies when [member light_temperature_enabled] is on, or always with [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units]. The color comes from [method Color.from_temperature], the same model [member CameraAttributes.white_balance_temperature] uses, so a light at a temperature renders under a white balance of that temperature like a 6500 K light under the default white balance.
+		</member>
+		<member name="light_temperature_enabled" type="bool" setter="set_temperature_enabled" getter="is_temperature_enabled" default="false">
+			If [code]true[/code], [member light_temperature] tints the light whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled, normalized to constant luminance: the tint has a Rec. 709 luminance of [code]1.0[/code] at every temperature, so changing [member light_temperature] changes the light's color but never its brightness ([constant Color.TEMPERATURE_NORMALIZATION_LUMINANCE]). Channels of the tint may exceed [code]1.0[/code] (red at low temperatures, blue at high ones) and are not clamped. The tint multiplies [member light_color] in linear space, so leave [member light_color] white to get the pure blackbody color.
+			If [code]false[/code], [member light_temperature] only applies with physical light units, normalized so the tint's brightest channel is [code]1.0[/code] (so temperatures far from 6500 K make the light darker), as it always has; without physical light units it is ignored.
+			With physical light units, enabling this property switches the existing tint to constant-luminance normalization, so a light's luminous intensity no longer depends on its color temperature.
+			[b]Note:[/b] [LightmapGI] bakes the tint too. [VoxelGI] and SDFGI use the color the light renders with.
 		</member>
 		<member name="light_volumetric_fog_energy" type="float" setter="set_param" getter="get_param" default="1.0">
 			Secondary multiplier multiplied with [member light_energy] then used with the [Environment]'s volumetric fog (if enabled). If set to [code]0.0[/code], computing volumetric fog will be skipped for this light, which can improve performance for large amounts of lights when volumetric fog is enabled.
