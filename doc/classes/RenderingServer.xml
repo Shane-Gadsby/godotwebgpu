@@ -160,6 +160,14 @@
 				Sets the quality level of the DOF blur effect to [param quality]. [param use_jitter] can be used to jitter samples taken during the blur pass to hide artifacts at the cost of looking more fuzzy.
 			</description>
 		</method>
+		<method name="camera_attributes_set_dof_legacy_gather">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], a blur sized by [method camera_attributes_set_dof_physical_blur_size] is drawn through upstream Godot's gather, as [member CameraAttributesPhysical.dof_legacy_gather] does. Has no effect unless the physical blur size is enabled.
+			</description>
+		</method>
 		<method name="camera_attributes_set_dof_physical_blur_size">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />

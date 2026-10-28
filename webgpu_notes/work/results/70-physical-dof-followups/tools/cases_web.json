@@ -1,0 +1,6 @@
+{
+ "off_phys_hex1": "shape=hexagon&quality=1",
+ "off_phys_circ2": "shape=circle&quality=2",
+ "off_pract_hex2": "kind=practical&shape=hexagon&quality=2&trans=0.5&amount=0.17",
+ "optin_hex1_max3": "phys=1&shape=hexagon&quality=1&maxblur=3"
+}
