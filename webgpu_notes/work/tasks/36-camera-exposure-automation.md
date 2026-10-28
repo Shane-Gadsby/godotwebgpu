@@ -1,6 +1,6 @@
 # 36-camera-exposure-automation: auto exposure metering modes, auto white balance
 
-State: claimed
+State: ready-for-integration
 Owner: worker-36
 Claimed: 2026-10-28 (worker-36)
 Needs: build, gpu, task 33 (the CameraEffects UBO exposure region)
