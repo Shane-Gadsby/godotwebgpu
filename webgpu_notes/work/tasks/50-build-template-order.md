@@ -1,6 +1,6 @@
 # 50-build-template-order
 
-State: claimed
+State: ready-for-integration
 Owner: worker-50
 Claimed: 2026-10-28 12:20
 Needs: build (one full build-linux.sh run)
