@@ -118,6 +118,14 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 
 	const CameraEffectsUBO zero;
 	default_camera_effects_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(CameraEffectsUBO), Span<uint8_t>((const uint8_t *)&zero, sizeof(CameraEffectsUBO)));
+
+	RD::SamplerState glare_sampler_state;
+	glare_sampler_state.mag_filter = RD::SAMPLER_FILTER_LINEAR;
+	glare_sampler_state.min_filter = RD::SAMPLER_FILTER_LINEAR;
+	glare_sampler_state.mip_filter = RD::SAMPLER_FILTER_LINEAR;
+	glare_sampler_state.use_anisotropy = true;
+	glare_sampler_state.anisotropy_max = 16.0;
+	glare_sampler = RD::get_singleton()->sampler_create(glare_sampler_state);
 }
 
 void CameraEffectsBufferRD::free_data() {
@@ -156,6 +164,9 @@ RID ToneMapper::get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_ren
 }
 
 ToneMapper::~ToneMapper() {
+	if (glare_sampler.is_valid()) {
+		RD::get_singleton()->free_rid(glare_sampler);
+	}
 	if (default_camera_effects_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(default_camera_effects_buffer);
 	}
@@ -276,7 +287,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass()));
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color), 0);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 1, u_exposure_texture, u_camera_effects), 1);
-	RD::Uniform u_glare_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, Vector<RID>({ default_mipmap_sampler, p_settings.glare_texture.is_valid() ? p_settings.glare_texture : TextureStorage::get_singleton()->texture_rd_get_default(p_settings.view_count > 1 ? TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : TextureStorage::DEFAULT_RD_TEXTURE_BLACK) }));
+	RD::Uniform u_glare_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, Vector<RID>({ glare_sampler, p_settings.glare_texture.is_valid() ? p_settings.glare_texture : TextureStorage::get_singleton()->texture_rd_get_default(p_settings.view_count > 1 ? TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : TextureStorage::DEFAULT_RD_TEXTURE_BLACK) }));
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 2, u_glow_texture, u_glow_map, u_glare_texture), 2);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_color_correction_texture, u_camera_lut), 3);
 
@@ -381,7 +392,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer);
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap_mobile.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass(), spec_constant));
 	// The glare chain: the subpass variant never reads it (glare makes the renderer skip the subpass).
-	RD::Uniform u_glare_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ default_mipmap_sampler, p_settings.glare_texture.is_valid() ? p_settings.glare_texture : TextureStorage::get_singleton()->texture_rd_get_default(p_settings.view_count > 1 ? TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : TextureStorage::DEFAULT_RD_TEXTURE_BLACK) }));
+	RD::Uniform u_glare_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ glare_sampler, p_settings.glare_texture.is_valid() ? p_settings.glare_texture : TextureStorage::get_singleton()->texture_rd_get_default(p_settings.view_count > 1 ? TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : TextureStorage::DEFAULT_RD_TEXTURE_BLACK) }));
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_camera_lut, u_camera_effects, u_glare_texture), 0);
 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &tonemap_mobile.push_constant, sizeof(TonemapPushConstantMobile));
 	RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);

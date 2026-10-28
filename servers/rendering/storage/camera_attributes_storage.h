@@ -81,6 +81,7 @@ struct CameraEffectsContext {
 	CameraGlareEnvironment glare_environment;
 	Size2i glare_chain_size; // Mip 0 of the glare chain, in texels.
 	int glare_chain_mipmaps = 0;
+	float glare_chain_sigma = 1.0; // Blur sigma of the chain's lod L is this times 2^L, in texels of lod 0 (measured).
 };
 
 class RendererCameraAttributes {

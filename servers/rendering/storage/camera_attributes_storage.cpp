@@ -1012,15 +1012,13 @@ bool RendererCameraAttributes::camera_attributes_uses_glare(RID p_camera_attribu
 	return _glare_requested_bits(camera_attributes_owner.get_or_null(p_camera_attributes), p_environment) != 0;
 }
 
-// The glare chain's lod 0 is a Gaussian blur of the half-resolution scene; each lod halves the resolution and blurs
-// again. Its blur, measured on a single bright texel (tools/measure_chain.gd in the task's results), is sigma =
-// GLARE_CHAIN_SIGMA * 2^lod texels of lod 0 for lod >= 1; lod 0 is sharper. Effects ask for a blur in frame heights and
-// get the lod that gives it.
-static constexpr double GLARE_CHAIN_SIGMA = 1.0;
-
-static double _glare_lod_for_sigma(double p_sigma_frame, double p_chain_height, double p_max_lod) {
+// The glare chain: lod 0 is a blur of the scene at reduced resolution, each lod halves the resolution and blurs again,
+// so lod L blurs by about sigma * 2^L texels of lod 0. The renderer that built it says what sigma is (measured on its
+// chain, see CameraEffectsContext). Effects ask for a blur in frame heights and get the lod that gives it; nothing is
+// sharper than lod 0.
+static double _glare_lod_for_sigma(double p_sigma_frame, double p_chain_height, double p_chain_sigma, double p_max_lod) {
 	const double sigma_texels = p_sigma_frame * p_chain_height;
-	return CLAMP(Math::log2(MAX(sigma_texels / GLARE_CHAIN_SIGMA, 1e-6)), 0.0, p_max_lod);
+	return CLAMP(Math::log2(MAX(sigma_texels / p_chain_sigma, 1e-6)), 0.0, p_max_lod);
 }
 
 // Glare: light that leaves the path an ideal lens would give it. Every effect is a point spread function convolved
@@ -1038,6 +1036,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 	const double aspect = double(size.x) / double(size.y);
 	const double chain_h = p_context.glare_chain_size.y;
 	const double max_lod = p_context.glare_chain_mipmaps - 1;
+	const double chain_sigma = MAX(double(p_context.glare_chain_sigma), 0.01);
 	const bool physical = p_attributes && p_attributes->lens_focal_length > 0.0f;
 	const double squeeze = physical ? p_attributes->lens_anamorphic_squeeze : 1.0;
 
@@ -1045,7 +1044,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 	r_ubo.glare[1][2] = 1.0 / p_context.glare_chain_size.x;
 	r_ubo.glare[1][3] = 1.0 / p_context.glare_chain_size.y;
 	r_ubo.glare[2][2] = max_lod;
-	r_ubo.glare[5][0] = chain_h / GLARE_CHAIN_SIGMA; // lod = log2(sigma in frame heights * this).
+	r_ubo.glare[5][0] = chain_h / chain_sigma; // lod = log2(sigma in frame heights * this).
 
 	if (bits & GLARE_LENS_FLARE) {
 		// Ghosts: light reflected twice between lens surfaces lands mirrored through the frame's center, scaled and
@@ -1079,7 +1078,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 		// keeps its shadows dark. Both are look choices from the makers' sample frames, not measurements.
 		const bool black = bits & GLARE_DIFFUSION_BLACK;
 		r_ubo.glare[2][1] = MIN((black ? 0.075 : 0.15) * env.diffusion_filter_strength, 0.75);
-		r_ubo.glare[2][3] = _glare_lod_for_sigma(black ? 0.005 : 0.01, chain_h, max_lod);
+		r_ubo.glare[2][3] = _glare_lod_for_sigma(black ? 0.005 : 0.01, chain_h, chain_sigma, max_lod);
 	}
 
 	// The lens the camera's effects derive from. Without one: a 50 mm lens at f/8 on a 24 mm tall frame (look choice).
@@ -1098,7 +1097,8 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 		// blade count share a spike (twice the light, N spikes); an odd count gives each edge its own (2 N spikes).
 		// lambda = 550 nm. The aperture is a regular polygon with its corners on the circle of diameter f / N; curved
 		// blades shorten the straight part and weaken the spikes (1 - curvature, look choice). The spikes start two
-		// glare chain texels out (the core is the image itself) and are cut at half the frame height.
+		// glare chain texels out (the core is the image itself) and are cut at half the frame height. Their light is
+		// taken from the core, as diffraction moves it rather than adding any, at most 90% of it (the shader).
 		const int blades = p_attributes->aperture_blade_count;
 		const double radius = 0.5 * focal / f_number;
 		const double edge = 2.0 * radius * Math::sin(Math::PI / blades);
@@ -1127,7 +1127,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 		// the frame's overall color does not change.
 		const double sigma_mm = 0.112 * p_attributes->halation_radius;
 		r_ubo.glare[4][2] = MIN(0.08 * p_attributes->halation_strength, 0.95);
-		r_ubo.glare[4][3] = _glare_lod_for_sigma(sigma_mm / frame_h, chain_h, max_lod);
+		r_ubo.glare[4][3] = _glare_lod_for_sigma(sigma_mm / frame_h, chain_h, chain_sigma, max_lod);
 	}
 
 	r_ubo.header[1] = bits;

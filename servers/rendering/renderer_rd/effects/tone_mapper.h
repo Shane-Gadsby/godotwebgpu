@@ -193,6 +193,9 @@ private:
 	} tonemap_mobile;
 
 	RID default_camera_effects_buffer; // All zeros: no CameraEffects effect runs.
+	// The glare chain's sampler: trilinear, and anisotropic so that the starburst's textureGrad() reads integrate along
+	// a spike while staying thin across it. Reads with an explicit lod are unaffected.
+	RID glare_sampler;
 
 public:
 	ToneMapper(bool p_use_mobile_version);

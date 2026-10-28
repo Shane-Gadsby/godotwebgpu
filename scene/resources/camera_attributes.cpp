@@ -854,7 +854,7 @@ void CameraAttributes::_bind_methods() {
 
 	ADD_GROUP("Starburst", "starburst_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "starburst_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_starburst_enabled", "is_starburst_enabled");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "starburst_strength", PROPERTY_HINT_RANGE, "0,10000,0.01,exp"), "set_starburst_strength", "get_starburst_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "starburst_strength", PROPERTY_HINT_RANGE, "0,100,0.01,or_greater,exp"), "set_starburst_strength", "get_starburst_strength");
 
 	ADD_GROUP("Halation", "halation_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "halation_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_halation_enabled", "is_halation_enabled");

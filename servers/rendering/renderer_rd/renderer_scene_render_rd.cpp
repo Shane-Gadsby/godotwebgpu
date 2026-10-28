@@ -476,15 +476,19 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
-// The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at half resolution, Gaussian-blurred, and every
-// mip below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
+// The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at reduced resolution, blurred, and every mip
+// below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
 // firefly suppression, as glare is the lens's point spread function acting on all light. RGBA16F whatever the
-// buffers' format, since highlights far above 1 are what glare is made of. Returns the texture with all its mips and
-// layers, or an invalid RID when the frame is too small.
-static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, Size2i &r_size, int &r_mipmaps) {
+// buffers' format, since highlights far above 1 are what glare is made of. Built with glow's passes: Forward+'s
+// compute Gaussian at half resolution, the raster path's gather at quarter resolution (its first pass always reduces
+// by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_sigma is
+// the blur of lod L in lod 0 texels per 2^L, measured with a single bright texel (task 35's halation renders).
+static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, Size2i &r_size, int &r_mipmaps, float &r_sigma) {
 	static const StringName context = SNAME("CameraGlare");
 	static const StringName name = SNAME("chain");
-	const Size2i size = Size2i(p_source_size.x >> 1, p_source_size.y >> 1);
+	const int reduction = p_can_use_storage ? 1 : 2;
+	const Size2i size = Size2i(p_source_size.x >> reduction, p_source_size.y >> reduction);
+	r_sigma = p_can_use_storage ? 2.68 : 0.80;
 	if (size.x < 2 || size.y < 2) {
 		return RID();
 	}
@@ -815,10 +819,11 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 	RID glare_chain;
 	Size2i glare_chain_size;
 	int glare_chain_mipmaps = 0;
+	float glare_chain_sigma = 1.0;
 	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_glare(p_render_data->camera_attributes, glare_environment)) {
 		RENDER_TIMESTAMP("Camera Glare");
 		RD::get_singleton()->draw_command_begin_label("Camera Glare");
-		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_chain_size, glare_chain_mipmaps);
+		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_chain_size, glare_chain_mipmaps, glare_chain_sigma);
 		RD::get_singleton()->draw_command_end_label();
 	}
 
@@ -963,6 +968,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			if (glare_chain.is_valid()) {
 				camera_effects_context.glare_chain_size = glare_chain_size;
 				camera_effects_context.glare_chain_mipmaps = glare_chain_mipmaps;
+				camera_effects_context.glare_chain_sigma = glare_chain_sigma;
 				tonemap.glare_texture = glare_chain;
 			}
 			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
