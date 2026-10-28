@@ -64,7 +64,11 @@ Native: xvfb, RTX 4080 SUPER, Vulkan. Base editor = 959dd30fb9 built in this wor
   filtering; the halation-off frame already differs at the sphere's edge (20 px, max 185, as task 35 noted).
   The web run used exactly the required launch options and logged the adapter above; after the lead's reminder
   `shoot40.mjs` also fails on any other adapter. The run's logged adapter was correct, so it was not redone.
-- **Cost**: COST_PENDING
+- **Cost** (viewport GPU time, 1920x1080, task 36's AWB room, 400 frames; the GPU was shared with other workers'
+  builds and a browser, so medians swung 0.2-3 ms: the **minimum** of each run is reported, two runs each, base / new):
+  no effects 0.164-0.168 / 0.169; Average AE 0.210-0.211 / 0.201-0.209 (unchanged: the fix costs nothing); log-average
+  Average 0.208-0.210, log center-weighted 0.212; halation 0.245-0.260 / 0.243-0.260, **halation high quality
+  0.417-0.449 (+0.18 ms)**.
 - **dev_mode=yes** editor build (warnings as errors): clean.
 - **Smoke** (final code):
   ```

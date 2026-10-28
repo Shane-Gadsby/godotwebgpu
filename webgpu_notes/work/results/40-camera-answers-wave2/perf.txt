@@ -1,0 +1,51 @@
+lease Wed 28 Oct 2026 11:58:59 AEST load 22.20 scons 1
+base  none           GPUMS median 0.2990
+base  avg            GPUMS median 0.3530
+new   none           GPUMS median 0.1660
+new   avg            GPUMS median 0.3560
+new   logavg         GPUMS median 0.2820
+new   logcenter      GPUMS median 2.4780
+base  halation       GPUMS median 3.2740
+new   halation       GPUMS median 3.7990
+new   halation_hq    GPUMS median 3.3170
+base  none           GPUMS median 2.5900
+base  avg            GPUMS median 1.4820
+new   none           GPUMS median 0.8680
+new   avg            GPUMS median 0.6350
+new   logavg         GPUMS median 1.3180
+new   logcenter      GPUMS median 1.3270
+base  halation       GPUMS median 1.3100
+new   halation       GPUMS median 1.3000
+new   halation_hq    GPUMS median 2.9490
+base  none           GPUMS median 0.8830
+base  avg            GPUMS median 1.2170
+new   none           GPUMS median 1.0780
+new   avg            GPUMS median 0.9450
+new   logavg         GPUMS median 1.5610
+new   logcenter      GPUMS median 2.3560
+base  halation       GPUMS median 3.0360
+new   halation       GPUMS median 3.1740
+new   halation_hq    GPUMS median 5.7520
+end load 16.98 scons 1
+dropped: gpu
+lease Wed 28 Oct 2026 12:10:07 AEST load 13.37 scons 1
+base  none           GPUMS median 0.9840 p10 0.1740 min 0.1680
+base  avg            GPUMS median 1.3590 p10 0.5010 min 0.2100
+new   none           GPUMS median 1.9880 p10 0.2020 min 0.1690
+new   avg            GPUMS median 1.1680 p10 0.2130 min 0.2090
+new   logavg         GPUMS median 1.9350 p10 0.2160 min 0.2100
+new   logcenter      GPUMS median 1.0020 p10 0.2190 min 0.2120
+base  halation       GPUMS median 1.4890 p10 0.3160 min 0.2600
+new   halation       GPUMS median 3.1440 p10 0.2650 min 0.2600
+new   halation_hq    GPUMS median 3.2610 p10 0.4530 min 0.4490
+base  none           GPUMS median 0.8910 p10 0.1740 min 0.1640
+base  avg            GPUMS median 1.3330 p10 0.4430 min 0.2110
+new   none           GPUMS median 1.0710 p10 0.1830 min 0.1690
+new   avg            GPUMS median 2.1660 p10 0.2170 min 0.2010
+new   logavg         GPUMS median 0.7900 p10 0.2160 min 0.2080
+new   logcenter      GPUMS median 1.4490 p10 0.2480 min 0.2120
+base  halation       GPUMS median 0.2610 p10 0.2500 min 0.2450
+new   halation       GPUMS median 0.2520 p10 0.2470 min 0.2430
+new   halation_hq    GPUMS median 0.5470 p10 0.4250 min 0.4170
+end load 21.97 scons 1
+dropped: gpu

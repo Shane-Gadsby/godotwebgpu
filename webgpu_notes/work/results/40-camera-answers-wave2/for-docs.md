@@ -64,7 +64,7 @@ with
 
 **Halation property table**, add a row after `halation_radius`:
 
-> | `halation_high_quality` | `false` | Builds the glare at full resolution instead of half, so halos smaller than the half-resolution blur keep their size: at 720p the radius-1 halo measures 3.4 px against the physical 3.4 px (3.95 px without it), radius 0.5 measures 1.9 px against 1.7 px (3.95 px without it, the floor). Costs a full-resolution blur and a 4x larger glare chain while halation is on (see Performance). Forward+ and web only; Mobile's chain is already sharp enough at radius 1. |
+> | `halation_high_quality` | `false` | Builds the glare at full resolution instead of half, so halos smaller than the half-resolution blur keep their size: at 720p the radius-1 halo measures 3.4 px against the physical 3.4 px (3.95 px without it), radius 0.5 measures 1.9 px against 1.7 px (3.95 px without it, the floor). Costs a full-resolution blur and a 4x larger glare chain while halation is on (about 0.2 ms more at 1080p on a desktop GPU). Forward+ and web only; Mobile's chain is already sharp enough at radius 1. |
 
 **Performance section**: after "...builds one shared half-resolution blur chain (quarter resolution on Mobile) for that
 frame;", add
@@ -72,4 +72,5 @@ frame;", add
 > with `halation_high_quality` the chain starts at full resolution instead (Forward+), and every glare effect of that
 > camera reads it; their sizes stay the same.
 
-(Measured GPU cost: see task 40 SUMMARY.md, "Cost"; put the number here once the lead has it.)
+> On an RTX 4080 SUPER at 1920x1080, halation costs about 0.08 ms of GPU time with the standard chain and 0.26 ms
+> with `halation_high_quality`.
