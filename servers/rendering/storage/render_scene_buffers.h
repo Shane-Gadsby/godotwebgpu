@@ -52,6 +52,7 @@ private:
 	float texture_mipmap_bias = 0.0;
 	bool use_taa = false;
 	bool use_debanding = false;
+	Size2i max_internal_size; // Not bound: the largest internal size dynamic 3D resolution will ask for (FSR 2 sizes its context from it); (0, 0) otherwise.
 
 protected:
 	static void _bind_methods();
@@ -92,6 +93,9 @@ public:
 
 	bool get_use_debanding() const { return use_debanding; }
 	void set_use_debanding(bool p_use_debanding) { use_debanding = p_use_debanding; }
+
+	Size2i get_max_internal_size() const { return max_internal_size; }
+	void set_max_internal_size(Size2i p_max_internal_size) { max_internal_size = p_max_internal_size; }
 
 	RenderSceneBuffersConfiguration() {}
 	virtual ~RenderSceneBuffersConfiguration() {}

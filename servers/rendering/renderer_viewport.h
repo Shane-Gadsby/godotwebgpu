@@ -30,12 +30,16 @@
 
 #pragma once
 
+#include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 #include "core/templates/rid_owner.h"
 #include "servers/display/display_server_enums.h"
 #include "servers/rendering/renderer_scene_render.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
 #include "servers/rendering/storage/render_scene_buffers.h"
+
+#include <atomic>
 
 class RendererViewport {
 public:
@@ -154,6 +158,63 @@ public:
 
 		RenderingServerTypes::RenderInfo render_info;
 
+		// Dynamic 3D resolution (viewport_set_scaling_3d_dynamic()): a controller that picks the 3D scale each frame
+		// to hold target_fps. While enabled, `scale` replaces scaling_3d_scale in _configure_3d_render_buffers();
+		// scaling_3d_scale stays the user's value and is the starting scale. Disabled, none of this runs.
+		struct DynamicScale {
+			bool enabled = false;
+			float target_fps = 60.0;
+			float min_scale = 0.5;
+			float max_scale = 1.0;
+			float scale = 1.0; // The scale in use.
+
+			RSE::ViewportScaling3DDynamicState state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF;
+			RSE::ViewportScaling3DDynamicSource source = RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE;
+
+			// What the getters return, read from other threads without a sync (rendering_server_default.h).
+			std::atomic<float> published_scale = 1.0;
+			std::atomic<int> published_state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF;
+			std::atomic<int> published_source = RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE;
+
+			uint64_t start_usec = 0; // Start (or scene change): the next STARTUP_USEC are ignored.
+			uint64_t settle_until_usec = 0; // After a change: samples before this describe the old scale.
+			uint32_t settle_frames = 0; // Frames left to skip after a change.
+			LocalVector<float> frame_window; // Frame times (ms) since the last decision.
+			LocalVector<float> gpu_window; // This viewport's GPU times (ms) since the last decision.
+			uint64_t last_gpu_begin = 0; // To tell a fresh GPU result from a repeated one (the web hands out the newest).
+			uint64_t last_gpu_sample_usec = 0;
+			float gpu_average_ms = 0.0; // Running average, for telling a hitch from sustained load.
+			uint32_t gpu_samples_at_start = 0;
+			uint32_t frames_at_start = 0;
+
+			// GPU (or frame) time = a + b * scale^2: `a` is the part resolution does not touch (shadows, sky, 2D, the
+			// upscale). Fitted from two settled measurements at scales at least 0.1 apart; < 0 until then.
+			float model_a = -1.0;
+			float point_scale = -1.0; // The last settled measurement, for the next fit.
+			float point_ms = 0.0;
+			uint64_t point_usec = 0;
+
+			// Frame-time path: the change being verified, CPU-bound backoff, and up-steps that failed (camera-sim's
+			// memory), keyed by scale / STEP.
+			int probe_dir = 0; // -1: a step down that must show its gain; +1: a step up that must not miss.
+			float probe_from = 0.0;
+			float probe_before_ms = 0.0;
+			float probe_predicted_gain = 0.0;
+			uint64_t cpu_retry_usec = 0;
+			float cpu_backoff_s = 5.0;
+			struct FailedScale {
+				uint64_t until_usec = 0;
+				float backoff_s = 10.0;
+				float frame_ms = 0.0; // The frame time it failed from: a much lighter load makes the failure moot.
+			};
+			HashMap<int, FailedScale> failed_up;
+
+			// For the verbose log.
+			uint32_t changes = 0;
+			float last_frame_ms = 0.0; // Medians of the last decision's window.
+			float last_measured_ms = 0.0;
+		} dynamic;
+
 		Viewport() {
 			view_count = 1;
 			update_mode = RSE::VIEWPORT_UPDATE_WHEN_VISIBLE;
@@ -202,12 +263,28 @@ public:
 
 	int num_viewports_with_motion_vectors = 0;
 
+	// Dynamic 3D resolution: frame interval measured between draw_viewports() calls, and the settle that a frame-time
+	// change imposes on every frame-time controller (they all read the same frame time, user answer Q5).
+	int dynamic_viewport_count = 0; // Viewports with dynamic scaling enabled: none, and nothing of it runs.
+	uint64_t dynamic_last_frame_usec = 0;
+	float dynamic_frame_ms = 0.0;
+	float dynamic_frame_average_ms = 0.0; // Running average, for telling a hitch from sustained load.
+	float dynamic_refresh_ms = 0.0;
+	uint64_t dynamic_frame_time_settle_until_usec = 0;
+
 private:
 	Vector<Viewport *> _sort_active_viewports();
 	void _viewport_set_size(Viewport *p_viewport, int p_width, int p_height, uint32_t p_view_count);
 	bool _viewport_requires_motion_vectors(Viewport *p_viewport);
 	void _viewport_set_force_motion_vectors(Viewport *p_viewport, bool p_force_motion_vectors);
 	void _configure_3d_render_buffers(Viewport *p_viewport);
+	bool _dynamic_scale_active(const Viewport *p_viewport) const;
+	float _dynamic_scale_max(const Viewport *p_viewport) const;
+	void _dynamic_scale_restart(Viewport *p_viewport, bool p_startup);
+	void _dynamic_scale_publish(Viewport *p_viewport);
+	void _dynamic_scale_set(Viewport *p_viewport, float p_scale, const String &p_reason);
+	float _dynamic_scale_update(Viewport *p_viewport, uint64_t p_now, float p_latency_ms);
+	void _dynamic_scale_update_all();
 	void _draw_3d(Viewport *p_viewport);
 	void _draw_viewport(Viewport *p_viewport);
 	DisplayServerEnums::WindowID _get_containing_window(Viewport *p_viewport);
@@ -234,6 +311,13 @@ public:
 
 	void viewport_set_scaling_3d_mode(RID p_viewport, RSE::ViewportScaling3DMode p_mode);
 	void viewport_set_scaling_3d_scale(RID p_viewport, float p_scaling_3d_scale);
+	void viewport_set_scaling_3d_dynamic(RID p_viewport, bool p_enabled);
+	void viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps);
+	void viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale);
+	void viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale);
+	float viewport_get_scaling_3d_effective_scale(RID p_viewport) const;
+	RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const;
+	RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const;
 	void viewport_set_fsr_sharpness(RID p_viewport, float p_sharpness);
 	void viewport_set_texture_mipmap_bias(RID p_viewport, float p_mipmap_bias);
 	void viewport_set_anisotropic_filtering_level(RID p_viewport, RSE::ViewportAnisotropicFiltering p_anisotropic_filtering_level);

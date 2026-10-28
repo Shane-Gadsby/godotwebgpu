@@ -210,6 +210,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	LocalVector<WGBuffer *> pending_staging;
 	void _flush_pending_staging();
 	void _queue_submit(uint32_t p_count, const WGPUCommandBuffer *p_buffers);
+	WGSubmitLatency *submit_latency = nullptr; // See WGSubmitLatency.
 
 	// Universal push constant bind group layout: group N, binding PUSH_CONSTANT_RING_BINDING,
 	// ReadOnlyStorage buffer with hasDynamicOffset=true. Created once at initialize().
@@ -816,6 +817,7 @@ public:
 	virtual void timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) override final;
 	/// Convert a raw timestamp query result to nanoseconds.
 	virtual uint64_t timestamp_query_result_to_time(uint64_t p_result) override final;
+	virtual uint64_t get_submit_to_done_latency_usec() override final;
 	/// Reset a timestamp query pool (no-op — WebGPU resets on use).
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) override final;
 	/// Write a timestamp to a query pool at the given index.

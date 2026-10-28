@@ -110,6 +110,23 @@ public:
 		SCALING_3D_MODE_MAX
 	};
 
+	enum Scaling3DDynamicState {
+		SCALING_3D_DYNAMIC_STATE_OFF,
+		SCALING_3D_DYNAMIC_STATE_STARTING,
+		SCALING_3D_DYNAMIC_STATE_ADJUSTING,
+		SCALING_3D_DYNAMIC_STATE_STABLE,
+		SCALING_3D_DYNAMIC_STATE_CPU_LIMITED,
+		SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE,
+		SCALING_3D_DYNAMIC_STATE_MAX
+	};
+
+	enum Scaling3DDynamicSource {
+		SCALING_3D_DYNAMIC_SOURCE_NONE,
+		SCALING_3D_DYNAMIC_SOURCE_GPU_TIME,
+		SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME,
+		SCALING_3D_DYNAMIC_SOURCE_MAX
+	};
+
 	enum PositionalShadowAtlasQuadrantSubdiv {
 		SHADOW_ATLAS_QUADRANT_SUBDIV_DISABLED,
 		SHADOW_ATLAS_QUADRANT_SUBDIV_1,
@@ -325,6 +342,15 @@ private:
 
 	Scaling3DMode scaling_3d_mode = SCALING_3D_MODE_BILINEAR;
 	float scaling_3d_scale = 1.0;
+	bool scaling_3d_dynamic = false;
+	float scaling_3d_dynamic_target_fps = 60.0;
+	float scaling_3d_dynamic_min_scale = 0.5;
+	float scaling_3d_dynamic_max_scale = 1.0;
+	bool scaling_3d_dynamic_remember = false;
+	// Polled from the rendering server while dynamic scaling is on (internal process).
+	float scaling_3d_dynamic_last_scale = 1.0;
+	Scaling3DDynamicState scaling_3d_dynamic_last_state = SCALING_3D_DYNAMIC_STATE_OFF;
+	float scaling_3d_dynamic_saved_scale = -1.0; // What remember last wrote or read; < 0: nothing.
 	float fsr_sharpness = 0.2f;
 	float texture_mipmap_bias = 0.0f;
 	AnisotropicFiltering anisotropic_filtering_level = ANISOTROPY_4X;
@@ -522,6 +548,11 @@ private:
 protected:
 	bool _set_size(const Size2i &p_size, const int p_view_count, const Size2 &p_size_2d_override, bool p_allocated);
 	void _check_xr_size();
+	void _update_internal_process();
+	void _scaling_3d_dynamic_poll();
+	String _scaling_3d_dynamic_remember_section() const;
+	void _scaling_3d_dynamic_load_remembered();
+	void _scaling_3d_dynamic_save_remembered();
 
 	Size2i _get_size() const;
 	Size2 _get_size_2d_override() const;
@@ -609,6 +640,20 @@ public:
 
 	void set_scaling_3d_scale(float p_scaling_3d_scale);
 	float get_scaling_3d_scale() const;
+
+	void set_scaling_3d_dynamic(bool p_enabled);
+	bool is_scaling_3d_dynamic() const;
+	void set_scaling_3d_dynamic_target_fps(float p_fps);
+	float get_scaling_3d_dynamic_target_fps() const;
+	void set_scaling_3d_dynamic_min_scale(float p_scale);
+	float get_scaling_3d_dynamic_min_scale() const;
+	void set_scaling_3d_dynamic_max_scale(float p_scale);
+	float get_scaling_3d_dynamic_max_scale() const;
+	void set_scaling_3d_dynamic_remember(bool p_enabled);
+	bool is_scaling_3d_dynamic_remember() const;
+	float get_scaling_3d_effective_scale() const;
+	Scaling3DDynamicState get_scaling_3d_dynamic_state() const;
+	Scaling3DDynamicSource get_scaling_3d_dynamic_source() const;
 
 	void set_fsr_sharpness(float p_fsr_sharpness);
 	float get_fsr_sharpness() const;
@@ -964,6 +1009,8 @@ public:
 	SubViewport();
 };
 VARIANT_ENUM_CAST(Viewport::Scaling3DMode);
+VARIANT_ENUM_CAST(Viewport::Scaling3DDynamicState);
+VARIANT_ENUM_CAST(Viewport::Scaling3DDynamicSource);
 VARIANT_ENUM_CAST(SubViewport::UpdateMode);
 VARIANT_ENUM_CAST(Viewport::PositionalShadowAtlasQuadrantSubdiv);
 VARIANT_ENUM_CAST(Viewport::MSAA);

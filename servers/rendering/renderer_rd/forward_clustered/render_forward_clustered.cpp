@@ -91,7 +91,9 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_voxelgi() 
 }
 
 void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_fsr2(RendererRD::FSR2Effect *p_effect) {
-	const Size2i internal_size = render_buffers->get_internal_size();
+	// With dynamic 3D resolution the context is made at the largest size the controller can pick (max_internal_size),
+	// so its changes never grow it; otherwise max_internal_size is (0, 0) and the context starts at the current size.
+	const Size2i internal_size = render_buffers->get_internal_size().max(render_buffers->get_max_internal_size());
 	if (fsr2_context != nullptr) {
 		// The context was kept over a reconfigure (configure()). It renders any size up to the one it was made with;
 		// past that it needs a larger one, which takes over its history so the change does not restart accumulation.
