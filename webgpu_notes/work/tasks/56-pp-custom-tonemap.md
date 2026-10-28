@@ -1,6 +1,6 @@
 # 56-pp-custom-tonemap
 
-State: ready-for-integration
+State: integrated (TASKS §4.70)
 Owner: worker-56
 Claimed: 2026-10-28 15:00
 Needs: build, gpu

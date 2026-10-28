@@ -2583,7 +2583,7 @@ Effort <0.5 session once the user has answered.
 
 ### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
 
-**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48); custom tonemap curve and local exposure next.
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48), custom tonemap §4.70 (task 56); custom tonemap curve and local exposure next.
 
 Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
 have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
@@ -3284,6 +3284,12 @@ anything sampling the raster mip chain by UV (Mobile's glare chain) must read le
 or coarse levels drift (a halo 61 px off its light at 2160p). Also: a blend of two blur levels is not a Gaussian, so a
 Gaussian fit against a source as wide as the blur reads several percent wide; test PSF-sized effects with sources well
 below the blur.
+
+92. **The gles3 effects shaders did not depend on the parent folder's includes** (2026-10-28, work task 56; fixed in
+`drivers/gles3/shaders/effects/SCsub`, which now adds `../*_inc.glsl`). `post.glsl` includes `../tonemap_inc.glsl`, so
+after editing `tonemap_inc.glsl` the scene and sky shaders rebuilt but `post.glsl.gen.h` kept the old text, and the
+Custom tonemapper rendered pure white whenever Compatibility ran its post pass. A build that "compiled fine" but
+renders an old shader: check the `.gen.h` dates.
 
 ---
 
@@ -5201,6 +5207,23 @@ Lead (merged tree): defaults 0 px against the pre-merge editor (24 captures, 3 r
 and 2160 within 2.6% from radius 1 up (centered and nine-point sources); Mobile nine-point within 3.4%, a single
 centered point up to +8% at radius 4 (sub-texel phase of the raster chain; was +15%); smoke OK apart from task 57's
 then-unregenerated bindings. Blended reads double the glare's texture reads (up to 48 per pixel for the flare), not timed.
+
+### 4.70 Custom tonemapper (October 2026) *(work task 56; survey §2.48, `pp-custom-tonemap`)*
+
+`Environment.TONE_MAPPER_CUSTOM` with `tonemap_custom_slope / toe / shoulder / black_clip / white_clip` (Unreal Film's
+parameters and defaults 0.88 / 0.55 / 0.26 / 0 / 0.04) and `RS.environment_set_tonemap_custom()`, all three renderers
+and the web. An analytic curve (no Unreal code): a straight line in log10, tanh toe and shoulder, 0.18 maps to 0.18;
+per channel in Rec.709, clips at 1.0 (questions `custom-tonemap-gamut`, `custom-tonemap-hdr`). Its parameters live in
+the first **Environment-owned tonemap buffer**, `EnvironmentEffects` (std140, 256 bytes; header x = tonemap bits, the
+rest reserved for later Environment post parameters such as an HDR grading mode): Forward+ set 3 binding 2, Mobile set
+0 binding 7 plus spec constant 19 (ADRENO_BUG moved to bit 20), Compatibility 12 floats in `TonemapData`. Uploaded
+before the render pass, so Mobile's subpass tonemap works. Worker: Forward+ within 0.64/255 of an independent numpy
+model (13 cases, 768 samples each), web pixel-identical to native, Mobile 97-99.6% within 1/255 (its 2.0 cap limits
+output to 0.86 with the defaults, documented), Compatibility checked for consistency only (its chart readback follows
+no model for any tonemapper, pre-existing); existing tonemappers 0 px in 42 renders; matrix arm `tonemap_custom`
+(delta 29.6). Lead (merged tree with 57): the same numbers reproduce; existing tonemappers 0 px against the pre-merge
+editor in all three renderers; web identical to native on all 13 charts (lit scenes max 1/255); `tonemap_custom` passes
+`--parity`. §3 trap 92 (gles3 includes, fixed).
 
 ## 5. References — retired docs
 
