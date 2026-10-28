@@ -1,6 +1,6 @@
 # 49-pp-micro-shadows
 
-State: claimed
+State: ready-for-integration
 Owner: worker-49
 Claimed: 2026-10-28 12:05
 Needs: build, gpu

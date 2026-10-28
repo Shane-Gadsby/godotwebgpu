@@ -60,7 +60,8 @@ from this tree):
   off 0.003 on 0.003; every lighting arm within 0.004 of native (omni_shadow_cube on: 0.015).
 - `--parity --baked` (micro_shadows, normal_map, directional_light, directional_shadow, light_specular): 5/5 PASS,
   micro_shadows native diff 0.003 / 0.003.
-- full matrix `--parity` unbaked: MATRIX_FULL
+- full matrix `--parity` unbaked: **98/98 PASS** (micro_shadows delta 0.687, native diff
+  off 0.016 on 0.014 in the full run; worst arm fsr2 0.142, then sdfgi 0.027, all within tolerance).
 
 **Cost**: a dot product, a multiply-add, a clamp and a mix per pixel per directional light, behind a uniform branch;
 no pass, texture or variant. GPU time measured on the 2560x1440 test quad (`tools/cost.sh`) was noise-dominated
