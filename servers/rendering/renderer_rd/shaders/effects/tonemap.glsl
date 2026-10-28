@@ -79,9 +79,11 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #ifdef USE_MULTIVIEW
 #define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
 #define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, vec3(m_uv, ViewIndex), m_dx, m_dy).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_SIZE(m_lod) (textureSize(source_glare, m_lod).xy)
 #else
 #define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, m_uv, m_lod).rgb * params.luminance_multiplier)
 #define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, m_uv, m_dx, m_dy).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_SIZE(m_lod) (textureSize(source_glare, m_lod).xy)
 #endif
 
 #define FLAG_USE_BCS (1 << 0)
