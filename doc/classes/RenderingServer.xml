@@ -85,6 +85,14 @@
 				Sets how auto exposure meters the frame. [param mode] is the metering mode, [param spot_size] the spot's area in percent of the frame, [param spot_point] its center in UV coordinates and [param highlight_percentile] the percentile the highlight-weighted mode exposes to the clipping point. These take on the same meaning as the [code]auto_exposure_metering_*[/code] properties of [CameraAttributes].
 			</description>
 		</method>
+		<method name="camera_attributes_set_auto_exposure_metering_log_average">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], auto exposure meters the log-average of the frame instead of its arithmetic mean. See [member CameraAttributes.auto_exposure_metering_log_average].
+			</description>
+		</method>
 		<method name="camera_attributes_set_auto_white_balance">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -191,6 +199,14 @@
 			<param index="3" name="radius" type="float" />
 			<description>
 				Sets the halation of the camera attributes: whether it is enabled, its [param strength] and its [param radius] multiplier. See [member CameraAttributes.halation_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_halation_high_quality">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], halation's glare chain starts at full resolution, for halos below its usual size floor. See [member CameraAttributes.halation_high_quality].
 			</description>
 		</method>
 		<method name="camera_attributes_set_lens">

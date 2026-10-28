@@ -150,6 +150,9 @@ void CameraMetering::meter_exposure(RID p_source, const Size2i &p_source_size, R
 	PushConstant push_constant = {};
 	push_constant.adjust = p_settings.adjust;
 	push_constant.flags = p_settings.set ? FLAG_SET : 0;
+	if (p_settings.metering.log_average) {
+		push_constant.flags |= FLAG_LOG_AVERAGE;
+	}
 	push_constant.min_luminance = p_settings.min_luminance;
 	push_constant.max_luminance = p_settings.max_luminance;
 	push_constant.highlight_percentile = p_settings.metering.highlight_percentile;

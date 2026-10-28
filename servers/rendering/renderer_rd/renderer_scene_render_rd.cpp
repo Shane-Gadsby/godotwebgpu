@@ -476,6 +476,11 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
+// The full-resolution glare chain's blur of lod L, in lod 0 texels per 2^L: measured as task 35 measured 2.68 for the
+// half-resolution one, from Gaussian fits of halation halos at radius 2, 4 and 16 (task 40, HDR captures at 720p: 2.66
+// to 2.73 depending on where between two lods the radius falls). The same value as the half-resolution chain.
+static constexpr float FULL_RESOLUTION_GLARE_SIGMA = 2.68f;
+
 // The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at reduced resolution, blurred, and every mip
 // below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
 // firefly suppression, as glare is the lens's point spread function acting on all light. RGBA16F whatever the
@@ -483,12 +488,17 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 // compute Gaussian at half resolution, the raster path's gather at quarter resolution (its first pass always reduces
 // by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_sigma is
 // the blur of lod L in lod 0 texels per 2^L, measured with a single bright texel (task 35's halation renders).
-static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, Size2i &r_size, int &r_mipmaps, float &r_sigma) {
+// p_full_resolution (halation's high quality option) starts Forward+'s chain at the frame's own resolution, so its
+// sharpest level is about half as wide as the usual one: the physical halo at radius 1 is ~0.5% of the frame height,
+// below what the half-resolution chain can draw. The raster chain's sharpest level is already that small (task 35:
+// 2.95 px at 720p against 3.36 predicted), so it is unchanged.
+static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, bool p_full_resolution, Size2i &r_size, int &r_mipmaps, float &r_sigma) {
 	static const StringName context = SNAME("CameraGlare");
 	static const StringName name = SNAME("chain");
-	const int reduction = p_can_use_storage ? 1 : 2;
+	const bool full_resolution = p_can_use_storage && p_full_resolution;
+	const int reduction = p_can_use_storage ? (full_resolution ? 0 : 1) : 2;
 	const Size2i size = Size2i(p_source_size.x >> reduction, p_source_size.y >> reduction);
-	r_sigma = p_can_use_storage ? 2.68 : 0.80;
+	r_sigma = p_can_use_storage ? (full_resolution ? FULL_RESOLUTION_GLARE_SIGMA : 2.68) : 0.80;
 	if (size.x < 2 || size.y < 2) {
 		return RID();
 	}
@@ -723,7 +733,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			metering_settings.set = set_immediate;
 			camera_metering->meter_exposure(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, camera_metering->get_buffers(rb), metering_settings);
 		} else {
-			luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate);
+			luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate, metering.log_average);
 		}
 
 		// Swap final reduce with prev luminance.
@@ -863,7 +873,8 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_glare(p_render_data->camera_attributes, glare_environment)) {
 		RENDER_TIMESTAMP("Camera Glare");
 		RD::get_singleton()->draw_command_begin_label("Camera Glare");
-		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_chain_size, glare_chain_mipmaps, glare_chain_sigma);
+		const bool glare_full_resolution = RSG::camera_attributes->camera_attributes_uses_full_resolution_glare(p_render_data->camera_attributes);
+		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_full_resolution, glare_chain_size, glare_chain_mipmaps, glare_chain_sigma);
 		RD::get_singleton()->draw_command_end_label();
 	}
 

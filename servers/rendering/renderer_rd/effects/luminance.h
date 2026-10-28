@@ -55,7 +55,13 @@ private:
 		float max_luminance;
 		float min_luminance;
 		float exposure_adjust;
-		float pad[3];
+		float inv_pixel_count;
+		uint32_t flags;
+		float pad;
+	};
+
+	enum {
+		LUMINANCE_REDUCE_FLAG_LOG_AVERAGE = 1,
 	};
 
 	struct LuminanceReduce {
@@ -105,7 +111,7 @@ public:
 
 	Ref<LuminanceBuffers> get_luminance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers);
 	RID get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_buffers);
-	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false);
+	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, bool p_log_average = false);
 
 	Luminance(bool p_prefer_raster_effects);
 	~Luminance();

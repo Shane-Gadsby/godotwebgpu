@@ -949,6 +949,7 @@ public:
 
 	/* Exposure automation */
 	FUNC5(camera_attributes_set_auto_exposure_metering, RID, RSE::CameraAttributesMeteringMode, float, const Vector2 &, float)
+	FUNC2(camera_attributes_set_auto_exposure_metering_log_average, RID, bool)
 	FUNC5(camera_attributes_set_auto_white_balance, RID, bool, float, float, float)
 
 	/* Lens optics */
@@ -963,6 +964,7 @@ public:
 	FUNC4(camera_attributes_set_tilt_shift, RID, bool, float, float)
 	FUNC3(camera_attributes_set_starburst, RID, bool, float)
 	FUNC4(camera_attributes_set_halation, RID, bool, float, float)
+	FUNC2(camera_attributes_set_halation_high_quality, RID, bool)
 
 	/* SCENARIO API */
 

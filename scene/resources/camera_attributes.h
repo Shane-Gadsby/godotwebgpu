@@ -143,6 +143,7 @@ protected:
 	float auto_exposure_metering_spot_size = 2.5; // Percent of the frame's area.
 	Vector2 auto_exposure_metering_spot_point = Vector2(0.5, 0.5);
 	float auto_exposure_metering_highlight_percentile = 99.0;
+	bool auto_exposure_metering_log_average = false;
 	void _update_auto_exposure_metering();
 	bool white_balance_auto = false;
 	float white_balance_auto_speed = 1.0;
@@ -160,11 +161,12 @@ protected:
 	float cats_eye_strength = 1.0;
 	void _update_cats_eye();
 	bool starburst_enabled = false;
-	float starburst_strength = 1.0;
+	float starburst_strength = 20.0;
 	void _update_starburst();
 	bool halation_enabled = false;
 	float halation_strength = 1.0;
 	float halation_radius = 1.0;
+	bool halation_high_quality = false;
 	void _update_halation();
 
 public:
@@ -196,6 +198,8 @@ public:
 	Vector2 get_auto_exposure_metering_spot_point() const;
 	void set_auto_exposure_metering_highlight_percentile(float p_percentile);
 	float get_auto_exposure_metering_highlight_percentile() const;
+	void set_auto_exposure_metering_log_average(bool p_enabled);
+	bool is_auto_exposure_metering_log_average() const;
 
 	void set_white_balance_auto(bool p_enabled);
 	bool is_white_balance_auto() const;
@@ -303,6 +307,8 @@ public:
 	float get_halation_strength() const;
 	void set_halation_radius(float p_value);
 	float get_halation_radius() const;
+	void set_halation_high_quality(bool p_enabled);
+	bool is_halation_high_quality() const;
 
 	CameraAttributes();
 	~CameraAttributes();

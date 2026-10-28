@@ -202,6 +202,7 @@ private:
 		float auto_exposure_metering_spot_size = 2.5; // Percent of the frame's area.
 		Vector2 auto_exposure_metering_spot_point = Vector2(0.5, 0.5); // In UV, (0, 0) the top left.
 		float auto_exposure_metering_highlight_percentile = 99.0; // Percent.
+		bool auto_exposure_metering_log_average = false; // The (weighted) log-average instead of the mean.
 		bool auto_white_balance_enabled = false;
 		float auto_white_balance_speed = 1.0; // 1 / time constant, in 1/s.
 		float auto_white_balance_min_temperature = 2500.0; // In Kelvin.
@@ -220,10 +221,11 @@ private:
 		float tilt_shift_tilt = 0.0; // Lens tilt, in degrees.
 		float tilt_shift_axis = 0.0; // Direction of the tilt axis in the frame, in degrees (0 = horizontal).
 		bool starburst_enabled = false;
-		float starburst_strength = 1.0;
+		float starburst_strength = 20.0;
 		bool halation_enabled = false;
 		float halation_strength = 1.0;
 		float halation_radius = 1.0;
+		bool halation_high_quality = false; // Builds the glare chain at full resolution, for halos below its usual floor.
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
@@ -390,6 +392,7 @@ public:
 		float outer_weight = 1.0; // and outside it.
 		float highlight_percentile = 0.99; // Fraction of the pixels at or below the metered value (highlight mode).
 		float highlight_key = 0.4; // The highlight mode reports percentile * key.
+		bool log_average = false; // Every mean above is a log-average, exp(mean(log(v + delta))), instead.
 	};
 
 	struct AutoWhiteBalance {
@@ -402,6 +405,7 @@ public:
 
 	void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile);
 	AutoExposureMetering camera_attributes_get_auto_exposure_metering(RID p_camera_attributes, const Size2i &p_frame_size);
+	void camera_attributes_set_auto_exposure_metering_log_average(RID p_camera_attributes, bool p_enable);
 	void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature);
 	AutoWhiteBalance camera_attributes_get_auto_white_balance(RID p_camera_attributes);
 
@@ -437,6 +441,10 @@ public:
 	void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis);
 	void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength);
 	void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius);
+	void camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable);
+	// Whether the glare chain must start at full resolution: halation with its high quality option, whose physical halo
+	// is smaller than the usual half-resolution chain can draw.
+	bool camera_attributes_uses_full_resolution_glare(RID p_camera_attributes);
 	// The bokeh for a DOF pass whose frame is p_aspect wide per unit of height.
 	BokehShape camera_attributes_get_bokeh_shape(RID p_camera_attributes, float p_aspect);
 	// Tilt-shift makes every pixel's focus distance differ, so the DOF must run even where the untilted lens would be
