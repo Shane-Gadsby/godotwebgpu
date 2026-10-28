@@ -64,6 +64,19 @@ public:
 		AUTOFOCUS_MODE_CONTINUOUS,
 	};
 
+	enum ShakePreset {
+		SHAKE_PRESET_CUSTOM,
+		SHAKE_PRESET_HANDHELD,
+		SHAKE_PRESET_HANDHELD_STABILIZED,
+		SHAKE_PRESET_HANDHELD_WALKING,
+		SHAKE_PRESET_RUNNING,
+		SHAKE_PRESET_SHOULDER_RIG,
+		SHAKE_PRESET_GIMBAL,
+		SHAKE_PRESET_TRIPOD_WIND,
+		SHAKE_PRESET_VEHICLE_MOUNT,
+		SHAKE_PRESET_MAX,
+	};
+
 	enum MonitoringHistogramMode {
 		MONITORING_HISTOGRAM_LUMA,
 		MONITORING_HISTOGRAM_RGB,
@@ -116,6 +129,8 @@ private:
 	float monitoring_zebras_level = 95.0;
 	bool monitoring_zebras_second_enabled = false;
 	float monitoring_zebras_second_level = 70.0;
+	Color monitoring_zebras_color = Color(0.0, 0.0, 0.0);
+	Color monitoring_zebras_second_color = Color(1.0, 1.0, 1.0);
 	bool monitoring_focus_peaking_enabled = false;
 	Color monitoring_focus_peaking_color = Color(1.0, 0.0, 0.0);
 	float monitoring_focus_peaking_sensitivity = 0.5;
@@ -189,6 +204,9 @@ private:
 	real_t shake_breathing_frequency = 0.25; // Hz.
 	real_t shake_stabilization = 0.0;
 	bool shake_scale_with_focal_length = true;
+	bool shake_visible_in_editor = false;
+	ShakePreset shake_preset = SHAKE_PRESET_CUSTOM;
+	bool shake_applying_preset = false;
 
 	double shake_phase[SHAKE_AXES][SHAKE_PARTIALS] = {};
 	float shake_multiplier[SHAKE_AXES][SHAKE_PARTIALS] = {};
@@ -196,6 +214,9 @@ private:
 
 	void _shake_seed_partials();
 	void _shake_process(double p_delta);
+	bool _shake_active() const;
+	bool _shake_matches_preset() const;
+	void _shake_value_changed();
 	void _lens_process_changed();
 
 protected:
@@ -295,6 +316,10 @@ public:
 	bool is_monitoring_zebras_second_enabled() const;
 	void set_monitoring_zebras_second_level(float p_level);
 	float get_monitoring_zebras_second_level() const;
+	void set_monitoring_zebras_color(const Color &p_color);
+	Color get_monitoring_zebras_color() const;
+	void set_monitoring_zebras_second_color(const Color &p_color);
+	Color get_monitoring_zebras_second_color() const;
 	void set_monitoring_focus_peaking_enabled(bool p_enabled);
 	bool is_monitoring_focus_peaking_enabled() const;
 	void set_monitoring_focus_peaking_color(const Color &p_color);
@@ -365,6 +390,10 @@ public:
 	void set_shake_scale_with_focal_length(bool p_enabled);
 	bool is_shake_scale_with_focal_length() const;
 	Transform3D get_shake_offset() const;
+	void set_shake_visible_in_editor(bool p_visible);
+	bool is_shake_visible_in_editor() const;
+	void set_shake_preset(ShakePreset p_preset);
+	ShakePreset get_shake_preset() const;
 
 #ifndef PHYSICS_3D_DISABLED
 	RID get_pyramid_shape_rid();
@@ -378,5 +407,6 @@ VARIANT_ENUM_CAST(Camera3D::ProjectionType);
 VARIANT_ENUM_CAST(Camera3D::KeepAspect);
 VARIANT_ENUM_CAST(Camera3D::DopplerTracking);
 VARIANT_ENUM_CAST(Camera3D::AutofocusMode);
+VARIANT_ENUM_CAST(Camera3D::ShakePreset);
 VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramMode);
 VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramPosition);

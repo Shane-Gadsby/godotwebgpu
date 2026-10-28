@@ -308,6 +308,8 @@ public:
 		float zebras_level = 95.0; // IRE %.
 		bool zebras_second = false;
 		float zebras_second_level = 70.0; // IRE %, the center of a +-5 IRE window.
+		Color zebras_color = Color(0.0, 0.0, 0.0); // Display-encoded stripe colors.
+		Color zebras_second_color = Color(1.0, 1.0, 1.0);
 		bool focus_peaking = false;
 		Color focus_peaking_color = Color(1.0, 0.0, 0.0);
 		float focus_peaking_sensitivity = 0.5;

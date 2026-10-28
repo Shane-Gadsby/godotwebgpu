@@ -193,6 +193,13 @@ void RendererSceneCull::camera_set_monitoring_zebras(RID p_camera, bool p_enable
 	camera->monitoring.zebras_second_level = p_second_level;
 }
 
+void RendererSceneCull::camera_set_monitoring_zebra_colors(RID p_camera, const Color &p_color, const Color &p_second_color) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->monitoring.zebras_color = p_color;
+	camera->monitoring.zebras_second_color = p_second_color;
+}
+
 void RendererSceneCull::camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) {
 	Camera *camera = camera_owner.get_or_null(p_camera);
 	ERR_FAIL_NULL(camera);

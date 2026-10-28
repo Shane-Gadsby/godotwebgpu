@@ -327,6 +327,15 @@
 				Sets the histogram drawn over the camera's image. [param size] is its width as a fraction of the image width. See [member Camera3D.monitoring_histogram_enabled].
 			</description>
 		</method>
+		<method name="camera_set_monitoring_zebra_colors">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="color" type="Color" />
+			<param index="2" name="second_color" type="Color" />
+			<description>
+				Sets the stripe colors (display-encoded) of the zebras set with [method camera_set_monitoring_zebras]: [param color] for the first zebra, [param second_color] for the second. The defaults are black and white. See [member Camera3D.monitoring_zebras_color].
+			</description>
+		</method>
 		<method name="camera_set_monitoring_zebras">
 			<return type="void" />
 			<param index="0" name="camera" type="RID" />

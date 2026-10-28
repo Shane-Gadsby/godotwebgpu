@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[node name="Main" type="Node3D"]
+
+[node name="Ticked" type="Camera3D" parent="."]
+shake_enabled = true
+shake_visible_in_editor = true
+shake_preset = 3
+
+[node name="Unticked" type="Camera3D" parent="."]
+shake_enabled = true
+shake_preset = 3

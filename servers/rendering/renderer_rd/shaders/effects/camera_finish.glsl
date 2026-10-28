@@ -51,6 +51,9 @@ layout(push_constant, std430) uniform Params {
 
 	vec4 peaking_color;
 	vec4 histogram_rect; // x0, y0, x1, y1 in pixels, y down.
+
+	vec4 zebras_color; // Display-encoded; .a unused.
+	vec4 zebras_second_color;
 }
 params;
 
@@ -94,10 +97,10 @@ void main() {
 		result = cf_false_color(luma * 100.0);
 	}
 	if (bool(params.flags & FLAG_ZEBRAS_SECOND) && abs(luma - params.zebras_second_level) <= 0.05 && cf_zebra_stripe(pos, params.stripe_period, params.time, -1.0)) {
-		result = vec3(1.0);
+		result = params.zebras_second_color.rgb;
 	}
 	if (bool(params.flags & FLAG_ZEBRAS) && luma >= params.zebras_level && cf_zebra_stripe(pos, params.stripe_period, params.time, 1.0)) {
-		result = vec3(0.0);
+		result = params.zebras_color.rgb;
 	}
 	if (bool(params.flags & FLAG_FOCUS_PEAKING) && cf_peaking_gradient(pos) >= params.peaking_threshold) {
 		result = params.peaking_color.rgb;

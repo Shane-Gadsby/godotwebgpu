@@ -732,6 +732,7 @@ public:
 	FUNC2(camera_set_compositor, RID, RID)
 	FUNC2(camera_set_use_vertical_aspect, RID, bool)
 	FUNC5(camera_set_monitoring_zebras, RID, bool, float, bool, float)
+	FUNC3(camera_set_monitoring_zebra_colors, RID, const Color &, const Color &)
 	FUNC4(camera_set_monitoring_focus_peaking, RID, bool, const Color &, float)
 	FUNC2(camera_set_monitoring_false_color, RID, bool)
 	FUNC6(camera_set_monitoring_histogram, RID, bool, RSE::CameraMonitoringHistogramMode, RSE::CameraMonitoringHistogramPosition, float, float)

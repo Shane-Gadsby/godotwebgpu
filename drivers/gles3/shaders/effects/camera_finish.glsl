@@ -45,6 +45,8 @@ uniform float zebras_second_level;
 uniform float stripe_period;
 uniform float peaking_threshold;
 uniform vec3 peaking_color;
+uniform vec3 zebras_color;
+uniform vec3 zebras_second_color;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -83,10 +85,10 @@ void main() {
 	// GL's window origin is the bottom left: flip y so the stripes run the same way as in the RD renderers.
 	vec2 stripe_pos = vec2(pos.x, 1.0 / pixel_size.y - pos.y);
 	if ((flags & FLAG_ZEBRAS_SECOND) != 0 && abs(luma - zebras_second_level) <= 0.05 && cf_zebra_stripe(stripe_pos, stripe_period, time, -1.0)) {
-		result = vec3(1.0);
+		result = zebras_second_color;
 	}
 	if ((flags & FLAG_ZEBRAS) != 0 && luma >= zebras_level && cf_zebra_stripe(stripe_pos, stripe_period, time, 1.0)) {
-		result = vec3(0.0);
+		result = zebras_color;
 	}
 	if ((flags & FLAG_FOCUS_PEAKING) != 0 && cf_peaking_gradient(pos) >= peaking_threshold) {
 		result = peaking_color;

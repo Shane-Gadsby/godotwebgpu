@@ -107,6 +107,7 @@
 		</member>
 		<member name="motion_blur_enabled" type="bool" setter="set_motion_blur_enabled" getter="is_motion_blur_enabled" default="false">
 			If [code]true[/code], the camera blurs what moves across the frame while its shutter is open. The length of the blur is the distance something travels on screen during the exposure: the exposure time is [member motion_blur_shutter_angle] of each frame, or the shutter speed of [CameraAttributesPhysical] (see [member CameraAttributesPhysical.motion_blur_use_shutter_speed]). Both the camera's own motion (pans, dollies) and objects moving in the scene blur, each by its own speed; the sky blurs with the camera's rotation.
+			In the editor it shows only with [member motion_blur_visible_in_editor] on, so navigating the 3D viewport does not blur it; a running project always shows it.
 			The blur is reconstructed from the frame and its motion vectors (McGuire et al. 2012, with the tap weights of Jimenez 2014), in linear scene light after depth of field and before auto exposure, glow and tonemapping. It extends half the blur each way from where things are at the frame's time, as with a shutter centered on it. Its length is measured in fractions of the frame, so it looks the same at every resolution. Quality is set by [member ProjectSettings.rendering/camera/motion_blur/motion_blur_quality].
 			[b]Note:[/b] Only supported in the Forward+ rendering method, which renders the motion vectors it needs (enabling motion blur turns them on, as TAA does). Mobile and Compatibility ignore it.
 			[b]Note:[/b] Like every screen-space motion blur, it only knows what the frame shows: transparent objects blur with whatever is behind them, a pixel blurs along the dominant motion of its neighborhood, and content a moving object uncovers is estimated from the pixels around it.
@@ -121,12 +122,19 @@
 		<member name="motion_blur_strength" type="float" setter="set_motion_blur_strength" getter="get_motion_blur_strength" default="1.0">
 			Multiplier for the blur length. At [code]1.0[/code], the blur is the one the exposure time gives.
 		</member>
+		<member name="motion_blur_visible_in_editor" type="bool" setter="set_motion_blur_visible_in_editor" getter="is_motion_blur_visible_in_editor" default="false">
+			If [code]true[/code], [member motion_blur_enabled] also blurs in the editor (the 3D viewport and the camera previews). If [code]false[/code] (the default), the editor shows no motion blur: it comes from the camera's motion, so it would smear the viewport whenever you navigate it. A running project always blurs while [member motion_blur_enabled] is on; this setting has no effect there.
+		</member>
 		<member name="rolling_shutter_enabled" type="bool" setter="set_rolling_shutter_enabled" getter="is_rolling_shutter_enabled" default="false">
 			If [code]true[/code], the frame is exposed row by row, as by a CMOS sensor read out from top to bottom over [member rolling_shutter_readout_time]: each row shows the scene a little later than the row above it. A fast pan leans vertical lines (the top of the frame lags behind the bottom), and fast moving objects skew. The middle row shows the frame's time, so the frame stays centered. With [member motion_blur_enabled], each row is blurred around its own time.
+			In the editor it shows only with [member rolling_shutter_visible_in_editor] on, so navigating the 3D viewport does not skew it; a running project always shows it.
 			[b]Note:[/b] Only supported in the Forward+ rendering method. It is reconstructed from the frame and its motion vectors, so it cannot show what the frame does not: where a moving object uncovers the background, the nearest pixels are repeated.
 		</member>
 		<member name="rolling_shutter_readout_time" type="float" setter="set_rolling_shutter_readout_time" getter="get_rolling_shutter_readout_time" default="20.0">
 			The time the sensor takes to read the frame from the top row to the bottom one, in milliseconds. Stills and video cameras with CMOS sensors typically take 5 to 30 milliseconds; phone cameras are at the slow end and sensors with fast readout at the short end. A global shutter reads every row at once ([code]0[/code]).
+		</member>
+		<member name="rolling_shutter_visible_in_editor" type="bool" setter="set_rolling_shutter_visible_in_editor" getter="is_rolling_shutter_visible_in_editor" default="false">
+			If [code]true[/code], [member rolling_shutter_enabled] also skews the image in the editor (the 3D viewport and the camera previews). If [code]false[/code] (the default), the editor shows no rolling shutter, which would otherwise skew the viewport whenever you navigate it. A running project always shows it while [member rolling_shutter_enabled] is on; this setting has no effect there.
 		</member>
 		<member name="vignetting_enabled" type="bool" setter="set_vignetting_enabled" getter="is_vignetting_enabled" default="false">
 			If [code]true[/code], the lens darkens the image toward the frame's edges. With [CameraAttributesPhysical] the darkening follows the lens: natural vignetting, the cos⁴ law of the field angle from [member CameraAttributesPhysical.frustum_focal_length] and the sensor, plus optical vignetting, where the lens barrel clips the aperture off-axis, which is strongest wide open (at [member CameraAttributesPhysical.lens_max_aperture]) and gone two stops down. With [CameraAttributesPractical] it is a free curve set by [member vignetting_strength] and [member vignetting_falloff].

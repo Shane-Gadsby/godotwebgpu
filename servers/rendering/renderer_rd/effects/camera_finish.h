@@ -62,7 +62,7 @@ private:
 		FLAG_HISTOGRAM_RGB = 1 << 7,
 	};
 
-	// Keep in sync with camera_finish.glsl. 112 bytes.
+	// Keep in sync with camera_finish.glsl. 128 bytes: full, the minimum maxPushConstantsSize Vulkan guarantees.
 	struct FinishPushConstant {
 		float pixel_size[2];
 		uint32_t mode;
@@ -85,7 +85,11 @@ private:
 
 		float peaking_color[4];
 		float histogram_rect[4];
+
+		float zebras_color[4];
+		float zebras_second_color[4];
 	};
+	static_assert(sizeof(FinishPushConstant) == 128);
 
 	struct HistogramPushConstant {
 		int32_t size[2];

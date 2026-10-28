@@ -1,8 +1,8 @@
 # 39-camera-followups-user-answers: zebra colors, editor tick boxes for motion blur and handheld shake
 
-State: open
+State: claimed
 Owner: worker-39
-Claimed:
+Claimed: 2026-10-28 09:48
 Needs: build, gpu (short renders)
 Branch: work/39
 Results: webgpu_notes/work/results/39-camera-followups-user-answers/

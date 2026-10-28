@@ -2868,6 +2868,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_set_compositor", "camera", "compositor"), &RenderingServer::camera_set_compositor);
 	ClassDB::bind_method(D_METHOD("camera_set_use_vertical_aspect", "camera", "enable"), &RenderingServer::camera_set_use_vertical_aspect);
 	ClassDB::bind_method(D_METHOD("camera_set_monitoring_zebras", "camera", "enable", "level", "second_enable", "second_level"), &RenderingServer::camera_set_monitoring_zebras);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_zebra_colors", "camera", "color", "second_color"), &RenderingServer::camera_set_monitoring_zebra_colors);
 	ClassDB::bind_method(D_METHOD("camera_set_monitoring_focus_peaking", "camera", "enable", "color", "sensitivity"), &RenderingServer::camera_set_monitoring_focus_peaking);
 	ClassDB::bind_method(D_METHOD("camera_set_monitoring_false_color", "camera", "enable"), &RenderingServer::camera_set_monitoring_false_color);
 	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram", "camera", "enable", "mode", "position", "size", "opacity"), &RenderingServer::camera_set_monitoring_histogram);

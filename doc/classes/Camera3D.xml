@@ -279,14 +279,20 @@
 			The overlays are drawn over the finished 3D image, after tonemapping and [CameraAttributes]' noise reduction and sharpening, and under any 2D drawn on top of the viewport.
 			[b]Note:[/b] The overlays are only drawn for single-view rendering, not in XR.
 		</member>
+		<member name="monitoring_zebras_color" type="Color" setter="set_monitoring_zebras_color" getter="get_monitoring_zebras_color" default="Color(0, 0, 0, 1)">
+			The color of the stripes [member monitoring_zebras_enabled] draws, as a display (sRGB-encoded) color, like [member monitoring_focus_peaking_color]. Defaults to black, which shows on the bright areas this zebra marks.
+		</member>
 		<member name="monitoring_zebras_enabled" type="bool" setter="set_monitoring_zebras_enabled" getter="is_monitoring_zebras_enabled" default="false">
-			If [code]true[/code], diagonal black stripes, crawling as on a camera's monitor, are drawn over the parts of the image whose video level is at or above [member monitoring_zebras_level]. The video level is the Rec. 709 luma of the display-encoded image, in IRE (percent of full range). This overlay follows [member monitoring_visible_in_output].
+			If [code]true[/code], diagonal stripes ([member monitoring_zebras_color], black by default), crawling as on a camera's monitor, are drawn over the parts of the image whose video level is at or above [member monitoring_zebras_level]. The video level is the Rec. 709 luma of the display-encoded image, in IRE (percent of full range). This overlay follows [member monitoring_visible_in_output].
 		</member>
 		<member name="monitoring_zebras_level" type="float" setter="set_monitoring_zebras_level" getter="get_monitoring_zebras_level" default="95.0">
 			The video level, in IRE (percent of full-range Rec. 709 luma), at and above which [member monitoring_zebras_enabled] draws its stripes. The default of 95 marks highlights about to clip.
 		</member>
+		<member name="monitoring_zebras_second_color" type="Color" setter="set_monitoring_zebras_second_color" getter="get_monitoring_zebras_second_color" default="Color(1, 1, 1, 1)">
+			The color of the stripes [member monitoring_zebras_second_enabled] draws, as a display (sRGB-encoded) color. Defaults to white. Where both zebras mark a pixel, [member monitoring_zebras_color] wins.
+		</member>
 		<member name="monitoring_zebras_second_enabled" type="bool" setter="set_monitoring_zebras_second_enabled" getter="is_monitoring_zebras_second_enabled" default="false">
-			If [code]true[/code], a second zebra of white stripes, running the other way, is drawn over the parts of the image within ±5 IRE of [member monitoring_zebras_second_level], the window cameras offer for judging skin exposure. This overlay follows [member monitoring_visible_in_output].
+			If [code]true[/code], a second zebra of stripes ([member monitoring_zebras_second_color], white by default), running the other way, is drawn over the parts of the image within ±5 IRE of [member monitoring_zebras_second_level], the window cameras offer for judging skin exposure. This overlay follows [member monitoring_visible_in_output].
 		</member>
 		<member name="monitoring_zebras_second_level" type="float" setter="set_monitoring_zebras_second_level" getter="get_monitoring_zebras_second_level" default="70.0">
 			The center, in IRE, of the ±5 IRE window [member monitoring_zebras_second_enabled] marks. The default of 70 is a common skin-tone exposure target.
@@ -304,13 +310,17 @@
 			Frequency of the breathing sway, in hertz. People at rest breathe 12 to 20 times a minute (0.2 to 0.33 Hz).
 		</member>
 		<member name="shake_enabled" type="bool" setter="set_shake_enabled" getter="is_shake_enabled" default="false">
-			If [code]true[/code], the camera moves as if held by hand: procedural rotation and position noise, plus breathing sway, applied as an offset on top of the node's transform. The node's own [member Node3D.transform] and [member Node3D.global_transform] are not changed, so gameplay code keeps working; [method get_camera_transform] and the projection methods such as [method project_ray_normal] include the offset, so picking matches what is rendered. The motion is deterministic for a given [member shake_seed] and frame times, and runs in the editor's camera preview too.
+			If [code]true[/code], the camera moves as if held by hand: procedural rotation and position noise, plus breathing sway, applied as an offset on top of the node's transform. The node's own [member Node3D.transform] and [member Node3D.global_transform] are not changed, so gameplay code keeps working; [method get_camera_transform] and the projection methods such as [method project_ray_normal] include the offset, so picking matches what is rendered. The motion is deterministic for a given [member shake_seed] and frame times, and in the editor it moves the camera preview only with [member shake_visible_in_editor] on. [member shake_preset] fills in every shake setting for a typical way of holding or mounting a camera.
 		</member>
 		<member name="shake_position_amplitude" type="Vector3" setter="set_shake_position_amplitude" getter="get_shake_position_amplitude" default="Vector3(0.002, 0.002, 0.001)">
 			RMS amplitude of the position shake along the camera's local X, Y and Z axes, in meters.
 		</member>
 		<member name="shake_position_frequency" type="Vector3" setter="set_shake_position_frequency" getter="get_shake_position_frequency" default="Vector3(1.5, 1.5, 1.5)">
 			Center frequency of the position shake per local axis, in hertz. Each axis's motion is band-limited noise spread over two octaves around it (half to twice the frequency).
+		</member>
+		<member name="shake_preset" type="int" setter="set_shake_preset" getter="get_shake_preset" enum="Camera3D.ShakePreset" default="0">
+			Fills in every shake setting ([member shake_rotation_amplitude], [member shake_rotation_frequency], [member shake_position_amplitude], [member shake_position_frequency], [member shake_breathing_amplitude], [member shake_breathing_frequency], [member shake_stabilization] and [member shake_scale_with_focal_length]) for a typical way of holding or mounting a camera; [member shake_seed] and [member shake_enabled] are left alone. Changing any of those settings afterwards switches this back to [constant SHAKE_PRESET_CUSTOM], keeping the values. Choosing [constant SHAKE_PRESET_CUSTOM] changes nothing.
+			The values each preset writes are listed with its constant. They are drawn from measurements where they exist (the CIPA DC-X011 hand-shake band of about 1-10 Hz, postural sway, walking and running step frequencies, vehicle ride frequencies); the sources are cited in the engine's source code.
 		</member>
 		<member name="shake_rotation_amplitude" type="Vector3" setter="set_shake_rotation_amplitude" getter="get_shake_rotation_amplitude" default="Vector3(0.3, 0.3, 0.15)">
 			RMS amplitude of the rotation shake around the camera's local X (pitch), Y (yaw) and Z (roll) axes, in degrees.
@@ -326,6 +336,9 @@
 		</member>
 		<member name="shake_stabilization" type="float" setter="set_shake_stabilization" getter="get_shake_stabilization" default="0.0">
 			Strength of the image stabilization, from [code]0.0[/code] (none) to [code]1.0[/code]. Like optical or sensor-shift stabilization, it removes that fraction of the shake above about 0.5 Hz (the high-pass cutoff stabilizers use so as not to fight intentional pans) and progressively less below it, so slow breathing sway mostly remains.
+		</member>
+		<member name="shake_visible_in_editor" type="bool" setter="set_shake_visible_in_editor" getter="is_shake_visible_in_editor" default="false">
+			If [code]true[/code], the shake also moves this camera in the editor (the 3D viewport's camera preview and the Camera3D inspector preview). If [code]false[/code] (the default), the camera holds still in the editor so shots can be framed, and does no shake work there. A running project always shakes while [member shake_enabled] is on; this setting has no effect there. Autofocus is unaffected and always runs in the editor.
 		</member>
 		<member name="size" type="float" setter="set_size" getter="get_size" default="1.0">
 			The camera's size in meters measured as the diameter of the width or height, depending on [member keep_aspect]. Only applicable in orthogonal and frustum modes.
@@ -380,6 +393,36 @@
 		</constant>
 		<constant name="AUTOFOCUS_MODE_CONTINUOUS" value="2" enum="AutofocusMode">
 			Continuous autofocus (AF-C): measures every frame and keeps the subject in focus.
+		</constant>
+		<constant name="SHAKE_PRESET_CUSTOM" value="0" enum="ShakePreset">
+			Hand-tuned values: choosing it changes nothing. A camera starts here, with the default values.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD" value="1" enum="ShakePreset">
+			Holding the camera still, as for a photograph: hand shake in the 1.5-6 Hz band (CIPA DC-X011), slow postural sway and resting breath. Rotation [code]Vector3(0.12, 0.12, 0.06)[/code] degrees at [code]Vector3(3, 3, 2.5)[/code] Hz, position [code]Vector3(0.001, 0.001, 0.0005)[/code] m at 0.5 Hz, breathing 0.1 degrees at 0.25 Hz, no stabilization. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD_STABILIZED" value="2" enum="ShakePreset">
+			[constant SHAKE_PRESET_HANDHELD] with a lens or sensor-shift stabilizer: the same values with [member shake_stabilization] at 0.8, which reduces the hand-shake band to about a fifth. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD_WALKING" value="3" enum="ShakePreset">
+			Walking with the camera in hand: pitch and vertical bob at the step frequency (2 Hz), yaw, roll and sideways sway at the stride frequency (1 Hz). Rotation [code]Vector3(0.8, 0.6, 0.5)[/code] degrees at [code]Vector3(2, 1, 1)[/code] Hz, position [code]Vector3(0.008, 0.012, 0.005)[/code] m at [code]Vector3(1, 2, 2)[/code] Hz, breathing 0.15 degrees at 0.4 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_RUNNING" value="4" enum="ShakePreset">
+			Running or action: the walking pattern at a running step frequency (2.8 Hz) and larger. Rotation [code]Vector3(2, 1.5, 1.5)[/code] degrees at [code]Vector3(2.8, 1.4, 1.4)[/code] Hz, position [code]Vector3(0.015, 0.03, 0.01)[/code] m at [code]Vector3(1.4, 2.8, 2.8)[/code] Hz, breathing 0.3 degrees at 0.7 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_SHOULDER_RIG" value="5" enum="ShakePreset">
+			A shoulder-mounted camera: slower body sway instead of hand shake. Rotation [code]Vector3(0.15, 0.2, 0.2)[/code] degrees at [code]Vector3(1.2, 1, 0.8)[/code] Hz, position [code]Vector3(0.003, 0.003, 0.002)[/code] m at 0.8 Hz, breathing 0.12 degrees at 0.25 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_GIMBAL" value="6" enum="ShakePreset">
+			A gimbal or stabilizer while walking: almost no rotation (a slow residual drift), while the walking bob, which a gimbal does not remove, passes through damped. Rotation [code]Vector3(0.03, 0.03, 0.02)[/code] degrees at 0.5 Hz, position [code]Vector3(0.004, 0.006, 0.003)[/code] m at [code]Vector3(1, 2, 2)[/code] Hz, no breathing. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_TRIPOD_WIND" value="7" enum="ShakePreset">
+			A tripod in a light wind: no operator, a small vibration at the tripod's resonance. Rotation [code]Vector3(0.03, 0.03, 0.01)[/code] degrees and position [code]Vector3(0.0002, 0.0002, 0.0001)[/code] m, both at 10 Hz, no breathing. Most visible on long lenses. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_VEHICLE_MOUNT" value="8" enum="ShakePreset">
+			A camera hard-mounted on a car: body bounce, pitch and roll at the suspension's ride frequency (1-1.2 Hz) and a yaw buzz from the wheels (8 Hz). Rotation [code]Vector3(0.3, 0.1, 0.3)[/code] degrees at [code]Vector3(1.2, 8, 1)[/code] Hz, position [code]Vector3(0.003, 0.01, 0.003)[/code] m at [code]Vector3(1, 1.2, 1.2)[/code] Hz, no breathing. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_MAX" value="9" enum="ShakePreset">
+			Represents the size of the [enum ShakePreset] enum.
 		</constant>
 		<constant name="MONITORING_HISTOGRAM_LUMA" value="0" enum="MonitoringHistogramMode">
 			The histogram shows Rec. 709 luma.
