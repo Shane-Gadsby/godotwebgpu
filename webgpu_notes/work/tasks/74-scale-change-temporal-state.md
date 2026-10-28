@@ -1,6 +1,6 @@
 # 74-scale-change-temporal-state
 
-State: ready-for-integration
+State: integrated (TASKS §4.86)
 Owner: worker-74
 Claimed: 2026-10-28 22:24
 Needs: build, gpu, browser

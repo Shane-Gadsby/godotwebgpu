@@ -5515,6 +5515,23 @@ native and Chrome suites 25/25 pass, 0 console errors; defaults and visible outp
 in all three renderers; `await get_image_awaitable()` on the clean texture returns the 1152x648 image in all three.
 Question `clean-frame-inspector`. camera-sim: Download Image becomes enable / await / disable, `make_clean_view` goes.
 
+### 4.86 A 3D scale change keeps auto exposure, FSR 2 and TAA (October 2026) *(work task 74; dynamic resolution phase 2, user answers Q1 / Q3)*
+
+Every `scaling_3d_scale` change (user Q1), not only dynamic ones: `RenderSceneBuffersRD::configure()` calls
+`RenderBufferCustomDataRD::free_data_for_reconfigure()` instead of `free_data()`, so the Luminance buffer keeps its
+adapted 1x1 value and CameraMetering its auto white balance state; Forward+ keeps the FSR 2 context while the target
+size holds and, when the render size outgrows it, grows it once and copies its history (`FSR2Effect::transfer_history()`,
+which depends on FSR 2's private context layout `ffx_fsr2_private.h`: a missed resource after a vendored update costs a
+one-time reset); TAA's history and previous velocity are carried and resampled bilinearly (user Q3). Volumetric fog
+left as today (Q4); still resetting: SSIL's last-frame buffer, FSR 2 on a target size change, MetalFX temporal.
+Worker (HDR float captures, scale 1.0 ↔ 0.6): auto exposure flash +285% → 0.2% natively, +396-418% → ≤ 0.1% in
+Chrome; FSR 2 pulse 0.0080 → 0.0010 down, 0.0079 → 0.0029 up; TAA 0.0044 → 0.0005; no change 12/12 frames identical
+in 10 configs; matrix arms taa, scaling_3d, fsr2, auto_exposure pass `--parity`. Lead (merged tree): dev_mode editor
+and web template_release 0 warnings; the bench reproduces (exposure +284.7% → 0.2%, FSR 2 0.0080 → 0.0010 and
+0.0079 → 0.0029, TAA 0.0039 → 0.0021; Mobile never flashed); no-change runs identical before and after (Forward+ FSR 2,
+Forward+ auto exposure, Mobile). Web readback problems hit while measuring (pending-map errors, 11x-dark float
+readback) are work task 76. Questions `fsr2-context-sizing`, `ssil-scale-change`.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
