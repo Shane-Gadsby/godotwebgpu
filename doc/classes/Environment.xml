@@ -229,6 +229,23 @@
 		<member name="lens_flare_threshold" type="float" setter="set_lens_flare_threshold" getter="get_lens_flare_threshold" default="1.0">
 			Only light brighter than this, in the exposed image where [code]1.0[/code] is display white, makes flare.
 		</member>
+		<member name="light_shafts_decay" type="float" setter="set_light_shafts_decay" getter="get_light_shafts_decay" default="2.0">
+			How quickly the shafts fade with distance from the sky that casts them, per frame height: the share of a shaft that reaches a distance [code]d[/code] (in frame heights) is [code]exp(-decay * d)[/code], so [code]1 / decay[/code] is their mean length. Lower values make longer shafts. Measured in fractions of the frame, so the shafts look the same at every resolution.
+		</member>
+		<member name="light_shafts_enabled" type="bool" setter="set_light_shafts_enabled" getter="is_light_shafts_enabled" default="false">
+			If [code]true[/code], bright sky around the sun streaks toward the viewer as screen-space light shafts ("god rays"), interrupted wherever geometry hides the sky. The sun is the first [DirectionalLight3D] with [member DirectionalLight3D.light_shafts_enabled]; without one, there are no shafts. Shafts fade out as the sun leaves the frame and are off while it is behind the camera.
+			This is the radial blur of Mitchell, "Volumetric Light Scattering as a Post-Process" (GPU Gems 3, chapter 13), at a quarter of the frame's width and height, added to the scene's light before depth of field and tonemapping. It is cheaper than volumetric fog and works in every renderer, but only scatters light that is visible on screen: a sun hidden behind a wall casts no shafts. Its quality is set by [member ProjectSettings.rendering/environment/light_shafts/quality].
+			[b]Note:[/b] In the Compatibility renderer, the frame is clipped before the shafts see it (at about 30 in linear light with a 10-bit 3D buffer, otherwise at 1.0), so [member light_shafts_threshold] should stay below that, and multiview (XR) viewports have no shafts.
+		</member>
+		<member name="light_shafts_intensity" type="float" setter="set_light_shafts_intensity" getter="get_light_shafts_intensity" default="1.0">
+			The brightness of the shafts. At [code]1.0[/code], a pixel looking straight at the sun gets as much light again as the sky there.
+		</member>
+		<member name="light_shafts_threshold" type="float" setter="set_light_shafts_threshold" getter="get_light_shafts_threshold" default="1.0">
+			Only sky brighter than this (luminance of linear scene light, before exposure and tonemapping, as [member glow_hdr_threshold]) casts shafts. Raise it to keep the shafts to the sun and its glare; lower it to let the whole sky cast them.
+		</member>
+		<member name="light_shafts_tint" type="Color" setter="set_light_shafts_tint" getter="get_light_shafts_tint" default="Color(1, 1, 1, 1)">
+			Multiplies the color of the shafts, which otherwise have the color of the sky that casts them.
+		</member>
 		<member name="micro_shadows_enabled" type="bool" setter="set_micro_shadows_enabled" getter="is_micro_shadows_enabled" default="false">
 			If [code]true[/code], directional lights are shadowed by the fine detail of each material's ambient occlusion and normal maps ("micro shadows", as in HDRP): a texel whose [member BaseMaterial3D.ao_texture] is dark only receives light from close to its (normal-mapped) normal, so crevices and bumps baked into the textures stay in shadow when the sun is low. It costs a few instructions per pixel and directional light, and changes nothing on materials without an ambient occlusion map. The material's own ambient occlusion is used (including decals), not screen-space ambient occlusion.
 			Uses the formula of "The Technical Art of Uncharted 4" (Brinck and Maximov, SIGGRAPH 2016), as HDRP does: the ambient occlusion [code]ao[/code] is read as a cone of aperture [code]2 * ao * ao[/code] and the light is scaled by [code]clamp(N.L + 2 * ao * ao - 1, 0, 1)[/code].
@@ -424,23 +441,6 @@
 		</member>
 		<member name="volumetric_fog_temporal_reprojection_enabled" type="bool" setter="set_volumetric_fog_temporal_reprojection_enabled" getter="is_volumetric_fog_temporal_reprojection_enabled" default="true">
 			Enables temporal reprojection in the volumetric fog. Temporal reprojection blends the current frame's volumetric fog with the last frame's volumetric fog to smooth out jagged edges. The performance cost is minimal; however, it leads to moving [FogVolume]s and [Light3D]s "ghosting" and leaving a trail behind them. When temporal reprojection is enabled, try to avoid moving [FogVolume]s or [Light3D]s too fast. Short-lived dynamic lighting effects should have [member Light3D.light_volumetric_fog_energy] set to [code]0.0[/code] to avoid ghosting.
-		</member>
-		<member name="light_shafts_decay" type="float" setter="set_light_shafts_decay" getter="get_light_shafts_decay" default="2.0">
-			How quickly the shafts fade with distance from the sky that casts them, per frame height: the share of a shaft that reaches a distance [code]d[/code] (in frame heights) is [code]exp(-decay * d)[/code], so [code]1 / decay[/code] is their mean length. Lower values make longer shafts. Measured in fractions of the frame, so the shafts look the same at every resolution.
-		</member>
-		<member name="light_shafts_enabled" type="bool" setter="set_light_shafts_enabled" getter="is_light_shafts_enabled" default="false">
-			If [code]true[/code], bright sky around the sun streaks toward the viewer as screen-space light shafts ("god rays"), interrupted wherever geometry hides the sky. The sun is the first [DirectionalLight3D] with [member DirectionalLight3D.light_shafts_enabled]; without one, there are no shafts. Shafts fade out as the sun leaves the frame and are off while it is behind the camera.
-			This is the radial blur of Mitchell, "Volumetric Light Scattering as a Post-Process" (GPU Gems 3, chapter 13), at a quarter of the frame's width and height, added to the scene's light before depth of field and tonemapping. It is cheaper than volumetric fog and works in every renderer, but only scatters light that is visible on screen: a sun hidden behind a wall casts no shafts. Its quality is set by [member ProjectSettings.rendering/environment/light_shafts/quality].
-			[b]Note:[/b] In the Compatibility renderer, the frame is clipped before the shafts see it (at about 30 in linear light with a 10-bit 3D buffer, otherwise at 1.0), so [member light_shafts_threshold] should stay below that, and multiview (XR) viewports have no shafts.
-		</member>
-		<member name="light_shafts_intensity" type="float" setter="set_light_shafts_intensity" getter="get_light_shafts_intensity" default="1.0">
-			The brightness of the shafts. At [code]1.0[/code], a pixel looking straight at the sun gets as much light again as the sky there.
-		</member>
-		<member name="light_shafts_threshold" type="float" setter="set_light_shafts_threshold" getter="get_light_shafts_threshold" default="1.0">
-			Only sky brighter than this (luminance of linear scene light, before exposure and tonemapping, as [member glow_hdr_threshold]) casts shafts. Raise it to keep the shafts to the sun and its glare; lower it to let the whole sky cast them.
-		</member>
-		<member name="light_shafts_tint" type="Color" setter="set_light_shafts_tint" getter="get_light_shafts_tint" default="Color(1, 1, 1, 1)">
-			Multiplies the color of the shafts, which otherwise have the color of the sky that casts them.
 		</member>
 	</members>
 	<constants>

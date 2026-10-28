@@ -27,7 +27,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 51 | web Start button screen with customizable look (camera-sim spec + user styling; TASKS §2.51) | 5 | worker-51 (retired); **merged**, TASKS §4.61; questions `start-button-*` |
 | 52 | web `window_set_size()` never emits `size_changed` (camera-sim; TASKS §2.52) | 5 | worker-52 (retired); **merged `ab4cf70927`**, verified (resize test, 3 policies), TASKS §4.62, trap 82 |
 | 53 | web preload before start (`Engine.prefetch()`), after 51 (camera-sim; TASKS §2.51) | 6 | worker-53 |
-| 54 | web fullscreen from the embedding page, after 52 (camera-sim; TASKS §2.53) | 6 | — |
+| 54 | web fullscreen from the embedding page, after 52 (camera-sim; TASKS §2.53) | 6 | worker-54 |
 | — | next after 45-49 merge: custom tonemap curve (`pp-custom-tonemap`), local exposure (`pp-local-exposure`) (both change the tonemap core) | 6 | — |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).

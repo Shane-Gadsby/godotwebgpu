@@ -12,12 +12,30 @@
 	<tutorials>
 	</tutorials>
 	<members>
+		<member name="aperture_blade_count" type="int" setter="set_aperture_blade_count" getter="get_aperture_blade_count" default="6">
+			The number of diaphragm blades: the bokeh is a polygon with this many corners. [code]0[/code] is a round opening. Most lenses have 5 to 11 blades; 0, 1 and 2 all mean round.
+		</member>
+		<member name="aperture_blade_curvature" type="float" setter="set_aperture_blade_curvature" getter="get_aperture_blade_curvature" default="0.0">
+			How much the blades are curved: [code]0.0[/code] gives straight edges (a sharp polygon), [code]1.0[/code] a round opening. Modern lenses use curved blades to keep the bokeh round when stopped down a little. Curved blades also weaken [member starburst_enabled]'s spikes, which come from straight edges.
+		</member>
+		<member name="aperture_enabled" type="bool" setter="set_aperture_enabled" getter="is_aperture_enabled" default="false">
+			If [code]true[/code], depth of field draws its bokeh in the shape of this camera's aperture ([member aperture_blade_count], [member aperture_blade_curvature], [member aperture_rotation]) instead of [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_shape]. Defocused points then show the polygon a real lens's diaphragm makes. The aperture is drawn with the circular bokeh's gather, whatever the project's shape, so its cost follows [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_quality] as the circle's does.
+			The blade count and rotation also shape [member starburst_enabled]'s spikes, whether or not this is on.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
+		</member>
+		<member name="aperture_rotation" type="float" setter="set_aperture_rotation" getter="get_aperture_rotation" default="0.0">
+			Rotation of the aperture polygon in degrees, counterclockwise on screen. At [code]0.0[/code] a corner points right.
+		</member>
 		<member name="auto_exposure_enabled" type="bool" setter="set_auto_exposure_enabled" getter="is_auto_exposure_enabled" default="false">
 			If [code]true[/code], enables the tonemapping auto exposure mode of the scene renderer. If [code]true[/code], the renderer will automatically determine the exposure setting to adapt to the scene's illumination and the observed light.
 			[b]Note:[/b] Auto-exposure is only supported in the Forward+ rendering method, not Mobile or Compatibility.
 		</member>
 		<member name="auto_exposure_metering_highlight_percentile" type="float" setter="set_auto_exposure_metering_highlight_percentile" getter="get_auto_exposure_metering_highlight_percentile" default="99.0">
 			The percentile of the frame exposed to the clipping point when [member auto_exposure_metering_mode] is [constant METERING_MODE_HIGHLIGHT_WEIGHTED]: [code]99.0[/code] lets the brightest 1% of the pixels (light sources, specular highlights) clip and keeps everything else below it. With the default [member auto_exposure_scale] of [code]0.4[/code], that percentile comes out at [code]1.0[/code] before tonemapping; [member auto_exposure_scale] still works as exposure compensation (doubling it is one stop brighter). The percentile is found in a histogram with 1/8 EV bins.
+		</member>
+		<member name="auto_exposure_metering_log_average" type="bool" setter="set_auto_exposure_metering_log_average" getter="is_auto_exposure_metering_log_average" default="false">
+			If [code]true[/code], the metering modes that average ([constant METERING_MODE_AVERAGE], [constant METERING_MODE_CENTER_WEIGHTED] and [constant METERING_MODE_SPOT]) take the log-average of the frame, [code]exp(mean(log(value + 0.0001)))[/code] with the mode's weights, instead of the arithmetic mean. This is the scene's "key" of Reinhard et al.'s photographic tone reproduction (2002), the statistic many games' auto exposure uses: a few very bright pixels, such as a lamp or the sun, raise it far less than they raise the mean, so a contrasty frame is exposed brighter and its mid-tones stay where they are. Large black areas lower it a lot; [member CameraAttributesPractical.auto_exposure_max_sensitivity] (or [member CameraAttributesPhysical.auto_exposure_max_exposure_value]) limits how far that brightens the frame. [constant METERING_MODE_HIGHLIGHT_WEIGHTED] meters a percentile, which is the same either way. When [code]false[/code] (the default), the meter takes the arithmetic mean, as a light meter integrates light.
+			[b]Note:[/b] Only supported in the Forward+ rendering method (including WebGPU), like auto exposure itself.
 		</member>
 		<member name="auto_exposure_metering_mode" type="int" setter="set_auto_exposure_metering_mode" getter="get_auto_exposure_metering_mode" enum="CameraAttributes.MeteringMode" default="0">
 			Where and how auto exposure meters the frame. Every mode measures the brightest channel of each pixel, in linear scene light, and sets the exposure so the metered value comes out at [member auto_exposure_scale]; the modes differ in which pixels count and how much:
@@ -39,6 +57,13 @@
 		</member>
 		<member name="auto_exposure_speed" type="float" setter="set_auto_exposure_speed" getter="get_auto_exposure_speed" default="0.5">
 			The speed of the auto exposure effect. Affects the time needed for the camera to perform auto exposure.
+		</member>
+		<member name="cats_eye_enabled" type="bool" setter="set_cats_eye_enabled" getter="is_cats_eye_enabled" default="false">
+			If [code]true[/code], bokeh toward the frame's edges is clipped by the lens barrel into the "cat's eye" (lemon) shape fast lenses give wide open: the overlap of the aperture with the barrel's opening, elongated along the circle around the frame's center. With [CameraAttributesPhysical] it follows the lens: it is strongest at [member CameraAttributesPhysical.lens_max_aperture] and gone two stops down, the same optical vignetting [member vignetting_enabled] darkens the corners with. With [CameraAttributesPractical] it is drawn as a lens wide open.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
+		</member>
+		<member name="cats_eye_strength" type="float" setter="set_cats_eye_strength" getter="get_cats_eye_strength" default="1.0">
+			Scales how far the barrel's opening is offset at a given position: [code]1.0[/code] is the physical model, [code]2.0[/code] the most it allows.
 		</member>
 		<member name="chromatic_aberration_enabled" type="bool" setter="set_chromatic_aberration_enabled" getter="is_chromatic_aberration_enabled" default="false">
 			If [code]true[/code], the lens images each color at a slightly different size (lateral chromatic aberration), so edges get red and blue/cyan fringes that grow toward the frame's edges.
@@ -86,6 +111,20 @@
 		<member name="grain_type" type="int" setter="set_grain_type" getter="get_grain_type" enum="CameraAttributes.GrainType" default="0">
 			The kind of grain or noise to simulate. See [enum GrainType] for options.
 		</member>
+		<member name="halation_enabled" type="bool" setter="set_halation_enabled" getter="is_halation_enabled" default="false">
+			If [code]true[/code], highlights get film's red-orange halo: light that passes through the emulsion reflects off the back of the film base and exposes the red layer (and some of the green) again around them. Light is moved into the halo, not added, so flat areas keep their color. It pairs with [member grain_enabled] for a film look; real film usually has a backing that prevents most of it.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="halation_high_quality" type="bool" setter="set_halation_high_quality" getter="is_halation_high_quality" default="false">
+			If [code]true[/code], the glare the halo is drawn from starts at the frame's full resolution instead of half, so a halo smaller than about 0.5% of the frame height (the physical one at [member halation_radius] [code]1.0[/code] and below, or with a large [member CameraAttributesPhysical.sensor_format]) keeps its size instead of being widened to the half-resolution floor of about two half-resolution pixels. It costs a full-resolution blur and a mip chain four times larger whenever halation is on, about [code]0.2[/code] ms more at 1920x1080 on a desktop GPU (an RTX 4080 SUPER: 0.42 ms for halation instead of 0.25 ms). The other glare effects of the same camera (starburst, and the [Environment]'s lens flare, veiling glare and diffusion filter) read the same chain and keep their sizes.
+			[b]Note:[/b] Only changes the Forward+ rendering method. Mobile's glare chain is built at quarter resolution with a sharper first level, which already draws the physical halo at radius [code]1.0[/code].
+		</member>
+		<member name="halation_radius" type="float" setter="set_halation_radius" getter="get_halation_radius" default="1.0">
+			Multiplies the halo's size. At [code]1.0[/code] it is the physical one, about 0.2 mm on the sensor for a 0.125 mm film base, so a larger [member CameraAttributesPhysical.sensor_format] has a tighter halo relative to the frame. With [CameraAttributesPractical], a 24 mm tall frame is assumed. The size is relative to the frame, so it looks the same at every resolution.
+		</member>
+		<member name="halation_strength" type="float" setter="set_halation_strength" getter="get_halation_strength" default="1.0">
+			Multiplies the fraction of light that goes into the halo: [code]1.0[/code] sends 8%, as film without its anti-halation backing does.
+		</member>
 		<member name="longitudinal_chromatic_aberration_enabled" type="bool" setter="set_longitudinal_chromatic_aberration_enabled" getter="is_longitudinal_chromatic_aberration_enabled" default="false">
 			If [code]true[/code], out-of-focus parts of the image get the colored fringes of longitudinal (axial) chromatic aberration, the "bokeh fringing" of fast lenses: the lens focuses red and blue slightly behind green, so edges behind the plane of focus get a green fringe and edges in front of it a magenta (purple) one. It is drawn by the depth of field, so it only shows where depth of field blurs the image.
 			With [CameraAttributesPhysical], the fringe follows the lens: red and blue focus 1/2200 of the focal length behind green (the secondary spectrum of an ordinary achromat), so the fringe narrows as the aperture closes and grows with the focus distance relative to the focal length. With [CameraAttributesPractical], which has no lens, red and blue blur 2.7% more than green in front of the focus and 2.7% less behind it, keeping the in-focus band sharp.
@@ -107,30 +146,6 @@
 		<member name="lut_texture" type="Texture3D" setter="set_lut_texture" getter="get_lut_texture">
 			The look-up table, a [Texture3D] indexed by red (width), green (height) and blue (depth), whose texel centers hold the output for inputs evenly spaced from [code]0.0[/code] to [code]1.0[/code]. Adobe/Resolve [code].cube[/code] files (3D, 1D, or a 1D shaper followed by a 3D table) are imported as such a texture automatically.
 		</member>
-		<member name="noise_reduction_chroma_only" type="bool" setter="set_noise_reduction_chroma_only" getter="is_noise_reduction_chroma_only" default="false">
-			If [code]true[/code], [member noise_reduction_enabled] reduces only color noise and leaves luma untouched, keeping texture while removing the colored speckle of high-ISO digital noise.
-		</member>
-		<member name="noise_reduction_enabled" type="bool" setter="set_noise_reduction_enabled" getter="is_noise_reduction_enabled" default="false">
-			If [code]true[/code], the camera reduces noise in its image as a camera does before recording: an edge-preserving (bilateral) filter on the display-encoded Y'CbCr image after tonemapping, so it acts on [member grain_enabled]'s grain and digital noise like on any other fine texture. Small fluctuations are averaged away while steps much larger than them, edges, are kept. Color noise is reduced twice as hard as luma noise, as cameras do.
-			Its size is defined relative to the frame, so it looks the same at every resolution. It is not applied in reflection probes or the viewport's debug draw modes.
-			[b]Note:[/b] Only applied for single-view rendering, not in XR.
-		</member>
-		<member name="noise_reduction_strength" type="float" setter="set_noise_reduction_strength" getter="get_noise_reduction_strength" default="1.0">
-			How hard [member noise_reduction_enabled] smooths. At [code]1.0[/code], fluctuations up to about 4% of full scale (10 8-bit code values) are averaged over about 1.5 pixels of a 1080-line frame; both grow with the strength, so at [code]4.0[/code] fine texture smears over 3 pixels, the waxy look of strong in-camera noise reduction.
-		</member>
-		<member name="sharpening_amount" type="float" setter="set_sharpening_amount" getter="get_sharpening_amount" default="0.5">
-			How much contrast [member sharpening_enabled] adds at edges: the difference between the image and its blurred copy is added this many times.
-		</member>
-		<member name="sharpening_enabled" type="bool" setter="set_sharpening_enabled" getter="is_sharpening_enabled" default="false">
-			If [code]true[/code], the camera sharpens its image after tonemapping (and after [member noise_reduction_enabled]): an unsharp mask on luma, so no color fringes appear, with the ringing limit of AMD's contrast adaptive sharpening controlled by [member sharpening_halo]. It is not applied in reflection probes or the viewport's debug draw modes.
-			[b]Note:[/b] Only applied for single-view rendering, not in XR.
-		</member>
-		<member name="sharpening_halo" type="float" setter="set_sharpening_halo" getter="get_sharpening_halo" default="0.25">
-			How far [member sharpening_enabled] may push an edge past the range of its 3×3 neighborhood, as a fraction of that range. [code]0.0[/code] allows no overshoot and no halos at all, [code]1.0[/code] about what a plain unsharp mask gives.
-		</member>
-		<member name="sharpening_radius" type="float" setter="set_sharpening_radius" getter="get_sharpening_radius" default="1.0">
-			The radius (Gaussian sigma) of [member sharpening_enabled]'s blur, in pixels of a 1080-line frame. It is scaled with the output resolution, so sharpening looks the same at every resolution. Small radii sharpen fine detail; large ones raise local contrast.
-		</member>
 		<member name="motion_blur_enabled" type="bool" setter="set_motion_blur_enabled" getter="is_motion_blur_enabled" default="false">
 			If [code]true[/code], the camera blurs what moves across the frame while its shutter is open. The length of the blur is the distance something travels on screen during the exposure: the exposure time is [member motion_blur_shutter_angle] of each frame, or the shutter speed of [CameraAttributesPhysical] (see [member CameraAttributesPhysical.motion_blur_use_shutter_speed]). Both the camera's own motion (pans, dollies) and objects moving in the scene blur, each by its own speed; the sky blurs with the camera's rotation.
 			In the editor it shows only with [member motion_blur_visible_in_editor] on, so navigating the 3D viewport does not blur it; a running project always shows it.
@@ -151,6 +166,17 @@
 		<member name="motion_blur_visible_in_editor" type="bool" setter="set_motion_blur_visible_in_editor" getter="is_motion_blur_visible_in_editor" default="false">
 			If [code]true[/code], [member motion_blur_enabled] also blurs in the editor (the 3D viewport and the camera previews). If [code]false[/code] (the default), the editor shows no motion blur: it comes from the camera's motion, so it would smear the viewport whenever you navigate it. A running project always blurs while [member motion_blur_enabled] is on; this setting has no effect there.
 		</member>
+		<member name="noise_reduction_chroma_only" type="bool" setter="set_noise_reduction_chroma_only" getter="is_noise_reduction_chroma_only" default="false">
+			If [code]true[/code], [member noise_reduction_enabled] reduces only color noise and leaves luma untouched, keeping texture while removing the colored speckle of high-ISO digital noise.
+		</member>
+		<member name="noise_reduction_enabled" type="bool" setter="set_noise_reduction_enabled" getter="is_noise_reduction_enabled" default="false">
+			If [code]true[/code], the camera reduces noise in its image as a camera does before recording: an edge-preserving (bilateral) filter on the display-encoded Y'CbCr image after tonemapping, so it acts on [member grain_enabled]'s grain and digital noise like on any other fine texture. Small fluctuations are averaged away while steps much larger than them, edges, are kept. Color noise is reduced twice as hard as luma noise, as cameras do.
+			Its size is defined relative to the frame, so it looks the same at every resolution. It is not applied in reflection probes or the viewport's debug draw modes.
+			[b]Note:[/b] Only applied for single-view rendering, not in XR.
+		</member>
+		<member name="noise_reduction_strength" type="float" setter="set_noise_reduction_strength" getter="get_noise_reduction_strength" default="1.0">
+			How hard [member noise_reduction_enabled] smooths. At [code]1.0[/code], fluctuations up to about 4% of full scale (10 8-bit code values) are averaged over about 1.5 pixels of a 1080-line frame; both grow with the strength, so at [code]4.0[/code] fine texture smears over 3 pixels, the waxy look of strong in-camera noise reduction.
+		</member>
 		<member name="rolling_shutter_enabled" type="bool" setter="set_rolling_shutter_enabled" getter="is_rolling_shutter_enabled" default="false">
 			If [code]true[/code], the frame is exposed row by row, as by a CMOS sensor read out from top to bottom over [member rolling_shutter_readout_time]: each row shows the scene a little later than the row above it. A fast pan leans vertical lines (the top of the frame lags behind the bottom), and fast moving objects skew. The middle row shows the frame's time, so the frame stays centered. With [member motion_blur_enabled], each row is blurred around its own time.
 			In the editor it shows only with [member rolling_shutter_visible_in_editor] on, so navigating the 3D viewport does not skew it; a running project always shows it.
@@ -161,6 +187,26 @@
 		</member>
 		<member name="rolling_shutter_visible_in_editor" type="bool" setter="set_rolling_shutter_visible_in_editor" getter="is_rolling_shutter_visible_in_editor" default="false">
 			If [code]true[/code], [member rolling_shutter_enabled] also skews the image in the editor (the 3D viewport and the camera previews). If [code]false[/code] (the default), the editor shows no rolling shutter, which would otherwise skew the viewport whenever you navigate it. A running project always shows it while [member rolling_shutter_enabled] is on; this setting has no effect there.
+		</member>
+		<member name="sharpening_amount" type="float" setter="set_sharpening_amount" getter="get_sharpening_amount" default="0.5">
+			How much contrast [member sharpening_enabled] adds at edges: the difference between the image and its blurred copy is added this many times.
+		</member>
+		<member name="sharpening_enabled" type="bool" setter="set_sharpening_enabled" getter="is_sharpening_enabled" default="false">
+			If [code]true[/code], the camera sharpens its image after tonemapping (and after [member noise_reduction_enabled]): an unsharp mask on luma, so no color fringes appear, with the ringing limit of AMD's contrast adaptive sharpening controlled by [member sharpening_halo]. It is not applied in reflection probes or the viewport's debug draw modes.
+			[b]Note:[/b] Only applied for single-view rendering, not in XR.
+		</member>
+		<member name="sharpening_halo" type="float" setter="set_sharpening_halo" getter="get_sharpening_halo" default="0.25">
+			How far [member sharpening_enabled] may push an edge past the range of its 3×3 neighborhood, as a fraction of that range. [code]0.0[/code] allows no overshoot and no halos at all, [code]1.0[/code] about what a plain unsharp mask gives.
+		</member>
+		<member name="sharpening_radius" type="float" setter="set_sharpening_radius" getter="get_sharpening_radius" default="1.0">
+			The radius (Gaussian sigma) of [member sharpening_enabled]'s blur, in pixels of a 1080-line frame. It is scaled with the output resolution, so sharpening looks the same at every resolution. Small radii sharpen fine detail; large ones raise local contrast.
+		</member>
+		<member name="starburst_enabled" type="bool" setter="set_starburst_enabled" getter="is_starburst_enabled" default="false">
+			If [code]true[/code], bright highlights get diffraction spikes ("sunstars"): every straight edge of the aperture diffracts light perpendicular to itself. An even [member aperture_blade_count] gives as many spikes as blades (opposite edges share one), an odd count twice as many. The spikes grow stronger as the aperture closes, as on a real lens: with [CameraAttributesPhysical] their light follows the f-number and focal length; with [CameraAttributesPractical] a 50 mm lens at f/8 is assumed. A round aperture ([member aperture_blade_count] [code]0[/code] or [member aperture_blade_curvature] [code]1.0[/code]) has none. The spikes fall off with the square of the distance, and their light is taken from the highlight that makes them (diffraction moves light, it does not add any), so a flat bright area is unchanged and only light far brighter than its surroundings shows spikes.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="starburst_strength" type="float" setter="set_starburst_strength" getter="get_starburst_strength" default="20.0">
+			Multiplies the spikes' light. [code]1.0[/code] is the physical amount (around 1% of the light at f/16), which only something as bright as the sun against its surroundings makes visible; the default of [code]20.0[/code] makes the spikes of ordinary game light sources visible (they usually need [code]10[/code] to [code]50[/code]). However high it is set, the spikes take at most 90% of a highlight's light.
 		</member>
 		<member name="vignetting_enabled" type="bool" setter="set_vignetting_enabled" getter="is_vignetting_enabled" default="false">
 			If [code]true[/code], the lens darkens the image toward the frame's edges. With [CameraAttributesPhysical] the darkening follows the lens: natural vignetting, the cos⁴ law of the field angle from [member CameraAttributesPhysical.frustum_focal_length] and the sensor, plus optical vignetting, where the lens barrel clips the aperture off-axis, which is strongest wide open (at [member CameraAttributesPhysical.lens_max_aperture]) and gone two stops down. With [CameraAttributesPractical] it is a free curve set by [member vignetting_strength] and [member vignetting_falloff].
@@ -194,52 +240,6 @@
 		</member>
 		<member name="white_balance_tint" type="float" setter="set_white_balance_tint" getter="get_white_balance_tint" default="0.0">
 			Green-magenta correction of the white balance, from [code]-150.0[/code] to [code]150.0[/code]. It moves the assumed illuminant perpendicular to the Planckian locus by [code]1/3000[/code] Duv per unit, so the full range is [code]0.05[/code] Duv either way: a positive value compensates for a green illuminant and turns the image magenta, a negative value compensates for a magenta one and turns it green, as the tint slider of most raw converters does.
-		</member>
-		<member name="aperture_blade_count" type="int" setter="set_aperture_blade_count" getter="get_aperture_blade_count" default="6">
-			The number of diaphragm blades: the bokeh is a polygon with this many corners. [code]0[/code] is a round opening. Most lenses have 5 to 11 blades; 0, 1 and 2 all mean round.
-		</member>
-		<member name="aperture_blade_curvature" type="float" setter="set_aperture_blade_curvature" getter="get_aperture_blade_curvature" default="0.0">
-			How much the blades are curved: [code]0.0[/code] gives straight edges (a sharp polygon), [code]1.0[/code] a round opening. Modern lenses use curved blades to keep the bokeh round when stopped down a little. Curved blades also weaken [member starburst_enabled]'s spikes, which come from straight edges.
-		</member>
-		<member name="aperture_enabled" type="bool" setter="set_aperture_enabled" getter="is_aperture_enabled" default="false">
-			If [code]true[/code], depth of field draws its bokeh in the shape of this camera's aperture ([member aperture_blade_count], [member aperture_blade_curvature], [member aperture_rotation]) instead of [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_shape]. Defocused points then show the polygon a real lens's diaphragm makes. The aperture is drawn with the circular bokeh's gather, whatever the project's shape, so its cost follows [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_quality] as the circle's does.
-			The blade count and rotation also shape [member starburst_enabled]'s spikes, whether or not this is on.
-			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
-		</member>
-		<member name="aperture_rotation" type="float" setter="set_aperture_rotation" getter="get_aperture_rotation" default="0.0">
-			Rotation of the aperture polygon in degrees, counterclockwise on screen. At [code]0.0[/code] a corner points right.
-		</member>
-		<member name="cats_eye_enabled" type="bool" setter="set_cats_eye_enabled" getter="is_cats_eye_enabled" default="false">
-			If [code]true[/code], bokeh toward the frame's edges is clipped by the lens barrel into the "cat's eye" (lemon) shape fast lenses give wide open: the overlap of the aperture with the barrel's opening, elongated along the circle around the frame's center. With [CameraAttributesPhysical] it follows the lens: it is strongest at [member CameraAttributesPhysical.lens_max_aperture] and gone two stops down, the same optical vignetting [member vignetting_enabled] darkens the corners with. With [CameraAttributesPractical] it is drawn as a lens wide open.
-			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
-		</member>
-		<member name="cats_eye_strength" type="float" setter="set_cats_eye_strength" getter="get_cats_eye_strength" default="1.0">
-			Scales how far the barrel's opening is offset at a given position: [code]1.0[/code] is the physical model, [code]2.0[/code] the most it allows.
-		</member>
-		<member name="halation_enabled" type="bool" setter="set_halation_enabled" getter="is_halation_enabled" default="false">
-			If [code]true[/code], highlights get film's red-orange halo: light that passes through the emulsion reflects off the back of the film base and exposes the red layer (and some of the green) again around them. Light is moved into the halo, not added, so flat areas keep their color. It pairs with [member grain_enabled] for a film look; real film usually has a backing that prevents most of it.
-			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
-		</member>
-		<member name="halation_radius" type="float" setter="set_halation_radius" getter="get_halation_radius" default="1.0">
-			Multiplies the halo's size. At [code]1.0[/code] it is the physical one, about 0.2 mm on the sensor for a 0.125 mm film base, so a larger [member CameraAttributesPhysical.sensor_format] has a tighter halo relative to the frame. With [CameraAttributesPractical], a 24 mm tall frame is assumed. The size is relative to the frame, so it looks the same at every resolution.
-		</member>
-		<member name="halation_strength" type="float" setter="set_halation_strength" getter="get_halation_strength" default="1.0">
-			Multiplies the fraction of light that goes into the halo: [code]1.0[/code] sends 8%, as film without its anti-halation backing does.
-		</member>
-		<member name="starburst_enabled" type="bool" setter="set_starburst_enabled" getter="is_starburst_enabled" default="false">
-			If [code]true[/code], bright highlights get diffraction spikes ("sunstars"): every straight edge of the aperture diffracts light perpendicular to itself. An even [member aperture_blade_count] gives as many spikes as blades (opposite edges share one), an odd count twice as many. The spikes grow stronger as the aperture closes, as on a real lens: with [CameraAttributesPhysical] their light follows the f-number and focal length; with [CameraAttributesPractical] a 50 mm lens at f/8 is assumed. A round aperture ([member aperture_blade_count] [code]0[/code] or [member aperture_blade_curvature] [code]1.0[/code]) has none. The spikes fall off with the square of the distance, and their light is taken from the highlight that makes them (diffraction moves light, it does not add any), so a flat bright area is unchanged and only light far brighter than its surroundings shows spikes.
-			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
-		</member>
-		<member name="starburst_strength" type="float" setter="set_starburst_strength" getter="get_starburst_strength" default="20.0">
-			Multiplies the spikes' light. [code]1.0[/code] is the physical amount (around 1% of the light at f/16), which only something as bright as the sun against its surroundings makes visible; the default of [code]20.0[/code] makes the spikes of ordinary game light sources visible (they usually need [code]10[/code] to [code]50[/code]). However high it is set, the spikes take at most 90% of a highlight's light.
-		</member>
-		<member name="auto_exposure_metering_log_average" type="bool" setter="set_auto_exposure_metering_log_average" getter="is_auto_exposure_metering_log_average" default="false">
-			If [code]true[/code], the metering modes that average ([constant METERING_MODE_AVERAGE], [constant METERING_MODE_CENTER_WEIGHTED] and [constant METERING_MODE_SPOT]) take the log-average of the frame, [code]exp(mean(log(value + 0.0001)))[/code] with the mode's weights, instead of the arithmetic mean. This is the scene's "key" of Reinhard et al.'s photographic tone reproduction (2002), the statistic many games' auto exposure uses: a few very bright pixels, such as a lamp or the sun, raise it far less than they raise the mean, so a contrasty frame is exposed brighter and its mid-tones stay where they are. Large black areas lower it a lot; [member CameraAttributesPractical.auto_exposure_max_sensitivity] (or [member CameraAttributesPhysical.auto_exposure_max_exposure_value]) limits how far that brightens the frame. [constant METERING_MODE_HIGHLIGHT_WEIGHTED] meters a percentile, which is the same either way. When [code]false[/code] (the default), the meter takes the arithmetic mean, as a light meter integrates light.
-			[b]Note:[/b] Only supported in the Forward+ rendering method (including WebGPU), like auto exposure itself.
-		</member>
-		<member name="halation_high_quality" type="bool" setter="set_halation_high_quality" getter="is_halation_high_quality" default="false">
-			If [code]true[/code], the glare the halo is drawn from starts at the frame's full resolution instead of half, so a halo smaller than about 0.5% of the frame height (the physical one at [member halation_radius] [code]1.0[/code] and below, or with a large [member CameraAttributesPhysical.sensor_format]) keeps its size instead of being widened to the half-resolution floor of about two half-resolution pixels. It costs a full-resolution blur and a mip chain four times larger whenever halation is on, about [code]0.2[/code] ms more at 1920x1080 on a desktop GPU (an RTX 4080 SUPER: 0.42 ms for halation instead of 0.25 ms). The other glare effects of the same camera (starburst, and the [Environment]'s lens flare, veiling glare and diffusion filter) read the same chain and keep their sizes.
-			[b]Note:[/b] Only changes the Forward+ rendering method. Mobile's glare chain is built at quarter resolution with a sharper first level, which already draws the physical halo at radius [code]1.0[/code].
 		</member>
 	</members>
 	<constants>
