@@ -66,6 +66,15 @@ class RenderingServerDefault : public RenderingServer {
 
 	List<Callable> frame_drawn_callbacks;
 
+	// texture_2d_get_async() requests, issued once the frame's viewports are drawn so they read what this frame
+	// rendered. Rendering thread only.
+	struct TextureReadback {
+		RID texture;
+		Callable callback;
+	};
+	LocalVector<TextureReadback> texture_readbacks;
+	void _texture_2d_get_async(RID p_texture, const Callable &p_callback);
+
 	static void _changes_changed() {}
 
 	uint64_t frame_profile_frame = 0;
@@ -239,6 +248,15 @@ public:
 	FUNCRIDTEX0(texture_3d_placeholder)
 
 	FUNC1RC(Ref<Image>, texture_2d_get, RID)
+
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override {
+		if (Thread::get_caller_id() == server_thread) {
+			command_queue.flush_if_pending();
+			_texture_2d_get_async(p_texture, p_callback);
+		} else {
+			command_queue.push(this, &RenderingServerDefault::_texture_2d_get_async, p_texture, p_callback);
+		}
+	}
 	FUNC2RC(Ref<Image>, texture_2d_layer_get, RID, int)
 	FUNC1RC(Vector<Ref<Image>>, texture_3d_get, RID)
 

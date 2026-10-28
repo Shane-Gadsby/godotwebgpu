@@ -87,6 +87,9 @@ public:
 	virtual void texture_3d_placeholder_initialize(RID p_texture) = 0;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const = 0;
+	// Reads the texture back and calls p_callback deferred, on the main thread, with the Image, or with null when the
+	// texture is invalid, freed before the data arrives, or the readback fails. Never calls back synchronously.
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) = 0;
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const = 0;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const = 0;
 

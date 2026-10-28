@@ -217,6 +217,13 @@ public:
 	// the whole per-frame slice; the default is the full flush, so every other driver behaves exactly as before.
 	virtual void buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) { buffer_flush(p_buffer); }
 	virtual void buffer_initiate_async_map(BufferID p_buffer) {} // WebGPU: start async map so it completes by next frame.
+	// Whether a GPU->CPU staging buffer, mapped by buffer_initiate_async_map(), can be read yet: OK when it can, ERR_BUSY
+	// while its map is still pending, FAILED when the map failed (what buffer_map() would return is not the GPU's data).
+	// A backend whose fence_wait() means the copy has landed is always OK, the default. WebGPU's mapAsync completes on a
+	// later turn of the browser's event loop, which can be after the frame that queued an asynchronous download comes
+	// round again; RenderingDevice then holds the download back instead of handing its callback a buffer that has not
+	// arrived.
+	virtual Error buffer_get_readback_status(BufferID p_buffer) { return OK; }
 	// Direct queue write to a buffer, bypassing staging buffers entirely.
 	// Used for skeleton/bone updates that are fully written before any draws.
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) {}

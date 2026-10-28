@@ -1546,6 +1546,11 @@ void TextureStorage::texture_3d_placeholder_initialize(RID p_texture) {
 	texture_3d_initialize(p_texture, Image::FORMAT_RGBA8, 4, 4, 4, false, texture_3d_placeholder);
 }
 
+void TextureStorage::texture_2d_get_async(RID p_texture, const Callable &p_callback) {
+	// OpenGL reads back synchronously; the callback is still deferred, so it runs at the same point as on RenderingDevice.
+	p_callback.call_deferred(owns_texture(p_texture) ? texture_2d_get(p_texture) : Ref<Image>());
+}
+
 Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
 	Texture *texture = texture_owner.get_or_null(p_texture);
 	ERR_FAIL_NULL_V(texture, Ref<Image>());

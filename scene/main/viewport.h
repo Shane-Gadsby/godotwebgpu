@@ -90,6 +90,7 @@ public:
 	virtual bool has_alpha() const override;
 
 	virtual Ref<Image> get_image() const override;
+	virtual void get_image_async(const Callable &p_callback) const override;
 
 	ViewportTexture();
 	~ViewportTexture();
