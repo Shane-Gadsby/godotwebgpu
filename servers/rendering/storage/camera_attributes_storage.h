@@ -44,14 +44,16 @@
 // - header[1], glare[6]: glare (camera_glare_inc.glsl): lens flare, veiling glare, diffusion filters, starbursts and
 //   halation, all read from the glare chain (a mip chain of the scene).
 // - header[2], exposure[2]: reserved for exposure automation (task 36).
-// - header[3], reserved[15]: free; grow a region into it rather than reordering.
+// - header[3], local_exposure[2]: local exposure (camera_local_exposure_inc.glsl), Forward+ only.
+// - reserved[13]: free; grow a region into it rather than reordering.
 // An all-zero header means no effect runs.
 struct CameraEffectsUBO {
 	uint32_t header[4] = {};
 	float lens[8][4] = {};
 	float glare[6][4] = {};
 	float exposure[2][4] = {};
-	float reserved[15][4] = {};
+	float local_exposure[2][4] = {};
+	float reserved[13][4] = {};
 };
 static_assert(sizeof(CameraEffectsUBO) == 512, "CameraEffectsUBO must match the 512-byte std140 block in camera_effects_inc.glsl.");
 
@@ -88,6 +90,9 @@ struct CameraEffectsContext {
 	// Panini projection: tangents of the half field of view per axis of a single-view perspective camera (1 / P[0][0],
 	// 1 / P[1][1]); zero for an orthogonal camera or XR, where the projection is not applied.
 	Vector2 projection_tan_half;
+	// Local exposure: the renderer built the bilateral grid this frame, from a frame of source_size. Only Forward+
+	// does (it needs compute).
+	bool local_exposure = false;
 };
 
 class RendererCameraAttributes {
@@ -105,6 +110,11 @@ public:
 	// Bits of CameraEffectsUBO::header[2]; camera_exposure_inc.glsl has the same values.
 	enum ExposureBits : uint32_t {
 		EXPOSURE_AUTO_WHITE_BALANCE = 1,
+	};
+
+	// Bits of CameraEffectsUBO::header[3]; camera_local_exposure_inc.glsl has the same values.
+	enum LocalExposureBits : uint32_t {
+		LOCAL_EXPOSURE_BILATERAL = 1,
 	};
 
 	// Bits of CameraEffectsUBO::header[1]; camera_glare_inc.glsl has the same values.
@@ -239,6 +249,15 @@ private:
 		bool panini_enabled = false;
 		float panini_distance = 1.0;
 		float panini_vertical_compression = 1.0;
+
+		// Local exposure (camera_local_exposure.h), Forward+ only. Off by default: the grid is not built then.
+		bool local_exposure_enabled = false;
+		float local_exposure_highlight_contrast = 0.6;
+		float local_exposure_shadow_contrast = 0.8;
+		float local_exposure_detail_strength = 1.0;
+		float local_exposure_middle_gray_bias = 0.0; // In EV.
+		float local_exposure_blurred_luminance_blend = 0.6;
+		float local_exposure_blurred_luminance_kernel_size = 50.0; // Percent of the frame width.
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
@@ -247,6 +266,7 @@ private:
 	static void _fill_effects_glare(const CameraAttributes *p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static uint32_t _glare_requested_bits(const CameraAttributes *p_attributes, const CameraGlareEnvironment &p_environment);
 	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_local_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static uint64_t auto_white_balance_counter;
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
@@ -483,6 +503,32 @@ public:
 	/* Panini projection */
 
 	void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression);
+
+	/* Local exposure */
+
+	// The bilateral grid (see the .cpp for the model): LOCAL_EXPOSURE_GRID_ROWS square cells down the frame, as many
+	// across as its aspect ratio needs (the last column reaching past the right edge), and LOCAL_EXPOSURE_GRID_DEPTH
+	// range bins of 1 EV each.
+	static constexpr int LOCAL_EXPOSURE_GRID_ROWS = 16;
+	static constexpr int LOCAL_EXPOSURE_GRID_DEPTH = 32;
+	static Size2i local_exposure_grid_size(const Size2i &p_frame_size);
+
+	struct LocalExposure {
+		bool enabled = false;
+		Size2i grid_size; // Cells across and down.
+		float cell_size = 1.0; // In pixels of the frame.
+		float blurred_luminance_sigma = 1.0; // In cells.
+	};
+
+	void camera_attributes_set_local_exposure(RID p_camera_attributes, bool p_enable, float p_highlight_contrast, float p_shadow_contrast, float p_detail_strength, float p_middle_gray_bias);
+	void camera_attributes_set_local_exposure_blurred_luminance(RID p_camera_attributes, float p_blend, float p_kernel_size);
+	// What the renderer needs to build the grid for a frame of p_frame_size pixels.
+	LocalExposure camera_attributes_get_local_exposure(RID p_camera_attributes, const Size2i &p_frame_size);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_local_exposure(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return cam_attributes && cam_attributes->local_exposure_enabled;
+	}
 
 	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes, const CameraGlareEnvironment &p_environment = CameraGlareEnvironment()) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

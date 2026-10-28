@@ -65,6 +65,8 @@ const FEATURES := [
 	"micro_shadows",
 	# GTAO (engine addition, project setting rendering/environment/ssao/method).
 	"gtao",
+	# CameraAttributes local exposure (engine addition, work task 57): the bilateral grid and its slicing.
+	"local_exposure",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -1681,6 +1683,14 @@ func _apply(id: String, on: bool) -> bool:
 			mat_probe.uv1_scale = Vector3(3, 3, 3)
 			env.micro_shadows_enabled = on
 			env.micro_shadows_opacity = 1.0
+		"local_exposure":
+			# The bright emissive sphere in both frames, so there are highlights to compress; strong contrasts so the
+			# grid's slicing (not only the global level) shows in the delta.
+			glare_sphere.visible = true
+			cam_attrs.local_exposure_enabled = on
+			cam_attrs.local_exposure_highlight_contrast = 0.4
+			cam_attrs.local_exposure_shadow_contrast = 0.6
+			cam_attrs.local_exposure_blurred_luminance_blend = 0.3
 		_:
 			return false
 	return true

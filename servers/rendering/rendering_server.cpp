@@ -3272,6 +3272,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation_high_quality", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_halation_high_quality);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_longitudinal_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_longitudinal_chromatic_aberration);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_panini", "camera_attributes", "enable", "distance", "vertical_compression"), &RenderingServer::camera_attributes_set_panini);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_local_exposure", "camera_attributes", "enable", "highlight_contrast", "shadow_contrast", "detail_strength", "middle_gray_bias"), &RenderingServer::camera_attributes_set_local_exposure);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_local_exposure_blurred_luminance", "camera_attributes", "blend", "kernel_size"), &RenderingServer::camera_attributes_set_local_exposure_blurred_luminance);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);

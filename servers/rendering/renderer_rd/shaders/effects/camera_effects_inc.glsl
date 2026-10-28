@@ -7,7 +7,8 @@
 // - header.x, lens[8]: lens optics (camera_lens_inc.glsl).
 // - header.y, glare[6]: reserved for lens flare, veiling glare and diffusion filters.
 // - header.z, exposure[2]: reserved for exposure automation.
-// - header.w, reserved[15]: free.
+// - header.w, local_exposure[2]: local exposure (camera_local_exposure_inc.glsl, Forward+ only).
+// - reserved[13]: free.
 // The renderers bind an all-zero buffer when no effect is on, so every effect sits behind a uniform branch on its
 // header word and the output is bit-identical to having no buffer.
 
@@ -16,6 +17,7 @@ layout(set = CAMERA_EFFECTS_SET, binding = CAMERA_EFFECTS_BINDING, std140) unifo
 	vec4 lens[8];
 	vec4 glare[6];
 	vec4 exposure[2];
-	vec4 reserved[15];
+	vec4 local_exposure[2];
+	vec4 reserved[13];
 }
 camera_effects;

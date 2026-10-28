@@ -33,6 +33,7 @@
 #include "servers/rendering/renderer_compositor.h"
 #include "servers/rendering/renderer_rd/effects/bokeh_dof.h"
 #include "servers/rendering/renderer_rd/effects/camera_finish.h"
+#include "servers/rendering/renderer_rd/effects/camera_local_exposure.h"
 #include "servers/rendering/renderer_rd/effects/camera_metering.h"
 #include "servers/rendering/renderer_rd/effects/camera_motion_blur.h"
 #include "servers/rendering/renderer_rd/effects/color_grading.h"
@@ -68,6 +69,7 @@ protected:
 	RendererRD::BokehDOF *bokeh_dof = nullptr;
 	RendererRD::CameraMotionBlur *camera_motion_blur = nullptr; // Created on first use.
 	RendererRD::CameraMetering *camera_metering = nullptr; // Created on first use.
+	RendererRD::CameraLocalExposure *camera_local_exposure = nullptr; // Created on first use.
 	RendererRD::LightShafts *light_shafts = nullptr; // Created on first use.
 	RendererRD::ColorGrading *color_grading = nullptr; // Created on first use.
 	RendererRD::CopyEffects *copy_effects = nullptr;

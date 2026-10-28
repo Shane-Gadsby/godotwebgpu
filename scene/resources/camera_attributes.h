@@ -180,6 +180,16 @@ protected:
 	float panini_vertical_compression = 1.0;
 	void _update_panini();
 
+	// Local exposure (Unreal's Bilateral method), in the Forward+ tonemap pass.
+	bool local_exposure_enabled = false;
+	float local_exposure_highlight_contrast = 0.6;
+	float local_exposure_shadow_contrast = 0.8;
+	float local_exposure_detail_strength = 1.0;
+	float local_exposure_middle_gray_bias = 0.0; // In EV.
+	float local_exposure_blurred_luminance_blend = 0.6;
+	float local_exposure_blurred_luminance_kernel_size = 50.0; // Percent of the frame width.
+	void _update_local_exposure();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -333,6 +343,21 @@ public:
 	float get_panini_vertical_compression() const;
 	// Whether the Panini projection applies, with its parameters: what Camera3D needs to follow it.
 	bool get_panini_projection(float &r_distance, float &r_vertical_compression) const;
+
+	void set_local_exposure_enabled(bool p_enabled);
+	bool is_local_exposure_enabled() const;
+	void set_local_exposure_highlight_contrast(float p_contrast);
+	float get_local_exposure_highlight_contrast() const;
+	void set_local_exposure_shadow_contrast(float p_contrast);
+	float get_local_exposure_shadow_contrast() const;
+	void set_local_exposure_detail_strength(float p_strength);
+	float get_local_exposure_detail_strength() const;
+	void set_local_exposure_middle_gray_bias(float p_bias);
+	float get_local_exposure_middle_gray_bias() const;
+	void set_local_exposure_blurred_luminance_blend(float p_blend);
+	float get_local_exposure_blurred_luminance_blend() const;
+	void set_local_exposure_blurred_luminance_kernel_size(float p_size);
+	float get_local_exposure_blurred_luminance_kernel_size() const;
 
 	CameraAttributes();
 	~CameraAttributes();

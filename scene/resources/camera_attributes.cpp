@@ -211,6 +211,78 @@ void CameraAttributes::_update_auto_white_balance() {
 	emit_changed();
 }
 
+/* Local exposure */
+
+void CameraAttributes::set_local_exposure_enabled(bool p_enabled) {
+	local_exposure_enabled = p_enabled;
+	_update_local_exposure();
+	notify_property_list_changed();
+}
+
+bool CameraAttributes::is_local_exposure_enabled() const {
+	return local_exposure_enabled;
+}
+
+void CameraAttributes::set_local_exposure_highlight_contrast(float p_contrast) {
+	local_exposure_highlight_contrast = CLAMP(p_contrast, 0.0f, 2.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_highlight_contrast() const {
+	return local_exposure_highlight_contrast;
+}
+
+void CameraAttributes::set_local_exposure_shadow_contrast(float p_contrast) {
+	local_exposure_shadow_contrast = CLAMP(p_contrast, 0.0f, 2.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_shadow_contrast() const {
+	return local_exposure_shadow_contrast;
+}
+
+void CameraAttributes::set_local_exposure_detail_strength(float p_strength) {
+	local_exposure_detail_strength = CLAMP(p_strength, 0.0f, 4.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_detail_strength() const {
+	return local_exposure_detail_strength;
+}
+
+void CameraAttributes::set_local_exposure_middle_gray_bias(float p_bias) {
+	local_exposure_middle_gray_bias = CLAMP(p_bias, -15.0f, 15.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_middle_gray_bias() const {
+	return local_exposure_middle_gray_bias;
+}
+
+void CameraAttributes::set_local_exposure_blurred_luminance_blend(float p_blend) {
+	local_exposure_blurred_luminance_blend = CLAMP(p_blend, 0.0f, 1.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_blurred_luminance_blend() const {
+	return local_exposure_blurred_luminance_blend;
+}
+
+void CameraAttributes::set_local_exposure_blurred_luminance_kernel_size(float p_size) {
+	local_exposure_blurred_luminance_kernel_size = CLAMP(p_size, 1.0f, 100.0f);
+	_update_local_exposure();
+}
+
+float CameraAttributes::get_local_exposure_blurred_luminance_kernel_size() const {
+	return local_exposure_blurred_luminance_kernel_size;
+}
+
+void CameraAttributes::_update_local_exposure() {
+	RS::get_singleton()->camera_attributes_set_local_exposure(camera_attributes, local_exposure_enabled, local_exposure_highlight_contrast, local_exposure_shadow_contrast, local_exposure_detail_strength, local_exposure_middle_gray_bias);
+	RS::get_singleton()->camera_attributes_set_local_exposure_blurred_luminance(camera_attributes, local_exposure_blurred_luminance_blend, local_exposure_blurred_luminance_kernel_size);
+	emit_changed();
+}
+
 void CameraAttributes::_update_white_balance() {
 	RS::get_singleton()->camera_attributes_set_white_balance(camera_attributes, white_balance_temperature, white_balance_tint);
 }
@@ -893,6 +965,11 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
+
+	if (p_property.name.begins_with("local_exposure_") && p_property.name != "local_exposure_enabled" && !local_exposure_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
 }
 
 void CameraAttributes::_bind_methods() {
@@ -1006,6 +1083,30 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_speed", PROPERTY_HINT_RANGE, "0.01,16,0.01,or_greater"), "set_white_balance_auto_speed", "get_white_balance_auto_speed");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_min_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_auto_min_temperature", "get_white_balance_auto_min_temperature");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_max_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_auto_max_temperature", "get_white_balance_auto_max_temperature");
+
+	ClassDB::bind_method(D_METHOD("set_local_exposure_enabled", "enabled"), &CameraAttributes::set_local_exposure_enabled);
+	ClassDB::bind_method(D_METHOD("is_local_exposure_enabled"), &CameraAttributes::is_local_exposure_enabled);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_highlight_contrast", "contrast"), &CameraAttributes::set_local_exposure_highlight_contrast);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_highlight_contrast"), &CameraAttributes::get_local_exposure_highlight_contrast);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_shadow_contrast", "contrast"), &CameraAttributes::set_local_exposure_shadow_contrast);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_shadow_contrast"), &CameraAttributes::get_local_exposure_shadow_contrast);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_detail_strength", "strength"), &CameraAttributes::set_local_exposure_detail_strength);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_detail_strength"), &CameraAttributes::get_local_exposure_detail_strength);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_middle_gray_bias", "bias"), &CameraAttributes::set_local_exposure_middle_gray_bias);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_middle_gray_bias"), &CameraAttributes::get_local_exposure_middle_gray_bias);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_blurred_luminance_blend", "blend"), &CameraAttributes::set_local_exposure_blurred_luminance_blend);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_blurred_luminance_blend"), &CameraAttributes::get_local_exposure_blurred_luminance_blend);
+	ClassDB::bind_method(D_METHOD("set_local_exposure_blurred_luminance_kernel_size", "size"), &CameraAttributes::set_local_exposure_blurred_luminance_kernel_size);
+	ClassDB::bind_method(D_METHOD("get_local_exposure_blurred_luminance_kernel_size"), &CameraAttributes::get_local_exposure_blurred_luminance_kernel_size);
+
+	ADD_GROUP("Local Exposure", "local_exposure_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "local_exposure_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_local_exposure_enabled", "is_local_exposure_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_highlight_contrast", PROPERTY_HINT_RANGE, "0,1,0.01,or_greater"), "set_local_exposure_highlight_contrast", "get_local_exposure_highlight_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_shadow_contrast", PROPERTY_HINT_RANGE, "0,1,0.01,or_greater"), "set_local_exposure_shadow_contrast", "get_local_exposure_shadow_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_detail_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_local_exposure_detail_strength", "get_local_exposure_detail_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_middle_gray_bias", PROPERTY_HINT_RANGE, "-5,5,0.01,or_less,or_greater,suffix:EV"), "set_local_exposure_middle_gray_bias", "get_local_exposure_middle_gray_bias");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_blurred_luminance_blend", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_local_exposure_blurred_luminance_blend", "get_local_exposure_blurred_luminance_blend");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "local_exposure_blurred_luminance_kernel_size", PROPERTY_HINT_RANGE, "1,100,0.1,suffix:%"), "set_local_exposure_blurred_luminance_kernel_size", "get_local_exposure_blurred_luminance_kernel_size");
 
 	ADD_GROUP("Grain", "grain_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "grain_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_grain_enabled", "is_grain_enabled");

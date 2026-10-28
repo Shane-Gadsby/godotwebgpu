@@ -8,6 +8,7 @@ layout(std140) uniform CameraEffectsData { //ubo:16
 	vec4 lens[8];
 	vec4 glare[6];
 	vec4 exposure[2];
-	vec4 reserved[15];
+	vec4 local_exposure[2]; // Forward+ only; never set here.
+	vec4 reserved[13];
 }
 camera_effects;

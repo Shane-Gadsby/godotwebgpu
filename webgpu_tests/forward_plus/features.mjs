@@ -224,6 +224,9 @@ export const FEATURES = [
   { id: 'in_camera_processing', cat: 'camera', label: 'In-camera noise reduction and sharpening (CameraAttributes)', minDelta: 0.175 },
   // GTAO (engine addition): the ssao arm's settings with rendering/environment/ssao/method = GTAO.
   { id: 'gtao', cat: 'environment', label: 'GTAO ambient occlusion (ssao method GTAO)', minDelta: 1.39 },
+  // CameraAttributes local exposure (engine addition, work task 57): highlight contrast 0.4, shadow 0.6, the bright
+  // sphere in both frames. Floor to be set at a third of the native Vulkan delta once measured.
+  { id: 'local_exposure', cat: 'camera', label: 'Local exposure, bilateral grid (CameraAttributes)', minDelta: 1.0 },
 ];
 
 /**

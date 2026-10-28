@@ -983,6 +983,28 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		RD::get_singleton()->draw_command_end_label();
 	}
 
+	// Local exposure: the bilateral grid of the frame the tonemap pass reads, after everything that changes it, with the
+	// exposure the tonemapper applies (auto exposure included). Compute, so Forward+ only; one view only.
+	RID local_exposure_grid;
+	if (can_use_effects && can_use_storage && rb->get_view_count() == 1 && RSG::camera_attributes->camera_attributes_uses_local_exposure(p_render_data->camera_attributes)) {
+		RENDER_TIMESTAMP("Local Exposure");
+		RD::get_singleton()->draw_command_begin_label("Local Exposure");
+
+		if (!camera_local_exposure) {
+			camera_local_exposure = memnew(RendererRD::CameraLocalExposure);
+		}
+		RendererRD::CameraLocalExposure::Settings local_exposure_settings;
+		local_exposure_settings.local_exposure = RSG::camera_attributes->camera_attributes_get_local_exposure(p_render_data->camera_attributes, color_size);
+		local_exposure_settings.exposure = p_render_data->environment.is_valid() ? environment_get_exposure(p_render_data->environment) : 1.0f;
+		local_exposure_settings.luminance_multiplier = rb->get_luminance_multiplier();
+		local_exposure_settings.use_auto_exposure = RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
+		local_exposure_settings.auto_exposure_texture = luminance->get_current_luminance_buffer(rb);
+		local_exposure_settings.auto_exposure_scale = auto_exposure_scale;
+		local_exposure_grid = camera_local_exposure->build_grid(color_texture, color_size, camera_local_exposure->get_buffers(rb), local_exposure_settings);
+
+		RD::get_singleton()->draw_command_end_label();
+	}
+
 	{
 		RENDER_TIMESTAMP("Tonemap");
 		RD::get_singleton()->draw_command_begin_label("Tonemap");
@@ -1131,6 +1153,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.glare_texture = glare_chain;
 			}
 			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();
+			camera_effects_context.local_exposure = local_exposure_grid.is_valid();
 			// Panini projection: the camera's field of view, for a single perspective view only.
 			if (!p_render_data->scene_data->cam_orthogonal && p_render_data->scene_data->view_count == 1) {
 				const Projection &cam_projection = p_render_data->scene_data->cam_projection;
@@ -1138,6 +1161,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			}
 			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
 			tonemap.auto_white_balance_texture = auto_white_balance_state;
+			tonemap.local_exposure_grid = local_exposure_grid;
 		}
 
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
@@ -2295,6 +2319,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	}
 	if (camera_metering) {
 		memdelete(camera_metering);
+	}
+	if (camera_local_exposure) {
+		memdelete(camera_local_exposure);
 	}
 	if (light_shafts) {
 		memdelete(light_shafts);

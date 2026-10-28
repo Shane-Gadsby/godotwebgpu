@@ -1,8 +1,8 @@
 # 57-pp-local-exposure
 
-State: open
+State: claimed
 Owner: worker-57
-Claimed:
+Claimed: 2026-10-28 15:05
 Needs: build, gpu
 Branch: work/57
 Results: webgpu_notes/work/results/57-pp-local-exposure/
@@ -16,7 +16,7 @@ pattern, docs, questions) and the survey `webgpu_notes/work/results/41-postproce
 
 Local exposure on `CameraAttributes` (beside auto exposure, as Unreal puts it under Lens > Exposure), so a bright
 window and the room behind it both stay readable: Unreal's **Bilateral** method (highlight contrast, shadow contrast,
-detail strength, blurred-luminance blend, middle grey bias). Exposure Fusion (Mertens 2007, Unreal's second method)
+detail strength, blurred-luminance blend, middle gray bias). Exposure Fusion (Mertens 2007, Unreal's second method)
 is optional and later; say whether it fits.
 
 - **How (survey):** luminance into a bilateral grid (compute, about (W/64) x (H/64) x 32), blur the grid, a blurred

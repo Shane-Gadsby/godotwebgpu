@@ -646,6 +646,13 @@ SHADER_REGISTRY = [
         ("awb_resolve", "\n#define MODE_AWB_RESOLVE\n", [COMP]),
     ]),
 
+    # ── Camera local exposure (CameraLocalExposure, camera_local_exposure.cpp): the bilateral grid ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_local_exposure.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("build", "\n#define MODE_BUILD\n", [COMP]),
+        ("blur", "\n#define MODE_BLUR\n", [COMP]),
+    ]),
+
     # ── Color grading (ColorGrading, color_grading.cpp): the Environment's grading LUT, composed with the user LUT ──
     ("servers/rendering/renderer_rd/shaders/effects/color_grading.glsl",
      GENERAL_DEFINES_NONE, [
