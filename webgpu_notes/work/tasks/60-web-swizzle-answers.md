@@ -1,8 +1,8 @@
 # 60-web-swizzle-answers: user answers on task 58's two questions
 
-State: open
+State: claimed
 Owner: worker-60
-Claimed:
+Claimed: 2026-10-28
 Needs: build, gpu
 Branch: work/60
 Results: webgpu_notes/work/results/60-web-swizzle-answers/
@@ -12,7 +12,7 @@ User answers on the hand-offs page, 2026-10-28 (task 58 asked; read `results/58-
 
 1. **`texture2drd-r8-web`: "Report it as R8/RG8 on the web".** A `Texture2DRD` wrapping an R8 or RG8 RenderingDevice
    texture is treated as L8 / LA8 (R,R,R,1 / R,R,R,G) through a view swizzle WebGPU does not have, so on the web it
-   shows red (red/green) while natively grey. On the web, describe such textures as R8 / RG8 instead, so the format the
+   shows red (red/green) while natively gray. On the web, describe such textures as R8 / RG8 instead, so the format the
    engine reports (`get_format()`, `get_image()`) and what is drawn agree, and the one-time swizzle warning no longer
    fires for them. Natively nothing changes. Document it in the `Texture2DRD` class reference (`[b]Note:[/b]` for the
    web) and check a project that samples one in a material, native vs web.

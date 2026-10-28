@@ -11405,6 +11405,9 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// command_uniform_set_prepare_for_use() is a no-op here; see the trait's doc comment.
 		case API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE:
 			return 0;
+		// WebGPU texture views have no component swizzle (_warn_dropped_swizzle()).
+		case API_TRAIT_TEXTURE_VIEW_SWIZZLE:
+			return 0;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}

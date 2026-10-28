@@ -109,6 +109,8 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define CAMERA_LUT_PARAMS ((params.flags & 0xFFFF00u) >> 8u)
 // The 3D color correction LUT is the Environment's color grading LUT, which holds lattice points.
 #define FLAG_COLOR_CORRECTION_LATTICE (1u << 24u)
+// An opaque render target whose texture cannot show alpha 1 through a view swizzle (WebGPU): write it here.
+#define FLAG_OPAQUE_ALPHA (1u << 25u)
 
 #include "camera_grain_inc.glsl"
 
@@ -1096,6 +1098,10 @@ void main() {
 	if (bool(params.flags & FLAG_USE_8_BIT_DEBANDING)) {
 		// Divide by 255 to align to 8-bit quantization.
 		color.rgb += screen_space_dither(gl_FragCoord.xy, 255.0);
+	}
+
+	if (bool(params.flags & FLAG_OPAQUE_ALPHA)) {
+		color.a = 1.0;
 	}
 
 	frag_color = color;

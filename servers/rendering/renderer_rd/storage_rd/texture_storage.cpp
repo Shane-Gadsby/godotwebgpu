@@ -82,6 +82,7 @@ TextureStorage *TextureStorage::get_singleton() {
 
 TextureStorage::TextureStorage() {
 	singleton = this;
+	texture_view_swizzle = RD::get_singleton()->supports_texture_view_swizzle();
 
 	{ //create default textures
 
@@ -3125,6 +3126,16 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 }
 
 void TextureStorage::_texture_format_from_rd(RD::DataFormat p_rd_format, TextureFromRDFormat &r_format) {
+	if (!texture_view_swizzle && (p_rd_format == RD::DATA_FORMAT_R8_UNORM || p_rd_format == RD::DATA_FORMAT_R8G8_UNORM)) {
+		// L8 / LA8 below need a luminance swizzle, which these texture views cannot
+		// apply (WebGPU). The data is the user's GPU texture, so it cannot be
+		// converted either: describe it as what it then reads, R8 / RG8 (an
+		// unswizzled view, which reads 0 for the missing green/blue and 1 for the
+		// missing alpha), so get_format(), get_image() and what is drawn agree.
+		r_format.image_format = p_rd_format == RD::DATA_FORMAT_R8G8_UNORM ? Image::FORMAT_RG8 : Image::FORMAT_R8;
+		r_format.rd_format = p_rd_format;
+		return;
+	}
 	switch (p_rd_format) {
 		case RD::DATA_FORMAT_R8_UNORM: {
 			r_format.image_format = Image::FORMAT_L8;
@@ -4706,18 +4717,14 @@ void TextureStorage::_update_render_target(RenderTarget *rt) {
 		//so transparent can be supported
 		RD::TextureView view;
 		view.format_override = rt->color_format;
-#ifndef WEBGPU_ENABLED
-		// WebGPU views cannot swizzle (webgpu_notes/TASKS.md §2.43), so there an
-		// opaque viewport's texture shows its color buffer's alpha as it is. That is
-		// 1 wherever the engine's own passes write it; it differs only where a
-		// project lowers it itself (a clear color with alpha below 1, a canvas blend
-		// mode that subtracts alpha) and then samples the viewport with blending.
-		// Not requested there, so the driver's dropped-swizzle warning does not
-		// fire for every web game at startup.
-		if (!rt->is_transparent) {
+		// Where views cannot swizzle (WebGPU), the passes that finish an opaque
+		// target write alpha 1 instead (render_target_needs_opaque_alpha()): the
+		// clears below, the 3D tonemap pass and the 2D canvas's draw lists. Not
+		// requested there, so the driver's dropped-swizzle warning does not fire
+		// for every web game at startup.
+		if (!rt->is_transparent && texture_view_swizzle) {
 			view.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		}
-#endif
 		tex->rd_texture = RD::get_singleton()->texture_create_shared(view, rt->color);
 		if (rt->color_format_srgb != RD::DATA_FORMAT_MAX) {
 			view.format_override = rt->color_format_srgb;
@@ -4967,6 +4974,16 @@ bool TextureStorage::render_target_get_transparent(RID p_render_target) const {
 	return rt->is_transparent;
 }
 
+bool TextureStorage::render_target_needs_opaque_alpha(RID p_render_target) const {
+	if (texture_view_swizzle) {
+		return false; // The texture's view swizzle shows alpha 1 (_update_render_target()).
+	}
+	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
+	ERR_FAIL_NULL_V(rt, false);
+
+	return !rt->is_transparent;
+}
+
 void TextureStorage::render_target_set_direct_to_screen(RID p_render_target, bool p_value) {
 }
 
@@ -5153,8 +5170,12 @@ void TextureStorage::render_target_do_clear_request(RID p_render_target) {
 	if (!rt->clear_requested) {
 		return;
 	}
+	Color clear_color = rt->use_hdr ? rt->clear_color.srgb_to_linear() : rt->clear_color;
+	if (!rt->is_transparent && !texture_view_swizzle) {
+		clear_color.a = 1.0; // What the texture of an opaque target reads elsewhere (render_target_needs_opaque_alpha()).
+	}
 	Vector<Color> clear_colors;
-	clear_colors.push_back(rt->use_hdr ? rt->clear_color.srgb_to_linear() : rt->clear_color);
+	clear_colors.push_back(clear_color);
 	RD::get_singleton()->draw_list_begin(rt->get_framebuffer(), RD::DRAW_CLEAR_COLOR_0, clear_colors);
 	RD::get_singleton()->draw_list_end();
 	rt->clear_requested = false;

@@ -1149,6 +1149,14 @@ public:
 		// render-graph instruction plus a virtual no-op per set per draw (~3,000 a
 		// frame on a 1,100-draw scene).
 		API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE,
+		// Non-zero (the default): texture views apply TextureView::swizzle_*.
+		// Zero: they cannot (WebGPU has no component swizzle), so the driver
+		// creates a plain view and shaders read the channels unswizzled. The
+		// shared code that relied on a swizzle gets the same result another way
+		// where it can: TextureStorage describes a Texture2DRD over R8 / RG8 as
+		// R8 / RG8 rather than L8 / LA8, and an opaque render target's last
+		// passes write alpha 1 themselves (render_target_needs_opaque_alpha()).
+		API_TRAIT_TEXTURE_VIEW_SWIZZLE,
 	};
 
 	enum ShaderChangeInvalidation {

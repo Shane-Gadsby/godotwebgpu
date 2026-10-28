@@ -107,6 +107,10 @@ private:
 
 	RID default_rd_textures[DEFAULT_RD_TEXTURE_MAX];
 
+	// RD::supports_texture_view_swizzle(), read once: false on WebGPU, whose texture
+	// views cannot swizzle (see RDD::API_TRAIT_TEXTURE_VIEW_SWIZZLE).
+	bool texture_view_swizzle = true;
+
 	/* Canvas Texture API */
 
 	struct CanvasTextureCache {
@@ -864,6 +868,9 @@ public:
 	virtual Size2i render_target_get_size(RID p_render_target) const override;
 	virtual void render_target_set_transparent(RID p_render_target, bool p_is_transparent) override;
 	virtual bool render_target_get_transparent(RID p_render_target) const override;
+	// True when the passes that finish this render target must write alpha 1 themselves:
+	// it is opaque, and its texture cannot show alpha 1 through a view swizzle (WebGPU).
+	bool render_target_needs_opaque_alpha(RID p_render_target) const;
 	virtual void render_target_set_direct_to_screen(RID p_render_target, bool p_direct_to_screen) override;
 	virtual bool render_target_get_direct_to_screen(RID p_render_target) const override;
 	virtual bool render_target_was_used(RID p_render_target) const override;

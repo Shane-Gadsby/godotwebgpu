@@ -37,6 +37,7 @@
 #include "core/math/math_funcs.h"
 #include "core/math/transform_interpolator.h"
 #include "core/templates/fixed_vector.h"
+#include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/mesh_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/particles_storage.h"
@@ -2267,6 +2268,11 @@ void RendererCanvasRenderRD::_render_batch_items(RenderTarget p_to_render_target
 	RID fb_uniform_set;
 	bool clear = false;
 	Color clear_color;
+	// An opaque target whose texture cannot show alpha 1 through a view swizzle (WebGPU): its clear writes alpha 1, and
+	// if a batch can change the alpha that leaves (only the add, sub, mul and disabled blend modes can: mix and
+	// premultiplied alpha keep a destination alpha of 1), this draw list ends by setting it back to 1.
+	const bool opaque_alpha = !p_to_backbuffer && texture_storage->render_target_needs_opaque_alpha(p_to_render_target.render_target);
+	bool alpha_changed = false;
 
 	if (p_to_backbuffer) {
 		framebuffer = texture_storage->render_target_get_rd_backbuffer_framebuffer(p_to_render_target.render_target);
@@ -2280,6 +2286,9 @@ void RendererCanvasRenderRD::_render_batch_items(RenderTarget p_to_render_target
 			clear_color = texture_storage->render_target_get_clear_request_color(p_to_render_target.render_target);
 			if (texture_storage->render_target_is_using_hdr(p_to_render_target.render_target)) {
 				clear_color = clear_color.srgb_to_linear();
+			}
+			if (opaque_alpha) {
+				clear_color.a = 1.0;
 			}
 			texture_storage->render_target_disable_clear_request(p_to_render_target.render_target);
 		}
@@ -2332,7 +2341,25 @@ void RendererCanvasRenderRD::_render_batch_items(RenderTarget p_to_render_target
 			}
 		}
 
+		if (opaque_alpha && !current_batch->has_blend) {
+			switch (shader_data->blend_mode) {
+				case CanvasShaderData::BLEND_MODE_ADD: // Alpha above 1 in an HDR 2D (float) target.
+				case CanvasShaderData::BLEND_MODE_SUB:
+				case CanvasShaderData::BLEND_MODE_MUL:
+				case CanvasShaderData::BLEND_MODE_DISABLED:
+					alpha_changed = true;
+					break;
+				default:
+					break;
+			}
+		}
+
 		_render_batch(draw_list, shader_data, fb_format, p_lights, current_batch, r_render_info);
+	}
+
+	if (alpha_changed) {
+		RD::get_singleton()->draw_list_disable_scissor(draw_list);
+		RendererRD::CopyEffects::get_singleton()->set_alpha_one_in_drawlist(draw_list, fb_format);
 	}
 
 	RD::get_singleton()->draw_list_end();
