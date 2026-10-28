@@ -52,6 +52,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 78 | user answer: SSIL history carried over a scale change | 11 | worker-78 (retired); **merged `d10c65a1a3`**, verified, TASKS §4.94 |
 | 79 | user answer: Circle bokeh reach capped at 3% (Box/Hexagon keep 6%) | 11 | worker-79 (retired); **merged `eecd0e08e8`**, verified, TASKS §4.93, trap 108 |
 | 81 | user answer `web-buffer-get-data-empty`: the web's first synchronous buffer_get_data() returns empty, like textures | 12 | worker-81 (retired); **merged `0a4cb88acd`**, verified, TASKS §4.96, trap 110; found §2.55 |
+| 82 | user report: GitHub CI `audio_parity` position checks fail on a slow runner (late timers wrap/clamp the position) | 12 | worker-82 |
 | 80 | user answers: dynamic resolution remember keyed by window mode; step size exposed | 11 | worker-80 (retired); **merged `595ce19103`**, verified, TASKS §4.95, trap 109; question `dynres-remember-subviewport-mode` (default kept) |
 | 76 | WebGPU async readback every frame (pending-map validation errors, stalls) and 11x-dark float readback (found by 74) | 10 | worker-76 (retired); **merged `4c967537e8`**, verified, TASKS §4.88, trap 104 |
 | 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | worker-75 (retired); **merged `b4f21c8fc6`**, verified, TASKS §4.91, trap 106 |
