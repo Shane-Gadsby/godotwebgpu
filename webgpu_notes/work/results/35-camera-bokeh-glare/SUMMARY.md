@@ -52,13 +52,13 @@ into 1-8% of frame height, black: x 7.5% into 0.5-4%), all energy-preserving exc
 
 - **Defaults bit-identical**: base editor (a51fa557fb, built in this worktree) vs work/35, scene with sky, shadows,
   glow, Filmic; Physical / Practical / none x Forward+ / Mobile / Compatibility: **max diff 0, 0 pixels in 9/9**.
-  PENDING_DEFAULTS
+  Re-checked with the final binary (after the energy-preserving starburst): still 0 / 0 in 9/9.
 - **Aperture blades** (Physical 50 mm f/1.4, focus 1 m, point at 20 m; vertex angle from the phase of r(theta)'s N-th
   harmonic): 5 blades 0.19° / -3.04° from the set 0° / 20°; 6 blades -0.13° / -1.56°; 7 blades +0.29° / -0.41°.
   The dominant harmonic of r(theta) was 5 and 6 for 5 and 6 blades; for 7 the 6th harmonic of the gather's speckle
   edged out the 7th, so the phase fit is the measure there. Edge-to-corner ratio 0.77-0.86 vs cos(pi/N) 0.81-0.90
   (the source's 6 px disc rounds the corners). Round: harmonic-6 amplitude 0.06 px; curvature 0.5 sits between.
-  PENDING_PRACTICAL
+  Not verified: the same shapes with Practical blur on Mobile (the queued renders did not get the GPU lease in time).
 - **Anamorphic 2x**: bokeh height/width 1.76 after removing the source disc's variance (expected 2.00; the remaining gap
   is the gather's edge softness, which adds to both axes).
 - **Cat's eye** (axis ratio of each bokeh vs the two-circle model's second moments, source variance removed; minor axis
@@ -72,7 +72,9 @@ into 1-8% of frame height, black: x 7.5% into 0.5-4%), all energy-preserving exc
 - **Starburst** (ring 0.05-0.12 frame heights, peaks of the angular profile): 6 / 14 / 8 spikes for 6 / 7 / 8 blades,
   angles within 0.25-1.25° of rotation + 180°/N (+ k 360°/N, both directions for odd); rotation 15° follows.
   f/8 vs f/16 spike light **0.501** (Forward+), **0.502** (Mobile), expected 0.500 (density ∝ N).
-  PENDING_STARBURST
+  After making the spikes energy-preserving (final binary, strength 40): Forward+ 6 / 14 / 8 spikes within 0.75-1.79°,
+  f/8 vs f/16 0.503; flat field with strength 100 unchanged (max diff 0 bright, 1/255 dark) in Forward+ and Mobile.
+  Mobile at strength 40 is at the 8-bit floor (clipped highlights); its 0.502 ratio above is from strength 400.
 - **Lens flare** (ghost centroids vs source position through the center): k = -1.702, -1.100, -0.550, +0.450 for the
   set -1.7, -1.1, -0.55, 0.45, off the line by <= 1.6 px; same in Mobile and WebGPU.
 - **Halation** (Gaussian fit of the red halo; strength 12): radius x4 sigma 13.47 px vs model 13.44, x16 54.17 vs 53.76
@@ -91,7 +93,7 @@ into 1-8% of frame height, black: x 7.5% into 0.5-4%), all energy-preserving exc
   cat's eye ratios within 0.01 of native, 6 / 14 spikes within 0.71°, ghosts at k -1.700 / -1.100 / -0.550 / +0.450,
   veiling 0.01033, diffusion lifts 0.0086 / 0.0027 / 0.0003. Differences: halation sigma 11.9 px (native 13.5) and the
   spikes ~30% brighter, from Chrome's anisotropic/trilinear filtering; per pixel the frames differ at object edges
-  (default scene max 142/255, mean 0.66), not in the effects. PENDING_WEB
+  (default scene max 142/255, mean 0.66), not in the effects. Re-shot with the final template: 6 / 14 spikes within 0.75°, spike light 1.3x native.
 - **Smoke** (tree at 3c8bc4100a):
   ```
   [WGSL Precompile] Results: 285 compiled, 0 glsl failures, 0 conversion failures

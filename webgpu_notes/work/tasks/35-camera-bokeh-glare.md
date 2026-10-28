@@ -1,6 +1,6 @@
 # 35-camera-bokeh-glare: aperture blades, cat's eye, tilt-shift, starburst, halation; lens flare, veiling glare, diffusion filters
 
-State: claimed
+State: ready-for-integration
 Owner: worker-35
 Claimed: 2026-10-28
 Needs: build, gpu, task 33 (the CameraEffects UBO glare region)
