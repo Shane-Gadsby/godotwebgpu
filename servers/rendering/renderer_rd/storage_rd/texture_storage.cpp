@@ -2462,17 +2462,34 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RGBA4444: {
+#ifdef WEBGPU_ENABLED
+			// WebGPU has no packed 16-bit formats (texture creation would fail)
+			// and no component swizzle for the R/B exchange: expand to RGBA8.
+			image->convert(Image::FORMAT_RGBA8);
+			r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+#else
 			r_format.format = RD::DATA_FORMAT_B4G4R4A4_UNORM_PACK16;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_B; //needs swizzle
-			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_R;
+#endif
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RGB565: {
+#ifdef WEBGPU_ENABLED
+			// As RGBA4444: no packed formats and no swizzle on WebGPU.
+			image->convert(Image::FORMAT_RGBA8);
+			r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+#else
 			r_format.format = RD::DATA_FORMAT_B5G6R5_UNORM_PACK16;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_B;
-			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_R;
+#endif
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RF: {
@@ -2793,7 +2810,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_ETC2_RA_AS_RG: {
-			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+#ifdef WEBGPU_ENABLED
+			// The compressed path needs a G <- A view swizzle, which WebGPU does not
+			// have, so the web always decompresses: the decompressor writes (R, A, 0, 1).
+			const bool use_compressed = false;
+#else
+			const bool use_compressed = RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT);
+#endif
+			if (use_compressed) {
 				r_format.format = RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
 				r_format.swizzle_g = RD::TEXTURE_SWIZZLE_A;
@@ -2810,7 +2834,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		} break;
 		case Image::FORMAT_DXT5_RA_AS_RG: {
-			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_BC3_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+#ifdef WEBGPU_ENABLED
+			// The compressed path needs a G <- A view swizzle, which WebGPU does not
+			// have, so the web always decompresses: the decompressor writes (R, A, 0, 1).
+			const bool use_compressed = false;
+#else
+			const bool use_compressed = RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_BC3_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT);
+#endif
+			if (use_compressed) {
 				r_format.format = RD::DATA_FORMAT_BC3_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_BC3_SRGB_BLOCK;
 				r_format.swizzle_g = RD::TEXTURE_SWIZZLE_A;
@@ -3024,6 +3055,35 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	const bool is_rgb_format = original_format == Image::FORMAT_RGB8 || original_format == Image::FORMAT_RGBH || original_format == Image::FORMAT_RGBF ||
 			original_format == Image::FORMAT_RGB16 || original_format == Image::FORMAT_RGB16I;
 #ifdef WEBGPU_ENABLED
+	// WebGPU texture views cannot swizzle (webgpu_notes/TASKS.md §2.43), and
+	// RenderingDeviceDriverWebGPU warns about every swizzle it has to drop. The
+	// zero/one swizzles the cases above still request only restate a channel the
+	// source image does not have: either the texture keeps a format without that
+	// channel, where WebGPU itself reads 0 (green, blue) or 1 (alpha), or the data
+	// was converted, and the conversions write those same values. Reset them so
+	// the driver's warning is left for swizzles that really change what is read.
+	{
+		const uint32_t source_channels = Image::get_format_component_mask(original_format);
+		if (r_format.swizzle_g == RD::TEXTURE_SWIZZLE_ZERO && !(source_channels & 2)) {
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+		}
+		if (r_format.swizzle_b == RD::TEXTURE_SWIZZLE_ZERO && !(source_channels & 4)) {
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+		}
+		if (r_format.swizzle_a == RD::TEXTURE_SWIZZLE_ONE && !(source_channels & 8)) {
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
+			// The one exception to "conversions write 1": BC1's punch-through blocks
+			// decompress to alpha 0, which native hides with this very swizzle.
+			if (original_format == Image::FORMAT_DXT1 && image->get_format() == Image::FORMAT_RGBA8) {
+				Vector<uint8_t> data = image->get_data();
+				uint8_t *w = data.ptrw();
+				for (int64_t i = 3; i < data.size(); i += 4) {
+					w[i] = 255;
+				}
+				image->set_data(image->get_width(), image->get_height(), image->has_mipmaps(), Image::FORMAT_RGBA8, data);
+			}
+		}
+	}
 	// L8 / LA8 are always converted to RGBA8 on WebGPU (no component swizzle;
 	// the luminance broadcast is baked into the texture data above). This is
 	// the intended path, not a fallback, so don't print the "not supported"
@@ -3032,9 +3092,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	// Same story for the 3-component formats: WebGPU has no RGB texture formats at
 	// all, so on this driver the expansion is unconditional and definitional rather
 	// than a property of the user's GPU.
-	const bool is_deliberate_expansion = is_la_format || is_rgb_format;
+	// RGBA4444 / RGB565 have no WebGPU format, and the RA-as-RG normal map
+	// formats need a swizzle: both are converted on every WebGPU device.
+	const bool is_swizzle_conversion = original_format == Image::FORMAT_RGBA4444 || original_format == Image::FORMAT_RGB565 ||
+			original_format == Image::FORMAT_ETC2_RA_AS_RG || original_format == Image::FORMAT_DXT5_RA_AS_RG;
+	const bool is_deliberate_expansion = is_la_format || is_rgb_format || is_swizzle_conversion;
 #else
 	const bool is_la_format = false;
+	const bool is_swizzle_conversion = false;
 	const bool is_deliberate_expansion = false;
 #endif
 	if (original_format != image->get_format()) {
@@ -3050,7 +3115,7 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			// it is worth knowing how many there are even though nothing is wrong.
 			print_verbose(vformat("Expanded %s to %s (WebGPU has no %s).",
 					Image::get_format_name(original_format), Image::get_format_name(image->get_format()),
-					is_la_format ? "component swizzle; luminance broadcast baked into the data" : "3-component texture formats"));
+					is_la_format ? "component swizzle; luminance broadcast baked into the data" : (is_swizzle_conversion ? "packed 16-bit formats or component swizzle" : "3-component texture formats")));
 		} else if (is_print_verbose_enabled() || !is_rgb_format) {
 			WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
 		}
@@ -4641,9 +4706,18 @@ void TextureStorage::_update_render_target(RenderTarget *rt) {
 		//so transparent can be supported
 		RD::TextureView view;
 		view.format_override = rt->color_format;
+#ifndef WEBGPU_ENABLED
+		// WebGPU views cannot swizzle (webgpu_notes/TASKS.md §2.43), so there an
+		// opaque viewport's texture shows its color buffer's alpha as it is. That is
+		// 1 wherever the engine's own passes write it; it differs only where a
+		// project lowers it itself (a clear color with alpha below 1, a canvas blend
+		// mode that subtracts alpha) and then samples the viewport with blending.
+		// Not requested there, so the driver's dropped-swizzle warning does not
+		// fire for every web game at startup.
 		if (!rt->is_transparent) {
 			view.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		}
+#endif
 		tex->rd_texture = RD::get_singleton()->texture_create_shared(view, rt->color);
 		if (rt->color_format_srgb != RD::DATA_FORMAT_MAX) {
 			view.format_override = rt->color_format_srgb;

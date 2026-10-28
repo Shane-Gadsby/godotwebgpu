@@ -146,6 +146,10 @@ export const FEATURES = [
   { id: 'depth_texture', cat: 'material', label: 'DEPTH_TEXTURE in a material', minDelta: 1.4 },
   { id: 'mipmap_bias', cat: 'material', label: 'Mipmap LOD bias (texture_mipmap_bias)', minDelta: 0.148 },
   { id: 'texture_array', cat: 'material', label: 'Texture array indexed at runtime', minDelta: 1.2 },
+  // L8, LA8, RGBA4444, RGB565, R8 and RG8 images on a material against the same images expanded to RGBA8: Vulkan
+  // shows the first four through a view swizzle, which WebGPU does not have (task 58, TASKS.md 2.43). Natively off
+  // and on are the same picture, so parity only.
+  { id: 'image_formats', cat: 'material', label: 'Image formats Vulkan swizzles (L8, LA8, RGBA4444, RGB565, R8, RG8)', minDelta: 0, parityOnly: true },
   { id: 'shader_builtins', cat: 'material', label: 'isnan/isinf/textureQueryLod in a material', minDelta: 0.028 },
   { id: 'point_coord', cat: 'material', label: 'POINT_COORD without POINT_SIZE (drawn as points)', minDelta: 0.01 },
   { id: 'stencil_outline', cat: 'material', label: 'Stencil outline (BaseMaterial3D stencil_mode)', minDelta: 0.319 },
@@ -188,6 +192,9 @@ export const FEATURES = [
     // FFX_HALF renders the same frame bit for bit, and with WebGPU's
     // half-float tables within 0.000. It was 0.55 (and visibly softer) while FSR2 read its reactive
     // mask through an alpha-swizzled view WebGPU cannot swizzle (task 17).
+    parityTol: 0.3 },
+  // FSR2 while the camera pans over the sky (motion vectors derived from depth there), parity only (task 58).
+  { id: 'fsr2_camera_move', cat: 'post', label: 'FSR2 with the camera panning across the sky', minDelta: 0, parityOnly: true,
     parityTol: 0.3 },
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },

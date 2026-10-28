@@ -60,8 +60,9 @@ const SCENE_DIR = DIR_ARG || join(__dirname, BAKED ? 'export_baked' : 'export');
 // once the work/21 arms added their own GDScript-built shaders (14 scene-shader materials x 8 groups, the trail
 // ribbon's and skinned strip's among them, plus a fog shader, a trail process material and the compositor's compute
 // shader); it was under 80 before. 133 once work task 26's dof_nan arm added its GDScript-built NaN material
-// (2026-10-26). A broken bake translates the ~440 baked shaders too, far past this.
-const TRANSLATED_CEILING = 150;
+// (2026-10-26). 157 once work task 58's image_formats arm added one more (8 groups). A broken bake translates the
+// ~440 baked shaders too, far past this.
+const TRANSLATED_CEILING = 170;
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm',
@@ -319,6 +320,19 @@ async function main() {
   let exitCode = 0;
   try {
     await page.goto(url);
+    // The adapter this run renders on, before anything else: a software (fallback) adapter would give a
+    // Forward Mobile run that says nothing about Forward+ (CLAUDE.md; webgpu_notes/work/README.md).
+    const adapter = await page.evaluate(async () => {
+      const a = await navigator.gpu?.requestAdapter();
+      return a && { vendor: a.info?.vendor, architecture: a.info?.architecture, fallback: !!a.info?.isFallbackAdapter,
+        maxSampled: a.limits.maxSampledTexturesPerShaderStage };
+    });
+    console.log(`  adapter: ${JSON.stringify(adapter)}`);
+    if (!adapter || adapter.fallback || adapter.maxSampled < 48) {
+      console.log('  FAIL -- no hardware WebGPU adapter with 48 sampled textures per stage');
+      process.exitCode = 1;
+      return;
+    }
     const bootDeadline = Date.now() + 90000;
     while (!banner && Date.now() < bootDeadline) await new Promise((r) => setTimeout(r, 200));
     if (!banner) {
