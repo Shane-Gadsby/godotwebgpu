@@ -1348,6 +1348,7 @@ public:
 
 	// SSIL
 	PASS6(environment_set_ssil, RID, bool, float, float, float, float)
+	PASS3(environment_set_micro_shadows, RID, bool, float)
 
 	PASS1RC(bool, environment_get_ssil_enabled, RID)
 	PASS1RC(float, environment_get_ssil_radius, RID)

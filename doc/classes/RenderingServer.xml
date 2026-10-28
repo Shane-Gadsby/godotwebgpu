@@ -1696,6 +1696,15 @@
 				Sets the lens flare of the environment: whether it is enabled, the ghosts' [param intensity], the [param threshold] above which light makes flare, the [param ghost_count], the [param halo_intensity] and the ghosts' [param chromatic_aberration]. See [member Environment.lens_flare_enabled].
 			</description>
 		</method>
+		<method name="environment_set_micro_shadows">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="opacity" type="float" />
+			<description>
+				Sets the micro shadows of the environment: whether they are enabled and their [param opacity]. See [member Environment.micro_shadows_enabled].
+			</description>
+		</method>
 		<method name="environment_set_sdfgi">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />

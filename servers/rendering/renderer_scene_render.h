@@ -240,6 +240,11 @@ public:
 	float environment_get_ssil_sharpness(RID p_env) const;
 	float environment_get_ssil_normal_rejection(RID p_env) const;
 
+	// Micro shadows
+	void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity);
+	bool environment_get_micro_shadows_enabled(RID p_env) const;
+	float environment_get_micro_shadows_opacity(RID p_env) const;
+
 	virtual void environment_set_ssil_quality(RSE::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
 
 	// SDFGI

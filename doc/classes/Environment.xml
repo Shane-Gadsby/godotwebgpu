@@ -229,6 +229,14 @@
 		<member name="lens_flare_threshold" type="float" setter="set_lens_flare_threshold" getter="get_lens_flare_threshold" default="1.0">
 			Only light brighter than this, in the exposed image where [code]1.0[/code] is display white, makes flare.
 		</member>
+		<member name="micro_shadows_enabled" type="bool" setter="set_micro_shadows_enabled" getter="is_micro_shadows_enabled" default="false">
+			If [code]true[/code], directional lights are shadowed by the fine detail of each material's ambient occlusion and normal maps ("micro shadows", as in HDRP): a texel whose [member BaseMaterial3D.ao_texture] is dark only receives light from close to its (normal-mapped) normal, so crevices and bumps baked into the textures stay in shadow when the sun is low. It costs a few instructions per pixel and directional light, and changes nothing on materials without an ambient occlusion map. The material's own ambient occlusion is used (including decals), not screen-space ambient occlusion.
+			Uses the formula of "The Technical Art of Uncharted 4" (Brinck and Maximov, SIGGRAPH 2016), as HDRP does: the ambient occlusion [code]ao[/code] is read as a cone of aperture [code]2 * ao * ao[/code] and the light is scaled by [code]clamp(N.L + 2 * ao * ao - 1, 0, 1)[/code].
+			[b]Note:[/b] Only directional lights are affected, and not with [member BaseMaterial3D.shading_mode] set to per-vertex lighting.
+		</member>
+		<member name="micro_shadows_opacity" type="float" setter="set_micro_shadows_opacity" getter="get_micro_shadows_opacity" default="1.0">
+			The strength of the micro shadows, between [code]0.0[/code] (none) and [code]1.0[/code] (the full effect). See [member micro_shadows_enabled].
+		</member>
 		<member name="reflected_light_source" type="int" setter="set_reflection_source" getter="get_reflection_source" enum="Environment.ReflectionSource" default="0">
 			The reflected (specular) light source.
 		</member>

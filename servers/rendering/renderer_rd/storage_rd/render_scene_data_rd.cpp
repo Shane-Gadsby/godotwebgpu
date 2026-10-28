@@ -236,6 +236,9 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 		ubo.fog_light_color[2] = fog_color.b * fog_energy;
 
 		ubo.fog_sun_scatter = render_scene_render->environment_get_fog_sun_scatter(p_env);
+
+		/* Micro shadows */
+		ubo.micro_shadow_opacity = render_scene_render->environment_get_micro_shadows_enabled(p_env) ? CLAMP(render_scene_render->environment_get_micro_shadows_opacity(p_env), 0.0f, 1.0f) : 0.0f;
 	} else {
 		if (!(p_reflection_probe_instance.is_valid() && RendererRD::LightStorage::get_singleton()->reflection_probe_is_interior(p_reflection_probe_instance))) {
 			ubo.flags |= SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT;

@@ -1611,6 +1611,12 @@ void RasterizerSceneGLES3::_setup_environment(const RenderDataGLES3 *p_render_da
 	scene_state.data.shadow_bias = p_shadow_bias;
 	scene_state.data.pancake_shadows = p_pancake_shadows;
 
+	/* Micro shadows */
+	scene_state.data.micro_shadow_opacity = 0.0f;
+	if (is_environment(p_render_data->environment) && environment_get_micro_shadows_enabled(p_render_data->environment)) {
+		scene_state.data.micro_shadow_opacity = CLAMP(environment_get_micro_shadows_opacity(p_render_data->environment), 0.0f, 1.0f);
+	}
+
 	//time global variables
 	scene_state.data.time = time;
 

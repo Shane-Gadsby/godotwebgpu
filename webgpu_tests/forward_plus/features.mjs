@@ -117,6 +117,7 @@ export const FEATURES = [
   { id: 'contact_shadows', cat: 'lighting', label: 'Screen-space contact shadows (4.8)', minDelta: 0.0346 },
   { id: 'light_negative', cat: 'lighting', label: 'Negative light', minDelta: 11.5 },
   { id: 'light_specular', cat: 'lighting', label: 'Light specular contribution', minDelta: 0.14 },
+  { id: 'micro_shadows', cat: 'lighting', label: 'Micro shadows from AO and normal maps (Environment)', minDelta: 0.229 },
 
   // ---- global illumination ----
   { id: 'reflection_probe', cat: 'gi', label: 'Reflection probe', minDelta: 4.39 },

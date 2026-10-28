@@ -2113,6 +2113,9 @@ void fragment_shader(in SceneData scene_data) {
 	}
 #endif // !USE_LIGHTMAP
 
+	// Micro shadows read the material's own AO (texture and decals), not SSAO, as HDRP does in its forward path.
+	float micro_shadow_ao = ao;
+
 	if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_SSAO)) {
 #ifdef USE_MULTIVIEW
 		float ssao = texture(sampler2DArray(ao_buffer, SAMPLER_LINEAR_CLAMP), vec3(screen_uv, ViewIndex)).r;
@@ -2757,6 +2760,10 @@ void fragment_shader(in SceneData scene_data) {
 #endif
 
 			blur_shadow(shadow);
+
+			if (scene_data.micro_shadow_opacity > 0.0) {
+				shadow *= micro_shadow(micro_shadow_ao, dot(normal, directional_lights.data[i].direction), scene_data.micro_shadow_opacity);
+			}
 
 #ifdef DEBUG_DRAW_PSSM_SPLITS
 			vec3 tint = vec3(1.0);

@@ -149,6 +149,12 @@ private:
 
 	void _update_ssil();
 
+	// Micro shadows
+	bool micro_shadows_enabled = false;
+	float micro_shadows_opacity = 1.0;
+
+	void _update_micro_shadows();
+
 	// SDFGI
 	bool sdfgi_enabled = false;
 	int sdfgi_cascades = 4;
@@ -338,6 +344,12 @@ public:
 	float get_ssil_sharpness() const;
 	void set_ssil_normal_rejection(float p_normal_rejection);
 	float get_ssil_normal_rejection() const;
+
+	// Micro shadows
+	void set_micro_shadows_enabled(bool p_enabled);
+	bool is_micro_shadows_enabled() const;
+	void set_micro_shadows_opacity(float p_opacity);
+	float get_micro_shadows_opacity() const;
 
 	// SDFGI
 	void set_sdfgi_enabled(bool p_enabled);

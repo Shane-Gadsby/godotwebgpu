@@ -464,6 +464,10 @@ private:
 			float luminance_multiplier;
 			uint32_t camera_visible_layers;
 			bool pancake_shadows;
+
+			// Micro shadows (Environment.micro_shadows_*): opacity, 0 when off.
+			float micro_shadow_opacity;
+			uint32_t micro_shadow_pad[3];
 		};
 		static_assert(sizeof(UBO) % 16 == 0, "Scene UBO size must be a multiple of 16 bytes");
 		static_assert(sizeof(UBO) < 16384, "Scene UBO size must be 16384 bytes or smaller");

@@ -848,6 +848,27 @@ float RendererEnvironmentStorage::environment_get_ssil_normal_rejection(RID p_en
 	return env->ssil_normal_rejection;
 }
 
+// Micro shadows
+
+void RendererEnvironmentStorage::environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->micro_shadows_enabled = p_enable;
+	env->micro_shadows_opacity = CLAMP(p_opacity, 0.0f, 1.0f);
+}
+
+bool RendererEnvironmentStorage::environment_get_micro_shadows_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->micro_shadows_enabled;
+}
+
+float RendererEnvironmentStorage::environment_get_micro_shadows_opacity(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->micro_shadows_opacity;
+}
+
 // SDFGI
 
 void RendererEnvironmentStorage::environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RSE::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias) {
