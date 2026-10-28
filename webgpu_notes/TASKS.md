@@ -5590,6 +5590,23 @@ Firefox -0.8% to -2.4%; frame time with measurement on = off. Lead (merged tree)
 two measured viewports swapping draw order with the same count could pair names with the previous layout's values for
 a few frames; how often a full ring drops a frame was not measured.
 
+### 4.90 Physical DOF: 6% default, legacy gather option (October 2026) *(work task 70; user answers on task 63)*
+
+`rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size` defaults to 6% (was 3%; only cameras with
+`dof_physical_blur_size` use it). New `CameraAttributesPhysical.dof_legacy_gather` (default off, shown only with
+`dof_physical_blur_size`; RS `camera_attributes_set_dof_legacy_gather`): the lens-sized blur drawn through upstream's
+gather (fixed 32 px reach, the diluted Box/Hexagon of §3 trap 97), for projects tuned through it; documented as not
+physically correct. No shader, binding or push-constant change. WebGPU 1440p, upstream / 3% / 6%: Hexagon Low 0.54 /
+0.35 / 0.42 ms, Hexagon High 1.42 / 1.50 / 1.54, **Circle Medium 3.97 / 7.83 / 34.74 ms** (cost grows with the square
+of the reach; the docs say so; task 63's missing Circle number was `gpu_time.mjs`'s 60 s round timing out, not a hang).
+At 6% Box/Hexagon spread their samples twice as far, so Very Low draws a blur under ~1% of the image height almost
+sharp (documented). Worker: opt-in off 14/14 native and 4/4 web 0 px; a 200 mm f/2.8 1440p case (model 80.4 px) reads
+79.5 / 80.0 px at 6% (42.8 at 3%); legacy = the pre-change upstream path at the same size, 20/20 native and 4/4 web.
+Lead (merged tree with 73): dev_mode editor and web template_release 0 warnings; opt-in off 14/14 identical against the
+pre-merge editor (Forward+, Mobile); legacy gather identical to the upstream path in all 20 cases (Hexagon at every
+quality, Box, Circle, near field, 1440p, a 200 mm lens). Questions `dof-circle-6pct`, `dof-very-low-6pct`. The wiki's
+"currently 3%" needs updating.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

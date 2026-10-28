@@ -1,6 +1,6 @@
 # 70-physical-dof-followups
 
-State: ready-for-integration
+State: integrated (TASKS §4.90)
 Owner: worker-70
 Claimed: 2026-10-28 22:04
 Needs: build, gpu
