@@ -35,6 +35,8 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 59 | converter smoke check moved out of the work board into webgpu_tests (TASKS §2.38) | 7 | worker-59 (retired); **merged `0cdd26d3a9`**, verified, TASKS §4.75, CI half §2.54 |
 | 60 | user answers on 58: Texture2DRD over R8/RG8 reported as R8/RG8 on the web; opaque viewports write alpha 1 on the web | 7 | worker-60 (retired); **merged `e4f960a646`**, verified, TASKS §4.76 |
 | 61 | start screen download text: each message switchable and editable, text colour (user request) | 7 | worker-61 (retired); **merged `2111490a44`**, verified, TASKS §4.77, trap 96 |
+| 62 | Camera3D monitoring histogram: script readback, count without drawing, one per camera (camera-sim) | 8 | worker-62 |
+| 63 | CameraAttributesPhysical: opt-in physical DOF blur size (sensor + resolution aware), 32 px cap (camera-sim) | 8 | worker-63 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
