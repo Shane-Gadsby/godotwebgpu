@@ -192,6 +192,18 @@ static const WebProgressBarColor web_progress_bar_colors[] = {
 	{ "fill_color", "fillColor", 0x0075ffff },
 };
 
+// The start screen (`html/start_button/*`): the page waits on a Start button and
+// nothing of the engine runs until it is pressed. Hover and pressed darken the
+// background color by these amounts unless `custom_state_colors` sets their own.
+static const Color web_start_button_background_color = Color::hex(0x3a3a3aff);
+static constexpr float WEB_START_BUTTON_HOVER_DARKEN = 0.15;
+static constexpr float WEB_START_BUTTON_PRESSED_DARKEN = 0.3;
+static const char *web_start_button_font_family = "'Noto Sans', 'Droid Sans', Arial, sans-serif";
+
+static String _web_css_color(const Color &p_color) {
+	return "#" + p_color.to_html(p_color.a < 1.0);
+}
+
 void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes, const Dictionary &p_texture_packs) {
 	// Engine.js config
 	Dictionary config;
@@ -244,6 +256,30 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		config["renderingDriver"] = "opengl3";
 	}
 
+	// The start screen, read by the shell (and by custom shells) from the config.
+	Dictionary start_button;
+	start_button["enabled"] = p_preset->get("html/start_button/enabled");
+	start_button["text"] = p_preset->get("html/start_button/text");
+	const Color start_background = p_preset->get("html/start_button/background_color");
+	start_button["backgroundColor"] = _web_css_color(start_background);
+	if (p_preset->get("html/start_button/custom_state_colors").operator bool()) {
+		start_button["hoverColor"] = _web_css_color(p_preset->get("html/start_button/hover_color"));
+		start_button["pressedColor"] = _web_css_color(p_preset->get("html/start_button/pressed_color"));
+	} else {
+		start_button["hoverColor"] = _web_css_color(start_background.darkened(WEB_START_BUTTON_HOVER_DARKEN));
+		start_button["pressedColor"] = _web_css_color(start_background.darkened(WEB_START_BUTTON_PRESSED_DARKEN));
+	}
+	start_button["textColor"] = _web_css_color(p_preset->get("html/start_button/text_color"));
+	start_button["borderColor"] = _web_css_color(p_preset->get("html/start_button/border_color"));
+	start_button["borderWidth"] = p_preset->get("html/start_button/border_width");
+	start_button["borderRadius"] = p_preset->get("html/start_button/border_radius");
+	start_button["fontFamily"] = p_preset->get("html/start_button/font_family");
+	start_button["fontSize"] = p_preset->get("html/start_button/font_size");
+	const Vector2i start_padding = p_preset->get("html/start_button/padding");
+	start_button["paddingHorizontal"] = start_padding.x;
+	start_button["paddingVertical"] = start_padding.y;
+	config["startButton"] = start_button;
+
 	config["godotPoolSize"] = p_preset->get("threads/godot_pool_size");
 	config["emscriptenPoolSize"] = p_preset->get("threads/emscripten_pool_size");
 
@@ -284,7 +320,8 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	progress_bar["customColors"] = custom_colors;
 
 	// Replaces HTML string
-	const String str_config = Variant(config).to_json_string();
+	// `<` escaped so that a text containing `</script>` cannot end the shell's script.
+	const String str_config = Variant(config).to_json_string().replace("<", "\\u003c");
 	const String str_loading_screen = Variant(loading_screen).to_json_string();
 	const String custom_head_include = p_preset->get("html/head_include");
 	HashMap<String, String> replaces;
@@ -532,6 +569,22 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/orientation", PROPERTY_HINT_ENUM, "Project Setting,Landscape,Portrait,Reverse Landscape,Reverse Portrait,Sensor Landscape,Sensor Portrait,Sensor"), 0));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
 
+	// The start screen (see web_start_button_background_color above); the button's
+	// look is shown only while it is enabled, the state colors only while custom.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/enabled"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/text"), "Start"));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/background_color"), web_start_button_background_color));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/text_color"), Color(1, 1, 1)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/custom_state_colors"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/hover_color"), web_start_button_background_color.darkened(WEB_START_BUTTON_HOVER_DARKEN)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/pressed_color"), web_start_button_background_color.darkened(WEB_START_BUTTON_PRESSED_DARKEN)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/border_color"), Color::hex(0xffffffff)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/border_width", PROPERTY_HINT_RANGE, "0,32,1,or_greater,suffix:px"), 0));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/border_radius", PROPERTY_HINT_RANGE, "0,64,1,or_greater,suffix:px"), 8));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/font_family"), String(web_start_button_font_family)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/font_size", PROPERTY_HINT_RANGE, "1,128,1,or_greater,suffix:px"), 24));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::VECTOR2I, "html/start_button/padding", PROPERTY_HINT_RANGE, "0,128,1,or_greater,suffix:px"), Vector2i(48, 12)));
+
 	// The progress bar's toggle and colors (see web_progress_bar_colors above);
 	// the colors are shown only while the bar is.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "loading_screen/progress_bar/enabled"), true, true));
@@ -623,6 +676,14 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 
 	if (p_option.begins_with("loading_screen/progress_bar/") && p_option != "loading_screen/progress_bar/enabled") {
 		return p_preset->get("loading_screen/progress_bar/enabled").operator bool();
+	}
+
+	if (p_option.begins_with("html/start_button/") && p_option != "html/start_button/enabled") {
+		const bool enabled = p_preset->get("html/start_button/enabled").operator bool();
+		if (p_option == "html/start_button/hover_color" || p_option == "html/start_button/pressed_color") {
+			return enabled && p_preset->get("html/start_button/custom_state_colors").operator bool();
+		}
+		return enabled;
 	}
 
 	if (p_option == "progressive_web_app/orientation") {

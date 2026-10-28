@@ -121,6 +121,38 @@ body {
 	to { background-position: 150% 0; }
 }
 
+/* The start screen's button (html/start_button/*). Its look comes from the
+   export preset as custom properties set by the script below; hover and
+   pressed are darker shades of the background unless the preset sets its own. */
+#status-start {
+	display: none;
+	flex: none;
+	box-sizing: border-box;
+	cursor: pointer;
+	background-color: var(--start-background-color);
+	color: var(--start-text-color);
+	border: var(--start-border-width) solid var(--start-border-color);
+	border-radius: var(--start-border-radius);
+	font-family: var(--start-font-family);
+	font-size: var(--start-font-size);
+	line-height: 1.2;
+	padding: var(--start-padding-vertical) var(--start-padding-horizontal);
+	z-index: 1;
+}
+
+#status-start:hover {
+	background-color: var(--start-hover-color);
+}
+
+#status-start:active {
+	background-color: var(--start-pressed-color);
+}
+
+#status-start:focus-visible {
+	outline: 2px solid var(--start-text-color);
+	outline-offset: 3px;
+}
+
 #status-notice {
 	background-color: #5b3943;
 	border-radius: 0.5rem;
@@ -149,6 +181,7 @@ body {
 		<div id="status">
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
+			<button id="status-start" type="button"></button>
 			<div id="status-notice"></div>
 		</div>
 
@@ -260,6 +293,30 @@ async function initWebGPU() {
 		statusProgress.classList.add('custom-colors');
 	}
 
+	// The start screen (html/start_button/*, GODOT_CONFIG.startButton): the page
+	// waits on this button, and nothing of the engine runs until it is pressed.
+	const statusStart = document.getElementById('status-start');
+	const startButton = GODOT_CONFIG['startButton'] || {};
+	if (startButton['enabled']) {
+		statusStart.textContent = startButton['text'] || 'Start';
+		const startStyle = {
+			'--start-background-color': startButton['backgroundColor'],
+			'--start-hover-color': startButton['hoverColor'],
+			'--start-pressed-color': startButton['pressedColor'],
+			'--start-text-color': startButton['textColor'],
+			'--start-border-color': startButton['borderColor'],
+			'--start-border-width': `${startButton['borderWidth']}px`,
+			'--start-border-radius': `${startButton['borderRadius']}px`,
+			'--start-font-family': startButton['fontFamily'],
+			'--start-font-size': `${startButton['fontSize']}px`,
+			'--start-padding-horizontal': `${startButton['paddingHorizontal']}px`,
+			'--start-padding-vertical': `${startButton['paddingVertical']}px`,
+		};
+		Object.entries(startStyle).forEach(([name, value]) => {
+			statusStart.style.setProperty(name, value);
+		});
+	}
+
 	let initializing = true;
 	let statusMode = '';
 
@@ -275,6 +332,7 @@ async function initWebGPU() {
 		statusOverlay.style.visibility = 'visible';
 		statusProgress.style.display = (mode === 'progress' && progressBarEnabled) ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+		statusStart.style.display = mode === 'start' ? 'block' : 'none';
 		statusMode = mode;
 	}
 
@@ -339,36 +397,52 @@ async function initWebGPU() {
 			displayFailureNotice(missingMsg + missing.join('\n'));
 		}
 	} else {
-		setStatusMode('progress');
+		// The startup, run at once or when the start screen's button is pressed.
+		function startEngine() {
+			setStatusMode('progress');
 
-		// Pre-initialize WebGPU device before starting the engine.
-		// The device must be available when the WASM module boots so that
-		// emscripten_webgpu_get_device() can return it synchronously.
-		initWebGPU().then((webgpuDevice) => {
-			const engineConfig = { ...GODOT_CONFIG };
-			if (webgpuDevice) {
-				engineConfig['preinitializedWebGPUDevice'] = webgpuDevice;
-			} else {
-				// No WebGPU device — the engine will fall back to gl_compatibility
-				// if opengl3=yes was also compiled in. Otherwise it will fail at init.
-				console.warn('WebGPU unavailable, engine will attempt fallback.');
-			}
+			// Pre-initialize WebGPU device before starting the engine.
+			// The device must be available when the WASM module boots so that
+			// emscripten_webgpu_get_device() can return it synchronously.
+			initWebGPU().then((webgpuDevice) => {
+				const engineConfig = { ...GODOT_CONFIG };
+				if (webgpuDevice) {
+					engineConfig['preinitializedWebGPUDevice'] = webgpuDevice;
+				} else {
+					// No WebGPU device — the engine will fall back to gl_compatibility
+					// if opengl3=yes was also compiled in. Otherwise it will fail at init.
+					console.warn('WebGPU unavailable, engine will attempt fallback.');
+				}
 
-			engine = new Engine(engineConfig);
-			engine.startGame({
-				'onProgress': function (current, total) {
-					if (current > 0 && total > 0) {
-						statusProgress.value = current;
-						statusProgress.max = total;
-					} else {
-						statusProgress.removeAttribute('value');
-						statusProgress.removeAttribute('max');
-					}
-				},
-			}).then(() => {
-				setStatusMode('hidden');
-			}, displayFailureNotice);
-		}).catch(displayFailureNotice);
+				engine = new Engine(engineConfig);
+				engine.startGame({
+					'onProgress': function (current, total) {
+						if (current > 0 && total > 0) {
+							statusProgress.value = current;
+							statusProgress.max = total;
+						} else {
+							statusProgress.removeAttribute('value');
+							statusProgress.removeAttribute('max');
+						}
+					},
+				}).then(() => {
+					setStatusMode('hidden');
+				}, displayFailureNotice);
+			}).catch(displayFailureNotice);
+		}
+
+		// The start screen: wait for the player instead of starting straight away.
+		// The button is not focused here: inside an iframe, that would scroll the
+		// parent page to the game. A <button> takes Enter and Space once focused.
+		if (startButton['enabled']) {
+			setStatusMode('start');
+			statusStart.addEventListener('click', () => {
+				statusStart.disabled = true;
+				startEngine();
+			}, { once: true });
+		} else {
+			startEngine();
+		}
 	}
 }());
 		</script>

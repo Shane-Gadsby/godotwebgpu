@@ -1,8 +1,8 @@
 # 51-web-start-button: a "click to start" screen in the default web shell, with export options
 
-State: open
+State: claimed
 Owner: worker-51
-Claimed:
+Claimed: 2026-10-28 12:50
 Needs: build (web template + editor), browser (Playwright)
 Branch: work/51
 Results: webgpu_notes/work/results/51-web-start-button/
