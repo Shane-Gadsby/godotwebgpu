@@ -2583,7 +2583,7 @@ Effort <0.5 session once the user has answered.
 
 ### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
 
-**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46); color grading (45), Panini (47) and GTAO (48) in integration; custom tonemap curve and local exposure next.
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47); GTAO (48) in integration; custom tonemap curve and local exposure next.
 
 Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
 have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
@@ -3251,6 +3251,15 @@ and divides in GLES3; backwards, Mobile's light shafts were silently zero. Compa
 
 85. **The GLES3 shader builder reads a `uniform` line to its end**, so a trailing `// comment, with, commas` turns into
 bogus enum entries (`SCALE.,`) in the generated header (2026-10-28, work task 46). Put the comment above the uniform.
+
+86. **Godot's Environment color correction LUT is sampled at texel centers ((i + 0.5) / N), not lattice points**
+(2026-10-28, work task 45), unlike the camera LUT. A LUT of lattice points through that slot lifts black to the first
+texel's value (1.5% at 33³). The color grading LUT carries a flag (Forward+ push-constant bit 24, Mobile
+`color_correction_lattice`) that remaps to lattice points; anything else reusing the slot must do the same.
+
+87. **A `SceneTree` `-s` script's `root.size` in `_initialize()` is not the window's yet** (2026-10-28, work task 47):
+64x64 headless, square under xvfb. A camera FOV computed from it is wrong and the run still "works". Pass the size in,
+or compute it in the first frame.
 
 ---
 
@@ -5082,6 +5091,41 @@ independent numpy model correlation 0.997-0.999 native and 0.990-0.9996 WebGPU, 
 energy, +0.07 ms GPU on WebGPU at 1152x648. Lead (merged tree): defaults 0 px against the pre-merge editor in all
 three renderers; model correlation 0.998 Forward+, 0.997 Mobile, 0.972 Compatibility, 0.990 WebGPU; WebGPU shaft
 energy 0.987 of native. §3 traps 84, 85.
+
+### 4.65 Environment color grading (October 2026) *(work task 45; survey §2.48, `pp-grading`)*
+
+A **Color Grading** group on `Environment` (`grading_*`, 28 properties, off by default): color filter, hue shift,
+vibrance; lift/gamma/gain; shadows/midtones/highlights with ranges; channel mixer; split toning; eight `Curve` curves
+(master, R, G, B, hue-vs-hue, hue-vs-sat, sat-vs-sat, lum-vs-sat). RS `environment_set_color_grading()` and four more.
+Display-referred, in URP's LutBuilderLdr order (`servers/rendering/storage/color_grading.cpp`, sources cited), baked
+on the CPU worker threads into one 33³ RGBA16F LUT of lattice points only when a grading value changes (1.5 ms median
+with everything on, 4.6 ms single-threaded as a no-threads web export pays). Forward+ / Mobile / web: the LUT uses the
+existing color correction slot (no tonemap binding or interface change); a 2-variant compute shader
+(`effects/color_grading.glsl`) composes it with the user's `adjustment_color_correction` LUT and outputs linear for HDR
+viewports; the tonemap samples it at lattice points (§3 trap 86). Compatibility: post-pass `USE_COLOR_GRADING`
+(texunit 5) before the user LUT. Vibrance is clamped at full desaturation (below -0.5 it inverted saturated colors).
+Worker: 25 cases against an independent numpy reference (729 lattice + 512 off-lattice patches): Forward+ within
+1/255 of the baked-LUT model and 0.65/255 of the exact math; Mobile 1-3/255; web pixel-identical to native in 31
+captures; defaults 0 px (12 renders). Lead (merged tree with 46 and 47): defaults 0 px against the pre-merge editor in
+all three renderers (off, off-chart, user 3D LUT alone); six cases within 1/255 of the LUT model in Forward+, 1-2/255
+in Mobile and Compatibility (Compatibility measured on its post-pass input, `compat_check.py`); web pixel-identical to
+native Forward+ in all seven compared cases. Questions `grading-hdr`, `grading-look`. No Forward+ matrix arm yet.
+
+### 4.66 Panini projection (October 2026) *(work task 47; survey §2.48, `pp-panini`)*
+
+`CameraAttributes.panini_enabled / panini_distance / panini_vertical_compression` (Sharpless, Ballestrem and Thomas
+2010) in task 33's lens resample of the tonemap pass (header bit 32, free `lens[2].zw`, `lens[4].zw`, `lens[7].zw`; no
+layout change, no new binding), all three renderers and the web, off by default. The image is scaled so no border
+shows: the horizontal FOV is kept, the vertical one narrows (to 2/3 of its tangent at 120°, d = 1). Vertical
+compression is this fork's definition: 1 = the paper's projection, 0 = horizontal lines straight. The math lives in
+`servers/rendering/panini_projection.h`, shared with Camera3D, whose `unproject_position`, `project_ray_normal`,
+`project_local_ray_normal` and `project_position` follow it (orthogonal cameras and XR skip it; lens distortion is
+not followed, documented). Worker: dots within 0.39 px of an independent numpy model in every renderer and the web;
+Camera3D unproject 6e-6 px from the model; verticals straight; spheres round at d = 1, s = 1. Lead (merged tree):
+off 0 px against the pre-merge editor in all three renderers; dots within 0.29 / 0.29 / 0.37 px (Forward+ / Mobile /
+Compatibility) and 0.36 px on the web (baked export). The worker's web captures had soft edges against native even
+with Panini off (an unbaked headless export; not seen in the lead's baked one). Not tested: MSAA, scaled 3D, frustum
+offsets. Questions `panini-vertical-compression`, `panini-fov`, `panini-look`. §3 trap 87.
 
 ## 5. References — retired docs
 

@@ -1,6 +1,6 @@
 # 45-pp-color-grading
 
-State: ready-for-integration
+State: integrated (TASKS §4.65)
 Owner: worker-45
 Claimed: 2026-10-28
 Needs: build, gpu
