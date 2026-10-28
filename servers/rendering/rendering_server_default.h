@@ -896,6 +896,13 @@ public:
 
 	FUNC7(environment_set_adjustment, RID, bool, float, float, float, bool, RID)
 
+	/* Color grading */
+	FUNC8(environment_set_color_grading, RID, bool, const Color &, float, float, const Color &, const Color &, const Color &)
+	FUNC8(environment_set_color_grading_shadows_midtones_highlights, RID, const Color &, const Color &, const Color &, float, float, float, float)
+	FUNC4(environment_set_color_grading_channel_mixer, RID, const Vector3 &, const Vector3 &, const Vector3 &)
+	FUNC4(environment_set_color_grading_split_toning, RID, const Color &, const Color &, float)
+	FUNC9(environment_set_color_grading_curves, RID, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &)
+
 	FUNC11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
 
 	FUNC4(environment_set_fog_depth, RID, float, float, float)

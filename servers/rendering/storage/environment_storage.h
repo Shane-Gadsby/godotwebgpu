@@ -33,6 +33,7 @@
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
+#include "servers/rendering/storage/color_grading.h"
 
 class RendererEnvironmentStorage {
 public:
@@ -183,6 +184,11 @@ private:
 		float adjustments_saturation = 1.0f;
 		bool use_1d_color_correction = false;
 		RID color_correction;
+
+		/* Color grading */
+		RendererColorGrading::Params color_grading;
+		// Bumped by every color grading setter, so a renderer rebakes its LUT only when something changed.
+		uint64_t color_grading_version = 1;
 	};
 
 	mutable RID_Owner<Environment, true> environment_owner;
@@ -342,4 +348,15 @@ public:
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
+
+	/* Color grading */
+	void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain);
+	void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end);
+	void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue);
+	void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance);
+	void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat);
+	bool environment_get_color_grading_enabled(RID p_env) const;
+	uint64_t environment_get_color_grading_version(RID p_env) const;
+	// The grading LUT (RendererColorGrading::bake()); a renderer calls it only when the version changed.
+	Vector<uint8_t> environment_bake_color_grading(RID p_env) const;
 };

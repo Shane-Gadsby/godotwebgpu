@@ -11,6 +11,7 @@ USE_BCS = false
 USE_COLOR_CORRECTION = false
 USE_1D_LUT = false
 USE_CAMERA_LUT = false
+USE_COLOR_GRADING = false
 USE_CAMERA_EFFECTS = false
 USE_SSAO_ABYSS = false
 USE_SSAO_LOW = false
@@ -130,6 +131,17 @@ vec3 apply_color_correction(vec3 color) {
 }
 #endif // USE_1D_LUT
 #endif // USE_COLOR_CORRECTION
+
+#ifdef USE_COLOR_GRADING
+// The Environment's color grading LUT (RendererColorGrading): lattice points, sRGB-encoded in and out.
+uniform sampler3D color_grading_lut; // texunit:5
+
+vec3 apply_color_grading(vec3 color) {
+	float size = float(textureSize(color_grading_lut, 0).x);
+	color = clamp(color, vec3(0.0), vec3(1.0)) * ((size - 1.0) / size) + 0.5 / size;
+	return textureLod(color_grading_lut, color, 0.0).rgb;
+}
+#endif // USE_COLOR_GRADING
 
 #if defined(USE_SSAO_ABYSS) || defined(USE_SSAO_LOW) || defined(USE_SSAO_MED) || defined(USE_SSAO_HIGH) || defined(USE_SSAO_MEGA)
 #define USE_SOME_SSAO
@@ -260,6 +272,11 @@ void main() {
 #else
 	color.rgb = linear_to_srgb(color.rgb);
 #endif // USE_BCS
+
+#ifdef USE_COLOR_GRADING
+	// Grading, then the user's color correction LUT, as the other renderers compose them.
+	color.rgb = apply_color_grading(color.rgb);
+#endif
 
 #ifdef USE_COLOR_CORRECTION
 	color.rgb = apply_color_correction(color.rgb);

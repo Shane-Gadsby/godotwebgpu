@@ -1643,6 +1643,69 @@
 				Sets the maximum layer to use if using Canvas background mode.
 			</description>
 		</method>
+		<method name="environment_set_color_grading">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="color_filter" type="Color" />
+			<param index="3" name="hue_shift" type="float" />
+			<param index="4" name="vibrance" type="float" />
+			<param index="5" name="lift" type="Color" />
+			<param index="6" name="gamma" type="Color" />
+			<param index="7" name="gain" type="Color" />
+			<description>
+				Sets the color grading of the environment: whether it is enabled, the color filter, hue shift (degrees) and vibrance, and lift, gamma and gain. See [member Environment.grading_enabled] and the other [code]grading_*[/code] properties of [Environment] for what each does.
+			</description>
+		</method>
+		<method name="environment_set_color_grading_channel_mixer">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="red" type="Vector3" />
+			<param index="2" name="green" type="Vector3" />
+			<param index="3" name="blue" type="Vector3" />
+			<description>
+				Sets the channel mixer of the environment's color grading: each output channel as a weighted sum of the input red, green and blue. See [member Environment.grading_channel_mixer_red].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_curves">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="master" type="PackedFloat32Array" />
+			<param index="2" name="red" type="PackedFloat32Array" />
+			<param index="3" name="green" type="PackedFloat32Array" />
+			<param index="4" name="blue" type="PackedFloat32Array" />
+			<param index="5" name="hue_vs_hue" type="PackedFloat32Array" />
+			<param index="6" name="hue_vs_sat" type="PackedFloat32Array" />
+			<param index="7" name="sat_vs_sat" type="PackedFloat32Array" />
+			<param index="8" name="lum_vs_sat" type="PackedFloat32Array" />
+			<description>
+				Sets the curves of the environment's color grading, each as evenly spaced samples of the curve over X from [code]0.0[/code] to [code]1.0[/code] (any count from 2; [Environment] uses 256). An empty array leaves that curve out. See [member Environment.grading_curve_master].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_shadows_midtones_highlights">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="shadows" type="Color" />
+			<param index="2" name="midtones" type="Color" />
+			<param index="3" name="highlights" type="Color" />
+			<param index="4" name="shadows_start" type="float" />
+			<param index="5" name="shadows_end" type="float" />
+			<param index="6" name="highlights_start" type="float" />
+			<param index="7" name="highlights_end" type="float" />
+			<description>
+				Sets the shadows, midtones and highlights tints of the environment's color grading and the luminance ranges of shadows and highlights. See [member Environment.grading_shadows].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_split_toning">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="shadows" type="Color" />
+			<param index="2" name="highlights" type="Color" />
+			<param index="3" name="balance" type="float" />
+			<description>
+				Sets the split toning of the environment's color grading. See [member Environment.grading_split_toning_shadows].
+			</description>
+		</method>
 		<method name="environment_set_diffusion_filter">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />

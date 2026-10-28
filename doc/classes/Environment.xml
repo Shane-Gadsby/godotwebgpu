@@ -41,6 +41,7 @@
 		<member name="adjustment_color_correction" type="Texture" setter="set_adjustment_color_correction" getter="get_adjustment_color_correction">
 			The [Texture2D] or [Texture3D] lookup table (LUT) to use for the built-in post-process color grading. Can use a [GradientTexture1D] for a 1-dimensional LUT, or a [Texture3D] for a more complex LUT. Effective only if [member adjustment_enabled] is [code]true[/code].
 			[b]Note:[/b] Color correction does not currently support HDR output due to only supporting values in the SDR (0.0 to 1.0) range.
+			With [member grading_enabled], this LUT applies after the color grading, to the graded image.
 		</member>
 		<member name="adjustment_contrast" type="float" setter="set_adjustment_contrast" getter="get_adjustment_contrast" default="1.0">
 			Increasing [member adjustment_contrast] will make dark values darker and bright values brighter. This simple adjustment is applied to the rendered image after tonemaping. When set to a value greater than [code]1.0[/code], [member adjustment_contrast] is prone to clipping colors that become too bright or too dark. Effective only if [member adjustment_enabled] is [code]true[/code].
@@ -209,6 +210,91 @@
 		<member name="glow_strength" type="float" setter="set_glow_strength" getter="get_glow_strength" default="1.0">
 			The strength that is used when blurring across the screen to generate the glow effect. This affects the distance and intensity of the blur. When using the Mobile rendering method, this should be increased to compensate for the lower dynamic range.
 			[b]Note:[/b] [member glow_strength] has no effect when using the Compatibility rendering method, due to this rendering method using a simpler glow implementation optimized for low-end devices.
+		</member>
+		<member name="grading_channel_mixer_blue" type="Vector3" setter="set_grading_channel_mixer_blue" getter="get_grading_channel_mixer_blue" default="Vector3(0, 0, 1)">
+			The output blue channel as a mix of the input channels: [code]blue = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(0, 0, 1)[/code] leaves blue unchanged.
+		</member>
+		<member name="grading_channel_mixer_green" type="Vector3" setter="set_grading_channel_mixer_green" getter="get_grading_channel_mixer_green" default="Vector3(0, 1, 0)">
+			The output green channel as a mix of the input channels: [code]green = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(0, 1, 0)[/code] leaves green unchanged.
+		</member>
+		<member name="grading_channel_mixer_red" type="Vector3" setter="set_grading_channel_mixer_red" getter="get_grading_channel_mixer_red" default="Vector3(1, 0, 0)">
+			The output red channel as a mix of the input channels: [code]red = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(1, 0, 0)[/code] leaves red unchanged. Negative weights are allowed.
+		</member>
+		<member name="grading_color_filter" type="Color" setter="set_grading_color_filter" getter="get_grading_color_filter" default="Color(1, 1, 1, 1)">
+			Multiplies the image by this color in linear light, as a colored filter in front of the lens would (before the other controls). White leaves the image unchanged.
+		</member>
+		<member name="grading_curve_blue" type="Curve" setter="set_grading_curve_blue" getter="get_grading_curve_blue">
+			A tone curve for the blue channel, after [member grading_curve_master]. [code]null[/code] leaves blue unchanged.
+		</member>
+		<member name="grading_curve_green" type="Curve" setter="set_grading_curve_green" getter="get_grading_curve_green">
+			A tone curve for the green channel, after [member grading_curve_master]. [code]null[/code] leaves green unchanged.
+		</member>
+		<member name="grading_curve_hue_vs_hue" type="Curve" setter="set_grading_curve_hue_vs_hue" getter="get_grading_curve_hue_vs_hue">
+			Shifts each hue (X axis, 0 to 1 around the color wheel starting at red) by [code]Y - 0.5[/code] turns: [code]0.5[/code] leaves it unchanged, [code]0.0[/code] and [code]1.0[/code] shift it by half a turn. Make the curve's ends equal, since hue wraps around.
+		</member>
+		<member name="grading_curve_hue_vs_sat" type="Curve" setter="set_grading_curve_hue_vs_sat" getter="get_grading_curve_hue_vs_sat">
+			Scales the saturation of each hue (X axis, 0 to 1 starting at red) by [code]2 * Y[/code]: [code]0.5[/code] leaves it unchanged, [code]0.0[/code] removes the color. Make the curve's ends equal, since hue wraps around.
+		</member>
+		<member name="grading_curve_lum_vs_sat" type="Curve" setter="set_grading_curve_lum_vs_sat" getter="get_grading_curve_lum_vs_sat">
+			Scales the saturation of colors by [code]2 * Y[/code] as a function of their luminance (X axis, 0 to 1): [code]0.5[/code] leaves them unchanged. For example, lower the curve's ends to desaturate the deepest shadows and the brightest highlights.
+		</member>
+		<member name="grading_curve_master" type="Curve" setter="set_grading_curve_master" getter="get_grading_curve_master">
+			A tone curve applied to all three channels (sRGB-encoded): the input on the X axis (0 to 1), the output on the Y axis. Applied after every other control except the red, green and blue curves. [code]null[/code] or a curve without points leaves the image unchanged.
+		</member>
+		<member name="grading_curve_red" type="Curve" setter="set_grading_curve_red" getter="get_grading_curve_red">
+			A tone curve for the red channel, after [member grading_curve_master]. [code]null[/code] leaves red unchanged.
+		</member>
+		<member name="grading_curve_sat_vs_sat" type="Curve" setter="set_grading_curve_sat_vs_sat" getter="get_grading_curve_sat_vs_sat">
+			Scales the saturation of colors by [code]2 * Y[/code] as a function of their saturation (X axis, 0 to 1): [code]0.5[/code] leaves them unchanged.
+		</member>
+		<member name="grading_enabled" type="bool" setter="set_grading_enabled" getter="is_grading_enabled" default="false">
+			If [code]true[/code], the color grading controls of this group grade the rendered image. The grade is display-referred: it works on the tonemapped, sRGB-encoded image (where the adjustments' brightness, contrast and saturation work too), after the adjustments and before [member adjustment_color_correction], whose LUT applies to the graded image. All controls are baked into one internal 33×33×33 3D lookup table whenever one of them changes, so grading costs the same at any setting, and animating a control rebakes it every frame (well under a millisecond on the CPU).
+			[b]Note:[/b] Like [member adjustment_color_correction], grading clamps the image to the [code]0.0[/code] to [code]1.0[/code] range: with HDR output, values above [code]1.0[/code] are clipped while it is enabled.
+		</member>
+		<member name="grading_gain" type="Color" setter="set_grading_gain" getter="get_grading_gain" default="Color(1, 1, 1, 1)">
+			Scales each channel, leaving black unchanged. White ([code]Color(1, 1, 1)[/code]) leaves the image unchanged; values above [code]1.0[/code] brighten.
+		</member>
+		<member name="grading_gamma" type="Color" setter="set_grading_gamma" getter="get_grading_gamma" default="Color(1, 1, 1, 1)">
+			Bends the midtones of each channel, leaving black and white unchanged: the result of lift and gain is raised to the power [code]1 / gamma[/code], so values above [code]1.0[/code] brighten the midtones. White ([code]Color(1, 1, 1)[/code]) leaves the image unchanged.
+		</member>
+		<member name="grading_highlights" type="Color" setter="set_grading_highlights" getter="get_grading_highlights" default="Color(1, 1, 1, 1)">
+			Multiplies the highlights by this color (linear light). Highlights are the pixels whose luminance is above [member grading_highlights_end], fading in from [member grading_highlights_start]. White leaves them unchanged.
+		</member>
+		<member name="grading_highlights_end" type="float" setter="set_grading_highlights_end" getter="get_grading_highlights_end" default="1.0">
+			The luminance above which [member grading_highlights] applies fully.
+		</member>
+		<member name="grading_highlights_start" type="float" setter="set_grading_highlights_start" getter="get_grading_highlights_start" default="0.55">
+			The luminance above which [member grading_highlights] starts to apply.
+		</member>
+		<member name="grading_hue_shift" type="float" setter="set_grading_hue_shift" getter="get_grading_hue_shift" default="0.0">
+			Rotates the hue of every color by this many degrees.
+		</member>
+		<member name="grading_lift" type="Color" setter="set_grading_lift" getter="get_grading_lift" default="Color(0, 0, 0, 1)">
+			Raises the black level of each channel toward this color, leaving white unchanged: [code]v = gain * (x + lift * (1 - x))[/code]. Black ([code]Color(0, 0, 0)[/code]) leaves the image unchanged.
+		</member>
+		<member name="grading_midtones" type="Color" setter="set_grading_midtones" getter="get_grading_midtones" default="Color(1, 1, 1, 1)">
+			Multiplies the midtones, the pixels that are neither shadows nor highlights, by this color (linear light). White leaves them unchanged.
+		</member>
+		<member name="grading_shadows" type="Color" setter="set_grading_shadows" getter="get_grading_shadows" default="Color(1, 1, 1, 1)">
+			Multiplies the shadows by this color (linear light). Shadows are the pixels whose luminance is below [member grading_shadows_start], fading out up to [member grading_shadows_end]. White leaves them unchanged.
+		</member>
+		<member name="grading_shadows_end" type="float" setter="set_grading_shadows_end" getter="get_grading_shadows_end" default="0.3">
+			The luminance above which [member grading_shadows] no longer applies.
+		</member>
+		<member name="grading_shadows_start" type="float" setter="set_grading_shadows_start" getter="get_grading_shadows_start" default="0.0">
+			The luminance below which [member grading_shadows] applies fully.
+		</member>
+		<member name="grading_split_toning_balance" type="float" setter="set_grading_split_toning_balance" getter="get_grading_split_toning_balance" default="0.0">
+			Moves the split between [member grading_split_toning_shadows] and [member grading_split_toning_highlights]: positive values give the highlight tint more of the image, negative values the shadow tint.
+		</member>
+		<member name="grading_split_toning_highlights" type="Color" setter="set_grading_split_toning_highlights" getter="get_grading_split_toning_highlights" default="Color(0.5, 0.5, 0.5, 1)">
+			Tints the highlights toward this color with a soft-light blend, more strongly the brighter the pixel. Middle gray ([code]Color(0.5, 0.5, 0.5)[/code]) leaves them unchanged.
+		</member>
+		<member name="grading_split_toning_shadows" type="Color" setter="set_grading_split_toning_shadows" getter="get_grading_split_toning_shadows" default="Color(0.5, 0.5, 0.5, 1)">
+			Tints the shadows toward this color with a soft-light blend, more strongly the darker the pixel. Middle gray ([code]Color(0.5, 0.5, 0.5)[/code]) leaves them unchanged.
+		</member>
+		<member name="grading_vibrance" type="float" setter="set_grading_vibrance" getter="get_grading_vibrance" default="0.0">
+			Raises (positive values) or lowers (negative values) the saturation of the least saturated colors the most, leaving strongly saturated colors mostly unchanged, unlike [member adjustment_saturation]. [code]0.0[/code] leaves the image unchanged.
 		</member>
 		<member name="lens_flare_chromatic_aberration" type="float" setter="set_lens_flare_chromatic_aberration" getter="get_lens_flare_chromatic_aberration" default="1.0">
 			How much the ghosts' size differs per color, fringing them red and blue; [code]1.0[/code] is a 2% difference.

@@ -139,7 +139,8 @@ layout(push_constant, std430) uniform Params {
 
 	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
 	uint camera_lut; // CameraAttributes LUT, packed (camera_lut_inc.glsl); 0 when off.
-	float pad[2];
+	uint color_correction_lattice; // 1: the 3D color correction LUT is the Environment's color grading LUT.
+	float pad;
 }
 params;
 
@@ -385,6 +386,12 @@ vec3 apply_color_correction(vec3 color) {
 }
 #else
 vec3 apply_color_correction(vec3 color) {
+	if (params.color_correction_lattice != 0u) {
+		// The grading LUT's texels are the grades of i / (size - 1): map 0 and 1 onto the first and last texel
+		// centers, as camera_lut_inc.glsl does. A user LUT keeps the plain mapping it always had.
+		float size = float(textureSize(source_color_correction, 0).x);
+		color = color * ((size - 1.0) / size) + 0.5 / size;
+	}
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif

@@ -559,6 +559,61 @@ static void _setup_camera_lut(RendererRD::ToneMapper::TonemapSettings &r_tonemap
 	}
 }
 
+/* Color grading */
+
+void RendererSceneRenderRD::_update_color_grading(const RenderDataRD *p_render_data) {
+	if (p_render_data->reflection_probe.is_valid() || p_render_data->render_buffers.is_null() || p_render_data->environment.is_null()) {
+		return;
+	}
+	const RID environment = p_render_data->environment;
+	if (!environment_get_color_grading_enabled(environment)) {
+		return;
+	}
+	if (!color_grading) {
+		color_grading = memnew(RendererRD::ColorGrading);
+	}
+	// The user LUT as the tonemap pass binds it (see the tonemap settings below).
+	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
+	const bool linear_output = texture_storage->render_target_is_using_hdr(p_render_data->render_buffers->get_render_target());
+	RID user_lut;
+	bool user_lut_1d = false;
+	if (environment_get_adjustments_enabled(environment) && environment_get_color_correction(environment).is_valid()) {
+		user_lut = texture_storage->texture_get_rd_texture(environment_get_color_correction(environment), linear_output);
+		user_lut_1d = environment_get_use_1d_color_correction(environment);
+	}
+	color_grading->get_lut(environment, user_lut, user_lut_1d, linear_output, true);
+}
+
+// The Environment's color grading goes into the color correction slot: one LUT holding the grade and then the user's
+// own color correction LUT, applied after brightness/contrast/saturation (which it turns on, neutral, when the
+// adjustments are off).
+void RendererSceneRenderRD::_setup_color_grading(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_environment, bool p_update) {
+	if (!environment_get_color_grading_enabled(p_environment)) {
+		return;
+	}
+	if (!color_grading) {
+		if (!p_update) {
+			return;
+		}
+		color_grading = memnew(RendererRD::ColorGrading);
+	}
+	const RID user_lut = r_tonemap.use_color_correction ? r_tonemap.color_correction_texture : RID();
+	const RID lut = color_grading->get_lut(p_environment, user_lut, user_lut.is_valid() && r_tonemap.use_1d_color_correction, !r_tonemap.convert_to_srgb, p_update);
+	if (lut.is_null()) {
+		return;
+	}
+	if (!r_tonemap.use_bcs) {
+		r_tonemap.use_bcs = true;
+		r_tonemap.brightness = 1.0;
+		r_tonemap.contrast = 1.0;
+		r_tonemap.saturation = 1.0;
+	}
+	r_tonemap.use_color_correction = true;
+	r_tonemap.use_1d_color_correction = false;
+	r_tonemap.color_correction_texture = lut;
+	r_tonemap.color_correction_lattice = true;
+}
+
 void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -968,6 +1023,9 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 			}
 		}
+		if (can_use_effects && p_render_data->environment.is_valid()) {
+			_setup_color_grading(tonemap, p_render_data->environment, true);
+		}
 
 		tonemap.luminance_multiplier = rb->get_luminance_multiplier();
 		// White balance is a camera setting like exposure, not an effect: it applies whatever can_use_effects says.
@@ -1211,6 +1269,10 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 			tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 			tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 		}
+	}
+	if (can_use_effects && p_render_data->environment.is_valid()) {
+		// Inside the render pass: _update_color_grading() made the LUT before it began.
+		_setup_color_grading(tonemap, p_render_data->environment, false);
 	}
 
 	tonemap.texture_size = Vector2i(target_size.x, target_size.y);
@@ -1752,6 +1814,9 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 		clear_color = RSG::texture_storage->get_default_clear_color();
 	}
 
+	// The color grading LUT, before any render pass begins: the Mobile renderer's subpass tonemap cannot dispatch.
+	_update_color_grading(&render_data);
+
 	//calls _pre_opaque_render between depth pre-pass and opaque pass
 	_render_scene(&render_data, clear_color);
 
@@ -2174,6 +2239,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	}
 	if (camera_metering) {
 		memdelete(camera_metering);
+	}
+	if (color_grading) {
+		memdelete(color_grading);
 	}
 	memdelete(copy_effects);
 	memdelete(debug_effects);

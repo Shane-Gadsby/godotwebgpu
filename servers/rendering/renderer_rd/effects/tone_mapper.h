@@ -96,6 +96,8 @@ private:
 		TONEMAP_FLAG_USE_WHITE_BALANCE = (1 << 7),
 		// Bits 8-23 hold the packed CameraAttributes LUT parameters.
 		TONEMAP_FLAG_CAMERA_LUT_SHIFT = 8,
+		// The 3D color correction LUT holds lattice points (the Environment's color grading LUT), not texel centers.
+		TONEMAP_FLAG_COLOR_CORRECTION_LATTICE = (1 << 24),
 	};
 
 	enum FlagsMobile {
@@ -171,7 +173,8 @@ private:
 
 		uint32_t grain; //  4 - 84 (packed, 0 when off)
 		uint32_t camera_lut; //  4 - 88 (packed, 0 when off)
-		float pad[2]; //  8 - 96
+		uint32_t color_correction_lattice; //  4 - 92 (1: the 3D color correction LUT holds lattice points)
+		float pad; //  4 - 96
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -243,6 +246,8 @@ public:
 		bool use_color_correction = false;
 		bool use_1d_color_correction = false;
 		RID color_correction_texture;
+		// The Environment's color grading LUT is in color_correction_texture: sample it at lattice points.
+		bool color_correction_lattice = false;
 
 		bool use_fxaa = false;
 		enum DebandingMode {

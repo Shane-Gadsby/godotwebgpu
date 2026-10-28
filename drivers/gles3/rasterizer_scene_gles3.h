@@ -774,6 +774,15 @@ private:
 	void _render_post_processing(const RenderDataGLES3 *p_render_data);
 	GLuint _get_camera_lut_texture(RID p_camera_attributes) const;
 
+	/* Color grading */
+	// The Environment's color grading LUT per environment, rebaked when its grading changes (RendererColorGrading).
+	struct ColorGradingLUT {
+		uint64_t version = 0;
+		GLuint texture = 0;
+	};
+	HashMap<RID, ColorGradingLUT> color_grading_luts;
+	GLuint _get_color_grading_lut(RID p_environment);
+
 	template <PassMode p_pass_mode>
 	_FORCE_INLINE_ void _render_list_template(RenderListParameters *p_params, const RenderDataGLES3 *p_render_data, uint32_t p_from_element, uint32_t p_to_element, bool p_alpha_pass = false);
 

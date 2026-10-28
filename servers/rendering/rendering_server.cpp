@@ -3110,6 +3110,11 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction"), &RenderingServer::environment_set_adjustment);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading", "env", "enable", "color_filter", "hue_shift", "vibrance", "lift", "gamma", "gain"), &RenderingServer::environment_set_color_grading);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_shadows_midtones_highlights", "env", "shadows", "midtones", "highlights", "shadows_start", "shadows_end", "highlights_start", "highlights_end"), &RenderingServer::environment_set_color_grading_shadows_midtones_highlights);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_channel_mixer", "env", "red", "green", "blue"), &RenderingServer::environment_set_color_grading_channel_mixer);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_split_toning", "env", "shadows", "highlights", "balance"), &RenderingServer::environment_set_color_grading_split_toning);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_curves", "env", "master", "red", "green", "blue", "hue_vs_hue", "hue_vs_sat", "sat_vs_sat", "lum_vs_sat"), &RenderingServer::environment_set_color_grading_curves);
 	ClassDB::bind_method(D_METHOD("environment_set_ssr", "env", "enable", "max_steps", "fade_in", "fade_out", "depth_tolerance"), &RenderingServer::environment_set_ssr);
 	ClassDB::bind_method(D_METHOD("environment_set_ssao", "env", "enable", "radius", "intensity", "power", "detail", "horizon", "sharpness", "light_affect", "ao_channel_affect"), &RenderingServer::environment_set_ssao);
 	ClassDB::bind_method(D_METHOD("environment_set_fog", "env", "enable", "light_color", "light_energy", "sun_scatter", "density", "height", "height_density", "aerial_perspective", "sky_affect", "fog_mode"), &RenderingServer::environment_set_fog, DEFVAL(RSE::ENV_FOG_MODE_EXPONENTIAL));

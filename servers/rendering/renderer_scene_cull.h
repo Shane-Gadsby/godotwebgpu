@@ -1386,6 +1386,15 @@ public:
 	PASS1RC(bool, environment_get_use_1d_color_correction, RID)
 	PASS1RC(RID, environment_get_color_correction, RID)
 
+	/* Color grading */
+	PASS8(environment_set_color_grading, RID, bool, const Color &, float, float, const Color &, const Color &, const Color &)
+	PASS8(environment_set_color_grading_shadows_midtones_highlights, RID, const Color &, const Color &, const Color &, float, float, float, float)
+	PASS4(environment_set_color_grading_channel_mixer, RID, const Vector3 &, const Vector3 &, const Vector3 &)
+	PASS4(environment_set_color_grading_split_toning, RID, const Color &, const Color &, float)
+	PASS9(environment_set_color_grading_curves, RID, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &)
+	PASS1RC(bool, environment_get_color_grading_enabled, RID)
+	PASS1RC(uint64_t, environment_get_color_grading_version, RID)
+
 	PASS3R(Ref<Image>, environment_bake_panorama, RID, bool, const Size2i &)
 
 	PASS3(screen_space_roughness_limiter_set_active, bool, float, float)

@@ -2437,6 +2437,52 @@ GLuint RasterizerSceneGLES3::_get_camera_lut_texture(RID p_camera_attributes) co
 	return texture->tex_id;
 }
 
+/* Color grading */
+
+// The grading LUT of p_environment (a 33^3 RGBA16F 3D texture of lattice points), or 0 when grading is off.
+GLuint RasterizerSceneGLES3::_get_color_grading_lut(RID p_environment) {
+	// Textures of freed environments (RIDs are never reused).
+	Vector<RID> stale;
+	for (const KeyValue<RID, ColorGradingLUT> &E : color_grading_luts) {
+		if (!is_environment(E.key)) {
+			stale.push_back(E.key);
+		}
+	}
+	for (const RID &rid : stale) {
+		GLES3::Utilities::get_singleton()->texture_free_data(color_grading_luts[rid].texture);
+		color_grading_luts.erase(rid);
+	}
+
+	if (p_environment.is_null() || !environment_get_color_grading_enabled(p_environment)) {
+		return 0;
+	}
+	ColorGradingLUT &lut = color_grading_luts[p_environment];
+	const uint64_t version = environment_get_color_grading_version(p_environment);
+	if (lut.texture != 0 && lut.version == version) {
+		return lut.texture;
+	}
+	const int size = RendererColorGrading::LUT_SIZE;
+	const Vector<uint8_t> data = environment_bake_color_grading(p_environment);
+	if (lut.texture == 0) {
+		glGenTextures(1, &lut.texture);
+		glBindTexture(GL_TEXTURE_3D, lut.texture);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, size, size, size, 0, GL_RGBA, GL_HALF_FLOAT, data.ptr());
+		GLES3::Utilities::get_singleton()->texture_allocated_data(lut.texture, data.size(), "Color grading LUT");
+	} else {
+		glBindTexture(GL_TEXTURE_3D, lut.texture);
+		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, size, size, size, GL_RGBA, GL_HALF_FLOAT, data.ptr());
+	}
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
+	glBindTexture(GL_TEXTURE_3D, 0);
+	lut.version = version;
+	return lut.texture;
+}
+
 void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_buffers, const CameraData *p_camera_data, const CameraData *p_prev_camera_data, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RID> &p_lights, const PagedArray<RID> &p_reflection_probes, const PagedArray<RID> &p_voxel_gi_instances, const PagedArray<RID> &p_decals, const PagedArray<RID> &p_lightmaps, const PagedArray<RID> &p_fog_volumes, RID p_environment, RID p_camera_attributes, RID p_compositor, RID p_shadow_atlas, RID p_occluder_debug_tex, RID p_reflection_atlas, RID p_reflection_probe, int p_reflection_probe_pass, float p_screen_mesh_lod_threshold, const RenderShadowData *p_render_shadows, int p_render_shadow_count, const RenderSDFGIData *p_render_sdfgi_regions, int p_render_sdfgi_region_count, float p_window_output_max_value, const RenderSDFGIUpdateData *p_sdfgi_update_data, RenderingServerTypes::RenderInfo *r_render_info) {
 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
@@ -2472,7 +2518,9 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		ssao_enabled = environment_get_ssao_enabled(p_environment);
 		use_bcs = environment_get_adjustments_enabled(p_environment);
 		bool canvas_tonemapping = environment_get_background(p_environment) == RSE::ENV_BG_CANVAS && environment_get_tone_mapper(p_environment) != RSE::ENV_TONE_MAPPER_LINEAR;
-		if (glow_enabled || ssao_enabled || use_bcs || canvas_tonemapping) {
+		// Color grading is applied by the post pass, as the adjustments are.
+		bool use_color_grading = !is_reflection_probe && environment_get_color_grading_enabled(p_environment);
+		if (glow_enabled || ssao_enabled || use_bcs || canvas_tonemapping || use_color_grading) {
 			apply_environment_effects_in_post = true;
 		}
 	}
@@ -3146,6 +3194,16 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 				glTexParameteri(texture_target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 				glTexParameteri(texture_target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 			}
+		}
+	}
+
+	// The Environment's color grading, before the color correction LUT (render_scene() forced this pass for it).
+	if (p_render_data->environment.is_valid() && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+		const GLuint color_grading_lut = _get_color_grading_lut(p_render_data->environment);
+		if (color_grading_lut != 0) {
+			bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
+			glActiveTexture(GL_TEXTURE5);
+			glBindTexture(GL_TEXTURE_3D, color_grading_lut);
 		}
 	}
 
@@ -4973,6 +5031,10 @@ void sky() {
 
 RasterizerSceneGLES3::~RasterizerSceneGLES3() {
 	memdelete(camera_finish);
+	for (const KeyValue<RID, ColorGradingLUT> &E : color_grading_luts) {
+		GLES3::Utilities::get_singleton()->texture_free_data(E.value.texture);
+	}
+	color_grading_luts.clear();
 	if (ltc.lut1_texture.is_valid()) {
 		RS::get_singleton()->free_rid(ltc.lut1_texture);
 	}
