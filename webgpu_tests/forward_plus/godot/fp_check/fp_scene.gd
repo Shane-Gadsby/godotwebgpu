@@ -57,6 +57,10 @@ const FEATURES := [
 	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
 	"dof_far", "dof_near", "dof_nan", "auto_exposure", "white_balance", "compositor_effect",
 	"glow_nan", "ssr_nan", "auto_exposure_nan",
+	# CameraAttributes / Environment camera effects (engine additions, TASKS.md 4.52-4.55); only the deterministic
+	# ones: grain, zebras and motion-dependent effects change from frame to frame.
+	"lens_optics", "bokeh_shape", "longitudinal_ca", "tilt_shift", "starburst", "halation",
+	"lens_flare", "veiling_glare_diffusion", "camera_lut", "in_camera_processing",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -100,6 +104,12 @@ const SETTLE_OVERRIDE := {
 var env: Environment
 var cam: Camera3D
 var cam_attrs: CameraAttributesPractical
+# The physical camera of the arms that need a lens (tilt_shift, longitudinal_ca); cam wears cam_attrs otherwise.
+var cam_attrs_physical: CameraAttributesPhysical
+# A small, very bright sphere in the sky behind the far focus, for the camera's glare and bokeh arms.
+const GLARE_SPHERE_XFORM := Transform3D(Basis(), Vector3(2.5, 3.0, -6.0))
+var glare_sphere: MeshInstance3D
+var tex_lut3d: ImageTexture3D
 var world_env: WorldEnvironment
 
 var dir_light: DirectionalLight3D
@@ -179,6 +189,7 @@ func _ready() -> void:
 	_build_gi()
 	_build_extras()
 	_build_shader_materials()
+	_build_camera_effects()
 	_snapshot_resources()
 	# Native runs (no browser) take the feature from the command line so the
 	# same fixture can be driven against Vulkan for a cross-backend reference.
@@ -894,13 +905,53 @@ void fragment() {
 """)
 
 
+## The camera effects' scene content and resources: the glare sphere, a physical camera framed like cam_attrs's
+## 55 degree view, and a 3D LUT (a warm grade with a lifted, cooled shadow).
+func _build_camera_effects() -> void:
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.12
+	sphere.height = 0.24
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.95, 0.85)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.95, 0.85)
+	mat.emission_energy_multiplier = 60.0
+	glare_sphere = _mesh_instance(sphere, mat, GLARE_SPHERE_XFORM)
+	glare_sphere.visible = false
+
+	cam_attrs_physical = CameraAttributesPhysical.new()
+	# 24 mm tall full-frame sensor: 12 / tan(27.5 deg) = 23.05 mm gives cam's 55 degree vertical view.
+	cam_attrs_physical.frustum_focal_length = 23.05
+	cam_attrs_physical.frustum_focus_distance = 4.0
+	# f/1.4 for a deep blur; the project does not use physical light units, so the exposure stays cam_attrs's.
+	cam_attrs_physical.exposure_aperture = 1.4
+
+	const N := 17
+	var images: Array[Image] = []
+	for b in N:
+		var img := Image.create_empty(N, N, false, Image.FORMAT_RGBA8)
+		for g in N:
+			for r in N:
+				var c := Vector3(r, g, b) / float(N - 1)
+				var o := Vector3(pow(c.x, 0.85), c.y, c.z * 0.85 + 0.06 * (1.0 - c.z))
+				img.set_pixel(r, g, Color(o.x, o.y, o.z))
+		images.append(img)
+	tex_lut3d = ImageTexture3D.new()
+	tex_lut3d.create(Image.FORMAT_RGBA8, N, N, N, false, images)
+
+
+func _use_physical_camera() -> void:
+	cam.attributes = cam_attrs_physical
+
+
 ## Record every stored property of the fixture's resources, so _reset() can put
 ## all of them back. Listing knobs by hand there missed some -- alpha_scissor's
 ## albedo texture stayed on the probe for every test after it, and fog_height
 ## inherited fog's colour -- so results depended on matrix order.
 func _snapshot_resources() -> void:
 	var particle_material: ParticleProcessMaterial = particles.process_material
-	for r: Resource in [env, cam_attrs, mat_probe, mat_glass, particle_material]:
+	for r: Resource in [env, cam_attrs, cam_attrs_physical, mat_probe, mat_glass, particle_material]:
 		var values := {}
 		for prop in r.get_property_list():
 			if (prop.usage & PROPERTY_USAGE_STORAGE) and prop.name != "script" and not prop.name.begins_with("resource_"):
@@ -1107,6 +1158,8 @@ func _reset() -> void:
 	compositor_effect.enabled = false
 	nan_quad.visible = false
 	nan_quad.transform = NAN_QUAD_XFORM
+	glare_sphere.visible = false
+	cam.attributes = cam_attrs
 
 	skeleton.set_bone_pose_rotation(1, Quaternion())
 	if blendshape_inst.get_blend_shape_count() > 0:
@@ -1536,6 +1589,67 @@ func _apply(id: String, on: bool) -> bool:
 		"compositor_effect":
 			# fp_compositor_effect.gd: a compute shader inverting part of the frame.
 			compositor_effect.enabled = on
+		# ---- camera effects (CameraAttributes / Environment engine additions) ----
+		"lens_optics":
+			# Vignetting, barrel distortion (auto-cropped) and lateral chromatic aberration (TASKS.md 4.52).
+			cam_attrs.vignetting_enabled = on
+			cam_attrs.vignetting_strength = 1.0
+			cam_attrs.distortion_enabled = on
+			cam_attrs.distortion_k1 = -0.15
+			cam_attrs.distortion_k2 = 0.02
+			cam_attrs.chromatic_aberration_enabled = on
+			cam_attrs.chromatic_aberration_strength = 4.0
+		"bokeh_shape":
+			# The far blur both ways; on, a 5-blade aperture and the cat's eye replace the project's hexagon
+			# (the circular gather with the shape test, TASKS.md 4.54). The glare sphere's bokeh shows the shape.
+			glare_sphere.visible = true
+			cam_attrs.dof_blur_far_enabled = true
+			cam_attrs.dof_blur_far_distance = 6.0
+			cam_attrs.dof_blur_far_transition = 1.0
+			cam_attrs.dof_blur_amount = 0.3
+			cam_attrs.aperture_enabled = on
+			cam_attrs.aperture_blade_count = 5
+			cam_attrs.aperture_blade_curvature = 0.0
+			cam_attrs.aperture_rotation = 10.0
+			cam_attrs.cats_eye_enabled = on
+			cam_attrs.cats_eye_strength = 1.5
+		"longitudinal_ca":
+			# The physical camera's DOF both ways; on, red and blue get their own circles of confusion.
+			_use_physical_camera()
+			glare_sphere.visible = true
+			cam_attrs_physical.longitudinal_chromatic_aberration_enabled = on
+			cam_attrs_physical.longitudinal_chromatic_aberration_strength = 8.0
+		"tilt_shift":
+			# The physical camera's DOF both ways; on, the lens tilts and the plane of focus with it.
+			_use_physical_camera()
+			cam_attrs_physical.tilt_shift_enabled = on
+			cam_attrs_physical.tilt_shift_tilt = -6.0
+		"starburst":
+			glare_sphere.visible = true
+			cam_attrs.starburst_enabled = on
+			cam_attrs.starburst_strength = 40.0
+		"halation":
+			glare_sphere.visible = true
+			cam_attrs.halation_enabled = on
+			cam_attrs.halation_strength = 4.0
+			cam_attrs.halation_radius = 2.0
+		"lens_flare":
+			glare_sphere.visible = true
+			env.lens_flare_enabled = on
+			env.lens_flare_intensity = 20.0
+		"veiling_glare_diffusion":
+			glare_sphere.visible = true
+			env.veiling_glare_enabled = on
+			env.veiling_glare_strength = 3.0
+			env.diffusion_filter_enabled = on
+			env.diffusion_filter_strength = 1.0
+		"camera_lut":
+			cam_attrs.lut_enabled = on
+			cam_attrs.lut_texture = tex_lut3d
+		"in_camera_processing":
+			cam_attrs.noise_reduction_enabled = on
+			cam_attrs.sharpening_enabled = on
+			cam_attrs.sharpening_amount = 2.0
 		_:
 			return false
 	return true

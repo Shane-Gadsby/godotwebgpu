@@ -21,7 +21,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 87 arms | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 97 arms | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [DOF NaN Containment](dof_nan/) (`run.sh`) | One NaN pixel stays one pixel through every bokeh DOF mode, glow, SSR and auto exposure, natively on Forward+ and Mobile (§13) | a few minutes | Yes (native editor; a display or `xvfb-run`) |
@@ -137,7 +137,7 @@ avoid.
 
 ### Forward+ Feature Matrix (needs its own export, and a real GPU)
 
-The per-feature regression suite: for each of 87 Forward+ arms, render the
+The per-feature regression suite: for each of 97 Forward+ arms, render the
 fixture with it off and on and assert the frame actually changed, with no driver
 errors. It exists because the failure this port keeps producing is a feature
 **silently doing nothing** — which logs nothing and looks fine unless compared

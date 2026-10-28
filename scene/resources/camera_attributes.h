@@ -167,6 +167,11 @@ protected:
 	float halation_radius = 1.0;
 	void _update_halation();
 
+	// Longitudinal chromatic aberration (bokeh fringing), in the DOF pass.
+	bool longitudinal_chromatic_aberration_enabled = false;
+	float longitudinal_chromatic_aberration_strength = 1.0;
+	void _update_longitudinal_chromatic_aberration();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -303,6 +308,10 @@ public:
 	float get_halation_strength() const;
 	void set_halation_radius(float p_value);
 	float get_halation_radius() const;
+	void set_longitudinal_chromatic_aberration_enabled(bool p_value);
+	bool is_longitudinal_chromatic_aberration_enabled() const;
+	void set_longitudinal_chromatic_aberration_strength(float p_value);
+	float get_longitudinal_chromatic_aberration_strength() const;
 
 	CameraAttributes();
 	~CameraAttributes();

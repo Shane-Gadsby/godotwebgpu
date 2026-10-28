@@ -124,6 +124,15 @@ bool BokehDOF::_setup_bokeh_shape(RID p_camera_attributes, const Size2i &p_size,
 	return shape.custom;
 }
 
+void BokehDOF::_setup_longitudinal_ca(RID p_camera_attributes) {
+	const RendererCameraAttributes::LongitudinalCA ca = RSG::camera_attributes->camera_attributes_get_longitudinal_chromatic_aberration(p_camera_attributes);
+	bokeh.push_constant.longitudinal_ca = 0;
+	if (ca.enabled) {
+		bokeh.push_constant.shape_flags |= BOKEH_LONGITUDINAL_CA;
+		bokeh.push_constant.longitudinal_ca = _pack_half2(ca.offset, ca.scale);
+	}
+}
+
 void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth) {
 	ERR_FAIL_COND_MSG(prefer_raster_effects, "Can't use compute version of bokeh depth of field with the mobile renderer.");
 
@@ -176,6 +185,7 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
 		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
 	}
+	_setup_longitudinal_ca(p_camera_attributes);
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
 		bokeh.push_constant.blur_far_active = true;
 		bokeh.push_constant.blur_near_active = true;
@@ -373,11 +383,22 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	bokeh.push_constant.half_size = false;
 	bokeh.push_constant.blur_size = bokeh_size;
 
+	// A negative transition asks for the physically-based blur (CameraAttributesPhysical), as in bokeh_dof_compute():
+	// the blur grows with the distance from the focus, and the gather is capped at 32 pixels to keep its cost bounded.
+	bokeh.push_constant.use_physical_far = dof_far_size < 0.0;
+	bokeh.push_constant.blur_size_far = bokeh_size;
+	bokeh.push_constant.use_physical_near = dof_near_size < 0.0;
+	bokeh.push_constant.blur_size_near = bokeh_size;
+	if (dof_near_size < 0.0 && dof_far_size < 0.0) {
+		bokeh.push_constant.blur_size = 32;
+	}
+
 	// The aperture's shape (CameraAttributes): a custom shape needs the circular gather; tilt-shift makes every pixel's
 	// focus distance its own, so both sides run.
 	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
 		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
 	}
+	_setup_longitudinal_ca(p_camera_attributes);
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
 		dof_far = true;
 		dof_near = true;

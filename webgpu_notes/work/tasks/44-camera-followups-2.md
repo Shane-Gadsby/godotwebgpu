@@ -1,8 +1,8 @@
 # 44-camera-followups-2: longitudinal chromatic aberration; Forward+ matrix arms for the camera features; Mobile physical DOF (if approved)
 
-State: open
+State: ready-for-integration
 Owner: worker-44
-Claimed:
+Claimed: 2026-10-28 11:22
 Needs: build, gpu
 Branch: work/44
 Results: webgpu_notes/work/results/44-camera-followups-2/

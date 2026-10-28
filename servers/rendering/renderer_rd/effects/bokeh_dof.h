@@ -80,7 +80,7 @@ private:
 		uint32_t view_ray_offset; // ...and at NDC 0 (an off-center projection).
 		float tilt_normal_x; // The plane of focus's normal in view space; z is positive.
 		float tilt_normal_y;
-		uint32_t pad;
+		uint32_t longitudinal_ca; // Red and blue blur offset, scale (half floats).
 	};
 	static_assert(sizeof(BokehPushConstant) == 128, "The bokeh push constant must stay within Vulkan's guaranteed 128 bytes.");
 
@@ -88,7 +88,11 @@ private:
 		BOKEH_SHAPE_CUSTOM = 1 << 8,
 		BOKEH_SHAPE_CATS_EYE = 1 << 9,
 		BOKEH_SHAPE_TILT = 1 << 10,
+		BOKEH_LONGITUDINAL_CA = 1 << 11,
 	};
+
+	// Sets the longitudinal chromatic aberration's flag and red/blue blur offsets from the camera attributes.
+	void _setup_longitudinal_ca(RID p_camera_attributes);
 
 	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom
 	// shape, which only the circular gather can draw.

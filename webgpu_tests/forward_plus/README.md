@@ -87,6 +87,18 @@ smeared reflection or a blank frame. Their GDScript-built materials can never
 be baked, which is part of why the baked run's translated-stage ceiling is 150
 (`webgpu_notes/TASKS.md` §2.39).
 
+The ten camera arms (category `camera`, 2026-10-28, work task 44) cover this
+fork's deterministic CameraAttributes and Environment camera effects: lens
+optics, aperture/cat's eye bokeh, longitudinal chromatic aberration, tilt-shift,
+starburst, halation, lens flare, veiling glare with the diffusion filter, the
+camera LUT and in-camera noise reduction with sharpening. Grain, animated
+zebras and the motion-dependent effects (motion blur, rolling shutter, shake)
+change every frame and are left out. The glare arms show a small, very bright
+sphere (`glare_sphere`); `longitudinal_ca` and `tilt_shift` switch the camera to
+`cam_attrs_physical` (a 23 mm lens framed like the default camera, f/1.4,
+focused at 4 m), and `_reset()` switches it back. The LUT is a 17^3
+`ImageTexture3D` built in `_build_camera_effects()`.
+
 An arm can carry `knownFail: '<why>'`: a web failure that is understood and out
 of this port's reach. It runs, reports `KNOWN` and does not fail the run; if
 it starts passing it reports `XPASS` and fails, so the marker goes with the

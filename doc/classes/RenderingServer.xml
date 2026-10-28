@@ -219,6 +219,15 @@
 				Sets the lens distortion of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.distortion_enabled], [member CameraAttributes.distortion_automatic], [member CameraAttributes.distortion_k1], [member CameraAttributes.distortion_k2] and [member CameraAttributes.distortion_auto_crop].
 			</description>
 		</method>
+		<method name="camera_attributes_set_longitudinal_chromatic_aberration">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the longitudinal chromatic aberration of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.longitudinal_chromatic_aberration_enabled].
+			</description>
+		</method>
 		<method name="camera_attributes_set_lut">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />

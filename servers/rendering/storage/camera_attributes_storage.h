@@ -224,6 +224,10 @@ private:
 		bool halation_enabled = false;
 		float halation_strength = 1.0;
 		float halation_radius = 1.0;
+
+		// Longitudinal chromatic aberration (bokeh fringing), drawn by the DOF pass. Off by default.
+		bool longitudinal_ca_enabled = false;
+		float longitudinal_ca_strength = 1.0;
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
@@ -444,6 +448,19 @@ public:
 	bool camera_attributes_uses_tilt_shift(RID p_camera_attributes);
 	// Whether the tonemap pass needs the glare chain: the camera's starburst or halation, or the Environment's glare.
 	bool camera_attributes_uses_glare(RID p_camera_attributes, const CameraGlareEnvironment &p_environment);
+
+	/* Longitudinal chromatic aberration */
+
+	// How the DOF pass shifts the red and blue circles of confusion against green's: in the DOF's signed blur units
+	// (negative in front of the focus), blur_rb = blur - offset - scale * |blur|. Both 0 when off.
+	struct LongitudinalCA {
+		bool enabled = false;
+		float offset = 0.0;
+		float scale = 0.0;
+	};
+
+	void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength);
+	LongitudinalCA camera_attributes_get_longitudinal_chromatic_aberration(RID p_camera_attributes);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes, const CameraGlareEnvironment &p_environment = CameraGlareEnvironment()) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

@@ -1278,3 +1278,53 @@ bool RendererCameraAttributes::camera_attributes_fill_effects_buffer(RID p_camer
 	}
 	return true;
 }
+
+/* Longitudinal chromatic aberration */
+
+void RendererCameraAttributes::camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->longitudinal_ca_enabled = p_enable;
+	cam_attributes->longitudinal_ca_strength = MAX(p_strength, 0.0f);
+}
+
+// Longitudinal (axial) chromatic aberration: the lens focuses each wavelength at its own distance, so out of focus each
+// color has its own circle of confusion. A camera lens is an achromat: red and blue are brought to one focus and green,
+// near the middle of the visible band, focuses closest to the lens, by the secondary spectrum, about f / 2200 for
+// ordinary crown and flint glasses (Smith, Modern Optical Engineering, 4th ed., 2008, section 5.3; Kingslake and
+// Johnson, Lens Design Fundamentals, 2nd ed., 2010, section 5.6). Focus is set on green (the luminance channel, where
+// contrast autofocus peaks), so red and blue image a focal shift k f behind the sensor.
+//
+// Thin lens, aperture A = f / N, sensor at v = f u / (u - f) for the focus distance u: a channel with focal length f_c
+// has the signed circle of confusion A (v (1 / f_c - 1 / d) - 1) for a point at distance d, positive behind the focus.
+// For green that is A v (1 / u - 1 / d); for red and blue, with 1 / f_c - 1 / f = -k / f, the same minus A v k / f =
+// k f u / (N (u - f)): a constant offset, in front of the focus as well as behind it. Behind the focus red and blue
+// blur less than green (a green fringe), in front of it more (a magenta, "purple" fringe), the bokeh fringing of fast
+// lenses; stopping down shrinks it with A. The DOF's physical blur is the circle of confusion at infinity,
+// f^2 / (N (u - f)), times the blur at depth, so in its units the offset is that blur times k u / f.
+//
+// Without a physical lens (CameraAttributesPractical) there is no focus distance to offset from, and the in-focus band
+// must stay sharp, so red and blue scale the blur instead: by the physical model's ratio at infinity for a 50 mm lens
+// focused at 3 m (k u / f = 0.027), larger in front of the focus and smaller behind it. Strength multiplies both;
+// fast lenses wide open show several times the paraxial secondary spectrum (spherochromatism), a look choice left to
+// the strength.
+RendererCameraAttributes::LongitudinalCA RendererCameraAttributes::camera_attributes_get_longitudinal_chromatic_aberration(RID p_camera_attributes) {
+	LongitudinalCA ca;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || !cam_attributes->longitudinal_ca_enabled || cam_attributes->longitudinal_ca_strength <= 0.0f) {
+		return ca;
+	}
+	const double secondary_spectrum = 1.0 / 2200.0; // Of the focal length (Smith, section 5.3).
+	const double strength = cam_attributes->longitudinal_ca_strength;
+	ca.enabled = true;
+	if (cam_attributes->lens_focal_length > 0.0f) {
+		// As in CameraAttributesPhysical::_update_frustum(): millimeters, the focus at least 1 mm past the focal length.
+		const double f = cam_attributes->lens_focal_length;
+		const double u = MAX(double(cam_attributes->lens_focus_distance) * 1000.0, f + 1.0);
+		const double bokeh_size = double(cam_attributes->dof_blur_amount) * 64.0; // BokehDOF's base 64 pixel radius.
+		ca.offset = float(strength * secondary_spectrum * (u / f) * bokeh_size);
+	} else {
+		ca.scale = float(strength * secondary_spectrum * (3000.0 / 50.0));
+	}
+	return ca;
+}
