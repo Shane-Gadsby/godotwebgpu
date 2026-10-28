@@ -1966,6 +1966,13 @@ void RendererSceneRenderRD::render_particle_collider_heightfield(RID p_collider,
 	_render_particle_collider_heightfield(fb, cam_xform, cm, p_instances);
 }
 
+void RendererSceneRenderRD::camera_monitoring_free(RID p_camera) {
+	RendererSceneRender::camera_monitoring_free(p_camera);
+	if (camera_finish) {
+		camera_finish->free_camera(p_camera);
+	}
+}
+
 bool RendererSceneRenderRD::free(RID p_rid) {
 	if (is_environment(p_rid)) {
 		environment_free(p_rid);

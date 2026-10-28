@@ -30,14 +30,19 @@
 
 #include "camera_finish.h"
 
+#include "core/object/callable_mp.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
+#include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
 using namespace RendererRD;
 
+CameraFinish *CameraFinish::singleton = nullptr;
+
 CameraFinish::CameraFinish() {
+	singleton = this;
 	{
 		Vector<String> modes;
 		modes.push_back("\n");
@@ -60,12 +65,16 @@ CameraFinish::CameraFinish() {
 }
 
 CameraFinish::~CameraFinish() {
+	singleton = nullptr; // Readbacks still in flight are discarded.
+	for (KeyValue<RID, CameraHistogram> &E : camera_histograms) {
+		RD::get_singleton()->free_rid(E.value.buffer);
+	}
 	RD::get_singleton()->free_rid(histogram_buffer);
 	finish_shader.version_free(finish_shader_version);
 	histogram_shader.version_free(histogram_shader_version);
 }
 
-void CameraFinish::_draw(RID p_source, RID p_dest_framebuffer, const FinishPushConstant &p_push_constant) {
+void CameraFinish::_draw(RID p_source, RID p_dest_framebuffer, RID p_histogram_buffer, const FinishPushConstant &p_push_constant) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
 	RID sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -74,7 +83,7 @@ void CameraFinish::_draw(RID p_source, RID p_dest_framebuffer, const FinishPushC
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::Uniform u_source(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, p_source }));
-	RD::Uniform u_histogram(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, histogram_buffer);
+	RD::Uniform u_histogram(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, p_histogram_buffer);
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dest_framebuffer, RD::DRAW_IGNORE_ALL);
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, finish_pipeline.get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dest_framebuffer)));
@@ -84,12 +93,12 @@ void CameraFinish::_draw(RID p_source, RID p_dest_framebuffer, const FinishPushC
 	RD::get_singleton()->draw_list_end();
 }
 
-void CameraFinish::_compute_histogram(RID p_source, Size2i p_size, bool p_linear_input) {
+void CameraFinish::_compute_histogram(RID p_source, Size2i p_size, bool p_linear_input, RID p_histogram_buffer, bool p_for_drawing) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
 	RID sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 
-	RD::get_singleton()->buffer_clear(histogram_buffer, 0, HISTOGRAM_WORDS * sizeof(uint32_t));
+	RD::get_singleton()->buffer_clear(p_histogram_buffer, 0, HISTOGRAM_WORDS * sizeof(uint32_t));
 
 	HistogramPushConstant push_constant = {};
 	push_constant.size[0] = p_size.x;
@@ -101,13 +110,18 @@ void CameraFinish::_compute_histogram(RID p_source, Size2i p_size, bool p_linear
 	ERR_FAIL_COND(count_shader.is_null() || max_shader.is_null());
 
 	RD::Uniform u_source(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, p_source }));
-	RD::Uniform u_histogram(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, histogram_buffer);
+	RD::Uniform u_histogram(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, p_histogram_buffer);
 
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, histogram_pipelines[HISTOGRAM_COUNT]);
 	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(count_shader, 0, u_source, u_histogram), 0);
 	RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(HistogramPushConstant));
 	RD::get_singleton()->compute_list_dispatch_threads(compute_list, p_size.x, p_size.y, 1);
+	if (!p_for_drawing) {
+		// Counts only, for a readback: the maxima scale the drawn bars and nothing else.
+		RD::get_singleton()->compute_list_end();
+		return;
+	}
 	RD::get_singleton()->compute_list_add_barrier(compute_list);
 
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, histogram_pipelines[HISTOGRAM_MAX]);
@@ -117,11 +131,105 @@ void CameraFinish::_compute_histogram(RID p_source, Size2i p_size, bool p_linear
 	RD::get_singleton()->compute_list_end();
 }
 
+CameraFinish::CameraHistogram *CameraFinish::_get_camera_histogram(RID p_camera) {
+	CameraHistogram *histogram = camera_histograms.getptr(p_camera);
+	if (!histogram) {
+		histogram = &camera_histograms.insert(p_camera, CameraHistogram())->value;
+		histogram->buffer = RD::get_singleton()->storage_buffer_create(HISTOGRAM_WORDS * sizeof(uint32_t));
+	}
+	return histogram;
+}
+
+bool CameraFinish::_histogram_readback_due(CameraHistogram &p_histogram, double p_time, float p_interval) {
+	// The renderer's time rolls over (rendering/limits/time/time_rollover_secs): a clock that went backwards is due.
+	const double elapsed = p_time - p_histogram.last_readback_time;
+	if (p_histogram.read_back && elapsed >= 0.0 && elapsed < p_interval) {
+		return false;
+	}
+	// Step the schedule by the interval, so 0.25 s averages 4 readbacks a second at any frame rate, unless it fell
+	// more than an interval behind (a hitch, a hidden viewport): then restart it from now.
+	const bool on_schedule = p_histogram.read_back && elapsed >= 0.0 && elapsed < 2.0 * p_interval;
+	p_histogram.last_readback_time = on_schedule ? p_histogram.last_readback_time + p_interval : p_time;
+	p_histogram.read_back = true;
+	return true;
+}
+
+// Render thread, from RenderingDevice's wait for the frame the copy was recorded in.
+void CameraFinish::_histogram_readback_done(const PackedByteArray &p_data, RID p_camera, int64_t p_pixel_count) {
+	if (!singleton || !singleton->camera_histograms.has(p_camera) || p_data.size() < int64_t(HISTOGRAM_BINS * 4 * sizeof(uint32_t))) {
+		return; // The camera was freed meanwhile.
+	}
+	const uint32_t *words = reinterpret_cast<const uint32_t *>(p_data.ptr());
+
+	// Every channel's counts add up to the pixel count. A readback that does not is not this frame's histogram: on
+	// WebGPU a staging buffer whose mapAsync has not completed yet reads as zeros (the first frames), and is dropped.
+	uint64_t sums[4] = {};
+	for (uint32_t i = 0; i < HISTOGRAM_BINS * 4; i++) {
+		sums[i & 3] += words[i];
+	}
+	for (int c = 0; c < 4; c++) {
+		if (sums[c] != uint64_t(p_pixel_count)) {
+			return;
+		}
+	}
+
+	// The shader interleaves R', G', B', Y'; the channel enum is Y', R', G', B'.
+	static constexpr int SHADER_CHANNEL[RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE + 1] = { 3, 0, 1, 2 };
+	RendererSceneRender::CameraHistogramReadback readback;
+	for (int c = 0; c <= RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE; c++) {
+		readback.channels[c].resize(HISTOGRAM_BINS);
+		int32_t *bins = readback.channels[c].ptrw();
+		for (uint32_t i = 0; i < HISTOGRAM_BINS; i++) {
+			bins[i] = int32_t(words[i * 4 + SHADER_CHANNEL[c]]);
+		}
+	}
+	RendererSceneRenderRD::get_singleton()->camera_monitoring_histogram_publish(p_camera, readback);
+}
+
+void CameraFinish::_request_histogram_readback(RID p_camera, RID p_buffer, Size2i p_size) {
+	// Only the bins: the maxima are for the drawing. The pixel count travels with the request, to check the result.
+	RD::get_singleton()->buffer_get_data_async(p_buffer, callable_mp_static(&CameraFinish::_histogram_readback_done).bind(p_camera, int64_t(p_size.x) * p_size.y), 0, HISTOGRAM_BINS * 4 * sizeof(uint32_t));
+}
+
+void CameraFinish::free_camera(RID p_camera) {
+	CameraHistogram *histogram = camera_histograms.getptr(p_camera);
+	if (histogram) {
+		RD::get_singleton()->free_rid(histogram->buffer);
+		camera_histograms.erase(p_camera);
+	}
+}
+
 void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Settings &p_settings) {
 	ERR_FAIL_COND(p_render_buffers.is_null());
 	if (!is_active(p_settings) || p_render_buffers->get_view_count() != 1) {
 		return;
 	}
+	const RendererSceneRender::CameraMonitoring &monitoring = p_settings.monitoring;
+	const RendererCameraAttributes::CameraFinishSettings &camera = p_settings.camera;
+
+	// The histogram is counted when it is drawn (every frame) and when a script's readback is due (only then).
+	CameraHistogram *camera_histogram = nullptr;
+	if ((monitoring.histogram || monitoring.histogram_readback) && monitoring.camera.is_valid()) {
+		camera_histogram = _get_camera_histogram(monitoring.camera);
+	}
+	const bool readback_due = camera_histogram && monitoring.histogram_readback && _histogram_readback_due(*camera_histogram, p_settings.time, monitoring.histogram_readback_interval);
+	const bool count_histogram = readback_due || (monitoring.histogram && camera_histogram);
+	const RID histogram_dest = camera_histogram ? camera_histogram->buffer : histogram_buffer;
+
+	LocalVector<Mode> passes;
+	if (camera.noise_reduction) {
+		passes.push_back(MODE_NOISE_REDUCTION);
+	}
+	if (camera.sharpening) {
+		passes.push_back(MODE_SHARPEN);
+	}
+	if (monitoring.is_overlay_active()) {
+		passes.push_back(MODE_OVERLAY);
+	}
+	if (passes.is_empty() && !readback_due) {
+		return; // Only a readback that is not due this frame.
+	}
+
 	TextureStorage *texture_storage = TextureStorage::get_singleton();
 	RID render_target = p_render_buffers->get_render_target();
 	RID rt_texture = texture_storage->render_target_get_rd_texture(render_target);
@@ -131,6 +239,16 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	const Size2i size = p_render_buffers->get_target_size();
 	const RD::DataFormat format = RD::get_singleton()->texture_get_format(rt_texture).format;
 	const bool linear_input = texture_storage->render_target_is_using_hdr(render_target);
+
+	RD::get_singleton()->draw_command_begin_label("Camera Finish");
+
+	if (passes.is_empty()) {
+		// Counting without drawing anything: straight from the render target, no copies.
+		_compute_histogram(rt_texture, size, linear_input, histogram_dest, false);
+		_request_histogram_readback(monitoring.camera, histogram_dest, size);
+		RD::get_singleton()->draw_command_end_label();
+		return;
+	}
 
 	// Two scratch copies of the render target, ping-ponged by the passes; the last pass writes the render target.
 	const StringName context = SNAME("camera_finish");
@@ -147,12 +265,7 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	}
 	RID scratch[2] = { p_render_buffers->get_texture(context, SNAME("a")), p_render_buffers->get_texture(context, SNAME("b")) };
 
-	RD::get_singleton()->draw_command_begin_label("Camera Finish");
-
 	RD::get_singleton()->texture_copy(rt_texture, scratch[0], Vector3(), Vector3(), Vector3(size.x, size.y, 1), 0, 0, 0, 0);
-
-	const RendererCameraAttributes::CameraFinishSettings &camera = p_settings.camera;
-	const RendererSceneRender::CameraMonitoring &monitoring = p_settings.monitoring;
 
 	FinishPushConstant push_constant = {};
 	push_constant.pixel_size[0] = 1.0f / size.x;
@@ -165,17 +278,6 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	push_constant.sharpen_halo = camera.sharpen_halo;
 	if (camera.nr_chroma_only) {
 		push_constant.flags |= FLAG_NR_CHROMA_ONLY;
-	}
-
-	LocalVector<Mode> passes;
-	if (camera.noise_reduction) {
-		passes.push_back(MODE_NOISE_REDUCTION);
-	}
-	if (camera.sharpening) {
-		passes.push_back(MODE_SHARPEN);
-	}
-	if (monitoring.is_active()) {
-		passes.push_back(MODE_OVERLAY);
 	}
 
 	int current = 0;
@@ -236,14 +338,23 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 				push_constant.histogram_rect[2] = MIN(x0 + width, float(size.x));
 				push_constant.histogram_rect[3] = MIN(y0 + height, float(size.y));
 				push_constant.histogram_opacity = monitoring.histogram_opacity;
-
-				// Counted on the image as it is before the overlays.
-				_compute_histogram(scratch[current], size, linear_input);
+			}
+			if (count_histogram) {
+				// Counted on the image as it is before the overlays, drawn histogram or readback alike.
+				_compute_histogram(scratch[current], size, linear_input, histogram_dest, monitoring.histogram);
 			}
 		}
 
-		_draw(scratch[current], dest_framebuffer, push_constant);
+		_draw(scratch[current], dest_framebuffer, histogram_dest, push_constant);
 		current ^= 1;
+	}
+
+	if (count_histogram && !monitoring.is_overlay_active()) {
+		// No overlays: the finished image is the render target itself, after noise reduction and sharpening.
+		_compute_histogram(rt_texture, size, linear_input, histogram_dest, false);
+	}
+	if (readback_due) {
+		_request_histogram_readback(monitoring.camera, histogram_dest, size);
 	}
 
 	RD::get_singleton()->draw_command_end_label();

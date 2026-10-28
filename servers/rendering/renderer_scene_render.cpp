@@ -701,3 +701,30 @@ uint64_t RendererSceneRender::environment_get_color_grading_version(RID p_env) c
 Vector<uint8_t> RendererSceneRender::environment_bake_color_grading(RID p_env) const {
 	return environment_storage.environment_bake_color_grading(p_env);
 }
+
+/* Camera monitoring histogram readback */
+
+void RendererSceneRender::camera_monitoring_histogram_publish(RID p_camera, const CameraHistogramReadback &p_readback) {
+	MutexLock lock(camera_histogram_mutex);
+	CameraHistogramReadback &readback = camera_histograms[p_camera];
+	readback = p_readback;
+	readback.serial = ++camera_histogram_serial; // Server-wide, so a serial never repeats for a camera.
+}
+
+PackedInt32Array RendererSceneRender::camera_monitoring_histogram_get(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const {
+	ERR_FAIL_INDEX_V((int)p_channel, RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE + 1, PackedInt32Array());
+	MutexLock lock(camera_histogram_mutex);
+	const CameraHistogramReadback *readback = camera_histograms.getptr(p_camera);
+	return readback ? readback->channels[p_channel] : PackedInt32Array();
+}
+
+uint64_t RendererSceneRender::camera_monitoring_histogram_get_serial(RID p_camera) const {
+	MutexLock lock(camera_histogram_mutex);
+	const CameraHistogramReadback *readback = camera_histograms.getptr(p_camera);
+	return readback ? readback->serial : 0;
+}
+
+void RendererSceneRender::camera_monitoring_free(RID p_camera) {
+	MutexLock lock(camera_histogram_mutex);
+	camera_histograms.erase(p_camera);
+}

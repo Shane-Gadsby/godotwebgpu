@@ -226,6 +226,22 @@ void RendererSceneCull::camera_set_monitoring_histogram(RID p_camera, bool p_ena
 	camera->monitoring.histogram_opacity = CLAMP(p_opacity, 0.0f, 1.0f);
 }
 
+void RendererSceneCull::camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->monitoring.histogram_readback = p_enable;
+	camera->monitoring.histogram_readback_interval = MAX(p_interval, 0.0f);
+}
+
+// Any thread: the result store has its own lock, and an unknown camera just has no result.
+PackedInt32Array RendererSceneCull::camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const {
+	return scene_render->camera_monitoring_histogram_get(p_camera, p_channel);
+}
+
+uint64_t RendererSceneCull::camera_get_monitoring_histogram_serial(RID p_camera) const {
+	return scene_render->camera_monitoring_histogram_get_serial(p_camera);
+}
+
 bool RendererSceneCull::is_camera(RID p_camera) const {
 	return camera_owner.owns(p_camera);
 }
@@ -2839,6 +2855,7 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 		ERR_FAIL_MSG("Unsupported camera setup.");
 	}
 	camera_data.monitoring = camera->monitoring;
+	camera_data.monitoring.camera = p_camera;
 
 	RID environment = _render_get_environment(p_camera, p_scenario);
 	RID compositor = _render_get_compositor(p_camera, p_scenario);
@@ -4458,6 +4475,7 @@ bool RendererSceneCull::free(RID p_rid) {
 	}
 
 	if (camera_owner.owns(p_rid)) {
+		scene_render->camera_monitoring_free(p_rid);
 		camera_owner.free(p_rid);
 
 	} else if (scenario_owner.owns(p_rid)) {

@@ -217,6 +217,10 @@ public:
 	// the whole per-frame slice; the default is the full flush, so every other driver behaves exactly as before.
 	virtual void buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) { buffer_flush(p_buffer); }
 	virtual void buffer_initiate_async_map(BufferID p_buffer) {} // WebGPU: start async map so it completes by next frame.
+	// WebGPU: whether a readback buffer's asynchronous map is still in flight. The GPU must not write such a buffer (a
+	// submit that copies into it is a validation error), so a staging allocator does not reuse it yet. Drivers whose
+	// readback buffers are persistently mapped never have one in flight.
+	virtual bool buffer_is_map_pending(BufferID p_buffer) { return false; }
 	// Direct queue write to a buffer, bypassing staging buffers entirely.
 	// Used for skeleton/bone updates that are fully written before any draws.
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) {}

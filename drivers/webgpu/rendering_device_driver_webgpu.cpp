@@ -1912,6 +1912,23 @@ void RenderingDeviceDriverWebGPU::buffer_initiate_async_map(BufferID p_buffer) {
 	}
 }
 
+bool RenderingDeviceDriverWebGPU::buffer_is_map_pending(BufferID p_buffer) {
+	WGBuffer *buf = (WGBuffer *)(p_buffer.id);
+	if (!buf || !buf->is_readback || !buf->handle) {
+		return false;
+	}
+	// RenderingDevice asks before reusing a download staging block, which it does once that block's frame has been
+	// read. A map that completed only after that read is no longer wanted, but while it stays mapped (its callback
+	// not delivered yet) the next copy into the block fails validation: unmap it. A map still pending cannot be
+	// cancelled; the caller takes another block.
+	WGPUBufferMapState state = wgpuBufferGetMapState(buf->handle);
+	if (state == WGPUBufferMapState_Mapped) {
+		wgpuBufferUnmap(buf->handle);
+		return false;
+	}
+	return state == WGPUBufferMapState_Pending;
+}
+
 uint32_t RenderingDeviceDriverWebGPU::texture_get_gpu_pixel_size(TextureID p_texture) {
 	WGTexture *tex = (WGTexture *)(p_texture.id);
 	if (!tex || tex->rd_format == DATA_FORMAT_MAX) {

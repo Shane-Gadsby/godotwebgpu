@@ -427,6 +427,7 @@ public:
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) override final;
 	/// WebGPU: initiate async buffer map so it completes by next frame.
 	virtual void buffer_initiate_async_map(BufferID p_buffer) override final;
+	virtual bool buffer_is_map_pending(BufferID p_buffer) override final;
 	virtual uint32_t texture_get_gpu_pixel_size(TextureID p_texture) override final;
 	virtual void texture_readback_convert(TextureID p_texture,
 			const uint8_t *p_src, uint32_t p_src_pitch,

@@ -1043,8 +1043,9 @@ Error RenderingDevice::_staging_buffer_allocate(StagingBuffers &p_staging_buffer
 				}
 			}
 
-		} else if (p_staging_buffers.blocks[p_staging_buffers.current].frame_used <= frames_drawn - frames.size()) {
-			// This is an old block, which was already processed, let's reuse.
+		} else if (p_staging_buffers.blocks[p_staging_buffers.current].frame_used <= frames_drawn - frames.size() && !driver->buffer_is_map_pending(p_staging_buffers.blocks[p_staging_buffers.current].driver_id)) {
+			// This is an old block, which was already processed, let's reuse. (On WebGPU, a download block whose
+			// asynchronous map has not completed yet is still in use: it falls through to a new block below.)
 			p_staging_buffers.blocks.write[p_staging_buffers.current].frame_used = frames_drawn;
 			p_staging_buffers.blocks.write[p_staging_buffers.current].fill_amount = 0;
 		} else {

@@ -1,8 +1,8 @@
 # 62-camera-histogram-readback: let scripts read the Camera3D monitoring histogram, without drawing it
 
-State: open
+State: ready-for-integration
 Owner: worker-62
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), browser (Playwright), native Vulkan run
 Branch: work/62
 Results: webgpu_notes/work/results/62-camera-histogram-readback/
