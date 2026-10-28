@@ -104,6 +104,7 @@
 			<param index="0" name="screen_point" type="Vector2" />
 			<description>
 				Returns a normal vector from the screen point location directed along the camera. Orthogonal cameras are normalized. Perspective cameras account for perspective, screen width/height, etc.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_position" qualifiers="const">
@@ -112,6 +113,7 @@
 			<param index="1" name="z_depth" type="float" />
 			<description>
 				Returns the 3D point in world space that maps to the given 2D coordinate in the [Viewport] rectangle on a plane that is the given [param z_depth] distance into the scene away from the camera.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_ray_normal" qualifiers="const">
@@ -119,6 +121,7 @@
 			<param index="0" name="screen_point" type="Vector2" />
 			<description>
 				Returns a normal vector in world space, that is the result of projecting a point on the [Viewport] rectangle by the inverse camera projection. This is useful for casting rays in the form of (origin, normal) for object intersection or picking.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_ray_origin" qualifiers="const">
@@ -170,6 +173,7 @@
 			<param index="0" name="world_point" type="Vector3" />
 			<description>
 				Returns the 2D coordinate in the [Viewport] rectangle that maps to the given 3D point in world space.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 				[b]Note:[/b] When using this to position GUI elements over a 3D viewport, use [method is_position_behind] to prevent them from appearing if the 3D point is behind the camera:
 				[codeblock]
 				# This code block is part of a script that inherits from Node3D.

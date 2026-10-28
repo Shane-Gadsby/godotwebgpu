@@ -978,6 +978,7 @@ public:
 	FUNC4(camera_attributes_set_halation, RID, bool, float, float)
 	FUNC2(camera_attributes_set_halation_high_quality, RID, bool)
 	FUNC3(camera_attributes_set_longitudinal_chromatic_aberration, RID, bool, float)
+	FUNC4(camera_attributes_set_panini, RID, bool, float, float)
 
 	/* SCENARIO API */
 

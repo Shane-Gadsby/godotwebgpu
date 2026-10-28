@@ -1,8 +1,8 @@
 # 47-pp-panini
 
-State: open
+State: ready-for-integration
 Owner: worker-47
-Claimed:
+Claimed: 2026-10-28
 Needs: build, gpu
 Branch: work/47
 Results: webgpu_notes/work/results/47-pp-panini/

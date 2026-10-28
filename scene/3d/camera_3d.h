@@ -243,6 +243,16 @@ protected:
 
 	Projection _get_camera_projection(real_t p_near) const;
 
+	// The Panini projection of the attributes in effect (the camera's, else the world's), which the renderer applies
+	// to the image: the screen-space functions follow it.
+	struct PaniniMapping {
+		double distance = 0.0;
+		double vertical_compression = 0.0;
+		Vector2 tan_half; // The rendered frame's half extent in the tangent plane.
+		Vector2 output_half; // The output frame's half extent in the Panini plane.
+	};
+	bool _get_panini_mapping(const Projection &p_projection, PaniniMapping &r_mapping) const;
+
 public:
 	enum {
 		NOTIFICATION_BECAME_CURRENT = 50,

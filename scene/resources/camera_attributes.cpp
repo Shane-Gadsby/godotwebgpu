@@ -754,6 +754,48 @@ bool CameraAttributes::is_halation_high_quality() const {
 	return halation_high_quality;
 }
 
+void CameraAttributes::set_panini_enabled(bool p_enabled) {
+	panini_enabled = p_enabled;
+	_update_panini();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_panini_enabled() const {
+	return panini_enabled;
+}
+
+void CameraAttributes::set_panini_distance(float p_distance) {
+	panini_distance = CLAMP(p_distance, 0.0f, 1.0f);
+	_update_panini();
+	emit_changed();
+}
+
+float CameraAttributes::get_panini_distance() const {
+	return panini_distance;
+}
+
+void CameraAttributes::set_panini_vertical_compression(float p_compression) {
+	panini_vertical_compression = CLAMP(p_compression, 0.0f, 1.0f);
+	_update_panini();
+	emit_changed();
+}
+
+float CameraAttributes::get_panini_vertical_compression() const {
+	return panini_vertical_compression;
+}
+
+bool CameraAttributes::get_panini_projection(float &r_distance, float &r_vertical_compression) const {
+	r_distance = panini_distance;
+	r_vertical_compression = panini_vertical_compression;
+	// The same condition as the renderer's (RendererCameraAttributes::_lens_requested_bits()).
+	return panini_enabled && panini_distance > 0.0f;
+}
+
+void CameraAttributes::_update_panini() {
+	RS::get_singleton()->camera_attributes_set_panini(camera_attributes, panini_enabled, panini_distance, panini_vertical_compression);
+}
+
 void CameraAttributes::_update_aperture() {
 	RS::get_singleton()->camera_attributes_set_aperture(camera_attributes, aperture_enabled, aperture_blade_count, aperture_blade_curvature, aperture_rotation);
 }
@@ -843,6 +885,11 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	}
 
 	if (p_property.name.begins_with("longitudinal_chromatic_aberration_") && p_property.name != "longitudinal_chromatic_aberration_enabled" && !longitudinal_chromatic_aberration_enabled) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("panini_") && p_property.name != "panini_enabled" && !panini_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -1075,6 +1122,18 @@ void CameraAttributes::_bind_methods() {
 	ADD_GROUP("Longitudinal Chromatic Aberration", "longitudinal_chromatic_aberration_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "longitudinal_chromatic_aberration_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_longitudinal_chromatic_aberration_enabled", "is_longitudinal_chromatic_aberration_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "longitudinal_chromatic_aberration_strength", PROPERTY_HINT_RANGE, "0,20,0.01,or_greater"), "set_longitudinal_chromatic_aberration_strength", "get_longitudinal_chromatic_aberration_strength");
+
+	ClassDB::bind_method(D_METHOD("set_panini_enabled", "enabled"), &CameraAttributes::set_panini_enabled);
+	ClassDB::bind_method(D_METHOD("is_panini_enabled"), &CameraAttributes::is_panini_enabled);
+	ClassDB::bind_method(D_METHOD("set_panini_distance", "distance"), &CameraAttributes::set_panini_distance);
+	ClassDB::bind_method(D_METHOD("get_panini_distance"), &CameraAttributes::get_panini_distance);
+	ClassDB::bind_method(D_METHOD("set_panini_vertical_compression", "compression"), &CameraAttributes::set_panini_vertical_compression);
+	ClassDB::bind_method(D_METHOD("get_panini_vertical_compression"), &CameraAttributes::get_panini_vertical_compression);
+
+	ADD_GROUP("Panini Projection", "panini_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "panini_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_panini_enabled", "is_panini_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "panini_distance", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_panini_distance", "get_panini_distance");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "panini_vertical_compression", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_panini_vertical_compression", "get_panini_vertical_compression");
 
 	ADD_GROUP("Motion Blur", "motion_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_motion_blur_enabled", "is_motion_blur_enabled");

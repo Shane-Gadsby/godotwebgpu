@@ -1131,6 +1131,11 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.glare_texture = glare_chain;
 			}
 			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();
+			// Panini projection: the camera's field of view, for a single perspective view only.
+			if (!p_render_data->scene_data->cam_orthogonal && p_render_data->scene_data->view_count == 1) {
+				const Projection &cam_projection = p_render_data->scene_data->cam_projection;
+				camera_effects_context.projection_tan_half = Vector2(1.0 / cam_projection.columns[0][0], 1.0 / cam_projection.columns[1][1]);
+			}
 			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
 			tonemap.auto_white_balance_texture = auto_white_balance_state;
 		}

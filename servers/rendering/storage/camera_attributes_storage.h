@@ -85,6 +85,9 @@ struct CameraEffectsContext {
 	// Exposure automation: the renderer ran the auto white balance passes this frame, so the tonemapper can read their
 	// gains. Only Forward+ does (they need compute); elsewhere the manual white balance applies alone.
 	bool auto_white_balance = false;
+	// Panini projection: tangents of the half field of view per axis of a single-view perspective camera (1 / P[0][0],
+	// 1 / P[1][1]); zero for an orthogonal camera or XR, where the projection is not applied.
+	Vector2 projection_tan_half;
 };
 
 class RendererCameraAttributes {
@@ -96,6 +99,7 @@ public:
 		LENS_DIFFRACTION = 4,
 		LENS_VIGNETTING_PHYSICAL = 8,
 		LENS_VIGNETTING_PRACTICAL = 16,
+		LENS_PANINI = 32,
 	};
 
 	// Bits of CameraEffectsUBO::header[2]; camera_exposure_inc.glsl has the same values.
@@ -230,10 +234,16 @@ private:
 		// Longitudinal chromatic aberration (bokeh fringing), drawn by the DOF pass. Off by default.
 		bool longitudinal_ca_enabled = false;
 		float longitudinal_ca_strength = 1.0;
+
+		// Panini projection (panini_projection.h), applied by the lens resample. Off by default.
+		bool panini_enabled = false;
+		float panini_distance = 1.0;
+		float panini_vertical_compression = 1.0;
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
 	static void _fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint32_t _fill_effects_panini(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static void _fill_effects_glare(const CameraAttributes *p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static uint32_t _glare_requested_bits(const CameraAttributes *p_attributes, const CameraGlareEnvironment &p_environment);
 	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
@@ -469,6 +479,10 @@ public:
 
 	void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength);
 	LongitudinalCA camera_attributes_get_longitudinal_chromatic_aberration(RID p_camera_attributes);
+
+	/* Panini projection */
+
+	void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes, const CameraGlareEnvironment &p_environment = CameraGlareEnvironment()) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

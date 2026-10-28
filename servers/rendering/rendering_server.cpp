@@ -3266,6 +3266,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation", "camera_attributes", "enable", "strength", "radius"), &RenderingServer::camera_attributes_set_halation);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation_high_quality", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_halation_high_quality);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_longitudinal_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_longitudinal_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_panini", "camera_attributes", "enable", "distance", "vertical_compression"), &RenderingServer::camera_attributes_set_panini);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
