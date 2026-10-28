@@ -1,6 +1,6 @@
 # 55-glare-lod-calibration: exact glare blur sizes at every resolution
 
-State: ready-for-integration
+State: integrated (TASKS §4.69)
 Owner: worker-55
 Claimed: 2026-10-28 14:39
 Needs: build (editor + web template), gpu (native renders, one WebGPU check)

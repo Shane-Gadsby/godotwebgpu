@@ -3273,6 +3273,18 @@ rerun passed 59/59); a single fullscreen failure there is not an engine regressi
 GTAO's sky came out black on the web only (infinite background depth gave NaN denoiser weights). Keep linear depths
 finite (clamp to the storage format's range) and test background pixels with `!(x < limit)`, which is also true for NaN.
 
+90. **`textureLod` at a fractional lod is not a linear blend of two mips on every GPU** (2026-10-28, work task 55). On
+the RTX 4080 SUPER (Vulkan) with an anisotropic sampler, lod L + t weighs mip L+1 by exactly min(2t, 1). A blur that
+picks its size with a fractional lod is then wrong between lods, by up to 2x, and differently per GPU and browser. Read
+the two integer lods and `mix()` them yourself when the blend weight matters.
+
+91. **Glow's raster downsample does not keep levels at their UVs on odd sizes** (2026-10-28, work task 55): texel j
+reads coordinate 2j+1 of the level above, so level L's texel x holds lod 0's 2^L x. Glow's own upsample undoes it, but
+anything sampling the raster mip chain by UV (Mobile's glare chain) must read level L at uv * size(0) / (2^L size(L)),
+or coarse levels drift (a halo 61 px off its light at 2160p). Also: a blend of two blur levels is not a Gaussian, so a
+Gaussian fit against a source as wide as the blur reads several percent wide; test PSF-sized effects with sources well
+below the blur.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5172,6 +5184,23 @@ Compatibility keeps its own). With TAA the noise changes per frame (XeGTAO's des
 final image 0 px against the pre-merge editor; the reference numbers reproduce (gtao q2 full 0.0275 / 0.902, web
 0.0275 / 0.902); smoke OK with the five GTAO modules added to the interface references; **full Forward+ matrix 99/99
 at parity, unbaked and baked** (new arm `gtao`). §3 trap 89.
+
+### 4.69 Glare chain calibrated per lod (October 2026) *(work task 55; user answer `glare-lod-calibration`: Recalibrate)*
+
+Halation, the diffusion filter and the lens flare blur now have their modeled size at every resolution. Three faults,
+measured from HDR captures (§3 trap 80): (1) the chain's blur per lod is sigma² = A + B·4^L lod-0 texels² (Forward+
+half resolution A -1.233, B 5.181; full resolution -1.556, 5.182; Mobile -0.157, 0.440), not 2.68·2^L, which matched
+only at 720p; (2) the sampler's blend between mips is not linear (§3 trap 90), so `camera_glare_fetch()` reads the two
+integer lods and blends them with a closed-form weight whose best-fitting Gaussian has the requested sigma; (3)
+Mobile's raster levels drift on odd sizes (§3 trap 91), corrected in the glare fetch. CameraEffects `glare[5].z`
+(A/B) and `.w` (raster flag) taken, `glare[2].w` now the diffusion's base sigma; the glare block is full. Floors in the
+class docs: about 4 px standard, 1.9 high quality, 2 on Mobile. Existing glare looks change by up to ~10% in size (the
+user's choice). Worker: Forward+ halation within 3.2% at every height (720-2160) and radius, was -22% to +9%;
+diffusion within 3.9%; flare ghosts -9% to +8% (unexplained, was -26% to +28%); WebGPU halo sigma within 1-3% of native.
+Lead (merged tree): defaults 0 px against the pre-merge editor (24 captures, 3 renderers); Forward+ halation at 1080
+and 2160 within 2.6% from radius 1 up (centered and nine-point sources); Mobile nine-point within 3.4%, a single
+centered point up to +8% at radius 4 (sub-texel phase of the raster chain; was +15%); smoke OK apart from task 57's
+then-unregenerated bindings. Blended reads double the glare's texture reads (up to 48 per pixel for the flare), not timed.
 
 ## 5. References — retired docs
 
