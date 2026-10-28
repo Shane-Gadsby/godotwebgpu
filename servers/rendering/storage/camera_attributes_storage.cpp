@@ -835,8 +835,302 @@ void RendererCameraAttributes::_fill_effects_lens(const CameraAttributes &p_attr
 	r_ubo.header[0] = bits;
 }
 
-// Lens flare, veiling glare and diffusion filters (task 35) fill glare[] and header[1] here.
-void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+/* Aperture, bokeh, tilt-shift, starburst and halation */
+
+void RendererCameraAttributes::camera_attributes_set_aperture(RID p_camera_attributes, bool p_enable, int p_blade_count, float p_blade_curvature, float p_rotation) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->aperture_enabled = p_enable;
+	// 0 is a round opening; fewer than 3 blades cannot close a polygon.
+	cam_attributes->aperture_blade_count = p_blade_count < 3 ? 0 : MIN(p_blade_count, 32);
+	cam_attributes->aperture_blade_curvature = CLAMP(p_blade_curvature, 0.0f, 1.0f);
+	cam_attributes->aperture_rotation = p_rotation;
+}
+
+void RendererCameraAttributes::camera_attributes_set_cats_eye(RID p_camera_attributes, bool p_enable, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->cats_eye_enabled = p_enable;
+	// Past 2 the barrel's circle can leave the aperture's center, and the bokeh is no longer star-shaped around it.
+	cam_attributes->cats_eye_strength = CLAMP(p_strength, 0.0f, 2.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->tilt_shift_enabled = p_enable;
+	cam_attributes->tilt_shift_tilt = CLAMP(p_tilt, -45.0f, 45.0f);
+	cam_attributes->tilt_shift_axis = p_axis;
+}
+
+void RendererCameraAttributes::camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->starburst_enabled = p_enable;
+	cam_attributes->starburst_strength = MAX(p_strength, 0.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->halation_enabled = p_enable;
+	cam_attributes->halation_strength = CLAMP(p_strength, 0.0f, 12.0f);
+	cam_attributes->halation_radius = MAX(p_radius, 0.01f);
+}
+
+// The frame on the sensor in millimeters, desqueezed horizontally, for an image p_aspect wide per unit of height (as in
+// _fill_effects_lens()). Without a physical lens: a 24 mm tall frame, the full-frame height.
+static void _camera_frame_mm(bool p_physical, const Vector2 &p_sensor_size, double p_squeeze, double p_aspect, double &r_frame_w, double &r_frame_h) {
+	if (!p_physical) {
+		r_frame_h = 24.0;
+		r_frame_w = p_aspect * r_frame_h;
+	} else if (p_squeeze != 1.0) {
+		r_frame_w = p_squeeze * p_sensor_size.x;
+		r_frame_h = r_frame_w / p_aspect;
+	} else {
+		r_frame_h = p_sensor_size.y;
+		r_frame_w = p_aspect * r_frame_h;
+	}
+}
+
+bool RendererCameraAttributes::camera_attributes_uses_tilt_shift(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	return cam_attributes && cam_attributes->tilt_shift_enabled && cam_attributes->tilt_shift_tilt != 0.0f && cam_attributes->lens_focal_length > 0.0f;
+}
+
+// The bokeh is the image of the aperture, so the DOF draws it with the aperture's shape:
+// - Blades: a regular polygon with blade_count corners, its edges bowed out toward the round opening by the blade
+//   curvature (the shader mixes the polygon's radius with the circle's).
+// - Anamorphic squeeze: an anamorphic lens compresses the scene horizontally and the image is stretched back by the
+//   squeeze, but the aperture is not squeezed; defocused points come out as ovals taller than wide by the squeeze.
+// - Cat's eye: off axis the lens barrel clips the aperture, so the bokeh is the overlap of two circles (the optical
+//   vignetting of _fill_effects_lens(): pupil radius max f / N of the barrel's, offset by half its radius at the
+//   sensor's corner wide open; Ray, Applied Photographic Optics, 3rd ed., section 6.3). Relative to the aperture the
+//   barrel's circle has radius N / max f and is offset by 0.5 N / max f per sensor-corner unit: an elongated bokeh at
+//   the corners wide open, round again two stops down. Without a physical lens: a lens wide open.
+// - Near and far bokeh are point reflections of each other (the light cone of a point in front of the focus plane has
+//   not crossed yet when it reaches the sensor), which matters for odd blade counts.
+RendererCameraAttributes::BokehShape RendererCameraAttributes::camera_attributes_get_bokeh_shape(RID p_camera_attributes, float p_aspect) {
+	BokehShape shape;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return shape;
+	}
+	const bool physical = cam_attributes->lens_focal_length > 0.0f;
+	const double squeeze = physical ? cam_attributes->lens_anamorphic_squeeze : 1.0;
+	const bool cats_eye = cam_attributes->cats_eye_enabled && cam_attributes->cats_eye_strength > 0.0f;
+	shape.tilt = camera_attributes_uses_tilt_shift(p_camera_attributes);
+	shape.custom = cam_attributes->aperture_enabled || cats_eye || squeeze != 1.0;
+	if (!shape.custom && !shape.tilt) {
+		return shape;
+	}
+
+	if (cam_attributes->aperture_enabled) {
+		shape.blade_count = cam_attributes->aperture_blade_count;
+		shape.blade_curvature = cam_attributes->aperture_blade_curvature;
+		shape.rotation = Math::deg_to_rad(cam_attributes->aperture_rotation);
+	} else {
+		// The project's shape, drawn the same way: the box is a square standing on its side, the hexagon a hexagon.
+		switch (dof_blur_bokeh_shape) {
+			case RSE::DOF_BOKEH_BOX:
+				shape.blade_count = 4;
+				shape.rotation = Math::PI / 4.0;
+				break;
+			case RSE::DOF_BOKEH_HEXAGON:
+				shape.blade_count = 6;
+				break;
+			default:
+				shape.blade_count = 0;
+				break;
+		}
+	}
+	shape.squeeze = squeeze;
+
+	const double aspect = MAX(double(p_aspect), 0.01);
+	double frame_w, frame_h;
+	_camera_frame_mm(physical, cam_attributes->sensor_size, squeeze, aspect, frame_w, frame_h);
+	const double frame_radius = 0.5 * Math::sqrt(frame_w * frame_w + frame_h * frame_h);
+	shape.frame_half_extent = Vector2(0.5 * frame_w / frame_radius, 0.5 * frame_h / frame_radius);
+	if (cats_eye) {
+		double stops_ratio = 1.0; // N / max f.
+		double offset_per_unit = 0.5; // Pupil offset at |q| = 1, in barrel radii.
+		if (physical) {
+			const double sensor_w = cam_attributes->sensor_size.x;
+			const double sensor_h = cam_attributes->sensor_size.y;
+			const double sensor_radius = 0.5 * Math::sqrt(squeeze * sensor_w * squeeze * sensor_w + sensor_h * sensor_h);
+			stops_ratio = cam_attributes->lens_f_number / MIN(cam_attributes->lens_max_f_number, cam_attributes->lens_f_number);
+			offset_per_unit = 0.5 * frame_radius / sensor_radius;
+		}
+		shape.cats_eye_radius = stops_ratio;
+		shape.cats_eye_offset = cam_attributes->cats_eye_strength * offset_per_unit * stops_ratio;
+	}
+
+	if (shape.tilt) {
+		// Scheimpflug: a lens tilted by theta about an axis focuses on a plane through the hinge line, which lies at
+		// J = f / sin(theta) from the lens on the side the lens tilts toward (Merklinger, "Focusing the View Camera",
+		// 1993, the hinge rule), and through the point the lens focuses on along its axis. With the tilt axis a and b
+		// its perpendicular in the frame (both in view space, the camera looking down -Z), the plane holds a and the
+		// line from the hinge (-J b) to (0, 0, -s), so its normal is a x (J b - s z) = J z + s b, i.e. proportional to
+		// s sin(theta) b + f z. Positive tilt brings the bottom of the frame closer (the ground-plane focus of a
+		// landscape lens); negative tilt is the "reverse tilt" that fakes a miniature.
+		const double theta = Math::deg_to_rad(double(cam_attributes->tilt_shift_tilt));
+		const double axis = Math::deg_to_rad(double(cam_attributes->tilt_shift_axis));
+		const double f = cam_attributes->lens_focal_length / 1000.0;
+		const double s = MAX(double(cam_attributes->lens_focus_distance), f + 0.001);
+		const Vector3 b = Vector3(-Math::sin(axis), Math::cos(axis), 0.0);
+		shape.focus_plane_normal = (b * (s * Math::sin(theta)) + Vector3(0.0, 0.0, f)).normalized();
+		shape.focal_length = f;
+	}
+	return shape;
+}
+
+// The glare effects the attributes and the Environment ask for; the camera's need the attributes, the Environment's
+// run without them.
+uint32_t RendererCameraAttributes::_glare_requested_bits(const CameraAttributes *p_attributes, const CameraGlareEnvironment &p_environment) {
+	uint32_t bits = 0;
+	if (p_environment.lens_flare_enabled && (p_environment.lens_flare_intensity > 0.0f || p_environment.lens_flare_halo_intensity > 0.0f) && p_environment.lens_flare_ghost_count > 0) {
+		bits |= GLARE_LENS_FLARE;
+	}
+	if (p_environment.veiling_glare_enabled && p_environment.veiling_glare_strength > 0.0f) {
+		bits |= GLARE_VEILING;
+	}
+	if (p_environment.diffusion_filter_enabled && p_environment.diffusion_filter_strength > 0.0f) {
+		bits |= GLARE_DIFFUSION | (p_environment.diffusion_filter_black ? GLARE_DIFFUSION_BLACK : 0);
+	}
+	if (p_attributes) {
+		if (p_attributes->starburst_enabled && p_attributes->starburst_strength > 0.0f && p_attributes->aperture_blade_count >= 3 && p_attributes->aperture_blade_curvature < 1.0f) {
+			bits |= GLARE_STARBURST;
+		}
+		if (p_attributes->halation_enabled && p_attributes->halation_strength > 0.0f) {
+			bits |= GLARE_HALATION;
+		}
+	}
+	return bits;
+}
+
+bool RendererCameraAttributes::camera_attributes_uses_glare(RID p_camera_attributes, const CameraGlareEnvironment &p_environment) {
+	return _glare_requested_bits(camera_attributes_owner.get_or_null(p_camera_attributes), p_environment) != 0;
+}
+
+// The glare chain's lod 0 is a Gaussian blur of the half-resolution scene; each lod halves the resolution and blurs
+// again. Its blur, measured on a single bright texel (tools/measure_chain.gd in the task's results), is sigma =
+// GLARE_CHAIN_SIGMA * 2^lod texels of lod 0 for lod >= 1; lod 0 is sharper. Effects ask for a blur in frame heights and
+// get the lod that gives it.
+static constexpr double GLARE_CHAIN_SIGMA = 1.0;
+
+static double _glare_lod_for_sigma(double p_sigma_frame, double p_chain_height, double p_max_lod) {
+	const double sigma_texels = p_sigma_frame * p_chain_height;
+	return CLAMP(Math::log2(MAX(sigma_texels / GLARE_CHAIN_SIGMA, 1e-6)), 0.0, p_max_lod);
+}
+
+// Glare: light that leaves the path an ideal lens would give it. Every effect is a point spread function convolved
+// with the scene-linear image (the glare chain, a mip chain of the whole frame, unthresholded), so dim light makes dim
+// glare and only bright sources show it, as with a real lens. The tonemap pass adds it before vignetting (it happens
+// in the lens or a filter in front of it), except halation (in the film, after the lens). Sizes are in frame heights,
+// so they look the same at every resolution. Where a value is a look choice, the comment says so.
+void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	uint32_t bits = _glare_requested_bits(p_attributes, p_context.glare_environment);
+	const Size2i size = p_context.source_size.x > 0 && p_context.source_size.y > 0 ? p_context.source_size : p_context.output_size;
+	if (bits == 0 || p_context.glare_chain_size.x <= 0 || p_context.glare_chain_size.y <= 0 || p_context.glare_chain_mipmaps <= 0 || size.x <= 0 || size.y <= 0) {
+		return;
+	}
+	const CameraGlareEnvironment &env = p_context.glare_environment;
+	const double aspect = double(size.x) / double(size.y);
+	const double chain_h = p_context.glare_chain_size.y;
+	const double max_lod = p_context.glare_chain_mipmaps - 1;
+	const bool physical = p_attributes && p_attributes->lens_focal_length > 0.0f;
+	const double squeeze = physical ? p_attributes->lens_anamorphic_squeeze : 1.0;
+
+	r_ubo.glare[1][1] = aspect;
+	r_ubo.glare[1][2] = 1.0 / p_context.glare_chain_size.x;
+	r_ubo.glare[1][3] = 1.0 / p_context.glare_chain_size.y;
+	r_ubo.glare[2][2] = max_lod;
+	r_ubo.glare[5][0] = chain_h / GLARE_CHAIN_SIGMA; // lod = log2(sigma in frame heights * this).
+
+	if (bits & GLARE_LENS_FLARE) {
+		// Ghosts: light reflected twice between lens surfaces lands mirrored through the frame's center, scaled and
+		// defocused (the screen-space method of Kawase, "Practical Implementation of High Dynamic Range Rendering",
+		// GDC 2004, and Chapman, "Pseudo Lens Flare", 2013). Each ghost carries the product of two surface
+		// reflectances: about 4% squared (0.16%) for uncoated glass and 1.3% squared (0.017%) for a single MgF2 layer
+		// (Fresnel at n = 1.5 and 1.38; Kingslake, Lens Design Fundamentals, ch. 2). Intensity 1 is 0.1% per ghost,
+		// between the two: a look choice for an older lens, since modern multicoating would hide the flare of anything
+		// short of the sun. The halo (a ring centered on the frame, from the reflection off a curved front element) is
+		// the same order. Only light above the threshold, in the exposed image where 1 is display white, makes flare:
+		// a convenience, as the dim parts of the frame would add only a faint veil.
+		r_ubo.glare[0][0] = 0.001 * env.lens_flare_intensity;
+		r_ubo.glare[0][1] = MAX(env.lens_flare_threshold, 0.0f);
+		r_ubo.glare[0][2] = CLAMP(env.lens_flare_ghost_count, 1, 8);
+		r_ubo.glare[0][3] = 0.001 * env.lens_flare_halo_intensity;
+		// Coatings and glass dispersion give each ghost a slightly different size per color; 2% red/blue at 1 (look).
+		r_ubo.glare[1][0] = 0.02 * env.lens_flare_chromatic_aberration;
+	}
+	if (bits & GLARE_VEILING) {
+		// Veiling glare: light scattered by the glass, coatings and barrel spread over the whole frame, measured by the
+		// veiling glare index (ISO 9358:1994); 1-3% is typical of modern camera lenses (Ray, Applied Photographic
+		// Optics, section 16.4). Strength 1 is 2% of the frame's mean light, added everywhere, taken from the image.
+		r_ubo.glare[2][0] = MIN(0.02 * env.veiling_glare_strength, 0.5);
+	}
+	if (bits & GLARE_DIFFUSION) {
+		// Diffusion filter (Tiffen Pro-Mist and Black Pro-Mist): particles in the glass scatter a fraction of all the
+		// light into a wide soft halo, which spreads highlights and lifts the shadows near them. The point spread
+		// function is (1 - s) delta + s G, energy-preserving; strength is the filter's grade (1/8, 1/4, 1/2, 1, 2) and
+		// s = 0.15 per grade, with G a sum of blurs from 1% to 8% of the frame height. The black variant scatters
+		// half as much into a tighter halo (0.5% to 2%): its black particles absorb the wide scatter, which is what
+		// keeps its shadows dark. Both are look choices from the makers' sample frames, not measurements.
+		const bool black = bits & GLARE_DIFFUSION_BLACK;
+		r_ubo.glare[2][1] = MIN((black ? 0.075 : 0.15) * env.diffusion_filter_strength, 0.75);
+		r_ubo.glare[2][3] = _glare_lod_for_sigma(black ? 0.005 : 0.01, chain_h, max_lod);
+	}
+
+	// The lens the camera's effects derive from. Without one: a 50 mm lens at f/8 on a 24 mm tall frame (look choice).
+	double frame_w, frame_h;
+	_camera_frame_mm(physical, p_attributes ? p_attributes->sensor_size : Vector2(36.0, 24.0), squeeze, aspect, frame_w, frame_h);
+	const double focal = physical ? (p_attributes->lens_fov_focal_length > 0.0f ? p_attributes->lens_fov_focal_length : p_attributes->lens_focal_length) : 50.0;
+	const double f_number = physical ? p_attributes->lens_f_number : 8.0;
+
+	if (bits & GLARE_STARBURST) {
+		// Diffraction spikes: each straight edge of the aperture diffracts light perpendicular to itself. For an
+		// aperture of area A with an edge of length l, the far field along the edge's normal is l / (2 pi nu) in
+		// amplitude at spatial frequency nu, and integrating the point spread function across the spike gives a line
+		// density of lambda f l / (4 pi^2 A x^2) of the source's light per unit length at distance x on the sensor (Born
+		// & Wolf, Principles of Optics, 8.3 and 8.5; Goodman, Introduction to Fourier Optics, 4.2). A smaller aperture
+		// (larger N) makes it stronger, as photographers know: lambda f l / A grows with N. Opposite edges of an even
+		// blade count share a spike (twice the light, N spikes); an odd count gives each edge its own (2 N spikes).
+		// lambda = 550 nm. The aperture is a regular polygon with its corners on the circle of diameter f / N; curved
+		// blades shorten the straight part and weaken the spikes (1 - curvature, look choice). The spikes start two
+		// glare chain texels out (the core is the image itself) and are cut at half the frame height.
+		const int blades = p_attributes->aperture_blade_count;
+		const double radius = 0.5 * focal / f_number;
+		const double edge = 2.0 * radius * Math::sin(Math::PI / blades);
+		const double area = 0.5 * blades * radius * radius * Math::sin(2.0 * Math::PI / blades);
+		const double edges_per_spike = (blades % 2 == 0) ? 2.0 : 1.0;
+		const double density_mm = 550e-6 * focal * edge / (4.0 * Math::PI * Math::PI * area) * edges_per_spike;
+		r_ubo.glare[3][0] = density_mm / frame_h * p_attributes->starburst_strength * (1.0 - p_attributes->aperture_blade_curvature);
+		r_ubo.glare[3][1] = 2.0 / chain_h;
+		// The edges' normals: the corners sit at rotation + k 2 pi / N, so the edges' normals at rotation + (k + 1/2)
+		// 2 pi / N; with an even count every other one is the same line.
+		r_ubo.glare[3][2] = Math::deg_to_rad(double(p_attributes->aperture_rotation)) + Math::PI / blades;
+		r_ubo.glare[3][3] = 2.0 * Math::PI / blades;
+		r_ubo.glare[4][0] = (blades % 2 == 0) ? blades / 2 : blades;
+		r_ubo.glare[4][1] = squeeze;
+		r_ubo.glare[5][1] = 0.5;
+	}
+	if (bits & GLARE_HALATION) {
+		// Halation: light that passes through the emulsion reflects off the back of the film base and exposes the
+		// emulsion again around the highlight. Light scattered past the critical angle (41.8 degrees at n = 1.5) is
+		// totally reflected, so the halo reaches 2 t tan(41.8) = 0.22 mm for a 0.125 mm base (Kodak, "The Book of Film
+		// Care"; Hunt, The Reproduction of Colour, 6th ed., 14.6); modeled as a Gaussian of half that radius, so a
+		// larger format has a tighter halo relative to its frame. The red-sensitive layer lies next to the base and the
+		// yellow filter layer keeps blue from reaching it, so the halo is red with some green (the shader's weights).
+		// Strength 1 sends 8% of the light into the halo: Fresnel's 4% at the base's back surface plus the totally
+		// reflected part (look choice; film with its anti-halation backing removed). The light is moved, not added, so
+		// the frame's overall color does not change.
+		const double sigma_mm = 0.112 * p_attributes->halation_radius;
+		r_ubo.glare[4][2] = MIN(0.08 * p_attributes->halation_strength, 0.95);
+		r_ubo.glare[4][3] = _glare_lod_for_sigma(sigma_mm / frame_h, chain_h, max_lod);
+	}
+
+	r_ubo.header[1] = bits;
 }
 
 // Exposure automation (task 36) fills exposure[] and header[2] here.
@@ -846,11 +1140,12 @@ void RendererCameraAttributes::_fill_effects_exposure(const CameraAttributes &p_
 bool RendererCameraAttributes::camera_attributes_fill_effects_buffer(RID p_camera_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
 	r_ubo = CameraEffectsUBO();
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	// The Environment's glare runs without camera attributes.
+	_fill_effects_glare(cam_attributes, p_context, r_ubo);
 	if (!cam_attributes) {
-		return false;
+		return r_ubo.header[1] != 0;
 	}
 	_fill_effects_lens(*cam_attributes, p_context, r_ubo);
-	_fill_effects_glare(*cam_attributes, p_context, r_ubo);
 	_fill_effects_exposure(*cam_attributes, p_context, r_ubo);
 	if ((r_ubo.header[0] | r_ubo.header[1] | r_ubo.header[2] | r_ubo.header[3]) == 0) {
 		r_ubo = CameraEffectsUBO(); // The physical lens fills some regions regardless; nothing reads them.

@@ -444,6 +444,24 @@ RID RendererSceneRender::environment_get_glow_map(RID p_env) const {
 	return environment_storage.environment_get_glow_map(p_env);
 }
 
+// Glare
+
+void RendererSceneRender::environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) {
+	environment_storage.environment_set_lens_flare(p_env, p_enable, p_intensity, p_threshold, p_ghost_count, p_halo_intensity, p_chromatic_aberration);
+}
+
+void RendererSceneRender::environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) {
+	environment_storage.environment_set_veiling_glare(p_env, p_enable, p_strength);
+}
+
+void RendererSceneRender::environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) {
+	environment_storage.environment_set_diffusion_filter(p_env, p_enable, p_strength, p_black);
+}
+
+CameraGlareEnvironment RendererSceneRender::environment_get_camera_glare(RID p_env) const {
+	return environment_storage.environment_get_camera_glare(p_env);
+}
+
 // SSR
 
 void RendererSceneRender::environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance) {

@@ -72,9 +72,6 @@
 		<member name="frustum_near" type="float" setter="set_near" getter="get_near" default="0.05">
 			Override value for [member Camera3D.near]. Used internally when calculating depth of field. When attached to a [Camera3D] as its [member Camera3D.attributes], it will override the [member Camera3D.near] property.
 		</member>
-		<member name="motion_blur_use_shutter_speed" type="bool" setter="set_motion_blur_use_shutter_speed" getter="is_motion_blur_using_shutter_speed" default="true">
-			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.motion_blur_shutter_angle] sets the exposure time as a fraction of each frame instead.
-		</member>
 		<member name="lens_anamorphic_squeeze" type="float" setter="set_lens_anamorphic_squeeze" getter="get_lens_anamorphic_squeeze" default="1.0">
 			The horizontal squeeze of an anamorphic lens (1.33, 1.5, 1.8 and 2.0 are common; 1.0 is a spherical lens). The lens fits a field of view this many times wider onto the sensor, so the horizontal field of view widens by the squeeze and [Camera3D] keeps it, instead of the vertical one, when the squeeze is above 1.0 (see [method is_fov_horizontal]). Automatic distortion and diffraction take the squeeze into account.
 		</member>
@@ -88,11 +85,24 @@
 			The light the lens's glass loses, in stops: the difference between its T-stop and its f-stop ([code]T = N * 2^(loss / 2)[/code]). Darkens the exposure only; depth of field and diffraction keep the f-number. Cinema lenses are marked in T-stops; a typical lens loses 0.1-0.3 stops.
 			[b]Note:[/b] Only has an effect when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
 		</member>
+		<member name="motion_blur_use_shutter_speed" type="bool" setter="set_motion_blur_use_shutter_speed" getter="is_motion_blur_using_shutter_speed" default="true">
+			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.motion_blur_shutter_angle] sets the exposure time as a fraction of each frame instead.
+		</member>
 		<member name="sensor_format" type="int" setter="set_sensor_format" getter="get_sensor_format" enum="CameraAttributesPhysical.SensorFormat" default="0">
 			The size of the sensor or film frame, which sets the field of view of [member frustum_focal_length], the circle of confusion of depth of field, the size of film grain ([member CameraAttributes.grain_enabled]) and the lens effects that depend on the frame. Picking a format sets [member sensor_size].
 		</member>
 		<member name="sensor_size" type="Vector2" setter="set_sensor_size" getter="get_sensor_size" default="Vector2(36, 24)">
 			The width and height of the sensor in millimeters. Editable when [member sensor_format] is [constant SENSOR_FORMAT_CUSTOM]; setting another size makes the format custom.
+		</member>
+		<member name="tilt_shift_axis" type="float" setter="set_tilt_shift_axis" getter="get_tilt_shift_axis" default="0.0">
+			The direction of the tilt's axis in the frame, in degrees counterclockwise: [code]0.0[/code] tilts about a horizontal axis (a horizontal band of focus), [code]90.0[/code] about a vertical one.
+		</member>
+		<member name="tilt_shift_enabled" type="bool" setter="set_tilt_shift_enabled" getter="is_tilt_shift_enabled" default="false">
+			If [code]true[/code], the lens is tilted against the sensor ([member tilt_shift_tilt]), so the plane of sharp focus tilts with it (the Scheimpflug principle). Depth of field then measures every pixel's defocus from that plane: a forward tilt brings a whole receding ground plane into focus, a reverse tilt ([member tilt_shift_tilt] negative) leaves a thin band sharp and makes a real scene look like a miniature. The plane's angle follows from the tilt, the focal length and [member frustum_focus_distance] (the hinge rule), as on a tilt-shift lens. Depth of field runs even where the untilted lens would be sharp everywhere.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field. An orthogonal [Camera3D] ignores it.
+		</member>
+		<member name="tilt_shift_tilt" type="float" setter="set_tilt_shift_tilt" getter="get_tilt_shift_tilt" default="0.0">
+			The lens's tilt in degrees. Positive tilts the plane of focus so that the bottom of the frame is focused nearer than the top (along a ground plane); negative does the opposite. Tilt-shift lenses tilt up to about 8 to 15 degrees; small tilts already tilt the plane of focus steeply, more so with longer focus distances.
 		</member>
 	</members>
 	<constants>

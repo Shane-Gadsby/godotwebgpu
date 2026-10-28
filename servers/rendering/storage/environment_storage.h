@@ -32,6 +32,7 @@
 
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
+#include "servers/rendering/storage/camera_attributes_storage.h"
 
 class RendererEnvironmentStorage {
 public:
@@ -134,6 +135,9 @@ private:
 		float glow_hdr_bleed_scale = 2.0;
 		float glow_map_strength = 0.0f; // 1.0f in GLES3 ??
 		RID glow_map;
+
+		// Glare (lens flare, veiling glare, diffusion filter): applied by the tonemap pass from the glare chain.
+		CameraGlareEnvironment glare;
 
 		// SSR
 		bool ssr_enabled = false;
@@ -282,6 +286,12 @@ public:
 	float environment_get_glow_hdr_bleed_scale(RID p_env) const;
 	float environment_get_glow_map_strength(RID p_env) const;
 	RID environment_get_glow_map(RID p_env) const;
+
+	// Glare
+	void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration);
+	void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength);
+	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
+	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
 
 	// SSR
 	void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance);

@@ -199,6 +199,12 @@ public:
 	float environment_get_glow_map_strength(RID p_env) const;
 	RID environment_get_glow_map(RID p_env) const;
 
+	// Glare
+	void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration);
+	void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength);
+	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
+	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
+
 	virtual void environment_glow_set_use_bicubic_upscale(bool p_enable) = 0;
 
 	// SSR

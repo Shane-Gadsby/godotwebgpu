@@ -679,6 +679,10 @@ public:
 
 	virtual void environment_glow_set_use_bicubic_upscale(bool p_enable) = 0;
 
+	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
+	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
+	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
+
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
 	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) = 0;
@@ -745,6 +749,12 @@ public:
 	virtual void camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop) = 0;
 	virtual void camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
 	virtual void camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+
+	virtual void camera_attributes_set_aperture(RID p_camera_attributes, bool p_enable, int p_blade_count, float p_blade_curvature, float p_rotation) = 0;
+	virtual void camera_attributes_set_cats_eye(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis) = 0;
+	virtual void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius) = 0;
 
 	/* SCENARIO API */
 

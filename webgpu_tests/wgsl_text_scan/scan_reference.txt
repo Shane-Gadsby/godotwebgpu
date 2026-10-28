@@ -34,969 +34,974 @@ F 31 OVERRIDE id=7 override_kw=1 used=1
 F 32 OVERRIDE id=8 override_kw=1 used=1
 F 33 OVERRIDE id=9 override_kw=1 used=1
 F 34 PAIR 0/1 0/0
-F 35 PAIR 0/20 1/20
-F 36 PAIR 0/20 1/22
-F 37 PAIR 0/22 1/20
-F 38 PAIR 0/22 1/22
-F 39 PAIR 0/22 1/24
-F 40 PAIR 0/3 0/2
-F 41 PAIR 0/30 1/28
-F 42 PAIR 0/32 1/24
-F 43 PAIR 0/32 1/28
-F 44 PAIR 0/34 1/26
-F 45 PAIR 0/36 1/26
-F 46 PAIR 0/38 1/26
-F 47 PAIR 0/4 0/6
-F 48 PAIR 0/5 0/4
-F 49 PAIR 0/6 3/8
-F 50 PAIR 0/7 0/6
-F 51 PAIR 0/8 0/10
-F 52 PAIR 0/9 0/8
-F 53 PAIR 1/0 0/2
-F 54 PAIR 1/1 1/0
-F 55 PAIR 1/10 1/24
-F 56 PAIR 1/12 0/2
-F 57 PAIR 1/12 1/28
-F 58 PAIR 1/14 1/26
-F 59 PAIR 1/16 0/30
-F 60 PAIR 1/2 0/2
-F 61 PAIR 1/20 0/2
-F 62 PAIR 1/24 0/2
-F 63 PAIR 1/3 1/2
-F 64 PAIR 1/4 0/28
-F 65 PAIR 1/512 1/26
-F 66 PAIR 1/513 1/26
-F 67 PAIR 1/514 1/26
-F 68 PAIR 1/515 1/26
-F 69 PAIR 1/516 1/26
-F 70 PAIR 1/517 1/26
-F 71 PAIR 1/518 1/26
-F 72 PAIR 1/519 1/26
-F 73 PAIR 1/52 1/26
-F 74 PAIR 1/520 1/26
-F 75 PAIR 1/521 1/26
-F 76 PAIR 1/522 1/26
-F 77 PAIR 1/523 1/26
-F 78 PAIR 1/524 1/26
-F 79 PAIR 1/525 1/26
-F 80 PAIR 1/526 1/26
-F 81 PAIR 1/528 0/30
-F 82 PAIR 1/529 0/30
-F 83 PAIR 1/530 0/30
-F 84 PAIR 1/531 0/30
-F 85 PAIR 1/532 0/30
-F 86 PAIR 1/533 0/30
-F 87 PAIR 1/534 0/30
-F 88 PAIR 1/54 1/26
-F 89 PAIR 1/56 1/26
-F 90 PAIR 1/58 1/26
-F 91 PAIR 1/6 0/28
-F 92 PAIR 1/6 0/30
-F 93 PAIR 1/60 1/26
-F 94 PAIR 1/62 1/26
-F 95 PAIR 1/66 1/26
-F 96 PAIR 1/68 1/26
-F 97 PAIR 1/70 1/30
-F 98 PAIR 1/72 1/24
-F 99 PAIR 1/74 1/26
-F 100 PAIR 1/8 0/2
-F 101 PAIR 1/8 0/30
-F 102 PAIR 1/8 1/26
-F 103 PAIR 2/0 0/8
-F 104 PAIR 2/1 2/0
-F 105 PAIR 2/3 2/2
-F 106 PAIR 2/400 0/8
-F 107 PAIR 2/401 0/8
-F 108 PAIR 2/402 0/8
-F 109 PAIR 2/403 0/8
-F 110 PAIR 2/404 0/8
-F 111 PAIR 2/405 0/8
-F 112 PAIR 3/0 0/10
-F 113 PAIR 3/1 3/0
-F 114 PAIR 3/2 3/8
-F 115 PAIR 3/3 3/2
-F 116 PAIR 3/4 3/8
-F 117 PAIR 3/6 3/8
-F 118 ROCONV 0/0 fmt=r32float
-F 119 ROCONV 0/0 fmt=rgba16float
-F 120 ROCONV 0/2 fmt=rgba8unorm
-F 121 ROCONV 0/4 fmt=rg16float
-F 122 ROCONV 0/6 fmt=rg16float
-F 123 ROCONV 2/0 fmt=r8unorm
-F 124 RWSPLIT 0/0 shadow=1 fmt=rgba16float
-F 125 RWSPLIT 1/14 shadow=15 fmt=r32float
-F 126 RWSPLIT 1/16 shadow=17 fmt=r32float
-F 127 RWSPLIT 1/18 shadow=19 fmt=rg11b10ufloat
-F 128 RWSPLIT 1/2 shadow=3 fmt=r8unorm
-F 129 RWSPLIT 1/20 shadow=21 fmt=rg11b10ufloat
-F 130 RWSPLIT 1/28 shadow=29 fmt=rg16float
-F 131 RWSPLIT 1/32 shadow=33 fmt=r8unorm
-F 132 RWSPLIT 1/34 shadow=35 fmt=rgba8unorm
-F 133 RWSPLIT 1/4 shadow=5 fmt=r16float
-F 134 RWSPLIT 1/4 shadow=5 fmt=r32float
-F 135 RWSPLIT 1/54 shadow=55 fmt=r32uint
-F 136 RWSPLIT 1/6 shadow=7 fmt=r16float
-F 137 RWSPLIT 1/8 shadow=9 fmt=rg32float
-F 138 RWSPLIT 2/2 shadow=3 fmt=r8unorm
-F 139 VAR 0/0 sampler
-F 140 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 141 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
-F 142 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 143 VAR 0/0 tex dim=2 depth=0 ms=0 sample=1
-F 144 VAR 0/0 tex dim=2 depth=1 ms=1 sample=0
-F 145 VAR 0/1 tex dim=2 depth=0 ms=0 sample=1
-F 146 VAR 0/1 tex dim=2 depth=1 ms=0 sample=0
-F 147 VAR 0/1 tex dim=3 depth=0 ms=0 sample=1
-F 148 VAR 0/1 tex dim=5 depth=0 ms=0 sample=1
-F 149 VAR 0/1 tex dim=5 depth=1 ms=0 sample=0
-F 150 VAR 0/10 sampler
-F 151 VAR 0/10 ssbo_ro
-F 152 VAR 0/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 153 VAR 0/10 uniform
-F 154 VAR 0/11 tex dim=2 depth=0 ms=0 sample=1
-F 155 VAR 0/12 sampler
-F 156 VAR 0/12 ssbo_ro
-F 157 VAR 0/12 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 158 VAR 0/14 uniform
-F 159 VAR 0/16 sampler
-F 160 VAR 0/16 ssbo_ro
-F 161 VAR 0/18 ssbo_ro
-F 162 VAR 0/18 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 163 VAR 0/18 uniform
-F 164 VAR 0/2 sampler
-F 165 VAR 0/2 ssbo_ro
-F 166 VAR 0/2 ssbo_rw
-F 167 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 168 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
-F 169 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 170 VAR 0/2 tex dim=2 depth=0 ms=0 sample=1
-F 171 VAR 0/2 tex dim=2 depth=0 ms=1 sample=1
-F 172 VAR 0/2 uniform
-F 173 VAR 0/20 ssbo_ro
-F 174 VAR 0/20 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 175 VAR 0/20 tex dim=2 depth=0 ms=0 sample=1
-F 176 VAR 0/200 tex dim=4 depth=0 ms=0 sample=1
-F 177 VAR 0/202 tex dim=4 depth=0 ms=0 sample=1
-F 178 VAR 0/204 tex dim=4 depth=0 ms=0 sample=1
-F 179 VAR 0/206 tex dim=4 depth=0 ms=0 sample=1
-F 180 VAR 0/208 tex dim=4 depth=0 ms=0 sample=1
-F 181 VAR 0/210 tex dim=4 depth=0 ms=0 sample=1
-F 182 VAR 0/212 tex dim=4 depth=0 ms=0 sample=1
-F 183 VAR 0/214 tex dim=4 depth=0 ms=0 sample=1
-F 184 VAR 0/22 tex dim=2 depth=0 ms=0 sample=1
-F 185 VAR 0/220 tex dim=4 depth=0 ms=0 sample=1
-F 186 VAR 0/222 tex dim=4 depth=0 ms=0 sample=1
-F 187 VAR 0/224 tex dim=4 depth=0 ms=0 sample=1
-F 188 VAR 0/226 tex dim=4 depth=0 ms=0 sample=1
-F 189 VAR 0/228 tex dim=4 depth=0 ms=0 sample=1
-F 190 VAR 0/230 tex dim=4 depth=0 ms=0 sample=1
-F 191 VAR 0/232 tex dim=4 depth=0 ms=0 sample=1
-F 192 VAR 0/234 tex dim=4 depth=0 ms=0 sample=1
-F 193 VAR 0/24 ssbo_ro
-F 194 VAR 0/24 tex dim=2 depth=1 ms=0 sample=0
-F 195 VAR 0/26 tex dim=2 depth=0 ms=0 sample=1
-F 196 VAR 0/260 tex dim=4 depth=0 ms=0 sample=1
-F 197 VAR 0/262 tex dim=4 depth=0 ms=0 sample=1
-F 198 VAR 0/264 tex dim=4 depth=0 ms=0 sample=1
-F 199 VAR 0/266 tex dim=4 depth=0 ms=0 sample=1
-F 200 VAR 0/268 tex dim=4 depth=0 ms=0 sample=1
-F 201 VAR 0/270 tex dim=4 depth=0 ms=0 sample=1
-F 202 VAR 0/272 tex dim=4 depth=0 ms=0 sample=1
-F 203 VAR 0/274 tex dim=4 depth=0 ms=0 sample=1
-F 204 VAR 0/28 sampler
-F 205 VAR 0/28 uniform
-F 206 VAR 0/280 tex dim=4 depth=0 ms=0 sample=1
-F 207 VAR 0/282 tex dim=4 depth=0 ms=0 sample=1
-F 208 VAR 0/284 tex dim=4 depth=0 ms=0 sample=1
-F 209 VAR 0/286 tex dim=4 depth=0 ms=0 sample=1
-F 210 VAR 0/288 tex dim=4 depth=0 ms=0 sample=1
-F 211 VAR 0/290 tex dim=4 depth=0 ms=0 sample=1
-F 212 VAR 0/292 tex dim=4 depth=0 ms=0 sample=1
-F 213 VAR 0/294 tex dim=4 depth=0 ms=0 sample=1
-F 214 VAR 0/3 tex dim=2 depth=0 ms=0 sample=1
-F 215 VAR 0/3 tex dim=2 depth=1 ms=0 sample=0
-F 216 VAR 0/30 sampler
-F 217 VAR 0/30 tex dim=2 depth=0 ms=0 sample=1
-F 218 VAR 0/32 tex dim=2 depth=0 ms=0 sample=1
-F 219 VAR 0/34 tex dim=2 depth=0 ms=0 sample=1
-F 220 VAR 0/36 tex dim=2 depth=0 ms=0 sample=1
-F 221 VAR 0/36 uniform
-F 222 VAR 0/38 tex dim=2 depth=0 ms=0 sample=1
-F 223 VAR 0/4 sampler
-F 224 VAR 0/4 sampler_comparison
-F 225 VAR 0/4 ssbo_ro
-F 226 VAR 0/4 ssbo_rw
-F 227 VAR 0/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 228 VAR 0/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 229 VAR 0/4 tex dim=2 depth=0 ms=0 sample=1
-F 230 VAR 0/4 tex dim=3 depth=0 ms=0 sample=1
-F 231 VAR 0/4 uniform
-F 232 VAR 0/40 tex dim=2 depth=0 ms=0 sample=1
-F 233 VAR 0/5 tex dim=2 depth=0 ms=0 sample=1
-F 234 VAR 0/6 sampler
-F 235 VAR 0/6 ssbo_ro
-F 236 VAR 0/6 ssbo_rw
-F 237 VAR 0/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 238 VAR 0/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
-F 239 VAR 0/6 tex dim=2 depth=0 ms=0 sample=1
-F 240 VAR 0/6 tex dim=2 depth=1 ms=0 sample=0
-F 241 VAR 0/6 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r8uint access=write
-F 242 VAR 0/6 uniform
-F 243 VAR 0/7 tex dim=2 depth=0 ms=0 sample=1
-F 244 VAR 0/7 tex dim=4 depth=0 ms=0 sample=1
-F 245 VAR 0/8 sampler
-F 246 VAR 0/8 ssbo_ro
-F 247 VAR 0/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 248 VAR 0/8 tex dim=2 depth=0 ms=0 sample=1
-F 249 VAR 0/8 tex dim=4 depth=0 ms=0 sample=1
-F 250 VAR 0/9 tex dim=2 depth=0 ms=0 sample=1
-F 251 VAR 0/9 tex dim=4 depth=0 ms=0 sample=1
-F 252 VAR 1/0 sampler
-F 253 VAR 1/0 ssbo_ro
-F 254 VAR 1/0 ssbo_rw
-F 255 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 256 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 257 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
-F 258 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 259 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 260 VAR 1/0 tex dim=2 depth=0 ms=0 sample=1
-F 261 VAR 1/0 tex dim=3 depth=0 ms=0 sample=0 storage fmt=r16float access=write
-F 262 VAR 1/0 uniform
-F 263 VAR 1/1 tex dim=2 depth=0 ms=0 sample=1
-F 264 VAR 1/1 tex dim=2 depth=1 ms=0 sample=0
-F 265 VAR 1/1 tex dim=3 depth=0 ms=0 sample=1
-F 266 VAR 1/10 ssbo_rw
-F 267 VAR 1/10 tex dim=2 depth=0 ms=0 sample=1
-F 268 VAR 1/10 tex dim=2 depth=1 ms=0 sample=0
-F 269 VAR 1/10 uniform
-F 270 VAR 1/12 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
-F 271 VAR 1/12 tex dim=2 depth=0 ms=0 sample=1
-F 272 VAR 1/12 tex dim=2 depth=1 ms=0 sample=0
-F 273 VAR 1/12 tex dim=3 depth=0 ms=0 sample=1
-F 274 VAR 1/12 uniform
-F 275 VAR 1/14 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
-F 276 VAR 1/14 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 277 VAR 1/14 tex dim=2 depth=0 ms=0 sample=1
-F 278 VAR 1/14 tex dim=3 depth=0 ms=0 sample=1
-F 279 VAR 1/15 tex dim=2 depth=0 ms=0 sample=1
-F 280 VAR 1/16 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
-F 281 VAR 1/16 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 282 VAR 1/16 tex dim=2 depth=0 ms=0 sample=1
-F 283 VAR 1/16 tex dim=4 depth=0 ms=0 sample=1
-F 284 VAR 1/17 tex dim=2 depth=0 ms=0 sample=1
-F 285 VAR 1/18 ssbo_ro
-F 286 VAR 1/18 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg11b10ufloat access=write
-F 287 VAR 1/18 tex dim=2 depth=1 ms=0 sample=0
-F 288 VAR 1/19 tex dim=2 depth=0 ms=0 sample=1
-F 289 VAR 1/2 sampler
-F 290 VAR 1/2 ssbo_ro
-F 291 VAR 1/2 ssbo_rw
-F 292 VAR 1/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 293 VAR 1/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
-F 294 VAR 1/2 tex dim=2 depth=0 ms=0 sample=1
-F 295 VAR 1/2 tex dim=2 depth=1 ms=0 sample=0
-F 296 VAR 1/2 uniform
-F 297 VAR 1/20 sampler
-F 298 VAR 1/20 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg11b10ufloat access=write
-F 299 VAR 1/20 tex dim=2 depth=0 ms=0 sample=1
-F 300 VAR 1/21 tex dim=2 depth=0 ms=0 sample=1
-F 301 VAR 1/22 sampler
-F 302 VAR 1/22 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
-F 303 VAR 1/22 uniform
-F 304 VAR 1/24 sampler
-F 305 VAR 1/24 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
-F 306 VAR 1/24 tex dim=2 depth=0 ms=0 sample=1
-F 307 VAR 1/24 uniform
-F 308 VAR 1/26 sampler
-F 309 VAR 1/26 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 310 VAR 1/26 tex dim=2 depth=1 ms=0 sample=0
-F 311 VAR 1/28 sampler
-F 312 VAR 1/28 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
-F 313 VAR 1/28 uniform
-F 314 VAR 1/29 tex dim=2 depth=0 ms=0 sample=1
-F 315 VAR 1/3 tex dim=2 depth=0 ms=0 sample=1
-F 316 VAR 1/30 sampler
-F 317 VAR 1/30 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 318 VAR 1/32 sampler
-F 319 VAR 1/32 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 320 VAR 1/33 tex dim=2 depth=0 ms=0 sample=1
-F 321 VAR 1/34 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
-F 322 VAR 1/35 tex dim=2 depth=0 ms=0 sample=1
-F 323 VAR 1/36 uniform
-F 324 VAR 1/4 ssbo_ro
-F 325 VAR 1/4 ssbo_rw
-F 326 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
-F 327 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
-F 328 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 329 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 330 VAR 1/4 tex dim=2 depth=0 ms=0 sample=1
-F 331 VAR 1/4 uniform
-F 332 VAR 1/48 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r16uint access=write
-F 333 VAR 1/5 tex dim=2 depth=0 ms=0 sample=1
-F 334 VAR 1/50 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
-F 335 VAR 1/512 tex dim=3 depth=0 ms=0 sample=1
-F 336 VAR 1/513 tex dim=3 depth=0 ms=0 sample=1
-F 337 VAR 1/514 tex dim=3 depth=0 ms=0 sample=1
-F 338 VAR 1/515 tex dim=3 depth=0 ms=0 sample=1
-F 339 VAR 1/516 tex dim=3 depth=0 ms=0 sample=1
-F 340 VAR 1/517 tex dim=3 depth=0 ms=0 sample=1
-F 341 VAR 1/518 tex dim=3 depth=0 ms=0 sample=1
-F 342 VAR 1/519 tex dim=3 depth=0 ms=0 sample=1
-F 343 VAR 1/52 tex dim=2 depth=0 ms=0 sample=1
-F 344 VAR 1/52 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
-F 345 VAR 1/520 tex dim=3 depth=0 ms=0 sample=1
-F 346 VAR 1/521 tex dim=3 depth=0 ms=0 sample=1
-F 347 VAR 1/522 tex dim=3 depth=0 ms=0 sample=1
-F 348 VAR 1/523 tex dim=3 depth=0 ms=0 sample=1
-F 349 VAR 1/524 tex dim=3 depth=0 ms=0 sample=1
-F 350 VAR 1/525 tex dim=3 depth=0 ms=0 sample=1
-F 351 VAR 1/526 tex dim=3 depth=0 ms=0 sample=1
-F 352 VAR 1/528 tex dim=4 depth=0 ms=0 sample=1
-F 353 VAR 1/529 tex dim=4 depth=0 ms=0 sample=1
-F 354 VAR 1/530 tex dim=4 depth=0 ms=0 sample=1
-F 355 VAR 1/531 tex dim=4 depth=0 ms=0 sample=1
-F 356 VAR 1/532 tex dim=4 depth=0 ms=0 sample=1
-F 357 VAR 1/533 tex dim=4 depth=0 ms=0 sample=1
-F 358 VAR 1/534 tex dim=4 depth=0 ms=0 sample=1
-F 359 VAR 1/54 tex dim=2 depth=0 ms=0 sample=1
-F 360 VAR 1/54 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=read_write
-F 361 VAR 1/54 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
-F 362 VAR 1/55 tex dim=4 depth=0 ms=0 sample=2
-F 363 VAR 1/56 tex dim=2 depth=0 ms=0 sample=1
-F 364 VAR 1/58 tex dim=2 depth=0 ms=0 sample=1
-F 365 VAR 1/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
-F 366 VAR 1/6 tex dim=2 depth=0 ms=0 sample=1
-F 367 VAR 1/6 tex dim=3 depth=0 ms=0 sample=1
-F 368 VAR 1/6 uniform
-F 369 VAR 1/60 tex dim=3 depth=0 ms=0 sample=1
-F 370 VAR 1/62 tex dim=4 depth=0 ms=0 sample=1
-F 371 VAR 1/64 uniform
-F 372 VAR 1/66 tex dim=4 depth=0 ms=0 sample=1
-F 373 VAR 1/68 tex dim=2 depth=0 ms=0 sample=1
-F 374 VAR 1/7 tex dim=2 depth=0 ms=0 sample=1
-F 375 VAR 1/70 tex dim=2 depth=0 ms=0 sample=1
-F 376 VAR 1/72 tex dim=2 depth=0 ms=0 sample=1
-F 377 VAR 1/74 tex dim=3 depth=0 ms=0 sample=1
-F 378 VAR 1/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg32float access=write
-F 379 VAR 1/8 tex dim=2 depth=0 ms=0 sample=1
-F 380 VAR 1/8 tex dim=2 depth=1 ms=0 sample=0
-F 381 VAR 1/8 tex dim=3 depth=0 ms=0 sample=1
-F 382 VAR 1/8 uniform
-F 383 VAR 1/80 uniform
-F 384 VAR 1/9 tex dim=2 depth=0 ms=0 sample=1
-F 385 VAR 2/0 sampler
-F 386 VAR 2/0 ssbo_ro
-F 387 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
-F 388 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 389 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 390 VAR 2/0 tex dim=2 depth=0 ms=0 sample=1
-F 391 VAR 2/0 tex dim=2 depth=0 ms=1 sample=2
-F 392 VAR 2/0 tex dim=4 depth=0 ms=0 sample=1
-F 393 VAR 2/1 tex dim=2 depth=0 ms=0 sample=1
-F 394 VAR 2/1 tex dim=2 depth=1 ms=0 sample=0
-F 395 VAR 2/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 396 VAR 2/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 397 VAR 2/2 sampler
-F 398 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
-F 399 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 400 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 401 VAR 2/3 tex dim=2 depth=0 ms=0 sample=1
-F 402 VAR 2/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 403 VAR 2/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 404 VAR 2/400 tex dim=4 depth=0 ms=0 sample=1
-F 405 VAR 2/401 tex dim=4 depth=0 ms=0 sample=1
-F 406 VAR 2/402 tex dim=4 depth=0 ms=0 sample=1
-F 407 VAR 2/403 tex dim=4 depth=0 ms=0 sample=1
-F 408 VAR 2/404 tex dim=4 depth=0 ms=0 sample=1
-F 409 VAR 2/405 tex dim=4 depth=0 ms=0 sample=1
-F 410 VAR 2/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 411 VAR 2/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 412 VAR 2/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
-F 413 VAR 2/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 414 VAR 3/0 sampler
-F 415 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
-F 416 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
-F 417 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8uint access=write
-F 418 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
-F 419 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
-F 420 VAR 3/0 tex dim=4 depth=0 ms=0 sample=1
-F 421 VAR 3/1 tex dim=2 depth=0 ms=0 sample=1
-F 422 VAR 3/1 tex dim=4 depth=0 ms=0 sample=1
-F 423 VAR 3/120 ssbo_ro
-F 424 VAR 3/2 sampler
-F 425 VAR 3/2 tex dim=2 depth=0 ms=0 sample=1
-F 426 VAR 3/2 uniform
-F 427 VAR 3/3 tex dim=4 depth=0 ms=0 sample=1
-F 428 VAR 3/4 tex dim=2 depth=0 ms=0 sample=1
-F 429 VAR 3/6 tex dim=2 depth=0 ms=0 sample=1
-F 430 VAR 3/8 sampler
-M servers_rendering_renderer_rd_shaders_blit.glsl_default_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_blit.glsl_default_frag.wgsl --keep-rw 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_blit.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_blit.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_vert.wgsl 0,11,172,386,423
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_vert.wgsl --keep-rw 0,11,172,386,423
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_vert.wgsl 0,11,172,386,423
-M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_vert.wgsl --keep-rw 0,11,172,386,423
-M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_vert.wgsl 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_vert.wgsl --keep-rw 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_vert.wgsl 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_vert.wgsl --keep-rw 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_vert.wgsl 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_vert.wgsl --keep-rw 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_frag.wgsl 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_frag.wgsl --keep-rw 0,12,49,51,114,116,117,150,172,225,239,248,423,425,428,429,430
-M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_vert.wgsl 0,11,172
-M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_vert.wgsl --keep-rw 0,11,172
+F 35 PAIR 0/13 0/12
+F 36 PAIR 0/20 1/20
+F 37 PAIR 0/20 1/22
+F 38 PAIR 0/22 1/20
+F 39 PAIR 0/22 1/22
+F 40 PAIR 0/22 1/24
+F 41 PAIR 0/3 0/2
+F 42 PAIR 0/30 1/28
+F 43 PAIR 0/32 1/24
+F 44 PAIR 0/32 1/28
+F 45 PAIR 0/34 1/26
+F 46 PAIR 0/36 1/26
+F 47 PAIR 0/38 1/26
+F 48 PAIR 0/4 0/6
+F 49 PAIR 0/5 0/4
+F 50 PAIR 0/6 3/8
+F 51 PAIR 0/7 0/6
+F 52 PAIR 0/8 0/10
+F 53 PAIR 0/9 0/8
+F 54 PAIR 1/0 0/2
+F 55 PAIR 1/1 1/0
+F 56 PAIR 1/10 1/24
+F 57 PAIR 1/12 0/2
+F 58 PAIR 1/12 1/28
+F 59 PAIR 1/14 1/26
+F 60 PAIR 1/16 0/30
+F 61 PAIR 1/2 0/2
+F 62 PAIR 1/20 0/2
+F 63 PAIR 1/24 0/2
+F 64 PAIR 1/3 1/2
+F 65 PAIR 1/4 0/28
+F 66 PAIR 1/512 1/26
+F 67 PAIR 1/513 1/26
+F 68 PAIR 1/514 1/26
+F 69 PAIR 1/515 1/26
+F 70 PAIR 1/516 1/26
+F 71 PAIR 1/517 1/26
+F 72 PAIR 1/518 1/26
+F 73 PAIR 1/519 1/26
+F 74 PAIR 1/52 1/26
+F 75 PAIR 1/520 1/26
+F 76 PAIR 1/521 1/26
+F 77 PAIR 1/522 1/26
+F 78 PAIR 1/523 1/26
+F 79 PAIR 1/524 1/26
+F 80 PAIR 1/525 1/26
+F 81 PAIR 1/526 1/26
+F 82 PAIR 1/528 0/30
+F 83 PAIR 1/529 0/30
+F 84 PAIR 1/530 0/30
+F 85 PAIR 1/531 0/30
+F 86 PAIR 1/532 0/30
+F 87 PAIR 1/533 0/30
+F 88 PAIR 1/534 0/30
+F 89 PAIR 1/54 1/26
+F 90 PAIR 1/56 1/26
+F 91 PAIR 1/58 1/26
+F 92 PAIR 1/6 0/28
+F 93 PAIR 1/6 0/30
+F 94 PAIR 1/60 1/26
+F 95 PAIR 1/62 1/26
+F 96 PAIR 1/66 1/26
+F 97 PAIR 1/68 1/26
+F 98 PAIR 1/70 1/30
+F 99 PAIR 1/72 1/24
+F 100 PAIR 1/74 1/26
+F 101 PAIR 1/8 0/2
+F 102 PAIR 1/8 0/30
+F 103 PAIR 1/8 1/26
+F 104 PAIR 2/0 0/8
+F 105 PAIR 2/1 2/0
+F 106 PAIR 2/3 2/2
+F 107 PAIR 2/400 0/8
+F 108 PAIR 2/401 0/8
+F 109 PAIR 2/402 0/8
+F 110 PAIR 2/403 0/8
+F 111 PAIR 2/404 0/8
+F 112 PAIR 2/405 0/8
+F 113 PAIR 2/5 2/4
+F 114 PAIR 3/0 0/10
+F 115 PAIR 3/1 3/0
+F 116 PAIR 3/2 3/8
+F 117 PAIR 3/3 3/2
+F 118 PAIR 3/4 3/8
+F 119 PAIR 3/6 3/8
+F 120 ROCONV 0/0 fmt=r32float
+F 121 ROCONV 0/0 fmt=rgba16float
+F 122 ROCONV 0/2 fmt=rgba8unorm
+F 123 ROCONV 0/4 fmt=rg16float
+F 124 ROCONV 0/6 fmt=rg16float
+F 125 ROCONV 2/0 fmt=r8unorm
+F 126 RWSPLIT 0/0 shadow=1 fmt=rgba16float
+F 127 RWSPLIT 1/14 shadow=15 fmt=r32float
+F 128 RWSPLIT 1/16 shadow=17 fmt=r32float
+F 129 RWSPLIT 1/18 shadow=19 fmt=rg11b10ufloat
+F 130 RWSPLIT 1/2 shadow=3 fmt=r8unorm
+F 131 RWSPLIT 1/20 shadow=21 fmt=rg11b10ufloat
+F 132 RWSPLIT 1/28 shadow=29 fmt=rg16float
+F 133 RWSPLIT 1/32 shadow=33 fmt=r8unorm
+F 134 RWSPLIT 1/34 shadow=35 fmt=rgba8unorm
+F 135 RWSPLIT 1/4 shadow=5 fmt=r16float
+F 136 RWSPLIT 1/4 shadow=5 fmt=r32float
+F 137 RWSPLIT 1/54 shadow=55 fmt=r32uint
+F 138 RWSPLIT 1/6 shadow=7 fmt=r16float
+F 139 RWSPLIT 1/8 shadow=9 fmt=rg32float
+F 140 RWSPLIT 2/2 shadow=3 fmt=r8unorm
+F 141 VAR 0/0 sampler
+F 142 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 143 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
+F 144 VAR 0/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 145 VAR 0/0 tex dim=2 depth=0 ms=0 sample=1
+F 146 VAR 0/0 tex dim=2 depth=1 ms=1 sample=0
+F 147 VAR 0/1 tex dim=2 depth=0 ms=0 sample=1
+F 148 VAR 0/1 tex dim=2 depth=1 ms=0 sample=0
+F 149 VAR 0/1 tex dim=3 depth=0 ms=0 sample=1
+F 150 VAR 0/1 tex dim=5 depth=0 ms=0 sample=1
+F 151 VAR 0/1 tex dim=5 depth=1 ms=0 sample=0
+F 152 VAR 0/10 sampler
+F 153 VAR 0/10 ssbo_ro
+F 154 VAR 0/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 155 VAR 0/10 uniform
+F 156 VAR 0/11 tex dim=2 depth=0 ms=0 sample=1
+F 157 VAR 0/12 sampler
+F 158 VAR 0/12 ssbo_ro
+F 159 VAR 0/12 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 160 VAR 0/13 tex dim=2 depth=0 ms=0 sample=1
+F 161 VAR 0/14 uniform
+F 162 VAR 0/16 sampler
+F 163 VAR 0/16 ssbo_ro
+F 164 VAR 0/18 ssbo_ro
+F 165 VAR 0/18 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 166 VAR 0/18 uniform
+F 167 VAR 0/2 sampler
+F 168 VAR 0/2 ssbo_ro
+F 169 VAR 0/2 ssbo_rw
+F 170 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 171 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
+F 172 VAR 0/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 173 VAR 0/2 tex dim=2 depth=0 ms=0 sample=1
+F 174 VAR 0/2 tex dim=2 depth=0 ms=1 sample=1
+F 175 VAR 0/2 uniform
+F 176 VAR 0/20 ssbo_ro
+F 177 VAR 0/20 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 178 VAR 0/20 tex dim=2 depth=0 ms=0 sample=1
+F 179 VAR 0/200 tex dim=4 depth=0 ms=0 sample=1
+F 180 VAR 0/202 tex dim=4 depth=0 ms=0 sample=1
+F 181 VAR 0/204 tex dim=4 depth=0 ms=0 sample=1
+F 182 VAR 0/206 tex dim=4 depth=0 ms=0 sample=1
+F 183 VAR 0/208 tex dim=4 depth=0 ms=0 sample=1
+F 184 VAR 0/210 tex dim=4 depth=0 ms=0 sample=1
+F 185 VAR 0/212 tex dim=4 depth=0 ms=0 sample=1
+F 186 VAR 0/214 tex dim=4 depth=0 ms=0 sample=1
+F 187 VAR 0/22 tex dim=2 depth=0 ms=0 sample=1
+F 188 VAR 0/220 tex dim=4 depth=0 ms=0 sample=1
+F 189 VAR 0/222 tex dim=4 depth=0 ms=0 sample=1
+F 190 VAR 0/224 tex dim=4 depth=0 ms=0 sample=1
+F 191 VAR 0/226 tex dim=4 depth=0 ms=0 sample=1
+F 192 VAR 0/228 tex dim=4 depth=0 ms=0 sample=1
+F 193 VAR 0/230 tex dim=4 depth=0 ms=0 sample=1
+F 194 VAR 0/232 tex dim=4 depth=0 ms=0 sample=1
+F 195 VAR 0/234 tex dim=4 depth=0 ms=0 sample=1
+F 196 VAR 0/24 ssbo_ro
+F 197 VAR 0/24 tex dim=2 depth=1 ms=0 sample=0
+F 198 VAR 0/26 tex dim=2 depth=0 ms=0 sample=1
+F 199 VAR 0/260 tex dim=4 depth=0 ms=0 sample=1
+F 200 VAR 0/262 tex dim=4 depth=0 ms=0 sample=1
+F 201 VAR 0/264 tex dim=4 depth=0 ms=0 sample=1
+F 202 VAR 0/266 tex dim=4 depth=0 ms=0 sample=1
+F 203 VAR 0/268 tex dim=4 depth=0 ms=0 sample=1
+F 204 VAR 0/270 tex dim=4 depth=0 ms=0 sample=1
+F 205 VAR 0/272 tex dim=4 depth=0 ms=0 sample=1
+F 206 VAR 0/274 tex dim=4 depth=0 ms=0 sample=1
+F 207 VAR 0/28 sampler
+F 208 VAR 0/28 uniform
+F 209 VAR 0/280 tex dim=4 depth=0 ms=0 sample=1
+F 210 VAR 0/282 tex dim=4 depth=0 ms=0 sample=1
+F 211 VAR 0/284 tex dim=4 depth=0 ms=0 sample=1
+F 212 VAR 0/286 tex dim=4 depth=0 ms=0 sample=1
+F 213 VAR 0/288 tex dim=4 depth=0 ms=0 sample=1
+F 214 VAR 0/290 tex dim=4 depth=0 ms=0 sample=1
+F 215 VAR 0/292 tex dim=4 depth=0 ms=0 sample=1
+F 216 VAR 0/294 tex dim=4 depth=0 ms=0 sample=1
+F 217 VAR 0/3 tex dim=2 depth=0 ms=0 sample=1
+F 218 VAR 0/3 tex dim=2 depth=1 ms=0 sample=0
+F 219 VAR 0/30 sampler
+F 220 VAR 0/30 tex dim=2 depth=0 ms=0 sample=1
+F 221 VAR 0/32 tex dim=2 depth=0 ms=0 sample=1
+F 222 VAR 0/34 tex dim=2 depth=0 ms=0 sample=1
+F 223 VAR 0/36 tex dim=2 depth=0 ms=0 sample=1
+F 224 VAR 0/36 uniform
+F 225 VAR 0/38 tex dim=2 depth=0 ms=0 sample=1
+F 226 VAR 0/4 sampler
+F 227 VAR 0/4 sampler_comparison
+F 228 VAR 0/4 ssbo_ro
+F 229 VAR 0/4 ssbo_rw
+F 230 VAR 0/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 231 VAR 0/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 232 VAR 0/4 tex dim=2 depth=0 ms=0 sample=1
+F 233 VAR 0/4 tex dim=3 depth=0 ms=0 sample=1
+F 234 VAR 0/4 uniform
+F 235 VAR 0/40 tex dim=2 depth=0 ms=0 sample=1
+F 236 VAR 0/5 tex dim=2 depth=0 ms=0 sample=1
+F 237 VAR 0/6 sampler
+F 238 VAR 0/6 ssbo_ro
+F 239 VAR 0/6 ssbo_rw
+F 240 VAR 0/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 241 VAR 0/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
+F 242 VAR 0/6 tex dim=2 depth=0 ms=0 sample=1
+F 243 VAR 0/6 tex dim=2 depth=1 ms=0 sample=0
+F 244 VAR 0/6 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r8uint access=write
+F 245 VAR 0/6 uniform
+F 246 VAR 0/7 tex dim=2 depth=0 ms=0 sample=1
+F 247 VAR 0/7 tex dim=4 depth=0 ms=0 sample=1
+F 248 VAR 0/8 sampler
+F 249 VAR 0/8 ssbo_ro
+F 250 VAR 0/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 251 VAR 0/8 tex dim=2 depth=0 ms=0 sample=1
+F 252 VAR 0/8 tex dim=4 depth=0 ms=0 sample=1
+F 253 VAR 0/9 tex dim=2 depth=0 ms=0 sample=1
+F 254 VAR 0/9 tex dim=4 depth=0 ms=0 sample=1
+F 255 VAR 1/0 sampler
+F 256 VAR 1/0 ssbo_ro
+F 257 VAR 1/0 ssbo_rw
+F 258 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 259 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 260 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
+F 261 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 262 VAR 1/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 263 VAR 1/0 tex dim=2 depth=0 ms=0 sample=1
+F 264 VAR 1/0 tex dim=3 depth=0 ms=0 sample=0 storage fmt=r16float access=write
+F 265 VAR 1/0 uniform
+F 266 VAR 1/1 tex dim=2 depth=0 ms=0 sample=1
+F 267 VAR 1/1 tex dim=2 depth=1 ms=0 sample=0
+F 268 VAR 1/1 tex dim=3 depth=0 ms=0 sample=1
+F 269 VAR 1/10 ssbo_rw
+F 270 VAR 1/10 tex dim=2 depth=0 ms=0 sample=1
+F 271 VAR 1/10 tex dim=2 depth=1 ms=0 sample=0
+F 272 VAR 1/10 uniform
+F 273 VAR 1/12 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
+F 274 VAR 1/12 tex dim=2 depth=0 ms=0 sample=1
+F 275 VAR 1/12 tex dim=2 depth=1 ms=0 sample=0
+F 276 VAR 1/12 tex dim=3 depth=0 ms=0 sample=1
+F 277 VAR 1/12 uniform
+F 278 VAR 1/14 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
+F 279 VAR 1/14 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 280 VAR 1/14 tex dim=2 depth=0 ms=0 sample=1
+F 281 VAR 1/14 tex dim=3 depth=0 ms=0 sample=1
+F 282 VAR 1/15 tex dim=2 depth=0 ms=0 sample=1
+F 283 VAR 1/16 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
+F 284 VAR 1/16 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 285 VAR 1/16 tex dim=2 depth=0 ms=0 sample=1
+F 286 VAR 1/16 tex dim=4 depth=0 ms=0 sample=1
+F 287 VAR 1/17 tex dim=2 depth=0 ms=0 sample=1
+F 288 VAR 1/18 ssbo_ro
+F 289 VAR 1/18 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg11b10ufloat access=write
+F 290 VAR 1/18 tex dim=2 depth=1 ms=0 sample=0
+F 291 VAR 1/19 tex dim=2 depth=0 ms=0 sample=1
+F 292 VAR 1/2 sampler
+F 293 VAR 1/2 ssbo_ro
+F 294 VAR 1/2 ssbo_rw
+F 295 VAR 1/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 296 VAR 1/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
+F 297 VAR 1/2 tex dim=2 depth=0 ms=0 sample=1
+F 298 VAR 1/2 tex dim=2 depth=1 ms=0 sample=0
+F 299 VAR 1/2 uniform
+F 300 VAR 1/20 sampler
+F 301 VAR 1/20 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg11b10ufloat access=write
+F 302 VAR 1/20 tex dim=2 depth=0 ms=0 sample=1
+F 303 VAR 1/21 tex dim=2 depth=0 ms=0 sample=1
+F 304 VAR 1/22 sampler
+F 305 VAR 1/22 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
+F 306 VAR 1/22 uniform
+F 307 VAR 1/24 sampler
+F 308 VAR 1/24 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
+F 309 VAR 1/24 tex dim=2 depth=0 ms=0 sample=1
+F 310 VAR 1/24 uniform
+F 311 VAR 1/26 sampler
+F 312 VAR 1/26 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 313 VAR 1/26 tex dim=2 depth=1 ms=0 sample=0
+F 314 VAR 1/28 sampler
+F 315 VAR 1/28 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
+F 316 VAR 1/28 uniform
+F 317 VAR 1/29 tex dim=2 depth=0 ms=0 sample=1
+F 318 VAR 1/3 tex dim=2 depth=0 ms=0 sample=1
+F 319 VAR 1/30 sampler
+F 320 VAR 1/30 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 321 VAR 1/32 sampler
+F 322 VAR 1/32 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 323 VAR 1/33 tex dim=2 depth=0 ms=0 sample=1
+F 324 VAR 1/34 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
+F 325 VAR 1/35 tex dim=2 depth=0 ms=0 sample=1
+F 326 VAR 1/36 uniform
+F 327 VAR 1/4 ssbo_ro
+F 328 VAR 1/4 ssbo_rw
+F 329 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
+F 330 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=read_write
+F 331 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 332 VAR 1/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 333 VAR 1/4 tex dim=2 depth=0 ms=0 sample=1
+F 334 VAR 1/4 uniform
+F 335 VAR 1/48 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r16uint access=write
+F 336 VAR 1/5 tex dim=2 depth=0 ms=0 sample=1
+F 337 VAR 1/50 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
+F 338 VAR 1/512 tex dim=3 depth=0 ms=0 sample=1
+F 339 VAR 1/513 tex dim=3 depth=0 ms=0 sample=1
+F 340 VAR 1/514 tex dim=3 depth=0 ms=0 sample=1
+F 341 VAR 1/515 tex dim=3 depth=0 ms=0 sample=1
+F 342 VAR 1/516 tex dim=3 depth=0 ms=0 sample=1
+F 343 VAR 1/517 tex dim=3 depth=0 ms=0 sample=1
+F 344 VAR 1/518 tex dim=3 depth=0 ms=0 sample=1
+F 345 VAR 1/519 tex dim=3 depth=0 ms=0 sample=1
+F 346 VAR 1/52 tex dim=2 depth=0 ms=0 sample=1
+F 347 VAR 1/52 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
+F 348 VAR 1/520 tex dim=3 depth=0 ms=0 sample=1
+F 349 VAR 1/521 tex dim=3 depth=0 ms=0 sample=1
+F 350 VAR 1/522 tex dim=3 depth=0 ms=0 sample=1
+F 351 VAR 1/523 tex dim=3 depth=0 ms=0 sample=1
+F 352 VAR 1/524 tex dim=3 depth=0 ms=0 sample=1
+F 353 VAR 1/525 tex dim=3 depth=0 ms=0 sample=1
+F 354 VAR 1/526 tex dim=3 depth=0 ms=0 sample=1
+F 355 VAR 1/528 tex dim=4 depth=0 ms=0 sample=1
+F 356 VAR 1/529 tex dim=4 depth=0 ms=0 sample=1
+F 357 VAR 1/530 tex dim=4 depth=0 ms=0 sample=1
+F 358 VAR 1/531 tex dim=4 depth=0 ms=0 sample=1
+F 359 VAR 1/532 tex dim=4 depth=0 ms=0 sample=1
+F 360 VAR 1/533 tex dim=4 depth=0 ms=0 sample=1
+F 361 VAR 1/534 tex dim=4 depth=0 ms=0 sample=1
+F 362 VAR 1/54 tex dim=2 depth=0 ms=0 sample=1
+F 363 VAR 1/54 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=read_write
+F 364 VAR 1/54 tex dim=4 depth=0 ms=0 sample=0 storage fmt=r32uint access=write
+F 365 VAR 1/55 tex dim=4 depth=0 ms=0 sample=2
+F 366 VAR 1/56 tex dim=2 depth=0 ms=0 sample=1
+F 367 VAR 1/58 tex dim=2 depth=0 ms=0 sample=1
+F 368 VAR 1/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r16float access=write
+F 369 VAR 1/6 tex dim=2 depth=0 ms=0 sample=1
+F 370 VAR 1/6 tex dim=3 depth=0 ms=0 sample=1
+F 371 VAR 1/6 uniform
+F 372 VAR 1/60 tex dim=3 depth=0 ms=0 sample=1
+F 373 VAR 1/62 tex dim=4 depth=0 ms=0 sample=1
+F 374 VAR 1/64 uniform
+F 375 VAR 1/66 tex dim=4 depth=0 ms=0 sample=1
+F 376 VAR 1/68 tex dim=2 depth=0 ms=0 sample=1
+F 377 VAR 1/7 tex dim=2 depth=0 ms=0 sample=1
+F 378 VAR 1/70 tex dim=2 depth=0 ms=0 sample=1
+F 379 VAR 1/72 tex dim=2 depth=0 ms=0 sample=1
+F 380 VAR 1/74 tex dim=3 depth=0 ms=0 sample=1
+F 381 VAR 1/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg32float access=write
+F 382 VAR 1/8 tex dim=2 depth=0 ms=0 sample=1
+F 383 VAR 1/8 tex dim=2 depth=1 ms=0 sample=0
+F 384 VAR 1/8 tex dim=3 depth=0 ms=0 sample=1
+F 385 VAR 1/8 uniform
+F 386 VAR 1/80 uniform
+F 387 VAR 1/9 tex dim=2 depth=0 ms=0 sample=1
+F 388 VAR 2/0 sampler
+F 389 VAR 2/0 ssbo_ro
+F 390 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8unorm access=write
+F 391 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 392 VAR 2/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 393 VAR 2/0 tex dim=2 depth=0 ms=0 sample=1
+F 394 VAR 2/0 tex dim=2 depth=0 ms=1 sample=2
+F 395 VAR 2/0 tex dim=4 depth=0 ms=0 sample=1
+F 396 VAR 2/1 tex dim=2 depth=0 ms=0 sample=1
+F 397 VAR 2/1 tex dim=2 depth=1 ms=0 sample=0
+F 398 VAR 2/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 399 VAR 2/10 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 400 VAR 2/2 sampler
+F 401 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r8unorm access=write
+F 402 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 403 VAR 2/2 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 404 VAR 2/3 tex dim=2 depth=0 ms=0 sample=1
+F 405 VAR 2/4 sampler
+F 406 VAR 2/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 407 VAR 2/4 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 408 VAR 2/400 tex dim=4 depth=0 ms=0 sample=1
+F 409 VAR 2/401 tex dim=4 depth=0 ms=0 sample=1
+F 410 VAR 2/402 tex dim=4 depth=0 ms=0 sample=1
+F 411 VAR 2/403 tex dim=4 depth=0 ms=0 sample=1
+F 412 VAR 2/404 tex dim=4 depth=0 ms=0 sample=1
+F 413 VAR 2/405 tex dim=4 depth=0 ms=0 sample=1
+F 414 VAR 2/5 tex dim=2 depth=0 ms=0 sample=1
+F 415 VAR 2/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 416 VAR 2/6 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 417 VAR 2/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgb10a2unorm access=write
+F 418 VAR 2/8 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 419 VAR 3/0 sampler
+F 420 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=r32float access=write
+F 421 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg16float access=write
+F 422 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rg8uint access=write
+F 423 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba16float access=write
+F 424 VAR 3/0 tex dim=2 depth=0 ms=0 sample=0 storage fmt=rgba8unorm access=write
+F 425 VAR 3/0 tex dim=4 depth=0 ms=0 sample=1
+F 426 VAR 3/1 tex dim=2 depth=0 ms=0 sample=1
+F 427 VAR 3/1 tex dim=4 depth=0 ms=0 sample=1
+F 428 VAR 3/120 ssbo_ro
+F 429 VAR 3/2 sampler
+F 430 VAR 3/2 tex dim=2 depth=0 ms=0 sample=1
+F 431 VAR 3/2 uniform
+F 432 VAR 3/3 tex dim=4 depth=0 ms=0 sample=1
+F 433 VAR 3/4 tex dim=2 depth=0 ms=0 sample=1
+F 434 VAR 3/6 tex dim=2 depth=0 ms=0 sample=1
+F 435 VAR 3/8 sampler
+M servers_rendering_renderer_rd_shaders_blit.glsl_default_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_blit.glsl_default_frag.wgsl --keep-rw 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_blit.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_blit.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_vert.wgsl 0,11,175,389,428
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_points_vert.wgsl --keep-rw 0,11,175,389,428
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_vert.wgsl 0,11,175,389,428
+M servers_rendering_renderer_rd_shaders_canvas.glsl_attributes_vert.wgsl --keep-rw 0,11,175,389,428
+M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_vert.wgsl 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_ninepatch_vert.wgsl --keep-rw 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_vert.wgsl 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_points_vert.wgsl --keep-rw 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_vert.wgsl 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_primitive_vert.wgsl --keep-rw 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_frag.wgsl 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_frag.wgsl --keep-rw 0,12,50,52,116,118,119,152,175,228,242,251,428,430,433,434,435
+M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_vert.wgsl 0,11,175
+M servers_rendering_renderer_rd_shaders_canvas.glsl_quad_vert.wgsl --keep-rw 0,11,175
 M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_frag.wgsl 0
 M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_frag.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_canvas_sdf.glsl_default_comp.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_canvas_sdf.glsl_default_comp.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_cluster_debug.glsl_default_comp.wgsl 0,5,165,228,240,245,423
-M servers_rendering_renderer_rd_shaders_cluster_debug.glsl_default_comp.wgsl --keep-rw 0,5,165,228,240,245,423
-M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_frag.wgsl 0,12,172,236
-M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_frag.wgsl --keep-rw 0,12,172,236
-M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_vert.wgsl 0,172,225,423
-M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_vert.wgsl --keep-rw 0,172,225,423
-M servers_rendering_renderer_rd_shaders_cluster_store.glsl_default_comp.wgsl 0,165,226,235,423
-M servers_rendering_renderer_rd_shaders_cluster_store.glsl_default_comp.wgsl --keep-rw 0,165,226,235,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_frag.wgsl 0,34,139,145
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_frag.wgsl --keep-rw 0,34,139,145
+M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_canvas_occlusion.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_canvas_sdf.glsl_default_comp.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_canvas_sdf.glsl_default_comp.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_cluster_debug.glsl_default_comp.wgsl 0,5,168,231,243,248,428
+M servers_rendering_renderer_rd_shaders_cluster_debug.glsl_default_comp.wgsl --keep-rw 0,5,168,231,243,248,428
+M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_frag.wgsl 0,12,175,239
+M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_frag.wgsl --keep-rw 0,12,175,239
+M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_vert.wgsl 0,175,228,428
+M servers_rendering_renderer_rd_shaders_cluster_render.glsl_default_vert.wgsl --keep-rw 0,175,228,428
+M servers_rendering_renderer_rd_shaders_cluster_store.glsl_default_comp.wgsl 0,168,229,238,428
+M servers_rendering_renderer_rd_shaders_cluster_store.glsl_default_comp.wgsl --keep-rw 0,168,229,238,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_frag.wgsl 0,34,141,147
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_frag.wgsl --keep-rw 0,34,141,147
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_copy_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_gaussian_blur_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_downsample_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_gather_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_frag.wgsl 0,12,14,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_frag.wgsl --keep-rw 0,12,14,34,54,139,145,252,263,423
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_frag.wgsl 0,12,14,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_frag.wgsl --keep-rw 0,12,14,34,55,141,147,255,266,428
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_glow_upsample_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_mipmap_vert.wgsl --keep-rw 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_set_color_frag.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_set_color_frag.wgsl --keep-rw 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_set_color_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_blur_raster.glsl_set_color_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_box_weight_comp.wgsl 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_box_weight_comp.wgsl --keep-rw 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_circular_comp.wgsl 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_circular_comp.wgsl --keep-rw 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_composite_comp.wgsl 0,54,124,142,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_composite_comp.wgsl --keep-rw 0,54,124,142,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_gen_blur_comp.wgsl 0,6,54,124,142,145,252,264,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_gen_blur_comp.wgsl --keep-rw 0,6,54,124,142,145,252,264,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_hex_weight_comp.wgsl 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_hex_weight_comp.wgsl --keep-rw 0,54,142,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_frag.wgsl 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_box_weight_comp.wgsl 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_box_weight_comp.wgsl --keep-rw 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_circular_comp.wgsl 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_circular_comp.wgsl --keep-rw 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_composite_comp.wgsl 0,55,126,144,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_composite_comp.wgsl --keep-rw 0,55,126,144,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_gen_blur_comp.wgsl 0,6,55,126,144,147,255,267,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_gen_blur_comp.wgsl --keep-rw 0,6,55,126,144,147,255,267,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_hex_weight_comp.wgsl 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof.glsl_hex_weight_comp.wgsl --keep-rw 0,55,144,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_frag.wgsl 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_frag.wgsl --keep-rw 0,34,55,141,147,255,266,428
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_box_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_frag.wgsl 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_frag.wgsl 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_frag.wgsl --keep-rw 0,34,55,141,147,255,266,428
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl 0,34,54,104,139,145,252,263,385,393
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl --keep-rw 0,34,54,104,139,145,252,263,385,393
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl 0,34,55,105,141,147,255,266,388,396
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl --keep-rw 0,34,55,105,141,147,255,266,388,396
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_frag.wgsl 0,2,34,139,146,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_frag.wgsl --keep-rw 0,2,34,139,146,423
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_frag.wgsl 0,2,34,141,148,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_frag.wgsl --keep-rw 0,2,34,141,148,428
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_frag.wgsl --keep-rw 0,34,55,141,147,255,266,428
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_hex_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl 0,34,139,145,165,423
-M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl --keep-rw 0,34,139,145,165,423
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl 0,34,141,147,168,428
+M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_frag.wgsl --keep-rw 0,34,141,147,168,428
 M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_camera_finish.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl 0,139,145,166,423
-M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl --keep-rw 0,139,145,166,423
-M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl 0,166
-M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl --keep-rw 0,166
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl 0,34,139,145,164,214,223,233,237,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl --keep-rw 0,34,139,145,164,214,223,233,237,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl 0,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl --keep-rw 0,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl 0,2,139,146,164,214,228,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl --keep-rw 0,2,139,146,164,214,228,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl 0,139,145,164,214,228,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl --keep-rw 0,139,145,164,214,228,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl 0,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl --keep-rw 0,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl 0,34,139,145,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl --keep-rw 0,34,139,145,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl --keep-rw 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_auto_exposure_comp.wgsl 0,34,139,145,252,263,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_auto_exposure_comp.wgsl --keep-rw 0,34,139,145,252,263,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_comp.wgsl 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_comp.wgsl --keep-rw 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_linearize_depth_comp.wgsl 0,139,145,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_linearize_depth_comp.wgsl --keep-rw 0,139,145,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_mipmap_comp.wgsl 0,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_mipmap_comp.wgsl --keep-rw 0,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_array_panorama_comp.wgsl 0,34,139,147,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_array_panorama_comp.wgsl --keep-rw 0,34,139,147,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_panorama_comp.wgsl 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_panorama_comp.wgsl --keep-rw 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_8bit_comp.wgsl 0,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_8bit_comp.wgsl --keep-rw 0,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_comp.wgsl 0,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_comp.wgsl --keep-rw 0,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_8bit_comp.wgsl 0,34,139,145,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_8bit_comp.wgsl --keep-rw 0,34,139,145,419,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_comp.wgsl 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_comp.wgsl --keep-rw 0,34,139,145,418,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_comp.wgsl 0,139,145,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_comp.wgsl --keep-rw 0,139,145,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_format_comp.wgsl 0,2,139,146,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_format_comp.wgsl --keep-rw 0,2,139,146,415,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_rg16f_comp.wgsl 0,34,139,145,416,423
-M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_rg16f_comp.wgsl --keep-rw 0,34,139,145,416,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_frag.wgsl --keep-rw 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_frag.wgsl --keep-rw 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_frag.wgsl 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_frag.wgsl 0,2,34,139,149,423
-M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_frag.wgsl --keep-rw 0,2,34,139,149,423
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl 0,141,147,169,428
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_count_comp.wgsl --keep-rw 0,141,147,169,428
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl 0,169
+M servers_rendering_renderer_rd_shaders_effects_camera_histogram.glsl_max_comp.wgsl --keep-rw 0,169
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl 0,34,141,147,167,217,226,236,240,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_gather_comp.wgsl --keep-rw 0,34,141,147,167,217,226,236,240,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl 0,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_neighbor_max_comp.wgsl --keep-rw 0,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl 0,2,141,148,167,217,231,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_comp.wgsl --keep-rw 0,2,141,148,167,217,231,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl 0,141,147,167,217,231,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_prep_resolved_depth_comp.wgsl --keep-rw 0,141,147,167,217,231,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl 0,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_camera_motion_blur.glsl_tile_max_comp.wgsl --keep-rw 0,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl 0,34,141,147,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_8bit_comp.wgsl --keep-rw 0,34,141,147,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_blur_comp.wgsl --keep-rw 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_auto_exposure_comp.wgsl 0,34,141,147,255,266,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_auto_exposure_comp.wgsl --keep-rw 0,34,141,147,255,266,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_comp.wgsl 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_gaussian_glow_comp.wgsl --keep-rw 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_linearize_depth_comp.wgsl 0,141,147,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_linearize_depth_comp.wgsl --keep-rw 0,141,147,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_mipmap_comp.wgsl 0,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_mipmap_comp.wgsl --keep-rw 0,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_array_panorama_comp.wgsl 0,34,141,149,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_array_panorama_comp.wgsl --keep-rw 0,34,141,149,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_panorama_comp.wgsl 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_octmap_panorama_comp.wgsl --keep-rw 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_8bit_comp.wgsl 0,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_8bit_comp.wgsl --keep-rw 0,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_comp.wgsl 0,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_set_color_comp.wgsl --keep-rw 0,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_8bit_comp.wgsl 0,34,141,147,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_8bit_comp.wgsl --keep-rw 0,34,141,147,424,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_comp.wgsl 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_comp.wgsl --keep-rw 0,34,141,147,423,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_comp.wgsl 0,141,147,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_comp.wgsl --keep-rw 0,141,147,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_format_comp.wgsl 0,2,141,148,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_depth_format_comp.wgsl --keep-rw 0,2,141,148,420,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_rg16f_comp.wgsl 0,34,141,147,421,428
+M servers_rendering_renderer_rd_shaders_effects_copy.glsl_simple_copy_rg16f_comp.wgsl --keep-rw 0,34,141,147,421,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_frag.wgsl --keep-rw 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_copy_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_frag.wgsl --keep-rw 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_panorama_to_dp_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_set_color_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_frag.wgsl 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_frag.wgsl --keep-rw 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_copy_to_fb.glsl_two_sources_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_frag.wgsl 0,2,34,141,151,428
+M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_frag.wgsl --keep-rw 0,2,34,141,151,428
 M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_cube_to_dp.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_frag.wgsl 0,34,139,148,423
-M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_frag.wgsl --keep-rw 0,34,139,148,423
+M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_frag.wgsl 0,34,141,150,428
+M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_frag.wgsl --keep-rw 0,34,141,150,428
 M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_cube_to_octmap.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_default_comp.wgsl 0,56,60,61,62,100,130,131,132,164,260,271,294,299,306,309,312,314,317,319,320,321,322,323,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_default_comp.wgsl --keep-rw 0,56,60,61,62,100,130,131,132,164,260,271,294,299,306,309,312,314,317,319,320,321,322,323,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_sharpening_comp.wgsl 0,56,60,61,62,100,130,131,132,164,260,271,294,299,306,309,312,314,319,320,321,322,323,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_sharpening_comp.wgsl --keep-rw 0,56,60,61,62,100,130,131,132,164,260,271,294,299,306,309,312,314,319,320,321,322,323,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_autogen_reactive_pass.glsl_default_comp.wgsl 0,134,260,294,328,333,368
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_autogen_reactive_pass.glsl_default_comp.wgsl --keep-rw 0,260,294,327,368
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_compute_luminance_pyramid_pass.glsl_no_image_atomics_comp.wgsl 0,53,133,136,137,164,260,269,274,291,326,333,365,374,378,384
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_compute_luminance_pyramid_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,53,133,136,137,164,260,269,274,291,326,333,365,374,378,384
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_depth_clip_pass.glsl_no_image_atomics_comp.wgsl 0,7,56,164,253,271,277,282,287,294,299,305,309,313,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_depth_clip_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,7,56,164,253,271,277,282,287,294,299,305,309,313,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_lock_pass.glsl_no_image_atomics_comp.wgsl 0,128,260,292,315,325,368
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_lock_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,128,260,292,315,325,368
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_rcas_pass.glsl_default_comp.wgsl 0,260,294,329,368,382
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_rcas_pass.glsl_default_comp.wgsl --keep-rw 0,260,294,329,368,382
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_reconstruct_previous_depth_pass.glsl_no_image_atomics_comp.wgsl 0,8,260,266,270,276,295,302,307,330,366
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_reconstruct_previous_depth_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,8,260,266,270,276,295,302,307,330,366
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_default_comp.wgsl 0,9,125,126,127,129,260,267,271,276,279,281,284,286,288,294,298,300,303,307,310,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_default_comp.wgsl --keep-rw 0,9,127,129,260,267,271,275,280,286,288,294,298,300,303,307,310,330,366,379
-M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl 0,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl --keep-rw 0,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl 0,139,145,255,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl --keep-rw 0,139,145,255,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_reduce_comp.wgsl 0,118,143,255,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_reduce_comp.wgsl --keep-rw 0,118,143,255,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_write_comp.wgsl 0,118,143,255,385,393,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_write_comp.wgsl --keep-rw 0,118,143,255,385,393,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_frag.wgsl 0,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_frag.wgsl --keep-rw 0,139,145,252,263,423
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_default_comp.wgsl 0,57,61,62,63,101,132,133,134,167,263,274,297,302,309,312,315,317,320,322,323,324,325,326,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_default_comp.wgsl --keep-rw 0,57,61,62,63,101,132,133,134,167,263,274,297,302,309,312,315,317,320,322,323,324,325,326,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_sharpening_comp.wgsl 0,57,61,62,63,101,132,133,134,167,263,274,297,302,309,312,315,317,322,323,324,325,326,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_accumulate_pass.glsl_sharpening_comp.wgsl --keep-rw 0,57,61,62,63,101,132,133,134,167,263,274,297,302,309,312,315,317,322,323,324,325,326,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_autogen_reactive_pass.glsl_default_comp.wgsl 0,136,263,297,331,336,371
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_autogen_reactive_pass.glsl_default_comp.wgsl --keep-rw 0,263,297,330,371
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_compute_luminance_pyramid_pass.glsl_no_image_atomics_comp.wgsl 0,54,135,138,139,167,263,272,277,294,329,336,368,377,381,387
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_compute_luminance_pyramid_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,54,135,138,139,167,263,272,277,294,329,336,368,377,381,387
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_depth_clip_pass.glsl_no_image_atomics_comp.wgsl 0,7,57,167,256,274,280,285,290,297,302,308,312,316,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_depth_clip_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,7,57,167,256,274,280,285,290,297,302,308,312,316,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_lock_pass.glsl_no_image_atomics_comp.wgsl 0,130,263,295,318,328,371
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_lock_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,130,263,295,318,328,371
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_rcas_pass.glsl_default_comp.wgsl 0,263,297,332,371,385
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_rcas_pass.glsl_default_comp.wgsl --keep-rw 0,263,297,332,371,385
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_reconstruct_previous_depth_pass.glsl_no_image_atomics_comp.wgsl 0,8,263,269,273,279,298,305,310,333,369
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_reconstruct_previous_depth_pass.glsl_no_image_atomics_comp.wgsl --keep-rw 0,8,263,269,273,279,298,305,310,333,369
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_default_comp.wgsl 0,9,127,128,129,131,263,270,274,279,282,284,287,289,291,297,301,303,306,310,313,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_default_comp.wgsl --keep-rw 0,9,129,131,263,270,274,278,283,289,291,297,301,303,306,310,313,333,369,382
+M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl 0,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl --keep-rw 0,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl 0,141,147,258,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl --keep-rw 0,141,147,258,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_reduce_comp.wgsl 0,120,145,258,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_reduce_comp.wgsl --keep-rw 0,120,145,258,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_write_comp.wgsl 0,120,145,258,388,396,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_write_comp.wgsl --keep-rw 0,120,145,258,388,396,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_frag.wgsl 0,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_frag.wgsl --keep-rw 0,141,147,255,266,428
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_final_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_frag.wgsl 0,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_frag.wgsl --keep-rw 0,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_frag.wgsl 0,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_frag.wgsl --keep-rw 0,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_first_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_frag.wgsl 0,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_frag.wgsl --keep-rw 0,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_frag.wgsl 0,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_frag.wgsl --keep-rw 0,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce_raster.glsl_middle_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_frag.wgsl 0,4,34,40,139,145,164,215,423
-M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_frag.wgsl --keep-rw 0,4,34,40,139,145,164,215,423
+M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_frag.wgsl 0,4,34,41,141,147,167,218,428
+M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_frag.wgsl --keep-rw 0,4,34,41,141,147,167,218,428
 M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_motion_vectors.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_motion_vectors_store.glsl_default_comp.wgsl 0,2,139,146,168,423
-M servers_rendering_renderer_rd_shaders_effects_motion_vectors_store.glsl_default_comp.wgsl --keep-rw 0,2,139,146,168,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgb10_a2_comp.wgsl 0,34,139,145,258,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,139,145,258,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgba16f_comp.wgsl 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgba16f_comp.wgsl --keep-rw 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_frag.wgsl 0,34,139,145
-M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_frag.wgsl --keep-rw 0,34,139,145
+M servers_rendering_renderer_rd_shaders_effects_motion_vectors_store.glsl_default_comp.wgsl 0,2,141,148,171,428
+M servers_rendering_renderer_rd_shaders_effects_motion_vectors_store.glsl_default_comp.wgsl --keep-rw 0,2,141,148,171,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgb10_a2_comp.wgsl 0,34,141,147,261,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,141,147,261,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgba16f_comp.wgsl 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler.glsl_rgba16f_comp.wgsl --keep-rw 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_frag.wgsl 0,34,141,147
+M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_frag.wgsl --keep-rw 0,34,141,147
 M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_octmap_downsampler_raster.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgb10_a2_comp.wgsl 0,34,139,145,253,388,395,399,402,410,412,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,139,145,253,388,395,399,402,410,412,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgba16f_comp.wgsl 0,34,139,145,253,389,396,400,403,411,413,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgba16f_comp.wgsl --keep-rw 0,34,139,145,253,389,396,400,403,411,413,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_frag.wgsl 0,34,139,145,253,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_frag.wgsl --keep-rw 0,34,139,145,253,423
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgb10_a2_comp.wgsl 0,34,141,147,256,391,398,402,406,415,417,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,141,147,256,391,398,402,406,415,417,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgba16f_comp.wgsl 0,34,141,147,256,392,399,403,407,416,418,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter.glsl_rgba16f_comp.wgsl --keep-rw 0,34,141,147,256,392,399,403,407,416,418,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_frag.wgsl 0,34,141,147,256,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_frag.wgsl --keep-rw 0,34,141,147,256,428
 M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_octmap_filter_raster.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgb10_a2_comp.wgsl 0,34,139,145,258,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,139,145,258,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgba16f_comp.wgsl 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgba16f_comp.wgsl --keep-rw 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgb10_a2_comp.wgsl 0,34,141,147,261,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgb10_a2_comp.wgsl --keep-rw 0,34,141,147,261,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgba16f_comp.wgsl 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness.glsl_rgba16f_comp.wgsl --keep-rw 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_octmap_roughness_raster.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_depth_comp.wgsl 0,1,144,255,423
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_depth_comp.wgsl --keep-rw 0,1,144,255,423
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_comp.wgsl 0,1,144,171,255,293,423
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_comp.wgsl --keep-rw 0,1,144,171,255,293,423
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_voxel_comp.wgsl 0,1,144,171,255,293,391,417,423
-M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_voxel_comp.wgsl --keep-rw 0,1,144,171,255,293,391,417,423
-M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_frag.wgsl 0,1,144,423
-M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_frag.wgsl --keep-rw 0,1,144,423
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_depth_comp.wgsl 0,1,146,258,428
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_depth_comp.wgsl --keep-rw 0,1,146,258,428
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_comp.wgsl 0,1,146,174,258,296,428
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_comp.wgsl --keep-rw 0,1,146,174,258,296,428
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_voxel_comp.wgsl 0,1,146,174,258,296,394,422,428
+M servers_rendering_renderer_rd_shaders_effects_resolve.glsl_gi_voxel_comp.wgsl --keep-rw 0,1,146,174,258,296,394,422,428
+M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_frag.wgsl 0,1,146,428
+M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_frag.wgsl --keep-rw 0,1,146,428
 M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_resolve_raster.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_roughness_limiter.glsl_default_comp.wgsl 0,139,145,256,423
-M servers_rendering_renderer_rd_shaders_effects_roughness_limiter.glsl_default_comp.wgsl --keep-rw 0,139,145,256,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection.glsl_default_comp.wgsl 0,34,139,145,153,164,214,223,233,237,247,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection.glsl_default_comp.wgsl --keep-rw 0,34,139,145,153,164,214,223,233,237,247,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_downsample.glsl_default_comp.wgsl 0,2,139,146,164,214,227,238,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_downsample.glsl_default_comp.wgsl --keep-rw 0,2,139,146,164,214,227,238,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_filter.glsl_default_comp.wgsl 0,34,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_filter.glsl_default_comp.wgsl --keep-rw 0,34,139,145,169,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_hiz.glsl_default_comp.wgsl 0,139,145,167,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_hiz.glsl_default_comp.wgsl --keep-rw 0,139,145,167,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_resolve.glsl_default_comp.wgsl 0,2,52,139,146,150,154,157,164,214,223,233,234,243,245,250,423
-M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_resolve.glsl_default_comp.wgsl --keep-rw 0,2,52,139,146,150,154,157,164,214,223,233,234,243,245,250,423
-M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_frag.wgsl 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_frag.wgsl --keep-rw 0,34,54,139,145,252,263,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_frag.wgsl --keep-rw 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_frag.wgsl 0,34,54,63,139,145,252,263,289,315,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_frag.wgsl --keep-rw 0,34,54,63,139,145,252,263,289,315,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_block_comp.wgsl 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_block_comp.wgsl --keep-rw 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_inner_comp.wgsl 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_inner_comp.wgsl --keep-rw 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_step_comp.wgsl 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_sort.glsl_step_comp.wgsl --keep-rw 0,254,423
-M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_frag.wgsl 0,34,139,145
-M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_frag.wgsl --keep-rw 0,34,139,145
-M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_frag.wgsl 0,34,54,139,145,252,263
-M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_frag.wgsl --keep-rw 0,34,54,139,145,252,263
+M servers_rendering_renderer_rd_shaders_effects_roughness_limiter.glsl_default_comp.wgsl 0,141,147,259,428
+M servers_rendering_renderer_rd_shaders_effects_roughness_limiter.glsl_default_comp.wgsl --keep-rw 0,141,147,259,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection.glsl_default_comp.wgsl 0,34,141,147,155,167,217,226,236,240,250,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection.glsl_default_comp.wgsl --keep-rw 0,34,141,147,155,167,217,226,236,240,250,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_downsample.glsl_default_comp.wgsl 0,2,141,148,167,217,230,241,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_downsample.glsl_default_comp.wgsl --keep-rw 0,2,141,148,167,217,230,241,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_filter.glsl_default_comp.wgsl 0,34,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_filter.glsl_default_comp.wgsl --keep-rw 0,34,141,147,172,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_hiz.glsl_default_comp.wgsl 0,141,147,170,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_hiz.glsl_default_comp.wgsl --keep-rw 0,141,147,170,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_resolve.glsl_default_comp.wgsl 0,2,53,141,148,152,156,159,167,217,226,236,237,246,248,253,428
+M servers_rendering_renderer_rd_shaders_effects_screen_space_reflection_resolve.glsl_default_comp.wgsl --keep-rw 0,2,53,141,148,152,156,159,167,217,226,236,237,246,248,253,428
+M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_shadow_frustum.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_frag.wgsl 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_frag.wgsl --keep-rw 0,34,55,141,147,255,266,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_blending.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_frag.wgsl --keep-rw 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_edge_detection.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_frag.wgsl 0,34,55,64,141,147,255,266,292,318,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_frag.wgsl --keep-rw 0,34,55,64,141,147,255,266,292,318,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_effects_smaa_weight_calculation.glsl_default_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_block_comp.wgsl 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_block_comp.wgsl --keep-rw 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_inner_comp.wgsl 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_inner_comp.wgsl --keep-rw 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_step_comp.wgsl 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_sort.glsl_step_comp.wgsl --keep-rw 0,257,428
+M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_frag.wgsl 0,34,141,147
+M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_frag.wgsl --keep-rw 0,34,141,147
+M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_frag.wgsl 0,34,55,141,147,255,266
+M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_frag.wgsl --keep-rw 0,34,55,141,147,255,266
 M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_ssr_vert.wgsl --keep-rw 0
 M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_specular_merge.glsl_merge_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_ss_effects_downsample.glsl_default_comp.wgsl 0,2,34,139,146,261,423
-M servers_rendering_renderer_rd_shaders_effects_ss_effects_downsample.glsl_default_comp.wgsl --keep-rw 0,2,34,139,146,261,423
-M servers_rendering_renderer_rd_shaders_effects_ssao.glsl_default_comp.wgsl 0,34,120,139,147,170,231,387,423
-M servers_rendering_renderer_rd_shaders_effects_ssao.glsl_default_comp.wgsl --keep-rw 0,34,120,139,147,170,231,387,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_non_smart_comp.wgsl 0,34,139,145,257,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_non_smart_comp.wgsl --keep-rw 0,34,139,145,257,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_smart_comp.wgsl 0,139,145,257,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_smart_comp.wgsl --keep-rw 0,139,145,257,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_wide_comp.wgsl 0,34,139,145,257,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_wide_comp.wgsl --keep-rw 0,34,139,145,257,423
+M servers_rendering_renderer_rd_shaders_effects_ss_effects_downsample.glsl_default_comp.wgsl 0,2,34,141,148,264,428
+M servers_rendering_renderer_rd_shaders_effects_ss_effects_downsample.glsl_default_comp.wgsl --keep-rw 0,2,34,141,148,264,428
+M servers_rendering_renderer_rd_shaders_effects_ssao.glsl_default_comp.wgsl 0,34,122,141,149,173,234,390,428
+M servers_rendering_renderer_rd_shaders_effects_ssao.glsl_default_comp.wgsl --keep-rw 0,34,122,141,149,173,234,390,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_non_smart_comp.wgsl 0,34,141,147,260,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_non_smart_comp.wgsl --keep-rw 0,34,141,147,260,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_smart_comp.wgsl 0,141,147,260,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_smart_comp.wgsl --keep-rw 0,141,147,260,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_wide_comp.wgsl 0,34,141,147,260,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_blur.glsl_wide_comp.wgsl --keep-rw 0,34,141,147,260,428
 M servers_rendering_renderer_rd_shaders_effects_ssao_importance_map.glsl_default_comp.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_ssao_importance_map.glsl_default_comp.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_ssao_interleave.glsl_default_comp.wgsl 0,54,140,252,265,423
-M servers_rendering_renderer_rd_shaders_effects_ssao_interleave.glsl_default_comp.wgsl --keep-rw 0,54,140,252,265,423
-M servers_rendering_renderer_rd_shaders_effects_ssil.glsl_default_comp.wgsl 0,34,113,120,138,139,147,170,231,389,398,401,414,421,423,426
-M servers_rendering_renderer_rd_shaders_effects_ssil.glsl_default_comp.wgsl --keep-rw 0,34,113,120,138,139,147,170,231,389,398,401,414,421,423,426
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_non_smart_comp.wgsl 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_non_smart_comp.wgsl --keep-rw 0,34,139,145,259,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_smart_comp.wgsl 0,34,123,139,145,259,390,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_smart_comp.wgsl --keep-rw 0,34,123,139,145,259,390,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_wide_comp.wgsl 0,34,123,139,145,259,390,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_wide_comp.wgsl --keep-rw 0,34,123,139,145,259,390,423
+M servers_rendering_renderer_rd_shaders_effects_ssao_interleave.glsl_default_comp.wgsl 0,55,142,255,268,428
+M servers_rendering_renderer_rd_shaders_effects_ssao_interleave.glsl_default_comp.wgsl --keep-rw 0,55,142,255,268,428
+M servers_rendering_renderer_rd_shaders_effects_ssil.glsl_default_comp.wgsl 0,34,115,122,140,141,149,173,234,392,401,404,419,426,428,431
+M servers_rendering_renderer_rd_shaders_effects_ssil.glsl_default_comp.wgsl --keep-rw 0,34,115,122,140,141,149,173,234,392,401,404,419,426,428,431
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_non_smart_comp.wgsl 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_non_smart_comp.wgsl --keep-rw 0,34,141,147,262,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_smart_comp.wgsl 0,34,125,141,147,262,393,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_smart_comp.wgsl --keep-rw 0,34,125,141,147,262,393,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_wide_comp.wgsl 0,34,125,141,147,262,393,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_blur.glsl_wide_comp.wgsl --keep-rw 0,34,125,141,147,262,393,428
 M servers_rendering_renderer_rd_shaders_effects_ssil_importance_map.glsl_default_comp.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_ssil_importance_map.glsl_default_comp.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_ssil_interleave.glsl_default_comp.wgsl 0,54,142,252,265,423
-M servers_rendering_renderer_rd_shaders_effects_ssil_interleave.glsl_default_comp.wgsl --keep-rw 0,54,142,252,265,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_11_samples_comp.wgsl 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_11_samples_comp.wgsl --keep-rw 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_17_samples_comp.wgsl 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_17_samples_comp.wgsl --keep-rw 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_25_samples_comp.wgsl 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_25_samples_comp.wgsl --keep-rw 0,10,34,104,139,145,259,385,394,423
-M servers_rendering_renderer_rd_shaders_effects_taa_resolve.glsl_default_comp.wgsl 0,4,52,119,121,122,143,152,164,215,229,239,245,250,423
-M servers_rendering_renderer_rd_shaders_effects_taa_resolve.glsl_default_comp.wgsl --keep-rw 0,4,52,119,121,122,143,152,164,215,229,239,245,250,423
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_frag.wgsl 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,421,423,424,427
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_frag.wgsl --keep-rw 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,421,423,424,427
+M servers_rendering_renderer_rd_shaders_effects_ssil_interleave.glsl_default_comp.wgsl 0,55,144,255,268,428
+M servers_rendering_renderer_rd_shaders_effects_ssil_interleave.glsl_default_comp.wgsl --keep-rw 0,55,144,255,268,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_11_samples_comp.wgsl 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_11_samples_comp.wgsl --keep-rw 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_17_samples_comp.wgsl 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_17_samples_comp.wgsl --keep-rw 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_25_samples_comp.wgsl 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_subsurface_scattering.glsl_25_samples_comp.wgsl --keep-rw 0,10,34,105,141,147,262,388,397,428
+M servers_rendering_renderer_rd_shaders_effects_taa_resolve.glsl_default_comp.wgsl 0,4,53,121,123,124,145,154,167,218,232,242,248,253,428
+M servers_rendering_renderer_rd_shaders_effects_taa_resolve.glsl_default_comp.wgsl --keep-rw 0,4,53,121,123,124,145,154,167,218,232,242,248,253,428
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_frag.wgsl 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,426,428,429,432
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_frag.wgsl --keep-rw 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,426,428,429,432
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_1d_lut_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_frag.wgsl 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,421,423,424,427
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_frag.wgsl --keep-rw 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,421,423,424,427
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_frag.wgsl 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,426,428,429,432
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_frag.wgsl --keep-rw 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,426,428,429,432
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_1d_lut_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_frag.wgsl 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,422,423,424,427
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_frag.wgsl --keep-rw 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,422,423,424,427
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_frag.wgsl 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,427,428,429,432
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_frag.wgsl --keep-rw 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,427,428,429,432
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_bicubic_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_frag.wgsl 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,422,423,424,427
-M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_frag.wgsl --keep-rw 0,34,104,105,113,115,139,145,252,263,296,385,393,397,401,414,422,423,424,427
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_frag.wgsl 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,427,428,429,432
+M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_frag.wgsl --keep-rw 0,34,105,106,113,115,117,141,147,255,266,299,388,396,400,404,405,414,419,427,428,429,432
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap.glsl_normal_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,40,48,50,52,139,145,153,164,214,223,233,234,243,245,251,423
-M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl --keep-rw 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,40,48,50,52,139,145,153,164,214,223,233,234,243,245,251,423
+M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,35,41,49,51,53,141,147,155,157,160,167,217,226,236,237,246,248,254,428
+M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_frag.wgsl --keep-rw 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,35,41,49,51,53,141,147,155,157,160,167,217,226,236,237,246,248,254,428
 M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_1d_lut_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,40,48,50,52,139,145,153,164,214,223,233,234,244,245,251,423
-M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl --keep-rw 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,40,48,50,52,139,145,153,164,214,223,233,234,244,245,251,423
+M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,35,41,49,51,53,141,147,155,157,160,167,217,226,236,237,247,248,254,428
+M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_frag.wgsl --keep-rw 0,12,14,15,16,17,18,19,20,21,22,23,25,27,28,29,30,31,32,33,34,35,41,49,51,53,141,147,155,157,160,167,217,226,236,237,247,248,254,428
 M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_tonemap_mobile.glsl_normal_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_frag.wgsl 0,34,139,145,423
-M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_frag.wgsl --keep-rw 0,34,139,145,423
+M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_frag.wgsl 0,34,141,147,428
+M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_frag.wgsl --keep-rw 0,34,141,147,428
 M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_frag.wgsl 0,34,139,145
-M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_frag.wgsl --keep-rw 0,34,139,145
+M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_frag.wgsl 0,34,141,147
+M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_frag.wgsl --keep-rw 0,34,141,147
 M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_vrs.glsl_rg_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_gi.glsl_default_comp.wgsl 0,3,12,14,24,155,162,174,194,195,221,423
-M servers_rendering_renderer_rd_shaders_environment_gi.glsl_default_comp.wgsl --keep-rw 0,3,12,14,24,155,162,174,194,195,221,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug.glsl_default_comp.wgsl 0,159,163,174,176,177,178,179,180,181,182,183,185,186,187,188,189,190,191,192,196,197,198,199,200,201,202,203,206,207,208,209,210,211,212,213,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug.glsl_default_comp.wgsl --keep-rw 0,159,163,174,176,177,178,179,180,181,182,183,185,186,187,188,189,190,191,192,196,197,198,199,200,201,202,203,206,207,208,209,210,211,212,213,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_frag.wgsl 0,47,230,234,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_frag.wgsl --keep-rw 0,47,230,234,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_vert.wgsl 0,153,172,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_vert.wgsl --keep-rw 0,153,172,423
+M servers_rendering_renderer_rd_shaders_environment_gi.glsl_default_comp.wgsl 0,3,12,14,24,157,165,177,197,198,224,428
+M servers_rendering_renderer_rd_shaders_environment_gi.glsl_default_comp.wgsl --keep-rw 0,3,12,14,24,157,165,177,197,198,224,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug.glsl_default_comp.wgsl 0,162,166,177,179,180,181,182,183,184,185,186,188,189,190,191,192,193,194,195,199,200,201,202,203,204,205,206,209,210,211,212,213,214,215,216,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug.glsl_default_comp.wgsl --keep-rw 0,162,166,177,179,180,181,182,183,184,185,186,188,189,190,191,192,193,194,195,199,200,201,202,203,204,205,206,209,210,211,212,213,214,215,216,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_frag.wgsl 0,48,233,237,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_frag.wgsl --keep-rw 0,48,233,237,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_vert.wgsl 0,155,175,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_probes_vert.wgsl --keep-rw 0,155,175,428
 M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_frag.wgsl 0
 M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_frag.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_vert.wgsl 0,153,172,234,249,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_vert.wgsl --keep-rw 0,153,172,234,249,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_direct_light.glsl_default_comp.wgsl 0,151,163,173,176,177,178,179,180,181,182,183,223,234,246,260,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_direct_light.glsl_default_comp.wgsl --keep-rw 0,151,163,173,176,177,178,179,180,181,182,183,223,234,246,260,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_integrate.glsl_default_comp.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_environment_sdfgi_integrate.glsl_default_comp.wgsl --keep-rw 0,423
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_vert.wgsl 0,155,175,237,252,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_debug_probes.glsl_visibility_vert.wgsl --keep-rw 0,155,175,237,252,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_direct_light.glsl_default_comp.wgsl 0,153,166,176,179,180,181,182,183,184,185,186,226,237,249,263,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_direct_light.glsl_default_comp.wgsl --keep-rw 0,153,166,176,179,180,181,182,183,184,185,186,226,237,249,263,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_integrate.glsl_default_comp.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_environment_sdfgi_integrate.glsl_default_comp.wgsl --keep-rw 0,428
 M servers_rendering_renderer_rd_shaders_environment_sdfgi_preprocess.glsl_default_comp.wgsl 0
 M servers_rendering_renderer_rd_shaders_environment_sdfgi_preprocess.glsl_default_comp.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_frag.wgsl 0,112,150,231,242,420,423
-M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_frag.wgsl --keep-rw 0,112,150,231,242,420,423
+M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_frag.wgsl 0,114,152,234,245,425,428
+M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_frag.wgsl --keep-rw 0,114,152,234,245,425,428
 M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_environment_sky.glsl_default_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_volumetric_fog.glsl_default_comp.wgsl 0,331,423
-M servers_rendering_renderer_rd_shaders_environment_volumetric_fog.glsl_default_comp.wgsl --keep-rw 0,331,423
+M servers_rendering_renderer_rd_shaders_environment_volumetric_fog.glsl_default_comp.wgsl 0,334,428
+M servers_rendering_renderer_rd_shaders_environment_volumetric_fog.glsl_default_comp.wgsl --keep-rw 0,334,428
 M servers_rendering_renderer_rd_shaders_environment_volumetric_fog_process.glsl_default_comp.wgsl 0
 M servers_rendering_renderer_rd_shaders_environment_volumetric_fog_process.glsl_default_comp.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi.glsl_default_comp.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi.glsl_default_comp.wgsl --keep-rw 0,423
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi.glsl_default_comp.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi.glsl_default_comp.wgsl --keep-rw 0,428
 M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_frag.wgsl 0
 M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_frag.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_vert.wgsl 0,165,423
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_vert.wgsl --keep-rw 0,165,423
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi_sdf.glsl_default_comp.wgsl 0,225,241,423
-M servers_rendering_renderer_rd_shaders_environment_voxel_gi_sdf.glsl_default_comp.wgsl --keep-rw 0,225,241,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_best_fit_normal.glsl_default_comp.wgsl 0,140
-M servers_rendering_renderer_rd_shaders_forward_clustered_best_fit_normal.glsl_default_comp.wgsl --keep-rw 0,140
-M servers_rendering_renderer_rd_shaders_forward_clustered_integrate_dfg.glsl_default_comp.wgsl 0,141
-M servers_rendering_renderer_rd_shaders_forward_clustered_integrate_dfg.glsl_default_comp.wgsl --keep-rw 0,141
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_frag.wgsl 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_frag.wgsl --keep-rw 0,12,14,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_frag.wgsl 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_frag.wgsl 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_frag.wgsl 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_frag.wgsl 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_frag.wgsl 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_frag.wgsl 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_frag.wgsl 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,58,65,66,67,68,69,70,71,72,74,75,76,77,78,79,80,88,92,95,96,97,98,99,101,151,156,158,160,161,175,184,193,216,219,220,222,224,232,235,246,262,268,272,278,285,296,297,301,304,308,316,324,335,336,337,338,339,340,341,342,345,346,347,348,349,350,351,359,367,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_frag.wgsl 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_frag.wgsl --keep-rw 0,24,35,37,38,44,45,46,55,59,73,81,82,83,84,85,86,87,88,89,90,92,93,94,95,96,97,98,99,101,151,156,158,175,184,193,205,216,219,220,222,224,232,235,246,262,268,272,283,285,296,297,301,304,308,316,324,343,352,353,354,355,356,357,358,359,363,364,367,369,370,371,372,373,375,376,377,381,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_frag.wgsl 0,11,13,24,262
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_frag.wgsl --keep-rw 0,11,13,24,262
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_frag.wgsl 0,11,13,24,262
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_frag.wgsl --keep-rw 0,11,13,24,262
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_frag.wgsl 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_frag.wgsl --keep-rw 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_frag.wgsl 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_frag.wgsl --keep-rw 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_frag.wgsl 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_frag.wgsl --keep-rw 0,11,13,24,42,218,262,304,324,383
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_frag.wgsl 0,11,13,24,135,262,296,332,334,344,361,362
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_frag.wgsl --keep-rw 0,11,13,24,262,296,332,334,344,360
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_vert.wgsl 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_vert.wgsl --keep-rw 0,11,14,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_frag.wgsl 0,24,262,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_frag.wgsl --keep-rw 0,24,262,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_frag.wgsl 0,24,262,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_frag.wgsl --keep-rw 0,24,262,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_frag.wgsl 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_frag.wgsl --keep-rw 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_frag.wgsl 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_frag.wgsl --keep-rw 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_frag.wgsl 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_frag.wgsl --keep-rw 0,24,42,218,262,304,324,383,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_frag.wgsl 0,24,135,262,296,332,334,344,361,362,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_frag.wgsl --keep-rw 0,24,262,296,332,334,344,360,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_vert.wgsl 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_vert.wgsl --keep-rw 0,24,262,324,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_frag.wgsl 0,12,14,25,26,36,38,39,41,43,64,91,102,151,156,158,175,184,193,204,217,218,219,224,235,246,262,268,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_frag.wgsl --keep-rw 0,12,14,25,26,36,38,39,41,43,64,91,102,151,156,158,175,184,193,204,217,218,219,224,235,246,262,268,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_vert.wgsl 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_vert.wgsl --keep-rw 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_frag.wgsl 0,12,13,24,26,262
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_frag.wgsl --keep-rw 0,12,13,24,26,262
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_vert.wgsl 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_vert.wgsl --keep-rw 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_frag.wgsl 0,12,14,25,26,36,38,39,41,43,57,64,91,102,151,156,158,160,161,175,184,193,204,217,218,219,224,235,246,262,268,273,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_frag.wgsl --keep-rw 0,12,14,25,26,36,38,39,41,43,57,64,91,102,151,156,158,160,161,175,184,193,204,217,218,219,224,235,246,262,268,273,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_vert.wgsl 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_vert.wgsl --keep-rw 0,12,13,24,26,262,290,386,423
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_vert.wgsl 0,168,428
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi_debug.glsl_default_vert.wgsl --keep-rw 0,168,428
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi_sdf.glsl_default_comp.wgsl 0,228,244,428
+M servers_rendering_renderer_rd_shaders_environment_voxel_gi_sdf.glsl_default_comp.wgsl --keep-rw 0,228,244,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_best_fit_normal.glsl_default_comp.wgsl 0,142
+M servers_rendering_renderer_rd_shaders_forward_clustered_best_fit_normal.glsl_default_comp.wgsl --keep-rw 0,142
+M servers_rendering_renderer_rd_shaders_forward_clustered_integrate_dfg.glsl_default_comp.wgsl 0,143
+M servers_rendering_renderer_rd_shaders_forward_clustered_integrate_dfg.glsl_default_comp.wgsl --keep-rw 0,143
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_base_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_motion_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_lightmap_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_motion_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_motion_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_lightmap_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_frag.wgsl 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_frag.wgsl --keep-rw 0,12,14,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_motion_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_sepspec_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_frag.wgsl 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_frag.wgsl 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_frag.wgsl 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_motion_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_lightmap_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_frag.wgsl 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_motion_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_frag.wgsl 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_frag.wgsl 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_frag.wgsl 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,59,66,67,68,69,70,71,72,73,75,76,77,78,79,80,81,89,93,96,97,98,99,100,102,153,158,161,163,164,178,187,196,219,222,223,225,227,235,238,249,265,271,275,281,288,299,300,304,307,311,319,327,338,339,340,341,342,343,344,345,348,349,350,351,352,353,354,362,370,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_motion_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_lightmap_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_frag.wgsl 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_frag.wgsl --keep-rw 0,24,36,38,39,45,46,47,56,60,74,82,83,84,85,86,87,88,89,90,91,93,94,95,96,97,98,99,100,102,153,158,161,178,187,196,208,219,222,223,225,227,235,238,249,265,271,275,286,288,299,300,304,307,311,319,327,346,355,356,357,358,359,360,361,362,366,367,370,372,373,374,375,376,378,379,380,384,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_motion_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_sepspec_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_color_uber_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_frag.wgsl 0,11,13,24,265
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_frag.wgsl --keep-rw 0,11,13,24,265
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_dp_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_frag.wgsl 0,11,13,24,265
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_frag.wgsl --keep-rw 0,11,13,24,265
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_frag.wgsl 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_frag.wgsl --keep-rw 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_material_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_frag.wgsl 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_frag.wgsl --keep-rw 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_frag.wgsl 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_frag.wgsl --keep-rw 0,11,13,24,43,221,265,307,327,386
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_nr_vgi_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_frag.wgsl 0,11,13,24,137,265,299,335,337,347,364,365
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_frag.wgsl --keep-rw 0,11,13,24,265,299,335,337,347,363
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_sdf_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_vert.wgsl 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_depth_vert.wgsl --keep-rw 0,11,14,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_frag.wgsl 0,24,265,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_frag.wgsl --keep-rw 0,24,265,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_dp_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_frag.wgsl 0,24,265,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_frag.wgsl --keep-rw 0,24,265,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_frag.wgsl 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_frag.wgsl --keep-rw 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_material_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_frag.wgsl 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_frag.wgsl --keep-rw 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_frag.wgsl 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_frag.wgsl --keep-rw 0,24,43,221,265,307,327,386,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_nr_vgi_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_frag.wgsl 0,24,137,265,299,335,337,347,364,365,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_frag.wgsl --keep-rw 0,24,265,299,335,337,347,363,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_sdf_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_vert.wgsl 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_clustered_scene_forward_clustered.glsl_uber_depth_vert.wgsl --keep-rw 0,24,265,327,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_frag.wgsl 0,12,14,25,26,37,39,40,42,44,65,92,103,153,158,161,178,187,196,207,220,221,222,227,238,249,265,271,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_frag.wgsl --keep-rw 0,12,14,25,26,37,39,40,42,44,65,92,103,153,158,161,178,187,196,207,220,221,222,227,238,249,265,271,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_vert.wgsl 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_color_pass_vert.wgsl --keep-rw 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_frag.wgsl 0,12,13,24,26,265
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_frag.wgsl --keep-rw 0,12,13,24,26,265
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_vert.wgsl 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_depth_material_vert.wgsl --keep-rw 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_frag.wgsl 0,12,14,25,26,37,39,40,42,44,58,65,92,103,153,158,161,163,164,178,187,196,207,220,221,222,227,238,249,265,271,276,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_frag.wgsl --keep-rw 0,12,14,25,26,37,39,40,42,44,58,65,92,103,153,158,161,163,164,178,187,196,207,220,221,222,227,238,249,265,271,276,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_vert.wgsl 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_lightmap_color_vert.wgsl --keep-rw 0,12,13,24,26,265,293,389,428
 M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_frag.wgsl 0,11,13,24,26
 M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_frag.wgsl --keep-rw 0,11,13,24,26
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_vert.wgsl 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_vert.wgsl --keep-rw 0,12,13,24,26,262,290,386,423
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_vert.wgsl 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_dp_vert.wgsl --keep-rw 0,12,13,24,26,265,293,389,428
 M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_frag.wgsl 0,11,13,24,26
 M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_frag.wgsl --keep-rw 0,11,13,24,26
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_vert.wgsl 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_vert.wgsl --keep-rw 0,12,13,24,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_frag.wgsl 0,26,36,38,39,41,43,64,91,102,151,156,158,175,184,193,204,217,218,219,224,235,246,262,268,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_frag.wgsl --keep-rw 0,26,36,38,39,41,43,64,91,102,151,156,158,175,184,193,204,217,218,219,224,235,246,262,268,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_vert.wgsl 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_vert.wgsl --keep-rw 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_frag.wgsl 0,26,262,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_frag.wgsl --keep-rw 0,26,262,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_vert.wgsl 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_vert.wgsl --keep-rw 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_frag.wgsl 0,26,36,38,39,41,43,57,64,91,102,151,156,158,160,161,175,184,193,204,217,218,219,224,235,246,262,268,273,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_frag.wgsl --keep-rw 0,26,36,38,39,41,43,57,64,91,102,151,156,158,160,161,175,184,193,204,217,218,219,224,235,246,262,268,273,290,301,304,308,311,318,330,367,380,383,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_vert.wgsl 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_vert.wgsl --keep-rw 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_frag.wgsl 0,26,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_frag.wgsl --keep-rw 0,26,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_vert.wgsl 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_vert.wgsl --keep-rw 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_frag.wgsl 0,26,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_frag.wgsl --keep-rw 0,26,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_vert.wgsl 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_vert.wgsl --keep-rw 0,26,262,290,386,423
-M servers_rendering_renderer_rd_shaders_particles.glsl_default_comp.wgsl 0,103,106,107,108,109,110,111,245,253,291,325,392,404,405,406,407,408,409,423
-M servers_rendering_renderer_rd_shaders_particles.glsl_default_comp.wgsl --keep-rw 0,103,106,107,108,109,110,111,245,253,291,325,392,404,405,406,407,408,409,423
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_vert.wgsl 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_shadow_vert.wgsl --keep-rw 0,12,13,24,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_frag.wgsl 0,26,37,39,40,42,44,65,92,103,153,158,161,178,187,196,207,220,221,222,227,238,249,265,271,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_frag.wgsl --keep-rw 0,26,37,39,40,42,44,65,92,103,153,158,161,178,187,196,207,220,221,222,227,238,249,265,271,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_vert.wgsl 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_color_pass_vert.wgsl --keep-rw 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_frag.wgsl 0,26,265,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_frag.wgsl --keep-rw 0,26,265,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_vert.wgsl 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_depth_material_vert.wgsl --keep-rw 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_frag.wgsl 0,26,37,39,40,42,44,58,65,92,103,153,158,161,163,164,178,187,196,207,220,221,222,227,238,249,265,271,276,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_frag.wgsl --keep-rw 0,26,37,39,40,42,44,58,65,92,103,153,158,161,163,164,178,187,196,207,220,221,222,227,238,249,265,271,276,293,304,307,311,314,321,333,370,383,386,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_vert.wgsl 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_lightmap_vert.wgsl --keep-rw 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_frag.wgsl 0,26,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_frag.wgsl --keep-rw 0,26,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_vert.wgsl 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_dp_vert.wgsl --keep-rw 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_frag.wgsl 0,26,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_frag.wgsl --keep-rw 0,26,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_vert.wgsl 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_forward_mobile_scene_forward_mobile.glsl_uber_shadow_vert.wgsl --keep-rw 0,26,265,293,389,428
+M servers_rendering_renderer_rd_shaders_particles.glsl_default_comp.wgsl 0,104,107,108,109,110,111,112,248,256,294,328,395,408,409,410,411,412,413,428
+M servers_rendering_renderer_rd_shaders_particles.glsl_default_comp.wgsl --keep-rw 0,104,107,108,109,110,111,112,248,256,294,328,395,408,409,410,411,412,413,428
 M servers_rendering_renderer_rd_shaders_particles_copy.glsl_default_comp.wgsl 0
 M servers_rendering_renderer_rd_shaders_particles_copy.glsl_default_comp.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_skeleton.glsl_default_comp.wgsl 0,166,225,253,290,324,386,423
-M servers_rendering_renderer_rd_shaders_skeleton.glsl_default_comp.wgsl --keep-rw 0,166,225,253,290,324,386,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_vert.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_frag.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_frag.wgsl --keep-rw 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_vert.wgsl 0,423
-M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_vert.wgsl --keep-rw 0,423
+M servers_rendering_renderer_rd_shaders_skeleton.glsl_default_comp.wgsl 0,169,228,256,293,327,389,428
+M servers_rendering_renderer_rd_shaders_skeleton.glsl_default_comp.wgsl --keep-rw 0,169,228,256,293,327,389,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out1_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out2_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out3_vert.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_frag.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_frag.wgsl --keep-rw 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_vert.wgsl 0,428
+M servers_rendering_renderer_rd_shaders_tex_blit.glsl_out4_vert.wgsl --keep-rw 0,428

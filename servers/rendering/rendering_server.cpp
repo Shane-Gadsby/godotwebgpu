@@ -3103,6 +3103,9 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_canvas_max_layer", "env", "max_layer"), &RenderingServer::environment_set_canvas_max_layer);
 	ClassDB::bind_method(D_METHOD("environment_set_ambient_light", "env", "color", "ambient", "energy", "sky_contribution", "reflection_source"), &RenderingServer::environment_set_ambient_light, DEFVAL(RSE::ENV_AMBIENT_SOURCE_BG), DEFVAL(1.0), DEFVAL(0.0), DEFVAL(RSE::ENV_REFLECTION_SOURCE_BG));
 	ClassDB::bind_method(D_METHOD("environment_set_glow", "env", "enable", "levels", "intensity", "strength", "mix", "bloom_threshold", "blend_mode", "hdr_bleed_threshold", "hdr_bleed_scale", "hdr_luminance_cap", "glow_map_strength", "glow_map"), &RenderingServer::environment_set_glow);
+	ClassDB::bind_method(D_METHOD("environment_set_lens_flare", "env", "enable", "intensity", "threshold", "ghost_count", "halo_intensity", "chromatic_aberration"), &RenderingServer::environment_set_lens_flare);
+	ClassDB::bind_method(D_METHOD("environment_set_veiling_glare", "env", "enable", "strength"), &RenderingServer::environment_set_veiling_glare);
+	ClassDB::bind_method(D_METHOD("environment_set_diffusion_filter", "env", "enable", "strength", "black"), &RenderingServer::environment_set_diffusion_filter);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction"), &RenderingServer::environment_set_adjustment);
@@ -3237,6 +3240,11 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens_distortion", "camera_attributes", "enable", "automatic", "k1", "k2", "auto_crop"), &RenderingServer::camera_attributes_set_lens_distortion);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_chromatic_aberration);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_diffraction", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_diffraction);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_aperture", "camera_attributes", "enable", "blade_count", "blade_curvature", "rotation"), &RenderingServer::camera_attributes_set_aperture);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_cats_eye", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_cats_eye);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_tilt_shift", "camera_attributes", "enable", "tilt", "axis"), &RenderingServer::camera_attributes_set_tilt_shift);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_starburst", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_starburst);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation", "camera_attributes", "enable", "strength", "radius"), &RenderingServer::camera_attributes_set_halation);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);

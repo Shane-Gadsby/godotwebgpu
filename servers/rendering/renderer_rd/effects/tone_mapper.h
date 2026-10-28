@@ -229,6 +229,7 @@ public:
 		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
 		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+		RID glare_texture; // The glare chain (whole mip chain) when glare is on; a black texture when invalid.
 
 		bool use_bcs = false;
 		float brightness = 1.0;

@@ -93,7 +93,38 @@ BokehDOF::~BokehDOF() {
 	}
 }
 
-void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth) {
+static uint32_t _pack_half2(float p_a, float p_b) {
+	return uint32_t(Math::make_half_float(p_a)) | (uint32_t(Math::make_half_float(p_b)) << 16);
+}
+
+bool BokehDOF::_setup_bokeh_shape(RID p_camera_attributes, const Size2i &p_size, const Projection &p_projection, bool p_orthogonal) {
+	const RendererCameraAttributes::BokehShape shape = RSG::camera_attributes->camera_attributes_get_bokeh_shape(p_camera_attributes, p_size.y > 0 ? float(p_size.x) / float(p_size.y) : 1.0f);
+	bokeh.push_constant.shape_flags = 0;
+	if (shape.custom) {
+		bokeh.push_constant.shape_flags = MIN(shape.blade_count, 255u) | BOKEH_SHAPE_CUSTOM;
+		bokeh.push_constant.blade_shape = _pack_half2(shape.blade_curvature, shape.rotation);
+		bokeh.push_constant.frame_half_extent = _pack_half2(shape.frame_half_extent.x, shape.frame_half_extent.y);
+		if (shape.cats_eye_offset > 0.0f) {
+			bokeh.push_constant.shape_flags |= BOKEH_SHAPE_CATS_EYE;
+			bokeh.push_constant.cats_eye = _pack_half2(shape.cats_eye_offset, shape.cats_eye_radius);
+		}
+	}
+	bokeh.push_constant.squeeze_focal_length = _pack_half2(shape.squeeze, shape.focal_length);
+	// Tilt-shift needs each pixel's view ray; an orthogonal camera has no lens to tilt.
+	if (shape.tilt && !p_orthogonal) {
+		bokeh.push_constant.shape_flags |= BOKEH_SHAPE_TILT;
+		// NDC x = (P00 x + P20 z) / -z, so x / -z = (NDC x + P20) / P00 (columns[c][r]); the same for y.
+		const float p00 = p_projection.columns[0][0];
+		const float p11 = p_projection.columns[1][1];
+		bokeh.push_constant.view_ray_scale = _pack_half2(1.0f / p00, 1.0f / p11);
+		bokeh.push_constant.view_ray_offset = _pack_half2(p_projection.columns[2][0] / p00, p_projection.columns[2][1] / p11);
+		bokeh.push_constant.tilt_normal_x = shape.focus_plane_normal.x;
+		bokeh.push_constant.tilt_normal_y = shape.focus_plane_normal.y;
+	}
+	return shape.custom;
+}
+
+void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth) {
 	ERR_FAIL_COND_MSG(prefer_raster_effects, "Can't use compute version of bokeh depth of field with the mobile renderer.");
 
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
@@ -139,6 +170,16 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	bokeh.push_constant.half_size = false;
 
 	bokeh.push_constant.blur_scale = 0.5;
+
+	// The aperture's shape (CameraAttributes): a custom shape needs the circular gather; tilt-shift makes every pixel's
+	// focus distance its own, so both sides run.
+	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
+		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
+	}
+	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
+		bokeh.push_constant.blur_far_active = true;
+		bokeh.push_constant.blur_near_active = true;
+	}
 
 	// setup our uniforms
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -300,7 +341,7 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	RD::get_singleton()->compute_list_end();
 }
 
-void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal) {
+void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection) {
 	ERR_FAIL_COND_MSG(!prefer_raster_effects, "Can't blur-based depth of field with the clustered renderer.");
 
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
@@ -331,6 +372,21 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	bokeh.push_constant.second_pass = false;
 	bokeh.push_constant.half_size = false;
 	bokeh.push_constant.blur_size = bokeh_size;
+
+	// The aperture's shape (CameraAttributes): a custom shape needs the circular gather; tilt-shift makes every pixel's
+	// focus distance its own, so both sides run.
+	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
+		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
+	}
+	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
+		dof_far = true;
+		dof_near = true;
+		// Tilt-shift rescales the physical circle of confusion per pixel, so it uses the physical model here too.
+		bokeh.push_constant.use_physical_far = true;
+		bokeh.push_constant.use_physical_near = true;
+		bokeh.push_constant.blur_size_far = bokeh_size;
+		bokeh.push_constant.blur_size_near = bokeh_size;
+	}
 
 	// setup our uniforms
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
