@@ -1,6 +1,6 @@
 # 57-pp-local-exposure
 
-State: claimed
+State: ready-for-integration
 Owner: worker-57
 Claimed: 2026-10-28 15:05
 Needs: build, gpu

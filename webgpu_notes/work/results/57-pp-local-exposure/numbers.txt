@@ -1,0 +1,111 @@
+ok   model 1280x720 room: 1280x720 model factor -1.52..+0.92 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0016 max 0.0022 EV, color kept to 0.0020
+ok   model 1280x720 chart: 1280x720 model factor -0.18..+1.00 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0017 max 0.0023 EV, color kept to 0.0016
+ok   model 1920x1080 room: 1920x1080 model factor -1.52..+0.92 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0016 max 0.0023 EV, color kept to 0.0018
+ok   model 1920x1080 chart: 1920x1080 model factor -0.18..+1.00 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0017 max 0.0022 EV, color kept to 0.0015
+ok   model 2560x1440 room: 2560x1440 model factor -1.52..+0.92 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0017 max 0.0026 EV, color kept to 0.0021
+ok   model 2560x1440 chart: 2560x1440 model factor -0.18..+1.00 EV, |measured - model| median 0.0005 p99 0.0015 p99.9 0.0017 max 0.0027 EV, color kept to 0.0019
+ok   resolution 720p vs 1440p measured factor: |difference| median 0.0003 p99 0.0037 EV (edges of objects differ by pixel coverage)
+ok   control identity (contrasts and detail 1): 1920x1080 model factor -0.00..+0.00 EV, |measured - model| median 0.0000 p99 0.0000 p99.9 0.0010 max 0.0014 EV, color kept to 0.0010
+ok   control identity changes nothing: max relative |on - off| 9.57e-04 (half-float captures: 1 ulp is 1e-3)
+ok   control hc0.3: 1920x1080 model factor -2.65..+0.92 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0018 max 0.0036 EV, color kept to 0.0029
+ok   control sc0.4: 1920x1080 model factor -1.52..+2.75 EV, |measured - model| median 0.0006 p99 0.0020 p99.9 0.0025 max 0.0038 EV, color kept to 0.0026
+ok   control detail0.5: 1920x1080 model factor -3.87..+1.85 EV, |measured - model| median 0.0005 p99 0.0015 p99.9 0.0019 max 0.0028 EV, color kept to 0.0020
+ok   control detail2: 1920x1080 model factor -2.75..+4.70 EV, |measured - model| median 0.0008 p99 0.0032 p99.9 0.0042 max 0.0064 EV, color kept to 0.0051
+ok   control blend0: 1920x1080 model factor -3.34..+0.95 EV, |measured - model| median 0.0005 p99 0.0015 p99.9 0.0023 max 0.0034 EV, color kept to 0.0031
+ok   control blend1: 1920x1080 model factor -0.30..+0.90 EV, |measured - model| median 0.0005 p99 0.0015 p99.9 0.0017 max 0.0023 EV, color kept to 0.0018
+ok   control kernel10: 1920x1080 model factor -3.05..+0.97 EV, |measured - model| median 0.0004 p99 0.0018 p99.9 0.0031 max 0.0059 EV, color kept to 0.0049
+ok   control kernel100: 1920x1080 model factor -0.95..+0.85 EV, |measured - model| median 0.0005 p99 0.0013 p99.9 0.0016 max 0.0023 EV, color kept to 0.0021
+ok   control bias2: 1920x1080 model factor -0.72..+1.32 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0016 max 0.0023 EV, color kept to 0.0019
+ok   control bias-2: 1920x1080 model factor -2.32..+0.52 EV, |measured - model| median 0.0005 p99 0.0014 p99.9 0.0017 max 0.0024 EV, color kept to 0.0022
+ok   auto exposure on: 1920x1080 model factor -0.99..+1.18 EV, |measured - model| median 0.0004 p99 0.0013 p99.9 0.0017 max 0.0024 EV, color kept to 0.0022
+ok   physical units + auto exposure: 1920x1080 model factor -2.93..+0.61 EV, |measured - model| median 0.0003 p99 0.0014 p99.9 0.0021 max 0.0033 EV, color kept to 0.0023
+per control, median change (window pixels / darkest 10%):
+  default    window -1.414 EV   darkest 10% +0.862 EV
+  identity   window +0.000 EV   darkest 10% +0.000 EV
+  hc0.3      window -2.474 EV   darkest 10% +0.862 EV
+  sc0.4      window -1.414 EV   darkest 10% +2.586 EV
+  detail0.5  window -3.818 EV   darkest 10% +1.054 EV
+  detail2    window +3.393 EV   darkest 10% +0.498 EV
+  blend0     window -3.337 EV   darkest 10% +0.886 EV
+  blend1     window -0.132 EV   darkest 10% +0.840 EV
+  kernel10   window -2.450 EV   darkest 10% +0.890 EV
+  kernel100  window -0.932 EV   darkest 10% +0.816 EV
+  bias2      window -0.614 EV   darkest 10% +1.262 EV
+  bias-2     window -2.214 EV   darkest 10% +0.462 EV
+halo profile:
+  blend0: column x=1186, wall just below the window +0.118 EV vs 150-200 px below +0.291 EV (model +0.119 / +0.292); max |measured - model| on the column 0.0024 EV
+  default: column x=1186, wall just below the window +0.012 EV vs 150-200 px below +0.286 EV (model +0.013 / +0.286); max |measured - model| on the column 0.0016 EV
+ALL OK
+web vs native look_off     1280x720: max 219, mean 0.2387, pixels >1/255 23846, >0 57827
+web vs native look_on      1280x720: max 218, mean 0.2579, pixels >1/255 27284, >0 60827
+web vs native look_strong  1280x720: max 217, mean 0.2925, pixels >1/255 28975, >0 67816
+web vs native lin_off      1280x720: max 213, mean 0.2103, pixels >1/255 19442, >0 51823
+web vs native lin_on       1280x720: max 212, mean 0.2235, pixels >1/255 23491, >0 53218
+web vs native chart_on     1280x720: max 169, mean 0.1687, pixels >1/255 17304, >0 30011
+web vs native detail2      1280x720: max 209, mean 0.3953, pixels >1/255 29469, >0 82168
+web vs native blend0       1280x720: max 219, mean 0.2488, pixels >1/255 27371, >0 61816
+web vs native kernel10     1280x720: max 208, mean 0.2639, pixels >1/255 27457, >0 61557
+web vs native ae_on        1280x720: max 210, mean 0.2169, pixels >1/255 20996, >0 52775
+web look_on vs look_off (the effect): mean 11.90, max 24
+masked web vs native look_on      (79.9% of pixels where look_off agrees): max 3, mean 0.0349, >1/255 834 px
+masked web vs native look_strong  (79.9% of pixels where look_off agrees): max 4, mean 0.0434, >1/255 1334 px
+masked web vs native detail2      (79.9% of pixels where look_off agrees): max 5, mean 0.0594, >1/255 1353 px
+masked web vs native blend0       (79.9% of pixels where look_off agrees): max 18, mean 0.0365, >1/255 915 px
+masked web vs native kernel10     (79.9% of pixels where look_off agrees): max 3, mean 0.0357, >1/255 919 px
+masked web vs native ae_on        (79.9% of pixels where look_off agrees): max 11, mean 0.0263, >1/255 68 px
+masked web vs native lin_on       (81.4% of pixels where lin_off agrees): max 3, mean 0.0303, >1/255 1225 px
+--- identity (ident phase)
+ok   ident forward_plus filmic_glow: max diff 0, differing pixels 0
+ok   ident forward_plus filmic_ae: max diff 0, differing pixels 0
+ok   ident forward_plus linear: max diff 0, differing pixels 0
+ok   ident forward_plus phys_ae: max diff 0, differing pixels 0
+ok   ident mobile filmic_glow: max diff 0, differing pixels 0
+ok   ident mobile filmic_ae: max diff 0, differing pixels 0
+ok   ident mobile linear: max diff 0, differing pixels 0
+ok   ident mobile phys_ae: max diff 0, differing pixels 0
+ok   unsupported mobile: local exposure on = off: max diff 0
+ok   ident gl_compatibility filmic_glow: max diff 0, differing pixels 0
+ok   ident gl_compatibility filmic_ae: max diff 0, differing pixels 0
+ok   ident gl_compatibility linear: max diff 0, differing pixels 0
+ok   ident gl_compatibility phys_ae: max diff 0, differing pixels 0
+ok   unsupported gl_compatibility: local exposure on = off: max diff 0
+ALL OK
+--- gpu_time 1080p WebGPU
+le=off
+[gpu_time] adapter {"vendor":"nvidia","arch":"lovelace","fallback":false,"tex":48}
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 120 over 731 ms (1 round(s)) -> 165 fps, 6.04 ms/frame
+GPU busy 0.53 ms/frame (9% of the GPU timeline), 2040 passes timed
+copyTextureToTexture 0.0/frame (copies are timed as 'copy' rows)
+ms/frame  passes/f  draws|dispatches/f  pipelines -> first attachment
+   0.310       1.0         29  render  SceneForwardClusteredShaderRD:18                             -> unnamed#35 1920x1080x1 mip1 fmt40 usa
+   0.082       1.0          1  render  TonemapShaderRD                                              -> unnamed#31 1920x1080x1 mip1 fmt22 usa
+   0.031       1.0          1  render  BlitShaderRD                                                 -> 1920x1080x1 rgba8unorm
+   0.027       1.0         29  render  SceneForwardClusteredShaderRD                                -> unnamed#36 1920x1080x1 mip1 fmt49 usa
+   0.021       1.0          1  render  ClusterRenderShaderRD                                        -> unnamed#37 480x270x1 mip1 fmt22 usage
+   0.014       3.0          3  copy    copyBufferToBuffer                                           -> 5728 B
+le=on
+[gpu_time] adapter {"vendor":"nvidia","arch":"lovelace","fallback":false,"tex":48}
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 107 over 653 ms (1 round(s)) -> 165 fps, 6.05 ms/frame
+GPU busy 1.03 ms/frame (17% of the GPU timeline), 2033 passes timed
+copyTextureToTexture 0.0/frame (copies are timed as 'copy' rows)
+ms/frame  passes/f  draws|dispatches/f  pipelines -> first attachment
+   0.543       1.0         29  render  SceneForwardClusteredShaderRD:18                             -> unnamed#35 1920x1080x1 mip1 fmt40 usa
+   0.115       1.0          1  compute CameraLocalExposureShaderRD:0,CameraLocalExposureShaderRD:1  ->
+   0.095       1.0          1  render  TonemapShaderRD                                              -> unnamed#31 1920x1080x1 mip1 fmt22 usa
+   0.089       1.0         29  render  SceneForwardClusteredShaderRD                                -> unnamed#36 1920x1080x1 mip1 fmt49 usa
+   0.042       1.0          1  render  ClusterRenderShaderRD                                        -> unnamed#37 480x270x1 mip1 fmt22 usage
+   0.039       1.0          1  compute CameraLocalExposureShaderRD:0                                ->
+--- matrix
+    PASS  white_balance                delta 48.141; native diff off 0.002 on 0.004
+
+--
+    PASS  local_exposure               delta 11.392; native diff off 0.002 on 0.004
+
+--
+RESULT: PASS
+adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,"features":["shader-f16","subgroups","clip-distances","dual-source-blending"]}
+/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w57/smoke/smoke-20261028-153109-2042483/wgsl: 311 files, 0 invalid
+validation: 311 modules, 0 invalid, 0 of them expected
+SMOKE OK (smoke-20261028-153109-2042483)
