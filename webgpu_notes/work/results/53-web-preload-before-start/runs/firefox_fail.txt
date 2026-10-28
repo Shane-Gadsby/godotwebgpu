@@ -1,0 +1,25 @@
+0.8s(srv) PROBE keydown trusted=true target= at 66 ms
+1.0s(srv) PROBE keydown trusted=true target= at 96 ms
+adapter {"vendor":"","architecture":"","fallback":false,"maxTex":64,"bc":true,"etc2":false}
+0.1s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 33%","preloadShown":true}
+3.1s download done {"rtenv":false,"compiles":0,"devices":0,"preload":"","preloadShown":true} {"/index.html":1,"/index.js":1,"/index.png":1,"/index.wasm":1,"/index.pck":4,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1}
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck, /index.pck, /index.pck, /index.pck)
+8.1s 5 s after the download {"rtenv":false,"compiles":0,"devices":0,"preload":"","preloadShown":true}
+PASS engine idle 5 s after the download (rtenv false, wasm compiles 0, requestDevice 0)
+9.3s(srv) PROBE pointerdown trusted=true target=status-start at 8102 ms
+9.3s(srv) PROBE click trusted=true target=status-start at 8108 ms
+8.1s pressed (fail)
+9.3s(srv) PROBE requestDevice at 8110 ms: GPUAdapter.prototype.requestDevice@debugger eval code:13:158
+Engine.requestWebGPUDevice/Engine<@http://127.0.0.1:8702/index.js:1661:19
+
+8.8s fail: overlay gone 0.66 s after the press
+requests to the game server: {"/index.html":1,"/index.js":1,"/index.png":1,"/index.wasm":1,"/index.pck":5,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS main pack: 4 failed prefetch attempts, then fetched again on the press (5)
+PASS every other file requested once
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: warning: Godot: prefetching 'index.pck' failed (Error: Failed loading file 'index.pck'); it will be downloaded again when the game starts.
+  warning: [JavaScript Warning: "The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead."]
+  warning: WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1381)
+RESULT PASS

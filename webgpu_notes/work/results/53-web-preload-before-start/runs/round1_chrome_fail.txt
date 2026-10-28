@@ -1,0 +1,21 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.3s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 99%","preloadShown":true}
+120.3s download done {"rtenv":true,"compiles":1,"devices":1,"preloadShown":false} {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":5,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck, /index.pck, /index.pck, /index.pck, /index.pck, /index.audio.worklet.js)
+125.3s 5 s after the download {"rtenv":true,"compiles":1,"devices":1,"preloadShown":false}
+FAIL engine idle 5 s after the download (rtenv true, wasm compiles 1, requestDevice 1)
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+frame.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('#status-start')[22m
+
+    at pressAndWait (/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w53/preload_test.mjs:142:16)
+    at /tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w53/preload_test.mjs:189:18 {
+  log: [ "  - waiting for locator('#status-start')" ],
+  name: 'TimeoutError'
+}
+
+Node.js v22.23.4

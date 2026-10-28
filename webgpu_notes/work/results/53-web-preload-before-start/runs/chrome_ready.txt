@@ -1,0 +1,20 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.2s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true}
+0.2s download done {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true} {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":1,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1}
+PASS label says Ready (Ready)
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck)
+5.2s 5 s after the download {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true}
+PASS engine idle 5 s after the download (rtenv false, wasm compiles 0, requestDevice 0)
+5.3s PROBE pointerdown trusted=true target=status-start at 5242 ms
+5.3s PROBE click trusted=true target=status-start at 5242 ms
+5.3s pressed (ready)
+5.3s PROBE requestDevice at 5244 ms: Error
+    at GPUAdapter.requestDevice (<anonymous>:13:158)
+    at http://127.0.0.1:8702/index.js:1661:19
+6.1s ready: overlay gone 0.85 s after the press
+requests to the game server: {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":1,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS each file requested exactly once (/index.html:1 /index.png:1 /index.js:1 /index.wasm:1 /index.pck:1 /index.shaders.pck:1 /index.shaders_extra.bin:1 /index.textures_bc.pck:1 /index.audio.worklet.js:1)
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: error: Failed to load resource: the server responded with a status of 404 (Not Found)
+RESULT PASS
