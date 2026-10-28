@@ -1,6 +1,6 @@
 # 43-wiki-audit: wiki pages for engine additions that have none
 
-State: ready-for-integration
+State: integrated (lead: results merged; wiki commit 823092f reviewed, pushed with the camera section)
 Owner: worker-43
 Claimed: 2026-10-28
 Needs: — (no build)
