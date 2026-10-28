@@ -1,6 +1,6 @@
 # 77-rd-texture-get-data-warning
 
-State: claimed
+State: ready-for-integration
 Owner: worker-77
 Claimed: 2026-10-29 07:05
 Needs: build, browser
