@@ -22,7 +22,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 |
 | 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 |
 | 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 |
-| 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 |
+| 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 (retired); **merged**, TASKS §4.59, matrix 98 arms, wiki page |
 | 50 | build scripts: no-threads non-dlink web templates first (TASKS §2.50) | 5 | worker-50 |
 | 51 | web Start button screen with customizable look (camera-sim spec + user styling; TASKS §2.51) | 5 | worker-51 |
 | 52 | web `window_set_size()` never emits `size_changed` (camera-sim; TASKS §2.52) | 5 | worker-52 |

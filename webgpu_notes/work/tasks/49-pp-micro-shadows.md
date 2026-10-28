@@ -1,6 +1,6 @@
 # 49-pp-micro-shadows
 
-State: ready-for-integration
+State: integrated (lead: merged; builds, smoke and parity arms OK on the merged tree; wiki page added)
 Owner: worker-49
 Claimed: 2026-10-28 12:05
 Needs: build, gpu

@@ -4972,6 +4972,19 @@ others the intended Average change (Forward+ auto-exposed scenes); Average now r
 vs 1.0276 / 1.0211 at 1080p / 720p; before 0.978 / 1.278). Worker: log-average within +0.0005 EV of a Python reference,
 WebGPU pixel-identical for metering. §3 trap 80. Question `glare-lod-calibration` on the hand-offs page.
 
+### 4.59 Micro shadows on Environment (October 2026) *(work task 49; survey §2.48, `pp-micro-shadows`)*
+
+`Environment.micro_shadows_enabled` (off) / `micro_shadows_opacity` (1.0), RS `environment_set_micro_shadows()`. Each
+directional light is multiplied by `mix(1, saturate(N.L + 2*AO^2 - 1), opacity)` (Brinck and Maximov 2016, HDRP's
+`ComputeMicroShadowing`), left alone where N.L < 0; N the normal-mapped normal, AO the material's own (before SSAO and
+`ao_light_affect`); not with per-vertex lighting. Forward+ and Mobile carry the opacity in the scene UBO's former `pad`
+word (no new bindings or variants, references unchanged); Compatibility has its own copy and one more vec4 in its scene UBO.
+Worker: per-pixel factor vs the formula on an AO-gradient quad at 5 light elevations, mean error <= 1e-4 (max 0.0009
+Forward+, 0.002 Mobile, 0.035 Compatibility near black); off / opacity 0 / no AO map bit-identical in 27 comparisons;
+full Forward+ matrix 98/98 at parity, new arm `micro_shadows`. Lead (merged tree): dev_mode editor and web template clean,
+292 precompiled, smoke OK; `micro_shadows` and `omni_light` at parity. Cost not measured (a few ALU per pixel per
+directional light behind a uniform branch). Wiki: Engine-Additions-Micro-Shadows.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
