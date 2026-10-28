@@ -415,7 +415,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
 | 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | **DONE 2026-10-25 → §4.37** — Wake Lock, `html/orientation`, fullscreen on the first tap, high-performance everywhere | a feature-tag orientation override still beats `html/orientation` |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
-| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | OPEN — before the board retires | move `smoke.sh` into `webgpu_tests/`, wire it into `local_ci.sh`/CI; first GitHub run of the renamed CI jobs |
+| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | DONE 2026-10-28 → §4.75 (the CI half → §2.54) | `webgpu_tests/converter_smoke/run.sh`, in `local_ci.sh --quick` |
 | 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate passes only at a raised ceiling (150, was 80); 8 scene-shader groups and a particles stage are never baked |
 | 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
 | 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
@@ -519,7 +519,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
 | 2.36 | ~~Web export: performance hint, keep screen awake, orientation~~ | **`DONE` 2026-10-25 → §4.37** | — |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call | `OPEN` — prioritized by the user 2026-10-25 | ~2–4 sessions |
-| 2.38 | Converter smoke check and stored references out of the work board | `OPEN` | ~0.5 session |
+| 2.38 | Converter smoke check and stored references out of the work board | `DONE` → §4.75 | — |
 | 2.39 | Baked Forward+ fixture converts ~97 stages at load (bake gate) | `OPEN` — pre-existing | ~1 session, needs the GPU |
 | 2.40 | SDFGI differs from native in Firefox only (0.277) | `OPEN` | ~1 session, needs the GPU and Firefox |
 | 2.41 | Subsurface scattering on the Razr 60, 11.1 from desktop Vulkan | `OPEN` — pre-existing | ~1 session, needs the phone |
@@ -535,6 +535,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.51 | Web export: Start button + preload before run, customizable button | `DONE` → §4.61, §4.63 | — |
 | 2.52 | Web: `window_set_size()` never emits `size_changed` | `DONE` → §4.62 | — |
 | 2.53 | Web: fullscreen driven by the embedding page | `DONE` → §4.67 | — |
+| 2.54 | First GitHub run after the converter swap | `OPEN` — needs the user's push | ~15 min watching one CI run |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2469,7 +2470,7 @@ bundles, indirect draws and custom bindings; the decision then was command buffe
 **Done when** the Razr 60 and desktop numbers show the main-thread saving, parity is unchanged, and `perf_guard` passes.
 Effort: ~2–4 sessions.
 
-### 2.38 Converter smoke check and stored references out of the work board `OPEN` *(from §4.36)*
+### 2.38 Converter smoke check and stored references out of the work board `DONE 2026-10-28` → §4.75; the CI half → §2.54 *(from §4.36)*
 
 The one check that the converter still produces what the driver expects without rendering anything is
 `webgpu_notes/work/smoke.sh`: it builds `wgsl_convert_cli`, converts every engine variant `wgsl_precompile.py` builds,
@@ -2668,6 +2669,16 @@ originals in `webgpu_notes/work/inputs/camera-sim-2026-10-28/`. **Those task fil
 
 Effort ~0.5-1 session.
 ---
+
+### 2.54 First GitHub run after the converter swap `OPEN` — needs the user's push *(from §2.38, §4.36)*
+
+Work task 09 renamed CI's matrix key (`wgsl-cli`), the converter artifact (`wgsl-convert-cli`) and the cache keys of
+every workflow that builds it, and no workflow has run on GitHub since (the lead and workers never push). **For the
+user:** on the first push of `webgpu-4.8` / `main` after the swap, watch 🧪 WebGPU Tests and 🔗 GHA for (1) a job that
+downloads the old `tint-convert-cli` artifact or expects `bin/tint_convert_cli` (artifact-not-found or missing-file in
+the shader-corpus / precompile steps; grep `.github/` for `tint`), (2) a cold cache on every job the first time
+(expected; only a second cold run is a problem), and (3) the `dev_mode=yes` web build of the SPIRV-Cross wrapper (the
+one part built with `-fwasm-exceptions`). Effort: one CI run's watching, ~15 min.
 
 ## 3. Traps and lessons — read before debugging
 
@@ -5285,6 +5296,18 @@ accumulate's unread binding still logs). Also fixed: `wgsl_precompile.py` lacked
 define, so FSR2's depth-clip and TCR passes were converted at run time (correct, slower). Worker: matrix baked 101/101.
 **Lead (final merged tree, tasks 55-58): dev_mode editor and web template 0 warnings, smoke 311/311 interface and 622/622
 scan facts, Forward+ matrix 103/103 at parity, unbaked and baked.** §3 trap 94.
+
+### 4.75 Converter smoke check is a `webgpu_tests` tier (October 2026) *(was §2.38; work task 59)*
+
+`webgpu_notes/work/smoke.sh` and its expected-invalid list moved to `webgpu_tests/converter_smoke/run.sh` and
+`expected_invalid.txt`; the old path is a two-line forwarder (the work board's prompts and task files name it). It
+builds `wgsl_convert_cli`, converts every engine variant, compares interfaces and the driver's text-scan facts with the
+stored references, and compiles every module in Chrome; `local_ci.sh` runs it in stage 1 (`--quick` included).
+`validate_wgsl.mjs` now asserts the adapter instead of only logging it (exit 3; `WGSL_VALIDATE_ADAPTER=<vendor>/<arch>`
+or `any` accepts another real adapter, never the fallback one); lead: off Linux it launches the installed Chrome on its
+native backend (the Vulkan launch is unchanged on Linux), and `local_ci.sh` passes `any` unless one is named, so the tier
+runs on a Mac. Verified from both paths: 311 compiled, interfaces 311/311, scan facts 622/622, 311 valid in Chrome,
+~10 s. The GitHub half of the old §2.38 is §2.54.
 
 ## 5. References — retired docs
 

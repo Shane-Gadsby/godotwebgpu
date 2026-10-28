@@ -1,6 +1,6 @@
 # 59-converter-smoke-tier: TASKS §2.38
 
-State: ready-for-integration
+State: integrated (TASKS §4.75)
 Owner: worker-59
 Claimed: 2026-10-28 16:55
 Needs: build (wgsl_convert_cli only), gpu (one Chrome validation run)

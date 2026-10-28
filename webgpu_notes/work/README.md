@@ -99,8 +99,9 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
   the lead ran its verification on the merged tree. The merge rate is capped by the verification rate.
 - **Smoke after every merge, not per batch**: `webgpu_notes/work/smoke.sh` on the merged tree before the next merge.
 - **Run `webgpu_notes/work/smoke.sh <scratch_dir>` before you set `ready-for-integration`** and paste its last lines into
-  SUMMARY.md. It builds `tint_convert_cli` with both backends from your tree, converts every engine variant
-  `wgsl_precompile.py` builds with both, compares their bindings and override ids, and compiles every result in Chrome.
+  SUMMARY.md. It forwards to `webgpu_tests/converter_smoke/run.sh`: builds `wgsl_convert_cli` from your tree, converts
+  every engine variant `wgsl_precompile.py` builds, compares bindings, override ids and the driver's text-scan facts with
+  the stored references, and compiles every result in Chrome.
   If it fails, the task is not ready. A known failure you cannot fix is listed in SUMMARY.md, never silently.
 - **Tools that report success without checking are the worst defect class** (co-op lesson 6): a text edit asserts its
   match count, a wait that times out fails, a skip is reported as a skip, never counted as a pass.
