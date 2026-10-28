@@ -1,6 +1,6 @@
 # 78-ssil-scale-change
 
-State: claimed
+State: ready-for-integration
 Owner: worker-78
 Claimed: 2026-10-29 07:00
 Needs: build, gpu
