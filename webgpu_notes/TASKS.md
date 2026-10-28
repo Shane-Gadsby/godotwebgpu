@@ -3324,6 +3324,15 @@ the config, so the `Preloader` has its total before any header arrives and the l
 that waits to see the unknown-size message fails; gate the server rather than throttle it, and strip `fileSizes` to
 test that message.
 
+97. **A DOF edge that measures "nearly sharp" may be the gather, not the size** (2026-10-28, work task 63). Upstream's
+Box/Hexagon physical-mode DOF divides by every sample up to a fixed 32 px reach, so a blur well under 32 px is diluted
+toward sharp (a 5.5 px blur read as a 1.5 px 10-90% edge with long tails); the Circle gather does not. Compare shapes
+before trusting a size measured on the hexagon.
+
+98. **`gpu_time.mjs --size` does not resize an export that keeps the default window size** (2026-10-28, work task 63):
+the canvas stayed 1152x648 at `--size 1920x1080` and `2560x1440`, so both runs measured the same thing. Set the
+project's viewport size and check `canvas.width` before reading resolution-dependent costs.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5348,6 +5357,25 @@ switched off leaves the line empty at the same height. Worker: 34/34 browser run
 cross-origin iframe, webgpu-full-size shell); defaults 0 px against the previous shells in 24 comparisons; visibility
 checked with task 51's addon. Lead (merged tree with 60): default, edited, no-`{percent}` and all-off pass in Chrome
 and Firefox. Questions `preload-text-opacity`, `preload-text-font`. §3 trap 96. Not done: the windowed export dialog by hand.
+
+### 4.78 Physical depth of field at the thin-lens size (October 2026) *(work task 63; camera-sim spec)*
+
+`CameraAttributesPhysical.dof_physical_blur_size` (off by default; RS `camera_attributes_set_dof_physical_blur_size`)
+makes the DOF blur the thin-lens circle, f² / (N (u − f)) · |d − u| / d, measured against the sensor height (the
+desqueezed width for an anamorphic lens) and converted at render time to pixels of the buffer being blurred, in
+`BokehDOF`'s compute (Forward+) and raster (Mobile) paths; Compatibility has no DOF. For opt-in cameras the 32 px gather
+cap becomes `rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size`, a percentage of the image height
+(default 3%, upstream's 32 px at about 1080p): a visible clamp, not a hidden cost. Under a new `shape_flags` bit (push
+constant layout unchanged) the Box/Hexagon gather and the half-size Very Low/Low passes are sized to the blur, fixing
+upstream's dilution (§3 trap 97) for opt-in cameras only. Worker: 720p 50 mm f/1.4 focus 2.5 m wall at 5 m, model 5.47
+px, measured 5.69 (circle; hexagon and box within ~5%), 1440p 10.97 vs 10.93, MFT 10.12 vs 10.09; a case modelled at 80
+px clamps to 43 px at 3%; WebGPU matches native; opt-in off 0 px (10 native, 3 web); camera-sim A/B within 2% (circle).
+WebGPU 1440p: Hexagon Low 0.61 ms at 3% (0.64 upstream), Circle Medium 13.9 ms (7.8 upstream). Lead (merged tree):
+dev_mode editor, web debug and release 0 warnings; opt-in off 0 px against the pre-merge editor (circle, hexagon, box;
+Forward+ and Mobile); opt-in on 5.69 px (Forward+) / 5.64 (Mobile) at 720p and 10.97 at 1440p against 5.47 / 10.93.
+Not run (user: related tests only): the Forward+ dof arms, Firefox. `sensor_fit` not done (needs its own task).
+Questions `dof-physical-max-blur`, `camera-sim-hexagon`; camera-sim hand-back in `results/63-physical-dof-blur-size/for-tasks.md`.
+§3 traps 97, 98.
 
 ## 5. References — retired docs
 

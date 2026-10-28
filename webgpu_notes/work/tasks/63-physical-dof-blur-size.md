@@ -1,6 +1,6 @@
 # 63-physical-dof-blur-size: make CameraAttributesPhysical's depth of field blur the size a real lens would
 
-State: ready-for-integration
+State: integrated (TASKS §4.78)
 Owner: worker-63
 Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), native Vulkan run, browser (Playwright)
