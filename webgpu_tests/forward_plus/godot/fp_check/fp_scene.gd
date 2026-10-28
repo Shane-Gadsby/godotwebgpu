@@ -61,6 +61,8 @@ const FEATURES := [
 	# ones: grain, zebras and motion-dependent effects change from frame to frame.
 	"lens_optics", "bokeh_shape", "longitudinal_ca", "tilt_shift", "starburst", "halation",
 	"lens_flare", "veiling_glare_diffusion", "camera_lut", "in_camera_processing",
+	# GTAO (engine addition, project setting rendering/environment/ssao/method).
+	"gtao",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -1093,6 +1095,8 @@ func _reset() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
 	env.ssao_enabled = false
+	# GTAO: the method is a renderer-wide setting, so every arm but "gtao" runs ASSAO.
+	RenderingServer.environment_set_ssao_method(RenderingServer.ENV_SSAO_METHOD_ASSAO)
 	env.ssil_enabled = false
 	env.ssr_enabled = false
 	env.sdfgi_enabled = false
@@ -1290,6 +1294,12 @@ func _apply(id: String, on: bool) -> bool:
 			env.ssao_enabled = on
 			env.ssao_intensity = 6.0
 			env.ssao_radius = 2.0
+		"gtao":
+			# The ssao arm's settings with GTAO computing the AO: off is no AO at all.
+			env.ssao_enabled = on
+			env.ssao_intensity = 6.0
+			env.ssao_radius = 2.0
+			RenderingServer.environment_set_ssao_method(RenderingServer.ENV_SSAO_METHOD_GTAO)
 		"ssil":
 			env.ssil_enabled = on
 			env.ssil_intensity = 4.0

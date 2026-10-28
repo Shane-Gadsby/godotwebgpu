@@ -31,6 +31,7 @@
 #pragma once
 
 #include "servers/rendering/renderer_rd/pipeline_deferred_rd.h"
+#include "servers/rendering/renderer_rd/shaders/effects/gtao.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_contact_shadows.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_reflection.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/screen_space_reflection_downsample.glsl.gen.h"
@@ -52,6 +53,7 @@
 #define RB_SCOPE_SSDS SNAME("rb_ssds")
 #define RB_SCOPE_SSIL SNAME("rb_ssil")
 #define RB_SCOPE_SSAO SNAME("rb_ssao")
+#define RB_SCOPE_GTAO SNAME("rb_gtao")
 #define RB_SCOPE_SSR SNAME("rb_ssr")
 #define RB_SCOPE_SSCS SNAME("rb_sscs")
 
@@ -144,6 +146,22 @@ public:
 	void ssao_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, SSAORenderBuffers &p_ssao_buffers, const SSAOSettings &p_settings);
 	void generate_ssao(Ref<RenderSceneBuffersRD> p_render_buffers, SSAORenderBuffers &p_ssao_buffers, uint32_t p_view, RID p_normal_buffer, const Projection &p_projection, const SSAOSettings &p_settings);
 
+	/* GTAO */
+	// GTAO replaces ASSAO when the project setting rendering/environment/ssao/method selects it. It uses the same
+	// Environment settings (SSAOSettings) and project quality settings, and writes the same RB_SCOPE_SSAO/RB_FINAL
+	// texture, so the scene shader, the AO light affect settings and the SSAO debug draw need no change.
+	void ssao_set_method(RSE::EnvironmentSSAOMethod p_method);
+	RSE::EnvironmentSSAOMethod ssao_get_method() const { return ssao_method; }
+
+	struct GTAORenderBuffers {
+		bool half_size = false;
+		Size2i working_size;
+		uint32_t mipmaps = 1;
+	};
+
+	void gtao_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, GTAORenderBuffers &p_gtao_buffers, const SSAOSettings &p_settings);
+	void generate_gtao(Ref<RenderSceneBuffersRD> p_render_buffers, GTAORenderBuffers &p_gtao_buffers, uint32_t p_view, RID p_normal_buffer, const Projection &p_projection, const SSAOSettings &p_settings, float p_taa_frame_count);
+
 	/* Screen Space Reflection */
 	void ssr_set_half_size(bool p_half_size);
 
@@ -186,6 +204,7 @@ private:
 	int ssao_blur_passes = 2;
 	float ssao_fadeout_from = 50.0;
 	float ssao_fadeout_to = 300.0;
+	RSE::EnvironmentSSAOMethod ssao_method = RSE::ENV_SSAO_METHOD_ASSAO; // GTAO
 
 	RSE::EnvironmentSSILQuality ssil_quality = RSE::ENV_SSIL_QUALITY_MEDIUM;
 	bool ssil_half_size = false;
@@ -433,6 +452,70 @@ private:
 	} ssao;
 
 	void gather_ssao(RD::ComputeListID p_compute_list, const RID *p_ao_slices, const SSAOSettings &p_settings, bool p_adaptive_base_pass, RID p_gather_uniform_set, RID p_importance_map_uniform_set);
+
+	/* GTAO */
+
+	enum GTAOMode {
+		GTAO_PREFILTER,
+		GTAO_MAIN,
+		GTAO_DENOISE,
+		GTAO_DENOISE_FINAL,
+		GTAO_UPSAMPLE,
+		GTAO_MAX
+	};
+
+	// Mirrors gtao.glsl's MODE_MAIN Params.
+	struct GTAOMainPushConstant {
+		int32_t size[2];
+		float full_pixel_size[2];
+
+		float ndc_to_view_mul[2];
+		float ndc_to_view_add[2];
+
+		float ndc_to_view_mul_x_pixel_size[2];
+		float effect_radius;
+		float falloff_mul;
+
+		float falloff_add;
+		float final_value_power;
+		float sample_distribution_power;
+		float depth_mip_sampling_offset;
+
+		float intensity;
+		float fade_out_mul;
+		float fade_out_add;
+		uint32_t noise_index;
+
+		int32_t slice_count;
+		int32_t steps_per_slice;
+		uint32_t is_orthogonal;
+		int32_t scale;
+
+		float sky_view_z;
+		float pad[3];
+	};
+
+	// Mirrors gtao.glsl's Params for every other mode.
+	struct GTAOPushConstant {
+		int32_t size[2];
+		int32_t src_size[2];
+
+		float z_mul;
+		float z_add;
+		uint32_t is_orthogonal;
+		int32_t scale;
+
+		float falloff_mul;
+		float falloff_add;
+		float blur_beta;
+		float edge_bias;
+	};
+
+	struct GTAO {
+		GtaoShaderRD shader;
+		RID shader_version;
+		PipelineDeferredRD pipelines[GTAO_MAX];
+	} gtao;
 
 	/* Screen Space Reflection */
 

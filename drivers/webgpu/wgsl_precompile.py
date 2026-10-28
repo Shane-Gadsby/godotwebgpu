@@ -712,6 +712,16 @@ SHADER_REGISTRY = [
     ("servers/rendering/renderer_rd/shaders/effects/ssao_interleave.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
 
+    # ── GTAO (ss_effects.cpp, rendering/environment/ssao/method = GTAO) ──
+    ("servers/rendering/renderer_rd/shaders/effects/gtao.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("prefilter", "\n#define MODE_PREFILTER\n", [COMP]),
+        ("main", "\n#define MODE_MAIN\n", [COMP]),
+        ("denoise", "\n#define MODE_DENOISE\n", [COMP]),
+        ("denoise_final", "\n#define MODE_DENOISE\n#define FINAL_APPLY\n", [COMP]),
+        ("upsample", "\n#define MODE_UPSAMPLE\n", [COMP]),
+    ]),
+
     # ── SSIL ────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/ssil.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),

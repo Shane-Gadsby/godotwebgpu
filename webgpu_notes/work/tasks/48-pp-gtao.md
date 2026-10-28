@@ -1,8 +1,8 @@
 # 48-pp-gtao
 
-State: open
+State: ready-for-integration
 Owner: worker-48
-Claimed:
+Claimed: 2026-10-28
 Needs: build, gpu
 Branch: work/48
 Results: webgpu_notes/work/results/48-pp-gtao/

@@ -122,6 +122,7 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 		render_buffers->clear_context(RB_SCOPE_SSDS);
 		render_buffers->clear_context(RB_SCOPE_SSIL);
 		render_buffers->clear_context(RB_SCOPE_SSAO);
+		render_buffers->clear_context(RB_SCOPE_GTAO);
 		render_buffers->clear_context(RB_SCOPE_SSR);
 		render_buffers->clear_context(RB_SCOPE_SSCS);
 	}
@@ -1512,6 +1513,33 @@ void RenderForwardClustered::_process_ssao(Ref<RenderSceneBuffersRD> p_render_bu
 	}
 }
 
+/* GTAO */
+
+void RenderForwardClustered::_process_gtao(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections, float p_taa_frame_count) {
+	ERR_FAIL_NULL(ss_effects);
+	ERR_FAIL_COND(p_render_buffers.is_null());
+	ERR_FAIL_COND(p_environment.is_null());
+
+	Ref<RenderBufferDataForwardClustered> rb_data = p_render_buffers->get_custom_data(RB_SCOPE_FORWARD_CLUSTERED);
+	ERR_FAIL_COND(rb_data.is_null());
+
+	RENDER_TIMESTAMP("Process GTAO");
+
+	// The Environment's SSAO settings, as _process_ssao() reads them; detail and horizon are ASSAO-only.
+	RendererRD::SSEffects::SSAOSettings settings;
+	settings.radius = environment_get_ssao_radius(p_environment);
+	settings.intensity = environment_get_ssao_intensity(p_environment);
+	settings.power = environment_get_ssao_power(p_environment);
+	settings.sharpness = environment_get_ssao_sharpness(p_environment);
+	settings.full_screen_size = p_render_buffers->get_internal_size();
+
+	ss_effects->gtao_allocate_buffers(p_render_buffers, rb_data->ss_effects_data.gtao, settings);
+
+	for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+		ss_effects->generate_gtao(p_render_buffers, rb_data->ss_effects_data.gtao, v, p_normal_buffers[v], p_projections[v], settings, p_taa_frame_count);
+	}
+}
+
 void RenderForwardClustered::_process_ssil(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections, const Transform3D &p_transform) {
 	ERR_FAIL_NULL(ss_effects);
 	ERR_FAIL_COND(p_render_buffers.is_null());
@@ -1734,14 +1762,20 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 			ss_effects->allocate_last_frame_buffer(rb, p_use_ssil, p_use_ssr);
 		}
 
-		if (p_use_ssao || p_use_ssil) {
+		// GTAO: replaces ASSAO and prepares its own depth, so the shared downsample only runs for ASSAO or SSIL.
+		const bool use_gtao = p_use_ssao && ss_effects->ssao_get_method() == RSE::ENV_SSAO_METHOD_GTAO;
+		if (use_gtao) {
+			_process_gtao(rb, p_render_data->environment, p_normal_roughness_slices, p_render_data->scene_data->view_projection, p_render_data->scene_data->taa_frame_count);
+		}
+
+		if ((p_use_ssao && !use_gtao) || p_use_ssil) {
 			RENDER_TIMESTAMP("Prepare Depth for SSAO/SSIL");
 			// Convert our depth buffer data to linear data in
 			for (uint32_t v = 0; v < rb->get_view_count(); v++) {
 				ss_effects->downsample_depth(rb, v, p_render_data->scene_data->view_projection[v]);
 			}
 
-			if (p_use_ssao) {
+			if (p_use_ssao && !use_gtao) {
 				_process_ssao(rb, p_render_data->environment, p_normal_roughness_slices, p_render_data->scene_data->view_projection);
 			}
 
@@ -4239,6 +4273,14 @@ void RenderForwardClustered::environment_set_ssao_quality(RSE::EnvironmentSSAOQu
 	ERR_FAIL_NULL(ss_effects);
 	ERR_FAIL_COND(p_quality < RSE::EnvironmentSSAOQuality::ENV_SSAO_QUALITY_VERY_LOW || p_quality > RSE::EnvironmentSSAOQuality::ENV_SSAO_QUALITY_ULTRA);
 	ss_effects->ssao_set_quality(p_quality, p_half_size, p_adaptive_target, p_blur_passes, p_fadeout_from, p_fadeout_to);
+}
+
+/* GTAO */
+
+void RenderForwardClustered::environment_set_ssao_method(RSE::EnvironmentSSAOMethod p_method) {
+	ERR_FAIL_NULL(ss_effects);
+	ERR_FAIL_INDEX(int(p_method), int(RSE::ENV_SSAO_METHOD_GTAO) + 1);
+	ss_effects->ssao_set_method(p_method);
 }
 
 void RenderForwardClustered::environment_set_ssil_quality(RSE::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) {

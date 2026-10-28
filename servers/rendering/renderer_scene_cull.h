@@ -1345,6 +1345,7 @@ public:
 	PASS1RC(float, environment_get_ssao_ao_channel_affect, RID)
 
 	PASS6(environment_set_ssao_quality, RSE::EnvironmentSSAOQuality, bool, float, int, float, float)
+	PASS1(environment_set_ssao_method, RSE::EnvironmentSSAOMethod) // GTAO
 
 	// SSIL
 	PASS6(environment_set_ssil, RID, bool, float, float, float, float)
