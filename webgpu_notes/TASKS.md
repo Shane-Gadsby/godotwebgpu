@@ -430,7 +430,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | OPEN — work tasks 51, 53 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
 | 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | OPEN — work task 52 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
 | 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | OPEN — work task 54 (after 52) | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
-| 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | OPEN | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
+| 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.60** | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -531,7 +531,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 | 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
 | 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
-| 2.50 | Build scripts: no-threads non-dlink web templates first | `OPEN` | <0.5 session |
+| 2.50 | ~~Build scripts: no-threads non-dlink web templates first~~ | **`DONE` 2026-10-28 → §4.60** | — |
 | 2.51 | Web export: Start button + preload before run, customizable button | `OPEN` (tasks 51, 53) | ~1-1.5 sessions |
 | 2.52 | Web: `window_set_size()` never emits `size_changed` | `OPEN` (task 52) | <0.5 session |
 | 2.53 | Web: fullscreen driven by the embedding page | `OPEN` (task 54) | ~1 session |
@@ -2627,7 +2627,7 @@ options, next to the existing **Loading Screen** group (`loading_screen/<stage>/
 Effort <0.5 session.
 
 
-### 2.50 Build scripts: the no-threads, no-dlink web templates first `OPEN` *(user request, 2026-10-28)*
+### 2.50 Build scripts: the no-threads, no-dlink web templates first `DONE 2026-10-28` → §4.60 *(user request; work task 50)*
 
 The user exports with the **no-threads, no-dlink** web templates (debug and release) far more than any other, and wants
 to start exporting as soon as those two exist instead of waiting for the whole set. Today `build-linux.sh` builds the
@@ -3225,6 +3225,12 @@ halation at radius 1 as 6.82 px against a 3.36 px model from 8-bit sRGB renders:
 apparent width enters the halo fit. HDR captures (RGBA16F 2D, Linear tonemapper) fitted with the model convolved with the
 effect-off frame read 3.95 px for the same chain. Measure glare from HDR captures
 (`results/40-camera-answers-wave2/tools/analyze_halo.py`).
+
+81. **A build helper that picks "the newest `bin/godot.web.template_debug*.zip`" installs whichever variant was built
+last, under whatever name it was given** (2026-10-28, work task 50): `build.sh`, `build-macos.sh` and
+`build-windows.ps1` built only the dlink pair and installed it as `web_nothreads_*.zip`, so exports from those templates
+used a GDExtension template whether or not the preset asked for one. Spell the scons output name out
+(`.wasm32[.nothreads][.dlink].zip`).
 
 ---
 
@@ -4984,6 +4990,20 @@ Forward+, 0.002 Mobile, 0.035 Compatibility near black); off / opacity 0 / no AO
 full Forward+ matrix 98/98 at parity, new arm `micro_shadows`. Lead (merged tree): dev_mode editor and web template clean,
 292 precompiled, smoke OK; `micro_shadows` and `omni_light` at parity. Cost not measured (a few ALU per pixel per
 directional light behind a uniform branch). Wiki: Engine-Additions-Micro-Shadows.
+
+### 4.60 Build scripts: the no-threads, no-dlink web templates first (October 2026) *(work task 50; §2.50)*
+
+User request. Every `build-*` helper builds and installs `web_nothreads_{debug,release}.zip` right after the editor (and
+`wgsl_convert_cli`), prints "Ready to export", then the rest. `build-linux.sh`: editor -> wgsl_convert_cli -> emsdk
+patches -> the pair -> Linux templates -> the other web variants; the narrowing flags still apply (a filter excluding
+threads=no or dlink=no skips the pair with a warning); the timing table gains a "ready to export" line; new `EDITORS_DIR` /
+`TPZ_COPY_DIR` overrides. `build.sh` / `build-macos.sh` / `build-windows.ps1` gained the non-dlink pair first and **no
+longer install their dlink pair as `web_nothreads_*.zip`** (§3 trap 81); native template builds use the PATH from before
+`emsdk_env`. The pair reaches the editor at once because `builds/<version>/templates` is a symlink to the export templates
+folder on the user's machine; the ready line warns when they differ. Verified: one narrowed `build-linux.sh` run (ready at
+2:18, total 6:03, exit 0), `bash -n` / shellcheck / the PowerShell parser clean, smoke OK; not run: the Linux native
+template step after the pair, the dlink variants, macOS/Windows end to end (the next full run confirms it: "Ready to
+export" about 2-3 minutes in).
 
 ## 5. References — retired docs
 

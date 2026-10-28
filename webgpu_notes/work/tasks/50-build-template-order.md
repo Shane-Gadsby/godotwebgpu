@@ -1,6 +1,6 @@
 # 50-build-template-order
 
-State: ready-for-integration
+State: integrated (lead: merged; syntax checks OK; docs and wiki updated)
 Owner: worker-50
 Claimed: 2026-10-28 12:20
 Needs: build (one full build-linux.sh run)
