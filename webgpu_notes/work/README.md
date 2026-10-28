@@ -107,8 +107,14 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
 - **Parity is judged against native Vulkan, not against Tint's WGSL.** Tint is the reference for interface
   compatibility only (bindings, override ids); where Tint and Vulkan disagree, Vulkan wins (CLAUDE.md "Parity, not just
   it changed"; TASKS.md §3 trap 28).
-- **Software adapters run Forward Mobile** (CLAUDE.md): any rendering check runs headed, system Chrome, real GPU, with
-  the flags in `webgpu_tests/scene_smoketest/run_scenes.mjs`'s `launchChrome`.
+- **Browser launches (user, 2026-10-28: a worker's flagless runs caused WebGPU failures). Every launch, every script,
+  no exceptions:** Chrome = `{ executablePath: '/usr/bin/google-chrome-stable', headless: false, args:
+  ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'], ignoreDefaultArgs:
+  ['--enable-unsafe-swiftshader'] }` (never bundled Chromium, headless, `--use-angle=vulkan`, `--use-vulkan=native` or
+  `--no-sandbox`); Firefox = `{ headless: false, firefoxUserPrefs: FIREFOX_WEBGPU_PREFS }` from
+  `webgpu_tests/scene_smoketest/firefox_prefs.mjs`. Assert the adapter at the start of each run (Chrome: nvidia/lovelace,
+  not fallback, `maxSampledTexturesPerShaderStage` 48; Firefox: `requestAdapter()` non-null) and fail otherwise. Never set
+  `CI` for real-GPU runs (`run_forward_plus.mjs` goes headless with it). Software adapters run Forward Mobile (CLAUDE.md).
 - **Worker retirement at 350k tokens**: a worker whose context reaches 350k finishes the task in hand (SUMMARY,
   `ready-for-integration`, commit) and stops. The lead never resumes a worker past 350k; follow-ups go to a fresh worker,
   which catches up from `results/`.

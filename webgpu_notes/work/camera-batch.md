@@ -59,6 +59,8 @@ camera LUTs (§4.48). Locations decided by the user and lead:
   preset (headless export), serve, and capture the canvas with Playwright using **system Chrome headed**:
   `executablePath: '/usr/bin/google-chrome-stable', headless: false, args: ['--enable-unsafe-webgpu',
   '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'], ignoreDefaultArgs: ['--enable-unsafe-swiftshader']`,
+  Firefox: `{ headless: false, firefoxUserPrefs: FIREFOX_WEBGPU_PREFS }` (`webgpu_tests/scene_smoketest/firefox_prefs.mjs`);
+  a launch without these flags/prefs is a bug (user, 2026-10-28),
   check the adapter is nvidia/lovelace with maxSampledTexturesPerShaderStage 48, and wait for the `#status` overlay to
   hide before capturing (an unbaked export compiles shaders under it). Compare with the native Forward+ render.
   Playwright is in `webgpu_tests/forward_plus/node_modules`. Take the `gpu` lease for rendering runs.
