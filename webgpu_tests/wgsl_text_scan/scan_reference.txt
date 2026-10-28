@@ -527,8 +527,8 @@ M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_f
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_frag.wgsl --keep-rw 0,34,55,142,149,257,269,432
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_circular_vert.wgsl --keep-rw 0
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl 0,34,55,105,142,149,257,269,392,400
-M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl --keep-rw 0,34,55,105,142,149,257,269,392,400
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl 0,34,55,105,142,149,257,269,392,400,432
+M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_frag.wgsl --keep-rw 0,34,55,105,142,149,257,269,392,400,432
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_vert.wgsl 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_composite_vert.wgsl --keep-rw 0
 M servers_rendering_renderer_rd_shaders_effects_bokeh_dof_raster.glsl_gen_blur_frag.wgsl 0,2,34,142,150,432

@@ -86,6 +86,14 @@
 		<member name="grain_type" type="int" setter="set_grain_type" getter="get_grain_type" enum="CameraAttributes.GrainType" default="0">
 			The kind of grain or noise to simulate. See [enum GrainType] for options.
 		</member>
+		<member name="longitudinal_chromatic_aberration_enabled" type="bool" setter="set_longitudinal_chromatic_aberration_enabled" getter="is_longitudinal_chromatic_aberration_enabled" default="false">
+			If [code]true[/code], out-of-focus parts of the image get the colored fringes of longitudinal (axial) chromatic aberration, the "bokeh fringing" of fast lenses: the lens focuses red and blue slightly behind green, so edges behind the plane of focus get a green fringe and edges in front of it a magenta (purple) one. It is drawn by the depth of field, so it only shows where depth of field blurs the image.
+			With [CameraAttributesPhysical], the fringe follows the lens: red and blue focus 1/2200 of the focal length behind green (the secondary spectrum of an ordinary achromat), so the fringe narrows as the aperture closes and grows with the focus distance relative to the focal length. With [CameraAttributesPractical], which has no lens, red and blue blur 2.7% more than green in front of the focus and 2.7% less behind it, keeping the in-focus band sharp.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field. In Mobile, the full-resolution and blurred images are blended with one amount for all three channels, so with [CameraAttributesPhysical] the in-focus area is blended slightly toward the half-resolution blur. Lateral chromatic aberration, which does not depend on focus, is [member chromatic_aberration_enabled].
+		</member>
+		<member name="longitudinal_chromatic_aberration_strength" type="float" setter="set_longitudinal_chromatic_aberration_strength" getter="get_longitudinal_chromatic_aberration_strength" default="1.0">
+			Multiplies the longitudinal chromatic aberration. [code]1.0[/code] is the paraxial secondary spectrum of an ordinary achromat, a fringe a few percent of the blur's size. Fast lenses wide open often show several times that (spherochromatism), so values from [code]3.0[/code] to [code]10.0[/code] give the strong fringing of fast primes; apochromatic lenses are below [code]1.0[/code].
+		</member>
 		<member name="lut_enabled" type="bool" setter="set_lut_enabled" getter="is_lut_enabled" default="false">
 			If [code]true[/code], the camera applies [member lut_texture], a look-up table, the way a camera applies a LUT to its monitoring or recorded image. It is applied before the [Environment]'s adjustments, so [member Environment.adjustment_color_correction] grades the result.
 			[b]Note:[/b] Not applied in the viewport's debug draw modes or in reflection probes. In the Compatibility rendering method, enabling a LUT enables the post-processing pass.

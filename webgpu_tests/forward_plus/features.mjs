@@ -71,6 +71,7 @@ export const CATEGORIES = {
   mesh: 'Mesh pipeline',
   particles: 'Particles',
   post: 'Post-processing, AA and scaling',
+  camera: 'Camera effects (CameraAttributes, Environment)',
 };
 
 export const FEATURES = [
@@ -207,6 +208,19 @@ export const FEATURES = [
   // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's
   // conversion, a read-write storage image on the scene's colour target, the compositor callback.
   { id: 'compositor_effect', cat: 'post', label: 'CompositorEffect (compute shader on the colour buffer)', minDelta: 6.98 },
+  // Camera effects, engine additions (TASKS.md 4.52-4.55, work task 44); the deterministic ones only (grain, zebras
+  // and motion-dependent effects change every frame). Floors at a third of the native Vulkan delta
+  // (RTX 4080 SUPER, 640x360, settle 240, 2026-10-28).
+  { id: 'lens_optics', cat: 'camera', label: 'Lens optics: vignetting, distortion, lateral CA (CameraAttributes)', minDelta: 6.09 },
+  { id: 'bokeh_shape', cat: 'camera', label: "Aperture blades and cat's eye bokeh (CameraAttributes)", minDelta: 0.822 },
+  { id: 'longitudinal_ca', cat: 'camera', label: 'Longitudinal chromatic aberration in the DOF (CameraAttributesPhysical)', minDelta: 0.136 },
+  { id: 'tilt_shift', cat: 'camera', label: 'Tilt-shift plane of focus (CameraAttributesPhysical)', minDelta: 0.591 },
+  { id: 'starburst', cat: 'camera', label: 'Diffraction starburst (CameraAttributes)', minDelta: 0.954 },
+  { id: 'halation', cat: 'camera', label: 'Halation (CameraAttributes)', minDelta: 0.312 },
+  { id: 'lens_flare', cat: 'camera', label: 'Lens flare ghosts (Environment)', minDelta: 0.373 },
+  { id: 'veiling_glare_diffusion', cat: 'camera', label: 'Veiling glare and diffusion filter (Environment)', minDelta: 2.06 },
+  { id: 'camera_lut', cat: 'camera', label: 'Camera 3D LUT (CameraAttributes)', minDelta: 3.62 },
+  { id: 'in_camera_processing', cat: 'camera', label: 'In-camera noise reduction and sharpening (CameraAttributes)', minDelta: 0.175 },
 ];
 
 /**

@@ -36,13 +36,31 @@ layout(push_constant, std430) uniform Params {
 	uint view_ray_offset;
 	float tilt_normal_x;
 	float tilt_normal_y;
-	uint pad;
+	uint longitudinal_ca; // Red and blue blur offset, scale (BokehDOF::_setup_longitudinal_ca()); half floats.
 }
 params;
 
 #define BOKEH_SHAPE_CUSTOM (1u << 8u)
 #define BOKEH_SHAPE_CATS_EYE (1u << 9u)
 #define BOKEH_SHAPE_TILT (1u << 10u)
+#define BOKEH_LONGITUDINAL_CA (1u << 11u)
+
+// Longitudinal chromatic aberration: red and blue focus behind green, so their signed blur (negative in front of the
+// focus) is green's minus a constant offset (physical lens) or scaled away from the focus (no physical lens).
+// RendererCameraAttributes::camera_attributes_get_longitudinal_chromatic_aberration() has the model.
+float bokeh_blur_red_blue(float p_blur) {
+	vec2 ca = unpackHalf2x16(params.longitudinal_ca);
+	return p_blur - ca.x - ca.y * abs(p_blur);
+}
+
+// How far the gathers reach: red and blue can blur more than green in front of the focus, so the reach grows with them.
+float bokeh_gather_reach(float p_blur_size) {
+	if ((params.shape_flags & BOKEH_LONGITUDINAL_CA) == 0u) {
+		return p_blur_size;
+	}
+	vec2 ca = unpackHalf2x16(params.longitudinal_ca);
+	return p_blur_size * (1.0 + ca.y) + max(ca.x, 0.0);
+}
 
 // How far the bokeh of a defocused point at p_source_uv reaches in direction p_dir (unit, in pixels, from the point
 // toward the pixel that gathers it), relative to its blur radius: 1 for the round default. The aperture is a polygon

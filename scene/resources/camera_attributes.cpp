@@ -709,6 +709,31 @@ float CameraAttributes::get_halation_radius() const {
 	return halation_radius;
 }
 
+void CameraAttributes::set_longitudinal_chromatic_aberration_enabled(bool p_value) {
+	longitudinal_chromatic_aberration_enabled = p_value;
+	_update_longitudinal_chromatic_aberration();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_longitudinal_chromatic_aberration_enabled() const {
+	return longitudinal_chromatic_aberration_enabled;
+}
+
+void CameraAttributes::set_longitudinal_chromatic_aberration_strength(float p_value) {
+	longitudinal_chromatic_aberration_strength = MAX(p_value, 0.0f);
+	_update_longitudinal_chromatic_aberration();
+	emit_changed();
+}
+
+float CameraAttributes::get_longitudinal_chromatic_aberration_strength() const {
+	return longitudinal_chromatic_aberration_strength;
+}
+
+void CameraAttributes::_update_longitudinal_chromatic_aberration() {
+	RS::get_singleton()->camera_attributes_set_longitudinal_chromatic_aberration(camera_attributes, longitudinal_chromatic_aberration_enabled, longitudinal_chromatic_aberration_strength);
+}
+
 void CameraAttributes::_update_aperture() {
 	RS::get_singleton()->camera_attributes_set_aperture(camera_attributes, aperture_enabled, aperture_blade_count, aperture_blade_curvature, aperture_rotation);
 }
@@ -793,6 +818,11 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 			(p_property.name.begins_with("cats_eye_") && p_property.name != "cats_eye_enabled" && !cats_eye_enabled) ||
 			(p_property.name.begins_with("starburst_") && p_property.name != "starburst_enabled" && !starburst_enabled) ||
 			(p_property.name.begins_with("halation_") && p_property.name != "halation_enabled" && !halation_enabled)) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	if (p_property.name.begins_with("longitudinal_chromatic_aberration_") && p_property.name != "longitudinal_chromatic_aberration_enabled" && !longitudinal_chromatic_aberration_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -1010,6 +1040,15 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "halation_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_halation_enabled", "is_halation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_halation_strength", "get_halation_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_radius", PROPERTY_HINT_RANGE, "0.1,8,0.01,or_greater"), "set_halation_radius", "get_halation_radius");
+
+	ClassDB::bind_method(D_METHOD("set_longitudinal_chromatic_aberration_enabled", "enabled"), &CameraAttributes::set_longitudinal_chromatic_aberration_enabled);
+	ClassDB::bind_method(D_METHOD("is_longitudinal_chromatic_aberration_enabled"), &CameraAttributes::is_longitudinal_chromatic_aberration_enabled);
+	ClassDB::bind_method(D_METHOD("set_longitudinal_chromatic_aberration_strength", "strength"), &CameraAttributes::set_longitudinal_chromatic_aberration_strength);
+	ClassDB::bind_method(D_METHOD("get_longitudinal_chromatic_aberration_strength"), &CameraAttributes::get_longitudinal_chromatic_aberration_strength);
+
+	ADD_GROUP("Longitudinal Chromatic Aberration", "longitudinal_chromatic_aberration_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "longitudinal_chromatic_aberration_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_longitudinal_chromatic_aberration_enabled", "is_longitudinal_chromatic_aberration_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "longitudinal_chromatic_aberration_strength", PROPERTY_HINT_RANGE, "0,20,0.01,or_greater"), "set_longitudinal_chromatic_aberration_strength", "get_longitudinal_chromatic_aberration_strength");
 
 	ADD_GROUP("Motion Blur", "motion_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_motion_blur_enabled", "is_motion_blur_enabled");

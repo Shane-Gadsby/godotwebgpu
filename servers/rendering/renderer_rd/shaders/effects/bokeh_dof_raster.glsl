@@ -123,7 +123,7 @@ vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 	vec4 accum = color;
 	float total = 1.0;
 
-	float blur_scale = params.blur_size / float(params.blur_steps);
+	float blur_scale = bokeh_gather_reach(params.blur_size) / float(params.blur_steps);
 
 	if (params.use_jitter) {
 		uv += dir * (hash12n(uv + params.jitter_seed) - 0.5);
@@ -150,7 +150,16 @@ vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 
 		float m = smoothstep(radius - 0.5, radius + 0.5, limit);
 
-		accum += mix(color, sample_color, m);
+		if ((params.shape_flags & BOKEH_LONGITUDINAL_CA) != 0u) {
+			// Red and blue have their own circles of confusion (longitudinal chromatic aberration).
+			float sample_rb = bokeh_blur_red_blue(sample_color.a);
+			float color_rb = bokeh_blur_red_blue(color.a);
+			float limit_rb = abs(sample_rb < color_rb ? sample_rb : color_rb) - DEPTH_GAP;
+			float m_rb = smoothstep(radius - 0.5, radius + 0.5, limit_rb);
+			accum += mix(color, sample_color, vec4(m_rb, m, m_rb, m));
+		} else {
+			accum += mix(color, sample_color, m);
+		}
 
 		total += 1.0;
 	}
@@ -236,10 +245,12 @@ void main() {
 	color.a = texture(source_weight, uv).r;
 
 	vec4 color_accum = color;
+	float color_rb = bokeh_blur_red_blue(color.a);
 	float accum = 1.0;
 
 	float radius = params.blur_scale;
-	for (float ang = 0.0; radius < params.blur_size; ang += GOLDEN_ANGLE) {
+	float reach = bokeh_gather_reach(params.blur_size);
+	for (float ang = 0.0; radius < reach; ang += GOLDEN_ANGLE) {
 		vec2 uv_adj = uv + vec2(cos(ang), sin(ang)) * pixel_size * radius;
 
 		vec4 sample_color = vec4(finite_or_zero3(texture(source_color, uv_adj).rgb), texture(source_weight, uv_adj).r);
@@ -251,12 +262,25 @@ void main() {
 
 		limit -= DEPTH_GAP;
 
+		float shape_extent = 1.0;
 		if ((params.shape_flags & BOKEH_SHAPE_CUSTOM) != 0u) {
 			// The sample's bokeh reaches this pixel only if it lies inside the aperture's shape.
-			limit *= bokeh_shape_extent(-vec2(cos(ang), sin(ang)), uv_adj, sample_color.a < 0.0);
+			shape_extent = bokeh_shape_extent(-vec2(cos(ang), sin(ang)), uv_adj, sample_color.a < 0.0);
+			limit *= shape_extent;
 		}
 		float m = smoothstep(radius - 0.5, radius + 0.5, limit);
-		color_accum += mix(color_accum / accum, sample_color, m);
+		if ((params.shape_flags & BOKEH_LONGITUDINAL_CA) != 0u) {
+			// Red and blue have their own circles of confusion (longitudinal chromatic aberration).
+			float sample_rb = bokeh_blur_red_blue(sample_color.a);
+			float limit_rb = abs(sample_rb);
+			if (sample_rb > color_rb) {
+				limit_rb = clamp(limit_rb, 0.0, abs(color_rb) * 2.0);
+			}
+			float m_rb = smoothstep(radius - 0.5, radius + 0.5, (limit_rb - DEPTH_GAP) * shape_extent);
+			color_accum += mix(color_accum / accum, sample_color, vec4(m_rb, m, m_rb, m));
+		} else {
+			color_accum += mix(color_accum / accum, sample_color, m);
+		}
 		accum += 1.0;
 
 		radius += params.blur_scale / radius;
@@ -283,6 +307,20 @@ void main() {
 		mix_amount = min(1.0, max(0.0, max(abs(center_weight), abs(sample_weight)) - DEPTH_GAP));
 	} else {
 		mix_amount = min(1.0, max(0.0, abs(center_weight) - DEPTH_GAP));
+	}
+
+	if ((params.shape_flags & BOKEH_LONGITUDINAL_CA) != 0u) {
+		// Red and blue have their own circles of confusion (longitudinal chromatic aberration), but the blend takes one
+		// amount: the larger, so neither channel keeps the sharp full-resolution color where its blur reaches.
+		float center_rb = bokeh_blur_red_blue(center_weight);
+		float sample_rb = bokeh_blur_red_blue(sample_weight);
+		float mix_rb;
+		if (sample_rb < center_rb) {
+			mix_rb = min(1.0, max(0.0, max(abs(center_rb), abs(sample_rb)) - DEPTH_GAP));
+		} else {
+			mix_rb = min(1.0, max(0.0, abs(center_rb) - DEPTH_GAP));
+		}
+		mix_amount = max(mix_amount, mix_rb);
 	}
 
 	// let alpha blending take care of mixing
