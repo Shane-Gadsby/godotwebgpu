@@ -17,7 +17,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 41 | post-processing survey (TASKS §2.48) | 4 | worker-41 (retired); **merged** (results); 10 `pp-*` questions on the hand-offs page |
 | 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 (retired); **merged**, TASKS §4.56, §3 trap 79 |
 | 43 | wiki audit: pages for additions that have none | 4 | worker-43 (retired); **merged** (results); wiki 823092f (Exporting with WebGPU page, WebRTC notable fixes, shader baking, building, Home) |
-| 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 |
+| 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 (retired); **merged**, TASKS §4.57, matrix now 97 arms |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 

@@ -4906,6 +4906,23 @@ every run through one launch helper that asserts the adapter (the first, flagles
 dev_mode build and smoke OK (lead, merged tree). Not done: Safari; a by-eye check that unticking the toggle hides the
 three pickers in the editor's export dialog. Wiki: Web Export Options updated.
 
+### 4.57 Longitudinal chromatic aberration; Mobile depth of field for physical cameras; camera arms in the Forward+ matrix (October 2026) *(work task 44)*
+
+Merged. **Longitudinal CA** (user answer `ca-aperture`: lateral stays physical, longitudinal in the DOF pass):
+`CameraAttributes.longitudinal_chromatic_aberration_enabled/_strength` + an RS setter, in the DOF pass on Forward+ and
+Mobile, off by default. Model: an achromat's red and blue focus 1/2200 of the focal length behind green (Smith;
+Kingslake and Johnson); Practical cameras use a ±2.7% blur scale. It uses the bokeh push constant's last free word (still
+128 bytes). Measured on a defocused edge (strength 10): fringe 2.10 px vs 2.13 modeled at f/1.4, about half at f/2.8;
+green behind focus, magenta in front. **Mobile physical DOF** (user answer `mobile-dof-physical`: Fix it):
+`bokeh_dof_raster()` now takes the physical model as the compute path does; before, a CameraAttributesPhysical camera had
+no blur at all on Mobile (edge radius 0.00 px), now 8.15 / 4.16 px vs Forward+ 7.89 / 4.03 and the model 7.81 / 3.91;
+existing Mobile scenes with a physical camera now blur. **10 Forward+ matrix arms** (87 -> 97, category `camera`):
+lens_optics, bokeh_shape, longitudinal_ca, tilt_shift, starburst, halation, lens_flare, veiling_glare_diffusion,
+camera_lut, in_camera_processing; worker: full matrix 97/97 unbaked with --parity, the 10 new arms baked too, WebGPU within
+0.003 of native. Interface references: only `(3,120)` added to the Mobile DOF composite fragment (it now reads the push
+constant). **Lead (merged tree):** dev_mode editor and web template_release builds clean (0 warnings, 292 precompiled),
+smoke OK, and lens_optics / longitudinal_ca / camera_lut pass `--parity` (native diff 0.002-0.003).
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

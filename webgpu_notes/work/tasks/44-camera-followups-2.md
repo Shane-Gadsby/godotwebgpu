@@ -1,6 +1,6 @@
 # 44-camera-followups-2: longitudinal chromatic aberration; Forward+ matrix arms for the camera features; Mobile physical DOF (if approved)
 
-State: ready-for-integration
+State: integrated (lead: merged; dev_mode builds, smoke OK, 3 new arms re-run at parity)
 Owner: worker-44
 Claimed: 2026-10-28 11:22
 Needs: build, gpu
