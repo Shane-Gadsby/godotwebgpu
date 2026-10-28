@@ -3376,6 +3376,15 @@ has a JS-side GPU buffer tracer that names the misusing submit without a rebuild
 empty compute pass's *beginning* write may land before earlier passes finish: use the end-of-pass write for a "here"
 timestamp, as Vulkan's bottom-of-pipe write does.
 
+106. **Controller traps** (2026-10-29, work task 75): a hitch filter in absolute terms freezes a controller on a slow
+scene (skipping frames over 4x the budget skipped every frame of a 56 ms scene); measure a hitch against the running
+average too. A WebGPU frame fence cannot time its own submit (`fence_wait()` force-signals, trap 102): submit-to-done
+latency needs its own callback per submit and a FIFO. Frame-time probing under vsync oscillates unless the up-step also
+asks the cost model (at 165 Hz a frame is 12.1 or 18.2 ms), and a failure memory that outlives a load drop kept the
+scale low for 34 s. And dynamic-resolution timing under Xvfb is not the real thing: its software display costs ~57 ms
+a frame and inflates GPU time, so a GPU-bound test there correctly sits at the minimum scale; judge it on a real display
+or in the browser.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5606,6 +5615,28 @@ Lead (merged tree with 73): dev_mode editor and web template_release 0 warnings;
 pre-merge editor (Forward+, Mobile); legacy gather identical to the upstream path in all 20 cases (Hexagon at every
 quality, Box, Circle, near field, 1440p, a 200 mm lens). Questions `dof-circle-6pct`, `dof-very-low-6pct`. The wiki's
 "currently 3%" needs updating.
+
+### 4.91 Dynamic 3D resolution (October 2026) *(work task 75; dynamic resolution phases 3-4; design §4.68's task 68)*
+
+The controller in `RendererViewport`, off by default, on the `Viewport` / `RenderingServer` API with a signal and the
+`rendering/scaling_3d/dynamic*` project settings (root viewport only, never in the editor; a SubViewport sets its own).
+With GPU time (native timestamps, task 73's on the web): the `a + b·scale²` cost model with the fixed part estimated,
+a 0.80-0.95 hysteresis band, and `CPU_LIMITED` instead of lowering the scale when the GPU has room. Without it: frame
+time, verified steps down, failed step-ups remembered with growing back-off (10, 20, 40 ... 120 s), the submit-to-done
+queue depth on WebGPU skipping the CPU-bound probe when clear (user Q6), one viewport at a time, largest first (Q5).
+Target in fps (Q7), max scale above 1.0 allowed (Q8), the opt-in `scaling_3d_dynamic_remember` keyed by renderer + GPU
++ viewport path in `user://` (Q9), FSR 2's context created at the dynamic max, FSR 1 on WebGPU warns and uses Bilinear
+(Q2); fixed 0.05 steps. Worker: GPU-bound scene 0 changes/min settled natively, in Chrome and in Firefox, back to 1.0
+within 1.5-1.6 s of a load drop; CPU-bound stays at 1.0 `CPU_LIMITED`; camera-sim (controller on its SubViewport) now
+~6 ms frames, `STABLE` at 1.0; the fallback with `timestamp-query` withheld 0 changes/min settled (Firefox settles at
+0.65 vs 0.80 because of vsync quantization, documented); off bit-identical 9/9 and perf_guard 4/4; no FSR 2 pulse
+around a controller change; remember round-trips natively and across a web reload. Lead (merged tree): dev_mode editor
+and web template_release 0 warnings; off identical to the pre-merge editor 9/9; CPU-bound natively `CPU_LIMITED`, 0
+changes; on the web, Chrome settled at 0.80 within 4.6 s and returned to 1.0 within 1.4 s of the load drop, Firefox
+settled at 0.80 after early adjusting (to 9.8 s) and returned to 1.0, 0 changes/min while settled in both, Chrome
+CPU-bound `CPU_LIMITED` with 0 changes. Under Xvfb the GPU-bound case held the minimum scale (§3 trap 106). Questions
+`dynres-remember-key`, `dynres-step-size`, `dynres-fallback-backoff`; camera-sim adoption note in
+`results/75-dynamic-resolution-controller/for-tasks.md`.
 
 ## 5. References — retired docs
 

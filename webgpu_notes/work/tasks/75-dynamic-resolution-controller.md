@@ -1,6 +1,6 @@
 # 75-dynamic-resolution-controller: per-viewport dynamic 3D resolution (phases 3-4)
 
-State: ready-for-integration
+State: integrated (TASKS §4.91)
 Owner: worker-75
 Claimed: 2026-10-29 00:14
 Needs: build, gpu, browser
