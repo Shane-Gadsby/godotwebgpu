@@ -3,7 +3,10 @@
 #
 # Installs prerequisites (Xcode Command Line Tools, Homebrew, Python, SCons,
 # Vulkan SDK/MoltenVK, ANGLE, AccessKit, Emscripten) then builds the editor,
-# the native macOS export template, and the web/WebGPU export template.
+# the web/WebGPU export templates (threads=no, without then with GDExtension
+# support) and the native macOS export template. The no-dlink web pair, the one
+# most exports use, is built and installed right after the editor, with a
+# "Ready to export" line, so you can export while the rest builds.
 # The macOS template is built universal (x86_64 + arm64) since SCons has no
 # single "universal" arch value -- both arches are built separately and
 # lipo'd/bundled together, mirroring this repo's own CI
@@ -235,7 +238,7 @@ build_arches() {
 	local target="$1"
 	for arch in x86_64 arm64; do
 		step "Building $target (arch=$arch)..."
-		scons platform=macos target="$target" arch="$arch" \
+		env PATH="$NATIVE_PATH" scons platform=macos target="$target" arch="$arch" \
 			vulkan="$VULKAN_ENABLED" angle="$ANGLE_ENABLED" accesskit="$ACCESSKIT_ENABLED" \
 			-j"$JOBS"
 	done
@@ -285,12 +288,83 @@ ok "Editor -> $dest/$(basename "$app")"
 cp bin/wgsl_convert_cli "$dest/$(basename "$app")/Contents/MacOS/"
 ok "wgsl_convert_cli -> $dest/$(basename "$app")/Contents/MacOS/"
 
+# The native template builds run with the PATH this script had before
+# emsdk_env.sh (sourced below for the web builds) rearranged it, so they resolve
+# the same Python, SCons and compilers as when they ran before any web build (on
+# macOS emsdk can ship and put first a Python of its own, without SCons).
+NATIVE_PATH="$PATH"
+
+# Builds one threads=no web/WebGPU template, with or without GDExtension
+# support (dlink), and installs it into builds/<version>/templates under the name
+# Godot's export templates folder expects (export_plugin.h's
+# _get_template_name(): "web" + ["_dlink"] + "_nothreads" + "_debug.zip"/
+# "_release.zip"). The scons output name is spelled out rather than taken as the
+# newest bin/ zip, which would pick up whichever variant was built last.
+build_web_template() {
+	local dlink="$1" target="$2"
+	local label="debug"
+	[[ "$target" == "template_release" ]] && label="release"
+	step "Building web/WebGPU export template ($label, dlink=$dlink, threads=no)..."
+	scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no threads=no -j"$JOBS"
+
+	local scons_zip="bin/godot.web.$target.wasm32.nothreads"
+	[[ "$dlink" == "yes" ]] && scons_zip+=".dlink"
+	scons_zip+=".zip"
+	[[ -f "$scons_zip" ]] || die "Web template build succeeded but $scons_zip wasn't found."
+	local dest_name="web"
+	[[ "$dlink" == "yes" ]] && dest_name+="_dlink"
+	dest_name+="_nothreads_$label.zip"
+	cp "$scons_zip" "$WEB_DEST/$dest_name"
+	ok "Web template -> $WEB_DEST/$dest_name"
+}
+
+# Where the editor looks for this version's export templates when exporting.
+EDITOR_TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/$VERSION"
+WEB_DEST="$OUT_DIR/templates"
+
+if [[ "$SKIP_WEB" -eq 0 ]]; then
+	# shellcheck source=/dev/null
+	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
+
+	# Half the web templates below are dlink_enabled=yes, which needs this fork's
+	# two Emscripten toolchain patches, and `emsdk install`/an emsdk update
+	# overwrites the toolchain tree -- so apply them here, after the environment is
+	# set up, on every run. Idempotent; refuses rather than fuzzily applying if
+	# upstream has moved any of the text it pins. Only a threads=yes dlink build
+	# actually breaks without them, and these builds are threads=no, so warn and
+	# keep going rather than failing the whole run. See misc/emsdk_patches/README.md.
+	step "Applying Emscripten toolchain patches..."
+	if ./misc/emsdk_patches/apply.sh --apply; then
+		ok "Emscripten toolchain patched."
+	else
+		warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
+		warn "without it, but a threads=yes dlink build would not boot. See"
+		warn "misc/emsdk_patches/README.md."
+	fi
+
+	# The no-threads, no-dlink pair first (webgpu_notes/TASKS.md 2.50): it is what
+	# most exports use, so it is installed right after the editor and the user can
+	# export while the macOS templates and the GDExtension (dlink) pair build.
+	mkdir -p "$WEB_DEST"
+	build_web_template no template_debug
+	build_web_template no template_release
+	echo
+	ok "${BOLD}==> Ready to export: web_nothreads_debug.zip + web_nothreads_release.zip installed in $WEB_DEST${NC}"
+	if [[ "$(cd "$WEB_DEST" && pwd -P)" != "$(cd "$EDITOR_TEMPLATES_DIR" 2> /dev/null && pwd -P || echo "$EDITOR_TEMPLATES_DIR")" ]]; then
+		warn "    That is not the editor's export templates folder ($EDITOR_TEMPLATES_DIR):"
+		warn "    copy the two there, or symlink that folder to $WEB_DEST, to export with them now."
+	fi
+	ok "    The rest of the templates build next; exporting with these two is safe meanwhile."
+else
+	warn "Skipping web/WebGPU template build (--skip-web)."
+fi
+
 step "Building templates (debug)..."
 build_arches template_debug
 step "Building templates (release)..."
 build_arches template_release
 step "Bundling universal templates into macos.zip..."
-scons platform=macos target=template_release arch=x86_64 \
+env PATH="$NATIVE_PATH" scons platform=macos target=template_release arch=x86_64 \
 	vulkan="$VULKAN_ENABLED" angle="$ANGLE_ENABLED" accesskit="$ACCESSKIT_ENABLED" \
 	generate_bundle=yes -j"$JOBS"
 
@@ -302,42 +376,8 @@ cp "$zip" "$dest/macos.zip"
 ok "Templates -> $dest"
 
 if [[ "$SKIP_WEB" -eq 0 ]]; then
-	# shellcheck source=/dev/null
-	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
-
-
-	# The web templates below are dlink_enabled=yes, which needs this fork's two
-	# Emscripten toolchain patches, and `emsdk install`/an emsdk update overwrites
-	# the toolchain tree -- so apply them here, after the environment is set up, on
-	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
-	# moved any of the text it pins. Only a threads=yes dlink build actually breaks
-	# without them, and these builds are threads=no, so warn and keep going rather
-	# than failing the whole run. See misc/emsdk_patches/README.md.
-	step "Applying Emscripten toolchain patches..."
-	if ./misc/emsdk_patches/apply.sh --apply; then
-		ok "Emscripten toolchain patched."
-	else
-		warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
-		warn "without it, but a threads=yes dlink build would not boot. See"
-		warn "misc/emsdk_patches/README.md."
-	fi
-
-	step "Building web/WebGPU export template (debug)..."
-	scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
-	step "Building web/WebGPU export template (release)..."
-	scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
-	dest="$OUT_DIR/templates"
-	mkdir -p "$dest"
-	debug_zip="$(ls -t bin/godot.web.template_debug*.zip 2> /dev/null | head -1 || true)"
-	release_zip="$(ls -t bin/godot.web.template_release*.zip 2> /dev/null | head -1 || true)"
-	[[ -n "$debug_zip" && -n "$release_zip" ]] || die "Web template build succeeded but a .zip wasn't found in bin/."
-	cp "$debug_zip" "$dest/web_nothreads_debug.zip"
-	cp "$release_zip" "$dest/web_nothreads_release.zip"
-	ok "Web templates -> $dest"
-else
-	warn "Skipping web/WebGPU template build (--skip-web)."
+	build_web_template yes template_debug
+	build_web_template yes template_release
 fi
 
 package_tpz
