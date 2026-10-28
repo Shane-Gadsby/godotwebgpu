@@ -3214,6 +3214,12 @@ them. Every launch now goes through those settings and asserts the adapter first
 fallback, 48 sampled textures; Firefox an adapter at all), and the rule is in `webgpu_notes/work/README.md`, which every
 worker reads; a worker's prompt repeats it.
 
+80. **An 8-bit capture of a glare source measures the clip, not the glare** (2026-10-28, work task 40). Task 35 measured
+halation at radius 1 as 6.82 px against a 3.36 px model from 8-bit sRGB renders: the source disc saturates, so its
+apparent width enters the halo fit. HDR captures (RGBA16F 2D, Linear tonemapper) fitted with the model convolved with the
+effect-off frame read 3.95 px for the same chain. Measure glare from HDR captures
+(`results/40-camera-answers-wave2/tools/analyze_halo.py`).
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -4943,6 +4949,22 @@ camera_lut, in_camera_processing; worker: full matrix 97/97 unbaked with --parit
 0.003 of native. Interface references: only `(3,120)` added to the Mobile DOF composite fragment (it now reads the push
 constant). **Lead (merged tree):** dev_mode editor and web template_release builds clean (0 warnings, 292 precompiled),
 smoke OK, and lens_optics / longitudinal_ca / camera_lut pass `--parity` (native diff 0.002-0.003).
+
+### 4.58 Average meters the whole frame; log-average metering; sharper halation; starburst default 20 (October 2026) *(work task 40)*
+
+User answers on tasks 35/36. **Average auto exposure now meters the whole frame** (`average-dropped-edges`: Fix it):
+Godot's Forward+ `luminance_reduce.glsl` rounded each level's size down and dropped the right ~20% of a 1080p frame and the
+bottom ~27% at 720p; each 8x8 block now writes its sum, levels round up, the last divides by the pixel count. Existing
+auto-exposed Forward+ projects change (test scene: -0.07 EV at 1080p, +0.32 EV at 720p), documented; Mobile's raster
+path already covered the frame and never applies auto exposure. **`auto_exposure_metering_log_average`** (`metering-
+statistic`: arithmetic default, log-average option): Reinhard's exp(mean(log(v + 1e-4))) for Average, Center-weighted
+and Spot (Highlight is a percentile, unchanged). **`halation_high_quality`** (`halation-min-size`: option, current
+default): a full-resolution first level for the Forward+ glare chain (radius 1: 3.38 px vs 3.36 model, 3.95 without; +0.18
+ms at 1080p). **`starburst_strength` default 20** (`starburst-default-strength`). Verified (lead, merged tree): dev_mode
+build clean, smoke OK; 16/18 default renders pixel-identical to the pre-merge editor in all three renderers, the two
+others the intended Average change (Forward+ auto-exposed scenes); Average now reads the whole-frame mean (1.0280 / 1.0215
+vs 1.0276 / 1.0211 at 1080p / 720p; before 0.978 / 1.278). Worker: log-average within +0.0005 EV of a Python reference,
+WebGPU pixel-identical for metering. §3 trap 80. Question `glare-lod-calibration` on the hand-offs page.
 
 ## 5. References — retired docs
 

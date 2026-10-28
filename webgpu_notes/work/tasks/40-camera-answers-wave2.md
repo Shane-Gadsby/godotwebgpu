@@ -1,6 +1,6 @@
 # 40-camera-answers-wave2: user answers on tasks 35/36 (Average metering fix, log-average option, sharper halation option, starburst default)
 
-State: ready-for-integration
+State: integrated (lead: merged c5cca53fdd; defaults and the Average fix verified on the merged tree; wiki updated)
 Owner: worker-40
 Claimed: 2026-10-28 11:04
 Needs: build, gpu
