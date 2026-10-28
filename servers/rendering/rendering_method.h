@@ -339,6 +339,15 @@ public:
 	virtual bool environment_get_use_1d_color_correction(RID p_env) const = 0;
 	virtual RID environment_get_color_correction(RID p_env) const = 0;
 
+	/* Color grading */
+	virtual void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) = 0;
+	virtual void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) = 0;
+	virtual void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) = 0;
+	virtual void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) = 0;
+	virtual void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) = 0;
+	virtual bool environment_get_color_grading_enabled(RID p_env) const = 0;
+	virtual uint64_t environment_get_color_grading_version(RID p_env) const = 0;
+
 	virtual Ref<Image> environment_bake_panorama(RID p_env, bool p_bake_irradiance, const Size2i &p_size) = 0;
 
 	virtual bool is_environment(RID p_environment) const = 0;

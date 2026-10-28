@@ -1110,3 +1110,79 @@ RID RendererEnvironmentStorage::environment_get_color_correction(RID p_env) cons
 	ERR_FAIL_NULL_V(env, RID());
 	return env->color_correction;
 }
+
+/* Color grading */
+
+void RendererEnvironmentStorage::environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	RendererColorGrading::Params &grading = env->color_grading;
+	grading.enabled = p_enable;
+	grading.color_filter = p_color_filter;
+	grading.hue_shift = p_hue_shift;
+	grading.vibrance = p_vibrance;
+	grading.lift = p_lift;
+	grading.gamma = p_gamma;
+	grading.gain = p_gain;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	RendererColorGrading::Params &grading = env->color_grading;
+	grading.shadows = p_shadows;
+	grading.midtones = p_midtones;
+	grading.highlights = p_highlights;
+	grading.shadows_start = p_shadows_start;
+	grading.shadows_end = p_shadows_end;
+	grading.highlights_start = p_highlights_start;
+	grading.highlights_end = p_highlights_end;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->color_grading.mixer_red = p_red;
+	env->color_grading.mixer_green = p_green;
+	env->color_grading.mixer_blue = p_blue;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->color_grading.split_shadows = p_shadows;
+	env->color_grading.split_highlights = p_highlights;
+	env->color_grading.split_balance = p_balance;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	const Vector<float> *curves[RendererColorGrading::CURVE_MAX] = { &p_master, &p_red, &p_green, &p_blue, &p_hue_vs_hue, &p_hue_vs_sat, &p_sat_vs_sat, &p_lum_vs_sat };
+	for (int i = 0; i < RendererColorGrading::CURVE_MAX; i++) {
+		env->color_grading.curves[i] = *curves[i];
+	}
+	env->color_grading_version++;
+}
+
+bool RendererEnvironmentStorage::environment_get_color_grading_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->color_grading.enabled;
+}
+
+uint64_t RendererEnvironmentStorage::environment_get_color_grading_version(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0);
+	return env->color_grading_version;
+}
+
+Vector<uint8_t> RendererEnvironmentStorage::environment_bake_color_grading(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector<uint8_t>());
+	return RendererColorGrading::bake(env->color_grading);
+}

@@ -35,6 +35,7 @@
 #include "servers/rendering/renderer_rd/effects/camera_finish.h"
 #include "servers/rendering/renderer_rd/effects/camera_metering.h"
 #include "servers/rendering/renderer_rd/effects/camera_motion_blur.h"
+#include "servers/rendering/renderer_rd/effects/color_grading.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/effects/debug_effects.h"
 #include "servers/rendering/renderer_rd/effects/fsr.h"
@@ -68,6 +69,7 @@ protected:
 	RendererRD::CameraMotionBlur *camera_motion_blur = nullptr; // Created on first use.
 	RendererRD::CameraMetering *camera_metering = nullptr; // Created on first use.
 	RendererRD::LightShafts *light_shafts = nullptr; // Created on first use.
+	RendererRD::ColorGrading *color_grading = nullptr; // Created on first use.
 	RendererRD::CopyEffects *copy_effects = nullptr;
 	RendererRD::DebugEffects *debug_effects = nullptr;
 	RendererRD::Luminance *luminance = nullptr;
@@ -122,6 +124,9 @@ protected:
 	void _render_buffers_copy_depth_texture(const RenderDataRD *p_render_data, bool p_use_msaa = false);
 	void _render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa = false);
 	void _post_process_subpass(RID p_source_texture, RID p_framebuffer, const RenderDataRD *p_render_data);
+	/* Color grading */
+	void _update_color_grading(const RenderDataRD *p_render_data);
+	void _setup_color_grading(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_environment, bool p_update);
 	void _disable_clear_request(const RenderDataRD *p_render_data);
 
 	// needed for a single argument calls (material and uv2)

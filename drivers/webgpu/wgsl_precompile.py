@@ -646,6 +646,13 @@ SHADER_REGISTRY = [
         ("awb_resolve", "\n#define MODE_AWB_RESOLVE\n", [COMP]),
     ]),
 
+    # ── Color grading (ColorGrading, color_grading.cpp): the Environment's grading LUT, composed with the user LUT ──
+    ("servers/rendering/renderer_rd/shaders/effects/color_grading.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("user_lut_3d", "\n", [COMP]),
+        ("user_lut_1d", "\n#define MODE_USER_LUT_1D\n", [COMP]),
+    ]),
+
     # ── Shadow Frustum ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/shadow_frustum.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),

@@ -232,6 +232,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
 
 	tonemap.push_constant.flags |= p_settings.use_color_correction ? TONEMAP_FLAG_USE_COLOR_CORRECTION : 0;
+	tonemap.push_constant.flags |= p_settings.color_correction_lattice ? TONEMAP_FLAG_COLOR_CORRECTION_LATTICE : 0;
 
 	tonemap.push_constant.flags |= p_settings.use_fxaa ? TONEMAP_FLAG_USE_FXAA : 0;
 	if (p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_8_BIT) {
@@ -327,6 +328,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
 	tonemap_mobile.push_constant.grain = p_settings.grain;
 	tonemap_mobile.push_constant.camera_lut = p_settings.camera_lut;
+	tonemap_mobile.push_constant.color_correction_lattice = p_settings.color_correction_lattice ? 1 : 0;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -429,6 +431,7 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.white_balance[2] = p_settings.white_balance_gains.z;
 	tonemap_mobile.push_constant.grain = p_settings.grain;
 	tonemap_mobile.push_constant.camera_lut = p_settings.camera_lut;
+	tonemap_mobile.push_constant.color_correction_lattice = p_settings.color_correction_lattice ? 1 : 0;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];

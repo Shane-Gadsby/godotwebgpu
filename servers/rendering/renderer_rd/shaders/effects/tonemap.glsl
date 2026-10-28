@@ -93,7 +93,9 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
 #define FLAG_USE_WHITE_BALANCE (1 << 7)
 // Bits 8-23: the packed CameraAttributes LUT parameters (camera_lut_inc.glsl).
-#define CAMERA_LUT_PARAMS (params.flags >> 8u)
+#define CAMERA_LUT_PARAMS ((params.flags & 0xFFFF00u) >> 8u)
+// The 3D color correction LUT is the Environment's color grading LUT, which holds lattice points.
+#define FLAG_COLOR_CORRECTION_LATTICE (1u << 24u)
 
 #include "camera_grain_inc.glsl"
 
@@ -517,6 +519,12 @@ vec3 apply_color_correction(vec3 color) {
 }
 #else
 vec3 apply_color_correction(vec3 color) {
+	if (bool(params.flags & FLAG_COLOR_CORRECTION_LATTICE)) {
+		// The grading LUT's texels are the grades of i / (size - 1): map 0 and 1 onto the first and last texel
+		// centers, as camera_lut_inc.glsl does. A user LUT keeps the plain mapping it always had.
+		float size = float(textureSize(source_color_correction, 0).x);
+		color = color * ((size - 1.0) / size) + 0.5 / size;
+	}
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif

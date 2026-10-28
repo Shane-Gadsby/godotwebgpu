@@ -1288,6 +1288,312 @@ void Environment::_update_adjustment() {
 			color_correction);
 }
 
+// Color grading
+
+void Environment::set_grading_enabled(bool p_enabled) {
+	grading_enabled = p_enabled;
+	_update_color_grading();
+}
+
+bool Environment::is_grading_enabled() const {
+	return grading_enabled;
+}
+
+void Environment::set_grading_color_filter(const Color &p_color_filter) {
+	grading_color_filter = p_color_filter;
+	_update_color_grading();
+}
+
+Color Environment::get_grading_color_filter() const {
+	return grading_color_filter;
+}
+
+void Environment::set_grading_hue_shift(float p_hue_shift) {
+	grading_hue_shift = p_hue_shift;
+	_update_color_grading();
+}
+
+float Environment::get_grading_hue_shift() const {
+	return grading_hue_shift;
+}
+
+void Environment::set_grading_vibrance(float p_vibrance) {
+	grading_vibrance = p_vibrance;
+	_update_color_grading();
+}
+
+float Environment::get_grading_vibrance() const {
+	return grading_vibrance;
+}
+
+void Environment::set_grading_lift(const Color &p_lift) {
+	grading_lift = p_lift;
+	_update_color_grading();
+}
+
+Color Environment::get_grading_lift() const {
+	return grading_lift;
+}
+
+void Environment::set_grading_gamma(const Color &p_gamma) {
+	grading_gamma = p_gamma;
+	_update_color_grading();
+}
+
+Color Environment::get_grading_gamma() const {
+	return grading_gamma;
+}
+
+void Environment::set_grading_gain(const Color &p_gain) {
+	grading_gain = p_gain;
+	_update_color_grading();
+}
+
+Color Environment::get_grading_gain() const {
+	return grading_gain;
+}
+
+void Environment::set_grading_shadows(const Color &p_shadows) {
+	grading_shadows = p_shadows;
+	_update_color_grading_tones();
+}
+
+Color Environment::get_grading_shadows() const {
+	return grading_shadows;
+}
+
+void Environment::set_grading_midtones(const Color &p_midtones) {
+	grading_midtones = p_midtones;
+	_update_color_grading_tones();
+}
+
+Color Environment::get_grading_midtones() const {
+	return grading_midtones;
+}
+
+void Environment::set_grading_highlights(const Color &p_highlights) {
+	grading_highlights = p_highlights;
+	_update_color_grading_tones();
+}
+
+Color Environment::get_grading_highlights() const {
+	return grading_highlights;
+}
+
+void Environment::set_grading_shadows_start(float p_shadows_start) {
+	grading_shadows_start = p_shadows_start;
+	_update_color_grading_tones();
+}
+
+float Environment::get_grading_shadows_start() const {
+	return grading_shadows_start;
+}
+
+void Environment::set_grading_shadows_end(float p_shadows_end) {
+	grading_shadows_end = p_shadows_end;
+	_update_color_grading_tones();
+}
+
+float Environment::get_grading_shadows_end() const {
+	return grading_shadows_end;
+}
+
+void Environment::set_grading_highlights_start(float p_highlights_start) {
+	grading_highlights_start = p_highlights_start;
+	_update_color_grading_tones();
+}
+
+float Environment::get_grading_highlights_start() const {
+	return grading_highlights_start;
+}
+
+void Environment::set_grading_highlights_end(float p_highlights_end) {
+	grading_highlights_end = p_highlights_end;
+	_update_color_grading_tones();
+}
+
+float Environment::get_grading_highlights_end() const {
+	return grading_highlights_end;
+}
+
+void Environment::set_grading_channel_mixer_red(const Vector3 &p_channel_mixer_red) {
+	grading_channel_mixer_red = p_channel_mixer_red;
+	_update_color_grading_channel_mixer();
+}
+
+Vector3 Environment::get_grading_channel_mixer_red() const {
+	return grading_channel_mixer_red;
+}
+
+void Environment::set_grading_channel_mixer_green(const Vector3 &p_channel_mixer_green) {
+	grading_channel_mixer_green = p_channel_mixer_green;
+	_update_color_grading_channel_mixer();
+}
+
+Vector3 Environment::get_grading_channel_mixer_green() const {
+	return grading_channel_mixer_green;
+}
+
+void Environment::set_grading_channel_mixer_blue(const Vector3 &p_channel_mixer_blue) {
+	grading_channel_mixer_blue = p_channel_mixer_blue;
+	_update_color_grading_channel_mixer();
+}
+
+Vector3 Environment::get_grading_channel_mixer_blue() const {
+	return grading_channel_mixer_blue;
+}
+
+void Environment::set_grading_split_toning_shadows(const Color &p_split_toning_shadows) {
+	grading_split_toning_shadows = p_split_toning_shadows;
+	_update_color_grading_split_toning();
+}
+
+Color Environment::get_grading_split_toning_shadows() const {
+	return grading_split_toning_shadows;
+}
+
+void Environment::set_grading_split_toning_highlights(const Color &p_split_toning_highlights) {
+	grading_split_toning_highlights = p_split_toning_highlights;
+	_update_color_grading_split_toning();
+}
+
+Color Environment::get_grading_split_toning_highlights() const {
+	return grading_split_toning_highlights;
+}
+
+void Environment::set_grading_split_toning_balance(float p_split_toning_balance) {
+	grading_split_toning_balance = p_split_toning_balance;
+	_update_color_grading_split_toning();
+}
+
+float Environment::get_grading_split_toning_balance() const {
+	return grading_split_toning_balance;
+}
+
+void Environment::set_grading_curve_master(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_master, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_master() const {
+	return grading_curve_master;
+}
+
+void Environment::set_grading_curve_red(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_red, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_red() const {
+	return grading_curve_red;
+}
+
+void Environment::set_grading_curve_green(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_green, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_green() const {
+	return grading_curve_green;
+}
+
+void Environment::set_grading_curve_blue(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_blue, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_blue() const {
+	return grading_curve_blue;
+}
+
+void Environment::set_grading_curve_hue_vs_hue(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_hue_vs_hue, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_hue_vs_hue() const {
+	return grading_curve_hue_vs_hue;
+}
+
+void Environment::set_grading_curve_hue_vs_sat(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_hue_vs_sat, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_hue_vs_sat() const {
+	return grading_curve_hue_vs_sat;
+}
+
+void Environment::set_grading_curve_sat_vs_sat(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_sat_vs_sat, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_sat_vs_sat() const {
+	return grading_curve_sat_vs_sat;
+}
+
+void Environment::set_grading_curve_lum_vs_sat(const Ref<Curve> &p_curve) {
+	_set_color_grading_curve(grading_curve_lum_vs_sat, p_curve);
+}
+
+Ref<Curve> Environment::get_grading_curve_lum_vs_sat() const {
+	return grading_curve_lum_vs_sat;
+}
+
+void Environment::_set_color_grading_curve(Ref<Curve> &r_member, const Ref<Curve> &p_curve) {
+	if (r_member == p_curve) {
+		return;
+	}
+	if (r_member.is_valid()) {
+		r_member->disconnect_changed(callable_mp(this, &Environment::_update_color_grading_curves));
+	}
+	r_member = p_curve;
+	if (r_member.is_valid()) {
+		r_member->connect_changed(callable_mp(this, &Environment::_update_color_grading_curves));
+	}
+	_update_color_grading_curves();
+}
+
+void Environment::_update_color_grading() {
+	RS::get_singleton()->environment_set_color_grading(environment, grading_enabled, grading_color_filter, grading_hue_shift, grading_vibrance, grading_lift, grading_gamma, grading_gain);
+}
+
+void Environment::_update_color_grading_tones() {
+	RS::get_singleton()->environment_set_color_grading_shadows_midtones_highlights(environment, grading_shadows, grading_midtones, grading_highlights, grading_shadows_start, grading_shadows_end, grading_highlights_start, grading_highlights_end);
+}
+
+void Environment::_update_color_grading_channel_mixer() {
+	RS::get_singleton()->environment_set_color_grading_channel_mixer(environment, grading_channel_mixer_red, grading_channel_mixer_green, grading_channel_mixer_blue);
+}
+
+void Environment::_update_color_grading_split_toning() {
+	RS::get_singleton()->environment_set_color_grading_split_toning(environment, grading_split_toning_shadows, grading_split_toning_highlights, grading_split_toning_balance);
+}
+
+// The rendering server takes each curve as evenly spaced samples over its domain; no curve (or one without points)
+// is an empty array, which leaves that channel alone.
+static Vector<float> _sample_grading_curve(const Ref<Curve> &p_curve) {
+	Vector<float> samples;
+	if (p_curve.is_null() || p_curve->get_point_count() == 0) {
+		return samples;
+	}
+	const int count = 256; // RendererColorGrading::CURVE_SAMPLES.
+	samples.resize(count);
+	float *w = samples.ptrw();
+	const float min_domain = p_curve->get_min_domain();
+	const float domain = p_curve->get_max_domain() - min_domain;
+	for (int i = 0; i < count; i++) {
+		w[i] = p_curve->sample(min_domain + domain * float(i) / float(count - 1));
+	}
+	return samples;
+}
+
+void Environment::_update_color_grading_curves() {
+	RS::get_singleton()->environment_set_color_grading_curves(environment,
+			_sample_grading_curve(grading_curve_master),
+			_sample_grading_curve(grading_curve_red),
+			_sample_grading_curve(grading_curve_green),
+			_sample_grading_curve(grading_curve_blue),
+			_sample_grading_curve(grading_curve_hue_vs_hue),
+			_sample_grading_curve(grading_curve_hue_vs_sat),
+			_sample_grading_curve(grading_curve_sat_vs_sat),
+			_sample_grading_curve(grading_curve_lum_vs_sat));
+}
+
 // Private methods, constructor and destructor
 
 void Environment::_validate_property(PropertyInfo &p_property) const {
@@ -1850,6 +2156,99 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_color_correction", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D,Texture3D"), "set_adjustment_color_correction", "get_adjustment_color_correction");
 
+	// Color grading
+	ClassDB::bind_method(D_METHOD("set_grading_enabled", "enabled"), &Environment::set_grading_enabled);
+	ClassDB::bind_method(D_METHOD("is_grading_enabled"), &Environment::is_grading_enabled);
+	ClassDB::bind_method(D_METHOD("set_grading_color_filter", "color_filter"), &Environment::set_grading_color_filter);
+	ClassDB::bind_method(D_METHOD("get_grading_color_filter"), &Environment::get_grading_color_filter);
+	ClassDB::bind_method(D_METHOD("set_grading_hue_shift", "hue_shift"), &Environment::set_grading_hue_shift);
+	ClassDB::bind_method(D_METHOD("get_grading_hue_shift"), &Environment::get_grading_hue_shift);
+	ClassDB::bind_method(D_METHOD("set_grading_vibrance", "vibrance"), &Environment::set_grading_vibrance);
+	ClassDB::bind_method(D_METHOD("get_grading_vibrance"), &Environment::get_grading_vibrance);
+	ClassDB::bind_method(D_METHOD("set_grading_lift", "lift"), &Environment::set_grading_lift);
+	ClassDB::bind_method(D_METHOD("get_grading_lift"), &Environment::get_grading_lift);
+	ClassDB::bind_method(D_METHOD("set_grading_gamma", "gamma"), &Environment::set_grading_gamma);
+	ClassDB::bind_method(D_METHOD("get_grading_gamma"), &Environment::get_grading_gamma);
+	ClassDB::bind_method(D_METHOD("set_grading_gain", "gain"), &Environment::set_grading_gain);
+	ClassDB::bind_method(D_METHOD("get_grading_gain"), &Environment::get_grading_gain);
+	ClassDB::bind_method(D_METHOD("set_grading_shadows", "shadows"), &Environment::set_grading_shadows);
+	ClassDB::bind_method(D_METHOD("get_grading_shadows"), &Environment::get_grading_shadows);
+	ClassDB::bind_method(D_METHOD("set_grading_midtones", "midtones"), &Environment::set_grading_midtones);
+	ClassDB::bind_method(D_METHOD("get_grading_midtones"), &Environment::get_grading_midtones);
+	ClassDB::bind_method(D_METHOD("set_grading_highlights", "highlights"), &Environment::set_grading_highlights);
+	ClassDB::bind_method(D_METHOD("get_grading_highlights"), &Environment::get_grading_highlights);
+	ClassDB::bind_method(D_METHOD("set_grading_shadows_start", "shadows_start"), &Environment::set_grading_shadows_start);
+	ClassDB::bind_method(D_METHOD("get_grading_shadows_start"), &Environment::get_grading_shadows_start);
+	ClassDB::bind_method(D_METHOD("set_grading_shadows_end", "shadows_end"), &Environment::set_grading_shadows_end);
+	ClassDB::bind_method(D_METHOD("get_grading_shadows_end"), &Environment::get_grading_shadows_end);
+	ClassDB::bind_method(D_METHOD("set_grading_highlights_start", "highlights_start"), &Environment::set_grading_highlights_start);
+	ClassDB::bind_method(D_METHOD("get_grading_highlights_start"), &Environment::get_grading_highlights_start);
+	ClassDB::bind_method(D_METHOD("set_grading_highlights_end", "highlights_end"), &Environment::set_grading_highlights_end);
+	ClassDB::bind_method(D_METHOD("get_grading_highlights_end"), &Environment::get_grading_highlights_end);
+	ClassDB::bind_method(D_METHOD("set_grading_channel_mixer_red", "channel_mixer_red"), &Environment::set_grading_channel_mixer_red);
+	ClassDB::bind_method(D_METHOD("get_grading_channel_mixer_red"), &Environment::get_grading_channel_mixer_red);
+	ClassDB::bind_method(D_METHOD("set_grading_channel_mixer_green", "channel_mixer_green"), &Environment::set_grading_channel_mixer_green);
+	ClassDB::bind_method(D_METHOD("get_grading_channel_mixer_green"), &Environment::get_grading_channel_mixer_green);
+	ClassDB::bind_method(D_METHOD("set_grading_channel_mixer_blue", "channel_mixer_blue"), &Environment::set_grading_channel_mixer_blue);
+	ClassDB::bind_method(D_METHOD("get_grading_channel_mixer_blue"), &Environment::get_grading_channel_mixer_blue);
+	ClassDB::bind_method(D_METHOD("set_grading_split_toning_shadows", "split_toning_shadows"), &Environment::set_grading_split_toning_shadows);
+	ClassDB::bind_method(D_METHOD("get_grading_split_toning_shadows"), &Environment::get_grading_split_toning_shadows);
+	ClassDB::bind_method(D_METHOD("set_grading_split_toning_highlights", "split_toning_highlights"), &Environment::set_grading_split_toning_highlights);
+	ClassDB::bind_method(D_METHOD("get_grading_split_toning_highlights"), &Environment::get_grading_split_toning_highlights);
+	ClassDB::bind_method(D_METHOD("set_grading_split_toning_balance", "split_toning_balance"), &Environment::set_grading_split_toning_balance);
+	ClassDB::bind_method(D_METHOD("get_grading_split_toning_balance"), &Environment::get_grading_split_toning_balance);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_master", "curve"), &Environment::set_grading_curve_master);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_master"), &Environment::get_grading_curve_master);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_red", "curve"), &Environment::set_grading_curve_red);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_red"), &Environment::get_grading_curve_red);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_green", "curve"), &Environment::set_grading_curve_green);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_green"), &Environment::get_grading_curve_green);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_blue", "curve"), &Environment::set_grading_curve_blue);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_blue"), &Environment::get_grading_curve_blue);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_hue_vs_hue", "curve"), &Environment::set_grading_curve_hue_vs_hue);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_hue_vs_hue"), &Environment::get_grading_curve_hue_vs_hue);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_hue_vs_sat", "curve"), &Environment::set_grading_curve_hue_vs_sat);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_hue_vs_sat"), &Environment::get_grading_curve_hue_vs_sat);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_sat_vs_sat", "curve"), &Environment::set_grading_curve_sat_vs_sat);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_sat_vs_sat"), &Environment::get_grading_curve_sat_vs_sat);
+	ClassDB::bind_method(D_METHOD("set_grading_curve_lum_vs_sat", "curve"), &Environment::set_grading_curve_lum_vs_sat);
+	ClassDB::bind_method(D_METHOD("get_grading_curve_lum_vs_sat"), &Environment::get_grading_curve_lum_vs_sat);
+
+	ADD_GROUP("Color Grading", "grading_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "grading_enabled", PROPERTY_HINT_GROUP_ENABLE, ""), "set_grading_enabled", "is_grading_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_color_filter", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_color_filter", "get_grading_color_filter");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_hue_shift", PROPERTY_HINT_RANGE, "-180,180,0.1,degrees"), "set_grading_hue_shift", "get_grading_hue_shift");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_vibrance", PROPERTY_HINT_RANGE, "-1,1,0.01"), "set_grading_vibrance", "get_grading_vibrance");
+	ADD_SUBGROUP("Lift Gamma Gain", "grading_");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_lift", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_lift", "get_grading_lift");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_gamma", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_gamma", "get_grading_gamma");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_gain", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_gain", "get_grading_gain");
+	ADD_SUBGROUP("Shadows Midtones Highlights", "grading_");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_shadows", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_shadows", "get_grading_shadows");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_midtones", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_midtones", "get_grading_midtones");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_highlights", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_highlights", "get_grading_highlights");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_shadows_start", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_grading_shadows_start", "get_grading_shadows_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_grading_shadows_end", "get_grading_shadows_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_grading_highlights_start", "get_grading_highlights_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_highlights_end", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_grading_highlights_end", "get_grading_highlights_end");
+	ADD_SUBGROUP("Channel Mixer", "grading_");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "grading_channel_mixer_red", PROPERTY_HINT_RANGE, "-2,2,0.01,or_less,or_greater"), "set_grading_channel_mixer_red", "get_grading_channel_mixer_red");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "grading_channel_mixer_green", PROPERTY_HINT_RANGE, "-2,2,0.01,or_less,or_greater"), "set_grading_channel_mixer_green", "get_grading_channel_mixer_green");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "grading_channel_mixer_blue", PROPERTY_HINT_RANGE, "-2,2,0.01,or_less,or_greater"), "set_grading_channel_mixer_blue", "get_grading_channel_mixer_blue");
+	ADD_SUBGROUP("Split Toning", "grading_");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_split_toning_shadows", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_split_toning_shadows", "get_grading_split_toning_shadows");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_split_toning_highlights", PROPERTY_HINT_COLOR_NO_ALPHA, ""), "set_grading_split_toning_highlights", "get_grading_split_toning_highlights");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_split_toning_balance", PROPERTY_HINT_RANGE, "-1,1,0.01"), "set_grading_split_toning_balance", "get_grading_split_toning_balance");
+	ADD_SUBGROUP("Curves", "grading_curve_");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_master", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_master", "get_grading_curve_master");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_red", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_red", "get_grading_curve_red");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_green", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_green", "get_grading_curve_green");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_blue", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_blue", "get_grading_curve_blue");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_hue_vs_hue", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_hue_vs_hue", "get_grading_curve_hue_vs_hue");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_hue_vs_sat", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_hue_vs_sat", "get_grading_curve_hue_vs_sat");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_sat_vs_sat", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_sat_vs_sat", "get_grading_curve_sat_vs_sat");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_curve_lum_vs_sat", PROPERTY_HINT_RESOURCE_TYPE, "Curve"), "set_grading_curve_lum_vs_sat", "get_grading_curve_lum_vs_sat");
+
 	// Constants
 
 	BIND_ENUM_CONSTANT(BG_CLEAR_COLOR);
@@ -1913,6 +2312,11 @@ Environment::Environment() {
 	_update_glow();
 	_update_fog();
 	_update_adjustment();
+	_update_color_grading();
+	_update_color_grading_tones();
+	_update_color_grading_channel_mixer();
+	_update_color_grading_split_toning();
+	_update_color_grading_curves();
 	_update_volumetric_fog();
 	_update_bg_energy();
 	notify_property_list_changed();

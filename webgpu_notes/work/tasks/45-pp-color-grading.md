@@ -1,8 +1,8 @@
 # 45-pp-color-grading
 
-State: open
+State: ready-for-integration
 Owner: worker-45
-Claimed:
+Claimed: 2026-10-28
 Needs: build, gpu
 Branch: work/45
 Results: webgpu_notes/work/results/45-pp-color-grading/
