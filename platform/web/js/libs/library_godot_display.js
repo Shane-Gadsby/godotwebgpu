@@ -687,10 +687,21 @@ const GodotDisplay = {
 	},
 
 	godot_js_display_desired_size_set__proxy: 'sync',
-	godot_js_display_desired_size_set__sig: 'vii',
+	godot_js_display_desired_size_set__sig: 'iii',
 	godot_js_display_desired_size_set: function (width, height) {
+		// Returns whether the canvas changed size, like godot_js_display_size_update(): the caller must then
+		// run the same resize path (root window, canvas element, rendering surface). Before it returned
+		// nothing, so the canvas was resized here and the next size_update() found nothing left to report.
+		if (GodotConfig.canvas_resize_policy === 0) {
+			// The page owns the canvas size: it never follows the requested size.
+			return 0;
+		}
 		GodotDisplayScreen.desired_size = [width, height];
-		GodotDisplayScreen.updateSize();
+		const updated = GodotDisplayScreen.updateSize();
+		if (updated) {
+			GodotDisplayVK.updateSize();
+		}
+		return updated;
 	},
 
 	godot_js_display_size_update__proxy: 'sync',
