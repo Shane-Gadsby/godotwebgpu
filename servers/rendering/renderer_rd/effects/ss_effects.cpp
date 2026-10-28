@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
+#include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -434,8 +435,36 @@ void SSEffects::allocate_last_frame_buffer(Ref<RenderSceneBuffersRD> p_render_bu
 			p_render_buffers->clear_context(RB_SCOPE_SSLF);
 		}
 
-		RID last_frame_texture = p_render_buffers->create_texture(RB_SCOPE_SSLF, RB_LAST_FRAME, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT, RD::TEXTURE_SAMPLES_1, last_frame_size, view_count, mipmaps);
-		RD::get_singleton()->texture_clear(last_frame_texture, Color(0, 0, 0, 0), 0, mipmaps, 0, view_count);
+		// A reconfigure (a 3D scale change, for one) carries the last frame over (RenderSceneBuffersRD::configure()).
+		// SSIL and SSR read it before this frame's copy replaces it, so starting from black shows one frame without
+		// indirect light or reflections. Resampling it into the new size keeps them; the reprojection is in UV units,
+		// which do not depend on the size. Only then is the texture an attachment (the resample draws): a viewport
+		// that never reconfigures keeps exactly the texture it always had.
+		bool resample = p_render_buffers->get_carried_texture_layer(RB_SCOPE_SSLF, RB_LAST_FRAME, view_count - 1).is_valid();
+		uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		if (resample) {
+			usage_bits |= RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+		}
+
+		RID last_frame_texture = p_render_buffers->create_texture(RB_SCOPE_SSLF, RB_LAST_FRAME, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage_bits, RD::TEXTURE_SAMPLES_1, last_frame_size, view_count, mipmaps);
+		if (resample) {
+			CopyEffects *copy_effects = CopyEffects::get_singleton();
+			RD::get_singleton()->draw_command_begin_label("Resample last frame for SSIL/SSR");
+			for (uint32_t v = 0; v < view_count; v++) {
+				// Bilinear into mip 0, then the mip chain the same way copy_internal_texture_to_last_frame() builds it.
+				RID dest = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, 0);
+				copy_effects->copy_to_fb_rect(p_render_buffers->get_carried_texture_layer(RB_SCOPE_SSLF, RB_LAST_FRAME, v), FramebufferCacheRD::get_singleton()->get_cache(dest), Rect2i(Point2i(), last_frame_size), false, false, false, false, RID(), false, false, false, false, Rect2(), 1.0, true);
+				for (uint32_t m = 1; m < mipmaps; m++) {
+					RID source = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, m - 1);
+					dest = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, m);
+					copy_effects->make_mipmap(source, dest, RD::get_singleton()->texture_size(dest));
+				}
+			}
+			RD::get_singleton()->draw_command_end_label();
+		} else {
+			RD::get_singleton()->texture_clear(last_frame_texture, Color(0, 0, 0, 0), 0, mipmaps, 0, view_count);
+		}
+		p_render_buffers->free_carried_textures(RB_SCOPE_SSLF);
 	}
 }
 

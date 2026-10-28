@@ -194,13 +194,16 @@ void RenderSceneBuffersRD::configure(const RenderSceneBuffersConfiguration *p_co
 
 	// Temporal state that does not depend on the internal size carries over a reconfigure, so changing the 3D scale
 	// (or anything else that reconfigures) does not restart it: TAA's history is resampled into the new size by
-	// TAA::process(); auto exposure's luminance and FSR 2's context are kept by their RenderBufferCustomDataRD
-	// (free_data_for_reconfigure()). What a previous reconfigure carried and nothing used is freed now.
+	// TAA::process(), and the last frame SSIL and SSR read by SSEffects::allocate_last_frame_buffer(); auto exposure's
+	// luminance and FSR 2's context are kept by their RenderBufferCustomDataRD (free_data_for_reconfigure()). What a
+	// previous reconfigure carried and nothing used is freed now.
 	_free_carried_textures();
 	if (use_taa) {
 		_carry_texture(SNAME("taa"), SNAME("history"));
 		_carry_texture(SNAME("taa"), SNAME("prev_velocity"));
 	}
+	// RB_SCOPE_SSLF / RB_LAST_FRAME (ss_effects.h). It exists only while SSIL or SSR is in use.
+	_carry_texture(SNAME("rb_sslf"), SNAME("last_frame"));
 
 	// cleanout any old buffers we had.
 	_cleanup(true);

@@ -1,8 +1,8 @@
 # 78-ssil-scale-change
 
-State: open
+State: ready-for-integration
 Owner: worker-78
-Claimed:
+Claimed: 2026-10-29 07:00
 Needs: build, gpu
 Branch: work/78
 Results: webgpu_notes/work/results/78-ssil-scale-change/
