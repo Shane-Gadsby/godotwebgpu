@@ -4800,6 +4800,43 @@ highlight within 0.03 EV. Worker: AWB brings a gray card under 3200 K from r/g 1
 WebGPU pixel-identical (metering) / within 1/255 (AWB); +0.05 ms per feature at 1080p. Questions `metering-statistic`,
 `average-dropped-edges`, `awb-neutral` on the hand-offs page.
 
+### 4.54 Bokeh shapes, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion (October 2026) *(work task 35, camera batch)*
+
+Merged `ec882a87c2` (conflicts with task 36 resolved by applying task 35's diff onto the merged side, checked to add and
+remove exactly its lines; `tone_mapper.cpp` by hand, `CameraAttributes.xml` element by element).
+- **CameraAttributes:** aperture blades (count, curvature, rotation; override the project's bokeh shape per camera),
+  cat's eye bokeh, starburst (2 spikes per blade for odd counts, 1 for even, stronger stopped down), halation.
+  **CameraAttributesPhysical:** tilt-shift (Scheimpflug hinge rule: each pixel's own focus distance in the DOF).
+- **Environment:** lens flare (ghosts on the line through the center), veiling glare, diffusion filter (+ black variant).
+- **Glare chain:** an unthresholded RGBA16F mip chain built with glow's passes, bound to the tonemap pass (Forward+ set 2
+  binding 2, Mobile set 0 binding 6); parameters in the CameraEffects `glare[6]` region / `header.y`. Bokeh push
+  constant now exactly 128 bytes. Compatibility gets none of it (no DOF; its post pass sees light clipped near white),
+  documented. Mobile: RGB10A2 clips highlights, so glare from bright sources is ~20x weaker.
+- **Verified:** worker (native vs independent models): blade vertex angles within 0.1-3°, cat's eye ratios within ~0.04
+  of the two-circle model, tilt band at row 339 vs 344.5 predicted, spikes 6/14/8 for 6/7/8 blades, flare ghosts within
+  1.6 px of the line, veiling glare 0.00212 vs 0.00212, WebGPU repeats native (halation ~12% tighter, spikes ~30%
+  brighter: Chrome's filtering). Lead (merged tree): defaults 9/9 identical; halation sigma 13.47 / 54.17 px vs 13.44 /
+  53.76 predicted, no blue; diffusion leaves a flat field unchanged. A `-Wenum-conversion` in
+  `_glare_requested_bits()` fixed at integration (would have failed werror).
+- **Upstream problem found, not fixed:** Mobile's DOF ignores CameraAttributesPhysical (`bokeh_dof_raster()` never sets
+  the physical flags), so a physical camera on Mobile has no DOF; fixing it changes existing Mobile renders.
+- Not run: Practical-blur bokeh shapes and cat's eye on Mobile; GPU cost (the starburst is the expensive part).
+  Questions `starburst-default-strength`, `halation-min-size`, look `look-bokeh-glare` on the hand-offs page.
+
+### 4.55 Camera follow-ups from the user's answers; handheld shake presets (October 2026) *(work task 39, camera batch)*
+
+Merged. From the hand-offs page: **zebra colors user-selectable** (`monitoring_zebras_color` default black,
+`monitoring_zebras_second_color` default white; new `RS.camera_set_monitoring_zebra_colors()`; the camera finish push
+constant is now a full 128 bytes); **editor tick boxes, default off**: `CameraAttributes.motion_blur_visible_in_editor`
+and `rolling_shutter_visible_in_editor` (one per group: each group's enable check box hides the rest of its group) and
+`Camera3D.shake_visible_in_editor` (unticked, shake does no work in the editor; a running game is unaffected; autofocus
+unchanged). **Handheld shake presets** (user request): `Camera3D.shake_preset` with Custom (default, today's values) and
+Handheld, Handheld Stabilized, Handheld Walking, Running, Shoulder Rig, Gimbal, Tripod in Wind, Vehicle Mount, sources
+cited in the code; editing any shake value switches to Custom; saved scenes keep their preset. Verified (lead, merged
+tree): `results/39-*/tests/run.sh` OK (68 checks: defaults and default-colored zebras pixel-identical in all three
+renderers, zebra colors within 1/255, tick boxes in editor vs game runs, presets' measured RMS within 5% and band
+centers within 2.4% over 120 s); task 38's `tests/run.sh` OK after ticking `shake_visible_in_editor` in its editor test.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

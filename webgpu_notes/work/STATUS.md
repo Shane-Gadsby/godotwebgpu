@@ -10,9 +10,9 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 34 | motion blur from the shutter, rolling shutter | 1 | worker-34 (retired); **merged `4a96bd2ae6`**, verified, TASKS §4.51; question `motion-blur-editor` |
 | 37 | in-camera NR + sharpening (CameraAttributes); monitoring overlays + Visible in Output (Camera3D) | 1 | worker-37 (retired); **merged `ffda7ef1d3`**, verified, TASKS §4.50; questions `zebra-colors`, `zebra2-window`, `peaking-source` |
 | 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 (retired); **merged `c2d0987359`**, verified on the merged tree, smoke OK; TASKS §4.49; question `shake-in-editor` on the hand-offs page |
-| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | worker-35 |
+| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | worker-35 (retired); **merged `ec882a87c2`**, verified, TASKS §4.54; questions `starburst-default-strength`, `halation-min-size`, look `look-bokeh-glare` |
 | 36 | AE metering modes, auto white balance | 2 | worker-36 (retired); **merged**, verified, TASKS §4.53; questions `metering-statistic`, `average-dropped-edges`, `awb-neutral` |
-| 39 | user answers: zebra colors user-selectable; editor tick boxes (default off) for motion blur and handheld shake | 2 | worker-39 |
+| 39 | user answers: zebra colors user-selectable; editor tick boxes (default off) for motion blur and handheld shake; shake presets | 2 | worker-39 (retired); **merged**, verified, TASKS §4.55 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 

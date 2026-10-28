@@ -1,6 +1,6 @@
 # 35-camera-bokeh-glare: aperture blades, cat's eye, tilt-shift, starburst, halation; lens flare, veiling glare, diffusion filters
 
-State: ready-for-integration
+State: integrated (lead: merged ec882a87c2; defaults 9/9 identical, halation and diffusion reproduced; smoke OK after reference regeneration)
 Owner: worker-35
 Claimed: 2026-10-28
 Needs: build, gpu, task 33 (the CameraEffects UBO glare region)
