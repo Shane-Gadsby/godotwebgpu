@@ -1,8 +1,8 @@
 # 41-postprocess-survey: post-processing effects Godot lacks (TASKS.md §2.48)
 
-State: open
+State: ready-for-integration
 Owner: worker-41
-Claimed:
+Claimed: 2026-10-28
 Needs: — (no build, no GPU; read code and docs)
 Branch: work/41
 Results: webgpu_notes/work/results/41-postprocess-survey/
