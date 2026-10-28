@@ -1,0 +1,36 @@
+policy 0:
+  start                  canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 1
+  button_800x600         canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 1
+  set_back               canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 1
+  window_size_700x500    canvas 1024,640 window 700,500 visible 700,500 corner 700,500 signals 2
+  window_size_back       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 3
+  browser_1000x700       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 3
+  browser_1280x800       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 3
+  warnings/errors: 0
+policy 1:
+  start                  canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 0
+  button_800x600         canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 0
+  set_back               canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 0
+  window_size_700x500    canvas 1024,640 window 700,500 visible 700,500 corner 700,500 signals 1
+  window_size_back       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 2
+  browser_1000x700       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 2
+  browser_1280x800       canvas 1024,640 window 1024,640 visible 1024,640 corner 1024,640 signals 2
+  warnings/errors: 0
+policy 2:
+  start                  canvas 1024,640 window 1280,800 visible 1280,800 corner 1280,800 signals 0
+  button_800x600         canvas 1024,640 window 1280,800 visible 1280,800 corner 1280,800 signals 0
+  set_back               canvas 1024,640 window 1280,800 visible 1280,800 corner 1280,800 signals 0
+  window_size_700x500    canvas 1024,640 window 700,500 visible 700,500 corner 700,500 signals 1
+  window_size_back       canvas 1024,640 window 1280,800 visible 1280,800 corner 1280,800 signals 2
+  browser_1000x700       canvas 1000,700 window 1000,700 visible 1000,700 corner 1000,700 signals 3
+  browser_1280x800       canvas 1280,800 window 1280,800 visible 1280,800 corner 1280,800 signals 4
+  warnings/errors: 0
+FAIL
+  p1 button_800x600: window/viewport/corner {"control":[1024,640],"corner_label":[1024,640],"ds":[800,600],"signals":0,"tag":"report","visible_rect":[1024,640],"window":[1024,640]} vs canvas 1024,640
+  p1 button: canvas 1024,640 signals 0->0
+  p1 set back: canvas 1024,640 signals 0->0
+  p1 Window.size: canvas 1024,640
+  p1 wset: window/viewport/corner {"control":[700,500],"corner_label":[700,500],"ds":[700,500],"signals":1,"tag":"report","visible_rect":[700,500],"window":[700,500]} vs canvas 1024,640
+  p2 start: window/viewport/corner {"control":[1280,800],"corner_label":[1280,800],"ds":[1280,800],"signals":0,"tag":"report","visible_rect":[1280,800],"window":[1280,800]} vs canvas 1024,640
+  p2 button_800x600: window/viewport/corner {"control":[1280,800],"corner_label":[1280,800],"ds":[1280,800],"signals":0,"tag":"report","visible_rect":[1280,800],"window":[1280,800]} vs canvas 1024,640
+  p2 set_back: window/viewport/corner {"control":[1280,800],"corner_label":[1280,800],"ds":[1280,800],"signals":0,"tag":"report","visible_rect":[1280,800],"window":[1280,800]} vs canvas 1024,640
