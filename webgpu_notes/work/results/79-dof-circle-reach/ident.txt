@@ -1,0 +1,15 @@
+forward_plus_optin_circ2_max3_long maxdiff 0 mean 66.668
+forward_plus_optin_hex1_max3 maxdiff 0 mean 66.17
+forward_plus_phys_box3_near maxdiff 0 mean 66.057
+forward_plus_phys_circ2 maxdiff 0 mean 66.188
+forward_plus_phys_hex1 maxdiff 0 mean 66.163
+forward_plus_pract_circ2_phys maxdiff 0 mean 66.213
+forward_plus_pract_hex2 maxdiff 0 mean 66.299
+mobile_optin_circ2_max3_long maxdiff 0 mean 67.04
+mobile_optin_hex1_max3 maxdiff 0 mean 66.566
+mobile_phys_box3_near maxdiff 0 mean 66.476
+mobile_phys_circ2 maxdiff 0 mean 66.595
+mobile_phys_hex1 maxdiff 0 mean 66.57
+mobile_pract_circ2_phys maxdiff 0 mean 66.613
+mobile_pract_hex2 maxdiff 0 mean 66.698
+NONZERO 0
