@@ -1,6 +1,6 @@
 # 66-web-async-texture-readback: a texture readback that tells you when the pixels are real, on every platform
 
-State: ready-for-integration
+State: integrated (TASKS §4.82)
 Owner: worker-66
 Claimed: 2026-10-28 20:45
 Needs: build (editor + web template), browser (Playwright), native Vulkan run

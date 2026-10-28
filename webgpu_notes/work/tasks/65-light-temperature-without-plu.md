@@ -1,6 +1,6 @@
 # 65-light-temperature-without-plu: let Light3D.light_temperature colour a light without physical light units
 
-State: ready-for-integration
+State: integrated (TASKS §4.81)
 Owner: worker-64 (with task 64, on work/64)
 Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), native Vulkan run, browser (Playwright)

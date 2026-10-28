@@ -3339,6 +3339,29 @@ contains named bind 'Root'` on every load (harmless: no vertex is weighted to it
 bone 0). Import the FBX with `metahuman/bind_to_dna`, or let the DNA import bring the clothing (`include_clothing`).
 And an import-time skin fix never reaches a `Skin` already copied into a `.tscn` (a variant of trap 71): copy it again.
 
+100. **A templated port of float code is bit-identical only if every literal rounds the same** (2026-10-28, work task
+64): `T(0.860117757)` (decimal → double → float) can differ from `0.860117757f` by double rounding. Check each constant
+when porting. Also: GDScript cannot reach a static builtin method through `Color.call()` or `Expression`, and
+Compatibility's viewport `get_image()` is 8-bit sRGB even with `hdr_2d` (Forward+ and Mobile return RGBAH linear).
+
+101. **"Neutral under white balance T" means "like the 6500 K Planckian light", which is not neutral** (2026-10-28, work
+task 65): r/g 1.062, b/g 1.054 in linear sRGB, because the white balance's reference is the locus at 6500 K, not D65. A
+1% neutrality test of a white card fails by ~6% while the model works exactly; compare with the 6500 K light at the
+default instead.
+
+102. **On WebGPU, `fence_wait()` does not mean a download is readable** (2026-10-28, work task 66). It force-signals so a
+frame never deadlocks, and `buffer_map()` on a staging buffer whose `mapAsync` has not resolved returns the zero-filled
+shadow. Ask `buffer_get_readback_status()` first (RenderingDevice's async downloads do), and never record into a
+staging buffer whose map is pending (a validation error that drops the whole submit): waiting download batches take
+their blocks out of the ring. Tasks 62 and 66 each found this; the merge keeps 66's mechanism. Also: a 1 px wide
+SubViewport is 2 px wide, and the synchronous web `get_image()` alternates null / data / null as each read starts a
+fresh copy.
+
+103. **A luma histogram cannot be matched bit-exactly by a CPU recount** (2026-10-28, work task 62): pixels whose
+Y' x 255 sits within ~1e-3 of a .5 tie round differently in GPU float32 (FMA) and CPU double (7 of 230,400 in the test
+chart; R'/G'/B' exact). Compare luma within a few pixels, the channels exactly. (Task 62 also hit trap 102's staging
+reuse; its own guard was dropped at merge in favour of task 66's.)
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5402,6 +5425,66 @@ exactly; camera-sim's main scene with the renamed skin: `Skin bind` errors 1 →
 different from the original skin's. Not done: the animation-track rename on real data (the FBX's only animation has no
 tracks). Question `skeleton-bind-case`; camera-sim must still re-copy or rename the skin saved in `prefabs/ava.tscn`
 (steps in `results/67-metahuman-clothing-root-bind/for-tasks.md`). §3 trap 99.
+
+### 4.80 `Color.from_temperature()` and one colour-temperature helper (October 2026) *(work task 64; camera-sim spec)*
+
+`core/math/color_temperature.h` holds the one Krystek (1985) Planckian-locus fit; `Light3D` and the white-balance
+storage call it (`camera_metering.glsl` keeps its GPU copy, commented to point at it). New
+`Color.from_temperature(kelvin, normalization = TEMPERATURE_NORMALIZATION_LUMINANCE)` returns a linear colour
+(1000-15000 K): `LUMINANCE` (Rec. 709 Y = 1, channels may exceed 1) or `MAX_CHANNEL` (what `Light3D` uses with physical
+light units). Unit test in `tests/core/math/test_color.cpp`. Worker: Light3D's colour bit-identical to the pre-change
+editor at 1430 temperatures, renders byte-identical in all three renderers with and without physical light units;
+within 2.4e-6 of camera-sim's function. C# has no `FromTemperature` (C#'s `Color` is hand-written; question
+`c64-csharp`). Lead (merged tree with 65 and 66): dev_mode editor and web template_release 0 warnings; `*Color*` unit
+tests 25/25; existing lights byte-identical against the pre-merge editor (9/9 cases per renderer, both light-unit
+setups). Questions `c64-csharp`, `c64-enum-names`. §3 trap 100.
+
+### 4.81 `Light3D.light_temperature_enabled`: temperature without physical light units (October 2026) *(work task 65; camera-sim spec)*
+
+Per-light opt-in (default off): `light_temperature` tints the light with or without physical light units, normalised
+to constant Rec. 709 luminance (so a temperature change never changes brightness; not clamped, light colours are linear
+HDR), multiplied by `light_color`; the inspector, `get_correlated_color()`, the gizmo and LightmapGI follow it. With
+physical light units, the opt-in switches that light to constant luminance (question `c65-plu-interaction`). A light
+at T under white balance T matches the 6500 K light at the default within 0.1%, which is itself slightly magenta
+against D65 (§3 trap 101, question `c65-neutral-reference`). Worker: opt-in off byte-identical in all three renderers,
+both light-unit setups; luminance spread 2000-10000 K 0.015% Forward+, 0.042% Mobile, 0.037% Compatibility, 0.25% web.
+Lead (merged tree): opt-in off byte-identical (above); luminance spread 0.015% (Forward+); WB pairs within 0.05-0.08%
+of the 6500 K light. Questions `c65-*`; camera-sim hand-back in `results/65-light-temperature-without-plu/for-tasks.md`.
+
+### 4.82 Async texture readback that says when the pixels are real (October 2026) *(work task 66; camera-sim spec)*
+
+`Texture2D.get_image_async(callback)` and `RenderingServer.texture_2d_get_async(rid, callback)`: the callback runs once,
+deferred to the main thread, with the Image (or `null` if the texture is invalid, freed first, or the read fails); the
+copy is made after the frame's viewports draw, so it shows that frame, even from `_ready()`. `ViewportTexture`,
+`Texture2DRD`, `ImageTexture`, `DrawableTexture2D` and `PortableCompressedTexture2D` override it. `await` is documented
+through a signal. **WebGPU fix:** `texture_get_data_async` / `buffer_get_data_async` read the staging buffer when its
+frame came round again whether or not `mapAsync` had finished (§3 trap 102); a new `RDD::buffer_get_readback_status()`
+and an ordered queue of each frame's downloads in `RenderingDevice` hold them until mapped, with their blocks out of the
+reuse ring. Docs: the web's first synchronous read of a rendered texture is `null`. New tier
+`webgpu_tests/async_readback/` (native and web runners). Worker: 49/49 natively, in Chrome and in Firefox (debug and
+release templates); a 1280x720 readback every frame costs 1.10 → 1.34 ms/frame CPU, no stall; synchronous reads
+byte-identical natively. Lead (merged tree with 64/65): 49/49 natively, in Chrome and in Firefox (release). Note:
+`RenderingDevice::_stall_for_frame()` was restructured, so the next upstream sync conflicts there. Questions
+`async-readback-*`; camera-sim hand-back in `results/66-web-async-texture-readback/for-tasks.md`.
+
+### 4.83 Camera3D monitoring histogram readable from scripts (October 2026) *(work task 62; camera-sim spec)*
+
+`Camera3D.monitoring_histogram_draw` (default true; off = counted for scripts only, no overlay),
+`monitoring_histogram_update_interval` (default 0.0 = every frame), `get_monitoring_histogram(channel)` (256 counts of
+Y', R', G' or B' of the display-encoded image after tonemapping, noise reduction and sharpening, before the monitoring
+overlays; total = render width x height; empty until the first readback, and always in Compatibility) and the signal
+`monitoring_histogram_updated`; RS `camera_set_monitoring_histogram_readback()` and two getters that do not wait for
+the render thread. One histogram buffer and readback per viewport (a second camera no longer overwrites the first).
+The readback runs only once a script reads it or connects the signal (question `histogram-readback-demand`: on
+demand), ignores Visible in Output, and is asynchronous (`buffer_get_data_async`, task 66's staging handling, §3 trap
+102). Worker: R'/G'/B' equal a CPU count of the same frame natively and on the web, Y' within 7 of 230,400 (§3 trap
+103); overlays don't change the counts; drawing off is 0 px against histogram-off; two cameras read their own scenes;
+3.99-4.00 signals/s at 0.25 s; web first frames empty then data, 0 console errors; native frame time within noise;
+WebGPU 0.88-1.01 ms/frame with a readback every frame against 1.12 off. Lead (merged tree with 66; work/62's own
+staging guard dropped): dev_mode editor, web debug and release 0 warnings; the worker's native (3 renderers) and Chrome
+suites reproduce (identical counts; only timing fields and a few overlay-image pixels differ), 0 console errors on the
+web; defaults, a drawn histogram and noise reduction 0 px against the pre-merge editor in all three renderers; task 66's
+tier 49/49 natively and in Chrome. Not done: the inspector by hand. The clean pre-overlay frame is work task 72.
 
 ## 5. References — retired docs
 

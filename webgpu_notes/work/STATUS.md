@@ -35,13 +35,20 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 59 | converter smoke check moved out of the work board into webgpu_tests (TASKS §2.38) | 7 | worker-59 (retired); **merged `0cdd26d3a9`**, verified, TASKS §4.75, CI half §2.54 |
 | 60 | user answers on 58: Texture2DRD over R8/RG8 reported as R8/RG8 on the web; opaque viewports write alpha 1 on the web | 7 | worker-60 (retired); **merged `e4f960a646`**, verified, TASKS §4.76 |
 | 61 | start screen download text: each message switchable and editable, text colour (user request) | 7 | worker-61 (retired); **merged `2111490a44`**, verified, TASKS §4.77, trap 96 |
-| 62 | Camera3D monitoring histogram: script readback, count without drawing, one per camera (camera-sim) | 8 | worker-62 |
+| 62 | Camera3D monitoring histogram: script readback, count without drawing, one per camera (camera-sim) | 8 | worker-62 (retired); **merged `1ff3d995b5`**, verified, TASKS §4.83, trap 103 |
 | 63 | CameraAttributesPhysical: opt-in physical DOF blur size (sensor + resolution aware), 32 px cap (camera-sim) | 8 | worker-63 (retired); **merged `a14321cac4`**, verified, TASKS §4.78, traps 97-98 |
-| 64 | Color.from_temperature() and one shared colour-temperature helper (camera-sim) | 8 | worker-64 |
-| 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 |
-| 66 | async texture readback that says when pixels are real, natively and on the web (camera-sim) | 8 | worker-66 |
+| 64 | Color.from_temperature() and one shared colour-temperature helper (camera-sim) | 8 | worker-64 (retired); **merged `d1130d53d1`**, verified, TASKS §4.80, trap 100 |
+| 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 (retired); **merged `d1130d53d1`**, verified, TASKS §4.81, trap 101 |
+| 66 | async texture readback that says when pixels are real, natively and on the web (camera-sim) | 8 | worker-66 (retired); **merged `467336d399`**, verified, TASKS §4.82, trap 102 |
 | 67 | MetaHuman clothing: "Root" bind vs the "root" bone, case-insensitive match, report real missing bones (camera-sim) | 8 | worker-67 (retired); **merged `1f942ca9f2`**, verified, TASKS §4.79, trap 99 |
-| 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 paused (no gpu lease); code findings + bench on work/68 (0b983227da); resume with a fresh worker once the gpu frees up |
+| 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 (second session, resumed from 0b983227da) |
+| 69 | user answers on 61: download line at full opacity, font family and size options | 9 | worker-69 |
+| 70 | user answers on 63: physical DOF max blur default 6%, legacy (diluted) gather option | 9 | worker-70 |
+| 71 | user answers on 66: built-in awaitable readback, debug-only web warning on a null get_image() | 9 | worker-71 |
+| 72 | user answer on 62: frame without the monitoring overlays, only while requested (camera-sim Download Image) | 9 | worker-72 |
+| 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 |
+| 74 | dynamic resolution phase 2: scale changes keep FSR 2, TAA (resampled) and auto exposure (every change, user Q1) | 9 | worker-74 |
+| 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | — |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 

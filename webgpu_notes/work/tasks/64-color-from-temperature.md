@@ -1,6 +1,6 @@
 # 64-color-from-temperature: expose the engine's colour-temperature formula to scripts
 
-State: ready-for-integration
+State: integrated (TASKS §4.80)
 Owner: worker-64
 Claimed: 2026-10-28 20:20
 Needs: build (editor), doctool
