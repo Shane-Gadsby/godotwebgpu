@@ -504,6 +504,21 @@ An interactive Web export from a windowed editor whose 3D viewport runs FSR 2 + 
 type" / "Uniforms were never supplied" in the editor's own log, on an FSR 2 pass baked in the editor's flavor, or as
 inconclusive when the editor drew no frame during the bake. ~1 min. TASKS.md §4.43, §3 trap 73.
 
+### 15. Async readback (needs the editor; the web half needs the nothreads web templates)
+
+```bash
+webgpu_tests/async_readback/run_native.sh                     # natively (Vulkan, Xvfb)
+webgpu_tests/async_readback/export.sh debug|release           # then, in webgpu_tests/async_readback:
+node run_web.mjs --browser chrome|firefox
+```
+
+74 checks of every synchronous, asynchronous and awaitable readback (`Texture2D.get_image*`,
+`RenderingServer.texture_2d_get*`, `RenderingDevice.texture_get_data*` / `buffer_get_data*`, `Mesh.surface_get_arrays()`):
+the data is right natively and on the web, a first synchronous read on the web is empty and a later one returns the
+data. `run_web.mjs` also counts the debug-only warnings (exactly once per synchronously read texture, buffer and for
+mesh arrays in a debug export, never in release) and fails on any WebGPU validation message or unprovoked console
+error; `run_native.sh` fails on any such warning natively. TASKS.md §4.82, §4.84, §4.88, §4.92, §4.96.
+
 ## CI Pipeline
 
 Defined in `.github/workflows/webgpu_tests.yml`. Runs on push/PR to `webgpu-4.7.2` when `drivers/webgpu/`, `servers/rendering/`, or `webgpu_tests/` are modified.

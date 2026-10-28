@@ -2680,6 +2680,15 @@ the shader-corpus / precompile steps; grep `.github/` for `tint`), (2) a cold ca
 (expected; only a second cold run is a problem), and (3) the `dev_mode=yes` web build of the SPIRV-Cross wrapper (the
 one part built with `-fwasm-exceptions`). Effort: one CI run's watching, ~15 min.
 
+### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `OPEN` *(found by work task 81)*
+
+Pre-existing (before task 81 too). `MeshStorage::_multimesh_make_local()` builds the CPU cache by reading the GPU buffer
+back; on the web that synchronous read has nothing yet (zeros before §4.96, empty now, and the cache starts as zeros
+either way), so `multimesh_set_buffer()` followed by `multimesh_instance_set_transform()` (or any per-instance setter)
+uploads zeros for every instance but the edited one with the next dirty region. Fix candidate: on the web, keep a CPU
+copy in `_multimesh_set_buffer()` (make the cache local from `p_buffer` directly) so no readback is ever needed; test
+with a scene that sets a buffer and then moves one instance, natively and in Chrome. Effort: ~2 h with the test.
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
@@ -3403,6 +3412,12 @@ mode needs the real display. On the web, a mouse click on the canvas did not rea
 `window_set_mode(FULLSCREEN)` needs a gesture inside an input callback; `page.evaluate(() =>
 document.querySelector('canvas').requestFullscreen())` works (Chromium counts it as a gesture), and the canvas must be
 the fullscreen element, because Godot's `fullscreenchange` listener checks `evt.target === canvas`.
+
+110. **On the web a synchronous GPU buffer read is empty until its readback arrives** (2026-10-29, work task 81; before
+that, zeros of the right size, trap 107). Any `buffer.ptr() + offset` or `memcpy(..., size_from_elsewhere)` on the
+result is an out-of-bounds read: check `size()` (or pass `r_not_ready`) and treat empty as "no data yet".
+`MeshStorage::mesh_get_surface()` must stay all-or-nothing, because its consumers index every array by the surface's
+vertex and index counts.
 
 ---
 
@@ -5720,6 +5735,25 @@ loads in one profile: windowed 0.70 and fullscreen 0.60 saved and restored separ
 when the canvas went fullscreen, 0 console errors. Not run: Firefox, `timestamp-query` withheld, the real-display
 native remember runs (the worker ran them: windowed 0.70 / fullscreen 0.60, a switch loads 0.60, an old `/root=0.65`
 moved to windowed only). §3 trap 109.
+
+### 4.96 Web: a first synchronous buffer_get_data() returns an empty array, not zeros (October 2026) *(work task 81; user answer `web-buffer-get-data-empty`)*
+
+`RenderingDevice::buffer_get_data()` on the web returns an empty array (and sets `r_not_ready`) while WebGPU's
+asynchronous map is pending, like `texture_get_data()`, instead of falling through to the generic staging copy, which
+stalled every frame in flight (`_flush_and_stall_for_all_frames()`) and then mapped a buffer that cannot be mapped
+synchronously, returning zeros. Native keeps the staging path untouched (`#else`); task 77's debug warning now says
+"an empty array". Every engine caller was audited (table in `results/81-web-buffer-get-data-empty/SUMMARY.md`):
+`MeshStorage::mesh_get_surface()` is all-or-nothing (any array not ready → all empty; its vertex-padding trim no longer
+resizes an empty array to -4); `mesh_surface_get_arrays()` returns an empty array quietly on the web with a debug
+`WARN_PRINT_ONCE`; the soft body handler starts from zeros of the right size (an empty buffer would have been written
+out of bounds); the three MultiMesh readbacks (AABB rebuild, make-local cache, `multimesh_get_buffer`) check the size
+(two were out-of-bounds reads); `particles_get_current_aabb()` returns an empty AABB quietly. Scripts on the web now
+get empty (was zeros) on a first `surface_get_arrays()` of an ArrayMesh/ImmediateMesh, `MultiMesh.buffer` and
+`capture_aabb()`. Merged `0a4cb88acd`; lead on the merged tree: editor (dev_mode), web template_debug and
+template_release 0 warnings; `async_readback` 74/74 natively and in Chrome and Firefox with debug and release
+templates; debug exactly 2 get_image + 4 RD + 1 mesh-arrays warnings, release and native none. Not covered by a test
+on the web: the soft body and MultiMesh guards (read by the worker). Found on the way: §2.55 (MultiMesh per-instance
+edit after `multimesh_set_buffer()` loses the other instances on the web, pre-existing). §3 trap 110.
 
 ## 5. References — retired docs
 

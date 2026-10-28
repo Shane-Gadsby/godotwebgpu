@@ -1,6 +1,6 @@
 # 81-web-buffer-get-data-empty
 
-State: ready-for-integration
+State: done (merged `0a4cb88acd`, verified on the merged tree, TASKS §4.96)
 Owner: worker-81
 Claimed: 2026-10-29
 Needs: build, browser
