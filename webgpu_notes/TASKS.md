@@ -427,6 +427,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
 | 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
+| 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | OPEN | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
 | 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | OPEN | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
@@ -529,6 +530,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
 | 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
 | 2.50 | Build scripts: no-threads non-dlink web templates first | `OPEN` | <0.5 session |
+| 2.51 | Web export: Start button + preload before run, customizable button | `OPEN` | ~0.5-1 session |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2640,6 +2642,25 @@ editor, then the native templates, then the 8-variant web matrix with `dlink` an
   `build-windows.ps1`: add the non-dlink no-threads pair (they lack it) and put it first.
 
 Effort <0.5 session (scripts only; one full `build-linux.sh` run to confirm the order and the early install).
+
+### 2.51 Web export: a Start button and "preload before run" `OPEN` *(user request, 2026-10-28)*
+
+The user expected these in the Web export options and they were never added (checked: no trace in the export plugin,
+the default shells, TASKS or the wiki). Next to the loading screen options (§4.56):
+
+- **Preload before run** (`loading_screen/preload_before_run` or similar, default off): the page downloads everything
+  the game needs (wasm, pck, the shader packs `<name>.shaders.pck` / `.shaders_extra.bin`, the texture pack the device
+  samples, §2.18/§2.27) and does as much start-up as the engine allows before the user starts it, so starting is instant.
+- **Start button** (default off, or on whenever preload is on; decide and document): a button on the loading screen that
+  starts the game (and gives the page the user gesture audio/fullscreen need). Options: text, and its look: background
+  color, border color, border width, border radius, font family, font size, font color, padding; `cursor: pointer` by
+  default; slightly darker on hover and slightly darker again while pressed (derived from the background color, with
+  overrides). Shown only while enabled (`get_export_option_visibility()`), passed to custom shells through a placeholder
+  like `$GODOT_PROGRESS_BAR` (§4.56), applied in both default shells.
+- Defaults leave existing exports unchanged; accessibility (keyboard focus ring, Enter/Space, aria label); Chrome and
+  Firefox checked with the launch rule (§3 trap 79); wiki Web Export Options updated.
+
+Effort ~0.5-1 session.
 ---
 
 ## 3. Traps and lessons — read before debugging
