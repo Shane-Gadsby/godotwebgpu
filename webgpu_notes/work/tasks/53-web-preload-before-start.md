@@ -1,7 +1,7 @@
 # 53-web-preload-before-start: download the game while the start screen waits
 
 State: open
-Owner:
+Owner: worker-53
 Claimed:
 Needs: build (web template + editor), browser (Playwright), **after 51-web-start-button**
 Branch: work/53

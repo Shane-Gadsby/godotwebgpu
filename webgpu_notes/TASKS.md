@@ -5005,6 +5005,20 @@ folder on the user's machine; the ready line warns when they differ. Verified: o
 template step after the pair, the dlink variants, macOS/Windows end to end (the next full run confirms it: "Ready to
 export" about 2-3 minutes in).
 
+### 4.61 Web Start button screen (October 2026) *(work task 51; §2.51, camera-sim spec + user styling)*
+
+`html/start_button/enabled` (off) and, shown only while ticked: `text`, `background_color` (#3a3a3a), `text_color`,
+`border_color`, `border_width`, `border_radius`, `font_family`, `font_size`, `padding`, and `custom_state_colors` with
+`hover_color` / `pressed_color` (otherwise 15% / 30% darker). Passed in `$GODOT_CONFIG` as `startButton` (documented in
+`config.js`; the config JSON now escapes `<`). Both default shells get a `'start'` mode; the old startup branch is
+`startEngine()`, run on press; the missing-features check stays at page load; the button is never focused by script;
+`cursor: pointer`, focus ring, Enter/Space. Nothing of the engine runs before the press. Worker: default export differs only
+by the config key and shell code, game pixel-identical in Chrome and Firefox; `start_test.mjs` (cross-origin iframe) 15/16:
+before the press `engine.rtenv` unset, no canvas width, only index.html / index.js / splash requested, no parent scroll; up
+in 5-10 s after; styles, focus, keys OK; the one miss is Firefox not showing `:active` while Space is held. Lead (merged
+tree): dev_mode editor and web template clean, smoke OK, launches audited. Not done: a windowed-editor check of the
+dialog; Safari. Questions `start-button-*` on the hand-offs page. Preload is task 53.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

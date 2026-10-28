@@ -1,6 +1,6 @@
 # 51-web-start-button: a "click to start" screen in the default web shell, with export options
 
-State: ready-for-integration
+State: integrated (lead: merged; builds and smoke OK; launches audited)
 Owner: worker-51
 Claimed: 2026-10-28 12:50
 Needs: build (web template + editor), browser (Playwright)
