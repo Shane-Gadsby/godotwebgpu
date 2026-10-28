@@ -164,6 +164,10 @@ private:
 		float ssil_sharpness = 0.98;
 		float ssil_normal_rejection = 1.0;
 
+		// Micro shadows (scene shaders' directional light term).
+		bool micro_shadows_enabled = false;
+		float micro_shadows_opacity = 1.0;
+
 		// SDFGI
 		bool sdfgi_enabled = false;
 		int sdfgi_cascades = 4;
@@ -320,6 +324,11 @@ public:
 	float environment_get_ssil_intensity(RID p_env) const;
 	float environment_get_ssil_sharpness(RID p_env) const;
 	float environment_get_ssil_normal_rejection(RID p_env) const;
+
+	// Micro shadows
+	void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity);
+	bool environment_get_micro_shadows_enabled(RID p_env) const;
+	float environment_get_micro_shadows_opacity(RID p_env) const;
 
 	// SDFGI
 	void environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RSE::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias);

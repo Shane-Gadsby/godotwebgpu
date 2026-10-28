@@ -469,6 +469,30 @@ void Environment::_update_ssil() {
 			ssil_normal_rejection);
 }
 
+// Micro shadows
+
+void Environment::set_micro_shadows_enabled(bool p_enabled) {
+	micro_shadows_enabled = p_enabled;
+	_update_micro_shadows();
+}
+
+bool Environment::is_micro_shadows_enabled() const {
+	return micro_shadows_enabled;
+}
+
+void Environment::set_micro_shadows_opacity(float p_opacity) {
+	micro_shadows_opacity = CLAMP(p_opacity, 0.0f, 1.0f);
+	_update_micro_shadows();
+}
+
+float Environment::get_micro_shadows_opacity() const {
+	return micro_shadows_opacity;
+}
+
+void Environment::_update_micro_shadows() {
+	RS::get_singleton()->environment_set_micro_shadows(environment, micro_shadows_enabled, micro_shadows_opacity);
+}
+
 // SDFGI
 
 void Environment::set_sdfgi_enabled(bool p_enabled) {
@@ -1498,6 +1522,17 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ssil_sharpness", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ssil_sharpness", "get_ssil_sharpness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ssil_normal_rejection", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ssil_normal_rejection", "get_ssil_normal_rejection");
 
+	// Micro shadows
+
+	ClassDB::bind_method(D_METHOD("set_micro_shadows_enabled", "enabled"), &Environment::set_micro_shadows_enabled);
+	ClassDB::bind_method(D_METHOD("is_micro_shadows_enabled"), &Environment::is_micro_shadows_enabled);
+	ClassDB::bind_method(D_METHOD("set_micro_shadows_opacity", "opacity"), &Environment::set_micro_shadows_opacity);
+	ClassDB::bind_method(D_METHOD("get_micro_shadows_opacity"), &Environment::get_micro_shadows_opacity);
+
+	ADD_GROUP("Micro Shadows", "micro_shadows_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "micro_shadows_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_micro_shadows_enabled", "is_micro_shadows_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "micro_shadows_opacity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_micro_shadows_opacity", "get_micro_shadows_opacity");
+
 	// SDFGI
 
 	ClassDB::bind_method(D_METHOD("set_sdfgi_enabled", "enabled"), &Environment::set_sdfgi_enabled);
@@ -1804,6 +1839,7 @@ Environment::Environment() {
 	_update_ssr();
 	_update_ssao();
 	_update_ssil();
+	_update_micro_shadows();
 	_update_sdfgi();
 	_update_glow();
 	_update_fog();

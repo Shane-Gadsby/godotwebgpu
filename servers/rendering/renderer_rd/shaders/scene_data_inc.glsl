@@ -62,7 +62,8 @@ struct SceneData {
 	vec4 ambient_light_color_energy;
 
 	vec3 reflection_color;
-	uint pad;
+	// Micro shadows (Environment.micro_shadows_*): opacity, 0 when off. Was padding, so the layout is unchanged.
+	float micro_shadow_opacity;
 
 	float ambient_color_sky_mix;
 	float fog_density;

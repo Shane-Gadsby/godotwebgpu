@@ -61,6 +61,8 @@ const FEATURES := [
 	# ones: grain, zebras and motion-dependent effects change from frame to frame.
 	"lens_optics", "bokeh_shape", "longitudinal_ca", "tilt_shift", "starburst", "halation",
 	"lens_flare", "veiling_glare_diffusion", "camera_lut", "in_camera_processing",
+	# Environment micro shadows (directional light shadowed by the material's AO and normal maps, scene shaders).
+	"micro_shadows",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -152,6 +154,7 @@ var tex_normal: ImageTexture
 var tex_gradient: ImageTexture
 var tex_lut: ImageTexture
 var tex_bent: ImageTexture
+var tex_ao: ImageTexture
 
 var probe_mi: MeshInstance3D           # wears mat_probe unless a test swaps in a ShaderMaterial
 var mat_depth: ShaderMaterial
@@ -308,6 +311,14 @@ func _build_textures() -> void:
 			var ny := cos(float(y) * 0.6) * 0.5
 			nimg.set_pixel(x, y, Color(nx * 0.5 + 0.5, ny * 0.5 + 0.5, 1.0))
 	tex_normal = ImageTexture.create_from_image(nimg)
+
+	# Ambient occlusion matching the bumps: dark in the troughs of the normal map's waves, for micro_shadows.
+	var aoimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var a := 0.2 + 0.8 * (0.5 + 0.25 * (cos(float(x) * 0.6) + sin(float(y) * 0.6)))
+			aoimg.set_pixel(x, y, Color(a, a, a))
+	tex_ao = ImageTexture.create_from_image(aoimg)
 
 	# Radial gradient, used as a light projector, a decal albedo and a glow map.
 	var gimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
@@ -1650,6 +1661,16 @@ func _apply(id: String, on: bool) -> bool:
 			cam_attrs.noise_reduction_enabled = on
 			cam_attrs.sharpening_enabled = on
 			cam_attrs.sharpening_amount = 2.0
+		"micro_shadows":
+			# Normal and AO maps in both frames: the delta is the micro shadowing alone.
+			mat_probe.normal_enabled = true
+			mat_probe.normal_texture = tex_normal
+			mat_probe.normal_scale = 4.0
+			mat_probe.ao_enabled = true
+			mat_probe.ao_texture = tex_ao
+			mat_probe.uv1_scale = Vector3(3, 3, 3)
+			env.micro_shadows_enabled = on
+			env.micro_shadows_opacity = 1.0
 		_:
 			return false
 	return true

@@ -882,6 +882,7 @@ public:
 	FUNC6(environment_set_ssao_quality, RSE::EnvironmentSSAOQuality, bool, float, int, float, float)
 
 	FUNC6(environment_set_ssil, RID, bool, float, float, float, float)
+	FUNC3(environment_set_micro_shadows, RID, bool, float)
 	FUNC6(environment_set_ssil_quality, RSE::EnvironmentSSILQuality, bool, float, int, float, float)
 
 	FUNC13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, RSE::EnvironmentGlowBlendMode, float, float, float, float, RID)

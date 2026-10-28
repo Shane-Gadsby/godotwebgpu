@@ -298,6 +298,7 @@ public:
 	// SSIL
 
 	virtual void environment_set_ssil(RID p_env, bool p_enable, float p_radius, float p_intensity, float p_sharpness, float p_normal_rejection) = 0;
+	virtual void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) = 0;
 
 	virtual bool environment_get_ssil_enabled(RID p_env) const = 0;
 	virtual float environment_get_ssil_radius(RID p_env) const = 0;

@@ -1,8 +1,8 @@
 # 49-pp-micro-shadows
 
-State: open
+State: ready-for-integration
 Owner: worker-49
-Claimed:
+Claimed: 2026-10-28 12:05
 Needs: build, gpu
 Branch: work/49
 Results: webgpu_notes/work/results/49-pp-micro-shadows/
