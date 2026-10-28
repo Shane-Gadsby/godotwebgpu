@@ -222,6 +222,8 @@ export const FEATURES = [
   { id: 'veiling_glare_diffusion', cat: 'camera', label: 'Veiling glare and diffusion filter (Environment)', minDelta: 2.06 },
   { id: 'camera_lut', cat: 'camera', label: 'Camera 3D LUT (CameraAttributes)', minDelta: 3.62 },
   { id: 'in_camera_processing', cat: 'camera', label: 'In-camera noise reduction and sharpening (CameraAttributes)', minDelta: 0.175 },
+  // GTAO (engine addition): the ssao arm's settings with rendering/environment/ssao/method = GTAO.
+  { id: 'gtao', cat: 'environment', label: 'GTAO ambient occlusion (ssao method GTAO)', minDelta: 1.39 },
 ];
 
 /**

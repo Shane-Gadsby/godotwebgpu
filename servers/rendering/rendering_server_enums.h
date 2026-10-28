@@ -706,6 +706,14 @@ enum EnvironmentSSAOQuality {
 	ENV_SSAO_QUALITY_ULTRA,
 };
 
+/* GTAO */
+
+// Which algorithm writes the ambient occlusion texture (project setting rendering/environment/ssao/method).
+enum EnvironmentSSAOMethod {
+	ENV_SSAO_METHOD_ASSAO,
+	ENV_SSAO_METHOD_GTAO,
+};
+
 enum EnvironmentSSILQuality {
 	ENV_SSIL_QUALITY_VERY_LOW,
 	ENV_SSIL_QUALITY_LOW,
