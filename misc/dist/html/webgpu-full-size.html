@@ -76,6 +76,51 @@ body {
 	margin: 0 auto;
 }
 
+/* The export preset's progress bar colors (loading_screen/progress_bar/*), set
+   as custom properties by the script below because inline styles cannot reach
+   the pseudo-elements that draw a <progress>. Only added when a color differs
+   from its default; otherwise the bar keeps the browser's native look. */
+#status-progress.custom-colors {
+	-webkit-appearance: none;
+	appearance: none;
+	box-sizing: border-box;
+	height: 1rem;
+	border: 1px solid var(--progress-border-color);
+	border-radius: 0.5rem;
+	background-color: var(--progress-background-color);
+	overflow: hidden;
+}
+
+#status-progress.custom-colors::-webkit-progress-bar {
+	background-color: transparent;
+}
+
+#status-progress.custom-colors::-webkit-progress-value {
+	background-color: var(--progress-fill-color);
+}
+
+#status-progress.custom-colors::-moz-progress-bar {
+	background-color: var(--progress-fill-color);
+}
+
+/* No value yet (download size unknown): a block of the fill color sweeps
+   across, as the native indeterminate bar does. */
+#status-progress.custom-colors:indeterminate {
+	background-image: linear-gradient(var(--progress-fill-color), var(--progress-fill-color));
+	background-repeat: no-repeat;
+	background-size: 30% 100%;
+	animation: status-progress-indeterminate 1.5s linear infinite;
+}
+
+#status-progress.custom-colors:indeterminate::-moz-progress-bar {
+	background-color: transparent;
+}
+
+@keyframes status-progress-indeterminate {
+	from { background-position: -50% 0; }
+	to { background-position: 150% 0; }
+}
+
 #status-notice {
 	background-color: #5b3943;
 	border-radius: 0.5rem;
@@ -111,6 +156,9 @@ body {
 		<script>
 const GODOT_CONFIG = $GODOT_CONFIG;
 const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+// The preset's progress bar options (loading_screen/progress_bar/*): { enabled,
+// customColors, borderColor, backgroundColor, fillColor }, colors as CSS hex.
+const GODOT_PROGRESS_BAR = $GODOT_PROGRESS_BAR;
 
 /**
  * Pre-initialize the WebGPU device before the Godot WASM module starts.
@@ -203,6 +251,15 @@ async function initWebGPU() {
 	const statusProgress = document.getElementById('status-progress');
 	const statusNotice = document.getElementById('status-notice');
 
+	const progressBar = (typeof GODOT_PROGRESS_BAR === 'object' && GODOT_PROGRESS_BAR) || {};
+	const progressBarEnabled = progressBar['enabled'] !== false;
+	if (progressBar['customColors']) {
+		statusProgress.style.setProperty('--progress-border-color', progressBar['borderColor']);
+		statusProgress.style.setProperty('--progress-background-color', progressBar['backgroundColor']);
+		statusProgress.style.setProperty('--progress-fill-color', progressBar['fillColor']);
+		statusProgress.classList.add('custom-colors');
+	}
+
 	let initializing = true;
 	let statusMode = '';
 
@@ -216,7 +273,7 @@ async function initWebGPU() {
 			return;
 		}
 		statusOverlay.style.visibility = 'visible';
-		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+		statusProgress.style.display = (mode === 'progress' && progressBarEnabled) ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
 		statusMode = mode;
 	}
