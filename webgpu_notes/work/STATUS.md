@@ -49,7 +49,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 |
 | 74 | dynamic resolution phase 2: scale changes keep FSR 2, TAA (resampled) and auto exposure (every change, user Q1) | 9 | worker-74 (retired); **merged `99b7b5874d`**, verified, TASKS §4.86 |
 | 76 | WebGPU async readback every frame (pending-map validation errors, stalls) and 11x-dark float readback (found by 74) | 10 | worker-76 |
-| 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | — |
+| 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | worker-75 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
