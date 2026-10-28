@@ -93,16 +93,22 @@
 			If [code]true[/code], the files the game needs (the engine, the main pack, and the shader and texture packs this browser loads) download in the background while the start screen waits, so after the press only the engine's own startup is left. The engine itself still runs only on the press: its WebAssembly is not compiled and no GPU device is created before it. A press before the download finishes carries on with it, and nothing is downloaded twice. In the browser's Save-Data mode the download waits for the press, as without this option. This runs in the game's own page because browsers keep a separate HTTP cache for each site that embeds a page: a parent page fetching the same files would not speed up a cross-origin iframe of the game. A custom HTML shell receives this as [code]startButton.preload[/code] in [code]$GODOT_CONFIG[/code] and starts the download with [code]Engine.prototype.prefetch()[/code]. Only used while [member html/start_button/enabled] is [code]true[/code].
 		</member>
 		<member name="html/start_button/preload_progress" type="bool" setter="" getter="">
-			If [code]true[/code], the start screen shows the background download's progress under the button ("Downloading 48%", then "Ready"). Its messages and color are set with [code]html/start_button/preload_text/*[/code]. Only used while [member html/start_button/preload] is [code]true[/code].
+			If [code]true[/code], the start screen shows the background download's progress under the button ("Downloading 48%", then "Ready"). Its messages, color, font and size are set with [code]html/start_button/preload_text/*[/code]. Only used while [member html/start_button/preload] is [code]true[/code].
 		</member>
 		<member name="html/start_button/preload_text/color" type="Color" setter="" getter="">
-			The color of the download progress line under the Start button. The line keeps the default shell's font, size, 85% opacity and shadow. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+			The color of the download progress line under the Start button, drawn at full opacity, so the line shows exactly this color. The default, [code]#c4c4c4[/code], gives the line the look it had before this option existed (a lighter color at 85% opacity over the default boot splash background). The line keeps the default shell's text shadow. Only used while [member html/start_button/preload_progress] is [code]true[/code].
 		</member>
 		<member name="html/start_button/preload_text/downloading" type="bool" setter="" getter="">
 			If [code]true[/code], the progress line shows [member html/start_button/preload_text/downloading_text] while the download's total size is not known yet. If [code]false[/code], the line stays empty until the first percentage. Only used while [member html/start_button/preload_progress] is [code]true[/code].
 		</member>
 		<member name="html/start_button/preload_text/downloading_text" type="String" setter="" getter="">
 			The message shown before the download's total size is known. Only used while [member html/start_button/preload_text/downloading] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/font_family" type="String" setter="" getter="">
+			The CSS [code]font-family[/code] list of the download progress line under the Start button, for example [code]'Courier New', monospace[/code]. A font the browser does not have falls back to the next one in the list. The default is the default shell's own font. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/font_size" type="float" setter="" getter="">
+			The font size of the download progress line under the Start button, in CSS pixels. The default, [code]14.4[/code], is the size the line had before this option existed. The line's height follows the size. Only used while [member html/start_button/preload_progress] is [code]true[/code].
 		</member>
 		<member name="html/start_button/preload_text/progress" type="bool" setter="" getter="">
 			If [code]true[/code], the progress line shows [member html/start_button/preload_text/progress_text] while the files download. If [code]false[/code], the line stays empty during the download. Only used while [member html/start_button/preload_progress] is [code]true[/code].
