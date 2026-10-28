@@ -1,6 +1,6 @@
 # 67-metahuman-clothing-root-bind: "Skin bind #0 contains named bind 'Root'" on every load of a MetaHuman with clothing
 
-State: claimed
+State: ready-for-integration
 Owner: worker-67
 Claimed: 2026-10-28 22:10
 Needs: build (editor + web template), native run; investigation first
