@@ -467,6 +467,10 @@ private:
 	real_t frustum_fov = 75.0;
 	void _update_frustum();
 
+	// Physical depth of field blur size: the thin-lens blur circle, sized against the frame (and so the sensor and the
+	// render resolution) instead of upstream's fixed scale. Off by default: off matches upstream Godot.
+	bool dof_physical_blur_size = false;
+
 	virtual void _update_auto_exposure() override;
 
 protected:
@@ -494,6 +498,9 @@ public:
 
 	void set_far(real_t p_far);
 	real_t get_far() const;
+
+	void set_dof_physical_blur_size(bool p_enable);
+	bool is_dof_physical_blur_size() const;
 
 	real_t get_fov() const;
 	// True when get_fov() is the horizontal field of view (an anamorphic lens), false when it is the vertical one.

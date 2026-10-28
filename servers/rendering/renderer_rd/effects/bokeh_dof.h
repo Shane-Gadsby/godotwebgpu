@@ -89,10 +89,14 @@ private:
 		BOKEH_SHAPE_CATS_EYE = 1 << 9,
 		BOKEH_SHAPE_TILT = 1 << 10,
 		BOKEH_LONGITUDINAL_CA = 1 << 11,
+		BOKEH_PHYSICAL_SIZE = 1 << 12, // CameraAttributesPhysical.dof_physical_blur_size (bokeh_physical_size_resolve()).
 	};
 
 	// Sets the longitudinal chromatic aberration's flag and red/blue blur offsets from the camera attributes.
 	void _setup_longitudinal_ca(RID p_camera_attributes);
+	// CameraAttributesPhysical.dof_physical_blur_size: the lens's blur radius in pixels of p_size, and how far the gather
+	// reaches. Leaves both alone and returns false when the camera does not size its blur physically.
+	static bool _physical_blur_size(RID p_camera_attributes, const Size2i &p_size, float &r_blur_size, float &r_reach);
 
 	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom
 	// shape, which only the circular gather can draw.

@@ -105,6 +105,10 @@ vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 	float total = 1.0;
 
 	float blur_scale = bokeh_gather_reach(params.blur_size) / float(params.blur_steps);
+	bool physical_size = (params.shape_flags & BOKEH_PHYSICAL_SIZE) != 0u;
+	float limit_scale = bokeh_physical_size_limit_scale();
+	vec4 dev = vec4(0.0);
+	float largest_blur = abs(color.a) * limit_scale;
 
 	if (params.use_jitter) {
 		uv += dir * (hash12n(uv + params.jitter_seed) - 0.5);
@@ -128,23 +132,36 @@ vec4 weighted_filter_dir(vec2 dir, vec2 uv, vec2 pixel_size) {
 		}
 
 		limit -= DEPTH_GAP;
+		limit *= limit_scale;
 
 		float m = smoothstep(radius - 0.5, radius + 0.5, limit);
+		if (m > 0.0) {
+			largest_blur = max(largest_blur, limit);
+		}
 
 		if ((params.shape_flags & BOKEH_LONGITUDINAL_CA) != 0u) {
 			// Red and blue have their own circles of confusion (longitudinal chromatic aberration).
 			float sample_rb = bokeh_blur_red_blue(sample_color.a);
 			float color_rb = bokeh_blur_red_blue(color.a);
-			float limit_rb = abs(sample_rb < color_rb ? sample_rb : color_rb) - DEPTH_GAP;
+			float limit_rb = (abs(sample_rb < color_rb ? sample_rb : color_rb) - DEPTH_GAP) * limit_scale;
 			float m_rb = smoothstep(radius - 0.5, radius + 0.5, limit_rb);
-			accum += mix(color, sample_color, vec4(m_rb, m, m_rb, m));
+			if (m_rb > 0.0) {
+				largest_blur = max(largest_blur, limit_rb);
+			}
+			vec4 mv = vec4(m_rb, m, m_rb, m);
+			accum += mix(color, sample_color, mv);
+			dev += mv * (sample_color - color);
 		} else {
 			accum += mix(color, sample_color, m);
+			dev += m * (sample_color - color);
 		}
 
 		total += 1.0;
 	}
 
+	if (physical_size) {
+		return bokeh_physical_size_resolve(color, dev, largest_blur, blur_scale);
+	}
 	return accum / total;
 }
 

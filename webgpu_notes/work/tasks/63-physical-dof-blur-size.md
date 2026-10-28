@@ -1,8 +1,8 @@
 # 63-physical-dof-blur-size: make CameraAttributesPhysical's depth of field blur the size a real lens would
 
-State: open
+State: ready-for-integration
 Owner: worker-63
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), native Vulkan run, browser (Playwright)
 Branch: work/63
 Results: webgpu_notes/work/results/63-physical-dof-blur-size/
@@ -63,7 +63,7 @@ and sensor width). It matches the thin-lens blur at f/1.4 to f/16. Use it as a r
 
 1. **Opt-in, so existing projects don't change** (the fork's rule for new options): a
    `CameraAttributesPhysical` property such as `dof_physical_blur_size` (bool, default `false`). When true, the
-   blur radius is the formula above. When false, the current `/ 5` behaviour stays bit-identical. Document both
+   blur radius is the formula above. When false, the current `/ 5` behavior stays bit-identical. Document both
    ("the default matches upstream Godot").
 2. **The 32 px cap.** In `BokehDOFRD`, physical mode caps the gather reach at 32 px:
    `blur_size = (dof_near_size < 0.0 && dof_far_size < 0.0) ? 32 : bokeh_size`. With correct sizes, a portrait
@@ -100,7 +100,7 @@ Hand this back to the camera-sim session when it lands. It will:
   horizontal framing;
 - set `frustum_focal_length` from the lens slider and `exposure_aperture` from the aperture slider (with
   physical light units off these don't change brightness; verified 2026-10-28);
-- delete the blur-amount maths and the manual near/far writes in `update_dof()` (only the Focus panel's
+- delete the blur-amount math and the manual near/far writes in `update_dof()` (only the Focus panel's
   "sharp from … to …" readout stays) and the FOV formula in `set_lens()`;
 - drop the crop-factor multiplier on `grain_intensity`, since the physical sensor size handles that;
 - let autofocus drive `frustum_focus_distance`.

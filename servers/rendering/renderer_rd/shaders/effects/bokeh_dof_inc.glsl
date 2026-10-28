@@ -44,6 +44,25 @@ params;
 #define BOKEH_SHAPE_CATS_EYE (1u << 9u)
 #define BOKEH_SHAPE_TILT (1u << 10u)
 #define BOKEH_LONGITUDINAL_CA (1u << 11u)
+#define BOKEH_PHYSICAL_SIZE (1u << 12u)
+
+// The box and hexagon gathers with CameraAttributesPhysical.dof_physical_blur_size (BOKEH_PHYSICAL_SIZE). Upstream's
+// gather adds the pixel's own color for every sample outside the blur and divides by all 2 * steps + 1 samples, so it
+// is a box of the blur's width only when the blur fills the gather's reach; the physical blur's reach is fixed (32
+// pixels), so a smaller blur was mostly the sharp pixel (a 5 pixel blur kept 4 of 25 samples). This divides by the
+// sample positions inside the largest blur that reaches the pixel (its own, or a sample's that spreads over it): the
+// same estimator with the reach per pixel, identical to upstream's where that blur fills the reach. p_dev is the sum of
+// the samples' m * (sample - center).
+vec4 bokeh_physical_size_resolve(vec4 p_color, vec4 p_dev, float p_largest_blur, float p_sample_spacing) {
+	float positions = 2.0 * min(float(params.blur_steps), floor((p_largest_blur + 0.5) / p_sample_spacing));
+	return p_color + p_dev / (1.0 + positions);
+}
+
+// The blur sizes in the color's alpha are in full-resolution pixels; a half-size gather steps in half-size pixels.
+// Upstream compares the two directly (a half-size blur twice as wide); BOKEH_PHYSICAL_SIZE converts.
+float bokeh_physical_size_limit_scale() {
+	return ((params.shape_flags & BOKEH_PHYSICAL_SIZE) != 0u && params.half_size) ? 0.5 : 1.0;
+}
 
 // Longitudinal chromatic aberration: red and blue focus behind green, so their signed blur (negative in front of the
 // focus) is green's minus a constant offset (physical lens) or scaled away from the focus (no physical lens).

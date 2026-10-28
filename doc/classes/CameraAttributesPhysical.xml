@@ -48,6 +48,12 @@
 		<member name="diffraction_strength" type="float" setter="set_diffraction_strength" getter="get_diffraction_strength" default="1.0">
 			Scales the diffraction blur's size. [code]1.0[/code] is the physical amount.
 		</member>
+		<member name="dof_physical_blur_size" type="bool" setter="set_dof_physical_blur_size" getter="is_dof_physical_blur_size" default="false">
+			If [code]true[/code], depth of field blurs as much as a real lens with these settings would: a point at distance [code]d[/code] blurs into a circle of diameter [code]f² / (N (u - f)) × |d - u| / d[/code] on the sensor (focal length [code]f[/code] = [member frustum_focal_length], f-number [code]N[/code] = [member exposure_aperture], focus distance [code]u[/code] = [member frustum_focus_distance]), which takes the same share of the image as it takes of the sensor. A smaller [member sensor_size] blurs more of the frame with the same lens, and a higher render resolution blurs more pixels, so the image looks the same at every resolution. The blur is measured against the sensor's height, or for an anamorphic lens ([member lens_anamorphic_squeeze]) its desqueezed width, as the field of view is.
+			If [code]false[/code], the blur is a fixed number of pixels, about a fifth of the thin-lens blur in millimeters scaled to a 64-pixel radius, whatever the sensor or resolution. This matches upstream Godot.
+			The gather reaches at most [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size] of the image's height; a larger blur (a long lens wide open, or something very close to the camera) is clamped there.
+			[b]Note:[/b] Works with Forward+ and Mobile. Compatibility has no depth of field.
+		</member>
 		<member name="exposure_aperture" type="float" setter="set_aperture" getter="get_aperture" default="16.0">
 			Size of the aperture of the camera, measured in f-stops. An f-stop is a unitless ratio between the focal length of the camera and the diameter of the aperture. A high aperture setting will result in a smaller aperture which leads to a dimmer image and sharper focus. A low aperture results in a wide aperture which lets in more light resulting in a brighter, less-focused image. Default is appropriate for outdoors at daytime (i.e. for use with a default [DirectionalLight3D]), for indoor lighting, a value between 2 and 4 is more appropriate.
 			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.

@@ -151,6 +151,11 @@ private:
 		float dof_blur_near_distance = 2;
 		float dof_blur_near_transition = 1;
 		float dof_blur_amount = 0.1;
+		// Physical DOF blur size (CameraAttributesPhysical.dof_physical_blur_size): the blur circle of a point at
+		// infinity as a fraction of the frame's height (or width, for a horizontally fitted frame). Off by default.
+		bool dof_physical_blur_size = false;
+		float dof_physical_blur_frame_fraction = 0.0;
+		bool dof_physical_blur_frame_horizontal = false;
 
 		// White balance. The defaults are neutral: the tonemapper skips it entirely then.
 		float white_balance_temperature = 6500.0; // In Kelvin.
@@ -303,6 +308,13 @@ public:
 	float camera_attributes_get_dof_near_distance(RID p_camera_attributes);
 	float camera_attributes_get_dof_near_transition(RID p_camera_attributes);
 	float camera_attributes_get_dof_blur_amount(RID p_camera_attributes);
+
+	/* Physical DOF blur size */
+
+	void camera_attributes_set_dof_physical_blur_size(RID p_camera_attributes, bool p_enable, float p_frame_fraction, bool p_frame_horizontal);
+	// The physical blur's radius for a point at infinity in pixels of a p_buffer_size image, or a negative value when
+	// the camera does not size its blur physically (the DOF then keeps dof_blur_amount's fixed scale).
+	float camera_attributes_get_dof_physical_blur_radius(RID p_camera_attributes, const Size2i &p_buffer_size);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_dof(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
