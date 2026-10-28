@@ -1,7 +1,7 @@
 # 54-web-embed-fullscreen-messages: fullscreen driven by the embedding page, via postMessage
 
 State: open
-Owner:
+Owner: worker-54
 Claimed:
 Needs: build (web template + editor), browser (Playwright, two origins); best **after 52-web-window-set-size-signal**
 Branch: work/54
@@ -139,3 +139,12 @@ camera-sim's GDScript version passed 1, 2, 3 (via its own Exit button) and 4 wit
 on 2026-10-28.
 
 Test scripts: `webgpu_notes/work/inputs/camera-sim-2026-10-28/test-scripts/` (copied from the camera-sim session). Browser rule: `webgpu_notes/work/README.md`.
+
+## Added by the lead (from task 52, merged 2026-10-28)
+
+Task 52 fixed the engine side of `DisplayServer.window_set_size()` (root window, viewport and WebGPU surface now follow
+the canvas; results/52-web-window-set-size-signal/). The shell side remains: `full-size.html` /
+`webgpu-full-size.html`'s `fitCanvasToViewport()` only refits on a browser `resize`, so after `window_set_size()` the
+canvas keeps its old scale and centering. Since this task changes the same canvas sizing (parent fullscreen and back),
+make the shell refit whenever the engine changes the canvas size (an event or callback from the display library), and
+check it with task 52's `resize_test.mjs` under canvas resize policy 1.
