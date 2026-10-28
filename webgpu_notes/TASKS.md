@@ -419,9 +419,9 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate passes only at a raised ceiling (150, was 80); 8 scene-shader groups and a particles stage are never baked |
 | 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
 | 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
-| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
-| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
-| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
+| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | DONE 2026-10-28 → §4.74 | the fallback is never read |
+| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | DONE 2026-10-28 → §4.73 | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
+| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | DONE 2026-10-28 → §4.72 | probe dropped |
 | 2.45 | Occlusion culling on the web: the raycast module in web templates (new, 2026-10-26) | **DONE 2026-10-26 → §4.38** — on by default, Web export option `rendering/occlusion_culling` | upstream the nothreads culler fix (§3 trap 69) |
 | 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
@@ -523,9 +523,9 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.39 | Baked Forward+ fixture converts ~97 stages at load (bake gate) | `OPEN` — pre-existing | ~1 session, needs the GPU |
 | 2.40 | SDFGI differs from native in Firefox only (0.277) | `OPEN` | ~1 session, needs the GPU and Firefox |
 | 2.41 | Subsurface scattering on the Razr 60, 11.1 from desktop Vulkan | `OPEN` — pre-existing | ~1 session, needs the phone |
-| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `OPEN` | ~0.5 session, needs the GPU |
-| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
-| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
+| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `DONE` → §4.74 | — |
+| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `DONE` → §4.73 | — |
+| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `DONE` → §4.72 | — |
 | 2.45 | ~~Occlusion culling on the web: raycast module in web templates~~ | **`DONE` 2026-10-26 → §4.38** | — |
 | 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
@@ -2516,7 +2516,7 @@ both Tint and SPIRV-Cross, while desktop WebGPU passes; every other look matches
 Vulkan render if one can be made, then bisect on device by swapping WGSL modules (`phone_bench.mjs --swap-wgsl`, the
 method that found patch 0019's zero-trip loop, §3 trap 58). Effort ~1 session, needs the phone lease.
 
-### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `OPEN` *(from §4.36)*
+### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `DONE 2026-10-28` → §4.74 *(from §4.36)*
 
 With `--verbose`, every frame logs `'Fsr2AccumulatePassShaderRD:1' set 1 binding 5: a 320x180 depth texture is bound
 where the shader declares a float texture`: FSR2's accumulate pass reads `r_input_depth` as a float texture, so the
@@ -2526,7 +2526,7 @@ fixture shows nothing. `SceneForwardClusteredShaderRD` set 1 binding 24 logs the
 "trace the 4x4 depth placeholder message"). Check FSR2 with the camera moving and the sky in view; if it differs, make
 the binding a depth texture by name (`*_depth*`) or teach the reclassifier its use. Effort ~0.5 session, needs the GPU.
 
-### 2.43 Audit swizzled texture views `OPEN` *(from §4.36, §3 trap 55)*
+### 2.43 Audit swizzled texture views `DONE 2026-10-28` → §4.73 *(from §4.36, §3 trap 55)*
 
 WebGPU texture views have no component swizzle, and `RenderingDeviceDriverWebGPU` stores a view's swizzle without
 applying it, with no warning. FSR2's reactive mask was such a view and read the wrong channel for months (amd-fsr2 patch
@@ -2535,7 +2535,7 @@ applying it, with no warning. FSR2's reactive mask was such a view and read the 
 `RenderSceneBuffersRD`'s `alpha_only_view` exists for MetalFX. For each, either convert the data, do the swizzle in the
 shader, or have the driver warn once when it drops one. Effort ~0.5–1 session.
 
-### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `OPEN` *(from §4.36)*
+### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `DONE 2026-10-28` → §4.72 *(from §4.36)*
 
 `webgpu_tests/spirv_cross_eval/spec_op_probes.py` builds `op_FConvert_f32` as an FConvert to the same width, which the
 validator rejects ("Expected component type of Value to be different"). Since `run_pipeline()` validates its input
@@ -3296,6 +3296,10 @@ it is RGBH (3 channels, format 14), not RGBAH (2026-10-28, work task 57). A web 
 way; compare WebGPU with native in 8 bits and let native carry the HDR comparison. Also: look at one frame of a new
 test scene before trusting numbers from it (task 57's camera first sat behind its room's back wall, and the "match"
 was a flat wall).
+
+94. **Check hand-built SPIR-V probes with the converter, not only the distro's `spirv-val`** (2026-10-28, work task 58):
+the system `spirv-val` (v2025.1) accepted an f32-to-f32 FConvert that the vendored SPIRV-Tools validator in
+`run_pipeline()` rejects, so `run_spec_ops.sh`'s probe looked valid by hand and failed in the pipeline.
 
 ---
 
@@ -5212,7 +5216,7 @@ diffusion within 3.9%; flare ghosts -9% to +8% (unexplained, was -26% to +28%); 
 Lead (merged tree): defaults 0 px against the pre-merge editor (24 captures, 3 renderers); Forward+ halation at 1080
 and 2160 within 2.6% from radius 1 up (centered and nine-point sources); Mobile nine-point within 3.4%, a single
 centered point up to +8% at radius 4 (sub-texel phase of the raster chain; was +15%); smoke OK apart from task 57's
-then-unregenerated bindings. Blended reads double the glare's texture reads (up to 48 per pixel for the flare), not timed.
+then-unregenerated bindings. Lead, web (merged tree with 56-58): halo sigma within 3.3% of native at radius 4 and 1.2% at radius 16 (the high-quality radius-1 halo 8%, 8-bit quantization of a 3 px halo). Blended reads double the glare's texture reads (up to 48 per pixel for the flare), **not timed: the halation cost in the class docs (0.25 / 0.42 ms) and the wiki (0.08 / 0.26 ms) predate it and disagree; re-time and settle one pair.**
 
 ### 4.70 Custom tonemapper (October 2026) *(work task 56; survey §2.48, `pp-custom-tonemap`)*
 
@@ -5249,6 +5253,38 @@ resolutions; WebGPU's effect (on minus off) equals native's (mean |delta| 11.899
 35.303 strong; away from edges p99 1/255). Questions `local-exposure-defaults`, `local-exposure-blend`,
 `look-local-exposure`. Follow-ups, optional: a separable blur (0.12 ms → ~0.03), Exposure Fusion as a second method in
 the grid's last slice. §3 trap 93.
+
+### 4.72 `run_spec_ops.sh`'s invalid FConvert probe dropped (October 2026) *(was §2.44; work task 58)*
+
+`spec_op_probes.py`'s `op_FConvert_f32` converted f32 to f32, which the vendored validator rejects (§3 trap 94). A valid
+FConvert needs f16 or f64; WGSL has no f64 and no engine or user shader declares an f16 spec constant, so the probe is
+gone, with the reason in the generator. `spec_op_check.mjs` finds Playwright from a worktree and refuses a fallback
+adapter. `run_spec_ops.sh`: override path 42 pass / 6 expected, legacy path 47 pass / 1 expected (`op_SMod`), 0 unexpected.
+
+### 4.73 Swizzled texture views audited; the driver warns when it drops one (October 2026) *(was §2.43; work task 58)*
+
+Every non-identity swizzle that can reach `RenderingDeviceDriverWebGPU` was traced (table in
+`results/58-small-web-correctness/for-tasks.md`). **RGBA4444 and RGB565 image textures failed outright on the web**
+(no packed 16-bit formats in WebGPU; `texture_create()` errored), now converted to RGBA8. The RA-as-RG normal-map formats
+always decompress on the web; zero/one swizzles that only restate a channel the image lacks are reset to identity on the
+web; decompressed DXT1 gets alpha 255 as the swizzle did; an opaque viewport's texture no longer asks for alpha 1 on the
+web (else every web game warned). `_warn_dropped_swizzle()` in `texture_create()` / `_shared()` / `_shared_from_slice()`
+warns once per (view format, swizzle) for what is still dropped: a `Texture2DRD` over R8/RG8 and user `RDTextureView`
+swizzles. New Forward+ arm `image_formats` (L8, LA8, RGBA4444, RGB565, R8, RG8 against RGBA8-expanded copies). The user
+then answered both of the task's questions with the non-default option (Texture2DRD over R8/RG8 reported as R8/RG8 on
+the web; opaque viewports write alpha 1 on the web): work task 60.
+
+### 4.74 FSR2 accumulate and scene binding 24: the depth fallback is never read (October 2026) *(was §2.42 and §2.31's "4x4 depth placeholder"; work task 58)*
+
+FSR2's accumulate pass declares `r_input_depth` but reads motion vectors through `LoadDilatedMotionVector()`, which never
+calls `LoadInputDepth()`; SPIRV-Cross drops the variable and the blank fallback in its slot is never sampled. The FSR2
+passes that do read depth get the real depth texture. New arm `fsr2_camera_move` (camera panning across the sky): native
+diff 0.059. Scene set 1 binding 24 is `DEFAULT_RD_TEXTURE_DEPTH` (a 4x4 D16 placeholder, bound when no material reads
+`DEPTH_TEXTURE`); on the web it is now the black float default, so `--verbose` is quiet for the scene shaders (FSR2
+accumulate's unread binding still logs). Also fixed: `wgsl_precompile.py` lacked task 17's `REACTIVE_MASK_FROM_ALPHA`
+define, so FSR2's depth-clip and TCR passes were converted at run time (correct, slower). Worker: matrix baked 101/101.
+**Lead (final merged tree, tasks 55-58): dev_mode editor and web template 0 warnings, smoke 311/311 interface and 622/622
+scan facts, Forward+ matrix 103/103 at parity, unbaked and baked.** §3 trap 94.
 
 ## 5. References — retired docs
 

@@ -31,7 +31,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 55 | glare chain calibrated per lod: exact halation/diffusion/flare sizes at every resolution (`glare-lod-calibration`: Recalibrate) | 6 | worker-55 (retired); **merged `98ff33c57b`**, verified, TASKS §4.69, traps 90-91 |
 | 56 | post-processing: custom tonemap curve on Environment (`pp-custom-tonemap`) | 7 | worker-56 (retired); **merged `04da9ef7fd`**, verified, TASKS §4.70, trap 92; questions `custom-tonemap-*` |
 | 57 | post-processing: local exposure on CameraAttributes (`pp-local-exposure`) | 7 | worker-57 (retired); **merged `c7dbb354bd`**, verified, TASKS §4.71, trap 93; questions `local-exposure-*` |
-| 58 | small web correctness items: TASKS §2.44 (invalid probe), §2.43 (swizzled views), §2.42 (FSR2 depth fallback) | 7 | worker-58 |
+| 58 | small web correctness items: TASKS §2.44 (invalid probe), §2.43 (swizzled views), §2.42 (FSR2 depth fallback) | 7 | worker-58 (retired); **merged `57ec6ca0da`**, verified, TASKS §4.72-4.74, trap 94; matrix 103/103 unbaked and baked |
 | 59 | converter smoke check moved out of the work board into webgpu_tests (TASKS §2.38) | 7 | worker-59 |
 | 60 | user answers on 58: Texture2DRD over R8/RG8 reported as R8/RG8 on the web; opaque viewports write alpha 1 on the web | 7 | worker-60 |
 
