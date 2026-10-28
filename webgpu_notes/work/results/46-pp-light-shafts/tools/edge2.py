@@ -10,9 +10,9 @@ def lin(p):
     return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4).mean(2)
 
 
-O, rm = sys.argv[1], sys.argv[2]
+out_dir, rm = sys.argv[1], sys.argv[2]
 for sx in ["0.9", "0.96", "1.0", "1.02", "1.04", "1.06", "1.1", "1.2", "1.3", "1.45", "1.6", "2.0"]:
-    d = lin(f"{O}/edge_on_{rm}_{sx}.png") - lin(f"{O}/edge_off_{rm}_{sx}.png")
+    d = lin(f"{out_dir}/edge_on_{rm}_{sx}.png") - lin(f"{out_dir}/edge_off_{rm}_{sx}.png")
     u = 0.5 + float(sx) / (1.7778 * math.tan(math.radians(30))) * 0.5
     o = max(u - 1, 0) * 1.7778
     t = min(o / 0.5, 1)
