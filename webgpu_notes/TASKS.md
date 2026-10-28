@@ -426,7 +426,8 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
-| 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
+| 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
+| 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | OPEN | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -527,6 +528,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 | 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
 | 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
+| 2.50 | Build scripts: no-threads non-dlink web templates first | `OPEN` | <0.5 session |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2618,6 +2620,26 @@ options, next to the existing **Loading Screen** group (`loading_screen/<stage>/
 
 Effort <0.5 session.
 
+
+### 2.50 Build scripts: the no-threads, no-dlink web templates first `OPEN` *(user request, 2026-10-28)*
+
+The user exports with the **no-threads, no-dlink** web templates (debug and release) far more than any other, and wants
+to start exporting as soon as those two exist instead of waiting for the whole set. Today `build-linux.sh` builds the
+editor, then the native templates, then the 8-variant web matrix with `dlink` and `threads` outer loops starting at
+`yes`, so `threads=no dlink_enabled=no` comes **last**; `build.sh`, `build-macos.sh` and `build-windows.ps1` only build the
+`dlink_enabled=yes threads=no` pair and not the non-dlink one at all.
+
+- Every `build-*` helper: right after the editor (and the converter/baker prerequisites the templates need), build
+  `template_debug` and `template_release` with `threads=no dlink_enabled=no` **and install them immediately** into the
+  places the rest of the run installs templates (`builds/<version>/`, the editor's export templates folder), so the user
+  can export while the rest builds; then the remaining variants and native templates as today. Print a clear line when
+  the pair is installed ("ready to export").
+- Keep the editor/template hash match (§3 trap on committing mid-build): same tree, same run, nothing changes.
+- The narrowed-matrix flags (`--web-targets/--web-threads/--web-dlink`) keep working; the pair is just ordered first.
+- Check the per-step timing table and the final summary still read correctly. `build.sh`/`build-macos.sh`/
+  `build-windows.ps1`: add the non-dlink no-threads pair (they lack it) and put it first.
+
+Effort <0.5 session (scripts only; one full `build-linux.sh` run to confirm the order and the early install).
 ---
 
 ## 3. Traps and lessons — read before debugging
