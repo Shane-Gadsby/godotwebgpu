@@ -950,6 +950,7 @@ public:
 	FUNC1(camera_attributes_set_dof_blur_bokeh_shape, RSE::DOFBokehShape)
 
 	FUNC8(camera_attributes_set_dof_blur, RID, bool, float, float, bool, float, float, float)
+	FUNC4(camera_attributes_set_dof_physical_blur_size, RID, bool, float, bool)
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)

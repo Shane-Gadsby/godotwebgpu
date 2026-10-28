@@ -160,6 +160,16 @@
 				Sets the quality level of the DOF blur effect to [param quality]. [param use_jitter] can be used to jitter samples taken during the blur pass to hide artifacts at the cost of looking more fuzzy.
 			</description>
 		</method>
+		<method name="camera_attributes_set_dof_physical_blur_size">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="frame_fraction" type="float" />
+			<param index="3" name="frame_horizontal" type="bool" />
+			<description>
+				Sizes the physically-based DOF blur (the negative transitions of [method camera_attributes_set_dof_blur]) by the lens instead of by [code]amount[/code], as [member CameraAttributesPhysical.dof_physical_blur_size] does. [param frame_fraction] is the diameter of the blur circle of a point at infinity, as a fraction of the frame's height, or of its width if [param frame_horizontal] is [code]true[/code]. The renderer turns it into pixels of the image it blurs, so the blur keeps its size relative to the frame at every resolution.
+			</description>
+		</method>
 		<method name="camera_attributes_set_exposure">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />

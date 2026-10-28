@@ -1535,6 +1535,16 @@ real_t CameraAttributesPhysical::get_far() const {
 	return frustum_far;
 }
 
+void CameraAttributesPhysical::set_dof_physical_blur_size(bool p_enable) {
+	dof_physical_blur_size = p_enable;
+	_update_frustum();
+	emit_changed();
+}
+
+bool CameraAttributesPhysical::is_dof_physical_blur_size() const {
+	return dof_physical_blur_size;
+}
+
 real_t CameraAttributesPhysical::get_fov() const {
 	return frustum_fov;
 }
@@ -1601,6 +1611,15 @@ void CameraAttributesPhysical::_update_frustum() {
 			u / 1000.0,
 			-1.0,
 			scale / 5.0); // Arbitrary scaling to get close to how much blur there should be.
+
+	// Physical blur size. `scale` is the thin lens's blur circle diameter on the sensor for a point at infinity,
+	// c = f^2 / (N (u - f)) in mm (https://en.wikipedia.org/wiki/Depth_of_field#Foreground_and_background_blur); the DOF shader's
+	// physical mode already scales it by |d - u| / d for a point at distance d. Sent as a fraction of the frame
+	// dimension the field of view is fitted to (the sensor height, or for an anamorphic lens its desqueezed width,
+	// as in the field of view above), so the renderer can turn it into pixels of the buffer it blurs.
+	const bool frame_horizontal = is_fov_horizontal();
+	const float frame_mm = frame_horizontal ? lens_anamorphic_squeeze * sensor_size.width : sensor_size.height;
+	RS::get_singleton()->camera_attributes_set_dof_physical_blur_size(get_rid(), dof_physical_blur_size, scale / frame_mm, frame_horizontal);
 }
 
 float CameraAttributesPhysical::calculate_exposure_normalization() const {
@@ -1859,6 +1878,9 @@ void CameraAttributesPhysical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_far"), &CameraAttributesPhysical::get_far);
 	ClassDB::bind_method(D_METHOD("get_fov"), &CameraAttributesPhysical::get_fov);
 
+	ClassDB::bind_method(D_METHOD("set_dof_physical_blur_size", "enable"), &CameraAttributesPhysical::set_dof_physical_blur_size);
+	ClassDB::bind_method(D_METHOD("is_dof_physical_blur_size"), &CameraAttributesPhysical::is_dof_physical_blur_size);
+
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_max_exposure_value", "exposure_value_max"), &CameraAttributesPhysical::set_auto_exposure_max_exposure_value);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_max_exposure_value"), &CameraAttributesPhysical::get_auto_exposure_max_exposure_value);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_min_exposure_value", "exposure_value_min"), &CameraAttributesPhysical::set_auto_exposure_min_exposure_value);
@@ -1920,6 +1942,9 @@ void CameraAttributesPhysical::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_focal_length", PROPERTY_HINT_RANGE, "1.0,800.0,0.01,exp,suffix:mm"), "set_focal_length", "get_focal_length");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_near", PROPERTY_HINT_RANGE, "0.001,10,0.001,or_greater,exp,suffix:m"), "set_near", "get_near");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_far", PROPERTY_HINT_RANGE, "0.01,4000,0.01,or_greater,exp,suffix:m"), "set_far", "get_far");
+
+	ADD_GROUP("Depth of Field", "dof_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_physical_blur_size"), "set_dof_physical_blur_size", "is_dof_physical_blur_size");
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_aperture", PROPERTY_HINT_RANGE, "0.5,64.0,0.01,exp,suffix:f-stop"), "set_aperture", "get_aperture");

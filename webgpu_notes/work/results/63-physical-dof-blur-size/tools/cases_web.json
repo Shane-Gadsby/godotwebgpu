@@ -1,0 +1,10 @@
+{
+ "off_phys_hex1": "shape=hexagon&quality=1",
+ "off_phys_circ2": "shape=circle&quality=2",
+ "off_pract_hex2": "kind=practical&shape=hexagon&quality=2&trans=0.5&amount=0.17",
+ "on_hex1": "phys=1&shape=hexagon&quality=1",
+ "on_circ2": "phys=1&shape=circle&quality=2",
+ "on_box3": "phys=1&shape=box&quality=3",
+ "on_hex1_mft": "phys=1&shape=hexagon&quality=1&sensor=17.3x13",
+ "on_circ2_mft": "phys=1&shape=circle&quality=2&sensor=17.3x13"
+}
