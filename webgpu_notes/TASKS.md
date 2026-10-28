@@ -426,6 +426,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | OPEN — investigation only | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
+| 2.49 | Web loading screen: progress bar colors (new, 2026-10-28, user request) | OPEN | export options for the bar's border, background and fill colors in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -525,6 +526,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 | 2.48 | Survey: post-processing effects Godot lacks | `OPEN` | ~0.5 session for the survey; each effect is its own task afterwards |
+| 2.49 | Web loading screen: progress bar border / background / fill colors | `OPEN` | <0.5 session |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2593,6 +2595,26 @@ grain §4.47, camera LUTs §4.48).
   hand-offs page.
 
 Effort ~0.5 session for the survey; each chosen effect becomes its own task.
+
+### 2.49 Web loading screen: progress bar colors `OPEN` *(user request, 2026-10-28)*
+
+When the loading bar is shown, let users pick its **border**, **background** and **fill** colors in the Web export
+options, next to the existing **Loading Screen** group (`loading_screen/<stage>/text`, `show_text`, `show_spinner`;
+`web_loading_screen_stages[]` in `platform/web/export/export_plugin.cpp`, wiki "Web Export Options → Loading screen").
+
+- The bar is the `<progress id="status-progress">` element in the default shells (`misc/dist/html/full-size.html`,
+  `webgpu-full-size.html`), styled in their CSS. Add three Color export options (e.g. `loading_screen/progress_bar/
+  border_color`, `background_color`, `fill_color`), defaulting to today's look so existing exports are unchanged, and
+  apply them in both shells. `<progress>` needs vendor pseudo-elements for its parts (`::-webkit-progress-bar`,
+  `::-webkit-progress-value`, `::-moz-progress-bar`) or a styled div; check Chrome, Firefox and Safari.
+- Pass them to custom shells too: add them to the `$GODOT_LOADING_SCREEN` JSON (or a sibling placeholder), and keep
+  custom shells that don't use them working.
+- I found no export option that turns the bar on or off, although the request says "when the loading bar is enabled":
+  either the color options show whenever the bar does, or this adds a `loading_screen/progress_bar/enabled` toggle
+  first (ask the user on the hand-offs page if unclear).
+- Docs: the class/export docs, and the wiki's Web Export Options page (the wiki can be pushed).
+
+Effort <0.5 session.
 
 ---
 
