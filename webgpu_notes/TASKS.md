@@ -5501,6 +5501,20 @@ editor, web debug and release 0 warnings; 56/56 natively (0 warnings), 56/56 in 
 warnings), debug exactly the two expected warnings in both browsers. Questions `awaitable-names`,
 `warn-rd-texture-get-data`; camera-sim's `read_back()` becomes one await (results/71-async-readback-followups/for-tasks.md).
 
+### 4.85 The camera frame without the monitoring overlays (October 2026) *(work task 72; user answer `histogram-clean-frame`)*
+
+`Camera3D.monitoring_clean_texture_enabled` (default off, inspector Monitoring group) and `get_monitoring_clean_texture()`
+(a Texture2D, null while off; RS `camera_set_monitoring_clean_texture()`): while on, each frame the camera renders is
+copied before the zebras, false colour, peaking and drawn histogram (and before 2D) into a per-camera internal
+`CameraMonitoringCleanTexture`, read with `get_image_async()` / `get_image_awaitable()`; off frees it. Forward+,
+Mobile, Compatibility (which draws zebras, peaking and false colour too) and WebGPU. +8.3 MB at 1080p while on, 0 off.
+Fixed on the way: the camera-finish scratch textures lacked `CAN_COPY_FROM`. Worker: clean = overlays-off frame (0 px)
+in all renderers and Chrome (debug and release), four overlay setups, NR + sharpening, same-frame enable/read/disable,
+two SubViewports, resize; defaults 0 px. Lead (merged tree with 71): dev_mode editor, web debug and release 0 warnings;
+native and Chrome suites 25/25 pass, 0 console errors; defaults and visible output 0 px against the pre-merge editor
+in all three renderers; `await get_image_awaitable()` on the clean texture returns the 1152x648 image in all three.
+Question `clean-frame-inspector`. camera-sim: Download Image becomes enable / await / disable, `make_clean_view` goes.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed

@@ -1,6 +1,6 @@
 # 72-monitoring-clean-frame
 
-State: ready-for-integration
+State: integrated (TASKS §4.85)
 Owner: worker-72
 Claimed: 2026-10-28 22:10
 Needs: build, gpu, browser
