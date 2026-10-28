@@ -1,0 +1,4 @@
+{"halves_off": "scene=halves&attrs=practical&card_value=0.5",
+ "halves_r4": "scene=halves&attrs=practical&card_value=0.5&cam.halation_enabled=true&cam.halation_strength=12.0&cam.halation_radius=4.0",
+ "halves_hq_r1": "scene=halves&attrs=practical&card_value=0.5&cam.halation_enabled=true&cam.halation_strength=12.0&cam.halation_radius=1.0&cam.halation_high_quality=true",
+ "halves_r16": "scene=halves&attrs=practical&card_value=0.5&cam.halation_enabled=true&cam.halation_strength=12.0&cam.halation_radius=16.0"}

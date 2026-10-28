@@ -81,7 +81,9 @@ struct CameraEffectsContext {
 	CameraGlareEnvironment glare_environment;
 	Size2i glare_chain_size; // Mip 0 of the glare chain, in texels.
 	int glare_chain_mipmaps = 0;
-	float glare_chain_sigma = 1.0; // Blur sigma of the chain's lod L is this times 2^L, in texels of lod 0 (measured).
+	// The chain's measured blur: lod L blurs a point to a Gaussian of variance x + y 4^L, in texels of lod 0 squared.
+	Vector2 glare_chain_blur = Vector2(0.0, 1.0);
+	bool glare_chain_raster = false; // Built by the raster passes (Mobile), whose levels do not sit at their UVs.
 	// Exposure automation: the renderer ran the auto white balance passes this frame, so the tonemapper can read their
 	// gains. Only Forward+ does (they need compute); elsewhere the manual white balance applies alone.
 	bool auto_white_balance = false;

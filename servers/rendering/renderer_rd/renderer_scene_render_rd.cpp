@@ -476,29 +476,40 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
-// The full-resolution glare chain's blur of lod L, in lod 0 texels per 2^L: measured as task 35 measured 2.68 for the
-// half-resolution one, from Gaussian fits of halation halos at radius 2, 4 and 16 (task 40, HDR captures at 720p: 2.66
-// to 2.73 depending on where between two lods the radius falls). The same value as the half-resolution chain.
-static constexpr float FULL_RESOLUTION_GLARE_SIGMA = 2.68f;
+// The glare chains' blur per lod, measured (work task 55): halation renders of nine emissive points at different
+// sub-texel positions, HDR captures (RGBA16F, Linear tonemapper), at 720, 900, 1080, 1440 and 2160 lines, each lod
+// sampled on its own; a Gaussian of free size fitted to the halo with the source disc removed (least squares of
+// f (G * S - S)). Lod L blurs a point to sigma^2 = A + B 4^L, in texels of lod 0 squared: each level halves the
+// resolution and blurs by a fixed number of its own texels, so its variance grows four times per level, and A is what
+// lod 0 does differently. Fits within 1% at every lod and resolution for Forward+; for Mobile within 3% from lod 2,
+// 4% at lod 1 and 7% at lod 0 (two frame pixels, which depend on where the light falls in its 4x4 block). x = A, y = B.
+// - Forward+, half resolution: lod 0 is 2.0 texels (4.0 frame pixels), then 4.4, 9.0, 18.2, 36.4 texels (2.28 2^L).
+static constexpr Vector2 GLARE_CHAIN_BLUR_HALF = Vector2(-1.233, 5.181);
+// - Forward+, full resolution (halation's high quality): lod 0 is 1.9 texels (it skips the half-resolution box), then
+//   the same as the half-resolution chain one lod later.
+static constexpr Vector2 GLARE_CHAIN_BLUR_FULL = Vector2(-1.556, 5.182);
+// - Mobile's raster chain at quarter resolution, sharper per level: lod 0 is 0.53 texels (2.1 frame pixels), then 1.27,
+//   2.6, 5.3, 10.6 texels (0.66 2^L). Measured with its levels read where they belong (camera_glare_fetch_level()).
+static constexpr Vector2 GLARE_CHAIN_BLUR_RASTER = Vector2(-0.157, 0.440);
 
 // The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at reduced resolution, blurred, and every mip
 // below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
 // firefly suppression, as glare is the lens's point spread function acting on all light. RGBA16F whatever the
 // buffers' format, since highlights far above 1 are what glare is made of. Built with glow's passes: Forward+'s
 // compute Gaussian at half resolution, the raster path's gather at quarter resolution (its first pass always reduces
-// by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_sigma is
-// the blur of lod L in lod 0 texels per 2^L, measured with a single bright texel (task 35's halation renders).
+// by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_blur is
+// the chain's measured blur per lod (the GLARE_CHAIN_BLUR_* constants above).
 // p_full_resolution (halation's high quality option) starts Forward+'s chain at the frame's own resolution, so its
 // sharpest level is about half as wide as the usual one: the physical halo at radius 1 is ~0.5% of the frame height,
-// below what the half-resolution chain can draw. The raster chain's sharpest level is already that small (task 35:
-// 2.95 px at 720p against 3.36 predicted), so it is unchanged.
-static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, bool p_full_resolution, Size2i &r_size, int &r_mipmaps, float &r_sigma) {
+// below what the half-resolution chain can draw at 720p. The raster chain's sharpest level is already that small
+// (2.0 frame pixels), so it is unchanged.
+static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, bool p_full_resolution, Size2i &r_size, int &r_mipmaps, Vector2 &r_blur) {
 	static const StringName context = SNAME("CameraGlare");
 	static const StringName name = SNAME("chain");
 	const bool full_resolution = p_can_use_storage && p_full_resolution;
 	const int reduction = p_can_use_storage ? (full_resolution ? 0 : 1) : 2;
 	const Size2i size = Size2i(p_source_size.x >> reduction, p_source_size.y >> reduction);
-	r_sigma = p_can_use_storage ? (full_resolution ? FULL_RESOLUTION_GLARE_SIGMA : 2.68) : 0.80;
+	r_blur = p_can_use_storage ? (full_resolution ? GLARE_CHAIN_BLUR_FULL : GLARE_CHAIN_BLUR_HALF) : GLARE_CHAIN_BLUR_RASTER;
 	if (size.x < 2 || size.y < 2) {
 		return RID();
 	}
@@ -974,12 +985,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 	RID glare_chain;
 	Size2i glare_chain_size;
 	int glare_chain_mipmaps = 0;
-	float glare_chain_sigma = 1.0;
+	Vector2 glare_chain_blur;
 	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_glare(p_render_data->camera_attributes, glare_environment)) {
 		RENDER_TIMESTAMP("Camera Glare");
 		RD::get_singleton()->draw_command_begin_label("Camera Glare");
 		const bool glare_full_resolution = RSG::camera_attributes->camera_attributes_uses_full_resolution_glare(p_render_data->camera_attributes);
-		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_full_resolution, glare_chain_size, glare_chain_mipmaps, glare_chain_sigma);
+		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_full_resolution, glare_chain_size, glare_chain_mipmaps, glare_chain_blur);
 		RD::get_singleton()->draw_command_end_label();
 	}
 
@@ -1127,7 +1138,8 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			if (glare_chain.is_valid()) {
 				camera_effects_context.glare_chain_size = glare_chain_size;
 				camera_effects_context.glare_chain_mipmaps = glare_chain_mipmaps;
-				camera_effects_context.glare_chain_sigma = glare_chain_sigma;
+				camera_effects_context.glare_chain_blur = glare_chain_blur;
+				camera_effects_context.glare_chain_raster = !can_use_storage;
 				tonemap.glare_texture = glare_chain;
 			}
 			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();

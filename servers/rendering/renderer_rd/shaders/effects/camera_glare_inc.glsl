@@ -2,20 +2,24 @@
 // lens flare, veiling glare and diffusion filter and the CameraAttributes' starburst and halation, each a point spread
 // function convolved with the scene-linear frame. Include after camera_effects_inc.glsl, and define
 // CAMERA_GLARE_FETCH(m_uv, m_lod) to read the glare chain (a mip chain of the whole frame, see
-// _render_camera_glare_chain()) in scene-linear units at a UV and lod, and CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) to
-// read it with explicit derivatives through its anisotropic sampler.
+// _render_camera_glare_chain()) in scene-linear units at a UV and lod, CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) to
+// read it with explicit derivatives through its anisotropic sampler, and CAMERA_GLARE_SIZE(m_lod) as the size of a lod
+// in texels (ivec2).
 //
 // The parameters are in the glare region of the CameraEffects buffer, worked out per pass on the CPU
 // (RendererCameraAttributes::_fill_effects_glare(), which also documents the models and their sources):
 // - header.y: CAMERA_GLARE_* bits below; 0 = no glare.
 // - glare[0]: lens flare: x = light per ghost, y = threshold (exposed units), z = ghost count, w = halo's light.
 // - glare[1]: x = flare's red/blue size difference, y = frame aspect (width / height), zw = chain texel size in UV.
-// - glare[2]: x = veiling glare fraction, y = diffusion fraction, z = the chain's last lod, w = diffusion's first lod.
+// - glare[2]: x = veiling glare fraction, y = diffusion fraction, z = the chain's last lod, w = the sigma of diffusion's
+//   first octave (frame heights).
 // - glare[3]: starburst: x = line density coefficient (per frame height), y = first tap distance (frame heights),
 //   z = first spike's angle (radians, counterclockwise from +x), w = angle between spike lines.
-// - glare[4]: x = starburst lines (2 spikes each), y = anamorphic squeeze, z = halation fraction, w = halation lod.
-// - glare[5]: x = lod 0 texels per frame height over its blur sigma (lod for a sigma = log2(sigma * x)),
-//   y = starburst length (frame heights).
+// - glare[4]: x = starburst lines (2 spikes each), y = anamorphic squeeze, z = halation fraction, w = halation's lod
+//   (camera_glare_lod()).
+// - glare[5]: the chain's measured blur (lod L blurs to a Gaussian of variance A + B 4^L lod 0 texels squared): x = lod 0
+//   texels per frame height over sqrt(B), z = A / B; y = starburst length (frame heights); w = 1 for the raster chain
+//   (Mobile), whose levels are not where their UVs say (camera_glare_fetch_level()).
 
 #define CAMERA_GLARE_LENS_FLARE 1u
 #define CAMERA_GLARE_VEILING 2u
@@ -24,9 +28,51 @@
 #define CAMERA_GLARE_STARBURST 16u
 #define CAMERA_GLARE_HALATION 32u
 
-// The chain's lod whose blur sigma is p_sigma frame heights.
+// The blur of p_sigma frame heights as a lod for camera_glare_fetch(): floor() is the lod whose blur is just below it,
+// fract() the weight of the next one, so that the blend's best-fitting Gaussian has that sigma. The same function as
+// _glare_lod_for_sigma() in camera_attributes_storage.cpp, which documents it; keep the two in step. Nothing is
+// sharper than lod 0.
 float camera_glare_lod(float p_sigma) {
-	return clamp(log2(max(p_sigma * camera_effects.glare[5].x, 1e-6)), 0.0, camera_effects.glare[2].z);
+	float s = p_sigma * camera_effects.glare[5].x;
+	float s2 = s * s;
+	float a = camera_effects.glare[5].z;
+	float v = s2 - a;
+	if (v <= 1.0) {
+		return 0.0;
+	}
+	float max_lod = camera_effects.glare[2].z;
+	float lod = floor(0.5 * log2(v));
+	if (lod >= max_lod) {
+		return max_lod;
+	}
+	float lower = 1.0 + (a + exp2(2.0 * lod)) / s2;
+	float upper = 1.0 + (a + exp2(2.0 * lod + 2.0)) / s2;
+	lower = 1.0 / (lower * lower);
+	upper = 1.0 / (upper * upper);
+	return min(lod + clamp((0.25 - lower) / (upper - lower), 0.0, 1.0), max_lod);
+}
+
+// The glare chain at an integer lod, read where the frame's p_uv is. The raster chain's downsample takes texel j of a
+// level from coordinate 2 j + 1 of the one above (blur_raster.glsl), not from where its UV says, so a level of odd size
+// drifts: texel coordinate x of lod L holds the frame's lod 0 coordinate 2^L x, up to a few percent of the frame off
+// at 1080p (a halo 31 pixels below its source at lod 4, measured). Forward+'s passes read at their own UVs and need
+// nothing.
+vec3 camera_glare_fetch_level(vec2 p_uv, float p_lod) {
+	vec2 uv = p_uv;
+	if (camera_effects.glare[5].w > 0.0) {
+		uv *= vec2(CAMERA_GLARE_SIZE(0)) / (exp2(p_lod) * vec2(CAMERA_GLARE_SIZE(int(p_lod))));
+	}
+	return CAMERA_GLARE_FETCH(uv, p_lod);
+}
+
+// The glare chain at a lod from camera_glare_lod(): the two integer lods, blended here rather than by the sampler,
+// whose blend between mips is not linear on every GPU (NVIDIA weighs the upper one by min(2 t, 1) on this anisotropic
+// sampler, measured), so the size is the same everywhere.
+vec3 camera_glare_fetch(vec2 p_uv, float p_lod) {
+	float lod = floor(p_lod);
+	vec3 lower = camera_glare_fetch_level(p_uv, lod);
+	float t = p_lod - lod;
+	return t > 0.0 ? mix(lower, camera_glare_fetch_level(p_uv, lod + 1.0), t) : lower;
 }
 
 // Ghosts mirrored through the frame's center and a halo around it (Kawase 2004, Chapman 2013): ghost i at sensor
@@ -51,9 +97,9 @@ vec3 camera_glare_lens_flare(vec2 p_uv, float p_exposure) {
 		vec2 r_uv = 0.5 + p / (k * (1.0 + chroma));
 		vec2 g_uv = 0.5 + p / k;
 		vec2 b_uv = 0.5 + p / (k * (1.0 - chroma));
-		ghost.r = CAMERA_GLARE_FETCH(r_uv, lod).r;
-		ghost.g = CAMERA_GLARE_FETCH(g_uv, lod).g;
-		ghost.b = CAMERA_GLARE_FETCH(b_uv, lod).b;
+		ghost.r = camera_glare_fetch(r_uv, lod).r;
+		ghost.g = camera_glare_fetch(g_uv, lod).g;
+		ghost.b = camera_glare_fetch(b_uv, lod).b;
 		ghost = max(ghost * p_exposure - g0.y, vec3(0.0));
 		// Only sources inside the frame make ghosts; fade at its border rather than clamping its edge outward.
 		vec2 edge = abs(g_uv - 0.5);
@@ -70,7 +116,7 @@ vec3 camera_glare_lens_flare(vec2 p_uv, float p_exposure) {
 			vec2 s_uv = p_uv - (radial / len) * 0.3 * vec2(1.0 / aspect, 1.0);
 			vec2 edge = abs(s_uv - 0.5);
 			float window = (1.0 - smoothstep(0.42, 0.5, edge.x)) * (1.0 - smoothstep(0.42, 0.5, edge.y));
-			vec3 halo = max(CAMERA_GLARE_FETCH(s_uv, camera_glare_lod(0.01)) * p_exposure - g0.y, vec3(0.0));
+			vec3 halo = max(camera_glare_fetch(s_uv, camera_glare_lod(0.01)) * p_exposure - g0.y, vec3(0.0));
 			flare += halo * vec3(0.9, 0.95, 1.0) * (g0.w * window);
 		}
 	}
@@ -128,7 +174,7 @@ vec3 camera_glare_apply(vec3 p_color, vec2 p_uv, float p_exposure) {
 	if ((bits & CAMERA_GLARE_DIFFUSION) != 0u) {
 		// (1 - s) I + s G, G the mean of four octaves of blur from the filter's base width.
 		float base = camera_effects.glare[2].w;
-		vec3 wide = CAMERA_GLARE_FETCH(p_uv, base) + CAMERA_GLARE_FETCH(p_uv, base + 1.0) + CAMERA_GLARE_FETCH(p_uv, base + 2.0) + CAMERA_GLARE_FETCH(p_uv, base + 3.0);
+		vec3 wide = camera_glare_fetch(p_uv, camera_glare_lod(base)) + camera_glare_fetch(p_uv, camera_glare_lod(2.0 * base)) + camera_glare_fetch(p_uv, camera_glare_lod(4.0 * base)) + camera_glare_fetch(p_uv, camera_glare_lod(8.0 * base));
 		color = mix(color, wide * (0.25 * p_exposure), camera_effects.glare[2].y);
 	}
 	if ((bits & CAMERA_GLARE_VEILING) != 0u) {
@@ -155,7 +201,7 @@ vec3 camera_glare_apply(vec3 p_color, vec2 p_uv, float p_exposure) {
 	if ((bits & CAMERA_GLARE_HALATION) != 0u) {
 		// Light moved from each point into a red-orange halo around it: red and some green, no blue (the yellow filter
 		// layer stops blue before the base). Moved, so a flat field keeps its color.
-		vec3 halo = CAMERA_GLARE_FETCH(p_uv, camera_effects.glare[4].w) * p_exposure;
+		vec3 halo = camera_glare_fetch(p_uv, camera_effects.glare[4].w) * p_exposure;
 		color += (camera_effects.glare[4].z * vec3(1.0, 0.3, 0.0)) * (halo - color);
 	}
 	return color;

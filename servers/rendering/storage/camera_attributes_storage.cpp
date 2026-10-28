@@ -1032,13 +1032,30 @@ bool RendererCameraAttributes::camera_attributes_uses_glare(RID p_camera_attribu
 	return _glare_requested_bits(camera_attributes_owner.get_or_null(p_camera_attributes), p_environment) != 0;
 }
 
-// The glare chain: lod 0 is a blur of the scene at reduced resolution, each lod halves the resolution and blurs again,
-// so lod L blurs by about sigma * 2^L texels of lod 0. The renderer that built it says what sigma is (measured on its
-// chain, see CameraEffectsContext). Effects ask for a blur in frame heights and get the lod that gives it; nothing is
-// sharper than lod 0.
-static double _glare_lod_for_sigma(double p_sigma_frame, double p_chain_height, double p_chain_sigma, double p_max_lod) {
-	const double sigma_texels = p_sigma_frame * p_chain_height;
-	return CLAMP(Math::log2(MAX(sigma_texels / p_chain_sigma, 1e-6)), 0.0, p_max_lod);
+// The glare chain: lod 0 is a blur of the scene at reduced resolution, each lod halves the resolution and blurs again.
+// The renderer that built it measured how much (CameraEffectsContext::glare_chain_blur): lod L blurs a point to a
+// Gaussian of variance A + B 4^L lod 0 texels squared. Effects ask for a blur in frame heights and get the two lods
+// around it and how to blend them, as one number: the lower lod plus the weight of the upper one. The shader reads both
+// lods at integer levels and blends them itself (camera_glare_inc.glsl), because the hardware's own blend between mips
+// is not linear on every GPU (NVIDIA with an anisotropic sampler weighs the upper mip by min(2 t, 1), measured).
+// The weight makes the blend's best-fitting Gaussian (least squares over the plane, the measure the chain was
+// calibrated with) as wide as asked: for (1 - w) G_a + w G_b that Gaussian's sigma s satisfies
+// (1 - w) / (a^2 + s^2)^2 + w / (b^2 + s^2)^2 = 1 / (4 s^4), which is linear in w. Nothing is sharper than lod 0.
+// camera_glare_lod() in camera_glare_inc.glsl is the same function; keep the two in step.
+static double _glare_lod_for_sigma(double p_sigma_frame, double p_chain_height, const Vector2 &p_chain_blur, double p_max_lod) {
+	const double s2 = Math::pow(p_sigma_frame * p_chain_height, 2.0) / p_chain_blur.y; // In units of B.
+	const double a = p_chain_blur.x / p_chain_blur.y;
+	const double v = s2 - a; // 4^L for a sigma lod L gives exactly.
+	if (v <= 1.0) {
+		return 0.0;
+	}
+	const double lod = Math::floor(0.5 * Math::log2(v));
+	if (lod >= p_max_lod) {
+		return p_max_lod;
+	}
+	const double lower = 1.0 / Math::pow(1.0 + (a + Math::pow(4.0, lod)) / s2, 2.0);
+	const double upper = 1.0 / Math::pow(1.0 + (a + Math::pow(4.0, lod + 1.0)) / s2, 2.0);
+	return MIN(lod + CLAMP((0.25 - lower) / (upper - lower), 0.0, 1.0), p_max_lod);
 }
 
 // Glare: light that leaves the path an ideal lens would give it. Every effect is a point spread function convolved
@@ -1056,7 +1073,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 	const double aspect = double(size.x) / double(size.y);
 	const double chain_h = p_context.glare_chain_size.y;
 	const double max_lod = p_context.glare_chain_mipmaps - 1;
-	const double chain_sigma = MAX(double(p_context.glare_chain_sigma), 0.01);
+	const Vector2 chain_blur = Vector2(p_context.glare_chain_blur.x, MAX(p_context.glare_chain_blur.y, 0.01f));
 	const bool physical = p_attributes && p_attributes->lens_focal_length > 0.0f;
 	const double squeeze = physical ? p_attributes->lens_anamorphic_squeeze : 1.0;
 
@@ -1064,7 +1081,12 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 	r_ubo.glare[1][2] = 1.0 / p_context.glare_chain_size.x;
 	r_ubo.glare[1][3] = 1.0 / p_context.glare_chain_size.y;
 	r_ubo.glare[2][2] = max_lod;
-	r_ubo.glare[5][0] = chain_h / chain_sigma; // lod = log2(sigma in frame heights * this).
+	// The chain's blur for camera_glare_lod(): sigma in frame heights times x is in units of sqrt(B) lod 0 texels, and
+	// z = A / B. w says which chain it is: the raster chain's levels sit where its downsample put them, not at their
+	// UVs (camera_glare_fetch()).
+	r_ubo.glare[5][0] = chain_h / Math::sqrt(double(chain_blur.y));
+	r_ubo.glare[5][2] = chain_blur.x / chain_blur.y;
+	r_ubo.glare[5][3] = p_context.glare_chain_raster ? 1.0 : 0.0;
 
 	if (bits & GLARE_LENS_FLARE) {
 		// Ghosts: light reflected twice between lens surfaces lands mirrored through the frame's center, scaled and
@@ -1098,7 +1120,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 		// keeps its shadows dark. Both are look choices from the makers' sample frames, not measurements.
 		const bool black = bits & GLARE_DIFFUSION_BLACK;
 		r_ubo.glare[2][1] = MIN((black ? 0.075 : 0.15) * env.diffusion_filter_strength, 0.75);
-		r_ubo.glare[2][3] = _glare_lod_for_sigma(black ? 0.005 : 0.01, chain_h, chain_sigma, max_lod);
+		r_ubo.glare[2][3] = black ? 0.005 : 0.01; // The first octave's sigma, in frame heights (the shader takes lods).
 	}
 
 	// The lens the camera's effects derive from. Without one: a 50 mm lens at f/8 on a 24 mm tall frame (look choice).
@@ -1147,7 +1169,7 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
 		// the frame's overall color does not change.
 		const double sigma_mm = 0.112 * p_attributes->halation_radius;
 		r_ubo.glare[4][2] = MIN(0.08 * p_attributes->halation_strength, 0.95);
-		r_ubo.glare[4][3] = _glare_lod_for_sigma(sigma_mm / frame_h, chain_h, chain_sigma, max_lod);
+		r_ubo.glare[4][3] = _glare_lod_for_sigma(sigma_mm / frame_h, chain_h, chain_blur, max_lod);
 	}
 
 	r_ubo.header[1] = bits;
