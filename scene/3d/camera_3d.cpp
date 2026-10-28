@@ -154,8 +154,8 @@ void Camera3D::_validate_property(PropertyInfo &p_property) const {
 
 	// A monitoring overlay's settings show while it is on.
 	if (p_property.name.begins_with("monitoring_")) {
-		if ((p_property.name.begins_with("monitoring_zebras_level") && !monitoring_zebras_enabled) ||
-				(p_property.name == "monitoring_zebras_second_level" && !monitoring_zebras_second_enabled) ||
+		if (((p_property.name == "monitoring_zebras_level" || p_property.name == "monitoring_zebras_color") && !monitoring_zebras_enabled) ||
+				((p_property.name == "monitoring_zebras_second_level" || p_property.name == "monitoring_zebras_second_color") && !monitoring_zebras_second_enabled) ||
 				(p_property.name.begins_with("monitoring_focus_peaking_") && p_property.name != "monitoring_focus_peaking_enabled" && !monitoring_focus_peaking_enabled) ||
 				(p_property.name.begins_with("monitoring_histogram_") && p_property.name != "monitoring_histogram_enabled" && !monitoring_histogram_enabled)) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
@@ -204,7 +204,7 @@ void Camera3D::set_desired_process_modes(bool p_process_internal, bool p_physics
 
 void Camera3D::_update_process_mode() {
 	// Autofocus and handheld shake run per frame; with both off, a camera costs nothing more than before.
-	set_process_internal(_desired_process_internal || shake_enabled || autofocus_mode != AUTOFOCUS_MODE_MANUAL);
+	set_process_internal(_desired_process_internal || _shake_active() || autofocus_mode != AUTOFOCUS_MODE_MANUAL);
 	set_physics_process_internal(_desired_physics_process_internal);
 }
 
@@ -283,7 +283,7 @@ void Camera3D::_notification(int p_what) {
 		case NOTIFICATION_INTERNAL_PROCESS: {
 			const double delta = get_process_delta_time();
 			// Shake first, so autofocus measures through the lens where it points this frame.
-			if (shake_enabled) {
+			if (_shake_active()) {
 				_shake_process(delta);
 			}
 			if (autofocus_mode != AUTOFOCUS_MODE_MANUAL) {
@@ -312,7 +312,7 @@ Transform3D Camera3D::_get_adjusted_camera_transform(const Transform3D &p_xform)
 	Transform3D tr = p_xform.orthonormalized();
 	tr.origin += tr.basis.get_column(1) * v_offset;
 	tr.origin += tr.basis.get_column(0) * h_offset;
-	if (shake_enabled) {
+	if (_shake_active()) {
 		// The shake is an offset in the camera's own frame on top of the node's transform, which stays untouched.
 		tr = tr * shake_offset;
 	}
@@ -755,6 +755,7 @@ void Camera3D::_update_monitoring() {
 	const bool show = monitoring_visible_in_output || Engine::get_singleton()->is_editor_hint();
 	RenderingServer *rs = RenderingServer::get_singleton();
 	rs->camera_set_monitoring_zebras(camera, show && monitoring_zebras_enabled, monitoring_zebras_level, show && monitoring_zebras_second_enabled, monitoring_zebras_second_level);
+	rs->camera_set_monitoring_zebra_colors(camera, monitoring_zebras_color, monitoring_zebras_second_color);
 	rs->camera_set_monitoring_focus_peaking(camera, show && monitoring_focus_peaking_enabled, monitoring_focus_peaking_color, monitoring_focus_peaking_sensitivity);
 	rs->camera_set_monitoring_false_color(camera, show && monitoring_false_color_enabled);
 	rs->camera_set_monitoring_histogram(camera, show && monitoring_histogram_enabled, RSE::CameraMonitoringHistogramMode(monitoring_histogram_mode), RSE::CameraMonitoringHistogramPosition(monitoring_histogram_position), monitoring_histogram_size, monitoring_histogram_opacity);
@@ -787,6 +788,24 @@ MONITORING_ACCESSORS(float, set_monitoring_histogram_size, get_monitoring_histog
 MONITORING_ACCESSORS(float, set_monitoring_histogram_opacity, get_monitoring_histogram_opacity, monitoring_histogram_opacity, false, CLAMP(p_value, 0.0f, 1.0f))
 
 #undef MONITORING_ACCESSORS
+
+void Camera3D::set_monitoring_zebras_color(const Color &p_color) {
+	monitoring_zebras_color = p_color;
+	_update_monitoring();
+}
+
+Color Camera3D::get_monitoring_zebras_color() const {
+	return monitoring_zebras_color;
+}
+
+void Camera3D::set_monitoring_zebras_second_color(const Color &p_color) {
+	monitoring_zebras_second_color = p_color;
+	_update_monitoring();
+}
+
+Color Camera3D::get_monitoring_zebras_second_color() const {
+	return monitoring_zebras_second_color;
+}
 
 void Camera3D::set_monitoring_focus_peaking_color(const Color &p_color) {
 	monitoring_focus_peaking_color = p_color;
@@ -865,6 +884,10 @@ void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_monitoring_zebras_second_level"), &Camera3D::get_monitoring_zebras_second_level);
 	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_enabled", "enabled"), &Camera3D::set_monitoring_focus_peaking_enabled);
 	ClassDB::bind_method(D_METHOD("is_monitoring_focus_peaking_enabled"), &Camera3D::is_monitoring_focus_peaking_enabled);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_color", "color"), &Camera3D::set_monitoring_zebras_color);
+	ClassDB::bind_method(D_METHOD("get_monitoring_zebras_color"), &Camera3D::get_monitoring_zebras_color);
+	ClassDB::bind_method(D_METHOD("set_monitoring_zebras_second_color", "color"), &Camera3D::set_monitoring_zebras_second_color);
+	ClassDB::bind_method(D_METHOD("get_monitoring_zebras_second_color"), &Camera3D::get_monitoring_zebras_second_color);
 	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_color", "color"), &Camera3D::set_monitoring_focus_peaking_color);
 	ClassDB::bind_method(D_METHOD("get_monitoring_focus_peaking_color"), &Camera3D::get_monitoring_focus_peaking_color);
 	ClassDB::bind_method(D_METHOD("set_monitoring_focus_peaking_sensitivity", "sensitivity"), &Camera3D::set_monitoring_focus_peaking_sensitivity);
@@ -903,8 +926,10 @@ void Camera3D::_bind_methods() {
 	ADD_SUBGROUP("Zebras", "monitoring_zebras_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_zebras_enabled"), "set_monitoring_zebras_enabled", "is_monitoring_zebras_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_zebras_level", PROPERTY_HINT_RANGE, "0,109,0.5,suffix:IRE"), "set_monitoring_zebras_level", "get_monitoring_zebras_level");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "monitoring_zebras_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_monitoring_zebras_color", "get_monitoring_zebras_color");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_zebras_second_enabled"), "set_monitoring_zebras_second_enabled", "is_monitoring_zebras_second_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_zebras_second_level", PROPERTY_HINT_RANGE, "0,109,0.5,suffix:IRE"), "set_monitoring_zebras_second_level", "get_monitoring_zebras_second_level");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "monitoring_zebras_second_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_monitoring_zebras_second_color", "get_monitoring_zebras_second_color");
 	ADD_SUBGROUP("Focus Peaking", "monitoring_focus_peaking_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_focus_peaking_enabled"), "set_monitoring_focus_peaking_enabled", "is_monitoring_focus_peaking_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "monitoring_focus_peaking_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_monitoring_focus_peaking_color", "get_monitoring_focus_peaking_color");
@@ -985,9 +1010,15 @@ void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_shake_scale_with_focal_length", "enabled"), &Camera3D::set_shake_scale_with_focal_length);
 	ClassDB::bind_method(D_METHOD("is_shake_scale_with_focal_length"), &Camera3D::is_shake_scale_with_focal_length);
 	ClassDB::bind_method(D_METHOD("get_shake_offset"), &Camera3D::get_shake_offset);
+	ClassDB::bind_method(D_METHOD("set_shake_visible_in_editor", "visible"), &Camera3D::set_shake_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("is_shake_visible_in_editor"), &Camera3D::is_shake_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("set_shake_preset", "preset"), &Camera3D::set_shake_preset);
+	ClassDB::bind_method(D_METHOD("get_shake_preset"), &Camera3D::get_shake_preset);
 
 	ADD_GROUP("Handheld Shake", "shake_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shake_enabled"), "set_shake_enabled", "is_shake_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shake_visible_in_editor"), "set_shake_visible_in_editor", "is_shake_visible_in_editor");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shake_preset", PROPERTY_HINT_ENUM, "Custom,Handheld,Handheld Stabilized,Handheld Walking,Running,Shoulder Rig,Gimbal,Tripod in Wind,Vehicle Mount"), "set_shake_preset", "get_shake_preset");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shake_seed"), "set_shake_seed", "get_shake_seed");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_rotation_amplitude", PROPERTY_HINT_RANGE, "0,5,0.001,or_greater,degrees"), "set_shake_rotation_amplitude", "get_shake_rotation_amplitude");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "shake_rotation_frequency", PROPERTY_HINT_RANGE, "0,20,0.01,or_greater,suffix:Hz"), "set_shake_rotation_frequency", "get_shake_rotation_frequency");
@@ -997,6 +1028,17 @@ void Camera3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shake_breathing_frequency", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater,suffix:Hz"), "set_shake_breathing_frequency", "get_shake_breathing_frequency");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shake_stabilization", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_shake_stabilization", "get_shake_stabilization");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shake_scale_with_focal_length"), "set_shake_scale_with_focal_length", "is_shake_scale_with_focal_length");
+
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_CUSTOM);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_HANDHELD);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_HANDHELD_STABILIZED);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_HANDHELD_WALKING);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_RUNNING);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_SHOULDER_RIG);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_GIMBAL);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_TRIPOD_WIND);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_VEHICLE_MOUNT);
+	BIND_ENUM_CONSTANT(SHAKE_PRESET_MAX);
 
 	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_LUMA);
 	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_RGB);
@@ -1658,6 +1700,7 @@ int Camera3D::get_shake_seed() const {
 
 void Camera3D::set_shake_rotation_amplitude(const Vector3 &p_degrees) {
 	shake_rotation_amplitude = p_degrees;
+	_shake_value_changed();
 }
 
 Vector3 Camera3D::get_shake_rotation_amplitude() const {
@@ -1666,6 +1709,7 @@ Vector3 Camera3D::get_shake_rotation_amplitude() const {
 
 void Camera3D::set_shake_rotation_frequency(const Vector3 &p_hz) {
 	shake_rotation_frequency = p_hz;
+	_shake_value_changed();
 }
 
 Vector3 Camera3D::get_shake_rotation_frequency() const {
@@ -1674,6 +1718,7 @@ Vector3 Camera3D::get_shake_rotation_frequency() const {
 
 void Camera3D::set_shake_position_amplitude(const Vector3 &p_meters) {
 	shake_position_amplitude = p_meters;
+	_shake_value_changed();
 }
 
 Vector3 Camera3D::get_shake_position_amplitude() const {
@@ -1682,6 +1727,7 @@ Vector3 Camera3D::get_shake_position_amplitude() const {
 
 void Camera3D::set_shake_position_frequency(const Vector3 &p_hz) {
 	shake_position_frequency = p_hz;
+	_shake_value_changed();
 }
 
 Vector3 Camera3D::get_shake_position_frequency() const {
@@ -1690,6 +1736,7 @@ Vector3 Camera3D::get_shake_position_frequency() const {
 
 void Camera3D::set_shake_breathing_amplitude(real_t p_degrees) {
 	shake_breathing_amplitude = p_degrees;
+	_shake_value_changed();
 }
 
 real_t Camera3D::get_shake_breathing_amplitude() const {
@@ -1698,6 +1745,7 @@ real_t Camera3D::get_shake_breathing_amplitude() const {
 
 void Camera3D::set_shake_breathing_frequency(real_t p_hz) {
 	shake_breathing_frequency = p_hz;
+	_shake_value_changed();
 }
 
 real_t Camera3D::get_shake_breathing_frequency() const {
@@ -1706,6 +1754,7 @@ real_t Camera3D::get_shake_breathing_frequency() const {
 
 void Camera3D::set_shake_stabilization(real_t p_strength) {
 	shake_stabilization = CLAMP(p_strength, (real_t)0.0, (real_t)1.0);
+	_shake_value_changed();
 }
 
 real_t Camera3D::get_shake_stabilization() const {
@@ -1714,6 +1763,7 @@ real_t Camera3D::get_shake_stabilization() const {
 
 void Camera3D::set_shake_scale_with_focal_length(bool p_enabled) {
 	shake_scale_with_focal_length = p_enabled;
+	_shake_value_changed();
 }
 
 bool Camera3D::is_shake_scale_with_focal_length() const {
@@ -1721,7 +1771,132 @@ bool Camera3D::is_shake_scale_with_focal_length() const {
 }
 
 Transform3D Camera3D::get_shake_offset() const {
-	return shake_enabled ? shake_offset : Transform3D();
+	return _shake_active() ? shake_offset : Transform3D();
+}
+
+// In the editor the shake would move the 3D viewport's camera preview and the Camera3D inspector preview while the user
+// frames the shot, so it runs there only with Visible in Editor ticked. A running project always shakes.
+bool Camera3D::_shake_active() const {
+	return shake_enabled && (shake_visible_in_editor || !Engine::get_singleton()->is_editor_hint());
+}
+
+void Camera3D::set_shake_visible_in_editor(bool p_visible) {
+	if (shake_visible_in_editor == p_visible) {
+		return;
+	}
+	shake_visible_in_editor = p_visible;
+	shake_offset = Transform3D();
+	_update_process_mode();
+	_update_camera();
+}
+
+bool Camera3D::is_shake_visible_in_editor() const {
+	return shake_visible_in_editor;
+}
+
+/* Handheld shake presets
+ *
+ * Each preset writes every shake setting except the seed. Rotation is (pitch, yaw, roll) in degrees RMS and position
+ * (right, up, back) in meters RMS, each with the center of its two-octave band (see _shake_seed_partials()). The model
+ * has one band per axis, so a preset gives each axis the motion that dominates it. Sources:
+ * - Hand shake while holding a camera still: CIPA DC-X011-2012 (image stabilization measurement) models it from
+ *   measured hand-shake data with most energy between ~1 and ~10 Hz; the angle over a 1/8-1/30 s exposure is a few
+ *   hundredths of a degree, which is 0.1-0.2 degree RMS over the band. Physiological tremor (8-12 Hz) is ~10x smaller
+ *   and is not modeled separately.
+ * - Standing sway: quiet-stance postural sway is a few millimeters RMS with a mean frequency of ~0.3-0.5 Hz (Prieto et al.
+ *   1996, "Measures of postural steadiness", IEEE Trans. Biomed. Eng. 43(9)).
+ * - Breathing: 12-20 breaths a minute at rest (0.2-0.33 Hz), ~25 walking, 35-45 running.
+ * - Walking: step frequency ~2 Hz (Pachi and Ji 2005, "Frequency and velocity of people walking", The Structural
+ *   Engineer 83(3): mean 1.87-2.0 Hz); vertical head travel 2-4 cm peak to peak with head pitch of a few degrees at the
+ *   step frequency, and lateral sway at the stride frequency, half of it (Hirasaki et al. 1999, "Effects of walking
+ *   velocity on vertical head and body movements during locomotion", Exp. Brain Res. 127). The hands absorb part of it.
+ * - Running: step frequency 2.7-3 Hz (Cavanagh and Kram 1989, "Stride length in distance running", Med. Sci. Sports
+ *   Exerc. 21(4)); vertical center-of-mass travel 6-10 cm peak to peak.
+ * - Vehicles: sprung-mass bounce and pitch at 1-1.5 Hz, wheel hop at 10-15 Hz (Gillespie 1992, "Fundamentals of
+ *   Vehicle Dynamics", ch. 5).
+ * - Tripods: a loaded tripod and head ring at roughly 8-20 Hz when wind or a touch excites them; the amplitude is a
+ *   look choice for a light breeze.
+ * Amplitudes for shoulder rigs and gimbals (residual drift, unstabilized walking bob) are look choices within those
+ * ranges: a rig's mass lowers and slows the motion, a gimbal removes rotation but not translation.
+ */
+
+struct ShakePresetValues {
+	real_t rotation_amplitude[3];
+	real_t rotation_frequency[3];
+	real_t position_amplitude[3];
+	real_t position_frequency[3];
+	real_t breathing_amplitude;
+	real_t breathing_frequency;
+	real_t stabilization;
+	bool scale_with_focal_length;
+};
+
+static const ShakePresetValues shake_presets[Camera3D::SHAKE_PRESET_MAX] = {
+	// Custom: not applied; listed so the table is indexed by the enum.
+	{ { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, 0, 0, 0, true },
+	// Handheld: standing still, stills grip. CIPA hand-shake band, postural sway, resting breath.
+	{ { 0.12, 0.12, 0.06 }, { 3.0, 3.0, 2.5 }, { 0.001, 0.001, 0.0005 }, { 0.5, 0.5, 0.5 }, 0.1, 0.25, 0.0, true },
+	// Handheld, stabilized: the same with a lens or sensor-shift stabilizer at 0.8 (about 2.3 stops on the 1-10 Hz
+	// band, inside the 2-5 stops CIPA ratings report; a look choice).
+	{ { 0.12, 0.12, 0.06 }, { 3.0, 3.0, 2.5 }, { 0.001, 0.001, 0.0005 }, { 0.5, 0.5, 0.5 }, 0.1, 0.25, 0.8, true },
+	// Handheld walking: pitch and vertical bob at the step frequency, yaw, roll and lateral sway at the stride frequency.
+	{ { 0.8, 0.6, 0.5 }, { 2.0, 1.0, 1.0 }, { 0.008, 0.012, 0.005 }, { 1.0, 2.0, 2.0 }, 0.15, 0.4, 0.0, true },
+	// Running / action: the same pattern at a running step frequency, larger, with fast breathing.
+	{ { 2.0, 1.5, 1.5 }, { 2.8, 1.4, 1.4 }, { 0.015, 0.03, 0.01 }, { 1.4, 2.8, 2.8 }, 0.3, 0.7, 0.0, true },
+	// Shoulder rig: braced on the shoulder, so slow body sway rather than hand shake; breathing moves the shoulder.
+	{ { 0.15, 0.2, 0.2 }, { 1.2, 1.0, 0.8 }, { 0.003, 0.003, 0.002 }, { 0.8, 0.8, 0.8 }, 0.12, 0.25, 0.0, true },
+	// Gimbal / stabilizer while walking: slow residual rotation drift; the walking bob passes through, damped by the arms.
+	{ { 0.03, 0.03, 0.02 }, { 0.5, 0.5, 0.5 }, { 0.004, 0.006, 0.003 }, { 1.0, 2.0, 2.0 }, 0.0, 0.25, 0.0, true },
+	// Tripod in wind: no operator, a small vibration at the tripod's resonance.
+	{ { 0.03, 0.03, 0.01 }, { 10.0, 10.0, 10.0 }, { 0.0002, 0.0002, 0.0001 }, { 10.0, 10.0, 10.0 }, 0.0, 0.25, 0.0, true },
+	// Vehicle mount: body bounce, pitch and roll at the ride frequency; yaw buzz from wheel hop through the mount.
+	{ { 0.3, 0.1, 0.3 }, { 1.2, 8.0, 1.0 }, { 0.003, 0.01, 0.003 }, { 1.0, 1.2, 1.2 }, 0.0, 0.25, 0.0, true },
+};
+
+void Camera3D::set_shake_preset(ShakePreset p_preset) {
+	ERR_FAIL_INDEX(p_preset, SHAKE_PRESET_MAX);
+	shake_preset = p_preset;
+	if (p_preset != SHAKE_PRESET_CUSTOM) {
+		const ShakePresetValues &v = shake_presets[p_preset];
+		shake_applying_preset = true;
+		set_shake_rotation_amplitude(Vector3(v.rotation_amplitude[0], v.rotation_amplitude[1], v.rotation_amplitude[2]));
+		set_shake_rotation_frequency(Vector3(v.rotation_frequency[0], v.rotation_frequency[1], v.rotation_frequency[2]));
+		set_shake_position_amplitude(Vector3(v.position_amplitude[0], v.position_amplitude[1], v.position_amplitude[2]));
+		set_shake_position_frequency(Vector3(v.position_frequency[0], v.position_frequency[1], v.position_frequency[2]));
+		set_shake_breathing_amplitude(v.breathing_amplitude);
+		set_shake_breathing_frequency(v.breathing_frequency);
+		set_shake_stabilization(v.stabilization);
+		set_shake_scale_with_focal_length(v.scale_with_focal_length);
+		shake_applying_preset = false;
+	}
+	notify_property_list_changed();
+}
+
+Camera3D::ShakePreset Camera3D::get_shake_preset() const {
+	return shake_preset;
+}
+
+// Exact comparison: a saved float reads back bit-exact, so a loaded scene matches its preset, and any edit does not.
+bool Camera3D::_shake_matches_preset() const {
+	const ShakePresetValues &v = shake_presets[shake_preset];
+	return shake_rotation_amplitude == Vector3(v.rotation_amplitude[0], v.rotation_amplitude[1], v.rotation_amplitude[2]) &&
+			shake_rotation_frequency == Vector3(v.rotation_frequency[0], v.rotation_frequency[1], v.rotation_frequency[2]) &&
+			shake_position_amplitude == Vector3(v.position_amplitude[0], v.position_amplitude[1], v.position_amplitude[2]) &&
+			shake_position_frequency == Vector3(v.position_frequency[0], v.position_frequency[1], v.position_frequency[2]) &&
+			shake_breathing_amplitude == v.breathing_amplitude &&
+			shake_breathing_frequency == v.breathing_frequency &&
+			shake_stabilization == v.stabilization &&
+			shake_scale_with_focal_length == v.scale_with_focal_length;
+}
+
+// Editing a value a preset set makes the settings the user's own: the preset becomes Custom. A value set to what the
+// preset already has (as loading a saved scene does, after the preset) keeps the preset.
+void Camera3D::_shake_value_changed() {
+	if (shake_applying_preset || shake_preset == SHAKE_PRESET_CUSTOM || _shake_matches_preset()) {
+		return;
+	}
+	shake_preset = SHAKE_PRESET_CUSTOM;
+	notify_property_list_changed();
 }
 
 Camera3D::Camera3D() {

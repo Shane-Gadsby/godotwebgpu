@@ -177,6 +177,10 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 			shader.version_set_uniform(CameraFinishShaderGLES3::PEAKING_THRESHOLD, 0.4f - 0.37f * monitoring.focus_peaking_sensitivity, shader_version, mode, specialization);
 			const Color &c = monitoring.focus_peaking_color;
 			shader.version_set_uniform(CameraFinishShaderGLES3::PEAKING_COLOR, Vector3(c.r, c.g, c.b), shader_version, mode, specialization);
+			const Color &zc = monitoring.zebras_color;
+			shader.version_set_uniform(CameraFinishShaderGLES3::ZEBRAS_COLOR, Vector3(zc.r, zc.g, zc.b), shader_version, mode, specialization);
+			const Color &zc2 = monitoring.zebras_second_color;
+			shader.version_set_uniform(CameraFinishShaderGLES3::ZEBRAS_SECOND_COLOR, Vector3(zc2.r, zc2.g, zc2.b), shader_version, mode, specialization);
 		}
 
 		glBindVertexArray(screen_triangle_array);

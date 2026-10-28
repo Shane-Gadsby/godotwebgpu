@@ -420,8 +420,35 @@ float CameraAttributes::get_motion_blur_max_length() const {
 	return motion_blur_max_length;
 }
 
+// Motion blur and rolling shutter in the editor: they come from the camera's motion, so in the editor they smear and
+// skew the 3D viewport whenever the user navigates it, which hides what is being edited. Unlike DOF or grain they are
+// therefore off in the editor unless the user ticks Visible in Editor; a running project always gets them.
+bool CameraAttributes::_camera_motion_shows(bool p_visible_in_editor) const {
+	return p_visible_in_editor || !Engine::get_singleton()->is_editor_hint();
+}
+
+void CameraAttributes::set_motion_blur_visible_in_editor(bool p_visible) {
+	motion_blur_visible_in_editor = p_visible;
+	_update_motion_blur();
+	emit_changed();
+}
+
+bool CameraAttributes::is_motion_blur_visible_in_editor() const {
+	return motion_blur_visible_in_editor;
+}
+
+void CameraAttributes::set_rolling_shutter_visible_in_editor(bool p_visible) {
+	rolling_shutter_visible_in_editor = p_visible;
+	_update_rolling_shutter();
+	emit_changed();
+}
+
+bool CameraAttributes::is_rolling_shutter_visible_in_editor() const {
+	return rolling_shutter_visible_in_editor;
+}
+
 void CameraAttributes::_update_motion_blur() {
-	RS::get_singleton()->camera_attributes_set_motion_blur(camera_attributes, motion_blur_enabled, motion_blur_shutter_angle, _get_motion_blur_shutter_time(), motion_blur_strength, motion_blur_max_length);
+	RS::get_singleton()->camera_attributes_set_motion_blur(camera_attributes, motion_blur_enabled && _camera_motion_shows(motion_blur_visible_in_editor), motion_blur_shutter_angle, _get_motion_blur_shutter_time(), motion_blur_strength, motion_blur_max_length);
 }
 
 void CameraAttributes::set_rolling_shutter_enabled(bool p_enabled) {
@@ -446,7 +473,7 @@ float CameraAttributes::get_rolling_shutter_readout_time() const {
 }
 
 void CameraAttributes::_update_rolling_shutter() {
-	RS::get_singleton()->camera_attributes_set_rolling_shutter(camera_attributes, rolling_shutter_enabled, rolling_shutter_readout_time);
+	RS::get_singleton()->camera_attributes_set_rolling_shutter(camera_attributes, rolling_shutter_enabled && _camera_motion_shows(rolling_shutter_visible_in_editor), rolling_shutter_readout_time);
 }
 
 // Lens optics: the effects themselves are described in RendererCameraAttributes (camera_attributes_storage.cpp) and
@@ -715,6 +742,10 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_rolling_shutter_enabled"), &CameraAttributes::is_rolling_shutter_enabled);
 	ClassDB::bind_method(D_METHOD("set_rolling_shutter_readout_time", "time"), &CameraAttributes::set_rolling_shutter_readout_time);
 	ClassDB::bind_method(D_METHOD("get_rolling_shutter_readout_time"), &CameraAttributes::get_rolling_shutter_readout_time);
+	ClassDB::bind_method(D_METHOD("set_motion_blur_visible_in_editor", "visible"), &CameraAttributes::set_motion_blur_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("is_motion_blur_visible_in_editor"), &CameraAttributes::is_motion_blur_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("set_rolling_shutter_visible_in_editor", "visible"), &CameraAttributes::set_rolling_shutter_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("is_rolling_shutter_visible_in_editor"), &CameraAttributes::is_rolling_shutter_visible_in_editor);
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
@@ -804,10 +835,12 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_shutter_angle", PROPERTY_HINT_RANGE, "1,360,0.1,degrees"), "set_motion_blur_shutter_angle", "get_motion_blur_shutter_angle");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_motion_blur_strength", "get_motion_blur_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_max_length", PROPERTY_HINT_RANGE, "0.001,0.25,0.001,or_greater"), "set_motion_blur_max_length", "get_motion_blur_max_length");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_visible_in_editor"), "set_motion_blur_visible_in_editor", "is_motion_blur_visible_in_editor");
 
 	ADD_GROUP("Rolling Shutter", "rolling_shutter_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rolling_shutter_enabled", "is_rolling_shutter_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rolling_shutter_readout_time", PROPERTY_HINT_RANGE, "0,50,0.1,or_greater,suffix:ms"), "set_rolling_shutter_readout_time", "get_rolling_shutter_readout_time");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_visible_in_editor"), "set_rolling_shutter_visible_in_editor", "is_rolling_shutter_visible_in_editor");
 
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);

@@ -1,0 +1,6 @@
+config_version=5
+
+[application]
+
+config/name="t39"
+config/features=PackedStringArray("4.8")

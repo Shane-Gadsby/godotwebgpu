@@ -197,6 +197,13 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 			if (monitoring.zebras_second) {
 				push_constant.flags |= FLAG_ZEBRAS_SECOND;
 			}
+			// Display-encoded stripe colors, written as they are (as the focus peaking color is).
+			for (int c = 0; c < 3; c++) {
+				push_constant.zebras_color[c] = monitoring.zebras_color[c];
+				push_constant.zebras_second_color[c] = monitoring.zebras_second_color[c];
+			}
+			push_constant.zebras_color[3] = 1.0f;
+			push_constant.zebras_second_color[3] = 1.0f;
 			if (monitoring.false_color) {
 				push_constant.flags |= FLAG_FALSE_COLOR;
 			}

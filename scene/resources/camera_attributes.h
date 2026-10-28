@@ -113,6 +113,9 @@ protected:
 	float motion_blur_max_length = 0.05; // Fraction of the frame height.
 	bool rolling_shutter_enabled = false;
 	float rolling_shutter_readout_time = 20.0; // In milliseconds.
+	bool motion_blur_visible_in_editor = false;
+	bool rolling_shutter_visible_in_editor = false;
+	bool _camera_motion_shows(bool p_visible_in_editor) const;
 	void _update_motion_blur();
 	void _update_rolling_shutter();
 	// The exposure time motion blur uses, in seconds, or 0 to use the shutter angle.
@@ -233,6 +236,10 @@ public:
 	bool is_rolling_shutter_enabled() const;
 	void set_rolling_shutter_readout_time(float p_time);
 	float get_rolling_shutter_readout_time() const;
+	void set_motion_blur_visible_in_editor(bool p_visible);
+	bool is_motion_blur_visible_in_editor() const;
+	void set_rolling_shutter_visible_in_editor(bool p_visible);
+	bool is_rolling_shutter_visible_in_editor() const;
 
 	void set_vignetting_enabled(bool p_enabled);
 	bool is_vignetting_enabled() const;

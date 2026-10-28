@@ -1,0 +1,6 @@
+against the stored reference: 570/570 identical, 0 differ, 0 missing, 0 not in reference
+== Chrome validation
+adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,"features":["shader-f16","subgroups","clip-distances","dual-source-blending"]}
+/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w39/smoke/smoke-20261028-100138-475963/wgsl: 285 files, 0 invalid
+validation: 285 modules, 0 invalid, 0 of them expected
+SMOKE OK (smoke-20261028-100138-475963)
