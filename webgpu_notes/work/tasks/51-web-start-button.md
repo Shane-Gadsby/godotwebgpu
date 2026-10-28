@@ -28,7 +28,7 @@ the same loading screen, progress bar and stages.
 |---|---|---|---|
 | `html/start_button/enabled` | bool | **false** | always |
 | `html/start_button/text` | String | `"Start"` | only when enabled |
-| `html/start_button/background_color` | Color | a neutral dark grey | only when enabled |
+| `html/start_button/background_color` | Color | a neutral dark gray | only when enabled |
 | `html/start_button/text_color` | Color | white | only when enabled |
 
 - Declare `enabled` with `update_visibility = true` (the third `ExportOption` argument, as for
@@ -40,10 +40,10 @@ the same loading screen, progress bar and stages.
   should parse and document the new key like the other `html/` ones.
 - Class/export docs: describe each option, and say that the press counts as a user gesture inside the page.
 
-### Shell behaviour (`misc/dist/html/full-size.html`)
+### Shell behavior (`misc/dist/html/full-size.html`)
 
 - Show the start screen as a new status mode (camera-sim adds a `'start'` mode to `setStatusMode()`): the
-  splash, then the button, centred like the loading column.
+  splash, then the button, centered like the loading column.
 - **Keep the missing-features check at page load.** A browser without WebGPU gets the error notice straight
   away, not a Start button that fails.
 - **Don't focus the button on load.** In an iframe, that scrolls the parent page to the game.
@@ -62,7 +62,7 @@ the same loading screen, progress bar and stages.
 
   After the press, startup runs as usual, with the loading screen and its stages.
 - The same inside a cross-origin iframe: no scroll jump in the parent on load.
-- The text and colours from the options show up, checked in a screenshot.
+- The text and colors from the options show up, checked in a screenshot.
 - In the export dialog, the three sub-options appear and disappear with the tick box.
 - Test script to adapt: `test-scripts/start_test.mjs` (two origins: parent on `localhost:8701`, game on
   `127.0.0.1:8702`, with an optional throttled server).

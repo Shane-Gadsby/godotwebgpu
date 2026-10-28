@@ -29,7 +29,7 @@ adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,
 [log] W66DONE
 68/68 passed (chrome)
 sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 96x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, i
-sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, 
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture,
 WebGPU validation messages: 0 -> ok
 unexpected console errors: 0 -> ok
 sync readback warnings: 2 (debug, expected one for each of 96x7 and 333x7) -> ok
@@ -50,7 +50,7 @@ adapter (firefox): {"vendor":"","architecture":"","fallback":false,"maxSampled":
 [log] W66DONE
 68/68 passed (firefox)
 sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 96x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, i
-sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, 
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture,
 WebGPU validation messages: 0 -> ok
 unexpected console errors: 0 -> ok
 sync readback warnings: 2 (debug, expected one for each of 96x7 and 333x7) -> ok

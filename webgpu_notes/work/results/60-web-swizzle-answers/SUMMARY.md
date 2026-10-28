@@ -35,7 +35,7 @@ candidate, no questions. `for-docs.md`: wiki text replacing "One difference rema
     Forward+ with MSAA + HDR 2D. Transparent cells identical before and after.
   - Texture2DRD on the web: `RS.texture_get_format()` 2 / 3 (R8 / RG8), `get_image()` R8 (0.6, 0, 0, 1) / RG8
     (0.6, 0.784, 0, 1), drawn (153, 0, 0) / (153, 200, 0); the driver's dropped-swizzle warning 0 times (2 before:
-    R8 RRR1, R8G8 RRRG). Natively unchanged (L8 / LA8, grey).
+    R8 RRR1, R8G8 RRRG). Natively unchanged (L8 / LA8, gray).
   - Native `get_image()` of an opaque viewport reads alpha 1 even with clear alpha 0.5 (2D-only viewport, measured);
     the web now stores 1, so they agree (web readback not separately checked).
 - Forward+ matrix `--parity` (fresh exports from this tree's template_debug), arms tonemap, tonemap_custom, glow,

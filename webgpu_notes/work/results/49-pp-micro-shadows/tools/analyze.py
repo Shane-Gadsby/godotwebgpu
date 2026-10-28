@@ -28,7 +28,12 @@ off, on = load(off_p), load(on_p)
 
 px = np.arange(S)
 tex = px * NT // S  # nearest texel under each pixel center
-q = lambda v: np.round(v * 255.0) / 255.0  # 8-bit texture storage
+
+
+def q(v):
+    return np.round(v * 255.0) / 255.0  # 8-bit texture storage
+
+
 ao = q((tex + 0.5) / NT)  # along x (columns)
 t = np.deg2rad(-TILT_MAX + (tex + 0.5) / NT * 2 * TILT_MAX)
 ny = q(np.sin(t) * 0.5 + 0.5) * 2 - 1 if use_normal else np.zeros(S)
@@ -39,7 +44,7 @@ best = None
 for sgn in (1, -1):  # which way the binormal points / the rows run: pick the one the off image agrees with
     for flip in (False, True):
         nyy = ny[::-1] if flip else ny
-        ndl = nz_rec[::-1 if flip else 1] * np.sin(e) + sgn * nyy * np.cos(e)  # rows
+        ndl = nz_rec[:: -1 if flip else 1] * np.sin(e) + sgn * nyy * np.cos(e)  # rows
         ndl_img = np.repeat(ndl[:, None], S, axis=1)
         m = off > 0.02
         k = np.median(off[m] / np.maximum(ndl_img[m], 1e-4))
@@ -57,7 +62,9 @@ for flipx in (False, True):  # which way u runs across the screen
     res.append((np.abs(meas - model[m]).mean(), flipx, model))
 _, flipx, model = min(res, key=lambda r: r[0])
 d = meas - model[m]
-print(f"elev {elev:5.1f} opacity {opacity:.2f}: off = {k:.4f} * N.L (mean err {err_off:.4f}, sign {sgn}, flip {flip}, flipx {flipx}); "
-      f"lit px {m.sum()}; factor err mean {np.abs(d).mean():.5f} p99 {np.percentile(np.abs(d), 99):.5f} "
-      f"max {np.abs(d).max():.5f}; mean factor measured {meas.mean():.4f} model {model[m].mean():.4f}; "
-      f"shadowed frac (<0.5) {np.mean(meas < 0.5):.3f}")
+print(
+    f"elev {elev:5.1f} opacity {opacity:.2f}: off = {k:.4f} * N.L (mean err {err_off:.4f}, sign {sgn}, flip {flip}, flipx {flipx}); "
+    f"lit px {m.sum()}; factor err mean {np.abs(d).mean():.5f} p99 {np.percentile(np.abs(d), 99):.5f} "
+    f"max {np.abs(d).max():.5f}; mean factor measured {meas.mean():.4f} model {model[m].mean():.4f}; "
+    f"shadowed frac (<0.5) {np.mean(meas < 0.5):.3f}"
+)

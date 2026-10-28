@@ -3369,7 +3369,7 @@ fresh copy.
 103. **A luma histogram cannot be matched bit-exactly by a CPU recount** (2026-10-28, work task 62): pixels whose
 Y' x 255 sits within ~1e-3 of a .5 tie round differently in GPU float32 (FMA) and CPU double (7 of 230,400 in the test
 chart; R'/G'/B' exact). Compare luma within a few pixels, the channels exactly. (Task 62 also hit trap 102's staging
-reuse; its own guard was dropped at merge in favour of task 66's.)
+reuse; its own guard was dropped at merge in favor of task 66's.)
 
 104. **An asynchronous readback must never flush for staging room** (2026-10-29, work task 76). Upstream's
 `texture_get_data_async()` flushed and stalled when the download ring was full and dropped the regions copied before
@@ -5357,7 +5357,7 @@ editor in all three renderers; web identical to native on all 13 charts (lit sce
 
 A **Local Exposure** group on `CameraAttributes` (both kinds, off by default): Unreal's Bilateral method (highlight
 contrast 0.6, shadow contrast 0.8, detail strength 1.0, middle gray bias, blurred luminance blend 0.6, kernel size 50%
-of the frame width; `middle_gray`, not "grey", because codespell rewrites the docs) and two RS setters. A bilateral
+of the frame width; `middle_gray`, not "gray", because codespell rewrites the docs) and two RS setters. A bilateral
 grid (Chen, Paris and Durand 2007) of 16 square cells down the frame x 32 bins of 1 EV, so the result is the same at
 every resolution: `RendererRD::CameraLocalExposure` (build + blur compute) and the Forward+ tonemapper samples it at
 set 1 binding 3 right after exposure. CameraEffects `header.w` bit 0 and `local_exposure[2]` (the former
@@ -5454,7 +5454,7 @@ cap becomes `rendering/camera/depth_of_field/depth_of_field_physical_max_blur_si
 (default 3%, upstream's 32 px at about 1080p): a visible clamp, not a hidden cost. Under a new `shape_flags` bit (push
 constant layout unchanged) the Box/Hexagon gather and the half-size Very Low/Low passes are sized to the blur, fixing
 upstream's dilution (§3 trap 97) for opt-in cameras only. Worker: 720p 50 mm f/1.4 focus 2.5 m wall at 5 m, model 5.47
-px, measured 5.69 (circle; hexagon and box within ~5%), 1440p 10.97 vs 10.93, MFT 10.12 vs 10.09; a case modelled at 80
+px, measured 5.69 (circle; hexagon and box within ~5%), 1440p 10.97 vs 10.93, MFT 10.12 vs 10.09; a case modeled at 80
 px clamps to 43 px at 3%; WebGPU matches native; opt-in off 0 px (10 native, 3 web); camera-sim A/B within 2% (circle).
 WebGPU 1440p: Hexagon Low 0.61 ms at 3% (0.64 upstream), Circle Medium 13.9 ms (7.8 upstream). Lead (merged tree):
 dev_mode editor, web debug and release 0 warnings; opt-in off 0 px against the pre-merge editor (circle, hexagon, box;
@@ -5498,8 +5498,8 @@ setups). Questions `c64-csharp`, `c64-enum-names`. §3 trap 100.
 
 ### 4.81 `Light3D.light_temperature_enabled`: temperature without physical light units (October 2026) *(work task 65; camera-sim spec)*
 
-Per-light opt-in (default off): `light_temperature` tints the light with or without physical light units, normalised
-to constant Rec. 709 luminance (so a temperature change never changes brightness; not clamped, light colours are linear
+Per-light opt-in (default off): `light_temperature` tints the light with or without physical light units, normalized
+to constant Rec. 709 luminance (so a temperature change never changes brightness; not clamped, light colors are linear
 HDR), multiplied by `light_color`; the inspector, `get_correlated_color()`, the gizmo and LightmapGI follow it. With
 physical light units, the opt-in switches that light to constant luminance (question `c65-plu-interaction`). A light
 at T under white balance T matches the 6500 K light at the default within 0.1%, which is itself slightly magenta
@@ -5599,7 +5599,7 @@ antialiasing (fully opaque text gets colour fringes of up to 75 levels; `will-ch
 while `preload_progress` is on, in `GODOT_CONFIG.startButton.preloadText`, both default shells, `config.js` and the
 class docs. The default line is not pixel-identical to the old one: up to 5 levels on 200-600 glyph-edge pixels in
 Chrome, 2 in Firefox (antialiasing depends on the text colour; question `preload-text-near-identical`). Worker: 22/22
-runs (11 scenarios, Chrome and Firefox); chosen colours appear exactly; DejaVu Serif 32 px applies in both shells and an
+runs (11 scenarios, Chrome and Firefox); chosen colors appear exactly; DejaVu Serif 32 px applies in both shells and an
 iframe. Lead (merged tree with 76): dev_mode editor, web debug and release 0 warnings; default, old-colour and styled
 start screens pass in Chrome and Firefox. Questions `preload-text-*`.
 

@@ -23,7 +23,7 @@ PASS IS 0.9: x band amplitude ratio  0.2227 (model 0.2225)
 PASS IS 0.9: y band amplitude ratio  0.1637 (model 0.1637)
 PASS IS 0.9: z band amplitude ratio  0.1096 (model 0.1096, 1-s = 0.10)
 PASS breathing RMS / peak  rms 0.1382 deg (0.15), peak 0.275 Hz (0.25)
-PASS breathing alone leaves other axes still  
+PASS breathing alone leaves other axes still
 PASS scale_with_focal_length off: angular shake x FOV/27 deg  ratio 0.5000 at half the reference FOV
 PASS scale_with_focal_length off: position unchanged  1.000000
 ANALYSIS DONE, failures: 0

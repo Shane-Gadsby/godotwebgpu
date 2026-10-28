@@ -16,20 +16,20 @@
 > 	line-height: 1.2;
 > 	padding: var(--start-padding-vertical) var(--start-padding-horizontal);
 > }
-> 
+>
 > #status-start:hover {
 > 	background-color: var(--start-hover-color);
 > }
-> 
+>
 > #status-start:active {
 > 	background-color: var(--start-pressed-color);
 > }
-> 
+>
 > #status-start:focus-visible {
 > 	outline: 2px solid var(--start-text-color);
 > 	outline-offset: 3px;
 > }
-> 
+>
 260a292
 > 			<button id="status-start" type="button"></button>
 273c305
@@ -60,7 +60,7 @@
 > 			statusStart.style.setProperty(name, value);
 > 		});
 > 	}
-> 
+>
 492a549
 > 		statusStart.style.display = mode === 'start' ? 'block' : 'none';
 604,662c661,667
@@ -69,7 +69,7 @@
 < 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
 < 			showStage('initializing_webgpu');
 < 		}
-< 
+<
 < 		// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
 < 		// frame runs *synchronously inside* the WASM callMain() call -- after
 < 		// `engine.startGame()`'s download/init work is done, but before its
@@ -198,7 +198,7 @@
 > 					showBusyStage('compiling_shaders', ` (${shaderCompileCount})`);
 > 				});
 > 			}
-> 
+>
 > 			function waitForWebGPUReady() {
 > 				return new Promise((resolve) => {
 > 					const QUIET_PERIOD_MS = 800;
@@ -283,7 +283,7 @@
 > 				});
 > 			}, displayFailureNotice);
 > 		}
-> 
+>
 > 		// The start screen: wait for the player instead of starting straight away.
 > 		// The button is not focused here: inside an iframe, that would scroll the
 > 		// parent page to the game. A <button> takes Enter and Space once focused.

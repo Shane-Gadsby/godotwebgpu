@@ -1,22 +1,22 @@
 2560x1440 2560x1440 dpr 1
-circ2_on3 rc=0 frames 3072 over 24188 ms (3 round(s)) -> 127 fps, 7.87 ms/frame GPU busy 7.83 ms/frame (99% of the GPU timeline), 6144 command buffers timed 
+circ2_on3 rc=0 frames 3072 over 24188 ms (3 round(s)) -> 127 fps, 7.87 ms/frame GPU busy 7.83 ms/frame (99% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-circ2_on6 rc=0 frames 3072 over 106856 ms (3 round(s)) -> 29 fps, 34.78 ms/frame GPU busy 34.74 ms/frame (100% of the GPU timeline), 6144 command buffers timed 
+circ2_on6 rc=0 frames 3072 over 106856 ms (3 round(s)) -> 29 fps, 34.78 ms/frame GPU busy 34.74 ms/frame (100% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex1_on6 rc=0 frames 3072 over 3820 ms (3 round(s)) -> 804 fps, 1.24 ms/frame GPU busy 0.42 ms/frame (34% of the GPU timeline), 6144 command buffers timed 
+hex1_on6 rc=0 frames 3072 over 3820 ms (3 round(s)) -> 804 fps, 1.24 ms/frame GPU busy 0.42 ms/frame (34% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex1_on3 rc=0 frames 3072 over 3136 ms (3 round(s)) -> 980 fps, 1.02 ms/frame GPU busy 0.35 ms/frame (34% of the GPU timeline), 6144 command buffers timed 
+hex1_on3 rc=0 frames 3072 over 3136 ms (3 round(s)) -> 980 fps, 1.02 ms/frame GPU busy 0.35 ms/frame (34% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-circ2_off rc=0 frames 3072 over 12399 ms (3 round(s)) -> 248 fps, 4.04 ms/frame GPU busy 3.97 ms/frame (99% of the GPU timeline), 6144 command buffers timed 
+circ2_off rc=0 frames 3072 over 12399 ms (3 round(s)) -> 248 fps, 4.04 ms/frame GPU busy 3.97 ms/frame (99% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex1_off rc=0 frames 3072 over 6142 ms (3 round(s)) -> 500 fps, 2.00 ms/frame GPU busy 0.54 ms/frame (27% of the GPU timeline), 6144 command buffers timed 
+hex1_off rc=0 frames 3072 over 6142 ms (3 round(s)) -> 500 fps, 2.00 ms/frame GPU busy 0.54 ms/frame (27% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex1_legacy rc=0 frames 3072 over 6483 ms (3 round(s)) -> 474 fps, 2.11 ms/frame GPU busy 0.57 ms/frame (25% of the GPU timeline), 6144 command buffers timed 
+hex1_legacy rc=0 frames 3072 over 6483 ms (3 round(s)) -> 474 fps, 2.11 ms/frame GPU busy 0.57 ms/frame (25% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex3_on3 rc=0 frames 3072 over 4563 ms (3 round(s)) -> 673 fps, 1.49 ms/frame GPU busy 1.50 ms/frame (97% of the GPU timeline), 6144 command buffers timed 
+hex3_on3 rc=0 frames 3072 over 4563 ms (3 round(s)) -> 673 fps, 1.49 ms/frame GPU busy 1.50 ms/frame (97% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex3_on6 rc=0 frames 3072 over 5364 ms (3 round(s)) -> 573 fps, 1.75 ms/frame GPU busy 1.54 ms/frame (89% of the GPU timeline), 6144 command buffers timed 
+hex3_on6 rc=0 frames 3072 over 5364 ms (3 round(s)) -> 573 fps, 1.75 ms/frame GPU busy 1.54 ms/frame (89% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-circ2_legacy rc=0 frames 3072 over 12351 ms (3 round(s)) -> 249 fps, 4.02 ms/frame GPU busy 3.98 ms/frame (99% of the GPU timeline), 6144 command buffers timed 
+circ2_legacy rc=0 frames 3072 over 12351 ms (3 round(s)) -> 249 fps, 4.02 ms/frame GPU busy 3.98 ms/frame (99% of the GPU timeline), 6144 command buffers timed
 2560x1440 2560x1440 dpr 1
-hex3_off rc=0 frames 3072 over 7576 ms (3 round(s)) -> 406 fps, 2.47 ms/frame GPU busy 1.42 ms/frame (54% of the GPU timeline), 6144 command buffers timed 
+hex3_off rc=0 frames 3072 over 7576 ms (3 round(s)) -> 406 fps, 2.47 ms/frame GPU busy 1.42 ms/frame (54% of the GPU timeline), 6144 command buffers timed

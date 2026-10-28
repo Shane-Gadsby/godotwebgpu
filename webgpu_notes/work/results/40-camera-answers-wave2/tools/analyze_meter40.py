@@ -7,7 +7,11 @@ computed here from the AE-off HDR frame, following the definitions in camera_att
 - Log-average: exp(sum(w log(v + 1e-4)) / sum(w)) with the mode's weights (Reinhard et al. 2002, eq. 1).
 - Highlight: the percentile, unchanged by the option.
 """
-import json, math, sys
+
+import json
+import math
+import sys
+
 import numpy as np
 
 B, N = sys.argv[1], sys.argv[2]
@@ -22,7 +26,7 @@ def godot_average_old(v):
         out = np.zeros((dh, dw))
         for by in range(dh):
             for bx in range(dw):
-                blk = src[by * 8: min(by * 8 + 8, h), bx * 8: min(bx * 8 + 8, w)]
+                blk = src[by * 8 : min(by * 8 + 8, h), bx * 8 : min(bx * 8 + 8, w)]
                 out[by, bx] = blk.sum() / (min(h - by * 8, 8) * min(w - bx * 8, 8))
         src = out
         if dh == 1 and dw == 1:
@@ -73,15 +77,28 @@ for res in ["1920x1080", "1280x720"]:
     seen = v[: (H // 64) * 64 if H >= 64 else H, : (Wd // 64) * 64].mean()
     old = metered(B, "avg", res, F)
     new = metered(N, "avg", res, F)
-    print(f"{res:10} {'Average, before (base)':22} {old_model:11.6f} {old:11.6f} {ev(old, old_model):+9.4f}   (reference: upstream's reduction modeled)")
-    print(f"{res:10} {'Average, after':22} {mean:11.6f} {new:11.6f} {ev(new, mean):+9.4f}   (reference: whole-frame mean)")
-    print(f"{res:10} {'  change':22} {'':11} {'':11} {ev(new, old):+9.4f}   exposure moves {-ev(new, old):+.4f} EV; base vs the true mean {ev(old, mean):+.4f} EV")
-    for name, mode, kw in [("logavg", "avg", {}), ("logcenter", "center", {}), ("logspot", "spot", {}), ("logspotwin", "spot", {"point": (0.75, 0.3), "size": 1.0})]:
+    print(
+        f"{res:10} {'Average, before (base)':22} {old_model:11.6f} {old:11.6f} {ev(old, old_model):+9.4f}   (reference: upstream's reduction modeled)"
+    )
+    print(
+        f"{res:10} {'Average, after':22} {mean:11.6f} {new:11.6f} {ev(new, mean):+9.4f}   (reference: whole-frame mean)"
+    )
+    print(
+        f"{res:10} {'  change':22} {'':11} {'':11} {ev(new, old):+9.4f}   exposure moves {-ev(new, old):+.4f} EV; base vs the true mean {ev(old, mean):+.4f} EV"
+    )
+    for name, mode, kw in [
+        ("logavg", "avg", {}),
+        ("logcenter", "center", {}),
+        ("logspot", "spot", {}),
+        ("logspotwin", "spot", {"point": (0.75, 0.3), "size": 1.0}),
+    ]:
         w = weights(mode, F, **kw)
         ref = math.exp((w * np.log(v + DELTA)).sum() / w.sum())
         arith = (w * v).sum() / w.sum()
         meas = metered(N, name, res, F)
-        print(f"{res:10} {'log ' + mode + (' (0.75,0.3)' if kw else ''):22} {ref:11.6f} {meas:11.6f} {ev(meas, ref):+9.4f}   (arithmetic {arith:.6f}: log meters {ev(ref, arith):+.3f} EV)")
+        print(
+            f"{res:10} {'log ' + mode + (' (0.75,0.3)' if kw else ''):22} {ref:11.6f} {meas:11.6f} {ev(meas, ref):+9.4f}   (arithmetic {arith:.6f}: log meters {ev(ref, arith):+.3f} EV)"
+        )
     p99 = np.percentile(v, 99.0) * 0.4
     for name in ["hl99", "loghl99"]:
         meas = metered(N, name, res, F)

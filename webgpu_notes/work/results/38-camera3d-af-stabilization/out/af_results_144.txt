@@ -3,7 +3,7 @@ PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.367
 PASS AF first-order: 95% within 3 tau + one frame  t95 0.6042 s (3 tau = 0.6)
 PASS AF final distance  2.0001 m
 PASS AF focus_acquired emitted once, within DOF/4  [[160, 2.43827533721924]] (tolerance 0.0930 D, error 0.0899 D)
-PASS AF is_autofocus_acquired  
+PASS AF is_autofocus_acquired
 PASS AF-C follows target to 5 m  4.9959 m
 PASS AF-C re-acquires (2 signals)  2
 PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
@@ -26,5 +26,5 @@ PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) 
 PASS AF Practical distance  1.0000
 PASS AF Practical far focus  near 2.2222 far 20.0000
 PASS AF Practical beyond hyperfocal  far 100000.0
-PASS AF Practical pre-save restores all four  
+PASS AF Practical pre-save restores all four
 AF TESTS DONE, failures: 0

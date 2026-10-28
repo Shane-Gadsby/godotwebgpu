@@ -7,6 +7,7 @@ blur <png> <expected_L_px>: fits the averaged horizontal profile of the moving 0
 skew <png> <expected_px>: tracks the bar nearest the frame center row by row and fits x(y); reports the horizontal
     shift from the top row to the bottom row (x_top - x_bottom) against the expected readout * screen speed.
 """
+
 import json
 import sys
 
@@ -49,7 +50,12 @@ def blur(path, expected):
     xs = np.arange(prof.size) + 0.5
     c0 = (prof * xs).sum() / max(prof.sum(), 1e-9)
     coarse = fit(prof, w, np.arange(0.0, 2 * w, 0.5), np.arange(c0 - 4, c0 + 4, 0.1))
-    fine = fit(prof, w, np.arange(max(coarse[2] - 0.6, 0), coarse[2] + 0.6, 0.02), np.arange(coarse[1] - 0.3, coarse[1] + 0.3, 0.02))
+    fine = fit(
+        prof,
+        w,
+        np.arange(max(coarse[2] - 0.6, 0), coarse[2] + 0.6, 0.02),
+        np.arange(coarse[1] - 0.3, coarse[1] + 0.3, 0.02),
+    )
     fixed = fit(prof, w, [expected], np.arange(c0 - 4, c0 + 4, 0.02))
     return {
         "file": path.split("/")[-1],
@@ -108,4 +114,8 @@ def skew(path, expected, fov_deg=None):
 
 if __name__ == "__main__":
     kind, path, exp = sys.argv[1], sys.argv[2], float(sys.argv[3])
-    print(json.dumps(blur(path, exp) if kind == "blur" else skew(path, exp, float(sys.argv[4]) if len(sys.argv) > 4 else None)))
+    print(
+        json.dumps(
+            blur(path, exp) if kind == "blur" else skew(path, exp, float(sys.argv[4]) if len(sys.argv) > 4 else None)
+        )
+    )

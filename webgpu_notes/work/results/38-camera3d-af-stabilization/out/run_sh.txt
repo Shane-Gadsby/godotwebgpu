@@ -4,7 +4,7 @@ PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.367
 PASS AF first-order: 95% within 3 tau + one frame  t95 0.6250 s (3 tau = 0.6)
 PASS AF final distance  2.0001 m
 PASS AF focus_acquired emitted once, within DOF/4  [[176, 2.37397003173828]] (tolerance 0.0930 D, error 0.0788 D)
-PASS AF is_autofocus_acquired  
+PASS AF is_autofocus_acquired
 PASS AF-C follows target to 5 m  4.9959 m
 PASS AF-C re-acquires (2 signals)  2
 PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
@@ -27,7 +27,7 @@ PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) 
 PASS AF Practical distance  1.0000
 PASS AF Practical far focus  near 2.2222 far 20.0000
 PASS AF Practical beyond hyperfocal  far 100000.0
-PASS AF Practical pre-save restores all four  
+PASS AF Practical pre-save restores all four
 AF TESTS DONE, failures: 0
 == AF at 60 fps
 PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007388763
@@ -35,7 +35,7 @@ PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.367
 PASS AF first-order: 95% within 3 tau + one frame  t95 0.6000 s (3 tau = 0.6)
 PASS AF final distance  2.0001 m
 PASS AF focus_acquired emitted once, within DOF/4  [[180, 2.39300775527954]] (tolerance 0.0930 D, error 0.0821 D)
-PASS AF is_autofocus_acquired  
+PASS AF is_autofocus_acquired
 PASS AF-C follows target to 5 m  4.9959 m
 PASS AF-C re-acquires (2 signals)  2
 PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
@@ -58,7 +58,7 @@ PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) 
 PASS AF Practical distance  1.0000
 PASS AF Practical far focus  near 2.2222 far 20.0000
 PASS AF Practical beyond hyperfocal  far 100000.0
-PASS AF Practical pre-save restores all four  
+PASS AF Practical pre-save restores all four
 AF TESTS DONE, failures: 0
 == AF at 144 fps
 PASS AF first-order: error = e0 exp(-t / tau) at every frame  max deviation 0.00000007400387
@@ -66,7 +66,7 @@ PASS AF first-order: remaining error after tau = 1/e  ratio 0.3679 (e^-1 = 0.367
 PASS AF first-order: 95% within 3 tau + one frame  t95 0.6042 s (3 tau = 0.6)
 PASS AF final distance  2.0001 m
 PASS AF focus_acquired emitted once, within DOF/4  [[175, 2.43827533721924]] (tolerance 0.0930 D, error 0.0899 D)
-PASS AF is_autofocus_acquired  
+PASS AF is_autofocus_acquired
 PASS AF-C follows target to 5 m  4.9959 m
 PASS AF-C re-acquires (2 signals)  2
 PASS AF pre-save restores baseline, post-save re-applies  pre 10.0000 post 4.9959
@@ -89,14 +89,14 @@ PASS AF Practical moves DOF distances  near 0.8333 (0.8333) far 1.2500 (1.2500) 
 PASS AF Practical distance  1.0000
 PASS AF Practical far focus  near 2.2222 far 20.0000
 PASS AF Practical beyond hyperfocal  far 100000.0
-PASS AF Practical pre-save restores all four  
+PASS AF Practical pre-save restores all four
 AF TESTS DONE, failures: 0
 == shake
-PASS Shake: node transform untouched over 7200 frames  
-PASS Shake: get_camera_transform() == global_transform * get_shake_offset()  
-PASS Shake: same seed identical  
-PASS Shake: other seed differs  
-PASS Shake: disabling restores the plain transform  
+PASS Shake: node transform untouched over 7200 frames
+PASS Shake: get_camera_transform() == global_transform * get_shake_offset()
+PASS Shake: same seed identical
+PASS Shake: other seed differs
+PASS Shake: disabling restores the plain transform
 SHAKE TESTS DONE, failures: 0
 PASS RMS pitch  0.29951 (set 0.3)
 PASS spectrum pitch: log-centroid at set frequency, energy within f/2..2f  centroid 2.014 Hz (set 2.0), in band 99.9%
@@ -123,7 +123,7 @@ PASS IS 0.9: x band amplitude ratio  0.2227 (model 0.2225)
 PASS IS 0.9: y band amplitude ratio  0.1637 (model 0.1637)
 PASS IS 0.9: z band amplitude ratio  0.1096 (model 0.1096, 1-s = 0.10)
 PASS breathing RMS / peak  rms 0.1382 deg (0.15), peak 0.275 Hz (0.25)
-PASS breathing alone leaves other axes still  
+PASS breathing alone leaves other axes still
 PASS scale_with_focal_length off: angular shake x FOV/27 deg  ratio 0.5000 at half the reference FOV
 PASS scale_with_focal_length off: position unchanged  1.000000
 ANALYSIS DONE, failures: 0

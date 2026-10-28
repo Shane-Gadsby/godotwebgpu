@@ -56,7 +56,7 @@ await page.screenshot({ path: `${OUT}/2_fullscreen.png` });
 
 if (EX) {
 	// EX/EY are in the 1656x968 layout; the fullscreen iframe sits at 0,0 and the
-	// UI is scaled to fit it (canvas_items, keep aspect), centred.
+	// UI is scaled to fit it (canvas_items, keep aspect), centered.
 	const [w, h] = await frame().evaluate(() => [innerWidth, innerHeight]);
 	const k = Math.min(w / 1656, h / 968);
 	const x = (w - 1656 * k) / 2 + Number(EX) * k, y = (h - 968 * k) / 2 + Number(EY) * k;

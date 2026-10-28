@@ -53,7 +53,7 @@ Replace that with:
 - **Progress:** a callback for the shell's "Downloading N%" line. When `startGame()` takes over, its
   `onProgress` should continue from what's already loaded, not restart from 0.
 - **Failures:** a file that fails during prefetch is fetched again normally by `startGame()`, keeping the
-  existing retry behaviour.
+  existing retry behavior.
 
 ### Shell
 

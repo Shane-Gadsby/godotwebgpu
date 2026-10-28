@@ -180,7 +180,7 @@ const canvasShot = await (await frame().$('#canvas')).screenshot({ path: `${OUT}
 console.log('requests total:', JSON.stringify([...new Set(requests)].sort()));
 // Known and unrelated: the favicon 404 (the test server has none) and, inside the iframe, the engine's
 // keep_screen_on wake lock, which the parent's iframe does not allow (no allow="screen-wake-lock").
-const known = (e) => /status of 404/.test(e) || /screen-wake-lock is not allowed/.test(e) || /NotAllowedError.*[Ww]ake/.test(e);
+const known = (e) => /status of 404/.test(e) || /screen-wake-lock is not allowed/.test(e) || /NotAllowedError.*[Ww]ache/.test(e);
 console.log('known console errors ignored:', JSON.stringify(consoleErrors.filter(known)));
 const errors = consoleErrors.filter((e) => !known(e));
 check(errors.length === 0, `no other console errors (${JSON.stringify(errors)})`);

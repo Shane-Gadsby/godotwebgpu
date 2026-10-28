@@ -17,8 +17,8 @@ Both default shells (`full-size.html`, `webgpu-full-size.html`). Preload is task
 
 ## Questions for the user (defaults marked)
 
-1. **Default button look.** Background `#3a3a3a` (neutral dark grey), white 24 px Noto Sans text, no border, 8 px
-   radius, padding 48 x 12 px; hover 15% darker, pressed 30% darker. On a dark grey that darkening is subtle.
+1. **Default button look.** Background `#3a3a3a` (neutral dark gray), white 24 px Noto Sans text, no border, 8 px
+   radius, padding 48 x 12 px; hover 15% darker, pressed 30% darker. On a dark gray that darkening is subtle.
    *Default: keep.* Alternative: lighten on hover for dark backgrounds (pick by luminance).
 2. **Cursor option.** `cursor: pointer` is fixed; no option was added (no use seen). *Default: no option.*
 3. **Accessible name.** The button's text is its accessible name; no separate aria-label option. A text such as "▶"
