@@ -3169,6 +3169,10 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 		camera_effects_context.source_size = internal_size;
 		camera_effects_context.output_size = target_size;
 		camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+		// Panini projection: the camera's field of view, for a single perspective view only.
+		if (!p_render_data->cam_orthogonal && p_render_data->view_count == 1) {
+			camera_effects_context.projection_tan_half = Vector2(1.0 / p_render_data->cam_projection.columns[0][0], 1.0 / p_render_data->cam_projection.columns[1][1]);
+		}
 		CameraEffectsUBO camera_effects_ubo;
 		if (RSG::camera_attributes->camera_attributes_fill_effects_buffer(p_render_data->camera_attributes, camera_effects_context, camera_effects_ubo)) {
 			if (scene_state.camera_effects_buffer == 0) {

@@ -22,7 +22,8 @@
 #define CAMERA_LENS_DIFFRACTION 4u
 #define CAMERA_LENS_VIGNETTING_PHYSICAL 8u
 #define CAMERA_LENS_VIGNETTING_PRACTICAL 16u
-#define CAMERA_LENS_RESAMPLE (CAMERA_LENS_DISTORTION | CAMERA_LENS_CHROMATIC_ABERRATION | CAMERA_LENS_DIFFRACTION)
+#define CAMERA_LENS_PANINI 32u
+#define CAMERA_LENS_RESAMPLE (CAMERA_LENS_DISTORTION | CAMERA_LENS_CHROMATIC_ABERRATION | CAMERA_LENS_DIFFRACTION | CAMERA_LENS_PANINI)
 #define CAMERA_LENS_VIGNETTING (CAMERA_LENS_VIGNETTING_PHYSICAL | CAMERA_LENS_VIGNETTING_PRACTICAL)
 
 // The output pixel's position on the sensor, in frame units: the crop zooms into the frame.
@@ -55,6 +56,22 @@ vec2 camera_lens_undistort(vec2 p_qd) {
 	return q;
 }
 
+// Panini projection (servers/rendering/panini_projection.h has the model and the C++ that Camera3D uses: keep them in
+// step): from a position p_n in the output frame (-1 to 1 per axis) to the position in the rendered rectilinear frame
+// that shows the same direction. The Panini plane position X = S sin(phi) is inverted for the azimuth with
+// k = X / (d + 1): phi = atan(k) + asin(k d / sqrt(1 + k^2)).
+vec2 camera_lens_panini_source(vec2 p_n) {
+	vec2 panini = p_n * camera_effects.lens[2].zw;
+	float d = camera_effects.lens[7].z;
+	float k = panini.x / (d + 1.0);
+	float phi = atan(k) + asin(clamp(k * d * inversesqrt(1.0 + k * k), -1.0, 1.0));
+	float cos_phi = cos(phi);
+	float s = (d + 1.0) / (d + cos_phi);
+	// The vertical coordinate is the rectilinear one scaled by mix(1, S cos(phi), vertical compression).
+	vec2 rectilinear = vec2(tan(phi), panini.y / mix(1.0, s * cos_phi, camera_effects.lens[7].w));
+	return rectilinear * camera_effects.lens[4].zw;
+}
+
 // Where the light that lands at sensor position p_qd comes from in the rendered image, for a channel whose image is
 // magnified by 1 / p_scale (lateral color).
 vec2 camera_lens_source_uv(vec2 p_qd, float p_scale, uint p_bits) {
@@ -62,7 +79,11 @@ vec2 camera_lens_source_uv(vec2 p_qd, float p_scale, uint p_bits) {
 	if ((p_bits & CAMERA_LENS_DISTORTION) != 0u) {
 		q = camera_lens_undistort(q);
 	}
-	return q / camera_effects.lens[0].xy * 0.5 + 0.5;
+	vec2 n = q / camera_effects.lens[0].xy;
+	if ((p_bits & CAMERA_LENS_PANINI) != 0u) {
+		n = camera_lens_panini_source(n);
+	}
+	return n * 0.5 + 0.5;
 }
 
 // Fraction of a pupil of radius p_radius, offset by p_offset, that passes a unit circle (the lens barrel): the area of

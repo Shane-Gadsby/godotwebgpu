@@ -761,6 +761,7 @@ public:
 	virtual void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
 	virtual void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius) = 0;
 	virtual void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression) = 0;
 
 	/* SCENARIO API */
 

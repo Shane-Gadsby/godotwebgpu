@@ -172,6 +172,12 @@ protected:
 	float longitudinal_chromatic_aberration_strength = 1.0;
 	void _update_longitudinal_chromatic_aberration();
 
+	// Panini projection, applied by the lens resample; Camera3D's project/unproject functions follow it.
+	bool panini_enabled = false;
+	float panini_distance = 1.0;
+	float panini_vertical_compression = 1.0;
+	void _update_panini();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -312,6 +318,15 @@ public:
 	bool is_longitudinal_chromatic_aberration_enabled() const;
 	void set_longitudinal_chromatic_aberration_strength(float p_value);
 	float get_longitudinal_chromatic_aberration_strength() const;
+
+	void set_panini_enabled(bool p_enabled);
+	bool is_panini_enabled() const;
+	void set_panini_distance(float p_distance);
+	float get_panini_distance() const;
+	void set_panini_vertical_compression(float p_compression);
+	float get_panini_vertical_compression() const;
+	// Whether the Panini projection applies, with its parameters: what Camera3D needs to follow it.
+	bool get_panini_projection(float &r_distance, float &r_vertical_compression) const;
 
 	CameraAttributes();
 	~CameraAttributes();

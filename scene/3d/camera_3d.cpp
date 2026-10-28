@@ -38,6 +38,7 @@
 #include "core/object/class_db.h"
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
+#include "servers/rendering/panini_projection.h"
 #include "servers/rendering/rendering_server.h"
 
 #ifndef PHYSICS_3D_DISABLED
@@ -346,6 +347,34 @@ Projection Camera3D::_get_camera_projection(real_t p_near) const {
 	return cm;
 }
 
+bool Camera3D::_get_panini_mapping(const Projection &p_projection, PaniniMapping &r_mapping) const {
+	// As the renderers decide (RendererCameraAttributes::_fill_effects_panini()): a perspective view, the attributes
+	// set on the camera or else the world's.
+	if (mode == PROJECTION_ORTHOGONAL) {
+		return false;
+	}
+	Ref<CameraAttributes> effective = attributes;
+	if (effective.is_null() && is_inside_tree()) {
+		Ref<World3D> world = get_world_3d();
+		if (world.is_valid()) {
+			effective = world->get_camera_attributes();
+		}
+	}
+	float distance = 0.0f;
+	float vertical_compression = 0.0f;
+	if (effective.is_null() || !effective->get_panini_projection(distance, vertical_compression)) {
+		return false;
+	}
+	r_mapping.tan_half = Vector2(1.0 / p_projection.columns[0][0], 1.0 / p_projection.columns[1][1]);
+	if (!(r_mapping.tan_half.x > 0.0f && r_mapping.tan_half.y > 0.0f) || !r_mapping.tan_half.is_finite()) {
+		return false;
+	}
+	r_mapping.distance = distance;
+	r_mapping.vertical_compression = vertical_compression;
+	r_mapping.output_half = r_mapping.tan_half * PaniniProjection::fit_scale(r_mapping.tan_half.x, distance);
+	return true;
+}
+
 Projection Camera3D::get_camera_projection() const {
 	ERR_FAIL_COND_V_MSG(!is_inside_tree(), Projection(), "Camera is not inside the scene tree.");
 	return _get_camera_projection(_near);
@@ -468,8 +497,16 @@ Vector3 Camera3D::project_local_ray_normal(const Point2 &p_pos) const {
 		ray = Vector3(0, 0, -1);
 	} else {
 		Projection cm = _get_camera_projection(_near);
-		Vector2 screen_he = cm.get_viewport_half_extents();
-		ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, -_near).normalized();
+		PaniniMapping panini;
+		if (_get_panini_mapping(cm, panini)) {
+			// The output position is a Panini plane position; its direction can lie past 90 degrees off the axis.
+			Vector2 ndc((cpos.x / viewport_size.width) * 2.0 - 1.0, (1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0);
+			Vector3 dir = PaniniProjection::to_direction(ndc * panini.output_half, panini.distance, panini.vertical_compression);
+			ray = Vector3(dir.x, dir.y, -dir.z).normalized();
+		} else {
+			Vector2 screen_he = cm.get_viewport_half_extents();
+			ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, -_near).normalized();
+		}
 	}
 
 	return ray;
@@ -584,6 +621,14 @@ bool Camera3D::safe_unproject_position(const Vector3 &p_pos, Point2 &r_result) c
 	}
 	p.normal /= p.d;
 
+	PaniniMapping panini;
+	if (p.d > 0.0f && _get_panini_mapping(cm, panini)) {
+		// In front of the camera: where the resample shows this rectilinear position.
+		Vector2 ndc = PaniniProjection::from_rectilinear(Vector2(p.normal.x, p.normal.y) * panini.tan_half, panini.distance, panini.vertical_compression) / panini.output_half;
+		p.normal.x = ndc.x;
+		p.normal.y = ndc.y;
+	}
+
 	r_result.x = (p.normal.x * 0.5 + 0.5) * viewport_size.x;
 	r_result.y = (-p.normal.y * 0.5 + 0.5) * viewport_size.y;
 
@@ -625,6 +670,13 @@ Vector3 Camera3D::project_position(const Point2 &p_point, real_t p_z_depth) cons
 	Vector2 point;
 	point.x = (p_point.x / viewport_size.x) * 2.0 - 1.0;
 	point.y = (1.0 - (p_point.y / viewport_size.y)) * 2.0 - 1.0;
+	PaniniMapping panini;
+	if (_get_panini_mapping(cm, panini)) {
+		// The rectilinear position that the resample shows at this output position. Past 90 degrees off the axis no
+		// point at this depth is on the ray; the closest to the side is used.
+		Vector3 dir = PaniniProjection::to_direction(point * panini.output_half, panini.distance, panini.vertical_compression);
+		point = Vector2(dir.x, dir.y) / MAX(dir.z, (real_t)CMP_EPSILON) / panini.tan_half;
+	}
 	point *= vp_he;
 
 	Vector3 p(point.x, point.y, -p_z_depth);

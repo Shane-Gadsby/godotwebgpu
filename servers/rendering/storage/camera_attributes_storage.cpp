@@ -32,6 +32,7 @@
 
 #ifdef DEBUG_ENABLED
 #include "core/os/os.h"
+#include "servers/rendering/panini_projection.h"
 #endif
 
 RendererCameraAttributes *RendererCameraAttributes::singleton = nullptr;
@@ -705,6 +706,9 @@ uint32_t RendererCameraAttributes::_lens_requested_bits(const CameraAttributes &
 	if (p_attributes.vignetting_enabled && p_attributes.vignetting_strength > 0.0f) {
 		bits |= physical ? LENS_VIGNETTING_PHYSICAL : LENS_VIGNETTING_PRACTICAL;
 	}
+	if (p_attributes.panini_enabled && p_attributes.panini_distance > 0.0f) {
+		bits |= LENS_PANINI;
+	}
 	return bits;
 }
 
@@ -832,6 +836,10 @@ void RendererCameraAttributes::_fill_effects_lens(const CameraAttributes &p_attr
 	}
 	r_ubo.lens[7][0] = 1.0 / size.x;
 	r_ubo.lens[7][1] = 1.0 / size.y;
+
+	if (bits & LENS_PANINI) {
+		bits = (bits & ~LENS_PANINI) | _fill_effects_panini(p_attributes, p_context, r_ubo);
+	}
 
 	r_ubo.header[0] = bits;
 }
@@ -1327,4 +1335,40 @@ RendererCameraAttributes::LongitudinalCA RendererCameraAttributes::camera_attrib
 		ca.scale = float(strength * secondary_spectrum * (3000.0 / 50.0));
 	}
 	return ca;
+}
+
+/* Panini projection
+ *
+ * A projection rather than an optical effect: the lens resample shows the rectilinear render through the Panini
+ * mapping (panini_projection.h has the model, from Sharpless et al. 2010), scaled so no border shows. Camera3D's
+ * project/unproject functions apply the same mapping, so screen positions it reports match the image. The resample
+ * order is lens -> projection: lateral color and distortion act on the Panini image as they would on a rectilinear one.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->panini_enabled = p_enable;
+	// Past d = 1 the inverse used by the shader stops being defined over the whole plane (panini_projection.h).
+	cam_attributes->panini_distance = CLAMP(p_distance, 0.0f, 1.0f);
+	cam_attributes->panini_vertical_compression = CLAMP(p_vertical_compression, 0.0f, 1.0f);
+}
+
+// Fills lens[2].zw (the output frame's half extent in the Panini plane), lens[4].zw (the rendered frame's inverse
+// half extent in the tangent plane) and lens[7].zw (distance, vertical compression). Returns LENS_PANINI, or 0 when the
+// pass has no single perspective view to apply it to (orthogonal cameras, XR).
+uint32_t RendererCameraAttributes::_fill_effects_panini(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	const Vector2 tan_half = p_context.projection_tan_half;
+	if (!(tan_half.x > 0.0f && tan_half.y > 0.0f) || !Math::is_finite(tan_half.x) || !Math::is_finite(tan_half.y)) {
+		return 0;
+	}
+	const double distance = p_attributes.panini_distance;
+	const double fit = PaniniProjection::fit_scale(tan_half.x, distance);
+	r_ubo.lens[2][2] = fit * tan_half.x;
+	r_ubo.lens[2][3] = fit * tan_half.y;
+	r_ubo.lens[4][2] = 1.0 / tan_half.x;
+	r_ubo.lens[4][3] = 1.0 / tan_half.y;
+	r_ubo.lens[7][2] = distance;
+	r_ubo.lens[7][3] = p_attributes.panini_vertical_compression;
+	return LENS_PANINI;
 }
