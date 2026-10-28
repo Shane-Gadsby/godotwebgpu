@@ -1,8 +1,8 @@
 # 61-preload-text-options: the start screen's download text, configurable
 
-State: open
+State: ready-for-integration
 Owner: worker-61
-Claimed:
+Claimed: 2026-10-28 18:10
 Needs: build (editor + web template), browser (Chrome and Firefox)
 Branch: work/61
 Results: webgpu_notes/work/results/61-preload-text-options/

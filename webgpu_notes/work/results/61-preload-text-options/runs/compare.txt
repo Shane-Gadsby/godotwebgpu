@@ -1,0 +1,27 @@
+PASS chrome base vs default hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS chrome base vs default half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS chrome base vs default go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS chrome base vs nokey hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS chrome base vs nokey half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS chrome base vs nokey go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS chrome base_nosize vs default_nosize hold: texts 'Downloading...' / 'Downloading...', 0 pixels differ
+PASS chrome base_nosize vs default_nosize half: texts 'Downloading...' / 'Downloading...', 0 pixels differ
+PASS chrome base_nosize vs default_nosize go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS chrome wg_base vs wg_default hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS chrome wg_base vs wg_default half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS chrome wg_base vs wg_default go: texts 'Ready' / 'Ready', 0 pixels differ
+chrome: layout of every direct run checked against its shell's default run
+PASS firefox base vs default hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS firefox base vs default half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS firefox base vs default go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS firefox base vs nokey hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS firefox base vs nokey half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS firefox base vs nokey go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS firefox base_nosize vs default_nosize hold: texts 'Downloading...' / 'Downloading...', 0 pixels differ
+PASS firefox base_nosize vs default_nosize half: texts 'Downloading...' / 'Downloading...', 0 pixels differ
+PASS firefox base_nosize vs default_nosize go: texts 'Ready' / 'Ready', 0 pixels differ
+PASS firefox wg_base vs wg_default hold: texts 'Downloading 0%' / 'Downloading 0%', 0 pixels differ
+PASS firefox wg_base vs wg_default half: texts 'Downloading 49%' / 'Downloading 49%', 0 pixels differ
+PASS firefox wg_base vs wg_default go: texts 'Ready' / 'Ready', 0 pixels differ
+firefox: layout of every direct run checked against its shell's default run
+COMPARE PASS
