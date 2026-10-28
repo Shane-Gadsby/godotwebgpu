@@ -1,6 +1,6 @@
 # 42-web-loading-bar: progress bar toggle and colors in the Web export options (TASKS.md §2.49)
 
-State: ready-for-integration
+State: integrated (lead: merged; dev_mode build and smoke OK; launch helper audited; wiki updated)
 Owner: worker-42
 Claimed: 2026-10-28 11:15
 Needs: build (web template + editor), gpu (browser checks)

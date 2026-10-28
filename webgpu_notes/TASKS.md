@@ -426,7 +426,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
-| 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | OPEN | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
+| 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -526,7 +526,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
 | 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
-| 2.49 | Web loading screen: progress bar toggle + border / background / fill colors | `OPEN` | <0.5 session |
+| 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2598,7 +2598,7 @@ grain §4.47, camera LUTs §4.48).
 
 Effort ~0.5 session for the survey; each chosen effect becomes its own task.
 
-### 2.49 Web loading screen: progress bar colors `OPEN` *(user request, 2026-10-28)*
+### 2.49 Web loading screen: progress bar colors `DONE 2026-10-28` → §4.56 *(user request; work task 42)*
 
 When the loading bar is shown, let users pick its **border**, **background** and **fill** colors in the Web export
 options, next to the existing **Loading Screen** group (`loading_screen/<stage>/text`, `show_text`, `show_spinner`;
@@ -3162,6 +3162,14 @@ material lookup. A new class that defers its shader the same way must be added t
 process** (2026-10-28, work task 38). With N different from the physics ticks per second the process delta alternates
 (144 fps gives ~1/120 and ~1/150). A convergence or timing test must integrate the deltas the node actually used (record
 them from a node with a higher `process_priority`), never assume k/N.
+
+79. **A browser test without WebGPU flags or prefs fails in ways that look like engine bugs** (2026-10-28, user report,
+work task 42). Chrome needs `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --ignore-gpu-blocklist`
+(system Chrome, headed, `--enable-unsafe-swiftshader` ignored); Firefox on Linux has no WebGPU at all without
+`webgpu_tests/scene_smoketest/firefox_prefs.mjs`'s `FIREFOX_WEBGPU_PREFS`. A delegated worker launched both without
+them. Every launch now goes through those settings and asserts the adapter first (Chrome nvidia/lovelace, not
+fallback, 48 sampled textures; Firefox an adapter at all), and the rule is in `webgpu_notes/work/README.md`, which every
+worker reads; a worker's prompt repeats it.
 
 ---
 
@@ -4861,6 +4869,20 @@ cited in the code; editing any shake value switches to Custom; saved scenes keep
 tree): `results/39-*/tests/run.sh` OK (68 checks: defaults and default-colored zebras pixel-identical in all three
 renderers, zebra colors within 1/255, tick boxes in editor vs game runs, presets' measured RMS within 5% and band
 centers within 2.4% over 120 s); task 38's `tests/run.sh` OK after ticking `shake_visible_in_editor` in its editor test.
+
+### 4.56 Web loading screen: progress bar toggle and colors (October 2026) *(work task 42; §2.49)*
+
+User request. Web export options `loading_screen/progress_bar/enabled` (default on) and, shown only while it is on,
+`border_color` / `background_color` / `fill_color` (defaults `#b2b2b2` / `#efefef` / `#0075ff`, Chrome's own colors).
+Both default shells hide the bar when off and style it (CSS custom properties, `::-webkit-progress-*` /
+`::-moz-progress-bar`, the indeterminate sweep) only when a color differs from its default, so at defaults every browser
+keeps its own look and exports made before look the same. Custom shells get a sibling placeholder `$GODOT_PROGRESS_BAR`
+(`enabled`, three CSS hex colors, `customColors`), so shells walking `$GODOT_LOADING_SCREEN` are unaffected. Verified:
+default export HTML differs only by the new shell code; default rendering pixel-identical in Chrome and Firefox for both
+shells; 14/14 real exports (7 presets x Chrome and Firefox) start without errors with the expected colors and hiding;
+every run through one launch helper that asserts the adapter (the first, flagless runs were discarded, §3 trap 79);
+dev_mode build and smoke OK (lead, merged tree). Not done: Safari; a by-eye check that unticking the toggle hides the
+three pickers in the editor's export dialog. Wiki: Web Export Options updated.
 
 ## 5. References — retired docs
 

@@ -15,7 +15,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 39 | user answers: zebra colors user-selectable; editor tick boxes (default off) for motion blur and handheld shake; shake presets | 2 | worker-39 (retired); **merged**, verified, TASKS §4.55 |
 | 40 | user answers on 35/36: fix Average's dropped edges; log-average option; sharper halation option; starburst default 20 | 3 | worker-40 |
 | 41 | post-processing survey (TASKS §2.48) | 4 | worker-41 (retired); **merged** (results); 10 `pp-*` questions on the hand-offs page |
-| 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 |
+| 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 (retired); **merged**, TASKS §4.56, §3 trap 79 |
 | 43 | wiki audit: pages for additions that have none | 4 | worker-43 (retired); **merged** (results); wiki 823092f (Exporting with WebGPU page, WebRTC notable fixes, shader baking, building, Home) |
 | 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 |
 
