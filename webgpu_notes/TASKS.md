@@ -5486,6 +5486,21 @@ suites reproduce (identical counts; only timing fields and a few overlay-image p
 web; defaults, a drawn histogram and noise reduction 0 px against the pre-merge editor in all three renderers; task 66's
 tier 49/49 natively and in Chrome. Not done: the inspector by hand. The clean pre-overlay frame is work task 72.
 
+### 4.84 Awaitable texture readback; debug warning on the web's null read (October 2026) *(work task 71; user answers on task 66)*
+
+`var image: Image = await texture.get_image_awaitable()` and `await RenderingServer.texture_2d_get_awaitable(rid)`:
+each returns a `Signal` that fires once with this frame's `Image` (or `null` if the texture is invalid or freed), its
+own per call, so any number can be in flight (a RefCounted with a `completed` signal kept alive only by the read's
+callback, `RenderingServer::create_image_request()`); `get_image_async(callback)` unchanged. Debug web builds print
+one `WARN_PRINT` (console.warn) per texture when a synchronous `get_image()` / `texture_2d_get()` returns `null`
+because the pixels are not back yet, pointing at the async methods (`RendererRD::TextureStorage::texture_2d_get()`,
+compiled only into debug web builds; invalid textures keep their own errors). `webgpu_tests/async_readback/` gained 7
+awaitable checks and counts the warning. Worker: 56/56 natively and in Chrome and Firefox with debug and release
+templates; one warning each for 96x7 and 333x7 in debug, none in release or natively. Lead (merged tree): dev_mode
+editor, web debug and release 0 warnings; 56/56 natively (0 warnings), 56/56 in Chrome and Firefox (release, 0
+warnings), debug exactly the two expected warnings in both browsers. Questions `awaitable-names`,
+`warn-rd-texture-get-data`; camera-sim's `read_back()` becomes one await (results/71-async-readback-followups/for-tasks.md).
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
