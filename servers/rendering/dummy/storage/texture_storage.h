@@ -110,6 +110,10 @@ public:
 		ERR_FAIL_NULL_V(t, Ref<Image>());
 		return t->image;
 	}
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override {
+		DummyTexture *t = texture_owner.get_or_null(p_texture);
+		p_callback.call_deferred(t ? t->image : Ref<Image>());
+	}
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const override { return Ref<Image>(); }
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const override { return Vector<Ref<Image>>(); }
 

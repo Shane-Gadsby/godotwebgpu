@@ -75,6 +75,7 @@
 			<description>
 				Returns a copy of the data of the specified [param buffer], optionally [param offset_bytes] and [param size_bytes] can be set to copy only a portion of the buffer.
 				[b]Note:[/b] This method will block the GPU from working until the data is retrieved. Refer to [method buffer_get_data_async] for an alternative that returns the data in more performant way.
+				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a buffer returns zeros, and a later call returns what the previous call copied, a frame or more old. Use [method buffer_get_data_async], which calls back once the data has arrived.
 			</description>
 		</method>
 		<method name="buffer_get_data_async">
@@ -85,7 +86,7 @@
 			<param index="3" name="size_bytes" type="int" default="0" />
 			<description>
 				Asynchronous version of [method buffer_get_data]. RenderingDevice will call [param callback] in a certain amount of frames with the data the buffer had at the time of the request.
-				[b]Note:[/b] At the moment, the delay corresponds to the amount of frames specified by [member ProjectSettings.rendering/rendering_device/vsync/frame_queue_size].
+				[b]Note:[/b] At the moment, the delay corresponds to the amount of frames specified by [member ProjectSettings.rendering/rendering_device/vsync/frame_queue_size]. On the web (WebGPU), where the browser makes the data readable asynchronously, it can be a frame or more longer: [param callback] waits for the data and always receives it, never a buffer that has not arrived. If the browser fails to make it readable, [param callback] receives an empty array and an error is printed.
 				[b]Note:[/b] Downloading large buffers can have a prohibitive cost for real-time even when using the asynchronous method due to hardware bandwidth limitations. When dealing with large resources, you can adjust settings such as [member ProjectSettings.rendering/rendering_device/staging_buffer/block_size_kb] to improve the transfer speed at the cost of extra memory.
 				[codeblock]
 				func _buffer_get_data_callback(array):
@@ -1187,6 +1188,7 @@
 				[b]Note:[/b] [param texture] can't be retrieved while a draw list that uses it as part of a framebuffer is being created. Ensure the draw list is finalized (and that the color/depth texture using it is not set to [constant FINAL_ACTION_CONTINUE]) to retrieve this texture. Otherwise, an error is printed and an empty [PackedByteArray] is returned.
 				[b]Note:[/b] [param texture] requires the [constant TEXTURE_USAGE_CAN_COPY_FROM_BIT] to be retrieved. Otherwise, an error is printed and an empty [PackedByteArray] is returned.
 				[b]Note:[/b] This method will block the GPU from working until the data is retrieved. Refer to [method texture_get_data_async] for an alternative that returns the data in more performant way.
+				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a texture returns an empty array, and a later call returns what the previous call copied, a frame or more old. Use [method texture_get_data_async], which calls back once the data has arrived.
 			</description>
 		</method>
 		<method name="texture_get_data_async">
@@ -1196,7 +1198,7 @@
 			<param index="2" name="callback" type="Callable" />
 			<description>
 				Asynchronous version of [method texture_get_data]. RenderingDevice will call [param callback] in a certain amount of frames with the data the texture had at the time of the request.
-				[b]Note:[/b] At the moment, the delay corresponds to the amount of frames specified by [member ProjectSettings.rendering/rendering_device/vsync/frame_queue_size].
+				[b]Note:[/b] At the moment, the delay corresponds to the amount of frames specified by [member ProjectSettings.rendering/rendering_device/vsync/frame_queue_size]. On the web (WebGPU), where the browser makes the data readable asynchronously, it can be a frame or more longer: [param callback] waits for the data and always receives it, never a buffer that has not arrived. If the browser fails to make it readable, [param callback] receives an empty array and an error is printed.
 				[b]Note:[/b] Downloading large textures can have a prohibitive cost for real-time even when using the asynchronous method due to hardware bandwidth limitations. When dealing with large resources, you can adjust settings such as [member ProjectSettings.rendering/rendering_device/staging_buffer/texture_download_region_size_px] and [member ProjectSettings.rendering/rendering_device/staging_buffer/block_size_kb] to improve the transfer speed at the cost of extra memory.
 				[codeblock]
 				func _texture_get_data_callback(array):

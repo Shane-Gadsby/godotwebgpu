@@ -4353,6 +4353,15 @@
 				var texture = ImageTexture.create_from_image(RenderingServer.texture_2d_get(texture_rid))
 				$Sprite2D.texture = texture
 				[/codeblock]
+				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data: the first call for a texture returns [code]null[/code], and a later call returns what the previous call copied. Use [method texture_2d_get_async], which behaves the same on every platform.
+			</description>
+		</method>
+		<method name="texture_2d_get_async">
+			<return type="void" />
+			<param index="0" name="texture" type="RID" />
+			<param index="1" name="callback" type="Callable" />
+			<description>
+				Asynchronous version of [method texture_2d_get]. Once the current frame's viewports have been drawn, copies [param texture] from the GPU, and when the data has arrived, calls [param callback] on the main thread with an [Image], or with [code]null[/code] if [param texture] is invalid or freed before then, or the read fails. [param callback] is called exactly once, never from inside this method, and requests complete in the order they were made. This is what [method Texture2D.get_image_async] uses, and it behaves the same on every platform, including the web, where [method texture_2d_get] cannot wait for the GPU.
 			</description>
 		</method>
 		<method name="texture_2d_layer_get" qualifiers="const">

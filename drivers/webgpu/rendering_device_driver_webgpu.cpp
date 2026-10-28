@@ -1679,8 +1679,10 @@ static void _buffer_deferred_map_cb(WGPUMapAsyncStatus p_status, WGPUStringView 
 			memcpy(buf->shadow_map, mapped, buf->size);
 		}
 		wgpuBufferUnmap(buf->handle);
+		buf->map_failed = false;
 	} else {
 		ERR_PRINT(vformat("WebGPU _buffer_deferred_map_cb: FAILED status=%d", (int)p_status));
+		buf->map_failed = true;
 	}
 	buf->map_complete = true;
 }
@@ -1902,6 +1904,7 @@ void RenderingDeviceDriverWebGPU::buffer_initiate_async_map(BufferID p_buffer) {
 			memset(buf->shadow_map, 0, buf->size);
 		}
 		buf->map_pending = true;
+		buf->map_failed = false;
 		WGPUBufferMapCallbackInfo cb = {};
 		cb.mode = WGPUCallbackMode_AllowSpontaneous;
 		cb.callback = _buffer_deferred_map_cb;
@@ -1910,6 +1913,30 @@ void RenderingDeviceDriverWebGPU::buffer_initiate_async_map(BufferID p_buffer) {
 	} else {
 		// Buffer already pending or mapped, skip duplicate mapAsync.
 	}
+}
+
+Error RenderingDeviceDriverWebGPU::buffer_get_readback_status(BufferID p_buffer) {
+	WGBuffer *buf = (WGBuffer *)(p_buffer.id);
+	ERR_FAIL_NULL_V(buf, FAILED);
+	if (!buf->is_readback || !buf->handle) {
+		return OK;
+	}
+	if (!buf->map_complete && buf->map_pending) {
+		// Deliver a callback the browser has already resolved, as buffer_map() does.
+		WGPUInstance inst = context_driver ? context_driver->get_instance() : nullptr;
+		if (inst) {
+			wgpuInstanceProcessEvents(inst);
+		}
+	}
+	if (buf->map_complete) {
+		return buf->map_failed ? FAILED : OK;
+	}
+	if (!buf->map_pending) {
+		// No map was started (nothing was copied into it this frame), so there is nothing to wait for.
+		return OK;
+	}
+	// Mapped at the JS level before the C callback ran: buffer_map() reads the mapped range directly.
+	return wgpuBufferGetMapState(buf->handle) == WGPUBufferMapState_Mapped ? OK : ERR_BUSY;
 }
 
 uint32_t RenderingDeviceDriverWebGPU::texture_get_gpu_pixel_size(TextureID p_texture) {

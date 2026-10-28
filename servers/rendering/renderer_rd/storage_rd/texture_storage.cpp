@@ -31,6 +31,7 @@
 #include "texture_storage.h"
 
 #include "core/config/engine.h"
+#include "core/object/callable_mp.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
@@ -1904,31 +1905,17 @@ void TextureStorage::texture_3d_placeholder_initialize(RID p_texture) {
 	texture_3d_initialize(p_texture, Image::FORMAT_RGBA8, 4, 4, 4, false, texture_3d_placeholder);
 }
 
-Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
-	Texture *tex = texture_owner.get_or_null(p_texture);
-	ERR_FAIL_NULL_V(tex, Ref<Image>());
-
-#ifdef TOOLS_ENABLED
-	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
-		return tex->image_cache_2d;
-	}
-#endif
-	Vector<uint8_t> data = RD::get_singleton()->texture_get_data(tex->rd_texture, 0);
-	if (data.is_empty()) {
-		// On WebGPU, readback is async — empty data signals "not ready yet."
-		// Return null without an error; caller should retry next frame.
-		return Ref<Image>();
-	}
+Ref<Image> TextureStorage::_texture_2d_image_from_data(const Vector<uint8_t> &p_data, int p_width, int p_height, bool p_mipmaps, Image::Format p_validated_format, Image::Format p_format, RD::DataFormat p_rd_format) {
 	Ref<Image> image;
 
 	// Expand RGB10_A2 into RGBAH.
-	if (tex->rd_format == RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32) {
+	if (p_rd_format == RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32) {
 		Vector<uint8_t> new_data;
-		new_data.resize(data.size() * 2);
+		new_data.resize(p_data.size() * 2);
 		uint16_t *ndp = (uint16_t *)new_data.ptr();
 
-		uint32_t *ptr = (uint32_t *)data.ptr();
-		uint32_t num_pixels = data.size() / 4;
+		const uint32_t *ptr = (const uint32_t *)p_data.ptr();
+		uint32_t num_pixels = p_data.size() / 4;
 
 		for (uint32_t ofs = 0; ofs < num_pixels; ofs++) {
 			uint32_t px = ptr[ofs];
@@ -1942,18 +1929,74 @@ Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
 			ndp[ofs * 4 + 2] = Math::make_half_float(float(b) / 1023.0);
 			ndp[ofs * 4 + 3] = Math::make_half_float(float(a) / 3.0);
 		}
-		image = Image::create_from_data(tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, new_data);
+		image = Image::create_from_data(p_width, p_height, p_mipmaps, p_validated_format, new_data);
 	} else {
-		image = Image::create_from_data(tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, data);
+		image = Image::create_from_data(p_width, p_height, p_mipmaps, p_validated_format, p_data);
 	}
+
+	if (!image->is_empty() && p_format != p_validated_format) {
+		image->convert(p_format);
+	}
+	return image;
+}
+
+void TextureStorage::texture_2d_get_async(RID p_texture, const Callable &p_callback) {
+	Texture *tex = texture_owner.get_or_null(p_texture);
+	if (!tex) {
+		// Invalid, or freed between the request and the end of the frame: documented as a null image, not an error.
+		p_callback.call_deferred(Ref<Image>());
+		return;
+	}
+
+#ifdef TOOLS_ENABLED
+	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
+		p_callback.call_deferred(tex->image_cache_2d);
+		return;
+	}
+#endif
+
+	// Everything the Image is built from is captured now: a render target can be resized before the data arrives.
+	Callable done = callable_mp_static(&TextureStorage::_texture_2d_get_async_done).bind(p_texture, tex->width, tex->height, tex->mipmaps > 1, int(tex->validated_format), int(tex->format), int(tex->rd_format), p_callback);
+	Error err = RD::get_singleton()->texture_get_data_async(tex->rd_texture, 0, done);
+	if (err != OK) {
+		p_callback.call_deferred(Ref<Image>());
+	}
+}
+
+void TextureStorage::_texture_2d_get_async_done(const Vector<uint8_t> &p_data, RID p_texture, int p_width, int p_height, bool p_mipmaps, int p_validated_format, int p_format, int p_rd_format, const Callable &p_callback) {
+	// Runs on the rendering thread, from RenderingDevice, once the data has arrived (WebGPU: once its map completed).
+	TextureStorage *storage = get_singleton();
+	Ref<Image> image;
+	if (storage && storage->owns_texture(p_texture) && !p_data.is_empty()) {
+		image = _texture_2d_image_from_data(p_data, p_width, p_height, p_mipmaps, Image::Format(p_validated_format), Image::Format(p_format), RD::DataFormat(p_rd_format));
+		if (image.is_valid() && image->is_empty()) {
+			image.unref();
+		}
+	}
+	p_callback.call_deferred(image);
+}
+
+Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
+	Texture *tex = texture_owner.get_or_null(p_texture);
+	ERR_FAIL_NULL_V(tex, Ref<Image>());
+
+#ifdef TOOLS_ENABLED
+	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
+		return tex->image_cache_2d;
+	}
+#endif
+	Vector<uint8_t> data = RD::get_singleton()->texture_get_data(tex->rd_texture, 0);
+	if (data.is_empty()) {
+		// On WebGPU, readback is async — empty data signals "not ready yet."
+		// Return null without an error; caller should retry next frame.
+		// texture_2d_get_async() is the readback that waits for the data instead.
+		return Ref<Image>();
+	}
+	Ref<Image> image = _texture_2d_image_from_data(data, tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, tex->format, tex->rd_format);
 
 	if (image->is_empty()) {
 		const String &path_str = tex->path.is_empty() ? "with no path" : vformat("with path '%s'", tex->path);
 		ERR_FAIL_V_MSG(Ref<Image>(), vformat("Texture %s has no data.", path_str));
-	}
-
-	if (tex->format != tex->validated_format) {
-		image->convert(tex->format);
 	}
 
 #ifdef TOOLS_ENABLED

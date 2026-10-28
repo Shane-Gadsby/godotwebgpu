@@ -1,8 +1,8 @@
 # 66-web-async-texture-readback: a texture readback that tells you when the pixels are real, on every platform
 
-State: open
+State: ready-for-integration
 Owner: worker-66
-Claimed:
+Claimed: 2026-10-28 20:45
 Needs: build (editor + web template), browser (Playwright), native Vulkan run
 Branch: work/66
 Results: webgpu_notes/work/results/66-web-async-texture-readback/
@@ -20,7 +20,7 @@ on web with no error: before camera-sim worked around it, its two download butto
 builds crashed with `null function`.
 
 Every web project that reads pixels back has to guess. camera-sim's workaround (`scripts/main.gd` `read_back()`)
-calls `get_image()` up to 30 frames in a row until the centre pixel's alpha is non-zero. That only works because
+calls `get_image()` up to 30 frames in a row until the center pixel's alpha is non-zero. That only works because
 its images are opaque, and it can't tell a black frame from one that hasn't arrived. Its histogram reads the
 previous request's image every 0.25 s for the same reason.
 
@@ -42,7 +42,7 @@ previous request's image every 0.25 s for the same reason.
 2. **`RenderingDevice.texture_get_data_async` and `buffer_get_data_async` work on WebGPU**, if they don't already,
    so lower-level code (compute readbacks, the histogram readback in NN-camera-histogram-readback) has a correct
    path too. Report what the driver does today.
-3. **Make the synchronous call's web behaviour discoverable:** document in `Texture2D.get_image()`,
+3. **Make the synchronous call's web behavior discoverable:** document in `Texture2D.get_image()`,
    `Viewport.get_texture()` and `RenderingDevice.texture_get_data()` that on web a rendered texture's first read
    is zero-filled, and point to the async method. Optionally, an `Engine`/`OS` query or a one-time warning in
    debug builds only, so released games stay quiet (the reason §4.28 made it verbose).
