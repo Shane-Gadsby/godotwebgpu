@@ -82,7 +82,17 @@ DisplayServerWeb *DisplayServerWeb::get_singleton() {
 // Window (canvas)
 bool DisplayServerWeb::check_size_force_redraw() {
 	bool size_changed = godot_js_display_size_update() != 0;
-	if (size_changed && rect_changed_callback.is_valid()) {
+	if (size_changed) {
+		_canvas_size_changed();
+	}
+	return size_changed;
+}
+
+// The canvas has just changed size: tell the root window, then resize the canvas element (the
+// OffscreenCanvas on the render thread) and the rendering surface to match. Both a browser resize
+// (check_size_force_redraw) and window_set_size() come through here.
+void DisplayServerWeb::_canvas_size_changed() {
+	if (rect_changed_callback.is_valid()) {
 		Size2i window_size = window_get_size();
 		Variant size = Rect2i(Point2i(), window_size); // TODO use window_get_position if implemented.
 		rect_changed_callback.call(size);
@@ -101,7 +111,6 @@ bool DisplayServerWeb::check_size_force_redraw() {
 		}
 #endif
 	}
-	return size_changed;
 }
 
 void DisplayServerWeb::fullscreen_change_callback(int p_fullscreen) {
@@ -1756,7 +1765,12 @@ Size2i DisplayServerWeb::window_get_min_size(DisplayServerEnums::WindowID p_wind
 }
 
 void DisplayServerWeb::window_set_size(const Size2i p_size, DisplayServerEnums::WindowID p_window) {
-	godot_js_display_desired_size_set(p_size.x, p_size.y);
+	// The JS side resizes the canvas right away, so the next frame's size check finds nothing to report:
+	// the resize path has to run here, or the root window never emits size_changed and the viewport and
+	// the WebGPU surface keep the old size.
+	if (godot_js_display_desired_size_set(p_size.x, p_size.y) != 0) {
+		_canvas_size_changed();
+	}
 }
 
 Size2i DisplayServerWeb::window_get_size(DisplayServerEnums::WindowID p_window) const {

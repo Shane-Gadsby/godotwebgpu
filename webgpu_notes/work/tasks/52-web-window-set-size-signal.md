@@ -1,8 +1,8 @@
 # 52-web-window-set-size-signal: `DisplayServer.window_set_size()` on web never emits `size_changed`
 
-State: open
+State: claimed
 Owner: worker-52
-Claimed:
+Claimed: 2026-10-28 12:40
 Needs: build (web template), browser (one short Playwright run)
 Branch: work/52
 Results: webgpu_notes/work/results/52-web-window-set-size-signal/
