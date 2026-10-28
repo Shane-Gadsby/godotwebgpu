@@ -1,8 +1,8 @@
 # 74-scale-change-temporal-state
 
-State: open
+State: ready-for-integration
 Owner: worker-74
-Claimed:
+Claimed: 2026-10-28 22:24
 Needs: build, gpu, browser
 Branch: work/74
 Results: webgpu_notes/work/results/74-scale-change-temporal-state/

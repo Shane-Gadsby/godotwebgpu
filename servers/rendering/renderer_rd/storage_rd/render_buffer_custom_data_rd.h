@@ -40,6 +40,11 @@ class RenderBufferCustomDataRD : public RefCounted {
 public:
 	virtual void configure(RenderSceneBuffersRD *p_render_buffers) = 0;
 	virtual void free_data() = 0; // called on cleanup
+	// Called instead of free_data() when the render buffers are reconfigured (a new internal size, a 3D scaling change
+	// and so on) rather than destroyed: frees what depends on the configuration and may keep state that does not, so
+	// it carries over the change instead of starting from scratch (auto exposure's luminance, FSR 2's history). The
+	// next configure() decides what is kept. free_data() must still free everything.
+	virtual void free_data_for_reconfigure() { free_data(); }
 
 private:
 };

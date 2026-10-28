@@ -182,6 +182,14 @@ public:
 	FSR2Effect();
 	~FSR2Effect();
 	FSR2Context *create_context(Size2i p_internal_size, Size2i p_target_size);
+	// The largest render size p_context accepts (what it was created with) and the size it upscales to.
+	static Size2i get_max_render_size(const FSR2Context *p_context);
+	static Size2i get_display_size(const FSR2Context *p_context);
+	// Hands p_from's history over to p_to, a context with the same display size and a larger maximum render size,
+	// so growing the maximum continues the accumulation instead of restarting it (as a new context would): copies
+	// every resource FSR 2 keeps from one frame to the next, and the frame state that goes with it. Records the
+	// copies; p_from can be freed afterwards.
+	void transfer_history(FSR2Context *p_from, FSR2Context *p_to);
 	void upscale(const Parameters &p_params);
 
 private:

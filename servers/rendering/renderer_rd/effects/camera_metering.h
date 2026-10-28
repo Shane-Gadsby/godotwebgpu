@@ -60,6 +60,9 @@ public:
 
 		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override;
 		virtual void free_data() override;
+		// Keeps the auto white balance state, which does not depend on the internal size, as LuminanceBuffers keeps
+		// auto exposure's.
+		virtual void free_data_for_reconfigure() override;
 	};
 
 	struct ExposureSettings {

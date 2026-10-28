@@ -173,6 +173,13 @@ private:
 	void update_sizes(NamedTexture &p_named_texture);
 	void free_named_texture(NamedTexture &p_named_texture);
 
+	// Named textures a reconfigure kept instead of freeing, for their effect to resample into the new ones (TAA's
+	// history, TAA::process()). Whatever is still here at the next configure() or cleanup() is freed then.
+	HashMap<NTKey, NamedTexture, NTKey> carried_textures;
+	void _carry_texture(const StringName &p_context, const StringName &p_texture_name);
+	void _free_carried_textures();
+	void _cleanup(bool p_reconfigure);
+
 	// Data buffers
 	mutable HashMap<StringName, Ref<RenderBufferCustomDataRD>> data_buffers;
 
@@ -202,6 +209,12 @@ public:
 
 	void cleanup();
 	virtual void configure(const RenderSceneBuffersConfiguration *p_config) override;
+	// Layer p_layer (a 2D texture) of what p_context/p_texture_name was before the last configure(), if it was carried
+	// over (RID() if not, or if it had fewer layers), its size, and freeing p_context's carried textures once they
+	// have been resampled.
+	RID get_carried_texture_layer(const StringName &p_context, const StringName &p_texture_name, uint32_t p_layer);
+	Size2i get_carried_texture_size(const StringName &p_context, const StringName &p_texture_name) const;
+	void free_carried_textures(const StringName &p_context);
 	void configure_for_reflections(const Size2i p_reflection_size);
 	virtual void set_fsr_sharpness(float p_fsr_sharpness) override;
 	virtual void set_texture_mipmap_bias(float p_texture_mipmap_bias) override;

@@ -41,6 +41,9 @@ using namespace RendererRD;
 #define wcscpy_s wcscpy
 #endif
 
+// FfxFsr2Context_Private, for FSR2Effect::transfer_history().
+#include <thirdparty/amd-fsr2/ffx_fsr2_private.h>
+
 static RD::TextureType ffx_resource_type_to_rd_texture_type(FfxResourceType p_type) {
 	switch (p_type) {
 		case FFX_RESOURCE_TYPE_TEXTURE1D:
@@ -1032,6 +1035,72 @@ FSR2Context *FSR2Effect::create_context(Size2i p_internal_size, Size2i p_target_
 		memdelete(context);
 		return nullptr;
 	}
+}
+
+Size2i FSR2Effect::get_max_render_size(const FSR2Context *p_context) {
+	return Size2i(p_context->fsr_desc.maxRenderSize.width, p_context->fsr_desc.maxRenderSize.height);
+}
+
+Size2i FSR2Effect::get_display_size(const FSR2Context *p_context) {
+	return Size2i(p_context->fsr_desc.displaySize.width, p_context->fsr_desc.displaySize.height);
+}
+
+void FSR2Effect::transfer_history(FSR2Context *p_from, FSR2Context *p_to) {
+	ERR_FAIL_NULL(p_from);
+	ERR_FAIL_NULL(p_to);
+	ERR_FAIL_COND(get_display_size(p_from) != get_display_size(p_to));
+
+	// What a dispatch reads that an earlier one wrote: every resource ffx_fsr2.cpp creates without
+	// FFX_RESOURCE_FLAGS_ALIASABLE and is not a read-only table. The display-size ones (the upscaled history, the
+	// locks, the luma history) copy whole; the render-size ones (motion vectors, reactive and composition masks)
+	// hold the last frame in their top-left corner, which is where the larger context reads them: FSR 2 addresses
+	// them clamped to the render size of the dispatch (ClampUv() in ffx_fsr2_common.h), as when a kept context is
+	// given a smaller render size.
+	static const uint32_t persistent_resources[] = {
+		FFX_FSR2_RESOURCE_IDENTIFIER_INTERNAL_DILATED_MOTION_VECTORS_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_INTERNAL_DILATED_MOTION_VECTORS_2,
+		FFX_FSR2_RESOURCE_IDENTIFIER_LOCK_STATUS_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_LOCK_STATUS_2,
+		FFX_FSR2_RESOURCE_IDENTIFIER_INTERNAL_UPSCALED_COLOR_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_INTERNAL_UPSCALED_COLOR_2,
+		FFX_FSR2_RESOURCE_IDENTIFIER_LUMA_HISTORY_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_LUMA_HISTORY_2,
+		FFX_FSR2_RESOURCE_IDENTIFIER_AUTO_EXPOSURE,
+		FFX_FSR2_RESOURCE_IDENTIFIER_AUTOREACTIVE,
+		FFX_FSR2_RESOURCE_IDENTIFIER_AUTOCOMPOSITION,
+		FFX_FSR2_RESOURCE_IDENTIFIER_PREV_PRE_ALPHA_COLOR_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_PREV_PRE_ALPHA_COLOR_2,
+		FFX_FSR2_RESOURCE_IDENTIFIER_PREV_POST_ALPHA_COLOR_1,
+		FFX_FSR2_RESOURCE_IDENTIFIER_PREV_POST_ALPHA_COLOR_2,
+	};
+
+	FfxFsr2Context_Private *from = reinterpret_cast<FfxFsr2Context_Private *>(&p_from->fsr_context);
+	FfxFsr2Context_Private *to = reinterpret_cast<FfxFsr2Context_Private *>(&p_to->fsr_context);
+	const FSR2Context::Resources &from_resources = p_from->scratch.resources;
+	const FSR2Context::Resources &to_resources = p_to->scratch.resources;
+
+	for (uint32_t id : persistent_resources) {
+		const int32_t from_index = from->srvResources[id].internalIndex;
+		const int32_t to_index = to->srvResources[id].internalIndex;
+		ERR_CONTINUE(from_index < 0 || uint32_t(from_index) >= from_resources.size() || to_index < 0 || uint32_t(to_index) >= to_resources.size());
+		const RID source = from_resources.rids[from_index];
+		const RID dest = to_resources.rids[to_index];
+		ERR_CONTINUE(source.is_null() || dest.is_null());
+		const FfxResourceDescription &source_desc = from_resources.descriptions[from_index];
+		const FfxResourceDescription &dest_desc = to_resources.descriptions[to_index];
+		const Vector3 size(MIN(source_desc.width, dest_desc.width), MIN(MAX(source_desc.height, 1u), MAX(dest_desc.height, 1u)), 1);
+		RD::get_singleton()->texture_copy(source, dest, Vector3(), Vector3(), size, 0, 0, 0, 0);
+	}
+
+	// The frame state that goes with them: which of each ping-pong pair is the latest, the frame index (FSR 2
+	// accumulates differently over its first frames), the jitter sequence and the previous exposure. Everything
+	// else in the constants is set again by the next dispatch.
+	to->firstExecution = from->firstExecution;
+	to->resourceFrameIndex = from->resourceFrameIndex;
+	to->previousJitterOffset[0] = from->previousJitterOffset[0];
+	to->previousJitterOffset[1] = from->previousJitterOffset[1];
+	to->jitterPhaseCountRemaining = from->jitterPhaseCountRemaining;
+	to->constants = from->constants;
 }
 
 void FSR2Effect::upscale(const Parameters &p_params) {
