@@ -3563,6 +3563,9 @@
 		<member name="rendering/scaling_3d/dynamic_remember" type="bool" setter="" getter="" default="false">
 			If [code]true[/code], the scale dynamic 3D resolution settles on for the root viewport is saved in [code]user://[/code] and the next run starts from it. See [member Viewport.scaling_3d_dynamic_remember].
 		</member>
+		<member name="rendering/scaling_3d/dynamic_step" type="float" setter="" getter="" default="0.05">
+			The size of each change dynamic 3D resolution makes to the root viewport's scale. See [member Viewport.scaling_3d_dynamic_step].
+		</member>
 		<member name="rendering/scaling_3d/dynamic_target_fps" type="float" setter="" getter="" default="60.0">
 			The frame rate dynamic 3D resolution tries to hold for the root viewport. See [member Viewport.scaling_3d_dynamic_target_fps].
 		</member>

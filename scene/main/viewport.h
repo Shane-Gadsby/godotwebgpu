@@ -346,11 +346,15 @@ private:
 	float scaling_3d_dynamic_target_fps = 60.0;
 	float scaling_3d_dynamic_min_scale = 0.5;
 	float scaling_3d_dynamic_max_scale = 1.0;
+	float scaling_3d_dynamic_step = 0.05;
 	bool scaling_3d_dynamic_remember = false;
 	// Polled from the rendering server while dynamic scaling is on (internal process).
 	float scaling_3d_dynamic_last_scale = 1.0;
 	Scaling3DDynamicState scaling_3d_dynamic_last_state = SCALING_3D_DYNAMIC_STATE_OFF;
 	float scaling_3d_dynamic_saved_scale = -1.0; // What remember last wrote or read; < 0: nothing.
+	String scaling_3d_dynamic_remember_mode; // The window mode the saved scale belongs to.
+	Size2i scaling_3d_dynamic_window_size; // The display window's size at the last mode check.
+	uint32_t scaling_3d_dynamic_mode_polls = 0;
 	float fsr_sharpness = 0.2f;
 	float texture_mipmap_bias = 0.0f;
 	AnisotropicFiltering anisotropic_filtering_level = ANISOTROPY_4X;
@@ -551,6 +555,9 @@ protected:
 	void _update_internal_process();
 	void _scaling_3d_dynamic_poll();
 	String _scaling_3d_dynamic_remember_section() const;
+	Window *_scaling_3d_dynamic_display_window();
+	String _scaling_3d_dynamic_window_mode();
+	void _scaling_3d_dynamic_check_window_mode();
 	void _scaling_3d_dynamic_load_remembered();
 	void _scaling_3d_dynamic_save_remembered();
 
@@ -649,6 +656,8 @@ public:
 	float get_scaling_3d_dynamic_min_scale() const;
 	void set_scaling_3d_dynamic_max_scale(float p_scale);
 	float get_scaling_3d_dynamic_max_scale() const;
+	void set_scaling_3d_dynamic_step(float p_step);
+	float get_scaling_3d_dynamic_step() const;
 	void set_scaling_3d_dynamic_remember(bool p_enabled);
 	bool is_scaling_3d_dynamic_remember() const;
 	float get_scaling_3d_effective_scale() const;

@@ -5209,6 +5209,17 @@ float Viewport::get_scaling_3d_dynamic_max_scale() const {
 	return scaling_3d_dynamic_max_scale;
 }
 
+void Viewport::set_scaling_3d_dynamic_step(float p_step) {
+	ERR_MAIN_THREAD_GUARD;
+	scaling_3d_dynamic_step = CLAMP(p_step, 0.01f, 0.25f);
+	RS::get_singleton()->viewport_set_scaling_3d_dynamic_step(viewport, scaling_3d_dynamic_step);
+}
+
+float Viewport::get_scaling_3d_dynamic_step() const {
+	ERR_READ_THREAD_GUARD_V(0.05);
+	return scaling_3d_dynamic_step;
+}
+
 void Viewport::set_scaling_3d_dynamic_remember(bool p_enabled) {
 	ERR_MAIN_THREAD_GUARD;
 	if (scaling_3d_dynamic_remember == p_enabled) {
@@ -5241,6 +5252,9 @@ Viewport::Scaling3DDynamicSource Viewport::get_scaling_3d_dynamic_source() const
 }
 
 void Viewport::_scaling_3d_dynamic_poll() {
+	if (scaling_3d_dynamic_remember) {
+		_scaling_3d_dynamic_check_window_mode();
+	}
 	const float scale = RS::get_singleton()->viewport_get_scaling_3d_effective_scale(viewport);
 	const Scaling3DDynamicState state = Scaling3DDynamicState(RS::get_singleton()->viewport_get_scaling_3d_dynamic_state(viewport));
 	if (scale != scaling_3d_dynamic_last_scale) {
@@ -5257,31 +5271,90 @@ void Viewport::_scaling_3d_dynamic_poll() {
 }
 
 // Remembered scales live in user://, which is already per machine (per browser profile on the web), in one section
-// per GPU and renderer, keyed by the viewport's path: a scale settled on one GPU says nothing about another.
+// per GPU and renderer, keyed by the viewport's path and the window mode (user answer on task 75: windowed and
+// fullscreen are different pixel counts and often different refresh rates, so a scale settled in one says little about
+// the other). A key without the mode is what task 75 wrote: read once as a fallback, then rewritten with the mode.
 static const char *SCALING_3D_DYNAMIC_REMEMBER_FILE = "user://scaling_3d_dynamic.cfg";
 
 String Viewport::_scaling_3d_dynamic_remember_section() const {
 	return RS::get_singleton()->get_current_rendering_method() + " " + RS::get_singleton()->get_video_adapter_name();
 }
 
+Window *Viewport::_scaling_3d_dynamic_display_window() {
+	if (!is_inside_tree()) {
+		return nullptr;
+	}
+	// The window on the display: a SubViewport's, or an embedded window's host.
+	Window *w = get_base_window();
+	while (w && w->is_embedded()) {
+		Viewport *host = w->get_parent_viewport();
+		w = host ? host->get_base_window() : nullptr;
+	}
+	return w;
+}
+
+String Viewport::_scaling_3d_dynamic_window_mode() {
+	const Window *w = _scaling_3d_dynamic_display_window();
+	switch (w ? w->get_mode() : Window::MODE_WINDOWED) {
+		case Window::MODE_FULLSCREEN:
+			return "fullscreen";
+		case Window::MODE_EXCLUSIVE_FULLSCREEN:
+			return "exclusive_fullscreen";
+		default:
+			return "windowed"; // Maximized and minimized are windowed too.
+	}
+}
+
+void Viewport::_scaling_3d_dynamic_check_window_mode() {
+	// The mode is asked of the display server, which can mean a round trip to the window system: only when the
+	// window's size changed (a mode change always resizes it), and every 30 polls in case the size lands first.
+	const Window *w = _scaling_3d_dynamic_display_window();
+	const Size2i window_size = w ? w->get_size() : Size2i();
+	if (window_size == scaling_3d_dynamic_window_size && ++scaling_3d_dynamic_mode_polls < 30) {
+		return;
+	}
+	scaling_3d_dynamic_window_size = window_size;
+	scaling_3d_dynamic_mode_polls = 0;
+	if (scaling_3d_dynamic_remember_mode.is_empty() || _scaling_3d_dynamic_window_mode() == scaling_3d_dynamic_remember_mode) {
+		return;
+	}
+	// A new mode: start from what was settled in it before, if anything; the next stable scale is saved for it.
+	scaling_3d_dynamic_saved_scale = -1.0;
+	_scaling_3d_dynamic_load_remembered();
+}
+
 void Viewport::_scaling_3d_dynamic_load_remembered() {
 	if (Engine::get_singleton()->is_editor_hint() || !is_inside_tree()) {
 		return;
 	}
+	const String mode = _scaling_3d_dynamic_window_mode();
+	scaling_3d_dynamic_remember_mode = mode;
 	Ref<ConfigFile> config;
 	config.instantiate();
 	if (config->load(SCALING_3D_DYNAMIC_REMEMBER_FILE) != OK) {
 		return;
 	}
 	const String section = _scaling_3d_dynamic_remember_section();
-	const String key = String(get_path());
-	if (!config->has_section_key(section, key)) {
+	const String path = String(get_path());
+	const String key = path + "@" + mode;
+	float saved = -1.0;
+	if (config->has_section_key(section, key)) {
+		saved = CLAMP(float(config->get_value(section, key)), 0.1f, 2.0f);
+	} else if (config->has_section_key(section, path)) {
+		// Saved before the mode was part of the key: it becomes this mode's, and the old key goes.
+		saved = CLAMP(float(config->get_value(section, path)), 0.1f, 2.0f);
+		config->erase_section_key(section, path);
+		config->set_value(section, key, saved);
+		if (config->save(SCALING_3D_DYNAMIC_REMEMBER_FILE) == OK) {
+			print_verbose(vformat("Dynamic 3D resolution: moved the remembered scale %.2f of %s to %s.", saved, path, mode));
+		}
+	}
+	if (saved < 0.0f) {
 		return;
 	}
-	const float saved = CLAMP(float(config->get_value(section, key)), 0.1f, 2.0f);
 	scaling_3d_dynamic_saved_scale = saved;
 	scaling_3d_dynamic_last_scale = saved;
-	print_verbose(vformat("Dynamic 3D resolution: %s starts from its remembered scale %.2f.", key, saved));
+	print_verbose(vformat("Dynamic 3D resolution: %s starts from its remembered scale %.2f (%s).", path, saved, mode));
 	// The server's starting scale; the scaling_3d_scale property keeps the user's value.
 	RS::get_singleton()->viewport_set_scaling_3d_scale(viewport, saved);
 }
@@ -5290,6 +5363,11 @@ void Viewport::_scaling_3d_dynamic_save_remembered() {
 	if (Engine::get_singleton()->is_editor_hint() || !is_inside_tree()) {
 		return;
 	}
+	const String mode = _scaling_3d_dynamic_window_mode();
+	if (mode != scaling_3d_dynamic_remember_mode) {
+		scaling_3d_dynamic_remember_mode = mode;
+		scaling_3d_dynamic_saved_scale = -1.0;
+	}
 	const float scale = scaling_3d_dynamic_last_scale;
 	if (scaling_3d_dynamic_saved_scale >= 0.0f && Math::abs(scale - scaling_3d_dynamic_saved_scale) < 0.001f) {
 		return;
@@ -5297,10 +5375,15 @@ void Viewport::_scaling_3d_dynamic_save_remembered() {
 	Ref<ConfigFile> config;
 	config.instantiate();
 	config->load(SCALING_3D_DYNAMIC_REMEMBER_FILE); // A missing file is fine: it is created.
-	config->set_value(_scaling_3d_dynamic_remember_section(), String(get_path()), scale);
+	const String section = _scaling_3d_dynamic_remember_section();
+	const String path = String(get_path());
+	config->set_value(section, path + "@" + mode, scale);
+	if (config->has_section_key(section, path)) {
+		config->erase_section_key(section, path); // A pre-mode key would otherwise seed the other modes.
+	}
 	if (config->save(SCALING_3D_DYNAMIC_REMEMBER_FILE) == OK) {
 		scaling_3d_dynamic_saved_scale = scale;
-		print_verbose(vformat("Dynamic 3D resolution: remembered scale %.2f for %s.", scale, String(get_path())));
+		print_verbose(vformat("Dynamic 3D resolution: remembered scale %.2f for %s (%s).", scale, path, mode));
 	}
 }
 
@@ -5563,6 +5646,8 @@ void Viewport::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_scaling_3d_dynamic_min_scale"), &Viewport::get_scaling_3d_dynamic_min_scale);
 	ClassDB::bind_method(D_METHOD("set_scaling_3d_dynamic_max_scale", "scale"), &Viewport::set_scaling_3d_dynamic_max_scale);
 	ClassDB::bind_method(D_METHOD("get_scaling_3d_dynamic_max_scale"), &Viewport::get_scaling_3d_dynamic_max_scale);
+	ClassDB::bind_method(D_METHOD("set_scaling_3d_dynamic_step", "step"), &Viewport::set_scaling_3d_dynamic_step);
+	ClassDB::bind_method(D_METHOD("get_scaling_3d_dynamic_step"), &Viewport::get_scaling_3d_dynamic_step);
 	ClassDB::bind_method(D_METHOD("set_scaling_3d_dynamic_remember", "enabled"), &Viewport::set_scaling_3d_dynamic_remember);
 	ClassDB::bind_method(D_METHOD("is_scaling_3d_dynamic_remember"), &Viewport::is_scaling_3d_dynamic_remember);
 	ClassDB::bind_method(D_METHOD("get_scaling_3d_effective_scale"), &Viewport::get_scaling_3d_effective_scale);
@@ -5621,6 +5706,7 @@ void Viewport::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "scaling_3d_dynamic_target_fps", PROPERTY_HINT_RANGE, "10,360,1,or_greater,suffix:FPS"), "set_scaling_3d_dynamic_target_fps", "get_scaling_3d_dynamic_target_fps");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "scaling_3d_dynamic_min_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), "set_scaling_3d_dynamic_min_scale", "get_scaling_3d_dynamic_min_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "scaling_3d_dynamic_max_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), "set_scaling_3d_dynamic_max_scale", "get_scaling_3d_dynamic_max_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "scaling_3d_dynamic_step", PROPERTY_HINT_RANGE, "0.01,0.25,0.01"), "set_scaling_3d_dynamic_step", "get_scaling_3d_dynamic_step");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "scaling_3d_dynamic_remember"), "set_scaling_3d_dynamic_remember", "is_scaling_3d_dynamic_remember");
 	ADD_GROUP("Variable Rate Shading", "vrs_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "vrs_mode", PROPERTY_HINT_ENUM, "Disabled,Texture,XR"), "set_vrs_mode", "get_vrs_mode");

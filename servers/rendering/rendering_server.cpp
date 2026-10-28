@@ -2933,6 +2933,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_target_fps", "viewport", "fps"), &RenderingServer::viewport_set_scaling_3d_dynamic_target_fps);
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_min_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_min_scale);
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_max_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_max_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_step", "viewport", "step"), &RenderingServer::viewport_set_scaling_3d_dynamic_step);
 	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_effective_scale", "viewport"), &RenderingServer::viewport_get_scaling_3d_effective_scale);
 	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_state", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_state);
 	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_source", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_source);
@@ -3953,6 +3954,7 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_target_fps", PROPERTY_HINT_RANGE, "10,360,1,or_greater"), 60.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_min_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 0.5);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_max_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 1.0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_step", PROPERTY_HINT_RANGE, "0.01,0.25,0.01"), 0.05);
 	GLOBAL_DEF("rendering/scaling_3d/dynamic_remember", false);
 
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/textures/default_filters/texture_mipmap_bias", PROPERTY_HINT_RANGE, "-2,2,0.001"), 0.0f);
