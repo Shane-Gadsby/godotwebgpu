@@ -1,0 +1,21 @@
+# scripts/aa.mjs + aa_page.html: the old line (base: #e0e0e0, opacity 0.85, shadow 0.6) against #c4c4c4 + shadow 0.51 with A nothing, B will-change: opacity, C will-change: transform, D translateZ(0), E opacity 0.999, F filter: opacity(1), G opacity 0.9999; blocks at whole-pixel tops (so no layer snapping shows here)
+adapter {"v":"nvidia","a":"lovelace","f":false,"t":48}
+chrome base: 0 px differ from base, max 0, max chroma 0
+chrome A: 1387 px differ from base, max 75, max chroma 106
+chrome B: 806 px differ from base, max 5, max chroma 0
+chrome C: 806 px differ from base, max 5, max chroma 0
+chrome D: 806 px differ from base, max 5, max chroma 0
+chrome E: 806 px differ from base, max 5, max chroma 0
+chrome F: 806 px differ from base, max 5, max chroma 0
+chrome G: 806 px differ from base, max 5, max chroma 0
+adapter {"v":"","a":"","f":false,"t":64}
+firefox base: 0 px differ from base, max 0, max chroma 0
+firefox A: 1262 px differ from base, max 1, max chroma 0
+firefox B: 1262 px differ from base, max 1, max chroma 0
+firefox C: 1262 px differ from base, max 1, max chroma 0
+firefox D: 1262 px differ from base, max 1, max chroma 0
+firefox E: 1262 px differ from base, max 1, max chroma 0
+firefox F: 579 px differ from base, max 1, max chroma 0
+firefox G: 1262 px differ from base, max 1, max chroma 0
+
+[exited with code 0]

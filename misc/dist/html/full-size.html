@@ -174,20 +174,27 @@ body {
 
 /* Under the button while the game downloads behind the start screen
    (html/start_button/preload_progress): "Downloading 48%", then "Ready". The
-   messages and the color come from html/start_button/preload_text/*; this color
-   is that option's default. A message switched off leaves the line empty, and
-   min-height keeps its space so nothing moves. */
+   messages, color, font and size come from html/start_button/preload_text/*;
+   these are those options' defaults. Drawn at full opacity, so the color shows
+   as picked: the default color and shadow are what #e0e0e0 and a 0.6 shadow at
+   the old 85% opacity gave over the default splash background. The opacity
+   of 0.999 only keeps the grayscale antialiasing the old opacity gave the line
+   in Chrome, which draws fully opaque text with color fringes (subpixel
+   antialiasing); 0.1% of the background is under half a level, so the color
+   still comes out exactly. (A compositing layer would do the same but snaps the
+   line to whole pixels, moving the text.) A message switched off leaves the line
+   empty, and min-height keeps its space so nothing moves. */
 #status-preload {
 	display: none;
 	flex: none;
 	min-height: 1.3em;
-	color: #e0e0e0;
+	color: #c4c4c4;
 	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
 	font-size: 0.9rem;
 	line-height: 1.3;
-	opacity: 0.85;
 	text-align: center;
-	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.51);
+	opacity: 0.999;
 }
 
 /* Names the phase the engine is working through. Deliberately styled as neutral
@@ -416,7 +423,7 @@ const engine = new Engine(GODOT_CONFIG);
 	const preload = !!(startButton['enabled'] && startButton['preload']) && !(connection && connection.saveData);
 	const preloadProgress = preload && !!startButton['preloadProgress'];
 	const statusPreload = document.getElementById('status-preload');
-	// The line's messages and color (html/start_button/preload_text/*). A config without them
+	// The line's messages, color and font (html/start_button/preload_text/*). A config without them
 	// (a custom shell's, or one written before they existed) gets the defaults; an empty
 	// message is one switched off, and leaves the line empty in that state.
 	const preloadText = startButton['preloadText'] || {};
@@ -426,6 +433,12 @@ const engine = new Engine(GODOT_CONFIG);
 	const preloadReadyText = preloadMessage('ready', 'Ready');
 	if (preloadText['color']) {
 		statusPreload.style.color = preloadText['color'];
+	}
+	if (preloadText['fontFamily']) {
+		statusPreload.style.fontFamily = preloadText['fontFamily'];
+	}
+	if (preloadText['fontSize'] > 0) {
+		statusPreload.style.fontSize = `${preloadText['fontSize']}px`;
 	}
 	if (startButton['enabled']) {
 		statusStart.textContent = startButton['text'] || 'Start';

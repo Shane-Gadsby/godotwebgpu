@@ -199,9 +199,12 @@ static const Color web_start_button_background_color = Color::hex(0x3a3a3aff);
 static constexpr float WEB_START_BUTTON_HOVER_DARKEN = 0.15;
 static constexpr float WEB_START_BUTTON_PRESSED_DARKEN = 0.3;
 static const char *web_start_button_font_family = "'Noto Sans', 'Droid Sans', Arial, sans-serif";
-// The download line under the button (`html/start_button/preload_text/*`). The color is the one
-// #status-preload has in both default shells' CSS, so an export with the defaults looks as before.
-static const Color web_start_preload_text_color = Color::hex(0xe0e0e0ff);
+// The download line under the button (`html/start_button/preload_text/*`), drawn at full opacity so
+// the color shows as picked. The line used to be #e0e0e0 at 85% opacity; over the default boot splash
+// background (#242424) that is #c4c4c4, so the default color keeps the default start screen as it was.
+// The font is the shells' own, 0.9rem at the browsers' default 16 px root size.
+static const Color web_start_preload_text_color = Color::hex(0xc4c4c4ff);
+static constexpr double WEB_START_PRELOAD_TEXT_FONT_SIZE = 14.4;
 static const char *web_start_preload_text_downloading = "Downloading...";
 static const char *web_start_preload_text_progress = "Downloading {percent}%";
 static const char *web_start_preload_text_ready = "Ready";
@@ -295,6 +298,8 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	preload_text["progress"] = p_preset->get("html/start_button/preload_text/progress").operator bool() ? String(p_preset->get("html/start_button/preload_text/progress_text")) : String();
 	preload_text["ready"] = p_preset->get("html/start_button/preload_text/ready").operator bool() ? String(p_preset->get("html/start_button/preload_text/ready_text")) : String();
 	preload_text["color"] = _web_css_color(p_preset->get("html/start_button/preload_text/color"));
+	preload_text["fontFamily"] = p_preset->get("html/start_button/preload_text/font_family");
+	preload_text["fontSize"] = p_preset->get("html/start_button/preload_text/font_size");
 	start_button["preloadText"] = preload_text;
 	config["startButton"] = start_button;
 
@@ -632,6 +637,8 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_text/ready"), true, true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/ready_text"), String(web_start_preload_text_ready)));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/preload_text/color"), web_start_preload_text_color));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/font_family"), String(web_start_button_font_family)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::FLOAT, "html/start_button/preload_text/font_size", PROPERTY_HINT_RANGE, "1,128,0.1,or_greater,suffix:px"), WEB_START_PRELOAD_TEXT_FONT_SIZE));
 
 	// Lets the page that iframes the game put it in fullscreen through postMessage; the origins are
 	// shown only while it is enabled.

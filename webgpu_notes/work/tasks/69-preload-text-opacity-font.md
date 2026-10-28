@@ -1,8 +1,8 @@
 # 69-preload-text-opacity-font
 
-State: open
+State: ready-for-integration
 Owner: worker-69
-Claimed:
+Claimed: 2026-10-28
 Needs: build, browser
 Branch: work/69
 Results: webgpu_notes/work/results/69-preload-text-opacity-font/
