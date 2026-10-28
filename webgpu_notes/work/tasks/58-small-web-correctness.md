@@ -1,8 +1,8 @@
 # 58-small-web-correctness: TASKS §2.42, §2.43, §2.44
 
-State: open
+State: claimed
 Owner: worker-58
-Claimed:
+Claimed: 2026-10-28
 Needs: build, gpu (short runs)
 Branch: work/58
 Results: webgpu_notes/work/results/58-small-web-correctness/
