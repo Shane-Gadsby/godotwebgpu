@@ -24,6 +24,10 @@ Both default shells (`full-size.html`, `webgpu-full-size.html`). Preload is task
 3. **Accessible name.** The button's text is its accessible name; no separate aria-label option. A text such as "▶"
    would read badly. *Default: no option; add `html/start_button/accessible_name` if wanted.*
 
+4. **Pressed shade for Space in Firefox.** Firefox does not apply `:active` while Space is held on a button (Chrome
+   does; mouse presses darken in both). *Default: leave it to the browser.* Alternative: a few lines toggling a class on
+   keydown/keyup.
+
 ## Note for task 53
 
 `for-task-53-startup-hold-prototype.patch` (this folder) is an **untested** prototype written before the spec changed:
