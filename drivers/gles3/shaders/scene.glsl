@@ -235,6 +235,12 @@ struct SceneData {
 	float luminance_multiplier;
 	uint camera_visible_layers;
 	bool pancake_shadows;
+
+	// Micro shadows (Environment.micro_shadows_*): opacity, 0 when off.
+	float micro_shadow_opacity;
+	uint micro_shadow_pad0;
+	uint micro_shadow_pad1;
+	uint micro_shadow_pad2;
 };
 
 // The containing data block is for historic reasons.
@@ -1265,6 +1271,12 @@ struct SceneData {
 	float luminance_multiplier;
 	uint camera_visible_layers;
 	bool pancake_shadows;
+
+	// Micro shadows (Environment.micro_shadows_*): opacity, 0 when off.
+	float micro_shadow_opacity;
+	uint micro_shadow_pad0;
+	uint micro_shadow_pad1;
+	uint micro_shadow_pad2;
 };
 
 layout(std140) uniform SceneDataBlock { // ubo:2
@@ -2244,6 +2256,20 @@ vec4 textureArray_bicubic(sampler2DArray tex, vec3 uv, vec2 texture_size) {
 #endif //LIGHTMAP_BICUBIC_FILTER
 #endif // RENDER_MOTION_VECTORS
 
+/* Micro shadows */
+
+// Directional-light self-shadowing implied by a material's baked detail (Environment.micro_shadows_*), as HDRP's Micro
+// Shadows; the same function as the RD renderers' scene_forward_lights_inc.glsl. The AO texel is read as the opening of
+// a visibility cone around the (normal-mapped) normal. Formula from "The Technical Art of Uncharted 4" (Brinck and
+// Maximov, SIGGRAPH 2016), as HDRP's ComputeMicroShadowing(): aperture = 2 * AO^2, shadow = saturate(N.L + aperture - 1).
+float micro_shadow(float ao, float NdotL, float opacity) {
+	if (NdotL < 0.0) {
+		return 1.0;
+	}
+	float aperture = 2.0 * ao * ao;
+	return mix(1.0, clamp(NdotL + aperture - 1.0, 0.0, 1.0), opacity);
+}
+
 void main() {
 #ifndef RENDER_MOTION_VECTORS
 	//lay out everything, whatever is unused is optimized away anyway
@@ -2538,6 +2564,9 @@ void main() {
 
 	// TODO Backlight and transmittance when used
 #ifndef MODE_UNSHADED
+	// Micro shadows read the material's own AO, before AO_LIGHT_AFFECT, as HDRP does.
+	float micro_shadow_ao = ao;
+
 	vec3 f0 = F0(metallic, specular, albedo);
 	vec3 specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 lightmap_specular_light = vec3(0.0);
@@ -2818,7 +2847,11 @@ void main() {
 			continue;
 		}
 #endif
-		light_compute(normal, normalize(directional_lights[i].direction), normalize(view), directional_lights[i].size, directional_lights[i].color * directional_lights[i].energy, true, 1.0, f0, roughness, metallic, directional_lights[i].specular, albedo, alpha, screen_uv,
+		float micro_shadow_attenuation = 1.0;
+		if (scene_data_block.data.micro_shadow_opacity > 0.0) {
+			micro_shadow_attenuation = micro_shadow(micro_shadow_ao, dot(normal, normalize(directional_lights[i].direction)), scene_data_block.data.micro_shadow_opacity);
+		}
+		light_compute(normal, normalize(directional_lights[i].direction), normalize(view), directional_lights[i].size, directional_lights[i].color * directional_lights[i].energy, true, micro_shadow_attenuation, f0, roughness, metallic, directional_lights[i].specular, albedo, alpha, screen_uv,
 #ifdef LIGHT_BACKLIGHT_USED
 				backlight,
 #endif
@@ -3161,6 +3194,12 @@ void main() {
 #else
 	float directional_shadow = 1.0f;
 #endif // SHADOWS_DISABLED
+
+#ifndef USE_VERTEX_LIGHTING
+	if (scene_data_block.data.micro_shadow_opacity > 0.0) {
+		directional_shadow *= micro_shadow(micro_shadow_ao, dot(normal, normalize(directional_lights[directional_shadow_index].direction)), scene_data_block.data.micro_shadow_opacity);
+	}
+#endif
 
 #ifndef USE_VERTEX_LIGHTING
 	if (bool(directional_lights[directional_shadow_index].mask & layer_mask)) {

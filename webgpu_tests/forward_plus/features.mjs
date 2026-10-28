@@ -71,6 +71,7 @@ export const CATEGORIES = {
   mesh: 'Mesh pipeline',
   particles: 'Particles',
   post: 'Post-processing, AA and scaling',
+  camera: 'Camera effects (CameraAttributes, Environment)',
 };
 
 export const FEATURES = [
@@ -116,6 +117,7 @@ export const FEATURES = [
   { id: 'contact_shadows', cat: 'lighting', label: 'Screen-space contact shadows (4.8)', minDelta: 0.0346 },
   { id: 'light_negative', cat: 'lighting', label: 'Negative light', minDelta: 11.5 },
   { id: 'light_specular', cat: 'lighting', label: 'Light specular contribution', minDelta: 0.14 },
+  { id: 'micro_shadows', cat: 'lighting', label: 'Micro shadows from AO and normal maps (Environment)', minDelta: 0.229 },
 
   // ---- global illumination ----
   { id: 'reflection_probe', cat: 'gi', label: 'Reflection probe', minDelta: 4.39 },
@@ -144,6 +146,10 @@ export const FEATURES = [
   { id: 'depth_texture', cat: 'material', label: 'DEPTH_TEXTURE in a material', minDelta: 1.4 },
   { id: 'mipmap_bias', cat: 'material', label: 'Mipmap LOD bias (texture_mipmap_bias)', minDelta: 0.148 },
   { id: 'texture_array', cat: 'material', label: 'Texture array indexed at runtime', minDelta: 1.2 },
+  // L8, LA8, RGBA4444, RGB565, R8 and RG8 images on a material against the same images expanded to RGBA8: Vulkan
+  // shows the first four through a view swizzle, which WebGPU does not have (task 58, TASKS.md 2.43). Natively off
+  // and on are the same picture, so parity only.
+  { id: 'image_formats', cat: 'material', label: 'Image formats Vulkan swizzles (L8, LA8, RGBA4444, RGB565, R8, RG8)', minDelta: 0, parityOnly: true },
   { id: 'shader_builtins', cat: 'material', label: 'isnan/isinf/textureQueryLod in a material', minDelta: 0.028 },
   { id: 'point_coord', cat: 'material', label: 'POINT_COORD without POINT_SIZE (drawn as points)', minDelta: 0.01 },
   { id: 'stencil_outline', cat: 'material', label: 'Stencil outline (BaseMaterial3D stencil_mode)', minDelta: 0.319 },
@@ -187,6 +193,9 @@ export const FEATURES = [
     // half-float tables within 0.000. It was 0.55 (and visibly softer) while FSR2 read its reactive
     // mask through an alpha-swizzled view WebGPU cannot swizzle (task 17).
     parityTol: 0.3 },
+  // FSR2 while the camera pans over the sky (motion vectors derived from depth there), parity only (task 58).
+  { id: 'fsr2_camera_move', cat: 'post', label: 'FSR2 with the camera panning across the sky', minDelta: 0, parityOnly: true,
+    parityTol: 0.3 },
   { id: 'dof_far', cat: 'post', label: 'Depth of field (far)', minDelta: 2.42 },
   { id: 'dof_near', cat: 'post', label: 'Depth of field (near)', minDelta: 0.617 },
   // A 2x2 px quad writing NaN inside the far blur. The DOF passes treat a non-finite color as black,
@@ -207,6 +216,27 @@ export const FEATURES = [
   // User RD code (fp_compositor_effect.gd), but the path under it is engine: run-time GLSL compile, the driver's
   // conversion, a read-write storage image on the scene's colour target, the compositor callback.
   { id: 'compositor_effect', cat: 'post', label: 'CompositorEffect (compute shader on the colour buffer)', minDelta: 6.98 },
+  // Camera effects, engine additions (TASKS.md 4.52-4.55, work task 44); the deterministic ones only (grain, zebras
+  // and motion-dependent effects change every frame). Floors at a third of the native Vulkan delta
+  // (RTX 4080 SUPER, 640x360, settle 240, 2026-10-28).
+  { id: 'lens_optics', cat: 'camera', label: 'Lens optics: vignetting, distortion, lateral CA (CameraAttributes)', minDelta: 6.09 },
+  { id: 'bokeh_shape', cat: 'camera', label: "Aperture blades and cat's eye bokeh (CameraAttributes)", minDelta: 0.822 },
+  { id: 'longitudinal_ca', cat: 'camera', label: 'Longitudinal chromatic aberration in the DOF (CameraAttributesPhysical)', minDelta: 0.136 },
+  { id: 'tilt_shift', cat: 'camera', label: 'Tilt-shift plane of focus (CameraAttributesPhysical)', minDelta: 0.591 },
+  { id: 'starburst', cat: 'camera', label: 'Diffraction starburst (CameraAttributes)', minDelta: 0.954 },
+  { id: 'halation', cat: 'camera', label: 'Halation (CameraAttributes)', minDelta: 0.312 },
+  { id: 'lens_flare', cat: 'camera', label: 'Lens flare ghosts (Environment)', minDelta: 0.373 },
+  { id: 'veiling_glare_diffusion', cat: 'camera', label: 'Veiling glare and diffusion filter (Environment)', minDelta: 2.06 },
+  { id: 'camera_lut', cat: 'camera', label: 'Camera 3D LUT (CameraAttributes)', minDelta: 3.62 },
+  { id: 'in_camera_processing', cat: 'camera', label: 'In-camera noise reduction and sharpening (CameraAttributes)', minDelta: 0.175 },
+  // GTAO (engine addition): the ssao arm's settings with rendering/environment/ssao/method = GTAO.
+  { id: 'gtao', cat: 'environment', label: 'GTAO ambient occlusion (ssao method GTAO)', minDelta: 1.39 },
+  // Custom tonemapper (engine addition): non-default slope/toe/shoulder/clips against the fixture's Filmic.
+  { id: 'tonemap_custom', cat: 'environment', label: 'Custom tonemapper (toe, shoulder, slope, clips)', minDelta: 9.8 },
+  // CameraAttributes local exposure (engine addition, work task 57): highlight contrast 0.4, shadow 0.6, the bright
+  // sphere in both frames. Measured 11.39 on WebGPU with --parity (native diff 0.002 off / 0.004 on, so native's delta is
+  // the same), RTX 4080 SUPER, 2026-10-28; floor at a third.
+  { id: 'local_exposure', cat: 'camera', label: 'Local exposure, bilateral grid (CameraAttributes)', minDelta: 3.8 },
 ];
 
 /**

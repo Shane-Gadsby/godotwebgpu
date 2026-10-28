@@ -139,7 +139,8 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			p_viewport->render_buffers.unref();
 		} else {
 			const float EPSILON = 0.0001;
-			float scaling_3d_scale = p_viewport->scaling_3d_scale;
+			const bool dynamic_scale = _dynamic_scale_active(p_viewport);
+			float scaling_3d_scale = dynamic_scale ? p_viewport->dynamic.scale : p_viewport->scaling_3d_scale;
 			RSE::ViewportScaling3DMode scaling_3d_mode = p_viewport->scaling_3d_mode;
 			bool upscaler_available = p_viewport->fsr_enabled;
 			RSE::ViewportScaling3DType scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
@@ -163,6 +164,13 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 				scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
 				scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
 				WARN_PRINT_ONCE("MetalFX temporal and FSR upscaling are not supported in the Mobile renderer. Falling back to bilinear scaling.");
+			}
+
+			if (dynamic_scale && scaling_3d_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR && OS::get_singleton()->get_current_rendering_driver_name() == "webgpu") {
+				// FSR 1 renders black on WebGPU; with a scale that moves on its own, use bilinear (user answer Q2).
+				scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
+				scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
+				WARN_PRINT_ONCE("FSR 1.0 3D scaling is not supported with dynamic 3D resolution on WebGPU. Falling back to bilinear scaling.");
 			}
 
 			RenderingServerEnums::ViewportMSAA msaa_3d = p_viewport->msaa_3d;
@@ -306,9 +314,399 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			rb_config.set_anisotropic_filtering_level(p_viewport->anisotropic_filtering_level);
 			rb_config.set_use_taa(use_taa);
 			rb_config.set_use_debanding(p_viewport->use_debanding);
+			if (dynamic_scale && scaling_3d_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR2) {
+				// FSR 2 accepts any render size up to the one its context was made with: make it at the dynamic maximum
+				// once, so no controller change has to grow it (task 74 keeps the context over a reconfigure).
+				const float max_scale = MIN(_dynamic_scale_max(p_viewport), 1.0f);
+				rb_config.set_max_internal_size(Size2i(MAX(target_width * max_scale, 1.0f), MAX(target_height * max_scale, 1.0f)).max(Size2i(render_width, render_height)));
+			}
 
 			p_viewport->render_buffers->configure(&rb_config);
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Dynamic 3D resolution (webgpu_notes/work/results/68-dynamic-resolution/DESIGN.md §3). Per viewport, once per drawn
+// frame, before the viewport is drawn. Two paths:
+// - GPU time (this viewport's vp_begin/vp_end timestamps): lower when the GPU frame is over the budget, straight to
+//   the scale the a + b * scale^2 model puts at 85 % of it; raise one step when the model says the next step stays
+//   under 80 %. A frame that misses while the GPU has room is CPU-bound: reported, never "fixed" by lowering.
+// - Frame time, where there is no GPU time (WebGL, WebGPU without timestamp-query): a step down must show a quarter
+//   of the gain the model predicts or it is reverted and reported CPU-bound (with growing back-off); a step up that
+//   misses is reverted and that scale is not retried for a while. On WebGPU the submit-to-done latency (queue depth)
+//   skips that probe when it is clear either way (user answer Q6).
+
+namespace {
+constexpr uint64_t DYNAMIC_STARTUP_USEC = 3000000; // Shader compiles, loading.
+constexpr uint32_t DYNAMIC_STARTUP_FRAMES = 60;
+constexpr uint64_t DYNAMIC_SETTLE_USEC = 250000;
+constexpr uint32_t DYNAMIC_SETTLE_FRAMES = 8;
+constexpr uint32_t DYNAMIC_WINDOW = 30; // Samples per decision (median).
+constexpr float DYNAMIC_HITCH = 4.0; // Frames over 4x the budget (or 4x the recent average) are hitches, not load.
+constexpr float DYNAMIC_DOWN_AT = 0.95; // GPU path: lower when over 95 % of the budget...
+constexpr float DYNAMIC_DOWN_AIM = 0.85; // ...to the scale the model puts at 85 %.
+constexpr float DYNAMIC_DOWN_AIM_FRAME = 0.90; // Frame-time path.
+constexpr float DYNAMIC_UP_AT = 0.80; // Raise when the next step stays under 80 %. 80-95 % is the hysteresis band.
+constexpr float DYNAMIC_CPU_GPU_ROOM = 0.75; // Misses with the GPU under 75 % of the budget: CPU-bound.
+constexpr float DYNAMIC_MISS_FRAME = 1.5; // A frame over 1.5x the budget is a missed frame...
+constexpr float DYNAMIC_MISS_MEDIAN = 1.05; // ...and a window whose median is over 1.05x (or a quarter missed) misses.
+constexpr float DYNAMIC_VERIFY_GAIN = 0.25; // A frame-time step down must deliver 25 % of its predicted gain.
+constexpr float DYNAMIC_VERIFY_STEP = 0.15; // Its size: a smaller step's gain hides under one vsync interval.
+constexpr float DYNAMIC_QUEUE_CPU_CLEAR = 2.5; // Frames in flight at or below: CPU-bound, no probe needed.
+constexpr float DYNAMIC_QUEUE_GPU_CLEAR = 4.0; // At or above: GPU-bound, no verification needed.
+constexpr uint64_t DYNAMIC_GPU_STALE_USEC = 3000000; // GPU path without a fresh result this long: frame time.
+
+float _dynamic_median(LocalVector<float> &p_values) {
+	p_values.sort();
+	return p_values[p_values.size() / 2];
+}
+
+// Scales sit on a grid of the viewport's step (scaling_3d_dynamic_step, 0.05 by default).
+float _dynamic_quantize_down(float p_scale, float p_step) {
+	return Math::floor(p_scale / p_step + 0.001f) * p_step;
+}
+
+int _dynamic_scale_key(float p_scale, float p_step) {
+	return int(Math::round(p_scale / p_step));
+}
+} // namespace
+
+bool RendererViewport::_dynamic_scale_active(const Viewport *p_viewport) const {
+	// XR runtimes have their own frame pacing and resolution rules: not in this first version.
+	return p_viewport->dynamic.enabled && !p_viewport->use_xr;
+}
+
+float RendererViewport::_dynamic_scale_max(const Viewport *p_viewport) const {
+	// Only bilinear may go above 1.0 (supersampling); everything else falls back to bilinear there.
+	const bool bilinear = p_viewport->scaling_3d_mode == RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
+	return MAX(p_viewport->dynamic.min_scale, bilinear ? p_viewport->dynamic.max_scale : MIN(p_viewport->dynamic.max_scale, 1.0f));
+}
+
+void RendererViewport::_dynamic_scale_publish(Viewport *p_viewport) {
+	Viewport::DynamicScale &d = p_viewport->dynamic;
+	const bool active = _dynamic_scale_active(p_viewport);
+	if (active && d.published_state.load(std::memory_order_relaxed) != d.state && d.state != RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING && d.state != RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING) {
+		static const char *state_names[RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_MAX] = { "off", "starting", "adjusting", "stable", "CPU-limited", "at minimum scale" };
+		print_verbose(vformat("Dynamic 3D resolution: viewport %d %s at scale %.2f (frame %.1f ms, %s %.1f ms, %d changes).", p_viewport->self.get_id(), state_names[d.state], d.scale, d.last_frame_ms,
+				d.source == RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME ? "GPU" : "frame", d.last_measured_ms, d.changes));
+	}
+	d.published_scale.store(active ? d.scale : p_viewport->scaling_3d_scale, std::memory_order_relaxed);
+	d.published_state.store(active ? d.state : RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF, std::memory_order_relaxed);
+	d.published_source.store(active ? d.source : RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE, std::memory_order_relaxed);
+}
+
+void RendererViewport::_dynamic_scale_restart(Viewport *p_viewport, bool p_startup) {
+	Viewport::DynamicScale &d = p_viewport->dynamic;
+	const uint64_t now = OS::get_singleton()->get_ticks_usec();
+	if (p_startup) {
+		d.start_usec = now;
+		d.state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING;
+		d.source = RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE;
+		d.gpu_samples_at_start = 0;
+		d.frames_at_start = 0;
+		d.failed_up.clear();
+		d.cpu_retry_usec = 0;
+		d.cpu_backoff_s = 5.0;
+	}
+	d.settle_until_usec = now + DYNAMIC_SETTLE_USEC;
+	d.settle_frames = DYNAMIC_SETTLE_FRAMES;
+	d.frame_window.clear();
+	d.gpu_window.clear();
+	d.probe_dir = 0;
+	// The model is per pixel count: a new size or bounds starts it over.
+	d.model_a = -1.0;
+	d.point_scale = -1.0;
+	_dynamic_scale_publish(p_viewport);
+}
+
+void RendererViewport::_dynamic_scale_set(Viewport *p_viewport, float p_scale, const String &p_reason) {
+	Viewport::DynamicScale &d = p_viewport->dynamic;
+	p_scale = CLAMP(p_scale, d.min_scale, _dynamic_scale_max(p_viewport));
+	if (Math::is_equal_approx(p_scale, d.scale)) {
+		return;
+	}
+	print_verbose(vformat("Dynamic 3D resolution: viewport %d scale %.2f -> %.2f (%s).", p_viewport->self.get_id(), d.scale, p_scale, p_reason));
+	d.scale = p_scale;
+	d.changes++;
+	_configure_3d_render_buffers(p_viewport);
+
+	// What was measured so far describes the old scale. The frame time shows a change only once the queued frames
+	// drain, and on the web the GPU time comes back a few frames late on top: wait the queue's latency out, twice.
+	const uint64_t now = OS::get_singleton()->get_ticks_usec();
+	uint64_t latency_usec = 0;
+#ifdef RD_ENABLED
+	if (RD::get_singleton()) {
+		latency_usec = RD::get_singleton()->get_submit_to_done_latency_usec();
+	}
+#endif
+	d.settle_until_usec = now + MAX(DYNAMIC_SETTLE_USEC, uint64_t(dynamic_frame_ms * 1000.0f) * DYNAMIC_SETTLE_FRAMES) + 2 * latency_usec;
+	d.settle_frames = DYNAMIC_SETTLE_FRAMES;
+	d.frame_window.clear();
+	d.gpu_window.clear();
+	d.state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING;
+	if (d.source == RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME) {
+		dynamic_frame_time_settle_until_usec = d.settle_until_usec; // Every frame-time viewport sees this change.
+	}
+	_dynamic_scale_publish(p_viewport);
+}
+
+float RendererViewport::_dynamic_scale_update(Viewport *p_viewport, uint64_t p_now, float p_latency_ms) {
+	Viewport::DynamicScale &d = p_viewport->dynamic;
+	const float budget = 1000.0f / MAX(d.target_fps, 1.0f);
+	const float frame_ms = dynamic_frame_ms;
+
+	// This viewport's GPU time, if a new result arrived (on the web the newest result is handed out until a newer one
+	// lands, so a repeat is told apart by its begin timestamp).
+	float gpu_ms = -1.0;
+	if (p_viewport->time_gpu_end > p_viewport->time_gpu_begin && p_viewport->time_gpu_begin != d.last_gpu_begin) {
+		d.last_gpu_begin = p_viewport->time_gpu_begin;
+		d.last_gpu_sample_usec = p_now;
+		gpu_ms = float(double(p_viewport->time_gpu_end - p_viewport->time_gpu_begin) / 1000000.0);
+		d.gpu_average_ms = d.gpu_average_ms <= 0.0f ? gpu_ms : d.gpu_average_ms * 0.95f + gpu_ms * 0.05f;
+	}
+
+	if (d.state == RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING) {
+		if (gpu_ms > 0.0f) {
+			d.gpu_samples_at_start++;
+		}
+		d.frames_at_start++;
+		// Three seconds and enough frames: a scene still loading draws a frame every few seconds, which is too few to
+		// tell whether GPU time arrives (camera-sim's unbaked web export loaded for ~50 s).
+		if (p_now - d.start_usec < DYNAMIC_STARTUP_USEC || d.frames_at_start < DYNAMIC_STARTUP_FRAMES) {
+			return -1.0;
+		}
+		// Whatever reported GPU time during the start decides the path.
+		d.source = d.gpu_samples_at_start >= 10 ? RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME : RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME;
+		d.state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING;
+		d.last_gpu_sample_usec = p_now;
+		print_verbose(vformat("Dynamic 3D resolution: viewport %d decides from %s.", p_viewport->self.get_id(), d.source == RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME ? "GPU time" : "frame time"));
+		_dynamic_scale_publish(p_viewport);
+	}
+
+	const bool gpu_path = d.source == RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME;
+	if (gpu_path && p_now - d.last_gpu_sample_usec > DYNAMIC_GPU_STALE_USEC) {
+		// GPU results stopped arriving (a lost feature, a driver that reads 0): fall back for the rest of the run.
+		d.source = RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME;
+		print_verbose(vformat("Dynamic 3D resolution: viewport %d has no GPU time any more, using frame time.", p_viewport->self.get_id()));
+		d.frame_window.clear();
+		d.gpu_window.clear();
+		_dynamic_scale_publish(p_viewport);
+		return -1.0;
+	}
+
+	// Settle after a change (and, on the frame-time path, after any frame-time viewport's change).
+	if (d.settle_frames > 0) {
+		d.settle_frames--;
+		return -1.0;
+	}
+	if (p_now < d.settle_until_usec || (!gpu_path && p_now < dynamic_frame_time_settle_until_usec)) {
+		return -1.0;
+	}
+
+	// A hitch (a compile, a load) is far over both the budget and what the frame usually takes; it says nothing about
+	// load. Relative to the average too, or a scene running far below the target would never fill a window.
+	if (frame_ms > 0.0f && frame_ms < DYNAMIC_HITCH * MAX(budget, dynamic_frame_average_ms)) {
+		d.frame_window.push_back(frame_ms);
+	}
+	if (gpu_path && gpu_ms > 0.0f && gpu_ms < DYNAMIC_HITCH * MAX(budget, d.gpu_average_ms)) {
+		d.gpu_window.push_back(gpu_ms);
+	}
+	if (d.frame_window.size() < DYNAMIC_WINDOW || (gpu_path && d.gpu_window.size() < DYNAMIC_WINDOW)) {
+		return -1.0;
+	}
+
+	// A decision: the window is spent whatever happens.
+	uint32_t missed = 0;
+	float fastest = frame_ms;
+	for (float f : d.frame_window) {
+		missed += f > DYNAMIC_MISS_FRAME * budget ? 1 : 0;
+		fastest = MIN(fastest, f);
+	}
+	const float frame_med = _dynamic_median(d.frame_window);
+	const bool misses = frame_med > DYNAMIC_MISS_MEDIAN * budget || missed >= DYNAMIC_WINDOW / 4;
+	const float measured = gpu_path ? _dynamic_median(d.gpu_window) : frame_med;
+	d.last_frame_ms = frame_med;
+	d.last_measured_ms = measured;
+	d.frame_window.clear();
+	d.gpu_window.clear();
+	// The display's refresh interval, roughly: the fastest frame seen lately (a vsync-bound page cannot be faster).
+	dynamic_refresh_ms = dynamic_refresh_ms <= 0.0f ? fastest : MIN(dynamic_refresh_ms * 1.01f, fastest);
+
+	const float s = d.scale;
+	const float max_scale = _dynamic_scale_max(p_viewport);
+	const bool at_min = s <= d.min_scale + 0.001f;
+	const bool at_max = s >= max_scale - 0.001f;
+
+	// The model: measured = a + b * s^2. Refit `a` when the last settled point is at a scale far enough from this one.
+	if (d.point_scale > 0.0f && Math::abs(d.point_scale - s) >= 0.1f - 0.001f && p_now - d.point_usec < 20000000) {
+		const float b = (measured - d.point_ms) / (s * s - d.point_scale * d.point_scale);
+		if (b > 0.0f) {
+			d.model_a = CLAMP(measured - b * s * s, 0.0f, 0.6f * measured);
+		}
+	}
+	const float a = d.model_a < 0.0f ? 0.25f * measured : MIN(d.model_a, 0.6f * measured);
+	const float b = MAX(measured - a, 0.001f) / MAX(s * s, 0.0001f);
+	auto predict = [a, b](float p_scale) { return a + b * p_scale * p_scale; };
+	auto scale_for = [a, b](float p_ms) { return Math::sqrt(MAX(p_ms - a, 0.0f) / b); };
+	d.point_scale = s;
+	d.point_ms = measured;
+	d.point_usec = p_now;
+
+	RSE::ViewportScaling3DDynamicState state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STABLE;
+	float new_scale = -1.0;
+
+	if (gpu_path) {
+		if (measured > DYNAMIC_DOWN_AT * budget) {
+			if (at_min) {
+				state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE;
+			} else {
+				new_scale = MAX(MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM * budget), d.step), s - d.step), d.min_scale);
+			}
+		} else if (!at_max && predict(MIN(s + d.step, max_scale)) < DYNAMIC_UP_AT * budget) {
+			// Raised even when CPU-bound: resolution is free while the CPU sets the pace.
+			new_scale = MIN(_dynamic_quantize_down(s + d.step + 0.001f, d.step), max_scale);
+		} else if (misses && measured < DYNAMIC_CPU_GPU_ROOM * budget) {
+			state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED;
+		}
+		if (new_scale > 0.0f) {
+			_dynamic_scale_set(p_viewport, new_scale, vformat("GPU %.1f ms, budget %.1f ms", measured, budget));
+			return -1.0; // Applied here: GPU time is per viewport, so viewports do not wait for each other.
+		}
+		d.state = state;
+		_dynamic_scale_publish(p_viewport);
+		return -1.0;
+	}
+
+	// Frame-time path. A change it proposes is applied by _dynamic_scale_update_all() (one viewport at a time).
+	if (d.probe_dir != 0) {
+		const int dir = d.probe_dir;
+		d.probe_dir = 0;
+		if (dir < 0 && d.probe_before_ms - frame_med < DYNAMIC_VERIFY_GAIN * d.probe_predicted_gain) {
+			// The step down did not buy its share of the predicted gain: resolution is not what limits the frame.
+			// Reverted at once, outside the one-at-a-time rule: it undoes this viewport's own change.
+			d.cpu_retry_usec = p_now + uint64_t(d.cpu_backoff_s * 1000000.0f);
+			d.cpu_backoff_s = MIN(d.cpu_backoff_s * 2.0f, 60.0f);
+			_dynamic_scale_set(p_viewport, d.probe_from, vformat("frame %.1f ms did not improve from %.1f ms: CPU-bound, reverting", frame_med, d.probe_before_ms));
+			d.state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED;
+			_dynamic_scale_publish(p_viewport);
+			return -1.0;
+		}
+		if (dir < 0) {
+			d.cpu_backoff_s = 5.0;
+		}
+		if (dir > 0 && misses) {
+			// The step up missed: back down, and do not try this scale again for a while (longer each time).
+			Viewport::DynamicScale::FailedScale &failed = d.failed_up[_dynamic_scale_key(s, d.step)];
+			failed.until_usec = p_now + uint64_t(failed.backoff_s * 1000000.0f);
+			failed.backoff_s = MIN(failed.backoff_s * 2.0f, 120.0f);
+			failed.frame_ms = d.probe_before_ms;
+			_dynamic_scale_set(p_viewport, d.probe_from, vformat("frame %.1f ms after a step up, reverting", frame_med));
+			return -1.0;
+		}
+	}
+
+	if (misses) {
+		if (at_min) {
+			state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE;
+		} else if (p_now < d.cpu_retry_usec) {
+			state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED;
+		} else {
+			// Frames in flight, from the submit-to-done latency (WebGPU only; 0 = unknown).
+			const float queue_frames = p_latency_ms > 0.0f ? p_latency_ms / MAX(frame_med, 1.0f) : -1.0f;
+			if (queue_frames > 0.0f && queue_frames <= DYNAMIC_QUEUE_CPU_CLEAR) {
+				// The GPU keeps up with the CPU: a step down could not help. Say so without probing.
+				d.cpu_retry_usec = p_now + uint64_t(d.cpu_backoff_s * 1000000.0f);
+				d.cpu_backoff_s = MIN(d.cpu_backoff_s * 2.0f, 60.0f);
+				state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED;
+				print_verbose(vformat("Dynamic 3D resolution: viewport %d CPU-bound (frame %.1f ms, %.1f frames in flight).", p_viewport->self.get_id(), frame_med, queue_frames));
+			} else {
+				const bool verify = !(queue_frames >= DYNAMIC_QUEUE_GPU_CLEAR);
+				float target = MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM_FRAME * budget), d.step), s - d.step);
+				if (verify) {
+					// Big enough that its predicted gain shows through vsync quantization and noise. The refresh estimate
+					// (the fastest recent frame) is two vsyncs on a GPU-bound page, so it is capped at a quarter frame.
+					const float gain_needed = MAX(MIN(dynamic_refresh_ms, 0.25f * frame_med), 0.15f * frame_med);
+					target = MIN(target, _dynamic_quantize_down(s - DYNAMIC_VERIFY_STEP + 0.001f, d.step));
+					while (target - d.step >= d.min_scale - 0.001f && frame_med - predict(target) < gain_needed) {
+						target -= d.step;
+					}
+				}
+				target = MAX(target, d.min_scale);
+				d.probe_dir = verify ? -1 : 0;
+				d.probe_from = s;
+				d.probe_before_ms = frame_med;
+				d.probe_predicted_gain = frame_med - predict(target);
+				return target;
+			}
+		}
+	} else if (!at_max && frame_med < DYNAMIC_UP_AT * budget && missed == 0) {
+		// Probed only when the model also says the step fits: under vsync the frame time is quantized (165 Hz: 12.1
+		// or 18.2 ms), and a frame that "fits" one step below often cannot take the next.
+		const float target = MIN(_dynamic_quantize_down(s + d.step + 0.001f, d.step), max_scale);
+		const Viewport::DynamicScale::FailedScale *failed = d.failed_up.getptr(_dynamic_scale_key(target, d.step));
+		// A failure stands until its back-off ends, or until the load got clearly lighter than when it failed.
+		const bool blocked = failed != nullptr && p_now < failed->until_usec && frame_med > 0.75f * failed->frame_ms;
+		if (!blocked && predict(target) < DYNAMIC_UP_AT * budget) {
+			d.probe_dir = 1;
+			d.probe_from = s;
+			d.probe_before_ms = frame_med;
+			return target;
+		}
+	}
+	d.state = state;
+	_dynamic_scale_publish(p_viewport);
+	return -1.0;
+}
+
+void RendererViewport::_dynamic_scale_update_all() {
+	const uint64_t now = OS::get_singleton()->get_ticks_usec();
+	dynamic_frame_ms = dynamic_last_frame_usec > 0 ? float(now - dynamic_last_frame_usec) / 1000.0f : 0.0f;
+	dynamic_last_frame_usec = now;
+	if (dynamic_frame_ms > 0.0f && dynamic_frame_ms < 1000.0f) {
+		// About 20 frames: follows sustained load, barely moves for one hitch.
+		dynamic_frame_average_ms = dynamic_frame_average_ms <= 0.0f ? dynamic_frame_ms : dynamic_frame_average_ms * 0.95f + dynamic_frame_ms * 0.05f;
+	}
+
+	float latency_ms = 0.0;
+#ifdef RD_ENABLED
+	if (RD::get_singleton()) {
+		latency_ms = float(RD::get_singleton()->get_submit_to_done_latency_usec()) / 1000.0f;
+	}
+#endif
+
+	// Frame time is one number for every viewport: only one frame-time viewport changes per settle, the one with
+	// the most pixels first (user answer Q5). GPU-time viewports measure themselves and change on their own.
+	Viewport *frame_time_pick = nullptr;
+	float frame_time_scale = -1.0;
+	for (Viewport *vp : sorted_active_viewports) {
+		if (!vp->dynamic.enabled || vp->last_pass != draw_viewports_pass) {
+			continue;
+		}
+		if (vp->use_xr) {
+			WARN_PRINT_ONCE("Dynamic 3D resolution is not supported on XR viewports; it is disabled there.");
+			continue;
+		}
+		if (!vp->render_buffers.is_valid()) {
+			continue; // No 3D drawn.
+		}
+		const float proposed = _dynamic_scale_update(vp, now, latency_ms);
+		if (proposed <= 0.0f) {
+			continue;
+		}
+		if (frame_time_pick == nullptr || vp->size.width * vp->size.height > frame_time_pick->size.width * frame_time_pick->size.height) {
+			if (frame_time_pick != nullptr) {
+				frame_time_pick->dynamic.probe_dir = 0; // Its turn is not now; it decides again after the settle.
+			}
+			frame_time_pick = vp;
+			frame_time_scale = proposed;
+		} else {
+			vp->dynamic.probe_dir = 0;
+		}
+	}
+	if (frame_time_pick != nullptr) {
+		const Viewport::DynamicScale &d = frame_time_pick->dynamic;
+		_dynamic_scale_set(frame_time_pick, frame_time_scale, vformat("frame %.1f ms, budget %.1f ms%s", d.probe_before_ms, 1000.0f / MAX(d.target_fps, 1.0f), d.probe_dir < 0 ? ", verifying" : (d.probe_dir > 0 ? ", trying a step up" : "")));
 	}
 }
 
@@ -339,7 +737,9 @@ void RendererViewport::_draw_3d(Viewport *p_viewport) {
 }
 
 void RendererViewport::_draw_viewport(Viewport *p_viewport) {
-	if (p_viewport->measure_render_time) {
+	// The dynamic 3D resolution controller reads this viewport's GPU time from the same timestamps.
+	const bool measure_render_time = p_viewport->measure_render_time || _dynamic_scale_active(p_viewport);
+	if (measure_render_time) {
 		String rt_id = "vp_begin_" + itos(p_viewport->self.get_id());
 		RSG::utilities->capture_timestamp(rt_id);
 		timestamp_vp_map[rt_id] = p_viewport->self;
@@ -762,7 +1162,7 @@ void RendererViewport::_draw_viewport(Viewport *p_viewport) {
 		RSG::texture_storage->render_target_do_msaa_resolve(p_viewport->render_target);
 	}
 
-	if (p_viewport->measure_render_time) {
+	if (measure_render_time) {
 		String rt_id = "vp_end_" + itos(p_viewport->self.get_id());
 		RSG::utilities->capture_timestamp(rt_id);
 		timestamp_vp_map[rt_id] = p_viewport->self;
@@ -862,6 +1262,11 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 		if (visible) {
 			vp->last_pass = draw_viewports_pass;
 		}
+	}
+
+	if (dynamic_viewport_count > 0) {
+		GodotProfileZoneGrouped(_profile_zone, "dynamic 3D resolution");
+		_dynamic_scale_update_all();
 	}
 
 	int vertices_drawn = 0;
@@ -1063,6 +1468,12 @@ void RendererViewport::viewport_set_scaling_3d_mode(RID p_viewport, RSE::Viewpor
 		num_viewports_with_motion_vectors += motion_vectors_after ? 1 : -1;
 	}
 
+	if (viewport->dynamic.enabled) {
+		// Only bilinear may exceed 1.0, and the costs differ per mode.
+		viewport->dynamic.scale = CLAMP(viewport->dynamic.scale, viewport->dynamic.min_scale, _dynamic_scale_max(viewport));
+		_dynamic_scale_restart(viewport, false);
+	}
+
 	_configure_3d_render_buffers(viewport);
 }
 
@@ -1102,7 +1513,104 @@ void RendererViewport::viewport_set_scaling_3d_scale(RID p_viewport, float p_sca
 	}
 
 	viewport->scaling_3d_scale = CLAMP(p_scaling_3d_scale, 0.1, 2.0);
+	if (viewport->dynamic.enabled) {
+		// While dynamic, scaling_3d_scale is the starting scale: setting it restarts the controller from there (how a
+		// project, or Viewport's remember option, puts back a scale it saved).
+		viewport->dynamic.scale = CLAMP(viewport->scaling_3d_scale, viewport->dynamic.min_scale, _dynamic_scale_max(viewport));
+		_dynamic_scale_restart(viewport, false);
+	}
+	_dynamic_scale_publish(viewport);
 	_configure_3d_render_buffers(viewport);
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic(RID p_viewport, bool p_enabled) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	if (viewport->dynamic.enabled == p_enabled) {
+		return;
+	}
+	viewport->dynamic.enabled = p_enabled;
+	if (p_enabled && dynamic_viewport_count == 0) {
+		dynamic_last_frame_usec = 0; // Not measured while no viewport needed it: start over.
+		dynamic_frame_average_ms = 0.0;
+	}
+	dynamic_viewport_count += p_enabled ? 1 : -1;
+	if (p_enabled) {
+		viewport->dynamic.scale = CLAMP(viewport->scaling_3d_scale, viewport->dynamic.min_scale, _dynamic_scale_max(viewport));
+		viewport->dynamic.changes = 0;
+		_dynamic_scale_restart(viewport, true);
+	} else {
+		viewport->dynamic.state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF;
+		viewport->dynamic.source = RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE;
+		_dynamic_scale_publish(viewport);
+	}
+	_configure_3d_render_buffers(viewport);
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	ERR_FAIL_COND_MSG(p_fps < 1.0f, "The dynamic 3D resolution target must be at least 1 FPS.");
+	viewport->dynamic.target_fps = p_fps;
+	if (viewport->dynamic.enabled) {
+		_dynamic_scale_restart(viewport, false);
+	}
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	viewport->dynamic.min_scale = CLAMP(p_scale, 0.1f, 2.0f);
+	if (viewport->dynamic.enabled) {
+		const float clamped = CLAMP(viewport->dynamic.scale, viewport->dynamic.min_scale, _dynamic_scale_max(viewport));
+		_dynamic_scale_restart(viewport, false);
+		if (clamped != viewport->dynamic.scale) {
+			viewport->dynamic.scale = clamped;
+			_configure_3d_render_buffers(viewport);
+		}
+	}
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	viewport->dynamic.max_scale = CLAMP(p_scale, 0.1f, 2.0f);
+	if (viewport->dynamic.enabled) {
+		const float clamped = CLAMP(viewport->dynamic.scale, viewport->dynamic.min_scale, _dynamic_scale_max(viewport));
+		_dynamic_scale_restart(viewport, false);
+		// Also when the scale holds: FSR 2's context is sized from the maximum.
+		viewport->dynamic.scale = clamped;
+		_configure_3d_render_buffers(viewport);
+	}
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic_step(RID p_viewport, float p_step) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	viewport->dynamic.step = CLAMP(p_step, 0.01f, 0.25f);
+	// Failed up-steps are keyed by grid position, which a new step size moves.
+	viewport->dynamic.failed_up.clear();
+	if (viewport->dynamic.enabled) {
+		_dynamic_scale_restart(viewport, false);
+	}
+}
+
+float RendererViewport::viewport_get_scaling_3d_effective_scale(RID p_viewport) const {
+	const Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, 1.0);
+	return viewport->dynamic.published_scale.load(std::memory_order_relaxed);
+}
+
+RSE::ViewportScaling3DDynamicState RendererViewport::viewport_get_scaling_3d_dynamic_state(RID p_viewport) const {
+	const Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF);
+	return RSE::ViewportScaling3DDynamicState(viewport->dynamic.published_state.load(std::memory_order_relaxed));
+}
+
+RSE::ViewportScaling3DDynamicSource RendererViewport::viewport_get_scaling_3d_dynamic_source(RID p_viewport) const {
+	const Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE);
+	return RSE::ViewportScaling3DDynamicSource(viewport->dynamic.published_source.load(std::memory_order_relaxed));
 }
 
 void RendererViewport::viewport_set_size(RID p_viewport, int p_width, int p_height, int p_view_count) {
@@ -1121,6 +1629,9 @@ void RendererViewport::_viewport_set_size(Viewport *p_viewport, int p_width, int
 		p_viewport->view_count = p_view_count;
 
 		RSG::texture_storage->render_target_set_size(p_viewport->render_target, p_width, p_height, p_view_count);
+		if (p_viewport->dynamic.enabled) {
+			_dynamic_scale_restart(p_viewport, false); // Other pixel count: settle, and a new cost model.
+		}
 		_configure_3d_render_buffers(p_viewport);
 
 		p_viewport->occlusion_buffer_dirty = true;
@@ -1301,6 +1812,9 @@ void RendererViewport::viewport_attach_camera(RID p_viewport, RID p_camera) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
 
+	if (viewport->dynamic.enabled && viewport->camera != p_camera && !viewport->camera.is_valid()) {
+		_dynamic_scale_restart(viewport, true); // 3D starts now: give it the startup period (shader compiles).
+	}
 	viewport->camera = p_camera;
 }
 
@@ -1312,6 +1826,9 @@ void RendererViewport::viewport_set_scenario(RID p_viewport, RID p_scenario) {
 		RSG::scene->scenario_remove_viewport_visibility_mask(viewport->scenario, p_viewport);
 	}
 
+	if (viewport->dynamic.enabled && viewport->scenario != p_scenario) {
+		_dynamic_scale_restart(viewport, true); // A new scene: loading and shader compiles are not load.
+	}
 	viewport->scenario = p_scenario;
 	if (viewport->use_occlusion_culling) {
 		RendererSceneOcclusionCull::get_singleton()->buffer_set_scenario(p_viewport, p_scenario);
@@ -1693,6 +2210,10 @@ bool RendererViewport::free(RID p_rid) {
 
 		if (_viewport_requires_motion_vectors(viewport)) {
 			num_viewports_with_motion_vectors--;
+		}
+
+		if (viewport->dynamic.enabled) {
+			dynamic_viewport_count--;
 		}
 
 		viewport_owner.free(p_rid);

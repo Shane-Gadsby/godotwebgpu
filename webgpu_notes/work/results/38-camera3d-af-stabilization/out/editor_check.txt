@@ -1,0 +1,5 @@
+PASS editor: AF-C focused the edited camera at 1.9996 m (target 2)
+PASS editor: shake offset changed over frames (110 distinct values)
+PASS editor: node transform untouched
+PASS editor: saved scene keeps the user's focus distance (10 m)
+PASS editor: autofocus value re-applied after save (1.9997)

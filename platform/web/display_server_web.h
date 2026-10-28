@@ -219,6 +219,7 @@ public:
 
 	// utilities
 	bool check_size_force_redraw();
+	void _canvas_size_changed();
 
 	// from DisplayServer
 	virtual bool has_feature(DisplayServerEnums::Feature p_feature) const override;

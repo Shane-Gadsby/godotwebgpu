@@ -839,34 +839,40 @@ RenderingServerTypes::SurfaceData MeshStorage::mesh_get_surface(RID p_mesh, int 
 
 	Mesh::Surface &s = *mesh->surfaces[p_surface];
 
+	// On the web, a first synchronous read of a GPU buffer returns an empty array until its asynchronous readback has
+	// arrived (work task 81). Each buffer is read back on its own, so the arrays below could come back partly filled;
+	// callers index them by vertex and index count, so the surface is returned with every array empty unless all of
+	// them arrived. Natively not_ready stays false.
+	bool not_ready = false;
+
 	RenderingServerTypes::SurfaceData sd;
 	sd.format = s.format;
 	if (s.vertex_buffer.is_valid()) {
-		sd.vertex_data = RD::get_singleton()->buffer_get_data(s.vertex_buffer);
+		sd.vertex_data = RD::get_singleton()->buffer_get_data(s.vertex_buffer, 0, 0, &not_ready);
 		// When using an uncompressed buffer with normals, but without tangents, we have to trim the padding.
-		if (!(s.format & RSE::ARRAY_FLAG_COMPRESS_ATTRIBUTES) && (s.format & RSE::ARRAY_FORMAT_NORMAL) && !(s.format & RSE::ARRAY_FORMAT_TANGENT)) {
+		if (!sd.vertex_data.is_empty() && !(s.format & RSE::ARRAY_FLAG_COMPRESS_ATTRIBUTES) && (s.format & RSE::ARRAY_FORMAT_NORMAL) && !(s.format & RSE::ARRAY_FORMAT_TANGENT)) {
 			sd.vertex_data.resize(sd.vertex_data.size() - sizeof(uint16_t) * 2);
 		}
 	}
 	if (s.attribute_buffer.is_valid()) {
-		sd.attribute_data = RD::get_singleton()->buffer_get_data(s.attribute_buffer);
+		sd.attribute_data = RD::get_singleton()->buffer_get_data(s.attribute_buffer, 0, 0, &not_ready);
 	}
 	if (s.skin_buffer.is_valid()) {
-		sd.skin_data = RD::get_singleton()->buffer_get_data(s.skin_buffer);
+		sd.skin_data = RD::get_singleton()->buffer_get_data(s.skin_buffer, 0, 0, &not_ready);
 	}
 	sd.vertex_count = s.vertex_count;
 	sd.index_count = s.index_count;
 	sd.primitive = s.primitive;
 
 	if (sd.index_count) {
-		sd.index_data = RD::get_singleton()->buffer_get_data(s.index_buffer);
+		sd.index_data = RD::get_singleton()->buffer_get_data(s.index_buffer, 0, 0, &not_ready);
 	}
 	sd.aabb = s.aabb;
 	sd.uv_scale = s.uv_scale;
 	for (uint32_t i = 0; i < s.lod_count; i++) {
 		RenderingServerTypes::SurfaceData::LOD lod;
 		lod.edge_length = s.lods[i].edge_length;
-		lod.index_data = RD::get_singleton()->buffer_get_data(s.lods[i].index_buffer);
+		lod.index_data = RD::get_singleton()->buffer_get_data(s.lods[i].index_buffer, 0, 0, &not_ready);
 		sd.lods.push_back(lod);
 	}
 
@@ -874,7 +880,18 @@ RenderingServerTypes::SurfaceData MeshStorage::mesh_get_surface(RID p_mesh, int 
 	sd.mesh_to_skeleton_xform = s.mesh_to_skeleton_xform;
 
 	if (s.blend_shape_buffer.is_valid()) {
-		sd.blend_shape_data = RD::get_singleton()->buffer_get_data(s.blend_shape_buffer);
+		sd.blend_shape_data = RD::get_singleton()->buffer_get_data(s.blend_shape_buffer, 0, 0, &not_ready);
+	}
+
+	if (not_ready) {
+		sd.vertex_data.clear();
+		sd.attribute_data.clear();
+		sd.skin_data.clear();
+		sd.index_data.clear();
+		for (RenderingServerTypes::SurfaceData::LOD &lod : sd.lods) {
+			lod.index_data.clear();
+		}
+		sd.blend_shape_data.clear();
 	}
 
 	return sd;
@@ -1904,9 +1921,12 @@ void MeshStorage::_multimesh_set_mesh(RID p_multimesh, RID p_mesh) {
 		//need to re-create AABB unfortunately, calling this has a penalty
 		if (multimesh->buffer_set) {
 			Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(multimesh->buffer);
-			const uint8_t *r = buffer.ptr() + multimesh->motion_vectors_current_offset * multimesh->stride_cache * sizeof(float);
-			const float *data = reinterpret_cast<const float *>(r);
-			_multimesh_re_create_aabb(multimesh, data, multimesh->instances);
+			// Empty on the web until the asynchronous readback has arrived (work task 81): keep the current AABB then.
+			if ((uint64_t)buffer.size() >= (uint64_t)(multimesh->motion_vectors_current_offset + multimesh->instances) * multimesh->stride_cache * sizeof(float)) {
+				const uint8_t *r = buffer.ptr() + multimesh->motion_vectors_current_offset * multimesh->stride_cache * sizeof(float);
+				const float *data = reinterpret_cast<const float *>(r);
+				_multimesh_re_create_aabb(multimesh, data, multimesh->instances);
+			}
 		}
 	}
 
@@ -1934,7 +1954,13 @@ void MeshStorage::_multimesh_make_local(MultiMesh *multimesh) const {
 			Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(multimesh->buffer);
 			{
 				const uint8_t *r = buffer.ptr();
-				memcpy(w, r, buffer.size());
+				// Empty on the web until the asynchronous readback has arrived (work task 81). The cache then starts as
+				// zeros, as it did when that read returned zeros, instead of uninitialized memory.
+				const uint64_t copy_size = MIN((uint64_t)buffer.size(), (uint64_t)buffer_size * sizeof(float));
+				memcpy(w, r, copy_size);
+				if (copy_size < (uint64_t)buffer_size * sizeof(float)) {
+					memset((uint8_t *)w + copy_size, 0, buffer_size * sizeof(float) - copy_size);
+				}
 			}
 		} else {
 			memset(w, 0, buffer_size * sizeof(float));
@@ -2375,6 +2401,10 @@ Vector<float> MeshStorage::_multimesh_get_buffer(RID p_multimesh) const {
 			memcpy(w, r, ret.size() * sizeof(float));
 		} else {
 			Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(multimesh->buffer);
+			// Empty on the web until the asynchronous readback has arrived (work task 81): return an empty array too.
+			if ((uint64_t)buffer.size() < (uint64_t)(multimesh->motion_vectors_current_offset * multimesh->stride_cache + ret.size()) * sizeof(float)) {
+				return Vector<float>();
+			}
 			const uint8_t *r = buffer.ptr() + multimesh->motion_vectors_current_offset * multimesh->stride_cache * sizeof(float);
 			memcpy(w, r, ret.size() * sizeof(float));
 		}

@@ -279,6 +279,7 @@ GENERAL_DEFINES_FSR2 = (
     "\n#define FFX_FSR2_OPTION_HDR_COLOR_INPUT 1\n"
     "\n#define FFX_FSR2_OPTION_INVERTED_DEPTH 1\n"
     "\n#define FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_CLAMP 1\n"
+    "\n#define FFX_FSR2_OPTION_GODOT_REACTIVE_MASK_FROM_ALPHA 1\n"
     "\n#define FFX_FSR2_OPTION_GODOT_DERIVE_INVALID_MOTION_VECTORS 1\n"
 )
 
@@ -596,11 +597,69 @@ SHADER_REGISTRY = [
         ("rg", "\n#define SPLIT_RG\n", [VERT, FRAG]),
     ]),
 
+    # ── Camera finish (CameraAttributes NR/sharpening, Camera3D monitoring) ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_finish.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("default", "\n", [VERT, FRAG]),
+    ]),
+
+    ("servers/rendering/renderer_rd/shaders/effects/camera_histogram.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("count", "\n", [COMP]),
+        ("max", "\n#define MODE_MAX\n", [COMP]),
+    ]),
+
     # ── Motion Vectors ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/motion_vectors.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),
     ("servers/rendering/renderer_rd/shaders/effects/motion_vectors_store.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+
+    # ── Camera Motion Blur (CameraMotionBlur, camera_motion_blur.cpp) ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_motion_blur.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("prep", "\n#define MODE_PREP\n", [COMP]),
+        ("prep_resolved_depth", "\n#define MODE_PREP_RESOLVED_DEPTH\n", [COMP]),
+        ("tile_max", "\n#define MODE_TILE_MAX\n", [COMP]),
+        ("neighbor_max", "\n#define MODE_NEIGHBOR_MAX\n", [COMP]),
+        ("gather", "\n#define MODE_GATHER\n", [COMP]),
+    ]),
+
+    # ── Light Shafts (LightShafts, light_shafts.cpp) ──
+    ("servers/rendering/renderer_rd/shaders/effects/light_shafts.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("mask", "\n#define MODE_MASK\n", [VERT, FRAG]),
+        ("mask_resolved_depth", "\n#define MODE_MASK_RESOLVED_DEPTH\n", [VERT, FRAG]),
+        ("prefilter", "\n#define MODE_PREFILTER\n", [VERT, FRAG]),
+        ("blur", "\n#define MODE_BLUR\n", [VERT, FRAG]),
+        ("composite", "\n#define MODE_COMPOSITE\n", [VERT, FRAG]),
+    ]),
+
+    # ── Camera metering (CameraMetering, camera_metering.cpp): AE metering modes, auto white balance ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_metering.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("meter_read", "\n#define MODE_METER_READ\n", [COMP]),
+        ("reduce", "\n#define MODE_REDUCE\n", [COMP]),
+        ("meter_resolve", "\n#define MODE_METER_RESOLVE\n", [COMP]),
+        ("histogram", "\n#define MODE_HISTOGRAM\n", [COMP]),
+        ("histogram_resolve", "\n#define MODE_HISTOGRAM_RESOLVE\n", [COMP]),
+        ("awb_read", "\n#define MODE_AWB_READ\n", [COMP]),
+        ("awb_resolve", "\n#define MODE_AWB_RESOLVE\n", [COMP]),
+    ]),
+
+    # ── Camera local exposure (CameraLocalExposure, camera_local_exposure.cpp): the bilateral grid ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_local_exposure.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("build", "\n#define MODE_BUILD\n", [COMP]),
+        ("blur", "\n#define MODE_BLUR\n", [COMP]),
+    ]),
+
+    # ── Color grading (ColorGrading, color_grading.cpp): the Environment's grading LUT, composed with the user LUT ──
+    ("servers/rendering/renderer_rd/shaders/effects/color_grading.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("user_lut_3d", "\n", [COMP]),
+        ("user_lut_1d", "\n#define MODE_USER_LUT_1D\n", [COMP]),
+    ]),
 
     # ── Shadow Frustum ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/shadow_frustum.glsl",
@@ -677,6 +736,16 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
     ("servers/rendering/renderer_rd/shaders/effects/ssao_interleave.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [COMP])]),
+
+    # ── GTAO (ss_effects.cpp, rendering/environment/ssao/method = GTAO) ──
+    ("servers/rendering/renderer_rd/shaders/effects/gtao.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("prefilter", "\n#define MODE_PREFILTER\n", [COMP]),
+        ("main", "\n#define MODE_MAIN\n", [COMP]),
+        ("denoise", "\n#define MODE_DENOISE\n", [COMP]),
+        ("denoise_final", "\n#define MODE_DENOISE\n#define FINAL_APPLY\n", [COMP]),
+        ("upsample", "\n#define MODE_UPSAMPLE\n", [COMP]),
+    ]),
 
     # ── SSIL ────────────────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/ssil.glsl",

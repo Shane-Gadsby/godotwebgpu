@@ -131,6 +131,13 @@ public:
 	virtual RID texture_3d_placeholder_create() = 0;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const = 0;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) = 0;
+	// The awaitable form of texture_2d_get_async(): `var image = await RenderingServer.texture_2d_get_awaitable(rid)`.
+	Signal texture_2d_get_awaitable(RID p_texture);
+	// Shared by the awaitable image reads (this one and Texture2D::get_image_awaitable()): returns the "completed" signal
+	// of a new RefCounted request and, in r_callback, the Callable that emits it once with an Image. The request is
+	// kept alive by r_callback alone, so it lives exactly until the read calls back.
+	static Signal create_image_request(Callable &r_callback);
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const = 0;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const = 0;
 
@@ -339,6 +346,7 @@ public:
 	virtual void light_directional_set_shadow_mode(RID p_light, RSE::LightDirectionalShadowMode p_mode) = 0;
 	virtual void light_directional_set_blend_splits(RID p_light, bool p_enable) = 0;
 	virtual void light_directional_set_sky_mode(RID p_light, RSE::LightDirectionalSkyMode p_mode) = 0;
+	virtual void light_directional_set_light_shafts(RID p_light, bool p_enable) = 0;
 
 	virtual void light_area_set_size(RID p_light, const Vector2 &p_size) = 0;
 	virtual void light_area_set_normalize_energy(RID p_light, bool p_enabled) = 0;
@@ -546,6 +554,19 @@ public:
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor) = 0;
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable) = 0;
 
+	// Monitoring overlays (Camera3D's Monitoring group), drawn over this camera's image by the camera finish pass.
+	virtual void camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level) = 0;
+	virtual void camera_set_monitoring_zebra_colors(RID p_camera, const Color &p_color, const Color &p_second_color) = 0;
+	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
+	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
+	// Histogram readback for scripts: counted on the GPU, read back asynchronously (never stalls), at most once per
+	// interval. The getters are thread-safe and do not go through the command queue: they return the latest result.
+	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) = 0;
+	virtual void camera_set_monitoring_clean_texture(RID p_camera, RID p_texture) = 0;
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
+
 	/* VIEWPORT API */
 
 	virtual RID viewport_create() = 0;
@@ -564,6 +585,15 @@ public:
 
 	virtual void viewport_set_scaling_3d_mode(RID p_viewport, RSE::ViewportScaling3DMode p_scaling_3d_mode) = 0;
 	virtual void viewport_set_scaling_3d_scale(RID p_viewport, float p_scaling_3d_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic(RID p_viewport, bool p_enabled) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_step(RID p_viewport, float p_step) = 0;
+	// Read without a round trip to the render thread: a Viewport polls them once per frame while dynamic is on.
+	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const = 0;
+	virtual RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const = 0;
+	virtual RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const = 0;
 	virtual void viewport_set_fsr_sharpness(RID p_viewport, float p_fsr_sharpness) = 0;
 	virtual void viewport_set_texture_mipmap_bias(RID p_viewport, float p_texture_mipmap_bias) = 0;
 	virtual void viewport_set_anisotropic_filtering_level(RID p_viewport, RSE::ViewportAnisotropicFiltering p_anisotropic_filtering_level) = 0;
@@ -673,9 +703,25 @@ public:
 
 	virtual void environment_glow_set_use_bicubic_upscale(bool p_enable) = 0;
 
+	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
+	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
+	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
+
+	// Light shafts (screen-space god rays from the DirectionalLight3D that opts in).
+	virtual void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) = 0;
+	virtual void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) = 0;
+
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
+	virtual void environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) = 0;
 	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) = 0;
+
+	/* Color grading */
+	virtual void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) = 0;
+	virtual void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) = 0;
+	virtual void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) = 0;
+	virtual void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) = 0;
+	virtual void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) = 0;
 
 	virtual void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_in, float p_fade_out, float p_depth_tolerance) = 0;
 
@@ -687,7 +733,11 @@ public:
 
 	virtual void environment_set_ssao_quality(RSE::EnvironmentSSAOQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
 
+	/* GTAO */
+	virtual void environment_set_ssao_method(RSE::EnvironmentSSAOMethod p_method) = 0;
+
 	virtual void environment_set_ssil(RID p_env, bool p_enable, float p_radius, float p_intensity, float p_sharpness, float p_normal_rejection) = 0;
+	virtual void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) = 0;
 
 	virtual void environment_set_ssil_quality(RSE::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
 
@@ -722,9 +772,41 @@ public:
 	virtual void camera_attributes_set_dof_blur_bokeh_shape(RSE::DOFBokehShape p_shape) = 0;
 
 	virtual void camera_attributes_set_dof_blur(RID p_camera_attributes, bool p_far_enable, float p_far_distance, float p_far_transition, bool p_near_enable, float p_near_distance, float p_near_transition, float p_amount) = 0;
+	virtual void camera_attributes_set_dof_physical_blur_size(RID p_camera_attributes, bool p_enable, float p_frame_fraction, bool p_frame_horizontal) = 0;
+	virtual void camera_attributes_set_dof_legacy_gather(RID p_camera_attributes, bool p_enable) = 0;
 	virtual void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization) = 0;
 	virtual void camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) = 0;
 	virtual void camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint) = 0;
+	virtual void camera_attributes_set_noise_reduction(RID p_camera_attributes, bool p_enable, float p_strength, bool p_chroma_only) = 0;
+	virtual void camera_attributes_set_sharpening(RID p_camera_attributes, bool p_enable, float p_amount, float p_radius, float p_halo) = 0;
+	virtual void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity) = 0;
+	virtual void camera_attributes_set_lut(RID p_camera_attributes, bool p_enable, RID p_texture, RSE::CameraAttributesLUTInput p_input, float p_strength) = 0;
+	virtual void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality) = 0;
+	virtual void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) = 0;
+	virtual void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) = 0;
+
+	/* Exposure automation */
+	virtual void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) = 0;
+	virtual void camera_attributes_set_auto_exposure_metering_log_average(RID p_camera_attributes, bool p_enable) = 0;
+	virtual void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature) = 0;
+
+	/* Lens optics */
+	virtual void camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze) = 0;
+	virtual void camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff) = 0;
+	virtual void camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop) = 0;
+	virtual void camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+
+	virtual void camera_attributes_set_aperture(RID p_camera_attributes, bool p_enable, int p_blade_count, float p_blade_curvature, float p_rotation) = 0;
+	virtual void camera_attributes_set_cats_eye(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis) = 0;
+	virtual void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius) = 0;
+	virtual void camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable) = 0;
+	virtual void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
+	virtual void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression) = 0;
+	virtual void camera_attributes_set_local_exposure(RID p_camera_attributes, bool p_enable, float p_highlight_contrast, float p_shadow_contrast, float p_detail_strength, float p_middle_gray_bias) = 0;
+	virtual void camera_attributes_set_local_exposure_blurred_luminance(RID p_camera_attributes, float p_blend, float p_kernel_size) = 0;
 
 	/* SCENARIO API */
 
@@ -1138,6 +1220,8 @@ VARIANT_ENUM_CAST_EXT(RSE::ParticlesCollisionType, RenderingServer::ParticlesCol
 VARIANT_ENUM_CAST_EXT(RSE::ParticlesCollisionHeightfieldResolution, RenderingServer::ParticlesCollisionHeightfieldResolution);
 VARIANT_ENUM_CAST_EXT(RSE::FogVolumeShape, RenderingServer::FogVolumeShape);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DMode, RenderingServer::ViewportScaling3DMode);
+VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DDynamicState, RenderingServer::ViewportScaling3DDynamicState);
+VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DDynamicSource, RenderingServer::ViewportScaling3DDynamicSource);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportUpdateMode, RenderingServer::ViewportUpdateMode);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportClearMode, RenderingServer::ViewportClearMode);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportEnvironmentMode, RenderingServer::ViewportEnvironmentMode);
@@ -1163,6 +1247,7 @@ VARIANT_ENUM_CAST_EXT(RSE::EnvironmentFogMode, RenderingServer::EnvironmentFogMo
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentToneMapper, RenderingServer::EnvironmentToneMapper);
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSSRRoughnessQuality, RenderingServer::EnvironmentSSRRoughnessQuality);
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSSAOQuality, RenderingServer::EnvironmentSSAOQuality);
+VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSSAOMethod, RenderingServer::EnvironmentSSAOMethod);
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSSILQuality, RenderingServer::EnvironmentSSILQuality);
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSDFGIFramesToConverge, RenderingServer::EnvironmentSDFGIFramesToConverge);
 VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSDFGIRayCount, RenderingServer::EnvironmentSDFGIRayCount);
@@ -1171,6 +1256,14 @@ VARIANT_ENUM_CAST_EXT(RSE::EnvironmentSDFGIYScale, RenderingServer::EnvironmentS
 VARIANT_ENUM_CAST_EXT(RSE::SubSurfaceScatteringQuality, RenderingServer::SubSurfaceScatteringQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBlurQuality, RenderingServer::DOFBlurQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBokehShape, RenderingServer::DOFBokehShape);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramMode, RenderingServer::CameraMonitoringHistogramMode);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::CameraMonitoringHistogramPosition);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramChannel, RenderingServer::CameraMonitoringHistogramChannel);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMotionBlurQuality, RenderingServer::CameraAttributesMotionBlurQuality);
+VARIANT_ENUM_CAST_EXT(RSE::EnvironmentLightShaftsQuality, RenderingServer::EnvironmentLightShaftsQuality);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMeteringMode, RenderingServer::CameraAttributesMeteringMode);
 VARIANT_ENUM_CAST_EXT(RSE::ShadowQuality, RenderingServer::ShadowQuality);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceType, RenderingServer::InstanceType);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceFlags, RenderingServer::InstanceFlags);

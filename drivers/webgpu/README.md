@@ -460,9 +460,24 @@ item is a WebGPU spec limit or has a stated reason.
   has had extensive real-project verification too — see
   `webgpu_notes/TASKS.md` Phase 9.
 - **Timestamp queries** — Optional; depend on the `timestamp-query` device
-  feature. Graceful fallback to dummy results when unavailable.
-- **Synchronous readback** — Not available in WebGPU. Timestamp and buffer
-  readbacks use async callbacks with shadow buffers.
+  feature, which current Chrome and Firefox offer (Safari untested); without it
+  they read 0. Each timestamp is the end-of-pass write of an empty compute
+  pass; the beginning write goes to a spare query, because emdawnwebgpu cannot
+  omit the index (`webgpu_notes/TASKS.md` §3 trap 105). Results come back
+  through a ring of 4 `MAP_READ` buffers per frame slot, never waited for, so
+  `viewport_get_measured_render_time_gpu()`, the Visual Profiler and dynamic
+  resolution see values a few frames old on the web (§4.89).
+- **Synchronous readback** — Not available in WebGPU. The first synchronous
+  read of a texture or a buffer returns empty (a `null` Image, an empty
+  array: `RenderingDevice::buffer_get_data()` no longer falls through to a
+  stalling staging copy that could only return zeros, `webgpu_notes/TASKS.md`
+  §4.96); later reads return the previous copy, and debug builds warn once per
+  resource (§4.84, §4.92). Engine code that reads a GPU buffer synchronously
+  must treat empty as "no data yet". RenderingDevice's asynchronous downloads
+  (`texture_get_data_async`, `buffer_get_data_async`, and
+  `Texture2D.get_image_async` / `get_image_awaitable` on top) wait for the
+  staging buffer's `mapAsync` through `buffer_get_readback_status()`, so their
+  callbacks always get the real data.
 - **`threads=yes`** — all four `threads` × `dlink_enabled` combinations now
   boot. `threads=yes dlink_enabled=no` was fixed in Task 12 bug #1 (the
   `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` dispatch fix).

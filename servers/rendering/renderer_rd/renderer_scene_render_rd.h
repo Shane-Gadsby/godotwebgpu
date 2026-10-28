@@ -32,9 +32,15 @@
 
 #include "servers/rendering/renderer_compositor.h"
 #include "servers/rendering/renderer_rd/effects/bokeh_dof.h"
+#include "servers/rendering/renderer_rd/effects/camera_finish.h"
+#include "servers/rendering/renderer_rd/effects/camera_local_exposure.h"
+#include "servers/rendering/renderer_rd/effects/camera_metering.h"
+#include "servers/rendering/renderer_rd/effects/camera_motion_blur.h"
+#include "servers/rendering/renderer_rd/effects/color_grading.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/effects/debug_effects.h"
 #include "servers/rendering/renderer_rd/effects/fsr.h"
+#include "servers/rendering/renderer_rd/effects/light_shafts.h"
 #include "servers/rendering/renderer_rd/effects/luminance.h"
 #include "servers/rendering/renderer_rd/effects/resolve.h"
 #include "servers/rendering/renderer_rd/effects/smaa.h"
@@ -61,10 +67,16 @@ class RendererSceneRenderRD : public RendererSceneRender, public RenderingShader
 protected:
 	RendererRD::ForwardIDStorage *forward_id_storage = nullptr;
 	RendererRD::BokehDOF *bokeh_dof = nullptr;
+	RendererRD::CameraMotionBlur *camera_motion_blur = nullptr; // Created on first use.
+	RendererRD::CameraMetering *camera_metering = nullptr; // Created on first use.
+	RendererRD::CameraLocalExposure *camera_local_exposure = nullptr; // Created on first use.
+	RendererRD::LightShafts *light_shafts = nullptr; // Created on first use.
+	RendererRD::ColorGrading *color_grading = nullptr; // Created on first use.
 	RendererRD::CopyEffects *copy_effects = nullptr;
 	RendererRD::DebugEffects *debug_effects = nullptr;
 	RendererRD::Luminance *luminance = nullptr;
 	RendererRD::SMAA *smaa = nullptr;
+	RendererRD::CameraFinish *camera_finish = nullptr;
 	RendererRD::ToneMapper *tone_mapper = nullptr;
 	RendererRD::FSR *fsr = nullptr;
 	RendererRD::VRS *vrs = nullptr;
@@ -114,6 +126,10 @@ protected:
 	void _render_buffers_copy_depth_texture(const RenderDataRD *p_render_data, bool p_use_msaa = false);
 	void _render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa = false);
 	void _post_process_subpass(RID p_source_texture, RID p_framebuffer, const RenderDataRD *p_render_data);
+	/* Color grading */
+	void _update_color_grading(const RenderDataRD *p_render_data);
+	void _setup_color_grading(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_environment, bool p_update);
+	void _update_environment_effects(const RenderDataRD *p_render_data);
 	void _disable_clear_request(const RenderDataRD *p_render_data);
 
 	// needed for a single argument calls (material and uv2)
@@ -339,6 +355,8 @@ public:
 	virtual PackedByteArray bake_render_area_light_atlas(const TypedArray<RID> &p_area_light_textures, const TypedArray<Rect2> &p_area_light_atlas_texture_rects, const Size2i &p_size, int p_mipmaps) override;
 
 	virtual bool free(RID p_rid) override;
+	virtual void camera_monitoring_free(RID p_camera) override;
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) override;
 
 	virtual void update() override;
 

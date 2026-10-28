@@ -32,6 +32,7 @@
 #include "render_scene_buffers_rd.compat.inc"
 
 #include "core/object/class_db.h"
+#include "core/templates/local_vector.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/rendering_device_binds.h"
 #include "servers/rendering/rendering_server.h" // IWYU pragma: keep // Needed to bind RSE enums.
@@ -125,9 +126,21 @@ void RenderSceneBuffersRD::update_samplers() {
 }
 
 void RenderSceneBuffersRD::cleanup() {
+	_cleanup(false);
+}
+
+void RenderSceneBuffersRD::_cleanup(bool p_reconfigure) {
 	// Free our data buffers (but don't destroy them)
 	for (KeyValue<StringName, Ref<RenderBufferCustomDataRD>> &E : data_buffers) {
-		E.value->free_data();
+		if (p_reconfigure) {
+			E.value->free_data_for_reconfigure();
+		} else {
+			E.value->free_data();
+		}
+	}
+
+	if (!p_reconfigure) {
+		_free_carried_textures();
 	}
 
 	// Clear our named textures
@@ -160,6 +173,7 @@ void RenderSceneBuffersRD::configure(const RenderSceneBuffersConfiguration *p_co
 
 	target_size = p_config->get_target_size();
 	internal_size = p_config->get_internal_size();
+	max_internal_size = p_config->get_max_internal_size();
 	view_count = p_config->get_view_count();
 
 	scaling_3d_mode = p_config->get_scaling_3d_mode();
@@ -178,8 +192,21 @@ void RenderSceneBuffersRD::configure(const RenderSceneBuffersConfiguration *p_co
 
 	update_samplers();
 
+	// Temporal state that does not depend on the internal size carries over a reconfigure, so changing the 3D scale
+	// (or anything else that reconfigures) does not restart it: TAA's history is resampled into the new size by
+	// TAA::process(), and the last frame SSIL and SSR read by SSEffects::allocate_last_frame_buffer(); auto exposure's
+	// luminance and FSR 2's context are kept by their RenderBufferCustomDataRD (free_data_for_reconfigure()). What a
+	// previous reconfigure carried and nothing used is freed now.
+	_free_carried_textures();
+	if (use_taa) {
+		_carry_texture(SNAME("taa"), SNAME("history"));
+		_carry_texture(SNAME("taa"), SNAME("prev_velocity"));
+	}
+	// RB_SCOPE_SSLF / RB_LAST_FRAME (ss_effects.h). It exists only while SSIL or SSR is in use.
+	_carry_texture(SNAME("rb_sslf"), SNAME("last_frame"));
+
 	// cleanout any old buffers we had.
-	cleanup();
+	_cleanup(true);
 
 	// Create our color buffer.
 	const bool resolve_target = msaa_3d != RSE::VIEWPORT_MSAA_DISABLED;
@@ -209,6 +236,57 @@ void RenderSceneBuffersRD::configure(const RenderSceneBuffersConfiguration *p_co
 	// (re-)configure any named buffers
 	for (KeyValue<StringName, Ref<RenderBufferCustomDataRD>> &E : data_buffers) {
 		E.value->configure(this);
+	}
+}
+
+void RenderSceneBuffersRD::_carry_texture(const StringName &p_context, const StringName &p_texture_name) {
+	NTKey key(p_context, p_texture_name);
+	HashMap<NTKey, NamedTexture, NTKey>::Iterator E = named_textures.find(key);
+	if (E && E->value.texture.is_valid()) {
+		// Its slices are its dependents and stay valid with it.
+		carried_textures.insert(key, E->value);
+		named_textures.remove(E);
+	}
+}
+
+void RenderSceneBuffersRD::_free_carried_textures() {
+	for (KeyValue<NTKey, NamedTexture> &E : carried_textures) {
+		free_named_texture(E.value);
+	}
+	carried_textures.clear();
+}
+
+RID RenderSceneBuffersRD::get_carried_texture_layer(const StringName &p_context, const StringName &p_texture_name, uint32_t p_layer) {
+	HashMap<NTKey, NamedTexture, NTKey>::Iterator E = carried_textures.find(NTKey(p_context, p_texture_name));
+	if (!E || E->value.texture.is_null() || p_layer >= E->value.format.array_layers) {
+		return RID();
+	}
+	NamedTexture &named_texture = E->value;
+	if (named_texture.format.texture_type == RD::TEXTURE_TYPE_2D) {
+		return named_texture.texture;
+	}
+	NTSliceKey slice_key(p_layer, 1, 0, 1, RD::TextureView(), RD::TEXTURE_SLICE_2D);
+	if (!named_texture.slices.has(slice_key)) {
+		named_texture.slices[slice_key] = RD::get_singleton()->texture_create_shared_from_slice(RD::TextureView(), named_texture.texture, p_layer, 0, 1, RD::TEXTURE_SLICE_2D, 1);
+	}
+	return named_texture.slices[slice_key];
+}
+
+Size2i RenderSceneBuffersRD::get_carried_texture_size(const StringName &p_context, const StringName &p_texture_name) const {
+	HashMap<NTKey, NamedTexture, NTKey>::ConstIterator E = carried_textures.find(NTKey(p_context, p_texture_name));
+	return E ? Size2i(E->value.format.width, E->value.format.height) : Size2i();
+}
+
+void RenderSceneBuffersRD::free_carried_textures(const StringName &p_context) {
+	LocalVector<NTKey> to_free;
+	for (KeyValue<NTKey, NamedTexture> &E : carried_textures) {
+		if (E.key.context == p_context) {
+			free_named_texture(E.value);
+			to_free.push_back(E.key);
+		}
+	}
+	for (const NTKey &key : to_free) {
+		carried_textures.erase(key);
 	}
 }
 

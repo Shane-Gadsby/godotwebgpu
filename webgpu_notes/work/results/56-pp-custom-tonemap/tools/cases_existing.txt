@@ -1,0 +1,10 @@
+e_linear tm=linear
+e_reinhard tm=reinhard&twhite=4.0
+e_filmic tm=filmic&twhite=6.0
+e_aces tm=aces&twhite=6.0
+e_agx tm=agx
+lit_linear tm=linear&scene=lit&glow=1
+lit_reinhard tm=reinhard&scene=lit&glow=1&twhite=4.0
+lit_filmic tm=filmic&scene=lit&glow=1
+lit_aces tm=aces&scene=lit
+lit_agx tm=agx&scene=lit&glow=1

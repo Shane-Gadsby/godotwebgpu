@@ -108,6 +108,15 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 	GodotProfileZoneGrouped(_profile_zone, "viewport->draw_viewports");
 	RSG::viewport->draw_viewports(p_swap_buffers);
 
+	if (!texture_readbacks.is_empty()) {
+		// After the viewports, so a readback requested during this frame sees what this frame drew.
+		GodotProfileZoneGrouped(_profile_zone, "texture_storage->texture_2d_get_async");
+		for (const TextureReadback &readback : texture_readbacks) {
+			RSG::texture_storage->texture_2d_get_async(readback.texture, readback.callback);
+		}
+		texture_readbacks.clear();
+	}
+
 	GodotProfileZoneGrouped(_profile_zone, "canvas_render->update");
 	RSG::canvas_render->update();
 
@@ -214,6 +223,11 @@ void RenderingServerDefault::_draw(bool p_swap_buffers, double frame_step) {
 		external_draws_done.fetch_add(1);
 		external_render_thread_draw_done();
 	}
+}
+
+void RenderingServerDefault::_texture_2d_get_async(RID p_texture, const Callable &p_callback) {
+	ERR_FAIL_COND_MSG(!p_callback.is_valid(), "texture_2d_get_async() needs a valid callback.");
+	texture_readbacks.push_back({ p_texture, p_callback });
 }
 
 void RenderingServerDefault::_run_post_draw_steps() {

@@ -66,6 +66,15 @@ class RenderingServerDefault : public RenderingServer {
 
 	List<Callable> frame_drawn_callbacks;
 
+	// texture_2d_get_async() requests, issued once the frame's viewports are drawn so they read what this frame
+	// rendered. Rendering thread only.
+	struct TextureReadback {
+		RID texture;
+		Callable callback;
+	};
+	LocalVector<TextureReadback> texture_readbacks;
+	void _texture_2d_get_async(RID p_texture, const Callable &p_callback);
+
 	static void _changes_changed() {}
 
 	uint64_t frame_profile_frame = 0;
@@ -239,6 +248,15 @@ public:
 	FUNCRIDTEX0(texture_3d_placeholder)
 
 	FUNC1RC(Ref<Image>, texture_2d_get, RID)
+
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override {
+		if (Thread::get_caller_id() == server_thread) {
+			command_queue.flush_if_pending();
+			_texture_2d_get_async(p_texture, p_callback);
+		} else {
+			command_queue.push(this, &RenderingServerDefault::_texture_2d_get_async, p_texture, p_callback);
+		}
+	}
 	FUNC2RC(Ref<Image>, texture_2d_layer_get, RID, int)
 	FUNC1RC(Vector<Ref<Image>>, texture_3d_get, RID)
 
@@ -511,6 +529,7 @@ public:
 	FUNC2(light_directional_set_shadow_mode, RID, RSE::LightDirectionalShadowMode)
 	FUNC2(light_directional_set_blend_splits, RID, bool)
 	FUNC2(light_directional_set_sky_mode, RID, RSE::LightDirectionalSkyMode)
+	FUNC2(light_directional_set_light_shafts, RID, bool)
 
 	FUNC2(light_area_set_size, RID, const Vector2 &)
 	FUNC2(light_area_set_normalize_energy, RID, bool)
@@ -731,6 +750,21 @@ public:
 	FUNC2(camera_set_camera_attributes, RID, RID)
 	FUNC2(camera_set_compositor, RID, RID)
 	FUNC2(camera_set_use_vertical_aspect, RID, bool)
+	FUNC5(camera_set_monitoring_zebras, RID, bool, float, bool, float)
+	FUNC3(camera_set_monitoring_zebra_colors, RID, const Color &, const Color &)
+	FUNC4(camera_set_monitoring_focus_peaking, RID, bool, const Color &, float)
+	FUNC2(camera_set_monitoring_false_color, RID, bool)
+	FUNC6(camera_set_monitoring_histogram, RID, bool, RSE::CameraMonitoringHistogramMode, RSE::CameraMonitoringHistogramPosition, float, float)
+	FUNC3(camera_set_monitoring_histogram_readback, RID, bool, float)
+	FUNC2(camera_set_monitoring_clean_texture, RID, RID)
+	// Not queued: a readback result is published under a mutex on the render thread, so the calling thread reads it
+	// directly. Going through the command queue would make every call wait for the render thread.
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const override {
+		return RSG::scene->camera_get_monitoring_histogram(p_camera, p_channel);
+	}
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const override {
+		return RSG::scene->camera_get_monitoring_histogram_serial(p_camera);
+	}
 
 	/* OCCLUDER */
 	FUNCRIDSPLIT(occluder)
@@ -762,6 +796,16 @@ public:
 
 	FUNC2(viewport_set_scaling_3d_mode, RID, RSE::ViewportScaling3DMode)
 	FUNC2(viewport_set_scaling_3d_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic, RID, bool)
+	FUNC2(viewport_set_scaling_3d_dynamic_target_fps, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_min_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_max_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_step, RID, float)
+	// Not through the command queue: RendererViewport publishes these as atomics, and a Viewport polls them every
+	// frame while dynamic scaling is on, which a synced call would turn into a stall on the render thread.
+	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_effective_scale(p_viewport); }
+	virtual RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_dynamic_state(p_viewport); }
+	virtual RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_dynamic_source(p_viewport); }
 	FUNC2(viewport_set_fsr_sharpness, RID, float)
 	FUNC2(viewport_set_texture_mipmap_bias, RID, float)
 	FUNC2(viewport_set_anisotropic_filtering_level, RID, RSE::ViewportAnisotropicFiltering)
@@ -875,17 +919,34 @@ public:
 
 	FUNC10(environment_set_ssao, RID, bool, float, float, float, float, float, float, float, float)
 	FUNC6(environment_set_ssao_quality, RSE::EnvironmentSSAOQuality, bool, float, int, float, float)
+	FUNC1(environment_set_ssao_method, RSE::EnvironmentSSAOMethod) // GTAO
 
 	FUNC6(environment_set_ssil, RID, bool, float, float, float, float)
+	FUNC3(environment_set_micro_shadows, RID, bool, float)
 	FUNC6(environment_set_ssil_quality, RSE::EnvironmentSSILQuality, bool, float, int, float, float)
 
 	FUNC13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, RSE::EnvironmentGlowBlendMode, float, float, float, float, RID)
 	FUNC1(environment_glow_set_use_bicubic_upscale, bool)
 
+	FUNC7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
+	FUNC3(environment_set_veiling_glare, RID, bool, float)
+	FUNC4(environment_set_diffusion_filter, RID, bool, float, bool)
+
+	FUNC6(environment_set_light_shafts, RID, bool, float, float, float, const Color &)
+	FUNC1(environment_set_light_shafts_quality, RSE::EnvironmentLightShaftsQuality)
+
 	FUNC4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
 	FUNC2(environment_set_tonemap_agx_contrast, RID, float)
+	FUNC6(environment_set_tonemap_custom, RID, float, float, float, float, float)
 
 	FUNC7(environment_set_adjustment, RID, bool, float, float, float, bool, RID)
+
+	/* Color grading */
+	FUNC8(environment_set_color_grading, RID, bool, const Color &, float, float, const Color &, const Color &, const Color &)
+	FUNC8(environment_set_color_grading_shadows_midtones_highlights, RID, const Color &, const Color &, const Color &, float, float, float, float)
+	FUNC4(environment_set_color_grading_channel_mixer, RID, const Vector3 &, const Vector3 &, const Vector3 &)
+	FUNC4(environment_set_color_grading_split_toning, RID, const Color &, const Color &, float)
+	FUNC9(environment_set_color_grading_curves, RID, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &)
 
 	FUNC11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
 
@@ -927,9 +988,41 @@ public:
 	FUNC1(camera_attributes_set_dof_blur_bokeh_shape, RSE::DOFBokehShape)
 
 	FUNC8(camera_attributes_set_dof_blur, RID, bool, float, float, bool, float, float, float)
+	FUNC4(camera_attributes_set_dof_physical_blur_size, RID, bool, float, bool)
+	FUNC2(camera_attributes_set_dof_legacy_gather, RID, bool)
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)
+	FUNC4(camera_attributes_set_noise_reduction, RID, bool, float, bool)
+	FUNC5(camera_attributes_set_sharpening, RID, bool, float, float, float)
+	FUNC6(camera_attributes_set_grain, RID, bool, RSE::CameraAttributesGrainType, float, float, float)
+	FUNC5(camera_attributes_set_lut, RID, bool, RID, RSE::CameraAttributesLUTInput, float)
+	FUNC1(camera_attributes_set_motion_blur_quality, RSE::CameraAttributesMotionBlurQuality)
+	FUNC6(camera_attributes_set_motion_blur, RID, bool, float, float, float, float)
+	FUNC3(camera_attributes_set_rolling_shutter, RID, bool, float)
+
+	/* Exposure automation */
+	FUNC5(camera_attributes_set_auto_exposure_metering, RID, RSE::CameraAttributesMeteringMode, float, const Vector2 &, float)
+	FUNC2(camera_attributes_set_auto_exposure_metering_log_average, RID, bool)
+	FUNC5(camera_attributes_set_auto_white_balance, RID, bool, float, float, float)
+
+	/* Lens optics */
+	FUNC8(camera_attributes_set_lens, RID, const Vector2 &, float, float, float, float, float, float)
+	FUNC4(camera_attributes_set_vignetting, RID, bool, float, float)
+	FUNC6(camera_attributes_set_lens_distortion, RID, bool, bool, float, float, bool)
+	FUNC3(camera_attributes_set_chromatic_aberration, RID, bool, float)
+	FUNC3(camera_attributes_set_diffraction, RID, bool, float)
+
+	FUNC5(camera_attributes_set_aperture, RID, bool, int, float, float)
+	FUNC3(camera_attributes_set_cats_eye, RID, bool, float)
+	FUNC4(camera_attributes_set_tilt_shift, RID, bool, float, float)
+	FUNC3(camera_attributes_set_starburst, RID, bool, float)
+	FUNC4(camera_attributes_set_halation, RID, bool, float, float)
+	FUNC2(camera_attributes_set_halation_high_quality, RID, bool)
+	FUNC3(camera_attributes_set_longitudinal_chromatic_aberration, RID, bool, float)
+	FUNC4(camera_attributes_set_panini, RID, bool, float, float)
+	FUNC6(camera_attributes_set_local_exposure, RID, bool, float, float, float, float)
+	FUNC3(camera_attributes_set_local_exposure_blurred_luminance, RID, float, float)
 
 	/* SCENARIO API */
 

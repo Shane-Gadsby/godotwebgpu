@@ -1,0 +1,44 @@
+## Accuracy vs ray traced reference (final build)
+pixels: geometry 369425, reference AO < 0.9: 71367, open (> 0.98): 246750
+reference mean AO: all 0.9368, occluded 0.7164
+label            bias     MAE    RMSE   corr | occl.mean  occl.bias | open.mean | blurred MAE
+gtao_q0_full    +0.0162 0.0410 0.0705 0.8547 |   0.8331   +0.1167 |   0.9827 | 0.0401
+gtao_q0_half    +0.0144 0.0412 0.0695 0.8568 |   0.8296   +0.1132 |   0.9812 | 0.0404
+gtao_q1_full    +0.0291 0.0327 0.0691 0.8799 |   0.8343   +0.1179 |   0.9991 | 0.0321
+gtao_q1_half    +0.0283 0.0322 0.0683 0.8818 |   0.8320   +0.1156 |   0.9988 | 0.0317
+gtao_q2_full    +0.0153 0.0275 0.0596 0.9023 |   0.7671   +0.0508 |   0.9989 | 0.0269
+gtao_q2_half    +0.0143 0.0273 0.0592 0.9034 |   0.7643   +0.0479 |   0.9986 | 0.0268
+gtao_q3_full    +0.0157 0.0280 0.0609 0.9002 |   0.7661   +0.0498 |   0.9993 | 0.0276
+gtao_q3_half    +0.0148 0.0277 0.0603 0.9021 |   0.7625   +0.0462 |   0.9992 | 0.0273
+gtao_q4_full    +0.0119 0.0280 0.0612 0.9058 |   0.7472   +0.0309 |   0.9993 | 0.0276
+gtao_q4_half    +0.0110 0.0276 0.0606 0.9077 |   0.7440   +0.0277 |   0.9992 | 0.0272
+assao_q2_full   +0.0351 0.0369 0.0853 0.8348 |   0.8668   +0.1505 |   0.9987 | 0.0370
+web_gtao_q2_full +0.0155 0.0275 0.0597 0.9019 |   0.7683   +0.0520 |   0.9989 | 0.0269
+web_gtao_q2_half +0.0145 0.0274 0.0595 0.9024 |   0.7653   +0.0489 |   0.9987 | 0.0269
+web_gtao_q0_full +0.0165 0.0409 0.0705 0.8561 |   0.8339   +0.1176 |   0.9828 | 0.0400
+web_assao_q2_full +0.0359 0.0360 0.0800 0.9074 |   0.8667   +0.1503 |   1.0000 | 0.0359
+
+## Bit-identical, web vs native, temporal (final build)
+bit-identical out3/new_default_ao out3/base_default_ao max 0.0
+bit-identical out3/new_default_final out3/base_default_final max 0.0
+web vs native web_method_gtao_quality_2_half_0.png mean 0.705 p99 11.0 | web sky mean 255.0 native sky mean 255.0
+web vs native web_method_gtao_quality_2_half_1.png mean 0.744 p99 11.0 | web sky mean 255.0 native sky mean 255.0
+web vs native web_method_assao_quality_2_half_0.png mean 0.37 p99 2.0 | web sky mean 255.0 native sky mean 254.6
+static no-TAA frame diff max 0.0
+taa_gtao TAA final image temporal std mean 0.163 p99 2.27
+taa_assao TAA final image temporal std mean 0.018 p99 0.464
+
+## Forward+ matrix (--parity --feature ssao,gtao,ssil, WebGPU debug template)
+    PASS  ssao                         delta 1.673; native diff off 0.002 on 0.008
+    PASS  ssil                         delta 1.744; native diff off 0.002 on 0.005
+    PASS  gtao                         delta 4.170; native diff off 0.002 on 0.011
+RESULT: PASS
+
+## Cost (build 3; shader unchanged in cost since)
+1920x1080 Forward+, RTX 4080 SUPER, native Vulkan; median of per-second averages (ms), AO passes only
+quality        GTAO full  GTAO half | ASSAO full  ASSAO half(default)
+Very Low       0.638      0.266     |  0.371       0.114    (n=24,23,23,23)
+Low            0.715      0.367     |  0.523       0.269    (n=24,23,23,24)
+Medium         0.526      0.306     |  0.631       0.293    (n=24,23,24,23)
+High           2.006      0.551     |  1.394       0.720    (n=24,24,23,24)
+Ultra          3.310      1.262     |  0.604       0.905    (n=26,24,26,24)

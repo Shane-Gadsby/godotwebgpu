@@ -61,6 +61,15 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_attributes) = 0;
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor) = 0;
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level) = 0;
+	virtual void camera_set_monitoring_zebra_colors(RID p_camera, const Color &p_color, const Color &p_second_color) = 0;
+	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
+	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
+	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
+	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) = 0;
+	virtual void camera_set_monitoring_clean_texture(RID p_camera, RID p_texture) = 0;
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
 	virtual bool is_camera(RID p_camera) const = 0;
 
 	virtual RID occluder_allocate() = 0;
@@ -192,6 +201,7 @@ public:
 	// Tonemap
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
+	virtual void environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) = 0;
 
 	virtual RSE::EnvironmentToneMapper environment_get_tone_mapper(RID p_env) const = 0;
 	virtual float environment_get_exposure(RID p_env) const = 0;
@@ -243,6 +253,15 @@ public:
 	virtual void environment_set_glow(RID p_env, bool p_enable, Vector<float> p_levels, float p_intensity, float p_strength, float p_mix, float p_bloom_threshold, RSE::EnvironmentGlowBlendMode p_blend_mode, float p_hdr_bleed_threshold, float p_hdr_bleed_scale, float p_hdr_luminance_cap, float p_glow_map_strength, RID p_glow_map) = 0;
 
 	virtual bool environment_get_glow_enabled(RID p_env) const = 0;
+
+	// Glare (camera_glare_inc.glsl)
+	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
+	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
+	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
+
+	// Light shafts (RendererEnvironmentStorage::LightShafts)
+	virtual void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) = 0;
+	virtual void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) = 0;
 	virtual Vector<float> environment_get_glow_levels(RID p_env) const = 0;
 	virtual float environment_get_glow_intensity(RID p_env) const = 0;
 	virtual float environment_get_glow_strength(RID p_env) const = 0;
@@ -284,10 +303,12 @@ public:
 	virtual float environment_get_ssao_ao_channel_affect(RID p_env) const = 0;
 
 	virtual void environment_set_ssao_quality(RSE::EnvironmentSSAOQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
+	virtual void environment_set_ssao_method(RSE::EnvironmentSSAOMethod p_method) = 0; // GTAO
 
 	// SSIL
 
 	virtual void environment_set_ssil(RID p_env, bool p_enable, float p_radius, float p_intensity, float p_sharpness, float p_normal_rejection) = 0;
+	virtual void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) = 0;
 
 	virtual bool environment_get_ssil_enabled(RID p_env) const = 0;
 	virtual float environment_get_ssil_radius(RID p_env) const = 0;
@@ -323,6 +344,15 @@ public:
 	virtual float environment_get_adjustments_saturation(RID p_env) const = 0;
 	virtual bool environment_get_use_1d_color_correction(RID p_env) const = 0;
 	virtual RID environment_get_color_correction(RID p_env) const = 0;
+
+	/* Color grading */
+	virtual void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) = 0;
+	virtual void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) = 0;
+	virtual void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) = 0;
+	virtual void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) = 0;
+	virtual void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) = 0;
+	virtual bool environment_get_color_grading_enabled(RID p_env) const = 0;
+	virtual uint64_t environment_get_color_grading_version(RID p_env) const = 0;
 
 	virtual Ref<Image> environment_bake_panorama(RID p_env, bool p_bake_irradiance, const Size2i &p_size) = 0;
 

@@ -1,0 +1,50 @@
+gpu lease taken 07:21:00
+--- save_windowed
+Dynamic 3D resolution: remembered scale 0.70 for /root (windowed).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.7
+--- save_fullscreen
+Dynamic 3D resolution: remembered scale 0.60 for /root (fullscreen).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.7
+/root@fullscreen=0.6
+--- load_windowed
+Dynamic 3D resolution: /root starts from its remembered scale 0.70 (windowed).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.7
+/root@fullscreen=0.6
+--- load_fullscreen
+Dynamic 3D resolution: /root starts from its remembered scale 0.60 (fullscreen).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.7
+/root@fullscreen=0.6
+--- switch_to_fullscreen
+Dynamic 3D resolution: /root starts from its remembered scale 0.70 (windowed).
+[dr] {"kind":"wm_change","t":1.002,"wm":"fullscreen"}
+Dynamic 3D resolution: /root starts from its remembered scale 0.60 (fullscreen).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.7
+/root@fullscreen=0.6
+--- legacy_windowed
+Dynamic 3D resolution: moved the remembered scale 0.65 of /root to windowed.
+Dynamic 3D resolution: /root starts from its remembered scale 0.65 (windowed).
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.65
+--- legacy_then_fullscreen
+
+cfg:
+[forward_plus NVIDIA GeForce RTX 4080 SUPER]
+/root@windowed=0.65
+dropped: gpu

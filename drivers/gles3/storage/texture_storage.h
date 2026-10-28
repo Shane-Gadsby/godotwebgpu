@@ -692,6 +692,7 @@ public:
 	virtual void texture_3d_placeholder_initialize(RID p_texture) override;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const override;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override;
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const override;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const override;
 
@@ -891,6 +892,9 @@ public:
 
 	GLuint render_target_get_fbo(RID p_render_target) const;
 	GLuint render_target_get_color(RID p_render_target) const;
+	// Makes p_texture (a server texture) show p_tex_id, a 2D copy of the render target's color texture with its size and
+	// internal format, read back as the render target's own texture is. p_tex_id stays the caller's.
+	void render_target_copy_texture_set(RID p_texture, GLuint p_tex_id, RID p_render_target);
 	GLuint render_target_get_depth(RID p_render_target) const;
 	bool render_target_get_depth_has_stencil(RID p_render_target) const;
 	void render_target_set_reattach_textures(RID p_render_target, bool p_reattach_textures) const;

@@ -96,6 +96,15 @@ Correctly handles:
 - Format conversion for promoted textures (R8→R32Float, Float32→Float16)
 - 256-byte row alignment for WebGPU buffer-texture copies
 
+What a project sees: a first synchronous `Texture2D.get_image()` / `RenderingServer.texture_2d_get()` returns `null`,
+and a first `RenderingDevice.texture_get_data()` / `buffer_get_data()`, `Mesh.surface_get_arrays()` on an ArrayMesh or
+ImmediateMesh and `RenderingServer.multimesh_get_buffer()` return an **empty** array until the data has arrived;
+`GPUParticles3D.capture_aabb()` returns an empty AABB until then. Debug exports warn once per texture or buffer (once
+for mesh arrays) on the console's warning channel; release exports stay silent. The fix in a project is the
+asynchronous form: `await texture.get_image_awaitable()`, `get_image_async(callback)`,
+`RenderingServer.texture_2d_get_awaitable()`, or `RenderingDevice.texture_get_data_async()` /
+`buffer_get_data_async()`, which always deliver the real data (`webgpu_notes/TASKS.md` §4.82, §4.84, §4.92, §4.96).
+
 ### 2.4 Dynamic Buffer Offsets
 
 **Status: Correct**

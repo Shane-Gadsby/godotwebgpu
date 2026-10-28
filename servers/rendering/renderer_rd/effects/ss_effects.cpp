@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
+#include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -277,6 +278,24 @@ SSEffects::SSEffects() {
 		ss_effects.mirror_sampler = RD::get_singleton()->sampler_create(sampler);
 	}
 
+	// GTAO: compiled like ASSAO's shaders, whichever method is selected, so switching the project setting in the
+	// editor needs no restart.
+	ssao_set_method(RSE::EnvironmentSSAOMethod(int(GLOBAL_GET("rendering/environment/ssao/method"))));
+	{
+		Vector<String> gtao_modes;
+		gtao_modes.push_back("\n#define MODE_PREFILTER\n"); // GTAO_PREFILTER
+		gtao_modes.push_back("\n#define MODE_MAIN\n"); // GTAO_MAIN
+		gtao_modes.push_back("\n#define MODE_DENOISE\n"); // GTAO_DENOISE
+		gtao_modes.push_back("\n#define MODE_DENOISE\n#define FINAL_APPLY\n"); // GTAO_DENOISE_FINAL
+		gtao_modes.push_back("\n#define MODE_UPSAMPLE\n"); // GTAO_UPSAMPLE
+
+		gtao.shader.initialize(gtao_modes);
+		gtao.shader_version = gtao.shader.version_create();
+		for (int i = 0; i < GTAO_MAX; i++) {
+			gtao.pipelines[i].create_compute_pipeline(gtao.shader.version_get_shader(gtao.shader_version, i));
+		}
+	}
+
 	// Screen Space Reflections
 	ssr_half_size = GLOBAL_GET("rendering/environment/screen_space_reflection/half_size");
 
@@ -416,8 +435,36 @@ void SSEffects::allocate_last_frame_buffer(Ref<RenderSceneBuffersRD> p_render_bu
 			p_render_buffers->clear_context(RB_SCOPE_SSLF);
 		}
 
-		RID last_frame_texture = p_render_buffers->create_texture(RB_SCOPE_SSLF, RB_LAST_FRAME, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT, RD::TEXTURE_SAMPLES_1, last_frame_size, view_count, mipmaps);
-		RD::get_singleton()->texture_clear(last_frame_texture, Color(0, 0, 0, 0), 0, mipmaps, 0, view_count);
+		// A reconfigure (a 3D scale change, for one) carries the last frame over (RenderSceneBuffersRD::configure()).
+		// SSIL and SSR read it before this frame's copy replaces it, so starting from black shows one frame without
+		// indirect light or reflections. Resampling it into the new size keeps them; the reprojection is in UV units,
+		// which do not depend on the size. Only then is the texture an attachment (the resample draws): a viewport
+		// that never reconfigures keeps exactly the texture it always had.
+		bool resample = p_render_buffers->get_carried_texture_layer(RB_SCOPE_SSLF, RB_LAST_FRAME, view_count - 1).is_valid();
+		uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		if (resample) {
+			usage_bits |= RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+		}
+
+		RID last_frame_texture = p_render_buffers->create_texture(RB_SCOPE_SSLF, RB_LAST_FRAME, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage_bits, RD::TEXTURE_SAMPLES_1, last_frame_size, view_count, mipmaps);
+		if (resample) {
+			CopyEffects *copy_effects = CopyEffects::get_singleton();
+			RD::get_singleton()->draw_command_begin_label("Resample last frame for SSIL/SSR");
+			for (uint32_t v = 0; v < view_count; v++) {
+				// Bilinear into mip 0, then the mip chain the same way copy_internal_texture_to_last_frame() builds it.
+				RID dest = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, 0);
+				copy_effects->copy_to_fb_rect(p_render_buffers->get_carried_texture_layer(RB_SCOPE_SSLF, RB_LAST_FRAME, v), FramebufferCacheRD::get_singleton()->get_cache(dest), Rect2i(Point2i(), last_frame_size), false, false, false, false, RID(), false, false, false, false, Rect2(), 1.0, true);
+				for (uint32_t m = 1; m < mipmaps; m++) {
+					RID source = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, m - 1);
+					dest = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, m);
+					copy_effects->make_mipmap(source, dest, RD::get_singleton()->texture_size(dest));
+				}
+			}
+			RD::get_singleton()->draw_command_end_label();
+		} else {
+			RD::get_singleton()->texture_clear(last_frame_texture, Color(0, 0, 0, 0), 0, mipmaps, 0, view_count);
+		}
+		p_render_buffers->free_carried_textures(RB_SCOPE_SSLF);
 	}
 }
 
@@ -518,6 +565,14 @@ SSEffects::~SSEffects() {
 		ssao.importance_map_shader.version_free(ssao.importance_map_shader_version);
 
 		RD::get_singleton()->free_rid(ssao.importance_map_load_counter);
+	}
+
+	{
+		// Cleanup GTAO
+		for (int i = 0; i < GTAO_MAX; i++) {
+			gtao.pipelines[i].free();
+		}
+		gtao.shader.version_free(gtao.shader_version);
 	}
 
 	{
@@ -1458,6 +1513,296 @@ void SSEffects::generate_ssao(Ref<RenderSceneBuffersRD> p_render_buffers, SSAORe
 
 	int zero[1] = { 0 };
 	RD::get_singleton()->buffer_update(ssao.importance_map_load_counter, 0, sizeof(uint32_t), &zero);
+}
+
+/* GTAO */
+
+// XeGTAO's defaults (XeGTAO.h, GTAOSettings), which Intel tuned so the result matches a ray traced reference
+// (https://github.com/GameTechDev/XeGTAO, "Implementation details"). They are not exposed: the Environment's radius,
+// intensity, power and sharpness map onto them below.
+static constexpr float GTAO_RADIUS_MULTIPLIER = 1.457f;
+static constexpr float GTAO_FALLOFF_RANGE = 0.615f;
+static constexpr float GTAO_SAMPLE_DISTRIBUTION_POWER = 2.0f;
+static constexpr float GTAO_FINAL_VALUE_POWER = 2.2f;
+static constexpr float GTAO_DEPTH_MIP_SAMPLING_OFFSET = 3.30f;
+static constexpr float GTAO_DENOISE_BLUR_BETA = 1.2f;
+// XeGTAO_DepthMIPFilter()'s "depthRangeScaleFactor", found empirically by Intel.
+static constexpr float GTAO_DEPTH_MIP_RANGE_SCALE = 0.75f;
+// The Environment's defaults (Environment.ssao_intensity, ssao_power). GTAO's output at these values is XeGTAO's
+// own; the settings act relative to them, so a project that only switches the method gets the reference result.
+static constexpr float GTAO_ENV_DEFAULT_INTENSITY = 2.0f;
+static constexpr float GTAO_ENV_DEFAULT_POWER = 1.5f;
+static constexpr uint32_t GTAO_DEPTH_MIPS = 5;
+
+void SSEffects::ssao_set_method(RSE::EnvironmentSSAOMethod p_method) {
+	ssao_method = p_method;
+}
+
+void SSEffects::gtao_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, GTAORenderBuffers &p_gtao_buffers, const SSAOSettings &p_settings) {
+	Size2i working_size = p_settings.full_screen_size;
+	if (ssao_half_size) {
+		working_size = Size2i((working_size.x + 1) / 2, (working_size.y + 1) / 2);
+	}
+
+	if (p_gtao_buffers.half_size != ssao_half_size || p_gtao_buffers.working_size != working_size) {
+		p_render_buffers->clear_context(RB_SCOPE_GTAO);
+	}
+	p_gtao_buffers.half_size = ssao_half_size;
+	p_gtao_buffers.working_size = working_size;
+	p_gtao_buffers.mipmaps = GTAO_DEPTH_MIPS;
+
+	uint32_t view_count = p_render_buffers->get_view_count();
+
+	// The view-z chain is padded to the prefilter's 16x16 tile, so all five mips exist at every resolution; the
+	// shader clamps its reads to the real image.
+	Size2i view_z_size = Size2i((working_size.x + 15) & ~15, (working_size.y + 15) & ~15);
+	// R16F as the ASSAO/SSIL linear depth (RB_SCOPE_SSDS): a storage format the WebGPU driver already handles.
+	p_render_buffers->create_texture(RB_SCOPE_GTAO, RB_LINEAR_DEPTH, RD::DATA_FORMAT_R16_SFLOAT, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, view_z_size, view_count, GTAO_DEPTH_MIPS);
+	p_render_buffers->create_texture(RB_SCOPE_GTAO, RB_DEINTERLEAVED, RD::DATA_FORMAT_R8G8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, working_size, view_count);
+	p_render_buffers->create_texture(RB_SCOPE_GTAO, RB_DEINTERLEAVED_PONG, RD::DATA_FORMAT_R8G8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, working_size, view_count);
+	// Created exactly as ssao_allocate_buffers() creates it: whichever method ran last, the texture is the same.
+	p_render_buffers->create_texture(RB_SCOPE_SSAO, RB_FINAL, RD::DATA_FORMAT_R8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1);
+}
+
+void SSEffects::generate_gtao(Ref<RenderSceneBuffersRD> p_render_buffers, GTAORenderBuffers &p_gtao_buffers, uint32_t p_view, RID p_normal_buffer, const Projection &p_projection, const SSAOSettings &p_settings, float p_taa_frame_count) {
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	const Size2i full_size = p_settings.full_screen_size;
+	const Size2i working_size = p_gtao_buffers.working_size;
+	const int32_t scale = p_gtao_buffers.half_size ? 2 : 1;
+
+	// Slices x steps per slice. XeGTAO's presets are Low 1x2, Medium 2x2, High 3x3, Ultra 9x3, but its Low and
+	// Medium rely on TAA: without it, one or two slices per pixel leave the 3x3 denoiser too little to average, and
+	// measured against a ray traced reference 1x2 darkened open flat ground to 0.83 and 2x2 to 0.98 (work task 48,
+	// results/48-pp-gtao). So Very Low starts at XeGTAO's Medium, Low adds a slice, Medium and High are XeGTAO's
+	// High and Ultra, and Ultra (Custom) goes past XeGTAO's top preset as the adaptive target rises.
+	int32_t slice_count = 3;
+	int32_t steps_per_slice = 3;
+	switch (ssao_quality) {
+		case RSE::ENV_SSAO_QUALITY_VERY_LOW:
+			slice_count = 2;
+			steps_per_slice = 2;
+			break;
+		case RSE::ENV_SSAO_QUALITY_LOW:
+			slice_count = 3;
+			steps_per_slice = 2;
+			break;
+		case RSE::ENV_SSAO_QUALITY_MEDIUM:
+			slice_count = 3;
+			steps_per_slice = 3;
+			break;
+		case RSE::ENV_SSAO_QUALITY_HIGH:
+			slice_count = 9;
+			steps_per_slice = 3;
+			break;
+		case RSE::ENV_SSAO_QUALITY_ULTRA:
+			slice_count = 9 + int32_t(Math::round(9.0f * CLAMP(ssao_adaptive_target, 0.0f, 1.0f)));
+			steps_per_slice = 4;
+			break;
+	}
+
+	// Depth linearization, as downsample_depth().
+	Projection correction;
+	correction.set_depth_correction(false);
+	Projection temp = correction * p_projection;
+	float z_mul = -temp.columns[3][2];
+	float z_add = temp.columns[2][2];
+	if (z_mul * z_add < 0) {
+		z_add = -z_add;
+	}
+	const bool is_orthogonal = p_projection.is_orthogonal();
+	if (is_orthogonal) {
+		z_mul = p_projection.get_z_near();
+		z_add = p_projection.get_z_far();
+	}
+
+	const float effect_radius = p_settings.radius * GTAO_RADIUS_MULTIPLIER;
+
+	RID shader_prefilter = gtao.shader.version_get_shader(gtao.shader_version, GTAO_PREFILTER);
+	RID shader_main = gtao.shader.version_get_shader(gtao.shader_version, GTAO_MAIN);
+	RID nearest_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	RID depth_texture = p_render_buffers->get_depth_texture(p_view);
+	RID view_z_all_mips = p_render_buffers->get_texture_slice(RB_SCOPE_GTAO, RB_LINEAR_DEPTH, p_view, 0, 1, GTAO_DEPTH_MIPS);
+	RID view_z_mip0 = p_render_buffers->get_texture_slice(RB_SCOPE_GTAO, RB_LINEAR_DEPTH, p_view, 0);
+	RID ao_working = p_render_buffers->get_texture_slice(RB_SCOPE_GTAO, RB_DEINTERLEAVED, p_view, 0);
+	RID ao_pong = p_render_buffers->get_texture_slice(RB_SCOPE_GTAO, RB_DEINTERLEAVED_PONG, p_view, 0);
+	RID ao_final = p_render_buffers->get_texture_slice(RB_SCOPE_SSAO, RB_FINAL, p_view, 0);
+
+	GTAOPushConstant push_constant;
+	memset(&push_constant, 0, sizeof(GTAOPushConstant));
+	push_constant.z_mul = z_mul;
+	push_constant.z_add = z_add;
+	push_constant.is_orthogonal = is_orthogonal;
+	push_constant.scale = scale;
+
+	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+	RD::get_singleton()->draw_command_begin_label("Process GTAO");
+
+	/* Depth prefilter: linear view z at the working resolution and its mip chain. */
+	{
+		RD::get_singleton()->draw_command_begin_label("Prefilter Depth");
+
+		const float mip_radius = GTAO_DEPTH_MIP_RANGE_SCALE * effect_radius;
+		const float falloff_range = GTAO_FALLOFF_RANGE * mip_radius;
+		const float falloff_from = mip_radius * (1.0f - GTAO_FALLOFF_RANGE);
+		push_constant.size[0] = working_size.x;
+		push_constant.size[1] = working_size.y;
+		push_constant.src_size[0] = full_size.x;
+		push_constant.src_size[1] = full_size.y;
+		push_constant.falloff_mul = -1.0f / falloff_range;
+		push_constant.falloff_add = falloff_from / falloff_range + 1.0f;
+
+		thread_local LocalVector<RD::Uniform> u_mips;
+		u_mips.clear();
+		for (uint32_t i = 0; i < GTAO_DEPTH_MIPS; i++) {
+			RD::Uniform u_mip;
+			u_mip.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+			u_mip.binding = i;
+			u_mip.append_id(p_render_buffers->get_texture_slice(RB_SCOPE_GTAO, RB_LINEAR_DEPTH, p_view, i));
+			u_mips.push_back(u_mip);
+		}
+
+		RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ nearest_sampler, depth_texture }));
+		RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, gtao.pipelines[GTAO_PREFILTER].get_rid());
+		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_prefilter, 0, u_depth), 0);
+		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache_vec(shader_prefilter, 1, u_mips), 1);
+		RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(GTAOPushConstant));
+		// Each thread writes 2x2 texels of mip 0; the padded size keeps every 8x8 group's 16x16 tile whole.
+		RD::get_singleton()->compute_list_dispatch_threads(compute_list, (working_size.x + 15) / 16 * 8, (working_size.y + 15) / 16 * 8, 1);
+		RD::get_singleton()->compute_list_add_barrier(compute_list);
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	/* Main pass: horizon search and visibility integral. */
+	{
+		RD::get_singleton()->draw_command_begin_label("Main Pass");
+
+		GTAOMainPushConstant main_push;
+		memset(&main_push, 0, sizeof(GTAOMainPushConstant));
+		main_push.size[0] = working_size.x;
+		main_push.size[1] = working_size.y;
+		main_push.full_pixel_size[0] = 1.0f / full_size.x;
+		main_push.full_pixel_size[1] = 1.0f / full_size.y;
+
+		// The same view space reconstruction as ASSAO (generate_ssao()).
+		float tan_half_fov_x = 1.0f / p_projection.columns[0][0];
+		float tan_half_fov_y = 1.0f / p_projection.columns[1][1];
+		main_push.ndc_to_view_mul[0] = tan_half_fov_x * 2.0f;
+		main_push.ndc_to_view_mul[1] = tan_half_fov_y * -2.0f;
+		main_push.ndc_to_view_add[0] = tan_half_fov_x * -1.0f;
+		main_push.ndc_to_view_add[1] = tan_half_fov_y;
+		main_push.ndc_to_view_mul_x_pixel_size[0] = main_push.ndc_to_view_mul[0] * scale / full_size.x;
+		main_push.ndc_to_view_mul_x_pixel_size[1] = main_push.ndc_to_view_mul[1] * scale / full_size.y;
+
+		const float falloff_range = GTAO_FALLOFF_RANGE * effect_radius;
+		const float falloff_from = effect_radius * (1.0f - GTAO_FALLOFF_RANGE);
+		main_push.effect_radius = effect_radius;
+		main_push.falloff_mul = -1.0f / falloff_range;
+		main_push.falloff_add = falloff_from / falloff_range + 1.0f;
+
+		main_push.final_value_power = GTAO_FINAL_VALUE_POWER * MAX(p_settings.power, 0.0f) / GTAO_ENV_DEFAULT_POWER;
+		main_push.sample_distribution_power = GTAO_SAMPLE_DISTRIBUTION_POWER;
+		main_push.depth_mip_sampling_offset = GTAO_DEPTH_MIP_SAMPLING_OFFSET;
+
+		main_push.intensity = MAX(p_settings.intensity, 0.0f) / GTAO_ENV_DEFAULT_INTENSITY;
+		main_push.fade_out_mul = -1.0f / (ssao_fadeout_to - ssao_fadeout_from);
+		main_push.fade_out_add = ssao_fadeout_from / (ssao_fadeout_to - ssao_fadeout_from) + 1.0f;
+		// The noise only moves when TAA (or FSR 2) is there to accumulate it: taa_frame_count is 0 otherwise.
+		main_push.noise_index = uint32_t(MAX(p_taa_frame_count, 0.0f));
+
+		main_push.slice_count = slice_count;
+		main_push.steps_per_slice = steps_per_slice;
+		main_push.is_orthogonal = is_orthogonal;
+		main_push.scale = scale;
+		// 1% short of the far plane: the R16F view depth (1/1024 relative precision) rounds the background's distance
+		// either way.
+		main_push.sky_view_z = p_projection.get_z_far() * 0.99f;
+
+		RD::Uniform u_view_z(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ nearest_sampler, view_z_all_mips }));
+		RD::Uniform u_normal(RD::UNIFORM_TYPE_IMAGE, 1, p_normal_buffer);
+		RD::Uniform u_dest(RD::UNIFORM_TYPE_IMAGE, 0, ao_working);
+
+		RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, gtao.pipelines[GTAO_MAIN].get_rid());
+		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_main, 0, u_view_z, u_normal), 0);
+		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_main, 1, u_dest), 1);
+		RD::get_singleton()->compute_list_set_push_constant(compute_list, &main_push, sizeof(GTAOMainPushConstant));
+		RD::get_singleton()->compute_list_dispatch_threads(compute_list, working_size.x, working_size.y, 1);
+		RD::get_singleton()->compute_list_add_barrier(compute_list);
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	/* Denoise: XeGTAO's edge-aware 3x3 blur, rendering/environment/ssao/blur_passes times. */
+	{
+		RD::get_singleton()->draw_command_begin_label("Denoise");
+
+		const int blur_passes = MAX(ssao_blur_passes, 0);
+		push_constant.size[0] = working_size.x;
+		push_constant.size[1] = working_size.y;
+		push_constant.edge_bias = 1.0f - p_settings.sharpness;
+
+		// At full resolution the last pass writes the final texture; at half resolution every pass stays at the
+		// working resolution and the upsample writes it.
+		const int working_passes = p_gtao_buffers.half_size ? blur_passes : MAX(blur_passes - 1, 0);
+		RID src = ao_working;
+		RID dst = ao_pong;
+		RID shader_denoise = gtao.shader.version_get_shader(gtao.shader_version, GTAO_DENOISE);
+		for (int i = 0; i < working_passes; i++) {
+			const bool last = i == blur_passes - 1;
+			// XeGTAO: intermediate passes blur 5x harder than the last one.
+			push_constant.blur_beta = last ? GTAO_DENOISE_BLUR_BETA : GTAO_DENOISE_BLUR_BETA / 5.0f;
+
+			RD::Uniform u_src(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ nearest_sampler, src }));
+			RD::Uniform u_dst(RD::UNIFORM_TYPE_IMAGE, 0, dst);
+			RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, gtao.pipelines[GTAO_DENOISE].get_rid());
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_denoise, 0, u_src), 0);
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_denoise, 1, u_dst), 1);
+			RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(GTAOPushConstant));
+			RD::get_singleton()->compute_list_dispatch_threads(compute_list, working_size.x, working_size.y, 1);
+			RD::get_singleton()->compute_list_add_barrier(compute_list);
+			SWAP(src, dst);
+		}
+
+		if (!p_gtao_buffers.half_size) {
+			// XeGTAO's "no denoise" setting is a huge center weight.
+			push_constant.blur_beta = blur_passes > 0 ? GTAO_DENOISE_BLUR_BETA : 1e4f;
+			RID shader_final = gtao.shader.version_get_shader(gtao.shader_version, GTAO_DENOISE_FINAL);
+			RD::Uniform u_src(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ nearest_sampler, src }));
+			RD::Uniform u_dst(RD::UNIFORM_TYPE_IMAGE, 0, ao_final);
+			RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, gtao.pipelines[GTAO_DENOISE_FINAL].get_rid());
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_final, 0, u_src), 0);
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_final, 1, u_dst), 1);
+			RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(GTAOPushConstant));
+			RD::get_singleton()->compute_list_dispatch_threads(compute_list, working_size.x, working_size.y, 1);
+		}
+		RD::get_singleton()->draw_command_end_label();
+
+		if (p_gtao_buffers.half_size) {
+			RD::get_singleton()->draw_command_begin_label("Upsample");
+			push_constant.size[0] = full_size.x;
+			push_constant.size[1] = full_size.y;
+			push_constant.src_size[0] = working_size.x;
+			push_constant.src_size[1] = working_size.y;
+
+			RID shader_upsample = gtao.shader.version_get_shader(gtao.shader_version, GTAO_UPSAMPLE);
+			RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ nearest_sampler, depth_texture }));
+			RD::Uniform u_src(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ nearest_sampler, src }));
+			RD::Uniform u_view_z(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, Vector<RID>({ nearest_sampler, view_z_mip0 }));
+			RD::Uniform u_dst(RD::UNIFORM_TYPE_IMAGE, 0, ao_final);
+			RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, gtao.pipelines[GTAO_UPSAMPLE].get_rid());
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_upsample, 0, u_depth, u_src, u_view_z), 0);
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader_upsample, 1, u_dst), 1);
+			RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(GTAOPushConstant));
+			RD::get_singleton()->compute_list_dispatch_threads(compute_list, full_size.x, full_size.y, 1);
+			RD::get_singleton()->draw_command_end_label();
+		}
+	}
+
+	RD::get_singleton()->draw_command_end_label(); // Process GTAO
+	RD::get_singleton()->compute_list_end();
 }
 
 /* Screen Space Reflection */

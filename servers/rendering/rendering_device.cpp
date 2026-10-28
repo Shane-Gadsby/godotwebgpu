@@ -1072,6 +1072,23 @@ Error RenderingDevice::_staging_buffer_allocate(StagingBuffers &p_staging_buffer
 	return OK;
 }
 
+Error RenderingDevice::_download_staging_overflow_block(uint32_t p_amount, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action) {
+	// The download ring is full of this frame's blocks. An asynchronous download does not flush and stall for room, as a
+	// synchronous one may: the flush submits the frame without the request being read, so a request already partly
+	// recorded lost those parts (its callback got them as zeros), and on WebGPU the blocks the flush left mapping were
+	// written again at once, a validation error that drops the whole submit. Stalling is also what an asynchronous
+	// read promises not to do. Take one block past the ring's limit instead. The limit is a soft one: a download batch
+	// that waited for its maps frees the blocks over it when it completes (_download_batch_release_blocks()).
+	// _staging_buffer_allocate() left `current` on a block of this frame, which _insert_staging_block() puts after the
+	// new one.
+	RETURN_IF_ERROR(_insert_staging_block(download_staging_buffers));
+	download_staging_buffers.blocks.write[download_staging_buffers.current].frame_used = frames_drawn;
+	r_alloc_offset = 0;
+	r_alloc_size = p_amount;
+	r_required_action = STAGING_REQUIRED_ACTION_NONE;
+	return OK;
+}
+
 void RenderingDevice::_staging_buffer_execute_required_action(StagingBuffers &p_staging_buffers, StagingRequiredAction p_required_action) {
 	switch (p_required_action) {
 		case STAGING_REQUIRED_ACTION_NONE: {
@@ -1091,6 +1108,13 @@ void RenderingDevice::_staging_buffer_execute_required_action(StagingBuffers &p_
 		} break;
 		case STAGING_REQUIRED_ACTION_STALL_PREVIOUS: {
 			_stall_for_previous_frames();
+
+			if (p_staging_buffers.blocks[p_staging_buffers.current].frame_used == frames_drawn) {
+				// The stalls took download blocks still being mapped out of the ring (WebGPU), which moved `current`
+				// onto a block this frame already wrote. The caller writes at offset 0, so give it a new block.
+				Error err = _insert_staging_block(p_staging_buffers);
+				ERR_FAIL_COND_MSG(err != OK, "Can't create a staging block after stalling for previous frames.");
+			}
 
 			for (int i = 0; i < p_staging_buffers.blocks.size(); i++) {
 				// Clear all blocks but the ones from this frame.
@@ -1261,6 +1285,10 @@ bool RenderingDevice::releases_shader_bytecode_after_load() {
 	return driver->api_trait_get(RDD::API_TRAIT_RELEASE_SHADER_BYTECODE_AFTER_LOAD) != 0;
 }
 
+bool RenderingDevice::supports_texture_view_swizzle() {
+	return driver->api_trait_get(RDD::API_TRAIT_TEXTURE_VIEW_SWIZZLE) != 0;
+}
+
 uint32_t RenderingDevice::get_max_supported_texture_samples() {
 	return (uint32_t)driver->api_trait_get(RDD::API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES);
 }
@@ -1387,7 +1415,7 @@ Error RenderingDevice::buffer_clear(RID p_buffer, uint32_t p_offset, uint32_t p_
 	return OK;
 }
 
-Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset, uint32_t p_size) {
+Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset, uint32_t p_size, bool *r_not_ready) {
 	ERR_RENDER_THREAD_GUARD_V(Vector<uint8_t>());
 
 	Buffer *buffer = _get_buffer_from_owner(p_buffer);
@@ -1409,7 +1437,17 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	if (driver->buffer_get_data_direct(buffer->driver_id, p_offset, p_size, direct_data)) {
 		return direct_data;
 	}
-
+#ifdef WEB_ENABLED
+	// The web's only RenderingDevice driver is WebGPU, whose buffer_get_data_direct() handles every readback and returns
+	// false only while its asynchronous map has not completed. The staging copy below could not be mapped either (no way
+	// to wait for wgpuBufferMapAsync() inside a synchronous call) and would only return zeros after a full stall, so
+	// return an empty array instead, as texture_get_data() does: callers can tell "not ready" from real zeros (work
+	// task 81). Engine callers treat an empty result as "no data yet".
+	if (r_not_ready) {
+		*r_not_ready = true;
+	}
+	return Vector<uint8_t>();
+#else
 	_check_transfer_worker_buffer(buffer);
 
 	RDD::BufferID tmp_buffer = driver->buffer_create(buffer->size, RDD::BUFFER_USAGE_TRANSFER_TO_BIT, RDD::MEMORY_ALLOCATION_TYPE_CPU, frames_drawn);
@@ -1439,6 +1477,27 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	driver->buffer_free(tmp_buffer);
 
 	return buffer_data;
+#endif
+}
+
+Vector<uint8_t> RenderingDevice::_buffer_get_data_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size) {
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+	// A project tested natively gets an empty array here on the web with nothing in the console to say why (work task 77;
+	// task 71 did the same for Texture2D.get_image()). Once per buffer; an invalid buffer prints its own error and is not
+	// marked.
+	bool not_ready = false;
+	Vector<uint8_t> data = buffer_get_data(p_buffer, p_offset, p_size, &not_ready);
+	if (not_ready) {
+		Buffer *buffer = _get_buffer_from_owner(p_buffer);
+		if (buffer && !buffer->warned_sync_readback_pending) {
+			buffer->warned_sync_readback_pending = true;
+			WARN_PRINT(vformat("RenderingDevice.buffer_get_data() returned an empty array for buffer of %d bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.", buffer->size));
+		}
+	}
+	return data;
+#else
+	return buffer_get_data(p_buffer, p_offset, p_size);
+#endif
 }
 
 Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_callback, uint32_t p_offset, uint32_t p_size) {
@@ -1472,25 +1531,11 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 	while (to_submit > 0) {
 		RETURN_IF_ERROR(_staging_buffer_allocate(download_staging_buffers, MIN(to_submit, download_staging_buffers.block_size), required_align, block_write_offset, block_write_amount, required_action));
 
-		const bool flush_frames = (get_data_request.frame_local_count > 0) && required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL;
-		if (flush_frames) {
-			if (_buffer_make_mutable(buffer, p_buffer)) {
-				// The buffer must be mutable to be used as a copy source.
-				draw_graph.add_synchronization();
-			}
-
-			for (uint32_t i = 0; i < get_data_request.frame_local_count; i++) {
-				uint32_t local_index = get_data_request.frame_local_index + i;
-				draw_graph.add_buffer_get_data(buffer->driver_id, buffer->draw_tracker, frames[frame].download_buffer_staging_buffers[local_index], frames[frame].download_buffer_copy_regions[local_index]);
-			}
+		if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
+			RETURN_IF_ERROR(_download_staging_overflow_block(MIN(to_submit, download_staging_buffers.block_size), block_write_offset, block_write_amount, required_action));
 		}
 
 		_staging_buffer_execute_required_action(download_staging_buffers, required_action);
-
-		if (flush_frames) {
-			get_data_request.frame_local_count = 0;
-			get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
-		}
 
 		RDD::BufferCopyRegion region;
 		region.src_offset = submit_from + p_offset;
@@ -3034,7 +3079,7 @@ void RenderingDevice::_texture_clear_depth_stencil(RID p_texture_rid, Texture *p
 	draw_graph.add_texture_clear_depth_stencil(p_texture->driver_id, p_texture->draw_tracker, p_depth, p_stencil, range);
 }
 
-Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_layer) {
+Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_layer, bool *r_not_ready) {
 	ERR_RENDER_THREAD_GUARD_V(Vector<uint8_t>());
 
 	Texture *tex = texture_owner.get_or_null(p_texture);
@@ -3061,7 +3106,11 @@ Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_laye
 		// per (texture, layer) and returns cached data once the async map fires.
 		// First call returns empty (not ready); subsequent calls return data.
 		// See: drivers/webgpu/rendering_device_driver_webgpu.cpp:texture_get_data
-		return driver->texture_get_data(tex->driver_id, p_layer);
+		Vector<uint8_t> data = driver->texture_get_data(tex->driver_id, p_layer);
+		if (r_not_ready) {
+			*r_not_ready = data.is_empty();
+		}
+		return data;
 	} else {
 		RDD::TextureAspect aspect = tex->read_aspect_flags.has_flag(RDD::TEXTURE_ASPECT_DEPTH_BIT) ? RDD::TEXTURE_ASPECT_DEPTH : RDD::TEXTURE_ASPECT_COLOR;
 		uint32_t mip_alignment = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
@@ -3161,6 +3210,26 @@ Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_laye
 	}
 }
 
+Vector<uint8_t> RenderingDevice::_texture_get_data_bind(RID p_texture, uint32_t p_layer) {
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+	// A project tested natively gets an empty array here on the web with nothing in the console to say why (work task 77;
+	// task 71 did the same for Texture2D.get_image()). Once per texture; a texture RenderingDevice refuses (invalid, no
+	// copy-from usage, bound, bad layer) prints its own error and is never "not ready".
+	bool not_ready = false;
+	Vector<uint8_t> data = texture_get_data(p_texture, p_layer, &not_ready);
+	if (not_ready) {
+		Texture *tex = texture_owner.get_or_null(p_texture);
+		if (tex && !tex->warned_sync_readback_pending) {
+			tex->warned_sync_readback_pending = true;
+			WARN_PRINT(vformat("RenderingDevice.texture_get_data() returned no data for texture %dx%d (layer %d): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or \"await texture.get_image_awaitable()\" for a Texture2D. Shown once per texture, in debug builds only.", tex->width, tex->height, p_layer));
+		}
+	}
+	return data;
+#else
+	return texture_get_data(p_texture, p_layer);
+#endif
+}
+
 Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, const Callable &p_callback) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
 
@@ -3191,6 +3260,7 @@ Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, c
 	get_data_request.mipmaps = tex->mipmaps;
 	get_data_request.gpu_pixel_size = driver->texture_get_gpu_pixel_size(tex->driver_id);
 	get_data_request.driver_texture_id = tex->driver_id;
+	get_data_request.texture = p_texture;
 
 	uint32_t block_w, block_h;
 	get_compressed_image_format_block_dimensions(tex->format, block_w, block_h);
@@ -3231,20 +3301,13 @@ Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, c
 					Error err = _staging_buffer_allocate(download_staging_buffers, to_allocate, required_align, block_write_offset, block_write_amount, required_action, false);
 					ERR_FAIL_COND_V(err, ERR_CANT_CREATE);
 
-					const bool flush_frames = (get_data_request.frame_local_count > 0) && required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL;
-					if (flush_frames) {
-						for (uint32_t j = 0; j < get_data_request.frame_local_count; j++) {
-							uint32_t local_index = get_data_request.frame_local_index + j;
-							draw_graph.add_texture_get_data(tex->driver_id, tex->draw_tracker, frames[frame].download_texture_staging_buffers[local_index], frames[frame].download_buffer_texture_copy_regions[local_index]);
-						}
+					if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
+						// (A 1920x1080 RGBA16F read is 16.6 MB, more than WebGPU's whole 16 MB ring.)
+						err = _download_staging_overflow_block(to_allocate, block_write_offset, block_write_amount, required_action);
+						ERR_FAIL_COND_V(err, ERR_CANT_CREATE);
 					}
 
 					_staging_buffer_execute_required_action(download_staging_buffers, required_action);
-
-					if (flush_frames) {
-						get_data_request.frame_local_count = 0;
-						get_data_request.frame_local_index = frames[frame].download_buffer_texture_copy_regions.size();
-					}
 
 					RDD::BufferTextureCopyRegion copy_region;
 					copy_region.buffer_offset = block_write_offset;
@@ -8891,100 +8954,227 @@ void RenderingDevice::_execute_frame(bool p_present) {
 }
 
 void RenderingDevice::_stall_for_frame(uint32_t p_frame) {
-	thread_local PackedByteArray packed_byte_array;
-
 	if (frames[p_frame].fence_signaled) {
 		GodotProfileZoneGroupedFirst(_profile_zone, "driver->fence_wait");
 		driver->fence_wait(frames[p_frame].fence);
 		frames[p_frame].fence_signaled = false;
 
-		// Flush any pending requests for asynchronous buffer downloads.
-		if (!frames[p_frame].download_buffer_get_data_requests.is_empty()) {
-			GodotProfileZoneGrouped(_profile_zone, "flush asynchronous buffer downloads");
-			for (uint32_t i = 0; i < frames[p_frame].download_buffer_get_data_requests.size(); i++) {
-				const BufferGetDataRequest &request = frames[p_frame].download_buffer_get_data_requests[i];
-				packed_byte_array.resize(request.size);
-
-				uint32_t array_offset = 0;
-				for (uint32_t j = 0; j < request.frame_local_count; j++) {
-					uint32_t local_index = request.frame_local_index + j;
-					const RDD::BufferCopyRegion &region = frames[p_frame].download_buffer_copy_regions[local_index];
-					uint8_t *buffer_data = driver->buffer_map(frames[p_frame].download_buffer_staging_buffers[local_index]);
-					memcpy(&packed_byte_array.write[array_offset], &buffer_data[region.dst_offset], region.size);
-					driver->buffer_unmap(frames[p_frame].download_buffer_staging_buffers[local_index]);
-					array_offset += region.size;
-				}
-
-				request.callback.call(packed_byte_array);
+		// Hand the frame's asynchronous downloads to the batch queue, which flushes them below once their staging
+		// buffers can be read (at once, on every backend but WebGPU).
+		Frame &f = frames[p_frame];
+		if (!f.download_buffer_get_data_requests.is_empty() || !f.download_texture_get_data_requests.is_empty()) {
+			DownloadBatch &batch = download_batches.push_back(DownloadBatch())->get();
+			if (!f.download_buffer_get_data_requests.is_empty()) {
+				batch.buffer_staging_buffers = std::move(f.download_buffer_staging_buffers);
+				batch.buffer_copy_regions = std::move(f.download_buffer_copy_regions);
+				batch.buffer_get_data_requests = std::move(f.download_buffer_get_data_requests);
 			}
+			if (!f.download_texture_get_data_requests.is_empty()) {
+				batch.texture_staging_buffers = std::move(f.download_texture_staging_buffers);
+				batch.buffer_texture_copy_regions = std::move(f.download_buffer_texture_copy_regions);
+				batch.texture_mipmap_offsets = std::move(f.download_texture_mipmap_offsets);
+				batch.texture_get_data_requests = std::move(f.download_texture_get_data_requests);
+			}
+		}
+	}
 
-			frames[p_frame].download_buffer_staging_buffers.clear();
-			frames[p_frame].download_buffer_copy_regions.clear();
-			frames[p_frame].download_buffer_get_data_requests.clear();
+	if (!download_batches.is_empty()) {
+		_process_download_batches();
+	}
+}
+
+Error RenderingDevice::_download_batch_status(const DownloadBatch &p_batch) {
+	Error status = OK;
+	RDD::BufferID previous;
+	for (const LocalVector<RDD::BufferID> *list : { &p_batch.buffer_staging_buffers, &p_batch.texture_staging_buffers }) {
+		for (const RDD::BufferID &staging : *list) {
+			if (staging == previous) {
+				continue; // Consecutive regions usually share a block.
+			}
+			previous = staging;
+			Error buffer_status = driver->buffer_get_readback_status(staging);
+			if (buffer_status == ERR_BUSY) {
+				return ERR_BUSY;
+			} else if (buffer_status != OK) {
+				status = buffer_status;
+			}
+		}
+	}
+	return status;
+}
+
+void RenderingDevice::_download_batch_hold_blocks(DownloadBatch &p_batch) {
+	// Take the batch's staging blocks out of the download ring. Its frame has been waited on, so the allocator would
+	// otherwise reuse them, and recording a copy into a buffer whose map is pending is a WebGPU validation error.
+	StagingBuffers &ring = download_staging_buffers;
+	for (const LocalVector<RDD::BufferID> *list : { &p_batch.buffer_staging_buffers, &p_batch.texture_staging_buffers }) {
+		for (const RDD::BufferID &staging : *list) {
+			if (p_batch.held_blocks.has(staging)) {
+				continue;
+			}
+			for (int i = 0; i < ring.blocks.size(); i++) {
+				if (ring.blocks[i].driver_id != staging) {
+					continue;
+				}
+				ring.blocks.remove_at(i);
+				if (i < ring.current) {
+					ring.current--;
+				}
+				if (ring.current >= ring.blocks.size()) {
+					ring.current = 0;
+				}
+				p_batch.held_blocks.push_back(staging);
+				break;
+			}
+		}
+	}
+
+	if (ring.blocks.is_empty()) {
+		// The allocator needs a block to look at.
+		Error err = _insert_staging_block(ring);
+		ERR_FAIL_COND_MSG(err != OK, "Can't replace a download staging block held by a pending readback.");
+	}
+}
+
+void RenderingDevice::_download_batch_release_blocks(DownloadBatch &p_batch) {
+	StagingBuffers &ring = download_staging_buffers;
+	for (const RDD::BufferID &block_id : p_batch.held_blocks) {
+		if ((uint64_t)(ring.blocks.size() + 1) * ring.block_size <= ring.max_size) {
+			// Back into the ring, just after the current block, free for the allocator to claim.
+			StagingBufferBlock block;
+			block.driver_id = block_id;
+			block.frame_used = 0;
+			block.fill_amount = 0;
+			ring.blocks.insert(MIN<int64_t>(ring.current + 1, ring.blocks.size()), block);
+		} else {
+			// The ring grew to its limit while the batch waited.
+			driver->buffer_unmap(block_id);
+			driver->buffer_free(block_id);
+		}
+	}
+	p_batch.held_blocks.clear();
+}
+
+void RenderingDevice::_process_download_batches() {
+	while (!download_batches.is_empty()) {
+		DownloadBatch &batch = download_batches.front()->get();
+		Error status = _download_batch_status(batch);
+		if (status == ERR_BUSY) {
+			// Still mapping (WebGPU). This batch and every later one wait, so callbacks keep their order.
+			for (List<DownloadBatch>::Element *E = download_batches.front(); E; E = E->next()) {
+				if (!E->get().waited) {
+					E->get().waited = true;
+					_download_batch_hold_blocks(E->get());
+				}
+			}
+			return;
 		}
 
-		// Flush any pending requests for asynchronous texture downloads.
-		if (!frames[p_frame].download_texture_get_data_requests.is_empty()) {
-			GodotProfileZoneGrouped(_profile_zone, "flush asynchronous texture downloads");
-			for (uint32_t i = 0; i < frames[p_frame].download_texture_get_data_requests.size(); i++) {
-				const TextureGetDataRequest &request = frames[p_frame].download_texture_get_data_requests[i];
-				uint32_t texture_size = get_image_format_required_size(request.format, request.width, request.height, request.depth, request.mipmaps);
-				packed_byte_array.resize(texture_size);
+		_download_batch_complete(batch, status != OK);
+		_download_batch_release_blocks(batch);
+		download_batches.pop_front();
+	}
+}
 
-				// Find the block size of the texture's format.
-				uint32_t block_w = 0;
-				uint32_t block_h = 0;
-				get_compressed_image_format_block_dimensions(request.format, block_w, block_h);
+void RenderingDevice::_download_batch_complete(DownloadBatch &p_batch, bool p_failed) {
+	thread_local PackedByteArray packed_byte_array;
 
-				uint32_t block_size = get_compressed_image_format_block_byte_size(request.format);
-				uint32_t pixel_size = get_image_format_pixel_size(request.format);
-				uint32_t region_size = texture_download_region_size_px;
+	if (p_failed) {
+		// A staging buffer's map failed, so what it holds is not the GPU's data. An empty array tells the caller.
+		ERR_PRINT(vformat("An asynchronous GPU readback failed; %d callback(s) receive an empty array.", p_batch.buffer_get_data_requests.size() + p_batch.texture_get_data_requests.size()));
+		packed_byte_array.clear();
+		for (const BufferGetDataRequest &request : p_batch.buffer_get_data_requests) {
+			request.callback.call(packed_byte_array);
+		}
+		for (const TextureGetDataRequest &request : p_batch.texture_get_data_requests) {
+			request.callback.call(packed_byte_array);
+		}
+		return;
+	}
 
-				for (uint32_t j = 0; j < request.frame_local_count; j++) {
-					uint32_t local_index = request.frame_local_index + j;
-					const RDD::BufferTextureCopyRegion &region = frames[p_frame].download_buffer_texture_copy_regions[local_index];
-					uint32_t w = STEPIFY(request.width >> region.texture_subresource.mipmap, block_w);
-					uint32_t h = STEPIFY(request.height >> region.texture_subresource.mipmap, block_h);
-					uint32_t region_w = MIN(region_size, w - region.texture_offset.x);
-					uint32_t region_h = MIN(region_size, h - region.texture_offset.y);
+	// Flush any pending requests for asynchronous buffer downloads.
+	if (!p_batch.buffer_get_data_requests.is_empty()) {
+		GodotProfileZone("flush asynchronous buffer downloads");
+		for (uint32_t i = 0; i < p_batch.buffer_get_data_requests.size(); i++) {
+			const BufferGetDataRequest &request = p_batch.buffer_get_data_requests[i];
+			packed_byte_array.resize(request.size);
 
-					uint8_t *buffer_data = driver->buffer_map(frames[p_frame].download_texture_staging_buffers[local_index]);
-					const uint8_t *read_ptr = buffer_data + region.buffer_offset;
-					uint8_t *write_ptr = packed_byte_array.ptrw() + frames[p_frame].download_texture_mipmap_offsets[local_index];
-					uint32_t unit_size = pixel_size;
-					if (block_w != 1 || block_h != 1) {
-						unit_size = block_size;
-					}
-
-					write_ptr += ((region.texture_offset.y / block_h) * (w / block_w) + (region.texture_offset.x / block_w)) * unit_size;
-
-					if (request.gpu_pixel_size > 0 && block_w == 1 && block_h == 1) {
-						// Driver promoted the format (e.g. R8→R32Float). The staging
-						// buffer holds GPU-format data that must be converted back.
-						uint32_t dst_pitch = (w / block_w) * unit_size;
-						driver->texture_readback_convert(request.driver_texture_id,
-								read_ptr, region.row_pitch,
-								write_ptr, dst_pitch,
-								region_w, region_h);
-					} else {
-						for (uint32_t y = region_h / block_h; y > 0; y--) {
-							memcpy(write_ptr, read_ptr, (region_w / block_w) * unit_size);
-							write_ptr += (w / block_w) * unit_size;
-							read_ptr += region.row_pitch;
-						}
-					}
-
-					driver->buffer_unmap(frames[p_frame].download_texture_staging_buffers[local_index]);
-				}
-
-				request.callback.call(packed_byte_array);
+			uint32_t array_offset = 0;
+			for (uint32_t j = 0; j < request.frame_local_count; j++) {
+				uint32_t local_index = request.frame_local_index + j;
+				const RDD::BufferCopyRegion &region = p_batch.buffer_copy_regions[local_index];
+				uint8_t *buffer_data = driver->buffer_map(p_batch.buffer_staging_buffers[local_index]);
+				memcpy(&packed_byte_array.write[array_offset], &buffer_data[region.dst_offset], region.size);
+				driver->buffer_unmap(p_batch.buffer_staging_buffers[local_index]);
+				array_offset += region.size;
 			}
 
-			GodotProfileZoneGrouped(_profile_zone, "clear buffers");
-			frames[p_frame].download_texture_staging_buffers.clear();
-			frames[p_frame].download_buffer_texture_copy_regions.clear();
-			frames[p_frame].download_texture_mipmap_offsets.clear();
-			frames[p_frame].download_texture_get_data_requests.clear();
+			request.callback.call(packed_byte_array);
+		}
+	}
+
+	// Flush any pending requests for asynchronous texture downloads.
+	if (!p_batch.texture_get_data_requests.is_empty()) {
+		GodotProfileZone("flush asynchronous texture downloads");
+		for (uint32_t i = 0; i < p_batch.texture_get_data_requests.size(); i++) {
+			const TextureGetDataRequest &request = p_batch.texture_get_data_requests[i];
+			if (p_batch.waited && request.gpu_pixel_size > 0 && !texture_owner.owns(request.texture)) {
+				// Converting a promoted format reads the driver texture, which may be gone after a long wait.
+				packed_byte_array.clear();
+				request.callback.call(packed_byte_array);
+				continue;
+			}
+
+			uint32_t texture_size = get_image_format_required_size(request.format, request.width, request.height, request.depth, request.mipmaps);
+			packed_byte_array.resize(texture_size);
+
+			// Find the block size of the texture's format.
+			uint32_t block_w = 0;
+			uint32_t block_h = 0;
+			get_compressed_image_format_block_dimensions(request.format, block_w, block_h);
+
+			uint32_t block_size = get_compressed_image_format_block_byte_size(request.format);
+			uint32_t pixel_size = get_image_format_pixel_size(request.format);
+			uint32_t region_size = texture_download_region_size_px;
+
+			for (uint32_t j = 0; j < request.frame_local_count; j++) {
+				uint32_t local_index = request.frame_local_index + j;
+				const RDD::BufferTextureCopyRegion &region = p_batch.buffer_texture_copy_regions[local_index];
+				uint32_t w = STEPIFY(request.width >> region.texture_subresource.mipmap, block_w);
+				uint32_t h = STEPIFY(request.height >> region.texture_subresource.mipmap, block_h);
+				uint32_t region_w = MIN(region_size, w - region.texture_offset.x);
+				uint32_t region_h = MIN(region_size, h - region.texture_offset.y);
+
+				uint8_t *buffer_data = driver->buffer_map(p_batch.texture_staging_buffers[local_index]);
+				const uint8_t *read_ptr = buffer_data + region.buffer_offset;
+				uint8_t *write_ptr = packed_byte_array.ptrw() + p_batch.texture_mipmap_offsets[local_index];
+				uint32_t unit_size = pixel_size;
+				if (block_w != 1 || block_h != 1) {
+					unit_size = block_size;
+				}
+
+				write_ptr += ((region.texture_offset.y / block_h) * (w / block_w) + (region.texture_offset.x / block_w)) * unit_size;
+
+				if (request.gpu_pixel_size > 0 && block_w == 1 && block_h == 1) {
+					// Driver promoted the format (e.g. R8→R32Float). The staging
+					// buffer holds GPU-format data that must be converted back.
+					uint32_t dst_pitch = (w / block_w) * unit_size;
+					driver->texture_readback_convert(request.driver_texture_id,
+							read_ptr, region.row_pitch,
+							write_ptr, dst_pitch,
+							region_w, region_h);
+				} else {
+					for (uint32_t y = region_h / block_h; y > 0; y--) {
+						memcpy(write_ptr, read_ptr, (region_w / block_w) * unit_size);
+						write_ptr += (w / block_w) * unit_size;
+						read_ptr += region.row_pitch;
+					}
+				}
+
+				driver->buffer_unmap(p_batch.texture_staging_buffers[local_index]);
+			}
+
+			request.callback.call(packed_byte_array);
 		}
 	}
 }
@@ -9249,9 +9439,11 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 	upload_staging_buffers.max_size *= 1024 * 1024;
 	upload_staging_buffers.max_size = MAX(upload_staging_buffers.max_size, upload_staging_buffers.block_size * 4);
 
-	// Copy the sizes to the download staging buffers.
+	// Copy the sizes to the download staging buffers. The driver's cap is for uploads (a loading spike's blocks would
+	// stay allocated); the download ring only grows with the readbacks a project asks for, and a 1920x1080 RGBA16F
+	// read alone is 16.6 MB, more than WebGPU's 16 MB cap, so every such read created and freed its blocks each frame.
 	download_staging_buffers.block_size = upload_staging_buffers.block_size;
-	download_staging_buffers.max_size = upload_staging_buffers.max_size;
+	download_staging_buffers.max_size = MAX(upload_staging_buffers.max_size, uint64_t(MAX(1u, uint32_t(GLOBAL_GET("rendering/rendering_device/staging_buffer/max_size_mb")))) * 1024 * 1024);
 
 	texture_upload_region_size_px = GLOBAL_GET("rendering/rendering_device/staging_buffer/texture_upload_region_size_px");
 	texture_upload_region_size_px = Math::nearest_power_of_2_templated(texture_upload_region_size_px);
@@ -9543,6 +9735,11 @@ uint64_t RenderingDevice::get_captured_timestamps_frame() const {
 	return frames[frame].index;
 }
 
+uint64_t RenderingDevice::get_submit_to_done_latency_usec() const {
+	ERR_RENDER_THREAD_GUARD_V(0);
+	return driver->get_submit_to_done_latency_usec();
+}
+
 uint64_t RenderingDevice::get_captured_timestamp_gpu_time(uint32_t p_index) const {
 	ERR_RENDER_THREAD_GUARD_V(0);
 	ERR_FAIL_UNSIGNED_INDEX_V(p_index, frames[frame].timestamp_result_count, 0);
@@ -9669,6 +9866,15 @@ void RenderingDevice::finalize() {
 		driver->buffer_unmap(download_staging_buffers.blocks[i].driver_id);
 		driver->buffer_free(download_staging_buffers.blocks[i].driver_id);
 	}
+
+	// Readbacks still waiting for their maps at shutdown are dropped without a callback.
+	for (DownloadBatch &batch : download_batches) {
+		for (const RDD::BufferID &block_id : batch.held_blocks) {
+			driver->buffer_unmap(block_id);
+			driver->buffer_free(block_id);
+		}
+	}
+	download_batches.clear();
 
 	while (vertex_formats.size()) {
 		HashMap<VertexFormatID, VertexDescriptionCache>::Iterator temp = vertex_formats.begin();
@@ -9801,7 +10007,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_create_from_extension", "type", "format", "samples", "usage_flags", "image", "width", "height", "depth", "layers", "mipmaps"), &RenderingDevice::texture_create_from_extension, DEFVAL(1));
 
 	ClassDB::bind_method(D_METHOD("texture_update", "texture", "layer", "data"), &RenderingDevice::texture_update);
-	ClassDB::bind_method(D_METHOD("texture_get_data", "texture", "layer"), &RenderingDevice::texture_get_data);
+	ClassDB::bind_method(D_METHOD("texture_get_data", "texture", "layer"), &RenderingDevice::_texture_get_data_bind);
 	ClassDB::bind_method(D_METHOD("texture_get_data_async", "texture", "layer", "callback"), &RenderingDevice::texture_get_data_async);
 
 	ClassDB::bind_method(D_METHOD("texture_is_format_supported_for_usage", "format", "usage_flags"), &RenderingDevice::texture_is_format_supported_for_usage);
@@ -9859,7 +10065,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("buffer_copy", "src_buffer", "dst_buffer", "src_offset", "dst_offset", "size"), &RenderingDevice::buffer_copy);
 	ClassDB::bind_method(D_METHOD("buffer_update", "buffer", "offset", "size_bytes", "data"), &RenderingDevice::_buffer_update_bind);
 	ClassDB::bind_method(D_METHOD("buffer_clear", "buffer", "offset", "size_bytes"), &RenderingDevice::buffer_clear);
-	ClassDB::bind_method(D_METHOD("buffer_get_data", "buffer", "offset_bytes", "size_bytes"), &RenderingDevice::buffer_get_data, DEFVAL(0), DEFVAL(0));
+	ClassDB::bind_method(D_METHOD("buffer_get_data", "buffer", "offset_bytes", "size_bytes"), &RenderingDevice::_buffer_get_data_bind, DEFVAL(0), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("buffer_get_data_async", "buffer", "callback", "offset_bytes", "size_bytes"), &RenderingDevice::buffer_get_data_async, DEFVAL(0), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("buffer_get_device_address", "buffer"), &RenderingDevice::buffer_get_device_address);
 

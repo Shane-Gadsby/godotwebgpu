@@ -1463,3 +1463,18 @@ half blur_shadow(half shadow) {
 	return shadow;
 #endif
 }
+
+/* Micro shadows */
+
+// Directional-light self-shadowing implied by a material's baked detail (Environment.micro_shadows_*), as HDRP's Micro
+// Shadows: the AO texel is read as the opening of a visibility cone around the (normal-mapped) normal, and light
+// arriving below that cone's rim is shadowed. Formula from "The Technical Art of Uncharted 4" (Brinck and Maximov,
+// SIGGRAPH 2016), as HDRP's ComputeMicroShadowing(): aperture = 2 * AO^2, shadow = saturate(N.L + aperture - 1),
+// faded by the opacity. HDRP skips surfaces that face away from the light (N.L < 0); they get no direct light anyway.
+float micro_shadow(float ao, float NdotL, float opacity) {
+	if (NdotL < 0.0) {
+		return 1.0;
+	}
+	float aperture = 2.0 * ao * ao;
+	return mix(1.0, clamp(NdotL + aperture - 1.0, 0.0, 1.0), opacity);
+}

@@ -142,6 +142,12 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 				copy_to_fb.pipelines[i].clear();
 			}
 		}
+
+		RD::PipelineColorBlendState alpha_only = RD::PipelineColorBlendState::create_disabled();
+		alpha_only.attachments.write[0].write_r = false;
+		alpha_only.attachments.write[0].write_g = false;
+		alpha_only.attachments.write[0].write_b = false;
+		copy_to_fb.alpha_one_pipeline.setup(copy_to_fb.shader.version_get_shader(copy_to_fb.shader_version, COPY_TO_FB_SET_COLOR), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), alpha_only, 0);
 	}
 
 	{
@@ -743,6 +749,19 @@ void CopyEffects::copy_to_drawlist(RD::DrawListID p_draw_list, RD::FramebufferFo
 
 	RD::get_singleton()->draw_list_bind_render_pipeline(p_draw_list, copy_to_fb.pipelines[mode].get_render_pipeline(RD::INVALID_ID, p_fb_format));
 	RD::get_singleton()->draw_list_bind_uniform_set(p_draw_list, uniform_set_cache->get_cache(shader, 0, u_source_rd_texture), 0);
+	RD::get_singleton()->draw_list_bind_index_array(p_draw_list, material_storage->get_quad_index_array());
+	RD::get_singleton()->draw_list_set_push_constant(p_draw_list, &copy_to_fb.push_constant, sizeof(CopyToFbPushConstant));
+	RD::get_singleton()->draw_list_draw(p_draw_list, true);
+}
+
+void CopyEffects::set_alpha_one_in_drawlist(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_fb_format) {
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	memset(&copy_to_fb.push_constant, 0, sizeof(CopyToFbPushConstant));
+	copy_to_fb.push_constant.set_color[3] = 1.0; // The color write mask keeps RGB.
+
+	RD::get_singleton()->draw_list_bind_render_pipeline(p_draw_list, copy_to_fb.alpha_one_pipeline.get_render_pipeline(RD::INVALID_ID, p_fb_format));
 	RD::get_singleton()->draw_list_bind_index_array(p_draw_list, material_storage->get_quad_index_array());
 	RD::get_singleton()->draw_list_set_push_constant(p_draw_list, &copy_to_fb.push_constant, sizeof(CopyToFbPushConstant));
 	RD::get_singleton()->draw_list_draw(p_draw_list, true);

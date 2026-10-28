@@ -447,7 +447,7 @@ Ref<Resource> ShaderBakerExportPlugin::_customize_resource(const Ref<Resource> &
 		// lookup below finds nothing to bake -- silently, since there is no error
 		// to report. Static and idempotent: each drains every queued material of
 		// its class at once, so calling them per material is cheap after the first.
-		// See webgpu_notes/TASKS.md Task 32 (BaseMaterial3D) and §3 trap 75
+		// See webgpu_notes/TASKS.md Task 32 (BaseMaterial3D) and §3 trap 77
 		// (CanvasItemMaterial: a GPUParticles2D's particle animation material).
 		_flush_material_changes();
 
@@ -578,7 +578,8 @@ Node *ShaderBakerExportPlugin::_customize_scene(Node *p_root, const String &p_pa
 // render_forward_clustered.cpp enables it only when a frame needs one of:
 //
 //   motion vectors      TAA, FSR 2 / MetalFX temporal upscaling, a CompositorEffect
-//                       with needs_motion_vectors, the motion-vector debug draw
+//                       with needs_motion_vectors, the motion-vector debug draw,
+//                       CameraAttributes motion blur or rolling shutter
 //   separate specular   subsurface scattering, a CompositorEffect with
 //                       needs_separate_specular
 //   lightmaps           a LightmapGI
@@ -619,6 +620,11 @@ static const ShaderBakerAdvancedMarker shader_baker_advanced_markers[] = {
 	{ "lightmap_create", "lightmaps (RenderingServer.lightmap_create())" },
 	{ "NEEDS_MOTION_VECTORS", "a compositor effect needing motion vectors" },
 	{ "NEEDS_SEPARATE_SPECULAR", "a compositor effect needing separate specular" },
+	// Camera motion blur and rolling shutter render motion vectors.
+	{ "motion_blur_enabled", "camera motion blur (CameraAttributes.motion_blur_enabled)" },
+	{ "rolling_shutter_enabled", "rolling shutter (CameraAttributes.rolling_shutter_enabled)" },
+	{ "camera_attributes_set_motion_blur", "camera motion blur (RenderingServer.camera_attributes_set_motion_blur())" },
+	{ "camera_attributes_set_rolling_shutter", "rolling shutter (RenderingServer.camera_attributes_set_rolling_shutter())" },
 };
 
 static bool _shader_baker_bytes_contain(const Vector<uint8_t> &p_bytes, const char *p_needle) {
@@ -773,10 +779,10 @@ void ShaderBakerExportPlugin::_compute_unmet_group_requirements(const Ref<Editor
 	if (advanced_reason.is_empty()) {
 		if (active_platform->uses_lazy_shader_extras(p_preset)) {
 			deferred_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED;
-			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering or motion-vector compositor effects, so Forward+'s advanced shader variants go to the shader extras, which load in the background after the game starts.");
+			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering, camera motion blur, rolling shutter or motion-vector compositor effects, so Forward+'s advanced shader variants go to the shader extras, which load in the background after the game starts.");
 		} else {
 			unmet_group_requirements |= ShaderRD::GROUP_BAKE_REQUIRES_ADVANCED;
-			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering or motion-vector compositor effects, so Forward+'s advanced shader variants are not baked. If the game turns one of them on in a way the export cannot see (GDExtension code, say), they compile when first used; set shader_baker/variant_pruning to Disabled to bake them.");
+			print_line("Shader baker: the project uses none of TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering, camera motion blur, rolling shutter or motion-vector compositor effects, so Forward+'s advanced shader variants are not baked. If the game turns one of them on in a way the export cannot see (GDExtension code, say), they compile when first used; set shader_baker/variant_pruning to Disabled to bake them.");
 		}
 	} else {
 		print_line(vformat("Shader baker: baking Forward+'s advanced shader variants, needed for %s.", advanced_reason));

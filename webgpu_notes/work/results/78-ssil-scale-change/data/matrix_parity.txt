@@ -1,0 +1,18 @@
+Forward+ Feature Matrix (WebGPU) -- 103 features, parity against native Vulkan
+
+  template raycast module (occlusion culling): yes
+  rendering the native reference into /tmp/fp_reference_zKcYaB ...
+  adapter: {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxSampled":48}
+  WebGPU 1.0 - Forward+ - Using Device #0: Unknown - WebGPU Device
+
+
+  Environment
+    PASS  ssil                         delta 1.744; native diff off 0.002 on 0.005
+
+  Post-processing, AA and scaling
+    PASS  scaling_3d                   delta 1.388; native diff off 0.002 on 0.002
+
+  2/2 features pass
+  3 Forward+ features are documented as not covered (--list to see them)
+
+RESULT: PASS

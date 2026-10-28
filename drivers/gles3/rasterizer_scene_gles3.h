@@ -36,6 +36,8 @@
 #include "core/templates/paged_allocator.h"
 #include "core/templates/rid_owner.h"
 #include "core/templates/self_list.h"
+#include "drivers/gles3/effects/camera_finish.h"
+#include "drivers/gles3/effects/light_shafts.h"
 #include "drivers/gles3/storage/light_storage.h"
 #include "drivers/gles3/storage/material_storage.h"
 #include "servers/rendering/renderer_scene_render.h"
@@ -79,6 +81,10 @@ enum SceneUniformLocation {
 	SCENE_PREV_MULTIVIEW_UNIFORM_LOCATION,
 	SCENE_DECAL_DATA,
 };
+
+// The post pass's CameraEffects buffer (effects/camera_effects_inc.glsl): past every scene, sky and canvas binding, so
+// nothing else ever rebinds it.
+static constexpr GLuint CAMERA_EFFECTS_UNIFORM_LOCATION = 16;
 
 enum SkyUniformLocation {
 	SKY_TONEMAP_UNIFORM_LOCATION,
@@ -459,6 +465,10 @@ private:
 			float luminance_multiplier;
 			uint32_t camera_visible_layers;
 			bool pancake_shadows;
+
+			// Micro shadows (Environment.micro_shadows_*): opacity, 0 when off.
+			float micro_shadow_opacity;
+			uint32_t micro_shadow_pad[3];
 		};
 		static_assert(sizeof(UBO) % 16 == 0, "Scene UBO size must be a multiple of 16 bytes");
 		static_assert(sizeof(UBO) < 16384, "Scene UBO size must be 16384 bytes or smaller");
@@ -486,6 +496,12 @@ private:
 			float saturation = 1.0;
 			int32_t pad3 = 0;
 			float white_balance[4] = { 1.0, 1.0, 1.0, 0.0 }; // xyz: Bradford cone gains; w: 1.0 when enabled.
+			uint32_t grain = 0; // Packed CameraAttributes grain (RendererCameraAttributes::camera_attributes_get_grain_packed()).
+			uint32_t camera_lut = 0; // Packed CameraAttributes LUT (RendererCameraAttributes::camera_attributes_get_lut_packed()).
+			int32_t pad5 = 0;
+			int32_t pad6 = 0;
+			// The Custom tonemapper's curve (RendererEnvironmentStorage::tonemap_custom_compute_curve()).
+			float tonemap_custom[3][4] = {};
 		};
 		static_assert(sizeof(TonemapUBO) % 16 == 0, "Tonemap UBO size must be a multiple of 16 bytes");
 
@@ -498,6 +514,7 @@ private:
 		GLuint multiview_buffer = 0;
 		GLuint prev_multiview_buffer = 0;
 		GLuint tonemap_buffer = 0;
+		GLuint camera_effects_buffer = 0; // CameraEffectsUBO, for the post pass (effects/camera_effects_inc.glsl).
 
 		int prev_data_state = 0; // 0 = Motion vectors not used, 1 = use data (first frame only), 2 = use previous data
 
@@ -762,6 +779,17 @@ private:
 	void _render_shadows(const RenderDataGLES3 *p_render_data, const Size2i &p_viewport_size = Size2i(1, 1));
 	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
 	void _render_post_processing(const RenderDataGLES3 *p_render_data);
+	void _render_light_shafts(const RenderDataGLES3 *p_render_data, GLuint p_color, GLuint p_depth);
+	GLuint _get_camera_lut_texture(RID p_camera_attributes) const;
+
+	/* Color grading */
+	// The Environment's color grading LUT per environment, rebaked when its grading changes (RendererColorGrading).
+	struct ColorGradingLUT {
+		uint64_t version = 0;
+		GLuint texture = 0;
+	};
+	HashMap<RID, ColorGradingLUT> color_grading_luts;
+	GLuint _get_color_grading_lut(RID p_environment);
 
 	template <PassMode p_pass_mode>
 	_FORCE_INLINE_ void _render_list_template(RenderListParameters *p_params, const RenderDataGLES3 *p_render_data, uint32_t p_from_element, uint32_t p_to_element, bool p_alpha_pass = false);
@@ -771,6 +799,9 @@ private:
 protected:
 	double time;
 	double time_step = 0;
+
+	GLES3::CameraFinish *camera_finish = nullptr; // CameraAttributes NR/sharpening, Camera3D monitoring overlays.
+	GLES3::LightShafts *light_shafts = nullptr; // Environment.light_shafts_*; created on first use.
 
 	bool screen_space_roughness_limiter = false;
 	float screen_space_roughness_limiter_amount = 0.25;
@@ -987,6 +1018,9 @@ public:
 
 	void screen_space_roughness_limiter_set_active(bool p_enable, float p_amount, float p_curve) override;
 	bool screen_space_roughness_limiter_is_active() const override;
+
+	virtual void camera_monitoring_free(RID p_camera) override;
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) override;
 
 	void sub_surface_scattering_set_quality(RSE::SubSurfaceScatteringQuality p_quality) override;
 	void sub_surface_scattering_set_scale(float p_scale, float p_depth_scale) override;

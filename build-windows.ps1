@@ -11,8 +11,11 @@
     install_angle.py, install_winrt.py, install_accesskit.py to fetch
     pre-built dependencies, then scons platform=windows for editor,
     template_debug, and template_release. Also installs Emscripten (emsdk)
-    and builds scons platform=web webgpu=yes template_debug/template_release,
-    since that's this fork's actual export target. Run this FROM the repo
+    and builds scons platform=web webgpu=yes template_debug/template_release
+    (threads=no, without then with GDExtension support), since that's this
+    fork's actual export target. The no-GDExtension web pair, the one most
+    exports use, is built and installed right after the editor with a "Ready to
+    export" line, so you can export while the Windows templates and the rest build. Run this FROM the repo
     root, in PowerShell, ON Windows (this is not for cross-compiling from
     Linux -- see build.sh for that).
 
@@ -371,6 +374,95 @@ Invoke-Native $gitBash drivers/webgpu/wgsl_cli/build.sh
 Copy-BuiltExe -Pattern "wgsl_convert_cli.exe" -Dest (Join-Path $OutDir "editor_windows")
 Write-Ok "wgsl_convert_cli -> $OutDir\editor_windows"
 
+# Builds one threads=no web/WebGPU template, with or without GDExtension
+# support (dlink), and installs it into builds\<version>\templates under the
+# name Godot's export templates folder expects (export_plugin.h's
+# _get_template_name(): "web" + ["_dlink"] + "_nothreads" + "_debug.zip"/
+# "_release.zip"). The scons output name is spelled out rather than taken as
+# the newest bin\ zip, which would pick up whichever variant was built last.
+function Build-WebTemplate {
+    param(
+        [Parameter(Mandatory)][ValidateSet("yes", "no")][string]$Dlink,
+        [Parameter(Mandatory)][ValidateSet("template_debug", "template_release")][string]$Target
+    )
+    $label = if ($Target -eq "template_release") { "release" } else { "debug" }
+    Write-Step "Building web/WebGPU export template ($label, dlink=$Dlink, threads=no)..."
+    Invoke-Native scons platform=web target=$Target dlink_enabled=$Dlink webgpu=yes opengl3=no threads=no -j $Jobs
+
+    $sconsZip = "godot.web.$Target.wasm32.nothreads"
+    if ($Dlink -eq "yes") { $sconsZip += ".dlink" }
+    $sconsZip += ".zip"
+    $sconsZipPath = Join-Path (Join-Path $RepoRoot "bin") $sconsZip
+    if (-not (Test-Path $sconsZipPath)) {
+        throw "Web template build succeeded but bin\$sconsZip wasn't found."
+    }
+    $destName = "web"
+    if ($Dlink -eq "yes") { $destName += "_dlink" }
+    $destName += "_nothreads_$label.zip"
+    Copy-Item $sconsZipPath (Join-Path $webDest $destName) -Force
+    Write-Ok "Web template -> $webDest\$destName"
+}
+
+$webDest = Join-Path $OutDir "templates"
+# Where the editor looks for this version's export templates when exporting.
+$editorTemplatesDir = Join-Path $env:APPDATA "Godot\export_templates\$Version"
+
+# The native template builds run with the PATH this script had before
+# emsdk_env.ps1 (dot-sourced below for the web builds) prepended Emscripten's own
+# tools, Python among them, so they resolve the same Python, SCons and compilers
+# as when they ran before any web build.
+$nativePath = $env:Path
+$webPath = $null
+
+if (-not $SkipWeb) {
+    Write-Step "Activating Emscripten environment..."
+    . (Join-Path $EmsdkDir "emsdk_env.ps1")
+    $webPath = $env:Path
+
+    # Half the web templates below are dlink_enabled=yes, which needs this fork's
+    # two Emscripten toolchain patches, and `emsdk install` above overwrites the
+    # toolchain tree -- so apply them here, after the environment is activated, on
+    # every run. Idempotent; refuses rather than fuzzily applying if upstream has
+    # moved any of the text it pins.
+    #
+    # Called as Python rather than through misc/emsdk_patches/apply.sh because that
+    # is bash and this is the one build helper that cannot assume a shell. The
+    # module locates the toolchain itself and is the same code apply.sh runs.
+    #
+    # Only a threads=yes dlink build actually breaks without the patches, and these
+    # builds are threads=no, so warn and keep going rather than failing the run.
+    Write-Step "Applying Emscripten toolchain patches..."
+    python -I (Join-Path $RepoRoot "misc\emsdk_patches\emsdk_patch.py") apply
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Emscripten toolchain patched."
+    } else {
+        Write-Warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
+        Write-Warn "without it, but a threads=yes dlink build would not boot. See"
+        Write-Warn "misc/emsdk_patches/README.md."
+    }
+
+    # The no-threads, no-dlink pair first (webgpu_notes/TASKS.md 2.50): it is what
+    # most exports use, so it is installed right after the editor and the user can
+    # export while the Windows templates and the GDExtension (dlink) pair build.
+    New-Item -ItemType Directory -Force -Path $webDest | Out-Null
+    Build-WebTemplate -Dlink no -Target template_debug
+    Build-WebTemplate -Dlink no -Target template_release
+    Write-Host ""
+    Write-Ok "==> Ready to export: web_nothreads_debug.zip + web_nothreads_release.zip installed in $webDest"
+    $resolvedDest = (Get-Item $webDest).FullName
+    $resolvedEditor = if (Test-Path $editorTemplatesDir) { (Get-Item $editorTemplatesDir).FullName } else { $editorTemplatesDir }
+    $destTarget = (Get-Item $webDest).Target
+    if ($destTarget) { $resolvedDest = [string]$destTarget }
+    if ($resolvedDest.TrimEnd('\') -ne $resolvedEditor.TrimEnd('\')) {
+        Write-Warn "    That is not the editor's export templates folder ($editorTemplatesDir):"
+        Write-Warn "    copy the two there, or make that folder a junction to $webDest, to export with them now."
+    }
+    Write-Ok "    The rest of the templates build next; exporting with these two is safe meanwhile."
+    $env:Path = $nativePath
+} else {
+    Write-Warn "Skipping web/WebGPU template build (-SkipWeb)."
+}
+
 Write-Step "Building export template (debug)..."
 Invoke-Native scons platform=windows target=template_debug `
     d3d12=$d3d12Enabled accesskit=$accesskitEnabled angle=$angleEnabled -j $Jobs
@@ -393,51 +485,9 @@ Copy-BuiltExe -Pattern "godot.windows.template_release.x86_64.console.exe" -Dest
 Write-Ok "Templates -> $OutDir\templates_windows"
 
 if (-not $SkipWeb) {
-    Write-Step "Activating Emscripten environment..."
-    . (Join-Path $EmsdkDir "emsdk_env.ps1")
-
-    # The web templates below are dlink_enabled=yes, which needs this fork's two
-    # Emscripten toolchain patches, and `emsdk install` above overwrites the
-    # toolchain tree -- so apply them here, after the environment is activated, on
-    # every run. Idempotent; refuses rather than fuzzily applying if upstream has
-    # moved any of the text it pins.
-    #
-    # Called as Python rather than through misc/emsdk_patches/apply.sh because that
-    # is bash and this is the one build helper that cannot assume a shell. The
-    # module locates the toolchain itself and is the same code apply.sh runs.
-    #
-    # Only a threads=yes dlink build actually breaks without the patches, and these
-    # builds are threads=no, so warn and keep going rather than failing the run.
-    Write-Step "Applying Emscripten toolchain patches..."
-    python -I (Join-Path $RepoRoot "misc\emsdk_patches\emsdk_patch.py") apply
-    if ($LASTEXITCODE -eq 0) {
-        Write-Ok "Emscripten toolchain patched."
-    } else {
-        Write-Warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
-        Write-Warn "without it, but a threads=yes dlink build would not boot. See"
-        Write-Warn "misc/emsdk_patches/README.md."
-    }
-
-    Write-Step "Building web/WebGPU export template (debug)..."
-    Invoke-Native scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j $Jobs
-
-    Write-Step "Building web/WebGPU export template (release)..."
-    Invoke-Native scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j $Jobs
-
-    $webDest = Join-Path $OutDir "templates"
-    New-Item -ItemType Directory -Force -Path $webDest | Out-Null
-    $debugZip = Get-ChildItem -Path (Join-Path $RepoRoot "bin") -Filter "godot.web.template_debug*.zip" -File -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $releaseZip = Get-ChildItem -Path (Join-Path $RepoRoot "bin") -Filter "godot.web.template_release*.zip" -File -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $debugZip -or -not $releaseZip) {
-        throw "Web template build succeeded but a .zip wasn't found in bin\."
-    }
-    Copy-Item $debugZip.FullName (Join-Path $webDest "web_nothreads_debug.zip") -Force
-    Copy-Item $releaseZip.FullName (Join-Path $webDest "web_nothreads_release.zip") -Force
-    Write-Ok "Web templates -> $webDest"
-} else {
-    Write-Warn "Skipping web/WebGPU template build (-SkipWeb)."
+    $env:Path = $webPath
+    Build-WebTemplate -Dlink yes -Target template_debug
+    Build-WebTemplate -Dlink yes -Target template_release
 }
 
 New-TpzPackage

@@ -31,6 +31,8 @@
 #pragma once
 
 #include "core/math/projection.h"
+#include "core/os/mutex.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/paged_array.h"
 #include "servers/rendering/renderer_geometry_instance.h"
 #include "servers/rendering/rendering_server_types.h"
@@ -145,6 +147,8 @@ public:
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	RendererEnvironmentStorage::TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
+	void environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip);
+	bool environment_fill_effects_buffer(RID p_env, RendererEnvironmentStorage::EnvironmentEffectsUBO &r_ubo) const;
 
 	// Fog
 	void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode);
@@ -199,6 +203,17 @@ public:
 	float environment_get_glow_map_strength(RID p_env) const;
 	RID environment_get_glow_map(RID p_env) const;
 
+	// Glare
+	void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration);
+	void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength);
+	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
+	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
+
+	// Light shafts
+	void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint);
+	void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality);
+	RendererEnvironmentStorage::LightShafts environment_get_light_shafts(RID p_env) const;
+
 	virtual void environment_glow_set_use_bicubic_upscale(bool p_enable) = 0;
 
 	// SSR
@@ -225,6 +240,8 @@ public:
 	float environment_get_ssao_ao_channel_affect(RID p_env) const;
 
 	virtual void environment_set_ssao_quality(RSE::EnvironmentSSAOQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
+	// GTAO: only Forward+ has it; Mobile has no SSAO and Compatibility keeps its own, so they ignore the method.
+	virtual void environment_set_ssao_method(RSE::EnvironmentSSAOMethod p_method) {}
 
 	// SSIL
 	void environment_set_ssil(RID p_env, bool p_enable, float p_radius, float p_intensity, float p_sharpness, float p_normal_rejection);
@@ -233,6 +250,11 @@ public:
 	float environment_get_ssil_intensity(RID p_env) const;
 	float environment_get_ssil_sharpness(RID p_env) const;
 	float environment_get_ssil_normal_rejection(RID p_env) const;
+
+	// Micro shadows
+	void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity);
+	bool environment_get_micro_shadows_enabled(RID p_env) const;
+	float environment_get_micro_shadows_opacity(RID p_env) const;
 
 	virtual void environment_set_ssil_quality(RSE::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) = 0;
 
@@ -261,6 +283,16 @@ public:
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
+
+	/* Color grading */
+	void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain);
+	void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end);
+	void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue);
+	void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance);
+	void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat);
+	bool environment_get_color_grading_enabled(RID p_env) const;
+	uint64_t environment_get_color_grading_version(RID p_env) const;
+	Vector<uint8_t> environment_bake_color_grading(RID p_env) const;
 
 	virtual Ref<Image> environment_bake_panorama(RID p_env, bool p_bake_irradiance, const Size2i &p_size) = 0;
 
@@ -302,6 +334,60 @@ public:
 		uint32_t positional_light_count;
 	};
 
+	// Camera3D's monitoring overlays, as RendererSceneCull's camera holds them; drawn by the camera finish pass.
+	struct CameraMonitoring {
+		bool zebras = false;
+		float zebras_level = 95.0; // IRE %.
+		bool zebras_second = false;
+		float zebras_second_level = 70.0; // IRE %, the center of a +-5 IRE window.
+		Color zebras_color = Color(0.0, 0.0, 0.0); // Display-encoded stripe colors.
+		Color zebras_second_color = Color(1.0, 1.0, 1.0);
+		bool focus_peaking = false;
+		Color focus_peaking_color = Color(1.0, 0.0, 0.0);
+		float focus_peaking_sensitivity = 0.5;
+		bool false_color = false;
+		bool histogram = false; // Drawn: counted every frame and drawn over the image.
+		RSE::CameraMonitoringHistogramMode histogram_mode = RSE::CAMERA_MONITORING_HISTOGRAM_LUMA;
+		RSE::CameraMonitoringHistogramPosition histogram_position = RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT;
+		float histogram_size = 0.25; // Width as a fraction of the frame width.
+		float histogram_opacity = 0.75;
+		// Read back for scripts (Camera3D.get_monitoring_histogram()): counted on the frames a readback is due,
+		// drawn or not. `camera` keys the result, so each camera has its own counts.
+		bool histogram_readback = false;
+		float histogram_readback_interval = 0.0; // Seconds; 0 = every frame.
+		RID camera;
+		// Camera3D.get_monitoring_clean_texture(): a texture the renderer copies the image into before the overlays are
+		// drawn, every frame, while it is set. Invalid (the default) costs nothing.
+		RID clean_texture;
+
+		bool is_overlay_active() const { return zebras || zebras_second || focus_peaking || false_color || histogram; }
+		bool is_active() const { return is_overlay_active() || histogram_readback || clean_texture.is_valid(); }
+	};
+
+	/* Camera monitoring histogram readback
+	 *
+	 * The renderer publishes each camera's latest histogram here from the render thread (in the readback's callback);
+	 * the getters run on any thread, so Camera3D reads it without going through the RenderingServer command queue.
+	 */
+	struct CameraHistogramReadback {
+		PackedInt32Array channels[RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE + 1]; // Indexed by the channel enum.
+		uint64_t serial = 0;
+	};
+
+private:
+	mutable Mutex camera_histogram_mutex;
+	HashMap<RID, CameraHistogramReadback> camera_histograms;
+	uint64_t camera_histogram_serial = 0;
+
+public:
+	void camera_monitoring_histogram_publish(RID p_camera, const CameraHistogramReadback &p_readback);
+	PackedInt32Array camera_monitoring_histogram_get(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const;
+	uint64_t camera_monitoring_histogram_get_serial(RID p_camera) const;
+	// The camera was freed, or stopped reading back: drop its result (and, in RD, its GPU buffer).
+	virtual void camera_monitoring_free(RID p_camera);
+	// The camera stopped asking for its clean frame: free the renderer's copy (the server texture is freed by its owner).
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) {}
+
 	struct CameraData {
 		// flags
 		uint32_t view_count;
@@ -317,6 +403,7 @@ public:
 		Projection view_projection[RendererSceneRender::MAX_RENDER_VIEWS];
 		Vector2 taa_jitter;
 		float taa_frame_count = 0.0f;
+		CameraMonitoring monitoring; // Only RendererSceneCull::render_camera() sets it: probes and the like have none.
 
 		void set_camera(const Transform3D p_transform, const Projection p_projection, bool p_is_orthogonal, bool p_vaspect, const Vector2 &p_taa_jitter = Vector2(), float p_taa_frame_count = 0.0f, uint32_t p_visible_layers = 0xFFFFFFFF);
 		void set_multiview_camera(const Transform3D &p_transform, const LocalVector<Transform3D> &p_offsets, const LocalVector<Projection> &p_projection, bool p_is_orthogonal, bool p_vaspect, uint32_t p_visible_layers = 0xFFFFFFFF);

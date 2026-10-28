@@ -76,6 +76,8 @@ uint64_t RenderingDeviceDriver::api_trait_get(ApiTrait p_trait) {
 			return 0;
 		case API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE:
 			return 1;
+		case API_TRAIT_TEXTURE_VIEW_SWIZZLE:
+			return 1;
 		case API_TRAIT_MAX_SUPPORTED_TEXTURE_SAMPLES:
 			// 64 = TEXTURE_SAMPLES_64, i.e. "no additional API-level cap beyond
 			// whatever the real hardware/format-capability queries already limit" --

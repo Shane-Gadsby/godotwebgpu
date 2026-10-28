@@ -217,6 +217,13 @@ public:
 	// the whole per-frame slice; the default is the full flush, so every other driver behaves exactly as before.
 	virtual void buffer_flush_range(BufferID p_buffer, uint64_t p_offset, uint64_t p_size) { buffer_flush(p_buffer); }
 	virtual void buffer_initiate_async_map(BufferID p_buffer) {} // WebGPU: start async map so it completes by next frame.
+	// Whether a GPU->CPU staging buffer, mapped by buffer_initiate_async_map(), can be read yet: OK when it can, ERR_BUSY
+	// while its map is still pending, FAILED when the map failed (what buffer_map() would return is not the GPU's data).
+	// A backend whose fence_wait() means the copy has landed is always OK, the default. WebGPU's mapAsync completes on a
+	// later turn of the browser's event loop, which can be after the frame that queued an asynchronous download comes
+	// round again; RenderingDevice then holds the download back instead of handing its callback a buffer that has not
+	// arrived.
+	virtual Error buffer_get_readback_status(BufferID p_buffer) { return OK; }
 	// Direct queue write to a buffer, bypassing staging buffers entirely.
 	// Used for skeleton/bone updates that are fully written before any draws.
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) {}
@@ -934,6 +941,11 @@ public:
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) = 0;
 	virtual void command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) = 0;
 
+	// How long recent submissions took from submit to "GPU work done", in microseconds; 0 when the driver cannot tell.
+	// Only WebGPU reports it (onSubmittedWorkDone): the browser queues several frames, so this is the one sign of a
+	// GPU-bound page that needs no timestamp-query. The dynamic 3D resolution controller reads it.
+	virtual uint64_t get_submit_to_done_latency_usec() { return 0; }
+
 	/****************/
 	/**** LABELS ****/
 	/****************/
@@ -1040,11 +1052,14 @@ public:
 		// path incurs expensive WASM→JS→GPU bridge crossings that can be
 		// avoided by creating the buffer with mappedAtCreation.
 		API_TRAIT_BUFFER_CREATE_MAPPED_AT_CREATION,
-		// If non-zero, caps the staging buffer pool max_size to this value
-		// (in MB), overriding the project setting. On backends where staging
-		// blocks use CPU shadow memory (e.g. WebGPU), keeping the pool small
-		// avoids wasting memory after the loading spike subsides. The pool
-		// handles overflow correctly via stall-and-reuse.
+		// If non-zero, caps the upload staging buffer pool max_size to this
+		// value (in MB), overriding the project setting. On backends where
+		// staging blocks use CPU shadow memory (e.g. WebGPU), keeping the pool
+		// small avoids wasting memory after the loading spike subsides; uploads
+		// handle overflow via stall-and-reuse. The download pool keeps the
+		// project setting: it only grows with the readbacks a project makes,
+		// and asynchronous readbacks never stall for room (they take blocks
+		// past the limit instead, RenderingDevice::_download_staging_overflow_block()).
 		API_TRAIT_STAGING_BUFFER_MAX_SIZE_MB,
 		// If non-zero, skeleton bone buffer updates use direct queue writes
 		// (e.g. wgpuQueueWriteBuffer) instead of going through staging buffers
@@ -1149,6 +1164,14 @@ public:
 		// render-graph instruction plus a virtual no-op per set per draw (~3,000 a
 		// frame on a 1,100-draw scene).
 		API_TRAIT_UNIFORM_SET_PREPARE_FOR_USE,
+		// Non-zero (the default): texture views apply TextureView::swizzle_*.
+		// Zero: they cannot (WebGPU has no component swizzle), so the driver
+		// creates a plain view and shaders read the channels unswizzled. The
+		// shared code that relied on a swizzle gets the same result another way
+		// where it can: TextureStorage describes a Texture2DRD over R8 / RG8 as
+		// R8 / RG8 rather than L8 / LA8, and an opaque render target's last
+		// passes write alpha 1 themselves (render_target_needs_opaque_alpha()).
+		API_TRAIT_TEXTURE_VIEW_SWIZZLE,
 	};
 
 	enum ShaderChangeInvalidation {

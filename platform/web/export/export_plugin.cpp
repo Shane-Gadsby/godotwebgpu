@@ -174,6 +174,45 @@ static const WebLoadingScreenStage web_loading_screen_stages[] = {
 	{ "compiling_shaders", "Compiling shaders...", true, true },
 };
 
+// The loading screen's progress bar colors: export option
+// `loading_screen/progress_bar/<option>`, `$GODOT_PROGRESS_BAR` key `key`. The
+// defaults are the colors Chrome draws an unstyled <progress> with. While all
+// three stay at their defaults the shell leaves the bar unstyled, so each
+// browser keeps its native look and existing exports do not change; changing
+// any of them draws the bar with all three.
+struct WebProgressBarColor {
+	const char *option;
+	const char *key;
+	uint32_t default_rgba;
+};
+
+static const WebProgressBarColor web_progress_bar_colors[] = {
+	{ "border_color", "borderColor", 0xb2b2b2ff },
+	{ "background_color", "backgroundColor", 0xefefefff },
+	{ "fill_color", "fillColor", 0x0075ffff },
+};
+
+// The start screen (`html/start_button/*`): the page waits on a Start button and
+// nothing of the engine runs until it is pressed. Hover and pressed darken the
+// background color by these amounts unless `custom_state_colors` sets their own.
+static const Color web_start_button_background_color = Color::hex(0x3a3a3aff);
+static constexpr float WEB_START_BUTTON_HOVER_DARKEN = 0.15;
+static constexpr float WEB_START_BUTTON_PRESSED_DARKEN = 0.3;
+static const char *web_start_button_font_family = "'Noto Sans', 'Droid Sans', Arial, sans-serif";
+// The download line under the button (`html/start_button/preload_text/*`), drawn at full opacity so
+// the color shows as picked. The line used to be #e0e0e0 at 85% opacity; over the default boot splash
+// background (#242424) that is #c4c4c4, so the default color keeps the default start screen as it was.
+// The font is the shells' own, 0.9rem at the browsers' default 16 px root size.
+static const Color web_start_preload_text_color = Color::hex(0xc4c4c4ff);
+static constexpr double WEB_START_PRELOAD_TEXT_FONT_SIZE = 14.4;
+static const char *web_start_preload_text_downloading = "Downloading...";
+static const char *web_start_preload_text_progress = "Downloading {percent}%";
+static const char *web_start_preload_text_ready = "Ready";
+
+static String _web_css_color(const Color &p_color) {
+	return "#" + p_color.to_html(p_color.a < 1.0);
+}
+
 void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes, const Dictionary &p_texture_packs) {
 	// Engine.js config
 	Dictionary config;
@@ -226,6 +265,63 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		config["renderingDriver"] = "opengl3";
 	}
 
+	// The start screen, read by the shell (and by custom shells) from the config.
+	Dictionary start_button;
+	start_button["enabled"] = p_preset->get("html/start_button/enabled");
+	start_button["text"] = p_preset->get("html/start_button/text");
+	const Color start_background = p_preset->get("html/start_button/background_color");
+	start_button["backgroundColor"] = _web_css_color(start_background);
+	if (p_preset->get("html/start_button/custom_state_colors").operator bool()) {
+		start_button["hoverColor"] = _web_css_color(p_preset->get("html/start_button/hover_color"));
+		start_button["pressedColor"] = _web_css_color(p_preset->get("html/start_button/pressed_color"));
+	} else {
+		start_button["hoverColor"] = _web_css_color(start_background.darkened(WEB_START_BUTTON_HOVER_DARKEN));
+		start_button["pressedColor"] = _web_css_color(start_background.darkened(WEB_START_BUTTON_PRESSED_DARKEN));
+	}
+	start_button["textColor"] = _web_css_color(p_preset->get("html/start_button/text_color"));
+	start_button["borderColor"] = _web_css_color(p_preset->get("html/start_button/border_color"));
+	start_button["borderWidth"] = p_preset->get("html/start_button/border_width");
+	start_button["borderRadius"] = p_preset->get("html/start_button/border_radius");
+	start_button["fontFamily"] = p_preset->get("html/start_button/font_family");
+	start_button["fontSize"] = p_preset->get("html/start_button/font_size");
+	const Vector2i start_padding = p_preset->get("html/start_button/padding");
+	start_button["paddingHorizontal"] = start_padding.x;
+	start_button["paddingVertical"] = start_padding.y;
+	// Download the game behind the start screen (Engine.prototype.prefetch()); only with the button,
+	// since without one the engine starts at once anyway.
+	const bool start_preload = start_button["enabled"].operator bool() && p_preset->get("html/start_button/preload").operator bool();
+	start_button["preload"] = start_preload;
+	start_button["preloadProgress"] = start_preload && p_preset->get("html/start_button/preload_progress").operator bool();
+	// The line's three messages; a message switched off is an empty string, so the line is empty in that state.
+	Dictionary preload_text;
+	preload_text["downloading"] = p_preset->get("html/start_button/preload_text/downloading").operator bool() ? String(p_preset->get("html/start_button/preload_text/downloading_text")) : String();
+	preload_text["progress"] = p_preset->get("html/start_button/preload_text/progress").operator bool() ? String(p_preset->get("html/start_button/preload_text/progress_text")) : String();
+	preload_text["ready"] = p_preset->get("html/start_button/preload_text/ready").operator bool() ? String(p_preset->get("html/start_button/preload_text/ready_text")) : String();
+	preload_text["color"] = _web_css_color(p_preset->get("html/start_button/preload_text/color"));
+	preload_text["fontFamily"] = p_preset->get("html/start_button/preload_text/font_family");
+	preload_text["fontSize"] = p_preset->get("html/start_button/preload_text/font_size");
+	start_button["preloadText"] = preload_text;
+	config["startButton"] = start_button;
+
+	// Fullscreen driven by the page that iframes the game (GodotDisplayScreen's embed messages,
+	// platform/web/js/libs/library_godot_display.js). An empty origin list accepts any parent.
+	Dictionary embed_fullscreen;
+	const bool embed_enabled = p_preset->get("html/embed_fullscreen/enabled");
+	embed_fullscreen["enabled"] = embed_enabled;
+	Array embed_origins;
+	if (embed_enabled) {
+		const Vector<String> origins = p_preset->get("html/embed_fullscreen/allowed_origins").operator String().split(",", false);
+		for (const String &origin : origins) {
+			// A message's origin never ends in a slash, so a pasted "https://site.example/" would never match.
+			const String trimmed = origin.strip_edges().trim_suffix("/");
+			if (!trimmed.is_empty()) {
+				embed_origins.push_back(trimmed);
+			}
+		}
+	}
+	embed_fullscreen["allowedOrigins"] = embed_origins;
+	config["embedFullscreen"] = embed_fullscreen;
+
 	config["godotPoolSize"] = p_preset->get("threads/godot_pool_size");
 	config["emscriptenPoolSize"] = p_preset->get("threads/emscripten_pool_size");
 
@@ -251,8 +347,23 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		loading_screen[stage.key] = stage_config;
 	}
 
+	// The progress bar, in a placeholder of its own so that custom shells which
+	// walk $GODOT_LOADING_SCREEN as a list of stages are unaffected.
+	Dictionary progress_bar;
+	progress_bar["enabled"] = p_preset->get("loading_screen/progress_bar/enabled");
+	bool custom_colors = false;
+	for (const WebProgressBarColor &color_option : web_progress_bar_colors) {
+		const Color color = p_preset->get(String("loading_screen/progress_bar/") + color_option.option);
+		// Compared as HTML strings: the preset file stores rounded floats.
+		const String html = color.to_html(color.a < 1.0);
+		custom_colors = custom_colors || html != Color::hex(color_option.default_rgba).to_html(false);
+		progress_bar[color_option.key] = "#" + html;
+	}
+	progress_bar["customColors"] = custom_colors;
+
 	// Replaces HTML string
-	const String str_config = Variant(config).to_json_string();
+	// `<` escaped so that a text containing `</script>` cannot end the shell's script.
+	const String str_config = Variant(config).to_json_string().replace("<", "\\u003c");
 	const String str_loading_screen = Variant(loading_screen).to_json_string();
 	const String custom_head_include = p_preset->get("html/head_include");
 	HashMap<String, String> replaces;
@@ -261,6 +372,7 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	replaces["$GODOT_HEAD_INCLUDE"] = head_include + custom_head_include;
 	replaces["$GODOT_CONFIG"] = str_config;
 	replaces["$GODOT_LOADING_SCREEN"] = str_loading_screen;
+	replaces["$GODOT_PROGRESS_BAR"] = Variant(progress_bar).to_json_string();
 	replaces["$GODOT_SPLASH_COLOR"] = "#" + Color(get_project_setting(p_preset, "application/boot_splash/bg_color")).to_html(false);
 
 	Vector<String> godot_splash_classes;
@@ -499,6 +611,47 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/orientation", PROPERTY_HINT_ENUM, "Project Setting,Landscape,Portrait,Reverse Landscape,Reverse Portrait,Sensor Landscape,Sensor Portrait,Sensor"), 0));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
 
+	// The start screen (see web_start_button_background_color above); the button's
+	// look is shown only while it is enabled, the state colors only while custom.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/enabled"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/text"), "Start"));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/background_color"), web_start_button_background_color));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/text_color"), Color(1, 1, 1)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/custom_state_colors"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/hover_color"), web_start_button_background_color.darkened(WEB_START_BUTTON_HOVER_DARKEN)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/pressed_color"), web_start_button_background_color.darkened(WEB_START_BUTTON_PRESSED_DARKEN)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/border_color"), Color::hex(0xffffffff)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/border_width", PROPERTY_HINT_RANGE, "0,32,1,or_greater,suffix:px"), 0));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/border_radius", PROPERTY_HINT_RANGE, "0,64,1,or_greater,suffix:px"), 8));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/font_family"), String(web_start_button_font_family)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/font_size", PROPERTY_HINT_RANGE, "1,128,1,or_greater,suffix:px"), 24));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::VECTOR2I, "html/start_button/padding", PROPERTY_HINT_RANGE, "0,128,1,or_greater,suffix:px"), Vector2i(48, 12)));
+	// Downloads what the game needs while the start screen waits; the engine still runs only on the press.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload"), true, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_progress"), true, true));
+	// The progress line's messages, each one switchable; {percent} in the progress text becomes the percentage.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_text/downloading"), true, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/downloading_text"), String(web_start_preload_text_downloading)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_text/progress"), true, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/progress_text"), String(web_start_preload_text_progress)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_text/ready"), true, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/ready_text"), String(web_start_preload_text_ready)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "html/start_button/preload_text/color"), web_start_preload_text_color));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/preload_text/font_family"), String(web_start_button_font_family)));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::FLOAT, "html/start_button/preload_text/font_size", PROPERTY_HINT_RANGE, "1,128,0.1,or_greater,suffix:px"), WEB_START_PRELOAD_TEXT_FONT_SIZE));
+
+	// Lets the page that iframes the game put it in fullscreen through postMessage; the origins are
+	// shown only while it is enabled.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/embed_fullscreen/enabled"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/embed_fullscreen/allowed_origins", PROPERTY_HINT_PLACEHOLDER_TEXT, "Any page (e.g. https://lms.example.edu, https://site.example.com)"), ""));
+
+	// The progress bar's toggle and colors (see web_progress_bar_colors above);
+	// the colors are shown only while the bar is.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "loading_screen/progress_bar/enabled"), true, true));
+	for (const WebProgressBarColor &color_option : web_progress_bar_colors) {
+		r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, String("loading_screen/progress_bar/") + color_option.option), Color::hex(color_option.default_rgba)));
+	}
+
 	// One text field and two tickboxes per loading-screen stage; the inspector
 	// shows them as a "Loading Screen" section with a subsection per stage.
 	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
@@ -579,6 +732,33 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 
 	if (p_option == "shader_baker/separate_pack" || p_option == "shader_baker/variant_pruning") {
 		return p_preset->get("shader_baker/enabled").operator bool();
+	}
+
+	if (p_option.begins_with("loading_screen/progress_bar/") && p_option != "loading_screen/progress_bar/enabled") {
+		return p_preset->get("loading_screen/progress_bar/enabled").operator bool();
+	}
+
+	if (p_option.begins_with("html/start_button/") && p_option != "html/start_button/enabled") {
+		const bool enabled = p_preset->get("html/start_button/enabled").operator bool();
+		if (p_option == "html/start_button/hover_color" || p_option == "html/start_button/pressed_color") {
+			return enabled && p_preset->get("html/start_button/custom_state_colors").operator bool();
+		}
+		if (p_option == "html/start_button/preload_progress") {
+			return enabled && p_preset->get("html/start_button/preload").operator bool();
+		}
+		if (p_option.begins_with("html/start_button/preload_text/")) {
+			const bool line_shown = enabled && p_preset->get("html/start_button/preload").operator bool() && p_preset->get("html/start_button/preload_progress").operator bool();
+			if (p_option.ends_with("_text")) {
+				// The text of a message is shown only while that message is switched on.
+				return line_shown && p_preset->get(p_option.trim_suffix("_text")).operator bool();
+			}
+			return line_shown;
+		}
+		return enabled;
+	}
+
+	if (p_option == "html/embed_fullscreen/allowed_origins") {
+		return p_preset->get("html/embed_fullscreen/enabled").operator bool();
 	}
 
 	if (p_option == "progressive_web_app/orientation") {

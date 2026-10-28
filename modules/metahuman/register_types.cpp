@@ -39,11 +39,16 @@
 #ifdef TOOLS_ENABLED
 #include "editor/editor_node.h"
 #include "editor/editor_scene_importer_metahuman.h"
+#include "editor/metahuman_clothing_binds.h"
 
 static void _editor_init() {
 	Ref<EditorSceneFormatImporterMetaHuman> importer;
 	importer.instantiate();
 	ResourceImporterScene::add_scene_importer(importer);
+
+	Ref<EditorScenePostImportPluginMetaHuman> clothing_binds;
+	clothing_binds.instantiate();
+	ResourceImporterScene::add_post_importer_plugin(clothing_binds);
 }
 #endif // TOOLS_ENABLED
 

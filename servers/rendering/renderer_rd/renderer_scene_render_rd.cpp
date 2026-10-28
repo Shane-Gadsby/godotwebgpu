@@ -476,6 +476,166 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
+// The glare chains' blur per lod, measured (work task 55): halation renders of nine emissive points at different
+// sub-texel positions, HDR captures (RGBA16F, Linear tonemapper), at 720, 900, 1080, 1440 and 2160 lines, each lod
+// sampled on its own; a Gaussian of free size fitted to the halo with the source disc removed (least squares of
+// f (G * S - S)). Lod L blurs a point to sigma^2 = A + B 4^L, in texels of lod 0 squared: each level halves the
+// resolution and blurs by a fixed number of its own texels, so its variance grows four times per level, and A is what
+// lod 0 does differently. Fits within 1% at every lod and resolution for Forward+; for Mobile within 3% from lod 2,
+// 4% at lod 1 and 7% at lod 0 (two frame pixels, which depend on where the light falls in its 4x4 block). x = A, y = B.
+// - Forward+, half resolution: lod 0 is 2.0 texels (4.0 frame pixels), then 4.4, 9.0, 18.2, 36.4 texels (2.28 2^L).
+static constexpr Vector2 GLARE_CHAIN_BLUR_HALF = Vector2(-1.233, 5.181);
+// - Forward+, full resolution (halation's high quality): lod 0 is 1.9 texels (it skips the half-resolution box), then
+//   the same as the half-resolution chain one lod later.
+static constexpr Vector2 GLARE_CHAIN_BLUR_FULL = Vector2(-1.556, 5.182);
+// - Mobile's raster chain at quarter resolution, sharper per level: lod 0 is 0.53 texels (2.1 frame pixels), then 1.27,
+//   2.6, 5.3, 10.6 texels (0.66 2^L). Measured with its levels read where they belong (camera_glare_fetch_level()).
+static constexpr Vector2 GLARE_CHAIN_BLUR_RASTER = Vector2(-0.157, 0.440);
+
+// The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at reduced resolution, blurred, and every mip
+// below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
+// firefly suppression, as glare is the lens's point spread function acting on all light. RGBA16F whatever the
+// buffers' format, since highlights far above 1 are what glare is made of. Built with glow's passes: Forward+'s
+// compute Gaussian at half resolution, the raster path's gather at quarter resolution (its first pass always reduces
+// by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_blur is
+// the chain's measured blur per lod (the GLARE_CHAIN_BLUR_* constants above).
+// p_full_resolution (halation's high quality option) starts Forward+'s chain at the frame's own resolution, so its
+// sharpest level is about half as wide as the usual one: the physical halo at radius 1 is ~0.5% of the frame height,
+// below what the half-resolution chain can draw at 720p. The raster chain's sharpest level is already that small
+// (2.0 frame pixels), so it is unchanged.
+static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, bool p_full_resolution, Size2i &r_size, int &r_mipmaps, Vector2 &r_blur) {
+	static const StringName context = SNAME("CameraGlare");
+	static const StringName name = SNAME("chain");
+	const bool full_resolution = p_can_use_storage && p_full_resolution;
+	const int reduction = p_can_use_storage ? (full_resolution ? 0 : 1) : 2;
+	const Size2i size = Size2i(p_source_size.x >> reduction, p_source_size.y >> reduction);
+	r_blur = p_can_use_storage ? (full_resolution ? GLARE_CHAIN_BLUR_FULL : GLARE_CHAIN_BLUR_HALF) : GLARE_CHAIN_BLUR_RASTER;
+	if (size.x < 2 || size.y < 2) {
+		return RID();
+	}
+	int mipmaps = 1;
+	while (MAX(size.x >> (mipmaps - 1), size.y >> (mipmaps - 1)) > 1) {
+		mipmaps++;
+	}
+	const uint32_t usage = RD::TEXTURE_USAGE_SAMPLING_BIT | (p_can_use_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT);
+	if (p_render_buffers->has_texture(context, name) && p_render_buffers->get_texture_slice_size(context, name, 0) != size) {
+		p_render_buffers->clear_context(context);
+	}
+	const RID chain = p_render_buffers->create_texture(context, name, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage, RD::TEXTURE_SAMPLES_1, size, p_render_buffers->get_view_count(), mipmaps, true, true);
+
+	// Whole image: no threshold (bloom 1), no exposure, and a luminance cap at the format's maximum.
+	const float cap = 65504.0;
+	const float luminance_multiplier = p_render_buffers->get_luminance_multiplier();
+	for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+		RID source = p_source_override.is_valid() ? p_source_override : p_render_buffers->get_internal_texture(v);
+		RID dest = p_render_buffers->get_texture_slice(context, name, v, 0);
+		if (p_can_use_storage) {
+			p_copy_effects->gaussian_glow(source, dest, size, 1.0, true, cap, 1.0, 1.0, cap, 1.0);
+			for (int i = 1; i < mipmaps; i++) {
+				source = dest;
+				dest = p_render_buffers->get_texture_slice(context, name, v, i);
+				p_copy_effects->gaussian_glow(source, dest, p_render_buffers->get_texture_slice_size(context, name, i), 1.0);
+			}
+		} else {
+			p_copy_effects->gaussian_glow_downsample_raster(source, dest, luminance_multiplier, p_source_size, 1.0, true, cap, 1.0, 1.0, cap, 1.0);
+			for (int i = 1; i < mipmaps; i++) {
+				const Size2i source_size = p_render_buffers->get_texture_slice_size(context, name, i - 1);
+				source = dest;
+				dest = p_render_buffers->get_texture_slice(context, name, v, i);
+				p_copy_effects->gaussian_glow_downsample_raster(source, dest, luminance_multiplier, source_size, 1.0);
+			}
+		}
+	}
+	r_size = size;
+	r_mipmaps = mipmaps;
+	return chain;
+}
+
+// The CameraAttributes LUT for a tonemap pass. The texture is always bound, so it falls back to the default 3D
+// texture, and the LUT stays off unless the camera's texture is a real 3D texture.
+static void _setup_camera_lut(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_camera_attributes, bool p_can_use_effects) {
+	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
+	r_tonemap.camera_lut_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+	if (!p_can_use_effects) {
+		return;
+	}
+	const uint32_t packed = RSG::camera_attributes->camera_attributes_get_lut_packed(p_camera_attributes);
+	if (packed == 0) {
+		return;
+	}
+	const RID rd_texture = texture_storage->texture_get_rd_texture(RSG::camera_attributes->camera_attributes_get_lut_texture(p_camera_attributes));
+	if (rd_texture.is_valid() && RD::get_singleton()->texture_get_format(rd_texture).texture_type == RD::TEXTURE_TYPE_3D) {
+		r_tonemap.camera_lut = packed;
+		r_tonemap.camera_lut_texture = rd_texture;
+	}
+}
+
+/* Color grading */
+
+void RendererSceneRenderRD::_update_color_grading(const RenderDataRD *p_render_data) {
+	if (p_render_data->reflection_probe.is_valid() || p_render_data->render_buffers.is_null() || p_render_data->environment.is_null()) {
+		return;
+	}
+	const RID environment = p_render_data->environment;
+	if (!environment_get_color_grading_enabled(environment)) {
+		return;
+	}
+	if (!color_grading) {
+		color_grading = memnew(RendererRD::ColorGrading);
+	}
+	// The user LUT as the tonemap pass binds it (see the tonemap settings below).
+	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
+	const bool linear_output = texture_storage->render_target_is_using_hdr(p_render_data->render_buffers->get_render_target());
+	RID user_lut;
+	bool user_lut_1d = false;
+	if (environment_get_adjustments_enabled(environment) && environment_get_color_correction(environment).is_valid()) {
+		user_lut = texture_storage->texture_get_rd_texture(environment_get_color_correction(environment), linear_output);
+		user_lut_1d = environment_get_use_1d_color_correction(environment);
+	}
+	color_grading->get_lut(environment, user_lut, user_lut_1d, linear_output, true);
+}
+
+/* Environment effects */
+
+// The EnvironmentEffects uniform buffer (the Custom tonemapper's curve), before any render pass begins: the Mobile
+// renderer's subpass tonemap runs inside one, where buffers cannot be updated.
+void RendererSceneRenderRD::_update_environment_effects(const RenderDataRD *p_render_data) {
+	if (p_render_data->reflection_probe.is_valid() || p_render_data->render_buffers.is_null() || p_render_data->environment.is_null()) {
+		return;
+	}
+	tone_mapper->get_environment_effects_buffer(p_render_data->render_buffers, p_render_data->environment, true);
+}
+
+// The Environment's color grading goes into the color correction slot: one LUT holding the grade and then the user's
+// own color correction LUT, applied after brightness/contrast/saturation (which it turns on, neutral, when the
+// adjustments are off).
+void RendererSceneRenderRD::_setup_color_grading(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_environment, bool p_update) {
+	if (!environment_get_color_grading_enabled(p_environment)) {
+		return;
+	}
+	if (!color_grading) {
+		if (!p_update) {
+			return;
+		}
+		color_grading = memnew(RendererRD::ColorGrading);
+	}
+	const RID user_lut = r_tonemap.use_color_correction ? r_tonemap.color_correction_texture : RID();
+	const RID lut = color_grading->get_lut(p_environment, user_lut, user_lut.is_valid() && r_tonemap.use_1d_color_correction, !r_tonemap.convert_to_srgb, p_update);
+	if (lut.is_null()) {
+		return;
+	}
+	if (!r_tonemap.use_bcs) {
+		r_tonemap.use_bcs = true;
+		r_tonemap.brightness = 1.0;
+		r_tonemap.contrast = 1.0;
+		r_tonemap.saturation = 1.0;
+	}
+	r_tonemap.use_color_correction = true;
+	r_tonemap.use_1d_color_correction = false;
+	r_tonemap.color_correction_texture = lut;
+	r_tonemap.color_correction_lattice = true;
+}
+
 void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -524,6 +684,56 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		using_dof = false;
 	}
 
+	// Light shafts: scattered sunlight is part of the scene's light, so it goes in first, before the lens (DOF), the
+	// shutter (motion blur) and the metering see the frame. The first directional light that opts in is the sun.
+	const RendererEnvironmentStorage::LightShafts light_shafts_settings = environment_get_light_shafts(p_render_data->environment);
+	if (can_use_effects && light_shafts_settings.enabled && light_shafts_settings.intensity > 0.0f && p_render_data->lights) {
+		RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
+		bool found = false;
+		Vector3 sun_direction;
+		for (uint32_t i = 0; i < p_render_data->lights->size(); i++) {
+			RID base = light_storage->light_instance_get_base_light((*p_render_data->lights)[i]);
+			if (light_storage->light_get_type(base) == RSE::LIGHT_DIRECTIONAL && light_storage->light_directional_get_light_shafts(base)) {
+				// A directional light shines along its -Z axis, so the sun is toward +Z.
+				sun_direction = light_storage->light_instance_get_base_transform((*p_render_data->lights)[i]).basis.get_column(2).normalized();
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			RENDER_TIMESTAMP("Light Shafts");
+			if (!light_shafts) {
+				light_shafts = memnew(RendererRD::LightShafts);
+			}
+			RendererRD::LightShafts::Parameters params;
+			params.color_size = color_size;
+			params.luminance_multiplier = rb->get_luminance_multiplier();
+			params.intensity = light_shafts_settings.intensity;
+			params.threshold = light_shafts_settings.threshold;
+			params.decay = light_shafts_settings.decay;
+			params.tint = light_shafts_settings.tint;
+			params.sample_count = light_shafts_settings.sample_count;
+			const float aspect = float(color_size.x) / float(color_size.y);
+			for (uint32_t i = 0; i < rb->get_view_count(); i++) {
+				params.sun = RendererEnvironmentStorage::light_shafts_compute_sun(sun_direction, p_render_data->scene_data->cam_transform, p_render_data->scene_data->view_projection[i], p_render_data->scene_data->cam_orthogonal, aspect);
+				if (params.sun.fade <= 0.0f) {
+					continue;
+				}
+				params.color = use_upscaled_texture ? rb->get_upscaled_texture(i) : rb->get_internal_texture(i);
+				if (can_use_storage) {
+					// Forward+: with MSAA the depth texture is the resolve target (an R32F texture).
+					params.depth = rb->get_depth_texture(i);
+					params.depth_is_resolved = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
+				} else {
+					// Mobile: as the raster DOF, the resolved copy with MSAA (render_forward_mobile.cpp requests it).
+					params.depth = p_use_msaa ? rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH, i, 0) : rb->get_depth_texture(i);
+					params.depth_is_resolved = p_use_msaa;
+				}
+				light_shafts->process(rb, i, params);
+			}
+		}
+	}
+
 	if (can_use_effects && using_dof) {
 		RENDER_TIMESTAMP("Depth of Field");
 		RD::get_singleton()->draw_command_begin_label("DOF");
@@ -552,7 +762,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				// In stereo p_render_data->z_near and p_render_data->z_far can be offset for our combined frustum.
 				float z_near = p_render_data->scene_data->view_projection[i].get_z_near();
 				float z_far = p_render_data->scene_data->view_projection[i].get_z_far();
-				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, msaa_resolved_depth);
+				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, p_render_data->scene_data->view_projection[i], msaa_resolved_depth);
 			};
 		} else {
 			// Set framebuffers.
@@ -575,10 +785,48 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				// In stereo p_render_data->z_near and p_render_data->z_far can be offset for our combined frustum.
 				float z_near = p_render_data->scene_data->view_projection[i].get_z_near();
 				float z_far = p_render_data->scene_data->view_projection[i].get_z_far();
-				bokeh_dof->bokeh_dof_raster(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal);
+				bokeh_dof->bokeh_dof_raster(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, p_render_data->scene_data->view_projection[i]);
 			}
 		}
 		RD::get_singleton()->draw_command_end_label();
+	}
+
+	// Camera motion blur and rolling shutter, in scene-linear light after DOF (the lens forms the image the shutter
+	// then records) and before auto exposure and glow, which see the blurred frame as a camera's metering would.
+	// Forward+ only: it needs the velocity buffer, which render_forward_clustered.cpp renders whenever this is on.
+	if (can_use_effects && can_use_storage && RSG::camera_attributes->camera_attributes_uses_shutter_motion(p_render_data->camera_attributes) && rb->has_velocity_buffer(false)) {
+		RENDER_TIMESTAMP("Camera Motion Blur");
+
+		if (!camera_motion_blur) {
+			camera_motion_blur = memnew(RendererRD::CameraMotionBlur);
+		}
+
+		const RendererCameraAttributes::ShutterMotion shutter = RSG::camera_attributes->camera_attributes_get_shutter_motion(p_render_data->camera_attributes, time_step);
+
+		RendererRD::CameraMotionBlur::Parameters params;
+		params.color_size = color_size;
+		params.depth_is_resolved = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
+		params.orthogonal = p_render_data->scene_data->cam_orthogonal;
+		params.blur_scale = shutter.blur_scale;
+		params.max_length = shutter.max_length;
+		params.rolling_shutter = shutter.rolling_shutter;
+		params.sample_count = RSG::camera_attributes->camera_attributes_get_motion_blur_sample_count();
+		params.frame = RSG::rasterizer->get_frame_number();
+
+		Projection correction;
+		correction.set_depth_correction(true, true, false);
+		const Projection &prev_proj = p_render_data->scene_data->prev_cam_projection;
+		const Projection &cur_proj = p_render_data->scene_data->cam_projection;
+		params.reprojection = (correction * prev_proj) * p_render_data->scene_data->prev_cam_transform.affine_inverse() * p_render_data->scene_data->cam_transform * (correction * cur_proj).inverse();
+
+		for (uint32_t i = 0; i < rb->get_view_count(); i++) {
+			params.color = use_upscaled_texture ? rb->get_upscaled_texture(i) : rb->get_internal_texture(i);
+			params.depth = rb->get_depth_texture(i);
+			params.velocity = rb->get_velocity_buffer(false, i);
+			params.z_near = p_render_data->scene_data->view_projection[i].get_z_near();
+			params.z_far = p_render_data->scene_data->view_projection[i].get_z_far();
+			camera_motion_blur->process(rb, i, params);
+		}
 	}
 
 	float auto_exposure_scale = 1.0;
@@ -597,13 +845,53 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		double step = RSG::camera_attributes->camera_attributes_get_auto_exposure_adjust_speed(p_render_data->camera_attributes) * time_step;
 		float auto_exposure_min_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_min_sensitivity(p_render_data->camera_attributes);
 		float auto_exposure_max_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_max_sensitivity(p_render_data->camera_attributes);
-		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate);
+		// Metering modes other than Average are compute reductions of their own (CameraMetering), writing the same
+		// luminance texture; Average, and every mode without storage (Mobile), is the original reduction.
+		const RendererCameraAttributes::AutoExposureMetering metering = RSG::camera_attributes->camera_attributes_get_auto_exposure_metering(p_render_data->camera_attributes, rb->get_internal_size());
+		if (metering.mode != RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE && can_use_storage) {
+			if (!camera_metering) {
+				camera_metering = memnew(RendererRD::CameraMetering);
+			}
+			RendererRD::CameraMetering::ExposureSettings metering_settings;
+			metering_settings.metering = metering;
+			metering_settings.min_luminance = auto_exposure_min_sensitivity;
+			metering_settings.max_luminance = auto_exposure_max_sensitivity;
+			metering_settings.adjust = step;
+			metering_settings.set = set_immediate;
+			camera_metering->meter_exposure(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, camera_metering->get_buffers(rb), metering_settings);
+		} else {
+			luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate, metering.log_average);
+		}
 
 		// Swap final reduce with prev luminance.
 
 		auto_exposure_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_render_data->camera_attributes);
 
 		RenderingServerDefault::redraw_request(); // Redraw all the time if auto exposure rendering is on.
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	// Auto white balance: estimates the illuminant from the same frame auto exposure meters, after it, so it knows
+	// which pixels the tonemapper will clip. Compute, so Forward+ only.
+	RID auto_white_balance_state;
+	if (can_use_effects && can_use_storage && RSG::camera_attributes->camera_attributes_uses_auto_white_balance(p_render_data->camera_attributes)) {
+		RENDER_TIMESTAMP("Auto White Balance");
+		RD::get_singleton()->draw_command_begin_label("Auto White Balance");
+
+		if (!camera_metering) {
+			camera_metering = memnew(RendererRD::CameraMetering);
+		}
+		RendererRD::CameraMetering::WhiteBalanceSettings awb_settings;
+		awb_settings.awb = RSG::camera_attributes->camera_attributes_get_auto_white_balance(p_render_data->camera_attributes);
+		awb_settings.time_step = time_step;
+		awb_settings.exposure = p_render_data->environment.is_valid() ? environment_get_exposure(p_render_data->environment) : 1.0f;
+		awb_settings.luminance_multiplier = rb->get_luminance_multiplier();
+		awb_settings.use_auto_exposure = RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
+		awb_settings.auto_exposure_texture = luminance->get_current_luminance_buffer(rb);
+		awb_settings.auto_exposure_scale = auto_exposure_scale;
+		auto_white_balance_state = camera_metering->auto_white_balance(rb->get_internal_texture(), rb->get_internal_size(), camera_metering->get_buffers(rb), awb_settings);
+
+		RenderingServerDefault::redraw_request(); // It adapts over time, as auto exposure does.
 		RD::get_singleton()->draw_command_end_label();
 	}
 
@@ -702,6 +990,43 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		}
 	}
 
+	// Glare (CameraAttributes starburst and halation, Environment lens flare, veiling glare and diffusion filter): the
+	// tonemap pass reads it from its own mip chain of the frame, built here after DOF and motion blur.
+	const CameraGlareEnvironment glare_environment = p_render_data->environment.is_valid() ? environment_get_camera_glare(p_render_data->environment) : CameraGlareEnvironment();
+	RID glare_chain;
+	Size2i glare_chain_size;
+	int glare_chain_mipmaps = 0;
+	Vector2 glare_chain_blur;
+	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_glare(p_render_data->camera_attributes, glare_environment)) {
+		RENDER_TIMESTAMP("Camera Glare");
+		RD::get_singleton()->draw_command_begin_label("Camera Glare");
+		const bool glare_full_resolution = RSG::camera_attributes->camera_attributes_uses_full_resolution_glare(p_render_data->camera_attributes);
+		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_full_resolution, glare_chain_size, glare_chain_mipmaps, glare_chain_blur);
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	// Local exposure: the bilateral grid of the frame the tonemap pass reads, after everything that changes it, with the
+	// exposure the tonemapper applies (auto exposure included). Compute, so Forward+ only; one view only.
+	RID local_exposure_grid;
+	if (can_use_effects && can_use_storage && rb->get_view_count() == 1 && RSG::camera_attributes->camera_attributes_uses_local_exposure(p_render_data->camera_attributes)) {
+		RENDER_TIMESTAMP("Local Exposure");
+		RD::get_singleton()->draw_command_begin_label("Local Exposure");
+
+		if (!camera_local_exposure) {
+			camera_local_exposure = memnew(RendererRD::CameraLocalExposure);
+		}
+		RendererRD::CameraLocalExposure::Settings local_exposure_settings;
+		local_exposure_settings.local_exposure = RSG::camera_attributes->camera_attributes_get_local_exposure(p_render_data->camera_attributes, color_size);
+		local_exposure_settings.exposure = p_render_data->environment.is_valid() ? environment_get_exposure(p_render_data->environment) : 1.0f;
+		local_exposure_settings.luminance_multiplier = rb->get_luminance_multiplier();
+		local_exposure_settings.use_auto_exposure = RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
+		local_exposure_settings.auto_exposure_texture = luminance->get_current_luminance_buffer(rb);
+		local_exposure_settings.auto_exposure_scale = auto_exposure_scale;
+		local_exposure_grid = camera_local_exposure->build_grid(color_texture, color_size, camera_local_exposure->get_buffers(rb), local_exposure_settings);
+
+		RD::get_singleton()->draw_command_end_label();
+	}
+
 	{
 		RENDER_TIMESTAMP("Tonemap");
 		RD::get_singleton()->draw_command_begin_label("Tonemap");
@@ -774,12 +1099,14 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 			tonemap.exposure = environment_get_exposure(p_render_data->environment);
 			tonemap.max_value = max_value;
+			tonemap.environment_effects_buffer = tone_mapper->get_environment_effects_buffer(rb, p_render_data->environment, true);
 		}
 
 		tonemap.use_color_correction = false;
 		tonemap.use_1d_color_correction = false;
 		tonemap.color_correction_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 		tonemap.convert_to_srgb = !using_hdr;
+		tonemap.opaque_alpha = texture_storage->render_target_needs_opaque_alpha(render_target);
 
 		if (can_use_effects && p_render_data->environment.is_valid()) {
 			tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
@@ -791,6 +1118,9 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 				tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 			}
+		}
+		if (can_use_effects && p_render_data->environment.is_valid()) {
+			_setup_color_grading(tonemap, p_render_data->environment, true);
 		}
 
 		tonemap.luminance_multiplier = rb->get_luminance_multiplier();
@@ -824,6 +1154,39 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 
 			tonemap.dest_texture_size = texture_storage->render_target_get_size(render_target);
 			tonemap.bilinear_filtering = scale_mode != RSE::VIEWPORT_SCALING_3D_MODE_NEAREST;
+		}
+
+		// Grain is a camera setting too, but noise has no place in the debug draw modes. It is sized for the pixels
+		// this pass writes.
+		if (can_use_effects) {
+			tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, tonemap.dest_texture_size.y, RSG::rasterizer->get_frame_number());
+		}
+		_setup_camera_lut(tonemap, p_render_data->camera_attributes, can_use_effects);
+
+		// The CameraEffects uniform buffer (lens optics), updated here because the tonemap pass's draw list cannot.
+		if (can_use_effects) {
+			CameraEffectsContext camera_effects_context;
+			camera_effects_context.source_size = color_size;
+			camera_effects_context.output_size = tonemap.dest_texture_size;
+			camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+			camera_effects_context.glare_environment = glare_environment;
+			if (glare_chain.is_valid()) {
+				camera_effects_context.glare_chain_size = glare_chain_size;
+				camera_effects_context.glare_chain_mipmaps = glare_chain_mipmaps;
+				camera_effects_context.glare_chain_blur = glare_chain_blur;
+				camera_effects_context.glare_chain_raster = !can_use_storage;
+				tonemap.glare_texture = glare_chain;
+			}
+			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();
+			camera_effects_context.local_exposure = local_exposure_grid.is_valid();
+			// Panini projection: the camera's field of view, for a single perspective view only.
+			if (!p_render_data->scene_data->cam_orthogonal && p_render_data->scene_data->view_count == 1) {
+				const Projection &cam_projection = p_render_data->scene_data->cam_projection;
+				camera_effects_context.projection_tan_half = Vector2(1.0 / cam_projection.columns[0][0], 1.0 / cam_projection.columns[1][1]);
+			}
+			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
+			tonemap.auto_white_balance_texture = auto_white_balance_state;
+			tonemap.local_exposure_grid = local_exposure_grid;
 		}
 
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
@@ -976,6 +1339,8 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.exposure = environment_get_exposure(p_render_data->environment);
 		tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 		tonemap.max_value = max_value;
+		// Inside the render pass: _update_environment_effects() filled the buffer before it began.
+		tonemap.environment_effects_buffer = tone_mapper->get_environment_effects_buffer(rb, p_render_data->environment, false);
 	}
 
 	// We don't support glow or auto exposure here, if they are needed, don't use subpasses!
@@ -999,6 +1364,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	tonemap.use_1d_color_correction = false;
 	tonemap.color_correction_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 	tonemap.convert_to_srgb = !using_hdr;
+	tonemap.opaque_alpha = texture_storage->render_target_needs_opaque_alpha(rb->get_render_target());
 
 	if (can_use_effects && p_render_data->environment.is_valid()) {
 		tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
@@ -1011,6 +1377,10 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 			tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 		}
 	}
+	if (can_use_effects && p_render_data->environment.is_valid()) {
+		// Inside the render pass: _update_color_grading() made the LUT before it began.
+		_setup_color_grading(tonemap, p_render_data->environment, false);
+	}
 
 	tonemap.texture_size = Vector2i(target_size.x, target_size.y);
 
@@ -1019,6 +1389,10 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.use_white_balance = true;
 		tonemap.white_balance_gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(p_render_data->camera_attributes);
 	}
+	if (can_use_effects) {
+		tonemap.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(p_render_data->camera_attributes, target_size.y, RSG::rasterizer->get_frame_number());
+	}
+	_setup_camera_lut(tonemap, p_render_data->camera_attributes, can_use_effects);
 	tonemap.view_count = rb->get_view_count();
 
 	if (rb->get_use_debanding() && !using_hdr) {
@@ -1547,8 +1921,26 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 		clear_color = RSG::texture_storage->get_default_clear_color();
 	}
 
+	// The color grading LUT, before any render pass begins: the Mobile renderer's subpass tonemap cannot dispatch.
+	_update_color_grading(&render_data);
+	_update_environment_effects(&render_data);
+
 	//calls _pre_opaque_render between depth pre-pass and opaque pass
 	_render_scene(&render_data, clear_color);
+
+	// The camera finish pass: what the camera does to its image after tonemapping, and what its monitor draws over
+	// it. Last of all, so nothing reads the overlays back; it returns at once when nothing in it is on.
+	if (p_reflection_probe.is_null() && camera_finish) {
+		RendererRD::CameraFinish::Settings finish;
+		if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+			finish.camera = RSG::camera_attributes->camera_attributes_get_finish(render_data.camera_attributes, rb->get_target_size().y);
+		}
+		finish.monitoring = p_camera_data->monitoring;
+		finish.time = time;
+		if (RendererRD::CameraFinish::is_active(finish)) {
+			camera_finish->process(rb, finish);
+		}
+	}
 }
 
 void RendererSceneRenderRD::render_material(const Transform3D &p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region) {
@@ -1572,6 +1964,19 @@ void RendererSceneRenderRD::render_particle_collider_heightfield(RID p_collider,
 	RID fb = particles_storage->particles_collision_get_heightfield_framebuffer(p_collider);
 
 	_render_particle_collider_heightfield(fb, cam_xform, cm, p_instances);
+}
+
+void RendererSceneRenderRD::camera_monitoring_free(RID p_camera) {
+	RendererSceneRender::camera_monitoring_free(p_camera);
+	if (camera_finish) {
+		camera_finish->free_camera(p_camera);
+	}
+}
+
+void RendererSceneRenderRD::camera_monitoring_clean_texture_free(RID p_camera) {
+	if (camera_finish) {
+		camera_finish->free_camera_clean_frame(p_camera);
+	}
 }
 
 bool RendererSceneRenderRD::free(RID p_rid) {
@@ -1868,6 +2273,8 @@ void RendererSceneRenderRD::init() {
 
 	RSG::camera_attributes->camera_attributes_set_dof_blur_bokeh_shape(RSE::DOFBokehShape(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_shape"))));
 	RSG::camera_attributes->camera_attributes_set_dof_blur_quality(RSE::DOFBlurQuality(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_quality"))), GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_use_jitter"));
+	RSG::camera_attributes->camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality(int(GLOBAL_GET("rendering/camera/motion_blur/motion_blur_quality"))));
+	environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality(int(GLOBAL_GET("rendering/environment/light_shafts/quality"))));
 	use_physical_light_units = GLOBAL_GET("rendering/lights_and_shadows/use_physical_light_units");
 
 	screen_space_roughness_limiter = GLOBAL_GET("rendering/anti_aliasing/screen_space_roughness_limiter/enabled");
@@ -1931,6 +2338,7 @@ void RendererSceneRenderRD::init() {
 	debug_effects = memnew(RendererRD::DebugEffects);
 	luminance = memnew(RendererRD::Luminance(!can_use_storage));
 	smaa = memnew(RendererRD::SMAA);
+	camera_finish = memnew(RendererRD::CameraFinish);
 	tone_mapper = memnew(RendererRD::ToneMapper(!can_use_storage));
 	if (can_use_vrs) {
 		vrs = memnew(RendererRD::VRS);
@@ -1948,10 +2356,26 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	memdelete(forward_id_storage);
 
 	memdelete(bokeh_dof);
+	if (camera_motion_blur) {
+		memdelete(camera_motion_blur);
+	}
+	if (camera_metering) {
+		memdelete(camera_metering);
+	}
+	if (camera_local_exposure) {
+		memdelete(camera_local_exposure);
+	}
+	if (light_shafts) {
+		memdelete(light_shafts);
+	}
+	if (color_grading) {
+		memdelete(color_grading);
+	}
 	memdelete(copy_effects);
 	memdelete(debug_effects);
 	memdelete(luminance);
 	memdelete(smaa);
+	memdelete(camera_finish);
 	memdelete(tone_mapper);
 	memdelete(vrs);
 	memdelete(fsr);

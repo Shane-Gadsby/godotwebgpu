@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/io/resource.h"
+#include "scene/resources/curve.h"
 #include "scene/resources/texture.h"
 
 class Sky;
@@ -68,6 +69,7 @@ public:
 		TONE_MAPPER_FILMIC,
 		TONE_MAPPER_ACES,
 		TONE_MAPPER_AGX,
+		TONE_MAPPER_CUSTOM,
 	};
 
 	enum SDFGIYScale {
@@ -120,6 +122,14 @@ private:
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
 	void _update_tonemap();
 
+	// Custom tonemap: Unreal Engine's Film tonemapper parameters, at its defaults.
+	float tonemap_custom_slope = 0.88;
+	float tonemap_custom_toe = 0.55;
+	float tonemap_custom_shoulder = 0.26;
+	float tonemap_custom_black_clip = 0.0;
+	float tonemap_custom_white_clip = 0.04;
+	void _update_tonemap_custom();
+
 	// SSR
 	bool ssr_enabled = false;
 	int ssr_max_steps = 64;
@@ -149,6 +159,12 @@ private:
 
 	void _update_ssil();
 
+	// Micro shadows
+	bool micro_shadows_enabled = false;
+	float micro_shadows_opacity = 1.0;
+
+	void _update_micro_shadows();
+
 	// SDFGI
 	bool sdfgi_enabled = false;
 	int sdfgi_cascades = 4;
@@ -177,6 +193,30 @@ private:
 	float glow_map_strength = 0.8f;
 	Ref<Texture> glow_map;
 	void _update_glow();
+
+	// Glare
+	bool lens_flare_enabled = false;
+	float lens_flare_intensity = 1.0;
+	float lens_flare_threshold = 1.0;
+	int lens_flare_ghost_count = 4;
+	float lens_flare_halo_intensity = 1.0;
+	float lens_flare_chromatic_aberration = 1.0;
+	void _update_lens_flare();
+	bool veiling_glare_enabled = false;
+	float veiling_glare_strength = 1.0;
+	void _update_veiling_glare();
+	bool diffusion_filter_enabled = false;
+	float diffusion_filter_strength = 0.25;
+	bool diffusion_filter_black = false;
+	void _update_diffusion_filter();
+
+	// Light shafts
+	bool light_shafts_enabled = false;
+	float light_shafts_intensity = 1.0;
+	float light_shafts_threshold = 1.0;
+	float light_shafts_decay = 2.0;
+	Color light_shafts_tint = Color(1, 1, 1);
+	void _update_light_shafts();
 
 	// Fog
 	bool fog_enabled = false;
@@ -223,6 +263,42 @@ private:
 	bool use_1d_color_correction = true;
 	Ref<Texture> adjustment_color_correction;
 	void _update_adjustment();
+
+	// Color grading
+	bool grading_enabled = false;
+	Color grading_color_filter = Color(1, 1, 1);
+	float grading_hue_shift = 0.0;
+	float grading_vibrance = 0.0;
+	Color grading_lift = Color(0, 0, 0);
+	Color grading_gamma = Color(1, 1, 1);
+	Color grading_gain = Color(1, 1, 1);
+	Color grading_shadows = Color(1, 1, 1);
+	Color grading_midtones = Color(1, 1, 1);
+	Color grading_highlights = Color(1, 1, 1);
+	float grading_shadows_start = 0.0;
+	float grading_shadows_end = 0.3;
+	float grading_highlights_start = 0.55;
+	float grading_highlights_end = 1.0;
+	Vector3 grading_channel_mixer_red = Vector3(1, 0, 0);
+	Vector3 grading_channel_mixer_green = Vector3(0, 1, 0);
+	Vector3 grading_channel_mixer_blue = Vector3(0, 0, 1);
+	Color grading_split_toning_shadows = Color(0.5, 0.5, 0.5);
+	Color grading_split_toning_highlights = Color(0.5, 0.5, 0.5);
+	float grading_split_toning_balance = 0.0;
+	Ref<Curve> grading_curve_master;
+	Ref<Curve> grading_curve_red;
+	Ref<Curve> grading_curve_green;
+	Ref<Curve> grading_curve_blue;
+	Ref<Curve> grading_curve_hue_vs_hue;
+	Ref<Curve> grading_curve_hue_vs_sat;
+	Ref<Curve> grading_curve_sat_vs_sat;
+	Ref<Curve> grading_curve_lum_vs_sat;
+	void _update_color_grading();
+	void _update_color_grading_tones();
+	void _update_color_grading_channel_mixer();
+	void _update_color_grading_split_toning();
+	void _update_color_grading_curves();
+	void _set_color_grading_curve(Ref<Curve> &r_member, const Ref<Curve> &p_curve);
 
 protected:
 	static void _bind_methods();
@@ -279,6 +355,18 @@ public:
 	void set_tonemap_agx_contrast(float p_agx_contrast);
 	float get_tonemap_agx_contrast() const;
 
+	// Custom tonemap
+	void set_tonemap_custom_slope(float p_slope);
+	float get_tonemap_custom_slope() const;
+	void set_tonemap_custom_toe(float p_toe);
+	float get_tonemap_custom_toe() const;
+	void set_tonemap_custom_shoulder(float p_shoulder);
+	float get_tonemap_custom_shoulder() const;
+	void set_tonemap_custom_black_clip(float p_black_clip);
+	float get_tonemap_custom_black_clip() const;
+	void set_tonemap_custom_white_clip(float p_white_clip);
+	float get_tonemap_custom_white_clip() const;
+
 	// SSR
 	void set_ssr_enabled(bool p_enabled);
 	bool is_ssr_enabled() const;
@@ -322,6 +410,12 @@ public:
 	float get_ssil_sharpness() const;
 	void set_ssil_normal_rejection(float p_normal_rejection);
 	float get_ssil_normal_rejection() const;
+
+	// Micro shadows
+	void set_micro_shadows_enabled(bool p_enabled);
+	bool is_micro_shadows_enabled() const;
+	void set_micro_shadows_opacity(float p_opacity);
+	float get_micro_shadows_opacity() const;
 
 	// SDFGI
 	void set_sdfgi_enabled(bool p_enabled);
@@ -376,6 +470,42 @@ public:
 	float get_glow_map_strength() const;
 	void set_glow_map(Ref<Texture> p_glow_map);
 	Ref<Texture> get_glow_map() const;
+
+	// Glare: lens flare, veiling glare and diffusion filter (applied with the camera's glare in the tonemap pass).
+	void set_lens_flare_enabled(bool p_value);
+	bool is_lens_flare_enabled() const;
+	void set_lens_flare_intensity(float p_value);
+	float get_lens_flare_intensity() const;
+	void set_lens_flare_threshold(float p_value);
+	float get_lens_flare_threshold() const;
+	void set_lens_flare_ghost_count(int p_value);
+	int get_lens_flare_ghost_count() const;
+	void set_lens_flare_halo_intensity(float p_value);
+	float get_lens_flare_halo_intensity() const;
+	void set_lens_flare_chromatic_aberration(float p_value);
+	float get_lens_flare_chromatic_aberration() const;
+	void set_veiling_glare_enabled(bool p_value);
+	bool is_veiling_glare_enabled() const;
+	void set_veiling_glare_strength(float p_value);
+	float get_veiling_glare_strength() const;
+	void set_diffusion_filter_enabled(bool p_value);
+	bool is_diffusion_filter_enabled() const;
+	void set_diffusion_filter_strength(float p_value);
+	float get_diffusion_filter_strength() const;
+	void set_diffusion_filter_black(bool p_value);
+	bool is_diffusion_filter_black() const;
+
+	// Light shafts
+	void set_light_shafts_enabled(bool p_enabled);
+	bool is_light_shafts_enabled() const;
+	void set_light_shafts_intensity(float p_intensity);
+	float get_light_shafts_intensity() const;
+	void set_light_shafts_threshold(float p_threshold);
+	float get_light_shafts_threshold() const;
+	void set_light_shafts_decay(float p_decay);
+	float get_light_shafts_decay() const;
+	void set_light_shafts_tint(const Color &p_tint);
+	Color get_light_shafts_tint() const;
 
 	// Fog
 
@@ -448,6 +578,64 @@ public:
 	float get_adjustment_saturation() const;
 	void set_adjustment_color_correction(Ref<Texture> p_color_correction);
 	Ref<Texture> get_adjustment_color_correction() const;
+
+	// Color grading
+	void set_grading_enabled(bool p_enabled);
+	bool is_grading_enabled() const;
+	void set_grading_color_filter(const Color &p_color_filter);
+	Color get_grading_color_filter() const;
+	void set_grading_hue_shift(float p_hue_shift);
+	float get_grading_hue_shift() const;
+	void set_grading_vibrance(float p_vibrance);
+	float get_grading_vibrance() const;
+	void set_grading_lift(const Color &p_lift);
+	Color get_grading_lift() const;
+	void set_grading_gamma(const Color &p_gamma);
+	Color get_grading_gamma() const;
+	void set_grading_gain(const Color &p_gain);
+	Color get_grading_gain() const;
+	void set_grading_shadows(const Color &p_shadows);
+	Color get_grading_shadows() const;
+	void set_grading_midtones(const Color &p_midtones);
+	Color get_grading_midtones() const;
+	void set_grading_highlights(const Color &p_highlights);
+	Color get_grading_highlights() const;
+	void set_grading_shadows_start(float p_shadows_start);
+	float get_grading_shadows_start() const;
+	void set_grading_shadows_end(float p_shadows_end);
+	float get_grading_shadows_end() const;
+	void set_grading_highlights_start(float p_highlights_start);
+	float get_grading_highlights_start() const;
+	void set_grading_highlights_end(float p_highlights_end);
+	float get_grading_highlights_end() const;
+	void set_grading_channel_mixer_red(const Vector3 &p_channel_mixer_red);
+	Vector3 get_grading_channel_mixer_red() const;
+	void set_grading_channel_mixer_green(const Vector3 &p_channel_mixer_green);
+	Vector3 get_grading_channel_mixer_green() const;
+	void set_grading_channel_mixer_blue(const Vector3 &p_channel_mixer_blue);
+	Vector3 get_grading_channel_mixer_blue() const;
+	void set_grading_split_toning_shadows(const Color &p_split_toning_shadows);
+	Color get_grading_split_toning_shadows() const;
+	void set_grading_split_toning_highlights(const Color &p_split_toning_highlights);
+	Color get_grading_split_toning_highlights() const;
+	void set_grading_split_toning_balance(float p_split_toning_balance);
+	float get_grading_split_toning_balance() const;
+	void set_grading_curve_master(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_master() const;
+	void set_grading_curve_red(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_red() const;
+	void set_grading_curve_green(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_green() const;
+	void set_grading_curve_blue(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_blue() const;
+	void set_grading_curve_hue_vs_hue(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_hue_vs_hue() const;
+	void set_grading_curve_hue_vs_sat(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_hue_vs_sat() const;
+	void set_grading_curve_sat_vs_sat(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_sat_vs_sat() const;
+	void set_grading_curve_lum_vs_sat(const Ref<Curve> &p_curve);
+	Ref<Curve> get_grading_curve_lum_vs_sat() const;
 
 	Environment();
 	~Environment();

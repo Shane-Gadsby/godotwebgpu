@@ -268,6 +268,14 @@ RendererEnvironmentStorage::TonemapParameters RendererSceneRender::environment_g
 	return environment_storage.environment_get_tonemap_parameters(p_env, p_limit_agx_white, p_output_max_value);
 }
 
+void RendererSceneRender::environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	environment_storage.environment_set_tonemap_custom(p_env, p_slope, p_toe, p_shoulder, p_black_clip, p_white_clip);
+}
+
+bool RendererSceneRender::environment_fill_effects_buffer(RID p_env, RendererEnvironmentStorage::EnvironmentEffectsUBO &r_ubo) const {
+	return environment_storage.environment_fill_effects_buffer(p_env, r_ubo);
+}
+
 // Fog
 
 void RendererSceneRender::environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode) {
@@ -444,6 +452,38 @@ RID RendererSceneRender::environment_get_glow_map(RID p_env) const {
 	return environment_storage.environment_get_glow_map(p_env);
 }
 
+// Glare
+
+void RendererSceneRender::environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) {
+	environment_storage.environment_set_lens_flare(p_env, p_enable, p_intensity, p_threshold, p_ghost_count, p_halo_intensity, p_chromatic_aberration);
+}
+
+void RendererSceneRender::environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) {
+	environment_storage.environment_set_veiling_glare(p_env, p_enable, p_strength);
+}
+
+void RendererSceneRender::environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) {
+	environment_storage.environment_set_diffusion_filter(p_env, p_enable, p_strength, p_black);
+}
+
+CameraGlareEnvironment RendererSceneRender::environment_get_camera_glare(RID p_env) const {
+	return environment_storage.environment_get_camera_glare(p_env);
+}
+
+// Light shafts
+
+void RendererSceneRender::environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) {
+	environment_storage.environment_set_light_shafts(p_env, p_enable, p_intensity, p_threshold, p_decay, p_tint);
+}
+
+void RendererSceneRender::environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) {
+	environment_storage.environment_set_light_shafts_quality(p_quality);
+}
+
+RendererEnvironmentStorage::LightShafts RendererSceneRender::environment_get_light_shafts(RID p_env) const {
+	return environment_storage.environment_get_light_shafts(p_env);
+}
+
 // SSR
 
 void RendererSceneRender::environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance) {
@@ -538,6 +578,20 @@ float RendererSceneRender::environment_get_ssil_normal_rejection(RID p_env) cons
 	return environment_storage.environment_get_ssil_normal_rejection(p_env);
 }
 
+// Micro shadows
+
+void RendererSceneRender::environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) {
+	environment_storage.environment_set_micro_shadows(p_env, p_enable, p_opacity);
+}
+
+bool RendererSceneRender::environment_get_micro_shadows_enabled(RID p_env) const {
+	return environment_storage.environment_get_micro_shadows_enabled(p_env);
+}
+
+float RendererSceneRender::environment_get_micro_shadows_opacity(RID p_env) const {
+	return environment_storage.environment_get_micro_shadows_opacity(p_env);
+}
+
 // SDFGI
 
 void RendererSceneRender::environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RSE::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias) {
@@ -612,4 +666,65 @@ bool RendererSceneRender::environment_get_use_1d_color_correction(RID p_env) con
 
 RID RendererSceneRender::environment_get_color_correction(RID p_env) const {
 	return environment_storage.environment_get_color_correction(p_env);
+}
+
+/* Color grading */
+
+void RendererSceneRender::environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) {
+	environment_storage.environment_set_color_grading(p_env, p_enable, p_color_filter, p_hue_shift, p_vibrance, p_lift, p_gamma, p_gain);
+}
+
+void RendererSceneRender::environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) {
+	environment_storage.environment_set_color_grading_shadows_midtones_highlights(p_env, p_shadows, p_midtones, p_highlights, p_shadows_start, p_shadows_end, p_highlights_start, p_highlights_end);
+}
+
+void RendererSceneRender::environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) {
+	environment_storage.environment_set_color_grading_channel_mixer(p_env, p_red, p_green, p_blue);
+}
+
+void RendererSceneRender::environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) {
+	environment_storage.environment_set_color_grading_split_toning(p_env, p_shadows, p_highlights, p_balance);
+}
+
+void RendererSceneRender::environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) {
+	environment_storage.environment_set_color_grading_curves(p_env, p_master, p_red, p_green, p_blue, p_hue_vs_hue, p_hue_vs_sat, p_sat_vs_sat, p_lum_vs_sat);
+}
+
+bool RendererSceneRender::environment_get_color_grading_enabled(RID p_env) const {
+	return environment_storage.environment_get_color_grading_enabled(p_env);
+}
+
+uint64_t RendererSceneRender::environment_get_color_grading_version(RID p_env) const {
+	return environment_storage.environment_get_color_grading_version(p_env);
+}
+
+Vector<uint8_t> RendererSceneRender::environment_bake_color_grading(RID p_env) const {
+	return environment_storage.environment_bake_color_grading(p_env);
+}
+
+/* Camera monitoring histogram readback */
+
+void RendererSceneRender::camera_monitoring_histogram_publish(RID p_camera, const CameraHistogramReadback &p_readback) {
+	MutexLock lock(camera_histogram_mutex);
+	CameraHistogramReadback &readback = camera_histograms[p_camera];
+	readback = p_readback;
+	readback.serial = ++camera_histogram_serial; // Server-wide, so a serial never repeats for a camera.
+}
+
+PackedInt32Array RendererSceneRender::camera_monitoring_histogram_get(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const {
+	ERR_FAIL_INDEX_V((int)p_channel, RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE + 1, PackedInt32Array());
+	MutexLock lock(camera_histogram_mutex);
+	const CameraHistogramReadback *readback = camera_histograms.getptr(p_camera);
+	return readback ? readback->channels[p_channel] : PackedInt32Array();
+}
+
+uint64_t RendererSceneRender::camera_monitoring_histogram_get_serial(RID p_camera) const {
+	MutexLock lock(camera_histogram_mutex);
+	const CameraHistogramReadback *readback = camera_histograms.getptr(p_camera);
+	return readback ? readback->serial : 0;
+}
+
+void RendererSceneRender::camera_monitoring_free(RID p_camera) {
+	MutexLock lock(camera_histogram_mutex);
+	camera_histograms.erase(p_camera);
 }

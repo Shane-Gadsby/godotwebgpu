@@ -1,0 +1,8 @@
+{"adapter":"NVIDIA GeForce RTX 4080 SUPER","kind":"start","params":{"ae":"0","cpu2":"-1","cpu_ms":"0","dur":"60","gpu":"1","iters":"3000","iters2":"0","load2_at":"0","mode":"sweep","target":"60","up":"bilinear"},"renderer":"forward_plus","size":[1920,1080],"t":0.004,"web":false}
+{"done_med":-1.0,"draw_cpu_med":13.436,"engine_gpu_mean":13.8628464765327,"frame_med":13.8888888888889,"frame_p90":13.8888888888889,"frames":215,"gpu_mean":13.8628464765327,"internal":[1920,1080],"kind":"sweep","scale":1.0,"t":8.016}
+{"done_med":-1.0,"draw_cpu_med":10.648,"engine_gpu_mean":11.0262074329235,"frame_med":11.1111111111111,"frame_p90":11.1111111111111,"frames":270,"gpu_mean":11.0262074329235,"internal":[1632,918],"kind":"sweep","scale":0.85,"t":12.036}
+{"done_med":-1.0,"draw_cpu_med":8.331,"engine_gpu_mean":8.7730117347583,"frame_med":9.05236363636364,"frame_p90":9.25925925925926,"frames":341,"gpu_mean":8.7730117347583,"internal":[1344,756],"kind":"sweep","scale":0.7,"t":16.045}
+{"done_med":-1.0,"draw_cpu_med":6.954,"engine_gpu_mean":7.66767015881563,"frame_med":8.20239393939394,"frame_p90":8.33333333333333,"frames":382,"gpu_mean":7.66767015881563,"internal":[1152,648],"kind":"sweep","scale":0.6,"t":20.058}
+{"done_med":-1.0,"draw_cpu_med":4.669,"engine_gpu_mean":6.20535189537269,"frame_med":6.66666666666667,"frame_p90":7.40740740740741,"frames":449,"gpu_mean":6.20535189537269,"internal":[960,540],"kind":"sweep","scale":0.5,"t":24.069}
+{"done_med":-1.0,"draw_cpu_med":11.993,"engine_gpu_mean":14.0290660543262,"frame_med":14.2857142857143,"frame_p90":14.5833333333333,"frames":212,"gpu_mean":14.0290660543262,"internal":[1920,1080],"kind":"sweep","scale":1.0,"t":28.088}
+{"kind":"done","t":28.089}

@@ -1,0 +1,15 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.2s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 99%","preloadShown":true}
+0.6s download done {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true} {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":2,"/index.pck":1,"/index.shaders.pck":2,"/index.shaders_extra.bin":2,"/index.textures_bc.pck":1}
+PASS label says Ready (Ready)
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck, /index.wasm, /index.shaders.pck, /index.shaders_extra.bin)
+5.6s 5 s after the download {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true}
+PASS engine idle 5 s after the download (rtenv false, wasm compiles 0, requestDevice 0)
+5.6s pressed (ready)
+6.6s ready: overlay gone 0.97 s after the press
+requests to the game server: {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":2,"/index.pck":1,"/index.shaders.pck":2,"/index.shaders_extra.bin":2,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+FAIL each file requested exactly once (/index.html:1 /index.png:1 /index.js:1 /index.wasm:2 /index.pck:1 /index.shaders.pck:2 /index.shaders_extra.bin:2 /index.textures_bc.pck:1 /index.audio.worklet.js:1)
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: error: Failed to load resource: the server responded with a status of 404 (Not Found)
+RESULT FAIL (1)

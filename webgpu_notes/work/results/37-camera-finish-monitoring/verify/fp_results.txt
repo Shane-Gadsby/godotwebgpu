@@ -1,0 +1,78 @@
+== default vs pre-change editor (ramp)
+{"max_diff": 0.0, "pixels_differing": 0}
+== default vs pre-change editor (step)
+{"max_diff": 0.0, "pixels_differing": 0}
+== zebra 95
+{"fraction_above_level": 0.047, "stripe_coverage_x2": 0.0471, "changed_outside_marked": 0, "column_mismatch": 0, "columns_marked": 60}
+== zebra2 70 window
+{"fraction_above_level": 0.1027, "stripe_coverage_x2": 0.1026, "changed_outside_marked": 0, "column_mismatch": 0, "columns_marked": 131}
+== false color
+{"pixels": 639276, "match_within_2": 1.0, "max_err_8bit": 0.5}
+== histogram luma
+{"rect": [618, 378, 1258, 698], "columns": 640, "exact": 1.0, "within_1px": 1.0, "max_err_px": 0}
+== histogram rgb
+{"rect": [22, 22, 662, 342], "columns": 1920, "exact": 1.0, "within_1px": 1.0, "max_err_px": 0}
+== game run, overlays on, Visible in Output off (expect 0 diff)
+{"max_diff": 0.0, "pixels_differing": 0}
+EDITOR_HINT=true
+== editor-hint run, Visible in Output off (expect overlays drawn: false color matches the ARRI table)
+{"pixels": 2720608, "match_within_2": 0.89161, "max_err_8bit": 255.0}
+== NR vs strength (grain_intensity 4)
+{
+ "fp_nr_g4_s0.png": {
+  "luma_sigma_8bit": 5.595,
+  "cb_sigma_8bit": 5.896,
+  "cr_sigma_8bit": 6.042,
+  "edge_10_90_px": 0,
+  "step_height": 0.301
+ },
+ "fp_nr_g4_s0.5.png": {
+  "luma_sigma_8bit": 3.15,
+  "cb_sigma_8bit": 2.207,
+  "cr_sigma_8bit": 2.217,
+  "edge_10_90_px": 0,
+  "step_height": 0.301
+ },
+ "fp_nr_g4_s1.png": {
+  "luma_sigma_8bit": 1.953,
+  "cb_sigma_8bit": 1.426,
+  "cr_sigma_8bit": 1.44,
+  "edge_10_90_px": 0,
+  "step_height": 0.3007
+ },
+ "fp_nr_g4_s2.png": {
+  "luma_sigma_8bit": 0.979,
+  "cb_sigma_8bit": 0.917,
+  "cr_sigma_8bit": 0.931,
+  "edge_10_90_px": 0,
+  "step_height": 0.3008
+ },
+ "fp_nr_g4_s4.png": {
+  "luma_sigma_8bit": 0.656,
+  "cb_sigma_8bit": 0.674,
+  "cr_sigma_8bit": 0.686,
+  "edge_10_90_px": 4,
+  "step_height": 0.3009
+ },
+ "fp_nr_g4_chroma.png": {
+  "luma_sigma_8bit": 5.596,
+  "cb_sigma_8bit": 1.435,
+  "cr_sigma_8bit": 1.448,
+  "edge_10_90_px": 0,
+  "step_height": 0.301
+ }
+}
+== sharpen amount 0.5 radius 2 halo 1 (1080p, sigma 2 px)
+{"overshoot": 0.1948, "overshoot_ref": 0.2001, "undershoot": 0.1948, "undershoot_ref": 0.2001, "halo_width_px": 2, "halo_width_ref_px": 2, "max_abs_err_8bit": 0.63}
+== sharpen amount 1 radius 2 halo 1 (1080p, sigma 2 px)
+{"overshoot": 0.4026, "overshoot_ref": 0.4003, "undershoot": 0.4026, "undershoot_ref": 0.4003, "halo_width_px": 2, "halo_width_ref_px": 2, "max_abs_err_8bit": 0.27}
+== sharpen amount 2 radius 2 halo 1 (1080p, sigma 2 px)
+{"overshoot": 0.7922, "overshoot_ref": 0.8005, "undershoot": 0.7922, "undershoot_ref": 0.8005, "halo_width_px": 2, "halo_width_ref_px": 2, "max_abs_err_8bit": 0.64}
+== sharpen amount 1 halo 0
+{"overshoot": 0.0, "overshoot_ref": 0.0, "undershoot": 0.0, "undershoot_ref": 0.0, "halo_width_px": 0, "halo_width_ref_px": 0, "max_abs_err_8bit": 0.0}
+== sharpen amount 1 halo 0.25
+{"overshoot": 0.2468, "overshoot_ref": 0.25, "undershoot": 0.2468, "undershoot_ref": 0.25, "halo_width_px": 2, "halo_width_ref_px": 2, "max_abs_err_8bit": 0.27}
+== sharpen amount 1 radius 2 at 2160p (sigma 4 px: halo width should double)
+{"overshoot": 0.4026, "overshoot_ref": 0.4501, "undershoot": 0.4026, "undershoot_ref": 0.4501, "halo_width_px": 4, "halo_width_ref_px": 4, "max_abs_err_8bit": 3.78}
+== focus peaking vs CPU Sobel
+{"iou_vs_cpu_sobel": 1.0, "marked_left_in_focus": 23690, "marked_right_defocused": 0, "ref_left": 23690, "ref_right": 0}

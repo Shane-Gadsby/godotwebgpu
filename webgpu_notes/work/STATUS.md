@@ -1,5 +1,63 @@
 # Status (lead-maintained)
 
+## 2026-10-28 — camera realism batch (tasks 33-38; user request after grain §4.47 and LUTs §4.48)
+
+Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 needs task 33's CameraEffects UBO.
+
+| task | what | wave | owner |
+|---|---|---|---|
+| 33 | lens optics: sensor format, vignetting, distortion, CA, anamorphic, ND/T-stops, diffraction, breathing; **CameraEffects UBO** | 1 | worker-33 (retired); **merged `779120b64e`**, verified, TASKS §4.52; questions `breathing-default`, `ca-aperture` |
+| 34 | motion blur from the shutter, rolling shutter | 1 | worker-34 (retired); **merged `4a96bd2ae6`**, verified, TASKS §4.51; question `motion-blur-editor` |
+| 37 | in-camera NR + sharpening (CameraAttributes); monitoring overlays + Visible in Output (Camera3D) | 1 | worker-37 (retired); **merged `ffda7ef1d3`**, verified, TASKS §4.50; questions `zebra-colors`, `zebra2-window`, `peaking-source` |
+| 38 | Camera3D autofocus, stabilization / handheld shake | 1 | worker-38 (retired); **merged `c2d0987359`**, verified on the merged tree, smoke OK; TASKS §4.49; question `shake-in-editor` on the hand-offs page |
+| 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | worker-35 (retired); **merged `ec882a87c2`**, verified, TASKS §4.54; questions `starburst-default-strength`, `halation-min-size`, look `look-bokeh-glare` |
+| 36 | AE metering modes, auto white balance | 2 | worker-36 (retired); **merged**, verified, TASKS §4.53; questions `metering-statistic`, `average-dropped-edges`, `awb-neutral` |
+| 39 | user answers: zebra colors user-selectable; editor tick boxes (default off) for motion blur and handheld shake; shake presets | 2 | worker-39 (retired); **merged**, verified, TASKS §4.55 |
+| 40 | user answers on 35/36: fix Average's dropped edges; log-average option; sharper halation option; starburst default 20 | 3 | worker-40 (retired); **merged `c5cca53fdd`**, verified, TASKS §4.58; question `glare-lod-calibration` |
+| 41 | post-processing survey (TASKS §2.48) | 4 | worker-41 (retired); **merged** (results); 10 `pp-*` questions on the hand-offs page |
+| 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 (retired); **merged**, TASKS §4.56, §3 trap 79 |
+| 43 | wiki audit: pages for additions that have none | 4 | worker-43 (retired); **merged** (results); wiki 823092f (Exporting with WebGPU page, WebRTC notable fixes, shader baking, building, Home) |
+| 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 (retired); **merged**, TASKS §4.57, matrix now 97 arms |
+| 45 | post-processing: color grading on Environment (`pp-grading`) | 5 | worker-45 (retired); **merged `d3c42be832`**, verified, TASKS §4.65, trap 86; questions `grading-hdr`, `grading-look` |
+| 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 (retired); **merged `6d9a215a37`**, verified, TASKS §4.64, traps 84-85 |
+| 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 (retired); **merged `f49785ccf7`**, verified, TASKS §4.66, trap 87; questions `panini-*` |
+| 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 (retired); **merged `9b98c505c7`**, verified, matrix 99/99 parity unbaked and baked, TASKS §4.68, trap 89 |
+| 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 (retired); **merged**, TASKS §4.59, matrix 98 arms, wiki page |
+| 50 | build scripts: no-threads non-dlink web templates first (TASKS §2.50) | 5 | worker-50 (retired); **merged**, TASKS §4.60, §3 trap 81 |
+| 51 | web Start button screen with customizable look (camera-sim spec + user styling; TASKS §2.51) | 5 | worker-51 (retired); **merged**, TASKS §4.61; questions `start-button-*` |
+| 52 | web `window_set_size()` never emits `size_changed` (camera-sim; TASKS §2.52) | 5 | worker-52 (retired); **merged `ab4cf70927`**, verified (resize test, 3 policies), TASKS §4.62, trap 82 |
+| 53 | web preload before start (`Engine.prefetch()`), after 51 (camera-sim; TASKS §2.51) | 6 | worker-53 (retired); **merged `f8d0124b46`**, verified (Chrome + Firefox), TASKS §4.63, trap 83 |
+| 54 | web fullscreen from the embedding page, after 52 (camera-sim; TASKS §2.53) | 6 | worker-54 (retired); **merged `f750ce90b9`**, verified (Chrome, Firefox on rerun), TASKS §4.67, trap 88 |
+| 55 | glare chain calibrated per lod: exact halation/diffusion/flare sizes at every resolution (`glare-lod-calibration`: Recalibrate) | 6 | worker-55 (retired); **merged `98ff33c57b`**, verified, TASKS §4.69, traps 90-91 |
+| 56 | post-processing: custom tonemap curve on Environment (`pp-custom-tonemap`) | 7 | worker-56 (retired); **merged `04da9ef7fd`**, verified, TASKS §4.70, trap 92; questions `custom-tonemap-*` |
+| 57 | post-processing: local exposure on CameraAttributes (`pp-local-exposure`) | 7 | worker-57 (retired); **merged `c7dbb354bd`**, verified, TASKS §4.71, trap 93; questions `local-exposure-*` |
+| 58 | small web correctness items: TASKS §2.44 (invalid probe), §2.43 (swizzled views), §2.42 (FSR2 depth fallback) | 7 | worker-58 (retired); **merged `57ec6ca0da`**, verified, TASKS §4.72-4.74, trap 94; matrix 103/103 unbaked and baked |
+| 59 | converter smoke check moved out of the work board into webgpu_tests (TASKS §2.38) | 7 | worker-59 (retired); **merged `0cdd26d3a9`**, verified, TASKS §4.75, CI half §2.54 |
+| 60 | user answers on 58: Texture2DRD over R8/RG8 reported as R8/RG8 on the web; opaque viewports write alpha 1 on the web | 7 | worker-60 (retired); **merged `e4f960a646`**, verified, TASKS §4.76 |
+| 61 | start screen download text: each message switchable and editable, text colour (user request) | 7 | worker-61 (retired); **merged `2111490a44`**, verified, TASKS §4.77, trap 96 |
+| 62 | Camera3D monitoring histogram: script readback, count without drawing, one per camera (camera-sim) | 8 | worker-62 (retired); **merged `1ff3d995b5`**, verified, TASKS §4.83, trap 103 |
+| 63 | CameraAttributesPhysical: opt-in physical DOF blur size (sensor + resolution aware), 32 px cap (camera-sim) | 8 | worker-63 (retired); **merged `a14321cac4`**, verified, TASKS §4.78, traps 97-98 |
+| 64 | Color.from_temperature() and one shared colour-temperature helper (camera-sim) | 8 | worker-64 (retired); **merged `d1130d53d1`**, verified, TASKS §4.80, trap 100 |
+| 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 (retired); **merged `d1130d53d1`**, verified, TASKS §4.81, trap 101 |
+| 66 | async texture readback that says when pixels are real, natively and on the web (camera-sim) | 8 | worker-66 (retired); **merged `467336d399`**, verified, TASKS §4.82, trap 102 |
+| 67 | MetaHuman clothing: "Root" bind vs the "root" bone, case-insensitive match, report real missing bones (camera-sim) | 8 | worker-67 (retired); **merged `1f942ca9f2`**, verified, TASKS §4.79, trap 99 |
+| 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 (retired); design merged, DESIGN.md + 9 questions `dynres-q*` on the hand-offs page; build task after the answers |
+| 69 | user answers on 61: download line at full opacity, font family and size options | 9 | worker-69 (retired); **merged `ae34a2b18f`**, verified, TASKS §4.87 |
+| 70 | user answers on 63: physical DOF max blur default 6%, legacy (diluted) gather option | 9 | worker-70 (retired); **merged `db8be6b93a`**, verified, TASKS §4.90 |
+| 71 | user answers on 66: built-in awaitable readback, debug-only web warning on a null get_image() | 9 | worker-71 (retired); **merged `6d77ce108d`**, verified, TASKS §4.84 |
+| 72 | user answer on 62: frame without the monitoring overlays, only while requested (camera-sim Download Image) | 9 | worker-72 (retired); **merged `a6d73f0b86`**, verified, TASKS §4.85 |
+| 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 (retired); **merged `694fade59c`**, verified, TASKS §4.89, trap 105 |
+| 74 | dynamic resolution phase 2: scale changes keep FSR 2, TAA (resampled) and auto exposure (every change, user Q1) | 9 | worker-74 (retired); **merged `99b7b5874d`**, verified, TASKS §4.86 |
+| 77 | user answer: RenderingDevice.texture_get_data() also warns on the web's null first read (debug) | 11 | worker-77 (retired); **merged `896940581f`**, verified, TASKS §4.92, trap 107 |
+| 78 | user answer: SSIL history carried over a scale change | 11 | worker-78 (retired); **merged `d10c65a1a3`**, verified, TASKS §4.94 |
+| 79 | user answer: Circle bokeh reach capped at 3% (Box/Hexagon keep 6%) | 11 | worker-79 (retired); **merged `eecd0e08e8`**, verified, TASKS §4.93, trap 108 |
+| 81 | user answer `web-buffer-get-data-empty`: the web's first synchronous buffer_get_data() returns empty, like textures | 12 | worker-81 (retired); **merged `0a4cb88acd`**, verified, TASKS §4.96, trap 110; found §2.55 |
+| 80 | user answers: dynamic resolution remember keyed by window mode; step size exposed | 11 | worker-80 (retired); **merged `595ce19103`**, verified, TASKS §4.95, trap 109; question `dynres-remember-subviewport-mode` (default kept) |
+| 76 | WebGPU async readback every frame (pending-map validation errors, stalls) and 11x-dark float readback (found by 74) | 10 | worker-76 (retired); **merged `4c967537e8`**, verified, TASKS §4.88, trap 104 |
+| 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | worker-75 (retired); **merged `b4f21c8fc6`**, verified, TASKS §4.91, trap 106 |
+
+When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
+
 ## 2026-10-26 late evening — docs pass for tasks 24–30 (task 31, `work/31`)
 
 Every task of the day is merged (24 `449f085aa6`, 25 `fd53d6d657`, 26 `0f0dfd50fe`, 27 `756b99bf6f`, 28 `287109ddfd`,

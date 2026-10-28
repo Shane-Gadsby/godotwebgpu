@@ -59,6 +59,34 @@ layout(set = 0, binding = 3) uniform sampler2D source_color_correction;
 #else
 layout(set = 0, binding = 3) uniform sampler3D source_color_correction;
 #endif
+layout(set = 0, binding = 4) uniform sampler3D camera_lut;
+
+#ifndef SUBPASS
+// The glare chain (camera_glare_inc.glsl), a mip chain of the frame; black when no glare is on. Glare makes the renderer
+// skip the subpass post-process, so the subpass variant has none.
+layout(set = 0, binding = 6) uniform SAMPLER_FORMAT source_glare;
+#endif
+
+// CameraAttributes effects with more parameters than the push constant holds. Features that resample the image make
+// the renderer skip the subpass post-process, so the subpass variant only ever sees vignetting.
+#define CAMERA_EFFECTS_SET 0
+#define CAMERA_EFFECTS_BINDING 5
+#include "camera_effects_inc.glsl"
+
+// Environment features with more parameters than the push constant holds (the Custom tonemapper's curve).
+#define ENVIRONMENT_EFFECTS_SET 0
+#define ENVIRONMENT_EFFECTS_BINDING 7
+#include "environment_effects_inc.glsl"
+#include "tonemap_custom_inc.glsl"
+
+#ifndef SUBPASS
+#ifdef USE_MULTIVIEW
+#define CAMERA_LENS_FETCH(m_uv) textureLod(source_color, vec3(m_uv, ViewIndex), 0.0)
+#else
+#define CAMERA_LENS_FETCH(m_uv) textureLod(source_color, m_uv, 0.0)
+#endif
+#endif
+#include "camera_lens_inc.glsl"
 
 layout(constant_id = 0) const bool use_bcs = false;
 layout(constant_id = 1) const bool use_glow = false;
@@ -79,6 +107,9 @@ layout(constant_id = 15) const bool glow_mode_softlight = false;
 layout(constant_id = 16) const bool glow_mode_replace = false;
 layout(constant_id = 17) const bool glow_mode_mix = false;
 layout(constant_id = 18) const bool use_white_balance = false;
+layout(constant_id = 19) const bool tonemapper_custom = false;
+
+#include "camera_grain_inc.glsl"
 
 // CameraAttributes white balance: a von Kries adaptation in Bradford cone space. The CPU computes the
 // three cone gains (RendererCameraAttributes::white_balance_compute_gains()); these matrices are
@@ -112,8 +143,26 @@ layout(push_constant, std430) uniform Params {
 
 	float output_max_value;
 	float white_balance[3];
+
+	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
+	uint camera_lut; // CameraAttributes LUT, packed (camera_lut_inc.glsl); 0 when off.
+	uint color_correction_lattice; // 1: the 3D color correction LUT is the Environment's color grading LUT.
+	uint opaque_alpha; // 1: write alpha 1 (an opaque render target whose texture cannot show it through a view swizzle).
 }
 params;
+
+#ifndef SUBPASS
+#ifdef USE_MULTIVIEW
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, vec3(m_uv, ViewIndex), m_dx, m_dy).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_SIZE(m_lod) (textureSize(source_glare, m_lod).xy)
+#else
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, m_uv, m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, m_uv, m_dx, m_dy).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_SIZE(m_lod) (textureSize(source_glare, m_lod).xy)
+#endif
+#include "camera_glare_inc.glsl"
+#endif
 
 layout(location = 0) out vec4 frag_color;
 
@@ -280,19 +329,19 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 		return tonemap_filmic(color);
 	} else if (tonemapper_aces) {
 		return tonemap_aces(color);
+	} else if (tonemapper_custom) {
+		return tonemap_custom_curve(color, environment_effects.tonemap_custom[0], environment_effects.tonemap_custom[1], environment_effects.tonemap_custom[2]);
 	} else { // tonemapper_agx
 		return tonemap_agx(color);
 	}
 }
 
 #ifdef USE_MULTIVIEW
-vec3 gather_glow() {
-	vec2 uv = gl_FragCoord.xy * params.dest_pixel_size;
+vec3 gather_glow(vec2 uv) {
 	return textureLod(source_glow, vec3(uv, ViewIndex), 0.0).rgb * params.luminance_multiplier;
 }
 #else
-vec3 gather_glow() {
-	vec2 uv = gl_FragCoord.xy * params.dest_pixel_size;
+vec3 gather_glow(vec2 uv) {
 	return textureLod(source_glow, uv, 0.0).rgb * params.luminance_multiplier;
 }
 #endif // !USE_MULTIVIEW
@@ -348,9 +397,17 @@ vec3 apply_color_correction(vec3 color) {
 }
 #else
 vec3 apply_color_correction(vec3 color) {
+	if (params.color_correction_lattice != 0u) {
+		// The grading LUT's texels are the grades of i / (size - 1): map 0 and 1 onto the first and last texel
+		// centers, as camera_lut_inc.glsl does. A user LUT keeps the plain mapping it always had.
+		float size = float(textureSize(source_color_correction, 0).x);
+		color = color * ((size - 1.0) / size) + 0.5 / size;
+	}
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif
+
+#include "camera_lut_inc.glsl"
 
 #ifndef SUBPASS
 
@@ -426,7 +483,7 @@ float rgb2luma(vec3 rgb) {
 	return sqrt(dot(rgb, vec3(0.299, 0.587, 0.114)));
 }
 
-vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
+vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp, out vec2 r_final_uv) {
 	const float EDGE_THRESHOLD_MIN = 0.0312;
 	const float EDGE_THRESHOLD_MAX = 0.125;
 	const int ITERATIONS = 12;
@@ -446,6 +503,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 	float lumaRange = lumaMax - lumaMin;
 
 	if (lumaRange < max(EDGE_THRESHOLD_MIN, lumaMax * EDGE_THRESHOLD_MAX)) {
+		r_final_uv = uv_interp;
 		return color;
 	}
 
@@ -573,6 +631,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 		finalUv.x += finalOffset * stepLength;
 	}
 
+	r_final_uv = finalUv.xy; // Where FXAA moved the read; the lens follows it (camera_lens_inc.glsl).
 	vec3 finalColor = textureLod(source_color, finalUv, 0.0).xyz * exposure * params.luminance_multiplier;
 	return finalColor;
 
@@ -590,6 +649,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 	float lumaRange = lumaMax - lumaMin;
 
 	if (lumaRange < max(EDGE_THRESHOLD_MIN, lumaMax * EDGE_THRESHOLD_MAX)) {
+		r_final_uv = uv_interp;
 		return color;
 	}
 
@@ -717,6 +777,7 @@ vec3 do_fxaa(vec3 color, float exposure, vec2 uv_interp) {
 		finalUv.x += finalOffset * stepLength;
 	}
 
+	r_final_uv = finalUv.xy; // Where FXAA moved the read; the lens follows it (camera_lens_inc.glsl).
 	vec3 finalColor = textureLod(source_color, finalUv, 0.0).xyz * exposure * params.luminance_multiplier;
 	return finalColor;
 
@@ -754,6 +815,18 @@ void main() {
 #else
 	vec4 color = textureLod(source_color, uv_interp, 0.0f);
 #endif
+	uint lens_bits = camera_effects.header.x;
+	// Glow reads its texture at the output pixel, or where the lens takes the pixel from.
+	vec2 glow_uv = gl_FragCoord.xy * params.dest_pixel_size;
+#ifndef SUBPASS
+	// CameraAttributes lens optics (camera_lens_inc.glsl): the image as the lens forms it on the sensor, before
+	// anything the camera does to it. Glow and FXAA read the source where the lens takes this pixel from.
+	vec2 lens_uv = uv_interp;
+	if ((lens_bits & CAMERA_LENS_RESAMPLE) != 0u) {
+		color = camera_lens_sample(uv_interp, lens_uv);
+		glow_uv = lens_uv;
+	}
+#endif
 	color.rgb *= params.luminance_multiplier;
 
 	// Exposure
@@ -764,11 +837,18 @@ void main() {
 	// Single-pass FXAA and pre-tonemap glow.
 	if (use_fxaa) {
 		// FXAA must be performed before glow to preserve the "bleed" effect of glow.
-		color.rgb = do_fxaa(color.rgb, params.exposure, uv_interp);
+		vec2 fxaa_uv;
+		color.rgb = do_fxaa(color.rgb, params.exposure, lens_uv, fxaa_uv);
+		if ((lens_bits & (CAMERA_LENS_CHROMATIC_ABERRATION | CAMERA_LENS_DIFFRACTION)) != 0u && fxaa_uv != lens_uv) {
+			// FXAA blends across an edge by moving its read; move the lens's read the same way, so the edge keeps
+			// its color fringes and diffraction blur.
+			vec2 unused_uv;
+			color.rgb = camera_lens_sample(uv_interp + (fxaa_uv - lens_uv), unused_uv).rgb * params.exposure * params.luminance_multiplier;
+		}
 	}
 
 	if (use_glow && !glow_mode_softlight) {
-		vec3 glow = gather_glow() * params.glow_intensity;
+		vec3 glow = gather_glow(glow_uv) * params.glow_intensity;
 		if (use_glow_map) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
@@ -781,15 +861,38 @@ void main() {
 	}
 #endif
 
+#ifndef SUBPASS
+	// Glare (camera_glare_inc.glsl): flare, veiling glare, diffusion, starbursts and halation, read where the lens takes
+	// this pixel from, before vignetting, which darkens the light they add as it does the rest.
+	if (camera_effects.header.y != 0u) {
+		color.rgb = camera_glare_apply(color.rgb, lens_uv, params.exposure);
+	}
+#endif
+
+	// Vignetting: the lens passes less light toward the frame's edges, glow included (it is scene light here).
+	if ((lens_bits & CAMERA_LENS_VIGNETTING) != 0u) {
+		color.rgb *= camera_lens_vignetting(uv_interp);
+	}
+
 	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
 	// pre-tonemap glow, which is scene light too.
 	if (use_white_balance) {
 		color.rgb = apply_white_balance(color.rgb, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
 	}
 
+	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
+	// camera's tone curve. The mobile tonemapper has no auto exposure.
+	if (params.grain != 0u) {
+#ifdef USE_MULTIVIEW
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, 1.0, uint(ViewIndex));
+#else
+		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, 1.0, 0u);
+#endif
+	}
+
 	// Tonemap to lower dynamic range.
 
-	color.rgb = apply_tonemapping(color.rgb);
+	color.rgb = apply_camera_tonemapping(color.rgb, params.camera_lut);
 
 #ifndef SUBPASS
 	// Post-tonemap glow.
@@ -798,17 +901,20 @@ void main() {
 		// Apply soft light after tonemapping to mitigate the issue of discontinuity
 		// at 1.0 and higher. This makes the issue only appear with HDR output that
 		// can exceed a 1.0 output value.
-		vec3 glow = gather_glow() * params.glow_intensity;
+		vec3 glow = gather_glow(glow_uv) * params.glow_intensity;
 		if (use_glow_map) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
 		if (use_white_balance) {
 			glow = apply_white_balance(glow, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
 		}
-		glow = apply_tonemapping(glow);
+		glow = apply_camera_tonemapping(glow, params.camera_lut);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
 #endif
+
+	// The camera's display LUT: the camera's look, before the Environment's adjustments grade it.
+	color.rgb = apply_camera_display_lut(color.rgb, params.camera_lut);
 
 	// Additional effects.
 
@@ -855,6 +961,10 @@ void main() {
 	} else if (deband_10_bit) {
 		// Divide by 1023 to align to 10-bit quantization.
 		color.rgb += screen_space_dither(gl_FragCoord.xy, 1023.0);
+	}
+
+	if (params.opaque_alpha != 0u) {
+		color.a = 1.0;
 	}
 
 	frag_color = color;

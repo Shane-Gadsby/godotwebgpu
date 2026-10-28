@@ -1,0 +1,29 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.1s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 99%","preloadShown":true}
+0.2s download done {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true} {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":1,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1}
+PASS label says Ready (Ready)
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck)
+5.2s 5 s after the download {"rtenv":false,"compiles":0,"devices":0,"preload":"Ready","preloadShown":true}
+PASS engine idle 5 s after the download (rtenv false, wasm compiles 0, requestDevice 0)
+5.2s PROBE pointerdown trusted=true target=status-start at 5199 ms
+5.2s PROBE click trusted=true target=status-start at 5200 ms
+5.2s PROBE requestDevice at 5200 ms: Error
+    at GPUAdapter.requestDevice (<anonymous>:13:158)
+    at initWebGPU (http://127.0.0.1:8702/index.html:284:26)
+5.2s pressed (ready)
+9.2s ready: overlay gone 3.99 s after the press
+requests to the game server: {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":1,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS each file requested exactly once (/index.html:1 /index.png:1 /index.js:1 /index.wasm:1 /index.pck:1 /index.shaders.pck:1 /index.shaders_extra.bin:1 /index.textures_bc.pck:1 /index.audio.worklet.js:1)
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: warning: WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.
+   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1381)
+  warning: WARNING: Platform supports less than 48 textures per stage which is less than required by the Clustered renderer. Attempting to fallback to the Mobile renderer.
+   at: RendererCompositorRD (servers/rendering/renderer_rd/renderer_compositor_rd.cpp:392)
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+  warning: The number of storage buffers (9) in the Fragment stage exceeds the maximum per-stage limit (8). This adapter supports a higher maxStorageBuffersPerShaderStage of 16, which can be specified in requiredLimits when calling requestDevice(). Limits differ by hardware, so always check the adapter limits
+RESULT PASS

@@ -28,6 +28,17 @@
 			The custom HTML page that wraps the exported web build. If left empty, the default HTML shell is used.
 			For more information, see the [url=$DOCS_URL/tutorials/platform/web/customizing_html5_shell.html]Customizing HTML5 Shell[/url] tutorial.
 		</member>
+		<member name="html/embed_fullscreen/allowed_origins" type="String" setter="" getter="">
+			The origins of the pages allowed to drive [member html/embed_fullscreen/enabled], separated by commas, for example [code]https://lms.example.edu, https://site.example.com[/code]: scheme, host and port, with no path. Messages from a parent page on any other origin are ignored. Leave it empty to accept any page that embeds the game. Only used while [member html/embed_fullscreen/enabled] is [code]true[/code].
+		</member>
+		<member name="html/embed_fullscreen/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], a page that embeds the game in an [code]&lt;iframe&gt;[/code], including one on another origin, can put it in fullscreen with its own button, and the game sees a normal [constant DisplayServer.WINDOW_MODE_FULLSCREEN] at the screen's full resolution. A click in the parent page does not count as user activation inside a cross-origin iframe, so that page cannot put the game's canvas in fullscreen; it fullscreens the iframe instead and tells the game with [code]postMessage()[/code]:
+			- parent to game, [code]{type: 'godot:fullscreen', on: true}[/code] (or [code]false[/code]): sent on every [code]fullscreenchange[/code] in the parent, and in answer to [code]godot:ready[/code];
+			- game to parent, [code]{type: 'godot:ready'}[/code]: the engine has started and listens, so a fullscreen entered on the start screen or while loading is picked up;
+			- game to parent, [code]{type: 'godot:exit-fullscreen'}[/code]: [method DisplayServer.window_set_mode] was called with [constant DisplayServer.WINDOW_MODE_WINDOWED] while the parent holds the fullscreen. The mode changes once the parent reports that it left;
+			- game to parent, [code]{type: 'godot:request-fullscreen'}[/code]: the game asked for fullscreen. If the parent does not answer within a second, the game requests fullscreen for its canvas instead, as without this option.
+			Only messages from the parent window count, and only from [member html/embed_fullscreen/allowed_origins] when it is set. The parent's [code]&lt;iframe&gt;[/code] needs [code]allow="fullscreen"[/code]. The game's own fullscreen keeps working as before. Without this option, no message listener is added. A custom HTML shell receives these settings as [code]embedFullscreen[/code] in [code]$GODOT_CONFIG[/code]. Default: [code]false[/code].
+		</member>
 		<member name="html/experimental_virtual_keyboard" type="bool" setter="" getter="" experimental="">
 			If [code]true[/code], embeds support for a virtual keyboard into the web page, which is shown when necessary on touchscreen devices.
 		</member>
@@ -47,6 +58,78 @@
 		<member name="html/orientation" type="int" setter="" getter="">
 			The screen orientation the exported project runs in on phones and tablets. [b]Project Setting[/b] follows [member ProjectSettings.display/window/handheld/orientation]; any other value overrides that setting in the exported project. The progressive web app manifest uses the same orientation.
 			Browsers only allow the orientation to be locked while the page is in fullscreen (or runs as an installed progressive web app), so the engine requests the lock again every time the page enters fullscreen: on the first tap with [member html/fullscreen_on_first_tap], or through [method DisplayServer.window_set_mode] called from an input event. Desktop browsers do not lock the orientation, and report [constant DisplayServer.FEATURE_ORIENTATION] as unsupported.
+		</member>
+		<member name="html/start_button/background_color" type="Color" setter="" getter="">
+			The Start button's background color. Unless [member html/start_button/custom_state_colors] is [code]true[/code], the button is drawn 15% darker while the pointer is over it and 30% darker while it is pressed. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_color" type="Color" setter="" getter="">
+			The color of the Start button's border. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_radius" type="int" setter="" getter="">
+			The radius of the Start button's corners, in CSS pixels. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_width" type="int" setter="" getter="">
+			The width of the Start button's border, in CSS pixels. [code]0[/code] draws no border. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/custom_state_colors" type="bool" setter="" getter="">
+			If [code]true[/code], the Start button uses [member html/start_button/hover_color] while the pointer is over it and [member html/start_button/pressed_color] while it is pressed. If [code]false[/code], it uses [member html/start_button/background_color] darkened by 15% and 30%. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], the exported page opens on a start screen: the boot splash with a Start button under it. Nothing of the engine runs until the button is pressed: the engine is not compiled, and no GPU device or audio context is created. Its files download in the background meanwhile unless [member html/start_button/preload] is [code]false[/code]. Pressing it runs the usual startup, with the same loading screen. The press counts as a user gesture inside the page, so the game's audio can start without waiting for another click. The button is a real HTML button: it shows a focus ring when reached with [kbd]Tab[/kbd] and is pressed with [kbd]Enter[/kbd] or [kbd]Space[/kbd]. It is not focused when the page loads, since inside an iframe that would scroll the parent page to the game. A browser that lacks a required feature (such as WebGPU) shows the error at once instead of the button. A custom HTML shell receives these settings as [code]startButton[/code] in [code]$GODOT_CONFIG[/code]. Default: [code]false[/code].
+		</member>
+		<member name="html/start_button/font_family" type="String" setter="" getter="">
+			The Start button's font, as a CSS [code]font-family[/code] list. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/font_size" type="int" setter="" getter="">
+			The size of the Start button's text, in CSS pixels. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/hover_color" type="Color" setter="" getter="">
+			The Start button's background color while the pointer is over it. Only used while [member html/start_button/custom_state_colors] is [code]true[/code].
+		</member>
+		<member name="html/start_button/padding" type="Vector2i" setter="" getter="">
+			The space between the Start button's border and its text, in CSS pixels: [code]x[/code] on the left and right, [code]y[/code] above and below. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload" type="bool" setter="" getter="">
+			If [code]true[/code], the files the game needs (the engine, the main pack, and the shader and texture packs this browser loads) download in the background while the start screen waits, so after the press only the engine's own startup is left. The engine itself still runs only on the press: its WebAssembly is not compiled and no GPU device is created before it. A press before the download finishes carries on with it, and nothing is downloaded twice. In the browser's Save-Data mode the download waits for the press, as without this option. This runs in the game's own page because browsers keep a separate HTTP cache for each site that embeds a page: a parent page fetching the same files would not speed up a cross-origin iframe of the game. A custom HTML shell receives this as [code]startButton.preload[/code] in [code]$GODOT_CONFIG[/code] and starts the download with [code]Engine.prototype.prefetch()[/code]. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_progress" type="bool" setter="" getter="">
+			If [code]true[/code], the start screen shows the background download's progress under the button ("Downloading 48%", then "Ready"). Its messages, color, font and size are set with [code]html/start_button/preload_text/*[/code]. Only used while [member html/start_button/preload] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/color" type="Color" setter="" getter="">
+			The color of the download progress line under the Start button, drawn at full opacity, so the line shows exactly this color. The default, [code]#c4c4c4[/code], gives the line the look it had before this option existed (a lighter color at 85% opacity over the default boot splash background). The line keeps the default shell's text shadow. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/downloading" type="bool" setter="" getter="">
+			If [code]true[/code], the progress line shows [member html/start_button/preload_text/downloading_text] while the download's total size is not known yet. If [code]false[/code], the line stays empty until the first percentage. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/downloading_text" type="String" setter="" getter="">
+			The message shown before the download's total size is known. Only used while [member html/start_button/preload_text/downloading] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/font_family" type="String" setter="" getter="">
+			The CSS [code]font-family[/code] list of the download progress line under the Start button, for example [code]'Courier New', monospace[/code]. A font the browser does not have falls back to the next one in the list. The default is the default shell's own font. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/font_size" type="float" setter="" getter="">
+			The font size of the download progress line under the Start button, in CSS pixels. The default, [code]14.4[/code], is the size the line had before this option existed. The line's height follows the size. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/progress" type="bool" setter="" getter="">
+			If [code]true[/code], the progress line shows [member html/start_button/preload_text/progress_text] while the files download. If [code]false[/code], the line stays empty during the download. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/progress_text" type="String" setter="" getter="">
+			The message shown while the files download. Every [code]{percent}[/code] in it is replaced by the whole percentage downloaded so far, which never goes backwards and stays at 99 until every file has arrived; a text without [code]{percent}[/code] is shown as it is. Only used while [member html/start_button/preload_text/progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/ready" type="bool" setter="" getter="">
+			If [code]true[/code], the progress line shows [member html/start_button/preload_text/ready_text] once every file has arrived. If [code]false[/code], the line is emptied then. Nothing is shown if a download failed, since that file is downloaded again on the press. Only used while [member html/start_button/preload_progress] is [code]true[/code].
+		</member>
+		<member name="html/start_button/preload_text/ready_text" type="String" setter="" getter="">
+			The message shown once the game has downloaded. Only used while [member html/start_button/preload_text/ready] is [code]true[/code].
+		</member>
+		<member name="html/start_button/pressed_color" type="Color" setter="" getter="">
+			The Start button's background color while it is pressed. Only used while [member html/start_button/custom_state_colors] is [code]true[/code].
+		</member>
+		<member name="html/start_button/text" type="String" setter="" getter="">
+			The text on the Start button. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/text_color" type="Color" setter="" getter="">
+			The color of the Start button's text, also used for its keyboard focus ring. Only used while [member html/start_button/enabled] is [code]true[/code].
 		</member>
 		<member name="loading_screen/compiling_shaders/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Default: [code]true[/code].
@@ -137,6 +220,18 @@
 		</member>
 		<member name="loading_screen/loading_translations/text" type="String" setter="" getter="">
 			The text the loading screen shows while translations and resource remaps load. Defaults to [code]Loading translations...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
+		</member>
+		<member name="loading_screen/progress_bar/background_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's unfilled part. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
+		</member>
+		<member name="loading_screen/progress_bar/border_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's 1-pixel border. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
+		</member>
+		<member name="loading_screen/progress_bar/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows a progress bar that fills while the project downloads and the engine starts. If [code]false[/code], the bar is left out and the rest of the loading screen closes up around it. A [member html/custom_html_shell] receives this and the three colors as the [code]$GODOT_PROGRESS_BAR[/code] placeholder, a JSON object with [code]enabled[/code], [code]borderColor[/code], [code]backgroundColor[/code], [code]fillColor[/code] (CSS hex colors) and [code]customColors[/code] ([code]true[/code] when any color differs from its default).
+		</member>
+		<member name="loading_screen/progress_bar/fill_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's filled part. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
 		</member>
 		<member name="loading_screen/registering_types/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner while the scene types register. Default: [code]true[/code].
@@ -238,7 +333,7 @@
 			If [code]true[/code], the shaders baked by [member shader_baker/enabled] are shipped in a separate [code]&lt;name&gt;.shaders.pck[/code] next to the main [code].pck[/code], which the page preloads and the engine mounts at startup. The baked shaders are most of a baked [code].pck[/code] and only change when the shaders do, so a deploy that uploads whole files re-uploads much less after a code change. Requires export templates built from the same commit as the editor; an older template silently loads no baked shaders, and the export warns about it.
 		</member>
 		<member name="shader_baker/variant_pruning" type="int" setter="" getter="">
-			With [b]Automatic[/b] (the default), the shader baker leaves out the shader groups the web renderer can never select, and moves Forward+'s advanced group (motion vectors, separate specular, lightmaps, VoxelGI and SDF depth passes) into [code]&lt;name&gt;.shaders_extra.bin[/code] unless the project was found to use TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering or a motion-vector compositor effect. The page fetches the extras as the engine starts, and a shader that needs one before it arrives compiles at load. With [b]Disabled[/b], every group is baked into the shader pack.
+			With [b]Automatic[/b] (the default), the shader baker leaves out the shader groups the web renderer can never select, and moves Forward+'s advanced group (motion vectors, separate specular, lightmaps, VoxelGI and SDF depth passes) into [code]&lt;name&gt;.shaders_extra.bin[/code] unless the project was found to use TAA, FSR 2, LightmapGI, VoxelGI, SDFGI, subsurface scattering, camera motion blur or rolling shutter, or a motion-vector compositor effect. The page fetches the extras as the engine starts, and a shader that needs one before it arrives compiles at load. With [b]Disabled[/b], every group is baked into the shader pack.
 		</member>
 		<member name="threads/emscripten_pool_size" type="int" setter="" getter="">
 			The number of threads that emscripten will allocate at startup. A smaller value will allocate fewer threads and consume fewer system resources, but you may run the risk of running out of threads in the pool and needing to allocate more threads at run time which may cause a deadlock.

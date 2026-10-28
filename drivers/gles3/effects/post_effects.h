@@ -52,11 +52,21 @@ private:
 
 	void _draw_screen_triangle();
 
+	// Light shafts for the next post_copy() only (GLES3::LightShafts).
+	GLuint light_shafts_texture = 0;
+	Color light_shafts_scale;
+
 public:
 	static PostEffects *get_singleton();
 
 	PostEffects();
 	~PostEffects();
+
+	// The next post_copy() adds p_texture times p_scale (rgb) to the frame in linear light; 0 for none.
+	void set_light_shafts(GLuint p_texture, const Color &p_scale) {
+		light_shafts_texture = p_texture;
+		light_shafts_scale = p_scale;
+	}
 
 	void post_copy(GLuint p_dest_framebuffer, Size2i p_dest_size, GLuint p_source_color,
 			GLuint p_source_depth, bool p_ssao_enabled, int p_ssao_quality_level, float p_ssao_strength, float p_ssao_radius,

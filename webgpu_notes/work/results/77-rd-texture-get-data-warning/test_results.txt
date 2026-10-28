@@ -1,0 +1,130 @@
+# native
+W66 platform=Linux method=forward_plus driver=vulkan mode=test debug=true
+ERROR: Parameter "tex" is null.
+ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+ERROR: Parameter "tex" is null.
+ERROR: Buffer is either invalid or this type of buffer can't be retrieved.
+W66 load settled lum=0.271551 (native 0.271550)
+W66DONE
+68/68 passed (native)
+sync readback warnings: 0 (native, expected 0)
+RD sync readback warnings: 0 (native, expected 0)
+native rc=0
+/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w77/test.sh: line 1: webgpu_notes/work/lease.sh: No such file or directory
+
+[exited with code 0]
+# web_debug
+1071 MiB, 16376 MiB
+taken: gpu by worker-77 for 1h
+exported (debug) -> /mnt/109313D2109313D2/godot-editors/godotwebgpu-77/webgpu_tests/async_readback/exports/web
+adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxSampled":48}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test debug=true
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Buffer is either invalid or this type of buffer can't be retrieved.
+[log] W66 load settled lum=0.271551 (native 0.271550)
+[log] W66DONE
+68/68 passed (chrome)
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 96x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, i
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture,
+WebGPU validation messages: 0 -> ok
+unexpected console errors: 0 -> ok
+sync readback warnings: 2 (debug, expected one for each of 96x7 and 333x7) -> ok
+RD sync readback warning [warning]: WARNING: RenderingDevice.texture_get_data() returned no data for texture 41x5 (layer 0): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or "await texture.get_image_awaitable()" for a Texture2D. Shown once per texture, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.texture_get_data() returned no data for texture 17x3 (layer 0): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or "await texture.get_image_awaitable()" for a Texture2D. Shown once per texture, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.buffer_get_data() returned zeros for buffer of 100 bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.buffer_get_data() returned zeros for buffer of 52 bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.
+RD sync readback warnings: 4 (debug, expected one for each of 41x5, 17x3, 100 and 52 bytes) -> ok
+chrome debug rc=0
+adapter (firefox): {"vendor":"","architecture":"","fallback":false,"maxSampled":64}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test debug=true
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Buffer is either invalid or this type of buffer can't be retrieved.
+[log] W66 load settled lum=0.271551 (native 0.271550)
+[log] W66DONE
+68/68 passed (firefox)
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 96x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, i
+sync readback warning [warning]: WARNING: Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for render target 333x7: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), "await texture.get_image_awaitable()" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture,
+WebGPU validation messages: 0 -> ok
+unexpected console errors: 0 -> ok
+sync readback warnings: 2 (debug, expected one for each of 96x7 and 333x7) -> ok
+RD sync readback warning [warning]: WARNING: RenderingDevice.texture_get_data() returned no data for texture 41x5 (layer 0): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or "await texture.get_image_awaitable()" for a Texture2D. Shown once per texture, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.texture_get_data() returned no data for texture 17x3 (layer 0): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or "await texture.get_image_awaitable()" for a Texture2D. Shown once per texture, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.buffer_get_data() returned zeros for buffer of 100 bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.
+RD sync readback warning [warning]: WARNING: RenderingDevice.buffer_get_data() returned zeros for buffer of 52 bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.
+RD sync readback warnings: 4 (debug, expected one for each of 41x5, 17x3, 100 and 52 bytes) -> ok
+firefox debug rc=0
+dropped: gpu
+"sync_rd_buf_100_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame6":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame7":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_52_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_tex_17x3_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame6":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame7":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_100_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame6":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_100_frame7":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_52_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_tex_17x3_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame6":{"error":"","ok":true,"returned":"data"}
+"sync_rd_tex_41x5_frame7":{"error":"","ok":true,"returned":"empty"}
+# web_release
+1099 MiB, 16376 MiB
+taken: gpu by worker-77 for 1h
+exported (release) -> /mnt/109313D2109313D2/godot-editors/godotwebgpu-77/webgpu_tests/async_readback/exports/web
+adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxSampled":48}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test debug=false
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Buffer is either invalid or this type of buffer can't be retrieved.
+[log] W66 load settled lum=0.271551 (native 0.271550)
+[log] W66DONE
+68/68 passed (chrome)
+WebGPU validation messages: 0 -> ok
+unexpected console errors: 0 -> ok
+sync readback warnings: 0 (release, expected none) -> ok
+RD sync readback warnings: 0 (release, expected none) -> ok
+chrome release rc=0
+adapter (firefox): {"vendor":"","architecture":"","fallback":false,"maxSampled":64}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test debug=false
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT` to be set to be retrieved.
+[error] ERROR: Parameter "tex" is null.
+[error] ERROR: Buffer is either invalid or this type of buffer can't be retrieved.
+[log] W66 load settled lum=0.271551 (native 0.271550)
+[log] W66DONE
+68/68 passed (firefox)
+WebGPU validation messages: 0 -> ok
+unexpected console errors: 0 -> ok
+sync readback warnings: 0 (release, expected none) -> ok
+RD sync readback warnings: 0 (release, expected none) -> ok
+firefox release rc=0
+dropped: gpu
+"sync_rd_buf_100_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame6":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_100_frame7":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_52_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_tex_17x3_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame6":{"error":"","ok":true,"returned":"data"}
+"sync_rd_tex_41x5_frame7":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_buf_100_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame6":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_buf_100_frame7":{"error":"","ok":true,"returned":"data"}
+"sync_rd_buf_52_frame5":{"error":"","ok":true,"returned":"zeros"}
+"sync_rd_tex_17x3_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame5":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame6":{"error":"","ok":true,"returned":"empty"}
+"sync_rd_tex_41x5_frame7":{"error":"","ok":true,"returned":"data"}

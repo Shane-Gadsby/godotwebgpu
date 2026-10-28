@@ -9,6 +9,11 @@ layout(std140) uniform TonemapData { //ubo:0
 	float saturation;
 	int pad3;
 	vec4 white_balance; // CameraAttributes white balance: xyz = Bradford cone gains, w > 0.0 when enabled.
+	uint grain; // CameraAttributes grain, packed (effects/camera_grain_inc.glsl); 0 when off. Applied in post.
+	uint camera_lut_params; // CameraAttributes LUT, packed (effects/camera_lut_inc.glsl); 0 when off. Applied in post.
+	int pad5;
+	int pad6;
+	vec4 tonemap_custom[3]; // The Custom tonemapper's curve (tonemap_custom_inc.glsl), with TONEMAPPER_CUSTOM.
 };
 
 // A von Kries adaptation in Bradford cone space. The CPU computes the three cone gains
@@ -194,6 +199,9 @@ vec3 tonemap_agx(vec3 color) {
 #define TONEMAPPER_FILMIC 2
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
+#define TONEMAPPER_CUSTOM 5
+
+#include "tonemap_custom_inc.glsl"
 
 vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	if (tonemapper == TONEMAPPER_LINEAR) {
@@ -210,6 +218,8 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 		return tonemap_filmic(color);
 	} else if (tonemapper == TONEMAPPER_ACES) {
 		return tonemap_aces(color);
+	} else if (tonemapper == TONEMAPPER_CUSTOM) {
+		return tonemap_custom_curve(color, tonemap_custom[0], tonemap_custom[1], tonemap_custom[2]);
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}

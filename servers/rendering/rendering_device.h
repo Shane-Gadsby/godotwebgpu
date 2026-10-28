@@ -179,6 +179,7 @@ private:
 	Error _staging_buffer_allocate(StagingBuffers &p_staging_buffers, uint32_t p_amount, uint32_t p_required_align, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action, bool p_can_segment = true);
 	void _staging_buffer_execute_required_action(StagingBuffers &p_staging_buffers, StagingRequiredAction p_required_action);
 	Error _insert_staging_block(StagingBuffers &p_staging_buffers);
+	Error _download_staging_overflow_block(uint32_t p_amount, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action);
 
 	StagingBuffers upload_staging_buffers;
 	StagingBuffers download_staging_buffers;
@@ -191,6 +192,11 @@ private:
 		RDG::ResourceTracker *draw_tracker = nullptr;
 		int32_t transfer_worker_index = -1;
 		uint64_t transfer_worker_operation = 0;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// The script-facing buffer_get_data() warns once per buffer when the web's asynchronous readback has not
+		// arrived yet (work task 77).
+		bool warned_sync_readback_pending = false;
+#endif
 	};
 
 	RDD::MemoryAllocationType _get_buffer_alloc_type(bool p_has_initial_data, Thread::ID p_thread_id) const;
@@ -280,9 +286,11 @@ public:
 	bool supports_first_instance_index();
 	bool requires_synchronous_pipeline_compilation();
 	bool releases_shader_bytecode_after_load();
+	bool supports_texture_view_swizzle();
 	uint32_t get_max_supported_texture_samples();
 	Error buffer_clear(RID p_buffer, uint32_t p_offset, uint32_t p_size);
-	Vector<uint8_t> buffer_get_data(RID p_buffer, uint32_t p_offset = 0, uint32_t p_size = 0); // This causes stall, only use to retrieve large buffers for saving.
+	// r_not_ready (web): set when the asynchronous readback had not arrived yet, so the result is zeros, not the buffer.
+	Vector<uint8_t> buffer_get_data(RID p_buffer, uint32_t p_offset = 0, uint32_t p_size = 0, bool *r_not_ready = nullptr); // This causes stall, only use to retrieve large buffers for saving.
 	Error buffer_get_data_async(RID p_buffer, const Callable &p_callback, uint32_t p_offset = 0, uint32_t p_size = 0);
 	uint64_t buffer_get_device_address(RID p_buffer);
 	uint8_t *buffer_persistent_map_advance(RID p_buffer);
@@ -397,6 +405,11 @@ public:
 		SharedFallback *shared_fallback = nullptr;
 		int32_t transfer_worker_index = -1;
 		uint64_t transfer_worker_operation = 0;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// The script-facing texture_get_data() warns once per texture when the web's asynchronous readback has not
+		// arrived yet (work task 77).
+		bool warned_sync_readback_pending = false;
+#endif
 
 		RDD::TextureSubresourceRange barrier_range() const {
 			RDD::TextureSubresourceRange r;
@@ -456,6 +469,7 @@ public:
 		RDD::DataFormat format = RDD::DATA_FORMAT_MAX;
 		uint32_t gpu_pixel_size = 0; // Non-zero when driver promotes format (e.g. R8→R32Float).
 		RDD::TextureID driver_texture_id = {}; // For readback conversion.
+		RID texture; // To tell, in a download that waited for its map, whether driver_texture_id is still alive.
 	};
 
 public:
@@ -488,7 +502,8 @@ public:
 	RID texture_create_from_extension(TextureType p_type, DataFormat p_format, TextureSamples p_samples, BitField<RenderingDevice::TextureUsageBits> p_usage, uint64_t p_image, uint64_t p_width, uint64_t p_height, uint64_t p_depth, uint64_t p_layers, uint64_t p_mipmaps = 1);
 	RID texture_create_shared_from_slice(const TextureView &p_view, RID p_with_texture, uint32_t p_layer, uint32_t p_mipmap, uint32_t p_mipmaps = 1, TextureSliceType p_slice_type = TEXTURE_SLICE_2D, uint32_t p_layers = 0);
 	Error texture_update(RID p_texture, uint32_t p_layer, const Vector<uint8_t> &p_data);
-	Vector<uint8_t> texture_get_data(RID p_texture, uint32_t p_layer); // CPU textures will return immediately, while GPU textures will most likely force a flush
+	// r_not_ready (web): set when the asynchronous readback had not arrived yet, so the result is empty.
+	Vector<uint8_t> texture_get_data(RID p_texture, uint32_t p_layer, bool *r_not_ready = nullptr); // CPU textures will return immediately, while GPU textures will most likely force a flush
 	Error texture_get_data_async(RID p_texture, uint32_t p_layer, const Callable &p_callback);
 
 	bool texture_is_format_supported_for_usage(DataFormat p_format, BitField<TextureUsageBits> p_usage) const;
@@ -1930,6 +1945,31 @@ private:
 		uint64_t index = 0;
 	};
 
+	// Asynchronous downloads whose frame has been waited on, in the order they were requested. On a backend whose
+	// staging-buffer maps complete asynchronously (WebGPU, buffer_get_readback_status()), a batch can still be mapping
+	// when its frame comes round again: it then waits here, with its staging blocks taken out of the download ring so
+	// nothing records a copy into a buffer that is being mapped, and its callbacks run once every map has completed.
+	// Later batches wait behind it, so callbacks keep their order. Every other backend completes a batch in the same
+	// _stall_for_frame() that queued it, exactly as before.
+	struct DownloadBatch {
+		LocalVector<RDD::BufferID> buffer_staging_buffers;
+		LocalVector<RDD::BufferCopyRegion> buffer_copy_regions;
+		LocalVector<BufferGetDataRequest> buffer_get_data_requests;
+		LocalVector<RDD::BufferID> texture_staging_buffers;
+		LocalVector<RDD::BufferTextureCopyRegion> buffer_texture_copy_regions;
+		LocalVector<uint32_t> texture_mipmap_offsets;
+		LocalVector<TextureGetDataRequest> texture_get_data_requests;
+		LocalVector<RDD::BufferID> held_blocks; // Staging blocks out of the ring while this batch waits.
+		bool waited = false;
+	};
+	List<DownloadBatch> download_batches;
+
+	Error _download_batch_status(const DownloadBatch &p_batch);
+	void _download_batch_hold_blocks(DownloadBatch &p_batch);
+	void _download_batch_release_blocks(DownloadBatch &p_batch);
+	void _download_batch_complete(DownloadBatch &p_batch, bool p_failed);
+	void _process_download_batches();
+
 	uint32_t max_timestamp_query_elements = 0;
 
 	int frame = 0;
@@ -1997,6 +2037,7 @@ public:
 	uint64_t get_captured_timestamp_gpu_time(uint32_t p_index) const;
 	uint64_t get_captured_timestamp_cpu_time(uint32_t p_index) const;
 	String get_captured_timestamp_name(uint32_t p_index) const;
+	uint64_t get_submit_to_done_latency_usec() const; // Not bound: see RenderingDeviceDriver.
 
 	/****************/
 	/**** LIMITS ****/
@@ -2092,6 +2133,10 @@ private:
 	RID _uniform_set_create(const TypedArray<RDUniform> &p_uniforms, RID p_shader, uint32_t p_shader_set);
 
 	Error _buffer_update_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size, const Vector<uint8_t> &p_data);
+	// The script-facing texture_get_data() / buffer_get_data(): engine code calls the methods themselves, so the debug web
+	// warning these print (work task 77) is only ever about a read the project made.
+	Vector<uint8_t> _texture_get_data_bind(RID p_texture, uint32_t p_layer);
+	Vector<uint8_t> _buffer_get_data_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size);
 
 	RID _blas_create(const TypedArray<RDAccelerationStructureGeometry> &p_geometries, BitField<AccelerationStructureFlagBits> p_flags);
 	Error _tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances);

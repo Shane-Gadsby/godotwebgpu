@@ -1,0 +1,104 @@
+[
+ {
+  "ok": true,
+  "what": "adapter (chrome) nvidia/lovelace/not fallback/48: {\"vendor\":\"nvidia\",\"architecture\":\"lovelace\",\"fallback\":false,\"maxSampled\":48}"
+ },
+ {
+  "ok": true,
+  "what": "main: starts windowed (mode 0)"
+ },
+ {
+  "ok": true,
+  "what": "main windowed: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "main windowed: shell scale 0.914062 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "note": "main: game frame window 'message' listeners: 1"
+ },
+ {
+  "ok": true,
+  "what": "main: parent got godot:ready"
+ },
+ {
+  "ok": true,
+  "what": "5 security: sibling-frame and self-posted {on:true} ignored (mode 0, canvas 1024,640, signals 0)"
+ },
+ {
+  "ok": true,
+  "what": "1 parent button: mode 3, canvas 1189,1217 == iframe 1189,1217 x dpr 1 (10 ms)"
+ },
+ {
+  "ok": true,
+  "what": "1: parent holds the iframe (parent fs game, game fs null)"
+ },
+ {
+  "ok": true,
+  "what": "1: shell CSS scale 1 (1)"
+ },
+ {
+  "ok": true,
+  "what": "1: size_changed fired (0 -> 1)"
+ },
+ {
+  "ok": true,
+  "what": "1 fullscreen: window 1189,1217 visible 1189,1217 corner 1189,1217 == canvas 1189,1217"
+ },
+ {
+  "ok": true,
+  "what": "1 fullscreen: shell scale 1 fits (1.0000; css 1189,1217, iframe 1189,1217)"
+ },
+ {
+  "ok": true,
+  "what": "2 exit via parent exitFullscreen(): windowed, canvas 1024,640 == 1024,640 (9 ms)"
+ },
+ {
+  "ok": true,
+  "what": "2 windowed again: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "2 windowed again: shell scale 0.914062 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "3: parent fullscreen again"
+ },
+ {
+  "ok": true,
+  "what": "3 window_set_mode(WINDOWED): parent left fullscreen, game windowed, canvas 1024,640 (13 ms)"
+ },
+ {
+  "ok": true,
+  "what": "3: parent got godot:exit-fullscreen"
+ },
+ {
+  "ok": true,
+  "what": "3: mode stays FULLSCREEN until the parent answers (right after the call: 3)"
+ },
+ {
+  "ok": true,
+  "what": "3 windowed again: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "3 windowed again: shell scale 0.914062 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "8 in-game Fullscreen -> godot:request-fullscreen: parent fs game, game fs null, mode 3 after 46 ms; parent: got godot:request-fullscreen from http://127.0.0.1:8702; request ok; send on=true"
+ },
+ {
+  "ok": true,
+  "what": "8: parent requested the iframe fullscreen and it was granted (activation from the iframe click)"
+ },
+ {
+  "ok": true,
+  "what": "8: in-game Windowed -> godot:exit-fullscreen -> windowed (12 ms)"
+ },
+ {
+  "note": "main console: 2 errors/warnings: error: Failed to load resource: the server responded with a status of 404 (Not Found) || error: Permissions policy violation: screen-wake-lock is not allowed in this document."
+ }
+]

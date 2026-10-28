@@ -210,6 +210,7 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	LocalVector<WGBuffer *> pending_staging;
 	void _flush_pending_staging();
 	void _queue_submit(uint32_t p_count, const WGPUCommandBuffer *p_buffers);
+	WGSubmitLatency *submit_latency = nullptr; // See WGSubmitLatency.
 
 	// Universal push constant bind group layout: group N, binding PUSH_CONSTANT_RING_BINDING,
 	// ReadOnlyStorage buffer with hasDynamicOffset=true. Created once at initialize().
@@ -331,6 +332,9 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUTextureView _sampled_texture_view(WGUniformSet *p_us, WGTexture *p_tex, WGPUTextureViewDimension p_expected_dim, WGPUTextureSampleType p_expected_sample, const WGShader *p_shader, uint32_t p_set, uint32_t p_glsl_binding);
 	// (shader name, set, binding) of collapsed texture arrays already warned about.
 	HashSet<String> collapsed_array_warnings;
+	// (view format, swizzle) pairs already warned about by _warn_dropped_swizzle().
+	HashSet<uint32_t> dropped_swizzle_warnings;
+	void _warn_dropped_swizzle(DataFormat p_view_format, const TextureView &p_view);
 
 	// Last line of defense before a draw/dispatch: make the bind groups
 	// actually set on the encoder match the pipeline that is about to consume
@@ -424,6 +428,7 @@ public:
 	virtual void buffer_write_direct(BufferID p_buffer, uint64_t p_offset, uint64_t p_size, const void *p_data) override final;
 	/// WebGPU: initiate async buffer map so it completes by next frame.
 	virtual void buffer_initiate_async_map(BufferID p_buffer) override final;
+	virtual Error buffer_get_readback_status(BufferID p_buffer) override final;
 	virtual uint32_t texture_get_gpu_pixel_size(TextureID p_texture) override final;
 	virtual void texture_readback_convert(TextureID p_texture,
 			const uint8_t *p_src, uint32_t p_src_pitch,
@@ -807,16 +812,24 @@ public:
 	virtual QueryPoolID timestamp_query_pool_create(uint32_t p_query_count) override final;
 	/// Release a timestamp query pool and its GPU resources.
 	virtual void timestamp_query_pool_free(QueryPoolID p_pool_id) override final;
-	/// Get timestamp query results. Data is populated asynchronously via
-	/// wgpuBufferMapAsync callbacks between frames.
+	/// Get timestamp query results: the newest set read back for this pool, which on the web is from an earlier frame
+	/// of the same slot (mapAsync lands a few frames late). Zeros until one with this many timestamps has landed.
 	virtual void timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) override final;
 	/// Convert a raw timestamp query result to nanoseconds.
 	virtual uint64_t timestamp_query_result_to_time(uint64_t p_result) override final;
+	virtual uint64_t get_submit_to_done_latency_usec() override final;
 	/// Reset a timestamp query pool (no-op — WebGPU resets on use).
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) override final;
 	/// Write a timestamp to a query pool at the given index.
 	virtual void command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) override final;
 
+private:
+	// Record the resolve of the timestamps written in p_cmd into a free readback slot (command_buffer_end()).
+	void _timestamp_pool_record_resolve(WGCommandBuffer *p_cmd, WGQueryPool *p_pool);
+	// Map the slot recorded above once its command buffer is submitted (command_queue_execute_and_present()).
+	void _timestamp_pool_start_readback(WGQueryPool *p_pool);
+
+public:
 	// -----------------------------------------------------------------------
 	// LABELS & DEBUG
 	// -----------------------------------------------------------------------

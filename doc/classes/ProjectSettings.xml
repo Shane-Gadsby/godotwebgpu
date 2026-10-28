@@ -3005,8 +3005,17 @@
 		<member name="rendering/camera/depth_of_field/depth_of_field_bokeh_shape" type="int" setter="" getter="" default="1">
 			Sets the depth of field shape. Can be Box, Hexagon, or Circle. Box is the fastest. Circle is the most realistic, but also the most expensive to compute.
 		</member>
+		<member name="rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size" type="float" setter="" getter="" default="6.0">
+			How far the depth of field blur reaches, as a percentage of the image's height, for cameras that size their blur physically ([member CameraAttributesPhysical.dof_physical_blur_size]). A larger blur is clamped to it. The default, 6%, fits a long lens wide open (200 mm at f/2.8 focused at 5 m needs 5.6% for the background); it is upstream's fixed 32 pixels at about 540p, and 65 pixels at 1080p.
+			With the Box and Hexagon shapes a larger value takes the same number of samples, spread wider: it costs about the same (WebGPU at 1440p: Hexagon Low 0.42 ms at 6% against 0.35 ms at 3%, High 1.54 against 1.50), but small blurs are drawn more coarsely. Each quality then draws a small blur about as the next lower quality does at 3%, and the Very Low quality draws a blur under about 1% of the image height almost sharp. Use the Low quality or higher, or a smaller value, if small blurs matter.
+			The Circle shape and custom apertures ([member CameraAttributes.aperture_enabled]) reach at most 3% of the image's height, whatever this value (a smaller value still lowers it), and a larger blur is clamped there. Their cost grows with the square of the reach: at 6% Circle Medium would cost about 4 times what it costs at 3% (WebGPU at 1440p on a desktop GPU: 34.7 ms per frame against 7.8 ms; 4.0 ms at upstream's 32 pixels). Use Box or Hexagon for blurs larger than 3% of the image.
+			Cameras that do not size their blur physically, and those that use [member CameraAttributesPhysical.dof_legacy_gather], always reach 32 pixels.
+		</member>
 		<member name="rendering/camera/depth_of_field/depth_of_field_use_jitter" type="bool" setter="" getter="" default="false">
 			If [code]true[/code], jitters DOF samples to make effect slightly blurrier and hide lines created from low sample rates. This can result in a slightly grainy appearance when used with a low number of samples.
+		</member>
+		<member name="rendering/camera/motion_blur/motion_blur_quality" type="int" setter="" getter="" default="1">
+			Sets the quality of [member CameraAttributes.motion_blur_enabled]: the number of samples taken along each pixel's blur ([b]Low[/b] 8, [b]Medium[/b] 16, [b]High[/b] 32). Fewer samples show the blur as finer noise along long blurs.
 		</member>
 		<member name="rendering/driver/depth_prepass/disable_for_vendors" type="String" setter="" getter="" default="&quot;PowerVR,Mali,Adreno,Apple&quot;">
 			Disables [member rendering/driver/depth_prepass/enable] conditionally for certain vendors. By default, disables the depth prepass for mobile devices as mobile devices do not benefit from the depth prepass due to their unique architecture.
@@ -3034,6 +3043,9 @@
 		<member name="rendering/environment/glow/upscale_mode.mobile" type="int" setter="" getter="" default="0">
 			Lower-end override for [member rendering/environment/glow/upscale_mode] on mobile devices, due to performance concerns or driver support.
 		</member>
+		<member name="rendering/environment/light_shafts/quality" type="int" setter="" getter="" default="1">
+			Samples per pixel along each light shaft ([member Environment.light_shafts_enabled]): 16 on Low, 32 on Medium, 64 on High. The shafts look the same at every quality; lower qualities are noisier and cheaper.
+		</member>
 		<member name="rendering/environment/screen_space_reflection/half_size" type="bool" setter="" getter="" default="true" keywords="resolution">
 			If [code]true[/code], screen-space reflections will be rendered at half size and then upscaled before being added to the scene. This is faster but may look pixelated or cause flickering. If [code]false[/code], screen-space reflections will be rendered at full size.
 		</member>
@@ -3051,6 +3063,13 @@
 		</member>
 		<member name="rendering/environment/ssao/half_size" type="bool" setter="" getter="" default="true" keywords="resolution">
 			If [code]true[/code], screen-space ambient occlusion will be rendered at half size and then upscaled before being added to the scene. This is significantly faster but may miss small details. If [code]false[/code], screen-space ambient occlusion will be rendered at full size.
+		</member>
+		<member name="rendering/environment/ssao/method" type="int" setter="" getter="" default="0" keywords="gtao, ambient occlusion">
+			The algorithm that computes screen-space ambient occlusion when [member Environment.ssao_enabled] is [code]true[/code]:
+			- [b]ASSAO[/b] (default): Intel's Adaptive Screen Space Ambient Occlusion.
+			- [b]GTAO[/b]: Ground Truth Ambient Occlusion (Jimenez et al. 2016, ported from Intel's XeGTAO). It integrates cosine-weighted visibility between the horizons found on a few screen-space slices, so its occlusion follows the geometry more closely than ASSAO's, especially in creases and at contact, and its noise is designed to converge under temporal antialiasing.
+			GTAO uses the same [Environment] settings: [member Environment.ssao_radius] is the world-space radius, [member Environment.ssao_intensity] and [member Environment.ssao_power] act relative to their defaults ([code]2.0[/code] and [code]1.5[/code], which give the reference result), and [member Environment.ssao_sharpness] controls how strongly the denoiser respects depth edges. [member Environment.ssao_detail] and [member Environment.ssao_horizon] only affect ASSAO. Of the project settings, [member rendering/environment/ssao/quality] selects the number of slices and steps per slice (Very Low 2×2, Low 3×2, Medium 3×3, High 9×3, Ultra 9 to 18 slices × 4 steps following [member rendering/environment/ssao/adaptive_target]; Very Low and Low are visibly noisy without temporal antialiasing), [member rendering/environment/ssao/half_size] computes it at half resolution in each dimension (ASSAO's half size is a quarter), [member rendering/environment/ssao/blur_passes] sets the number of denoise passes, and the fade-out distances apply as for ASSAO.
+			[b]Note:[/b] Only supported in the Forward+ rendering method (including the web export's WebGPU renderer). The Mobile rendering method has no screen-space ambient occlusion, and the Compatibility rendering method always uses its own.
 		</member>
 		<member name="rendering/environment/ssao/quality" type="int" setter="" getter="" default="2">
 			Sets the quality of the screen-space ambient occlusion effect. Higher values take more samples and so will result in better quality, at the cost of performance. Setting to [code]Ultra[/code] will use the [member rendering/environment/ssao/adaptive_target] setting.
@@ -3531,6 +3550,24 @@
 			The number of descriptors per pool. Godot's Vulkan backend uses linear pools for descriptors that will be created and destroyed within a single frame. Instead of destroying every single descriptor every frame, they all can be destroyed at once by resetting the pool they belong to.
 			A larger number is more efficient up to a limit, after that it will only waste RAM (maximum efficiency is achieved when there is no more than 1 pool per frame). A small number could end up with one pool per descriptor, which negatively impacts performance.
 			[b]Note:[/b] Changing this property requires a restart to take effect.
+		</member>
+		<member name="rendering/scaling_3d/dynamic" type="bool" setter="" getter="" default="false">
+			If [code]true[/code], the root viewport's 3D resolution scale is chosen at run time to hold [member rendering/scaling_3d/dynamic_target_fps]: it is lowered when the GPU cannot keep up and raised again when it has room, between [member rendering/scaling_3d/dynamic_min_scale] and [member rendering/scaling_3d/dynamic_max_scale]. [member rendering/scaling_3d/scale] is the starting scale. See [member Viewport.scaling_3d_dynamic]. Not applied in the editor.
+		</member>
+		<member name="rendering/scaling_3d/dynamic_max_scale" type="float" setter="" getter="" default="1.0">
+			The largest 3D resolution scale dynamic 3D resolution may pick for the root viewport. Above [code]1.0[/code] renders more pixels than the screen has when the GPU has room (Bilinear only; other scaling modes stop at [code]1.0[/code]). See [member Viewport.scaling_3d_dynamic_max_scale].
+		</member>
+		<member name="rendering/scaling_3d/dynamic_min_scale" type="float" setter="" getter="" default="0.5">
+			The smallest 3D resolution scale dynamic 3D resolution may pick for the root viewport. See [member Viewport.scaling_3d_dynamic_min_scale].
+		</member>
+		<member name="rendering/scaling_3d/dynamic_remember" type="bool" setter="" getter="" default="false">
+			If [code]true[/code], the scale dynamic 3D resolution settles on for the root viewport is saved in [code]user://[/code] and the next run starts from it. See [member Viewport.scaling_3d_dynamic_remember].
+		</member>
+		<member name="rendering/scaling_3d/dynamic_step" type="float" setter="" getter="" default="0.05">
+			The size of each change dynamic 3D resolution makes to the root viewport's scale. See [member Viewport.scaling_3d_dynamic_step].
+		</member>
+		<member name="rendering/scaling_3d/dynamic_target_fps" type="float" setter="" getter="" default="60.0">
+			The frame rate dynamic 3D resolution tries to hold for the root viewport. See [member Viewport.scaling_3d_dynamic_target_fps].
 		</member>
 		<member name="rendering/scaling_3d/fsr_sharpness" type="float" setter="" getter="" default="0.2">
 			Determines how sharp the upscaled image will be when using the FSR upscaling mode. Sharpness halves with every whole number. Values go from 0.0 (sharpest) to 2.0. Values above 2.0 won't make a visible difference.

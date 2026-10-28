@@ -1,0 +1,69 @@
+98a99,143
+> /* The export preset's progress bar colors (loading_screen/progress_bar/*), set
+>    as custom properties by the script below because inline styles cannot reach
+>    the pseudo-elements that draw a <progress>. Only added when a color differs
+>    from its default; otherwise the bar keeps the browser's native look. */
+> #status-progress.custom-colors {
+> 	-webkit-appearance: none;
+> 	appearance: none;
+> 	box-sizing: border-box;
+> 	height: 1rem;
+> 	border: 1px solid var(--progress-border-color);
+> 	border-radius: 0.5rem;
+> 	background-color: var(--progress-background-color);
+> 	overflow: hidden;
+> }
+>
+> #status-progress.custom-colors::-webkit-progress-bar {
+> 	background-color: transparent;
+> }
+>
+> #status-progress.custom-colors::-webkit-progress-value {
+> 	background-color: var(--progress-fill-color);
+> }
+>
+> #status-progress.custom-colors::-moz-progress-bar {
+> 	background-color: var(--progress-fill-color);
+> }
+>
+> /* No value yet (download size unknown): a block of the fill color sweeps
+>    across, as the native indeterminate bar does. */
+> #status-progress.custom-colors:indeterminate {
+> 	background-image: linear-gradient(var(--progress-fill-color), var(--progress-fill-color));
+> 	background-repeat: no-repeat;
+> 	background-size: 30% 100%;
+> 	animation: status-progress-indeterminate 1.5s linear infinite;
+> }
+>
+> #status-progress.custom-colors:indeterminate::-moz-progress-bar {
+> 	background-color: transparent;
+> }
+>
+> @keyframes status-progress-indeterminate {
+> 	from { background-position: -50% 0; }
+> 	to { background-position: 150% 0; }
+> }
+>
+230c275
+< const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2032,"index.wasm":44085730},"focusCanvas":true,"fullscreenOnFirstTap":true,"gdextensionLibs":[],"godotPoolSize":4,"renderingDriver":"webgpu"};
+---
+> const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2032,"index.wasm":44578425},"focusCanvas":true,"fullscreenOnFirstTap":true,"gdextensionLibs":[],"godotPoolSize":4,"renderingDriver":"webgpu"};
+241a287,289
+> // The preset's progress bar options (loading_screen/progress_bar/*): { enabled,
+> // customColors, borderColor, backgroundColor, fillColor }, colors as CSS hex.
+> const GODOT_PROGRESS_BAR = {"backgroundColor":"#efefef","borderColor":"#b2b2b2","customColors":false,"enabled":true,"fillColor":"#0075ff"};
+292a341,349
+> 	const progressBar = (typeof GODOT_PROGRESS_BAR === 'object' && GODOT_PROGRESS_BAR) || {};
+> 	const progressBarEnabled = progressBar['enabled'] !== false;
+> 	if (progressBar['customColors']) {
+> 		statusProgress.style.setProperty('--progress-border-color', progressBar['borderColor']);
+> 		statusProgress.style.setProperty('--progress-background-color', progressBar['backgroundColor']);
+> 		statusProgress.style.setProperty('--progress-fill-color', progressBar['fillColor']);
+> 		statusProgress.classList.add('custom-colors');
+> 	}
+>
+435c492,493
+< 		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+---
+> 		// A disabled bar leaves the layout, so the rest of the column closes up.
+> 		statusProgress.style.display = (mode === 'progress' && progressBarEnabled) ? 'block' : 'none';

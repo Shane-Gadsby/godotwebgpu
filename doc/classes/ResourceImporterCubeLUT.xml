@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ResourceImporterCubeLUT" inherits="ResourceImporter" api_type="editor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Imports a [code].cube[/code] look-up table as a [CompressedTexture3D].
+	</brief_description>
+	<description>
+		Imports Adobe/Resolve [code].cube[/code] LUT files, the format cameras, grading tools and LUT packs ship, for [member CameraAttributes.lut_texture] and [member Environment.adjustment_color_correction]. 3D tables, 1D tables, and a 1D shaper followed by a 3D table are supported, with [code]DOMAIN_MIN[/code]/[code]DOMAIN_MAX[/code] and Resolve's [code]LUT_1D_INPUT_RANGE[/code]/[code]LUT_3D_INPUT_RANGE[/code]. A 3D table over the default [code]0.0[/code]-[code]1.0[/code] domain is kept exactly; anything else is evaluated over a 3D grid on that domain (at least 33 entries per side, 65 for a 1D table), with input outside a table's domain clamped to its edge. The texture stores uncompressed half floats, so outputs outside [code]0.0[/code]-[code]1.0[/code] are kept.
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

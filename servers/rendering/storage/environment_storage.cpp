@@ -239,6 +239,9 @@ float RendererEnvironmentStorage::environment_get_white(RID p_env, bool p_limit_
 		// Filmic and ACES only support SDR; their white is stable regardless
 		// of output_max_value.
 		return MAX(1.0, env->white);
+	} else if (env->tone_mapper == RSE::ENV_TONE_MAPPER_CUSTOM) {
+		// The Custom curve has no white parameter: its white is where the curve itself reaches white.
+		return tonemap_custom_compute_curve(env->tonemap_custom_slope, env->tonemap_custom_toe, env->tonemap_custom_shoulder, env->tonemap_custom_black_clip, env->tonemap_custom_white_clip).white;
 	} else if (env->tone_mapper == RSE::ENV_TONE_MAPPER_AGX) {
 		// AgX works best with a high white. 2.0 is the minimum required for
 		// good behavior with Mobile rendering method.
@@ -341,6 +344,145 @@ RendererEnvironmentStorage::TonemapParameters RendererEnvironmentStorage::enviro
 	}
 
 	return tonemap_parameters;
+}
+
+/* Custom tonemap */
+
+// The Custom tonemapper's curve, with the parameters of Unreal Engine's Film tonemapper (slope, toe, shoulder, black
+// clip, white clip; https://dev.epicgames.com/documentation/en-us/unreal-engine/color-grading-and-the-filmic-tonemapper-in-unreal-engine),
+// so values can be carried over from it. In L = log10(x) the curve is a straight line, joined in value and slope to a
+// hyperbolic-tangent toe below it and shoulder above it:
+//   line(L)     = slope * (L + a)
+//   toe(L)      = (1 - toe) + ts * tanh(slope / ts * (L - l_toe)),           ts = 1 + black_clip - toe
+//   shoulder(L) = shoulder + ss * tanh(slope / ss * (L - l_shoulder)),      ss = 1 + white_clip - shoulder
+// The toe takes over below the output 1 - toe and falls toward -black_clip, the shoulder takes over above the output
+// `shoulder` and rises toward 1 + white_clip; a positive black (white) clip makes the curve reach 0 (1) at a finite
+// input. Mid gray anchors it: 0.18 maps to 0.18, on the toe when the toe reaches above 0.18 (toe < 0.82), on the line
+// otherwise. When the shoulder starts below the toe's end (l_shoulder < l_toe, as with the defaults), there is no line:
+// toe and shoulder are blended across the overlap with a smoothstep weight, as Unreal's curve does. The defaults are
+// Unreal's (0.88, 0.55, 0.26, 0, 0.04), its match of the ACES film curve. The output is clipped to [0, 1]: like
+// Filmic and ACES, this is a curve for SDR output.
+//
+// The shaders evaluate it in log2(x), so the constants are converted here: params[0] = (l_toe, l_shoulder, a,
+// slope) in log2 units, params[1] = (1 - toe, ts, shoulder, ss), params[2] = (blend scale, blend offset,
+// slope / ts, slope / ss), the last two in log2 units too. webgpu_notes/work/results/56-pp-custom-tonemap/ has a
+// numpy model of the curve written from this description, which the renders are checked against.
+RendererEnvironmentStorage::TonemapCustomCurve RendererEnvironmentStorage::tonemap_custom_compute_curve(float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	// Guards for the ends of the ranges, where a segment would become a step: a slope of 0 or a toe (shoulder) that
+	// fills the whole range with no clip.
+	const double slope = MAX(double(p_slope), 0.01);
+	const double toe = CLAMP(double(p_toe), 0.0, 1.0);
+	const double shoulder = CLAMP(double(p_shoulder), 0.0, 1.0);
+	const double black_clip = MAX(double(p_black_clip), 0.0);
+	const double white_clip = MAX(double(p_white_clip), 0.0);
+	const double ts = MAX(1.0 + black_clip - toe, 1e-4);
+	const double ss = MAX(1.0 + white_clip - shoulder, 1e-4);
+
+	const double mid_gray = 0.18;
+	const double l_mid_gray = Math::log(mid_gray) / Math::log(10.0);
+	double a;
+	double l_toe;
+	if (toe < 1.0 - mid_gray) {
+		// Mid gray is on the toe: toe(l_mid_gray) = 0.18. The atanh argument is in (-1, 0) here.
+		const double b = (mid_gray - (1.0 - toe)) / ts;
+		l_toe = l_mid_gray - ts / slope * 0.5 * Math::log((1.0 + b) / (1.0 - b));
+		a = (1.0 - toe) / slope - l_toe;
+	} else {
+		// Mid gray is on the line: line(l_mid_gray) = 0.18.
+		a = mid_gray / slope - l_mid_gray;
+		l_toe = (1.0 - toe) / slope - a;
+	}
+	const double l_shoulder = shoulder / slope - a;
+
+	// Everything in log2(x) for the shaders: L10 = L2 * log10(2).
+	const double log10_2 = Math::log(2.0) / Math::log(10.0);
+	const double slope2 = slope * log10_2;
+	const double lo = MIN(l_toe, l_shoulder) / log10_2;
+	const double hi = MAX(l_toe, l_shoulder) / log10_2;
+	const double blend_scale = 1.0 / MAX(hi - lo, 1e-6);
+
+	TonemapCustomCurve curve;
+	curve.params[0][0] = l_toe / log10_2;
+	curve.params[0][1] = l_shoulder / log10_2;
+	curve.params[0][2] = a / log10_2;
+	curve.params[0][3] = slope2;
+	curve.params[1][0] = 1.0 - toe;
+	curve.params[1][1] = ts;
+	curve.params[1][2] = shoulder;
+	curve.params[1][3] = ss;
+	curve.params[2][0] = blend_scale;
+	curve.params[2][1] = -lo * blend_scale;
+	curve.params[2][2] = slope2 / ts;
+	curve.params[2][3] = slope2 / ss;
+
+	// White: the input shown as white (half an 8-bit step below 1.0), from the shoulder (or the line, if the shoulder
+	// starts above it). The blend can move it slightly; it only sets glow's Screen blend range.
+	const double white_output = 1.0 - 0.5 / 255.0;
+	double l_white;
+	if (white_output > shoulder) {
+		const double w = (white_output - shoulder) / ss; // In (0, 1): the shoulder rises toward 1 + white_clip.
+		l_white = l_shoulder + ss / slope * 0.5 * Math::log((1.0 + w) / (1.0 - w));
+	} else {
+		l_white = white_output / slope - a;
+	}
+	curve.white = CLAMP(Math::pow(10.0, l_white), 1.0, 1e6);
+	return curve;
+}
+
+void RendererEnvironmentStorage::environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->tonemap_custom_slope = p_slope;
+	env->tonemap_custom_toe = p_toe;
+	env->tonemap_custom_shoulder = p_shoulder;
+	env->tonemap_custom_black_clip = p_black_clip;
+	env->tonemap_custom_white_clip = p_white_clip;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_slope(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.88);
+	return env->tonemap_custom_slope;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_toe(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.55);
+	return env->tonemap_custom_toe;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_shoulder(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.26);
+	return env->tonemap_custom_shoulder;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_black_clip(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0);
+	return env->tonemap_custom_black_clip;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_white_clip(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.04);
+	return env->tonemap_custom_white_clip;
+}
+
+bool RendererEnvironmentStorage::environment_fill_effects_buffer(RID p_env, EnvironmentEffectsUBO &r_ubo) const {
+	r_ubo = EnvironmentEffectsUBO();
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return false;
+	}
+	bool used = false;
+	if (env->tone_mapper == RSE::ENV_TONE_MAPPER_CUSTOM) {
+		const TonemapCustomCurve curve = tonemap_custom_compute_curve(env->tonemap_custom_slope, env->tonemap_custom_toe, env->tonemap_custom_shoulder, env->tonemap_custom_black_clip, env->tonemap_custom_white_clip);
+		r_ubo.header[0] |= ENVIRONMENT_EFFECTS_TONEMAP_CUSTOM;
+		memcpy(r_ubo.tonemap_custom, curve.params, sizeof(r_ubo.tonemap_custom));
+		used = true;
+	}
+	return used;
 }
 
 // Fog
@@ -549,6 +691,150 @@ float RendererEnvironmentStorage::environment_get_volumetric_fog_ambient_inject(
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 0.0);
 	return env->volumetric_fog_ambient_inject;
+}
+
+// GLARE
+
+void RendererEnvironmentStorage::environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.lens_flare_enabled = p_enable;
+	env->glare.lens_flare_intensity = MAX(p_intensity, 0.0f);
+	env->glare.lens_flare_threshold = MAX(p_threshold, 0.0f);
+	env->glare.lens_flare_ghost_count = CLAMP(p_ghost_count, 0, 8);
+	env->glare.lens_flare_halo_intensity = MAX(p_halo_intensity, 0.0f);
+	env->glare.lens_flare_chromatic_aberration = MAX(p_chromatic_aberration, 0.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.veiling_glare_enabled = p_enable;
+	env->glare.veiling_glare_strength = MAX(p_strength, 0.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.diffusion_filter_enabled = p_enable;
+	env->glare.diffusion_filter_strength = MAX(p_strength, 0.0f);
+	env->glare.diffusion_filter_black = p_black;
+}
+
+CameraGlareEnvironment RendererEnvironmentStorage::environment_get_camera_glare(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return CameraGlareEnvironment(); // No Environment: no glare.
+	}
+	return env->glare;
+}
+
+// LIGHT SHAFTS
+
+void RendererEnvironmentStorage::environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->light_shafts.enabled = p_enable;
+	env->light_shafts.intensity = MAX(p_intensity, 0.0f);
+	env->light_shafts.threshold = MAX(p_threshold, 0.0f);
+	// Without extinction a shaft would reach across the whole frame; a floor keeps the march finite (see below).
+	env->light_shafts.decay = MAX(p_decay, 0.01f);
+	env->light_shafts.tint = p_tint;
+}
+
+void RendererEnvironmentStorage::environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) {
+	// Samples along each shaft. GPU Gems 3 ch. 13 (Mitchell) takes 100 at full resolution without jitter; with the
+	// per-pixel jitter the blur pass applies, a quarter-resolution buffer needs far fewer (measured in
+	// webgpu_notes/work/results/46-pp-light-shafts).
+	switch (p_quality) {
+		case RSE::ENV_LIGHT_SHAFTS_QUALITY_LOW:
+			light_shafts_sample_count = 16;
+			break;
+		case RSE::ENV_LIGHT_SHAFTS_QUALITY_HIGH:
+			light_shafts_sample_count = 64;
+			break;
+		default:
+			light_shafts_sample_count = 32;
+			break;
+	}
+}
+
+/* Light shafts
+ *
+ * Mitchell's radial blur (GPU Gems 3 ch. 13, 2007) averages N mask samples spaced along the segment to the sun,
+ * weighted by decay^i. Its look therefore changes with the sample count and with the sun's distance on screen. Here the
+ * same idea is a weighted mean over screen distance t, in frame heights so it is the same at every resolution:
+ *
+ *   S(p) = integral_0^L exp(-decay t) M(p + t u) dt / integral_0^L exp(-decay t) dt
+ *
+ * M is the sky above the threshold, u the direction toward the sun and L the distance to it. A uniform sky gives S = M,
+ * a pixel on the sun keeps the sun's brightness, and sky that an occluder hides from the ray darkens it in proportion
+ * to its weight. decay is an extinction coefficient (Beer-Lambert) on the way from the pixel toward the sun, so 1 / decay
+ * is how far, in frame heights, the shafts reach from the bright sky: past a disk of radius r at distance D, S falls as
+ * M (exp(-decay (D - r)) - exp(-decay D)) / (1 - exp(-decay D)), i.e. as exp(-decay D) far out. The march stops where
+ * the weight falls below 1/1000 of its start (L <= ln(1000) / decay).
+ *
+ * The shader takes N stratified samples over [0, L] (the quality setting), each of the mask first averaged along the
+ * same line over one stride, ln(1000) / decay / N, by 16 samples of its own. A sun disk smaller than a stride is then
+ * integrated rather than hit or missed per pixel (which showed as a coarse diagonal pattern of the per-pixel jitter),
+ * at the price of smoothing the shafts lengthwise by that stride; nothing is smoothed across them. The result is the
+ * same at every sample count but for that stride; the quality setting changes the noise and the stride.
+ *
+ * (A first version added the sun's own mask past the end of the march, exp(-decay L) M(sun), so the weights summed to
+ * 1 over an infinite ray. It treated a small bright sun disk as an infinite one: the disk bloomed over the whole frame,
+ * through every occluder.)
+ */
+
+// The fade as the sun leaves the frame, in frame heights outside its edge: a look choice. Shafts from an off-screen
+// sun come only from the sky in the frame, so without the fade they would end abruptly where that sky does.
+static constexpr float LIGHT_SHAFTS_EDGE_FADE = 0.5f;
+
+RendererEnvironmentStorage::LightShaftsSun RendererEnvironmentStorage::light_shafts_compute_sun(const Vector3 &p_sun_direction, const Transform3D &p_camera_transform, const Projection &p_projection, bool p_orthogonal, float p_aspect, bool p_flip_y) {
+	LightShaftsSun sun;
+	// The sun is a direction, a point at infinity: w = 0, so the camera's position does not matter.
+	const Vector3 view_dir = p_camera_transform.basis.xform_inv(p_sun_direction).normalized();
+	const Vector4 clip = p_projection.xform(Vector4(view_dir.x, view_dir.y, view_dir.z, 0.0));
+
+	if (p_orthogonal) {
+		// Every view ray is parallel, so the sun has no point on screen: the shafts are parallel too, along the sun's
+		// direction projected onto the frame (NDC is y up, uv y down; x in frame heights).
+		Vector2 dir = Vector2(clip.x * 0.5f * p_aspect, (p_flip_y ? -0.5f : 0.5f) * clip.y);
+		if (view_dir.z >= 0.0f || dir.length() < 1e-5f) {
+			return sun; // Behind the camera, or straight down the view axis: no direction to blur along.
+		}
+		dir.normalize();
+		sun.position[0] = dir.x;
+		sun.position[1] = dir.y;
+		sun.position[2] = 0.0f;
+		sun.position[3] = p_aspect;
+		// Fade in over the first ~15 degrees in front of the camera (a look choice, as the edge fade).
+		sun.fade = CLAMP(-view_dir.z * 4.0f, 0.0f, 1.0f);
+		return sun;
+	}
+
+	if (clip.w <= 1e-6f) {
+		return sun; // Behind the camera (or level with it): its projection is meaningless.
+	}
+	const float ndc_y = clip.y / clip.w;
+	const Vector2 uv = Vector2(clip.x / clip.w * 0.5f + 0.5f, p_flip_y ? 0.5f - ndc_y * 0.5f : 0.5f + ndc_y * 0.5f);
+	sun.position[0] = uv.x;
+	sun.position[1] = uv.y;
+	sun.position[2] = 1.0f;
+	sun.position[3] = p_aspect;
+	const Vector2 outside = Vector2(MAX(MAX(-uv.x, uv.x - 1.0f), 0.0f) * p_aspect, MAX(MAX(-uv.y, uv.y - 1.0f), 0.0f));
+	const float t = CLAMP(outside.length() / LIGHT_SHAFTS_EDGE_FADE, 0.0f, 1.0f);
+	sun.fade = 1.0f - t * t * (3.0f - 2.0f * t); // 1 - smoothstep.
+	return sun;
+}
+
+RendererEnvironmentStorage::LightShafts RendererEnvironmentStorage::environment_get_light_shafts(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return LightShafts(); // No Environment: no light shafts.
+	}
+	LightShafts shafts = env->light_shafts;
+	shafts.sample_count = light_shafts_sample_count;
+	return shafts;
 }
 
 // GLOW
@@ -812,6 +1098,27 @@ float RendererEnvironmentStorage::environment_get_ssil_normal_rejection(RID p_en
 	return env->ssil_normal_rejection;
 }
 
+// Micro shadows
+
+void RendererEnvironmentStorage::environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->micro_shadows_enabled = p_enable;
+	env->micro_shadows_opacity = CLAMP(p_opacity, 0.0f, 1.0f);
+}
+
+bool RendererEnvironmentStorage::environment_get_micro_shadows_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->micro_shadows_enabled;
+}
+
+float RendererEnvironmentStorage::environment_get_micro_shadows_opacity(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->micro_shadows_opacity;
+}
+
 // SDFGI
 
 void RendererEnvironmentStorage::environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RSE::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias) {
@@ -944,4 +1251,80 @@ RID RendererEnvironmentStorage::environment_get_color_correction(RID p_env) cons
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, RID());
 	return env->color_correction;
+}
+
+/* Color grading */
+
+void RendererEnvironmentStorage::environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	RendererColorGrading::Params &grading = env->color_grading;
+	grading.enabled = p_enable;
+	grading.color_filter = p_color_filter;
+	grading.hue_shift = p_hue_shift;
+	grading.vibrance = p_vibrance;
+	grading.lift = p_lift;
+	grading.gamma = p_gamma;
+	grading.gain = p_gain;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	RendererColorGrading::Params &grading = env->color_grading;
+	grading.shadows = p_shadows;
+	grading.midtones = p_midtones;
+	grading.highlights = p_highlights;
+	grading.shadows_start = p_shadows_start;
+	grading.shadows_end = p_shadows_end;
+	grading.highlights_start = p_highlights_start;
+	grading.highlights_end = p_highlights_end;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->color_grading.mixer_red = p_red;
+	env->color_grading.mixer_green = p_green;
+	env->color_grading.mixer_blue = p_blue;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->color_grading.split_shadows = p_shadows;
+	env->color_grading.split_highlights = p_highlights;
+	env->color_grading.split_balance = p_balance;
+	env->color_grading_version++;
+}
+
+void RendererEnvironmentStorage::environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	const Vector<float> *curves[RendererColorGrading::CURVE_MAX] = { &p_master, &p_red, &p_green, &p_blue, &p_hue_vs_hue, &p_hue_vs_sat, &p_sat_vs_sat, &p_lum_vs_sat };
+	for (int i = 0; i < RendererColorGrading::CURVE_MAX; i++) {
+		env->color_grading.curves[i] = *curves[i];
+	}
+	env->color_grading_version++;
+}
+
+bool RendererEnvironmentStorage::environment_get_color_grading_enabled(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, false);
+	return env->color_grading.enabled;
+}
+
+uint64_t RendererEnvironmentStorage::environment_get_color_grading_version(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0);
+	return env->color_grading_version;
+}
+
+Vector<uint8_t> RendererEnvironmentStorage::environment_bake_color_grading(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector<uint8_t>());
+	return RendererColorGrading::bake(env->color_grading);
 }

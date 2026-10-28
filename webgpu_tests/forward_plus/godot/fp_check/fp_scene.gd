@@ -49,14 +49,26 @@ const FEATURES := [
 	"normal_map", "emission", "rim", "clearcoat", "anisotropy",
 	"subsurface_scattering", "backlight", "refraction", "heightmap", "triplanar",
 	"transparency", "alpha_scissor", "alpha_hash", "proximity_fade", "distance_fade",
-	"depth_texture", "mipmap_bias", "texture_array", "shader_builtins", "point_coord",
+	"depth_texture", "mipmap_bias", "texture_array", "image_formats", "shader_builtins", "point_coord",
 	"stencil_outline", "stencil_xray", "bent_normal",
 	"fog_volume", "fog_volume_shader", "lightmap_gi",
 	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range", "occlusion_culling",
 	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
-	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
+	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2", "fsr2_camera_move",
 	"dof_far", "dof_near", "dof_nan", "auto_exposure", "white_balance", "compositor_effect",
 	"glow_nan", "ssr_nan", "auto_exposure_nan",
+	# CameraAttributes / Environment camera effects (engine additions, TASKS.md 4.52-4.55); only the deterministic
+	# ones: grain, zebras and motion-dependent effects change from frame to frame.
+	"lens_optics", "bokeh_shape", "longitudinal_ca", "tilt_shift", "starburst", "halation",
+	"lens_flare", "veiling_glare_diffusion", "camera_lut", "in_camera_processing",
+	# Environment micro shadows (directional light shadowed by the material's AO and normal maps, scene shaders).
+	"micro_shadows",
+	# GTAO (engine addition, project setting rendering/environment/ssao/method).
+	"gtao",
+	# Custom tonemapper (engine addition, Environment.TONE_MAPPER_CUSTOM: the EnvironmentEffects buffer, set 3 binding 2).
+	"tonemap_custom",
+	# CameraAttributes local exposure (engine addition, work task 57): the bilateral grid and its slicing.
+	"local_exposure",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -92,6 +104,8 @@ const SETTLE_OVERRIDE := {
 	"reflection_probe": 12,
 	"voxel_gi": 20,
 	"fsr2": 16,
+	# Pans for the whole settle, so FSR2 accumulates real camera motion over the sky.
+	"fsr2_camera_move": 64,
 	# The camera flies 60 m away (scrolling every SDFGI cascade) and back over
 	# 240 frames, then SDFGI settles where it started.
 	"sdfgi_camera_move": 330,
@@ -100,6 +114,12 @@ const SETTLE_OVERRIDE := {
 var env: Environment
 var cam: Camera3D
 var cam_attrs: CameraAttributesPractical
+# The physical camera of the arms that need a lens (tilt_shift, longitudinal_ca); cam wears cam_attrs otherwise.
+var cam_attrs_physical: CameraAttributesPhysical
+# A small, very bright sphere in the sky behind the far focus, for the camera's glare and bokeh arms.
+const GLARE_SPHERE_XFORM := Transform3D(Basis(), Vector3(2.5, 3.0, -6.0))
+var glare_sphere: MeshInstance3D
+var tex_lut3d: ImageTexture3D
 var world_env: WorldEnvironment
 
 var dir_light: DirectionalLight3D
@@ -142,10 +162,15 @@ var tex_normal: ImageTexture
 var tex_gradient: ImageTexture
 var tex_lut: ImageTexture
 var tex_bent: ImageTexture
+var tex_ao: ImageTexture
 
 var probe_mi: MeshInstance3D           # wears mat_probe unless a test swaps in a ShaderMaterial
 var mat_depth: ShaderMaterial
 var mat_array: ShaderMaterial
+# image_formats: the bands shader, and its textures in their own formats (on) and expanded to RGBA8 (off).
+var mat_formats: ShaderMaterial
+var _format_textures: Array[ImageTexture] = []
+var _format_textures_rgba8: Array[ImageTexture] = []
 var mat_builtins: ShaderMaterial
 var mat_points: ShaderMaterial
 
@@ -156,6 +181,10 @@ var _resource_defaults := {}
 # sdfgi_camera_move's flight: frame counter (-1 when not flying) and start.
 var _move_frame := -1
 var _cam_base: Transform3D
+# fsr2_camera_move's pan: the frame it started on (-1 when not panning), around _cam_base. Counted from
+# get_frames_drawn(), not per _process() call: natively the arm is applied before that frame's _process(), on the web
+# from inside it, and a per-call counter put the native camera one step (0.25 degrees) ahead.
+var _pan_start := -1
 
 # Settle frames to use instead of each feature's own (--fp-settle=N natively,
 # the hash's third field on the web), or -1.
@@ -179,6 +208,7 @@ func _ready() -> void:
 	_build_gi()
 	_build_extras()
 	_build_shader_materials()
+	_build_camera_effects()
 	_snapshot_resources()
 	# Native runs (no browser) take the feature from the command line so the
 	# same fixture can be driven against Vulkan for a cross-backend reference.
@@ -297,6 +327,14 @@ func _build_textures() -> void:
 			var ny := cos(float(y) * 0.6) * 0.5
 			nimg.set_pixel(x, y, Color(nx * 0.5 + 0.5, ny * 0.5 + 0.5, 1.0))
 	tex_normal = ImageTexture.create_from_image(nimg)
+
+	# Ambient occlusion matching the bumps: dark in the troughs of the normal map's waves, for micro_shadows.
+	var aoimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			var a := 0.2 + 0.8 * (0.5 + 0.25 * (cos(float(x) * 0.6) + sin(float(y) * 0.6)))
+			aoimg.set_pixel(x, y, Color(a, a, a))
+	tex_ao = ImageTexture.create_from_image(aoimg)
 
 	# Radial gradient, used as a light projector, a decal albedo and a glow map.
 	var gimg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
@@ -853,6 +891,39 @@ void fragment() {
 	ALBEDO = texture(layers[layer], UV).rgb;
 }
 """)
+	# Image formats that Vulkan and Metal show through a texture view swizzle (L8's (R, R, R, 1), LA8's
+	# (R, R, R, G), RGBA4444's and RGB565's red/blue exchange) or through WebGPU's own defaults for missing
+	# channels (R8, RG8). WebGPU views cannot swizzle, so the web converts them up front (task 58, TASKS.md
+	# 2.43). Six bands, twice around the probe; off shows the same images expanded to RGBA8 by Image.convert(),
+	# which is what each swizzle means, so off and on are the same picture natively.
+	mat_formats = _shader_material("""shader_type spatial;
+render_mode unshaded;
+uniform sampler2D t0 : filter_nearest;
+uniform sampler2D t1 : filter_nearest;
+uniform sampler2D t2 : filter_nearest;
+uniform sampler2D t3 : filter_nearest;
+uniform sampler2D t4 : filter_nearest;
+uniform sampler2D t5 : filter_nearest;
+void fragment() {
+	int band = int(UV.x * 12.0) % 6;
+	vec2 uv = vec2(fract(UV.x * 12.0), UV.y);
+	vec4 c = band == 0 ? texture(t0, uv) : band == 1 ? texture(t1, uv) : band == 2 ? texture(t2, uv)
+			: band == 3 ? texture(t3, uv) : band == 4 ? texture(t4, uv) : texture(t5, uv);
+	// Alpha shows against magenta, so a lost or forced alpha is visible.
+	ALBEDO = mix(vec3(1.0, 0.0, 1.0), c.rgb, c.a);
+}
+""")
+	for f in [Image.FORMAT_L8, Image.FORMAT_LA8, Image.FORMAT_RGBA4444, Image.FORMAT_RGB565, Image.FORMAT_R8, Image.FORMAT_RG8]:
+		var fimg := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+		for y in 16:
+			for x in 16:
+				fimg.set_pixel(x, y, Color(x / 15.0, y / 15.0, 1.0 - x / 15.0, 0.25 + 0.75 * y / 15.0))
+		fimg.convert(f)
+		_format_textures.push_back(ImageTexture.create_from_image(fimg))
+		var expanded := fimg.duplicate()
+		expanded.convert(Image.FORMAT_RGBA8)
+		_format_textures_rgba8.push_back(ImageTexture.create_from_image(expanded))
+
 	mat_array.set_shader_parameter("layers", [
 		_solid_texture(Color(0.9, 0.1, 0.1)), _solid_texture(Color(0.1, 0.9, 0.1)),
 		_solid_texture(Color(0.1, 0.2, 0.9)), _solid_texture(Color(0.9, 0.8, 0.1))])
@@ -894,13 +965,53 @@ void fragment() {
 """)
 
 
+## The camera effects' scene content and resources: the glare sphere, a physical camera framed like cam_attrs's
+## 55 degree view, and a 3D LUT (a warm grade with a lifted, cooled shadow).
+func _build_camera_effects() -> void:
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.12
+	sphere.height = 0.24
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.95, 0.85)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.95, 0.85)
+	mat.emission_energy_multiplier = 60.0
+	glare_sphere = _mesh_instance(sphere, mat, GLARE_SPHERE_XFORM)
+	glare_sphere.visible = false
+
+	cam_attrs_physical = CameraAttributesPhysical.new()
+	# 24 mm tall full-frame sensor: 12 / tan(27.5 deg) = 23.05 mm gives cam's 55 degree vertical view.
+	cam_attrs_physical.frustum_focal_length = 23.05
+	cam_attrs_physical.frustum_focus_distance = 4.0
+	# f/1.4 for a deep blur; the project does not use physical light units, so the exposure stays cam_attrs's.
+	cam_attrs_physical.exposure_aperture = 1.4
+
+	const N := 17
+	var images: Array[Image] = []
+	for b in N:
+		var img := Image.create_empty(N, N, false, Image.FORMAT_RGBA8)
+		for g in N:
+			for r in N:
+				var c := Vector3(r, g, b) / float(N - 1)
+				var o := Vector3(pow(c.x, 0.85), c.y, c.z * 0.85 + 0.06 * (1.0 - c.z))
+				img.set_pixel(r, g, Color(o.x, o.y, o.z))
+		images.append(img)
+	tex_lut3d = ImageTexture3D.new()
+	tex_lut3d.create(Image.FORMAT_RGBA8, N, N, N, false, images)
+
+
+func _use_physical_camera() -> void:
+	cam.attributes = cam_attrs_physical
+
+
 ## Record every stored property of the fixture's resources, so _reset() can put
 ## all of them back. Listing knobs by hand there missed some -- alpha_scissor's
 ## albedo texture stayed on the probe for every test after it, and fog_height
 ## inherited fog's colour -- so results depended on matrix order.
 func _snapshot_resources() -> void:
 	var particle_material: ParticleProcessMaterial = particles.process_material
-	for r: Resource in [env, cam_attrs, mat_probe, mat_glass, particle_material]:
+	for r: Resource in [env, cam_attrs, cam_attrs_physical, mat_probe, mat_glass, particle_material]:
 		var values := {}
 		for prop in r.get_property_list():
 			if (prop.usage & PROPERTY_USAGE_STORAGE) and prop.name != "script" and not prop.name.begins_with("resource_"):
@@ -934,6 +1045,12 @@ func _process(_delta: float) -> void:
 		else:
 			_move_frame = -1
 		cam.transform = _cam_base.translated(Vector3(60.0 * t, 0, 0))
+	if _pan_start >= 0:
+		# Yaw 0.25 degrees a frame and pitch up a little: the sky moves across the frame.
+		var k := Engine.get_frames_drawn() - _pan_start
+		var yaw := Basis(Vector3.UP, deg_to_rad(0.25 * k))
+		var pitch := Basis(Vector3.RIGHT, deg_to_rad(0.05 * k))
+		cam.transform = Transform3D(yaw * _cam_base.basis * pitch, _cam_base.origin)
 	if OS.has_feature("web"):
 		var h: String = str(JavaScriptBridge.eval("location.hash", true))
 		if h != _last_hash:
@@ -1029,6 +1146,7 @@ func _request(spec: String) -> void:
 func _reset() -> void:
 	_restore_resources()
 	_move_frame = -1
+	_pan_start = -1
 	cam.transform = Transform3D(Basis(), Vector3(0, 2.6, 7.5)).looking_at(Vector3(0, 1.0, 0), Vector3.UP)
 	probe_mi.material_override = mat_probe
 	mat_array.set_shader_parameter("layer", 0)
@@ -1042,6 +1160,8 @@ func _reset() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
 	env.ssao_enabled = false
+	# GTAO: the method is a renderer-wide setting, so every arm but "gtao" runs ASSAO.
+	RenderingServer.environment_set_ssao_method(RenderingServer.ENV_SSAO_METHOD_ASSAO)
 	env.ssil_enabled = false
 	env.ssr_enabled = false
 	env.sdfgi_enabled = false
@@ -1107,6 +1227,8 @@ func _reset() -> void:
 	compositor_effect.enabled = false
 	nan_quad.visible = false
 	nan_quad.transform = NAN_QUAD_XFORM
+	glare_sphere.visible = false
+	cam.attributes = cam_attrs
 
 	skeleton.set_bone_pose_rotation(1, Quaternion())
 	if blendshape_inst.get_blend_shape_count() > 0:
@@ -1237,6 +1359,22 @@ func _apply(id: String, on: bool) -> bool:
 			env.ssao_enabled = on
 			env.ssao_intensity = 6.0
 			env.ssao_radius = 2.0
+		"tonemap_custom":
+			# Off is the fixture's Filmic; on is the Custom curve with every parameter away from its default, so a
+			# parameter that does not reach the shader shows in the parity comparison.
+			if on:
+				env.tonemap_mode = Environment.TONE_MAPPER_CUSTOM
+				env.tonemap_custom_slope = 0.7
+				env.tonemap_custom_toe = 0.4
+				env.tonemap_custom_shoulder = 0.45
+				env.tonemap_custom_black_clip = 0.02
+				env.tonemap_custom_white_clip = 0.1
+		"gtao":
+			# The ssao arm's settings with GTAO computing the AO: off is no AO at all.
+			env.ssao_enabled = on
+			env.ssao_intensity = 6.0
+			env.ssao_radius = 2.0
+			RenderingServer.environment_set_ssao_method(RenderingServer.ENV_SSAO_METHOD_GTAO)
 		"ssil":
 			env.ssil_enabled = on
 			env.ssil_intensity = 4.0
@@ -1396,6 +1534,11 @@ func _apply(id: String, on: bool) -> bool:
 		"texture_array":
 			probe_mi.material_override = mat_array
 			mat_array.set_shader_parameter("layer", 2 if on else 0)
+		"image_formats":
+			probe_mi.material_override = mat_formats
+			var texs := _format_textures if on else _format_textures_rgba8
+			for i in texs.size():
+				mat_formats.set_shader_parameter("t%d" % i, texs[i])
 		"shader_builtins":
 			probe_mi.material_override = mat_builtins
 			mat_builtins.set_shader_parameter("use_builtins", on)
@@ -1485,6 +1628,16 @@ func _apply(id: String, on: bool) -> bool:
 			vp.scaling_3d_mode = (Viewport.SCALING_3D_MODE_FSR2 if on
 				else Viewport.SCALING_3D_MODE_BILINEAR)
 			vp.scaling_3d_scale = 0.5
+		"fsr2_camera_move":
+			# Parity only: FSR2 while the camera pans across the sky, where it derives
+			# motion vectors from depth (the sky writes none). Off is the same FSR2
+			# with the camera still. Checks the reprojection and every depth read
+			# FSR2 makes on WebGPU against native (TASKS.md 2.42).
+			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+			vp.scaling_3d_scale = 0.5
+			if on:
+				_cam_base = cam.transform
+				_pan_start = Engine.get_frames_drawn()
 		"dof_far":
 			cam_attrs.dof_blur_far_enabled = on
 			cam_attrs.dof_blur_far_distance = 6.0
@@ -1536,6 +1689,85 @@ func _apply(id: String, on: bool) -> bool:
 		"compositor_effect":
 			# fp_compositor_effect.gd: a compute shader inverting part of the frame.
 			compositor_effect.enabled = on
+		# ---- camera effects (CameraAttributes / Environment engine additions) ----
+		"lens_optics":
+			# Vignetting, barrel distortion (auto-cropped) and lateral chromatic aberration (TASKS.md 4.52).
+			cam_attrs.vignetting_enabled = on
+			cam_attrs.vignetting_strength = 1.0
+			cam_attrs.distortion_enabled = on
+			cam_attrs.distortion_k1 = -0.15
+			cam_attrs.distortion_k2 = 0.02
+			cam_attrs.chromatic_aberration_enabled = on
+			cam_attrs.chromatic_aberration_strength = 4.0
+		"bokeh_shape":
+			# The far blur both ways; on, a 5-blade aperture and the cat's eye replace the project's hexagon
+			# (the circular gather with the shape test, TASKS.md 4.54). The glare sphere's bokeh shows the shape.
+			glare_sphere.visible = true
+			cam_attrs.dof_blur_far_enabled = true
+			cam_attrs.dof_blur_far_distance = 6.0
+			cam_attrs.dof_blur_far_transition = 1.0
+			cam_attrs.dof_blur_amount = 0.3
+			cam_attrs.aperture_enabled = on
+			cam_attrs.aperture_blade_count = 5
+			cam_attrs.aperture_blade_curvature = 0.0
+			cam_attrs.aperture_rotation = 10.0
+			cam_attrs.cats_eye_enabled = on
+			cam_attrs.cats_eye_strength = 1.5
+		"longitudinal_ca":
+			# The physical camera's DOF both ways; on, red and blue get their own circles of confusion.
+			_use_physical_camera()
+			glare_sphere.visible = true
+			cam_attrs_physical.longitudinal_chromatic_aberration_enabled = on
+			cam_attrs_physical.longitudinal_chromatic_aberration_strength = 8.0
+		"tilt_shift":
+			# The physical camera's DOF both ways; on, the lens tilts and the plane of focus with it.
+			_use_physical_camera()
+			cam_attrs_physical.tilt_shift_enabled = on
+			cam_attrs_physical.tilt_shift_tilt = -6.0
+		"starburst":
+			glare_sphere.visible = true
+			cam_attrs.starburst_enabled = on
+			cam_attrs.starburst_strength = 40.0
+		"halation":
+			glare_sphere.visible = true
+			cam_attrs.halation_enabled = on
+			cam_attrs.halation_strength = 4.0
+			cam_attrs.halation_radius = 2.0
+		"lens_flare":
+			glare_sphere.visible = true
+			env.lens_flare_enabled = on
+			env.lens_flare_intensity = 20.0
+		"veiling_glare_diffusion":
+			glare_sphere.visible = true
+			env.veiling_glare_enabled = on
+			env.veiling_glare_strength = 3.0
+			env.diffusion_filter_enabled = on
+			env.diffusion_filter_strength = 1.0
+		"camera_lut":
+			cam_attrs.lut_enabled = on
+			cam_attrs.lut_texture = tex_lut3d
+		"in_camera_processing":
+			cam_attrs.noise_reduction_enabled = on
+			cam_attrs.sharpening_enabled = on
+			cam_attrs.sharpening_amount = 2.0
+		"micro_shadows":
+			# Normal and AO maps in both frames: the delta is the micro shadowing alone.
+			mat_probe.normal_enabled = true
+			mat_probe.normal_texture = tex_normal
+			mat_probe.normal_scale = 4.0
+			mat_probe.ao_enabled = true
+			mat_probe.ao_texture = tex_ao
+			mat_probe.uv1_scale = Vector3(3, 3, 3)
+			env.micro_shadows_enabled = on
+			env.micro_shadows_opacity = 1.0
+		"local_exposure":
+			# The bright emissive sphere in both frames, so there are highlights to compress; strong contrasts so the
+			# grid's slicing (not only the global level) shows in the delta.
+			glare_sphere.visible = true
+			cam_attrs.local_exposure_enabled = on
+			cam_attrs.local_exposure_highlight_contrast = 0.4
+			cam_attrs.local_exposure_shadow_contrast = 0.6
+			cam_attrs.local_exposure_blurred_luminance_blend = 0.3
 		_:
 			return false
 	return true

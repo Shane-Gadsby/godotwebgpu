@@ -1,0 +1,4 @@
+{
+ "legacy_hex2": "phys=1&legacy=1&shape=hexagon&quality=2",
+ "on_circ2_long": "phys=1&shape=circle&quality=2&f=200&n=2.8&focus=5&dist=50"
+}

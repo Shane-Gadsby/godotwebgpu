@@ -51,6 +51,17 @@
 				[b]Note:[/b] The equivalent resource is [CameraAttributes].
 			</description>
 		</method>
+		<method name="camera_attributes_set_aperture">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="blade_count" type="int" />
+			<param index="3" name="blade_curvature" type="float" />
+			<param index="4" name="rotation" type="float" />
+			<description>
+				Sets the aperture of the camera attributes: whether its shape replaces the project's bokeh shape, the [param blade_count] (0 = round), the [param blade_curvature] (0 = straight, 1 = round) and the [param rotation] in degrees. See [member CameraAttributes.aperture_enabled].
+			</description>
+		</method>
 		<method name="camera_attributes_set_auto_exposure">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -61,6 +72,63 @@
 			<param index="5" name="scale" type="float" />
 			<description>
 				Sets the parameters to use with the auto-exposure effect. These parameters take on the same meaning as their counterparts in [CameraAttributes] and [CameraAttributesPractical].
+			</description>
+		</method>
+		<method name="camera_attributes_set_auto_exposure_metering">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="mode" type="int" enum="RenderingServer.CameraAttributesMeteringMode" />
+			<param index="2" name="spot_size" type="float" />
+			<param index="3" name="spot_point" type="Vector2" />
+			<param index="4" name="highlight_percentile" type="float" />
+			<description>
+				Sets how auto exposure meters the frame. [param mode] is the metering mode, [param spot_size] the spot's area in percent of the frame, [param spot_point] its center in UV coordinates and [param highlight_percentile] the percentile the highlight-weighted mode exposes to the clipping point. These take on the same meaning as the [code]auto_exposure_metering_*[/code] properties of [CameraAttributes].
+			</description>
+		</method>
+		<method name="camera_attributes_set_auto_exposure_metering_log_average">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], auto exposure meters the log-average of the frame instead of its arithmetic mean. See [member CameraAttributes.auto_exposure_metering_log_average].
+			</description>
+		</method>
+		<method name="camera_attributes_set_auto_white_balance">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="speed" type="float" />
+			<param index="3" name="min_temperature" type="float" />
+			<param index="4" name="max_temperature" type="float" />
+			<description>
+				Sets the auto white balance of the camera attributes: [param enable] turns it on, [param speed] is the inverse of its time constant in seconds and [param min_temperature] and [param max_temperature] limit the estimated light, in Kelvin. These take on the same meaning as the [code]white_balance_auto*[/code] properties of [CameraAttributes].
+			</description>
+		</method>
+		<method name="camera_attributes_set_cats_eye">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the cat's eye bokeh of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.cats_eye_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_chromatic_aberration">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the lateral chromatic aberration of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.chromatic_aberration_enabled] and [member CameraAttributes.chromatic_aberration_strength].
+			</description>
+		</method>
+		<method name="camera_attributes_set_diffraction">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the diffraction softening of the camera attributes. The parameters take on the same meaning as [member CameraAttributesPhysical.diffraction_enabled] and [member CameraAttributesPhysical.diffraction_strength]; it needs a physical lens ([method camera_attributes_set_lens]).
 			</description>
 		</method>
 		<method name="camera_attributes_set_dof_blur">
@@ -92,6 +160,24 @@
 				Sets the quality level of the DOF blur effect to [param quality]. [param use_jitter] can be used to jitter samples taken during the blur pass to hide artifacts at the cost of looking more fuzzy.
 			</description>
 		</method>
+		<method name="camera_attributes_set_dof_legacy_gather">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], a blur sized by [method camera_attributes_set_dof_physical_blur_size] is drawn through upstream Godot's gather, as [member CameraAttributesPhysical.dof_legacy_gather] does. Has no effect unless the physical blur size is enabled.
+			</description>
+		</method>
+		<method name="camera_attributes_set_dof_physical_blur_size">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="frame_fraction" type="float" />
+			<param index="3" name="frame_horizontal" type="bool" />
+			<description>
+				Sizes the physically-based DOF blur (the negative transitions of [method camera_attributes_set_dof_blur]) by the lens instead of by [code]amount[/code], as [member CameraAttributesPhysical.dof_physical_blur_size] does. [param frame_fraction] is the diameter of the blur circle of a point at infinity, as a fraction of the frame's height, or of its width if [param frame_horizontal] is [code]true[/code]. The renderer turns it into pixels of the image it blurs, so the blur keeps its size relative to the frame at every resolution.
+			</description>
+		</method>
 		<method name="camera_attributes_set_exposure">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -111,6 +197,191 @@
 				[/codeblock]
 			</description>
 		</method>
+		<method name="camera_attributes_set_grain">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="type" type="int" enum="RenderingServer.CameraAttributesGrainType" />
+			<param index="3" name="intensity" type="float" />
+			<param index="4" name="size" type="float" />
+			<param index="5" name="sensitivity" type="float" />
+			<description>
+				Sets the grain of the camera attributes: whether it is enabled, its [param type], [param intensity] and [param size] multipliers, and the ISO [param sensitivity] of the film or sensor. These parameters take on the same meaning as [member CameraAttributes.grain_enabled], [member CameraAttributes.grain_type], [member CameraAttributes.grain_intensity], [member CameraAttributes.grain_size] and [member CameraAttributes.exposure_sensitivity].
+			</description>
+		</method>
+		<method name="camera_attributes_set_halation">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="radius" type="float" />
+			<description>
+				Sets the halation of the camera attributes: whether it is enabled, its [param strength] and its [param radius] multiplier. See [member CameraAttributes.halation_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_halation_high_quality">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [param enable] is [code]true[/code], halation's glare chain starts at full resolution, for halos below its usual size floor. See [member CameraAttributes.halation_high_quality].
+			</description>
+		</method>
+		<method name="camera_attributes_set_lens">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="sensor_size" type="Vector2" />
+			<param index="2" name="focal_length" type="float" />
+			<param index="3" name="fov_focal_length" type="float" />
+			<param index="4" name="focus_distance" type="float" />
+			<param index="5" name="f_number" type="float" />
+			<param index="6" name="max_f_number" type="float" />
+			<param index="7" name="anamorphic_squeeze" type="float" />
+			<description>
+				Sets the physical lens of the camera attributes, which the lens effects derive from: the [param sensor_size] in millimeters, the [param focal_length] and the one that sets the field of view with focus breathing ([param fov_focal_length]), both in millimeters, the [param focus_distance] in meters, the [param f_number], the lens's [param max_f_number] and its [param anamorphic_squeeze]. A [param focal_length] of 0 means no physical lens. [CameraAttributesPhysical] sets this itself.
+			</description>
+		</method>
+		<method name="camera_attributes_set_lens_distortion">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="automatic" type="bool" />
+			<param index="3" name="k1" type="float" />
+			<param index="4" name="k2" type="float" />
+			<param index="5" name="auto_crop" type="bool" />
+			<description>
+				Sets the lens distortion of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.distortion_enabled], [member CameraAttributes.distortion_automatic], [member CameraAttributes.distortion_k1], [member CameraAttributes.distortion_k2] and [member CameraAttributes.distortion_auto_crop].
+			</description>
+		</method>
+		<method name="camera_attributes_set_local_exposure">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="highlight_contrast" type="float" />
+			<param index="3" name="shadow_contrast" type="float" />
+			<param index="4" name="detail_strength" type="float" />
+			<param index="5" name="middle_gray_bias" type="float" />
+			<description>
+				Sets the local exposure of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.local_exposure_enabled], [member CameraAttributes.local_exposure_highlight_contrast], [member CameraAttributes.local_exposure_shadow_contrast], [member CameraAttributes.local_exposure_detail_strength] and [member CameraAttributes.local_exposure_middle_gray_bias].
+			</description>
+		</method>
+		<method name="camera_attributes_set_local_exposure_blurred_luminance">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="blend" type="float" />
+			<param index="2" name="kernel_size" type="float" />
+			<description>
+				Sets the blurred luminance that local exposure mixes into its base layer. The parameters take on the same meaning as [member CameraAttributes.local_exposure_blurred_luminance_blend] and [member CameraAttributes.local_exposure_blurred_luminance_kernel_size].
+			</description>
+		</method>
+		<method name="camera_attributes_set_longitudinal_chromatic_aberration">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the longitudinal chromatic aberration of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.longitudinal_chromatic_aberration_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_lut">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="texture" type="RID" />
+			<param index="3" name="input" type="int" enum="RenderingServer.CameraAttributesLUTInput" />
+			<param index="4" name="strength" type="float" />
+			<description>
+				Sets the LUT of the camera attributes: whether it is enabled, the 3D [param texture] (a [Texture3D]'s RID), what the LUT expects as its [param input], and its [param strength]. These parameters take on the same meaning as [member CameraAttributes.lut_enabled], [member CameraAttributes.lut_texture], [member CameraAttributes.lut_input] and [member CameraAttributes.lut_strength].
+			</description>
+		</method>
+		<method name="camera_attributes_set_motion_blur">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="shutter_angle" type="float" />
+			<param index="3" name="shutter_time" type="float" />
+			<param index="4" name="strength" type="float" />
+			<param index="5" name="max_length" type="float" />
+			<description>
+				Sets the motion blur of the camera attributes: whether it is enabled, the [param shutter_angle] in degrees, the [param shutter_time] in seconds (when positive, it is used instead of the angle), the [param strength] multiplier and the [param max_length] as a fraction of the frame height. These take on the same meaning as [member CameraAttributes.motion_blur_enabled], [member CameraAttributes.motion_blur_shutter_angle], [member CameraAttributesPhysical.exposure_shutter_speed], [member CameraAttributes.motion_blur_strength] and [member CameraAttributes.motion_blur_max_length].
+			</description>
+		</method>
+		<method name="camera_attributes_set_motion_blur_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="RenderingServer.CameraAttributesMotionBlurQuality" />
+			<description>
+				Sets the number of samples motion blur takes per pixel. See [member ProjectSettings.rendering/camera/motion_blur/motion_blur_quality].
+			</description>
+		</method>
+		<method name="camera_attributes_set_noise_reduction">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="chroma_only" type="bool" />
+			<description>
+				Sets the in-camera noise reduction of the [param camera_attributes]. See [member CameraAttributes.noise_reduction_enabled], [member CameraAttributes.noise_reduction_strength] and [member CameraAttributes.noise_reduction_chroma_only].
+			</description>
+		</method>
+		<method name="camera_attributes_set_panini">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="distance" type="float" />
+			<param index="3" name="vertical_compression" type="float" />
+			<description>
+				Sets the Panini projection of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.panini_enabled], [member CameraAttributes.panini_distance] and [member CameraAttributes.panini_vertical_compression].
+			</description>
+		</method>
+		<method name="camera_attributes_set_rolling_shutter">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="readout_time" type="float" />
+			<description>
+				Sets the rolling shutter of the camera attributes: whether it is enabled and the sensor's [param readout_time] in milliseconds. See [member CameraAttributes.rolling_shutter_enabled] and [member CameraAttributes.rolling_shutter_readout_time].
+			</description>
+		</method>
+		<method name="camera_attributes_set_sharpening">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="amount" type="float" />
+			<param index="3" name="radius" type="float" />
+			<param index="4" name="halo" type="float" />
+			<description>
+				Sets the in-camera sharpening of the [param camera_attributes]. [param radius] is in pixels of a 1080-line frame. See [member CameraAttributes.sharpening_enabled], [member CameraAttributes.sharpening_amount], [member CameraAttributes.sharpening_radius] and [member CameraAttributes.sharpening_halo].
+			</description>
+		</method>
+		<method name="camera_attributes_set_starburst">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the starburst (diffraction spikes) of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.starburst_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_tilt_shift">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="tilt" type="float" />
+			<param index="3" name="axis" type="float" />
+			<description>
+				Sets the tilt-shift of the camera attributes: whether it is enabled, the lens's [param tilt] in degrees and the direction of its [param axis] in degrees. Only physical camera attributes (with a focal length) use it. See [member CameraAttributesPhysical.tilt_shift_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_vignetting">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="falloff" type="float" />
+			<description>
+				Sets the vignetting of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.vignetting_enabled], [member CameraAttributes.vignetting_strength] and [member CameraAttributes.vignetting_falloff].
+			</description>
+		</method>
 		<method name="camera_attributes_set_white_balance">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -126,6 +397,21 @@
 				Creates a 3D camera and adds it to the RenderingServer. It can be accessed with the RID that is returned. This RID will be used in all [code]camera_*[/code] RenderingServer functions.
 				Once finished with your RID, you will want to free the RID using the RenderingServer's [method free_rid] method.
 				[b]Note:[/b] The equivalent node is [Camera3D].
+			</description>
+		</method>
+		<method name="camera_get_monitoring_histogram" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="channel" type="int" enum="RenderingServer.CameraMonitoringHistogramChannel" />
+			<description>
+				Returns the camera's latest histogram readback for [param channel] (256 counts), or an empty array if none has arrived. Thread-safe and not queued: it reads the last published result without waiting for the rendering thread. See [method Camera3D.get_monitoring_histogram] and [method camera_set_monitoring_histogram_readback].
+			</description>
+		</method>
+		<method name="camera_get_monitoring_histogram_serial" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="camera" type="RID" />
+			<description>
+				Returns a number that changes every time a new histogram readback for the camera arrives, or [code]0[/code] if none has. Thread-safe and not queued, like [method camera_get_monitoring_histogram].
 			</description>
 		</method>
 		<method name="camera_set_camera_attributes">
@@ -169,6 +455,73 @@
 			<param index="4" name="z_far" type="float" />
 			<description>
 				Sets camera to use frustum projection. This mode allows adjusting the [param offset] argument to create "tilted frustum" effects.
+			</description>
+		</method>
+		<method name="camera_set_monitoring_clean_texture">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="texture" type="RID" />
+			<description>
+				While [param texture] is valid, the renderer copies every frame the camera renders into it before the monitoring overlays are drawn (and before 2D), replacing its contents, size and format with the viewport's. [param texture] must be a 2D texture created by the caller, for example with [method texture_2d_placeholder_create], and stays the caller's to free, after setting an invalid [RID] here. Setting an invalid [RID] frees the renderer's copy. See [member Camera3D.monitoring_clean_texture_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_false_color">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				Sets whether the camera's image is replaced by a false color exposure map. See [member Camera3D.monitoring_false_color_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_focus_peaking">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="color" type="Color" />
+			<param index="3" name="sensitivity" type="float" />
+			<description>
+				Sets the focus peaking drawn over the camera's image. See [member Camera3D.monitoring_focus_peaking_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_histogram">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="mode" type="int" enum="RenderingServer.CameraMonitoringHistogramMode" />
+			<param index="3" name="position" type="int" enum="RenderingServer.CameraMonitoringHistogramPosition" />
+			<param index="4" name="size" type="float" />
+			<param index="5" name="opacity" type="float" />
+			<description>
+				Sets the histogram drawn over the camera's image. [param size] is its width as a fraction of the image width. See [member Camera3D.monitoring_histogram_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_histogram_readback">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="interval" type="float" />
+			<description>
+				If [param enable] is [code]true[/code], the camera's histogram is counted and read back asynchronously for [method camera_get_monitoring_histogram], at most once per [param interval] seconds ([code]0.0[/code] = every frame), whether or not it is drawn. The readback never stalls rendering; results are one or more frames old. Only supported in the Forward+ and Mobile rendering methods. See [member Camera3D.monitoring_histogram_update_interval].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_zebra_colors">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="color" type="Color" />
+			<param index="2" name="second_color" type="Color" />
+			<description>
+				Sets the stripe colors (display-encoded) of the zebras set with [method camera_set_monitoring_zebras]: [param color] for the first zebra, [param second_color] for the second. The defaults are black and white. See [member Camera3D.monitoring_zebras_color].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_zebras">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="level" type="float" />
+			<param index="3" name="second_enable" type="bool" />
+			<param index="4" name="second_level" type="float" />
+			<description>
+				Sets the zebras drawn over the camera's image: stripes over video levels at or above [param level] (in IRE) and, with [param second_enable], over a ±5 IRE window around [param second_level]. Unlike [member Camera3D.monitoring_visible_in_output], this always draws them. See [member Camera3D.monitoring_zebras_enabled].
 			</description>
 		</method>
 		<method name="camera_set_orthogonal">
@@ -1371,6 +1724,79 @@
 				Sets the maximum layer to use if using Canvas background mode.
 			</description>
 		</method>
+		<method name="environment_set_color_grading">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="color_filter" type="Color" />
+			<param index="3" name="hue_shift" type="float" />
+			<param index="4" name="vibrance" type="float" />
+			<param index="5" name="lift" type="Color" />
+			<param index="6" name="gamma" type="Color" />
+			<param index="7" name="gain" type="Color" />
+			<description>
+				Sets the color grading of the environment: whether it is enabled, the color filter, hue shift (degrees) and vibrance, and lift, gamma and gain. See [member Environment.grading_enabled] and the other [code]grading_*[/code] properties of [Environment] for what each does.
+			</description>
+		</method>
+		<method name="environment_set_color_grading_channel_mixer">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="red" type="Vector3" />
+			<param index="2" name="green" type="Vector3" />
+			<param index="3" name="blue" type="Vector3" />
+			<description>
+				Sets the channel mixer of the environment's color grading: each output channel as a weighted sum of the input red, green and blue. See [member Environment.grading_channel_mixer_red].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_curves">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="master" type="PackedFloat32Array" />
+			<param index="2" name="red" type="PackedFloat32Array" />
+			<param index="3" name="green" type="PackedFloat32Array" />
+			<param index="4" name="blue" type="PackedFloat32Array" />
+			<param index="5" name="hue_vs_hue" type="PackedFloat32Array" />
+			<param index="6" name="hue_vs_sat" type="PackedFloat32Array" />
+			<param index="7" name="sat_vs_sat" type="PackedFloat32Array" />
+			<param index="8" name="lum_vs_sat" type="PackedFloat32Array" />
+			<description>
+				Sets the curves of the environment's color grading, each as evenly spaced samples of the curve over X from [code]0.0[/code] to [code]1.0[/code] (any count from 2; [Environment] uses 256). An empty array leaves that curve out. See [member Environment.grading_curve_master].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_shadows_midtones_highlights">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="shadows" type="Color" />
+			<param index="2" name="midtones" type="Color" />
+			<param index="3" name="highlights" type="Color" />
+			<param index="4" name="shadows_start" type="float" />
+			<param index="5" name="shadows_end" type="float" />
+			<param index="6" name="highlights_start" type="float" />
+			<param index="7" name="highlights_end" type="float" />
+			<description>
+				Sets the shadows, midtones and highlights tints of the environment's color grading and the luminance ranges of shadows and highlights. See [member Environment.grading_shadows].
+			</description>
+		</method>
+		<method name="environment_set_color_grading_split_toning">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="shadows" type="Color" />
+			<param index="2" name="highlights" type="Color" />
+			<param index="3" name="balance" type="float" />
+			<description>
+				Sets the split toning of the environment's color grading. See [member Environment.grading_split_toning_shadows].
+			</description>
+		</method>
+		<method name="environment_set_diffusion_filter">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="black" type="bool" />
+			<description>
+				Sets the diffusion filter of the environment: whether it is enabled, its [param strength] (the filter's grade) and whether it is a [param black] filter. See [member Environment.diffusion_filter_enabled].
+			</description>
+		</method>
 		<method name="environment_set_fog">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -1415,6 +1841,47 @@
 			<param index="12" name="glow_map" type="RID" />
 			<description>
 				Configures glow for the specified environment RID. See [code]glow_*[/code] properties in [Environment] for more information.
+			</description>
+		</method>
+		<method name="environment_set_lens_flare">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="intensity" type="float" />
+			<param index="3" name="threshold" type="float" />
+			<param index="4" name="ghost_count" type="int" />
+			<param index="5" name="halo_intensity" type="float" />
+			<param index="6" name="chromatic_aberration" type="float" />
+			<description>
+				Sets the lens flare of the environment: whether it is enabled, the ghosts' [param intensity], the [param threshold] above which light makes flare, the [param ghost_count], the [param halo_intensity] and the ghosts' [param chromatic_aberration]. See [member Environment.lens_flare_enabled].
+			</description>
+		</method>
+		<method name="environment_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="intensity" type="float" />
+			<param index="3" name="threshold" type="float" />
+			<param index="4" name="decay" type="float" />
+			<param index="5" name="tint" type="Color" />
+			<description>
+				Sets the screen-space light shafts of the environment. See [member Environment.light_shafts_enabled] for details.
+			</description>
+		</method>
+		<method name="environment_set_light_shafts_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="RenderingServer.EnvironmentLightShaftsQuality" />
+			<description>
+				Sets the number of samples each light shaft takes. See [member ProjectSettings.rendering/environment/light_shafts/quality].
+			</description>
+		</method>
+		<method name="environment_set_micro_shadows">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="opacity" type="float" />
+			<description>
+				Sets the micro shadows of the environment: whether they are enabled and their [param opacity]. See [member Environment.micro_shadows_enabled].
 			</description>
 		</method>
 		<method name="environment_set_sdfgi">
@@ -1495,6 +1962,13 @@
 				Sets the variables to be used with the screen-space ambient occlusion (SSAO) post-process effect. See [Environment] for more details.
 			</description>
 		</method>
+		<method name="environment_set_ssao_method">
+			<return type="void" />
+			<param index="0" name="method" type="int" enum="RenderingServer.EnvironmentSSAOMethod" />
+			<description>
+				Sets the algorithm used for screen-space ambient occlusion. See [member ProjectSettings.rendering/environment/ssao/method] for details. Only the Forward+ rendering method supports [constant ENV_SSAO_METHOD_GTAO].
+			</description>
+		</method>
 		<method name="environment_set_ssao_quality">
 			<return type="void" />
 			<param index="0" name="quality" type="int" enum="RenderingServer.EnvironmentSSAOQuality" />
@@ -1560,6 +2034,27 @@
 			<param index="1" name="agx_contrast" type="float" />
 			<description>
 				See [member Environment.tonemap_agx_contrast] for more details.
+			</description>
+		</method>
+		<method name="environment_set_tonemap_custom">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="slope" type="float" />
+			<param index="2" name="toe" type="float" />
+			<param index="3" name="shoulder" type="float" />
+			<param index="4" name="black_clip" type="float" />
+			<param index="5" name="white_clip" type="float" />
+			<description>
+				Sets the curve of the [constant ENV_TONE_MAPPER_CUSTOM] tonemapper. See [member Environment.tonemap_custom_slope], [member Environment.tonemap_custom_toe], [member Environment.tonemap_custom_shoulder], [member Environment.tonemap_custom_black_clip] and [member Environment.tonemap_custom_white_clip] for more details.
+			</description>
+		</method>
+		<method name="environment_set_veiling_glare">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the veiling glare of the environment: whether it is enabled and its [param strength]. See [member Environment.veiling_glare_enabled].
 			</description>
 		</method>
 		<method name="environment_set_volumetric_fog">
@@ -2155,6 +2650,14 @@
 				If [code]true[/code], this directional light will blend between shadow map splits resulting in a smoother transition between them. Equivalent to [member DirectionalLight3D.directional_shadow_blend_splits].
 			</description>
 		</method>
+		<method name="light_directional_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="light" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [code]true[/code], this directional light is the sun of the environment's screen-space light shafts. See [member DirectionalLight3D.light_shafts_enabled].
+			</description>
+		</method>
 		<method name="light_directional_set_shadow_mode">
 			<return type="void" />
 			<param index="0" name="light" type="RID" />
@@ -2597,6 +3100,7 @@
 			<param index="1" name="surface" type="int" />
 			<description>
 				Returns a mesh's surface's buffer arrays.
+				[b]Note:[/b] On the web (WebGPU), the arrays are read back from the GPU asynchronously: a first call for a surface returns an empty array until the data has arrived, a frame or more later. Debug builds print a warning the first time this happens.
 			</description>
 		</method>
 		<method name="mesh_surface_get_attribute_buffer_rd_rid" qualifiers="const">
@@ -3890,6 +4394,22 @@
 				var texture = ImageTexture.create_from_image(RenderingServer.texture_2d_get(texture_rid))
 				$Sprite2D.texture = texture
 				[/codeblock]
+				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data: the first call for a texture returns [code]null[/code], and a later call returns what the previous call copied. Use [method texture_2d_get_async] or [method texture_2d_get_awaitable], which behave the same on every platform. In a debug build, the first [code]null[/code] for each texture prints a warning saying so.
+			</description>
+		</method>
+		<method name="texture_2d_get_async">
+			<return type="void" />
+			<param index="0" name="texture" type="RID" />
+			<param index="1" name="callback" type="Callable" />
+			<description>
+				Asynchronous version of [method texture_2d_get]. Once the current frame's viewports have been drawn, copies [param texture] from the GPU, and when the data has arrived, calls [param callback] on the main thread with an [Image], or with [code]null[/code] if [param texture] is invalid or freed before then, or the read fails. [param callback] is called exactly once, never from inside this method, and requests complete in the order they were made. This is what [method Texture2D.get_image_async] uses, and it behaves the same on every platform, including the web, where [method texture_2d_get] cannot wait for the GPU.
+			</description>
+		</method>
+		<method name="texture_2d_get_awaitable">
+			<return type="Signal" />
+			<param index="0" name="texture" type="RID" />
+			<description>
+				The awaitable form of [method texture_2d_get_async]: starts the same read and returns a [Signal] that is emitted once with its result, an [Image] or [code]null[/code]. Use it as [code]var image: Image = await RenderingServer.texture_2d_get_awaitable(texture)[/code], awaiting it right away (the signal is emitted only once, on a later frame). See [method Texture2D.get_image_awaitable].
 			</description>
 		</method>
 		<method name="texture_2d_layer_get" qualifiers="const">
@@ -4185,6 +4705,7 @@
 				Returns the GPU time taken to render the last frame in milliseconds. To get a complete readout of GPU time spent to render the scene, sum the render times of all viewports that are drawn every frame. Unlike [method Engine.get_frames_per_second], this method accurately reflects GPU utilization even if framerate is capped via V-Sync or [member Engine.max_fps]. See also [method viewport_get_measured_render_time_cpu].
 				[b]Note:[/b] Requires measurements to be enabled on the specified [param viewport] using [method viewport_set_measure_render_time]. Otherwise, this method returns [code]0.0[/code].
 				[b]Note:[/b] When GPU utilization is low enough during a certain period of time, GPUs will decrease their power state (which in turn decreases core and memory clock speeds). This can cause the reported GPU time to increase if GPU utilization is kept low enough by a framerate cap (compared to what it would be at the GPU's highest power state). Keep this in mind when benchmarking using [method viewport_get_measured_render_time_gpu]. This behavior can be overridden in the graphics driver settings at the cost of higher power usage.
+				[b]Note:[/b] On the web with WebGPU, GPU times need the browser's [code]timestamp-query[/code] feature (this method returns [code]0.0[/code] without it) and describe a frame drawn a few frames earlier, since the browser returns the measurement asynchronously.
 			</description>
 		</method>
 		<method name="viewport_get_render_info">
@@ -4214,6 +4735,27 @@
 			<param index="0" name="viewport" type="RID" />
 			<description>
 				Returns the render target for the viewport.
+			</description>
+		</method>
+		<method name="viewport_get_scaling_3d_dynamic_source" qualifiers="const">
+			<return type="int" enum="RenderingServer.ViewportScaling3DDynamicSource" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns which measurement the dynamic 3D resolution controller of [param viewport] decides from. See [method Viewport.get_scaling_3d_dynamic_source].
+			</description>
+		</method>
+		<method name="viewport_get_scaling_3d_dynamic_state" qualifiers="const">
+			<return type="int" enum="RenderingServer.ViewportScaling3DDynamicState" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns what the dynamic 3D resolution controller of [param viewport] is doing. See [method Viewport.get_scaling_3d_dynamic_state].
+			</description>
+		</method>
+		<method name="viewport_get_scaling_3d_effective_scale" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns the 3D resolution scale [param viewport] renders at: the scale dynamic 3D resolution picked, or the value given to [method viewport_set_scaling_3d_scale] when it is off. Safe to call every frame; it does not wait for the rendering thread.
 			</description>
 		</method>
 		<method name="viewport_get_texture" qualifiers="const">
@@ -4430,6 +4972,46 @@
 			<param index="1" name="enabled" type="bool" />
 			<description>
 				If [code]true[/code], render the contents of the viewport directly to screen. This allows a low-level optimization where you can skip drawing a viewport to the root viewport. While this optimization can result in a significant increase in speed (especially on older devices), it comes at a cost of usability. When this is enabled, you cannot read from the viewport or from the screen_texture. You also lose the benefit of certain window settings, such as the various stretch modes. Another consequence to be aware of is that in 2D the rendering happens in window coordinates, so if you have a viewport that is double the size of the window, and you set this, then only the portion that fits within the window will be drawn, no automatic scaling is possible, even if your game scene is significantly larger than the window size.
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				If [code]true[/code], the 3D resolution scale of [param viewport] is chosen at run time to hold the frame rate set with [method viewport_set_scaling_3d_dynamic_target_fps]. The value of [method viewport_set_scaling_3d_scale] is the starting scale. See [member Viewport.scaling_3d_dynamic].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_max_scale">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="scale" type="float" />
+			<description>
+				Sets the largest 3D resolution scale dynamic 3D resolution may pick for [param viewport]. See [member Viewport.scaling_3d_dynamic_max_scale].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_min_scale">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="scale" type="float" />
+			<description>
+				Sets the smallest 3D resolution scale dynamic 3D resolution may pick for [param viewport]. See [member Viewport.scaling_3d_dynamic_min_scale].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_step">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="step" type="float" />
+			<description>
+				Sets the size of each change dynamic 3D resolution makes to [param viewport]'s scale. See [member Viewport.scaling_3d_dynamic_step].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_target_fps">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="fps" type="float" />
+			<description>
+				Sets the frame rate dynamic 3D resolution tries to hold for [param viewport]. See [member Viewport.scaling_3d_dynamic_target_fps].
 			</description>
 		</method>
 		<method name="viewport_set_scaling_3d_mode">
@@ -5426,6 +6008,36 @@
 		<constant name="FOG_VOLUME_SHAPE_MAX" value="5" enum="FogVolumeShape">
 			Represents the size of the [enum FogVolumeShape] enum.
 		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_LUMA" value="0" enum="CameraMonitoringHistogramMode">
+			The monitoring histogram shows Rec. 709 luma.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_RGB" value="1" enum="CameraMonitoringHistogramMode">
+			The monitoring histogram shows the red, green and blue channels overlaid.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_TOP_LEFT" value="0" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the top left corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_TOP_RIGHT" value="1" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the top right corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT" value="2" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the bottom left corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="CameraMonitoringHistogramPosition">
+			The monitoring histogram is drawn in the bottom right corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_LUMA" value="0" enum="CameraMonitoringHistogramChannel">
+			Rec. 709 luma (Y') of the display-encoded image.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_RED" value="1" enum="CameraMonitoringHistogramChannel">
+			The display-encoded red channel (R').
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_GREEN" value="2" enum="CameraMonitoringHistogramChannel">
+			The display-encoded green channel (G').
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE" value="3" enum="CameraMonitoringHistogramChannel">
+			The display-encoded blue channel (B').
+		</constant>
 		<constant name="VIEWPORT_SCALING_3D_MODE_BILINEAR" value="0" enum="ViewportScaling3DMode">
 			Use bilinear scaling for the viewport's 3D buffer. The amount of scaling can be set using [member Viewport.scaling_3d_scale]. Values less than [code]1.0[/code] will result in undersampling while values greater than [code]1.0[/code] will result in supersampling. A value of [code]1.0[/code] disables scaling.
 		</constant>
@@ -5449,6 +6061,39 @@
 		</constant>
 		<constant name="VIEWPORT_SCALING_3D_MODE_MAX" value="6" enum="ViewportScaling3DMode">
 			Represents the size of the [enum ViewportScaling3DMode] enum.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF" value="0" enum="ViewportScaling3DDynamicState">
+			Dynamic 3D resolution is off.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING" value="1" enum="ViewportScaling3DDynamicState">
+			The first 3 seconds after dynamic 3D resolution was turned on or the scene changed: nothing is measured (shader compilation and loading are not load).
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING" value="2" enum="ViewportScaling3DDynamicState">
+			The scale changed recently; the controller is waiting for the frame to settle and measuring.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_STABLE" value="3" enum="ViewportScaling3DDynamicState">
+			The scale holds the target frame rate and nothing suggests changing it.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED" value="4" enum="ViewportScaling3DDynamicState">
+			Frames miss the target, but resolution is not what limits them (the CPU, or the page, sets the pace): the scale is not lowered.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE" value="5" enum="ViewportScaling3DDynamicState">
+			Frames miss the target at the minimum scale: nothing lower is allowed.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_MAX" value="6" enum="ViewportScaling3DDynamicState">
+			Represents the size of the [enum ViewportScaling3DDynamicState] enum.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE" value="0" enum="ViewportScaling3DDynamicSource">
+			Not decided yet (dynamic 3D resolution is off or starting).
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME" value="1" enum="ViewportScaling3DDynamicSource">
+			The viewport's own GPU time, from GPU timestamps: Vulkan, Direct3D 12, Metal, desktop OpenGL, and WebGPU when the browser offers [code]timestamp-query[/code].
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME" value="2" enum="ViewportScaling3DDynamicSource">
+			Frame time, where there is no GPU time (WebGL, OpenGL ES, WebGPU without [code]timestamp-query[/code]). A step down that does not shorten the frame is reverted and reported as CPU-limited. Slower to settle than GPU time, and on a display whose refresh rate is at or below the target it can only hold a scale that passes.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_MAX" value="3" enum="ViewportScaling3DDynamicSource">
+			Represents the size of the [enum ViewportScaling3DDynamicSource] enum.
 		</constant>
 		<constant name="VIEWPORT_UPDATE_DISABLED" value="0" enum="ViewportUpdateMode">
 			Do not update the viewport's render target.
@@ -5850,6 +6495,9 @@
 		<constant name="ENV_TONE_MAPPER_AGX" value="4" enum="EnvironmentToneMapper">
 			Uses an adjustable film-like tonemapping curve and desaturates bright values for a more realistic appearance. Better than other tonemappers at maintaining the hue of colors as they become brighter. The slowest tonemapping option.
 		</constant>
+		<constant name="ENV_TONE_MAPPER_CUSTOM" value="5" enum="EnvironmentToneMapper">
+			A film-like tonemapping curve with adjustable slope, toe, shoulder, black clip and white clip (the parameters of Unreal Engine's Film tonemapper), set with [method environment_set_tonemap_custom]. See [constant Environment.TONE_MAPPER_CUSTOM].
+		</constant>
 		<constant name="ENV_SSR_ROUGHNESS_QUALITY_DISABLED" value="0" enum="EnvironmentSSRRoughnessQuality">
 			Lowest quality of roughness filter for screen-space reflections. Rough materials will not have blurrier screen-space reflections compared to smooth (non-rough) materials. This is the fastest option.
 		</constant>
@@ -5877,6 +6525,12 @@
 		<constant name="ENV_SSAO_QUALITY_ULTRA" value="4" enum="EnvironmentSSAOQuality">
 			Highest quality screen-space ambient occlusion. Uses the adaptive target setting which can be dynamically adjusted to smoothly balance performance and visual quality.
 		</constant>
+		<constant name="ENV_SSAO_METHOD_ASSAO" value="0" enum="EnvironmentSSAOMethod">
+			Adaptive Screen Space Ambient Occlusion (Intel ASSAO), the default.
+		</constant>
+		<constant name="ENV_SSAO_METHOD_GTAO" value="1" enum="EnvironmentSSAOMethod">
+			Ground Truth Ambient Occlusion (Jimenez et al. 2016, ported from Intel's XeGTAO). Forward+ only.
+		</constant>
 		<constant name="ENV_SSIL_QUALITY_VERY_LOW" value="0" enum="EnvironmentSSILQuality">
 			Lowest quality of screen-space indirect lighting.
 		</constant>
@@ -5891,6 +6545,15 @@
 		</constant>
 		<constant name="ENV_SSIL_QUALITY_ULTRA" value="4" enum="EnvironmentSSILQuality">
 			Highest quality screen-space indirect lighting. Uses the adaptive target setting which can be dynamically adjusted to smoothly balance performance and visual quality.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_LOW" value="0" enum="EnvironmentLightShaftsQuality">
+			16 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_MEDIUM" value="1" enum="EnvironmentLightShaftsQuality">
+			32 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_HIGH" value="2" enum="EnvironmentLightShaftsQuality">
+			64 samples per light shaft.
 		</constant>
 		<constant name="ENV_SDFGI_Y_SCALE_50_PERCENT" value="0" enum="EnvironmentSDFGIYScale">
 			Use 50% scale for SDFGI on the Y (vertical) axis. SDFGI cells will be twice as short as they are wide. This allows providing increased GI detail and reduced light leaking with thin floors and ceilings. This is usually the best choice for scenes that don't feature much verticality.
@@ -5996,6 +6659,60 @@
 		</constant>
 		<constant name="DOF_BLUR_QUALITY_HIGH" value="3" enum="DOFBlurQuality">
 			Highest quality DOF blur. Results in the smoothest looking blur by taking the most samples, but is also significantly slower.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_FILM" value="0" enum="CameraAttributesGrainType">
+			Color negative film grain. See [constant CameraAttributes.GRAIN_TYPE_FILM].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME" value="1" enum="CameraAttributesGrainType">
+			Black-and-white film grain. See [constant CameraAttributes.GRAIN_TYPE_FILM_MONOCHROME].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_GRAIN_DIGITAL" value="2" enum="CameraAttributesGrainType">
+			Digital sensor noise. See [constant CameraAttributes.GRAIN_TYPE_DIGITAL].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY" value="0" enum="CameraAttributesLUTInput">
+			A display LUT. See [constant CameraAttributes.LUT_INPUT_DISPLAY].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_ARRI_LOGC3" value="1" enum="CameraAttributesLUTInput">
+			ARRI LogC3 / ARRI Wide Gamut 3. See [constant CameraAttributes.LUT_INPUT_ARRI_LOGC3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_SONY_SLOG3" value="2" enum="CameraAttributesLUTInput">
+			Sony S-Log3 / S-Gamut3.Cine. See [constant CameraAttributes.LUT_INPUT_SONY_SLOG3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_PANASONIC_VLOG" value="3" enum="CameraAttributesLUTInput">
+			Panasonic V-Log / V-Gamut. See [constant CameraAttributes.LUT_INPUT_PANASONIC_VLOG].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_CANON_LOG3" value="4" enum="CameraAttributesLUTInput">
+			Canon Log 3 / Cinema Gamut. See [constant CameraAttributes.LUT_INPUT_CANON_LOG3].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_RED_LOG3G10" value="5" enum="CameraAttributesLUTInput">
+			RED Log3G10 / REDWideGamutRGB. See [constant CameraAttributes.LUT_INPUT_RED_LOG3G10].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_ACESCCT" value="6" enum="CameraAttributesLUTInput">
+			ACEScct / AP1. See [constant CameraAttributes.LUT_INPUT_ACESCCT].
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_LUT_INPUT_MAX" value="7" enum="CameraAttributesLUTInput">
+			Represents the size of the [enum CameraAttributesLUTInput] enum.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_LOW" value="0" enum="CameraAttributesMotionBlurQuality">
+			Motion blur takes 8 samples per pixel. Fastest; long blurs look noisier.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM" value="1" enum="CameraAttributesMotionBlurQuality">
+			Motion blur takes 16 samples per pixel.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH" value="2" enum="CameraAttributesMotionBlurQuality">
+			Motion blur takes 32 samples per pixel. Smoothest, and slowest.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_AVERAGE" value="0" enum="CameraAttributesMeteringMode">
+			Auto exposure meters the average of the whole frame.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED" value="1" enum="CameraAttributesMeteringMode">
+			Auto exposure meters the whole frame with 75% of the weight in a central circle half the frame height across.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_SPOT" value="2" enum="CameraAttributesMeteringMode">
+			Auto exposure meters only a small circle of the frame.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_HIGHLIGHT_WEIGHTED" value="3" enum="CameraAttributesMeteringMode">
+			Auto exposure exposes a high percentile of the frame to the clipping point.
 		</constant>
 		<constant name="INSTANCE_NONE" value="0" enum="InstanceType">
 			The instance does not have a type.

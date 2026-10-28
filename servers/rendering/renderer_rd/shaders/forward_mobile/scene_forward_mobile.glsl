@@ -1952,6 +1952,9 @@ void main() {
 
 #endif // !AMBIENT_LIGHT_DISABLED
 
+	// Micro shadows read the material's own AO (texture and decals), before AO_LIGHT_AFFECT, as HDRP does.
+	float micro_shadow_ao = float(ao);
+
 	// convert ao to direct light ao
 	ao = mix(half(1.0), ao, ao_light_affect);
 
@@ -2204,6 +2207,10 @@ void main() {
 			shadow = mix(half(1.0), shadows[i], half(directional_lights.data[i].shadow_opacity));
 #endif
 			blur_shadow(shadow);
+
+			if (scene_data.micro_shadow_opacity > 0.0) {
+				shadow *= half(micro_shadow(micro_shadow_ao, dot(vec3(normal), directional_lights.data[i].direction), scene_data.micro_shadow_opacity));
+			}
 
 			vec3 tint = vec3(1.0);
 #ifdef DEBUG_DRAW_PSSM_SPLITS

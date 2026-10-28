@@ -10,6 +10,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs wgsl_convert_cli) |
 | [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through wgsl_convert_cli | ~5s | Yes (editor) |
+| [Converter Smoke](converter_smoke/) (`run.sh`) | Every engine variant `wgsl_precompile.py` builds converts, keeps the bindings, kinds and override ids of the stored reference and the driver's text-scan facts, and compiles in Chrome — the only check short of rendering that bind-group layouts and pipeline constants still line up | ~10s (+~40s for a clean converter build) | No (builds wgsl_convert_cli; Chrome and a real adapter) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs wgsl_convert_cli) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 23 scenes (demos, benchmarks, a self-checking audio suite and a braced GDScript project) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
@@ -21,7 +22,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [Font Assertion Self-Test](scene_smoketest/self_test_font_visual.mjs) | That the font test's own thresholds can still fail | <1s | No (standalone) |
 | [Fog Smoothness](scene_smoketest/test_fog_visual.mjs) | Volumetric fog's froxel volume is still sampled smoothly, not banded | ~25s | Yes (pre-exported, needs a real GPU) |
 | [Fog Assertion Self-Test](scene_smoketest/self_test_fog_visual.mjs) | That the fog test's own thresholds can still fail | <1s | No (standalone) |
-| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 87 arms | ~12min | Yes (own export, **needs a real GPU**) |
+| [Forward+ Feature Matrix](forward_plus/) | Every Forward+ feature still changes the frame — 97 arms | ~12min | Yes (own export, **needs a real GPU**) |
 | [Forward+ Parity](forward_plus/) (`--parity`) | Every matrix frame matches a native Vulkan render of the same configuration | ~15min | Yes (own export, a real GPU, and a native Vulkan device + display for the reference) |
 | [Forward+ Matrix Self-Test](forward_plus/self_test_forward_plus.mjs) | That the matrix's own verdict logic and feature table are sound | <1s | No (standalone) |
 | [DOF NaN Containment](dof_nan/) (`run.sh`) | One NaN pixel stays one pixel through every bokeh DOF mode, glow, SSR and auto exposure, natively on Forward+ and Mobile (§13) | a few minutes | Yes (native editor; a display or `xvfb-run`) |
@@ -73,6 +74,29 @@ cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
 node run_tests.mjs       # SPIR-V → WGSL validation (skips if no wgsl_convert_cli)
 ```
+
+### 1b. Converter smoke check (no engine build; a real adapter for the Chrome step)
+
+```bash
+webgpu_tests/converter_smoke/run.sh <scratch_dir>     # KEEP=0 deletes a passing run's directory
+```
+
+Builds `bin/wgsl_convert_cli` from the tree, dumps and converts every engine variant `wgsl_precompile.py` builds
+(`spirv_cross_eval/dump_corpus.py`, 0 failures), compares bindings, kinds and override ids with
+`spirv_cross_eval/interface_reference.json` (`compare_interface.py`), runs `wgsl_text_scan/run_tests.sh` on the run
+against `scan_reference.txt`, and compiles every module in Chrome (`spirv_cross_eval/validate_wgsl.mjs`). A module that
+is invalid in Chrome fails unless `converter_smoke/expected_invalid.txt` lists it, and a listed module that has become
+valid fails too. Last line `SMOKE OK` / `SMOKE FAILED`; `local_ci.sh` runs it in stage 1, `--quick` included.
+
+The references are Tint's interface from when SPIRV-Cross replaced it (TASKS.md §4.36). After a deliberate interface
+change, regenerate them from a run (`compare_interface.py --write <manifest> <run>/wgsl`,
+`WRITE_REFERENCE=1 wgsl_text_scan/run_tests.sh <run>`) and say why in the commit.
+
+The Chrome step launches system Chrome headed with the Vulkan flags and refuses any adapter but nvidia/lovelace with 48
+sampled textures per stage (TASKS.md §3 trap 79), exit 3 from the validator. On another machine set
+`WGSL_VALIDATE_ADAPTER=<vendor>/<architecture>` (the `adapter` line it printed) or `WGSL_VALIDATE_ADAPTER=any`; the
+fallback (swiftshader) adapter is never accepted. `webgpu_notes/work/smoke.sh`, where this lived while the converter swap's
+work board ran, forwards here.
 
 ### Font Rendering (needs the `font_rendering` scene exported)
 
@@ -137,7 +161,7 @@ avoid.
 
 ### Forward+ Feature Matrix (needs its own export, and a real GPU)
 
-The per-feature regression suite: for each of 87 Forward+ arms, render the
+The per-feature regression suite: for each of 97 Forward+ arms, render the
 fixture with it off and on and assert the frame actually changed, with no driver
 errors. It exists because the failure this port keeps producing is a feature
 **silently doing nothing** — which logs nothing and looks fine unless compared
@@ -479,6 +503,21 @@ webgpu_tests/bake_isolation/run.sh      # EDITOR_BIN / TEMPLATE override the bin
 An interactive Web export from a windowed editor whose 3D viewport runs FSR 2 + TAA. Fails on any "Mismatch uniform
 type" / "Uniforms were never supplied" in the editor's own log, on an FSR 2 pass baked in the editor's flavor, or as
 inconclusive when the editor drew no frame during the bake. ~1 min. TASKS.md §4.43, §3 trap 73.
+
+### 15. Async readback (needs the editor; the web half needs the nothreads web templates)
+
+```bash
+webgpu_tests/async_readback/run_native.sh                     # natively (Vulkan, Xvfb)
+webgpu_tests/async_readback/export.sh debug|release           # then, in webgpu_tests/async_readback:
+node run_web.mjs --browser chrome|firefox
+```
+
+74 checks of every synchronous, asynchronous and awaitable readback (`Texture2D.get_image*`,
+`RenderingServer.texture_2d_get*`, `RenderingDevice.texture_get_data*` / `buffer_get_data*`, `Mesh.surface_get_arrays()`):
+the data is right natively and on the web, a first synchronous read on the web is empty and a later one returns the
+data. `run_web.mjs` also counts the debug-only warnings (exactly once per synchronously read texture, buffer and for
+mesh arrays in a debug export, never in release) and fails on any WebGPU validation message or unprovoked console
+error; `run_native.sh` fails on any such warning natively. TASKS.md §4.82, §4.84, §4.88, §4.92, §4.96.
 
 ## CI Pipeline
 

@@ -61,6 +61,12 @@ per export. **The performance numbers to quote come from the load-ramp benchmark
 `README.md`'s performance table is generated from it, and §2.17's fps matrix is superseded. **User documentation lives in
 the GitHub wiki** (§4.40), and the README was rewritten around it.
 
+**2026-10-26 (night): `main` is green on GitHub with all of the above.** `webgpu-4.8` was merged into `main` as #20,
+#21 and #22 (pushed at the user's request, for this CI fix only); 🔗 GHA on the #22 merge passed every job, the three
+sanitizer editors included, and drafted release `main-41def1729690f515f19130b4a4dc099b80c80416`. #20 failed static checks on
+files the work board had committed, and #21 failed the GCC sanitizer editor's link because SCU never compiled the
+update-check test (§4.46, §3 traps 74 and 75).
+
 ### Verified tiers
 
 | tier | result | when / where |
@@ -70,6 +76,7 @@ the GitHub wiki** (§4.40), and the README was rewritten around it.
 | `webgpu_tests/bake_isolation/run.sh` (interactive Web export from a windowed editor with FSR 2 + TAA, Xvfb + Vulkan) | **PASS**: 8 editor frames during the bake, 0 mismatch errors, 8/8 FSR 2 passes baked for WebGPU (FAIL on the old editor) | 2026-10-26, lead, §4.43 |
 | `webgpu_tests/metahuman/run.sh` with `nan_check.gd` | verify and nan **0 failures** after a fresh import (`run.sh` reimports when the editor is newer, §3 trap 71); `--shots` 0 failures with the pore fix | 2026-10-26, lead, §2.33, §4.41 |
 | `tests/editor/project_manager/test_engine_update_label.cpp` (`--test --test-case="*EngineUpdateLabel*"`) | **3 / 3** cases; merged editor compiles | 2026-10-26, lead, §4.45 |
+| 🔗 GHA on `main` (static checks, every platform's editors and templates, the 8 web templates, Linux sanitizer editors, editor plugins, draft release) | **all green** on the #22 merge, run 40321431357 | 2026-10-26, GitHub, §4.46 |
 | converter smoke (`webgpu_notes/work/smoke.sh`) after each of tasks 24–28 | 276/276 interfaces, 552/552 scan facts, 0 invalid; only change override id 18 in `tonemap_mobile` (§4.42, regenerated on purpose) | 2026-10-26, lead |
 | Forward+ `--parity` and `--parity --baked`, real GPU, Chrome, nothreads templates **with** the raycast module | **82 / 82**; `occlusion_culling` 29 → 8 objects, parity 0.002; scene smoketest 23 / 23 Chrome and Firefox | 2026-10-26, work/22, §4.38 |
 | Forward+ `--parity`, unbaked and `--baked`, full run on the 82-arm matrix, templates without the raycast module | **81 / 82** both, `occlusion_culling` KNOWN (no culler on the web then); bake gate green at the raised ceiling (translated ~117 ≤ 130, §2.39) | 2026-10-26, lead, §4.39 |
@@ -408,16 +415,22 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.35 | SPIRV-Cross WGSL backend instead of Tint (new, 2026-10-25) | **DONE 2026-10-25 → §4.36** — Tint deleted; parity 71/71, Firefox/Android/desktop as fast or faster, cameraSim matches | follow-ups §2.38–2.44 |
 | 2.36 | Web export: performance hint, keep screen awake, orientation from the export panel (new, 2026-10-25) | **DONE 2026-10-25 → §4.37** — Wake Lock, `html/orientation`, fullscreen on the first tap, high-performance everywhere | a feature-tag orientation override still beats `html/orientation` |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call (new, 2026-10-25) | OPEN — prioritized by the user | ~7% of main-thread CPU on desktop heavy_i, more on phones; measure on the Razr 60 first |
-| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | OPEN — before the board retires | move `smoke.sh` into `webgpu_tests/`, wire it into `local_ci.sh`/CI; first GitHub run of the renamed CI jobs |
+| 2.38 | Converter smoke check and stored references out of the work board (new, 2026-10-25) | DONE 2026-10-28 → §4.75 (the CI half → §2.54) | `webgpu_tests/converter_smoke/run.sh`, in `local_ci.sh --quick` |
 | 2.39 | Baked Forward+ fixture still converts ~97 stages at load (new, 2026-10-25) | OPEN — pre-existing, every converter | the bake gate passes only at a raised ceiling (150, was 80); 8 scene-shader groups and a particles stage are never baked |
 | 2.40 | SDFGI differs from native in Firefox only (new, 2026-10-25) | OPEN — 0.277 vs tolerance 0.08, Tint and SPIRV-Cross alike | find the Firefox/wgpu pass |
 | 2.41 | Subsurface scattering on the Razr 60 is 11.1 from desktop Vulkan (new, 2026-10-25) | OPEN — pre-existing, both converters | phone-only; bisect like 0019 |
-| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | OPEN — no visible effect in the fixture | check under camera motion with the sky in view |
-| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | OPEN | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
-| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | OPEN — one real-GPU run | fix the probe or list it |
+| 2.42 | FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback (new, 2026-10-25) | DONE 2026-10-28 → §4.74 | the fallback is never read |
+| 2.43 | Audit swizzled texture views — WebGPU drops the swizzle silently (new, 2026-10-25) | DONE 2026-10-28 → §4.73 | `texture_storage.cpp`'s image-format swizzles, any other `texture_create_shared()` with a swizzle |
+| 2.44 | `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V (new, 2026-10-25) | DONE 2026-10-28 → §4.72 | probe dropped |
 | 2.45 | Occlusion culling on the web: the raycast module in web templates (new, 2026-10-26) | **DONE 2026-10-26 → §4.38** — on by default, Web export option `rendering/occlusion_culling` | upstream the nothreads culler fix (§3 trap 69) |
 | 2.46 | MetaHuman skin follow-ups after the pore fix (new, 2026-10-26) | OPEN — the pore scale itself is fixed (§2.33) | cloth shader reads RG normals' blue as z (§3 trap 72); lips get pores (no region masks exported); the WebGPU after-capture of the skin hung twice; the user's look `look-skin-pores` |
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
+| 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
+| 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
+| 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | DONE 2026-10-28 → §4.61, §4.63 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
+| 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.62 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
+| 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.67 | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
+| 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.60** | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
 | 2.17 ✔ | Forward+ benchmark leg / README numbers | DONE 2026-10-15 (capped + corrected uncapped matrices; F+ vs Mobile profiled; heavy scene 176 -> ~220 fps via shadow-variant batching, `firstInstance`, mesh-first order) | superseded 2026-10-26 by the load-ramp benchmark (end of §2.30), which measures WebGL without the display cap |
@@ -506,16 +519,23 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.35 | ~~SPIRV-Cross's WGSL backend instead of Tint~~ — swapped, Tint deleted | **`DONE` 2026-10-25 → §4.36** | — |
 | 2.36 | ~~Web export: performance hint, keep screen awake, orientation~~ | **`DONE` 2026-10-25 → §4.37** | — |
 | 2.37 | Record each render pass in wasm memory, replay in one JS call | `OPEN` — prioritized by the user 2026-10-25 | ~2–4 sessions |
-| 2.38 | Converter smoke check and stored references out of the work board | `OPEN` | ~0.5 session |
+| 2.38 | Converter smoke check and stored references out of the work board | `DONE` → §4.75 | — |
 | 2.39 | Baked Forward+ fixture converts ~97 stages at load (bake gate) | `OPEN` — pre-existing | ~1 session, needs the GPU |
 | 2.40 | SDFGI differs from native in Firefox only (0.277) | `OPEN` | ~1 session, needs the GPU and Firefox |
 | 2.41 | Subsurface scattering on the Razr 60, 11.1 from desktop Vulkan | `OPEN` — pre-existing | ~1 session, needs the phone |
-| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `OPEN` | ~0.5 session, needs the GPU |
-| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `OPEN` | ~0.5–1 session |
-| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `OPEN` | <0.5 session, one GPU run |
+| 2.42 | FSR2 accumulate / scene set 1 binding 24: blank depth fallback | `DONE` → §4.74 | — |
+| 2.43 | Audit swizzled texture views (dropped silently on WebGPU) | `DONE` → §4.73 | — |
+| 2.44 | `op_FConvert_f32` spec-constant probe is invalid SPIR-V | `DONE` → §4.72 | — |
 | 2.45 | ~~Occlusion culling on the web: raycast module in web templates~~ | **`DONE` 2026-10-26 → §4.38** | — |
 | 2.46 | MetaHuman skin follow-ups: cloth normal z, lip pores, WebGPU after-capture, user look | `OPEN` | ~0.5 session for the cloth fix; lip masks need source data; capture needs the GPU |
 | 2.47 | Editor update check: blind spot, two pending user questions | `OPEN` — waits on the user | <0.5 session once answered |
+| 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
+| 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
+| 2.50 | ~~Build scripts: no-threads non-dlink web templates first~~ | **`DONE` 2026-10-28 → §4.60** | — |
+| 2.51 | Web export: Start button + preload before run, customizable button | `DONE` → §4.61, §4.63 | — |
+| 2.52 | Web: `window_set_size()` never emits `size_changed` | `DONE` → §4.62 | — |
+| 2.53 | Web: fullscreen driven by the embedding page | `DONE` → §4.67 | — |
+| 2.54 | First GitHub run after the converter swap | `OPEN` — needs the user's push | ~15 min watching one CI run |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -2450,7 +2470,7 @@ bundles, indirect draws and custom bindings; the decision then was command buffe
 **Done when** the Razr 60 and desktop numbers show the main-thread saving, parity is unchanged, and `perf_guard` passes.
 Effort: ~2–4 sessions.
 
-### 2.38 Converter smoke check and stored references out of the work board `OPEN` *(from §4.36)*
+### 2.38 Converter smoke check and stored references out of the work board `DONE 2026-10-28` → §4.75; the CI half → §2.54 *(from §4.36)*
 
 The one check that the converter still produces what the driver expects without rendering anything is
 `webgpu_notes/work/smoke.sh`: it builds `wgsl_convert_cli`, converts every engine variant `wgsl_precompile.py` builds,
@@ -2497,7 +2517,7 @@ both Tint and SPIRV-Cross, while desktop WebGPU passes; every other look matches
 Vulkan render if one can be made, then bisect on device by swapping WGSL modules (`phone_bench.mjs --swap-wgsl`, the
 method that found patch 0019's zero-trip loop, §3 trap 58). Effort ~1 session, needs the phone lease.
 
-### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `OPEN` *(from §4.36)*
+### 2.42 FSR2 accumulate and scene set 1 binding 24 get the blank depth fallback `DONE 2026-10-28` → §4.74 *(from §4.36)*
 
 With `--verbose`, every frame logs `'Fsr2AccumulatePassShaderRD:1' set 1 binding 5: a 320x180 depth texture is bound
 where the shader declares a float texture`: FSR2's accumulate pass reads `r_input_depth` as a float texture, so the
@@ -2507,7 +2527,7 @@ fixture shows nothing. `SceneForwardClusteredShaderRD` set 1 binding 24 logs the
 "trace the 4x4 depth placeholder message"). Check FSR2 with the camera moving and the sky in view; if it differs, make
 the binding a depth texture by name (`*_depth*`) or teach the reclassifier its use. Effort ~0.5 session, needs the GPU.
 
-### 2.43 Audit swizzled texture views `OPEN` *(from §4.36, §3 trap 55)*
+### 2.43 Audit swizzled texture views `DONE 2026-10-28` → §4.73 *(from §4.36, §3 trap 55)*
 
 WebGPU texture views have no component swizzle, and `RenderingDeviceDriverWebGPU` stores a view's swizzle without
 applying it, with no warning. FSR2's reactive mask was such a view and read the wrong channel for months (amd-fsr2 patch
@@ -2516,7 +2536,7 @@ applying it, with no warning. FSR2's reactive mask was such a view and read the 
 `RenderSceneBuffersRD`'s `alpha_only_view` exists for MetalFX. For each, either convert the data, do the swizzle in the
 shader, or have the driver warn once when it drops one. Effort ~0.5–1 session.
 
-### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `OPEN` *(from §4.36)*
+### 2.44 `run_spec_ops.sh`'s `op_FConvert_f32` probe is invalid SPIR-V `DONE 2026-10-28` → §4.72 *(from §4.36)*
 
 `webgpu_tests/spirv_cross_eval/spec_op_probes.py` builds `op_FConvert_f32` as an FConvert to the same width, which the
 validator rejects ("Expected component type of Value to be different"). Since `run_pipeline()` validates its input
@@ -2562,7 +2582,112 @@ The check against this fork's releases is done (§4.45, merged `4b4bd00e62`). Op
 
 Effort <0.5 session once the user has answered.
 
+### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
+
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48), custom tonemap §4.70 (task 56), local exposure §4.71 (task 57). **All `pp-*` "Build it now" picks are built**; color vision (§2.48 entry 8) and web HDR output (entry 7) are "Later". custom tonemap curve and local exposure next.
+
+Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
+have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
+that batch covers** (lens optics, motion blur and rolling shutter, bokeh/blades/tilt-shift/starburst, halation, lens
+flare, veiling glare, diffusion filters, metering, auto white balance, in-camera NR and sharpening, monitoring overlays,
+grain §4.47, camera LUTs §4.48).
+
+- **Method:** compare Godot's post stack (Environment: tonemap, glow, adjustments + color correction, SSR, SSAO, SSIL,
+  SDFGI, fog/volumetric fog; Viewport: TAA, FSR, SMAA, FXAA, debanding; Compositor effects) with Unreal's post-process
+  volume, Unity HDRP/URP's volume overrides and Blender's compositor/Eevee, and check this fork's tree for each gap
+  before listing it (grep, as the camera survey did).
+- **Candidates to check, not conclusions:** grading controls beyond BCS (lift/gamma/gain, shadows-midtones-highlights,
+  channel mixer, curves, split toning, hue-vs curves); local exposure / local tonemapping; screen-space contact shadows;
+  screen-space light shafts (god rays); panini projection; outlines / edge detection; screen-space distortion (heat haze,
+  underwater); exposure fusion / HDR display grading controls; GTAO/HBAO-quality AO; sharpening outside FSR.
+- **Output:** a ranked list (realism or usefulness, effort, per-renderer feasibility, WebGPU cost: passes, bindings,
+  bandwidth, whether the Forward+ tonemap push constant or task 33's CameraEffects UBO is involved), with where each
+  belongs (Environment, CameraAttributes, Compositor, project settings), for the user to choose from. Put choices on the
+  hand-offs page.
+
+Effort ~0.5 session for the survey; each chosen effect becomes its own task.
+
+### 2.49 Web loading screen: progress bar colors `DONE 2026-10-28` → §4.56 *(user request; work task 42)*
+
+When the loading bar is shown, let users pick its **border**, **background** and **fill** colors in the Web export
+options, next to the existing **Loading Screen** group (`loading_screen/<stage>/text`, `show_text`, `show_spinner`;
+`web_loading_screen_stages[]` in `platform/web/export/export_plugin.cpp`, wiki "Web Export Options → Loading screen").
+
+- The bar is the `<progress id="status-progress">` element in the default shells (`misc/dist/html/full-size.html`,
+  `webgpu-full-size.html`), styled in their CSS. Add three Color export options (e.g. `loading_screen/progress_bar/
+  border_color`, `background_color`, `fill_color`), defaulting to today's look so existing exports are unchanged, and
+  apply them in both shells. `<progress>` needs vendor pseudo-elements for its parts (`::-webkit-progress-bar`,
+  `::-webkit-progress-value`, `::-moz-progress-bar`) or a styled div; check Chrome, Firefox and Safari.
+- Pass them to custom shells too: add them to the `$GODOT_LOADING_SCREEN` JSON (or a sibling placeholder), and keep
+  custom shells that don't use them working.
+- **Add a toggle** (user, 2026-10-28): a `loading_screen/progress_bar/enabled` export option in the Web preset
+  (default on, today's behavior) that shows or hides the bar in the default shells and is passed to custom shells; the
+  three color options are visible in the export dialog only while it is ticked (`get_export_option_visibility()`).
+- Docs: the class/export docs, and the wiki's Web Export Options page (the wiki can be pushed).
+
+Effort <0.5 session.
+
+
+### 2.50 Build scripts: the no-threads, no-dlink web templates first `DONE 2026-10-28` → §4.60 *(user request; work task 50)*
+
+The user exports with the **no-threads, no-dlink** web templates (debug and release) far more than any other, and wants
+to start exporting as soon as those two exist instead of waiting for the whole set. Today `build-linux.sh` builds the
+editor, then the native templates, then the 8-variant web matrix with `dlink` and `threads` outer loops starting at
+`yes`, so `threads=no dlink_enabled=no` comes **last**; `build.sh`, `build-macos.sh` and `build-windows.ps1` only build the
+`dlink_enabled=yes threads=no` pair and not the non-dlink one at all.
+
+- Every `build-*` helper: right after the editor (and the converter/baker prerequisites the templates need), build
+  `template_debug` and `template_release` with `threads=no dlink_enabled=no` **and install them immediately** into the
+  places the rest of the run installs templates (`builds/<version>/`, the editor's export templates folder), so the user
+  can export while the rest builds; then the remaining variants and native templates as today. Print a clear line when
+  the pair is installed ("ready to export").
+- Keep the editor/template hash match (§3 trap on committing mid-build): same tree, same run, nothing changes.
+- The narrowed-matrix flags (`--web-targets/--web-threads/--web-dlink`) keep working; the pair is just ordered first.
+- Check the per-step timing table and the final summary still read correctly. `build.sh`/`build-macos.sh`/
+  `build-windows.ps1`: add the non-dlink no-threads pair (they lack it) and put it first.
+
+Effort <0.5 session (scripts only; one full `build-linux.sh` run to confirm the order and the early install).
+
+### 2.51 Web export: a Start button and "preload before run" `DONE 2026-10-28` → §4.61, §4.63 *(user request, 2026-10-28)*
+
+The user expected these in the Web export options: a camera-sim session wrote full specs for them on 2026-10-28 that never
+reached this board; they are now `webgpu_notes/work/tasks/51-web-start-button.md` (with the user's extra styling) and
+`53-web-preload-before-start.md` (a proper `Engine.prototype.prefetch()` instead of camera-sim's `window.fetch` wrapper),
+originals in `webgpu_notes/work/inputs/camera-sim-2026-10-28/`. **Those task files supersede the outline below.**
+
+- **Preload before run** (`loading_screen/preload_before_run` or similar, default off): the page downloads everything
+  the game needs (wasm, pck, the shader packs `<name>.shaders.pck` / `.shaders_extra.bin`, the texture pack the device
+  samples, §2.18/§2.27) and does as much start-up as the engine allows before the user starts it, so starting is instant.
+- **Start button** (default off, or on whenever preload is on; decide and document): a button on the loading screen that
+  starts the game (and gives the page the user gesture audio/fullscreen need). Options: text, and its look: background
+  color, border color, border width, border radius, font family, font size, font color, padding; `cursor: pointer` by
+  default; slightly darker on hover and slightly darker again while pressed (derived from the background color, with
+  overrides). Shown only while enabled (`get_export_option_visibility()`), passed to custom shells through a placeholder
+  like `$GODOT_PROGRESS_BAR` (§4.56), applied in both default shells.
+- Defaults leave existing exports unchanged; accessibility (keyboard focus ring, Enter/Space, aria label); Chrome and
+  Firefox checked with the launch rule (§3 trap 79); wiki Web Export Options updated.
+
+Effort ~0.5-1 session.
 ---
+
+### 2.54 First GitHub run after the converter swap `OPEN` — needs the user's push *(from §2.38, §4.36)*
+
+Work task 09 renamed CI's matrix key (`wgsl-cli`), the converter artifact (`wgsl-convert-cli`) and the cache keys of
+every workflow that builds it, and no workflow has run on GitHub since (the lead and workers never push). **For the
+user:** on the first push of `webgpu-4.8` / `main` after the swap, watch 🧪 WebGPU Tests and 🔗 GHA for (1) a job that
+downloads the old `tint-convert-cli` artifact or expects `bin/tint_convert_cli` (artifact-not-found or missing-file in
+the shader-corpus / precompile steps; grep `.github/` for `tint`), (2) a cold cache on every job the first time
+(expected; only a second cold run is a problem), and (3) the `dev_mode=yes` web build of the SPIRV-Cross wrapper (the
+one part built with `-fwasm-exceptions`). Effort: one CI run's watching, ~15 min.
+
+### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `OPEN` *(found by work task 81)*
+
+Pre-existing (before task 81 too). `MeshStorage::_multimesh_make_local()` builds the CPU cache by reading the GPU buffer
+back; on the web that synchronous read has nothing yet (zeros before §4.96, empty now, and the cache starts as zeros
+either way), so `multimesh_set_buffer()` followed by `multimesh_instance_set_transform()` (or any per-instance setter)
+uploads zeros for every instance but the edited one with the next dirty region. Fix candidate: on the web, keep a CPU
+copy in `_multimesh_set_buffer()` (make the cache local from `p_buffer` directly) so no readback is ever needed; test
+with a scene that sets a buffer and then moves one instance, natively and in Chrome. Effort: ~2 h with the test.
 
 ## 3. Traps and lessons — read before debugging
 
@@ -3064,7 +3189,23 @@ baked FSR 2 export missed 7 stages in the cache: measured 7 → 0 after the fix)
 a shader group with `set_group_bake_requirements()` (fog.cpp, fsr2.cpp) or refreshed by
 `add_general_defines_refresh_callback()` (fsr.cpp). `webgpu_tests/bake_isolation/run.sh` catches both.
 
-74. **An `EM_ASM` body must not name anything of Emscripten's** (2026-10-27, user report). Closure (CI's
+74. **An SCU build compiles only the test folders `scu_builders.py` names** (2026-10-26, §4.46). `tests/SCsub` globs
+every `tests/**/*.cpp` into `force_link.gen.h`, but with `scu_build=yes` it compiles only `tests/.scu/*.cpp`, which
+`scu_builders.py` generates from a hand-written folder list. A test in a new folder (`tests/editor/project_manager/`,
+§4.45) is then referenced and never built: `ld.lld: error: undefined hidden symbol:
+ForceLink::force_link_test_engine_update_label()`. Only CI's GCC sanitizer editor builds `scu_build=yes`, an hour into
+the run, so every local build and every other CI job passed. A new folder under `tests/` goes into that list
+(`"/editor/project_manager"` beside `"/core/variant"`).
+
+75. **Main's static checks run on the merge's whole diff, not only on code** (2026-10-26, §4.46). `static_checks.yml`
+runs `prek --from-ref <the previous main>` over every file the merge brings, so a work board's notes, result JSON and
+helper scripts (`webgpu_notes/work/`) are checked like engine code: shebang scripts must be executable, ruff targets
+Python 3.9 (no backslash inside an f-string expression, which 3.12 allows), codespell wants US spellings, file-format
+wants final newlines and no trailing space. #20 failed this in 1m44s and none of its builds ran. Check before a PR
+with `pre-commit run --from-ref origin/main --to-ref HEAD`, **with the fixes staged**: pre-commit stashes unstaged
+changes and checks the committed text, so an unstaged fix looks as if it did nothing.
+
+76. **An `EM_ASM` body must not name anything of Emscripten's** (2026-10-27, user report). Closure (CI's
 `use_closure_compiler=yes`, so every release template) renames the runtime and library objects (`$WebGPU`,
 `UTF8ToString`, `stringToNewUTF8`, `_free`, `wasmTable`, `GodotConfig`) and their unquoted properties. A regular
 template failed `RenderingContextDriverWebGPU::initialize()` with `M.importJsDevice is not a function`: the EM_ASM got the
@@ -3076,7 +3217,7 @@ are renamed with it (`platform/web/js/libs/library_godot_webgpu.js`: device impo
 device and yield; `godot_js_os_startup_mark()`). An EM_ASM may use `Module['...']`, `globalThis`, browser APIs and its
 `$N` arguments. Only the opt-in `WEBGPU_VERBOSE` diagnostics still break the rule.
 
-75. **`CanvasItemMaterial` and `ParticleProcessMaterial` build their shader on an idle frame too** (2026-10-27, user
+77. **`CanvasItemMaterial` and `ParticleProcessMaterial` build their shader on an idle frame too** (2026-10-27, user
 report). Task 32 made the shader baker call `BaseMaterial3D::flush_changes()` before reading a material's shader, but
 the other two classes queue the same way (`register_scene_types.cpp` registers all three as idle callbacks) and were
 never flushed. No frame ticks during an export, so a `CanvasItemMaterial` the export loads fresh (a `GPUParticles2D`'s
@@ -3085,6 +3226,198 @@ particle-animation material, say) has no shader yet and nothing is baked for it.
 `:5` as `cached` hits (the `USE_POINT_SIZE` variants compile to the same SPIR-V as 2 and 4). The baker now flushes all
 three (`ShaderBakerExportPlugin::_flush_material_changes()`), before its embedded-material snapshot and before each
 material lookup. A new class that defers its shader the same way must be added there.
+
+78. **`--fixed-fps N` does not give a constant delta, and a `-s` script's `await process_frame` runs before nodes
+process** (2026-10-28, work task 38). With N different from the physics ticks per second the process delta alternates
+(144 fps gives ~1/120 and ~1/150). A convergence or timing test must integrate the deltas the node actually used (record
+them from a node with a higher `process_priority`), never assume k/N.
+
+79. **A browser test without WebGPU flags or prefs fails in ways that look like engine bugs** (2026-10-28, user report,
+work task 42). Chrome needs `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan --ignore-gpu-blocklist`
+(system Chrome, headed, `--enable-unsafe-swiftshader` ignored); Firefox on Linux has no WebGPU at all without
+`webgpu_tests/scene_smoketest/firefox_prefs.mjs`'s `FIREFOX_WEBGPU_PREFS`. A delegated worker launched both without
+them. Every launch now goes through those settings and asserts the adapter first (Chrome nvidia/lovelace, not
+fallback, 48 sampled textures; Firefox an adapter at all), and the rule is in `webgpu_notes/work/README.md`, which every
+worker reads; a worker's prompt repeats it.
+
+80. **An 8-bit capture of a glare source measures the clip, not the glare** (2026-10-28, work task 40). Task 35 measured
+halation at radius 1 as 6.82 px against a 3.36 px model from 8-bit sRGB renders: the source disc saturates, so its
+apparent width enters the halo fit. HDR captures (RGBA16F 2D, Linear tonemapper) fitted with the model convolved with the
+effect-off frame read 3.95 px for the same chain. Measure glare from HDR captures
+(`results/40-camera-answers-wave2/tools/analyze_halo.py`).
+
+81. **A build helper that picks "the newest `bin/godot.web.template_debug*.zip`" installs whichever variant was built
+last, under whatever name it was given** (2026-10-28, work task 50): `build.sh`, `build-macos.sh` and
+`build-windows.ps1` built only the dlink pair and installed it as `web_nothreads_*.zip`, so exports from those templates
+used a GDExtension template whether or not the preset asked for one. Spell the scons output name out
+(`.wasm32[.nothreads][.dlink].zip`).
+
+82. **A web JS function that both stores and applies a size starves the per-frame "did it change?" check** (2026-10-28,
+work task 52). `godot_js_display_desired_size_set()` resized the canvas itself, so `process_events()` saw no change and
+nothing that hangs off that check ran: no `size_changed`, the viewport and the WebGPU surface kept the old size. Return
+whether it changed and run the same path a browser resize does. Under the render thread the transferred `<canvas>`
+element's `width` is stale; read `DisplayServer.window_get_size()` or `GodotDisplayScreen.transferred_size`.
+
+83. **A headless editor export has no shader pack** (2026-10-28, work task 53). `--headless` has no RenderingDevice,
+so the export-time WGSL bake is skipped silently: no `<name>.shaders.pck` / `.shaders_extra.bin`, and `shaderPack` /
+`shaderExtras` are missing from `GODOT_CONFIG`. A test that needs them must export under `xvfb-run -a <editor>
+--rendering-driver vulkan` (as `webgpu_tests/forward_plus/export.sh BAKE=1` does).
+
+84. **The luminance multiplier points opposite ways in RD and GLES3** (2026-10-28, work task 46). In RD, scene light =
+stored x multiplier (Mobile stores half, `RenderSceneBuffersRD::get_luminance_multiplier()` returns 2); in
+Compatibility, stored = encoded x multiplier and `post.glsl` divides. An effect that reads the frame multiplies in RD
+and divides in GLES3; backwards, Mobile's light shafts were silently zero. Compatibility is reverse-Z too
+(`GL_GEQUAL`, sky at depth 0).
+
+85. **The GLES3 shader builder reads a `uniform` line to its end**, so a trailing `// comment, with, commas` turns into
+bogus enum entries (`SCALE.,`) in the generated header (2026-10-28, work task 46). Put the comment above the uniform.
+
+86. **Godot's Environment color correction LUT is sampled at texel centers ((i + 0.5) / N), not lattice points**
+(2026-10-28, work task 45), unlike the camera LUT. A LUT of lattice points through that slot lifts black to the first
+texel's value (1.5% at 33³). The color grading LUT carries a flag (Forward+ push-constant bit 24, Mobile
+`color_correction_lattice`) that remaps to lattice points; anything else reusing the slot must do the same.
+
+87. **A `SceneTree` `-s` script's `root.size` in `_initialize()` is not the window's yet** (2026-10-28, work task 47):
+64x64 headless, square under xvfb. A camera FOV computed from it is wrong and the run still "works". Pass the size in,
+or compute it in the first frame.
+
+88. **Playwright's `keyboard.press('Escape')` does not leave fullscreen in Chrome** (2026-10-28, work task 54; it does
+in Firefox). The key goes to the renderer, not the browser UI that owns the exit, so a test relying on it stays in
+fullscreen and every following step fails as if the engine were wrong. Leave with `document.exitFullscreen()` in the
+fullscreen document. Also seen the same day: Firefox now and then ignores a parent page's own `iframe.requestFullscreen()`
+in a long fullscreen sequence (lead's first run of `embed_test.mjs`: 6 checks failed with the game never reached, a
+rerun passed 59/59); a single fullscreen failure there is not an engine regression until it reproduces.
+
+89. **WGSL `clamp()` keeps NaN** (2026-10-28, work task 48). A non-finite value that a Vulkan driver's
+`clamp()`/`min()`/`max()` happens to scrub stays NaN in WGSL on Chrome, and an R8/RG8 store of NaN reads back as 0:
+GTAO's sky came out black on the web only (infinite background depth gave NaN denoiser weights). Keep linear depths
+finite (clamp to the storage format's range) and test background pixels with `!(x < limit)`, which is also true for NaN.
+
+90. **`textureLod` at a fractional lod is not a linear blend of two mips on every GPU** (2026-10-28, work task 55). On
+the RTX 4080 SUPER (Vulkan) with an anisotropic sampler, lod L + t weighs mip L+1 by exactly min(2t, 1). A blur that
+picks its size with a fractional lod is then wrong between lods, by up to 2x, and differently per GPU and browser. Read
+the two integer lods and `mix()` them yourself when the blend weight matters.
+
+91. **Glow's raster downsample does not keep levels at their UVs on odd sizes** (2026-10-28, work task 55): texel j
+reads coordinate 2j+1 of the level above, so level L's texel x holds lod 0's 2^L x. Glow's own upsample undoes it, but
+anything sampling the raster mip chain by UV (Mobile's glare chain) must read level L at uv * size(0) / (2^L size(L)),
+or coarse levels drift (a halo 61 px off its light at 2160p). Also: a blend of two blur levels is not a Gaussian, so a
+Gaussian fit against a source as wide as the blur reads several percent wide; test PSF-sized effects with sources well
+below the blur.
+
+92. **The gles3 effects shaders did not depend on the parent folder's includes** (2026-10-28, work task 56; fixed in
+`drivers/gles3/shaders/effects/SCsub`, which now adds `../*_inc.glsl`). `post.glsl` includes `../tonemap_inc.glsl`, so
+after editing `tonemap_inc.glsl` the scene and sky shaders rebuilt but `post.glsl.gen.h` kept the old text, and the
+Custom tonemapper rendered pure white whenever Compatibility ran its post pass. A build that "compiled fine" but
+renders an old shader: check the `.gen.h` dates.
+
+93. **An HDR 2D viewport's `get_image()` returns null on the web** (WebGPU, template_debug, no error), and natively
+it is RGBH (3 channels, format 14), not RGBAH (2026-10-28, work task 57). A web test cannot read HDR values back that
+way; compare WebGPU with native in 8 bits and let native carry the HDR comparison. Also: look at one frame of a new
+test scene before trusting numbers from it (task 57's camera first sat behind its room's back wall, and the "match"
+was a flat wall).
+
+94. **Check hand-built SPIR-V probes with the converter, not only the distro's `spirv-val`** (2026-10-28, work task 58):
+the system `spirv-val` (v2025.1) accepted an f32-to-f32 FConvert that the vendored SPIRV-Tools validator in
+`run_pipeline()` rejects, so `run_spec_ops.sh`'s probe looked valid by hand and failed in the pipeline.
+
+95. **Every check of a day's work used `DEBUG_ENABLED` builds, and `template_release` broke** (2026-10-28, work task 47,
+reported by the user): `panini_projection.h` was included inside camera_attributes_storage.cpp's `#ifdef DEBUG_ENABLED`
+block, so the dev editor and `template_debug` compiled and every render, smoke and 103-arm matrix run passed, while the
+user's `build-linux.sh` stopped at `PaniniProjection` undeclared in the web release template. Compile one release
+template after merging (the work board's README now says so), and never put a header the code needs into a debug-only
+include block.
+
+96. **"Downloading..." is on screen for one frame only** (2026-10-28, work task 61): the export writes `fileSizes` into
+the config, so the `Preloader` has its total before any header arrives and the line jumps to "Downloading 0%". A test
+that waits to see the unknown-size message fails; gate the server rather than throttle it, and strip `fileSizes` to
+test that message.
+
+97. **A DOF edge that measures "nearly sharp" may be the gather, not the size** (2026-10-28, work task 63). Upstream's
+Box/Hexagon physical-mode DOF divides by every sample up to a fixed 32 px reach, so a blur well under 32 px is diluted
+toward sharp (a 5.5 px blur read as a 1.5 px 10-90% edge with long tails); the Circle gather does not. Compare shapes
+before trusting a size measured on the hexagon.
+
+98. **`gpu_time.mjs --size` does not resize an export that keeps the default window size** (2026-10-28, work task 63):
+the canvas stayed 1152x648 at `--size 1920x1080` and `2560x1440`, so both runs measured the same thing. Set the
+project's viewport size and check `canvas.width` before reading resolution-dependent costs.
+
+99. **An FBX from Unreal names its root joint `Root`; MetaHuman DNA calls it `root`** (2026-10-28, work task 67).
+`Skeleton3D` resolves named skin binds exactly, so clothing attached to a DNA skeleton by hand logs `Skin bind #0
+contains named bind 'Root'` on every load (harmless: no vertex is weighted to it, and an unmatched bind falls back to
+bone 0). Import the FBX with `metahuman/bind_to_dna`, or let the DNA import bring the clothing (`include_clothing`).
+And an import-time skin fix never reaches a `Skin` already copied into a `.tscn` (a variant of trap 71): copy it again.
+
+100. **A templated port of float code is bit-identical only if every literal rounds the same** (2026-10-28, work task
+64): `T(0.860117757)` (decimal → double → float) can differ from `0.860117757f` by double rounding. Check each constant
+when porting. Also: GDScript cannot reach a static builtin method through `Color.call()` or `Expression`, and
+Compatibility's viewport `get_image()` is 8-bit sRGB even with `hdr_2d` (Forward+ and Mobile return RGBAH linear).
+
+101. **"Neutral under white balance T" means "like the 6500 K Planckian light", which is not neutral** (2026-10-28, work
+task 65): r/g 1.062, b/g 1.054 in linear sRGB, because the white balance's reference is the locus at 6500 K, not D65. A
+1% neutrality test of a white card fails by ~6% while the model works exactly; compare with the 6500 K light at the
+default instead.
+
+102. **On WebGPU, `fence_wait()` does not mean a download is readable** (2026-10-28, work task 66). It force-signals so a
+frame never deadlocks, and `buffer_map()` on a staging buffer whose `mapAsync` has not resolved returns the zero-filled
+shadow. Ask `buffer_get_readback_status()` first (RenderingDevice's async downloads do), and never record into a
+staging buffer whose map is pending (a validation error that drops the whole submit): waiting download batches take
+their blocks out of the ring. Tasks 62 and 66 each found this; the merge keeps 66's mechanism. Also: a 1 px wide
+SubViewport is 2 px wide, and the synchronous web `get_image()` alternates null / data / null as each read starts a
+fresh copy.
+
+103. **A luma histogram cannot be matched bit-exactly by a CPU recount** (2026-10-28, work task 62): pixels whose
+Y' x 255 sits within ~1e-3 of a .5 tie round differently in GPU float32 (FMA) and CPU double (7 of 230,400 in the test
+chart; R'/G'/B' exact). Compare luma within a few pixels, the channels exactly. (Task 62 also hit trap 102's staging
+reuse; its own guard was dropped at merge in favor of task 66's.)
+
+104. **An asynchronous readback must never flush for staging room** (2026-10-29, work task 76). Upstream's
+`texture_get_data_async()` flushed and stalled when the download ring was full and dropped the regions copied before
+the flush (the request is pushed only after its last region). Natively that needs a read over 128 MB; on WebGPU the
+ring was 16 MB, so a 1920x1080 RGBA16F read lost ~88% of itself (looked like an HDR/sRGB bug, 11x dark), and the flush
+left mapping blocks in the ring ("used in submit while pending map"). When a web readback looks dark or a validation
+error repeats once per read, compare the read's size with the download ring first. Count validation messages in every
+web tier (a runner matching only `/ERROR|error/` missed them for weeks); `results/76-web-readback-under-load/tools/`
+has a JS-side GPU buffer tracer that names the misusing submit without a rebuild.
+
+105. **emdawnwebgpu cannot omit a `GPUComputePassTimestampWrites` index** (2026-10-29, work task 73): it passes
+`WGPU_QUERY_SET_INDEX_UNDEFINED` through as 4294967295, a validation error; give the unused write a spare query. And an
+empty compute pass's *beginning* write may land before earlier passes finish: use the end-of-pass write for a "here"
+timestamp, as Vulkan's bottom-of-pipe write does.
+
+106. **Controller traps** (2026-10-29, work task 75): a hitch filter in absolute terms freezes a controller on a slow
+scene (skipping frames over 4x the budget skipped every frame of a 56 ms scene); measure a hitch against the running
+average too. A WebGPU frame fence cannot time its own submit (`fence_wait()` force-signals, trap 102): submit-to-done
+latency needs its own callback per submit and a FIFO. Frame-time probing under vsync oscillates unless the up-step also
+asks the cost model (at 165 Hz a frame is 12.1 or 18.2 ms), and a failure memory that outlives a load drop kept the
+scale low for 34 s. And dynamic-resolution timing under Xvfb is not the real thing: its software display costs ~57 ms
+a frame and inflates GPU time, so a GPU-bound test there correctly sits at the minimum scale; judge it on a real display
+or in the browser.
+
+107. **On WebGPU a first `buffer_get_data()` returns zeros, not an empty array** (2026-10-29, work task 77):
+`buffer_get_data_direct()` returns false both for "not handled" and "not ready", so RD then runs the generic staging
+copy, which cannot be mapped synchronously, and hands back zeros of the requested size. Anything that tests "no data
+yet" on a buffer by emptiness misses it; the C++ methods' `r_not_ready` out-parameter is the reliable signal.
+
+108. **`git stash` is shared by every worktree** (2026-10-29, work tasks 79 and 80): `refs/stash` lives in the common
+repository, so `git stash` + `git stash pop` in two worktrees a minute apart swapped two workers' changes. Nothing was
+lost (each stash commit is still reachable by hash), but one worker's build ran with the other's DOF edits. Workers
+never `git stash` (`work/README.md`); to build a pre-change binary, build before editing or use a detached
+`git worktree add`.
+
+109. **Window-mode tests: Xvfb cannot hold fullscreen, and a Playwright click does not grant it** (2026-10-29, work task
+80): with no window manager to confirm `_NET_WM_STATE`, X11 fullscreen under Xvfb reports windowed again on the next
+frames and the size never changes (none is installed, Xephyr has none either), so a check that depends on the window
+mode needs the real display. On the web, a mouse click on the canvas did not reach `_input` in the bench, and
+`window_set_mode(FULLSCREEN)` needs a gesture inside an input callback; `page.evaluate(() =>
+document.querySelector('canvas').requestFullscreen())` works (Chromium counts it as a gesture), and the canvas must be
+the fullscreen element, because Godot's `fullscreenchange` listener checks `evt.target === canvas`.
+
+110. **On the web a synchronous GPU buffer read is empty until its readback arrives** (2026-10-29, work task 81; before
+that, zeros of the right size, trap 107). Any `buffer.ptr() + offset` or `memcpy(..., size_from_elsewhere)` on the
+result is an out-of-bounds read: check `size()` (or pass `r_not_ready`) and treat empty as "no data yet".
+`MeshStorage::mesh_get_surface()` must stay all-or-nothing, because its consumers index every array by the surface's
+vertex and index counts.
 
 ---
 
@@ -4549,6 +4882,878 @@ commit date, implemented; `update-repo`, default `Shane-Gadsby/godotwebgpu`).
 - **Testing:** `tests/editor/project_manager/test_engine_update_label.cpp` (3 cases, `--test --test-case="*EngineUpdateLabel*"`).
   A dev build (`DEV_ENABLED`) reads `GODOT_UPDATE_CHECK_AS=<hash>:<commit UNIX time>` to pose as another build
   against the live API, so the label's states can be seen without building an old commit; release editors ignore it.
+
+### 4.46 CI: `main` green after the 2026-10-26 merges (October 2026)
+
+Asked for (user, 2026-10-26): find why PRs to `main` fail and fix everything until it passes, pushing `webgpu-4.8` and
+merging to `main` directly, with the 🧪 WebGPU Tests runs those PRs start cancelled to save runner time.
+
+- **#20's merge, 📊 Static checks failed** (run 40311774904), so no build ran. Fixed in #21 (`efa411b92a`): six
+  shebang scripts made executable; ruff in `webgpu_tests/benchmark/readme_perf_table.py` (a regex with backslashes
+  inside an f-string expression, moved into a variable, same output) and `sharpness.py` (variable `l`), plus ruff
+  format; codespell and file-format fixes in `webgpu_notes/work/`; clang-format of
+  `webgpu_texture3d_array_inc.glsl` (macro continuation spacing only). §3 trap 75.
+- **#21's merge, the GCC sanitizer editor failed to link** (run 40315006599; every other job green): the SCU build
+  never compiled `tests/editor/project_manager/test_engine_update_label.cpp`. Fixed in #22 (`f11d75f5d4`) by adding
+  `"/editor/project_manager"` to the tests unit in `scu_builders.py`. §3 trap 74.
+- **#22's merge: all green** (run 40321431357), release drafted as `main-41def1729690f515f19130b4a4dc099b80c80416`.
+  The #21 run drafted `main-7509fee2ab8bd18b08a07075771712d621ad9fa9` too, since `draft-release` does not wait for the
+  sanitizer editors (#20's design); its artifacts are the same.
+- The 🧪 WebGPU Tests runs for #20 (a repeat), #21 and #22 were cancelled by request; the last complete one passed on
+  #20 earlier the same day. Neither fix changes anything that workflow exercises (formatting, a benchmark
+  report script, the SCU folder list).
+
+### 4.47 Camera grain on CameraAttributes (October 2026)
+
+User request (2026-10-28): noise grain as a practical and physical camera attribute, realistic, correct at every game
+resolution, with a strength control and a type selector defaulting to the most realistic type. On the shared base
+`CameraAttributes`: `grain_enabled` (off by default), `grain_type` (`GRAIN_TYPE_FILM` default, `_FILM_MONOCHROME`,
+`_DIGITAL`), `grain_intensity` and `grain_size` multipliers; the ISO is `exposure_sensitivity`, now shown in the
+inspector while grain is on even without physical light units. `RenderingServer.camera_attributes_set_grain()`.
+
+- **Model** (`camera_attributes_storage.cpp`, comment block above `camera_attributes_set_grain()`): a 36x24 mm frame
+  as in `CameraAttributesPhysical`. Film: Kodak diffuse RMS granularity fitted as `8 * (ISO/100)^0.23` (T-Max
+  100/400/P3200, Portra 400), sqrt(density) growth around D = 1 at middle gray, 6 um clumps growing with
+  `(ISO/100)^0.4`, density noise applied as stops of exposure through the negative's gamma 0.6 *before* the tonemapper
+  (the tonemapper plays the print); color film is 65% shared + 35% per-layer noise (a look choice, documented as
+  such). Digital: 6 um photosites, 1400 e-/um² at ISO 100, scene 1.0 = saturation, shot + read noise (1.5 e- pre-gain,
+  8 e- post-gain), Bayer weights 2 / sqrt(2) / 2, auto exposure treated as gain (auto ISO).
+- **Resolution:** Selwyn's law. The shader gets the grain's own amplitude and its cell size in output pixels: cells
+  below a pixel give white noise scaled by the cell size, larger ones cellular noise (nearest of a 3x3 jittered
+  lattice). A first version interpolated a lattice and renormalized per pixel; that made per-pixel variance exact but
+  inflated low-frequency power ~30% once cells passed a pixel, i.e. a 4K image looked grainier than a 1080p one.
+  Measured after the fix (numpy port and native renders box-downsampled to a common grid): within ~10% from 360p to
+  2160p, and 720p vs 1440p->720p within a few percent per luminance band in all three renderers.
+- **Plumbing:** one packed `uint` (type, log cell size, two log amplitudes, 8-bit frame seed from
+  `get_frame_number()`; layout in `camera_grain_inc.glsl`), because the Forward+ tonemap push constant was exactly 128
+  bytes after §4.42: it takes the former `pad`. Mobile push constant 80 -> 96 bytes; Compatibility a `uint` in the
+  Tonemap UBO, applied in `effects/post.glsl` (a copy of the include in `drivers/gles3/shaders/effects/`), and grain
+  forces the post pass. Zero means off: a uniform branch, no new flags, spec constants or variants, so the interface
+  references are unchanged (smoke 276/276, 552/552, 0 invalid). Not drawn in debug draw modes or reflection probes.
+- **Verified:** native Forward+ (4080 SUPER, Vulkan), Mobile and Compatibility (llvmpipe) on a -7..+5 stop ramp and a lit
+  scene; WebGPU Forward+ in Chrome (lovelace, 48 textures) matches native per band within 0.02 code values with a
+  pixel-identical no-grain baseline. No Forward+ matrix arm: the grain is random per frame, so the parity check cannot
+  compare it.
+- **Known limits:** with FSR 1 or SMAA the grain is drawn at the 3D resolution and upscaled; Compatibility's post pass
+  loses a little deep-shadow detail compared with its inline path (the same as glow, SSAO or adjustments); Mobile and
+  Compatibility have no auto exposure, so no auto-ISO noise there. The seed repeats every 256 frames.
+
+### 4.48 Camera LUTs on CameraAttributes, and a .cube importer (October 2026)
+
+User request (2026-10-28): camera LUTs as a physical and practical camera attribute. Decisions (Hand-offs board
+`lut-input`, `lut-cube-import`, `lut-with-env`): both display and camera-log inputs, selectable; a `.cube` importer;
+with an Environment LUT too, both apply, camera first. On the shared base `CameraAttributes`: `lut_enabled`,
+`lut_texture` (Texture3D), `lut_input` (`LUT_INPUT_DISPLAY` default, `_ARRI_LOGC3`, `_SONY_SLOG3`, `_PANASONIC_VLOG`,
+`_CANON_LOG3`, `_RED_LOG3G10`, `_ACESCCT`), `lut_strength`; `RenderingServer.camera_attributes_set_lut()`.
+
+- **Model** (`camera_lut_inc.glsl`): a display LUT takes the tonemapped image sRGB-encoded, after tonemapping and
+  post-tonemap glow, before the Environment's adjustments and color correction. A log input converts scene-linear
+  Rec.709 to the camera's gamut and log curve (code values over 0-1, full range) and the LUT replaces the tonemapper,
+  for the scene and the softlight glow alike. LUTs are sampled at texel centers (input 0 and 1 on the first and last
+  entries, as .cube defines them; the Environment's own LUT path does not). Gamut matrices come from colour-science
+  0.4.6 (Bradford to the ACES white for ACEScct); all six curves were checked against its encodings (exact; Canon Log 3
+  is v1.2: the v1 coefficients are 0.12 off). Strength blends with the tonemapped image in sRGB-encoded values.
+- **Plumbing:** Forward+ packs enable, input and strength into push-constant `flags` bits 8-23 (the push constant has
+  no room left) and binds the LUT at set 3 binding 1; Mobile a `uint` in the former padding and set 0 binding 4;
+  Compatibility a `uint` in the Tonemap UBO, `USE_CAMERA_LUT` in `effects/post.glsl` on texture unit 4, and the LUT
+  forces the post pass. The renderers bind the default 3D texture when there is no LUT and only enable it for a real
+  3D texture. **Interface references regenerated on purpose:** the only change is the new sampler + `texture_3d`
+  pair in the four `tonemap` and two `tonemap_mobile` fragment variants (scan reference diff is additions plus
+  renumbering).
+- **`.cube` importer** (`ResourceImporterCubeLUT`, `editor/import/resource_importer_cube_lut.cpp`): 3D, 1D, and a
+  1D shaper followed by a 3D table; `DOMAIN_MIN/MAX`, Resolve's `LUT_1D/3D_INPUT_RANGE`. A 3D table over 0-1 is kept
+  exactly; anything else is evaluated on a grid (max(3D size, 33), 65 for 1D). Written straight to a
+  `CompressedTexture3D` file, uncompressed RGBA half floats: a first version saved an `ImageTexture3D`, which saves by
+  reading its data back from the RenderingServer, so a `--headless` import wrote an empty texture, and three files
+  imported on worker threads hung the import. Unit tests in `tests/editor/import/` (folder added to the SCU tests
+  unit, trap 74); not run here (needs a `tests=yes` editor).
+- **Verified:** an identity LUT under each log input shows the encoding itself, compared with colour-science on a
+  7-hue x 12-stop grid; display inverts (3D and 1D) against 1 - sRGB. Forward+ native (4080 SUPER, Vulkan): all
+  within 0.61/255. Mobile: within 2.6/255 up to scene value 1.44; above ~2.0 its RGB10A2 scene buffer clips before the
+  LUT, so log LUTs lose the brightest highlights on Mobile. Compatibility (llvmpipe), against its own post-pass
+  baseline: log within 2.4/255, display within 5/255 (its approximate sRGB encode, shared with its Environment LUT).
+  WebGPU Forward+ in Chrome (lovelace, 48 textures): pixel-identical to native Vulkan in every case. Smoke after the
+  reference regeneration: 276/276, 552/552, 0 invalid.
+- **Known limits:** display LUTs are SDR (HDR output clips at 1.0); LUT output is treated as sRGB, not BT.1886;
+  the Mobile highlight clip above; `.cube` files with both tables and `DOMAIN_*` apply the domain to the 1D table.
+
+### 4.49 Camera3D autofocus and handheld shake (October 2026) *(work task 38, camera batch)*
+
+Camera realism batch (work board `camera-batch.md`, tasks 33-38). Scene side only (`scene/3d/camera_3d.*`, no renderer
+change), merged `c2d0987359`. **Autofocus:** Manual / Single (`autofocus_trigger()`) / Continuous, on a tracked Node3D
+or the nearest physics-ray hit of normalized screen points (collision mask); a servo in diopters with a time constant
+(exact per-frame solution, frame-rate independent) and optional hunting overshoot; drives
+`CameraAttributesPhysical.frustum_focus_distance`, or moves CameraAttributesPractical's near/far distances and
+transitions keeping the band's diopter width; signals `focus_acquired` / `focus_failed`; runs in the editor preview,
+with editor-save hooks that store the user's value. **Handheld shake:** seeded band-limited sinusoid sums per axis
+(rotation, position, breathing) with exact RMS and spectrum; stabilization removes the set fraction above ~0.5 Hz
+(first-order high-pass per partial); optional focal-length-referenced amplitudes; applied in
+`_get_adjusted_camera_transform` so `transform` is untouched while `get_camera_transform()` and picking include it.
+Verified (lead, merged tree): `results/38-camera3d-af-stabilization/tests/run.sh` OK at 30/60/144 fps (AF error after
+one time constant 0.3679 = e^-1; shake RMS within 0.6%, spectrum within 0.7%, IS model within 0.0002), the windowed
+editor check, and shake-off renders pixel-identical to the pre-merge editor in Forward+, Mobile and Compatibility; smoke
+276/276, 552/552. Limits: AF writes into the attributes resource (cameras sharing it share focus); ray points not with
+`physics/3d/run_on_separate_thread`; shake with physics interpolation untested. User answer `shake-in-editor`: shake
+in the editor only behind a tick box, default off (`shake_visible_in_editor`, §4.55). §3 trap 78.
+
+### 4.50 Camera finish pass: in-camera noise reduction and sharpening; Camera3D monitoring overlays (October 2026) *(work task 37, camera batch)*
+
+Merged `ffda7ef1d3`. A **camera finish pass** after the 3D image is complete (after tonemapping, FSR/SMAA, debug draw and
+compositor effects), at output resolution, before 2D; skipped entirely when nothing in it is on.
+- **CameraAttributes:** `noise_reduction_{enabled,strength,chroma_only}` (bilateral on display Y'CbCr, Tomasi-Manduchi
+  1998; chroma range sigma 2x luma's) and `sharpening_{enabled,amount,radius,halo}` (unsharp mask on luma, radius in
+  pixels of a 1080-line frame, halo = CAS-style clamp to the 3x3 range). Model in `camera_attributes_storage.cpp`
+  ("Camera finish").
+- **Camera3D, Monitoring group:** `monitoring_visible_in_output`, zebras (95 IRE; optional second zebra as a ±5 IRE
+  window at 70), focus peaking (Sobel on display luma), false color (ARRI ALEXA bands), histogram (luma/RGB, 256 bins,
+  GPU compute). Sent to the server only in the editor or with Visible in Output, so a game with editor-only overlays
+  runs nothing; `CameraData::monitoring` carries them to the renderer.
+- RD `effects/camera_finish.*`, `camera_finish.glsl` + `camera_histogram.glsl`; Compatibility `GLES3::CameraFinish`
+  (everything but the histogram: no compute). Single-view only (XR skipped).
+- **Verified (lead, merged tree, all three renderers):** default 0 px vs the pre-merge editor; zebra coverage = fraction
+  above level (0.0470/0.0469); false color 100% of pixels on the band table; histogram bars exact vs a CPU histogram
+  (Forward+, Mobile); peaking IoU 1.0 vs CPU Sobel (0.997 Compatibility, which has no DOF); NR at ISO 6400 luma sigma
+  5.6 -> 1.95 at strength 1, chroma-only leaves luma; sharpening overshoot within 0.6/255 at 1080p, halo width doubles at
+  2160p (peak ~10% under a dense Gaussian there: taps stride 2 px, documented); Visible in Output off = 0 px in a game
+  run, overlays drawn in an editor run. Worker: WebGPU pixel-identical to native except the animated zebra phase.
+- Not yet: a by-eye check in the real editor (Preview check box, inspector preview); questions `zebra-colors`,
+  `zebra2-window`, `peaking-source` on the hand-offs page (defaults built).
+
+### 4.51 Camera motion blur from the shutter, and rolling shutter (October 2026) *(work task 34, camera batch)*
+
+Merged `4a96bd2ae6`. CameraAttributes `motion_blur_*` (enabled, shutter_angle 180°, strength, max_length 0.05 of frame
+height) and `rolling_shutter_*` (enabled, readout_time 20 ms); `CameraAttributesPhysical.motion_blur_use_shutter_speed`
+(default on) takes the exposure time from `exposure_shutter_speed`. ProjectSettings
+`rendering/camera/motion_blur/motion_blur_quality` (8/16/32 taps). Blur = motion per frame x exposure time / frame
+time; rolling shutter shows row y at readout x (y/H - 0.5). Pass `effects/camera_motion_blur.*` (own push constant):
+prep (velocity + depth; the sky gets camera motion from depth) -> tile max -> neighbor max -> gather (rolling shutter by
+fixed-point iteration, then McGuire et al. 2012's reconstruction with Jimenez 2014's weights). After DOF, before auto
+exposure and glow; Forward+ turns motion vectors on (and resolves them under MSAA) whenever it is on. **Forward+ only**
+(desktop and web); Mobile and Compatibility ignore it (documented). Two fixes to McGuire's published filter, found by
+measuring: its weights stepped a moving edge (0.39 -> 0.87 instead of a ramp through 0.5) and its tap spacing shortened
+every blur to S/(S+1). Verified: blur length within 0.3% of speed x exposure at 720p/1080p (worker; lead reproduced
+0.9997 at 1080p 1/50 s), skew within 1.1% geometry / 0.5% sky (lead: sky 0.995), WebGPU 1.000 at 165 Hz, MSAA 0.998;
+off bit-identical in all three renderers (lead, merged tree). Trap for measuring it: the test square wraps around the
+frame, and a capture whose exposure spans the wrap measures short (frames=60 at 1/50 s read 0.82). User answer
+`motion-blur-editor`: in the editor only behind tick boxes, default off (`motion_blur_visible_in_editor`,
+`rolling_shutter_visible_in_editor`, §4.55).
+
+### 4.52 CameraAttributes lens optics and the CameraEffects uniform buffer (October 2026) *(work task 33, camera batch)*
+
+Merged `779120b64e` (conflicts with 34/37 resolved by applying task 33's diff onto the merged side and checking it adds
+and removes exactly task 33's lines). Sensor formats (replacing the hard-coded 36x24; grain now uses the sensor
+height), physical vignetting (cos⁴ + pupil overlap; practical strength/falloff), Brown-Conrady distortion (automatic per
+focal length, auto-crop), lateral chromatic aberration, anamorphic squeeze (Camera3D keeps the horizontal FOV), ND
+filters and T-stops, Airy diffraction softening and focus breathing; Forward+, Mobile, Compatibility and WebGPU.
+- **CameraEffects uniform buffer** (`camera_effects_inc.glsl`, `CameraEffectsUBO` in `camera_attributes_storage.h`):
+  std140, 512 bytes: `uvec4 header` (x lens bits, y glare bits, z exposure-automation bits, w free), `vec4 lens[8]`,
+  `glare[6]` (task 35), `exposure[2]` (task 36), `reserved[15]`. Forward+ tonemap set 1 binding 1, Mobile set 0 binding
+  5, Compatibility UBO binding 16 behind `USE_CAMERA_EFFECTS`. Filled per pass by
+  `RendererCameraAttributes::camera_attributes_fill_effects_buffer()` (`_fill_effects_lens/_glare/_exposure`), owned
+  per viewport (`CameraEffectsBufferRD`), uploaded only when it changes; a shared all-zero buffer when nothing is on;
+  Mobile skips the subpass and Compatibility forces the post pass when in use. **New users of it add their bits to
+  `camera_attributes_uses_effects_buffer()`.**
+- Order in the pass: lens resample (distortion, CA, diffraction) at the first read, FXAA following the lens, glow read
+  where the lens maps the pixel, vignetting after pre-tonemap glow, then white balance, grain, tonemapping, LUT.
+- Fixed on the way: Compatibility's fast-sRGB round trip was off by up to 6.8/255 near black (exact inverse now).
+- **Verified (lead, merged tree):** defaults pixel-identical to the pre-merge editor in 9/9 renders (3 attribute kinds x
+  3 renderers); vignetting vs cos⁴ x pupil overlap within ~0.01; distortion dots within 0.035 px of Brown-Conrady
+  (0.12 px Compatibility) over displacements up to 34 px; CA spread/radius 0.00500 at 540p and 1080p; Airy sigma
+  2.455 px vs 2.465 at 4K (Compatibility ~5% narrower, documented). Worker: FOV for all 7 formats within 2e-6°, WebGPU
+  pixel-identical to native on 8 cases. Interface reference: the UBO in the six tonemap fragment variants only.
+- Not tested: ND/T-stop on screen, MSAA, XR, scaled viewports. Follow-ups: a Forward+ matrix arm `lens_optics`;
+  longitudinal CA in the DOF pass. Questions `breathing-default`, `ca-aperture` on the hand-offs page.
+
+### 4.53 Auto exposure metering modes and auto white balance (October 2026) *(work task 36, camera batch)*
+
+Merged (no conflicts). CameraAttributes (both kinds) `auto_exposure_metering_mode`: Average (default, untouched),
+Center-weighted (Nikon's 75% of the weight in a 12 mm circle), Spot (size in % of frame, UV point), Highlight-weighted
+(a percentile exposed to 1.0); auto white balance (speed, temperature range; manual temperature/tint stay on top as a
+bias, neutral = display white). Both on the GPU without readback in a new `CameraMetering` effect
+(`camera_metering.glsl`, 7 compute variants); the AWB gains reach the Forward+ tonemapper at set 1 binding 2, gated by
+`header.z` bit 1. Forward+ only (auto exposure already was); Mobile and Compatibility keep Average and manual white
+balance, documented, so `camera_attributes_uses_effects_buffer()` is not extended. Metering uses the arithmetic weighted
+mean (like Average), not a log-average. **Upstream bug found, not fixed:** Godot's Average reduction drops the right 20%
+of a 1080p frame (and the bottom 27% at 720p) because each level rounds its size down; left as is so defaults stay
+identical. **Verified (lead, merged tree):** defaults 18/18 renders pixel-identical in all three renderers; center and
+spot (center and off-center) within 0.0005 EV of a Python reference from the AE-off HDR frame at 1080p and 720p,
+highlight within 0.03 EV. Worker: AWB brings a gray card under 3200 K from r/g 1.94, b/g 0.38 to 1.0000/1.0002;
+WebGPU pixel-identical (metering) / within 1/255 (AWB); +0.05 ms per feature at 1080p. Questions `metering-statistic`,
+`average-dropped-edges`, `awb-neutral` on the hand-offs page.
+
+### 4.54 Bokeh shapes, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion (October 2026) *(work task 35, camera batch)*
+
+Merged `ec882a87c2` (conflicts with task 36 resolved by applying task 35's diff onto the merged side, checked to add and
+remove exactly its lines; `tone_mapper.cpp` by hand, `CameraAttributes.xml` element by element).
+- **CameraAttributes:** aperture blades (count, curvature, rotation; override the project's bokeh shape per camera),
+  cat's eye bokeh, starburst (2 spikes per blade for odd counts, 1 for even, stronger stopped down), halation.
+  **CameraAttributesPhysical:** tilt-shift (Scheimpflug hinge rule: each pixel's own focus distance in the DOF).
+- **Environment:** lens flare (ghosts on the line through the center), veiling glare, diffusion filter (+ black variant).
+- **Glare chain:** an unthresholded RGBA16F mip chain built with glow's passes, bound to the tonemap pass (Forward+ set 2
+  binding 2, Mobile set 0 binding 6); parameters in the CameraEffects `glare[6]` region / `header.y`. Bokeh push
+  constant now exactly 128 bytes. Compatibility gets none of it (no DOF; its post pass sees light clipped near white),
+  documented. Mobile: RGB10A2 clips highlights, so glare from bright sources is ~20x weaker.
+- **Verified:** worker (native vs independent models): blade vertex angles within 0.1-3°, cat's eye ratios within ~0.04
+  of the two-circle model, tilt band at row 339 vs 344.5 predicted, spikes 6/14/8 for 6/7/8 blades, flare ghosts within
+  1.6 px of the line, veiling glare 0.00212 vs 0.00212, WebGPU repeats native (halation ~12% tighter, spikes ~30%
+  brighter: Chrome's filtering). Lead (merged tree): defaults 9/9 identical; halation sigma 13.47 / 54.17 px vs 13.44 /
+  53.76 predicted, no blue; diffusion leaves a flat field unchanged. A `-Wenum-conversion` in
+  `_glare_requested_bits()` fixed at integration (would have failed werror).
+- **Upstream problem found, not fixed:** Mobile's DOF ignores CameraAttributesPhysical (`bokeh_dof_raster()` never sets
+  the physical flags), so a physical camera on Mobile has no DOF; fixing it changes existing Mobile renders.
+- Not run: Practical-blur bokeh shapes and cat's eye on Mobile; GPU cost (the starburst is the expensive part).
+  Questions `starburst-default-strength`, `halation-min-size`, look `look-bokeh-glare` on the hand-offs page.
+
+### 4.55 Camera follow-ups from the user's answers; handheld shake presets (October 2026) *(work task 39, camera batch)*
+
+Merged. From the hand-offs page: **zebra colors user-selectable** (`monitoring_zebras_color` default black,
+`monitoring_zebras_second_color` default white; new `RS.camera_set_monitoring_zebra_colors()`; the camera finish push
+constant is now a full 128 bytes); **editor tick boxes, default off**: `CameraAttributes.motion_blur_visible_in_editor`
+and `rolling_shutter_visible_in_editor` (one per group: each group's enable check box hides the rest of its group) and
+`Camera3D.shake_visible_in_editor` (unticked, shake does no work in the editor; a running game is unaffected; autofocus
+unchanged). **Handheld shake presets** (user request): `Camera3D.shake_preset` with Custom (default, today's values) and
+Handheld, Handheld Stabilized, Handheld Walking, Running, Shoulder Rig, Gimbal, Tripod in Wind, Vehicle Mount, sources
+cited in the code; editing any shake value switches to Custom; saved scenes keep their preset. Verified (lead, merged
+tree): `results/39-*/tests/run.sh` OK (68 checks: defaults and default-colored zebras pixel-identical in all three
+renderers, zebra colors within 1/255, tick boxes in editor vs game runs, presets' measured RMS within 5% and band
+centers within 2.4% over 120 s); task 38's `tests/run.sh` OK after ticking `shake_visible_in_editor` in its editor test.
+
+### 4.56 Web loading screen: progress bar toggle and colors (October 2026) *(work task 42; §2.49)*
+
+User request. Web export options `loading_screen/progress_bar/enabled` (default on) and, shown only while it is on,
+`border_color` / `background_color` / `fill_color` (defaults `#b2b2b2` / `#efefef` / `#0075ff`, Chrome's own colors).
+Both default shells hide the bar when off and style it (CSS custom properties, `::-webkit-progress-*` /
+`::-moz-progress-bar`, the indeterminate sweep) only when a color differs from its default, so at defaults every browser
+keeps its own look and exports made before look the same. Custom shells get a sibling placeholder `$GODOT_PROGRESS_BAR`
+(`enabled`, three CSS hex colors, `customColors`), so shells walking `$GODOT_LOADING_SCREEN` are unaffected. Verified:
+default export HTML differs only by the new shell code; default rendering pixel-identical in Chrome and Firefox for both
+shells; 14/14 real exports (7 presets x Chrome and Firefox) start without errors with the expected colors and hiding;
+every run through one launch helper that asserts the adapter (the first, flagless runs were discarded, §3 trap 79);
+dev_mode build and smoke OK (lead, merged tree). Not done: Safari; a by-eye check that unticking the toggle hides the
+three pickers in the editor's export dialog. Wiki: Web Export Options updated.
+
+### 4.57 Longitudinal chromatic aberration; Mobile depth of field for physical cameras; camera arms in the Forward+ matrix (October 2026) *(work task 44)*
+
+Merged. **Longitudinal CA** (user answer `ca-aperture`: lateral stays physical, longitudinal in the DOF pass):
+`CameraAttributes.longitudinal_chromatic_aberration_enabled/_strength` + an RS setter, in the DOF pass on Forward+ and
+Mobile, off by default. Model: an achromat's red and blue focus 1/2200 of the focal length behind green (Smith;
+Kingslake and Johnson); Practical cameras use a ±2.7% blur scale. It uses the bokeh push constant's last free word (still
+128 bytes). Measured on a defocused edge (strength 10): fringe 2.10 px vs 2.13 modeled at f/1.4, about half at f/2.8;
+green behind focus, magenta in front. **Mobile physical DOF** (user answer `mobile-dof-physical`: Fix it):
+`bokeh_dof_raster()` now takes the physical model as the compute path does; before, a CameraAttributesPhysical camera had
+no blur at all on Mobile (edge radius 0.00 px), now 8.15 / 4.16 px vs Forward+ 7.89 / 4.03 and the model 7.81 / 3.91;
+existing Mobile scenes with a physical camera now blur. **10 Forward+ matrix arms** (87 -> 97, category `camera`):
+lens_optics, bokeh_shape, longitudinal_ca, tilt_shift, starburst, halation, lens_flare, veiling_glare_diffusion,
+camera_lut, in_camera_processing; worker: full matrix 97/97 unbaked with --parity, the 10 new arms baked too, WebGPU within
+0.003 of native. Interface references: only `(3,120)` added to the Mobile DOF composite fragment (it now reads the push
+constant). **Lead (merged tree):** dev_mode editor and web template_release builds clean (0 warnings, 292 precompiled),
+smoke OK, and lens_optics / longitudinal_ca / camera_lut pass `--parity` (native diff 0.002-0.003).
+
+### 4.58 Average meters the whole frame; log-average metering; sharper halation; starburst default 20 (October 2026) *(work task 40)*
+
+User answers on tasks 35/36. **Average auto exposure now meters the whole frame** (`average-dropped-edges`: Fix it):
+Godot's Forward+ `luminance_reduce.glsl` rounded each level's size down and dropped the right ~20% of a 1080p frame and the
+bottom ~27% at 720p; each 8x8 block now writes its sum, levels round up, the last divides by the pixel count. Existing
+auto-exposed Forward+ projects change (test scene: -0.07 EV at 1080p, +0.32 EV at 720p), documented; Mobile's raster
+path already covered the frame and never applies auto exposure. **`auto_exposure_metering_log_average`** (`metering-
+statistic`: arithmetic default, log-average option): Reinhard's exp(mean(log(v + 1e-4))) for Average, Center-weighted
+and Spot (Highlight is a percentile, unchanged). **`halation_high_quality`** (`halation-min-size`: option, current
+default): a full-resolution first level for the Forward+ glare chain (radius 1: 3.38 px vs 3.36 model, 3.95 without; +0.18
+ms at 1080p). **`starburst_strength` default 20** (`starburst-default-strength`). Verified (lead, merged tree): dev_mode
+build clean, smoke OK; 16/18 default renders pixel-identical to the pre-merge editor in all three renderers, the two
+others the intended Average change (Forward+ auto-exposed scenes); Average now reads the whole-frame mean (1.0280 / 1.0215
+vs 1.0276 / 1.0211 at 1080p / 720p; before 0.978 / 1.278). Worker: log-average within +0.0005 EV of a Python reference,
+WebGPU pixel-identical for metering. §3 trap 80. Question `glare-lod-calibration` on the hand-offs page.
+
+### 4.59 Micro shadows on Environment (October 2026) *(work task 49; survey §2.48, `pp-micro-shadows`)*
+
+`Environment.micro_shadows_enabled` (off) / `micro_shadows_opacity` (1.0), RS `environment_set_micro_shadows()`. Each
+directional light is multiplied by `mix(1, saturate(N.L + 2*AO^2 - 1), opacity)` (Brinck and Maximov 2016, HDRP's
+`ComputeMicroShadowing`), left alone where N.L < 0; N the normal-mapped normal, AO the material's own (before SSAO and
+`ao_light_affect`); not with per-vertex lighting. Forward+ and Mobile carry the opacity in the scene UBO's former `pad`
+word (no new bindings or variants, references unchanged); Compatibility has its own copy and one more vec4 in its scene UBO.
+Worker: per-pixel factor vs the formula on an AO-gradient quad at 5 light elevations, mean error <= 1e-4 (max 0.0009
+Forward+, 0.002 Mobile, 0.035 Compatibility near black); off / opacity 0 / no AO map bit-identical in 27 comparisons;
+full Forward+ matrix 98/98 at parity, new arm `micro_shadows`. Lead (merged tree): dev_mode editor and web template clean,
+292 precompiled, smoke OK; `micro_shadows` and `omni_light` at parity. Cost not measured (a few ALU per pixel per
+directional light behind a uniform branch). Wiki: Engine-Additions-Micro-Shadows.
+
+### 4.60 Build scripts: the no-threads, no-dlink web templates first (October 2026) *(work task 50; §2.50)*
+
+User request. Every `build-*` helper builds and installs `web_nothreads_{debug,release}.zip` right after the editor (and
+`wgsl_convert_cli`), prints "Ready to export", then the rest. `build-linux.sh`: editor -> wgsl_convert_cli -> emsdk
+patches -> the pair -> Linux templates -> the other web variants; the narrowing flags still apply (a filter excluding
+threads=no or dlink=no skips the pair with a warning); the timing table gains a "ready to export" line; new `EDITORS_DIR` /
+`TPZ_COPY_DIR` overrides. `build.sh` / `build-macos.sh` / `build-windows.ps1` gained the non-dlink pair first and **no
+longer install their dlink pair as `web_nothreads_*.zip`** (§3 trap 81); native template builds use the PATH from before
+`emsdk_env`. The pair reaches the editor at once because `builds/<version>/templates` is a symlink to the export templates
+folder on the user's machine; the ready line warns when they differ. Verified: one narrowed `build-linux.sh` run (ready at
+2:18, total 6:03, exit 0), `bash -n` / shellcheck / the PowerShell parser clean, smoke OK; not run: the Linux native
+template step after the pair, the dlink variants, macOS/Windows end to end (the next full run confirms it: "Ready to
+export" about 2-3 minutes in).
+
+### 4.61 Web Start button screen (October 2026) *(work task 51; §2.51, camera-sim spec + user styling)*
+
+`html/start_button/enabled` (off) and, shown only while ticked: `text`, `background_color` (#3a3a3a), `text_color`,
+`border_color`, `border_width`, `border_radius`, `font_family`, `font_size`, `padding`, and `custom_state_colors` with
+`hover_color` / `pressed_color` (otherwise 15% / 30% darker). Passed in `$GODOT_CONFIG` as `startButton` (documented in
+`config.js`; the config JSON now escapes `<`). Both default shells get a `'start'` mode; the old startup branch is
+`startEngine()`, run on press; the missing-features check stays at page load; the button is never focused by script;
+`cursor: pointer`, focus ring, Enter/Space. Nothing of the engine runs before the press. Worker: default export differs only
+by the config key and shell code, game pixel-identical in Chrome and Firefox; `start_test.mjs` (cross-origin iframe) 15/16:
+before the press `engine.rtenv` unset, no canvas width, only index.html / index.js / splash requested, no parent scroll; up
+in 5-10 s after; styles, focus, keys OK; the one miss is Firefox not showing `:active` while Space is held. Lead (merged
+tree): dev_mode editor and web template clean, smoke OK, launches audited. Not done: a windowed-editor check of the
+dialog; Safari. Questions `start-button-*` on the hand-offs page. Preload is task 53.
+
+### 4.62 Web `DisplayServer.window_set_size()` resizes the game (October 2026) *(work task 52; §2.52, camera-sim)*
+
+`godot_js_display_desired_size_set()` resized the canvas synchronously, so the next `process_events()` size check saw
+no change: the root `Window` never emitted `size_changed`, the viewport kept the old size and the WebGPU surface was
+never reconfigured ("surface texture differs from configured"); under the render thread the OffscreenCanvas was not
+resized at all. It now returns whether the canvas changed, and `DisplayServerWeb::window_set_size()` then runs the
+browser-resize path (`_canvas_size_changed()`). Canvas resize policy 0 (None) no longer consumes a pending page resize.
+Worker: `results/52-web-window-set-size-signal/resize_test.mjs` under policies 0/1/2, nothreads and threads. Lead
+(merged tree): dev_mode editor and web template clean, the test passes under all three policies (nothreads), 0
+warnings. The shell's `fitCanvasToViewport()` refit after an engine-driven resize went to task 54. §3 trap 82.
+
+### 4.63 Web start screen downloads the game while it waits (October 2026) *(work task 53; §2.51, camera-sim spec)*
+
+`html/start_button/preload` (on) and `html/start_button/preload_progress` (on; shown only while `preload` is), both
+shown only with `html/start_button/enabled` and passed as `GODOT_CONFIG.startButton.preload` / `.preloadProgress`. New
+`Engine.prototype.prefetch(onProgress)` fetches through the `Preloader` exactly what `startGame()` will ask for (the
+wasm, the main pack, the shader pack, the shader extras at low priority, and the texture pack `pickTexturePack()` picks
+from the adapter's features), with no wasm compile and no GPU device; `startGame()` reuses every download and its
+progress continues from what is loaded. The `Preloader` keys downloads by URL, forgets a failed one so the next
+request retries it, frees buffers once the files are in the engine's file system, and no longer hangs forever on a
+connection cut mid-body. `Engine.pickTexturePack` is public. Both default shells prefetch on the start screen unless
+Save-Data is on, showing "Downloading N%" then "Ready". Worker: 18/18 runs (9 scenarios, Chrome and Firefox headed,
+adapter asserted; cross-origin iframe, baked Forward+ project with both texture families): each file requested once,
+engine idle before the press, press-to-game 0.89 s (Chrome) / 0.73 s (Firefox) against a warm-cache export, a
+throttled download's bar never goes backwards, Save-Data fetches nothing early, a failing main pack is refetched on the
+press. Lead (merged tree, with 46): dev_mode editor and web template 0 warnings; `ready`, `savedata`, `fail` and `auto`
+pass in Chrome and Firefox. Not done: Safari, a real network, the windowed-editor dialog. The `webgpu-full-size.html`
+shell's own device request asks for 16 textures per stage, so it runs Forward Mobile (pre-existing). §3 trap 83.
+camera-sim can drop its `window.fetch` wrapper for `prefetch()` (results/53-web-preload-before-start/for-tasks.md).
+
+### 4.64 Screen-space light shafts (October 2026) *(work task 46; survey §2.48, `pp-light-shafts`)*
+
+`DirectionalLight3D.light_shafts_enabled` opts a light in (the first that does is the sun); `Environment.light_shafts_*`
+(intensity, threshold, decay, tint) and `rendering/environment/light_shafts/quality` (16/32/64 samples). Mitchell's
+radial blur (GPU Gems 3 ch. 13) as an exponentially weighted mean of the sky mask on the way to the sun, in frame
+heights, with a lengthwise prefilter over one march stride, so the result is the same at every resolution and sample
+count. RD (Forward+, Mobile, web): four quarter-resolution raster passes (`RendererRD::LightShafts`) added to the
+scene light before DOF and tonemapping, own push constant, no tonemap binding. Compatibility: `GLES3::LightShafts` +
+`post.glsl` `USE_LIGHT_SHAFTS` (texunit 6), single view. Worker: defaults bit-identical (6/6), render vs an
+independent numpy model correlation 0.997-0.999 native and 0.990-0.9996 WebGPU, WebGPU within 0.5-3% of native
+energy, +0.07 ms GPU on WebGPU at 1152x648. Lead (merged tree): defaults 0 px against the pre-merge editor in all
+three renderers; model correlation 0.998 Forward+, 0.997 Mobile, 0.972 Compatibility, 0.990 WebGPU; WebGPU shaft
+energy 0.987 of native. §3 traps 84, 85.
+
+### 4.65 Environment color grading (October 2026) *(work task 45; survey §2.48, `pp-grading`)*
+
+A **Color Grading** group on `Environment` (`grading_*`, 28 properties, off by default): color filter, hue shift,
+vibrance; lift/gamma/gain; shadows/midtones/highlights with ranges; channel mixer; split toning; eight `Curve` curves
+(master, R, G, B, hue-vs-hue, hue-vs-sat, sat-vs-sat, lum-vs-sat). RS `environment_set_color_grading()` and four more.
+Display-referred, in URP's LutBuilderLdr order (`servers/rendering/storage/color_grading.cpp`, sources cited), baked
+on the CPU worker threads into one 33³ RGBA16F LUT of lattice points only when a grading value changes (1.5 ms median
+with everything on, 4.6 ms single-threaded as a no-threads web export pays). Forward+ / Mobile / web: the LUT uses the
+existing color correction slot (no tonemap binding or interface change); a 2-variant compute shader
+(`effects/color_grading.glsl`) composes it with the user's `adjustment_color_correction` LUT and outputs linear for HDR
+viewports; the tonemap samples it at lattice points (§3 trap 86). Compatibility: post-pass `USE_COLOR_GRADING`
+(texunit 5) before the user LUT. Vibrance is clamped at full desaturation (below -0.5 it inverted saturated colors).
+Worker: 25 cases against an independent numpy reference (729 lattice + 512 off-lattice patches): Forward+ within
+1/255 of the baked-LUT model and 0.65/255 of the exact math; Mobile 1-3/255; web pixel-identical to native in 31
+captures; defaults 0 px (12 renders). Lead (merged tree with 46 and 47): defaults 0 px against the pre-merge editor in
+all three renderers (off, off-chart, user 3D LUT alone); six cases within 1/255 of the LUT model in Forward+, 1-2/255
+in Mobile and Compatibility (Compatibility measured on its post-pass input, `compat_check.py`); web pixel-identical to
+native Forward+ in all seven compared cases. Questions `grading-hdr`, `grading-look`. No Forward+ matrix arm yet.
+
+### 4.66 Panini projection (October 2026) *(work task 47; survey §2.48, `pp-panini`)*
+
+`CameraAttributes.panini_enabled / panini_distance / panini_vertical_compression` (Sharpless, Ballestrem and Thomas
+2010) in task 33's lens resample of the tonemap pass (header bit 32, free `lens[2].zw`, `lens[4].zw`, `lens[7].zw`; no
+layout change, no new binding), all three renderers and the web, off by default. The image is scaled so no border
+shows: the horizontal FOV is kept, the vertical one narrows (to 2/3 of its tangent at 120°, d = 1). Vertical
+compression is this fork's definition: 1 = the paper's projection, 0 = horizontal lines straight. The math lives in
+`servers/rendering/panini_projection.h`, shared with Camera3D, whose `unproject_position`, `project_ray_normal`,
+`project_local_ray_normal` and `project_position` follow it (orthogonal cameras and XR skip it; lens distortion is
+not followed, documented). Worker: dots within 0.39 px of an independent numpy model in every renderer and the web;
+Camera3D unproject 6e-6 px from the model; verticals straight; spheres round at d = 1, s = 1. Lead (merged tree):
+off 0 px against the pre-merge editor in all three renderers; dots within 0.29 / 0.29 / 0.37 px (Forward+ / Mobile /
+Compatibility) and 0.36 px on the web (baked export). The worker's web captures had soft edges against native even
+with Panini off (an unbaked headless export; not seen in the lead's baked one). Not tested: MSAA, scaled 3D, frustum
+offsets. Questions `panini-vertical-compression`, `panini-fov`, `panini-look`. §3 trap 87.
+
+### 4.67 Web: the embedding page drives the game's fullscreen (October 2026) *(work task 54; §2.53, camera-sim)*
+
+`html/embed_fullscreen/enabled` (off) and `html/embed_fullscreen/allowed_origins` (comma-separated, shown only while
+enabled; empty = any parent), passed as `GODOT_CONFIG.embedFullscreen`. A page on another origin cannot fullscreen the
+game's canvas (its click is not user activation in a cross-origin iframe), so it fullscreens the iframe and says so
+with `postMessage`: parent → game `{type: 'godot:fullscreen', on}` on every `fullscreenchange` and in answer to game →
+parent `godot:ready`; game → parent `godot:exit-fullscreen` (`window_set_mode(WINDOWED)` while the parent holds it;
+the mode changes on the parent's answer, `godot_js_display_fullscreen_exit()` returns 2) and `godot:request-fullscreen`
+(`window_set_mode(FULLSCREEN)` once a protocol parent is known; canvas request after 1 s without an answer).
+`GodotDisplayScreen.isFullscreen()` counts the parent's fullscreen, so the existing sizing path draws at iframe size x
+DPR and fires `size_changed`. Only `event.source === window.parent`, only listed origins; the parent's echo of the
+game's own canvas fullscreen is ignored; option off or not framed = no listener. `full-size.html` refits from a
+`ResizeObserver` on the canvas (task 52's leftover). Worker: `embed_test.mjs` on two origins, all 8 points in Chrome
+and Firefox; task 52's `resize_test.mjs` with a scale check under policies 0/1/2. Lead (merged tree with 48): dev_mode
+editor and web template 0 warnings; Chrome all checks pass; Firefox 59/59 on a rerun after a first run where the
+parent's own fullscreen request was ignored 6 times (§3 trap 88); resize test passes under all three policies. Not
+done: threads template, Safari, the export dialog by hand. Question `embed-request-option`. camera-sim's switch-over
+steps are in `results/54-web-embed-fullscreen-messages/for-tasks.md`.
+
+### 4.68 GTAO as an SSAO method (October 2026) *(work task 48; survey §2.48, `pp-gtao`)*
+
+`rendering/environment/ssao/method` (ASSAO default, or GTAO) and `RS.environment_set_ssao_method()`. `effects/gtao.glsl`
+ports XeGTAO (Intel, MIT; Jimenez et al. 2016) and writes the same AO texture ASSAO does, so the scene shader and the
+SSAO debug view are unchanged; §2.34's RT AO can be a third method writing it too. Reuses the Environment's SSAO
+settings (default intensity and power give XeGTAO's reference). Quality levels 2x2, 3x2, 3x3, 9x3 and 9-18x4 slices x
+steps (XeGTAO's two lowest presets darken open ground without TAA). Forward+ and web only (Mobile has no SSAO,
+Compatibility keeps its own). With TAA the noise changes per frame (XeGTAO's design; slight shimmer, question
+`gtao-taa-noise`). Worker: against a numpy ray-traced reference, GTAO Medium MAE 0.028 / correlation 0.90 / creases
++0.05 too light, against ASSAO's best 0.037 / 0.83 / +0.15; web within 0.001 of native; Medium at half size 0.31 ms at
+1080p (ASSAO default 0.29 ms), High full size 2.0 ms (native). Lead (merged tree with 54): default method AO buffer and
+final image 0 px against the pre-merge editor; the reference numbers reproduce (gtao q2 full 0.0275 / 0.902, web
+0.0275 / 0.902); smoke OK with the five GTAO modules added to the interface references; **full Forward+ matrix 99/99
+at parity, unbaked and baked** (new arm `gtao`). §3 trap 89.
+
+### 4.69 Glare chain calibrated per lod (October 2026) *(work task 55; user answer `glare-lod-calibration`: Recalibrate)*
+
+Halation, the diffusion filter and the lens flare blur now have their modeled size at every resolution. Three faults,
+measured from HDR captures (§3 trap 80): (1) the chain's blur per lod is sigma² = A + B·4^L lod-0 texels² (Forward+
+half resolution A -1.233, B 5.181; full resolution -1.556, 5.182; Mobile -0.157, 0.440), not 2.68·2^L, which matched
+only at 720p; (2) the sampler's blend between mips is not linear (§3 trap 90), so `camera_glare_fetch()` reads the two
+integer lods and blends them with a closed-form weight whose best-fitting Gaussian has the requested sigma; (3)
+Mobile's raster levels drift on odd sizes (§3 trap 91), corrected in the glare fetch. CameraEffects `glare[5].z`
+(A/B) and `.w` (raster flag) taken, `glare[2].w` now the diffusion's base sigma; the glare block is full. Floors in the
+class docs: about 4 px standard, 1.9 high quality, 2 on Mobile. Existing glare looks change by up to ~10% in size (the
+user's choice). Worker: Forward+ halation within 3.2% at every height (720-2160) and radius, was -22% to +9%;
+diffusion within 3.9%; flare ghosts -9% to +8% (unexplained, was -26% to +28%); WebGPU halo sigma within 1-3% of native.
+Lead (merged tree): defaults 0 px against the pre-merge editor (24 captures, 3 renderers); Forward+ halation at 1080
+and 2160 within 2.6% from radius 1 up (centered and nine-point sources); Mobile nine-point within 3.4%, a single
+centered point up to +8% at radius 4 (sub-texel phase of the raster chain; was +15%); smoke OK apart from task 57's
+then-unregenerated bindings. Lead, web (merged tree with 56-58): halo sigma within 3.3% of native at radius 4 and 1.2% at radius 16 (the high-quality radius-1 halo 8%, 8-bit quantization of a 3 px halo). Blended reads double the glare's texture reads (up to 48 per pixel for the flare), **not timed: the halation cost in the class docs (0.25 / 0.42 ms) and the wiki (0.08 / 0.26 ms) predate it and disagree; re-time and settle one pair.**
+
+### 4.70 Custom tonemapper (October 2026) *(work task 56; survey §2.48, `pp-custom-tonemap`)*
+
+`Environment.TONE_MAPPER_CUSTOM` with `tonemap_custom_slope / toe / shoulder / black_clip / white_clip` (Unreal Film's
+parameters and defaults 0.88 / 0.55 / 0.26 / 0 / 0.04) and `RS.environment_set_tonemap_custom()`, all three renderers
+and the web. An analytic curve (no Unreal code): a straight line in log10, tanh toe and shoulder, 0.18 maps to 0.18;
+per channel in Rec.709, clips at 1.0 (questions `custom-tonemap-gamut`, `custom-tonemap-hdr`). Its parameters live in
+the first **Environment-owned tonemap buffer**, `EnvironmentEffects` (std140, 256 bytes; header x = tonemap bits, the
+rest reserved for later Environment post parameters such as an HDR grading mode): Forward+ set 3 binding 2, Mobile set
+0 binding 7 plus spec constant 19 (ADRENO_BUG moved to bit 20), Compatibility 12 floats in `TonemapData`. Uploaded
+before the render pass, so Mobile's subpass tonemap works. Worker: Forward+ within 0.64/255 of an independent numpy
+model (13 cases, 768 samples each), web pixel-identical to native, Mobile 97-99.6% within 1/255 (its 2.0 cap limits
+output to 0.86 with the defaults, documented), Compatibility checked for consistency only (its chart readback follows
+no model for any tonemapper, pre-existing); existing tonemappers 0 px in 42 renders; matrix arm `tonemap_custom`
+(delta 29.6). Lead (merged tree with 57): the same numbers reproduce; existing tonemappers 0 px against the pre-merge
+editor in all three renderers; web identical to native on all 13 charts (lit scenes max 1/255); `tonemap_custom` passes
+`--parity`. §3 trap 92 (gles3 includes, fixed).
+
+### 4.71 Local exposure (October 2026) *(work task 57; survey §2.48, `pp-local-exposure`)*
+
+A **Local Exposure** group on `CameraAttributes` (both kinds, off by default): Unreal's Bilateral method (highlight
+contrast 0.6, shadow contrast 0.8, detail strength 1.0, middle gray bias, blurred luminance blend 0.6, kernel size 50%
+of the frame width; `middle_gray`, not "gray", because codespell rewrites the docs) and two RS setters. A bilateral
+grid (Chen, Paris and Durand 2007) of 16 square cells down the frame x 32 bins of 1 EV, so the result is the same at
+every resolution: `RendererRD::CameraLocalExposure` (build + blur compute) and the Forward+ tonemapper samples it at
+set 1 binding 3 right after exposure. CameraEffects `header.w` bit 0 and `local_exposure[2]` (the former
+`reserved[0..1]`). Forward+ desktop and web only: Mobile (RGB10A2 caps at 2.0), Compatibility (no pre-tonemap post)
+and XR do not apply it (class-doc notes, one-time editor warning). Worker: within p99 0.0015 EV of an independent
+numpy model at 720p/1080p/1440p, 11 controls plus auto exposure and physical units within p99 0.0032 EV; edge halos
+equal the model's; 12/12 defaults 0 px; WebGPU 0.17 ms at 1080p (build 0.04, blur 0.12, tonemap +0.013); matrix arm
+`local_exposure` (delta 11.39). Lead (merged tree with 56): defaults 0 px against the pre-merge editor in all three
+renderers, and on = off in Mobile and Compatibility; model within p99 0.0015 EV, max 0.0027 EV at all three
+resolutions; WebGPU's effect (on minus off) equals native's (mean |delta| 11.899 vs 11.898 at the defaults, 35.306 vs
+35.303 strong; away from edges p99 1/255). Questions `local-exposure-defaults`, `local-exposure-blend`,
+`look-local-exposure`. Follow-ups, optional: a separable blur (0.12 ms → ~0.03), Exposure Fusion as a second method in
+the grid's last slice. §3 trap 93.
+
+### 4.72 `run_spec_ops.sh`'s invalid FConvert probe dropped (October 2026) *(was §2.44; work task 58)*
+
+`spec_op_probes.py`'s `op_FConvert_f32` converted f32 to f32, which the vendored validator rejects (§3 trap 94). A valid
+FConvert needs f16 or f64; WGSL has no f64 and no engine or user shader declares an f16 spec constant, so the probe is
+gone, with the reason in the generator. `spec_op_check.mjs` finds Playwright from a worktree and refuses a fallback
+adapter. `run_spec_ops.sh`: override path 42 pass / 6 expected, legacy path 47 pass / 1 expected (`op_SMod`), 0 unexpected.
+
+### 4.73 Swizzled texture views audited; the driver warns when it drops one (October 2026) *(was §2.43; work task 58)*
+
+Every non-identity swizzle that can reach `RenderingDeviceDriverWebGPU` was traced (table in
+`results/58-small-web-correctness/for-tasks.md`). **RGBA4444 and RGB565 image textures failed outright on the web**
+(no packed 16-bit formats in WebGPU; `texture_create()` errored), now converted to RGBA8. The RA-as-RG normal-map formats
+always decompress on the web; zero/one swizzles that only restate a channel the image lacks are reset to identity on the
+web; decompressed DXT1 gets alpha 255 as the swizzle did; an opaque viewport's texture no longer asks for alpha 1 on the
+web (else every web game warned). `_warn_dropped_swizzle()` in `texture_create()` / `_shared()` / `_shared_from_slice()`
+warns once per (view format, swizzle) for what is still dropped: a `Texture2DRD` over R8/RG8 and user `RDTextureView`
+swizzles. New Forward+ arm `image_formats` (L8, LA8, RGBA4444, RGB565, R8, RG8 against RGBA8-expanded copies). The user
+then answered both of the task's questions with the non-default option (Texture2DRD over R8/RG8 reported as R8/RG8 on
+the web; opaque viewports write alpha 1 on the web): work task 60.
+
+### 4.74 FSR2 accumulate and scene binding 24: the depth fallback is never read (October 2026) *(was §2.42 and §2.31's "4x4 depth placeholder"; work task 58)*
+
+FSR2's accumulate pass declares `r_input_depth` but reads motion vectors through `LoadDilatedMotionVector()`, which never
+calls `LoadInputDepth()`; SPIRV-Cross drops the variable and the blank fallback in its slot is never sampled. The FSR2
+passes that do read depth get the real depth texture. New arm `fsr2_camera_move` (camera panning across the sky): native
+diff 0.059. Scene set 1 binding 24 is `DEFAULT_RD_TEXTURE_DEPTH` (a 4x4 D16 placeholder, bound when no material reads
+`DEPTH_TEXTURE`); on the web it is now the black float default, so `--verbose` is quiet for the scene shaders (FSR2
+accumulate's unread binding still logs). Also fixed: `wgsl_precompile.py` lacked task 17's `REACTIVE_MASK_FROM_ALPHA`
+define, so FSR2's depth-clip and TCR passes were converted at run time (correct, slower). Worker: matrix baked 101/101.
+**Lead (final merged tree, tasks 55-58): dev_mode editor and web template 0 warnings, smoke 311/311 interface and 622/622
+scan facts, Forward+ matrix 103/103 at parity, unbaked and baked.** §3 trap 94.
+
+### 4.75 Converter smoke check is a `webgpu_tests` tier (October 2026) *(was §2.38; work task 59)*
+
+`webgpu_notes/work/smoke.sh` and its expected-invalid list moved to `webgpu_tests/converter_smoke/run.sh` and
+`expected_invalid.txt`; the old path is a two-line forwarder (the work board's prompts and task files name it). It
+builds `wgsl_convert_cli`, converts every engine variant, compares interfaces and the driver's text-scan facts with the
+stored references, and compiles every module in Chrome; `local_ci.sh` runs it in stage 1 (`--quick` included).
+`validate_wgsl.mjs` now asserts the adapter instead of only logging it (exit 3; `WGSL_VALIDATE_ADAPTER=<vendor>/<arch>`
+or `any` accepts another real adapter, never the fallback one); lead: off Linux it launches the installed Chrome on its
+native backend (the Vulkan launch is unchanged on Linux), and `local_ci.sh` passes `any` unless one is named, so the tier
+runs on a Mac. Verified from both paths: 311 compiled, interfaces 311/311, scan facts 622/622, 311 valid in Chrome,
+~10 s. The GitHub half of the old §2.38 is §2.54.
+
+### 4.76 Opaque viewports write alpha 1 and Texture2DRD over R8/RG8 is R8/RG8 on the web (October 2026) *(work task 60; user answers `opaque-subviewport-alpha-web`, `texture2drd-r8-web`)*
+
+The two differences task 58's swizzle audit left (§4.73), closed the way the user picked and gated on a new driver
+trait, **`RDD::API_TRAIT_TEXTURE_VIEW_SWIZZLE`** (default 1, WebGPU 0; `RD::supports_texture_view_swizzle()`, cached by
+TextureStorage), not `#ifdef`; task 58's `#ifndef WEBGPU_ENABLED` around the opaque view swizzle uses it too.
+(1) A `Texture2DRD` (and `TextureLayeredRD`, `Texture3DRD`) over an R8 / RG8 RD texture is described and drawn as R8 /
+RG8 on the web, so `get_image()`, `texture_get_format()` and the picture agree; the swizzle warning no longer fires
+for it; class-doc notes. (2) An opaque viewport's final target gets alpha 1 on the web: the tonemap pass (Forward+ flag
+bit 25, Mobile's `pad` as `opaque_alpha`), the render target's clears, and a 2D canvas draw list that drew an add / sub
+/ mul / disabled-blend batch ends with one alpha-only full-target draw (`CopyEffects::set_alpha_one_in_drawlist()`).
+Worker: native 0 px against the pre-change editor (3 renderers, plus MSAA + HDR 2D); web vs native viewport cells
+230/255 → 0 in Chrome and Firefox, Forward+ and Mobile; matrix arms 9/9 unbaked and baked. Lead (merged tree with 61):
+dev_mode editor, web template_debug and template_release 0 warnings; viewport cells 0-5 web vs native max 0 in Chrome
+and Firefox; the RD textures report formats 2 / 3 (R8 / RG8) on the web and 0 / 1 (L8 / LA8) natively; smoke OK;
+tonemap, tonemap_custom, glow, local_exposure, fxaa, smaa, scaling_3d, msaa, image_formats 9/9 at parity.
+
+### 4.77 Start screen download text configurable (October 2026) *(work task 61; user request)*
+
+`html/start_button/preload_text/`: `downloading` + `downloading_text` ("Downloading..."), `progress` + `progress_text`
+("Downloading {percent}%", every `{percent}` replaced, text without one shown as typed), `ready` + `ready_text`
+("Ready"), `color` (`#e0e0e0`, the shells' old CSS colour). Shown only while `enabled`, `preload` and
+`preload_progress` are on, each text only while its switch is. Passed as `GODOT_CONFIG.startButton.preloadText` ("" =
+switched off); both default shells use `textContent` and fall back to the old wording when a key is missing; a message
+switched off leaves the line empty at the same height. Worker: 34/34 browser runs (17 scenarios, Chrome and Firefox,
+cross-origin iframe, webgpu-full-size shell); defaults 0 px against the previous shells in 24 comparisons; visibility
+checked with task 51's addon. Lead (merged tree with 60): default, edited, no-`{percent}` and all-off pass in Chrome
+and Firefox. Questions `preload-text-opacity`, `preload-text-font`. §3 trap 96. Not done: the windowed export dialog by hand.
+
+### 4.78 Physical depth of field at the thin-lens size (October 2026) *(work task 63; camera-sim spec)*
+
+`CameraAttributesPhysical.dof_physical_blur_size` (off by default; RS `camera_attributes_set_dof_physical_blur_size`)
+makes the DOF blur the thin-lens circle, f² / (N (u − f)) · |d − u| / d, measured against the sensor height (the
+desqueezed width for an anamorphic lens) and converted at render time to pixels of the buffer being blurred, in
+`BokehDOF`'s compute (Forward+) and raster (Mobile) paths; Compatibility has no DOF. For opt-in cameras the 32 px gather
+cap becomes `rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size`, a percentage of the image height
+(default 3%, upstream's 32 px at about 1080p): a visible clamp, not a hidden cost. Under a new `shape_flags` bit (push
+constant layout unchanged) the Box/Hexagon gather and the half-size Very Low/Low passes are sized to the blur, fixing
+upstream's dilution (§3 trap 97) for opt-in cameras only. Worker: 720p 50 mm f/1.4 focus 2.5 m wall at 5 m, model 5.47
+px, measured 5.69 (circle; hexagon and box within ~5%), 1440p 10.97 vs 10.93, MFT 10.12 vs 10.09; a case modeled at 80
+px clamps to 43 px at 3%; WebGPU matches native; opt-in off 0 px (10 native, 3 web); camera-sim A/B within 2% (circle).
+WebGPU 1440p: Hexagon Low 0.61 ms at 3% (0.64 upstream), Circle Medium 13.9 ms (7.8 upstream). Lead (merged tree):
+dev_mode editor, web debug and release 0 warnings; opt-in off 0 px against the pre-merge editor (circle, hexagon, box;
+Forward+ and Mobile); opt-in on 5.69 px (Forward+) / 5.64 (Mobile) at 720p and 10.97 at 1440p against 5.47 / 10.93.
+Not run (user: related tests only): the Forward+ dof arms, Firefox. `sensor_fit` not done (needs its own task).
+Questions `dof-physical-max-blur`, `camera-sim-hexagon`; camera-sim hand-back in `results/63-physical-dof-blur-size/for-tasks.md`.
+§3 traps 97, 98.
+
+### 4.79 MetaHuman clothing binds match the DNA skeleton (`Root` vs `root`) (October 2026) *(work task 67; camera-sim spec)*
+
+camera-sim logged `Skin bind #0 contains named bind 'Root'` on every load. Unreal's FBX export writes the root joint as
+a `Null` named `Root`; the DNA calls it `root`; `Skeleton3D` resolves binds exactly. Harmless (0 of 13,894 clothing
+vertices weighted to it; the unmatched bind already fell back to bone 0 = `root`), but noisy. The importer's own
+clothing path (`include_clothing`) already matched ignoring case and never had it; it now warns only for an unmatched
+bind with weighted vertices (once per bone, with the count), `print_verbose` otherwise. New scene import option
+**`metahuman/bind_to_dna`** (`modules/metahuman/editor/metahuman_clothing_binds.{h,cpp}`; every scene import except
+`.dna`, empty by default so nothing reimports): each skin bind is matched to the DNA skeleton (head DNA plus the body
+DNA beside it) exactly, then ignoring case (renaming the bind, the scene's own bone and its animation tracks); an
+unmatched unweighted bind is dropped with the bone indices remapped; an unmatched weighted one is kept and warned by
+name. Worker (scratch copy of camera-sim): 1 bind renamed, mesh arrays and all 342 bind poses identical; the copied
+skin in `ava.tscn` renamed the same way gives 0 `Skin bind` errors (1 before); against `head.dna` alone, 36 weighted
+missing bones warned by name, 279 unweighted binds dropped, every vertex's weights unchanged. Lead (merged tree): dev_mode
+editor and web template_release 0 warnings; outfits.fbx reimported with the merged editor gives the worker's skin dump
+exactly; camera-sim's main scene with the renamed skin: `Skin bind` errors 1 → 0 and the four seeded screenshots 0 px
+different from the original skin's. Not done: the animation-track rename on real data (the FBX's only animation has no
+tracks). Question `skeleton-bind-case`; camera-sim must still re-copy or rename the skin saved in `prefabs/ava.tscn`
+(steps in `results/67-metahuman-clothing-root-bind/for-tasks.md`). §3 trap 99.
+
+### 4.80 `Color.from_temperature()` and one colour-temperature helper (October 2026) *(work task 64; camera-sim spec)*
+
+`core/math/color_temperature.h` holds the one Krystek (1985) Planckian-locus fit; `Light3D` and the white-balance
+storage call it (`camera_metering.glsl` keeps its GPU copy, commented to point at it). New
+`Color.from_temperature(kelvin, normalization = TEMPERATURE_NORMALIZATION_LUMINANCE)` returns a linear colour
+(1000-15000 K): `LUMINANCE` (Rec. 709 Y = 1, channels may exceed 1) or `MAX_CHANNEL` (what `Light3D` uses with physical
+light units). Unit test in `tests/core/math/test_color.cpp`. Worker: Light3D's colour bit-identical to the pre-change
+editor at 1430 temperatures, renders byte-identical in all three renderers with and without physical light units;
+within 2.4e-6 of camera-sim's function. C# has no `FromTemperature` (C#'s `Color` is hand-written; question
+`c64-csharp`). Lead (merged tree with 65 and 66): dev_mode editor and web template_release 0 warnings; `*Color*` unit
+tests 25/25; existing lights byte-identical against the pre-merge editor (9/9 cases per renderer, both light-unit
+setups). Questions `c64-csharp`, `c64-enum-names`. §3 trap 100.
+
+### 4.81 `Light3D.light_temperature_enabled`: temperature without physical light units (October 2026) *(work task 65; camera-sim spec)*
+
+Per-light opt-in (default off): `light_temperature` tints the light with or without physical light units, normalized
+to constant Rec. 709 luminance (so a temperature change never changes brightness; not clamped, light colors are linear
+HDR), multiplied by `light_color`; the inspector, `get_correlated_color()`, the gizmo and LightmapGI follow it. With
+physical light units, the opt-in switches that light to constant luminance (question `c65-plu-interaction`). A light
+at T under white balance T matches the 6500 K light at the default within 0.1%, which is itself slightly magenta
+against D65 (§3 trap 101, question `c65-neutral-reference`). Worker: opt-in off byte-identical in all three renderers,
+both light-unit setups; luminance spread 2000-10000 K 0.015% Forward+, 0.042% Mobile, 0.037% Compatibility, 0.25% web.
+Lead (merged tree): opt-in off byte-identical (above); luminance spread 0.015% (Forward+); WB pairs within 0.05-0.08%
+of the 6500 K light. Questions `c65-*`; camera-sim hand-back in `results/65-light-temperature-without-plu/for-tasks.md`.
+
+### 4.82 Async texture readback that says when the pixels are real (October 2026) *(work task 66; camera-sim spec)*
+
+`Texture2D.get_image_async(callback)` and `RenderingServer.texture_2d_get_async(rid, callback)`: the callback runs once,
+deferred to the main thread, with the Image (or `null` if the texture is invalid, freed first, or the read fails); the
+copy is made after the frame's viewports draw, so it shows that frame, even from `_ready()`. `ViewportTexture`,
+`Texture2DRD`, `ImageTexture`, `DrawableTexture2D` and `PortableCompressedTexture2D` override it. `await` is documented
+through a signal. **WebGPU fix:** `texture_get_data_async` / `buffer_get_data_async` read the staging buffer when its
+frame came round again whether or not `mapAsync` had finished (§3 trap 102); a new `RDD::buffer_get_readback_status()`
+and an ordered queue of each frame's downloads in `RenderingDevice` hold them until mapped, with their blocks out of the
+reuse ring. Docs: the web's first synchronous read of a rendered texture is `null`. New tier
+`webgpu_tests/async_readback/` (native and web runners). Worker: 49/49 natively, in Chrome and in Firefox (debug and
+release templates); a 1280x720 readback every frame costs 1.10 → 1.34 ms/frame CPU, no stall; synchronous reads
+byte-identical natively. Lead (merged tree with 64/65): 49/49 natively, in Chrome and in Firefox (release). Note:
+`RenderingDevice::_stall_for_frame()` was restructured, so the next upstream sync conflicts there. Questions
+`async-readback-*`; camera-sim hand-back in `results/66-web-async-texture-readback/for-tasks.md`.
+
+### 4.83 Camera3D monitoring histogram readable from scripts (October 2026) *(work task 62; camera-sim spec)*
+
+`Camera3D.monitoring_histogram_draw` (default true; off = counted for scripts only, no overlay),
+`monitoring_histogram_update_interval` (default 0.0 = every frame), `get_monitoring_histogram(channel)` (256 counts of
+Y', R', G' or B' of the display-encoded image after tonemapping, noise reduction and sharpening, before the monitoring
+overlays; total = render width x height; empty until the first readback, and always in Compatibility) and the signal
+`monitoring_histogram_updated`; RS `camera_set_monitoring_histogram_readback()` and two getters that do not wait for
+the render thread. One histogram buffer and readback per viewport (a second camera no longer overwrites the first).
+The readback runs only once a script reads it or connects the signal (question `histogram-readback-demand`: on
+demand), ignores Visible in Output, and is asynchronous (`buffer_get_data_async`, task 66's staging handling, §3 trap
+102). Worker: R'/G'/B' equal a CPU count of the same frame natively and on the web, Y' within 7 of 230,400 (§3 trap
+103); overlays don't change the counts; drawing off is 0 px against histogram-off; two cameras read their own scenes;
+3.99-4.00 signals/s at 0.25 s; web first frames empty then data, 0 console errors; native frame time within noise;
+WebGPU 0.88-1.01 ms/frame with a readback every frame against 1.12 off. Lead (merged tree with 66; work/62's own
+staging guard dropped): dev_mode editor, web debug and release 0 warnings; the worker's native (3 renderers) and Chrome
+suites reproduce (identical counts; only timing fields and a few overlay-image pixels differ), 0 console errors on the
+web; defaults, a drawn histogram and noise reduction 0 px against the pre-merge editor in all three renderers; task 66's
+tier 49/49 natively and in Chrome. Not done: the inspector by hand. The clean pre-overlay frame is work task 72.
+
+### 4.84 Awaitable texture readback; debug warning on the web's null read (October 2026) *(work task 71; user answers on task 66)*
+
+`var image: Image = await texture.get_image_awaitable()` and `await RenderingServer.texture_2d_get_awaitable(rid)`:
+each returns a `Signal` that fires once with this frame's `Image` (or `null` if the texture is invalid or freed), its
+own per call, so any number can be in flight (a RefCounted with a `completed` signal kept alive only by the read's
+callback, `RenderingServer::create_image_request()`); `get_image_async(callback)` unchanged. Debug web builds print
+one `WARN_PRINT` (console.warn) per texture when a synchronous `get_image()` / `texture_2d_get()` returns `null`
+because the pixels are not back yet, pointing at the async methods (`RendererRD::TextureStorage::texture_2d_get()`,
+compiled only into debug web builds; invalid textures keep their own errors). `webgpu_tests/async_readback/` gained 7
+awaitable checks and counts the warning. Worker: 56/56 natively and in Chrome and Firefox with debug and release
+templates; one warning each for 96x7 and 333x7 in debug, none in release or natively. Lead (merged tree): dev_mode
+editor, web debug and release 0 warnings; 56/56 natively (0 warnings), 56/56 in Chrome and Firefox (release, 0
+warnings), debug exactly the two expected warnings in both browsers. Questions `awaitable-names`,
+`warn-rd-texture-get-data`; camera-sim's `read_back()` becomes one await (results/71-async-readback-followups/for-tasks.md).
+
+### 4.85 The camera frame without the monitoring overlays (October 2026) *(work task 72; user answer `histogram-clean-frame`)*
+
+`Camera3D.monitoring_clean_texture_enabled` (default off, inspector Monitoring group) and `get_monitoring_clean_texture()`
+(a Texture2D, null while off; RS `camera_set_monitoring_clean_texture()`): while on, each frame the camera renders is
+copied before the zebras, false colour, peaking and drawn histogram (and before 2D) into a per-camera internal
+`CameraMonitoringCleanTexture`, read with `get_image_async()` / `get_image_awaitable()`; off frees it. Forward+,
+Mobile, Compatibility (which draws zebras, peaking and false colour too) and WebGPU. +8.3 MB at 1080p while on, 0 off.
+Fixed on the way: the camera-finish scratch textures lacked `CAN_COPY_FROM`. Worker: clean = overlays-off frame (0 px)
+in all renderers and Chrome (debug and release), four overlay setups, NR + sharpening, same-frame enable/read/disable,
+two SubViewports, resize; defaults 0 px. Lead (merged tree with 71): dev_mode editor, web debug and release 0 warnings;
+native and Chrome suites 25/25 pass, 0 console errors; defaults and visible output 0 px against the pre-merge editor
+in all three renderers; `await get_image_awaitable()` on the clean texture returns the 1152x648 image in all three.
+Question `clean-frame-inspector`. camera-sim: Download Image becomes enable / await / disable, `make_clean_view` goes.
+
+### 4.86 A 3D scale change keeps auto exposure, FSR 2 and TAA (October 2026) *(work task 74; dynamic resolution phase 2, user answers Q1 / Q3)*
+
+Every `scaling_3d_scale` change (user Q1), not only dynamic ones: `RenderSceneBuffersRD::configure()` calls
+`RenderBufferCustomDataRD::free_data_for_reconfigure()` instead of `free_data()`, so the Luminance buffer keeps its
+adapted 1x1 value and CameraMetering its auto white balance state; Forward+ keeps the FSR 2 context while the target
+size holds and, when the render size outgrows it, grows it once and copies its history (`FSR2Effect::transfer_history()`,
+which depends on FSR 2's private context layout `ffx_fsr2_private.h`: a missed resource after a vendored update costs a
+one-time reset); TAA's history and previous velocity are carried and resampled bilinearly (user Q3). Volumetric fog
+left as today (Q4); still resetting: SSIL's last-frame buffer (carried since §4.94), FSR 2 on a target size change, MetalFX temporal.
+Worker (HDR float captures, scale 1.0 ↔ 0.6): auto exposure flash +285% → 0.2% natively, +396-418% → ≤ 0.1% in
+Chrome; FSR 2 pulse 0.0080 → 0.0010 down, 0.0079 → 0.0029 up; TAA 0.0044 → 0.0005; no change 12/12 frames identical
+in 10 configs; matrix arms taa, scaling_3d, fsr2, auto_exposure pass `--parity`. Lead (merged tree): dev_mode editor
+and web template_release 0 warnings; the bench reproduces (exposure +284.7% → 0.2%, FSR 2 0.0080 → 0.0010 and
+0.0079 → 0.0029, TAA 0.0039 → 0.0021; Mobile never flashed); no-change runs identical before and after (Forward+ FSR 2,
+Forward+ auto exposure, Mobile). Web readback problems hit while measuring (pending-map errors, 11x-dark float
+readback) are work task 76. Questions `fsr2-context-sizing`, `ssil-scale-change`.
+
+### 4.87 Start screen download line: full opacity, font family and size (October 2026) *(work task 69; user answers on task 61)*
+
+The download line under the Start button is drawn at full opacity, so `preload_text/color` shows exactly as picked;
+its default is `#c4c4c4`, what `#e0e0e0` at 85% gave over the default boot splash (`#242424`), and the shadow's alpha
+0.6 → 0.51 (the old opacity faded it too). The shells keep `opacity: 0.999` only to keep Chrome's grayscale text
+antialiasing (fully opaque text gets colour fringes of up to 75 levels; `will-change` moved the text). New
+`preload_text/font_family` (the shells' Noto Sans list) and `font_size` (CSS px, default 14.4 = the old 0.9rem), shown
+while `preload_progress` is on, in `GODOT_CONFIG.startButton.preloadText`, both default shells, `config.js` and the
+class docs. The default line is not pixel-identical to the old one: up to 5 levels on 200-600 glyph-edge pixels in
+Chrome, 2 in Firefox (antialiasing depends on the text colour; question `preload-text-near-identical`). Worker: 22/22
+runs (11 scenarios, Chrome and Firefox); chosen colors appear exactly; DejaVu Serif 32 px applies in both shells and an
+iframe. Lead (merged tree with 76): dev_mode editor, web debug and release 0 warnings; default, old-colour and styled
+start screens pass in Chrome and Firefox. Questions `preload-text-*`.
+
+### 4.88 WebGPU async readback under load (October 2026) *(work task 76; found by task 74)*
+
+Both bugs task 74 hit had one cause (§3 trap 104): WebGPU's 16 MB staging cap also applied to downloads, so a
+1920x1080 RGBA16F read (73 blocks of 256 KB against a 64-block ring) made `texture_get_data_async()` /
+`buffer_get_data_async()` flush and stall mid-request, losing the regions copied before the flush (the 11x-dark float
+readback) and leaving mapping blocks in the ring (the "used in submit while pending map" errors, then a failed map and
+a stopped main loop). Task 62's dropped guard (§4.83) would not have fixed it. Fix (`servers/rendering/rendering_device.*`):
+an async download never flushes for room (`_download_staging_overflow_block()` takes a block past the limit), the
+download ring keeps the project's `max_size_mb` (128 MB; the driver cap applies to uploads only; 600 per-frame reads
+17.8 s → 4.6 s in Chrome), and a guard on the `STALL_PREVIOUS` path. `webgpu_tests/async_readback/` gained four `load_*`
+checks (600 frames of 1080p HDR reads, bursts of 4, luminance against native 0.27155, a float probe above 1) and fails
+on WebGPU validation messages. Worker: 60/60 natively and in Chrome and Firefox with both templates, 0 validation
+messages, web luminance 0.271551. Lead (merged tree with 69): 60/60 natively, in Chrome and Firefox, debug and release,
+0 validation messages. Question `web-download-staging-cap` (keep 128 MB).
+
+### 4.89 GPU time on WebGPU (October 2026) *(work task 73; dynamic resolution phase 1)*
+
+`drivers/webgpu/` only (plus a web note in `RenderingServer.xml`): a timestamp is the end-of-pass write of an empty
+compute pass's `timestampWrites`, replacing the Chrome-only `writeTimestamp()`; its beginning-of-pass write goes to one
+spare query (emdawnwebgpu passes an "unset" index as 4294967295, a validation error). Each frame slot reads back
+through a ring of 4 buffers; a buffer whose read is pending is never touched, and a full ring drops that frame's
+timestamps rather than waiting, so results are a few frames old; results are returned only when their count matches the
+frame's (else zeros). `engine.js` already requested `timestamp-query`. `viewport_get_measured_render_time_gpu()` and
+`--gpu-profile` / the Visual Profiler's GPU times now work on the web; without `timestamp-query`, 0 and no errors.
+Worker (release template, task 68's bench, scales 1.0-0.5): Chrome -1.2% to +0.1% against a page timestamp hook,
+Firefox -0.8% to -2.4%; frame time with measurement on = off. Lead (merged tree): Chrome 0.985-1.009 and Firefox
+0.970-1.000 of the hook at every scale, 0 errors; withheld `timestamp-query` reads 0.00 with 0 errors in both. Risks:
+two measured viewports swapping draw order with the same count could pair names with the previous layout's values for
+a few frames; how often a full ring drops a frame was not measured.
+
+### 4.90 Physical DOF: 6% default, legacy gather option (October 2026) *(work task 70; user answers on task 63)*
+
+`rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size` defaults to 6% (was 3%; only cameras with
+`dof_physical_blur_size` use it). New `CameraAttributesPhysical.dof_legacy_gather` (default off, shown only with
+`dof_physical_blur_size`; RS `camera_attributes_set_dof_legacy_gather`): the lens-sized blur drawn through upstream's
+gather (fixed 32 px reach, the diluted Box/Hexagon of §3 trap 97), for projects tuned through it; documented as not
+physically correct. No shader, binding or push-constant change. WebGPU 1440p, upstream / 3% / 6%: Hexagon Low 0.54 /
+0.35 / 0.42 ms, Hexagon High 1.42 / 1.50 / 1.54, **Circle Medium 3.97 / 7.83 / 34.74 ms** (cost grows with the square
+of the reach; the docs say so; task 63's missing Circle number was `gpu_time.mjs`'s 60 s round timing out, not a hang).
+At 6% Box/Hexagon spread their samples twice as far, so Very Low draws a blur under ~1% of the image height almost
+sharp (documented). Worker: opt-in off 14/14 native and 4/4 web 0 px; a 200 mm f/2.8 1440p case (model 80.4 px) reads
+79.5 / 80.0 px at 6% (42.8 at 3%); legacy = the pre-change upstream path at the same size, 20/20 native and 4/4 web.
+Lead (merged tree with 73): dev_mode editor and web template_release 0 warnings; opt-in off 14/14 identical against the
+pre-merge editor (Forward+, Mobile); legacy gather identical to the upstream path in all 20 cases (Hexagon at every
+quality, Box, Circle, near field, 1440p, a 200 mm lens). Questions `dof-circle-6pct`, `dof-very-low-6pct`. The wiki's
+"currently 3%" needs updating.
+
+### 4.91 Dynamic 3D resolution (October 2026) *(work task 75; dynamic resolution phases 3-4; design §4.68's task 68)*
+
+The controller in `RendererViewport`, off by default, on the `Viewport` / `RenderingServer` API with a signal and the
+`rendering/scaling_3d/dynamic*` project settings (root viewport only, never in the editor; a SubViewport sets its own).
+With GPU time (native timestamps, task 73's on the web): the `a + b·scale²` cost model with the fixed part estimated,
+a 0.80-0.95 hysteresis band, and `CPU_LIMITED` instead of lowering the scale when the GPU has room. Without it: frame
+time, verified steps down, failed step-ups remembered with growing back-off (10, 20, 40 ... 120 s), the submit-to-done
+queue depth on WebGPU skipping the CPU-bound probe when clear (user Q6), one viewport at a time, largest first (Q5).
+Target in fps (Q7), max scale above 1.0 allowed (Q8), the opt-in `scaling_3d_dynamic_remember` keyed by renderer + GPU
++ viewport path in `user://` (Q9), FSR 2's context created at the dynamic max, FSR 1 on WebGPU warns and uses Bilinear
+(Q2); fixed 0.05 steps. Worker: GPU-bound scene 0 changes/min settled natively, in Chrome and in Firefox, back to 1.0
+within 1.5-1.6 s of a load drop; CPU-bound stays at 1.0 `CPU_LIMITED`; camera-sim (controller on its SubViewport) now
+~6 ms frames, `STABLE` at 1.0; the fallback with `timestamp-query` withheld 0 changes/min settled (Firefox settles at
+0.65 vs 0.80 because of vsync quantization, documented); off bit-identical 9/9 and perf_guard 4/4; no FSR 2 pulse
+around a controller change; remember round-trips natively and across a web reload. Lead (merged tree): dev_mode editor
+and web template_release 0 warnings; off identical to the pre-merge editor 9/9; CPU-bound natively `CPU_LIMITED`, 0
+changes; on the web, Chrome settled at 0.80 within 4.6 s and returned to 1.0 within 1.4 s of the load drop, Firefox
+settled at 0.80 after early adjusting (to 9.8 s) and returned to 1.0, 0 changes/min while settled in both, Chrome
+CPU-bound `CPU_LIMITED` with 0 changes. Under Xvfb the GPU-bound case held the minimum scale (§3 trap 106). Questions
+`dynres-remember-key`, `dynres-step-size`, `dynres-fallback-backoff`; camera-sim adoption note in
+`results/75-dynamic-resolution-controller/for-tasks.md`.
+
+### 4.92 RenderingDevice synchronous readback warning on the web (October 2026) *(work task 77; user answer `warn-rd-texture-get-data`)*
+
+Debug web builds print one `WARN_PRINT` (console.warn) per texture or buffer when a script's synchronous
+`RenderingDevice.texture_get_data()` returns an empty array or `buffer_get_data()` returns zeros because the web's
+asynchronous readback has not arrived yet, pointing at `texture_get_data_async()` / `buffer_get_data_async()` /
+`get_image_awaitable()`. Only the script bindings warn (`_texture_get_data_bind()` / `_buffer_get_data_bind()`, which
+read an optional `r_not_ready` out-parameter of the C++ methods), so engine reads such as `texture_2d_get()` (task 71's
+own warning, §4.84) never double up; invalid resources keep their own errors; release and native only forward.
+`webgpu_tests/async_readback/` gained 8 checks (sync RD reads return the data natively) and counts the four expected
+warnings. Merged `896940581f`; lead on the merged tree: editor (dev_mode), web template_debug and template_release 0
+warnings; 68/68 natively and in Chrome and Firefox with debug and release templates; debug exactly the four warnings
+(41x5, 17x3, 100 B, 52 B), release and native none. Question `web-buffer-get-data-empty` (keep zeros or return empty)
+on the board; §3 trap 107.
+
+### 4.93 Physical DOF: Circle reach 3% (October 2026) *(work task 79; user answer `dof-circle-6pct`)*
+
+With `CameraAttributesPhysical.dof_physical_blur_size`, the Circle shape and custom apertures (`aperture_enabled`,
+drawn by the circular gather) reach at most **3%** of the image height, while Box and Hexagon keep
+`depth_of_field_physical_max_blur_size` (6% default, §4.90). A **fixed cap**, `min(setting, 3%)`, not half the setting:
+the circle's cost is the square of its absolute reach, so a fixed cap pins it whatever the setting, while half the
+setting would grow it again whenever a project raises the setting for Box/Hexagon; a setting under 3% still lowers it.
+`BokehDOF::_physical_circle_reach()` (`PHYSICAL_CIRCLE_MAX_BLUR_PERCENT`), applied in the compute (Forward+) and raster
+(Mobile) paths after the shape is resolved; `dof_legacy_gather` keeps its fixed 32 px. No shader, binding or
+push-constant change. WebGPU 1440p (worker, `gpu_time.mjs`): Circle Medium 34.74 → 7.85 ms, custom aperture 8.38 ms.
+Merged `eecd0e08e8`; lead on the merged tree against the pre-merge editor: editor (dev_mode) and web template_release
+0 warnings; 200 mm f/2.8 at 1440p, Circle Medium radius 79.53 → **42.76** px (Forward+) and 79.99 → 43.06 (Mobile),
+equal to the pre-merge editor at maxblur 3; custom 6-blade aperture 72.32 → 42.76; Box, Hexagon Very Low/Medium,
+Circle at maxblur 2 and 3, legacy Circle and Hexagon unchanged (maxdiff 0, both renderers); defaults and opt-in off
+14/14 maxdiff 0. Wiki Camera Bokeh and Glare updated. §3 trap 108.
+
+### 4.94 A 3D scale change keeps SSIL's and SSR's last frame (October 2026) *(work task 78; user answer `ssil-scale-change`)*
+
+`RenderSceneBuffersRD::configure()` also carries `rb_sslf/last_frame` (the previous frame's color that SSIL and SSR
+sample, with SSIL's 6 mips), and `SSEffects::allocate_last_frame_buffer()` resamples it bilinearly into the new size
+(`copy_to_fb_rect()`, as TAA's history in §4.86) and rebuilds the mip chain, instead of clearing it to black. The
+texture gets `COLOR_ATTACHMENT` only when it is resampled, so a viewport that never reconfigures is unchanged; a carried
+frame that SSIL/SSR no longer want is freed on the next frame (`free_carried_textures(RB_SCOPE_SSLF)`). SSR alone
+benefits too (same buffer). `_carry_texture()` names it by string (`"rb_sslf"` / `"last_frame"`): renaming
+`RB_SCOPE_SSLF` / `RB_LAST_FRAME` must update it, or the one-frame reset silently returns. Merged `d10c65a1a3`; lead on
+the merged tree against the pre-merge editor (task 74's bench, HDR float, Xvfb, `--fixed-fps 60`): with SSIL the change
+frame's difference drops 0.00389 → 0.00372, exactly the bare resolution change (SSIL and SSR off: 0.00372), and the
+next frame's 0.00038 is gone (both directions); SSIL + SSR 0.00400/0.00055 → 0.00372/0; SSR alone 0.00380/0.00018 →
+0.00372/0; TAA and FSR 2 within their noise. No-change renders identical, 7 configs 12/12 frames, and the new build
+twice; matrix `--parity` `ssil` (delta 1.744, native 0.005) and `scaling_3d` (1.388, 0.002) PASS. Editor (dev_mode),
+web template_debug and template_release 0 warnings.
+
+### 4.95 Dynamic resolution: remember per window mode, the step exposed (October 2026) *(work task 80; user answers `dynres-remember-key`, `dynres-step-size`, `dynres-remember-subviewport-mode`)*
+
+`scaling_3d_dynamic_remember` keys `user://scaling_3d_dynamic.cfg` by `<viewport path>@<window mode>` within the
+renderer + GPU section: windowed (also maximized), fullscreen, exclusive fullscreen, taken from the window on the
+display that shows the viewport (a SubViewport in an embedded Window uses the real window: user answer, the default).
+A task 75 key without the mode seeds the first mode that loads, once, and is rewritten; a mode change while running
+loads that mode's scale (the mode is asked of the display server only when the window's size changed, or every 30
+polls). The step is exposed as `Viewport.scaling_3d_dynamic_step`, `RenderingServer.viewport_set_scaling_3d_dynamic_step`
+and `rendering/scaling_3d/dynamic_step` (default 0.05, 0.01-0.25), used by both the GPU-time and frame-time paths.
+Merged `595ce19103`; lead on the merged tree: editor (dev_mode), web template_debug and template_release 0 warnings;
+off identical to the pre-merge editor 9/9; steps 0.05 / 0.10 / 0.25 climb in exactly those increments (Xvfb); Chrome
+defaults as task 75 (0.80 at 4.4 s, 0 changes/min while settled, back to 1.0 within 1.4 s of the load drop; CPU-bound
+`CPU_LIMITED` 94%, 0 changes), back to 1.0 in 4 / 2 / 1 changes at steps 0.05 / 0.10 / 0.20; remember across four
+loads in one profile: windowed 0.70 and fullscreen 0.60 saved and restored separately, the fullscreen scale picked up
+when the canvas went fullscreen, 0 console errors. Not run: Firefox, `timestamp-query` withheld, the real-display
+native remember runs (the worker ran them: windowed 0.70 / fullscreen 0.60, a switch loads 0.60, an old `/root=0.65`
+moved to windowed only). §3 trap 109.
+
+### 4.96 Web: a first synchronous buffer_get_data() returns an empty array, not zeros (October 2026) *(work task 81; user answer `web-buffer-get-data-empty`)*
+
+`RenderingDevice::buffer_get_data()` on the web returns an empty array (and sets `r_not_ready`) while WebGPU's
+asynchronous map is pending, like `texture_get_data()`, instead of falling through to the generic staging copy, which
+stalled every frame in flight (`_flush_and_stall_for_all_frames()`) and then mapped a buffer that cannot be mapped
+synchronously, returning zeros. Native keeps the staging path untouched (`#else`); task 77's debug warning now says
+"an empty array". Every engine caller was audited (table in `results/81-web-buffer-get-data-empty/SUMMARY.md`):
+`MeshStorage::mesh_get_surface()` is all-or-nothing (any array not ready → all empty; its vertex-padding trim no longer
+resizes an empty array to -4); `mesh_surface_get_arrays()` returns an empty array quietly on the web with a debug
+`WARN_PRINT_ONCE`; the soft body handler starts from zeros of the right size (an empty buffer would have been written
+out of bounds); the three MultiMesh readbacks (AABB rebuild, make-local cache, `multimesh_get_buffer`) check the size
+(two were out-of-bounds reads); `particles_get_current_aabb()` returns an empty AABB quietly. Scripts on the web now
+get empty (was zeros) on a first `surface_get_arrays()` of an ArrayMesh/ImmediateMesh, `MultiMesh.buffer` and
+`capture_aabb()`. Merged `0a4cb88acd`; lead on the merged tree: editor (dev_mode), web template_debug and
+template_release 0 warnings; `async_readback` 74/74 natively and in Chrome and Firefox with debug and release
+templates; debug exactly 2 get_image + 4 RD + 1 mesh-arrays warnings, release and native none. Not covered by a test
+on the web: the soft body and MultiMesh guards (read by the worker). Found on the way: §2.55 (MultiMesh per-instance
+edit after `multimesh_set_buffer()` loses the other instances on the web, pre-existing). §3 trap 110.
 
 ## 5. References — retired docs
 

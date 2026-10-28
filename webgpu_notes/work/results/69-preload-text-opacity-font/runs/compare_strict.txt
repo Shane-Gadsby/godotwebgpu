@@ -1,0 +1,33 @@
+FAIL chrome base vs default hold: texts 'Downloading 0%' / 'Downloading 0%', 552 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base vs default half: texts 'Downloading 49%' / 'Downloading 49%', 604 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base vs default go: texts 'Ready' / 'Ready', 202 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base vs nokey hold: texts 'Downloading 0%' / 'Downloading 0%', 552 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base vs nokey half: texts 'Downloading 49%' / 'Downloading 49%', 604 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base vs nokey go: texts 'Ready' / 'Ready', 202 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base_nosize vs default_nosize hold: texts 'Downloading...' / 'Downloading...', 459 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base_nosize vs default_nosize half: texts 'Downloading...' / 'Downloading...', 459 pixels differ (max 5 levels), max chroma 0
+FAIL chrome base_nosize vs default_nosize go: texts 'Ready' / 'Ready', 202 pixels differ (max 5 levels), max chroma 0
+FAIL chrome wg_base vs wg_default hold: texts 'Downloading 0%' / 'Downloading 0%', 552 pixels differ (max 5 levels), max chroma 0
+FAIL chrome wg_base vs wg_default half: texts 'Downloading 49%' / 'Downloading 49%', 604 pixels differ (max 5 levels), max chroma 0
+FAIL chrome wg_base vs wg_default go: texts 'Ready' / 'Ready', 202 pixels differ (max 5 levels), max chroma 0
+PASS chrome exact_e0: 30 pixels exactly (224, 224, 224), 0 brighter than it
+PASS chrome styled: 386 pixels exactly (255, 128, 0), 0 brighter than it
+PASS chrome default: 30 pixels exactly (196, 196, 196), 0 brighter than it
+chrome: layout of every direct run checked against its shell's default run
+FAIL firefox base vs default hold: texts 'Downloading 0%' / 'Downloading 0%', 917 pixels differ (max 2 levels), max chroma 0
+FAIL firefox base vs default half: texts 'Downloading 49%' / 'Downloading 49%', 927 pixels differ (max 1 levels), max chroma 0
+FAIL firefox base vs default go: texts 'Ready' / 'Ready', 335 pixels differ (max 1 levels), max chroma 0
+FAIL firefox base vs nokey hold: texts 'Downloading 0%' / 'Downloading 0%', 917 pixels differ (max 2 levels), max chroma 0
+FAIL firefox base vs nokey half: texts 'Downloading 49%' / 'Downloading 49%', 927 pixels differ (max 1 levels), max chroma 0
+FAIL firefox base vs nokey go: texts 'Ready' / 'Ready', 335 pixels differ (max 1 levels), max chroma 0
+FAIL firefox base_nosize vs default_nosize hold: texts 'Downloading...' / 'Downloading...', 770 pixels differ (max 2 levels), max chroma 0
+FAIL firefox base_nosize vs default_nosize half: texts 'Downloading...' / 'Downloading...', 770 pixels differ (max 2 levels), max chroma 0
+FAIL firefox base_nosize vs default_nosize go: texts 'Ready' / 'Ready', 335 pixels differ (max 1 levels), max chroma 0
+FAIL firefox wg_base vs wg_default hold: texts 'Downloading 0%' / 'Downloading 0%', 917 pixels differ (max 2 levels), max chroma 0
+FAIL firefox wg_base vs wg_default half: texts 'Downloading 49%' / 'Downloading 49%', 927 pixels differ (max 1 levels), max chroma 0
+FAIL firefox wg_base vs wg_default go: texts 'Ready' / 'Ready', 335 pixels differ (max 1 levels), max chroma 0
+PASS firefox exact_e0: 17 pixels exactly (224, 224, 224), 0 brighter than it
+PASS firefox styled: 376 pixels exactly (255, 128, 0), 0 brighter than it
+PASS firefox default: 17 pixels exactly (196, 196, 196), 0 brighter than it
+firefox: layout of every direct run checked against its shell's default run
+COMPARE FAIL (24)

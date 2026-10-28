@@ -68,8 +68,46 @@ private:
 
 		float blur_size_near;
 		float blur_size_far;
-		uint32_t pad[2];
+
+		// The aperture's shape, cat's eye and tilt-shift (bokeh_dof_inc.glsl reads them; half floats are packed in
+		// pairs, low half first).
+		uint32_t shape_flags; // Bits 0-7: blade count (0 = circular); BOKEH_SHAPE_* above them.
+		uint32_t blade_shape; // Blade curvature, rotation (radians).
+		uint32_t cats_eye; // Barrel offset per frame unit, barrel radius (both in aperture radii).
+		uint32_t frame_half_extent; // Frame half extents in frame units.
+		uint32_t squeeze_focal_length; // Anamorphic squeeze, focal length (meters).
+		uint32_t view_ray_scale; // View ray x / -z, y / -z per NDC unit.
+		uint32_t view_ray_offset; // ...and at NDC 0 (an off-center projection).
+		float tilt_normal_x; // The plane of focus's normal in view space; z is positive.
+		float tilt_normal_y;
+		uint32_t longitudinal_ca; // Red and blue blur offset, scale (half floats).
 	};
+	static_assert(sizeof(BokehPushConstant) == 128, "The bokeh push constant must stay within Vulkan's guaranteed 128 bytes.");
+
+	enum BokehShapeFlags : uint32_t {
+		BOKEH_SHAPE_CUSTOM = 1 << 8,
+		BOKEH_SHAPE_CATS_EYE = 1 << 9,
+		BOKEH_SHAPE_TILT = 1 << 10,
+		BOKEH_LONGITUDINAL_CA = 1 << 11,
+		BOKEH_PHYSICAL_SIZE = 1 << 12, // CameraAttributesPhysical.dof_physical_blur_size (bokeh_physical_size_resolve()).
+	};
+
+	// The Circle shape's and custom apertures' physical-DOF reach, in percent of the image height (user, 2026-10-29).
+	static constexpr float PHYSICAL_CIRCLE_MAX_BLUR_PERCENT = 3.0f;
+
+	// Sets the longitudinal chromatic aberration's flag and red/blue blur offsets from the camera attributes.
+	void _setup_longitudinal_ca(RID p_camera_attributes);
+	// CameraAttributesPhysical.dof_physical_blur_size: the lens's blur radius in pixels of p_size, and how far the gather
+	// reaches. Leaves both alone when the camera does not size its blur physically. Returns whether the box and hexagon
+	// gathers are sized to the blur (BOKEH_PHYSICAL_SIZE): false without the thin-lens size or with dof_legacy_gather.
+	static bool _physical_blur_size(RID p_camera_attributes, const Size2i &p_size, float &r_blur_size, float &r_reach);
+	// The circular gather's reach for a camera that sizes its blur physically: _physical_blur_size()'s reach, capped at
+	// PHYSICAL_CIRCLE_MAX_BLUR_PERCENT of p_size's height (the circle's cost grows with the square of its reach).
+	static float _physical_circle_reach(const Size2i &p_size, float p_reach);
+
+	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom
+	// shape, which only the circular gather can draw.
+	bool _setup_bokeh_shape(RID p_camera_attributes, const Size2i &p_size, const Projection &p_projection, bool p_orthogonal);
 
 	enum BokehMode {
 		BOKEH_GEN_BLUR_SIZE,
@@ -124,8 +162,8 @@ public:
 	BokehDOF(bool p_prefer_raster_effects);
 	~BokehDOF();
 
-	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth = false);
-	void bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal);
+	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth = false);
+	void bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection);
 };
 
 } // namespace RendererRD

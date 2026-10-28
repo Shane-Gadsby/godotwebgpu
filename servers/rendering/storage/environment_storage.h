@@ -30,11 +30,26 @@
 
 #pragma once
 
+#include "core/math/projection.h"
+#include "core/math/transform_3d.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
+#include "servers/rendering/storage/camera_attributes_storage.h"
+#include "servers/rendering/storage/color_grading.h"
 
 class RendererEnvironmentStorage {
 public:
+	// Screen-space light shafts (Environment.light_shafts_*): what the renderers need of them, with the sample count
+	// already resolved from the project's quality. See environment_storage.cpp for the model.
+	struct LightShafts {
+		bool enabled = false;
+		float intensity = 1.0;
+		float threshold = 1.0; // Scene-linear luminance a sky pixel must exceed to scatter, as glow's HDR threshold.
+		float decay = 2.0; // Extinction per frame height along the shaft: weight exp(-decay * distance).
+		Color tint = Color(1, 1, 1);
+		uint32_t sample_count = 32;
+	};
+
 	union TonemapParameters {
 		// Shader vec4:
 		float tonemapper_params[4];
@@ -58,8 +73,27 @@ public:
 		};
 	};
 
+	/* Custom tonemap */
+
+	// The EnvironmentEffects uniform buffer (environment_effects_inc.glsl): Environment parameters the tonemap pass reads
+	// that do not fit its push constant. std140, 256 bytes; each group of parameters owns a header word, whose bits say
+	// which of its features run, and a region. The renderers bind an all-zero buffer when nothing in it is used.
+	// - header[0], tonemap_custom[3]: the Custom tonemapper's curve (ENVIRONMENT_EFFECTS_TONEMAP_*).
+	// - header[1..3], reserved[12]: free, for later Environment post parameters (an HDR grading mode, for example).
+	enum {
+		ENVIRONMENT_EFFECTS_TONEMAP_CUSTOM = 1 << 0,
+	};
+	struct EnvironmentEffectsUBO {
+		uint32_t header[4] = {};
+		float tonemap_custom[3][4] = {};
+		float reserved[12][4] = {};
+	};
+	static_assert(sizeof(EnvironmentEffectsUBO) == 256, "EnvironmentEffectsUBO must match environment_effects_inc.glsl.");
+
 private:
 	static RendererEnvironmentStorage *singleton;
+
+	uint32_t light_shafts_sample_count = 32; // From ProjectSettings rendering/environment/light_shafts/quality.
 
 	// Environment
 	struct Environment {
@@ -88,6 +122,12 @@ private:
 		float white = 1.0;
 		float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast
 		float max_value = 1.0;
+		// Custom tonemapper: Unreal Engine's Film tonemapper parameters, at its defaults (see environment_storage.cpp).
+		float tonemap_custom_slope = 0.88;
+		float tonemap_custom_toe = 0.55;
+		float tonemap_custom_shoulder = 0.26;
+		float tonemap_custom_black_clip = 0.0;
+		float tonemap_custom_white_clip = 0.04;
 
 		// Fog
 		bool fog_enabled = false;
@@ -135,6 +175,12 @@ private:
 		float glow_map_strength = 0.0f; // 1.0f in GLES3 ??
 		RID glow_map;
 
+		// Glare (lens flare, veiling glare, diffusion filter): applied by the tonemap pass from the glare chain.
+		CameraGlareEnvironment glare;
+
+		// Light shafts (sample_count is the storage's, from the project quality).
+		LightShafts light_shafts;
+
 		// SSR
 		bool ssr_enabled = false;
 		int ssr_max_steps = 64;
@@ -160,6 +206,10 @@ private:
 		float ssil_sharpness = 0.98;
 		float ssil_normal_rejection = 1.0;
 
+		// Micro shadows (scene shaders' directional light term).
+		bool micro_shadows_enabled = false;
+		float micro_shadows_opacity = 1.0;
+
 		// SDFGI
 		bool sdfgi_enabled = false;
 		int sdfgi_cascades = 4;
@@ -179,6 +229,11 @@ private:
 		float adjustments_saturation = 1.0f;
 		bool use_1d_color_correction = false;
 		RID color_correction;
+
+		/* Color grading */
+		RendererColorGrading::Params color_grading;
+		// Bumped by every color grading setter, so a renderer rebakes its LUT only when something changed.
+		uint64_t color_grading_version = 1;
 	};
 
 	mutable RID_Owner<Environment, true> environment_owner;
@@ -233,6 +288,24 @@ public:
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 
+	/* Custom tonemap */
+
+	// The curve's constants, as the shaders' tonemap_custom_curve() reads them (tonemap_custom_inc.glsl).
+	struct TonemapCustomCurve {
+		float params[3][4] = {};
+		float white = 1.0; // The scene value the curve shows as white (for glow's Screen blend).
+	};
+	static TonemapCustomCurve tonemap_custom_compute_curve(float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip);
+	void environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip);
+	float environment_get_tonemap_custom_slope(RID p_env) const;
+	float environment_get_tonemap_custom_toe(RID p_env) const;
+	float environment_get_tonemap_custom_shoulder(RID p_env) const;
+	float environment_get_tonemap_custom_black_clip(RID p_env) const;
+	float environment_get_tonemap_custom_white_clip(RID p_env) const;
+	// Fills the EnvironmentEffects uniform buffer for this environment; false when nothing in it is used, so that the
+	// renderer can bind its all-zero buffer instead.
+	bool environment_fill_effects_buffer(RID p_env, EnvironmentEffectsUBO &r_ubo) const;
+
 	// Fog
 	void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode);
 	bool environment_get_fog_enabled(RID p_env) const;
@@ -283,6 +356,26 @@ public:
 	float environment_get_glow_map_strength(RID p_env) const;
 	RID environment_get_glow_map(RID p_env) const;
 
+	// Glare
+	void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration);
+	void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength);
+	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
+	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
+
+	// Light shafts
+	void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint);
+	void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality);
+	LightShafts environment_get_light_shafts(RID p_env) const;
+
+	// Where the sun is on screen for one view, as the shaders' sun parameter (xy: the sun in uv, z = 1; or, for an
+	// orthogonal camera, z = 0 and xy the direction toward it in frame-height units; w: the aspect), and how much of
+	// the shafts to show. p_sun_direction points from the scene toward the sun. p_flip_y: uv y runs down the image.
+	struct LightShaftsSun {
+		float position[4] = {};
+		float fade = 0.0; // 0 behind the camera, falling to 0 as the sun leaves the frame.
+	};
+	static LightShaftsSun light_shafts_compute_sun(const Vector3 &p_sun_direction, const Transform3D &p_camera_transform, const Projection &p_projection, bool p_orthogonal, float p_aspect, bool p_flip_y = true);
+
 	// SSR
 	void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance);
 	bool environment_get_ssr_enabled(RID p_env) const;
@@ -311,6 +404,11 @@ public:
 	float environment_get_ssil_sharpness(RID p_env) const;
 	float environment_get_ssil_normal_rejection(RID p_env) const;
 
+	// Micro shadows
+	void environment_set_micro_shadows(RID p_env, bool p_enable, float p_opacity);
+	bool environment_get_micro_shadows_enabled(RID p_env) const;
+	float environment_get_micro_shadows_opacity(RID p_env) const;
+
 	// SDFGI
 	void environment_set_sdfgi(RID p_env, bool p_enable, int p_cascades, float p_min_cell_size, RSE::EnvironmentSDFGIYScale p_y_scale, bool p_use_occlusion, float p_bounce_feedback, bool p_read_sky, float p_energy, float p_normal_bias, float p_probe_bias);
 	bool environment_get_sdfgi_enabled(RID p_env) const;
@@ -332,4 +430,15 @@ public:
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
+
+	/* Color grading */
+	void environment_set_color_grading(RID p_env, bool p_enable, const Color &p_color_filter, float p_hue_shift, float p_vibrance, const Color &p_lift, const Color &p_gamma, const Color &p_gain);
+	void environment_set_color_grading_shadows_midtones_highlights(RID p_env, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights, float p_shadows_start, float p_shadows_end, float p_highlights_start, float p_highlights_end);
+	void environment_set_color_grading_channel_mixer(RID p_env, const Vector3 &p_red, const Vector3 &p_green, const Vector3 &p_blue);
+	void environment_set_color_grading_split_toning(RID p_env, const Color &p_shadows, const Color &p_highlights, float p_balance);
+	void environment_set_color_grading_curves(RID p_env, const Vector<float> &p_master, const Vector<float> &p_red, const Vector<float> &p_green, const Vector<float> &p_blue, const Vector<float> &p_hue_vs_hue, const Vector<float> &p_hue_vs_sat, const Vector<float> &p_sat_vs_sat, const Vector<float> &p_lum_vs_sat);
+	bool environment_get_color_grading_enabled(RID p_env) const;
+	uint64_t environment_get_color_grading_version(RID p_env) const;
+	// The grading LUT (RendererColorGrading::bake()); a renderer calls it only when the version changed.
+	Vector<uint8_t> environment_bake_color_grading(RID p_env) const;
 };

@@ -92,27 +92,37 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
 - `build`: any SCons run (editor or web template) in any worktree. One at a time: each saturates all 24 cores, and
   `-j24` twice over runs both slower than one after the other. `tint_convert_cli`'s `build.sh` (~30 s) needs no lease.
   Still obey CLAUDE.md inside a tree: never start SCons while another runs in the same tree (`pgrep -ax scons`).
-- **Memory: the machine is shared with the user's Oblivion co-op work** (the game, ~9 GB, and a Ghidra bridge capped at
-  14 GB run while we build; an OOM can take the user's IDE down with it). Every SCons run goes in a capped scope with
-  fewer jobs: `systemd-run --user --scope -p MemoryMax=14G -p MemorySwapMax=0 scons ... -j12`. Check `free -g` first: with
-  less than 18 GB available, wait and say so in your report instead of building.
 
 ## Rules
 
 - **Verification is the bottleneck, and merging is not progress** (co-op lesson 1). A task is `integrated` only after
   the lead ran its verification on the merged tree. The merge rate is capped by the verification rate.
 - **Smoke after every merge, not per batch**: `webgpu_notes/work/smoke.sh` on the merged tree before the next merge.
+- **Never use `git stash`** (2026-10-29): the stash is one ref shared by every worktree of the repo, so two workers'
+  `stash` / `stash pop` swap each other's changes (workers 79 and 80 did). Commit work in progress on your own branch
+  instead (`git commit -m WIP`, squash or amend later).
+- **Compile a release template too** (lead, after every merge batch; workers, before `ready-for-integration`): the dev
+  editor and `template_debug` both define `DEBUG_ENABLED`, so code that only compiles with it passes every check here and
+  breaks the user's `template_release` build (§3 trap 95). `scons platform=web target=template_release dlink_enabled=no
+  webgpu=yes opengl3=no threads=no gdscript_braces=yes module_raycast_enabled=yes` is enough.
 - **Run `webgpu_notes/work/smoke.sh <scratch_dir>` before you set `ready-for-integration`** and paste its last lines into
-  SUMMARY.md. It builds `tint_convert_cli` with both backends from your tree, converts every engine variant
-  `wgsl_precompile.py` builds with both, compares their bindings and override ids, and compiles every result in Chrome.
+  SUMMARY.md. It forwards to `webgpu_tests/converter_smoke/run.sh`: builds `wgsl_convert_cli` from your tree, converts
+  every engine variant `wgsl_precompile.py` builds, compares bindings, override ids and the driver's text-scan facts with
+  the stored references, and compiles every result in Chrome.
   If it fails, the task is not ready. A known failure you cannot fix is listed in SUMMARY.md, never silently.
 - **Tools that report success without checking are the worst defect class** (co-op lesson 6): a text edit asserts its
   match count, a wait that times out fails, a skip is reported as a skip, never counted as a pass.
 - **Parity is judged against native Vulkan, not against Tint's WGSL.** Tint is the reference for interface
   compatibility only (bindings, override ids); where Tint and Vulkan disagree, Vulkan wins (CLAUDE.md "Parity, not just
   it changed"; TASKS.md §3 trap 28).
-- **Software adapters run Forward Mobile** (CLAUDE.md): any rendering check runs headed, system Chrome, real GPU, with
-  the flags in `webgpu_tests/scene_smoketest/run_scenes.mjs`'s `launchChrome`.
+- **Browser launches (user, 2026-10-28: a worker's flagless runs caused WebGPU failures). Every launch, every script,
+  no exceptions:** Chrome = `{ executablePath: '/usr/bin/google-chrome-stable', headless: false, args:
+  ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'], ignoreDefaultArgs:
+  ['--enable-unsafe-swiftshader'] }` (never bundled Chromium, headless, `--use-angle=vulkan`, `--use-vulkan=native` or
+  `--no-sandbox`); Firefox = `{ headless: false, firefoxUserPrefs: FIREFOX_WEBGPU_PREFS }` from
+  `webgpu_tests/scene_smoketest/firefox_prefs.mjs`. Assert the adapter at the start of each run (Chrome: nvidia/lovelace,
+  not fallback, `maxSampledTexturesPerShaderStage` 48; Firefox: `requestAdapter()` non-null) and fail otherwise. Never set
+  `CI` for real-GPU runs (`run_forward_plus.mjs` goes headless with it). Software adapters run Forward Mobile (CLAUDE.md).
 - **Worker retirement at 350k tokens**: a worker whose context reaches 350k finishes the task in hand (SUMMARY,
   `ready-for-integration`, commit) and stops. The lead never resumes a worker past 350k; follow-ups go to a fresh worker,
   which catches up from `results/`.

@@ -1,0 +1,273 @@
+diff --git a/platform/web/godot_js.h b/platform/web/godot_js.h
+index b23e957af0..303125f6a3 100644
+--- a/platform/web/godot_js.h
++++ b/platform/web/godot_js.h
+@@ -61,6 +61,9 @@ extern int godot_js_os_has_feature(const char *p_ftr);
+ // real progress through the startup rather than stopping at "download complete".
+ // See `OS_Web::benchmark_end_measure()` and webgpu_notes/TASKS.md Task 14.
+ extern void godot_js_os_startup_progress(const char *p_name, double p_duration_ms);
++// Whether the page holds the startup before `Main::start()` (preload before run). Polled once
++// per frame while held; tells the page the first time it holds. See `startup_step_callback()`.
++extern int godot_js_os_startup_hold();
+ // Appends a completed startup phase to `window.godotStartupMarks` (`--benchmark` only).
+ extern void godot_js_os_startup_mark(const char *p_name, double p_duration_ms);
+ // Prints one engine warning on the page's warning channel (`console.warn()` by default).
+diff --git a/platform/web/js/engine/engine.js b/platform/web/js/engine/engine.js
+index a2ef927491..38e114bd1d 100644
+--- a/platform/web/js/engine/engine.js
++++ b/platform/web/js/engine/engine.js
+@@ -188,6 +188,15 @@ const Engine = (function () {
+ 						}
+ 					};
+ 
++					// Preload before run (preloadGame()): the engine holds its startup
++					// before Main::start() and says so once through onStartupHeld.
++					config['holdStartup'] = !!me.holdStartup;
++					config['onStartupHeld'] = function () {
++						if (me.onStartupHeld) {
++							me.onStartupHeld();
++						}
++					};
++
+ 					// Godot configuration.
+ 					me.rtenv['initConfig'](config);
+ 
+@@ -249,7 +258,64 @@ const Engine = (function () {
+ 			 * @return {Promise} Promise that resolves once the game started.
+ 			 */
+ 			startGame: function (override) {
++				if (this.preloaded) {
++					// preloadGame() already did the work: release the held startup.
++					this.releaseStartup();
++					return this.preloaded.started;
++				}
++				return this.launchGame(override, false).started;
++			},
++
++			/**
++			 * Do everything :js:meth:`startGame <Engine.prototype.startGame>` does up to the point
++			 * where the game itself would start, and stop there: request the WebGPU device,
++			 * download and compile the engine, download the main pack, the shader pack, the
++			 * texture pack this device samples and the shader extras, and run the engine's
++			 * startup up to (not including) loading the autoloads and the main scene, which
++			 * run project code. A later call to ``startGame`` then only finishes that last
++			 * step.
++			 *
++			 * Call ``startGame`` from a user gesture (a click or a key press, as the default
++			 * shell's Start button does) so that the game's audio can start right away: the
++			 * audio context, created while preloading, is resumed there.
++			 *
++			 * ``startGame``'s own override is ignored after this method: pass the
++			 * configuration (callbacks included) here.
++			 *
++			 * @param {EngineConfig} override An optional configuration override.
++			 * @return {Promise} Promise that resolves once everything is downloaded and the engine
++			 * waits for ``startGame``. Calling it again returns the same promise.
++			 */
++			preloadGame: function (override) {
++				if (!this.preloaded) {
++					this.preloaded = this.launchGame(override, true);
++				}
++				return this.preloaded.ready;
++			},
++
++			/**
++			 * @ignore
++			 */
++			releaseStartup: function () {
++				this.holdStartup = false;
++				if (this.rtenv) {
++					this.rtenv['releaseStartup']();
++					if (this.rtenv['resumeAudio']) {
++						this.rtenv['resumeAudio']();
++					}
++				}
++			},
++
++			/**
++			 * Shared by ``startGame`` and ``preloadGame``: starts everything and returns
++			 * ``{ready, started}``, where ``ready`` resolves when a held startup (``hold``)
++			 * reached its hold and ``started`` once the game has started.
++			 *
++			 * @ignore
++			 */
++			launchGame: function (override, hold) {
+ 				this.config.update(override);
++				this.holdStartup = hold;
+ 				// Add main-pack argument.
+ 				const exe = this.config.executable;
+ 				const pack = this.config.mainPack || `${exe}.pck`;
+@@ -286,7 +352,7 @@ const Engine = (function () {
+ 					})]);
+ 				}
+ 
+-				return webgpuReady.then(function () {
++				const launched = webgpuReady.then(function () {
+ 					// The baked shader pack, when the export produced one, is fetched
+ 					// alongside the main pack: the engine looks for
+ 					// `<main pack>.shaders.pck` next to it at startup and mounts it.
+@@ -301,18 +367,38 @@ const Engine = (function () {
+ 						pending.push(me.preloadFile(texturePack, `${pack.replace(/\.pck$/, '')}.textures.pck`));
+ 					}
+ 					return Promise.all(pending).then(function () {
++						const held = new Promise(function (resolve) {
++							me.onStartupHeld = resolve;
++						});
+ 						const started = me.start.apply(me);
+-						// Not waited on. Everything startup needs has been downloaded by
+-						// now, so the extras compete with nothing; and the engine yields to
+-						// the browser between startup steps, so they can still arrive in
+-						// time for a first frame that turns on a feature the export could
+-						// not see (TASKS.md §2.27).
+-						if (me.config.shaderExtras) {
+-							me.loadShaderExtras(me.config.shaderExtras);
+-						}
+-						return started;
++						// Not waited on by startGame(). Everything startup needs has been
++						// downloaded by now, so the extras compete with nothing; and the
++						// engine yields to the browser between startup steps, so they can
++						// still arrive in time for a first frame that turns on a feature the
++						// export could not see (TASKS.md §2.27). preloadGame() waits for
++						// them, since it promises that nothing is left to download.
++						const extras = me.config.shaderExtras ? me.loadShaderExtras(me.config.shaderExtras) : Promise.resolve();
++						// `held` only settles once the engine holds, and `started` only after
++						// the hold is released, so a startup that fails before the hold
++						// rejects `ready` through `started`.
++						const ready = Promise.race([Promise.all([held, extras]), started]).then(function () {});
++						return { ready: ready, started: started };
+ 					});
+ 				});
++				// Wrapped, not returned: a promise resolving to a promise would wait for it.
++				const game = {
++					ready: launched.then(function (launch) {
++						return launch.ready;
++					}),
++					started: launched.then(function (launch) {
++						return launch.started;
++					}),
++				};
++				// Each caller waits on one of the two; a failure must not also surface as
++				// an unhandled rejection of the other.
++				game.ready.catch(function () {});
++				game.started.catch(function () {});
++				return game;
+ 			},
+ 
+ 			/**
+@@ -422,6 +508,7 @@ const Engine = (function () {
+ 		Engine.prototype['preloadFile'] = Engine.prototype.preloadFile;
+ 		Engine.prototype['start'] = Engine.prototype.start;
+ 		Engine.prototype['startGame'] = Engine.prototype.startGame;
++		Engine.prototype['preloadGame'] = Engine.prototype.preloadGame;
+ 		Engine.prototype['copyToFS'] = Engine.prototype.copyToFS;
+ 		Engine.prototype['requestQuit'] = Engine.prototype.requestQuit;
+ 		Engine.prototype['forceQuit'] = Engine.prototype.forceQuit;
+diff --git a/platform/web/js/libs/library_godot_audio.js b/platform/web/js/libs/library_godot_audio.js
+index 10c9342bb4..9537e76234 100644
+--- a/platform/web/js/libs/library_godot_audio.js
++++ b/platform/web/js/libs/library_godot_audio.js
+@@ -770,6 +770,10 @@ function GodotSampleDriver(audioContext) {
+ 
+ const _GodotAudio = {
+ 	$GodotAudio__deps: ['$GodotRuntime', '$GodotOS'],
++	// For a page that starts the engine from a user gesture after the audio context
++	// already exists (preload before run): resuming it inside that gesture is what
++	// lets the game's audio play before the player's first input on the canvas.
++	$GodotAudio__postset: 'Module["resumeAudio"] = function () { if (GodotAudio.ctx && GodotAudio.ctx.state === "suspended") { GodotAudio.ctx.resume(); } };',
+ 	$GodotAudio: {
+ 		/** @type {AudioContext} */
+ 		ctx: null,
+diff --git a/platform/web/js/libs/library_godot_os.js b/platform/web/js/libs/library_godot_os.js
+index 5233b2b0f3..a8ab42bfc8 100644
+--- a/platform/web/js/libs/library_godot_os.js
++++ b/platform/web/js/libs/library_godot_os.js
+@@ -53,7 +53,8 @@ autoAddDeps(IDHandler, '$IDHandler');
+ mergeInto(LibraryManager.library, IDHandler);
+ 
+ const GodotConfig = {
+-	$GodotConfig__postset: 'Module["initConfig"] = GodotConfig.init_config;',
++	$GodotConfig__postset: 'Module["initConfig"] = GodotConfig.init_config;'
++		+ 'Module["releaseStartup"] = GodotConfig.release_startup;',
+ 	$GodotConfig__deps: ['$GodotRuntime'],
+ 	$GodotConfig: {
+ 		canvas: null,
+@@ -68,6 +69,10 @@ const GodotConfig = {
+ 		on_exit: null,
+ 		on_startup_progress: null,
+ 		on_print_warning: null,
++		// Preload before run: hold the startup before Main::start() until the page
++		// calls Module.releaseStartup(). See godot_js_os_startup_hold().
++		startup_hold: false,
++		on_startup_held: null,
+ 		pid: 0,
+ 
+ 		init_config: function (p_opts) {
+@@ -84,11 +89,18 @@ const GodotConfig = {
+ 			GodotConfig.on_exit = p_opts['onExit'];
+ 			GodotConfig.on_startup_progress = p_opts['onStartupProgress'];
+ 			GodotConfig.on_print_warning = p_opts['onPrintWarning'];
++			GodotConfig.startup_hold = !!p_opts['holdStartup'];
++			GodotConfig.on_startup_held = p_opts['onStartupHeld'] || null;
+ 			if (p_opts['focusCanvas']) {
+ 				GodotConfig.canvas.focus();
+ 			}
+ 		},
+ 
++		release_startup: function () {
++			GodotConfig.startup_hold = false;
++			GodotConfig.on_startup_held = null;
++		},
++
+ 		locate_file: function (file) {
+ 			return Module['locateFile'](file);
+ 		},
+@@ -104,6 +116,8 @@ const GodotConfig = {
+ 			GodotConfig.on_exit = null;
+ 			GodotConfig.on_startup_progress = null;
+ 			GodotConfig.on_print_warning = null;
++			GodotConfig.startup_hold = false;
++			GodotConfig.on_startup_held = null;
+ 		},
+ 	},
+ 
+@@ -307,6 +321,21 @@ const GodotOS = {
+ 		GodotConfig.on_startup_progress(GodotRuntime.parseString(p_name), p_duration_ms);
+ 	},
+ 
++	godot_js_os_startup_hold__proxy: 'sync',
++	godot_js_os_startup_hold__sig: 'i',
++	godot_js_os_startup_hold: function () {
++		if (!GodotConfig.startup_hold) {
++			return 0;
++		}
++		// Tell the page once, the first time the engine reaches the hold.
++		const held = GodotConfig.on_startup_held;
++		GodotConfig.on_startup_held = null;
++		if (typeof held === 'function') {
++			held();
++		}
++		return 1;
++	},
++
+ 	// Appends a completed phase to `window.godotStartupMarks`, which the startup profiler reads.
+ 	godot_js_os_startup_mark__proxy: 'sync',
+ 	godot_js_os_startup_mark__sig: 'vid',
+diff --git a/platform/web/web_main.cpp b/platform/web/web_main.cpp
+index be34e97081..946d8129ea 100644
+--- a/platform/web/web_main.cpp
++++ b/platform/web/web_main.cpp
+@@ -203,6 +203,14 @@ void startup_step_callback() {
+ 		} break;
+ 
+ 		case STARTUP_STEP_START: {
++			// A page that preloads (`Engine.preloadGame()`, the export option
++			// `loading_screen/preload_before_run`) holds the startup here until the player
++			// starts the game. Everything before this point -- servers, the renderer, type
++			// registration -- runs no project code; `Main::start()` loads the autoloads and
++			// the main scene, which do, so this is as far as a page may go on its own.
++			if (godot_js_os_startup_hold()) {
++				return;
++			}
+ 			int ret = Main::start();
+ 			os->set_exit_code(ret);
+ 			os->get_main_loop()->initialize();

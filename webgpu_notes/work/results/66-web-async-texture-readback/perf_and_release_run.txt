@@ -1,0 +1,43 @@
+exported (release) -> /mnt/109313D2109313D2/godot-editors/godotwebgpu-66/webgpu_tests/async_readback/exports/web
+=== chrome
+adapter (chrome): {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxSampled":48}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test
+[log] W66DONE
+49/49 passed (chrome)
+chrome rc=0
+=== firefox
+adapter (firefox): {"vendor":"","architecture":"","fallback":false,"maxSampled":64}
+[log] W66 platform=Web method=forward_plus driver=webgpu mode=test
+[log] W66DONE
+49/49 passed (firefox)
+firefox rc=0
+"args":["--","mode=perf_none"]
+"args":["--","mode=perf_readback"]
+=== gpu_time perf_none
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 1024 over 1121 ms (1 round(s)) -> 913 fps, 1.09 ms/frame
+GPU busy 0.04 ms/frame (4% of the GPU timeline), 2048 command buffers timed
+per command buffer: median 0.028 ms, p95 0.037 ms, max 0.067 ms
+engine frame stats: {"fps":878,"frames":879,"drawCalls":8,"indirectDraws":0,"setBindGroup":28,"bindGroupSkips":0,"dynamicBindGroups":0,"setVertexBuffer":7,"renderPasses":10,"pushConstantWrites":8,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":0,"translated":332}
+=== gpu_time perf_readback
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 1024 over 1370 ms (1 round(s)) -> 747 fps, 1.34 ms/frame
+GPU busy 0.13 ms/frame (10% of the GPU timeline), 2048 command buffers timed
+per command buffer: median 0.106 ms, p95 0.128 ms, max 0.198 ms
+engine frame stats: {"fps":748,"frames":749,"drawCalls":8,"indirectDraws":0,"setBindGroup":28,"bindGroupSkips":0,"dynamicBindGroups":0,"setVertexBuffer":7,"renderPasses":10,"pushConstantWrites":8,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":0,"translated":332}
+=== gpu_time perf_none
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 1024 over 1141 ms (1 round(s)) -> 897 fps, 1.11 ms/frame
+GPU busy 0.04 ms/frame (4% of the GPU timeline), 2048 command buffers timed
+per command buffer: median 0.028 ms, p95 0.037 ms, max 0.077 ms
+engine frame stats: {"fps":895,"frames":896,"drawCalls":8,"indirectDraws":0,"setBindGroup":28,"bindGroupSkips":0,"dynamicBindGroups":0,"setVertexBuffer":7,"renderPasses":10,"pushConstantWrites":8,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":0,"translated":332}
+=== gpu_time perf_readback
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 1024 over 1358 ms (1 round(s)) -> 754 fps, 1.33 ms/frame
+GPU busy 0.13 ms/frame (10% of the GPU timeline), 2048 command buffers timed
+per command buffer: median 0.105 ms, p95 0.127 ms, max 0.203 ms
+engine frame stats: {"fps":773,"frames":774,"drawCalls":8,"indirectDraws":0,"setBindGroup":28,"bindGroupSkips":0,"dynamicBindGroups":0,"setVertexBuffer":7,"renderPasses":10,"pushConstantWrites":8,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":0,"translated":332}

@@ -91,8 +91,25 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_voxelgi() 
 }
 
 void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_fsr2(RendererRD::FSR2Effect *p_effect) {
+	// With dynamic 3D resolution the context is made at the largest size the controller can pick (max_internal_size),
+	// so its changes never grow it; otherwise max_internal_size is (0, 0) and the context starts at the current size.
+	const Size2i internal_size = render_buffers->get_internal_size().max(render_buffers->get_max_internal_size());
+	if (fsr2_context != nullptr) {
+		// The context was kept over a reconfigure (configure()). It renders any size up to the one it was made with;
+		// past that it needs a larger one, which takes over its history so the change does not restart accumulation.
+		// It keeps the largest size the viewport has used, so this happens at most once per new largest size.
+		const Size2i max_render_size = p_effect->get_max_render_size(fsr2_context);
+		if (internal_size.x > max_render_size.x || internal_size.y > max_render_size.y) {
+			RendererRD::FSR2Context *grown = p_effect->create_context(internal_size.max(max_render_size), render_buffers->get_target_size());
+			if (grown != nullptr) {
+				p_effect->transfer_history(fsr2_context, grown);
+			}
+			memdelete(fsr2_context);
+			fsr2_context = grown;
+		}
+	}
 	if (fsr2_context == nullptr) {
-		fsr2_context = p_effect->create_context(render_buffers->get_internal_size(), render_buffers->get_target_size());
+		fsr2_context = p_effect->create_context(internal_size, render_buffers->get_target_size());
 	}
 }
 
@@ -122,6 +139,7 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 		render_buffers->clear_context(RB_SCOPE_SSDS);
 		render_buffers->clear_context(RB_SCOPE_SSIL);
 		render_buffers->clear_context(RB_SCOPE_SSAO);
+		render_buffers->clear_context(RB_SCOPE_GTAO);
 		render_buffers->clear_context(RB_SCOPE_SSR);
 		render_buffers->clear_context(RB_SCOPE_SSCS);
 	}
@@ -148,14 +166,29 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 	}
 }
 
+void RenderForwardClustered::RenderBufferDataForwardClustered::free_data_for_reconfigure() {
+	RendererRD::FSR2Context *kept_fsr2_context = fsr2_context;
+	fsr2_context = nullptr;
+	free_data();
+	fsr2_context = kept_fsr2_context;
+}
+
 void RenderForwardClustered::RenderBufferDataForwardClustered::configure(RenderSceneBuffersRD *p_render_buffers) {
 	if (render_buffers) {
 		// JIC
-		free_data();
+		free_data_for_reconfigure();
 	}
 
 	render_buffers = p_render_buffers;
 	ERR_FAIL_NULL(render_buffers);
+
+	// FSR 2's history is at the target size and its context accepts any render size up to the one it was made with
+	// (ensure_fsr2() grows it), so a new 3D scale keeps it: a scale change no longer restarts accumulation. A new
+	// target size, or no FSR 2 any more, ends it.
+	if (fsr2_context != nullptr && (render_buffers->get_scaling_3d_mode() != RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || RendererRD::FSR2Effect::get_display_size(fsr2_context) != render_buffers->get_target_size())) {
+		memdelete(fsr2_context);
+		fsr2_context = nullptr;
+	}
 
 	if (cluster_builder == nullptr) {
 		cluster_builder = memnew(ClusterBuilderRD);
@@ -1512,6 +1545,33 @@ void RenderForwardClustered::_process_ssao(Ref<RenderSceneBuffersRD> p_render_bu
 	}
 }
 
+/* GTAO */
+
+void RenderForwardClustered::_process_gtao(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections, float p_taa_frame_count) {
+	ERR_FAIL_NULL(ss_effects);
+	ERR_FAIL_COND(p_render_buffers.is_null());
+	ERR_FAIL_COND(p_environment.is_null());
+
+	Ref<RenderBufferDataForwardClustered> rb_data = p_render_buffers->get_custom_data(RB_SCOPE_FORWARD_CLUSTERED);
+	ERR_FAIL_COND(rb_data.is_null());
+
+	RENDER_TIMESTAMP("Process GTAO");
+
+	// The Environment's SSAO settings, as _process_ssao() reads them; detail and horizon are ASSAO-only.
+	RendererRD::SSEffects::SSAOSettings settings;
+	settings.radius = environment_get_ssao_radius(p_environment);
+	settings.intensity = environment_get_ssao_intensity(p_environment);
+	settings.power = environment_get_ssao_power(p_environment);
+	settings.sharpness = environment_get_ssao_sharpness(p_environment);
+	settings.full_screen_size = p_render_buffers->get_internal_size();
+
+	ss_effects->gtao_allocate_buffers(p_render_buffers, rb_data->ss_effects_data.gtao, settings);
+
+	for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+		ss_effects->generate_gtao(p_render_buffers, rb_data->ss_effects_data.gtao, v, p_normal_buffers[v], p_projections[v], settings, p_taa_frame_count);
+	}
+}
+
 void RenderForwardClustered::_process_ssil(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_buffers, const Projection *p_projections, const Transform3D &p_transform) {
 	ERR_FAIL_NULL(ss_effects);
 	ERR_FAIL_COND(p_render_buffers.is_null());
@@ -1732,16 +1792,25 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 
 		if (p_use_ssil || p_use_ssr) {
 			ss_effects->allocate_last_frame_buffer(rb, p_use_ssil, p_use_ssr);
+		} else {
+			// A last frame carried over a reconfigure that no effect wants any more.
+			rb->free_carried_textures(RB_SCOPE_SSLF);
 		}
 
-		if (p_use_ssao || p_use_ssil) {
+		// GTAO: replaces ASSAO and prepares its own depth, so the shared downsample only runs for ASSAO or SSIL.
+		const bool use_gtao = p_use_ssao && ss_effects->ssao_get_method() == RSE::ENV_SSAO_METHOD_GTAO;
+		if (use_gtao) {
+			_process_gtao(rb, p_render_data->environment, p_normal_roughness_slices, p_render_data->scene_data->view_projection, p_render_data->scene_data->taa_frame_count);
+		}
+
+		if ((p_use_ssao && !use_gtao) || p_use_ssil) {
 			RENDER_TIMESTAMP("Prepare Depth for SSAO/SSIL");
 			// Convert our depth buffer data to linear data in
 			for (uint32_t v = 0; v < rb->get_view_count(); v++) {
 				ss_effects->downsample_depth(rb, v, p_render_data->scene_data->view_projection[v]);
 			}
 
-			if (p_use_ssao) {
+			if (p_use_ssao && !use_gtao) {
 				_process_ssao(rb, p_render_data->environment, p_normal_roughness_slices, p_render_data->scene_data->view_projection);
 			}
 
@@ -1957,6 +2026,9 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	bool using_upscaling = scale_type != SCALE_NONE;
 
+	// Camera motion blur and rolling shutter read the velocity buffer (RendererSceneRenderRD's post-process).
+	bool using_shutter_motion = rb_data.is_valid() && RSG::camera_attributes->camera_attributes_uses_shutter_motion(p_render_data->camera_attributes);
+
 	// check if we need motion vectors
 	bool motion_vectors_required;
 	if (using_debug_mvs) {
@@ -1966,6 +2038,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	} else if (!is_reflection_probe && using_taa) {
 		motion_vectors_required = true;
 	} else if (!is_reflection_probe && using_upscaling) {
+		motion_vectors_required = true;
+	} else if (!is_reflection_probe && using_shutter_motion) {
 		motion_vectors_required = true;
 	} else {
 		motion_vectors_required = false;
@@ -2606,7 +2680,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	RD::get_singleton()->draw_command_begin_label("Resolve");
 
 	if (rb_data.is_valid() && use_msaa) {
-		bool resolve_velocity_buffer = (using_taa || using_upscaling || ce_needs_motion_vectors) && rb->has_velocity_buffer(true);
+		bool resolve_velocity_buffer = (using_taa || using_upscaling || ce_needs_motion_vectors || using_shutter_motion) && rb->has_velocity_buffer(true);
 		for (uint32_t v = 0; v < rb->get_view_count(); v++) {
 			RD::get_singleton()->texture_resolve_multisample(rb->get_color_msaa(v), rb->get_internal_texture(v));
 			resolve_effects->resolve_depth(rb->get_depth_msaa(v), rb->get_depth_texture(v), rb->get_internal_size(), texture_multisamples[msaa]);
@@ -3813,7 +3887,16 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		if (rb.is_valid() && rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH)) {
 			texture = rb->get_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH);
 		} else {
+#ifdef WEBGPU_ENABLED
+			// The shader declares this slot a float texture (the depth copy is
+			// R32_SFLOAT), and a WebGPU float slot cannot take the D16 depth
+			// placeholder: the driver would swap in its blank fallback and log it on
+			// every uniform set. Nothing reads the slot without a depth copy (one is
+			// made for any material that uses DEPTH_TEXTURE), so bind a float default.
+			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
+#else
 			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_DEPTH : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_DEPTH);
+#endif
 		}
 		u.append_id(texture);
 		uniforms.push_back(u);
@@ -4234,6 +4317,14 @@ void RenderForwardClustered::environment_set_ssao_quality(RSE::EnvironmentSSAOQu
 	ERR_FAIL_NULL(ss_effects);
 	ERR_FAIL_COND(p_quality < RSE::EnvironmentSSAOQuality::ENV_SSAO_QUALITY_VERY_LOW || p_quality > RSE::EnvironmentSSAOQuality::ENV_SSAO_QUALITY_ULTRA);
 	ss_effects->ssao_set_quality(p_quality, p_half_size, p_adaptive_target, p_blur_passes, p_fadeout_from, p_fadeout_to);
+}
+
+/* GTAO */
+
+void RenderForwardClustered::environment_set_ssao_method(RSE::EnvironmentSSAOMethod p_method) {
+	ERR_FAIL_NULL(ss_effects);
+	ERR_FAIL_INDEX(int(p_method), int(RSE::ENV_SSAO_METHOD_GTAO) + 1);
+	ss_effects->ssao_set_method(p_method);
 }
 
 void RenderForwardClustered::environment_set_ssil_quality(RSE::EnvironmentSSILQuality p_quality, bool p_half_size, float p_adaptive_target, int p_blur_passes, float p_fadeout_from, float p_fadeout_to) {

@@ -56,6 +56,7 @@ public:
 	virtual bool has_alpha() const override;
 
 	virtual Ref<Image> get_image() const override;
+	virtual void get_image_async(const Callable &p_callback) const override;
 
 	void set_texture_rd_rid(RID p_texture_rd_rid);
 	RID get_texture_rd_rid() const;

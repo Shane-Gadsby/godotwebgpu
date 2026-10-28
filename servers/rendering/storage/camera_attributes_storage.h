@@ -30,11 +30,105 @@
 
 #pragma once
 
+#include "core/math/vector2.h"
+#include "core/math/vector2i.h"
 #include "core/math/vector3.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
 
+// The CameraEffects uniform buffer of the tonemap pass, for CameraAttributes effects whose parameters do not fit the
+// push constant (the Forward+ one is full at 128 bytes). std140; the shaders declare the same layout in
+// servers/rendering/renderer_rd/shaders/effects/camera_effects_inc.glsl and its Compatibility copy, so keep the three in
+// step. Each region belongs to one group of effects, and its header word says which of them run:
+// - header[0], lens[8]: lens optics (camera_lens_inc.glsl): distortion, chromatic aberration, diffraction, vignetting.
+// - header[1], glare[6]: glare (camera_glare_inc.glsl): lens flare, veiling glare, diffusion filters, starbursts and
+//   halation, all read from the glare chain (a mip chain of the scene).
+// - header[2], exposure[2]: reserved for exposure automation (task 36).
+// - header[3], local_exposure[2]: local exposure (camera_local_exposure_inc.glsl), Forward+ only.
+// - reserved[13]: free; grow a region into it rather than reordering.
+// An all-zero header means no effect runs.
+struct CameraEffectsUBO {
+	uint32_t header[4] = {};
+	float lens[8][4] = {};
+	float glare[6][4] = {};
+	float exposure[2][4] = {};
+	float local_exposure[2][4] = {};
+	float reserved[13][4] = {};
+};
+static_assert(sizeof(CameraEffectsUBO) == 512, "CameraEffectsUBO must match the 512-byte std140 block in camera_effects_inc.glsl.");
+
+// The Environment's glare settings (scene look: lens flare, veiling glare, diffusion filter), copied in by the renderer
+// so the camera attributes storage needs no access to the environment storage.
+struct CameraGlareEnvironment {
+	bool lens_flare_enabled = false;
+	float lens_flare_intensity = 1.0;
+	float lens_flare_threshold = 1.0;
+	int lens_flare_ghost_count = 4;
+	float lens_flare_halo_intensity = 1.0;
+	float lens_flare_chromatic_aberration = 1.0;
+	bool veiling_glare_enabled = false;
+	float veiling_glare_strength = 1.0;
+	bool diffusion_filter_enabled = false;
+	float diffusion_filter_strength = 0.25;
+	bool diffusion_filter_black = false;
+};
+
+// What a tonemap pass knows about itself when it fills the buffer. Effects that need more (the Environment for glare,
+// the previous frame for exposure) add members here rather than parameters to the fill function.
+struct CameraEffectsContext {
+	Size2i source_size; // The texture the pass reads, in pixels: lens resampling works in its texels.
+	Size2i output_size; // The pixels the pass writes.
+	uint64_t frame = 0;
+	// Glare: the Environment's settings and the glare chain the renderer built for this pass (zero size when none).
+	CameraGlareEnvironment glare_environment;
+	Size2i glare_chain_size; // Mip 0 of the glare chain, in texels.
+	int glare_chain_mipmaps = 0;
+	// The chain's measured blur: lod L blurs a point to a Gaussian of variance x + y 4^L, in texels of lod 0 squared.
+	Vector2 glare_chain_blur = Vector2(0.0, 1.0);
+	bool glare_chain_raster = false; // Built by the raster passes (Mobile), whose levels do not sit at their UVs.
+	// Exposure automation: the renderer ran the auto white balance passes this frame, so the tonemapper can read their
+	// gains. Only Forward+ does (they need compute); elsewhere the manual white balance applies alone.
+	bool auto_white_balance = false;
+	// Panini projection: tangents of the half field of view per axis of a single-view perspective camera (1 / P[0][0],
+	// 1 / P[1][1]); zero for an orthogonal camera or XR, where the projection is not applied.
+	Vector2 projection_tan_half;
+	// Local exposure: the renderer built the bilateral grid this frame, from a frame of source_size. Only Forward+
+	// does (it needs compute).
+	bool local_exposure = false;
+};
+
 class RendererCameraAttributes {
+public:
+	// Bits of CameraEffectsUBO::header[0]; camera_lens_inc.glsl has the same values.
+	enum LensBits : uint32_t {
+		LENS_DISTORTION = 1,
+		LENS_CHROMATIC_ABERRATION = 2,
+		LENS_DIFFRACTION = 4,
+		LENS_VIGNETTING_PHYSICAL = 8,
+		LENS_VIGNETTING_PRACTICAL = 16,
+		LENS_PANINI = 32,
+	};
+
+	// Bits of CameraEffectsUBO::header[2]; camera_exposure_inc.glsl has the same values.
+	enum ExposureBits : uint32_t {
+		EXPOSURE_AUTO_WHITE_BALANCE = 1,
+	};
+
+	// Bits of CameraEffectsUBO::header[3]; camera_local_exposure_inc.glsl has the same values.
+	enum LocalExposureBits : uint32_t {
+		LOCAL_EXPOSURE_BILATERAL = 1,
+	};
+
+	// Bits of CameraEffectsUBO::header[1]; camera_glare_inc.glsl has the same values.
+	enum GlareBits : uint32_t {
+		GLARE_LENS_FLARE = 1,
+		GLARE_VEILING = 2,
+		GLARE_DIFFUSION = 4,
+		GLARE_DIFFUSION_BLACK = 8,
+		GLARE_STARBURST = 16,
+		GLARE_HALATION = 32,
+	};
+
 private:
 	static RendererCameraAttributes *singleton;
 
@@ -57,17 +151,137 @@ private:
 		float dof_blur_near_distance = 2;
 		float dof_blur_near_transition = 1;
 		float dof_blur_amount = 0.1;
+		// Physical DOF blur size (CameraAttributesPhysical.dof_physical_blur_size): the blur circle of a point at
+		// infinity as a fraction of the frame's height (or width, for a horizontally fitted frame). Off by default.
+		bool dof_physical_blur_size = false;
+		float dof_physical_blur_frame_fraction = 0.0;
+		bool dof_physical_blur_frame_horizontal = false;
+		// CameraAttributesPhysical.dof_legacy_gather: the physically-sized blur drawn through upstream's gather.
+		bool dof_legacy_gather = false;
 
 		// White balance. The defaults are neutral: the tonemapper skips it entirely then.
 		float white_balance_temperature = 6500.0; // In Kelvin.
 		float white_balance_tint = 0.0;
 		bool use_white_balance = false;
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0); // Cone-space (Bradford LMS) gains.
+
+		// Camera finish: in-camera noise reduction and sharpening, applied after tonemapping by the camera finish
+		// pass. Off by default; the pass is skipped entirely then.
+		bool noise_reduction_enabled = false;
+		float noise_reduction_strength = 1.0;
+		bool noise_reduction_chroma_only = false;
+		bool sharpening_enabled = false;
+		float sharpening_amount = 0.5;
+		float sharpening_radius = 1.0; // In pixels of a 1080-line frame.
+		float sharpening_halo = 0.25;
+
+		// Grain. Off by default; the tonemappers skip it entirely then.
+		bool grain_enabled = false;
+		RSE::CameraAttributesGrainType grain_type = RSE::CAMERA_ATTRIBUTES_GRAIN_FILM;
+		float grain_intensity = 1.0;
+		float grain_size = 1.0;
+		float grain_sensitivity = 100.0; // In ISO.
+
+		// LUT. Off by default. The texture is a Texture3D's RID, resolved by the renderers.
+		bool lut_enabled = false;
+		RID lut_texture;
+		RSE::CameraAttributesLUTInput lut_input = RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY;
+		float lut_strength = 1.0;
+
+		// Motion blur and rolling shutter. Off by default; the renderer skips their pass then.
+		bool motion_blur_enabled = false;
+		float motion_blur_shutter_angle = 180.0; // In degrees.
+		float motion_blur_shutter_time = 0.0; // In seconds; when positive, it is used instead of the angle.
+		float motion_blur_strength = 1.0;
+		float motion_blur_max_length = 0.05; // Fraction of the frame height.
+		bool rolling_shutter_enabled = false;
+		float rolling_shutter_readout_time = 20.0; // In milliseconds.
+
+		// Lens optics. The physical lens comes from CameraAttributesPhysical; a focal length of 0 means there is
+		// none (CameraAttributesPractical), and only the frame-relative effects apply.
+		Vector2 sensor_size = Vector2(36.0, 24.0); // In millimeters.
+		float lens_focal_length = 0.0; // Nominal, in millimeters.
+		float lens_fov_focal_length = 0.0; // The one that sets the field of view, with focus breathing.
+		float lens_focus_distance = 10.0; // In meters.
+		float lens_f_number = 16.0;
+		float lens_max_f_number = 1.8;
+		float lens_anamorphic_squeeze = 1.0;
+		bool vignetting_enabled = false;
+		float vignetting_strength = 1.0;
+		float vignetting_falloff = 2.0;
+		bool distortion_enabled = false;
+		bool distortion_automatic = false;
+		float distortion_k1 = 0.0;
+		float distortion_k2 = 0.0;
+		bool distortion_auto_crop = true;
+		bool chromatic_aberration_enabled = false;
+		float chromatic_aberration_strength = 1.0;
+		bool diffraction_enabled = false;
+		float diffraction_strength = 1.0;
+
+		// Exposure automation: auto exposure metering modes and auto white balance. Average metering and auto white
+		// balance off are the defaults, which run exactly the code that ran before they existed.
+		RSE::CameraAttributesMeteringMode auto_exposure_metering_mode = RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE;
+		float auto_exposure_metering_spot_size = 2.5; // Percent of the frame's area.
+		Vector2 auto_exposure_metering_spot_point = Vector2(0.5, 0.5); // In UV, (0, 0) the top left.
+		float auto_exposure_metering_highlight_percentile = 99.0; // Percent.
+		bool auto_exposure_metering_log_average = false; // The (weighted) log-average instead of the mean.
+		bool auto_white_balance_enabled = false;
+		float auto_white_balance_speed = 1.0; // 1 / time constant, in 1/s.
+		float auto_white_balance_min_temperature = 2500.0; // In Kelvin.
+		float auto_white_balance_max_temperature = 10000.0;
+		uint64_t auto_white_balance_version = 0;
+
+		// Aperture, bokeh, starburst and halation. Off by default: the DOF keeps the project's bokeh shape, and the
+		// glare chain is not built.
+		bool aperture_enabled = false;
+		int aperture_blade_count = 6; // 0 = circular.
+		float aperture_blade_curvature = 0.0; // 0 = straight blades, 1 = a round opening.
+		float aperture_rotation = 0.0; // In degrees.
+		bool cats_eye_enabled = false;
+		float cats_eye_strength = 1.0;
+		bool tilt_shift_enabled = false; // CameraAttributesPhysical only (it needs the focal length).
+		float tilt_shift_tilt = 0.0; // Lens tilt, in degrees.
+		float tilt_shift_axis = 0.0; // Direction of the tilt axis in the frame, in degrees (0 = horizontal).
+		bool starburst_enabled = false;
+		float starburst_strength = 20.0;
+		bool halation_enabled = false;
+		float halation_strength = 1.0;
+		float halation_radius = 1.0;
+		bool halation_high_quality = false; // Builds the glare chain at full resolution, for halos below its usual floor.
+
+		// Longitudinal chromatic aberration (bokeh fringing), drawn by the DOF pass. Off by default.
+		bool longitudinal_ca_enabled = false;
+		float longitudinal_ca_strength = 1.0;
+
+		// Panini projection (panini_projection.h), applied by the lens resample. Off by default.
+		bool panini_enabled = false;
+		float panini_distance = 1.0;
+		float panini_vertical_compression = 1.0;
+
+		// Local exposure (camera_local_exposure.h), Forward+ only. Off by default: the grid is not built then.
+		bool local_exposure_enabled = false;
+		float local_exposure_highlight_contrast = 0.6;
+		float local_exposure_shadow_contrast = 0.8;
+		float local_exposure_detail_strength = 1.0;
+		float local_exposure_middle_gray_bias = 0.0; // In EV.
+		float local_exposure_blurred_luminance_blend = 0.6;
+		float local_exposure_blurred_luminance_kernel_size = 50.0; // Percent of the frame width.
 	};
+
+	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
+	static void _fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint32_t _fill_effects_panini(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_glare(const CameraAttributes *p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint32_t _glare_requested_bits(const CameraAttributes *p_attributes, const CameraGlareEnvironment &p_environment);
+	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_local_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint64_t auto_white_balance_counter;
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
 	RSE::DOFBokehShape dof_blur_bokeh_shape = RSE::DOF_BOKEH_HEXAGON;
 	bool dof_blur_use_jitter = false;
+	RSE::CameraAttributesMotionBlurQuality motion_blur_quality = RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM;
 	static uint64_t auto_exposure_counter;
 
 	mutable RID_Owner<CameraAttributes, true> camera_attributes_owner;
@@ -97,10 +311,21 @@ public:
 	float camera_attributes_get_dof_near_transition(RID p_camera_attributes);
 	float camera_attributes_get_dof_blur_amount(RID p_camera_attributes);
 
+	/* Physical DOF blur size */
+
+	void camera_attributes_set_dof_physical_blur_size(RID p_camera_attributes, bool p_enable, float p_frame_fraction, bool p_frame_horizontal);
+	// The physical blur's radius for a point at infinity in pixels of a p_buffer_size image, or a negative value when
+	// the camera does not size its blur physically (the DOF then keeps dof_blur_amount's fixed scale).
+	float camera_attributes_get_dof_physical_blur_radius(RID p_camera_attributes, const Size2i &p_buffer_size);
+	void camera_attributes_set_dof_legacy_gather(RID p_camera_attributes, bool p_enable);
+	// True when a physically-sized blur should go through upstream's gather (fixed reach, undivided box/hexagon).
+	bool camera_attributes_get_dof_legacy_gather(RID p_camera_attributes);
+
 	_FORCE_INLINE_ bool camera_attributes_uses_dof(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 
-		return cam_attributes && (cam_attributes->dof_blur_near_enabled || cam_attributes->dof_blur_far_enabled) && cam_attributes->dof_blur_amount > 0.0;
+		// Tilt-shift tilts the plane of focus, so the DOF runs even where the hyperfocal test turned both sides off.
+		return cam_attributes && (cam_attributes->dof_blur_near_enabled || cam_attributes->dof_blur_far_enabled || (cam_attributes->tilt_shift_enabled && cam_attributes->tilt_shift_tilt != 0.0f && cam_attributes->lens_focal_length > 0.0f)) && cam_attributes->dof_blur_amount > 0.0;
 	}
 
 	void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization);
@@ -131,6 +356,206 @@ public:
 
 		return cam_attributes && cam_attributes->use_white_balance;
 	}
+
+	/* Camera finish */
+
+	struct CameraFinishSettings {
+		// Noise reduction: a bilateral filter in display-encoded Y'CbCr (see the .cpp).
+		bool noise_reduction = false;
+		float nr_spatial_sigma_px = 0.0; // Gaussian sigma of the spatial kernel, in output pixels.
+		float nr_range_sigma = 0.0; // Gaussian sigma of the range kernel on Y', in display code values (0-1).
+		bool nr_chroma_only = false;
+		// Sharpening: an unsharp mask with a halo limit.
+		bool sharpening = false;
+		float sharpen_amount = 0.0;
+		float sharpen_sigma_px = 0.0; // Gaussian sigma of the blur that is subtracted, in output pixels.
+		float sharpen_halo = 1.0; // Allowed overshoot past the 3x3 neighborhood's range, as a fraction of it.
+	};
+
+	void camera_attributes_set_noise_reduction(RID p_camera_attributes, bool p_enable, float p_strength, bool p_chroma_only);
+	void camera_attributes_set_sharpening(RID p_camera_attributes, bool p_enable, float p_amount, float p_radius, float p_halo);
+	// What the camera finish pass does for an output p_output_height pixels tall; all off when it has nothing to do.
+	CameraFinishSettings camera_attributes_get_finish(RID p_camera_attributes, int p_output_height);
+
+	void camera_attributes_set_grain(RID p_camera_attributes, bool p_enable, RSE::CameraAttributesGrainType p_type, float p_intensity, float p_size, float p_sensitivity);
+	// The grain parameters for a tonemap pass whose output is p_output_height pixels tall, packed the way
+	// camera_grain_inc.glsl reads them, or 0 when there is no grain (see the .cpp for the model).
+	uint32_t camera_attributes_get_grain_packed(RID p_camera_attributes, int p_output_height, uint64_t p_frame);
+
+	void camera_attributes_set_lut(RID p_camera_attributes, bool p_enable, RID p_texture, RSE::CameraAttributesLUTInput p_input, float p_strength);
+	RID camera_attributes_get_lut_texture(RID p_camera_attributes);
+	// The LUT parameters packed the way camera_lut_inc.glsl reads them, or 0 when there is no LUT. The renderer
+	// still has to check that the texture resolves to a 3D texture.
+	uint32_t camera_attributes_get_lut_packed(RID p_camera_attributes);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_lut(RID p_camera_attributes) {
+		return camera_attributes_get_lut_packed(p_camera_attributes) != 0;
+	}
+
+	/* Motion blur and rolling shutter */
+
+	// What a frame's shutter does with the motion recorded in the velocity buffer (see the .cpp for the model). All
+	// three are multiples of one frame's motion, so the renderer only scales the velocity it reads.
+	struct ShutterMotion {
+		float blur_scale = 0.0; // Blur length per unit of a frame's motion: exposure time / frame time * strength.
+		float max_length = 0.0; // Longest blur, as a fraction of the frame height.
+		float rolling_shutter = 0.0; // Readout time from the top row to the bottom one, in frames.
+	};
+
+	void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality);
+	void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length);
+	void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time);
+	ShutterMotion camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time);
+	// Samples along the blur per pixel, from ProjectSettings rendering/camera/motion_blur/motion_blur_quality.
+	uint32_t camera_attributes_get_motion_blur_sample_count() const;
+
+	_FORCE_INLINE_ bool camera_attributes_uses_shutter_motion(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+
+		return cam_attributes && ((cam_attributes->motion_blur_enabled && cam_attributes->motion_blur_strength > 0.0f && cam_attributes->motion_blur_max_length > 0.0f) || (cam_attributes->rolling_shutter_enabled && cam_attributes->rolling_shutter_readout_time > 0.0f));
+	}
+
+	_FORCE_INLINE_ bool camera_attributes_uses_grain(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+
+		return cam_attributes && cam_attributes->grain_enabled && cam_attributes->grain_intensity > 0.0f;
+	}
+
+	/* Lens optics */
+
+	void camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze);
+	void camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff);
+	void camera_attributes_set_lens_distortion(RID p_camera_attributes, bool p_enable, bool p_automatic, float p_k1, float p_k2, bool p_auto_crop);
+	void camera_attributes_set_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_diffraction(RID p_camera_attributes, bool p_enable, float p_strength);
+	// The typical corner distortion of a rectilinear lens whose frame corner is at p_tan_corner (tangent of the field
+	// angle), as a relative radial displacement (negative = barrel). See the .cpp for the source.
+	static double lens_typical_corner_distortion(double p_tan_corner);
+
+	/* Exposure automation */
+
+	// Where the auto exposure meter looks, for a frame of the given size (see the .cpp for the model). Average metering
+	// is the original reduction and has no weights; the others are a weighted mean or a percentile of the same
+	// per-pixel value, max(R, G, B).
+	struct AutoExposureMetering {
+		RSE::CameraAttributesMeteringMode mode = RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE;
+		Vector2 center; // Center of the weighted circle, in units of the frame height from the top-left corner.
+		float radius = 0.0; // In units of the frame height.
+		float inner_weight = 1.0; // Weight of a pixel inside the circle,
+		float outer_weight = 1.0; // and outside it.
+		float highlight_percentile = 0.99; // Fraction of the pixels at or below the metered value (highlight mode).
+		float highlight_key = 0.4; // The highlight mode reports percentile * key.
+		bool log_average = false; // Every mean above is a log-average, exp(mean(log(v + delta))), instead.
+	};
+
+	struct AutoWhiteBalance {
+		bool enabled = false;
+		float speed = 1.0;
+		float min_temperature = 2500.0;
+		float max_temperature = 10000.0;
+		uint64_t version = 0;
+	};
+
+	void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile);
+	AutoExposureMetering camera_attributes_get_auto_exposure_metering(RID p_camera_attributes, const Size2i &p_frame_size);
+	void camera_attributes_set_auto_exposure_metering_log_average(RID p_camera_attributes, bool p_enable);
+	void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature);
+	AutoWhiteBalance camera_attributes_get_auto_white_balance(RID p_camera_attributes);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_auto_white_balance(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return cam_attributes && cam_attributes->auto_white_balance_enabled;
+	}
+
+	/* CameraEffects uniform buffer */
+
+	/* Aperture, bokeh, tilt-shift, starburst and halation */
+
+	// What the DOF pass needs to shape its bokeh, worked out from the attributes (see the .cpp for the models).
+	struct BokehShape {
+		bool custom = false; // False: the project's bokeh shape, unchanged.
+		uint32_t blade_count = 0; // 0 = circular.
+		float blade_curvature = 0.0;
+		float rotation = 0.0; // In radians.
+		float squeeze = 1.0; // Anamorphic squeeze: the bokeh is this many times taller than wide.
+		// Cat's eye: the bokeh is the overlap of the aperture (unit circle) with the barrel's circle of this radius,
+		// offset toward the frame's center by cats_eye_offset times the position in frame units.
+		float cats_eye_offset = 0.0;
+		float cats_eye_radius = 1.0;
+		Vector2 frame_half_extent = Vector2(1.0, 1.0); // Frame half extents in frame units (corner at |q| = 1).
+		// Tilt-shift: the plane of sharp focus, in view space (normal, unit), through (0, 0, -focus distance).
+		bool tilt = false;
+		Vector3 focus_plane_normal = Vector3(0.0, 0.0, 1.0);
+		float focal_length = 0.0; // In meters.
+	};
+
+	void camera_attributes_set_aperture(RID p_camera_attributes, bool p_enable, int p_blade_count, float p_blade_curvature, float p_rotation);
+	void camera_attributes_set_cats_eye(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis);
+	void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius);
+	void camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable);
+	// Whether the glare chain must start at full resolution: halation with its high quality option, whose physical halo
+	// is smaller than the usual half-resolution chain can draw.
+	bool camera_attributes_uses_full_resolution_glare(RID p_camera_attributes);
+	// The bokeh for a DOF pass whose frame is p_aspect wide per unit of height.
+	BokehShape camera_attributes_get_bokeh_shape(RID p_camera_attributes, float p_aspect);
+	// Tilt-shift makes every pixel's focus distance differ, so the DOF must run even where the untilted lens would be
+	// sharp everywhere.
+	bool camera_attributes_uses_tilt_shift(RID p_camera_attributes);
+	// Whether the tonemap pass needs the glare chain: the camera's starburst or halation, or the Environment's glare.
+	bool camera_attributes_uses_glare(RID p_camera_attributes, const CameraGlareEnvironment &p_environment);
+
+	/* Longitudinal chromatic aberration */
+
+	// How the DOF pass shifts the red and blue circles of confusion against green's: in the DOF's signed blur units
+	// (negative in front of the focus), blur_rb = blur - offset - scale * |blur|. Both 0 when off.
+	struct LongitudinalCA {
+		bool enabled = false;
+		float offset = 0.0;
+		float scale = 0.0;
+	};
+
+	void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength);
+	LongitudinalCA camera_attributes_get_longitudinal_chromatic_aberration(RID p_camera_attributes);
+
+	/* Panini projection */
+
+	void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression);
+
+	/* Local exposure */
+
+	// The bilateral grid (see the .cpp for the model): LOCAL_EXPOSURE_GRID_ROWS square cells down the frame, as many
+	// across as its aspect ratio needs (the last column reaching past the right edge), and LOCAL_EXPOSURE_GRID_DEPTH
+	// range bins of 1 EV each.
+	static constexpr int LOCAL_EXPOSURE_GRID_ROWS = 16;
+	static constexpr int LOCAL_EXPOSURE_GRID_DEPTH = 32;
+	static Size2i local_exposure_grid_size(const Size2i &p_frame_size);
+
+	struct LocalExposure {
+		bool enabled = false;
+		Size2i grid_size; // Cells across and down.
+		float cell_size = 1.0; // In pixels of the frame.
+		float blurred_luminance_sigma = 1.0; // In cells.
+	};
+
+	void camera_attributes_set_local_exposure(RID p_camera_attributes, bool p_enable, float p_highlight_contrast, float p_shadow_contrast, float p_detail_strength, float p_middle_gray_bias);
+	void camera_attributes_set_local_exposure_blurred_luminance(RID p_camera_attributes, float p_blend, float p_kernel_size);
+	// What the renderer needs to build the grid for a frame of p_frame_size pixels.
+	LocalExposure camera_attributes_get_local_exposure(RID p_camera_attributes, const Size2i &p_frame_size);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_local_exposure(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return cam_attributes && cam_attributes->local_exposure_enabled;
+	}
+
+	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes, const CameraGlareEnvironment &p_environment = CameraGlareEnvironment()) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return (cam_attributes && _lens_requested_bits(*cam_attributes) != 0) || _glare_requested_bits(cam_attributes, p_environment) != 0;
+	}
+	// Fills the buffer for one tonemap pass. Returns false, with the buffer all zeros, when no effect uses it: the
+	// renderers then bind a shared zero buffer, and the output is bit-identical to having no buffer at all.
+	bool camera_attributes_fill_effects_buffer(RID p_camera_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 
 	_FORCE_INLINE_ RSE::DOFBlurQuality camera_attributes_get_dof_blur_quality() {
 		return dof_blur_quality;

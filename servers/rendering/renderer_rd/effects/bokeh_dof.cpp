@@ -30,6 +30,7 @@
 
 #include "bokeh_dof.h"
 
+#include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -93,7 +94,80 @@ BokehDOF::~BokehDOF() {
 	}
 }
 
-void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth) {
+static uint32_t _pack_half2(float p_a, float p_b) {
+	return uint32_t(Math::make_half_float(p_a)) | (uint32_t(Math::make_half_float(p_b)) << 16);
+}
+
+bool BokehDOF::_setup_bokeh_shape(RID p_camera_attributes, const Size2i &p_size, const Projection &p_projection, bool p_orthogonal) {
+	const RendererCameraAttributes::BokehShape shape = RSG::camera_attributes->camera_attributes_get_bokeh_shape(p_camera_attributes, p_size.y > 0 ? float(p_size.x) / float(p_size.y) : 1.0f);
+	bokeh.push_constant.shape_flags = 0;
+	if (shape.custom) {
+		bokeh.push_constant.shape_flags = MIN(shape.blade_count, 255u) | BOKEH_SHAPE_CUSTOM;
+		bokeh.push_constant.blade_shape = _pack_half2(shape.blade_curvature, shape.rotation);
+		bokeh.push_constant.frame_half_extent = _pack_half2(shape.frame_half_extent.x, shape.frame_half_extent.y);
+		if (shape.cats_eye_offset > 0.0f) {
+			bokeh.push_constant.shape_flags |= BOKEH_SHAPE_CATS_EYE;
+			bokeh.push_constant.cats_eye = _pack_half2(shape.cats_eye_offset, shape.cats_eye_radius);
+		}
+	}
+	bokeh.push_constant.squeeze_focal_length = _pack_half2(shape.squeeze, shape.focal_length);
+	// Tilt-shift needs each pixel's view ray; an orthogonal camera has no lens to tilt.
+	if (shape.tilt && !p_orthogonal) {
+		bokeh.push_constant.shape_flags |= BOKEH_SHAPE_TILT;
+		// NDC x = (P00 x + P20 z) / -z, so x / -z = (NDC x + P20) / P00 (columns[c][r]); the same for y.
+		const float p00 = p_projection.columns[0][0];
+		const float p11 = p_projection.columns[1][1];
+		bokeh.push_constant.view_ray_scale = _pack_half2(1.0f / p00, 1.0f / p11);
+		bokeh.push_constant.view_ray_offset = _pack_half2(p_projection.columns[2][0] / p00, p_projection.columns[2][1] / p11);
+		bokeh.push_constant.tilt_normal_x = shape.focus_plane_normal.x;
+		bokeh.push_constant.tilt_normal_y = shape.focus_plane_normal.y;
+	}
+	return shape.custom;
+}
+
+void BokehDOF::_setup_longitudinal_ca(RID p_camera_attributes) {
+	const RendererCameraAttributes::LongitudinalCA ca = RSG::camera_attributes->camera_attributes_get_longitudinal_chromatic_aberration(p_camera_attributes);
+	bokeh.push_constant.longitudinal_ca = 0;
+	if (ca.enabled) {
+		bokeh.push_constant.shape_flags |= BOKEH_LONGITUDINAL_CA;
+		bokeh.push_constant.longitudinal_ca = _pack_half2(ca.offset, ca.scale);
+	}
+}
+
+bool BokehDOF::_physical_blur_size(RID p_camera_attributes, const Size2i &p_size, float &r_blur_size, float &r_reach) {
+	const float radius = RSG::camera_attributes->camera_attributes_get_dof_physical_blur_radius(p_camera_attributes, p_size);
+	if (radius < 0.0f) {
+		return false;
+	}
+	r_blur_size = radius;
+	if (RSG::camera_attributes->camera_attributes_get_dof_legacy_gather(p_camera_attributes)) {
+		// CameraAttributesPhysical.dof_legacy_gather: upstream's gather around the thin-lens size, for projects whose look
+		// was tuned through it. The reach stays upstream's fixed 32 pixels (r_reach untouched: a larger blur clamps
+		// there, whatever the project setting), the box and hexagon divide by every sample, which dilutes a blur smaller
+		// than the reach toward sharp (TASKS.md §3 trap 97), and the half-size passes blur twice as wide.
+		return false;
+	}
+	// The gather's reach scales with the image too, as a percentage of its height, so the blur looks the same at every
+	// resolution (the default 6% is upstream's fixed 32 pixels at about 540p). Past it the blur is clamped: a bigger
+	// reach keeps the box and hexagon's number of samples (spread wider: coarser for small blurs, and they miss the
+	// texture cache more) but costs the circle and custom apertures its square (WebGPU at 1440p, Circle Medium: 4.0 ms at
+	// 32 pixels, 7.8 ms at 3% = 43, 34.7 ms at 6% = 86), so those are capped at 3% (_physical_circle_reach()).
+	const float max_percent = GLOBAL_GET_CACHED(float, "rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size");
+	r_reach = MAX(0.01f * max_percent * float(p_size.height), 1.0f);
+	return true;
+}
+
+float BokehDOF::_physical_circle_reach(const Size2i &p_size, float p_reach) {
+	// The Circle shape and custom apertures (which draw through the circular gather) reach at most 3% of the image
+	// height, a fixed cap rather than a share of the project setting, while Box and Hexagon keep the setting's reach
+	// (6% by default). Their sample count stays the same at any reach, but the circle's grows with its square: at 6%,
+	// Circle Medium costs 34.7 ms at 1440p on WebGPU against 7.8 ms at 3% (TASKS.md §4.90). A fixed cap keeps that cost
+	// where it was whatever the setting (half the setting would grow it again with a larger setting); a setting below
+	// 3% still lowers it. A blur past the cap clamps there, as a larger one clamps at the setting with Box and Hexagon.
+	return MIN(p_reach, MAX(0.01f * PHYSICAL_CIRCLE_MAX_BLUR_PERCENT * float(p_size.height), 1.0f));
+}
+
+void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth) {
 	ERR_FAIL_COND_MSG(prefer_raster_effects, "Can't use compute version of bokeh depth of field with the mobile renderer.");
 
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
@@ -108,6 +182,8 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	float dof_near_begin = RSG::camera_attributes->camera_attributes_get_dof_near_distance(p_camera_attributes);
 	float dof_near_size = RSG::camera_attributes->camera_attributes_get_dof_near_transition(p_camera_attributes);
 	float bokeh_size = RSG::camera_attributes->camera_attributes_get_dof_blur_amount(p_camera_attributes) * 64; // Base 64 pixel radius.
+	float physical_reach = 32.0f; // The physically-based blur's gather reach, in pixels.
+	const bool sized_gather = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
 
 	bool use_jitter = RSG::camera_attributes->camera_attributes_get_dof_blur_use_jitter();
 	RSE::DOFBokehShape bokeh_shape = RSG::camera_attributes->camera_attributes_get_dof_blur_bokeh_shape();
@@ -133,12 +209,29 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	bokeh.push_constant.z_near = p_cam_znear;
 	bokeh.push_constant.z_far = p_cam_zfar;
 	bokeh.push_constant.orthogonal = p_cam_orthogonal;
-	bokeh.push_constant.blur_size = (dof_near_size < 0.0 && dof_far_size < 0.0) ? 32 : bokeh_size; // Cap with physically-based to keep performance reasonable.
+	bokeh.push_constant.blur_size = (dof_near_size < 0.0 && dof_far_size < 0.0) ? physical_reach : bokeh_size; // Cap with physically-based to keep performance reasonable.
 
 	bokeh.push_constant.second_pass = false;
 	bokeh.push_constant.half_size = false;
 
 	bokeh.push_constant.blur_scale = 0.5;
+
+	// The aperture's shape (CameraAttributes): a custom shape needs the circular gather; tilt-shift makes every pixel's
+	// focus distance its own, so both sides run.
+	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
+		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
+	}
+	_setup_longitudinal_ca(p_camera_attributes);
+	if (sized_gather) {
+		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
+		if (bokeh_shape == RSE::DOF_BOKEH_CIRCLE && dof_near_size < 0.0 && dof_far_size < 0.0) {
+			bokeh.push_constant.blur_size = _physical_circle_reach(p_buffers.base_texture_size, physical_reach);
+		}
+	}
+	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
+		bokeh.push_constant.blur_far_active = true;
+		bokeh.push_constant.blur_near_active = true;
+	}
 
 	// setup our uniforms
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -300,7 +393,7 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	RD::get_singleton()->compute_list_end();
 }
 
-void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal) {
+void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection) {
 	ERR_FAIL_COND_MSG(!prefer_raster_effects, "Can't blur-based depth of field with the clustered renderer.");
 
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
@@ -315,6 +408,8 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	float dof_near_begin = RSG::camera_attributes->camera_attributes_get_dof_near_distance(p_camera_attributes);
 	float dof_near_size = RSG::camera_attributes->camera_attributes_get_dof_near_transition(p_camera_attributes);
 	float bokeh_size = RSG::camera_attributes->camera_attributes_get_dof_blur_amount(p_camera_attributes) * 64; // Base 64 pixel radius.
+	float physical_reach = 32.0f; // The physically-based blur's gather reach, in pixels.
+	const bool sized_gather = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
 
 	RSE::DOFBokehShape bokeh_shape = RSG::camera_attributes->camera_attributes_get_dof_blur_bokeh_shape();
 	RSE::DOFBlurQuality blur_quality = RSG::camera_attributes->camera_attributes_get_dof_blur_quality();
@@ -331,6 +426,39 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	bokeh.push_constant.second_pass = false;
 	bokeh.push_constant.half_size = false;
 	bokeh.push_constant.blur_size = bokeh_size;
+
+	// A negative transition asks for the physically-based blur (CameraAttributesPhysical), as in bokeh_dof_compute():
+	// the blur grows with the distance from the focus, and the gather is capped (32 pixels, or _physical_blur_size()'s
+	// reach) to keep its cost bounded.
+	bokeh.push_constant.use_physical_far = dof_far_size < 0.0;
+	bokeh.push_constant.blur_size_far = bokeh_size;
+	bokeh.push_constant.use_physical_near = dof_near_size < 0.0;
+	bokeh.push_constant.blur_size_near = bokeh_size;
+	if (dof_near_size < 0.0 && dof_far_size < 0.0) {
+		bokeh.push_constant.blur_size = physical_reach;
+	}
+
+	// The aperture's shape (CameraAttributes): a custom shape needs the circular gather; tilt-shift makes every pixel's
+	// focus distance its own, so both sides run.
+	if (_setup_bokeh_shape(p_camera_attributes, p_buffers.base_texture_size, p_cam_projection, p_cam_orthogonal)) {
+		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
+	}
+	_setup_longitudinal_ca(p_camera_attributes);
+	if (sized_gather) {
+		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
+		if (bokeh_shape == RSE::DOF_BOKEH_CIRCLE && dof_near_size < 0.0 && dof_far_size < 0.0) {
+			bokeh.push_constant.blur_size = _physical_circle_reach(p_buffers.base_texture_size, physical_reach);
+		}
+	}
+	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
+		dof_far = true;
+		dof_near = true;
+		// Tilt-shift rescales the physical circle of confusion per pixel, so it uses the physical model here too.
+		bokeh.push_constant.use_physical_far = true;
+		bokeh.push_constant.use_physical_near = true;
+		bokeh.push_constant.blur_size_far = bokeh_size;
+		bokeh.push_constant.blur_size_near = bokeh_size;
+	}
 
 	// setup our uniforms
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);

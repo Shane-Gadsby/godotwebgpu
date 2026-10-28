@@ -1,0 +1,27 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.2s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 99%","preloadShown":true}
+3.2s download done {"rtenv":false,"compiles":0,"devices":0,"preload":"","preloadShown":true} {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":4,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1}
+PASS wasm and main pack fetched before the press (/index.wasm, /index.pck, /index.shaders.pck, /index.shaders_extra.bin, /index.textures_bc.pck, /index.pck, /index.pck, /index.pck)
+8.2s 5 s after the download {"rtenv":false,"compiles":0,"devices":0,"preload":"","preloadShown":true}
+PASS engine idle 5 s after the download (rtenv false, wasm compiles 0, requestDevice 0)
+8.2s PROBE pointerdown trusted=true target=status-start at 8189 ms
+8.2s PROBE click trusted=true target=status-start at 8189 ms
+8.2s PROBE requestDevice at 8189 ms: Error
+    at GPUAdapter.requestDevice (<anonymous>:13:158)
+    at http://127.0.0.1:8702/index.js:1661:19
+8.2s pressed (fail)
+8.4s PROBE keydown trusted=true target= at 8382 ms
+8.8s PROBE keydown trusted=true target=canvas at 8819 ms
+8.8s PROBE keydown trusted=true target=canvas at 8819 ms
+9.1s fail: overlay gone 0.88 s after the press
+requests to the game server: {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":5,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS main pack: 4 failed prefetch attempts, then fetched again on the press (5)
+PASS every other file requested once
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+  error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+  error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+  error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+  warning: Godot: prefetching 'index.pck' failed (Error: Failed loading file 'index.pck'); it will be downloaded again when the game starts.
+RESULT PASS

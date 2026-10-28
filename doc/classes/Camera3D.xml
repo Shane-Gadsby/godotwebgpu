@@ -10,11 +10,23 @@
 		<link title="Third Person Shooter (TPS) Demo">https://godotengine.org/asset-library/asset/2710</link>
 	</tutorials>
 	<methods>
+		<method name="autofocus_trigger">
+			<return type="void" />
+			<description>
+				Starts a single autofocus (like half-pressing a shutter button) when [member autofocus_mode] is [constant AUTOFOCUS_MODE_SINGLE]: measures the distance once, from [member autofocus_target] or [member autofocus_points], and drives the lens there. Emits [signal focus_acquired] when focus is reached, or [signal focus_failed] right away if nothing was measured. Does nothing in the other modes.
+			</description>
+		</method>
 		<method name="clear_current">
 			<return type="void" />
 			<param index="0" name="enable_next" type="bool" default="true" />
 			<description>
 				If this is the current camera, remove it from being current. If [param enable_next] is [code]true[/code], request to make the next camera current, if any.
+			</description>
+		</method>
+		<method name="get_autofocus_distance" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the distance in meters the autofocus lens is currently focused at, which may differ from the measured subject distance while the lens is moving.
 			</description>
 		</method>
 		<method name="get_camera_projection" qualifiers="const">
@@ -48,10 +60,70 @@
 				Returns the camera's frustum planes in world space units as an array of [Plane]s in the following order: near, far, left, top, right, bottom. Not to be confused with [member frustum_offset].
 			</description>
 		</method>
+		<method name="get_monitoring_clean_texture" qualifiers="const">
+			<return type="Texture2D" />
+			<description>
+				Returns the camera's image without its monitoring overlays while [member monitoring_clean_texture_enabled] is [code]true[/code], or [code]null[/code] otherwise. It is the same [Texture2D] for as long as the property stays enabled; read it with [method Texture2D.get_image_async], or draw it like any other texture (in a [TextureRect], for example).
+				[codeblock]
+				# "Download Image": the photo without the zebras or false color the monitor shows.
+				func save_photo():
+					$Camera3D.monitoring_clean_texture_enabled = true
+					$Camera3D.get_monitoring_clean_texture().get_image_async(func(image: Image):
+						$Camera3D.monitoring_clean_texture_enabled = false
+						if image:
+							image.save_png("user://photo.png"))
+				[/codeblock]
+				Or, with [code]await[/code] ([method Texture2D.get_image_awaitable] returns a signal that fires once with the [Image] or [code]null[/code]):
+				[codeblock]
+				func save_photo():
+					$Camera3D.monitoring_clean_texture_enabled = true
+					var image: Image = await $Camera3D.get_monitoring_clean_texture().get_image_awaitable()
+					$Camera3D.monitoring_clean_texture_enabled = false
+					if image:
+						image.save_png("user://photo.png")
+				[/codeblock]
+				The read is of the frame drawn at the end of the current frame, so enabling the property and reading the texture in the same function works. The image has the size and format of the viewport's own texture ([method Viewport.get_texture]).
+			</description>
+		</method>
+		<method name="get_monitoring_histogram">
+			<return type="PackedInt32Array" />
+			<param index="0" name="channel" type="int" enum="Camera3D.MonitoringHistogramChannel" default="0" />
+			<description>
+				Returns the latest histogram read back from the GPU for [param channel]: 256 pixel counts, one per 8-bit code value (bin [code]i[/code] counts the pixels whose value rounds to [code]i / 255[/code]). Returns an empty array while [member monitoring_histogram_enabled] is [code]false[/code], and until the first readback arrives.
+				The counts are of the display-encoded image (nonlinear, as it is shown), after tonemapping and [CameraAttributes]' noise reduction and sharpening, and before the monitoring overlays (zebras, false color, focus peaking, the histogram itself), so turning those on or off does not change them. Luma is Rec. 709 Y' of the display-encoded values. Each channel's counts add up to the width times the height of the viewport's 3D render target, so [code]count / (width * height)[/code] is a fraction of the frame.
+				The first call starts the readback, as does connecting to [signal monitoring_histogram_updated]; it then runs while the histogram is enabled, independently of [member monitoring_visible_in_output] and [member monitoring_histogram_draw]. The readback is asynchronous and never stalls rendering: the result is one or more frames old, and on the web the first frames return an empty array. [member monitoring_histogram_update_interval] throttles it. Each camera has its own histogram, so two cameras rendering in the same frame each return their own; a camera rendered into several viewports returns the latest of them.
+				[codeblock]
+				func _ready():
+				    $Camera3D.monitoring_histogram_enabled = true
+				    $Camera3D.monitoring_histogram_draw = false # The app draws its own.
+				    $Camera3D.monitoring_histogram_update_interval = 0.25
+				    $Camera3D.monitoring_histogram_updated.connect(_on_histogram)
+
+				func _on_histogram():
+				    var luma = $Camera3D.get_monitoring_histogram()
+				    var highlights_clipping = false
+				    for i in range(250, 256):
+				        highlights_clipping = highlights_clipping or luma[i] &gt; 0
+				[/codeblock]
+				[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. In Compatibility, which has no compute shaders, it always returns an empty array. Not available in XR (multiview) rendering.
+			</description>
+		</method>
 		<method name="get_pyramid_shape_rid">
 			<return type="RID" />
 			<description>
 				Returns the RID of a pyramid shape encompassing the camera's view frustum, ignoring the camera's near plane. The tip of the pyramid represents the position of the camera.
+			</description>
+		</method>
+		<method name="get_shake_offset" qualifiers="const">
+			<return type="Transform3D" />
+			<description>
+				Returns the handheld shake offset applied this frame, in the camera's own frame of reference (identity when [member shake_enabled] is [code]false[/code]). The rendered camera transform, also returned by [method get_camera_transform], is the node's global transform multiplied by this offset; the node's own [member Node3D.transform] never includes it.
+			</description>
+		</method>
+		<method name="is_autofocus_acquired" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the autofocus has reached its subject (see [signal focus_acquired]).
 			</description>
 		</method>
 		<method name="is_position_behind" qualifiers="const">
@@ -80,6 +152,7 @@
 			<param index="0" name="screen_point" type="Vector2" />
 			<description>
 				Returns a normal vector from the screen point location directed along the camera. Orthogonal cameras are normalized. Perspective cameras account for perspective, screen width/height, etc.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_position" qualifiers="const">
@@ -88,6 +161,7 @@
 			<param index="1" name="z_depth" type="float" />
 			<description>
 				Returns the 3D point in world space that maps to the given 2D coordinate in the [Viewport] rectangle on a plane that is the given [param z_depth] distance into the scene away from the camera.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_ray_normal" qualifiers="const">
@@ -95,6 +169,7 @@
 			<param index="0" name="screen_point" type="Vector2" />
 			<description>
 				Returns a normal vector in world space, that is the result of projecting a point on the [Viewport] rectangle by the inverse camera projection. This is useful for casting rays in the form of (origin, normal) for object intersection or picking.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 			</description>
 		</method>
 		<method name="project_ray_origin" qualifiers="const">
@@ -146,6 +221,7 @@
 			<param index="0" name="world_point" type="Vector3" />
 			<description>
 				Returns the 2D coordinate in the [Viewport] rectangle that maps to the given 3D point in world space.
+				[b]Note:[/b] Follows the Panini projection of the camera attributes in effect ([member CameraAttributes.panini_enabled]), so the result matches the image the camera shows.
 				[b]Note:[/b] When using this to position GUI elements over a 3D viewport, use [method is_position_behind] to prevent them from appearing if the 3D point is behind the camera:
 				[codeblock]
 				# This code block is part of a script that inherits from Node3D.
@@ -159,6 +235,27 @@
 	<members>
 		<member name="attributes" type="CameraAttributes" setter="set_attributes" getter="get_attributes">
 			The [CameraAttributes] to use for this camera.
+		</member>
+		<member name="autofocus_collision_mask" type="int" setter="set_autofocus_collision_mask" getter="get_autofocus_collision_mask" default="1">
+			The physics layers the autofocus rays of [member autofocus_points] can hit. Use it to keep glass, triggers or the player's own body from taking focus.
+		</member>
+		<member name="autofocus_hunting" type="float" setter="set_autofocus_hunting" getter="get_autofocus_hunting" default="0.0">
+			The fraction by which the lens overshoots its target before settling, the back-and-forth "hunting" of contrast-detect autofocus. [code]0.0[/code] approaches the target smoothly without overshoot, as phase-detect autofocus does. The envelope of the motion still decays with [member autofocus_time_constant].
+		</member>
+		<member name="autofocus_mode" type="int" setter="set_autofocus_mode" getter="get_autofocus_mode" enum="Camera3D.AutofocusMode" default="0">
+			How the camera focuses. In [constant AUTOFOCUS_MODE_SINGLE] and [constant AUTOFOCUS_MODE_CONTINUOUS] the camera drives the focus of its [member attributes]: [member CameraAttributesPhysical.frustum_focus_distance], or for [CameraAttributesPractical] the near and far blur distances and transitions, which are moved together around the focus distance keeping the width of the in-focus band constant in diopters (1 / distance), as a real lens's depth of field does. With only far blur enabled, the in-focus band is taken to be centered at half the far distance; with only near blur, the far limit is at infinity.
+			Autofocus runs in the editor too, so the camera preview shows the result. Saving the scene stores the values you set, not the ones autofocus wrote; editing them while autofocus runs makes them the new starting point. Switching back to [constant AUTOFOCUS_MODE_MANUAL] leaves the focus where autofocus put it.
+			[b]Note:[/b] Autofocus writes to the attributes resource. A resource shared by several cameras is focused by all of them; give each autofocusing camera its own resource (for example with [member Resource.resource_local_to_scene]).
+			[b]Note:[/b] Ray-cast measurement ([member autofocus_points]) uses the direct space state from the main thread, so it does not work with [member ProjectSettings.physics/3d/run_on_separate_thread] enabled; [member autofocus_target] works in all cases.
+		</member>
+		<member name="autofocus_points" type="PackedVector2Array" setter="set_autofocus_points" getter="get_autofocus_points" default="PackedVector2Array(0.5, 0.5)">
+			Normalized screen points (0 to 1, [code]Vector2(0.5, 0.5)[/code] is the center, Y down) where autofocus measures distance with a physics ray cast, like a phase-detect or laser rangefinder sensor. With several points, the nearest hit wins (closest-subject priority of zone autofocus). Used when [member autofocus_target] is empty or does not point to a [Node3D].
+		</member>
+		<member name="autofocus_target" type="NodePath" setter="set_autofocus_target" getter="get_autofocus_target" default="NodePath(&quot;&quot;)">
+			A [Node3D] the autofocus tracks: its distance along the camera's optical axis is the focus distance. Takes priority over [member autofocus_points].
+		</member>
+		<member name="autofocus_time_constant" type="float" setter="set_autofocus_time_constant" getter="get_autofocus_time_constant" default="0.1">
+			How fast the focus moves, in seconds: the remaining focus error, measured in diopters (1 / distance), falls by a factor of [code]e[/code] (to 37%) every time constant, so focus is 95% of the way after three time constants whatever the frame rate. A focus motor's travel is close to linear in diopters, which is why a focus change from 1 m to 2 m takes as long as one from 2 m to infinity.
 		</member>
 		<member name="compositor" type="Compositor" setter="set_compositor" getter="get_compositor">
 			The [Compositor] to use for this camera.
@@ -201,11 +298,111 @@
 		<member name="keep_aspect" type="int" setter="set_keep_aspect_mode" getter="get_keep_aspect_mode" enum="Camera3D.KeepAspect" default="1">
 			The axis to lock during [member fov]/[member size] adjustments. Can be either [constant KEEP_WIDTH] or [constant KEEP_HEIGHT].
 		</member>
+		<member name="monitoring_clean_texture_enabled" type="bool" setter="set_monitoring_clean_texture_enabled" getter="is_monitoring_clean_texture_enabled" default="false">
+			If [code]true[/code], every frame this camera renders is also copied, without its monitoring overlays, into the texture [method get_monitoring_clean_texture] returns: the 3D image after tonemapping and [CameraAttributes]' noise reduction and sharpening, before the zebras, false color, focus peaking and drawn histogram, and before any 2D drawn over the viewport. It is what the viewport's own texture would show with the overlays off, so a script can save or show the picture the camera records while its monitor shows the overlays, without rendering the scene a second time.
+			This costs one texture the size of the viewport and one copy per rendered frame while enabled, whether or not any overlay is on, and nothing while disabled: disabling it frees the texture (a script that kept the [Texture2D] then reads [code]null[/code] from it). Enable it only while needed, as in the example in [method get_monitoring_clean_texture]. It works in the running project whatever [member monitoring_visible_in_output] says (without the overlays, the copy is simply the image).
+			Each camera has its own texture, so two viewports with their own cameras each keep their own. A camera rendered into several viewports keeps the latest one's. Until the camera has rendered a frame (for example, its [SubViewport]'s [member SubViewport.render_target_update_mode] is [constant SubViewport.UPDATE_DISABLED]), the texture is a placeholder, and later it keeps the last frame rendered.
+			[b]Note:[/b] Supported in every rendering method, including Compatibility and the web. Not in XR (multiview) rendering.
+		</member>
+		<member name="monitoring_false_color_enabled" type="bool" setter="set_monitoring_false_color_enabled" getter="is_monitoring_false_color_enabled" default="false">
+			If [code]true[/code], the image is replaced by an exposure map using the ARRI ALEXA false color bands on the video level (IRE): purple below 2.5 (black clipping), blue from 2.5 to 4, green from 38 to 42 (18% middle gray), pink from 52 to 56 (one stop over middle gray, typical light skin), yellow from 97 to 99 and red from 99 (white clipping). Everything else is shown in gray at its own luma. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_focus_peaking_color" type="Color" setter="set_monitoring_focus_peaking_color" getter="get_monitoring_focus_peaking_color" default="Color(1, 0, 0, 1)">
+			The color [member monitoring_focus_peaking_enabled] paints in-focus edges with.
+		</member>
+		<member name="monitoring_focus_peaking_enabled" type="bool" setter="set_monitoring_focus_peaking_enabled" getter="is_monitoring_focus_peaking_enabled" default="false">
+			If [code]true[/code], edges that are in focus are painted in [member monitoring_focus_peaking_color]. Edges are found from the gradient of the display image's luma (a Sobel operator): detail in focus has steep gradients, and defocus (depth of field) spreads them out. Low-contrast surfaces show no peaking even when in focus, as on a camera. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_focus_peaking_sensitivity" type="float" setter="set_monitoring_focus_peaking_sensitivity" getter="get_monitoring_focus_peaking_sensitivity" default="0.5">
+			How weak an edge still counts as in focus for [member monitoring_focus_peaking_enabled], from [code]0.0[/code] (only the strongest edges, a luma step of 40% within a pixel) to [code]1.0[/code] (edges of 3%).
+		</member>
+		<member name="monitoring_histogram_draw" type="bool" setter="set_monitoring_histogram_draw" getter="is_monitoring_histogram_draw" default="true">
+			If [code]true[/code], [member monitoring_histogram_enabled] draws the histogram over the image (following [member monitoring_visible_in_output]). If [code]false[/code], nothing is drawn and the histogram is only counted for [method get_monitoring_histogram], on the frames a readback is due: for a project that shows the histogram in its own UI.
+		</member>
+		<member name="monitoring_histogram_enabled" type="bool" setter="set_monitoring_histogram_enabled" getter="is_monitoring_histogram_enabled" default="false">
+			If [code]true[/code], a histogram of the frame (256 bins, one per 8-bit code value of the display image) is counted on the GPU every frame and drawn in a corner of the image, its bars scaled to the tallest bin. This overlay follows [member monitoring_visible_in_output]. Scripts can read the counts with [method get_monitoring_histogram]; [member monitoring_histogram_draw] turns the drawing off.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods, which have compute shaders, not Compatibility.
+		</member>
+		<member name="monitoring_histogram_mode" type="int" setter="set_monitoring_histogram_mode" getter="get_monitoring_histogram_mode" enum="Camera3D.MonitoringHistogramMode" default="0">
+			Whether [member monitoring_histogram_enabled] shows the luma histogram or the red, green and blue ones overlaid.
+		</member>
+		<member name="monitoring_histogram_opacity" type="float" setter="set_monitoring_histogram_opacity" getter="get_monitoring_histogram_opacity" default="0.75">
+			The opacity of the histogram over the image.
+		</member>
+		<member name="monitoring_histogram_position" type="int" setter="set_monitoring_histogram_position" getter="get_monitoring_histogram_position" enum="Camera3D.MonitoringHistogramPosition" default="3">
+			The corner of the image [member monitoring_histogram_enabled] draws the histogram in. It is inset from the corner by 3% of the image height.
+		</member>
+		<member name="monitoring_histogram_size" type="float" setter="set_monitoring_histogram_size" getter="get_monitoring_histogram_size" default="0.25">
+			The width of the histogram as a fraction of the image width. Its height is half its width.
+		</member>
+		<member name="monitoring_histogram_update_interval" type="float" setter="set_monitoring_histogram_update_interval" getter="get_monitoring_histogram_update_interval" default="0.0">
+			The time in seconds between two readbacks of the histogram for [method get_monitoring_histogram] and [signal monitoring_histogram_updated]. [code]0.0[/code] reads it back every frame. A UI that redraws a few times a second can use [code]0.25[/code], which also saves the counting on the frames in between when [member monitoring_histogram_draw] is [code]false[/code].
+		</member>
+		<member name="monitoring_visible_in_output" type="bool" setter="set_monitoring_visible_in_output" getter="is_monitoring_visible_in_output" default="false">
+			If [code]false[/code], the monitoring overlays ([member monitoring_zebras_enabled], [member monitoring_focus_peaking_enabled], [member monitoring_false_color_enabled], [member monitoring_histogram_enabled]) are only drawn in the editor, where the editor renders through this camera: the 3D viewport's camera preview and the Camera3D inspector preview. A running project then draws none of them and does no work for them. If [code]true[/code], they are also drawn in the running project.
+			The overlays are drawn over the finished 3D image, after tonemapping and [CameraAttributes]' noise reduction and sharpening, and under any 2D drawn on top of the viewport.
+			[b]Note:[/b] The overlays are only drawn for single-view rendering, not in XR.
+		</member>
+		<member name="monitoring_zebras_color" type="Color" setter="set_monitoring_zebras_color" getter="get_monitoring_zebras_color" default="Color(0, 0, 0, 1)">
+			The color of the stripes [member monitoring_zebras_enabled] draws, as a display (sRGB-encoded) color, like [member monitoring_focus_peaking_color]. Defaults to black, which shows on the bright areas this zebra marks.
+		</member>
+		<member name="monitoring_zebras_enabled" type="bool" setter="set_monitoring_zebras_enabled" getter="is_monitoring_zebras_enabled" default="false">
+			If [code]true[/code], diagonal stripes ([member monitoring_zebras_color], black by default), crawling as on a camera's monitor, are drawn over the parts of the image whose video level is at or above [member monitoring_zebras_level]. The video level is the Rec. 709 luma of the display-encoded image, in IRE (percent of full range). This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_zebras_level" type="float" setter="set_monitoring_zebras_level" getter="get_monitoring_zebras_level" default="95.0">
+			The video level, in IRE (percent of full-range Rec. 709 luma), at and above which [member monitoring_zebras_enabled] draws its stripes. The default of 95 marks highlights about to clip.
+		</member>
+		<member name="monitoring_zebras_second_color" type="Color" setter="set_monitoring_zebras_second_color" getter="get_monitoring_zebras_second_color" default="Color(1, 1, 1, 1)">
+			The color of the stripes [member monitoring_zebras_second_enabled] draws, as a display (sRGB-encoded) color. Defaults to white. Where both zebras mark a pixel, [member monitoring_zebras_color] wins.
+		</member>
+		<member name="monitoring_zebras_second_enabled" type="bool" setter="set_monitoring_zebras_second_enabled" getter="is_monitoring_zebras_second_enabled" default="false">
+			If [code]true[/code], a second zebra of stripes ([member monitoring_zebras_second_color], white by default), running the other way, is drawn over the parts of the image within ±5 IRE of [member monitoring_zebras_second_level], the window cameras offer for judging skin exposure. This overlay follows [member monitoring_visible_in_output].
+		</member>
+		<member name="monitoring_zebras_second_level" type="float" setter="set_monitoring_zebras_second_level" getter="get_monitoring_zebras_second_level" default="70.0">
+			The center, in IRE, of the ±5 IRE window [member monitoring_zebras_second_enabled] marks. The default of 70 is a common skin-tone exposure target.
+		</member>
 		<member name="near" type="float" setter="set_near" getter="get_near" default="0.05">
 			The distance to the near culling boundary for this camera relative to its local Z axis. Lower values allow the camera to see objects more up close to its origin, at the cost of lower precision across the [i]entire[/i] range. Values lower than the default can lead to increased Z-fighting.
 		</member>
 		<member name="projection" type="int" setter="set_projection" getter="get_projection" enum="Camera3D.ProjectionType" default="0">
 			The camera's projection mode. In [constant PROJECTION_PERSPECTIVE] mode, objects' Z distance from the camera's local space scales their perceived size.
+		</member>
+		<member name="shake_breathing_amplitude" type="float" setter="set_shake_breathing_amplitude" getter="get_shake_breathing_amplitude" default="0.15">
+			RMS amplitude of the slow pitch sway from the operator's breathing, in degrees.
+		</member>
+		<member name="shake_breathing_frequency" type="float" setter="set_shake_breathing_frequency" getter="get_shake_breathing_frequency" default="0.25">
+			Frequency of the breathing sway, in hertz. People at rest breathe 12 to 20 times a minute (0.2 to 0.33 Hz).
+		</member>
+		<member name="shake_enabled" type="bool" setter="set_shake_enabled" getter="is_shake_enabled" default="false">
+			If [code]true[/code], the camera moves as if held by hand: procedural rotation and position noise, plus breathing sway, applied as an offset on top of the node's transform. The node's own [member Node3D.transform] and [member Node3D.global_transform] are not changed, so gameplay code keeps working; [method get_camera_transform] and the projection methods such as [method project_ray_normal] include the offset, so picking matches what is rendered. The motion is deterministic for a given [member shake_seed] and frame times, and in the editor it moves the camera preview only with [member shake_visible_in_editor] on. [member shake_preset] fills in every shake setting for a typical way of holding or mounting a camera.
+		</member>
+		<member name="shake_position_amplitude" type="Vector3" setter="set_shake_position_amplitude" getter="get_shake_position_amplitude" default="Vector3(0.002, 0.002, 0.001)">
+			RMS amplitude of the position shake along the camera's local X, Y and Z axes, in meters.
+		</member>
+		<member name="shake_position_frequency" type="Vector3" setter="set_shake_position_frequency" getter="get_shake_position_frequency" default="Vector3(1.5, 1.5, 1.5)">
+			Center frequency of the position shake per local axis, in hertz. Each axis's motion is band-limited noise spread over two octaves around it (half to twice the frequency).
+		</member>
+		<member name="shake_preset" type="int" setter="set_shake_preset" getter="get_shake_preset" enum="Camera3D.ShakePreset" default="0">
+			Fills in every shake setting ([member shake_rotation_amplitude], [member shake_rotation_frequency], [member shake_position_amplitude], [member shake_position_frequency], [member shake_breathing_amplitude], [member shake_breathing_frequency], [member shake_stabilization] and [member shake_scale_with_focal_length]) for a typical way of holding or mounting a camera; [member shake_seed] and [member shake_enabled] are left alone. Changing any of those settings afterwards switches this back to [constant SHAKE_PRESET_CUSTOM], keeping the values. Choosing [constant SHAKE_PRESET_CUSTOM] changes nothing.
+			The values each preset writes are listed with its constant. They are drawn from measurements where they exist (the CIPA DC-X011 hand-shake band of about 1-10 Hz, postural sway, walking and running step frequencies, vehicle ride frequencies); the sources are cited in the engine's source code.
+		</member>
+		<member name="shake_rotation_amplitude" type="Vector3" setter="set_shake_rotation_amplitude" getter="get_shake_rotation_amplitude" default="Vector3(0.3, 0.3, 0.15)">
+			RMS amplitude of the rotation shake around the camera's local X (pitch), Y (yaw) and Z (roll) axes, in degrees.
+		</member>
+		<member name="shake_rotation_frequency" type="Vector3" setter="set_shake_rotation_frequency" getter="get_shake_rotation_frequency" default="Vector3(2, 2, 1.5)">
+			Center frequency of the rotation shake per axis, in hertz. Each axis's motion is band-limited noise spread over two octaves around it (half to twice the frequency). Hand and arm sway concentrate below about 5 Hz; the defaults are a camera held in two hands while standing.
+		</member>
+		<member name="shake_scale_with_focal_length" type="bool" setter="set_shake_scale_with_focal_length" getter="is_shake_scale_with_focal_length" default="true">
+			If [code]true[/code], the rotation amplitudes are angles, so a longer lens (smaller [member fov]) shows more shake in the frame, as with a real camera. If [code]false[/code], the amplitudes are as seen through a 50 mm lens on a full-frame sensor (a vertical field of view of 27 degrees) and scale with [member fov], so the shake keeps its size on screen while zooming. Position shake is not affected.
+		</member>
+		<member name="shake_seed" type="int" setter="set_shake_seed" getter="get_shake_seed" default="0">
+			Seed of the shake noise. Cameras with the same seed and settings shake identically.
+		</member>
+		<member name="shake_stabilization" type="float" setter="set_shake_stabilization" getter="get_shake_stabilization" default="0.0">
+			Strength of the image stabilization, from [code]0.0[/code] (none) to [code]1.0[/code]. Like optical or sensor-shift stabilization, it removes that fraction of the shake above about 0.5 Hz (the high-pass cutoff stabilizers use so as not to fight intentional pans) and progressively less below it, so slow breathing sway mostly remains.
+		</member>
+		<member name="shake_visible_in_editor" type="bool" setter="set_shake_visible_in_editor" getter="is_shake_visible_in_editor" default="false">
+			If [code]true[/code], the shake also moves this camera in the editor (the 3D viewport's camera preview and the Camera3D inspector preview). If [code]false[/code] (the default), the camera holds still in the editor so shots can be framed, and does no shake work there. A running project always shakes while [member shake_enabled] is on; this setting has no effect there. Autofocus is unaffected and always runs in the editor.
 		</member>
 		<member name="size" type="float" setter="set_size" getter="get_size" default="1.0">
 			The camera's size in meters measured as the diameter of the width or height, depending on [member keep_aspect]. Only applicable in orthogonal and frustum modes.
@@ -214,6 +411,24 @@
 			The vertical (Y) offset of the camera viewport.
 		</member>
 	</members>
+	<signals>
+		<signal name="focus_acquired">
+			<param index="0" name="distance" type="float" />
+			<description>
+				Emitted when the autofocus reaches its subject: the focus error is within a quarter of the depth of field (computed from the aperture and focal length of [CameraAttributesPhysical], or from the in-focus band of [CameraAttributesPractical]). [param distance] is the lens's focus distance in meters at that moment. In continuous mode, it is emitted again after focus was lost and reached anew.
+			</description>
+		</signal>
+		<signal name="focus_failed">
+			<description>
+				Emitted when the autofocus finds nothing to focus on: [method autofocus_trigger] measured nothing, or continuous autofocus lost its subject. The focus stays where it was.
+			</description>
+		</signal>
+		<signal name="monitoring_histogram_updated">
+			<description>
+				Emitted when a new histogram readback has arrived, so [method get_monitoring_histogram] returns new counts: at most once per frame, and about once per [member monitoring_histogram_update_interval]. Connecting to it starts the readback while [member monitoring_histogram_enabled] is [code]true[/code].
+			</description>
+		</signal>
+	</signals>
 	<constants>
 		<constant name="PROJECTION_PERSPECTIVE" value="0" enum="ProjectionType">
 			Perspective projection. Objects on the screen becomes smaller when they are far away.
@@ -238,6 +453,75 @@
 		</constant>
 		<constant name="DOPPLER_TRACKING_PHYSICS_STEP" value="2" enum="DopplerTracking">
 			Simulate [url=https://en.wikipedia.org/wiki/Doppler_effect]Doppler effect[/url] by tracking positions of objects that are changed in [code]_physics_process[/code]. Changes in the relative velocity of this camera compared to those objects affect how audio is perceived (changing the audio's [member AudioStreamPlayer3D.pitch_scale]).
+		</constant>
+		<constant name="AUTOFOCUS_MODE_MANUAL" value="0" enum="AutofocusMode">
+			Autofocus is off; the focus is whatever the [member attributes] say.
+		</constant>
+		<constant name="AUTOFOCUS_MODE_SINGLE" value="1" enum="AutofocusMode">
+			Single autofocus (AF-S): focuses once each time [method autofocus_trigger] is called, then holds that focus.
+		</constant>
+		<constant name="AUTOFOCUS_MODE_CONTINUOUS" value="2" enum="AutofocusMode">
+			Continuous autofocus (AF-C): measures every frame and keeps the subject in focus.
+		</constant>
+		<constant name="SHAKE_PRESET_CUSTOM" value="0" enum="ShakePreset">
+			Hand-tuned values: choosing it changes nothing. A camera starts here, with the default values.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD" value="1" enum="ShakePreset">
+			Holding the camera still, as for a photograph: hand shake in the 1.5-6 Hz band (CIPA DC-X011), slow postural sway and resting breath. Rotation [code]Vector3(0.12, 0.12, 0.06)[/code] degrees at [code]Vector3(3, 3, 2.5)[/code] Hz, position [code]Vector3(0.001, 0.001, 0.0005)[/code] m at 0.5 Hz, breathing 0.1 degrees at 0.25 Hz, no stabilization. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD_STABILIZED" value="2" enum="ShakePreset">
+			[constant SHAKE_PRESET_HANDHELD] with a lens or sensor-shift stabilizer: the same values with [member shake_stabilization] at 0.8, which reduces the hand-shake band to about a fifth. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_HANDHELD_WALKING" value="3" enum="ShakePreset">
+			Walking with the camera in hand: pitch and vertical bob at the step frequency (2 Hz), yaw, roll and sideways sway at the stride frequency (1 Hz). Rotation [code]Vector3(0.8, 0.6, 0.5)[/code] degrees at [code]Vector3(2, 1, 1)[/code] Hz, position [code]Vector3(0.008, 0.012, 0.005)[/code] m at [code]Vector3(1, 2, 2)[/code] Hz, breathing 0.15 degrees at 0.4 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_RUNNING" value="4" enum="ShakePreset">
+			Running or action: the walking pattern at a running step frequency (2.8 Hz) and larger. Rotation [code]Vector3(2, 1.5, 1.5)[/code] degrees at [code]Vector3(2.8, 1.4, 1.4)[/code] Hz, position [code]Vector3(0.015, 0.03, 0.01)[/code] m at [code]Vector3(1.4, 2.8, 2.8)[/code] Hz, breathing 0.3 degrees at 0.7 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_SHOULDER_RIG" value="5" enum="ShakePreset">
+			A shoulder-mounted camera: slower body sway instead of hand shake. Rotation [code]Vector3(0.15, 0.2, 0.2)[/code] degrees at [code]Vector3(1.2, 1, 0.8)[/code] Hz, position [code]Vector3(0.003, 0.003, 0.002)[/code] m at 0.8 Hz, breathing 0.12 degrees at 0.25 Hz. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_GIMBAL" value="6" enum="ShakePreset">
+			A gimbal or stabilizer while walking: almost no rotation (a slow residual drift), while the walking bob, which a gimbal does not remove, passes through damped. Rotation [code]Vector3(0.03, 0.03, 0.02)[/code] degrees at 0.5 Hz, position [code]Vector3(0.004, 0.006, 0.003)[/code] m at [code]Vector3(1, 2, 2)[/code] Hz, no breathing. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_TRIPOD_WIND" value="7" enum="ShakePreset">
+			A tripod in a light wind: no operator, a small vibration at the tripod's resonance. Rotation [code]Vector3(0.03, 0.03, 0.01)[/code] degrees and position [code]Vector3(0.0002, 0.0002, 0.0001)[/code] m, both at 10 Hz, no breathing. Most visible on long lenses. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_VEHICLE_MOUNT" value="8" enum="ShakePreset">
+			A camera hard-mounted on a car: body bounce, pitch and roll at the suspension's ride frequency (1-1.2 Hz) and a yaw buzz from the wheels (8 Hz). Rotation [code]Vector3(0.3, 0.1, 0.3)[/code] degrees at [code]Vector3(1.2, 8, 1)[/code] Hz, position [code]Vector3(0.003, 0.01, 0.003)[/code] m at [code]Vector3(1, 1.2, 1.2)[/code] Hz, no breathing. [member shake_scale_with_focal_length] on.
+		</constant>
+		<constant name="SHAKE_PRESET_MAX" value="9" enum="ShakePreset">
+			Represents the size of the [enum ShakePreset] enum.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_LUMA" value="0" enum="MonitoringHistogramMode">
+			The histogram shows Rec. 709 luma.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_RGB" value="1" enum="MonitoringHistogramMode">
+			The histogram shows the red, green and blue channels overlaid.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_TOP_LEFT" value="0" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the top left corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_TOP_RIGHT" value="1" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the top right corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_BOTTOM_LEFT" value="2" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the bottom left corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="MonitoringHistogramPosition">
+			The histogram is drawn in the bottom right corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_LUMA" value="0" enum="MonitoringHistogramChannel">
+			Rec. 709 luma (Y') of the display-encoded image.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_RED" value="1" enum="MonitoringHistogramChannel">
+			The display-encoded red channel (R').
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_GREEN" value="2" enum="MonitoringHistogramChannel">
+			The display-encoded green channel (G').
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_BLUE" value="3" enum="MonitoringHistogramChannel">
+			The display-encoded blue channel (B').
 		</constant>
 	</constants>
 </class>

@@ -51,6 +51,7 @@ struct WGBuffer {
 	bool is_readback = false; // True for staging buffers that need GPU→CPU readback.
 	bool map_complete = false; // Set by async map callback.
 	bool map_pending = false; // True while wgpuBufferMapAsync callback is in flight.
+	bool map_failed = false; // The last async map completed with an error; the shadow is not this buffer's data.
 	bool freed = false; // Source freed while map pending; callback will clean up.
 
 	// Dirty range tracking for shadow buffer flushes. On WebGPU, buffer_unmap()
@@ -637,6 +638,21 @@ struct WGFence {
 	bool freed = false; // Freed while callback pending; callback will delete.
 };
 
+// Submit-to-done latency of the frame submissions (RDD::get_submit_to_done_latency_usec()). Its own work-done
+// callback per submit rather than the frame fence's: a fence is resubmitted while its previous callback can still be
+// pending (fence_wait() force-signals), which would pair a callback with the wrong submit time. Work-done callbacks
+// resolve in submission order, so a FIFO of submit times pairs them. Owned by the driver; when the driver goes away
+// with callbacks in flight it is orphaned and the last callback deletes it (the fence pattern).
+struct WGSubmitLatency {
+	static constexpr uint32_t RING = 64;
+	uint64_t submit_usec[RING] = {};
+	uint32_t head = 0; // Next submit.
+	uint32_t tail = 0; // Oldest submit whose callback has not fired.
+	uint64_t average_usec = 0; // Quarter-weight running average, one sample per frame; 0 until one lands.
+	bool orphaned = false;
+	bool wanted = false; // Set by the first get_submit_to_done_latency_usec(): until then no callback is registered.
+};
+
 // =============================================================================
 // Semaphore (mostly no-op on WebGPU — single queue)
 // =============================================================================
@@ -647,18 +663,44 @@ struct WGSemaphore {};
 // Query Pool
 // =============================================================================
 
+// One per RenderingDevice frame slot. Timestamps are written as the end of an empty compute pass (pass
+// `timestampWrites`, the only way the WebGPU spec has; `GPUCommandEncoder.writeTimestamp()` is Chrome-only), resolved
+// at command buffer end and copied into one of a small ring of MAP_READ buffers. A ring slot is never touched while its
+// mapAsync is pending (unmapping a pending map is what left the old single buffer stuck mapped, and recording a copy
+// into a buffer whose map is pending is a validation error that drops the whole submit, TASKS.md §3 trap 102). Results
+// therefore arrive a few frames late on the web: get_results() hands out the newest set that has landed.
 struct WGQueryPool {
-	WGPUQuerySet handle = nullptr;
+	static constexpr uint32_t READBACK_RING_SIZE = 4;
+
+	struct ReadbackSlot {
+		enum State {
+			FREE, // Unmapped, may receive a copy.
+			RECORDED, // A copy is recorded in a command buffer that has not been submitted yet.
+			MAPPING, // Submitted, mapAsync in flight.
+		};
+		WGPUBuffer buffer = nullptr; // CopyDst | MapRead.
+		State state = FREE;
+		uint32_t query_count = 0; // How many timestamps the copy holds.
+		uint64_t serial = 0; // Order of the copies, so an older map landing late never overwrites newer results.
+	};
+
+	WGPUQuerySet handle = nullptr; // `count` + 1 queries: the last is the dummy beginning-of-pass write.
 	WGPUBuffer resolve_buffer = nullptr; // GPU buffer for query set resolve (CopySrc | QueryResolve).
-	WGPUBuffer readback_buffer = nullptr; // CPU-readable staging buffer (CopyDst | MapRead).
-	uint32_t count = 0;
+	ReadbackSlot slots[READBACK_RING_SIZE];
+	uint32_t count = 0; // Queries the engine can use.
 	bool is_real = false; // True if backed by actual timestamp-query hardware.
 
-	// Shadow CPU buffer for async readback results.
+	uint32_t written_count = 0; // Highest index written + 1 in the command buffer being recorded.
+	int32_t recorded_slot = -1; // Slot whose copy the command buffer being recorded holds.
+	uint64_t next_serial = 1;
+
+	// Newest results that have landed (CPU copy), and how many timestamps they hold.
 	uint64_t *cpu_results = nullptr;
-	bool readback_pending = false;
-	uint32_t map_generation = 0; // Incremented each time mapAsync is issued; stale callbacks are ignored.
-	bool freed = false; // Freed while readback pending; callback will clean up.
+	uint32_t result_count = 0;
+	uint64_t result_serial = 0;
+
+	uint32_t maps_pending = 0; // mapAsync callbacks still to come.
+	bool freed = false; // Freed while maps were pending; the last callback cleans up.
 };
 
 #endif // WEBGPU_ENABLED

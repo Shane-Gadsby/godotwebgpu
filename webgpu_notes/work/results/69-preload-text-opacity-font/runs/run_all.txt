@@ -1,0 +1,27 @@
+gpu lease taken 23:38:27
+chrome base: RESULT PASS
+chrome default: RESULT PASS
+chrome nokey: RESULT PASS
+chrome base_nosize: RESULT PASS
+chrome default_nosize: RESULT PASS
+chrome exact_e0: RESULT PASS
+chrome styled: RESULT PASS
+chrome styled_iframe: RESULT PASS
+chrome wg_base: RESULT PASS
+chrome wg_default: RESULT PASS
+chrome wg_styled: RESULT PASS
+firefox base: RESULT PASS
+firefox default: RESULT PASS
+firefox nokey: RESULT PASS
+firefox base_nosize: RESULT PASS
+firefox default_nosize: RESULT PASS
+firefox exact_e0: RESULT PASS
+firefox styled: RESULT PASS
+firefox styled_iframe: Node.js v22.23.4
+firefox wg_base: RESULT PASS
+firefox wg_default: RESULT PASS
+firefox wg_styled: RESULT PASS
+done 23:48:22
+dropped: gpu
+gpu lease dropped 23:48:22
+firefox styled_iframe (rerun): RESULT PASS (first run: Firefox closed after the press, all line checks had passed)

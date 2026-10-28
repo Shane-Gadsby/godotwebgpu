@@ -1,0 +1,244 @@
+[
+ {
+  "ok": true,
+  "what": "adapter (firefox) requestAdapter() non-null: {\"vendor\":\"\",\"architecture\":\"\",\"fallback\":false,\"maxSampled\":64}"
+ },
+ {
+  "ok": true,
+  "what": "main: starts windowed (mode 0)"
+ },
+ {
+  "ok": true,
+  "what": "main windowed: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "main windowed: shell scale 0.914063 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "note": "main: game frame window 'message' listeners: 1"
+ },
+ {
+  "ok": true,
+  "what": "main: parent got godot:ready"
+ },
+ {
+  "ok": true,
+  "what": "5 security: sibling-frame and self-posted {on:true} ignored (mode 0, canvas 1024,640, signals 0)"
+ },
+ {
+  "ok": true,
+  "what": "1 parent button: mode 3, canvas 2560,1440 == iframe 2560,1440 x dpr 1 (265 ms)"
+ },
+ {
+  "ok": true,
+  "what": "1: parent holds the iframe (parent fs game, game fs null)"
+ },
+ {
+  "ok": true,
+  "what": "1: shell CSS scale 1 (1)"
+ },
+ {
+  "ok": true,
+  "what": "1: size_changed fired (0 -> 1)"
+ },
+ {
+  "ok": true,
+  "what": "1 fullscreen: window 2560,1440 visible 2560,1440 corner 2560,1440 == canvas 2560,1440"
+ },
+ {
+  "ok": true,
+  "what": "1 fullscreen: shell scale 1 fits (1.0000; css 2560,1440, iframe 2560,1440)"
+ },
+ {
+  "ok": true,
+  "what": "2 exit via Escape: windowed, canvas 1024,640 == 1024,640 (9 ms)"
+ },
+ {
+  "ok": true,
+  "what": "2 windowed again: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "2 windowed again: shell scale 0.914063 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "3: parent fullscreen again"
+ },
+ {
+  "ok": true,
+  "what": "3 window_set_mode(WINDOWED): parent left fullscreen, game windowed, canvas 1024,640 (37 ms)"
+ },
+ {
+  "ok": true,
+  "what": "3: parent got godot:exit-fullscreen"
+ },
+ {
+  "ok": true,
+  "what": "3: mode stays FULLSCREEN until the parent answers (right after the call: 3)"
+ },
+ {
+  "ok": true,
+  "what": "3 windowed again: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "3 windowed again: shell scale 0.914063 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "8 in-game Fullscreen -> godot:request-fullscreen: parent fs game, game fs null, mode 3 after 173 ms; parent: got godot:request-fullscreen from http://127.0.0.1:8702; request ok; send on=true"
+ },
+ {
+  "ok": true,
+  "what": "8: parent requested the iframe fullscreen and it was granted (activation from the iframe click)"
+ },
+ {
+  "ok": true,
+  "what": "8: in-game Windowed -> godot:exit-fullscreen -> windowed (60 ms)"
+ },
+ {
+  "note": "main console: 3 errors/warnings: warning: [JavaScript Warning: \"The character encoding of a framed document was not declared. The document may appear different if viewed without the document framing it.\" {file: \"http://localhost:8701/evil.html\" line: 0}] || warning: [JavaScript Warning: \"The WebAssembly exception handling 'try' instruction is deprecated and should no longer be used. Please recompile to use the 'try_table' instruction instead.\"] || warning: WARNING: WebGPU: float32-blendable feature NOT available — blend on float32 targets will be disabled.\n   at: _check_capabilities (drivers/webgpu/rendering_device_driver_webgpu.cpp:1381)"
+ },
+ {
+  "ok": true,
+  "what": "7 in-game Fullscreen (parent ignores the request): canvas fullscreen after 1095 ms (game fs canvas, parent fs game)"
+ },
+ {
+  "ok": true,
+  "what": "7: one mode change for the canvas fullscreen and its echo (0 -> 1); parent: got godot:request-fullscreen from http://127.0.0.1:8702; send on=true"
+ },
+ {
+  "ok": true,
+  "what": "7: the parent did echo {on:true}"
+ },
+ {
+  "ok": true,
+  "what": "7: canvas 2560,1440 = screen 2560,1440"
+ },
+ {
+  "ok": true,
+  "what": "7: in-game Windowed leaves the canvas fullscreen; mode changes 0 -> 2 (2 expected)"
+ },
+ {
+  "ok": true,
+  "what": "7: no godot:exit-fullscreen for the canvas path"
+ },
+ {
+  "ok": true,
+  "what": "7 windowed again: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "7 windowed again: shell scale 0.914063 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "7 silent parent: canvas fullscreen without the request detour (115 ms)"
+ },
+ {
+  "ok": true,
+  "what": "silent: back to windowed"
+ },
+ {
+  "ok": true,
+  "what": "silent: iframe fullscreen without messages leaves the game windowed (canvas 1024,640)"
+ },
+ {
+  "ok": true,
+  "what": "silent scaled: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "silent scaled: shell scale 2.25 fits (2.2500; css 1024,640, iframe 2560,1440)"
+ },
+ {
+  "ok": true,
+  "what": "4a: parent fullscreen on the start screen"
+ },
+ {
+  "ok": true,
+  "what": "4 start-screen: game comes up fullscreen, canvas 2560,1440 (first log mode 3, 9 ms after ready)"
+ },
+ {
+  "ok": true,
+  "what": "4 start-screen: window 2560,1440 visible 2560,1440 corner 2560,1440 == canvas 2560,1440"
+ },
+ {
+  "ok": true,
+  "what": "4 start-screen: shell scale 1 fits (1.0000; css 2560,1440, iframe 2560,1440)"
+ },
+ {
+  "ok": true,
+  "what": "4 start-screen: exits to windowed"
+ },
+ {
+  "ok": true,
+  "what": "4b: parent fullscreen while loading (status overlay still up: true)"
+ },
+ {
+  "ok": true,
+  "what": "4 loading: game comes up fullscreen, canvas 2560,1440 (first log mode 3, 8 ms after ready)"
+ },
+ {
+  "ok": true,
+  "what": "4 loading: window 2560,1440 visible 2560,1440 corner 2560,1440 == canvas 2560,1440"
+ },
+ {
+  "ok": true,
+  "what": "4 loading: shell scale 1 fits (1.0000; css 2560,1440, iframe 2560,1440)"
+ },
+ {
+  "ok": true,
+  "what": "4 loading: exits to windowed"
+ },
+ {
+  "ok": true,
+  "what": "5 allowed_origins=https://lms.example.edu: parent on localhost:8701 ignored (mode 0, canvas 1024,640)"
+ },
+ {
+  "ok": true,
+  "what": "5 allowed_origins=http://localhost:8701: accepted, mode 3, canvas 2560,1440"
+ },
+ {
+  "ok": true,
+  "what": "allow: back to windowed"
+ },
+ {
+  "ok": true,
+  "what": "6 option off: no window 'message' listener added (0)"
+ },
+ {
+  "ok": true,
+  "what": "6: no godot:ready posted"
+ },
+ {
+  "ok": true,
+  "what": "6: parent fullscreen leaves the game windowed (as before; canvas 1024,640)"
+ },
+ {
+  "ok": true,
+  "what": "6 scaled by the shell: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "6 scaled by the shell: shell scale 2.25 fits (2.2500; css 1024,640, iframe 2560,1440)"
+ },
+ {
+  "ok": true,
+  "what": "6 back: window 1024,640 visible 1024,640 corner 1024,640 == canvas 1024,640"
+ },
+ {
+  "ok": true,
+  "what": "6 back: shell scale 0.914063 fits (0.9141; css 1024,640, iframe 1000,585)"
+ },
+ {
+  "ok": true,
+  "what": "6: in-game Fullscreen -> canvas fullscreen (36 ms)"
+ },
+ {
+  "ok": true,
+  "what": "6: in-game Windowed -> windowed"
+ }
+]

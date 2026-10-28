@@ -33,6 +33,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/math/geometry_3d.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/variant/typed_array.h"
@@ -1719,6 +1720,17 @@ Array RenderingServer::_get_array_from_surface(uint64_t p_format, Vector<uint8_t
 
 Array RenderingServer::mesh_surface_get_arrays(RID p_mesh, int p_surface) const {
 	RenderingServerTypes::SurfaceData sd = mesh_get_surface(p_mesh, p_surface);
+#ifdef WEB_ENABLED
+	// On the web the surface's GPU buffers are read back asynchronously, and until they have arrived mesh_get_surface()
+	// returns the surface with no data (work task 81). That is "not yet", not an error: return an empty array without
+	// the error mesh_create_arrays_from_surface_data() prints for a surface without vertices.
+	if (sd.vertex_count > 0 && sd.vertex_data.is_empty() && (sd.format & RSE::ARRAY_FORMAT_VERTEX)) {
+#ifdef DEBUG_ENABLED
+		WARN_PRINT_ONCE("RenderingServer.mesh_surface_get_arrays() returned an empty array: on the web, mesh data is read back from the GPU asynchronously and had not arrived yet (a call on a later frame returns it). Mesh.surface_get_arrays() and MeshDataTool.create_from_surface() read it this way. Shown once, in debug builds only.");
+#endif
+		return Array();
+	}
+#endif
 	return mesh_create_arrays_from_surface_data(sd);
 }
 
@@ -2258,6 +2270,27 @@ void RenderingServer::get_argument_options(const StringName &p_function, int p_i
 }
 #endif
 
+static void _image_request_complete(const Ref<Image> &p_image, const Ref<RefCounted> &p_request) {
+	p_request->emit_signal(SNAME("completed"), p_image);
+}
+
+Signal RenderingServer::create_image_request(Callable &r_callback) {
+	// A plain RefCounted with a user signal, not a class of its own: scripts only ever see the Signal they await.
+	Ref<RefCounted> request;
+	request.instantiate();
+	request->add_user_signal(MethodInfo("completed", PropertyInfo(Variant::OBJECT, "image", PROPERTY_HINT_RESOURCE_TYPE, "Image")));
+	// The bound Ref is the only reference: the request lives until the read calls back, then goes with the Callable.
+	r_callback = callable_mp_static(&_image_request_complete).bind(request);
+	return Signal(request.ptr(), SNAME("completed"));
+}
+
+Signal RenderingServer::texture_2d_get_awaitable(RID p_texture) {
+	Callable callback;
+	Signal completed = create_image_request(callback);
+	texture_2d_get_async(p_texture, callback);
+	return completed;
+}
+
 void RenderingServer::_bind_methods() {
 	BIND_CONSTANT(RSE::NO_INDEX_ARRAY);
 	BIND_CONSTANT(RSE::ARRAY_WEIGHTS_SIZE);
@@ -2290,6 +2323,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_3d_placeholder_create"), &RenderingServer::texture_3d_placeholder_create);
 
 	ClassDB::bind_method(D_METHOD("texture_2d_get", "texture"), &RenderingServer::texture_2d_get);
+	ClassDB::bind_method(D_METHOD("texture_2d_get_async", "texture", "callback"), &RenderingServer::texture_2d_get_async);
+	ClassDB::bind_method(D_METHOD("texture_2d_get_awaitable", "texture"), &RenderingServer::texture_2d_get_awaitable);
 	ClassDB::bind_method(D_METHOD("texture_2d_layer_get", "texture", "layer"), &RenderingServer::texture_2d_layer_get);
 	ClassDB::bind_method(D_METHOD("texture_3d_get", "texture"), &RenderingServer::_texture_3d_get);
 
@@ -2555,6 +2590,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("light_directional_set_shadow_mode", "light", "mode"), &RenderingServer::light_directional_set_shadow_mode);
 	ClassDB::bind_method(D_METHOD("light_directional_set_blend_splits", "light", "enable"), &RenderingServer::light_directional_set_blend_splits);
 	ClassDB::bind_method(D_METHOD("light_directional_set_sky_mode", "light", "mode"), &RenderingServer::light_directional_set_sky_mode);
+	ClassDB::bind_method(D_METHOD("light_directional_set_light_shafts", "light", "enable"), &RenderingServer::light_directional_set_light_shafts);
 
 	ClassDB::bind_method(D_METHOD("light_area_set_size", "light", "size"), &RenderingServer::light_area_set_size);
 	ClassDB::bind_method(D_METHOD("light_area_set_normalize_energy", "light", "enable"), &RenderingServer::light_area_set_normalize_energy);
@@ -2867,6 +2903,27 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_set_camera_attributes", "camera", "effects"), &RenderingServer::camera_set_camera_attributes);
 	ClassDB::bind_method(D_METHOD("camera_set_compositor", "camera", "compositor"), &RenderingServer::camera_set_compositor);
 	ClassDB::bind_method(D_METHOD("camera_set_use_vertical_aspect", "camera", "enable"), &RenderingServer::camera_set_use_vertical_aspect);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_zebras", "camera", "enable", "level", "second_enable", "second_level"), &RenderingServer::camera_set_monitoring_zebras);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_zebra_colors", "camera", "color", "second_color"), &RenderingServer::camera_set_monitoring_zebra_colors);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_focus_peaking", "camera", "enable", "color", "sensitivity"), &RenderingServer::camera_set_monitoring_focus_peaking);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_false_color", "camera", "enable"), &RenderingServer::camera_set_monitoring_false_color);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram", "camera", "enable", "mode", "position", "size", "opacity"), &RenderingServer::camera_set_monitoring_histogram);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_LUMA);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_RGB);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_TOP_LEFT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_TOP_RIGHT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT);
+
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram_readback", "camera", "enable", "interval"), &RenderingServer::camera_set_monitoring_histogram_readback);
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_clean_texture", "camera", "texture"), &RenderingServer::camera_set_monitoring_clean_texture);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram", "camera", "channel"), &RenderingServer::camera_get_monitoring_histogram);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram_serial", "camera"), &RenderingServer::camera_get_monitoring_histogram_serial);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_LUMA);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_RED);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_GREEN);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE);
 
 	/* VIEWPORT */
 
@@ -2883,6 +2940,14 @@ void RenderingServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_mode", "viewport", "scaling_3d_mode"), &RenderingServer::viewport_set_scaling_3d_mode);
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic", "viewport", "enabled"), &RenderingServer::viewport_set_scaling_3d_dynamic);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_target_fps", "viewport", "fps"), &RenderingServer::viewport_set_scaling_3d_dynamic_target_fps);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_min_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_min_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_max_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_max_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_step", "viewport", "step"), &RenderingServer::viewport_set_scaling_3d_dynamic_step);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_effective_scale", "viewport"), &RenderingServer::viewport_get_scaling_3d_effective_scale);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_state", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_state);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_source", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_source);
 	ClassDB::bind_method(D_METHOD("viewport_set_fsr_sharpness", "viewport", "sharpness"), &RenderingServer::viewport_set_fsr_sharpness);
 	ClassDB::bind_method(D_METHOD("viewport_set_texture_mipmap_bias", "viewport", "mipmap_bias"), &RenderingServer::viewport_set_texture_mipmap_bias);
 	ClassDB::bind_method(D_METHOD("viewport_set_anisotropic_filtering_level", "viewport", "anisotropic_filtering_level"), &RenderingServer::viewport_set_anisotropic_filtering_level);
@@ -2943,6 +3008,19 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_NEAREST);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STABLE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_MAX);
 
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_UPDATE_DISABLED);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_UPDATE_ONCE); // Then goes to disabled, must be manually updated.
@@ -3092,9 +3170,20 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_canvas_max_layer", "env", "max_layer"), &RenderingServer::environment_set_canvas_max_layer);
 	ClassDB::bind_method(D_METHOD("environment_set_ambient_light", "env", "color", "ambient", "energy", "sky_contribution", "reflection_source"), &RenderingServer::environment_set_ambient_light, DEFVAL(RSE::ENV_AMBIENT_SOURCE_BG), DEFVAL(1.0), DEFVAL(0.0), DEFVAL(RSE::ENV_REFLECTION_SOURCE_BG));
 	ClassDB::bind_method(D_METHOD("environment_set_glow", "env", "enable", "levels", "intensity", "strength", "mix", "bloom_threshold", "blend_mode", "hdr_bleed_threshold", "hdr_bleed_scale", "hdr_luminance_cap", "glow_map_strength", "glow_map"), &RenderingServer::environment_set_glow);
+	ClassDB::bind_method(D_METHOD("environment_set_lens_flare", "env", "enable", "intensity", "threshold", "ghost_count", "halo_intensity", "chromatic_aberration"), &RenderingServer::environment_set_lens_flare);
+	ClassDB::bind_method(D_METHOD("environment_set_veiling_glare", "env", "enable", "strength"), &RenderingServer::environment_set_veiling_glare);
+	ClassDB::bind_method(D_METHOD("environment_set_diffusion_filter", "env", "enable", "strength", "black"), &RenderingServer::environment_set_diffusion_filter);
+	ClassDB::bind_method(D_METHOD("environment_set_light_shafts", "env", "enable", "intensity", "threshold", "decay", "tint"), &RenderingServer::environment_set_light_shafts);
+	ClassDB::bind_method(D_METHOD("environment_set_light_shafts_quality", "quality"), &RenderingServer::environment_set_light_shafts_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
+	ClassDB::bind_method(D_METHOD("environment_set_tonemap_custom", "env", "slope", "toe", "shoulder", "black_clip", "white_clip"), &RenderingServer::environment_set_tonemap_custom);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction"), &RenderingServer::environment_set_adjustment);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading", "env", "enable", "color_filter", "hue_shift", "vibrance", "lift", "gamma", "gain"), &RenderingServer::environment_set_color_grading);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_shadows_midtones_highlights", "env", "shadows", "midtones", "highlights", "shadows_start", "shadows_end", "highlights_start", "highlights_end"), &RenderingServer::environment_set_color_grading_shadows_midtones_highlights);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_channel_mixer", "env", "red", "green", "blue"), &RenderingServer::environment_set_color_grading_channel_mixer);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_split_toning", "env", "shadows", "highlights", "balance"), &RenderingServer::environment_set_color_grading_split_toning);
+	ClassDB::bind_method(D_METHOD("environment_set_color_grading_curves", "env", "master", "red", "green", "blue", "hue_vs_hue", "hue_vs_sat", "sat_vs_sat", "lum_vs_sat"), &RenderingServer::environment_set_color_grading_curves);
 	ClassDB::bind_method(D_METHOD("environment_set_ssr", "env", "enable", "max_steps", "fade_in", "fade_out", "depth_tolerance"), &RenderingServer::environment_set_ssr);
 	ClassDB::bind_method(D_METHOD("environment_set_ssao", "env", "enable", "radius", "intensity", "power", "detail", "horizon", "sharpness", "light_affect", "ao_channel_affect"), &RenderingServer::environment_set_ssao);
 	ClassDB::bind_method(D_METHOD("environment_set_fog", "env", "enable", "light_color", "light_energy", "sun_scatter", "density", "height", "height_density", "aerial_perspective", "sky_affect", "fog_mode"), &RenderingServer::environment_set_fog, DEFVAL(RSE::ENV_FOG_MODE_EXPONENTIAL));
@@ -3106,7 +3195,9 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_ssr_half_size", "half_size"), &RenderingServer::environment_set_ssr_half_size);
 	ClassDB::bind_method(D_METHOD("environment_set_ssr_roughness_quality", "quality"), &RenderingServer::environment_set_ssr_roughness_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_ssao_quality", "quality", "half_size", "adaptive_target", "blur_passes", "fadeout_from", "fadeout_to"), &RenderingServer::environment_set_ssao_quality);
+	ClassDB::bind_method(D_METHOD("environment_set_ssao_method", "method"), &RenderingServer::environment_set_ssao_method); // GTAO
 	ClassDB::bind_method(D_METHOD("environment_set_ssil_quality", "quality", "half_size", "adaptive_target", "blur_passes", "fadeout_from", "fadeout_to"), &RenderingServer::environment_set_ssil_quality);
+	ClassDB::bind_method(D_METHOD("environment_set_micro_shadows", "env", "enable", "opacity"), &RenderingServer::environment_set_micro_shadows);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_ray_count", "ray_count"), &RenderingServer::environment_set_sdfgi_ray_count);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_frames_to_converge", "frames"), &RenderingServer::environment_set_sdfgi_frames_to_converge);
 	ClassDB::bind_method(D_METHOD("environment_set_sdfgi_frames_to_update_light", "frames"), &RenderingServer::environment_set_sdfgi_frames_to_update_light);
@@ -3150,6 +3241,7 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_FILMIC);
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_ACES);
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_AGX);
+	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_CUSTOM);
 
 	BIND_ENUM_CONSTANT(RSE::ENV_SSR_ROUGHNESS_QUALITY_DISABLED);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSR_ROUGHNESS_QUALITY_LOW);
@@ -3162,11 +3254,19 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::ENV_SSAO_QUALITY_HIGH);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSAO_QUALITY_ULTRA);
 
+	/* GTAO */
+	BIND_ENUM_CONSTANT(RSE::ENV_SSAO_METHOD_ASSAO);
+	BIND_ENUM_CONSTANT(RSE::ENV_SSAO_METHOD_GTAO);
+
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_VERY_LOW);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_LOW);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_HIGH);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_ULTRA);
+
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_LOW);
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_MEDIUM);
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_HIGH);
 
 	BIND_ENUM_CONSTANT(RSE::ENV_SDFGI_Y_SCALE_50_PERCENT);
 	BIND_ENUM_CONSTANT(RSE::ENV_SDFGI_Y_SCALE_75_PERCENT);
@@ -3209,9 +3309,40 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_blur_bokeh_shape", "shape"), &RenderingServer::camera_attributes_set_dof_blur_bokeh_shape);
 
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_blur", "camera_attributes", "far_enable", "far_distance", "far_transition", "near_enable", "near_distance", "near_transition", "amount"), &RenderingServer::camera_attributes_set_dof_blur);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_physical_blur_size", "camera_attributes", "enable", "frame_fraction", "frame_horizontal"), &RenderingServer::camera_attributes_set_dof_physical_blur_size);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_legacy_gather", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_dof_legacy_gather);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_exposure", "camera_attributes", "multiplier", "normalization"), &RenderingServer::camera_attributes_set_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_white_balance", "camera_attributes", "temperature", "tint"), &RenderingServer::camera_attributes_set_white_balance);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_noise_reduction", "camera_attributes", "enable", "strength", "chroma_only"), &RenderingServer::camera_attributes_set_noise_reduction);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_sharpening", "camera_attributes", "enable", "amount", "radius", "halo"), &RenderingServer::camera_attributes_set_sharpening);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_grain", "camera_attributes", "enable", "type", "intensity", "size", "sensitivity"), &RenderingServer::camera_attributes_set_grain);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lut", "camera_attributes", "enable", "texture", "input", "strength"), &RenderingServer::camera_attributes_set_lut);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur_quality", "quality"), &RenderingServer::camera_attributes_set_motion_blur_quality);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
+
+	/* Exposure automation */
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering", "camera_attributes", "mode", "spot_size", "spot_point", "highlight_percentile"), &RenderingServer::camera_attributes_set_auto_exposure_metering);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering_log_average", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_auto_exposure_metering_log_average);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_white_balance", "camera_attributes", "enable", "speed", "min_temperature", "max_temperature"), &RenderingServer::camera_attributes_set_auto_white_balance);
+
+	/* Lens optics */
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens", "camera_attributes", "sensor_size", "focal_length", "fov_focal_length", "focus_distance", "f_number", "max_f_number", "anamorphic_squeeze"), &RenderingServer::camera_attributes_set_lens);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_vignetting", "camera_attributes", "enable", "strength", "falloff"), &RenderingServer::camera_attributes_set_vignetting);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens_distortion", "camera_attributes", "enable", "automatic", "k1", "k2", "auto_crop"), &RenderingServer::camera_attributes_set_lens_distortion);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_diffraction", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_diffraction);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_aperture", "camera_attributes", "enable", "blade_count", "blade_curvature", "rotation"), &RenderingServer::camera_attributes_set_aperture);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_cats_eye", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_cats_eye);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_tilt_shift", "camera_attributes", "enable", "tilt", "axis"), &RenderingServer::camera_attributes_set_tilt_shift);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_starburst", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_starburst);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation", "camera_attributes", "enable", "strength", "radius"), &RenderingServer::camera_attributes_set_halation);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation_high_quality", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_halation_high_quality);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_longitudinal_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_longitudinal_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_panini", "camera_attributes", "enable", "distance", "vertical_compression"), &RenderingServer::camera_attributes_set_panini);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_local_exposure", "camera_attributes", "enable", "highlight_contrast", "shadow_contrast", "detail_strength", "middle_gray_bias"), &RenderingServer::camera_attributes_set_local_exposure);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_local_exposure_blurred_luminance", "camera_attributes", "blend", "kernel_size"), &RenderingServer::camera_attributes_set_local_exposure_blurred_luminance);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);
@@ -3221,6 +3352,28 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_LOW);
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(RSE::DOF_BLUR_QUALITY_HIGH);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_FILM_MONOCHROME);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_GRAIN_DIGITAL);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_DISPLAY);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_ARRI_LOGC3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_SONY_SLOG3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_PANASONIC_VLOG);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_CANON_LOG3);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_RED_LOG3G10);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_ACESCCT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_LUT_INPUT_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_LOW);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_SPOT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_HIGHLIGHT_WEIGHTED);
 
 	/* SCENARIO */
 
@@ -3754,6 +3907,8 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_shape", PROPERTY_HINT_ENUM, "Box (Fast),Hexagon (Average),Circle (Slowest)"), 1);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_quality", PROPERTY_HINT_ENUM, "Very Low (Fastest),Low (Fast),Medium (Average),High (Slow)"), 1);
 	GLOBAL_DEF("rendering/camera/depth_of_field/depth_of_field_use_jitter", false);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size", PROPERTY_HINT_RANGE, "0.5,10,0.1,or_greater,suffix:%"), 6.0);
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/motion_blur/motion_blur_quality", PROPERTY_HINT_ENUM, "Low (Fast),Medium (Average),High (Slow)"), 1);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssao/quality", PROPERTY_HINT_ENUM, "Very Low (Fast),Low (Fast),Medium (Average),High (Slow),Ultra (Custom)"), 2);
 	GLOBAL_DEF("rendering/environment/ssao/half_size", true);
@@ -3761,6 +3916,8 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssao/blur_passes", PROPERTY_HINT_RANGE, "0,6"), 2);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssao/fadeout_from", PROPERTY_HINT_RANGE, "0.0,512,0.1,or_greater"), 50.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssao/fadeout_to", PROPERTY_HINT_RANGE, "64,65536,0.1,or_greater"), 300.0);
+	// GTAO: which algorithm fills the ambient occlusion texture. ASSAO (index 0) stays the default.
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssao/method", PROPERTY_HINT_ENUM, "ASSAO,GTAO"), 0);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssil/quality", PROPERTY_HINT_ENUM, "Very Low (Fast),Low (Fast),Medium (Average),High (Slow),Ultra (Custom)"), 2);
 	GLOBAL_DEF("rendering/environment/ssil/half_size", true);
@@ -3768,6 +3925,8 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssil/blur_passes", PROPERTY_HINT_RANGE, "0,6"), 4);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssil/fadeout_from", PROPERTY_HINT_RANGE, "0.0,512,0.1,or_greater"), 50.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssil/fadeout_to", PROPERTY_HINT_RANGE, "64,65536,0.1,or_greater"), 300.0);
+
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/light_shafts/quality", PROPERTY_HINT_ENUM, "Low (Fast),Medium (Average),High (Slow)"), 1);
 
 	// Move the project setting definitions here so they are available when we init the rendering internals.
 	GLOBAL_DEF_BASIC("rendering/viewport/hdr_2d", false);
@@ -3801,6 +3960,13 @@ void RenderingServer::init() {
 	}
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.0001"), 1.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/fsr_sharpness", PROPERTY_HINT_RANGE, "0,2,0.01"), 0.2f);
+	// Dynamic 3D resolution of the root viewport (SceneTree applies them; never in the editor).
+	GLOBAL_DEF_BASIC("rendering/scaling_3d/dynamic", false);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_target_fps", PROPERTY_HINT_RANGE, "10,360,1,or_greater"), 60.0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_min_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 0.5);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_max_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 1.0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_step", PROPERTY_HINT_RANGE, "0.01,0.25,0.01"), 0.05);
+	GLOBAL_DEF("rendering/scaling_3d/dynamic_remember", false);
 
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/textures/default_filters/texture_mipmap_bias", PROPERTY_HINT_RANGE, "-2,2,0.001"), 0.0f);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/textures/decals/filter", PROPERTY_HINT_ENUM, "Nearest (Fast),Linear (Fast),Nearest Mipmap (Fast),Linear Mipmap (Fast),Nearest Mipmap Anisotropic (Average),Linear Mipmap Anisotropic (Average)"), RSE::DECAL_FILTER_LINEAR_MIPMAPS);

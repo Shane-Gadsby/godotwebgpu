@@ -37,7 +37,7 @@
 // - in a dlink (GDExtension) template lives in the side module and is eval'd at load
 //   time, where the renamed names do not exist ("stringToNewUTF8 is not defined").
 // A library function's `__deps` are renamed with it. EM_ASM bodies may still use
-// `Module['...']`, browser APIs and their own arguments. (webgpu_notes/TASKS.md §3 trap 74)
+// `Module['...']`, browser APIs and their own arguments. (webgpu_notes/TASKS.md §3 trap 76)
 const GodotWebGPU = {
 	$GodotWebGPU__deps: ['$GodotRuntime'],
 	$GodotWebGPU: {},

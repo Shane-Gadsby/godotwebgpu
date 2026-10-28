@@ -89,8 +89,14 @@ void Luminance::LuminanceBuffers::configure(RenderSceneBuffersRD *p_render_buffe
 	int h = internal_size.y;
 
 	while (true) {
-		w = MAX(w / 8, 1);
-		h = MAX(h / 8, 1);
+		if (prefer_raster_effects) {
+			w = MAX(w / 8, 1);
+			h = MAX(h / 8, 1);
+		} else {
+			// Rounded up, so the compute reduction's edge blocks have somewhere to go (luminance_reduce.glsl).
+			w = MAX((w + 7) / 8, 1);
+			h = MAX((h + 7) / 8, 1);
+		}
 
 		RD::TextureFormat tf;
 		tf.format = RD::DATA_FORMAT_R32_SFLOAT;
@@ -113,18 +119,25 @@ void Luminance::LuminanceBuffers::configure(RenderSceneBuffersRD *p_render_buffe
 		reduce.push_back(texture);
 
 		if (final) {
-			current = RD::get_singleton()->texture_create(tf, RD::TextureView());
-			RD::get_singleton()->texture_clear(current, Color(0.0, 0.0, 0.0), 0u, 1u, 0u, 1u);
+			// Kept over a reconfigure (free_data_for_reconfigure()): 1x1 whatever the internal size.
+			if (current.is_null()) {
+				current = RD::get_singleton()->texture_create(tf, RD::TextureView());
+				RD::get_singleton()->texture_clear(current, Color(0.0, 0.0, 0.0), 0u, 1u, 0u, 1u);
+			}
 			break;
 		}
 	}
 }
 
-void Luminance::LuminanceBuffers::free_data() {
+void Luminance::LuminanceBuffers::free_data_for_reconfigure() {
 	for (int i = 0; i < reduce.size(); i++) {
 		RD::get_singleton()->free_rid(reduce[i]);
 	}
 	reduce.clear();
+}
+
+void Luminance::LuminanceBuffers::free_data() {
+	free_data_for_reconfigure();
 
 	if (current.is_valid()) {
 		RD::get_singleton()->free_rid(current);
@@ -156,7 +169,7 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set) {
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, bool p_log_average) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -209,6 +222,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.max_luminance = p_max_luminance;
 		push_constant.min_luminance = p_min_luminance;
 		push_constant.exposure_adjust = p_adjust;
+		push_constant.flags = p_log_average ? LUMINANCE_REDUCE_FLAG_LOG_AVERAGE : 0;
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 
@@ -239,6 +253,9 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 				RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 0, u_source_texture), 0);
 			}
 
+			// The last level turns the sums into the frame's mean.
+			push_constant.inv_pixel_count = i == p_luminance_buffers->reduce.size() - 1 ? float(1.0 / (double(p_source_size.x) * double(p_source_size.y))) : 0.0f;
+
 			RD::Uniform u_reduce_texture(RD::UNIFORM_TYPE_IMAGE, 0, p_luminance_buffers->reduce[i]);
 			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 1, u_reduce_texture), 1);
 
@@ -246,8 +263,8 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 
 			RD::get_singleton()->compute_list_dispatch_threads(compute_list, push_constant.source_size[0], push_constant.source_size[1], 1);
 
-			push_constant.source_size[0] = MAX(push_constant.source_size[0] / 8, 1);
-			push_constant.source_size[1] = MAX(push_constant.source_size[1] / 8, 1);
+			push_constant.source_size[0] = MAX((push_constant.source_size[0] + 7) / 8, 1);
+			push_constant.source_size[1] = MAX((push_constant.source_size[1] + 7) / 8, 1);
 		}
 
 		RD::get_singleton()->compute_list_end();

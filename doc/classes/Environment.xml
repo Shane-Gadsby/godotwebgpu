@@ -41,6 +41,7 @@
 		<member name="adjustment_color_correction" type="Texture" setter="set_adjustment_color_correction" getter="get_adjustment_color_correction">
 			The [Texture2D] or [Texture3D] lookup table (LUT) to use for the built-in post-process color grading. Can use a [GradientTexture1D] for a 1-dimensional LUT, or a [Texture3D] for a more complex LUT. Effective only if [member adjustment_enabled] is [code]true[/code].
 			[b]Note:[/b] Color correction does not currently support HDR output due to only supporting values in the SDR (0.0 to 1.0) range.
+			With [member grading_enabled], this LUT applies after the color grading, to the graded image.
 		</member>
 		<member name="adjustment_contrast" type="float" setter="set_adjustment_contrast" getter="get_adjustment_contrast" default="1.0">
 			Increasing [member adjustment_contrast] will make dark values darker and bright values brighter. This simple adjustment is applied to the rendered image after tonemaping. When set to a value greater than [code]1.0[/code], [member adjustment_contrast] is prone to clipping colors that become too bright or too dark. Effective only if [member adjustment_enabled] is [code]true[/code].
@@ -81,6 +82,16 @@
 		</member>
 		<member name="background_mode" type="int" setter="set_background" getter="get_background" enum="Environment.BGMode" default="0">
 			The background mode.
+		</member>
+		<member name="diffusion_filter_black" type="bool" setter="set_diffusion_filter_black" getter="is_diffusion_filter_black" default="false">
+			If [code]true[/code], a "black" diffusion filter (such as a Black Pro-Mist): it scatters half as much light into a tighter halo, so highlights still bloom but the shadows stay dark.
+		</member>
+		<member name="diffusion_filter_enabled" type="bool" setter="set_diffusion_filter_enabled" getter="is_diffusion_filter_enabled" default="false">
+			If [code]true[/code], a diffusion filter (such as a Pro-Mist) sits in front of the lens: it scatters a fraction of all light into a wide, soft halo, so highlights bloom and the shadows around them lift. The light is spread, not added: a flat field is unchanged.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="diffusion_filter_strength" type="float" setter="set_diffusion_filter_strength" getter="get_diffusion_filter_strength" default="0.25">
+			The filter's grade, as on the filters themselves (1/8, 1/4, 1/2, 1, 2): [code]0.25[/code] is a 1/4 filter. Each grade scatters 15% of the light (7.5% for [member diffusion_filter_black]).
 		</member>
 		<member name="fog_aerial_perspective" type="float" setter="set_fog_aerial_perspective" getter="get_fog_aerial_perspective" default="0.0">
 			If set above [code]0.0[/code] (exclusive), blends between the fog's color and the color of the background [Sky], as read from the radiance cubemap. This has a small performance cost when set above [code]0.0[/code]. Must have [member background_mode] set to [constant BG_SKY].
@@ -199,6 +210,135 @@
 		<member name="glow_strength" type="float" setter="set_glow_strength" getter="get_glow_strength" default="1.0">
 			The strength that is used when blurring across the screen to generate the glow effect. This affects the distance and intensity of the blur. When using the Mobile rendering method, this should be increased to compensate for the lower dynamic range.
 			[b]Note:[/b] [member glow_strength] has no effect when using the Compatibility rendering method, due to this rendering method using a simpler glow implementation optimized for low-end devices.
+		</member>
+		<member name="grading_channel_mixer_blue" type="Vector3" setter="set_grading_channel_mixer_blue" getter="get_grading_channel_mixer_blue" default="Vector3(0, 0, 1)">
+			The output blue channel as a mix of the input channels: [code]blue = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(0, 0, 1)[/code] leaves blue unchanged.
+		</member>
+		<member name="grading_channel_mixer_green" type="Vector3" setter="set_grading_channel_mixer_green" getter="get_grading_channel_mixer_green" default="Vector3(0, 1, 0)">
+			The output green channel as a mix of the input channels: [code]green = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(0, 1, 0)[/code] leaves green unchanged.
+		</member>
+		<member name="grading_channel_mixer_red" type="Vector3" setter="set_grading_channel_mixer_red" getter="get_grading_channel_mixer_red" default="Vector3(1, 0, 0)">
+			The output red channel as a mix of the input channels: [code]red = x * red + y * green + z * blue[/code], in linear light. [code]Vector3(1, 0, 0)[/code] leaves red unchanged. Negative weights are allowed.
+		</member>
+		<member name="grading_color_filter" type="Color" setter="set_grading_color_filter" getter="get_grading_color_filter" default="Color(1, 1, 1, 1)">
+			Multiplies the image by this color in linear light, as a colored filter in front of the lens would (before the other controls). White leaves the image unchanged.
+		</member>
+		<member name="grading_curve_blue" type="Curve" setter="set_grading_curve_blue" getter="get_grading_curve_blue">
+			A tone curve for the blue channel, after [member grading_curve_master]. [code]null[/code] leaves blue unchanged.
+		</member>
+		<member name="grading_curve_green" type="Curve" setter="set_grading_curve_green" getter="get_grading_curve_green">
+			A tone curve for the green channel, after [member grading_curve_master]. [code]null[/code] leaves green unchanged.
+		</member>
+		<member name="grading_curve_hue_vs_hue" type="Curve" setter="set_grading_curve_hue_vs_hue" getter="get_grading_curve_hue_vs_hue">
+			Shifts each hue (X axis, 0 to 1 around the color wheel starting at red) by [code]Y - 0.5[/code] turns: [code]0.5[/code] leaves it unchanged, [code]0.0[/code] and [code]1.0[/code] shift it by half a turn. Make the curve's ends equal, since hue wraps around.
+		</member>
+		<member name="grading_curve_hue_vs_sat" type="Curve" setter="set_grading_curve_hue_vs_sat" getter="get_grading_curve_hue_vs_sat">
+			Scales the saturation of each hue (X axis, 0 to 1 starting at red) by [code]2 * Y[/code]: [code]0.5[/code] leaves it unchanged, [code]0.0[/code] removes the color. Make the curve's ends equal, since hue wraps around.
+		</member>
+		<member name="grading_curve_lum_vs_sat" type="Curve" setter="set_grading_curve_lum_vs_sat" getter="get_grading_curve_lum_vs_sat">
+			Scales the saturation of colors by [code]2 * Y[/code] as a function of their luminance (X axis, 0 to 1): [code]0.5[/code] leaves them unchanged. For example, lower the curve's ends to desaturate the deepest shadows and the brightest highlights.
+		</member>
+		<member name="grading_curve_master" type="Curve" setter="set_grading_curve_master" getter="get_grading_curve_master">
+			A tone curve applied to all three channels (sRGB-encoded): the input on the X axis (0 to 1), the output on the Y axis. Applied after every other control except the red, green and blue curves. [code]null[/code] or a curve without points leaves the image unchanged.
+		</member>
+		<member name="grading_curve_red" type="Curve" setter="set_grading_curve_red" getter="get_grading_curve_red">
+			A tone curve for the red channel, after [member grading_curve_master]. [code]null[/code] leaves red unchanged.
+		</member>
+		<member name="grading_curve_sat_vs_sat" type="Curve" setter="set_grading_curve_sat_vs_sat" getter="get_grading_curve_sat_vs_sat">
+			Scales the saturation of colors by [code]2 * Y[/code] as a function of their saturation (X axis, 0 to 1): [code]0.5[/code] leaves them unchanged.
+		</member>
+		<member name="grading_enabled" type="bool" setter="set_grading_enabled" getter="is_grading_enabled" default="false">
+			If [code]true[/code], the color grading controls of this group grade the rendered image. The grade is display-referred: it works on the tonemapped, sRGB-encoded image (where the adjustments' brightness, contrast and saturation work too), after the adjustments and before [member adjustment_color_correction], whose LUT applies to the graded image. All controls are baked into one internal 33×33×33 3D lookup table whenever one of them changes, so grading costs the same at any setting, and animating a control rebakes it every frame (about 1.5 ms of CPU time on a desktop with every control on, spread over the worker threads).
+			[b]Note:[/b] Like [member adjustment_color_correction], grading clamps the image to the [code]0.0[/code] to [code]1.0[/code] range: with HDR output, values above [code]1.0[/code] are clipped while it is enabled.
+		</member>
+		<member name="grading_gain" type="Color" setter="set_grading_gain" getter="get_grading_gain" default="Color(1, 1, 1, 1)">
+			Scales each channel, leaving black unchanged. White ([code]Color(1, 1, 1)[/code]) leaves the image unchanged; values above [code]1.0[/code] brighten.
+		</member>
+		<member name="grading_gamma" type="Color" setter="set_grading_gamma" getter="get_grading_gamma" default="Color(1, 1, 1, 1)">
+			Bends the midtones of each channel, leaving black and white unchanged: the result of lift and gain is raised to the power [code]1 / gamma[/code], so values above [code]1.0[/code] brighten the midtones. White ([code]Color(1, 1, 1)[/code]) leaves the image unchanged.
+		</member>
+		<member name="grading_highlights" type="Color" setter="set_grading_highlights" getter="get_grading_highlights" default="Color(1, 1, 1, 1)">
+			Multiplies the highlights by this color (linear light). Highlights are the pixels whose luminance is above [member grading_highlights_end], fading in from [member grading_highlights_start]. White leaves them unchanged.
+		</member>
+		<member name="grading_highlights_end" type="float" setter="set_grading_highlights_end" getter="get_grading_highlights_end" default="1.0">
+			The luminance above which [member grading_highlights] applies fully.
+		</member>
+		<member name="grading_highlights_start" type="float" setter="set_grading_highlights_start" getter="get_grading_highlights_start" default="0.55">
+			The luminance above which [member grading_highlights] starts to apply.
+		</member>
+		<member name="grading_hue_shift" type="float" setter="set_grading_hue_shift" getter="get_grading_hue_shift" default="0.0">
+			Rotates the hue of every color by this many degrees.
+		</member>
+		<member name="grading_lift" type="Color" setter="set_grading_lift" getter="get_grading_lift" default="Color(0, 0, 0, 1)">
+			Raises the black level of each channel toward this color, leaving white unchanged: [code]v = gain * (x + lift * (1 - x))[/code]. Black ([code]Color(0, 0, 0)[/code]) leaves the image unchanged.
+		</member>
+		<member name="grading_midtones" type="Color" setter="set_grading_midtones" getter="get_grading_midtones" default="Color(1, 1, 1, 1)">
+			Multiplies the midtones, the pixels that are neither shadows nor highlights, by this color (linear light). White leaves them unchanged.
+		</member>
+		<member name="grading_shadows" type="Color" setter="set_grading_shadows" getter="get_grading_shadows" default="Color(1, 1, 1, 1)">
+			Multiplies the shadows by this color (linear light). Shadows are the pixels whose luminance is below [member grading_shadows_start], fading out up to [member grading_shadows_end]. White leaves them unchanged.
+		</member>
+		<member name="grading_shadows_end" type="float" setter="set_grading_shadows_end" getter="get_grading_shadows_end" default="0.3">
+			The luminance above which [member grading_shadows] no longer applies.
+		</member>
+		<member name="grading_shadows_start" type="float" setter="set_grading_shadows_start" getter="get_grading_shadows_start" default="0.0">
+			The luminance below which [member grading_shadows] applies fully.
+		</member>
+		<member name="grading_split_toning_balance" type="float" setter="set_grading_split_toning_balance" getter="get_grading_split_toning_balance" default="0.0">
+			Moves the split between [member grading_split_toning_shadows] and [member grading_split_toning_highlights]: positive values give the highlight tint more of the image, negative values the shadow tint.
+		</member>
+		<member name="grading_split_toning_highlights" type="Color" setter="set_grading_split_toning_highlights" getter="get_grading_split_toning_highlights" default="Color(0.5, 0.5, 0.5, 1)">
+			Tints the highlights toward this color with a soft-light blend, more strongly the brighter the pixel. Middle gray ([code]Color(0.5, 0.5, 0.5)[/code]) leaves them unchanged.
+		</member>
+		<member name="grading_split_toning_shadows" type="Color" setter="set_grading_split_toning_shadows" getter="get_grading_split_toning_shadows" default="Color(0.5, 0.5, 0.5, 1)">
+			Tints the shadows toward this color with a soft-light blend, more strongly the darker the pixel. Middle gray ([code]Color(0.5, 0.5, 0.5)[/code]) leaves them unchanged.
+		</member>
+		<member name="grading_vibrance" type="float" setter="set_grading_vibrance" getter="get_grading_vibrance" default="0.0">
+			Positive values raise the saturation of muted colors the most and leave strongly saturated colors mostly unchanged, unlike [member adjustment_saturation]. Negative values lower the saturation of the most saturated colors the most; [code]-1.0[/code] removes almost all color. [code]0.0[/code] leaves the image unchanged.
+		</member>
+		<member name="lens_flare_chromatic_aberration" type="float" setter="set_lens_flare_chromatic_aberration" getter="get_lens_flare_chromatic_aberration" default="1.0">
+			How much the ghosts' size differs per color, fringing them red and blue; [code]1.0[/code] is a 2% difference.
+		</member>
+		<member name="lens_flare_enabled" type="bool" setter="set_lens_flare_enabled" getter="is_lens_flare_enabled" default="false">
+			If [code]true[/code], bright light in the frame makes lens flare: ghosts (light reflected twice between lens surfaces) along the line from the source through the frame's center, mirrored and scaled, each tinted by its coatings, and a halo ring around the center. Only light brighter than [member lens_flare_threshold] makes it. Flare is computed from the frame itself, so it follows every visible light source, emissive material and sky.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="lens_flare_ghost_count" type="int" setter="set_lens_flare_ghost_count" getter="get_lens_flare_ghost_count" default="4">
+			The number of ghosts, up to 8.
+		</member>
+		<member name="lens_flare_halo_intensity" type="float" setter="set_lens_flare_halo_intensity" getter="get_lens_flare_halo_intensity" default="1.0">
+			The light in the halo ring, on the same scale as [member lens_flare_intensity].
+		</member>
+		<member name="lens_flare_intensity" type="float" setter="set_lens_flare_intensity" getter="get_lens_flare_intensity" default="1.0">
+			The light in each ghost. [code]1.0[/code] is 0.1% of the source's light per ghost, an older single-coated lens; modern multicoating would be about a tenth of that.
+		</member>
+		<member name="lens_flare_threshold" type="float" setter="set_lens_flare_threshold" getter="get_lens_flare_threshold" default="1.0">
+			Only light brighter than this, in the exposed image where [code]1.0[/code] is display white, makes flare.
+		</member>
+		<member name="light_shafts_decay" type="float" setter="set_light_shafts_decay" getter="get_light_shafts_decay" default="2.0">
+			How quickly the shafts fade with distance from the sky that casts them, per frame height: the share of a shaft that reaches a distance [code]d[/code] (in frame heights) is [code]exp(-decay * d)[/code], so [code]1 / decay[/code] is their mean length. Lower values make longer shafts. Measured in fractions of the frame, so the shafts look the same at every resolution.
+		</member>
+		<member name="light_shafts_enabled" type="bool" setter="set_light_shafts_enabled" getter="is_light_shafts_enabled" default="false">
+			If [code]true[/code], bright sky around the sun streaks toward the viewer as screen-space light shafts ("god rays"), interrupted wherever geometry hides the sky. The sun is a [DirectionalLight3D] with [member DirectionalLight3D.light_shafts_enabled] (if several opt in, one of them is used); without one, there are no shafts. Shafts fade out as the sun leaves the frame and are off while it is behind the camera.
+			This is the radial blur of Mitchell, "Volumetric Light Scattering as a Post-Process" (GPU Gems 3, chapter 13), at a quarter of the frame's width and height, added to the scene's light before depth of field and tonemapping. It is cheaper than volumetric fog and works in every renderer, but only scatters light that is visible on screen: a sun hidden behind a wall casts no shafts. Its quality is set by [member ProjectSettings.rendering/environment/light_shafts/quality].
+			[b]Note:[/b] In the Compatibility renderer, the frame is clipped before the shafts see it (at about 30 in linear light with a 10-bit 3D buffer, otherwise at 1.0), so [member light_shafts_threshold] should stay below that, and multiview (XR) viewports have no shafts.
+		</member>
+		<member name="light_shafts_intensity" type="float" setter="set_light_shafts_intensity" getter="get_light_shafts_intensity" default="1.0">
+			The brightness of the shafts. At [code]1.0[/code], a pixel looking straight at the sun gets as much light again as the sky there.
+		</member>
+		<member name="light_shafts_threshold" type="float" setter="set_light_shafts_threshold" getter="get_light_shafts_threshold" default="1.0">
+			Only sky brighter than this (luminance of linear scene light, before exposure and tonemapping, as [member glow_hdr_threshold]) casts shafts. Raise it to keep the shafts to the sun and its glare; lower it to let the whole sky cast them.
+		</member>
+		<member name="light_shafts_tint" type="Color" setter="set_light_shafts_tint" getter="get_light_shafts_tint" default="Color(1, 1, 1, 1)">
+			Multiplies the color of the shafts, which otherwise have the color of the sky that casts them.
+		</member>
+		<member name="micro_shadows_enabled" type="bool" setter="set_micro_shadows_enabled" getter="is_micro_shadows_enabled" default="false">
+			If [code]true[/code], directional lights are shadowed by the fine detail of each material's ambient occlusion and normal maps ("micro shadows", as in HDRP): a texel whose [member BaseMaterial3D.ao_texture] is dark only receives light from close to its (normal-mapped) normal, so crevices and bumps baked into the textures stay in shadow when the sun is low. It costs a few instructions per pixel and directional light, and changes nothing on materials without an ambient occlusion map. The material's own ambient occlusion is used (including decals), not screen-space ambient occlusion.
+			Uses the formula of "The Technical Art of Uncharted 4" (Brinck and Maximov, SIGGRAPH 2016), as HDRP does: the ambient occlusion [code]ao[/code] is read as a cone of aperture [code]2 * ao * ao[/code] and the light is scaled by [code]clamp(N.L + 2 * ao * ao - 1, 0, 1)[/code].
+			[b]Note:[/b] Only directional lights are affected, and not with [member BaseMaterial3D.shading_mode] set to per-vertex lighting.
+		</member>
+		<member name="micro_shadows_opacity" type="float" setter="set_micro_shadows_opacity" getter="get_micro_shadows_opacity" default="1.0">
+			The strength of the micro shadows, between [code]0.0[/code] (none) and [code]1.0[/code] (the full effect). See [member micro_shadows_enabled].
 		</member>
 		<member name="reflected_light_source" type="int" setter="set_reflection_source" getter="get_reflection_source" enum="Environment.ReflectionSource" default="0">
 			The reflected (specular) light source.
@@ -323,6 +463,21 @@
 			The white reference value for tonemapping, which indicates where bright white is located in the scale of values provided to the tonemapper. For photorealistic lighting, it is recommended to set [member tonemap_agx_white] to at least [code]6.0[/code]. Higher values result in less blown out highlights, but may make the scene appear lower contrast. [member tonemap_agx_white] is the same as [member tonemap_white], but is only effective with the [constant TONE_MAPPER_AGX] tonemapper. See also [member tonemap_exposure].
 			[b]Note:[/b] When using the Mobile renderer with [member Viewport.use_hdr_2d] disabled, [member tonemap_agx_white] is ignored and a white value of [code]2.0[/code] will always be used instead. Otherwise, [member tonemap_agx_white] will be dynamically adjusted at runtime by multiplying it by the parent window's [method Window.get_output_max_linear_value] when using [member Viewport.use_hdr_2d] to ensure good behavior with both SDR and HDR output.
 		</member>
+		<member name="tonemap_custom_black_clip" type="float" setter="set_tonemap_custom_black_clip" getter="get_tonemap_custom_black_clip" default="0.0">
+			Where the toe of the [constant TONE_MAPPER_CUSTOM] curve ends up at the dark end: at [code]0.0[/code] it approaches black without reaching it, above [code]0.0[/code] it aims below black, so the darkest values become pure black (crushed) at a finite brightness. Small values (up to about [code]0.05[/code]) are typical. Same as Unreal Engine's Film "Black Clip".
+		</member>
+		<member name="tonemap_custom_shoulder" type="float" setter="set_tonemap_custom_shoulder" getter="get_tonemap_custom_shoulder" default="0.26">
+			The highlight compression of the [constant TONE_MAPPER_CUSTOM] curve: the output level at which the shoulder takes over from the straight part of the curve. Higher values keep highlights linear for longer and make them reach white sooner (brighter, more clipped highlights); lower values roll them off earlier and more gently. Very low values also start to pull mid gray down. Same as Unreal Engine's Film "Shoulder".
+		</member>
+		<member name="tonemap_custom_slope" type="float" setter="set_tonemap_custom_slope" getter="get_tonemap_custom_slope" default="0.88">
+			The contrast of the [constant TONE_MAPPER_CUSTOM] curve: its steepness through the midtones, in output per decade of input brightness. Mid gray ([code]0.18[/code]) stays where it is; higher values make shadows darker and highlights brighter, lower values flatten the image. Same as Unreal Engine's Film "Slope".
+		</member>
+		<member name="tonemap_custom_toe" type="float" setter="set_tonemap_custom_toe" getter="get_tonemap_custom_toe" default="0.55">
+			The shadow compression of the [constant TONE_MAPPER_CUSTOM] curve: how much of the output range the toe covers ([code]1.0 - toe[/code] is the output level where it ends). Higher values darken the shadows and lower midtones more; lower values keep them lighter and more linear. Same as Unreal Engine's Film "Toe".
+		</member>
+		<member name="tonemap_custom_white_clip" type="float" setter="set_tonemap_custom_white_clip" getter="get_tonemap_custom_white_clip" default="0.04">
+			Where the shoulder of the [constant TONE_MAPPER_CUSTOM] curve ends up at the bright end: at [code]0.0[/code] it approaches white without reaching it, above [code]0.0[/code] it aims past white, so bright values become pure white at a finite brightness (about [code]10.0[/code] with the defaults). Same as Unreal Engine's Film "White Clip".
+		</member>
 		<member name="tonemap_exposure" type="float" setter="set_tonemap_exposure" getter="get_tonemap_exposure" default="1.0">
 			Adjusts the brightness of values before they are provided to the tonemapper. Higher [member tonemap_exposure] values result in a brighter image. See also [member tonemap_white].
 			[b]Note:[/b] Values provided to the tonemapper will also be multiplied by [code]2.0[/code] and [code]1.8[/code] for [constant TONE_MAPPER_FILMIC] and [constant TONE_MAPPER_ACES] respectively to produce a similar apparent brightness as [constant TONE_MAPPER_LINEAR].
@@ -334,6 +489,13 @@
 			The white reference value for tonemapping, which indicates where bright white is located in the scale of values provided to the tonemapper. For photorealistic lighting, it is recommended to set [member tonemap_white] to at least [code]6.0[/code]. Higher values result in less blown out highlights, but may make the scene appear lower contrast. [member tonemap_agx_white] will be used instead when using the [constant TONE_MAPPER_AGX] tonemapper. See also [member tonemap_exposure].
 			[b]Note:[/b] [member tonemap_white] must be set to [code]2.0[/code] or lower on the Mobile renderer to produce bright images.
 			[b]Note:[/b] [member tonemap_white] is ignored when using [constant TONE_MAPPER_LINEAR] and will be dynamically adjusted at runtime to never be less than the parent window's [method Window.get_output_max_linear_value] when using [constant TONE_MAPPER_REINHARDT] with [member Viewport.use_hdr_2d].
+		</member>
+		<member name="veiling_glare_enabled" type="bool" setter="set_veiling_glare_enabled" getter="is_veiling_glare_enabled" default="false">
+			If [code]true[/code], light scattered inside the lens spreads evenly over the frame, lifting the blacks by a fraction of the frame's mean brightness: the contrast loss a bright scene (a window, the sky) causes in the shadows of the whole picture. It is measured on real lenses as the veiling glare index (ISO 9358).
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="veiling_glare_strength" type="float" setter="set_veiling_glare_strength" getter="get_veiling_glare_strength" default="1.0">
+			[code]1.0[/code] spreads 2% of the frame's light, typical of a modern camera lens; old or uncoated lenses reach 5-10.
 		</member>
 		<member name="volumetric_fog_albedo" type="Color" setter="set_volumetric_fog_albedo" getter="get_volumetric_fog_albedo" default="Color(1, 1, 1, 1)">
 			The [Color] of the volumetric fog when interacting with lights. Mist and fog have an albedo close to [code]Color(1, 1, 1, 1)[/code] while smoke has a darker albedo.
@@ -443,6 +605,10 @@
 		</constant>
 		<constant name="TONE_MAPPER_AGX" value="4" enum="ToneMapper">
 			Uses an adjustable film-like tonemapping curve and desaturates bright values for a more realistic appearance. Better than other tonemappers at maintaining the hue of colors as they become brighter. The slowest tonemapping option.
+		</constant>
+		<constant name="TONE_MAPPER_CUSTOM" value="5" enum="ToneMapper">
+			A film-like curve shaped by [member tonemap_custom_slope], [member tonemap_custom_toe], [member tonemap_custom_shoulder], [member tonemap_custom_black_clip] and [member tonemap_custom_white_clip]: a straight line in logarithmic brightness joined to a smooth toe in the shadows and a shoulder in the highlights, which always maps mid gray ([code]0.18[/code]) to [code]0.18[/code]. The parameters are those of Unreal Engine's Film tonemapper, so its values can be carried over, and the defaults are its defaults, which match the ACES film curve. It is applied to each color channel, like [constant TONE_MAPPER_FILMIC], and does not use [member tonemap_white]. It is a curve for standard dynamic range output: its result is clipped to [code]1.0[/code].
+			[b]Note:[/b] In the Mobile renderer, the scene is stored with values up to [code]2.0[/code], so the shoulder sees nothing brighter than that (about [code]0.86[/code] output with the defaults). In the Compatibility renderer, it is applied in the scene shader like the other tonemappers.
 		</constant>
 		<constant name="GLOW_BLEND_MODE_ADDITIVE" value="0" enum="GlowBlendMode">
 			Adds the glow effect to the scene.

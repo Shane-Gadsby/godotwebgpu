@@ -2132,6 +2132,18 @@ SceneTree::SceneTree() {
 #endif // _2D_DISABLED
 	current_scene = nullptr;
 
+#ifndef _3D_DISABLED
+	if (!Engine::get_singleton()->is_editor_hint()) {
+		// Dynamic 3D resolution: the root viewport only, never the editor's (sub)viewports.
+		root->set_scaling_3d_dynamic_target_fps(GLOBAL_GET("rendering/scaling_3d/dynamic_target_fps"));
+		root->set_scaling_3d_dynamic_min_scale(GLOBAL_GET("rendering/scaling_3d/dynamic_min_scale"));
+		root->set_scaling_3d_dynamic_max_scale(GLOBAL_GET("rendering/scaling_3d/dynamic_max_scale"));
+		root->set_scaling_3d_dynamic_step(GLOBAL_GET("rendering/scaling_3d/dynamic_step"));
+		root->set_scaling_3d_dynamic_remember(GLOBAL_GET("rendering/scaling_3d/dynamic_remember"));
+		root->set_scaling_3d_dynamic(GLOBAL_GET("rendering/scaling_3d/dynamic"));
+	}
+#endif // _3D_DISABLED
+
 	const int msaa_mode_2d = GLOBAL_GET("rendering/anti_aliasing/quality/msaa_2d");
 	root->set_msaa_2d(Viewport::MSAA(msaa_mode_2d));
 

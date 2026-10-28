@@ -20,6 +20,19 @@
 				Returns the vertical field of view that corresponds to the [member frustum_focal_length]. This value is calculated internally whenever [member frustum_focal_length] is changed.
 			</description>
 		</method>
+		<method name="get_sensor_format_size" qualifiers="static">
+			<return type="Vector2" />
+			<param index="0" name="format" type="int" enum="CameraAttributesPhysical.SensorFormat" />
+			<description>
+				Returns the width and height in millimeters of a [enum SensorFormat], or 36x24 for [constant SENSOR_FORMAT_CUSTOM].
+			</description>
+		</method>
+		<method name="is_fov_horizontal" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when [method get_fov] is the horizontal field of view, which is the case for an anamorphic lens ([member lens_anamorphic_squeeze] above 1.0), and [code]false[/code] when it is the vertical one.
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="auto_exposure_max_exposure_value" type="float" setter="set_auto_exposure_max_exposure_value" getter="get_auto_exposure_max_exposure_value" default="10.0">
@@ -28,13 +41,34 @@
 		<member name="auto_exposure_min_exposure_value" type="float" setter="set_auto_exposure_min_exposure_value" getter="get_auto_exposure_min_exposure_value" default="-8.0">
 			The minimum luminance (in EV100) used when calculating auto exposure. When calculating scene average luminance, color values will be clamped to at least this value. This limits the auto-exposure from exposing above a certain brightness, resulting in a cut off point where the scene will remain dark.
 		</member>
+		<member name="diffraction_enabled" type="bool" setter="set_diffraction_enabled" getter="is_diffraction_enabled" default="false">
+			If [code]true[/code], the aperture's diffraction softens the image: a point spreads into an Airy disk of diameter [code]2.44 λ N[/code] (with [code]λ[/code] = 550 nm and [code]N[/code] the working f-number, larger at close focus). The blur is relative to the sensor, so it is the same fraction of the frame at any resolution, and like on a real camera it only shows at small apertures: past about f/11 on a 24-megapixel full-frame sensor, but only past f/32 or so at 1080p, whose pixels are much larger.
+			[b]Note:[/b] Applied by the tonemap pass with 25 texture reads per pixel (75 with [member CameraAttributes.chromatic_aberration_enabled]), skipped when the blur is far below a pixel. In the Compatibility renderer it makes the scene go through the post-processing pass.
+		</member>
+		<member name="diffraction_strength" type="float" setter="set_diffraction_strength" getter="get_diffraction_strength" default="1.0">
+			Scales the diffraction blur's size. [code]1.0[/code] is the physical amount.
+		</member>
+		<member name="dof_legacy_gather" type="bool" setter="set_dof_legacy_gather" getter="is_dof_legacy_gather" default="false">
+			If [code]true[/code], a blur sized by [member dof_physical_blur_size] is drawn the way upstream Godot draws its physically-based depth of field, for projects whose look was tuned through it. Only the blur's size comes from the lens; the gather is upstream's: it always reaches 32 pixels (so a larger blur is clamped there, at any resolution, and [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size] does not apply), and the Box and Hexagon shapes divide by every sample up to that reach, so a blur much smaller than 32 pixels is drawn mostly sharp (a 5-pixel blur keeps about a fifth of its width), and the Very Low and Low qualities blur twice as wide as the others. This is not physically correct: the softer-than-real look depends on the render resolution and the quality. The Circle shape and custom apertures ([member CameraAttributes.aperture_enabled]) are only affected by the 32-pixel reach.
+			Has no effect, and is hidden in the inspector, while [member dof_physical_blur_size] is [code]false[/code] (the gather then already is upstream's).
+		</member>
+		<member name="dof_physical_blur_size" type="bool" setter="set_dof_physical_blur_size" getter="is_dof_physical_blur_size" default="false">
+			If [code]true[/code], depth of field blurs as much as a real lens with these settings would: a point at distance [code]d[/code] blurs into a circle of diameter [code]f² / (N (u - f)) × |d - u| / d[/code] on the sensor (focal length [code]f[/code] = [member frustum_focal_length], f-number [code]N[/code] = [member exposure_aperture], focus distance [code]u[/code] = [member frustum_focus_distance]), which takes the same share of the image as it takes of the sensor. A smaller [member sensor_size] blurs more of the frame with the same lens, and a higher render resolution blurs more pixels, so the image looks the same at every resolution. The blur is measured against the sensor's height, or for an anamorphic lens ([member lens_anamorphic_squeeze]) its desqueezed width, as the field of view is.
+			If [code]false[/code], the blur is a fixed number of pixels, about a fifth of the thin-lens blur in millimeters scaled to a 64-pixel radius, whatever the sensor or resolution. This matches upstream Godot.
+			The gather reaches at most [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size] of the image's height; a larger blur (a long lens wide open, or something very close to the camera) is clamped there. The Circle shape and custom apertures ([member CameraAttributes.aperture_enabled]) reach at most 3% of the image's height, since their cost grows with the square of the reach (see the project setting); use Box or Hexagon for a larger blur. Box and Hexagon cost about the same at any reach. To keep the look of upstream's gather with this size, enable [member dof_legacy_gather].
+			[b]Note:[/b] Works with Forward+ and Mobile. Compatibility has no depth of field.
+		</member>
 		<member name="exposure_aperture" type="float" setter="set_aperture" getter="get_aperture" default="16.0">
 			Size of the aperture of the camera, measured in f-stops. An f-stop is a unitless ratio between the focal length of the camera and the diameter of the aperture. A high aperture setting will result in a smaller aperture which leads to a dimmer image and sharper focus. A low aperture results in a wide aperture which lets in more light resulting in a brighter, less-focused image. Default is appropriate for outdoors at daytime (i.e. for use with a default [DirectionalLight3D]), for indoor lighting, a value between 2 and 4 is more appropriate.
 			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
 		</member>
+		<member name="exposure_nd_filter" type="float" setter="set_exposure_nd_filter" getter="get_exposure_nd_filter" default="0.0">
+			The strength of a neutral density filter in front of the lens, in stops: each stop halves the light. Lets you use a wide aperture or a slow shutter in bright light.
+			[b]Note:[/b] Only has an effect when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+		</member>
 		<member name="exposure_shutter_speed" type="float" setter="set_shutter_speed" getter="get_shutter_speed" default="100.0">
 			Time for shutter to open and close, evaluated as [code]1 / shutter_speed[/code] seconds. A higher value will allow less light (leading to a darker image), while a lower value will allow more light (leading to a brighter image).
-			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled. It also sets the length of [member CameraAttributes.motion_blur_enabled] (see [member motion_blur_use_shutter_speed]), with or without physical light units, and is shown in the inspector whenever it does.
 		</member>
 		<member name="frustum_far" type="float" setter="set_far" getter="get_far" default="4000.0">
 			Override value for [member Camera3D.far]. Used internally when calculating depth of field. When attached to a [Camera3D] as its [member Camera3D.attributes], it will override the [member Camera3D.far] property.
@@ -48,5 +82,63 @@
 		<member name="frustum_near" type="float" setter="set_near" getter="get_near" default="0.05">
 			Override value for [member Camera3D.near]. Used internally when calculating depth of field. When attached to a [Camera3D] as its [member Camera3D.attributes], it will override the [member Camera3D.near] property.
 		</member>
+		<member name="lens_anamorphic_squeeze" type="float" setter="set_lens_anamorphic_squeeze" getter="get_lens_anamorphic_squeeze" default="1.0">
+			The horizontal squeeze of an anamorphic lens (1.33, 1.5, 1.8 and 2.0 are common; 1.0 is a spherical lens). The lens fits a field of view this many times wider onto the sensor, so the horizontal field of view widens by the squeeze and [Camera3D] keeps it, instead of the vertical one, when the squeeze is above 1.0 (see [method is_fov_horizontal]). Automatic distortion and diffraction take the squeeze into account.
+		</member>
+		<member name="lens_focus_breathing" type="float" setter="set_lens_focus_breathing" getter="get_lens_focus_breathing" default="0.0">
+			How much the field of view changes with [member frustum_focus_distance]. [code]1.0[/code] is a lens that focuses by moving as a whole (most stills primes): it frames like a longer lens up close, by [code]f² / (u - f)[/code] at focus distance [code]u[/code]. [code]0.0[/code] is a cinema lens built not to breathe, and negative values a lens whose field of view widens at close focus, as many internally focusing zooms do.
+		</member>
+		<member name="lens_max_aperture" type="float" setter="set_lens_max_aperture" getter="get_lens_max_aperture" default="1.8">
+			The lens's largest aperture (smallest f-number). Optical vignetting ([member CameraAttributes.vignetting_enabled]) is strongest at this aperture and gone two stops smaller.
+		</member>
+		<member name="lens_transmission_loss" type="float" setter="set_lens_transmission_loss" getter="get_lens_transmission_loss" default="0.0">
+			The light the lens's glass loses, in stops: the difference between its T-stop and its f-stop ([code]T = N * 2^(loss / 2)[/code]). Darkens the exposure only; depth of field and diffraction keep the f-number. Cinema lenses are marked in T-stops; a typical lens loses 0.1-0.3 stops.
+			[b]Note:[/b] Only has an effect when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+		</member>
+		<member name="motion_blur_use_shutter_speed" type="bool" setter="set_motion_blur_use_shutter_speed" getter="is_motion_blur_using_shutter_speed" default="true">
+			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.motion_blur_shutter_angle] sets the exposure time as a fraction of each frame instead.
+		</member>
+		<member name="sensor_format" type="int" setter="set_sensor_format" getter="get_sensor_format" enum="CameraAttributesPhysical.SensorFormat" default="0">
+			The size of the sensor or film frame, which sets the field of view of [member frustum_focal_length], the circle of confusion of depth of field, the size of film grain ([member CameraAttributes.grain_enabled]) and the lens effects that depend on the frame. Picking a format sets [member sensor_size].
+		</member>
+		<member name="sensor_size" type="Vector2" setter="set_sensor_size" getter="get_sensor_size" default="Vector2(36, 24)">
+			The width and height of the sensor in millimeters. Editable when [member sensor_format] is [constant SENSOR_FORMAT_CUSTOM]; setting another size makes the format custom.
+		</member>
+		<member name="tilt_shift_axis" type="float" setter="set_tilt_shift_axis" getter="get_tilt_shift_axis" default="0.0">
+			The direction of the tilt's axis in the frame, in degrees counterclockwise: [code]0.0[/code] tilts about a horizontal axis (a horizontal band of focus), [code]90.0[/code] about a vertical one.
+		</member>
+		<member name="tilt_shift_enabled" type="bool" setter="set_tilt_shift_enabled" getter="is_tilt_shift_enabled" default="false">
+			If [code]true[/code], the lens is tilted against the sensor ([member tilt_shift_tilt]), so the plane of sharp focus tilts with it (the Scheimpflug principle). Depth of field then measures every pixel's defocus from that plane: a forward tilt brings a whole receding ground plane into focus, a reverse tilt ([member tilt_shift_tilt] negative) leaves a thin band sharp and makes a real scene look like a miniature. The plane's angle follows from the tilt, the focal length and [member frustum_focus_distance] (the hinge rule), as on a tilt-shift lens. Depth of field runs even where the untilted lens would be sharp everywhere.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field. An orthogonal [Camera3D] ignores it.
+		</member>
+		<member name="tilt_shift_tilt" type="float" setter="set_tilt_shift_tilt" getter="get_tilt_shift_tilt" default="0.0">
+			The lens's tilt in degrees. Positive tilts the plane of focus so that the bottom of the frame is focused nearer than the top (along a ground plane); negative does the opposite. Tilt-shift lenses tilt up to about 8 to 15 degrees; small tilts already tilt the plane of focus steeply, more so with longer focus distances.
+		</member>
 	</members>
+	<constants>
+		<constant name="SENSOR_FORMAT_FULL_FRAME" value="0" enum="SensorFormat">
+			Full frame, 36x24 mm (135 film).
+		</constant>
+		<constant name="SENSOR_FORMAT_APS_C" value="1" enum="SensorFormat">
+			APS-C, 23.6x15.6 mm.
+		</constant>
+		<constant name="SENSOR_FORMAT_SUPER_35" value="2" enum="SensorFormat">
+			Super 35, 24.89x18.66 mm (the 4-perf Super 35 film gate).
+		</constant>
+		<constant name="SENSOR_FORMAT_MICRO_FOUR_THIRDS" value="3" enum="SensorFormat">
+			Micro Four Thirds, 17.3x13 mm.
+		</constant>
+		<constant name="SENSOR_FORMAT_MEDIUM_FORMAT" value="4" enum="SensorFormat">
+			Medium format, 44x33 mm.
+		</constant>
+		<constant name="SENSOR_FORMAT_ONE_INCH" value="5" enum="SensorFormat">
+			1-inch type, 13.2x8.8 mm.
+		</constant>
+		<constant name="SENSOR_FORMAT_CUSTOM" value="6" enum="SensorFormat">
+			A custom size, set with [member sensor_size].
+		</constant>
+		<constant name="SENSOR_FORMAT_MAX" value="7" enum="SensorFormat">
+			Represents the size of the [enum SensorFormat] enum.
+		</constant>
+	</constants>
 </class>

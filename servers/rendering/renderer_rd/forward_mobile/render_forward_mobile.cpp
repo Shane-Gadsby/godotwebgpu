@@ -643,10 +643,13 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 		RID texture;
 		if (rb.is_valid() && rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH)) {
 			texture = rb->get_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH);
-		} else if (is_multiview) {
-			texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_DEPTH);
 		} else {
-			texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_DEPTH);
+#ifdef WEBGPU_ENABLED
+			// As Forward+'s binding 24: a float slot on WebGPU, read only with a depth copy.
+			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
+#else
+			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_DEPTH : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_DEPTH);
+#endif
 		}
 		u.append_id(texture);
 		uniforms.push_back(u);
@@ -1028,6 +1031,22 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		if (rb->get_screen_space_aa() != RSE::VIEWPORT_SCREEN_SPACE_AA_DISABLED) {
 			// Can't do blit subpass because we're using screen space AA.
 			using_subpass_post_process = false;
+		}
+
+		if (RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_render_data->camera_attributes, p_render_data->environment.is_valid() ? environment_get_camera_glare(p_render_data->environment) : CameraGlareEnvironment())) {
+			// Can't do blit subpass: the CameraEffects buffer must be updated before the pass, and lens effects and glare
+			// read other pixels than the one a subpass input gives.
+			using_subpass_post_process = false;
+		}
+
+		if (p_render_data->environment.is_valid() && environment_get_light_shafts(p_render_data->environment).enabled) {
+			// Light shafts are separate passes over the finished color and depth (RendererRD::LightShafts).
+			using_subpass_post_process = false;
+			if (use_msaa) {
+				// The mask reads a resolved depth texture, as DOF does.
+				scene_state.used_depth_texture = true;
+				resolve_depth_buffer = true;
+			}
 		}
 
 		if (use_msaa && p_render_data->environment.is_valid() && RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes)) {

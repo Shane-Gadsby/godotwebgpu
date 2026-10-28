@@ -33,8 +33,40 @@
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl.gen.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_buffer_custom_data_rd.h"
+#include "servers/rendering/storage/camera_attributes_storage.h"
+#include "servers/rendering/storage/environment_storage.h"
+
+class RenderSceneBuffersRD;
 
 namespace RendererRD {
+
+// A viewport's own CameraEffects uniform buffer (camera_effects_inc.glsl). Each viewport has one, so several viewports
+// in a frame never share a buffer whose contents change between their tonemap passes.
+class CameraEffectsBufferRD : public RenderBufferCustomDataRD {
+	GDCLASS(CameraEffectsBufferRD, RenderBufferCustomDataRD);
+
+public:
+	RID buffer;
+	CameraEffectsUBO contents; // What the buffer holds, to skip uploads when nothing changed.
+
+	virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
+	virtual void free_data() override;
+	~CameraEffectsBufferRD();
+};
+
+// A viewport's own EnvironmentEffects uniform buffer (environment_effects_inc.glsl), for the same reason.
+class EnvironmentEffectsBufferRD : public RenderBufferCustomDataRD {
+	GDCLASS(EnvironmentEffectsBufferRD, RenderBufferCustomDataRD);
+
+public:
+	RID buffer;
+	RendererEnvironmentStorage::EnvironmentEffectsUBO contents; // What the buffer holds, to skip uploads when nothing changed.
+
+	virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
+	virtual void free_data() override;
+	~EnvironmentEffectsBufferRD();
+};
 
 class ToneMapper {
 private:
@@ -76,6 +108,12 @@ private:
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 6),
 		TONEMAP_FLAG_USE_WHITE_BALANCE = (1 << 7),
+		// Bits 8-23 hold the packed CameraAttributes LUT parameters.
+		TONEMAP_FLAG_CAMERA_LUT_SHIFT = 8,
+		// The 3D color correction LUT holds lattice points (the Environment's color grading LUT), not texel centers.
+		TONEMAP_FLAG_COLOR_CORRECTION_LATTICE = (1 << 24),
+		// Write alpha 1 (TonemapSettings::opaque_alpha).
+		TONEMAP_FLAG_OPAQUE_ALPHA = (1 << 25),
 	};
 
 	enum FlagsMobile {
@@ -100,7 +138,8 @@ private:
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_REPLACE = (1 << 16),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_MIX = (1 << 17),
 		TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE = (1 << 18),
-		TONEMAP_MOBILE_ADRENO_BUG = (1 << 19), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
+		TONEMAP_MOBILE_FLAG_TONEMAPPER_CUSTOM = (1 << 19),
+		TONEMAP_MOBILE_ADRENO_BUG = (1 << 20), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
 	};
 
 	struct TonemapPushConstant {
@@ -128,7 +167,8 @@ private:
 		// CameraAttributes white balance: Bradford cone-space gains, used with TONEMAP_FLAG_USE_WHITE_BALANCE.
 		// This brings the block to 128 bytes, the most Vulkan guarantees for push constants.
 		float white_balance[3]; //  12 - 124
-		float pad; //  4 - 128
+		// CameraAttributes grain, packed (RendererCameraAttributes::camera_attributes_get_grain_packed()); 0 when off.
+		uint32_t grain; //  4 - 128
 	};
 	static_assert(sizeof(TonemapPushConstant) <= 128, "The tonemap push constant must fit the 128 bytes every Vulkan device supports.");
 
@@ -147,6 +187,11 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float output_max_value; //  4 - 68
 		float white_balance[3]; //  12 - 80 (with TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE)
+
+		uint32_t grain; //  4 - 84 (packed, 0 when off)
+		uint32_t camera_lut; //  4 - 88 (packed, 0 when off)
+		uint32_t color_correction_lattice; //  4 - 92 (1: the 3D color correction LUT holds lattice points)
+		uint32_t opaque_alpha; //  4 - 96 (1: write alpha 1, TonemapSettings::opaque_alpha)
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -166,6 +211,12 @@ private:
 		RID shader_version;
 		PipelineCacheRD pipelines[TONEMAP_MOBILE_MODE_MAX];
 	} tonemap_mobile;
+
+	RID default_camera_effects_buffer; // All zeros: no CameraEffects effect runs.
+	RID default_environment_effects_buffer; // All zeros: nothing reads the EnvironmentEffects buffer.
+	// The glare chain's sampler: trilinear, and anisotropic so that the starburst's textureGrad() reads integrate along
+	// a spike while staying thin across it. Reads with an explicit lod are unaffected.
+	RID glare_sampler;
 
 public:
 	ToneMapper(bool p_use_mobile_version);
@@ -196,6 +247,17 @@ public:
 		bool use_white_balance = false;
 		Vector3 white_balance_gains = Vector3(1.0, 1.0, 1.0);
 
+		uint32_t grain = 0; // Packed CameraAttributes grain for this pass's output size and frame; 0 when off.
+
+		uint32_t camera_lut = 0; // Packed CameraAttributes LUT parameters; 0 when off.
+		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
+
+		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+		RID environment_effects_buffer; // The EnvironmentEffects uniform buffer; the default all-zero one when invalid.
+		RID glare_texture; // The glare chain (whole mip chain) when glare is on; a black texture when invalid.
+		RID auto_white_balance_texture; // CameraMetering's state (gains in texel 0); read when the buffer says so.
+		RID local_exposure_grid; // CameraLocalExposure's bilateral grid (3D); read when the buffer says so.
+
 		bool use_bcs = false;
 		float brightness = 1.0;
 		float contrast = 1.0;
@@ -204,6 +266,8 @@ public:
 		bool use_color_correction = false;
 		bool use_1d_color_correction = false;
 		RID color_correction_texture;
+		// The Environment's color grading LUT is in color_correction_texture: sample it at lattice points.
+		bool color_correction_lattice = false;
 
 		bool use_fxaa = false;
 		enum DebandingMode {
@@ -218,7 +282,22 @@ public:
 		bool bilinear_filtering = true;
 
 		bool convert_to_srgb = false;
+
+		// Write alpha 1 instead of the scene's alpha: the destination is an opaque render target whose texture
+		// cannot show alpha 1 through a view swizzle (TextureStorage::render_target_needs_opaque_alpha(), WebGPU).
+		// Everything after this pass (SMAA, scaling, FSR 1) keeps an alpha of 1.
+		bool opaque_alpha = false;
 	};
+
+	// The CameraEffects uniform buffer for a tonemap pass of these render buffers: their own, updated to the camera
+	// attributes' current parameters, or the shared all-zero buffer when no effect uses it. Call it before the pass's
+	// draw list begins (buffers cannot be updated inside one).
+	RID get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context);
+
+	// The EnvironmentEffects uniform buffer for a tonemap pass of these render buffers: their own, filled from the
+	// environment, or the shared all-zero buffer when nothing reads it. With p_update false (inside a render pass, where
+	// buffers cannot be updated) it returns the buffer only if an earlier call this frame already holds these contents.
+	RID get_environment_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_environment, bool p_update);
 
 	void tonemapper(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);
 	void tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);

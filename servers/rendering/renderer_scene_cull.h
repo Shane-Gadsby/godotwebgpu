@@ -88,6 +88,7 @@ public:
 		RID env;
 		RID attributes;
 		RID compositor;
+		RendererSceneRender::CameraMonitoring monitoring; // Overlays drawn by the camera finish pass.
 
 		Transform3D transform; // Our main camera transform
 		LocalVector<Transform3D> offsets; // camera offsets for each view
@@ -120,6 +121,15 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_attributes);
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor);
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable);
+	virtual void camera_set_monitoring_zebras(RID p_camera, bool p_enable, float p_level, bool p_second_enable, float p_second_level);
+	virtual void camera_set_monitoring_zebra_colors(RID p_camera, const Color &p_color, const Color &p_second_color);
+	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity);
+	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable);
+	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity);
+	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval);
+	virtual void camera_set_monitoring_clean_texture(RID p_camera, RID p_texture);
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const;
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const;
 	virtual bool is_camera(RID p_camera) const;
 
 	/* OCCLUDER API */
@@ -1246,6 +1256,7 @@ public:
 	// Tonemap
 	PASS4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
 	PASS2(environment_set_tonemap_agx_contrast, RID, float)
+	PASS6(environment_set_tonemap_custom, RID, float, float, float, float, float)
 	PASS1RC(RSE::EnvironmentToneMapper, environment_get_tone_mapper, RID)
 	PASS1RC(float, environment_get_exposure, RID)
 	PASS3RC(float, environment_get_white, RID, bool, float)
@@ -1294,6 +1305,15 @@ public:
 	PASS13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, RSE::EnvironmentGlowBlendMode, float, float, float, float, RID)
 
 	PASS1RC(bool, environment_get_glow_enabled, RID)
+
+	// Glare
+	PASS7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
+	PASS3(environment_set_veiling_glare, RID, bool, float)
+	PASS4(environment_set_diffusion_filter, RID, bool, float, bool)
+
+	// Light shafts
+	PASS6(environment_set_light_shafts, RID, bool, float, float, float, const Color &)
+	PASS1(environment_set_light_shafts_quality, RSE::EnvironmentLightShaftsQuality)
 	PASS1RC(Vector<float>, environment_get_glow_levels, RID)
 	PASS1RC(float, environment_get_glow_intensity, RID)
 	PASS1RC(float, environment_get_glow_strength, RID)
@@ -1334,9 +1354,11 @@ public:
 	PASS1RC(float, environment_get_ssao_ao_channel_affect, RID)
 
 	PASS6(environment_set_ssao_quality, RSE::EnvironmentSSAOQuality, bool, float, int, float, float)
+	PASS1(environment_set_ssao_method, RSE::EnvironmentSSAOMethod) // GTAO
 
 	// SSIL
 	PASS6(environment_set_ssil, RID, bool, float, float, float, float)
+	PASS3(environment_set_micro_shadows, RID, bool, float)
 
 	PASS1RC(bool, environment_get_ssil_enabled, RID)
 	PASS1RC(float, environment_get_ssil_radius, RID)
@@ -1374,6 +1396,15 @@ public:
 	PASS1RC(float, environment_get_adjustments_saturation, RID)
 	PASS1RC(bool, environment_get_use_1d_color_correction, RID)
 	PASS1RC(RID, environment_get_color_correction, RID)
+
+	/* Color grading */
+	PASS8(environment_set_color_grading, RID, bool, const Color &, float, float, const Color &, const Color &, const Color &)
+	PASS8(environment_set_color_grading_shadows_midtones_highlights, RID, const Color &, const Color &, const Color &, float, float, float, float)
+	PASS4(environment_set_color_grading_channel_mixer, RID, const Vector3 &, const Vector3 &, const Vector3 &)
+	PASS4(environment_set_color_grading_split_toning, RID, const Color &, const Color &, float)
+	PASS9(environment_set_color_grading_curves, RID, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &, const Vector<float> &)
+	PASS1RC(bool, environment_get_color_grading_enabled, RID)
+	PASS1RC(uint64_t, environment_get_color_grading_version, RID)
 
 	PASS3R(Ref<Image>, environment_bake_panorama, RID, bool, const Size2i &)
 

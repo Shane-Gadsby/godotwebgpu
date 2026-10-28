@@ -1611,6 +1611,12 @@ void RasterizerSceneGLES3::_setup_environment(const RenderDataGLES3 *p_render_da
 	scene_state.data.shadow_bias = p_shadow_bias;
 	scene_state.data.pancake_shadows = p_pancake_shadows;
 
+	/* Micro shadows */
+	scene_state.data.micro_shadow_opacity = 0.0f;
+	if (is_environment(p_render_data->environment) && environment_get_micro_shadows_enabled(p_render_data->environment)) {
+		scene_state.data.micro_shadow_opacity = CLAMP(environment_get_micro_shadows_opacity(p_render_data->environment), 0.0f, 1.0f);
+	}
+
 	//time global variables
 	scene_state.data.time = time;
 
@@ -2424,6 +2430,65 @@ void RasterizerSceneGLES3::_render_shadow_pass(RID p_light, RID p_shadow_atlas, 
 	glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
 }
 
+// The GL texture of the camera attributes' LUT, or 0 when there is none or it is not a 3D texture.
+GLuint RasterizerSceneGLES3::_get_camera_lut_texture(RID p_camera_attributes) const {
+	if (RSG::camera_attributes->camera_attributes_get_lut_packed(p_camera_attributes) == 0) {
+		return 0;
+	}
+	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
+	const GLES3::Texture *texture = texture_storage->get_texture(RSG::camera_attributes->camera_attributes_get_lut_texture(p_camera_attributes));
+	if (!texture || texture->type != GLES3::Texture::TYPE_3D) {
+		return 0;
+	}
+	return texture->tex_id;
+}
+
+/* Color grading */
+
+// The grading LUT of p_environment (a 33^3 RGBA16F 3D texture of lattice points), or 0 when grading is off.
+GLuint RasterizerSceneGLES3::_get_color_grading_lut(RID p_environment) {
+	// Textures of freed environments (RIDs are never reused).
+	Vector<RID> stale;
+	for (const KeyValue<RID, ColorGradingLUT> &E : color_grading_luts) {
+		if (!is_environment(E.key)) {
+			stale.push_back(E.key);
+		}
+	}
+	for (const RID &rid : stale) {
+		GLES3::Utilities::get_singleton()->texture_free_data(color_grading_luts[rid].texture);
+		color_grading_luts.erase(rid);
+	}
+
+	if (p_environment.is_null() || !environment_get_color_grading_enabled(p_environment)) {
+		return 0;
+	}
+	ColorGradingLUT &lut = color_grading_luts[p_environment];
+	const uint64_t version = environment_get_color_grading_version(p_environment);
+	if (lut.texture != 0 && lut.version == version) {
+		return lut.texture;
+	}
+	const int size = RendererColorGrading::LUT_SIZE;
+	const Vector<uint8_t> data = environment_bake_color_grading(p_environment);
+	if (lut.texture == 0) {
+		glGenTextures(1, &lut.texture);
+		glBindTexture(GL_TEXTURE_3D, lut.texture);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, size, size, size, 0, GL_RGBA, GL_HALF_FLOAT, data.ptr());
+		GLES3::Utilities::get_singleton()->texture_allocated_data(lut.texture, data.size(), "Color grading LUT");
+	} else {
+		glBindTexture(GL_TEXTURE_3D, lut.texture);
+		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, size, size, size, GL_RGBA, GL_HALF_FLOAT, data.ptr());
+	}
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
+	glBindTexture(GL_TEXTURE_3D, 0);
+	lut.version = version;
+	return lut.texture;
+}
+
 void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_buffers, const CameraData *p_camera_data, const CameraData *p_prev_camera_data, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RID> &p_lights, const PagedArray<RID> &p_reflection_probes, const PagedArray<RID> &p_voxel_gi_instances, const PagedArray<RID> &p_decals, const PagedArray<RID> &p_lightmaps, const PagedArray<RID> &p_fog_volumes, RID p_environment, RID p_camera_attributes, RID p_compositor, RID p_shadow_atlas, RID p_occluder_debug_tex, RID p_reflection_atlas, RID p_reflection_probe, int p_reflection_probe_pass, float p_screen_mesh_lod_threshold, const RenderShadowData *p_render_shadows, int p_render_shadow_count, const RenderSDFGIData *p_render_sdfgi_regions, int p_render_sdfgi_region_count, float p_window_output_max_value, const RenderSDFGIUpdateData *p_sdfgi_update_data, RenderingServerTypes::RenderInfo *r_render_info) {
 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
@@ -2459,9 +2524,28 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		ssao_enabled = environment_get_ssao_enabled(p_environment);
 		use_bcs = environment_get_adjustments_enabled(p_environment);
 		bool canvas_tonemapping = environment_get_background(p_environment) == RSE::ENV_BG_CANVAS && environment_get_tone_mapper(p_environment) != RSE::ENV_TONE_MAPPER_LINEAR;
-		if (glow_enabled || ssao_enabled || use_bcs || canvas_tonemapping) {
+		// Color grading is applied by the post pass, as the adjustments are.
+		bool use_color_grading = !is_reflection_probe && environment_get_color_grading_enabled(p_environment);
+		if (glow_enabled || ssao_enabled || use_bcs || canvas_tonemapping || use_color_grading) {
 			apply_environment_effects_in_post = true;
 		}
+	}
+
+	// Light shafts are added by the post pass, in linear light before the tone curve, so they need it to run; like
+	// glow, they read the frame's highlights, so a 10-bit frame keeps a range of 4 for them (luminance multiplier).
+	const bool light_shafts_enabled = !is_reflection_probe && environment_get_light_shafts(p_environment).enabled;
+	if (light_shafts_enabled) {
+		apply_environment_effects_in_post = true;
+	}
+
+	// Grain is drawn by the post pass, at the output resolution, and the camera LUT is applied there.
+	const bool use_camera_effects = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
+	const bool use_grain = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
+	const bool use_camera_lut = use_camera_effects && _get_camera_lut_texture(p_camera_attributes) != 0;
+	// The lens optics of the CameraEffects buffer resample the image, which only the post pass can do.
+	const bool use_camera_effects_buffer = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_camera_attributes);
+	if (use_grain || use_camera_lut || use_camera_effects_buffer) {
+		apply_environment_effects_in_post = true;
 	}
 
 	// Assign render data
@@ -2504,7 +2588,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		// this should be the same for all cameras..
 		render_data.lod_distance_multiplier = p_camera_data->main_projection.get_lod_multiplier();
 
-		if (rt != nullptr && rt->color_type == GL_UNSIGNED_INT_2_10_10_10_REV && glow_enabled) {
+		if (rt != nullptr && rt->color_type == GL_UNSIGNED_INT_2_10_10_10_REV && (glow_enabled || light_shafts_enabled)) {
 			// As our output is in sRGB and we're using 10bit color space, we can fake a little HDR to do glow...
 			render_data.luminance_multiplier = 0.25;
 		} else {
@@ -2562,6 +2646,10 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.brightness = environment_get_adjustments_brightness(render_data.environment);
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
+		RendererEnvironmentStorage::EnvironmentEffectsUBO environment_effects;
+		if (environment_fill_effects_buffer(render_data.environment, environment_effects)) {
+			memcpy(tonemap_ubo.tonemap_custom, environment_effects.tonemap_custom, sizeof(tonemap_ubo.tonemap_custom));
+		}
 	}
 	if (RSG::camera_attributes->camera_attributes_uses_white_balance(render_data.camera_attributes)) {
 		const Vector3 gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(render_data.camera_attributes);
@@ -2569,6 +2657,12 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.white_balance[1] = gains.y;
 		tonemap_ubo.white_balance[2] = gains.z;
 		tonemap_ubo.white_balance[3] = 1.0;
+	}
+	if (use_grain) {
+		tonemap_ubo.grain = RSG::camera_attributes->camera_attributes_get_grain_packed(render_data.camera_attributes, rb->get_target_size().y, RSG::rasterizer->get_frame_number());
+	}
+	if (use_camera_lut) {
+		tonemap_ubo.camera_lut = RSG::camera_attributes->camera_attributes_get_lut_packed(render_data.camera_attributes);
 	}
 
 	if (scene_state.tonemap_buffer == 0) {
@@ -3017,10 +3111,64 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	if (!is_reflection_probe) {
 		_render_post_processing(&render_data);
 
+		// The camera finish pass: last, on the finished 3D image (GLES3::CameraFinish).
+		if (rb.is_valid()) {
+			GLES3::CameraFinish::Settings finish;
+			if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+				finish.camera = RSG::camera_attributes->camera_attributes_get_finish(render_data.camera_attributes, rb->get_target_size().y);
+			}
+			finish.monitoring = p_camera_data->monitoring;
+			finish.time = time;
+			if (GLES3::CameraFinish::is_active(finish)) {
+				camera_finish->process(rb->render_target, finish);
+			}
+		}
+
 		texture_storage->render_target_disable_clear_request(rb->render_target);
 	}
 
 	glActiveTexture(GL_TEXTURE0);
+}
+
+void RasterizerSceneGLES3::_render_light_shafts(const RenderDataGLES3 *p_render_data, GLuint p_color, GLuint p_depth) {
+	// Single view only: the post pass's multiview path has no shafts (Environment.xml says so).
+	const RendererEnvironmentStorage::LightShafts settings = environment_get_light_shafts(p_render_data->environment);
+	if (!settings.enabled || settings.intensity <= 0.0f || p_render_data->lights == nullptr || get_debug_draw_mode() != RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+		return;
+	}
+	GLES3::LightStorage *light_storage = GLES3::LightStorage::get_singleton();
+	for (uint32_t i = 0; i < p_render_data->lights->size(); i++) {
+		RID base = light_storage->light_instance_get_base_light((*p_render_data->lights)[i]);
+		if (light_storage->light_get_type(base) != RSE::LIGHT_DIRECTIONAL || !light_storage->light_directional_get_light_shafts(base)) {
+			continue;
+		}
+		// The first directional light that opts in is the sun. It shines along its -Z axis, so the sun is toward +Z.
+		const Vector3 sun_direction = light_storage->light_instance_get_base_transform((*p_render_data->lights)[i]).basis.get_column(2).normalized();
+		Ref<RenderSceneBuffersGLES3> rb = p_render_data->render_buffers;
+		const Size2i internal_size = rb->get_internal_size();
+		GLES3::LightShafts::Parameters params;
+		params.color = p_color;
+		params.depth = p_depth;
+		params.color_size = internal_size;
+		params.luminance_multiplier = p_render_data->luminance_multiplier;
+		params.settings = settings;
+		// The 3D image is stored upside down unless the render target's color is overridden (see render_scene()).
+		GLES3::RenderTarget *rt = GLES3::TextureStorage::get_singleton()->get_render_target(rb->get_render_target());
+		const bool flip_y = !(rt && rt->overridden.color.is_valid());
+		params.sun = RendererEnvironmentStorage::light_shafts_compute_sun(sun_direction, p_render_data->cam_transform, p_render_data->cam_projection, p_render_data->cam_orthogonal, float(internal_size.x) / float(internal_size.y), flip_y);
+		if (params.sun.fade <= 0.0f) {
+			return;
+		}
+		if (!light_shafts) {
+			light_shafts = memnew(GLES3::LightShafts);
+		}
+		GLuint shafts = light_shafts->process(params);
+		if (shafts != 0) {
+			const float scale = settings.intensity * params.sun.fade / light_shafts->get_encode_scale();
+			GLES3::PostEffects::get_singleton()->set_light_shafts(shafts, Color(settings.tint.r * scale, settings.tint.g * scale, settings.tint.b * scale));
+		}
+		return;
+	}
 }
 
 void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_render_data) {
@@ -3107,6 +3255,55 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 		}
 	}
 
+	// The Environment's color grading, before the color correction LUT (render_scene() forced this pass for it).
+	if (p_render_data->environment.is_valid() && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+		const GLuint color_grading_lut = _get_color_grading_lut(p_render_data->environment);
+		if (color_grading_lut != 0) {
+			bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
+			glActiveTexture(GL_TEXTURE5);
+			glBindTexture(GL_TEXTURE_3D, color_grading_lut);
+		}
+	}
+
+	// The camera LUT (render_scene() forced this pass for it). Debug draw modes and reflection probes do not get here
+	// with one: render_scene() leaves it out of the Tonemap UBO for them.
+	const GLuint camera_lut_texture = get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED ? _get_camera_lut_texture(p_render_data->camera_attributes) : 0;
+	if (camera_lut_texture != 0) {
+		bcs_spec_constants |= PostShaderGLES3::USE_CAMERA_LUT;
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_3D, camera_lut_texture);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	}
+
+	// The CameraEffects buffer (lens optics), for the pass that reads internal_size and writes target_size.
+	if (get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED && RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_render_data->camera_attributes)) {
+		CameraEffectsContext camera_effects_context;
+		camera_effects_context.source_size = internal_size;
+		camera_effects_context.output_size = target_size;
+		camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+		// Panini projection: the camera's field of view, for a single perspective view only.
+		if (!p_render_data->cam_orthogonal && p_render_data->view_count == 1) {
+			camera_effects_context.projection_tan_half = Vector2(1.0 / p_render_data->cam_projection.columns[0][0], 1.0 / p_render_data->cam_projection.columns[1][1]);
+		}
+		CameraEffectsUBO camera_effects_ubo;
+		if (RSG::camera_attributes->camera_attributes_fill_effects_buffer(p_render_data->camera_attributes, camera_effects_context, camera_effects_ubo)) {
+			if (scene_state.camera_effects_buffer == 0) {
+				glGenBuffers(1, &scene_state.camera_effects_buffer);
+				glBindBufferBase(GL_UNIFORM_BUFFER, CAMERA_EFFECTS_UNIFORM_LOCATION, scene_state.camera_effects_buffer);
+				GLES3::Utilities::get_singleton()->buffer_allocate_data(GL_UNIFORM_BUFFER, scene_state.camera_effects_buffer, sizeof(CameraEffectsUBO), &camera_effects_ubo, GL_STREAM_DRAW, "CameraEffects UBO");
+			} else {
+				glBindBufferBase(GL_UNIFORM_BUFFER, CAMERA_EFFECTS_UNIFORM_LOCATION, scene_state.camera_effects_buffer);
+				glBufferData(GL_UNIFORM_BUFFER, sizeof(CameraEffectsUBO), &camera_effects_ubo, GL_STREAM_DRAW);
+			}
+			glBindBuffer(GL_UNIFORM_BUFFER, 0);
+			bcs_spec_constants |= PostShaderGLES3::USE_CAMERA_EFFECTS;
+		}
+	}
+
 	if (view_count == 1) {
 		// Resolve if needed.
 		if (fbo_msaa_3d != 0 && msaa3d_needs_resolve) {
@@ -3144,6 +3341,8 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 
 				glow->process_glow(color, internal_size, glow_buffers);
 			}
+
+			_render_light_shafts(p_render_data, color, depth_buffer);
 
 			// Copy color buffer
 			post_effects->post_copy(fbo_rt, target_size, color,
@@ -4456,6 +4655,17 @@ void RasterizerSceneGLES3::gi_set_use_half_resolution(bool p_enable) {
 void RasterizerSceneGLES3::screen_space_roughness_limiter_set_active(bool p_enable, float p_amount, float p_curve) {
 }
 
+void RasterizerSceneGLES3::camera_monitoring_free(RID p_camera) {
+	RendererSceneRender::camera_monitoring_free(p_camera);
+	camera_monitoring_clean_texture_free(p_camera);
+}
+
+void RasterizerSceneGLES3::camera_monitoring_clean_texture_free(RID p_camera) {
+	if (camera_finish) {
+		camera_finish->free_camera_clean_frame(p_camera);
+	}
+}
+
 bool RasterizerSceneGLES3::screen_space_roughness_limiter_is_active() const {
 	return false;
 }
@@ -4665,6 +4875,7 @@ void RasterizerSceneGLES3::material_set_use_debanding(bool p_enable) {
 
 RasterizerSceneGLES3::RasterizerSceneGLES3() {
 	singleton = this;
+	camera_finish = memnew(GLES3::CameraFinish);
 
 	GLES3::MaterialStorage *material_storage = GLES3::MaterialStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
@@ -4677,6 +4888,7 @@ RasterizerSceneGLES3::RasterizerSceneGLES3() {
 	positional_soft_shadow_filter_set_quality((RSE::ShadowQuality)(int)GLOBAL_GET("rendering/lights_and_shadows/positional_shadow/soft_shadow_filter_quality"));
 	directional_soft_shadow_filter_set_quality((RSE::ShadowQuality)(int)GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality"));
 	lightmaps_set_bicubic_filter(GLOBAL_GET("rendering/lightmapping/lightmap_gi/use_bicubic_filter"));
+	environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality(int(GLOBAL_GET("rendering/environment/light_shafts/quality"))));
 
 	{ //decals
 		config->max_decals = MIN(config->max_decals, config->max_uniform_buffer_size / (int)sizeof(GLES3::DecalData));
@@ -4894,6 +5106,14 @@ void sky() {
 }
 
 RasterizerSceneGLES3::~RasterizerSceneGLES3() {
+	memdelete(camera_finish);
+	if (light_shafts) {
+		memdelete(light_shafts);
+	}
+	for (const KeyValue<RID, ColorGradingLUT> &E : color_grading_luts) {
+		GLES3::Utilities::get_singleton()->texture_free_data(E.value.texture);
+	}
+	color_grading_luts.clear();
 	if (ltc.lut1_texture.is_valid()) {
 		RS::get_singleton()->free_rid(ltc.lut1_texture);
 	}
@@ -4955,6 +5175,9 @@ RasterizerSceneGLES3::~RasterizerSceneGLES3() {
 		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.prev_multiview_buffer);
 	}
 
+	if (scene_state.camera_effects_buffer != 0) {
+		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.camera_effects_buffer);
+	}
 	if (scene_state.tonemap_buffer != 0) {
 		GLES3::Utilities::get_singleton()->buffer_free_data(scene_state.tonemap_buffer);
 	}

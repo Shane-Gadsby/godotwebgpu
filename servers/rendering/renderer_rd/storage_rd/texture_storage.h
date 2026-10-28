@@ -107,6 +107,10 @@ private:
 
 	RID default_rd_textures[DEFAULT_RD_TEXTURE_MAX];
 
+	// RD::supports_texture_view_swizzle(), read once: false on WebGPU, whose texture
+	// views cannot swizzle (see RDD::API_TRAIT_TEXTURE_VIEW_SWIZZLE).
+	bool texture_view_swizzle = true;
+
 	/* Canvas Texture API */
 
 	struct CanvasTextureCache {
@@ -185,6 +189,10 @@ private:
 
 		Ref<Image> image_cache_2d;
 		String path;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// texture_2d_get() warns once per texture when the web's asynchronous readback has not arrived yet.
+		bool warned_sync_readback_pending = false;
+#endif
 
 		RID proxy_to;
 		Vector<RID> proxies;
@@ -619,6 +627,9 @@ public:
 	virtual void texture_3d_placeholder_initialize(RID p_texture) override;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const override;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override;
+	static Ref<Image> _texture_2d_image_from_data(const Vector<uint8_t> &p_data, int p_width, int p_height, bool p_mipmaps, Image::Format p_validated_format, Image::Format p_format, RD::DataFormat p_rd_format);
+	static void _texture_2d_get_async_done(const Vector<uint8_t> &p_data, RID p_texture, int p_width, int p_height, bool p_mipmaps, int p_validated_format, int p_format, int p_rd_format, const Callable &p_callback);
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const override;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const override;
 
@@ -864,6 +875,9 @@ public:
 	virtual Size2i render_target_get_size(RID p_render_target) const override;
 	virtual void render_target_set_transparent(RID p_render_target, bool p_is_transparent) override;
 	virtual bool render_target_get_transparent(RID p_render_target) const override;
+	// True when the passes that finish this render target must write alpha 1 themselves:
+	// it is opaque, and its texture cannot show alpha 1 through a view swizzle (WebGPU).
+	bool render_target_needs_opaque_alpha(RID p_render_target) const;
 	virtual void render_target_set_direct_to_screen(RID p_render_target, bool p_direct_to_screen) override;
 	virtual bool render_target_get_direct_to_screen(RID p_render_target) const override;
 	virtual bool render_target_was_used(RID p_render_target) const override;
@@ -932,6 +946,9 @@ public:
 	RID render_target_get_rd_texture_msaa(RID p_render_target);
 	RID render_target_get_rd_backbuffer(RID p_render_target);
 	RID render_target_get_rd_backbuffer_framebuffer(RID p_render_target);
+	// Makes p_texture (a server texture) show p_rd_texture, a copy of the render target's color texture with its size
+	// and format, and read back as the render target's own texture does. p_rd_texture stays the caller's.
+	void render_target_copy_texture_set(RID p_texture, RID p_rd_texture, RID p_render_target);
 
 	RID render_target_get_framebuffer_uniform_set(RID p_render_target);
 	RID render_target_get_backbuffer_uniform_set(RID p_render_target);

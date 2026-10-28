@@ -1,0 +1,77 @@
+# chrome mode=ctrl&gpu=0&iters=64&cpu_ms=24&dur=60
+# [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true encoder.writeTime
+# completed=true
+{"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","cpu2":"-1","cpu_ms":"24","dur":"60","gpu":"0","iters":"64","iters2":"0","load2_at":"0","mode":"ctrl","target":"60","up":"bilinear"},"renderer":"forward_plus","size":[1920,1080],"t":0.786,"web":true}
+{"done":-1,"draw_cpu":0,"frame":146.566666666667,"gpu":0,"kind":"ctrl_tick","scale":1,"t":0.826}
+{"done":50.5499999970198,"draw_cpu":0.88,"frame":25,"gpu":2.442752,"kind":"ctrl_tick","scale":1,"t":1.847}
+{"done":50.2800000011921,"draw_cpu":0.69,"frame":25,"gpu":0.9783296,"kind":"ctrl_tick","scale":1,"t":2.853}
+{"done":49.9200000017881,"draw_cpu":0.645,"frame":25,"gpu":0.9803264,"kind":"ctrl_tick","scale":1,"t":3.877}
+{"from":1,"kind":"ctrl_change","t":3.904,"to":0.75,"why":"frame 25.0 ms > 16.7"}
+{"done":50.1899999976158,"draw_cpu":0.93,"frame":25.145,"gpu":0.844544,"kind":"ctrl_tick","scale":0.75,"t":4.882}
+{"after":25.065,"before":25,"kind":"ctrl_cpu_bound","predicted_gain":10.9375,"scale":0.75,"t":5.311}
+{"from":0.75,"kind":"ctrl_change","t":5.311,"to":1,"why":"step down did not help: CPU-bound"}
+{"done":50.7199999988079,"draw_cpu":0.72,"frame":25.04,"gpu":0.9028608,"kind":"ctrl_tick","scale":1,"t":5.892}
+{"done":50.5749999955297,"draw_cpu":0.8,"frame":25.145,"gpu":0.9891328,"kind":"ctrl_tick","scale":1,"t":6.901}
+{"done":50.2049999982119,"draw_cpu":0.82,"frame":25.04,"gpu":0.9818112,"kind":"ctrl_tick","scale":1,"t":7.905}
+{"done":50.9250000044703,"draw_cpu":0.805,"frame":25.115,"gpu":0.9818624,"kind":"ctrl_tick","scale":1,"t":8.917}
+{"done":50.0250000059605,"draw_cpu":0.92,"frame":25,"gpu":0.9883136,"kind":"ctrl_tick","scale":1,"t":9.941}
+{"from":1,"kind":"ctrl_change","t":10.493,"to":0.75,"why":"frame 25.0 ms > 16.7"}
+{"done":50.3849999979138,"draw_cpu":0.815,"frame":25.135,"gpu":0.9869824,"kind":"ctrl_tick","scale":0.75,"t":10.947}
+{"after":25,"before":25,"kind":"ctrl_cpu_bound","predicted_gain":10.9375,"scale":0.75,"t":11.899}
+{"from":0.75,"kind":"ctrl_change","t":11.899,"to":1,"why":"step down did not help: CPU-bound"}
+{"done":50.1000000014901,"draw_cpu":1.225,"frame":25.7575757575758,"gpu":0.6851584,"kind":"ctrl_tick","scale":1,"t":11.951}
+{"done":49.7199999988079,"draw_cpu":0.755,"frame":25,"gpu":0.990208,"kind":"ctrl_tick","scale":1,"t":12.971}
+{"done":49.765000000596,"draw_cpu":0.77,"frame":25,"gpu":0.9870848,"kind":"ctrl_tick","scale":1,"t":13.993}
+{"done":49.7800000011921,"draw_cpu":0.685,"frame":24.2424242424242,"gpu":0.988825600000001,"kind":"ctrl_tick","scale":1,"t":15.014}
+{"done":49.5450000017881,"draw_cpu":0.855,"frame":25,"gpu":0.9860096,"kind":"ctrl_tick","scale":1,"t":16.029}
+{"done":50.0600000023842,"draw_cpu":0.805,"frame":25,"gpu":0.9823744,"kind":"ctrl_tick","scale":1,"t":17.03}
+{"done":50.304999999702,"draw_cpu":0.565,"frame":25,"gpu":0.9812992,"kind":"ctrl_tick","scale":1,"t":18.032}
+{"done":50.0949999988079,"draw_cpu":0.59,"frame":25,"gpu":0.9810944,"kind":"ctrl_tick","scale":1,"t":19.032}
+{"done":49.9699999988079,"draw_cpu":0.82,"frame":25,"gpu":0.9827328,"kind":"ctrl_tick","scale":1,"t":20.033}
+{"done":49.7800000011921,"draw_cpu":0.765,"frame":25,"gpu":0.9824256,"kind":"ctrl_tick","scale":1,"t":21.055}
+{"done":49.8399999961257,"draw_cpu":0.78,"frame":25,"gpu":0.9866752,"kind":"ctrl_tick","scale":1,"t":22.076}
+{"from":1,"kind":"ctrl_change","t":22.277,"to":0.75,"why":"frame 25.0 ms > 16.7"}
+{"done":50.265000000596,"draw_cpu":0.755,"frame":25,"gpu":1.08145178947368,"kind":"ctrl_tick","scale":0.75,"t":23.078}
+{"after":25,"before":24.98,"kind":"ctrl_cpu_bound","predicted_gain":10.92875,"scale":0.75,"t":23.676}
+{"from":0.75,"kind":"ctrl_change","t":23.676,"to":1,"why":"step down did not help: CPU-bound"}
+{"done":50.2599999979138,"draw_cpu":0.78,"frame":25,"gpu":0.6857728,"kind":"ctrl_tick","scale":1,"t":24.079}
+{"done":50.304999999702,"draw_cpu":0.58,"frame":25,"gpu":0.990361600000001,"kind":"ctrl_tick","scale":1,"t":25.083}
+{"done":50.1150000020862,"draw_cpu":0.825,"frame":25,"gpu":0.9857024,"kind":"ctrl_tick","scale":1,"t":26.105}
+{"done":49.8849999979138,"draw_cpu":0.48,"frame":25,"gpu":0.9924096,"kind":"ctrl_tick","scale":1,"t":27.126}
+{"done":49.7450000047684,"draw_cpu":0.795,"frame":25,"gpu":0.982339368421053,"kind":"ctrl_tick","scale":1,"t":28.128}
+{"done":50.109999999404,"draw_cpu":0.73,"frame":25,"gpu":0.9826816,"kind":"ctrl_tick","scale":1,"t":29.153}
+{"done":49.8849999979138,"draw_cpu":0.675,"frame":25,"gpu":0.9824256,"kind":"ctrl_tick","scale":1,"t":30.174}
+{"done":50.1599999964237,"draw_cpu":0.7,"frame":25,"gpu":0.9856512,"kind":"ctrl_tick","scale":1,"t":31.197}
+{"done":50.1150000020862,"draw_cpu":0.5,"frame":25,"gpu":0.9861632,"kind":"ctrl_tick","scale":1,"t":32.197}
+{"done":49.4900000020862,"draw_cpu":0.505,"frame":24.64,"gpu":0.9818112,"kind":"ctrl_tick","scale":1,"t":33.211}
+{"done":49.7050000056624,"draw_cpu":0.67,"frame":24.95,"gpu":0.98816,"kind":"ctrl_tick","scale":1,"t":34.23}
+{"done":50.0200000032783,"draw_cpu":0.555,"frame":24.72,"gpu":0.9887744,"kind":"ctrl_tick","scale":1,"t":35.252}
+{"done":49.484999999404,"draw_cpu":0.465,"frame":24.595,"gpu":0.9898496,"kind":"ctrl_tick","scale":1,"t":36.267}
+{"done":50.1899999976158,"draw_cpu":0.52,"frame":25,"gpu":0.9911296,"kind":"ctrl_tick","scale":1,"t":37.267}
+{"done":49.8650000020862,"draw_cpu":0.73,"frame":24.98,"gpu":0.9838592,"kind":"ctrl_tick","scale":1,"t":38.29}
+{"done":49.5399999991059,"draw_cpu":0.735,"frame":25,"gpu":0.9828864,"kind":"ctrl_tick","scale":1,"t":39.307}
+{"done":49.7800000011921,"draw_cpu":0.665,"frame":25,"gpu":0.983552,"kind":"ctrl_tick","scale":1,"t":40.326}
+{"done":49.9399999976158,"draw_cpu":0.545,"frame":24.71,"gpu":0.9836032,"kind":"ctrl_tick","scale":1,"t":41.346}
+{"done":49.7000000029802,"draw_cpu":0.725,"frame":24.985,"gpu":0.9863168,"kind":"ctrl_tick","scale":1,"t":42.368}
+{"done":49.7950000017881,"draw_cpu":0.71,"frame":25,"gpu":0.9877504,"kind":"ctrl_tick","scale":1,"t":43.388}
+{"from":1,"kind":"ctrl_change","t":43.761,"to":0.8,"why":"frame 25.0 ms > 16.7"}
+{"done":49.4400000050664,"draw_cpu":0.79,"frame":25.0216666666661,"gpu":1.2300288,"kind":"ctrl_tick","scale":0.8,"t":44.407}
+{"after":25,"before":24.97,"kind":"ctrl_cpu_bound","predicted_gain":8.9892,"scale":0.8,"t":45.18}
+{"from":0.8,"kind":"ctrl_change","t":45.181,"to":1,"why":"step down did not help: CPU-bound"}
+{"done":50.054999999702,"draw_cpu":0.475,"frame":24.625,"gpu":0.7312896,"kind":"ctrl_tick","scale":1,"t":45.43}
+{"done":50.2300000041723,"draw_cpu":0.77,"frame":25,"gpu":0.985185523809524,"kind":"ctrl_tick","scale":1,"t":46.454}
+{"done":50.1000000014901,"draw_cpu":0.745,"frame":25,"gpu":0.9854464,"kind":"ctrl_tick","scale":1,"t":47.476}
+{"done":49.3950000032783,"draw_cpu":0.705,"frame":25,"gpu":0.9817088,"kind":"ctrl_tick","scale":1,"t":48.493}
+{"done":50.304999999702,"draw_cpu":0.695,"frame":25,"gpu":0.984064,"kind":"ctrl_tick","scale":1,"t":49.495}
+{"done":49.7100000008941,"draw_cpu":0.54,"frame":24.745,"gpu":0.989952,"kind":"ctrl_tick","scale":1,"t":50.516}
+{"done":49.9349999949336,"draw_cpu":0.48,"frame":24.63,"gpu":0.9895936,"kind":"ctrl_tick","scale":1,"t":51.535}
+{"done":49.5600000023842,"draw_cpu":0.65,"frame":24.88,"gpu":0.9866752,"kind":"ctrl_tick","scale":1,"t":52.551}
+{"done":49.609999999404,"draw_cpu":0.795,"frame":25,"gpu":0.9845248,"kind":"ctrl_tick","scale":1,"t":53.57}
+{"done":49.5599999949336,"draw_cpu":0.765,"frame":26.6016666666674,"gpu":0.983552,"kind":"ctrl_tick","scale":1,"t":54.575}
+{"done":49.9799999967217,"draw_cpu":0.685,"frame":24.945,"gpu":0.9836032,"kind":"ctrl_tick","scale":1,"t":55.594}
+{"done":50.1300000026822,"draw_cpu":0.61,"frame":25,"gpu":0.9866752,"kind":"ctrl_tick","scale":1,"t":56.619}
+{"done":50.0499999970198,"draw_cpu":0.745,"frame":25,"gpu":0.9812992,"kind":"ctrl_tick","scale":1,"t":57.644}
+{"done":50.1000000014901,"draw_cpu":0.57,"frame":24.72,"gpu":1.0400768,"kind":"ctrl_tick","scale":1,"t":58.669}
+{"done":50,"draw_cpu":0.53,"frame":24.755,"gpu":0.9849344,"kind":"ctrl_tick","scale":1,"t":59.69}
+{"changes":8,"changes_per_min_settled":5.33333333333333,"kind":"ctrl_summary","phases":{"before":{"final_scale":1,"frame_med":25,"missed_frac":0.0700525394045534}},"t":60.017}
+{"kind":"done","t":60.017}

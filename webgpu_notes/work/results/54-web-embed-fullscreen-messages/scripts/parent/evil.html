@@ -1,0 +1,11 @@
+<!doctype html>
+<html><body style="margin:0;background:#c33">
+<script>
+// A sibling frame on the parent's own origin: posts the parent's message to the game. It must be ignored.
+window.attack = (on) => {
+	const game = parent.document.getElementById('game').contentWindow;
+	game.postMessage({ type: 'godot:fullscreen', on }, '*');
+	return true;
+};
+</script>
+</body></html>

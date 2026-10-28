@@ -140,6 +140,57 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		fullscreenOnFirstTap: false,
 		/**
+		 * Fullscreen driven by the page that iframes the game, from the export preset's
+		 * ``html/embed_fullscreen/*`` options: ``{ enabled, allowedOrigins }``. When ``enabled`` and
+		 * the game runs in an iframe, the engine listens for ``{type: 'godot:fullscreen', on}``
+		 * messages from its parent window (from ``allowedOrigins`` only, unless that list is empty)
+		 * and treats the window as fullscreen while the parent holds the iframe in fullscreen. It
+		 * posts ``{type: 'godot:ready'}`` once it listens, and asks the parent with
+		 * ``{type: 'godot:exit-fullscreen'}`` / ``{type: 'godot:request-fullscreen'}`` when the game
+		 * leaves or enters fullscreen. ``null`` or ``enabled: false`` adds no listener.
+		 *
+		 * @memberof EngineConfig
+		 * @type {?{enabled: boolean, allowedOrigins: Array<string>}}
+		 * @default
+		 */
+		embedFullscreen: null,
+		/**
+		 * The start screen, from the export preset's ``html/start_button/*`` options. When
+		 * ``enabled``, the default shell opens on the splash with a Start button and runs
+		 * nothing of the engine (no compile of the engine, no GPU device, no audio) until
+		 * it is pressed; the press counts as a user gesture inside the page. The engine
+		 * itself does not read this; it is for the HTML shell, default or custom.
+		 *
+		 * ``preload`` (boolean): download the game while the button waits, with
+		 * :js:meth:`prefetch <Engine.prototype.prefetch>` (the default shell skips it in the
+		 * browser's Save-Data mode). ``preloadProgress`` (boolean): show that download's
+		 * progress under the button. Both are ``false`` unless ``enabled`` is.
+		 *
+		 * ``preloadText`` (object): that progress line's messages, color and font, from
+		 * ``html/start_button/preload_text/*``. ``downloading`` is shown before the download's
+		 * size is known (default ``"Downloading..."``), ``progress`` while it runs (default
+		 * ``"Downloading {percent}%"``; every ``{percent}`` is replaced by the whole percentage,
+		 * and a text without it is shown as it is), ``ready`` once every file has arrived
+		 * (default ``"Ready"``). An empty string is a message switched off: the line stays
+		 * empty in that state. ``color`` is a CSS hex color (default ``#c4c4c4``), drawn at full
+		 * opacity. ``fontFamily`` is a CSS ``font-family`` list (default the shell's own,
+		 * ``'Noto Sans', 'Droid Sans', Arial, sans-serif``) and ``fontSize`` a size in CSS
+		 * pixels (default ``14.4``, the shell's 0.9rem). The default shell inserts the messages
+		 * as text, never as HTML, and uses the defaults for any key that is missing.
+		 *
+		 * Keys: ``enabled`` (boolean), ``text``, ``backgroundColor``, ``hoverColor``,
+		 * ``pressedColor``, ``textColor``, ``borderColor`` (CSS hex colors, ``#rrggbbaa``
+		 * with transparency), ``borderWidth``, ``borderRadius``, ``fontSize``,
+		 * ``paddingHorizontal``, ``paddingVertical`` (CSS pixels) and ``fontFamily`` (a CSS
+		 * ``font-family`` list). ``hoverColor`` and ``pressedColor`` are the background color
+		 * darkened unless the preset sets its own.
+		 *
+		 * @memberof EngineConfig
+		 * @type {?Object}
+		 * @default
+		 */
+		startButton: null,
+		/**
 		 * When enabled, this will turn on experimental virtual keyboard support on mobile.
 		 *
 		 * @memberof EngineConfig
@@ -419,6 +470,8 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.experimentalVK = parse('experimentalVK', this.experimentalVK);
 		this.focusCanvas = parse('focusCanvas', this.focusCanvas);
 		this.fullscreenOnFirstTap = parse('fullscreenOnFirstTap', this.fullscreenOnFirstTap);
+		this.embedFullscreen = parse('embedFullscreen', this.embedFullscreen);
+		this.startButton = parse('startButton', this.startButton);
 		this.serviceWorker = parse('serviceWorker', this.serviceWorker);
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
 		this.renderingDriver = parse('renderingDriver', this.renderingDriver);
@@ -527,6 +580,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'godotPoolSize': this.godotPoolSize,
 			'focusCanvas': this.focusCanvas,
 			'fullscreenOnFirstTap': this.fullscreenOnFirstTap,
+			'embedFullscreen': this.embedFullscreen,
 			'debugPort': this.debugPort,
 			'onExecute': this.onExecute,
 			'onTerminatePID': this.onTerminatePID,

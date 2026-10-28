@@ -1,0 +1,39 @@
+Vulkan 1.4.351 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+Dynamic 3D resolution: /root starts from its remembered scale 0.75.
+[dr] {"adapter":"NVIDIA GeForce RTX 4080 SUPER","kind":"start","params":{"ae":"0","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"25","dyn":"1","frames":"40","hdr":"1","iters":"6000","iters2":"0","load2_at":"0","max":"1.0","min":"0.5","mode":"ctrl","remember":"1","s0":"1.0","target":"60","target2":"0","up":"bilinear","warm":"200"},"renderer":"forward_plus","size":[1920,1080],"start_scale":0.75,"t":0.004,"user_scale":1.0,"web":false}
+[dr] {"frame_med":12.36,"frame_p90":12.5,"frames":81,"gpu":12.38,"kind":"tick","scale":0.75,"source":"NONE","state":"STARTING","t":1.006}
+[dr] {"frame_med":12.38,"frame_p90":12.49,"frames":81,"gpu":12.3,"kind":"tick","scale":0.75,"source":"NONE","state":"STARTING","t":2.011}
+[dr] {"frame_med":12.36,"frame_p90":12.44,"frames":80,"gpu":12.31,"kind":"tick","scale":0.75,"source":"NONE","state":"STARTING","t":3.002}
+Dynamic 3D resolution: viewport 4733053960192 decides from GPU time.
+Dynamic 3D resolution: viewport 4733053960192 stable at scale 0.75 (frame 12.4 ms, GPU 12.3 ms, 0 changes).
+[dr] {"frame_med":12.36,"frame_p90":12.43,"frames":81,"gpu":12.3,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":4.005}
+[dr] {"frame_med":12.36,"frame_p90":12.43,"frames":81,"gpu":12.37,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":5.008}
+[dr] {"frame_med":12.36,"frame_p90":12.44,"frames":81,"gpu":12.32,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":6.011}
+[dr] {"frame_med":12.36,"frame_p90":12.42,"frames":80,"gpu":12.3,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":7.001}
+[dr] {"frame_med":12.37,"frame_p90":12.43,"frames":81,"gpu":12.39,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":8.004}
+[dr] {"frame_med":12.39,"frame_p90":12.49,"frames":81,"gpu":12.32,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":9.01}
+[dr] {"frame_med":12.35,"frame_p90":12.43,"frames":80,"gpu":12.31,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":10.0}
+[dr] {"frame_med":12.41,"frame_p90":15.22,"frames":79,"gpu":16.79,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":11.012}
+Dynamic 3D resolution: viewport 4733053960192 scale 0.75 -> 0.65 (GPU 16.9 ms, budget 16.7 ms).
+[dr] {"kind":"change","scale":0.650000035762787,"state":"ADJUSTING","t":11.43}
+Dynamic 3D resolution: viewport 4733053960192 scale 0.65 -> 0.70 (GPU 9.5 ms, budget 16.7 ms).
+[dr] {"kind":"change","scale":0.699999988079071,"state":"ADJUSTING","t":11.957}
+[dr] {"frame_med":9.59,"frame_p90":17.19,"frames":84,"gpu":10.92,"kind":"tick","scale":0.699999988079071,"source":"GPU_TIME","state":"ADJUSTING","t":12.001}
+Dynamic 3D resolution: viewport 4733053960192 scale 0.70 -> 0.75 (GPU 10.9 ms, budget 16.7 ms).
+[dr] {"kind":"change","scale":0.75,"state":"ADJUSTING","t":12.531}
+[dr] {"frame_med":11.01,"frame_p90":12.45,"frames":86,"gpu":12.37,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"ADJUSTING","t":13.003}
+Dynamic 3D resolution: viewport 4733053960192 stable at scale 0.75 (frame 12.4 ms, GPU 12.4 ms, 3 changes).
+[dr] {"frame_med":12.42,"frame_p90":12.56,"frames":81,"gpu":12.43,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":14.012}
+[dr] {"frame_med":12.41,"frame_p90":12.48,"frames":80,"gpu":12.36,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":15.007}
+[dr] {"frame_med":12.42,"frame_p90":12.63,"frames":80,"gpu":12.43,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":16.005}
+[dr] {"frame_med":12.42,"frame_p90":12.49,"frames":80,"gpu":12.43,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":17.0}
+[dr] {"frame_med":12.41,"frame_p90":12.48,"frames":81,"gpu":12.38,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":18.008}
+[dr] {"frame_med":12.41,"frame_p90":12.47,"frames":80,"gpu":12.36,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":19.002}
+[dr] {"frame_med":12.41,"frame_p90":12.49,"frames":81,"gpu":12.36,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":20.009}
+[dr] {"frame_med":12.41,"frame_p90":12.5,"frames":80,"gpu":12.3,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":21.005}
+[dr] {"frame_med":12.41,"frame_p90":12.48,"frames":81,"gpu":12.4,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":22.012}
+[dr] {"frame_med":12.41,"frame_p90":12.49,"frames":80,"gpu":12.35,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":23.007}
+[dr] {"frame_med":12.41,"frame_p90":12.48,"frames":80,"gpu":12.35,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":24.001}
+[dr] {"frame_med":12.41,"frame_p90":12.49,"frames":81,"gpu":12.36,"kind":"tick","scale":0.75,"source":"GPU_TIME","state":"STABLE","t":25.008}
+[dr] {"changes":[[11.43,0.650000035762787],[11.96,0.699999988079071],[12.53,0.75]],"final_scale":0.75,"final_state":"STABLE","kind":"summary","source":"GPU_TIME","states_frames":{"ADJUSTING":194,"STABLE":1584,"STARTING":243},"t":25.009}
+[dr] {"kind":"done","t":25.009}

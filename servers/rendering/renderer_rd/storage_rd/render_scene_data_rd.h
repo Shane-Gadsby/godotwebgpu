@@ -162,7 +162,7 @@ private:
 		float ambient_light_color_energy[4];
 
 		float reflection_color[3];
-		uint32_t pad;
+		float micro_shadow_opacity; // Micro shadows: 0 when off (was padding).
 
 		float ambient_color_sky_mix;
 		float fog_density;

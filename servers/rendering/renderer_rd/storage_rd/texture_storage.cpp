@@ -31,6 +31,7 @@
 #include "texture_storage.h"
 
 #include "core/config/engine.h"
+#include "core/object/callable_mp.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
@@ -82,6 +83,7 @@ TextureStorage *TextureStorage::get_singleton() {
 
 TextureStorage::TextureStorage() {
 	singleton = this;
+	texture_view_swizzle = RD::get_singleton()->supports_texture_view_swizzle();
 
 	{ //create default textures
 
@@ -1903,31 +1905,17 @@ void TextureStorage::texture_3d_placeholder_initialize(RID p_texture) {
 	texture_3d_initialize(p_texture, Image::FORMAT_RGBA8, 4, 4, 4, false, texture_3d_placeholder);
 }
 
-Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
-	Texture *tex = texture_owner.get_or_null(p_texture);
-	ERR_FAIL_NULL_V(tex, Ref<Image>());
-
-#ifdef TOOLS_ENABLED
-	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
-		return tex->image_cache_2d;
-	}
-#endif
-	Vector<uint8_t> data = RD::get_singleton()->texture_get_data(tex->rd_texture, 0);
-	if (data.is_empty()) {
-		// On WebGPU, readback is async — empty data signals "not ready yet."
-		// Return null without an error; caller should retry next frame.
-		return Ref<Image>();
-	}
+Ref<Image> TextureStorage::_texture_2d_image_from_data(const Vector<uint8_t> &p_data, int p_width, int p_height, bool p_mipmaps, Image::Format p_validated_format, Image::Format p_format, RD::DataFormat p_rd_format) {
 	Ref<Image> image;
 
 	// Expand RGB10_A2 into RGBAH.
-	if (tex->rd_format == RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32) {
+	if (p_rd_format == RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32) {
 		Vector<uint8_t> new_data;
-		new_data.resize(data.size() * 2);
+		new_data.resize(p_data.size() * 2);
 		uint16_t *ndp = (uint16_t *)new_data.ptr();
 
-		uint32_t *ptr = (uint32_t *)data.ptr();
-		uint32_t num_pixels = data.size() / 4;
+		const uint32_t *ptr = (const uint32_t *)p_data.ptr();
+		uint32_t num_pixels = p_data.size() / 4;
 
 		for (uint32_t ofs = 0; ofs < num_pixels; ofs++) {
 			uint32_t px = ptr[ofs];
@@ -1941,18 +1929,84 @@ Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
 			ndp[ofs * 4 + 2] = Math::make_half_float(float(b) / 1023.0);
 			ndp[ofs * 4 + 3] = Math::make_half_float(float(a) / 3.0);
 		}
-		image = Image::create_from_data(tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, new_data);
+		image = Image::create_from_data(p_width, p_height, p_mipmaps, p_validated_format, new_data);
 	} else {
-		image = Image::create_from_data(tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, data);
+		image = Image::create_from_data(p_width, p_height, p_mipmaps, p_validated_format, p_data);
 	}
+
+	if (!image->is_empty() && p_format != p_validated_format) {
+		image->convert(p_format);
+	}
+	return image;
+}
+
+void TextureStorage::texture_2d_get_async(RID p_texture, const Callable &p_callback) {
+	Texture *tex = texture_owner.get_or_null(p_texture);
+	if (!tex) {
+		// Invalid, or freed between the request and the end of the frame: documented as a null image, not an error.
+		p_callback.call_deferred(Ref<Image>());
+		return;
+	}
+
+#ifdef TOOLS_ENABLED
+	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
+		p_callback.call_deferred(tex->image_cache_2d);
+		return;
+	}
+#endif
+
+	// Everything the Image is built from is captured now: a render target can be resized before the data arrives.
+	Callable done = callable_mp_static(&TextureStorage::_texture_2d_get_async_done).bind(p_texture, tex->width, tex->height, tex->mipmaps > 1, int(tex->validated_format), int(tex->format), int(tex->rd_format), p_callback);
+	Error err = RD::get_singleton()->texture_get_data_async(tex->rd_texture, 0, done);
+	if (err != OK) {
+		p_callback.call_deferred(Ref<Image>());
+	}
+}
+
+void TextureStorage::_texture_2d_get_async_done(const Vector<uint8_t> &p_data, RID p_texture, int p_width, int p_height, bool p_mipmaps, int p_validated_format, int p_format, int p_rd_format, const Callable &p_callback) {
+	// Runs on the rendering thread, from RenderingDevice, once the data has arrived (WebGPU: once its map completed).
+	TextureStorage *storage = get_singleton();
+	Ref<Image> image;
+	if (storage && storage->owns_texture(p_texture) && !p_data.is_empty()) {
+		image = _texture_2d_image_from_data(p_data, p_width, p_height, p_mipmaps, Image::Format(p_validated_format), Image::Format(p_format), RD::DataFormat(p_rd_format));
+		if (image.is_valid() && image->is_empty()) {
+			image.unref();
+		}
+	}
+	p_callback.call_deferred(image);
+}
+
+Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
+	Texture *tex = texture_owner.get_or_null(p_texture);
+	ERR_FAIL_NULL_V(tex, Ref<Image>());
+
+#ifdef TOOLS_ENABLED
+	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
+		return tex->image_cache_2d;
+	}
+#endif
+	Vector<uint8_t> data = RD::get_singleton()->texture_get_data(tex->rd_texture, 0);
+	if (data.is_empty()) {
+		// On WebGPU, readback is async — empty data signals "not ready yet."
+		// Return null without an error; caller should retry next frame.
+		// texture_2d_get_async() is the readback that waits for the data instead.
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// A project tested natively gets null here on the web with nothing in the console to say why (work task 71).
+		// Warn once per texture, and only when the read could have worked: a texture RenderingDevice refused (freed,
+		// no copy-from usage) already printed its own error, so it is not "not back yet".
+		if (!tex->warned_sync_readback_pending && RD::get_singleton()->texture_is_valid(tex->rd_texture) && (RD::get_singleton()->texture_get_format(tex->rd_texture).usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
+			tex->warned_sync_readback_pending = true;
+			const String what = tex->is_render_target ? vformat("render target %dx%d", tex->width, tex->height) : (tex->path.is_empty() ? vformat("texture %dx%d", tex->width, tex->height) : vformat("texture '%s'", tex->path));
+			WARN_PRINT(vformat("Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for %s: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), \"await texture.get_image_awaitable()\" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, in debug builds only.", what));
+		}
+#endif
+		return Ref<Image>();
+	}
+	Ref<Image> image = _texture_2d_image_from_data(data, tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, tex->format, tex->rd_format);
 
 	if (image->is_empty()) {
 		const String &path_str = tex->path.is_empty() ? "with no path" : vformat("with path '%s'", tex->path);
 		ERR_FAIL_V_MSG(Ref<Image>(), vformat("Texture %s has no data.", path_str));
-	}
-
-	if (tex->format != tex->validated_format) {
-		image->convert(tex->format);
 	}
 
 #ifdef TOOLS_ENABLED
@@ -2462,17 +2516,34 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RGBA4444: {
+#ifdef WEBGPU_ENABLED
+			// WebGPU has no packed 16-bit formats (texture creation would fail)
+			// and no component swizzle for the R/B exchange: expand to RGBA8.
+			image->convert(Image::FORMAT_RGBA8);
+			r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+#else
 			r_format.format = RD::DATA_FORMAT_B4G4R4A4_UNORM_PACK16;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_B; //needs swizzle
-			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_R;
+#endif
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RGB565: {
+#ifdef WEBGPU_ENABLED
+			// As RGBA4444: no packed formats and no swizzle on WebGPU.
+			image->convert(Image::FORMAT_RGBA8);
+			r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+#else
 			r_format.format = RD::DATA_FORMAT_B5G6R5_UNORM_PACK16;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_B;
-			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_R;
+#endif
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_RF: {
@@ -2793,7 +2864,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_ETC2_RA_AS_RG: {
-			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+#ifdef WEBGPU_ENABLED
+			// The compressed path needs a G <- A view swizzle, which WebGPU does not
+			// have, so the web always decompresses: the decompressor writes (R, A, 0, 1).
+			const bool use_compressed = false;
+#else
+			const bool use_compressed = RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT);
+#endif
+			if (use_compressed) {
 				r_format.format = RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
 				r_format.swizzle_g = RD::TEXTURE_SWIZZLE_A;
@@ -2810,7 +2888,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		} break;
 		case Image::FORMAT_DXT5_RA_AS_RG: {
-			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_BC3_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+#ifdef WEBGPU_ENABLED
+			// The compressed path needs a G <- A view swizzle, which WebGPU does not
+			// have, so the web always decompresses: the decompressor writes (R, A, 0, 1).
+			const bool use_compressed = false;
+#else
+			const bool use_compressed = RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_BC3_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT);
+#endif
+			if (use_compressed) {
 				r_format.format = RD::DATA_FORMAT_BC3_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_BC3_SRGB_BLOCK;
 				r_format.swizzle_g = RD::TEXTURE_SWIZZLE_A;
@@ -3024,6 +3109,35 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	const bool is_rgb_format = original_format == Image::FORMAT_RGB8 || original_format == Image::FORMAT_RGBH || original_format == Image::FORMAT_RGBF ||
 			original_format == Image::FORMAT_RGB16 || original_format == Image::FORMAT_RGB16I;
 #ifdef WEBGPU_ENABLED
+	// WebGPU texture views cannot swizzle (webgpu_notes/TASKS.md §2.43), and
+	// RenderingDeviceDriverWebGPU warns about every swizzle it has to drop. The
+	// zero/one swizzles the cases above still request only restate a channel the
+	// source image does not have: either the texture keeps a format without that
+	// channel, where WebGPU itself reads 0 (green, blue) or 1 (alpha), or the data
+	// was converted, and the conversions write those same values. Reset them so
+	// the driver's warning is left for swizzles that really change what is read.
+	{
+		const uint32_t source_channels = Image::get_format_component_mask(original_format);
+		if (r_format.swizzle_g == RD::TEXTURE_SWIZZLE_ZERO && !(source_channels & 2)) {
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+		}
+		if (r_format.swizzle_b == RD::TEXTURE_SWIZZLE_ZERO && !(source_channels & 4)) {
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+		}
+		if (r_format.swizzle_a == RD::TEXTURE_SWIZZLE_ONE && !(source_channels & 8)) {
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
+			// The one exception to "conversions write 1": BC1's punch-through blocks
+			// decompress to alpha 0, which native hides with this very swizzle.
+			if (original_format == Image::FORMAT_DXT1 && image->get_format() == Image::FORMAT_RGBA8) {
+				Vector<uint8_t> data = image->get_data();
+				uint8_t *w = data.ptrw();
+				for (int64_t i = 3; i < data.size(); i += 4) {
+					w[i] = 255;
+				}
+				image->set_data(image->get_width(), image->get_height(), image->has_mipmaps(), Image::FORMAT_RGBA8, data);
+			}
+		}
+	}
 	// L8 / LA8 are always converted to RGBA8 on WebGPU (no component swizzle;
 	// the luminance broadcast is baked into the texture data above). This is
 	// the intended path, not a fallback, so don't print the "not supported"
@@ -3032,9 +3146,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	// Same story for the 3-component formats: WebGPU has no RGB texture formats at
 	// all, so on this driver the expansion is unconditional and definitional rather
 	// than a property of the user's GPU.
-	const bool is_deliberate_expansion = is_la_format || is_rgb_format;
+	// RGBA4444 / RGB565 have no WebGPU format, and the RA-as-RG normal map
+	// formats need a swizzle: both are converted on every WebGPU device.
+	const bool is_swizzle_conversion = original_format == Image::FORMAT_RGBA4444 || original_format == Image::FORMAT_RGB565 ||
+			original_format == Image::FORMAT_ETC2_RA_AS_RG || original_format == Image::FORMAT_DXT5_RA_AS_RG;
+	const bool is_deliberate_expansion = is_la_format || is_rgb_format || is_swizzle_conversion;
 #else
 	const bool is_la_format = false;
+	const bool is_swizzle_conversion = false;
 	const bool is_deliberate_expansion = false;
 #endif
 	if (original_format != image->get_format()) {
@@ -3050,7 +3169,7 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			// it is worth knowing how many there are even though nothing is wrong.
 			print_verbose(vformat("Expanded %s to %s (WebGPU has no %s).",
 					Image::get_format_name(original_format), Image::get_format_name(image->get_format()),
-					is_la_format ? "component swizzle; luminance broadcast baked into the data" : "3-component texture formats"));
+					is_la_format ? "component swizzle; luminance broadcast baked into the data" : (is_swizzle_conversion ? "packed 16-bit formats or component swizzle" : "3-component texture formats")));
 		} else if (is_print_verbose_enabled() || !is_rgb_format) {
 			WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
 		}
@@ -3060,6 +3179,16 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 }
 
 void TextureStorage::_texture_format_from_rd(RD::DataFormat p_rd_format, TextureFromRDFormat &r_format) {
+	if (!texture_view_swizzle && (p_rd_format == RD::DATA_FORMAT_R8_UNORM || p_rd_format == RD::DATA_FORMAT_R8G8_UNORM)) {
+		// L8 / LA8 below need a luminance swizzle, which these texture views cannot
+		// apply (WebGPU). The data is the user's GPU texture, so it cannot be
+		// converted either: describe it as what it then reads, R8 / RG8 (an
+		// unswizzled view, which reads 0 for the missing green/blue and 1 for the
+		// missing alpha), so get_format(), get_image() and what is drawn agree.
+		r_format.image_format = p_rd_format == RD::DATA_FORMAT_R8G8_UNORM ? Image::FORMAT_RG8 : Image::FORMAT_R8;
+		r_format.rd_format = p_rd_format;
+		return;
+	}
 	switch (p_rd_format) {
 		case RD::DATA_FORMAT_R8_UNORM: {
 			r_format.image_format = Image::FORMAT_L8;
@@ -4641,7 +4770,12 @@ void TextureStorage::_update_render_target(RenderTarget *rt) {
 		//so transparent can be supported
 		RD::TextureView view;
 		view.format_override = rt->color_format;
-		if (!rt->is_transparent) {
+		// Where views cannot swizzle (WebGPU), the passes that finish an opaque
+		// target write alpha 1 instead (render_target_needs_opaque_alpha()): the
+		// clears below, the 3D tonemap pass and the 2D canvas's draw lists. Not
+		// requested there, so the driver's dropped-swizzle warning does not fire
+		// for every web game at startup.
+		if (!rt->is_transparent && texture_view_swizzle) {
 			view.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		}
 		tex->rd_texture = RD::get_singleton()->texture_create_shared(view, rt->color);
@@ -4893,6 +5027,16 @@ bool TextureStorage::render_target_get_transparent(RID p_render_target) const {
 	return rt->is_transparent;
 }
 
+bool TextureStorage::render_target_needs_opaque_alpha(RID p_render_target) const {
+	if (texture_view_swizzle) {
+		return false; // The texture's view swizzle shows alpha 1 (_update_render_target()).
+	}
+	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
+	ERR_FAIL_NULL_V(rt, false);
+
+	return !rt->is_transparent;
+}
+
 void TextureStorage::render_target_set_direct_to_screen(RID p_render_target, bool p_value) {
 }
 
@@ -5006,6 +5150,52 @@ RID TextureStorage::render_target_get_rd_texture(RID p_render_target) {
 	}
 }
 
+void TextureStorage::render_target_copy_texture_set(RID p_texture, RID p_rd_texture, RID p_render_target) {
+	Texture *tex = get_texture(p_texture);
+	ERR_FAIL_NULL(tex);
+	ERR_FAIL_COND(tex->is_render_target || tex->is_proxy);
+	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
+	ERR_FAIL_NULL(rt);
+	const Texture *rt_tex = get_texture(rt->texture);
+	ERR_FAIL_NULL(rt_tex);
+
+	// The same views and formats as the render target's own texture (_update_render_target()), so a readback of the
+	// copy gives the same Image as the render target's would.
+	if (RD::get_singleton()->texture_is_valid(tex->rd_texture_srgb)) {
+		RD::get_singleton()->free_rid(tex->rd_texture_srgb);
+	}
+	if (RD::get_singleton()->texture_is_valid(tex->rd_texture)) {
+		RD::get_singleton()->free_rid(tex->rd_texture);
+	}
+	RD::TextureView view = rt_tex->rd_view;
+	view.format_override = rt->color_format;
+	tex->rd_texture = RD::get_singleton()->texture_create_shared(view, p_rd_texture);
+	tex->rd_texture_srgb = RID();
+	if (rt->color_format_srgb != RD::DATA_FORMAT_MAX) {
+		view.format_override = rt->color_format_srgb;
+		tex->rd_texture_srgb = RD::get_singleton()->texture_create_shared(view, p_rd_texture);
+	}
+	tex->type = TYPE_2D;
+	tex->rd_type = RD::TEXTURE_TYPE_2D;
+	tex->rd_view = rt_tex->rd_view;
+	tex->rd_format = rt_tex->rd_format;
+	tex->rd_format_srgb = rt_tex->rd_format_srgb;
+	tex->format = rt_tex->format;
+	tex->validated_format = rt_tex->validated_format;
+	tex->width = tex->width_2d = rt->size.width;
+	tex->height = tex->height_2d = rt->size.height;
+	tex->depth = 1;
+	tex->layers = 1;
+	tex->mipmaps = 1;
+	tex->cached_rd_slices.clear();
+	tex->image_cache_2d.unref(); // The placeholder's, which a readback in the editor would otherwise return.
+
+	Vector<RID> proxies = tex->proxies; // A copy, since updating may change it.
+	for (int i = 0; i < proxies.size(); i++) {
+		texture_proxy_update(proxies[i], p_texture);
+	}
+}
+
 RID TextureStorage::render_target_get_rd_texture_slice(RID p_render_target, uint32_t p_layer) {
 	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
 	ERR_FAIL_NULL_V(rt, RID());
@@ -5079,8 +5269,12 @@ void TextureStorage::render_target_do_clear_request(RID p_render_target) {
 	if (!rt->clear_requested) {
 		return;
 	}
+	Color clear_color = rt->use_hdr ? rt->clear_color.srgb_to_linear() : rt->clear_color;
+	if (!rt->is_transparent && !texture_view_swizzle) {
+		clear_color.a = 1.0; // What the texture of an opaque target reads elsewhere (render_target_needs_opaque_alpha()).
+	}
 	Vector<Color> clear_colors;
-	clear_colors.push_back(rt->use_hdr ? rt->clear_color.srgb_to_linear() : rt->clear_color);
+	clear_colors.push_back(clear_color);
 	RD::get_singleton()->draw_list_begin(rt->get_framebuffer(), RD::DRAW_CLEAR_COLOR_0, clear_colors);
 	RD::get_singleton()->draw_list_end();
 	rt->clear_requested = false;

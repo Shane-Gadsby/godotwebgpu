@@ -1378,9 +1378,12 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			float indirect_energy = light->get_param(Light3D::PARAM_INDIRECT_ENERGY);
 			Color linear_color = light->get_color().srgb_to_linear();
 			float energy = light->get_param(Light3D::PARAM_ENERGY);
+			if (use_physical_light_units || light->is_temperature_enabled()) {
+				// light_temperature applies, as Light3D::_uses_temperature() decides.
+				linear_color *= light->get_correlated_color().srgb_to_linear();
+			}
 			if (use_physical_light_units) {
 				energy *= light->get_param(Light3D::PARAM_INTENSITY);
-				linear_color *= light->get_correlated_color().srgb_to_linear();
 				energy *= 1.0 / Math::PI;
 			}
 

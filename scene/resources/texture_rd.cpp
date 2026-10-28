@@ -76,6 +76,16 @@ Ref<Image> Texture2DRD::get_image() const {
 	}
 }
 
+void Texture2DRD::get_image_async(const Callable &p_callback) const {
+	ERR_FAIL_NULL(RS::get_singleton());
+	ERR_FAIL_COND_MSG(!p_callback.is_valid(), "get_image_async() needs a valid callback.");
+	if (texture_rid.is_valid()) {
+		RS::get_singleton()->texture_2d_get_async(texture_rid, p_callback);
+	} else {
+		p_callback.call_deferred(Ref<Image>());
+	}
+}
+
 void Texture2DRD::set_texture_rd_rid(RID p_texture_rd_rid) {
 	ERR_FAIL_NULL(RS::get_singleton());
 
