@@ -65,6 +65,8 @@ const FEATURES := [
 	"micro_shadows",
 	# GTAO (engine addition, project setting rendering/environment/ssao/method).
 	"gtao",
+	# Custom tonemapper (engine addition, Environment.TONE_MAPPER_CUSTOM: the EnvironmentEffects buffer, set 3 binding 2).
+	"tonemap_custom",
 ]
 
 const SETTLE_DEFAULT := 4
@@ -1305,6 +1307,16 @@ func _apply(id: String, on: bool) -> bool:
 			env.ssao_enabled = on
 			env.ssao_intensity = 6.0
 			env.ssao_radius = 2.0
+		"tonemap_custom":
+			# Off is the fixture's Filmic; on is the Custom curve with every parameter away from its default, so a
+			# parameter that does not reach the shader shows in the parity comparison.
+			if on:
+				env.tonemap_mode = Environment.TONE_MAPPER_CUSTOM
+				env.tonemap_custom_slope = 0.7
+				env.tonemap_custom_toe = 0.4
+				env.tonemap_custom_shoulder = 0.45
+				env.tonemap_custom_black_clip = 0.02
+				env.tonemap_custom_white_clip = 0.1
 		"gtao":
 			# The ssao arm's settings with GTAO computing the AO: off is no AO at all.
 			env.ssao_enabled = on

@@ -73,6 +73,12 @@ layout(set = 0, binding = 6) uniform SAMPLER_FORMAT source_glare;
 #define CAMERA_EFFECTS_BINDING 5
 #include "camera_effects_inc.glsl"
 
+// Environment features with more parameters than the push constant holds (the Custom tonemapper's curve).
+#define ENVIRONMENT_EFFECTS_SET 0
+#define ENVIRONMENT_EFFECTS_BINDING 7
+#include "environment_effects_inc.glsl"
+#include "tonemap_custom_inc.glsl"
+
 #ifndef SUBPASS
 #ifdef USE_MULTIVIEW
 #define CAMERA_LENS_FETCH(m_uv) textureLod(source_color, vec3(m_uv, ViewIndex), 0.0)
@@ -101,6 +107,7 @@ layout(constant_id = 15) const bool glow_mode_softlight = false;
 layout(constant_id = 16) const bool glow_mode_replace = false;
 layout(constant_id = 17) const bool glow_mode_mix = false;
 layout(constant_id = 18) const bool use_white_balance = false;
+layout(constant_id = 19) const bool tonemapper_custom = false;
 
 #include "camera_grain_inc.glsl"
 
@@ -322,6 +329,8 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 		return tonemap_filmic(color);
 	} else if (tonemapper_aces) {
 		return tonemap_aces(color);
+	} else if (tonemapper_custom) {
+		return tonemap_custom_curve(color, environment_effects.tonemap_custom[0], environment_effects.tonemap_custom[1], environment_effects.tonemap_custom[2]);
 	} else { // tonemapper_agx
 		return tonemap_agx(color);
 	}

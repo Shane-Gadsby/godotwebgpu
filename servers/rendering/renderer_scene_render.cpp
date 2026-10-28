@@ -268,6 +268,14 @@ RendererEnvironmentStorage::TonemapParameters RendererSceneRender::environment_g
 	return environment_storage.environment_get_tonemap_parameters(p_env, p_limit_agx_white, p_output_max_value);
 }
 
+void RendererSceneRender::environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	environment_storage.environment_set_tonemap_custom(p_env, p_slope, p_toe, p_shoulder, p_black_clip, p_white_clip);
+}
+
+bool RendererSceneRender::environment_fill_effects_buffer(RID p_env, RendererEnvironmentStorage::EnvironmentEffectsUBO &r_ubo) const {
+	return environment_storage.environment_fill_effects_buffer(p_env, r_ubo);
+}
+
 // Fog
 
 void RendererSceneRender::environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode) {

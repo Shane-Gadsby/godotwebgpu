@@ -127,6 +127,7 @@ protected:
 	/* Color grading */
 	void _update_color_grading(const RenderDataRD *p_render_data);
 	void _setup_color_grading(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_environment, bool p_update);
+	void _update_environment_effects(const RenderDataRD *p_render_data);
 	void _disable_clear_request(const RenderDataRD *p_render_data);
 
 	// needed for a single argument calls (material and uv2)

@@ -595,6 +595,17 @@ void RendererSceneRenderRD::_update_color_grading(const RenderDataRD *p_render_d
 	color_grading->get_lut(environment, user_lut, user_lut_1d, linear_output, true);
 }
 
+/* Environment effects */
+
+// The EnvironmentEffects uniform buffer (the Custom tonemapper's curve), before any render pass begins: the Mobile
+// renderer's subpass tonemap runs inside one, where buffers cannot be updated.
+void RendererSceneRenderRD::_update_environment_effects(const RenderDataRD *p_render_data) {
+	if (p_render_data->reflection_probe.is_valid() || p_render_data->render_buffers.is_null() || p_render_data->environment.is_null()) {
+		return;
+	}
+	tone_mapper->get_environment_effects_buffer(p_render_data->render_buffers, p_render_data->environment, true);
+}
+
 // The Environment's color grading goes into the color correction slot: one LUT holding the grade and then the user's
 // own color correction LUT, applied after brightness/contrast/saturation (which it turns on, neutral, when the
 // adjustments are off).
@@ -1066,6 +1077,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 			tonemap.exposure = environment_get_exposure(p_render_data->environment);
 			tonemap.max_value = max_value;
+			tonemap.environment_effects_buffer = tone_mapper->get_environment_effects_buffer(rb, p_render_data->environment, true);
 		}
 
 		tonemap.use_color_correction = false;
@@ -1302,6 +1314,8 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.exposure = environment_get_exposure(p_render_data->environment);
 		tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 		tonemap.max_value = max_value;
+		// Inside the render pass: _update_environment_effects() filled the buffer before it began.
+		tonemap.environment_effects_buffer = tone_mapper->get_environment_effects_buffer(rb, p_render_data->environment, false);
 	}
 
 	// We don't support glow or auto exposure here, if they are needed, don't use subpasses!
@@ -1883,6 +1897,7 @@ void RendererSceneRenderRD::render_scene(const Ref<RenderSceneBuffers> &p_render
 
 	// The color grading LUT, before any render pass begins: the Mobile renderer's subpass tonemap cannot dispatch.
 	_update_color_grading(&render_data);
+	_update_environment_effects(&render_data);
 
 	//calls _pre_opaque_render between depth pre-pass and opaque pass
 	_render_scene(&render_data, clear_color);

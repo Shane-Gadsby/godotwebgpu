@@ -1,0 +1,15 @@
+c_default tm=custom
+c_slope_lo tm=custom&slope=0.6
+c_slope_hi tm=custom&slope=1.0
+c_toe_lo tm=custom&toe=0.3
+c_toe_hi tm=custom&toe=0.8
+c_toe_vhi tm=custom&toe=0.9
+c_sh_lo tm=custom&shoulder=0.0
+c_sh_hi tm=custom&shoulder=0.6
+c_black tm=custom&black=0.05
+c_white0 tm=custom&white=0.0
+c_white_hi tm=custom&white=0.3
+c_mix tm=custom&slope=0.7&toe=0.4&shoulder=0.45&black=0.02&white=0.1
+c_exposure tm=custom&exposure=2.0
+lit_custom tm=custom&scene=lit&glow=1
+lit_custom_mix tm=custom&slope=0.7&toe=0.4&shoulder=0.45&black=0.02&white=0.1&scene=lit

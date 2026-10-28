@@ -2646,6 +2646,10 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.brightness = environment_get_adjustments_brightness(render_data.environment);
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
+		RendererEnvironmentStorage::EnvironmentEffectsUBO environment_effects;
+		if (environment_fill_effects_buffer(render_data.environment, environment_effects)) {
+			memcpy(tonemap_ubo.tonemap_custom, environment_effects.tonemap_custom, sizeof(tonemap_ubo.tonemap_custom));
+		}
 	}
 	if (RSG::camera_attributes->camera_attributes_uses_white_balance(render_data.camera_attributes)) {
 		const Vector3 gains = RSG::camera_attributes->camera_attributes_get_white_balance_gains(render_data.camera_attributes);

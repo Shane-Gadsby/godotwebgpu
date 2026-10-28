@@ -1,8 +1,8 @@
 # 56-pp-custom-tonemap
 
-State: open
+State: ready-for-integration
 Owner: worker-56
-Claimed:
+Claimed: 2026-10-28 15:00
 Needs: build, gpu
 Branch: work/56
 Results: webgpu_notes/work/results/56-pp-custom-tonemap/

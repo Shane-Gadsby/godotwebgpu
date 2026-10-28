@@ -35,6 +35,7 @@
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl.gen.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_buffer_custom_data_rd.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
+#include "servers/rendering/storage/environment_storage.h"
 
 class RenderSceneBuffersRD;
 
@@ -52,6 +53,19 @@ public:
 	virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
 	virtual void free_data() override;
 	~CameraEffectsBufferRD();
+};
+
+// A viewport's own EnvironmentEffects uniform buffer (environment_effects_inc.glsl), for the same reason.
+class EnvironmentEffectsBufferRD : public RenderBufferCustomDataRD {
+	GDCLASS(EnvironmentEffectsBufferRD, RenderBufferCustomDataRD);
+
+public:
+	RID buffer;
+	RendererEnvironmentStorage::EnvironmentEffectsUBO contents; // What the buffer holds, to skip uploads when nothing changed.
+
+	virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
+	virtual void free_data() override;
+	~EnvironmentEffectsBufferRD();
 };
 
 class ToneMapper {
@@ -122,7 +136,8 @@ private:
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_REPLACE = (1 << 16),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_MIX = (1 << 17),
 		TONEMAP_MOBILE_FLAG_USE_WHITE_BALANCE = (1 << 18),
-		TONEMAP_MOBILE_ADRENO_BUG = (1 << 19), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
+		TONEMAP_MOBILE_FLAG_TONEMAPPER_CUSTOM = (1 << 19),
+		TONEMAP_MOBILE_ADRENO_BUG = (1 << 20), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
 	};
 
 	struct TonemapPushConstant {
@@ -196,6 +211,7 @@ private:
 	} tonemap_mobile;
 
 	RID default_camera_effects_buffer; // All zeros: no CameraEffects effect runs.
+	RID default_environment_effects_buffer; // All zeros: nothing reads the EnvironmentEffects buffer.
 	// The glare chain's sampler: trilinear, and anisotropic so that the starburst's textureGrad() reads integrate along
 	// a spike while staying thin across it. Reads with an explicit lod are unaffected.
 	RID glare_sampler;
@@ -235,6 +251,7 @@ public:
 		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
 		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+		RID environment_effects_buffer; // The EnvironmentEffects uniform buffer; the default all-zero one when invalid.
 		RID glare_texture; // The glare chain (whole mip chain) when glare is on; a black texture when invalid.
 		RID auto_white_balance_texture; // CameraMetering's state (gains in texel 0); read when the buffer says so.
 
@@ -268,6 +285,11 @@ public:
 	// attributes' current parameters, or the shared all-zero buffer when no effect uses it. Call it before the pass's
 	// draw list begins (buffers cannot be updated inside one).
 	RID get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context);
+
+	// The EnvironmentEffects uniform buffer for a tonemap pass of these render buffers: their own, filled from the
+	// environment, or the shared all-zero buffer when nothing reads it. With p_update false (inside a render pass, where
+	// buffers cannot be updated) it returns the buffer only if an earlier call this frame already holds these contents.
+	RID get_environment_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_environment, bool p_update);
 
 	void tonemapper(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);
 	void tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, const TonemapSettings &p_settings);

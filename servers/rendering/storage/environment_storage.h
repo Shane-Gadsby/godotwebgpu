@@ -73,6 +73,23 @@ public:
 		};
 	};
 
+	/* Custom tonemap */
+
+	// The EnvironmentEffects uniform buffer (environment_effects_inc.glsl): Environment parameters the tonemap pass reads
+	// that do not fit its push constant. std140, 256 bytes; each group of parameters owns a header word, whose bits say
+	// which of its features run, and a region. The renderers bind an all-zero buffer when nothing in it is used.
+	// - header[0], tonemap_custom[3]: the Custom tonemapper's curve (ENVIRONMENT_EFFECTS_TONEMAP_*).
+	// - header[1..3], reserved[12]: free, for later Environment post parameters (an HDR grading mode, for example).
+	enum {
+		ENVIRONMENT_EFFECTS_TONEMAP_CUSTOM = 1 << 0,
+	};
+	struct EnvironmentEffectsUBO {
+		uint32_t header[4] = {};
+		float tonemap_custom[3][4] = {};
+		float reserved[12][4] = {};
+	};
+	static_assert(sizeof(EnvironmentEffectsUBO) == 256, "EnvironmentEffectsUBO must match environment_effects_inc.glsl.");
+
 private:
 	static RendererEnvironmentStorage *singleton;
 
@@ -105,6 +122,12 @@ private:
 		float white = 1.0;
 		float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast
 		float max_value = 1.0;
+		// Custom tonemapper: Unreal Engine's Film tonemapper parameters, at its defaults (see environment_storage.cpp).
+		float tonemap_custom_slope = 0.88;
+		float tonemap_custom_toe = 0.55;
+		float tonemap_custom_shoulder = 0.26;
+		float tonemap_custom_black_clip = 0.0;
+		float tonemap_custom_white_clip = 0.04;
 
 		// Fog
 		bool fog_enabled = false;
@@ -264,6 +287,24 @@ public:
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
+
+	/* Custom tonemap */
+
+	// The curve's constants, as the shaders' tonemap_custom_curve() reads them (tonemap_custom_inc.glsl).
+	struct TonemapCustomCurve {
+		float params[3][4] = {};
+		float white = 1.0; // The scene value the curve shows as white (for glow's Screen blend).
+	};
+	static TonemapCustomCurve tonemap_custom_compute_curve(float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip);
+	void environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip);
+	float environment_get_tonemap_custom_slope(RID p_env) const;
+	float environment_get_tonemap_custom_toe(RID p_env) const;
+	float environment_get_tonemap_custom_shoulder(RID p_env) const;
+	float environment_get_tonemap_custom_black_clip(RID p_env) const;
+	float environment_get_tonemap_custom_white_clip(RID p_env) const;
+	// Fills the EnvironmentEffects uniform buffer for this environment; false when nothing in it is used, so that the
+	// renderer can bind its all-zero buffer instead.
+	bool environment_fill_effects_buffer(RID p_env, EnvironmentEffectsUBO &r_ubo) const;
 
 	// Fog
 	void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode);
