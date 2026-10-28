@@ -4735,8 +4735,8 @@ Verified (lead, merged tree): `results/38-camera3d-af-stabilization/tests/run.sh
 one time constant 0.3679 = e^-1; shake RMS within 0.6%, spectrum within 0.7%, IS model within 0.0002), the windowed
 editor check, and shake-off renders pixel-identical to the pre-merge editor in Forward+, Mobile and Compatibility; smoke
 276/276, 552/552. Limits: AF writes into the attributes resource (cameras sharing it share focus); ray points not with
-`physics/3d/run_on_separate_thread`; shake with physics interpolation untested. User question `shake-in-editor` on the
-hand-offs page (default: shake runs in the editor preview too). §3 trap 78.
+`physics/3d/run_on_separate_thread`; shake with physics interpolation untested. User answer `shake-in-editor`: shake
+in the editor only behind a tick box, default off (`shake_visible_in_editor`, §4.55). §3 trap 78.
 
 ### 4.50 Camera finish pass: in-camera noise reduction and sharpening; Camera3D monitoring overlays (October 2026) *(work task 37, camera batch)*
 
@@ -4776,8 +4776,9 @@ measuring: its weights stepped a moving edge (0.39 -> 0.87 instead of a ramp thr
 every blur to S/(S+1). Verified: blur length within 0.3% of speed x exposure at 720p/1080p (worker; lead reproduced
 0.9997 at 1080p 1/50 s), skew within 1.1% geometry / 0.5% sky (lead: sky 0.995), WebGPU 1.000 at 165 Hz, MSAA 0.998;
 off bit-identical in all three renderers (lead, merged tree). Trap for measuring it: the test square wraps around the
-frame, and a capture whose exposure spans the wrap measures short (frames=60 at 1/50 s read 0.82). Question
-`motion-blur-editor` on the hand-offs page (default: the editor viewport blurs too).
+frame, and a capture whose exposure spans the wrap measures short (frames=60 at 1/50 s read 0.82). User answer
+`motion-blur-editor`: in the editor only behind tick boxes, default off (`motion_blur_visible_in_editor`,
+`rolling_shutter_visible_in_editor`, §4.55).
 
 ### 4.52 CameraAttributes lens optics and the CameraEffects uniform buffer (October 2026) *(work task 33, camera batch)*
 
