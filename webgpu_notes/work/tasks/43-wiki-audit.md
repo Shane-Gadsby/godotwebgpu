@@ -1,8 +1,8 @@
 # 43-wiki-audit: wiki pages for engine additions that have none
 
-State: open
+State: ready-for-integration
 Owner: worker-43
-Claimed:
+Claimed: 2026-10-28
 Needs: — (no build)
 Branch: (wiki repo, local commits only; no branch in the main repo except this task file)
 Results: webgpu_notes/work/results/43-wiki-audit/
